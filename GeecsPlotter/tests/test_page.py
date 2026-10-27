@@ -184,20 +184,45 @@ def test_stepping_past_an_empty_scan_keeps_the_picks(
     assert '<option value="" selected>shot #</option>' in page
 
 
-def test_y2_and_y3_lists_fold_away_until_used(client: TestClient) -> None:
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
-    assert (
-        '<details class="disc">\n            <summary>Y2, Y3</summary>' in page
-    )  # closed
-    assert '<option value="" selected>— off —</option>' in page
-    assert 'class="swatch t2"' in page and 'class="swatch t3"' in page
-    picked = post(client, scan=1, y2=ALIASED)
-    assert (
-        '<details class="disc" open>\n            <summary>Y2, Y3 (1 on)</summary>'
-        in picked
-    )
-    assert f'<option value="{ALIASED}" selected>Gas (psi)</option>' in picked
-    assert "&amp;y2=U_Gas%20Pressure%20Alias%3AGas%20%28psi%29" in picked
+def test_the_count_shows_one_two_or_three_y_lists(client: TestClient) -> None:
+    """GEECSplotter's choice of one, two or three Y plots."""
+    one = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert 'id="y2"' not in one and 'id="y3"' not in one
+    assert 'data-toggle-for="ycount" data-value="1" aria-pressed="true"' in one
+    assert "&amp;y2=&amp;y3=&amp;" in one  # one trace
+    two = post(client, scan=1, ycount=2)
+    assert 'id="y2"' in two and 'id="y3"' not in two
+    assert 'class="swatch t2"' in two
+    assert "— off —" not in two  # the count, not an "off" pick, says what draws
+    three = post(client, scan=1, ycount=3, y2=ALIASED)
+    assert 'id="y3"' in three
+    assert f'<option value="{ALIASED}" selected>Gas (psi)</option>' in three
+    assert "&amp;y2=U_Gas%20Pressure%20Alias%3AGas%20%28psi%29" in three
+
+
+def test_new_y_lists_default_to_the_next_measurements(client: TestClient) -> None:
+    page = post(client, scan=1, ycount=3)
+    y = page.split('id="y"')[1].split("</select>")[0]
+    y2 = page.split('id="y2"')[1].split("</select>")[0]
+    y3 = page.split('id="y3"')[1].split("</select>")[0]
+    picked = [
+        part.split(" selected>")[0].rsplit('value="', 1)[1] for part in (y, y2, y3)
+    ]
+    assert len(set(picked)) == 3  # three different columns, none bookkeeping
+    assert "Shotnumber" not in picked
+
+
+def test_a_lower_count_keeps_the_hidden_picks(
+    client: TestClient, settings_dir: Path
+) -> None:
+    import json
+
+    post(client, scan=1, ycount=2, y2=ALIASED)
+    page = post(client, scan=1, ycount=1)
+    assert 'id="y2"' not in page
+    assert json.loads((settings_dir / "default.json").read_text())["y2"] == ALIASED
+    back = post(client, scan=1, ycount=2)
+    assert f'<option value="{ALIASED}" selected>Gas (psi)</option>' in back
 
 
 def test_y2_off_on_a_scan_without_its_column_but_kept(
@@ -205,17 +230,13 @@ def test_y2_off_on_a_scan_without_its_column_but_kept(
 ) -> None:
     import json
 
-    post(client, scan=1, y2=ALIASED)
+    post(client, scan=1, ycount=2, y2=ALIASED)
     page = post(client, scan=2)  # Scan002 has no gas pressure column
     assert "&amp;y2=&amp;" in page  # nothing drawn
     # The list still holds the pick, so the next click here posts it back.
     assert (
         f'<option value="{ALIASED}" selected>{ALIASED} (not in this scan)</option>'
         in page
-    )
-    assert (
-        '<option value="" selected>— off —</option>'
-        not in page.split('id="y2"')[1].split("</select>")[0]
     )
     saved = json.loads((settings_dir / "default.json").read_text())
     assert saved["y2"] == ALIASED

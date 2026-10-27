@@ -26,6 +26,10 @@ import plotly.io as pio
 #: GEECSplotter's Y1, Y2 and Y3: the most Y columns one figure draws.
 MAX_Y = 3
 
+#: The plot's share of the width when two axes stand on the right: the
+#: rest holds the inner right axis's ticks and title.
+_RIGHT_DOMAIN = 0.82
+
 
 @dataclass(frozen=True)
 class Palette:
@@ -143,40 +147,40 @@ def base_layout(palette: Palette) -> dict:
 def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
     """The y-axis ladder, one axis per trace, each in its trace's colour.
 
-    Copied from the portal's ``_multi_y_layout``: axis 1 (left) owns the
-    grid and a coloured title; axis 2 anchors right with its title; axis
-    3 is free with ``autoshift`` and coloured ticks only, since a free
-    axis's rotated title does not shift with it (portal #725) — the
-    legend, on whenever there is more than one trace, names it.
+    After the portal's ``_multi_y_layout``, with the third axis moved:
+    axis 1 (left) owns the grid; every other axis is on the right, with a
+    coloured title. The first right-hand axis anchors to the plot; a second
+    one sits outside it at the paper's edge, the plot narrowed to make room
+    (``_RIGHT_DOMAIN``). The portal's free ``autoshift`` axis cannot carry
+    a title (its rotated title does not shift with it, portal #725), and
+    GEECSplotter's operators want the third label.
 
     *axes* is ``(slot, title)`` per drawn trace: the slot (0–2, the Y list
-    it came from) decides colour and axis, so Y3 is Y3 with Y2 off.
+    it came from) decides colour and axis id, so Y3 is Y3 with Y2 off.
     """
     layout: dict = {
         "showlegend": len(axes) > 1,
         # A row above the plot, clear of the right-hand axis.
         "legend": {"orientation": "h", "x": 0, "y": 1.02, "yanchor": "bottom"},
     }
+    right = 0
     for i, title in axes:
         colour = palette.trace[i]
         axis: dict = {
             "automargin": True,
             "zerolinecolor": palette.grid,
             "tickfont": {"color": colour},
+            "title": {"text": title, "font": {"color": colour}},
             **_ticks(palette),
         }
         if i == 0:
             axis["gridcolor"] = palette.grid_soft
         else:
-            axis.update(
-                overlaying="y",
-                side="right" if i % 2 else "left",
-                gridcolor="rgba(0,0,0,0)",
-            )
-        if i >= 2:
-            axis.update(anchor="free", autoshift=True)
-        else:
-            axis["title"] = {"text": title, "font": {"color": colour}}
+            axis.update(overlaying="y", side="right", gridcolor="rgba(0,0,0,0)")
+            if right:
+                axis.update(anchor="free", position=1.0)
+                layout["xaxis"] = {"domain": [0.0, _RIGHT_DOMAIN]}
+            right += 1
         layout["yaxis" if i == 0 else f"yaxis{i + 1}"] = axis
     return layout
 
@@ -249,6 +253,8 @@ def shots_figure(
     layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": (x_label or x) if x else "shot #"}
     del layout["yaxis"]
-    layout.update(_y_axes([(i, title) for i, _, title in drawn], palette))
+    axes = _y_axes([(i, title) for i, _, title in drawn], palette)
+    layout["xaxis"].update(axes.pop("xaxis", {}))
+    layout.update(axes)
     fig.update_layout(layout)
     return fig

@@ -5,7 +5,7 @@
   lists are rendered here; plotter.js filters them, submits on change, and
   draws the figure fetched from data-figure-url.
 #}{# One Y pick list: its alias toggle, its filter, and its trace colour. #}
-{%- macro y_field(key, label, picked, names, alias, filter_text, trace, optional=False, kept="") %}
+{%- macro y_field(key, label, picked, names, alias, filter_text, trace, kept="") %}
           <div class="field">
             <div class="row">
               <label for="{{ key }}"><span class="swatch t{{ trace }}" aria-hidden="true"></span>{{ label }}</label>
@@ -19,7 +19,6 @@
             <input id="{{ key }}-filter" name="{{ key }}f" value="{{ filter_text }}" type="search" autocomplete="off" placeholder="filter {{ label }} columns"
                    aria-label="Filter {{ label }} columns" data-filter-for="{{ key }}">
             <select id="{{ key }}" name="{{ key }}" size="10" class="picks" data-pick>
-              {% if optional %}<option value=""{% if not picked and not kept %} selected{% endif %}>— off —</option>{% endif %}
               {% if kept %}<option value="{{ kept }}" selected>{{ kept }} (not in this scan)</option>{% endif %}
               {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}
             </select>
@@ -65,6 +64,7 @@
         <input type="hidden" name="xauto" value="{{ 'true' if xauto else 'false' }}">
         <input type="hidden" name="y2alias" value="{{ 'true' if y2alias else 'false' }}">
         <input type="hidden" name="y3alias" value="{{ 'true' if y3alias else 'false' }}">
+        <input type="hidden" name="ycount" value="{{ ycount }}">
         <button class="btn primary" type="submit">Open</button>
       </div>
       {% if columns %}
@@ -101,14 +101,20 @@
               {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ xnames[c] }}</option>{% endfor %}
             </select>
           </div>
+          <div class="field">
+            <div class="row">
+              <span class="hint">Y plots</span>
+              <span class="spacer"></span>
+              <div class="seg" role="group" aria-label="How many Y plots">
+                {% for n in (1, 2, 3) %}<button type="button" data-toggle-for="ycount" data-value="{{ n }}" aria-pressed="{{ 'true' if ycount == n else 'false' }}">{{ n }}</button>{% endfor %}
+              </div>
+            </div>
+          </div>
           {{ y_field("y", "Y", y, ynames, yalias, yf, 1) }}
-          {# GEECSplotter's Y2 and Y3: each on its own axis, in its own colour
-             (the swatch is that colour). Folded away until one is in use. #}
-          <details class="disc"{% if y2 or y3 or y2_kept or y3_kept %} open{% endif %}>
-            <summary>Y2, Y3{% if y2 or y3 %} ({{ [y2, y3] | select | list | length }} on){% endif %}</summary>
-            {{ y_field("y2", "Y2", y2, y2names, y2alias, y2f, 2, optional=True, kept=y2_kept) }}
-            {{ y_field("y3", "Y3", y3, y3names, y3alias, y3f, 3, optional=True, kept=y3_kept) }}
-          </details>
+          {# GEECSplotter's Y2 and Y3: as many Y lists as the count says, each
+             on its own axis in its own colour (the swatch is that colour). #}
+          {% if ycount >= 2 %}{{ y_field("y2", "Y2", y2, y2names, y2alias, y2f, 2, kept=y2_kept) }}{% endif %}
+          {% if ycount >= 3 %}{{ y_field("y3", "Y3", y3, y3names, y3alias, y3f, 3, kept=y3_kept) }}{% endif %}
         </div>
       {% endif %}
     </form>
@@ -135,8 +141,11 @@
         {# A refused name is the kit's field validation: aria-invalid on the
            box shows the .err that follows it. Store problems (the share is
            down, a broken file) stay in the state block below. #}
-        <input id="save-as" name="save_as" form="pick" autocomplete="off" placeholder="new set name, e.g. HTU jet scan"
+        {# The saved names are offered as you type or click, so replacing a
+           set needs no typing; plotter.js asks before it replaces one. #}
+        <input id="save-as" name="save_as" form="pick" autocomplete="off" list="saved-sets" placeholder="a new name, or pick one to replace"
                value="{{ save_as }}"{% if name_error %} autofocus aria-invalid="true" aria-describedby="save-as-err"{% endif %}>
+        <datalist id="saved-sets">{% for s in sets %}<option value="{{ s }}">{% endfor %}</datalist>
         <span class="err" id="save-as-err" role="alert">{{ name_error or '' }}</span>
         <div class="row">
           <button class="btn" type="submit" form="pick" formaction="{{ root }}/save-as" id="save-as-go">Save</button>
@@ -149,6 +158,18 @@
         </div>
       {% endif %}
     </form>
+    {# Rung 3: the one question before a saved set is replaced. Focus lands
+       on "Keep it", never on the button that replaces. #}
+    <dialog id="replace-set" aria-labelledby="replace-set-title">
+      <div class="body">
+        <h4 id="replace-set-title">Replace the saved set?</h4>
+        <p>Its controls and last scan will be replaced by what is on this page now.</p>
+        <div class="row end">
+          <button class="btn" type="button" data-dialog-close autofocus>Keep it</button>
+          <button class="btn primary" type="submit" form="pick" formaction="{{ root }}/save-as" name="overwrite" value="true">Replace</button>
+        </div>
+      </div>
+    </dialog>
   </nav>
 
   <main class="pane">

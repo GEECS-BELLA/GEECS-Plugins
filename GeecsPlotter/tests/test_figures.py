@@ -66,9 +66,18 @@ def test_three_ys_get_three_axes_in_their_trace_colours() -> None:
     assert layout.yaxis.title.font.color == trace[0]
     assert (layout.yaxis2.side, layout.yaxis2.overlaying) == ("right", "y")
     assert layout.yaxis2.title.font.color == trace[1]
-    assert (layout.yaxis3.anchor, layout.yaxis3.autoshift) == ("free", True)
-    assert layout.yaxis3.tickfont.color == trace[2]
-    assert layout.showlegend  # the legend names Y3, whose free axis has no title
+    # Y3 on the right, outside Y2, with its own title (the operators' ask).
+    assert (layout.yaxis3.side, layout.yaxis3.anchor) == ("right", "free")
+    assert layout.yaxis3.position == 1.0
+    assert layout.yaxis3.title.text == "c"
+    assert layout.yaxis3.title.font.color == trace[2]
+    assert tuple(layout.xaxis.domain) == (0.0, figures._RIGHT_DOMAIN)
+    assert layout.showlegend
+
+
+def test_two_ys_keep_the_full_width() -> None:
+    fig = figures.shots_figure({"a": [1.0], "b": [2.0]}, ["a", "b"])
+    assert fig.layout.xaxis.domain is None
 
 
 def test_one_y_has_no_legend() -> None:
@@ -99,10 +108,11 @@ def test_themed_axes_resolve_to_trace_tokens() -> None:
 
 
 def test_y3_keeps_its_slot_with_y2_off() -> None:
-    """Y3 is the third colour on the third (free) axis, whether or not Y2 is on."""
+    """Y3 is the third colour, titled on the right, whether or not Y2 is on."""
     fig = figures.shots_figure({"a": [1.0], "c": [2.0]}, ["a", None, "c"])
     assert [t.yaxis for t in fig.data] == ["y", "y3"]
     assert fig.data[1].marker.color == figures.NOTEBOOK_PALETTE.trace[2]
-    assert fig.layout.yaxis3.anchor == "free"
-    assert fig.layout.yaxis3.overlaying == "y"
+    assert fig.layout.yaxis3.side == "right"
+    assert fig.layout.yaxis3.anchor is None  # the only right axis: on the plot
+    assert fig.layout.yaxis3.title.text == "c"
     assert "yaxis2" not in fig.layout.to_plotly_json()  # no Y2 axis drawn

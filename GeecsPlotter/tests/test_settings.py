@@ -490,3 +490,34 @@ def test_a_field_from_a_newer_copy_survives_a_save(
     saved = json.loads((settings_dir / "default.json").read_text())
     assert saved["bin_mode"] == "mean"
     assert saved["y_filter"] == "gas"
+
+
+@pytest.mark.parametrize("value", ["0", "4", "two"])
+def test_a_bad_y_count_is_refused(value: str) -> None:
+    with pytest.raises(SettingsError, match="ycount"):
+        merged(PlotterSettings(), {"ycount": value})
+
+
+def test_replacing_a_saved_set_needs_the_dialogs_yes(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """Save as onto a saved name replaces it only with overwrite=true."""
+    post(client, "/save-as", scan=1, yf="first", save_as="mine")
+    page = post(
+        client, "/save-as", scan=2, yf="second", save_as="Mine", overwrite="true"
+    )
+    assert 'name="set" value="mine"' in page
+    saved = json.loads((settings_dir / "mine.json").read_text())
+    assert (saved["y_filter"], saved["scan"]) == ("second", 2)
+
+
+def test_the_page_offers_saved_names_and_asks_before_replacing(
+    client: TestClient,
+) -> None:
+    post(client, "/save-as", scan=1, save_as="htu jet scan")
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert 'list="saved-sets"' in page
+    assert '<option value="htu jet scan">' in page.split('id="saved-sets"')[1]
+    dialog = page.split('<dialog id="replace-set"')[1].split("</dialog>")[0]
+    assert "autofocus>Keep it</button>" in dialog  # focus never on Replace
+    assert 'name="overwrite" value="true">Replace</button>' in dialog
