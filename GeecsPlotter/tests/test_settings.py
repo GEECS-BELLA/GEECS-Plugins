@@ -194,3 +194,62 @@ def test_the_api_lists_and_saves_sets(client: TestClient, settings_dir: Path) ->
 
 def test_the_api_refuses_a_bad_name(client: TestClient) -> None:
     assert client.post("/api/settings/.secret", data={"xf": "x"}).status_code == 422
+
+
+# -- the share going away, and failed saves (review of #1166) ---------------
+
+
+def test_an_unreachable_root_is_an_error_not_the_defaults(tmp_path: Path) -> None:
+    """A dropped share must not read as "never saved", or a pick wipes the set."""
+    store = SettingsStore(tmp_path / "gone" / "sets", "shared", root=tmp_path / "gone")
+    with pytest.raises(SettingsError, match="not reachable"):
+        store.load("default")
+    with pytest.raises(SettingsError, match="not reachable"):
+        store.save("default", PlotterSettings())
+    assert not (tmp_path / "gone").exists()  # nothing built on a bare mount point
+    assert store.names() == ["default"]
+
+
+def test_a_dropped_share_keeps_the_saved_set(
+    share: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The share goes away after start: the page says so and saves nothing."""
+    from geecs_plotter import app as app_module
+    from tests.conftest import EXPERIMENT
+
+    user_data = tmp_path / "user data"
+    user_data.mkdir()
+    config = tmp_path / "config.ini"
+    config.write_text(f"[Paths]\ngeecs_data = {user_data}\n")
+    store = resolve_store(config_path=config)
+    monkeypatch.setattr(app_module, "resolve_store", lambda _given: store)
+    client = TestClient(app_module.create_app(EXPERIMENT, base_directory=share))
+    post(client, scan=1, yf="gas")
+    saved = store.path("default").read_text()
+
+    user_data.rename(tmp_path / "unmounted")
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert "not reachable" in page
+    response = client.post(
+        "/", data={"day": "2026-10-02", "scan": "1", "set": "default", "yf": ""}
+    )
+    assert response.status_code == 422
+    assert not user_data.exists()  # no shadow tree on the bare mount point
+    (tmp_path / "unmounted").rename(user_data)
+    assert store.path("default").read_text() == saved
+
+
+def test_a_failed_save_is_a_settings_problem_not_a_500(
+    client: TestClient, settings_dir: Path
+) -> None:
+    (settings_dir / "default.json").mkdir(
+        parents=True
+    )  # a file that cannot be replaced
+    response = client.post(
+        "/", data={"day": "2026-10-02", "scan": "1", "set": "default", "yf": "x"}
+    )
+    assert response.status_code == 422
+    assert "Settings problem" in response.text
+    api = client.post("/api/settings/default", data={"xf": "x"})
+    assert api.status_code == 422
+    assert not list(settings_dir.glob("*.tmp"))

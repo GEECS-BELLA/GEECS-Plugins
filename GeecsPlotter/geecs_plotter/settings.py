@@ -16,9 +16,11 @@ defaults.
 from __future__ import annotations
 
 import configparser
+import contextlib
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
@@ -88,20 +90,38 @@ class SettingsStore:
     origin : {"given", "shared", "local"}
         Why this folder: ``--settings-dir``, ``config.ini``'s
         ``geecs_data``, or the local fallback. The page shows it.
+    root : Path, optional
+        A folder that must already exist for the store to be read or
+        written (the ``geecs_data`` folder, for the shared store); default
+        ``folder``'s parent. A share that drops after start is then an
+        error, never "no sets saved", and nothing is built on a bare
+        mount point.
     """
 
     folder: Path
     origin: Origin = "given"
+    root: Optional[Path] = None
 
     def path(self, name: str) -> Path:
         """The file a set is stored in."""
         return self.folder / f"{set_name(name)}.json"
 
+    def reachable(self) -> bool:
+        """Whether the store's root is there (the share is mounted)."""
+        return (self.root or self.folder.parent).is_dir()
+
+    def _require_reachable(self) -> None:
+        if not self.reachable():
+            raise SettingsError(
+                f"{self.root or self.folder.parent} is not reachable; "
+                "settings are neither read nor saved until it is back"
+            )
+
     def names(self) -> list[str]:
         """Every saved set, with the default first whether saved or not."""
         saved = (
             {p.stem for p in self.folder.glob("*.json") if _NAME.fullmatch(p.stem)}
-            if self.folder.is_dir()
+            if self.reachable() and self.folder.is_dir()
             else set()
         )
         return [DEFAULT_SET, *sorted(saved - {DEFAULT_SET})]
@@ -113,6 +133,7 @@ class SettingsStore:
     def load(self, name: str) -> PlotterSettings:
         """The set, or the defaults for a name never saved."""
         path = self.path(name)
+        self._require_reachable()
         try:
             text = path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -127,13 +148,42 @@ class SettingsStore:
             ) from exc
 
     def save(self, name: str, settings: PlotterSettings) -> Path:
-        """Write the set atomically, so a reader never sees half a file."""
+        """Write the set, so a reader never sees half a file."""
         path = self.path(name)
-        self.folder.mkdir(parents=True, exist_ok=True)
-        partial = path.with_suffix(".json.partial")
-        partial.write_text(settings.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        os.replace(partial, path)
+        self._require_reachable()
+        text = settings.model_dump_json(indent=2) + "\n"
+        try:
+            # Only below the root, which exists: never a tree on a bare mount.
+            self.folder.mkdir(parents=True, exist_ok=True)
+            _write_whole(path, text)
+        except OSError as exc:
+            raise SettingsError(f"cannot save {path}: {exc}") from exc
         return path
+
+
+def _write_whole(path: Path, text: str) -> None:
+    """Write *path* through a uniquely named sibling and a rename.
+
+    The shape of ``geecs_logbook._fs.replace_with`` (a unique temp name per
+    call, so two hosts saving one set never clobber each other's half
+    file), with ``scan_analysis.task_queue._write_atomic``'s Windows rule:
+    on an SMB share the rename needs DELETE permission on the target,
+    usually only its creator's, so Windows writes in place. The repo's
+    private atomic writers are to be folded into one under #839.
+    """
+    if os.name == "nt":
+        path.write_text(text, encoding="utf-8")
+        return
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, 0o664)  # mkstemp's 0600 would hide the set from colleagues
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def geecs_user_data(config_path: Path = CONFIG_INI) -> Optional[Path]:
@@ -158,8 +208,10 @@ def resolve_store(
         return SettingsStore(Path(settings_dir).expanduser(), "given")
     shared = geecs_user_data(config_path)
     if shared is not None:
-        return SettingsStore(shared / _SUBFOLDER, "shared")
-    return SettingsStore(LOCAL_USER_DATA / _SUBFOLDER, "local")
+        return SettingsStore(shared / _SUBFOLDER, "shared", root=shared)
+    return SettingsStore(
+        LOCAL_USER_DATA / _SUBFOLDER, "local", root=LOCAL_USER_DATA.parent
+    )
 
 
 #: The page form's field names, mapped to the settings they write.

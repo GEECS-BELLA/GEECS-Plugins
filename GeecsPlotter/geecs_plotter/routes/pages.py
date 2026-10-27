@@ -17,14 +17,15 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Optional
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
 from geecs_data_utils.tiled_catalog import RunDetail
 
 from geecs_plotter import scans
-from geecs_plotter.routes import Context
+from geecs_plotter.routes import Context, read_form
 from geecs_plotter.settings import (
     DEFAULT_SET,
     PlotterSettings,
@@ -36,12 +37,6 @@ from geecs_plotter.settings import (
 #: s-file columns every scan has, never a useful default Y (nor is any
 #: device's ``<device> shot #`` counter).
 _BOOKKEEPING = ("Shotnumber", "Bin #")
-
-
-async def read_form(request: Request) -> dict[str, str]:
-    """The urlencoded body as a dict (the page posts no files)."""
-    body = (await request.body()).decode("utf-8")
-    return dict(parse_qsl(body, keep_blank_values=True))
 
 
 def _opened(form: dict[str, str], name: str) -> str:
@@ -117,17 +112,18 @@ def _render(
 
 
 async def _save(ctx: Context, request: Request, *, as_new: bool) -> Response:
-    """Merge the posted controls into a set (the open one, or a new name)."""
+    """Merge the posted controls into a set (the open one, or a new name).
+
+    The store work runs in the threadpool, as the sync routes' does: a hung
+    share stalls this request, never the server.
+    """
     form = await read_form(request)
-    day, scan = _when(form)
     try:
-        source = set_name(form.get("set", DEFAULT_SET))
-        target = set_name(form.get("save_as", "")) if as_new else source
-        if as_new and ctx.store.exists(target):
-            raise SettingsError(f"a set named {target!r} is already saved")
-        ctx.store.save(target, merged(ctx.store.load(source), form))
+        target = await run_in_threadpool(_store, ctx, form, as_new)
     except SettingsError as bad:
-        return _render(
+        day, scan = _when(form)
+        return await run_in_threadpool(
+            _render,
             ctx,
             request,
             day,
@@ -137,6 +133,16 @@ async def _save(ctx: Context, request: Request, *, as_new: bool) -> Response:
             status_code=422,
         )
     return RedirectResponse(_opened(form, target), status_code=303)
+
+
+def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
+    """Save *form* into its set, or a new one; the name saved to."""
+    source = set_name(form.get("set", DEFAULT_SET))
+    target = set_name(form.get("save_as", "")) if as_new else source
+    if as_new and ctx.store.exists(target):
+        raise SettingsError(f"a set named {target!r} is already saved")
+    ctx.store.save(target, merged(ctx.store.load(source), form))
+    return target
 
 
 def _when(form: dict[str, str]) -> tuple[Optional[date], Optional[int]]:

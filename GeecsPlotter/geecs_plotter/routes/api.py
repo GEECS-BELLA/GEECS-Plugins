@@ -14,10 +14,10 @@ from typing import Any, Callable, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from geecs_plotter import figures, scans
-from geecs_plotter.routes import Context
-from geecs_plotter.routes.pages import read_form
+from geecs_plotter.routes import Context, read_form
 from geecs_plotter.settings import PlotterSettings, SettingsError, merged, set_name
 
 #: The s-file grows after a scan (analysis appends columns), so no answer
@@ -182,7 +182,7 @@ def register(router: APIRouter, ctx: Context) -> None:
             ctx.store.save(set_name(name), settings)
             return settings
 
-        return _json(_settings(save))
+        return _json(await run_in_threadpool(_settings, save))
 
 
 def _settings(action: Callable[[], PlotterSettings]) -> PlotterSettings:

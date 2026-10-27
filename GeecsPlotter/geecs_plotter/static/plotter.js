@@ -126,7 +126,7 @@
       clearTimeout(saving);
       saving = setTimeout(() => saveField(filter.name, filter.value), FILTER_SAVE_MS);
     });
-    if (filter.value) apply();  // a filter carried in from the URL
+    if (filter.value) apply();  // a filter saved in the set
     // Enter takes the one match left (the kit picker's rule); otherwise it
     // stays in the box instead of submitting the form.
     filter.addEventListener("keydown", (event) => {
