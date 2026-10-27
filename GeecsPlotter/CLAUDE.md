@@ -13,6 +13,7 @@ geecs_plotter/
   app.py        # create_app(experiment, base_directory=…): theme glue, routes, /health
   scans.py      # find a scan folder, read its s-file: GEECS-Data-Utils calls only
   figures.py    # pure: columns in, plotly Figure out (copied from the portal)
+  settings.py   # named settings sets: PlotterSettings, one JSON file per set, the folder
   routes/       # Context (+ the 404 for a missing scan); pages.py (HTML), api.py (JSON)
   templates/    # index.html, on the kit
   static/       # plotter.js, plotter.css, the vendored plotly-cartesian-3.1.1.min.js (MIT)
@@ -27,19 +28,29 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   and filters (M2) are `geecs_data_utils.data.binning` / `.row_filters`.
   New math goes into GEECS-Data-Utils first, in its own PR.
 - **Nothing needs Tiled.** Data-utils is installed without its `tiled` extra.
-- **Read-only.** A scan not on the share is a 404 or the page's error
+- **Read-only on the share.** A scan not on the share is a 404 or the page's error
   state, never created (`tests/test_app.py::test_a_lookup_never_creates_a_scan_folder`).
 - **The server authors the figure; the browser draws it.** Endpoints return
   `figure` (built with `THEMED_PALETTE`, serialized by `page_figure`, whose
   `$tok:--name` sentinels `plotter.js` resolves against the theme) and
   `code`, the snippet that rebuilds the frame and the figure with the same
   functions (`tests/test_app.py::test_the_code_rebuilds_the_same_numbers`).
-- **The URL is the selection**: `day`, `scan`, `x`, `y`, the filters `xf` /
-  `yf`, and the toggles `xalias` / `yalias` / `xauto` (all three default
-  on). With `xauto` on, X is the open scan's variable whatever `x` says
-  ("autofill par1"); a hand pick writes `xauto=false`, and then `x=` empty
-  is the shot number. Settings only, never the column lists, so the URL
-  stays short however many columns a scan has.
+- **Every control lives in a named settings set, not the URL.** The URL
+  is `?day=&scan=&set=` (`set` defaults to `default`). The form POSTs its
+  controls; the server merges them into the set's file
+  (`settings.merged`: a field the page does not send keeps its saved
+  value), saves it, and redirects back (303). A filter saves as it is
+  typed through `POST /api/settings/{name}`. A new control is a new
+  `PlotterSettings` field with a default, so older files still load; a
+  change of meaning bumps `schema_version`. With `x_auto` on, X is the
+  open scan's variable ("autofill par1"); a hand pick saves it off, and
+  then X `""` is the shot number.
+- **The settings folder** is chosen once at start
+  (`settings.resolve_store`): `--settings-dir`, else
+  `{config.ini [Paths] geecs_data}/GeecsPlotter/settings/` (the LabVIEW
+  `user data` folder, usually shared), else `<repo>/user data/…`
+  (gitignored). The page shows which. Settings writes are the only writes
+  this package makes, and never under the data share's scan tree.
 - **The theme and kit are imported** (`geecs_web_theme.web`); every colour
   is a token. `GeecsWebTheme/tests/test_no_literal_colours.py` walks this
   package's template, CSS and script, and `figures.py` in the token check.

@@ -18,12 +18,18 @@ Then open <http://localhost:8600>. The data root and experiment come from
 (`[Paths] GEECS_DATA_LOCAL_BASE_PATH`, `[Experiment] expt`); pass
 `--experiment` to read another experiment's folder.
 
-A plot's URL is the plot, filters and toggles included; bookmark it to
-save a setup. X follows the scan's variable by default ("X = scan
-variable: auto"); a link to a hand-picked X carries `xauto=false`:
-`/?day=2026-10-02&scan=3&xauto=false&x=<column>&y=<column>`, with `x=`
-empty for the shot number. Column names show as their LabVIEW aliases
-unless an axis's toggle says "name" (`xalias=false` / `yalias=false`).
+Every control (X, Y, the filters and the toggles) is kept in a named
+settings set, one `<name>.json` file each, saved as you pick. The URL names
+only what is open: `/?day=2026-10-02&scan=3&set=default`. Pick another set,
+or "Save as" a new one, in the rail's Settings group. The sets live in
+`{[Paths] geecs_data}/GeecsPlotter/settings/` (the GEECS `user data` folder,
+usually on the shared drive), else in `<repo>/user data/GeecsPlotter/settings/`
+when that folder is not reachable; `--settings-dir` picks another. The page
+shows which folder it is using.
+
+X follows the scan's variable by default ("X = scan variable: auto"); a
+hand-picked X turns that off. Column names show as their LabVIEW aliases
+unless an axis's toggle says "name".
 
 ## Reproduce a plot in a notebook
 
