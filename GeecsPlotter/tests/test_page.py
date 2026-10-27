@@ -96,3 +96,11 @@ def test_only_bookkeeping_columns_still_pick_a_y(
     write_scan(share, 3, pd.DataFrame({"Shotnumber": [1, 2], "Bin #": [1, 1]}))
     page = client.get("/", params={"day": "2026-10-02", "scan": 3}).text
     assert "y=Shotnumber" in page
+
+
+def test_each_axis_has_its_own_filter(client: TestClient) -> None:
+    """LabVIEW filters the X and Y lists independently; so does the page."""
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert 'data-filter-for="x"' in page
+    assert 'data-filter-for="y"' in page
+    assert "option.hidden" not in (_PKG / "static" / "plotter.js").read_text()

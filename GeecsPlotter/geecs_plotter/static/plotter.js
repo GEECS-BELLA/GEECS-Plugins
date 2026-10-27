@@ -12,17 +12,19 @@
     }
   }
 
-  // GEECSplotter's substring filter: hide the options that do not match,
-  // never the one picked.
-  const filter = document.querySelector("[data-column-filter]");
-  if (filter) {
+  // GEECSplotter's substring filter, one per axis. The list is rebuilt from
+  // the full set on each keystroke rather than hiding options (Safari
+  // ignores `hidden` on <option>). The picked column and "shot #" stay.
+  for (const filter of document.querySelectorAll("[data-filter-for]")) {
+    const select = document.getElementById(filter.dataset.filterFor);
+    const all = Array.from(select.options, (o) => ({ value: o.value, text: o.text }));
+    const picked = select.value;
     filter.addEventListener("input", () => {
       const needle = filter.value.trim().toLowerCase();
-      for (const option of document.querySelectorAll("#x option, #y option")) {
-        const keep = !needle || option.selected || option.value === ""
-          || option.value.toLowerCase().includes(needle);
-        option.hidden = !keep;
-      }
+      select.replaceChildren(...all
+        .filter((o) => !needle || o.value === "" || o.value === picked
+          || o.text.toLowerCase().includes(needle))
+        .map((o) => new Option(o.text, o.value, false, o.value === picked)));
     });
   }
 

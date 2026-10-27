@@ -40,21 +40,23 @@
       </div>
       {% if columns %}
         <div class="group">
-          <div class="field">
-            <label for="filter">Filter columns</label>
-            <input id="filter" type="search" autocomplete="off" data-column-filter>
-            <span class="hint">{{ columns | length }} columns, {{ shots }} shots</span>
-          </div>
+          <span class="hint">{{ columns | length }} columns, {{ shots }} shots</span>
+          {# One list per axis, each with its own substring filter (LabVIEW's
+             par listboxes). The filter rebuilds the list; it never submits. #}
           <div class="field">
             <label for="x">X</label>
-            <select id="x" name="x" data-autosubmit>
+            <input id="x-filter" type="search" autocomplete="off" placeholder="filter X columns"
+                   aria-label="Filter X columns" data-filter-for="x">
+            <select id="x" name="x" size="10" class="picks" data-autosubmit>
               <option value=""{% if not x %} selected{% endif %}>shot #</option>
               {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ c }}</option>{% endfor %}
             </select>
           </div>
           <div class="field">
             <label for="y">Y</label>
-            <select id="y" name="y" data-autosubmit>
+            <input id="y-filter" type="search" autocomplete="off" placeholder="filter Y columns"
+                   aria-label="Filter Y columns" data-filter-for="y">
+            <select id="y" name="y" size="10" class="picks" data-autosubmit>
               {% for c in columns %}<option value="{{ c }}"{% if c == y %} selected{% endif %}>{{ c }}</option>{% endfor %}
             </select>
           </div>
