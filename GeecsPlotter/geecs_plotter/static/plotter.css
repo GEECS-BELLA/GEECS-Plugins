@@ -4,3 +4,6 @@
 /* A list box, not a dropdown: the kit fixes every .field select at one
    row height, which would squash size="10" to a single line. */
 .kit .field select.picks { width: 100%; height: auto; padding: 4px 0; }
+
+/* The settings folder is a long path; let it wrap rather than widen the rail. */
+.kit .settings-folder { overflow-wrap: anywhere; }

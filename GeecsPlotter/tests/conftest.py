@@ -62,6 +62,20 @@ def share(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def client(share: Path) -> TestClient:
+def settings_dir(tmp_path: Path) -> Path:
+    """The app's settings folder: never the real user data folder."""
+    return tmp_path / "plotter-settings"
+
+
+@pytest.fixture
+def client(share: Path, settings_dir: Path) -> TestClient:
     """The app over the fake share."""
-    return TestClient(create_app(EXPERIMENT, base_directory=share))
+    return TestClient(
+        create_app(EXPERIMENT, base_directory=share, settings_dir=settings_dir)
+    )
+
+
+def post(client: TestClient, path: str = "/", **fields: object) -> str:
+    """POST the page form (day 2026-10-02 unless given) and follow to the page."""
+    form = {"day": "2026-10-02", "set": "default", **fields}
+    return client.post(path, data={k: str(v) for k, v in form.items()}).text

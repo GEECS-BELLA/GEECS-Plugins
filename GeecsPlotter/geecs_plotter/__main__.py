@@ -21,6 +21,12 @@ def main() -> None:
         help="the experiment folder to read (default: config.ini [Experiment] expt)",
     )
     parser.add_argument(
+        "--settings-dir",
+        default=None,
+        help="where named settings sets are saved (default: config.ini "
+        "[Paths] geecs_data/GeecsPlotter/settings, else <repo>/user data/…)",
+    )
+    parser.add_argument(
         "--root-path",
         default="",
         help="URL prefix behind a prefix-preserving reverse proxy",
@@ -33,7 +39,11 @@ def main() -> None:
     from geecs_plotter.app import create_app
 
     uvicorn.run(
-        create_app(args.experiment, root_path=args.root_path),
+        create_app(
+            args.experiment,
+            settings_dir=args.settings_dir,
+            root_path=args.root_path,
+        ),
         host=args.host,
         port=args.port,
     )

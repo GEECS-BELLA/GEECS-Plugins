@@ -1,5 +1,6 @@
-// The plotter page's behaviour: filter the pick lists, submit on a pick,
-// and draw the server-authored figure. The figure carries "$tok:--name"
+// The plotter page's behaviour: filter the pick lists, submit on a pick
+// (the server saves the controls into the open settings set), and draw the
+// server-authored figure. The figure carries "$tok:--name"
 // sentinels wherever a colour goes (figures.THEMED_PALETTE); one walk
 // resolves them against the live theme tokens, and a theme change redraws.
 "use strict";
@@ -75,6 +76,31 @@
     });
   }
 
+  // Switching settings sets opens the other set; nothing is saved.
+  for (const choice of document.querySelectorAll("[data-switch-set]")) {
+    choice.addEventListener("change", () => choice.form.submit());
+  }
+  // Enter in the Save-as name saves as, rather than taking the form's
+  // first button (Open).
+  const saveAs = document.getElementById("save-as");
+  if (saveAs) {
+    saveAs.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      if (saveAs.value.trim()) document.getElementById("save-as-go").click();
+    });
+  }
+
+  // A filter is saved into the set as it is typed (after a pause), without
+  // a reload, so the text is there next time even with no pick after it.
+  const FILTER_SAVE_MS = 500;
+  function saveField(name, value) {
+    const set = form.elements.set.value;
+    const url = new URL(`api/settings/${encodeURIComponent(set)}`, form.action);
+    return fetch(url, { method: "POST", body: new URLSearchParams({ [name]: value }) })
+      .catch(() => { /* the next pick posts the filter anyway */ });
+  }
+
   // GEECSplotter's substring filter, one per axis. The list is rebuilt from
   // the full set on each keystroke rather than hiding options (Safari
   // ignores `hidden` on <option>). The picked column and "shot #" stay.
@@ -94,7 +120,12 @@
         .filter((o) => shown.has(o.value) || o.value === "" || o.value === picked)
         .map((o) => new Option(o.text, o.value, false, o.value === picked)));
     };
-    filter.addEventListener("input", apply);
+    let saving = null;
+    filter.addEventListener("input", () => {
+      apply();
+      clearTimeout(saving);
+      saving = setTimeout(() => saveField(filter.name, filter.value), FILTER_SAVE_MS);
+    });
     if (filter.value) apply();  // a filter carried in from the URL
     // Enter takes the one match left (the kit picker's rule); otherwise it
     // stays in the box instead of submitting the form.

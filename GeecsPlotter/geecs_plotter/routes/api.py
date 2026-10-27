@@ -1,21 +1,24 @@
-"""The JSON routes: a scan's columns, and the figure for a pick.
+"""The JSON routes: a scan's columns, the figure for a pick, the settings sets.
 
-Each is a few calls into :mod:`geecs_plotter.scans` and
-:mod:`geecs_plotter.figures`; the figure route also returns ``code``, the
-notebook snippet that rebuilds the same frame and figure.
+Each is a few calls into :mod:`geecs_plotter.scans`,
+:mod:`geecs_plotter.figures` or :mod:`geecs_plotter.settings`; the figure
+route also returns ``code``, the notebook snippet that rebuilds the same
+frame and figure.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from geecs_plotter import figures, scans
 from geecs_plotter.routes import Context
+from geecs_plotter.routes.pages import read_form
+from geecs_plotter.settings import PlotterSettings, SettingsError, merged, set_name
 
 #: The s-file grows after a scan (analysis appends columns), so no answer
 #: is cached.
@@ -28,6 +31,14 @@ class ColumnsResponse(BaseModel):
     columns: list[str]
     default_x: str
     shots: int
+
+
+class SetsResponse(BaseModel):
+    """The settings folder and the sets saved in it."""
+
+    folder: str
+    origin: str
+    sets: list[str]
 
 
 class FigureResponse(BaseModel):
@@ -143,6 +154,43 @@ def register(router: APIRouter, ctx: Context) -> None:
             code=figure_code(day, scan, y, x or None, ctx.experiment, x_label, y_label),
         )
         return _json(body)
+
+    @router.get("/api/settings", response_model=SetsResponse)
+    def api_sets() -> JSONResponse:
+        """Where sets are saved, and their names."""
+        store = ctx.store
+        body = SetsResponse(
+            folder=str(store.folder), origin=store.origin, sets=store.names()
+        )
+        return _json(body)
+
+    @router.get("/api/settings/{name}", response_model=PlotterSettings)
+    def api_set(name: str) -> JSONResponse:
+        """One set; a name never saved is the defaults."""
+        return _json(_settings(lambda: ctx.store.load(name)))
+
+    @router.post("/api/settings/{name}", response_model=PlotterSettings)
+    async def api_save(name: str, request: Request) -> JSONResponse:
+        """Merge the page's form fields into the set and save it.
+
+        The page saves a filter as it is typed this way, without a reload.
+        """
+        form = await read_form(request)
+
+        def save() -> PlotterSettings:
+            settings = merged(ctx.store.load(name), form)
+            ctx.store.save(set_name(name), settings)
+            return settings
+
+        return _json(_settings(save))
+
+
+def _settings(action: Callable[[], PlotterSettings]) -> PlotterSettings:
+    """Run a store call; a bad name or file is a 422 naming it."""
+    try:
+        return action()
+    except SettingsError as bad:
+        raise HTTPException(status_code=422, detail=str(bad)) from None
 
 
 def _json(body: BaseModel) -> JSONResponse:
