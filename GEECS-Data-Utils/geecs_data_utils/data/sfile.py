@@ -129,6 +129,13 @@ def plain_column(column: str) -> str:
     return column[:cut] if cut >= 0 else column
 
 
+def column_alias(column: str) -> Optional[str]:
+    """A column's LabVIEW alias, ``"Jet_X (mm)"``, or ``None`` when it has none."""
+    cut = column.find(ALIAS_SEPARATOR)
+    alias = column[cut + len(ALIAS_SEPARATOR) :].strip() if cut >= 0 else ""
+    return alias or None
+
+
 def sfile_column(name: str, header: list[str]) -> Optional[str]:
     """The column of *header* that records *name* (``"Device Variable"``), if any.
 
