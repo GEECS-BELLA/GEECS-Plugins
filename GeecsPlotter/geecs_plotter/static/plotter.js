@@ -6,21 +6,42 @@
 
 (function () {
   const form = document.getElementById("pick");
+  // A hand-picked X turns "X = scan variable" off, or the next page would
+  // put the scan variable straight back.
+  function pick(select) {
+    if (select.id === "x" && form.elements.xauto) form.elements.xauto.value = "false";
+    form.requestSubmit();
+  }
+
   // A list box fires "change" on every arrow key, so the pick is a click or
-  // Enter: arrowing through a filtered list must not reload the page.
+  // Enter: arrowing through a filtered list must not reload the page. The
+  // click waits a moment, so a double-click can claim it instead.
   for (const select of document.querySelectorAll("[data-pick]")) {
     const picked = select.value;
-    const submitIfMoved = () => { if (select.value !== picked) form.requestSubmit(); };
-    select.addEventListener("click", submitIfMoved);
+    let pending = null;
+    select.addEventListener("click", () => {
+      clearTimeout(pending);
+      pending = setTimeout(() => { if (select.value !== picked) pick(select); }, 300);
+    });
+    select.addEventListener("dblclick", (event) => {
+      clearTimeout(pending);
+      const option = event.target.closest("option") || select.selectedOptions[0];
+      const filter = document.querySelector(`[data-filter-for="${select.id}"]`);
+      if (option && filter) {
+        filter.value = option.text;
+        filter.dispatchEvent(new Event("input"));
+      }
+    });
     select.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") { event.preventDefault(); form.requestSubmit(); }
+      if (event.key === "Enter") { event.preventDefault(); pick(select); }
     });
   }
 
-  // The name/alias toggle: set the axis's hidden field and resubmit.
-  for (const button of document.querySelectorAll("[data-alias-for]")) {
+  // The two-way toggles (name | alias, X = scan variable): set the hidden
+  // field and resubmit; the filters ride along in the form.
+  for (const button of document.querySelectorAll("[data-toggle-for]")) {
     button.addEventListener("click", () => {
-      form.elements[button.dataset.aliasFor].value = button.dataset.value;
+      form.elements[button.dataset.toggleFor].value = button.dataset.value;
       form.requestSubmit();
     });
   }
@@ -38,12 +59,14 @@
       return all.filter((o) => !needle || o.text.toLowerCase().includes(needle)
         || o.value.toLowerCase().includes(needle));
     };
-    filter.addEventListener("input", () => {
+    const apply = () => {
       const shown = new Set(matches().map((o) => o.value));
       select.replaceChildren(...all
         .filter((o) => shown.has(o.value) || o.value === "" || o.value === picked)
         .map((o) => new Option(o.text, o.value, false, o.value === picked)));
-    });
+    };
+    filter.addEventListener("input", apply);
+    if (filter.value) apply();  // a filter carried in from the URL
     // Enter takes the one match left (the kit picker's rule); otherwise it
     // stays in the box instead of submitting the form.
     filter.addEventListener("keydown", (event) => {
@@ -52,7 +75,7 @@
       const left = matches().filter((o) => o.value !== "");
       if (left.length === 1) {
         select.value = left[0].value;
-        form.requestSubmit();
+        pick(select);
       }
     });
   }

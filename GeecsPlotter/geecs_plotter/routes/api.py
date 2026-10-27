@@ -110,8 +110,8 @@ def register(router: APIRouter, ctx: Context) -> None:
         scan: int,
         y: str,
         x: str = Query(default="", description="empty plots against the shot number"),
-        xalias: bool = Query(default=False, description="title X with its alias"),
-        yalias: bool = Query(default=False, description="title Y with its alias"),
+        xalias: bool = Query(default=True, description="title X with its alias"),
+        yalias: bool = Query(default=True, description="title Y with its alias"),
     ) -> JSONResponse:
         """The per-shot figure of ``y`` against ``x``."""
         frame = scans.load_frame(ctx.run(day, scan))

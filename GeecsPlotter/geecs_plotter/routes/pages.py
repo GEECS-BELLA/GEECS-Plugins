@@ -31,8 +31,11 @@ def register(router: APIRouter, ctx: Context) -> None:
         scan: Optional[int] = None,
         x: Optional[str] = None,
         y: Optional[str] = None,
-        xalias: bool = False,
-        yalias: bool = False,
+        xalias: bool = True,
+        yalias: bool = True,
+        xauto: bool = True,
+        xf: str = "",
+        yf: str = "",
     ) -> HTMLResponse:
         """The plotter page; without a day and scan, the empty form."""
         page = {
@@ -44,6 +47,9 @@ def register(router: APIRouter, ctx: Context) -> None:
             "y": "",
             "xalias": xalias,
             "yalias": yalias,
+            "xauto": xauto,
+            "xf": xf,
+            "yf": yf,
         }
         if day is not None and scan is not None:
             try:
@@ -57,8 +63,9 @@ def register(router: APIRouter, ctx: Context) -> None:
                 page["xnames"] = {c: scans.display_name(c, xalias) for c in picks}
                 page["ynames"] = {c: scans.display_name(c, yalias) for c in picks}
                 page["shots"] = len(frame)
-                # x absent = GEECSplotter's "autofill par1"; x="" = shot number.
-                chosen_x = scans.default_x(run, picks) if x is None else x
+                # GEECSplotter's "autofill par1": with xauto (the default) X is
+                # the scan variable of whichever scan is open; x="" = shot #.
+                chosen_x = scans.default_x(run, picks) if xauto or x is None else x
                 page["x"] = chosen_x if chosen_x in picks else ""
                 # Default Y: the first measurement, not the bookkeeping.
                 others = [

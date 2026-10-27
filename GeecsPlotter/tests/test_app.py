@@ -118,9 +118,14 @@ def test_an_unpadded_scan_folder_opens(client: TestClient, share: Path) -> None:
 
 def test_the_alias_toggle_titles_the_axis(client: TestClient) -> None:
     params = {"day": "2026-10-02", "scan": 1, "x": SCAN_VARIABLE, "y": ALIASED}
-    raw = client.get("/api/figure", params=params).json()
+    raw = client.get(
+        "/api/figure", params={**params, "xalias": "false", "yalias": "false"}
+    ).json()
     assert raw["figure"]["layout"]["yaxis"]["title"]["text"] == ALIASED
-    shown = client.get("/api/figure", params={**params, "yalias": "true"}).json()
+    shown = client.get("/api/figure", params={**params, "xalias": "false"}).json()
+    # The alias is the default (the owner's ruling).
+    default = client.get("/api/figure", params=params).json()
+    assert default["figure"]["layout"]["yaxis"]["title"]["text"] == "Gas (psi)"
     assert shown["figure"]["layout"]["yaxis"]["title"]["text"] == "Gas (psi)"
     # X has no alias: the toggle leaves it as it is.
     both = client.get(
@@ -134,7 +139,7 @@ def test_the_alias_toggle_titles_the_axis(client: TestClient) -> None:
 def test_one_column_on_both_axes_keeps_each_toggle(client: TestClient) -> None:
     """X and Y may be the same column; each axis title follows its own toggle."""
     params = {"day": "2026-10-02", "scan": 1, "x": ALIASED, "y": ALIASED}
-    body = client.get("/api/figure", params={**params, "xalias": "true"}).json()
+    body = client.get("/api/figure", params={**params, "yalias": "false"}).json()
     layout = body["figure"]["layout"]
     assert layout["xaxis"]["title"]["text"] == "Gas (psi)"
     assert layout["yaxis"]["title"]["text"] == ALIASED

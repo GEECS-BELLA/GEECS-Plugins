@@ -58,7 +58,14 @@ def test_a_scan_defaults_x_to_the_scan_variable(client: TestClient) -> None:
 
 def test_x_empty_means_the_shot_number(client: TestClient) -> None:
     page = client.get(
-        "/", params={"day": "2026-10-02", "scan": 1, "x": "", "y": "U_ICT charge"}
+        "/",
+        params={
+            "day": "2026-10-02",
+            "scan": 1,
+            "x": "",
+            "y": "U_ICT charge",
+            "xauto": "false",
+        },
     ).text
     assert '<option value="" selected>shot #</option>' in page
 
@@ -109,7 +116,7 @@ def test_each_axis_has_its_own_filter(client: TestClient) -> None:
 def test_each_axis_lists_aliases_on_its_own_toggle(client: TestClient) -> None:
     """The Y toggle relabels the Y list only; the value stays the column."""
     page = client.get(
-        "/", params={"day": "2026-10-02", "scan": 1, "y": ALIASED, "yalias": "true"}
+        "/", params={"day": "2026-10-02", "scan": 1, "y": ALIASED, "xalias": "false"}
     ).text
     assert f'<option value="{ALIASED}" selected>Gas (psi)</option>' in page
     assert f'<option value="{ALIASED}">{ALIASED}</option>' in page  # the X list
@@ -125,3 +132,32 @@ def test_the_toggles_survive_a_missing_scan(client: TestClient) -> None:
     ).text
     assert 'data-state="error"' in page
     assert 'name="yalias" value="true"' in page
+
+
+def test_alias_and_auto_x_are_the_defaults(client: TestClient) -> None:
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert 'name="xalias" value="true"' in page
+    assert 'name="yalias" value="true"' in page
+    assert 'name="xauto" value="true"' in page
+
+
+def test_auto_x_follows_the_scan_variable_over_a_carried_x(
+    client: TestClient,
+) -> None:
+    """Opening another scan with xauto on takes that scan's variable."""
+    params = {"day": "2026-10-02", "scan": 1, "x": "U_ICT charge"}
+    auto = client.get("/", params=params).text
+    assert f'<option value="{SCAN_VARIABLE}" selected>' in auto
+    manual = client.get("/", params={**params, "xauto": "false"}).text
+    assert '<option value="U_ICT charge" selected>' in manual
+
+
+def test_the_filters_ride_the_url(client: TestClient) -> None:
+    """A pick or a toggle resubmits the form; the filter text goes with it."""
+    page = client.get(
+        "/", params={"day": "2026-10-02", "scan": 1, "xf": "jet", "yf": "gas"}
+    ).text
+    assert 'name="xf" value="jet"' in page
+    assert 'name="yf" value="gas"' in page
+    missing = client.get("/", params={"day": "2026-10-02", "scan": 9, "yf": "gas"}).text
+    assert 'name="yf" value="gas"' in missing  # kept for the next Open
