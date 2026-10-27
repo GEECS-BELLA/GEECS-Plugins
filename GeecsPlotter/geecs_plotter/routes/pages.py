@@ -3,7 +3,9 @@
 The selection lives in the URL (``?day=&scan=&x=&y=&xf=&yf=&xalias=
 &yalias=&xauto=``), so a link is the plot. ``xauto`` defaults on and then
 overrides ``x`` with the open scan's variable; a link to a hand-picked X
-carries ``xauto=false``, which the page writes on every hand pick. The page renders the pick lists server-side; its script fetches the
+carries ``xauto=false``, which the page writes on every hand pick.
+
+The page renders the pick lists server-side; its script fetches the
 figure from ``/api/figure`` and draws it.
 """
 
