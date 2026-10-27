@@ -143,6 +143,8 @@ def register(router: APIRouter, ctx: Context) -> None:
     ) -> JSONResponse:
         """The per-shot figure of ``y`` (and ``y2``, ``y3``) against ``x``."""
         frame = scans.load_frame(ctx.run(day, scan))
+        if not y:
+            raise HTTPException(status_code=404, detail="no plottable column ''")
         # Each list keeps its slot (colour and axis): Y3 stays Y3 with Y2
         # off. Trailing off slots are dropped so a one-Y snippet stays bare.
         axes = [(y, yalias), (y2 or None, y2alias), (y3 or None, y3alias)]

@@ -201,3 +201,11 @@ def test_y3_without_y2_is_still_y3(client: TestClient, share: Path) -> None:
     exec(code.replace("fig.show()\n", ""), namespace)
     rebuilt = figures.page_figure(namespace["fig"])["data"]
     assert [t["yaxis"] for t in rebuilt] == ["y", "y3"]
+
+
+def test_an_empty_y1_is_a_404_not_a_500(client: TestClient) -> None:
+    for extra in ({}, {"y2": "Bin #"}):
+        response = client.get(
+            "/api/figure", params={"day": "2026-10-02", "scan": 1, "y": "", **extra}
+        )
+        assert response.status_code == 404
