@@ -15,7 +15,7 @@ from geecs_web_theme.testing import (
     unknown_data_states,
 )
 
-from tests.conftest import SCAN_VARIABLE
+from tests.conftest import ALIASED, SCAN_VARIABLE
 
 _PKG = Path(__file__).resolve().parents[1] / "geecs_plotter"
 _TEMPLATES = sorted((_PKG / "templates").glob("*.html"))
@@ -104,3 +104,15 @@ def test_each_axis_has_its_own_filter(client: TestClient) -> None:
     assert 'data-filter-for="x"' in page
     assert 'data-filter-for="y"' in page
     assert "option.hidden" not in (_PKG / "static" / "plotter.js").read_text()
+
+
+def test_each_axis_lists_aliases_on_its_own_toggle(client: TestClient) -> None:
+    """The Y toggle relabels the Y list only; the value stays the column."""
+    page = client.get(
+        "/", params={"day": "2026-10-02", "scan": 1, "y": ALIASED, "yalias": "true"}
+    ).text
+    assert f'<option value="{ALIASED}" selected>Gas (psi)</option>' in page
+    assert f'<option value="{ALIASED}">{ALIASED}</option>' in page  # the X list
+    assert 'name="yalias" value="true"' in page
+    assert 'name="xalias" value="false"' in page
+    assert "xalias=false&amp;yalias=true" in page

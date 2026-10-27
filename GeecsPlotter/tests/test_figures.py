@@ -45,3 +45,12 @@ def test_the_notebook_palette_is_real_hex() -> None:
     fig = figures.shots_figure({"b": [1.0]}, "b")
     assert isinstance(fig, go.Figure)
     assert fig.data[0].marker.color == figures.NOTEBOOK_PALETTE.trace[0]
+
+
+def test_pretty_names_title_the_axes() -> None:
+    fig = figures.shots_figure(
+        {"a": [1.0], "b A": [2.0]}, "b A", x="a", pretty={"b A": "B"}
+    )
+    assert fig.layout.yaxis.title.text == "B"
+    assert fig.layout.xaxis.title.text == "a"
+    assert fig.data[0].name == "B"

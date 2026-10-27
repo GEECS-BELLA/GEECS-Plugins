@@ -31,6 +31,8 @@ def register(router: APIRouter, ctx: Context) -> None:
         scan: Optional[int] = None,
         x: Optional[str] = None,
         y: Optional[str] = None,
+        xalias: bool = False,
+        yalias: bool = False,
     ) -> HTMLResponse:
         """The plotter page; without a day and scan, the empty form."""
         page = {
@@ -40,6 +42,8 @@ def register(router: APIRouter, ctx: Context) -> None:
             "columns": [],
             "x": "",
             "y": "",
+            "xalias": xalias,
+            "yalias": yalias,
         }
         if day is not None and scan is not None:
             try:
@@ -50,6 +54,8 @@ def register(router: APIRouter, ctx: Context) -> None:
                 frame = scans.load_frame(run)
                 picks = scans.columns(frame)
                 page["columns"] = picks
+                page["xnames"] = {c: scans.display_name(c, xalias) for c in picks}
+                page["ynames"] = {c: scans.display_name(c, yalias) for c in picks}
                 page["shots"] = len(frame)
                 # x absent = GEECSplotter's "autofill par1"; x="" = shot number.
                 chosen_x = scans.default_x(run, picks) if x is None else x

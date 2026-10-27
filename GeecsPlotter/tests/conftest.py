@@ -14,6 +14,8 @@ from geecs_plotter.app import create_app
 EXPERIMENT = "Testexp"
 DAY = date(2026, 10, 2)
 SCAN_VARIABLE = "U_Jet Position"
+#: A Master Control column carrying a LabVIEW alias.
+ALIASED = "U_Gas Pressure Alias:Gas (psi)"
 
 
 def write_scan(
@@ -46,6 +48,7 @@ def share(tmp_path: Path) -> Path:
                 "Bin #": [1, 1, 2, 2],
                 SCAN_VARIABLE: [1.0, 1.0, 2.0, 2.0],
                 "U_ICT charge": [10.0, 12.0, float("nan"), 30.0],
+                ALIASED: [1.5, 1.5, 2.5, 2.5],
             }
         ),
         parameter=SCAN_VARIABLE,

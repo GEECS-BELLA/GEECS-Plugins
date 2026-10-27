@@ -45,20 +45,38 @@
              par listboxes). The filter rebuilds the list; a click, or Enter,
              picks — arrow keys only move through the list. #}
           <div class="field">
-            <label for="x">X</label>
+            <div class="row">
+              <label for="x">X</label>
+              <span class="spacer"></span>
+              {# GEECSplotter's "use aliases", per axis. #}
+              <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
+              <div class="seg" role="group" aria-label="X column names">
+                <button type="button" data-alias-for="xalias" data-value="false" aria-pressed="{{ 'false' if xalias else 'true' }}">name</button>
+                <button type="button" data-alias-for="xalias" data-value="true" aria-pressed="{{ 'true' if xalias else 'false' }}">alias</button>
+              </div>
+            </div>
             <input id="x-filter" type="search" autocomplete="off" placeholder="filter X columns"
                    aria-label="Filter X columns" data-filter-for="x">
             <select id="x" name="x" size="10" class="picks" data-pick>
               <option value=""{% if not x %} selected{% endif %}>shot #</option>
-              {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ xnames[c] }}</option>{% endfor %}
             </select>
           </div>
           <div class="field">
-            <label for="y">Y</label>
+            <div class="row">
+              <label for="y">Y</label>
+              <span class="spacer"></span>
+              {# GEECSplotter's "use aliases", per axis. #}
+              <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
+              <div class="seg" role="group" aria-label="Y column names">
+                <button type="button" data-alias-for="yalias" data-value="false" aria-pressed="{{ 'false' if yalias else 'true' }}">name</button>
+                <button type="button" data-alias-for="yalias" data-value="true" aria-pressed="{{ 'true' if yalias else 'false' }}">alias</button>
+              </div>
+            </div>
             <input id="y-filter" type="search" autocomplete="off" placeholder="filter Y columns"
                    aria-label="Filter Y columns" data-filter-for="y">
             <select id="y" name="y" size="10" class="picks" data-pick>
-              {% for c in columns %}<option value="{{ c }}"{% if c == y %} selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == y %} selected{% endif %}>{{ ynames[c] }}</option>{% endfor %}
             </select>
           </div>
         </div>
@@ -86,14 +104,14 @@
       <article class="panel">
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          <span class="dim">{{ y }} vs {{ x or 'shot #' }}</span>
+          <span class="dim">{{ ynames[y] }} vs {{ xnames[x] if x else 'shot #' }}</span>
         </header>
         <div class="body">
           <div class="state" data-state="loading" id="plot-state">
             <div class="t">Loading the figure…</div>
           </div>
           <div id="plot" class="plot"
-               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}"></div>
+               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}"></div>
           <details class="disc">
             <summary>Notebook code</summary>
             <pre class="well mono" id="code"></pre>

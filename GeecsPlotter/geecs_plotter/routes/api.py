@@ -42,7 +42,12 @@ class FigureResponse(BaseModel):
 
 
 def figure_code(
-    day: date, scan: int, y: str, x: Optional[str], experiment: str = ""
+    day: date,
+    scan: int,
+    y: str,
+    x: Optional[str],
+    experiment: str = "",
+    pretty: Optional[dict[str, str]] = None,
 ) -> str:
     """The notebook snippet that rebuilds the frame and the figure.
 
@@ -58,6 +63,8 @@ def figure_code(
         The X column; ``None`` plots against the shot number.
     experiment : str, optional
         Named only when the app was started with one.
+    pretty : dict, optional
+        The axis names the alias toggles chose; only those that differ.
 
     Returns
     -------
@@ -67,13 +74,14 @@ def figure_code(
     where = f", experiment={experiment!r}" if experiment else ""
     names = [y, x] if x else [y]
     x_arg = f", x={x!r}" if x else ""
+    pretty_arg = f", pretty={pretty!r}" if pretty else ""
     return (
         "from datetime import date\n"
         "from geecs_plotter import figures, scans\n\n"
         f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
         "frame = scans.load_frame(run)\n"
         f"series = scans.plot_series(frame, {names!r})\n"
-        f"fig = figures.shots_figure(series, {y!r}{x_arg}, shot=scans.shot_axis(frame))\n"
+        f"fig = figures.shots_figure(series, {y!r}{x_arg}, shot=scans.shot_axis(frame){pretty_arg})\n"
         "fig.show()\n"
     )
 
@@ -100,6 +108,8 @@ def register(router: APIRouter, ctx: Context) -> None:
         scan: int,
         y: str,
         x: str = Query(default="", description="empty plots against the shot number"),
+        xalias: bool = Query(default=False, description="title X with its alias"),
+        yalias: bool = Query(default=False, description="title Y with its alias"),
     ) -> JSONResponse:
         """The per-shot figure of ``y`` against ``x``."""
         frame = scans.load_frame(ctx.run(day, scan))
@@ -109,11 +119,17 @@ def register(router: APIRouter, ctx: Context) -> None:
             raise HTTPException(
                 status_code=404, detail=f"no plottable column {missing.args[0]!r}"
             ) from None
+        pretty = {
+            column: shown
+            for column, use in ((x, xalias), (y, yalias))
+            if column and (shown := scans.display_name(column, use)) != column
+        }
         fig = figures.shots_figure(
             series,
             y,
             x=x or None,
             shot=scans.shot_axis(frame),
+            pretty=pretty,
             palette=figures.THEMED_PALETTE,
         )
         body = FigureResponse(
@@ -121,7 +137,7 @@ def register(router: APIRouter, ctx: Context) -> None:
             y=y,
             shots=len(frame),
             figure=figures.page_figure(fig),
-            code=figure_code(day, scan, y, x or None, ctx.experiment),
+            code=figure_code(day, scan, y, x or None, ctx.experiment, pretty),
         )
         return _json(body)
 

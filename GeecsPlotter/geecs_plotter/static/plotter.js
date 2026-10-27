@@ -17,6 +17,14 @@
     });
   }
 
+  // The name/alias toggle: set the axis's hidden field and resubmit.
+  for (const button of document.querySelectorAll("[data-alias-for]")) {
+    button.addEventListener("click", () => {
+      form.elements[button.dataset.aliasFor].value = button.dataset.value;
+      form.requestSubmit();
+    });
+  }
+
   // GEECSplotter's substring filter, one per axis. The list is rebuilt from
   // the full set on each keystroke rather than hiding options (Safari
   // ignores `hidden` on <option>). The picked column and "shot #" stay.
@@ -26,7 +34,9 @@
     const picked = select.value;
     const matches = () => {
       const needle = filter.value.trim().toLowerCase();
-      return all.filter((o) => !needle || o.text.toLowerCase().includes(needle));
+      // The shown name (an alias, with the toggle on) or the column itself.
+      return all.filter((o) => !needle || o.text.toLowerCase().includes(needle)
+        || o.value.toLowerCase().includes(needle));
     };
     filter.addEventListener("input", () => {
       const shown = new Set(matches().map((o) => o.value));

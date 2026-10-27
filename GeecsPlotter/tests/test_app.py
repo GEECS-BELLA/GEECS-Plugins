@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import SCAN_VARIABLE
+from tests.conftest import ALIASED, SCAN_VARIABLE
 
 
 def test_columns_lists_the_sfile_and_the_scan_variable(client: TestClient) -> None:
@@ -114,3 +114,18 @@ def test_an_unpadded_scan_folder_opens(client: TestClient, share: Path) -> None:
     (day / "analysis" / "s2.txt").rename(day / "analysis" / "s7.txt")
     body = client.get("/api/columns", params={"day": "2026-10-02", "scan": 7}).json()
     assert "U_ICT charge" in body["columns"]
+
+
+def test_the_alias_toggle_titles_the_axis(client: TestClient) -> None:
+    params = {"day": "2026-10-02", "scan": 1, "x": SCAN_VARIABLE, "y": ALIASED}
+    raw = client.get("/api/figure", params=params).json()
+    assert raw["figure"]["layout"]["yaxis"]["title"]["text"] == ALIASED
+    shown = client.get("/api/figure", params={**params, "yalias": "true"}).json()
+    assert shown["figure"]["layout"]["yaxis"]["title"]["text"] == "Gas (psi)"
+    # X has no alias: the toggle leaves it as it is.
+    both = client.get(
+        "/api/figure", params={**params, "xalias": "true", "yalias": "true"}
+    ).json()
+    assert both["figure"]["layout"]["xaxis"]["title"]["text"] == SCAN_VARIABLE
+    assert "pretty={'U_Gas Pressure Alias:Gas (psi)': 'Gas (psi)'}" in shown["code"]
+    assert "pretty=" not in raw["code"]
