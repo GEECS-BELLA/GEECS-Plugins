@@ -43,13 +43,23 @@
   // Stepping the scan number opens that scan (GEECSplotter's scan stepper).
   // It waits out a pause, so typing "12" does not open scan 1 first and a
   // held arrow key does not reload on every step.
+  // The next page puts the cursor back in the box, so the arrow keys keep
+  // stepping; the marker is per tab and best-effort (storage may be off).
+  const STEPPED = "geecs-plotter:stepped";
   const scanBox = document.querySelector("[data-auto-open]");
   if (scanBox) {
+    try {
+      if (sessionStorage.getItem(STEPPED)) {
+        sessionStorage.removeItem(STEPPED);
+        scanBox.focus();
+      }
+    } catch (_) { /* no storage: the stepper still works, one key at a time */ }
     let pending = null;
     scanBox.addEventListener("input", () => {
       clearTimeout(pending);
       pending = setTimeout(() => {
         if (scanBox.value && scanBox.checkValidity() && form.elements.day.value) {
+          try { sessionStorage.setItem(STEPPED, "1"); } catch (_) { /* see above */ }
           form.requestSubmit();
         }
       }, AUTO_OPEN_MS);
