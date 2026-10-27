@@ -181,3 +181,23 @@ def test_an_empty_y2_is_off(client: TestClient) -> None:
         params={"day": "2026-10-02", "scan": 1, "y": "U_ICT charge", "y2": ""},
     ).json()
     assert len(body["figure"]["data"]) == 1
+
+
+def test_y3_without_y2_is_still_y3(client: TestClient, share: Path) -> None:
+    """The kept-Y2 path: Y2 empty on this scan, Y3 must not take its slot."""
+    from geecs_plotter import figures
+
+    body = client.get(
+        "/api/figure",
+        params={"day": "2026-10-02", "scan": 1, "y": "U_ICT charge", "y3": "Bin #"},
+    ).json()
+    data = body["figure"]["data"]
+    assert [t["yaxis"] for t in data] == ["y", "y3"]
+    assert data[1]["marker"]["color"] == "$tok:--trace-3"
+    code = body["code"].replace(
+        "experiment='Testexp'", f"experiment='Testexp', base_path={str(share)!r}"
+    )
+    namespace: dict = {}
+    exec(code.replace("fig.show()\n", ""), namespace)
+    rebuilt = figures.page_figure(namespace["fig"])["data"]
+    assert [t["yaxis"] for t in rebuilt] == ["y", "y3"]

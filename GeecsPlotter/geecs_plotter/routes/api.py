@@ -58,7 +58,7 @@ class FigureResponse(BaseModel):
 def figure_code(
     day: date,
     scan: int,
-    y: Union[str, Sequence[str]],
+    y: Union[str, Sequence[Optional[str]]],
     x: Optional[str],
     experiment: str = "",
     x_label: Optional[str] = None,
@@ -72,8 +72,8 @@ def figure_code(
         The scan's day.
     scan : int
         The scan number.
-    y : str or Sequence[str]
-        The Y column, or Y1–Y3.
+    y : str or Sequence[str or None]
+        The Y column, or Y1–Y3 in their slots (``None`` for one off).
     x : str, optional
         The X column; ``None`` plots against the shot number.
     experiment : str, optional
@@ -90,7 +90,8 @@ def figure_code(
     """
     ys = [y] if isinstance(y, str) else list(y)
     where = f", experiment={experiment!r}" if experiment else ""
-    names = [*ys, x] if x else ys
+    drawn = [c for c in ys if c]
+    names = [*drawn, x] if x else drawn
     y_arg = repr(ys[0]) if len(ys) == 1 else repr(ys)
     x_arg = f", x={x!r}" if x else ""
     labels = f", x_label={x_label!r}" if x_label else ""
@@ -142,18 +143,22 @@ def register(router: APIRouter, ctx: Context) -> None:
     ) -> JSONResponse:
         """The per-shot figure of ``y`` (and ``y2``, ``y3``) against ``x``."""
         frame = scans.load_frame(ctx.run(day, scan))
-        axes = [(y, yalias), (y2, y2alias), (y3, y3alias)]
-        axes = [axes[0], *[(c, a) for c, a in axes[1:] if c]]
+        # Each list keeps its slot (colour and axis): Y3 stays Y3 with Y2
+        # off. Trailing off slots are dropped so a one-Y snippet stays bare.
+        axes = [(y, yalias), (y2 or None, y2alias), (y3 or None, y3alias)]
+        while axes[-1][0] is None:
+            axes.pop()
         ys = [c for c, _ in axes]
+        drawn = [c for c in ys if c]
         try:
-            series = scans.plot_series(frame, [*ys, x] if x else ys)
+            series = scans.plot_series(frame, [*drawn, x] if x else drawn)
         except KeyError as missing:
             raise HTTPException(
                 status_code=404, detail=f"no plottable column {missing.args[0]!r}"
             ) from None
         # A title only where the toggle changes it, so the snippet stays bare.
         x_label = _changed(x, xalias) if x else None
-        y_labels = [_changed(c, alias) for c, alias in axes]
+        y_labels = [_changed(c, alias) if c else None for c, alias in axes]
         fig = figures.shots_figure(
             series,
             ys,

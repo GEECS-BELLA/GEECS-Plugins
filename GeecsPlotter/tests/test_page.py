@@ -186,11 +186,16 @@ def test_stepping_past_an_empty_scan_keeps_the_picks(
 
 def test_y2_and_y3_lists_fold_away_until_used(client: TestClient) -> None:
     page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
-    assert '<details class="disc">' in page  # closed: nothing in use
+    assert (
+        '<details class="disc">\n            <summary>Y2, Y3</summary>' in page
+    )  # closed
     assert '<option value="" selected>— off —</option>' in page
     assert 'class="swatch t2"' in page and 'class="swatch t3"' in page
     picked = post(client, scan=1, y2=ALIASED)
-    assert '<details class="disc" open>' in picked
+    assert (
+        '<details class="disc" open>\n            <summary>Y2, Y3 (1 on)</summary>'
+        in picked
+    )
     assert f'<option value="{ALIASED}" selected>Gas (psi)</option>' in picked
     assert "&amp;y2=U_Gas%20Pressure%20Alias%3AGas%20%28psi%29" in picked
 

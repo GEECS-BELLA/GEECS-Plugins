@@ -96,3 +96,13 @@ def test_themed_axes_resolve_to_trace_tokens() -> None:
     )
     page = figures.page_figure(fig)
     assert page["layout"]["yaxis2"]["tickfont"]["color"] == "$tok:--trace-2"
+
+
+def test_y3_keeps_its_slot_with_y2_off() -> None:
+    """Y3 is the third colour on the third (free) axis, whether or not Y2 is on."""
+    fig = figures.shots_figure({"a": [1.0], "c": [2.0]}, ["a", None, "c"])
+    assert [t.yaxis for t in fig.data] == ["y", "y3"]
+    assert fig.data[1].marker.color == figures.NOTEBOOK_PALETTE.trace[2]
+    assert fig.layout.yaxis3.anchor == "free"
+    assert fig.layout.yaxis3.overlaying == "y"
+    assert "yaxis2" not in fig.layout.to_plotly_json()  # no Y2 axis drawn

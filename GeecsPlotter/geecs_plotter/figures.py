@@ -140,7 +140,7 @@ def base_layout(palette: Palette) -> dict:
     }
 
 
-def _y_axes(titles: Sequence[str], palette: Palette) -> dict:
+def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
     """The y-axis ladder, one axis per trace, each in its trace's colour.
 
     Copied from the portal's ``_multi_y_layout``: axis 1 (left) owns the
@@ -148,13 +148,16 @@ def _y_axes(titles: Sequence[str], palette: Palette) -> dict:
     3 is free with ``autoshift`` and coloured ticks only, since a free
     axis's rotated title does not shift with it (portal #725) — the
     legend, on whenever there is more than one trace, names it.
+
+    *axes* is ``(slot, title)`` per drawn trace: the slot (0–2, the Y list
+    it came from) decides colour and axis, so Y3 is Y3 with Y2 off.
     """
     layout: dict = {
-        "showlegend": len(titles) > 1,
+        "showlegend": len(axes) > 1,
         # A row above the plot, clear of the right-hand axis.
         "legend": {"orientation": "h", "x": 0, "y": 1.02, "yanchor": "bottom"},
     }
-    for i, title in enumerate(titles):
+    for i, title in axes:
         colour = palette.trace[i]
         axis: dict = {
             "automargin": True,
@@ -195,9 +198,10 @@ def shots_figure(
     ----------
     series : Mapping[str, Sequence]
         Column name → values; a pandas ``DataFrame`` qualifies.
-    y : str or Sequence[str]
-        The plotted column, or up to three (GEECSplotter's Y1–Y3), each on
-        its own y axis in its trace's colour.
+    y : str or Sequence[str or None]
+        The plotted column, or GEECSplotter's Y1–Y3 in their slots, each on
+        its own y axis in its slot's colour; ``None`` is a list that is off
+        (``["a", None, "c"]`` keeps "c" on the third axis, third colour).
     x : str, optional
         The X column; absent (or missing from ``series``) means the shot
         number.
@@ -208,8 +212,8 @@ def shots_figure(
     y_label : str, optional
         The first Y axis's title; shorthand for ``y_labels[0]``.
     y_labels : Sequence[str or None], optional
-        One title per Y column, ``None`` for the column name. Per axis,
-        not per column: the same column may be on two axes.
+        One title per Y slot, ``None`` for the column name. Per axis, not
+        per column: the same column may be on two axes.
     palette : Palette, optional
         :data:`NOTEBOOK_PALETTE` (default) or :data:`THEMED_PALETTE`.
 
@@ -219,12 +223,12 @@ def shots_figure(
         Exactly what the page draws, up to palette.
     """
     ys = [y] if isinstance(y, str) else list(y)
-    if not 1 <= len(ys) <= MAX_Y:
-        raise ValueError(f"plot 1 to {MAX_Y} Y columns, not {len(ys)}")
+    if not 1 <= len(ys) <= MAX_Y or not ys[0]:
+        raise ValueError(f"plot 1 to {MAX_Y} Y columns, Y1 first, not {ys!r}")
     labels = list(y_labels) + [None] * (len(ys) - len(y_labels))
     if y_label is not None:
         labels[0] = y_label
-    titles = [label or name for label, name in zip(labels, ys)]
+    drawn = [(i, name, labels[i] or name) for i, name in enumerate(ys) if name]
     x = x if x and x in series else None
     if x:
         x_values = list(series[x])
@@ -233,7 +237,7 @@ def shots_figure(
     else:
         x_values = list(range(1, len(series[ys[0]]) + 1))
     fig = go.Figure(layout={"template": pio.templates["none"]})
-    for i, (name, title) in enumerate(zip(ys, titles)):
+    for i, name, title in drawn:
         fig.add_scatter(
             x=x_values,
             y=list(series[name]),
@@ -245,6 +249,6 @@ def shots_figure(
     layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": (x_label or x) if x else "shot #"}
     del layout["yaxis"]
-    layout.update(_y_axes(titles, palette))
+    layout.update(_y_axes([(i, title) for i, _, title in drawn], palette))
     fig.update_layout(layout)
     return fig
