@@ -105,22 +105,26 @@
       {% if day %}<input type="hidden" name="day" value="{{ day }}">{% endif %}
       {% if scan %}<input type="hidden" name="scan" value="{{ scan }}">{% endif %}
       <div class="field">
-        <label for="set">Settings</label>
+        <label for="set">Settings set</label>
         <select id="set" name="set" data-switch-set>
           {% for s in sets %}<option value="{{ s }}"{% if s == set %} selected{% endif %}>{{ s }}</option>{% endfor %}
           {% if set not in sets %}<option value="{{ set }}" selected>{{ set }}</option>{% endif %}
         </select>
+        {# The set saves itself, so a first-time user who looks here for a
+           "load" sees why there is only one entry. #}
+        <span class="hint">Every pick saves into this set as you go.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
         <span class="hint mono settings-folder" title="{{ settings_folder }}">{{ settings_folder }}{% if settings_origin == 'local' %} (local: the shared user data folder is not reachable){% endif %}</span>
       </div>
       <div class="field">
         <label for="save-as">Save as</label>
         <div class="row">
-          <input id="save-as" name="save_as" form="pick" autocomplete="off" placeholder="new set name">
+          <input id="save-as" name="save_as" form="pick" autocomplete="off" placeholder="new set name, e.g. HTU jet scan"
+                 value="{{ save_as }}"{% if settings_error and save_as %} autofocus aria-invalid="true" aria-describedby="settings-error"{% endif %}>
           <button class="btn" type="submit" form="pick" formaction="{{ root }}/save-as" id="save-as-go">Save</button>
         </div>
       </div>
       {% if settings_error %}
-        <div class="state" data-state="error">
+        <div class="state" data-state="error" role="alert" id="settings-error">
           <div class="t">Settings problem</div>
           <div class="m">{{ settings_error }}</div>
         </div>

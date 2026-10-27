@@ -77,9 +77,14 @@ def _render(
     name: str,
     *,
     problem: Optional[str] = None,
+    save_as: str = "",
     status_code: int = 200,
 ) -> HTMLResponse:
-    """The page for *day*/*scan* under set *name*; *problem* shown if given."""
+    """The page for *day*/*scan* under set *name*; *problem* shown if given.
+
+    *save_as* refills the Save-as box after a refused name, so it can be
+    corrected rather than retyped.
+    """
     settings = PlotterSettings()
     try:
         name = set_name(name)
@@ -94,6 +99,7 @@ def _render(
             "settings_folder": str(ctx.store.folder),
             "settings_origin": ctx.store.origin,
             "settings_error": problem,
+            "save_as": save_as,
         }
     )
     if day is not None and scan is not None:
@@ -130,6 +136,7 @@ async def _save(ctx: Context, request: Request, *, as_new: bool) -> Response:
             scan,
             form.get("set", DEFAULT_SET),
             problem=str(bad),
+            save_as=form.get("save_as", ""),
             status_code=422,
         )
     return RedirectResponse(_opened(form, target), status_code=303)

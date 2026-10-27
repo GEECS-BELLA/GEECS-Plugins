@@ -82,12 +82,17 @@
   }
   // Enter in the Save-as name saves as, rather than taking the form's
   // first button (Open).
+  // An empty name does nothing but point at the box.
   const saveAs = document.getElementById("save-as");
-  if (saveAs) {
+  const saveGo = document.getElementById("save-as-go");
+  if (saveAs && saveGo) {
     saveAs.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
-      if (saveAs.value.trim()) document.getElementById("save-as-go").click();
+      saveGo.click();
+    });
+    saveGo.addEventListener("click", (event) => {
+      if (!saveAs.value.trim()) { event.preventDefault(); saveAs.focus(); }
     });
   }
 

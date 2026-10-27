@@ -5,7 +5,9 @@ so does this: ``{geecs_data}/GeecsPlotter/settings/``, where
 ``geecs_data`` is ``config.ini [Paths] geecs_data`` (the same folder the
 GEECS database credentials are read from, usually on the shared drive).
 When that key is unset or its folder is not reachable, the sets live in
-``<repo>/user data/GeecsPlotter/settings/`` (gitignored) instead.
+``<repo>/user data/GeecsPlotter/settings/`` (gitignored) instead, where
+``<repo>`` is the main checkout even when the plotter runs from a session
+worktree under ``.claude/worktrees/``, so every copy sees the same sets.
 ``--settings-dir`` overrides both. The folder is chosen once, at start.
 
 A set is a :class:`PlotterSettings` document, ``<name>.json``: readable,
@@ -32,13 +34,28 @@ DEFAULT_SET = "default"
 
 CONFIG_INI = Path("~/.config/geecs_python_api/config.ini").expanduser()
 
-#: ``<repo>/user data/``: the local fallback, beside the checkout.
-LOCAL_USER_DATA = Path(__file__).resolve().parents[2] / "user data"
+
+def checkout_root(package_file: Path) -> Path:
+    """The checkout *package_file* is in, or the main one for a worktree.
+
+    Session worktrees live at ``<repo>/.claude/worktrees/<name>/`` (root
+    CLAUDE.md); their local sets belong with the main checkout's, or each
+    worktree would keep its own and lose the others'.
+    """
+    repo = package_file.resolve().parents[2]
+    if repo.parent.name == "worktrees" and repo.parents[1].name == ".claude":
+        return repo.parents[2]
+    return repo
+
+
+#: ``<repo>/user data/``: the local fallback, beside the (main) checkout.
+LOCAL_USER_DATA = checkout_root(Path(__file__)) / "user data"
 
 _SUBFOLDER = Path("GeecsPlotter") / "settings"
 
-#: A letter or digit first, then letters, digits, ``-``, ``_`` and ``.``.
-_NAME = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+#: A letter or digit first, then letters, digits, spaces, ``-``, ``_`` and
+#: ``.``; never ending in a space or a dot (Windows drops both from names).
+_NAME = re.compile(r"[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?")
 
 Origin = Literal["given", "shared", "local"]
 
@@ -68,13 +85,14 @@ class PlotterSettings(BaseModel):
 def set_name(name: str) -> str:
     """The name as stored (lower case), or :class:`SettingsError`.
 
-    Names compare case-insensitively, as Windows and macOS paths do.
+    Names compare case-insensitively, as Windows and macOS paths do, and
+    runs of spaces count as one.
     """
-    folded = name.strip().lower()
+    folded = " ".join(name.split()).lower()
     if not _NAME.fullmatch(folded):
         raise SettingsError(
-            f"{name!r} is not a settings name: use letters, digits, '-', '_' "
-            "and '.', starting with a letter or digit"
+            f"{name!r} is not a settings name: use letters, digits, spaces, "
+            "'-', '_' and '.', starting with a letter or digit"
         )
     return folded
 
@@ -156,10 +174,23 @@ class SettingsStore:
         try:
             # Only below the root, which exists: never a tree on a bare mount.
             self.folder.mkdir(parents=True, exist_ok=True)
+            if self.origin == "local":
+                _ignore_in_git(self.folder.parents[1])
             _write_whole(path, text)
         except OSError as exc:
             raise SettingsError(f"cannot save {path}: {exc}") from exc
         return path
+
+
+def _ignore_in_git(user_data: Path) -> None:
+    """Make the local ``user data`` folder ignore itself.
+
+    The root ``.gitignore`` lists it too, but a checkout on an older
+    branch does not, and sets must never show up as files to commit.
+    """
+    marker = user_data / ".gitignore"
+    if not marker.exists():
+        marker.write_text("# GeecsPlotter's local settings: never committed.\n*\n")
 
 
 def _write_whole(path: Path, text: str) -> None:

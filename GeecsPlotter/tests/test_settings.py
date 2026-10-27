@@ -32,6 +32,22 @@ def test_a_set_round_trips_as_readable_json(tmp_path: Path) -> None:
     assert not list(path.parent.glob("*.partial"))
 
 
+@pytest.mark.parametrize(
+    ("typed", "stored"),
+    [
+        ("HTU jet scan", "htu jet scan"),
+        ("  HTU   jet  ", "htu jet"),
+        ("run_3.v2", "run_3.v2"),
+    ],
+)
+def test_a_name_may_have_spaces(typed: str, stored: str, tmp_path: Path) -> None:
+    """LabVIEW users name files with spaces; so may a set."""
+    assert set_name(typed) == stored
+    assert (
+        SettingsStore(tmp_path).save(typed, PlotterSettings()).name == f"{stored}.json"
+    )
+
+
 def test_a_name_never_saved_is_the_defaults(tmp_path: Path) -> None:
     store = SettingsStore(tmp_path / "missing")
     assert store.load("default") == PlotterSettings()
@@ -47,7 +63,9 @@ def test_the_default_set_is_listed_first(tmp_path: Path) -> None:
     assert store.names() == ["default", "alpha", "zeta"]
 
 
-@pytest.mark.parametrize("name", ["", "..", ".hidden", "a/b", "a\\b", "x" * 65, "a b"])
+@pytest.mark.parametrize(
+    "name", ["", "  ", "..", ".hidden", "a/b", "a\\b", "x" * 65, "scan.", "-a"]
+)
 def test_a_name_cannot_leave_the_folder(name: str) -> None:
     with pytest.raises(SettingsError):
         set_name(name)
@@ -101,8 +119,42 @@ def test_an_unset_or_unreachable_user_data_folder_falls_back_locally(
 
 
 def test_the_local_fallback_is_gitignored() -> None:
-    gitignore = settings_module.LOCAL_USER_DATA.parent / ".gitignore"
+    gitignore = Path(__file__).resolve().parents[2] / ".gitignore"
     assert "/user data/" in gitignore.read_text().splitlines()
+
+
+def test_a_local_save_makes_the_folder_ignore_itself(tmp_path: Path) -> None:
+    """A checkout on an older branch lacks the root rule; the folder has its own."""
+    user_data = tmp_path / "user data"
+    store = SettingsStore(
+        user_data / "GeecsPlotter" / "settings", "local", root=tmp_path
+    )
+    store.save("default", PlotterSettings())
+    assert (user_data / ".gitignore").read_text().splitlines()[-1] == "*"
+
+
+def test_a_shared_save_writes_no_gitignore(tmp_path: Path) -> None:
+    store = SettingsStore(
+        tmp_path / "GeecsPlotter" / "settings", "shared", root=tmp_path
+    )
+    store.save("default", PlotterSettings())
+    assert not (tmp_path / ".gitignore").exists()
+
+
+@pytest.mark.parametrize(
+    ("package_file", "root"),
+    [
+        ("/r/GEECS-Plugins/GeecsPlotter/geecs_plotter/settings.py", "/r/GEECS-Plugins"),
+        (
+            "/r/GEECS-Plugins/.claude/worktrees/plotter-x/GeecsPlotter/geecs_plotter/settings.py",
+            "/r/GEECS-Plugins",
+        ),
+    ],
+)
+def test_every_worktree_shares_the_main_checkouts_folder(
+    package_file: str, root: str
+) -> None:
+    assert settings_module.checkout_root(Path(package_file)) == Path(root)
 
 
 def test_a_given_folder_wins(tmp_path: Path) -> None:
@@ -275,3 +327,30 @@ def test_a_refused_chmod_still_saves(
     store = SettingsStore(tmp_path)
     store.save("default", PlotterSettings(y_filter="gas"))
     assert store.load("default").y_filter == "gas"
+
+
+def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> None:
+    response = client.post(
+        "/save-as",
+        data={
+            "day": "2026-10-02",
+            "scan": "1",
+            "set": "default",
+            "save_as": "jet/scan",
+        },
+    )
+    assert response.status_code == 422
+    assert 'value="jet/scan"' in response.text
+    assert 'role="alert"' in response.text
+    assert "spaces" in response.text  # the message says what a name may hold
+
+
+def test_the_set_list_says_how_to_add_one(client: TestClient) -> None:
+    """With only "default", the rail says picks save themselves and how to add a set."""
+    page = client.get("/").text
+    assert "saves into this set as you go" in page
+    assert "Use Save as" in page
+    post(client, "/save-as", scan=1, save_as="HTU jet scan")
+    page = client.get("/").text
+    assert '<option value="htu jet scan">htu jet scan</option>' in page
+    assert "Use Save as" not in page
