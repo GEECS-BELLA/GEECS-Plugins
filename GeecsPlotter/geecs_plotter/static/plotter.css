@@ -1,0 +1,6 @@
+/* The plotter's own rules: only what the kit does not settle. */
+.kit .plot { width: 100%; height: 60vh; min-height: 320px; }
+.kit #code { white-space: pre; overflow-x: auto; }
+/* A list box, not a dropdown: the kit fixes every .field select at one
+   row height, which would squash size="10" to a single line. */
+.kit .field select.picks { width: 100%; height: auto; padding: 4px 0; }

@@ -75,6 +75,14 @@ _BOOT_JS = _REPO / "GeecsWebTheme/geecs_web_theme/static/theme-boot.js"
 #: fails, which is the point.
 _DENSITY_TOKENS = {"--pad", "--row-h", "--gap"}
 
+#: Python figure builders whose ``$tok:--name`` sentinels the token check
+#: reads (they author colours for the page). scripts/ci_select.py selects
+#: the theme leg for each, pinned by tests/test_ci_select.py.
+_TOKEN_SOURCES = [
+    "GEECS-DataPortal/geecs_portal/figures.py",
+    "GeecsPlotter/geecs_plotter/figures.py",
+]
+
 #: The web surfaces bound by the rule. Adding a surface means adding it
 #: here — a new page that skips the tokens should fail loudly, not quietly.
 _SURFACES = [
@@ -96,6 +104,9 @@ _SURFACES = [
     "GeecsScanner/geecs_scanner/templates/console.html",
     "GeecsScanner/geecs_scanner/static/scanner.css",
     "GeecsScanner/geecs_scanner/static/scanner.js",
+    "GeecsPlotter/geecs_plotter/templates/index.html",
+    "GeecsPlotter/geecs_plotter/static/plotter.css",
+    "GeecsPlotter/geecs_plotter/static/plotter.js",
     "GeecsPanels/geecs_panels/templates/index.html",
     "GeecsPanels/geecs_panels/templates/camera.html",
     "GeecsPanels/geecs_panels/static/panels.css",
@@ -279,7 +290,7 @@ def test_every_referenced_token_is_defined() -> None:
     for tokens in defined_tokens(_THEME_CSS.read_text()).values():
         defined |= tokens
     problems = []
-    for relative in _SURFACES + ["GEECS-DataPortal/geecs_portal/figures.py"]:
+    for relative in _SURFACES + _TOKEN_SOURCES:
         path = _REPO / relative
         text = path.read_text()
         names: set[str] = set()

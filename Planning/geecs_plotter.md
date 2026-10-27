@@ -38,13 +38,13 @@ The table reports what is recorded there.
 | Scan-info text | keep | a metadata table on the page |
 | xy plots: pars 2–4 vs par 1, per shot; zoom, cursor, autoscale, same-scale | keep (2-Parameter mode = top priority); one Plot tab, per-shot ⇄ binned toggle | M1, then M2; Plotly built-ins; same-scale = linked axes |
 | Sub-tabs Fit · L2L3 · All3 · histogram | adapt | any column as X covers L2L3; histogram = a trace type; fit deferred |
-| "cf file" sub-tab | unknown | you know what it does — say so in the first session |
+| "cf file" sub-tab | drop (owner, 2026-10-26) | not built |
 | Binned plot: bin by `Bin #`, median centre, quartile bars | keep (flagship) | M2; `BinningConfig(agg="median", err="iqr")` |
 | Fixed/auto bin interval; use-bin#, same-scale, subtract-mean | keep / adapt | `bin_width` / `bin_edges`; toggles behind a settings popup; subtract-mean = a data-utils transform |
 | Fitting, "gauss prop", peak/valley | defer | not in M1–M5 |
 | triple/double/single/errors/**data** sub-tabs; export to Origin / txt | adapt | multi-Y; the data sub-tab = a table + CSV + the notebook snippet |
 | Overview: per-bin averaged images (xcorr align); Intensity: trace waterfall | keep (later), xcorr defer; waterfall rastered, colour = intensity | images out of scope here; M3's heatmap is the trace step |
-| Setup · 3D graph · stats · XY Graphs · MultiScan · Analysis tabs | unknown | one line each from you: used or not |
+| Setup · 3D graph · stats · XY Graphs · MultiScan · Analysis tabs | owner, 2026-10-26: Setup, 3D graph, stats, XY Graphs, MultiScan used; Analysis not | the used five need a milestone each after M5; Analysis dropped |
 
 Two numbers to pin from the LabVIEW source, which you have: the binned centre
 statistic (median?) and the exact quartile error-bar definition. Never commit
