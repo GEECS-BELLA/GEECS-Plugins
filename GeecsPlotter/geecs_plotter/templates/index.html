@@ -106,7 +106,7 @@
               <span class="hint">Y plots</span>
               <span class="spacer"></span>
               <div class="seg" role="group" aria-label="How many Y plots">
-                {% for n in (1, 2, 3) %}<button type="button" data-toggle-for="ycount" data-value="{{ n }}" aria-pressed="{{ 'true' if ycount == n else 'false' }}">{{ n }}</button>{% endfor %}
+                {% for n in ycounts %}<button type="button" data-toggle-for="ycount" data-value="{{ n }}" aria-pressed="{{ 'true' if ycount == n else 'false' }}">{{ n }}</button>{% endfor %}
               </div>
             </div>
           </div>

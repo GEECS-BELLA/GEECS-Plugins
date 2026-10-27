@@ -28,6 +28,7 @@ from geecs_plotter import scans
 from geecs_plotter.routes import Context, read_form
 from geecs_plotter.settings import (
     DEFAULT_SET,
+    MAX_Y_LISTS,
     NameRefused,
     PlotterSettings,
     SettingsError,
@@ -238,6 +239,7 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "y2f": settings.y2_filter,
         "y3f": settings.y3_filter,
         "ycount": settings.y_count,
+        "ycounts": range(1, MAX_Y_LISTS + 1),
         "y2_kept": "",
         "y3_kept": "",
     }
