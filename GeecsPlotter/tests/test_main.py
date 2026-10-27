@@ -104,6 +104,14 @@ def test_a_linux_host_with_no_display_opens_nothing(
     assert launcher.has_display({})
 
 
+def test_open_browser_honours_a_missing_display(
+    browsers: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(launcher, "has_display", lambda: False)
+    assert not launcher.open_browser("http://x/", "chrome")
+    assert browsers["chrome"].opened == []
+
+
 def test_ctrl_c_exits_quietly(monkeypatch: pytest.MonkeyPatch) -> None:
     """uvicorn re-raises the Ctrl-C after shutdown; main() must not show it."""
     import uvicorn
