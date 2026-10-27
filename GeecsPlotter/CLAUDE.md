@@ -34,8 +34,12 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   `$tok:--name` sentinels `plotter.js` resolves against the theme) and
   `code`, the snippet that rebuilds the frame and the figure with the same
   functions (`tests/test_app.py::test_the_code_rebuilds_the_same_numbers`).
-- **The URL is the selection** (`?day=&scan=&x=&y=`). `x` absent is the
-  scan variable ("autofill par1"); `x=` empty is the shot number.
+- **The URL is the selection**: `day`, `scan`, `x`, `y`, the filters `xf` /
+  `yf`, and the toggles `xalias` / `yalias` / `xauto` (all three default
+  on). With `xauto` on, X is the open scan's variable whatever `x` says
+  ("autofill par1"); a hand pick writes `xauto=false`, and then `x=` empty
+  is the shot number. Settings only, never the column lists, so the URL
+  stays short however many columns a scan has.
 - **The theme and kit are imported** (`geecs_web_theme.web`); every colour
   is a token. `GeecsWebTheme/tests/test_no_literal_colours.py` walks this
   package's template, CSS and script, and `figures.py` in the token check.

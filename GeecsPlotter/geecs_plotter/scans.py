@@ -12,6 +12,7 @@ from typing import Optional
 
 import pandas as pd
 from geecs_data_utils import tiled_schema
+from geecs_data_utils.data.sfile import column_alias
 from geecs_data_utils.folder_catalog import FolderScanCatalog, folder_uid
 from geecs_data_utils.scan_frame import scan_frame
 from geecs_data_utils.scan_paths import ScanPaths
@@ -127,3 +128,21 @@ def plot_series(frame: pd.DataFrame, names: list[str]) -> dict[str, pd.Series]:
 def shot_axis(frame: pd.DataFrame) -> pd.Series:
     """The shot numbers, one per row (the portal's shot-identity rule)."""
     return tiled_schema.shot_axis_for_frame(frame)
+
+
+def display_name(column: str, use_alias: bool) -> str:
+    """The name shown for *column*: its LabVIEW alias when asked and it has one.
+
+    Parameters
+    ----------
+    column : str
+        The s-file column, e.g. ``"U_ESP Position.Axis 1 Alias:Jet_X (mm)"``.
+    use_alias : bool
+        GEECSplotter's "use aliases" toggle for this axis.
+
+    Returns
+    -------
+    str
+        ``"Jet_X (mm)"`` with the toggle on, else the column unchanged.
+    """
+    return (column_alias(column) or column) if use_alias else column

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import SCAN_VARIABLE
+from tests.conftest import ALIASED, SCAN_VARIABLE
 
 
 def test_columns_lists_the_sfile_and_the_scan_variable(client: TestClient) -> None:
@@ -114,3 +114,32 @@ def test_an_unpadded_scan_folder_opens(client: TestClient, share: Path) -> None:
     (day / "analysis" / "s2.txt").rename(day / "analysis" / "s7.txt")
     body = client.get("/api/columns", params={"day": "2026-10-02", "scan": 7}).json()
     assert "U_ICT charge" in body["columns"]
+
+
+def test_the_alias_toggle_titles_the_axis(client: TestClient) -> None:
+    params = {"day": "2026-10-02", "scan": 1, "x": SCAN_VARIABLE, "y": ALIASED}
+    raw = client.get(
+        "/api/figure", params={**params, "xalias": "false", "yalias": "false"}
+    ).json()
+    assert raw["figure"]["layout"]["yaxis"]["title"]["text"] == ALIASED
+    shown = client.get("/api/figure", params={**params, "xalias": "false"}).json()
+    # The alias is the default (the owner's ruling).
+    default = client.get("/api/figure", params=params).json()
+    assert default["figure"]["layout"]["yaxis"]["title"]["text"] == "Gas (psi)"
+    assert shown["figure"]["layout"]["yaxis"]["title"]["text"] == "Gas (psi)"
+    # X has no alias: the toggle leaves it as it is.
+    both = client.get(
+        "/api/figure", params={**params, "xalias": "true", "yalias": "true"}
+    ).json()
+    assert both["figure"]["layout"]["xaxis"]["title"]["text"] == SCAN_VARIABLE
+    assert "y_label='Gas (psi)'" in shown["code"]
+    assert "_label=" not in raw["code"]
+
+
+def test_one_column_on_both_axes_keeps_each_toggle(client: TestClient) -> None:
+    """X and Y may be the same column; each axis title follows its own toggle."""
+    params = {"day": "2026-10-02", "scan": 1, "x": ALIASED, "y": ALIASED}
+    body = client.get("/api/figure", params={**params, "yalias": "false"}).json()
+    layout = body["figure"]["layout"]
+    assert layout["xaxis"]["title"]["text"] == "Gas (psi)"
+    assert layout["yaxis"]["title"]["text"] == ALIASED

@@ -34,31 +34,71 @@
         </div>
         <div class="field">
           <label for="scan">Scan</label>
-          <input id="scan" name="scan" type="number" min="1" value="{{ scan or '' }}" required>
+          <input id="scan" name="scan" type="number" min="1" value="{{ scan or '' }}" required data-auto-open>
         </div>
+        {# The toggles' state, on every page: a scan that is not found (no
+           lists) must not reset them on the next Open. #}
+        <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
+        <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
+        <input type="hidden" name="xauto" value="{{ 'true' if xauto else 'false' }}">
+        {% if not columns %}
+          {# The filters and the picks too, so stepping past a scan with
+             nothing to plot carries them into the next scan opened. #}
+          <input type="hidden" name="xf" value="{{ xf }}">
+          <input type="hidden" name="yf" value="{{ yf }}">
+          {% if asked_x is not none %}<input type="hidden" name="x" value="{{ asked_x }}">{% endif %}
+          {% if asked_y is not none %}<input type="hidden" name="y" value="{{ asked_y }}">{% endif %}
+        {% endif %}
         <button class="btn primary" type="submit">Open</button>
       </div>
       {% if columns %}
         <div class="group">
           <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots</span></div>
           {# One list per axis, each with its own substring filter (LabVIEW's
-             par listboxes). The filter rebuilds the list; a click, or Enter,
-             picks — arrow keys only move through the list. #}
+             par listboxes). The filter rebuilds the list and rides the URL;
+             a click, or Enter, picks — arrow keys only move through the list;
+             a double-click copies the row's text into the filter. #}
           <div class="field">
-            <label for="x">X</label>
-            <input id="x-filter" type="search" autocomplete="off" placeholder="filter X columns"
+            <div class="row">
+              <label for="x">X</label>
+              <span class="spacer"></span>
+              {# GEECSplotter's "use aliases", per axis. #}
+              <div class="seg" role="group" aria-label="X column names">
+                <button type="button" data-toggle-for="xalias" data-value="false" aria-pressed="{{ 'false' if xalias else 'true' }}">name</button>
+                <button type="button" data-toggle-for="xalias" data-value="true" aria-pressed="{{ 'true' if xalias else 'false' }}">alias</button>
+              </div>
+            </div>
+            <div class="row">
+              {# GEECSplotter's "autofill par1": X is the scan variable named in
+                 the scan's ini, for every scan opened. #}
+              <span class="hint">X = scan variable</span>
+              <span class="spacer"></span>
+              <div class="seg" role="group" aria-label="X follows the scan variable">
+                <button type="button" data-toggle-for="xauto" data-value="true" aria-pressed="{{ 'true' if xauto else 'false' }}">auto</button>
+                <button type="button" data-toggle-for="xauto" data-value="false" aria-pressed="{{ 'false' if xauto else 'true' }}">off</button>
+              </div>
+            </div>
+            <input id="x-filter" name="xf" value="{{ xf }}" type="search" autocomplete="off" placeholder="filter X columns"
                    aria-label="Filter X columns" data-filter-for="x">
             <select id="x" name="x" size="10" class="picks" data-pick>
               <option value=""{% if not x %} selected{% endif %}>shot #</option>
-              {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ xnames[c] }}</option>{% endfor %}
             </select>
           </div>
           <div class="field">
-            <label for="y">Y</label>
-            <input id="y-filter" type="search" autocomplete="off" placeholder="filter Y columns"
+            <div class="row">
+              <label for="y">Y</label>
+              <span class="spacer"></span>
+              {# GEECSplotter's "use aliases", per axis. #}
+              <div class="seg" role="group" aria-label="Y column names">
+                <button type="button" data-toggle-for="yalias" data-value="false" aria-pressed="{{ 'false' if yalias else 'true' }}">name</button>
+                <button type="button" data-toggle-for="yalias" data-value="true" aria-pressed="{{ 'true' if yalias else 'false' }}">alias</button>
+              </div>
+            </div>
+            <input id="y-filter" name="yf" value="{{ yf }}" type="search" autocomplete="off" placeholder="filter Y columns"
                    aria-label="Filter Y columns" data-filter-for="y">
             <select id="y" name="y" size="10" class="picks" data-pick>
-              {% for c in columns %}<option value="{{ c }}"{% if c == y %} selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == y %} selected{% endif %}>{{ ynames[c] }}</option>{% endfor %}
             </select>
           </div>
         </div>
@@ -86,14 +126,14 @@
       <article class="panel">
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          <span class="dim">{{ y }} vs {{ x or 'shot #' }}</span>
+          <span class="dim">{{ ynames[y] }} vs {{ xnames[x] if x else 'shot #' }}</span>
         </header>
         <div class="body">
           <div class="state" data-state="loading" id="plot-state">
             <div class="t">Loading the figure…</div>
           </div>
           <div id="plot" class="plot"
-               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}"></div>
+               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}"></div>
           <details class="disc">
             <summary>Notebook code</summary>
             <pre class="well mono" id="code"></pre>

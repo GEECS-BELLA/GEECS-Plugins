@@ -18,8 +18,12 @@ Then open <http://localhost:8600>. The data root and experiment come from
 (`[Paths] GEECS_DATA_LOCAL_BASE_PATH`, `[Experiment] expt`); pass
 `--experiment` to read another experiment's folder.
 
-A plot's URL is the plot: `/?day=2026-10-02&scan=3&x=<column>&y=<column>`.
-Leave `x` out for the scan variable, set it empty for the shot number.
+A plot's URL is the plot, filters and toggles included; bookmark it to
+save a setup. X follows the scan's variable by default ("X = scan
+variable: auto"); a link to a hand-picked X carries `xauto=false`:
+`/?day=2026-10-02&scan=3&xauto=false&x=<column>&y=<column>`, with `x=`
+empty for the shot number. Column names show as their LabVIEW aliases
+unless an axis's toggle says "name" (`xalias=false` / `yalias=false`).
 
 ## Reproduce a plot in a notebook
 

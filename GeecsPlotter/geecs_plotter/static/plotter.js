@@ -6,14 +6,72 @@
 
 (function () {
   const form = document.getElementById("pick");
+  const DOUBLE_CLICK_MS = 500;
+  const AUTO_OPEN_MS = 500;
+  // A hand-picked X turns "X = scan variable" off, or the next page would
+  // put the scan variable straight back.
+  function pick(select) {
+    if (select.id === "x" && form.elements.xauto) form.elements.xauto.value = "false";
+    form.requestSubmit();
+  }
+
   // A list box fires "change" on every arrow key, so the pick is a click or
-  // Enter: arrowing through a filtered list must not reload the page.
+  // Enter: arrowing through a filtered list must not reload the page. The
+  // click waits out the OS double-click window (500 ms is Windows' default)
+  // so a double-click can claim it instead.
   for (const select of document.querySelectorAll("[data-pick]")) {
     const picked = select.value;
-    const submitIfMoved = () => { if (select.value !== picked) form.requestSubmit(); };
-    select.addEventListener("click", submitIfMoved);
+    let pending = null;
+    select.addEventListener("click", () => {
+      clearTimeout(pending);
+      pending = setTimeout(() => { if (select.value !== picked) pick(select); }, DOUBLE_CLICK_MS);
+    });
+    select.addEventListener("dblclick", (event) => {
+      clearTimeout(pending);
+      const option = event.target.closest("option") || select.selectedOptions[0];
+      const filter = document.querySelector(`[data-filter-for="${select.id}"]`);
+      if (option && filter) {
+        filter.value = option.text;
+        filter.dispatchEvent(new Event("input"));
+      }
+    });
     select.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") { event.preventDefault(); form.requestSubmit(); }
+      if (event.key === "Enter") { event.preventDefault(); pick(select); }
+    });
+  }
+
+  // Stepping the scan number opens that scan (GEECSplotter's scan stepper).
+  // It waits out a pause, so typing "12" does not open scan 1 first and a
+  // held arrow key does not reload on every step.
+  // The next page puts the cursor back in the box, so the arrow keys keep
+  // stepping; the marker is per tab and best-effort (storage may be off).
+  const STEPPED = "geecs-plotter:stepped";
+  const scanBox = document.querySelector("[data-auto-open]");
+  if (scanBox) {
+    try {
+      if (sessionStorage.getItem(STEPPED)) {
+        sessionStorage.removeItem(STEPPED);
+        scanBox.focus();
+      }
+    } catch (_) { /* no storage: the stepper still works, one key at a time */ }
+    let pending = null;
+    scanBox.addEventListener("input", () => {
+      clearTimeout(pending);
+      pending = setTimeout(() => {
+        if (scanBox.value && scanBox.checkValidity() && form.elements.day.value) {
+          try { sessionStorage.setItem(STEPPED, "1"); } catch (_) { /* see above */ }
+          form.requestSubmit();
+        }
+      }, AUTO_OPEN_MS);
+    });
+  }
+
+  // The two-way toggles (name | alias, X = scan variable): set the hidden
+  // field and resubmit; the filters ride along in the form.
+  for (const button of document.querySelectorAll("[data-toggle-for]")) {
+    button.addEventListener("click", () => {
+      form.elements[button.dataset.toggleFor].value = button.dataset.value;
+      form.requestSubmit();
     });
   }
 
@@ -26,14 +84,18 @@
     const picked = select.value;
     const matches = () => {
       const needle = filter.value.trim().toLowerCase();
-      return all.filter((o) => !needle || o.text.toLowerCase().includes(needle));
+      // The shown name (an alias, with the toggle on) or the column itself.
+      return all.filter((o) => !needle || o.text.toLowerCase().includes(needle)
+        || o.value.toLowerCase().includes(needle));
     };
-    filter.addEventListener("input", () => {
+    const apply = () => {
       const shown = new Set(matches().map((o) => o.value));
       select.replaceChildren(...all
         .filter((o) => shown.has(o.value) || o.value === "" || o.value === picked)
         .map((o) => new Option(o.text, o.value, false, o.value === picked)));
-    });
+    };
+    filter.addEventListener("input", apply);
+    if (filter.value) apply();  // a filter carried in from the URL
     // Enter takes the one match left (the kit picker's rule); otherwise it
     // stays in the box instead of submitting the form.
     filter.addEventListener("keydown", (event) => {
@@ -42,7 +104,7 @@
       const left = matches().filter((o) => o.value !== "");
       if (left.length === 1) {
         select.value = left[0].value;
-        form.requestSubmit();
+        pick(select);
       }
     });
   }

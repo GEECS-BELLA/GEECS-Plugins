@@ -1,7 +1,11 @@
 """The one page: a day + scan form, the column pickers, the plot.
 
-The selection lives in the URL (``?day=&scan=&x=&y=``), so a link is the
-plot. The page renders the pick lists server-side; its script fetches the
+The selection lives in the URL (``?day=&scan=&x=&y=&xf=&yf=&xalias=
+&yalias=&xauto=``), so a link is the plot. ``xauto`` defaults on and then
+overrides ``x`` with the open scan's variable; a link to a hand-picked X
+carries ``xauto=false``, which the page writes on every hand pick.
+
+The page renders the pick lists server-side; its script fetches the
 figure from ``/api/figure`` and draws it.
 """
 
@@ -31,6 +35,11 @@ def register(router: APIRouter, ctx: Context) -> None:
         scan: Optional[int] = None,
         x: Optional[str] = None,
         y: Optional[str] = None,
+        xalias: bool = True,
+        yalias: bool = True,
+        xauto: bool = True,
+        xf: str = "",
+        yf: str = "",
     ) -> HTMLResponse:
         """The plotter page; without a day and scan, the empty form."""
         page = {
@@ -40,6 +49,14 @@ def register(router: APIRouter, ctx: Context) -> None:
             "columns": [],
             "x": "",
             "y": "",
+            "xalias": xalias,
+            "yalias": yalias,
+            "xauto": xauto,
+            "xf": xf,
+            "yf": yf,
+            # What the URL asked for, carried through a page with no lists.
+            "asked_x": x,
+            "asked_y": y,
         }
         if day is not None and scan is not None:
             try:
@@ -50,9 +67,13 @@ def register(router: APIRouter, ctx: Context) -> None:
                 frame = scans.load_frame(run)
                 picks = scans.columns(frame)
                 page["columns"] = picks
+                page["xnames"] = {c: scans.display_name(c, xalias) for c in picks}
+                page["ynames"] = {c: scans.display_name(c, yalias) for c in picks}
                 page["shots"] = len(frame)
-                # x absent = GEECSplotter's "autofill par1"; x="" = shot number.
-                chosen_x = scans.default_x(run, picks) if x is None else x
+                # GEECSplotter's "autofill par1": with xauto (the default) X is
+                # the scan variable of whichever scan is open. With it off, x
+                # absent is the scan variable too and x="" is the shot number.
+                chosen_x = scans.default_x(run, picks) if xauto or x is None else x
                 page["x"] = chosen_x if chosen_x in picks else ""
                 # Default Y: the first measurement, not the bookkeeping.
                 others = [
