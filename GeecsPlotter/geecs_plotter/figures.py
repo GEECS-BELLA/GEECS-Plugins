@@ -141,7 +141,8 @@ def shots_figure(
     *,
     x: Optional[str] = None,
     shot: Optional[Sequence] = None,
-    pretty: Optional[Mapping[str, str]] = None,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
     palette: Palette = NOTEBOOK_PALETTE,
 ) -> go.Figure:
     """The per-shot scatter: one marker per shot, ``y`` against ``x``.
@@ -157,8 +158,9 @@ def shots_figure(
         number.
     shot : Sequence, optional
         The shot numbers; defaults to 1..n.
-    pretty : Mapping[str, str], optional
-        Column → the name its axis title shows (the alias toggle).
+    x_label, y_label : str, optional
+        The axis titles, when not the column names (the alias toggles).
+        One per axis, not per column: X and Y may be the same column.
     palette : Palette, optional
         :data:`NOTEBOOK_PALETTE` (default) or :data:`THEMED_PALETTE`.
 
@@ -175,17 +177,16 @@ def shots_figure(
         x_values = list(shot)
     else:
         x_values = list(range(1, len(y_values) + 1))
-    names = pretty or {}
     fig = go.Figure(layout={"template": pio.templates["none"]})
     fig.add_scatter(
         x=x_values,
         y=y_values,
         mode="markers",
-        name=names.get(y, y),
+        name=y_label or y,
         marker={"color": palette.trace[0], "size": 5.0},
     )
     layout = base_layout(palette)
-    layout["xaxis"]["title"] = {"text": names.get(x, x) if x else "shot #"}
-    layout["yaxis"]["title"] = {"text": names.get(y, y)}
+    layout["xaxis"]["title"] = {"text": (x_label or x) if x else "shot #"}
+    layout["yaxis"]["title"] = {"text": y_label or y}
     fig.update_layout(layout)
     return fig

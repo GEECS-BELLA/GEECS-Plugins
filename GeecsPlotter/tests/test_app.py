@@ -127,5 +127,14 @@ def test_the_alias_toggle_titles_the_axis(client: TestClient) -> None:
         "/api/figure", params={**params, "xalias": "true", "yalias": "true"}
     ).json()
     assert both["figure"]["layout"]["xaxis"]["title"]["text"] == SCAN_VARIABLE
-    assert "pretty={'U_Gas Pressure Alias:Gas (psi)': 'Gas (psi)'}" in shown["code"]
-    assert "pretty=" not in raw["code"]
+    assert "y_label='Gas (psi)'" in shown["code"]
+    assert "_label=" not in raw["code"]
+
+
+def test_one_column_on_both_axes_keeps_each_toggle(client: TestClient) -> None:
+    """X and Y may be the same column; each axis title follows its own toggle."""
+    params = {"day": "2026-10-02", "scan": 1, "x": ALIASED, "y": ALIASED}
+    body = client.get("/api/figure", params={**params, "xalias": "true"}).json()
+    layout = body["figure"]["layout"]
+    assert layout["xaxis"]["title"]["text"] == "Gas (psi)"
+    assert layout["yaxis"]["title"]["text"] == ALIASED

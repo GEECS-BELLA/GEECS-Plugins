@@ -36,6 +36,10 @@
           <label for="scan">Scan</label>
           <input id="scan" name="scan" type="number" min="1" value="{{ scan or '' }}" required>
         </div>
+        {# The alias toggles' state, on every page: a scan that is not found
+           (no lists) must not reset them on the next Open. #}
+        <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
+        <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
         <button class="btn primary" type="submit">Open</button>
       </div>
       {% if columns %}
@@ -49,7 +53,6 @@
               <label for="x">X</label>
               <span class="spacer"></span>
               {# GEECSplotter's "use aliases", per axis. #}
-              <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
               <div class="seg" role="group" aria-label="X column names">
                 <button type="button" data-alias-for="xalias" data-value="false" aria-pressed="{{ 'false' if xalias else 'true' }}">name</button>
                 <button type="button" data-alias-for="xalias" data-value="true" aria-pressed="{{ 'true' if xalias else 'false' }}">alias</button>
@@ -67,7 +70,6 @@
               <label for="y">Y</label>
               <span class="spacer"></span>
               {# GEECSplotter's "use aliases", per axis. #}
-              <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
               <div class="seg" role="group" aria-label="Y column names">
                 <button type="button" data-alias-for="yalias" data-value="false" aria-pressed="{{ 'false' if yalias else 'true' }}">name</button>
                 <button type="button" data-alias-for="yalias" data-value="true" aria-pressed="{{ 'true' if yalias else 'false' }}">alias</button>

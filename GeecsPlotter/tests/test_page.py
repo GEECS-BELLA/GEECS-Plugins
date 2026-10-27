@@ -116,3 +116,12 @@ def test_each_axis_lists_aliases_on_its_own_toggle(client: TestClient) -> None:
     assert 'name="yalias" value="true"' in page
     assert 'name="xalias" value="false"' in page
     assert "xalias=false&amp;yalias=true" in page
+
+
+def test_the_toggles_survive_a_missing_scan(client: TestClient) -> None:
+    """No lists to show, but the next Open keeps the alias choice."""
+    page = client.get(
+        "/", params={"day": "2026-10-02", "scan": 9, "yalias": "true"}
+    ).text
+    assert 'data-state="error"' in page
+    assert 'name="yalias" value="true"' in page

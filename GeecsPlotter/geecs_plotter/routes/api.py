@@ -47,7 +47,8 @@ def figure_code(
     y: str,
     x: Optional[str],
     experiment: str = "",
-    pretty: Optional[dict[str, str]] = None,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
 ) -> str:
     """The notebook snippet that rebuilds the frame and the figure.
 
@@ -63,8 +64,8 @@ def figure_code(
         The X column; ``None`` plots against the shot number.
     experiment : str, optional
         Named only when the app was started with one.
-    pretty : dict, optional
-        The axis names the alias toggles chose; only those that differ.
+    x_label, y_label : str, optional
+        The axis titles the alias toggles chose, when not the column names.
 
     Returns
     -------
@@ -74,14 +75,15 @@ def figure_code(
     where = f", experiment={experiment!r}" if experiment else ""
     names = [y, x] if x else [y]
     x_arg = f", x={x!r}" if x else ""
-    pretty_arg = f", pretty={pretty!r}" if pretty else ""
+    labels = f", x_label={x_label!r}" if x_label else ""
+    labels += f", y_label={y_label!r}" if y_label else ""
     return (
         "from datetime import date\n"
         "from geecs_plotter import figures, scans\n\n"
         f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
         "frame = scans.load_frame(run)\n"
         f"series = scans.plot_series(frame, {names!r})\n"
-        f"fig = figures.shots_figure(series, {y!r}{x_arg}, shot=scans.shot_axis(frame){pretty_arg})\n"
+        f"fig = figures.shots_figure(series, {y!r}{x_arg}, shot=scans.shot_axis(frame){labels})\n"
         "fig.show()\n"
     )
 
@@ -119,17 +121,18 @@ def register(router: APIRouter, ctx: Context) -> None:
             raise HTTPException(
                 status_code=404, detail=f"no plottable column {missing.args[0]!r}"
             ) from None
-        pretty = {
-            column: shown
-            for column, use in ((x, xalias), (y, yalias))
-            if column and (shown := scans.display_name(column, use)) != column
-        }
+        # A title only where the toggle changes it, so the snippet stays bare.
+        x_label = scans.display_name(x, xalias) if x else None
+        x_label = x_label if x_label != x else None
+        y_label = scans.display_name(y, yalias)
+        y_label = y_label if y_label != y else None
         fig = figures.shots_figure(
             series,
             y,
             x=x or None,
             shot=scans.shot_axis(frame),
-            pretty=pretty,
+            x_label=x_label,
+            y_label=y_label,
             palette=figures.THEMED_PALETTE,
         )
         body = FigureResponse(
@@ -137,7 +140,7 @@ def register(router: APIRouter, ctx: Context) -> None:
             y=y,
             shots=len(frame),
             figure=figures.page_figure(fig),
-            code=figure_code(day, scan, y, x or None, ctx.experiment, pretty),
+            code=figure_code(day, scan, y, x or None, ctx.experiment, x_label, y_label),
         )
         return _json(body)
 
