@@ -48,9 +48,16 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
 - **The settings folder** is chosen once at start
   (`settings.resolve_store`): `--settings-dir`, else
   `{config.ini [Paths] geecs_data}/GeecsPlotter/settings/` (the LabVIEW
-  `user data` folder, usually shared), else `<repo>/user data/…`
-  (gitignored). The page shows which. Settings writes are the only writes
-  this package makes, and never under the data share's scan tree.
+  `user data` folder, usually shared), else `<repo>/user data/…`, where
+  `<repo>` is the main checkout even from a `.claude/worktrees/` worktree
+  (`settings.checkout_root`), so every copy shares one folder; a local save
+  writes `user data/.gitignore` (`*`) besides the root rule. The page
+  shows which folder. Settings writes are the only writes this package
+  makes, and never under the data share's scan tree.
+- **Set names** are lower-cased letters, digits, spaces, `-`, `_` and `.`,
+  starting with a letter or digit and never ending in a space or a dot. A
+  refused Save-as name is `NameRefused`, shown on the box (the kit's
+  `aria-invalid` + `.err`); a store problem is the rail's error state.
 - **The theme and kit are imported** (`geecs_web_theme.web`); every colour
   is a token. `GeecsWebTheme/tests/test_no_literal_colours.py` walks this
   package's template, CSS and script, and `figures.py` in the token check.

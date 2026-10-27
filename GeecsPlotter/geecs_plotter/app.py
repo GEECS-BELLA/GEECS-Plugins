@@ -55,7 +55,7 @@ def create_app(
     settings_dir : Path or str, optional
         Where named settings sets are saved; default
         ``{geecs_data}/GeecsPlotter/settings`` from ``config.ini``, else
-        ``<repo>/user data/GeecsPlotter/settings``
+        ``<main checkout>/user data/GeecsPlotter/settings``
         (:func:`geecs_plotter.settings.resolve_store`).
     root_path : str, optional
         The URL prefix behind a prefix-preserving reverse proxy.
