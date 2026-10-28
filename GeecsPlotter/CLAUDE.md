@@ -1,7 +1,8 @@
 # GeecsPlotter — Developer Context for Claude
 
-GEECSplotter (the LabVIEW tool) as a web app: a scan's s-file, one column
-against another, per shot (M1) and binned (M2). The brief and its
+GEECSplotter (the LabVIEW tool) as a web app: a scan's s-file, up to three
+columns (Y1–Y3, each on its own colour-coded axis) against one X, per shot
+(M1) and binned (M2). The brief and its
 milestones are `Planning/geecs_plotter.md` until M5 lands; its decisions
 are settled — do not reopen them here.
 
@@ -64,6 +65,20 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   starting with a letter or digit and never ending in a space or a dot. A
   refused Save-as name is `NameRefused`, shown on the box (the kit's
   `aria-invalid` + `.err`); a store problem is the rail's error state.
+- **Y2 and Y3** are GEECSplotter's extra Y lists. `y_count` (the rail's
+  "Y plots 1 | 2 | 3") says how many show and draw; lists past it keep
+  their picks. Each list owns a slot (colour, axis id), so Y3 is Y3 with
+  Y2 off (`shots_figure(…, ["a", None, "c"])`). `figures._y_axes`: Y1
+  left with the grid; every other axis on the right with a coloured title,
+  the second one free at the paper's edge with the plot narrowed to
+  `_RIGHT_DOMAIN` — not the portal's `autoshift`, which cannot carry a
+  title. The rail's swatch is the same `--trace-N` token. On a scan
+  without a Y2/Y3 column it draws nothing, but the list keeps the pick
+  ("not in this scan") so the next click does not erase it.
+- **Replacing a saved set** is Save as onto its name (the box offers the
+  saved names): `plotter.js` asks in a rung-3 `<dialog>` (focus on "Keep
+  it"), whose Replace posts `overwrite=true`; without it the server
+  refuses a taken name (`NameRefused`).
 - **The theme and kit are imported** (`geecs_web_theme.web`); every colour
   is a token. `GeecsWebTheme/tests/test_no_literal_colours.py` walks this
   package's template, CSS and script, and `figures.py` in the token check.
@@ -72,8 +87,8 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
 ## Accepted debt
 
 - **`figures.py` is a copy** of the portal's `geecs_portal/figures.py`
-  (`Palette`, the sentinel walk, `base_layout`, `shots_figure`), cut to one
-  Y column. The maintainer wants a separate package; the two copies may
+  (`Palette`, the sentinel walk, `base_layout`, `shots_figure`, the multi-Y
+  ladder as `_y_axes`), cut to three Y columns. The maintainer wants a separate package; the two copies may
   drift until portal/plotter integration, a later effort. Copy further
   portal code (the multi-Y ladder, `binned_figure`) the same way when a
   milestone needs it; never import `geecs_portal`.

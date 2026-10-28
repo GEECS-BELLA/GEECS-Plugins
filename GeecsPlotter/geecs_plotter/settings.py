@@ -28,7 +28,10 @@ from datetime import date
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+#: Y, Y2 and Y3: the most Y lists a set holds (``figures.MAX_Y`` draws them).
+MAX_Y_LISTS = 3
 
 #: The set a page opens when the URL names none.
 DEFAULT_SET = "default"
@@ -82,10 +85,21 @@ class PlotterSettings(BaseModel):
     x: Optional[str] = None
     #: ``None`` is the first measurement column.
     y: Optional[str] = None
+    #: GEECSplotter's Y2 and Y3, each on its own axis; ``None`` is "not
+    #: picked yet" (the page offers a default).
+    y2: Optional[str] = None
+    y3: Optional[str] = None
+    #: How many of Y, Y2, Y3 are shown and drawn. The lists past it keep
+    #: their picks for when the count comes back up.
+    y_count: int = Field(default=1, ge=1, le=MAX_Y_LISTS)
     x_filter: str = ""
     y_filter: str = ""
+    y2_filter: str = ""
+    y3_filter: str = ""
     x_alias: bool = True
     y_alias: bool = True
+    y2_alias: bool = True
+    y3_alias: bool = True
     #: GEECSplotter's "autofill par1": X is the open scan's variable.
     x_auto: bool = True
     #: The scan last opened under this set, so opening the set (or starting
@@ -271,11 +285,18 @@ FORM_FIELDS = {
     "xalias": "x_alias",
     "yalias": "y_alias",
     "xauto": "x_auto",
+    "y2": "y2",
+    "y3": "y3",
+    "y2f": "y2_filter",
+    "y3f": "y3_filter",
+    "y2alias": "y2_alias",
+    "y3alias": "y3_alias",
+    "ycount": "y_count",
     "day": "day",
     "scan": "scan",
 }
 
-_BOOLEANS = ("x_alias", "y_alias", "x_auto")
+_BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
 
 
 def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
@@ -311,6 +332,11 @@ def _form_value(field: str, key: str, value: str) -> object:
             if number < 1:
                 raise ValueError("must be 1 or more")
             return number
+        if key == "y_count":
+            count = int(value)
+            if not 1 <= count <= MAX_Y_LISTS:
+                raise ValueError(f"must be 1 to {MAX_Y_LISTS}")
+            return count
     except ValueError as exc:
         raise SettingsError(f"{field}={value!r}: {exc}") from None
     return value

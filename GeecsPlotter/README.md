@@ -33,6 +33,11 @@ GEECS `user data` folder, usually on the shared drive), else in
 worktrees, and never committed) when that folder is not reachable;
 `--settings-dir` picks another. The page shows which folder it is using.
 
+Up to three Y columns plot at once: "Y plots 1 | 2 | 3" shows Y, Y2 and
+Y3. Each has its own axis (Y on the left, Y2 and Y3 on the right), coloured
+like its points and like the swatch beside its list. To replace a saved
+set, pick its name in Save as and confirm.
+
 X follows the scan's variable by default ("X = scan variable: auto"); a
 hand-picked X turns that off. Column names show as their LabVIEW aliases
 unless an axis's toggle says "name".

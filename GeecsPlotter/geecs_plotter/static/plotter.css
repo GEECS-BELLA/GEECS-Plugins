@@ -7,3 +7,10 @@
 
 /* The settings folder is a long path; let it wrap rather than widen the rail. */
 .kit .settings-folder { overflow-wrap: anywhere; }
+
+/* The Y lists' colour keys: each list's swatch is its trace's colour, the
+   same token the figure's axis uses, so a list and its axis match. */
+.kit .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.kit .swatch.t1 { background: var(--trace-1); }
+.kit .swatch.t2 { background: var(--trace-2); }
+.kit .swatch.t3 { background: var(--trace-3); }

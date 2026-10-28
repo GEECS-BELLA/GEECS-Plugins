@@ -28,6 +28,7 @@ from geecs_plotter import scans
 from geecs_plotter.routes import Context, read_form
 from geecs_plotter.settings import (
     DEFAULT_SET,
+    MAX_Y_LISTS,
     NameRefused,
     PlotterSettings,
     SettingsError,
@@ -174,7 +175,9 @@ def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
             target = set_name(form.get("save_as", ""))
         except SettingsError as bad:
             raise NameRefused(str(bad)) from None
-        if ctx.store.exists(target):
+        # Replacing a saved set is a choice the page asks about first (its
+        # dialog posts overwrite=true); without it a taken name is refused.
+        if ctx.store.exists(target) and form.get("overwrite") != "true":
             raise NameRefused(f"a set named {target!r} is already saved")
     ctx.store.save(target, merged(ctx.store.load(source), form))
     return target
@@ -229,6 +232,16 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "xauto": settings.x_auto,
         "xf": settings.x_filter,
         "yf": settings.y_filter,
+        "y2": "",
+        "y3": "",
+        "y2alias": settings.y2_alias,
+        "y3alias": settings.y3_alias,
+        "y2f": settings.y2_filter,
+        "y3f": settings.y3_filter,
+        "ycount": settings.y_count,
+        "ycounts": range(1, MAX_Y_LISTS + 1),
+        "y2_kept": "",
+        "y3_kept": "",
     }
 
 
@@ -255,3 +268,17 @@ def _fill(page: dict, run: RunDetail, settings: PlotterSettings) -> None:
     # A scan stopped before its first shot has no picks at all.
     y = settings.y
     page["y"] = y if y in picks else next(iter(others or picks), "")
+    # Y2 and Y3, when the count shows them: the saved pick, else the next
+    # measurements after Y. On a scan without a saved pick's column they
+    # draw nothing, but the list still holds it ("kept"), so the next click
+    # here posts it back instead of erasing it.
+    spare = iter([c for c in others if c != page["y"]] or picks)
+    lists = (("y2", settings.y2_alias, 2), ("y3", settings.y3_alias, 3))
+    for key, alias, n in lists:
+        page[f"{key}names"] = {c: scans.display_name(c, alias) for c in picks}
+        default = next(spare, "")
+        if settings.y_count < n:
+            continue
+        picked = getattr(settings, key) or default
+        page[key] = picked if picked in picks else ""
+        page[f"{key}_kept"] = "" if picked in picks else picked

@@ -91,8 +91,19 @@
       event.preventDefault();
       saveGo.click();
     });
+    // A name already saved (compared as the server stores it) asks before
+    // replacing; the dialog's Replace button posts overwrite=true.
+    const saved = new Set(Array.from(document.querySelectorAll("#saved-sets option"), (o) => o.value));
+    const folded = (name) => name.trim().split(/\s+/).join(" ").toLowerCase();
+    const replace = document.getElementById("replace-set");
     saveGo.addEventListener("click", (event) => {
-      if (!saveAs.value.trim()) { event.preventDefault(); saveAs.focus(); }
+      const name = folded(saveAs.value);
+      if (!name) { event.preventDefault(); saveAs.focus(); return; }
+      if (saved.has(name) && replace && window.GeecsKit) {
+        event.preventDefault();
+        replace.querySelector("h4").textContent = `Replace the saved set “${name}”?`;
+        window.GeecsKit.confirm(replace).open();
+      }
     });
   }
 
