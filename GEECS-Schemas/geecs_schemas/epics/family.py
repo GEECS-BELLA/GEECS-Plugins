@@ -170,7 +170,8 @@ class Role(SchemaModel):
         description=(
             "The IOC's autosave restores this setting's last value at boot (its "
             "request files in geecs-epics); descriptive only, not a power-on "
-            "default an operator chooses."
+            "default an operator chooses. False also where no request file "
+            "documents it."
         ),
     )
     locked: bool = Field(

@@ -754,7 +754,7 @@ One record of the template, by what it does for a page.
 | `write` | `str (optional)` | no | None | The record a write goes to, when it is not 'suffix' (the setpoint beside an _RBV readback). Implies writable. |
 | `confirm` | `'hazard' (optional)` | no | None | 'hazard': the page asks the operator to confirm the write, naming device, role and value (a supply's output, a motor's home). |
 | `archive` | `bool` | no | False | The archiver takes it: the history an engineer reads later (readbacks, setpoints, limit switches, fault bits). |
-| `autosaved` | `bool` | no | False | The IOC's autosave restores this setting's last value at boot (its request files in geecs-epics); descriptive only, not a power-on default an operator chooses. |
+| `autosaved` | `bool` | no | False | The IOC's autosave restores this setting's last value at boot (its request files in geecs-epics); descriptive only, not a power-on default an operator chooses. False also where no request file documents it. |
 | `locked` | `bool` | no | False | Refused while a run holds the device (the run lock), or while the lock cannot be read: what a scan saves. |
 | `settled_by` | `str (optional)` | no | None | A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag. |
 | `readback` | `str (optional)` | no | None | A setpoint's readback, shown beside it (a motor's .RBV beside .VAL). |
