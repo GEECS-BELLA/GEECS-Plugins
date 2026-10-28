@@ -39,5 +39,5 @@ class Hare(Protocol):
 
     async def watch(
         self, pvs: list[str], on_frame: Callable[[dict[str, Wire]], None]
-    ) -> None:
-        """Subscribe; every ``initial`` and ``diff`` frame's data reaches ``on_frame``."""
+    ) -> list[str]:
+        """Subscribe; return those the broker took. Every frame's data reaches ``on_frame``."""

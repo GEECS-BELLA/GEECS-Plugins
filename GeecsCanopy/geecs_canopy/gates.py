@@ -80,7 +80,8 @@ def _bounds(role: Role, value: WriteValue, meta: Wire) -> tuple[str, str] | None
         choices = meta.get("enumChoices") or []
         if not choices:
             return "bounds_unknown", f"{role.name}'s choices are unread"
-        whole = is_number(value) and value == int(value) and 0 <= value < len(choices)
+        finite = is_number(value) and math.isfinite(value)
+        whole = finite and value == int(value) and 0 <= value < len(choices)
         label = choices[int(value)] if whole else value
         if label not in choices or (role.choices and label not in role.choices):
             return no, f"{value!r} is none of {role.choices or choices}"
@@ -130,11 +131,17 @@ async def _write(
     s = module.settings
     timeout = s.settle_timeout_s if role.settled_by else s.put_timeout_s
     # A role that settles itself (an acquire) calls back only when the work ends.
-    itself = role.settled_by == role.name
+    itself, unsettled = role.settled_by == role.name, None
+    loop = asyncio.get_running_loop()
+    started = loop.time()
     try:
         await module.hare.put(pv, req.value, wait=not itself, timeout=timeout)
     except HareRefused as exc:
-        raise _Stop(exc.code, exc.detail, exc.status) from exc
+        # A move's put-callback outlasting the timeout is no refusal: the IOC
+        # took it and the motion goes on (an access refusal answers at once).
+        if not role.settled_by or loop.time() - started < 0.9 * timeout:
+            raise _Stop(exc.code, exc.detail, exc.status) from exc
+        unsettled = f"dispatched; not settled after {timeout} s: the work goes on"
     taken = (await module.hare.get(pv)).get("value")
     extra = {"requested": req.value}
     if role.type != "command":  # a pressed command's record reads 0 again
@@ -142,8 +149,8 @@ async def _write(
     if readback := {r.name: r for r in device.roles}.get(role.readback or ""):
         wire = await module.hare.get(device.pv(readback, req.axis))
         extra["readback"] = json_safe(wire.get("value"))
-    if itself:
-        return extra, f"dispatched; {role.name} settles by its readback"
+    if itself or unsettled:
+        return extra, unsettled or f"dispatched; {role.name} settles by its readback"
     numbers = role.type == "setpoint" and is_number(taken) and is_number(req.value)
     clamped = numbers and not math.isclose(taken, req.value)
     return extra, f"clamped: the record took {taken!r}" if clamped else None
@@ -160,7 +167,7 @@ async def _decide(module: Module, req: PutRequest) -> tuple[dict, str | None]:
         raise _Stop("bad_request", f"{req.device} takes an axis of {list(device.axes)}")
     try:
         policy = await module.policy()
-    except (OSError, ValueError, TimeoutError) as exc:
+    except Exception as exc:  # unreadable, not YAML, not valid: deny, and journal it
         raise _Stop("not_permitted", f"the policy is unreadable: {exc}") from exc
     if not policy.permits(req.operator, device.name, device.family.template, req.role):
         raise _Stop("not_permitted", f"no grant lets {req.operator!r} write that")

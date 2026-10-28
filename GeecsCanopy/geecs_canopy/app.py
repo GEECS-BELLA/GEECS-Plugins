@@ -78,12 +78,12 @@ class _GatewayHare:
 
     async def watch(
         self, pvs: list[str], on_frame: Callable[[dict[str, Wire]], None]
-    ) -> None:
+    ) -> list[str]:
         broker = self._gateway.get_broker()
         if not self._joined:
             broker.add_client(self.CLIENT_ID, _Channel(on_frame))
             self._joined = True
-        await broker.subscribe(self.CLIENT_ID, pvs)
+        return await broker.subscribe(self.CLIENT_ID, pvs)
 
 
 def _build() -> Any:

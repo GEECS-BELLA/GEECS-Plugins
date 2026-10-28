@@ -77,6 +77,7 @@ class Module:
         self._read_at, self._error = -math.inf, None
         self._devices: dict[str, Resolved] = {}
         self._watched: set[str] = set()
+        self._tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -98,12 +99,25 @@ class Module:
                 except (SourceError, TimeoutError) as exc:
                     self._devices, self._error = {}, str(exc) or "timed out"
                 pvs = {pv for d in self._devices.values() for pv in watched_pvs(d)}
-                if new := sorted(pvs - self._watched):
-                    await self.hare.watch(new, self.tracker.on_frame)
+                if new := sorted(
+                    pvs - self._watched
+                ):  # seeding is slow: not under the lock
                     self._watched.update(new)
+                    task = asyncio.create_task(self._subscribe(new))
+                    self._tasks.add(task)
+                    task.add_done_callback(self._tasks.discard)
         if self._error is not None:
             raise DevicesUnavailable(self._error)
         return self._devices
+
+    async def _subscribe(self, pvs: list[str]) -> None:
+        """Subscribe; what the broker refused (its caps) is tried again on the next read."""
+        try:
+            accepted = set(await self.hare.watch(pvs, self.tracker.on_frame))
+        except Exception:
+            logger.exception("GEECS device module: subscribing %d PVs failed", len(pvs))
+            accepted = set()
+        self._watched -= set(pvs) - accepted
 
     async def policy(self) -> OperatorPolicy:
         """Read the operator policy (none: the empty one, deny); raise if it does not validate."""

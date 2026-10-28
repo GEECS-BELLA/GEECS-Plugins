@@ -1,5 +1,6 @@
 """The device module: each test pins one rule (Appendix A of Planning/epics_estate.md, the brief's gates)."""
 
+import asyncio
 import math
 from types import SimpleNamespace
 
@@ -46,7 +47,7 @@ def live(value, **wire):
 class FakeHare:
     def __init__(self):
         self.values, self.meta, self.puts, self.clamp = {}, {}, [], {}
-        self.refuse = None
+        self.refuse, self.slow = None, False
 
     async def get(self, pv):
         return self.values.get(pv, {"pv": pv, "value": None, "connected": False})
@@ -56,12 +57,14 @@ class FakeHare:
 
     async def put(self, pv, value, *, wait, timeout):
         if self.refuse:
+            await asyncio.sleep(timeout if self.slow else 0)
             raise self.refuse
         self.puts.append((pv, value, wait, timeout))
         self.values[pv] = live(min(value, self.clamp.get(pv, value)))
 
     async def watch(self, pvs, on_frame):
         self.on_frame = on_frame
+        return pvs
 
 
 @pytest.fixture
@@ -72,7 +75,7 @@ def env(tmp_path):
     (folder / "panel_devices.yaml").write_text(PANELS)
     (folder / "operator_policy.yaml").write_text(POLICY)
     clock = [100.0]
-    settings = ModuleSettings("Test", tmp_path, tmp_path, stale_after_s=3.0)
+    settings = ModuleSettings("Test", tmp_path, tmp_path, 3.0, settle_timeout_s=0.05)
     hare = FakeHare()
     module = Module(
         settings, hare, Journal(tmp_path / "j.sqlite3"), clock=lambda: clock[0]
@@ -88,6 +91,7 @@ def env(tmp_path):
 
 async def pv(env, device, role, axis=None, write=False):
     d = (await env.module.devices())[device]
+    await asyncio.sleep(0)  # the subscription runs as a task
     return d.pv(next(r for r in d.roles if r.name == role), axis, write=write)
 
 
@@ -228,6 +232,12 @@ async def test_an_enum_is_checked_against_the_record_choices(env):
     assert (
         await put(env, "Cam1", role="transform", value="Flip")
     ).status_code == 422  # not the family's
+    nan = b'{"role": "transform", "value": NaN, "operator": "ann"}'  # JSON.parse refuses it; Python does not
+    headers = {"content-type": "application/json"}
+    response = await env.client.post(
+        "/v1/devices/Cam1/put", content=nan, headers=headers
+    )
+    assert response.status_code == 422
     assert (await put(env, "Cam1", role="transform", value=1)).status_code == 200
 
 
@@ -258,9 +268,22 @@ async def test_a_role_that_settles_gets_the_settle_timeout(
     await put(env, "Mot1", role="twf", axis="m1", value=1)
     await put(env, "ps1", role="reset", value=1)
     assert [(wait, timeout) for *_, wait, timeout in env.hare.puts] == [
-        (True, 30.0),
+        (True, 0.05),
         (True, 5.0),
     ]
+
+
+async def test_a_move_outlasting_its_timeout_is_accepted_not_refused(env):
+    env.hare.refuse, env.hare.slow = HareRefused(502, "pv_write_failed", "t/o"), True
+    body = (await put(env, "Mot1", role="twf", axis="m1", value=1)).json()
+    assert (body["outcome"], body["detail"][:10]) == ("accepted", "dispatched")
+
+
+async def test_a_policy_that_is_not_yaml_denies_and_is_journaled(env):
+    (env.folder / "operator_policy.yaml").write_text("grants:\n\t- bad")
+    response = await put(env, "ps1", role="reset", value=1)
+    assert (response.status_code, response.json()["code"]) == (403, "not_permitted")
+    assert env.module.journal.last(1)[0].outcome == "denied"
 
 
 async def test_the_put_path_is_a_function_and_every_attempt_is_journaled(
@@ -275,7 +298,7 @@ async def test_the_put_path_is_a_function_and_every_attempt_is_journaled(
     assert (len(rows), entry.id, entry.value, entry.outcome) == (1, 2, 2, "refused")
 
 
-async def test_an_operator_put_needs_no_canopy_write(env):  # condition (a)
+async def test_an_operator_put_needs_no_canopy_write(env):  # Hare/Squirrel 403: live
     await put(env, "ps1", role="reset", value=1)
     row = env.module.journal.last(1)[0]
     assert (row.outcome, row.key_name) == ("accepted", "display")

@@ -85,7 +85,7 @@ each counter last advanced.
 `GEECS_CANOPY_CONFIGS_ROOT` (the configs repo's root, mounted
 `/opt/geecs-configs`), `GEECS_CANOPY_STATE_DIR` (the journal's folder,
 `/var/lib/geecs-canopy/module` on the host, owned by the image's `appuser`,
-uid 1000); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
+uid 1000, group the service account); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
 (5), `_SETTLE_TIMEOUT_S` (30: a move's put-callback, not Hare's 5 s
 connect timeout), `_RELOAD_S` (10: the device documents' re-read).
 
@@ -102,13 +102,25 @@ grants:
     roles: [current_sp, reset]        # empty: every role the device allows
 ```
 
-The operator is the name the request carries; the authenticated part is
-the Canopy key, journaled by name. Operator and page keys are `read`
-only (section 3): the module authorizes its own writes and reaches Hare
-in-process, so a person never needs Canopy `write`.
+**The policy guards against mistakes, not against users.** The operator
+is the name the request carries, and nothing binds it to a person: anyone
+holding the display key can name a granted operator. The authenticated
+part is the Canopy key, journaled by name. What does hold for every
+caller is the allow list, the hazard confirm, the run lock and the bounds,
+and that no page key reaches Hare's or Squirrel's own write routes.
+Binding the operator to a person needs a key per operator or the front
+door's user header (an upstream candidate, §7.4 of the decision page).
+Operator and page keys are `read` only (section 3): the module authorizes
+its own writes and reaches Hare in-process, so a person never needs
+Canopy `write`.
 
 **The journal** is SQLite (`journal.sqlite3` in the state folder), one
-`JournalEntry` per attempt; back it up with the Postgres dump. The
+`JournalEntry` per attempt: the only record of who wrote what, so it has
+its own backup. The Postgres dump does not include it. Nightly, beside
+that dump, from the service account's crontab (the folder's group is the
+service account's; the file is created group-readable):
+`dc exec -T api python -c "import sqlite3; sqlite3.connect('/var/lib/geecs-canopy-module/journal.sqlite3').backup(sqlite3.connect('/var/lib/geecs-canopy-module/journal.bak'))"`,
+then `cp /var/lib/geecs-canopy/module/journal.bak /var/backups/geecs-canopy/journal-$(date +%F).sqlite3`. The
 Postgres path, a `geecs` schema with its own Alembic tree and version
 table (Canopy's tree is one for all its modules), is not built.
 
