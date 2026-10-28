@@ -52,6 +52,10 @@ LabVIEW source or screenshots with personal paths: this repo is public.
 
 ## Decisions already made (do not reopen)
 
+**Reopened 2026-10-28 by the author:** the plotter folds into the Data
+Portal and is then deleted (`Planning/portal_plotter_merge.md`, for Sam
+to confirm). The decisions below held until then.
+
 - New package `GeecsPlotter/`, import name `geecs_plotter`, own
   `pyproject.toml`, Python `>=3.11,<3.12`, Poetry, in this repo.
 - Depends on GEECS-Data-Utils and GeecsWebTheme (`web` extra), plus
