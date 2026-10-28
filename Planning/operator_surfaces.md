@@ -96,13 +96,18 @@ plus in/out indicators), latching button (command or bit with confirm),
 read-only numeric (readback), annotation text, static image. Groups carry
 position and a colour token, never a literal colour.
 
-Per-widget state vocabulary, shared with the home's lists, named by the
-cause an operator acts on: **live**; **stale** (channel up, the producing
-counter stopped); **not answering** (the IOC runs, the hardware does not:
-the asyn connection flag, a device status PV); **not running** (the IOC
-heartbeat is absent: a service to restart); **error** (alarm severity);
-**unknown**. For devices still on LabVIEW behind the gateway, its status
-PV carries the process fact into "not running".
+Per-widget state vocabulary, shared with the home's lists, claiming no
+more than the evidence supports: **live**; **stale** (channel up, the
+producing counter stopped); **not answering** (the IOC answers, the
+hardware behind it does not: the asyn connection flag, a device status
+PV); **unreachable** (no connection and no evidence why: the gateway's
+`connected` PV is a TCP-subscription fact per `GeecsCAGateway/PV_CONTRACT.md`,
+and an absent IOC heartbeat may be a network outage; no restart is
+implied); **not running** only when an independent service-status source
+confirms the process is stopped (a host or container state the estate does
+not expose yet; until it does, such devices read "unreachable");
+**error** (alarm severity); **unknown**. The drill-down, not the widget,
+is where "unreachable" is resolved into a cause.
 
 Annotations survive migration as text in the file. A note of the form
 "shutter laser before switching" becomes a hazard confirm on the widgets it
@@ -136,13 +141,25 @@ action hands the same facts to the facility assistant through GEECS-MCP.
   **action plan**, which GeecsBluesky already runs (`run_action`) and
   GEECS-Schemas already describes. The home lists both kinds under one
   "Presets" heading; neither needs a custom implementation.
-- **Set Default** becomes explicit knowledge: each family role carries
-  whether it is a **power-on setting** (trigger mode, ROI, exposure: the
-  IOC's autosave restores it at boot) or not (positions: nothing restores
-  them). The inspector offers "save as power-on setting" only on roles so
-  marked; for DB devices the DB default stays what LabVIEW makes of it.
-  This moves the per-device-type mish-mash out of experts' heads into the
-  family files, where the next person can read it.
+- **Set Default** splits into two mechanisms that LabVIEW conflated, and
+  the family files say which applies to a role:
+  1. **Autosave** is continuous last-value persistence by the IOC: the
+     deployed camera's exposure, trigger mode and analysis ROI are in a
+     monitored autosave set, so whatever value was last set, including a
+     temporary one, is what boot restores. A family role carries
+     `autosaved: true` to say so. Positions are not autosaved. This is
+     descriptive; nothing to "save".
+  2. **A saved default** is an explicit choice that survives later
+     adjustments: a Squirrel snapshot of a device's or an area's settings
+     tagged golden, applied deliberately by an operator (or by a module
+     action after an IOC restart), through the module's guarded put path.
+     Boot precedence is: autosave restores last values, then the golden
+     snapshot is applied explicitly if wanted; nothing applies it silently.
+  The inspector's "save as default" therefore means "save a golden
+  snapshot of these roles", never a write into the IOC's autosave. For DB
+  devices the DB default stays what LabVIEW makes of it. This moves the
+  per-device-type mish-mash out of experts' heads into the family files
+  and the snapshot store, where the next person can read it.
 
 ## 6. Device-type front panels
 
@@ -212,7 +229,7 @@ has and for finding a broken device.
 
 1. The screen format and renderer, proved on the HTU Control Center from
    its screenshot (the mapping supplied by the maintainer), against the
-   sim where devices exist there and "not running" for the rest.
+   sim where devices exist there and "unreachable" for the rest.
 2. The home's top strip, the two device lists and the launcher.
 3. Setpoint-with-readback and the state vocabulary on every widget.
 
@@ -227,7 +244,9 @@ stopped; no literal colour and no code per screen.
    or an agent reading the LabVIEW GUI source, with you checking?
 3. The three camera gaps (§6): IOC-chain plugins, module-side derivation,
    or offline analysis only, per gap.
-4. Power-on flags in the family files (§5): agree in principle?
+4. The two default mechanisms (§5: descriptive `autosaved` flags in the
+   family files; golden snapshots in Squirrel for saved defaults): agree
+   in principle?
 5. Whether the first slice runs before or after the first `GeecsCanopy`
    package PR (it needs Hare and the module's put; the sim instance on the
    Mac serves it meanwhile).
