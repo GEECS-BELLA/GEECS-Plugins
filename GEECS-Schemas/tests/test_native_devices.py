@@ -8,7 +8,9 @@ from geecs_schemas import (
     SCHEMA_REGISTRY,
     AravisCamera,
     EpicsMotor,
+    REGISTRY_KIND_FAMILIES,
     NativeDevices,
+    load_families,
 )
 
 
@@ -104,10 +106,10 @@ def test_template_defaults_from_the_kind_and_stays_out_of_the_dump() -> None:
         "schema_version": 1,
         "devices": {
             "U_Stage": {"kind": "epics_motor", "axes": ["x"]},
-            "U_Supply": {
+            "U_Named": {
                 "kind": "epics_motor",
                 "axes": ["x"],
-                "template": "easydriver",
+                "template": "motor_record",
             },
             "UC_Cam": {"kind": "aravis_camera", "trigger_source": "line1"},
         },
@@ -115,7 +117,7 @@ def test_template_defaults_from_the_kind_and_stays_out_of_the_dump() -> None:
     registry = NativeDevices.model_validate(doc)
     assert {n: d.family_template for n, d in registry.devices.items()} == {
         "U_Stage": "motor_record",
-        "U_Supply": "easydriver",
+        "U_Named": "motor_record",
         "UC_Cam": "ad_camera_chain",
     }
     # An entry without a template dumps as it was written: the worker reads this file.
@@ -126,6 +128,7 @@ def test_template_defaults_from_the_kind_and_stays_out_of_the_dump() -> None:
     "extra, why",
     [
         ({"template": "no_such_family"}, "not an installed family"),
+        ({"template": "easydriver"}, "'setpoint_device' family"),  # another kind's
         ({"template": "Motor"}, "pattern"),
         ({"family": "motor_record"}, "extra"),  # unknown keys still bite
     ],
@@ -134,3 +137,10 @@ def test_a_bad_template_is_refused(extra, why) -> None:
     entry = {"kind": "epics_motor", "axes": ["x"], **extra}
     with pytest.raises(ValidationError, match=why):
         NativeDevices.model_validate({"devices": {"U_Stage": entry}})
+
+
+def test_each_kind_defaults_to_a_family_of_its_own_kind() -> None:
+    families = load_families()
+    assert {kind: families[t].kind for kind, t in REGISTRY_KIND_FAMILIES.items()} == {
+        kind: kind for kind in REGISTRY_KIND_FAMILIES
+    }

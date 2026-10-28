@@ -25,15 +25,17 @@ from typing import Annotated, Literal, Optional, Union
 from pydantic import (
     Field,
     SerializerFunctionWrapHandler,
+    ValidationInfo,
     field_validator,
     model_serializer,
+    model_validator,
 )
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
     TemplateName,
-    load_families,
+    families_from,
 )
 
 #: The registry's file name in the experiment's configs folder.
@@ -47,21 +49,30 @@ class _NativeEntry(SchemaModel):
     template: Optional[TemplateName] = Field(
         None,
         description=(
-            "The family file the device instantiates ('motor_record', "
-            "'easydriver', ...); absent: the kind's default "
-            "(REGISTRY_KIND_FAMILIES)."
+            "The family file the device instantiates, one of its kind's; "
+            "absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also "
+            "in panel_devices.yaml names the same family there. Older readers "
+            "refuse the key: write it only once every reader has this schema."
         ),
     )
 
-    @field_validator("template")
-    @classmethod
-    def _an_installed_family(cls, template: Optional[str]) -> Optional[str]:
-        if template is not None and template not in load_families():
+    @model_validator(mode="after")
+    def _a_family_of_this_kind(self, info: ValidationInfo) -> "_NativeEntry":
+        if self.template is None:
+            return self
+        families = families_from(info)
+        family = families.get(self.template)
+        if family is None:
             raise ValueError(
-                f"template {template!r} is not an installed family "
-                f"({', '.join(sorted(load_families()))})"
+                f"template {self.template!r} is not an installed family "
+                f"({', '.join(sorted(families))})"
             )
-        return template
+        if family.kind != self.kind:
+            raise ValueError(
+                f"template {self.template!r} is a {family.kind!r} family, "
+                f"not {self.kind!r}"
+            )
+        return self
 
     @model_serializer(mode="wrap")
     def _absent_stays_absent(

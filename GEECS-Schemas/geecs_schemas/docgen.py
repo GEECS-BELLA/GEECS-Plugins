@@ -244,9 +244,8 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
-  # 'template' names the family file; absent, the kind's default
-  # (epics_motor: motor_record, aravis_camera: ad_camera_chain).
-  U_OtherStage: {kind: epics_motor, axes: [x], template: motor_record}
+  # An entry may name its family ('template', one of its kind's); absent,
+  # the kind's default. Older readers refuse the key.
 """,
     "family_file": """\
 schema_version: 1
@@ -268,7 +267,7 @@ actions:
 """,
     "panel_devices": """\
 schema_version: 1
-# Read by the PV bridge only; a device here may still be owned by the GEECS DB.
+# Read by the native-device readers; a device here may still be owned by the GEECS DB.
 devices:
   U_ESP302_01:
     family: motor_record

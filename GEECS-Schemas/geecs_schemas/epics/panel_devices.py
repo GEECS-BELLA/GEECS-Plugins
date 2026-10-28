@@ -12,7 +12,8 @@ have (``omit``), the roles that need a hazard confirm on it alone
 serving it (``ioc``, whose devIocStats heartbeat the archiver keeps).
 
 Read by the PV bridge, and by the archiver's registry pass for the device's
-archived roles, prefix, axes and IOC (``Planning/epics_estate.md`` §2.5).  The scan worker never reads it, so a device
+archived roles, prefix, axes and IOC (``Planning/epics_estate.md`` §2.5),
+both on ``feat/web-estate``; GeecsCanopy reads it next.  The scan worker never reads it, so a device
 listed here may still be owned by the GEECS DB (a bench device on a bench
 prefix): ``native_devices.yaml`` stays what the worker binds, and a device
 in both takes its axes from the registry and its panel data from here.
@@ -267,7 +268,7 @@ class PanelDevices(VersionedSchemaModel):
     """The experiment's devices with a panel: each one's family and per-device panel data.
 
     ``<experiment>/panel_devices.yaml`` in the configs repository, read by
-    the PV bridge and the archiver's registry pass. A device here may still be owned by the GEECS DB
+    the native-device readers (module docstring). A device here may still be owned by the GEECS DB
     (a bench device): the scan worker reads ``native_devices.yaml``, never
     this file.
     """

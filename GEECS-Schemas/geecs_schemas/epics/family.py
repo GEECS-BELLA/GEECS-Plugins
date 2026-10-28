@@ -10,8 +10,9 @@ it means (who may, whether it needs a hazard confirm, how it settles).
 Per-device differences (a supply's own PV names, a bit's label, the
 permitted actions) are instance data, :mod:`geecs_schemas.epics.panel_devices`.
 
-JSON, not YAML: the files are read at run time wherever the bridge, the
-scanner, the archiver and the MCP contract tests run, and this package
+JSON, not YAML: the files are read at run time by every native-device
+reader (the PV bridge and the archiver on ``feat/web-estate``, GeecsCanopy
+next), and this package
 keeps PyYAML out of its runtime dependencies (YAML is serialization, not
 the contract; see :meth:`VersionedSchemaModel.from_path`).
 
@@ -55,8 +56,9 @@ FamilyKind = Literal[
 ]
 
 #: Registry kind (``NativeDevices``) → the family a registry device
-#: instantiates when its panel data names none. Read by the PV bridge and
-#: the archiver's registry pass, so the two cannot pick different families.
+#: instantiates when it names none. One table for every reader (the PV
+#: bridge and the archiver's registry pass on ``feat/web-estate``,
+#: GeecsCanopy next), so no two pick different families.
 REGISTRY_KIND_FAMILIES: Mapping[str, str] = MappingProxyType(
     {"aravis_camera": "ad_camera_chain", "epics_motor": "motor_record"}
 )
