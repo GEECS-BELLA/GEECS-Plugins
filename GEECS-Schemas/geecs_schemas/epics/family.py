@@ -163,6 +163,14 @@ class Role(SchemaModel):
             "(readbacks, setpoints, limit switches, fault bits)."
         ),
     )
+    autosaved: bool = Field(
+        False,
+        description=(
+            "The IOC's autosave restores this setting's last value at boot (its "
+            "request files in geecs-epics); descriptive only, not a power-on "
+            "default an operator chooses."
+        ),
+    )
     locked: bool = Field(
         False,
         description=(

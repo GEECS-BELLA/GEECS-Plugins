@@ -20,17 +20,66 @@ the scan) and ``epics_motor`` (one or more EPICS motor records, scan axes).
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import Field, field_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+)
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas.epics.family import (
+    REGISTRY_KIND_FAMILIES,
+    TemplateName,
+    load_families,
+)
 
 #: The registry's file name in the experiment's configs folder.
 NATIVE_DEVICES_FILENAME = "native_devices.yaml"
 
 
-class AravisCamera(SchemaModel):
+class _NativeEntry(SchemaModel):
+    """What every registry entry carries beside its kind: the family it instantiates."""
+
+    kind: str
+    template: Optional[TemplateName] = Field(
+        None,
+        description=(
+            "The family file the device instantiates ('motor_record', "
+            "'easydriver', ...); absent: the kind's default "
+            "(REGISTRY_KIND_FAMILIES)."
+        ),
+    )
+
+    @field_validator("template")
+    @classmethod
+    def _an_installed_family(cls, template: Optional[str]) -> Optional[str]:
+        if template is not None and template not in load_families():
+            raise ValueError(
+                f"template {template!r} is not an installed family "
+                f"({', '.join(sorted(load_families()))})"
+            )
+        return template
+
+    @model_serializer(mode="wrap")
+    def _absent_stays_absent(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:  # Any: the entry's own fields, as pydantic dumps them
+        # The deployed worker refuses unknown keys: never write a 'template' nobody set.
+        data = handler(self)
+        if self.template is None:
+            data.pop("template", None)
+        return data
+
+    @property
+    def family_template(self) -> str:
+        """The family this device instantiates: ``template``, else its kind's default."""
+        return self.template or REGISTRY_KIND_FAMILIES[self.kind]
+
+
+class AravisCamera(_NativeEntry):
     """A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file plugin."""
 
     kind: Literal["aravis_camera"] = Field(
@@ -49,7 +98,7 @@ class AravisCamera(SchemaModel):
     )
 
 
-class EpicsMotor(SchemaModel):
+class EpicsMotor(_NativeEntry):
     """A positioner: one device, one EPICS motor record per axis.
 
     The axes are the record names under the device's prefix

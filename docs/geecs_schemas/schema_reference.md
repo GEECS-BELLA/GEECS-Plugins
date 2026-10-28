@@ -677,6 +677,9 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # 'template' names the family file; absent, the kind's default
+  # (epics_motor: motor_record, aravis_camera: ad_camera_chain).
+  U_OtherStage: {kind: epics_motor, axes: [x], template: motor_record}
 ```
 
 ### AravisCamera
@@ -686,6 +689,7 @@ A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file pl
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'aravis_camera'` | yes | — | Device kind: 'aravis_camera' (an areaDetector ADAravis camera). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates ('motor_record', 'easydriver', ...); absent: the kind's default (REGISTRY_KIND_FAMILIES). |
 | `trigger_source` | `'line0' \| 'line1' \| 'software'` | yes | — | Where each frame comes from. 'line0' / 'line1': the camera's hardware input on that line (a Basler's opto-isolated input is Line1, a FLIR Blackfly's Line0), wired to a timing-system output gated by the trigger box; the line must be one of the camera's own TriggerSource choices. 'software': the scan worker presses the camera's software trigger at each shot (exposed when the worker says go, not when the laser fires). |
 
 ### EpicsMotor
@@ -695,6 +699,7 @@ A positioner: one device, one EPICS motor record per axis.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'epics_motor'` | yes | — | Device kind: 'epics_motor' (EPICS motor records, one per axis). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates ('motor_record', 'easydriver', ...); absent: the kind's default (REGISTRY_KIND_FAMILIES). |
 | `axes` | `list[str]` | yes | — | The axes, as the motor record names under the device's prefix (e.g. ['x', 'y', 'z'] for '<experiment>:<device>:x' …). Each is a scan axis 'Device:axis'. The record owns the axis's limits, units and deadband. |
 
 ## `family_file`
@@ -750,6 +755,7 @@ One record of the template, by what it does for a page.
 | `write` | `str (optional)` | no | None | The record a write goes to, when it is not 'suffix' (the setpoint beside an _RBV readback). Implies writable. |
 | `confirm` | `'hazard' (optional)` | no | None | 'hazard': the page asks the operator to confirm the write, naming device, role and value (a supply's output, a motor's home). |
 | `archive` | `bool` | no | False | The archiver takes it: the history an engineer reads later (readbacks, setpoints, limit switches, fault bits). |
+| `autosaved` | `bool` | no | False | The IOC's autosave restores this setting's last value at boot (its request files in geecs-epics); descriptive only, not a power-on default an operator chooses. |
 | `locked` | `bool` | no | False | Refused while a run holds the device (the run lock), or while the lock cannot be read: what a scan saves. |
 | `settled_by` | `str (optional)` | no | None | A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag. |
 | `readback` | `str (optional)` | no | None | A setpoint's readback, shown beside it (a motor's .RBV beside .VAL). |

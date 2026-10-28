@@ -259,6 +259,24 @@ def test_the_installed_families_mark_their_hazards() -> None:
     assert hazards["fastps"] == hazards["easydriver"] == ["output_sp"]
 
 
+def test_autosaved_round_trips_and_defaults_false() -> None:
+    doc = tiny()
+    role(doc, "level_sp")["autosaved"] = True
+    family = FamilyFile.model_validate(doc)
+    assert family.role("level_sp").autosaved and not family.role("fire").autosaved
+    assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
+
+
+def test_the_installed_families_mark_what_autosave_restores() -> None:
+    families = load_families()
+    saved = {n: {r.name for r in f.roles if r.autosaved} for n, f in families.items()}
+    # The camera pins its trigger mode at boot; motors and supplies run no autosave.
+    assert {"exposure", "roi_minx"} <= saved["ad_camera_chain"]
+    assert "trigger_mode" not in saved["ad_camera_chain"]
+    assert {"trigger_level", "ch_a_range"} <= saved["scope_contract"]
+    assert saved["motor_record"] == saved["fastps"] == saved["easydriver"] == set()
+
+
 def test_the_loader_refuses_a_file_named_for_another_template(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

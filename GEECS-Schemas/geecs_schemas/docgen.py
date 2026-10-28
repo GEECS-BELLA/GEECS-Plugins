@@ -244,6 +244,9 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # 'template' names the family file; absent, the kind's default
+  # (epics_motor: motor_record, aravis_camera: ad_camera_chain).
+  U_OtherStage: {kind: epics_motor, axes: [x], template: motor_record}
 """,
     "family_file": """\
 schema_version: 1
