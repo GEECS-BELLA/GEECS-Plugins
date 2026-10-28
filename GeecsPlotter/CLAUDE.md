@@ -78,6 +78,19 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   rail's swatch is the same `--trace-N` token. On a scan
   without a Y2/Y3 column it draws nothing, but the list keeps the pick
   ("not in this scan") so the next click does not erase it.
+- **Fits** are GEECSplotter's Fit menu, one per Y list (`y_fit`,
+  `y2_fit`, `y3_fit`, plus `*_fit_order` for a polynomial; `"none"` by
+  default). The math is `geecs_data_utils.data.curve_fit.fit_curve`;
+  `figures.FITS` is the menu (LabVIEW's names, only the models data-utils
+  has), `figures.fit_columns` fits the drawn per-shot points, and
+  `shots_figure(…, fits=)` draws each fit dashed on its slot's axis in its
+  slot's colour. `/api/figure` returns the numbers as `fits` (each term
+  `value ± stderr`, rounded by `api.plus_minus`) for `plotter.js` to list
+  under the plot, and the snippet rebuilds them. A fit name is stored as a
+  plain string, so a set naming a fit a newer copy added still loads
+  ("not in this version"); the API reports it instead of fitting. A new
+  model is a data-utils PR first (its curve and `CurveFit.formula` live
+  there), then a `FITS` entry here.
 - **Replacing a saved set** is Save as onto its name (the box offers the
   saved names): `plotter.js` asks in a rung-3 `<dialog>` (focus on "Keep
   it"), whose Replace posts `overwrite=true`; without it the server
@@ -99,4 +112,5 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
 
 ## Out of scope
 
-See the brief: Tiled, images, fitting, cross-scan merging, deployment.
+See the brief: Tiled, images, cross-scan merging, deployment. (Fitting
+left this list on the author's ruling, 2026-10-27: the brief records it.)

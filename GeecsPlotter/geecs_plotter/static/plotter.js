@@ -41,31 +41,32 @@
     });
   }
 
-  // Stepping the scan number opens that scan (GEECSplotter's scan stepper).
-  // It waits out a pause, so typing "12" does not open scan 1 first and a
-  // held arrow key does not reload on every step.
-  // The next page puts the cursor back in the box, so the arrow keys keep
-  // stepping; the marker is per tab and best-effort (storage may be off).
+  // A stepped number box (the scan, a polynomial's order) submits after a
+  // pause, so typing "12" does not open scan 1 first and a held arrow key
+  // does not reload on every step. The next page puts the cursor back in
+  // the box it came from, so the arrow keys keep stepping; the marker
+  // (that box's id) is per tab and best-effort (storage may be off).
   const STEPPED = "geecs-plotter:stepped";
-  const scanBox = document.querySelector("[data-auto-open]");
-  if (scanBox) {
-    try {
-      if (sessionStorage.getItem(STEPPED)) {
-        sessionStorage.removeItem(STEPPED);
-        scanBox.focus();
-      }
-    } catch (_) { /* no storage: the stepper still works, one key at a time */ }
+  try {
+    const back = sessionStorage.getItem(STEPPED);
+    sessionStorage.removeItem(STEPPED);
+    if (back) document.getElementById(back)?.focus();
+  } catch (_) { /* no storage: the stepper still works, one key at a time */ }
+  function stepper(box, ready) {
     let pending = null;
-    scanBox.addEventListener("input", () => {
+    box.addEventListener("input", () => {
       clearTimeout(pending);
       pending = setTimeout(() => {
-        if (scanBox.value && scanBox.checkValidity() && form.elements.day.value) {
-          try { sessionStorage.setItem(STEPPED, "1"); } catch (_) { /* see above */ }
+        if (box.value && box.checkValidity() && ready()) {
+          try { sessionStorage.setItem(STEPPED, box.id); } catch (_) { /* see above */ }
           form.requestSubmit();
         }
       }, AUTO_OPEN_MS);
     });
   }
+  // Stepping the scan number opens that scan (GEECSplotter's scan stepper).
+  const scanBox = document.querySelector("[data-auto-open]");
+  if (scanBox) stepper(scanBox, () => Boolean(form.elements.day.value));
 
   // The two-way toggles (name | alias, X = scan variable): set the hidden
   // field and resubmit; the filters ride along in the form.
@@ -74,6 +75,13 @@
       form.elements[button.dataset.toggleFor].value = button.dataset.value;
       form.requestSubmit();
     });
+  }
+
+  // The Fit menus save and redraw on a choice; the polynomial order is a
+  // stepper, so stepping 2 → 5 reloads once.
+  for (const control of document.querySelectorAll("[data-submit-on-change]")) {
+    if (control.type === "number") stepper(control, () => true);
+    else control.addEventListener("change", () => form.requestSubmit());
   }
 
   // Switching settings sets opens the other set; nothing is saved.
@@ -178,6 +186,43 @@
     const fig = resolveThemeTokens(JSON.parse(JSON.stringify(figure)));
     Plotly.react(host, fig.data, fig.layout, PLOT_CONFIG);
   }
+  // The fits' numbers under the plot: one table per fitted Y list, keyed
+  // by its swatch, each number with its standard error.
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function showFits(fits) {
+    const box = document.getElementById("fits");
+    if (!box) return;
+    box.replaceChildren(...fits.map((fit) => {
+      const block = element("section", "fit");
+      const head = element("div", "row fit-head");
+      head.append(element("span", `swatch t${fit.slot}`), element("strong", "", `Y${fit.slot === 1 ? "" : fit.slot} ${fit.label} fit`));
+      if (fit.formula) head.append(element("span", "dim mono", fit.formula));
+      block.append(head);
+      if (fit.error) {
+        block.append(element("p", "fit-error", fit.error));
+        return block;
+      }
+      const table = element("table");
+      const body = element("tbody");
+      const row = (name, text) => {
+        const tr = element("tr");
+        tr.append(element("td", "id", name), element("td", "num", text));
+        body.append(tr);
+      };
+      for (const term of fit.terms) row(term.name, term.text);
+      row("r²", fit.r2 === null ? "undefined" : fit.r2.toFixed(4));
+      row("points", String(fit.points));
+      table.append(body);
+      block.append(table);
+      for (const note of fit.notes) block.append(element("p", "hint", note));
+      return block;
+    }));
+  }
   function fail(message) {
     state.dataset.state = "error";
     state.querySelector(".t").textContent = message;
@@ -190,6 +235,7 @@
       figure = body.figure;
       state.hidden = true;
       document.getElementById("code").textContent = body.code;
+      showFits(body.fits || []);
       draw();
     })
     .catch((error) => fail(String(error)));

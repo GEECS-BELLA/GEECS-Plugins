@@ -33,6 +33,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 #: Y, Y2 and Y3: the most Y lists a set holds (``figures.MAX_Y`` draws them).
 MAX_Y_LISTS = 3
 
+#: The highest polynomial order the Fit's order box takes.
+MAX_FIT_ORDER = 10
+
+#: A fit name as stored: GEECSplotter's Fit menu (``figures.FITS``) or one
+#: a newer copy offers, kept rather than refused (see ``extra`` below).
+_FIT_NAME = re.compile(r"[a-z0-9_]{1,40}")
+
 #: The set a page opens when the URL names none.
 DEFAULT_SET = "default"
 
@@ -102,6 +109,15 @@ class PlotterSettings(BaseModel):
     y3_alias: bool = True
     #: GEECSplotter's "autofill par1": X is the open scan's variable.
     x_auto: bool = True
+    #: The Fit per Y list (``figures.FITS``; ``"none"`` is no fit), and the
+    #: polynomial order each uses when its fit is ``"polynomial"``. A plain
+    #: string, so a set naming a fit a newer copy added still loads here.
+    y_fit: str = "none"
+    y2_fit: str = "none"
+    y3_fit: str = "none"
+    y_fit_order: int = Field(default=2, ge=0, le=MAX_FIT_ORDER)
+    y2_fit_order: int = Field(default=2, ge=0, le=MAX_FIT_ORDER)
+    y3_fit_order: int = Field(default=2, ge=0, le=MAX_FIT_ORDER)
     #: The scan last opened under this set, so opening the set (or starting
     #: the plotter) goes back to it, as LabVIEW reopens its last file.
     day: Optional[date] = None
@@ -292,11 +308,26 @@ FORM_FIELDS = {
     "y2alias": "y2_alias",
     "y3alias": "y3_alias",
     "ycount": "y_count",
+    "yfit": "y_fit",
+    "y2fit": "y2_fit",
+    "y3fit": "y3_fit",
+    "yorder": "y_fit_order",
+    "y2order": "y2_fit_order",
+    "y3order": "y3_fit_order",
     "day": "day",
     "scan": "scan",
 }
 
 _BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
+
+#: The whole-number fields and their bounds (``None``: no upper bound).
+_INTEGERS: dict[str, tuple[int, Optional[int]]] = {
+    "scan": (1, None),
+    "y_count": (1, MAX_Y_LISTS),
+    "y_fit_order": (0, MAX_FIT_ORDER),
+    "y2_fit_order": (0, MAX_FIT_ORDER),
+    "y3_fit_order": (0, MAX_FIT_ORDER),
+}
 
 
 def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
@@ -327,16 +358,18 @@ def _form_value(field: str, key: str, value: str) -> object:
             return value == "true"
         if key == "day":
             return date.fromisoformat(value)
-        if key == "scan":
+        if key in _INTEGERS:
+            low, high = _INTEGERS[key]
             number = int(value)
-            if number < 1:
-                raise ValueError("must be 1 or more")
+            if number < low or (high is not None and number > high):
+                raise ValueError(
+                    f"must be {low} or more"
+                    if high is None
+                    else f"must be {low} to {high}"
+                )
             return number
-        if key == "y_count":
-            count = int(value)
-            if not 1 <= count <= MAX_Y_LISTS:
-                raise ValueError(f"must be 1 to {MAX_Y_LISTS}")
-            return count
+        if key.endswith("_fit") and not _FIT_NAME.fullmatch(value):
+            raise ValueError("is not a fit name")
     except ValueError as exc:
         raise SettingsError(f"{field}={value!r}: {exc}") from None
     return value

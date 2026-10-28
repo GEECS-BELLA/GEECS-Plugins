@@ -14,3 +14,15 @@
 .kit .swatch.t1 { background: var(--trace-1); }
 .kit .swatch.t2 { background: var(--trace-2); }
 .kit .swatch.t3 { background: var(--trace-3); }
+
+/* The Fit menu under each Y list, and the fits' numbers under the plot. */
+.kit .fit-row { gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+/* Wide enough for "SuperGaussianNoOffset"; a polynomial's order wraps under. */
+.kit .fit-row select { flex: 1 1 11em; min-width: 0; }
+.kit .fit-order-box { gap: 6px; }
+.kit .fit-order { width: 4.5em; }
+.kit .fits { display: flex; flex-wrap: wrap; gap: var(--pad); margin: var(--pad) 0; }
+.kit .fit { flex: 1 1 260px; min-width: 0; }
+.kit .fit-head { gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.kit .fit table { width: auto; min-width: 220px; }
+.kit .fit-error { color: var(--crit); margin: 4px 0; }

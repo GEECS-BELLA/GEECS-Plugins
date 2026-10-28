@@ -5,7 +5,7 @@
   lists are rendered here; plotter.js filters them, submits on change, and
   draws the figure fetched from data-figure-url.
 #}{# One Y pick list: its alias toggle, its filter, and its trace colour. #}
-{%- macro y_field(key, label, picked, names, alias, filter_text, trace, kept="") %}
+{%- macro y_field(key, label, picked, names, alias, filter_text, trace, fit, order, kept="") %}
           <div class="field">
             <div class="row">
               <label for="{{ key }}"><span class="swatch t{{ trace }}" aria-hidden="true"></span>{{ label }}</label>
@@ -22,6 +22,21 @@
               {% if kept %}<option value="{{ kept }}" selected>{{ kept }} (not in this scan)</option>{% endif %}
               {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}
             </select>
+            {# GEECSplotter's Fit menu, one per Y list: the curve is drawn
+               dashed in this list's colour, its numbers listed under the plot. #}
+            <div class="row fit-row">
+              <label for="{{ key }}-fit" class="hint">Fit</label>
+              <select id="{{ key }}-fit" name="{{ key }}fit" data-submit-on-change>
+                {% for value, text in fits.items() %}<option value="{{ value }}"{% if value == fit %} selected{% endif %}>{{ text }}</option>{% endfor %}
+                {% if fit not in fits %}<option value="{{ fit }}" selected>{{ fit }} (not in this version)</option>{% endif %}
+              </select>
+              {% if fit == "polynomial" %}
+                <span class="row fit-order-box">
+                  <label for="{{ key }}-order" class="hint">order</label>
+                  <input id="{{ key }}-order" name="{{ key }}order" type="number" min="0" max="{{ max_fit_order }}" value="{{ order }}" class="fit-order" data-submit-on-change>
+                </span>
+              {% endif %}
+            </div>
           </div>
 {% endmacro %}<!doctype html>
 <html lang="en">
@@ -110,11 +125,11 @@
               </div>
             </div>
           </div>
-          {{ y_field("y", "Y", y, ynames, yalias, yf, 1) }}
+          {{ y_field("y", "Y", y, ynames, yalias, yf, 1, yfit, yorder) }}
           {# GEECSplotter's Y2 and Y3: as many Y lists as the count says, each
              on its own axis in its own colour (the swatch is that colour). #}
-          {% if ycount >= 2 %}{{ y_field("y2", "Y2", y2, y2names, y2alias, y2f, 2, kept=y2_kept) }}{% endif %}
-          {% if ycount >= 3 %}{{ y_field("y3", "Y3", y3, y3names, y3alias, y3f, 3, kept=y3_kept) }}{% endif %}
+          {% if ycount >= 2 %}{{ y_field("y2", "Y2", y2, y2names, y2alias, y2f, 2, y2fit, y2order, kept=y2_kept) }}{% endif %}
+          {% if ycount >= 3 %}{{ y_field("y3", "Y3", y3, y3names, y3alias, y3f, 3, y3fit, y3order, kept=y3_kept) }}{% endif %}
         </div>
       {% endif %}
     </form>
@@ -199,7 +214,9 @@
             <div class="t">Loading the figure…</div>
           </div>
           <div id="plot" class="plot"
-               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;y2={{ y2 | urlencode }}&amp;y3={{ y3 | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}&amp;y2alias={{ y2alias | lower }}&amp;y3alias={{ y3alias | lower }}"></div>
+               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;y2={{ y2 | urlencode }}&amp;y3={{ y3 | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}&amp;y2alias={{ y2alias | lower }}&amp;y3alias={{ y3alias | lower }}&amp;yfit={{ yfit | urlencode }}&amp;y2fit={{ y2fit | urlencode }}&amp;y3fit={{ y3fit | urlencode }}&amp;yorder={{ yorder }}&amp;y2order={{ y2order }}&amp;y3order={{ y3order }}"></div>
+          {# The fits' numbers, filled from the figure response by plotter.js. #}
+          <div id="fits" class="fits"></div>
           <details class="disc">
             <summary>Notebook code</summary>
             <pre class="well mono" id="code"></pre>

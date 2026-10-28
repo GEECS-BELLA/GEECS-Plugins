@@ -24,10 +24,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from geecs_data_utils.tiled_catalog import RunDetail
 
-from geecs_plotter import scans
+from geecs_plotter import figures, scans
 from geecs_plotter.routes import Context, read_form
 from geecs_plotter.settings import (
     DEFAULT_SET,
+    MAX_FIT_ORDER,
     MAX_Y_LISTS,
     NameRefused,
     PlotterSettings,
@@ -242,6 +243,14 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "ycounts": range(1, MAX_Y_LISTS + 1),
         "y2_kept": "",
         "y3_kept": "",
+        "yfit": settings.y_fit,
+        "y2fit": settings.y2_fit,
+        "y3fit": settings.y3_fit,
+        "yorder": settings.y_fit_order,
+        "y2order": settings.y2_fit_order,
+        "y3order": settings.y3_fit_order,
+        "fits": figures.FITS,
+        "max_fit_order": MAX_FIT_ORDER,
     }
 
 

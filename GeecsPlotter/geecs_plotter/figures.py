@@ -5,6 +5,9 @@ Copied from the portal's ``geecs_portal/figures.py`` (``Palette``,
 draws — up to three Y columns against one X (the portal's multi-Y ladder,
 ``_y_axes``). Accepted debt, named in this package's
 CLAUDE.md: the two copies may drift until portal/plotter integration.
+The fits (:func:`fit_columns`, the ``fits`` of :func:`shots_figure`) are
+the plotter's own: GEECSplotter's Fit menu, the numbers from
+``geecs_data_utils.data.curve_fit``.
 
 The page asks for :data:`THEMED_PALETTE`, whose placeholder hex
 :func:`page_figure` swaps for ``$tok:--name`` sentinels that the browser
@@ -21,6 +24,7 @@ from typing import Any, Mapping, Optional, Sequence, Union
 
 import plotly.graph_objects as go
 import plotly.io as pio
+from geecs_data_utils.data.curve_fit import CurveFit, fit_curve
 
 
 #: GEECSplotter's Y1, Y2 and Y3: the most Y columns one figure draws.
@@ -28,6 +32,20 @@ MAX_Y = 3
 
 #: Pixels between the inner right axis's title and the outer axis's ticks.
 _OUTER_AXIS_GAP = 20
+
+#: GEECSplotter's Fit menu, in its order and with its names, for the models
+#: ``geecs_data_utils.data.curve_fit`` has so far; ``none`` is no fit.
+FITS: dict[str, str] = {
+    "none": "None",
+    "gaussian": "Gaussian",
+    "gaussian_no_offset": "GaussianNoOffset",
+    "supergaussian": "SuperGaussian",
+    "supergaussian_no_offset": "SuperGaussianNoOffset",
+    "polynomial": "Polynomial",
+}
+
+#: Points along a drawn fit curve.
+FIT_POINTS = 400
 
 
 @dataclass(frozen=True)
@@ -189,6 +207,61 @@ def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
     return layout
 
 
+def _x_values(
+    series: Mapping[str, Sequence],
+    y0: str,
+    x: Optional[str],
+    shot: Optional[Sequence],
+) -> list:
+    """The X the points are drawn (and fitted) against: the column, the shots, or 1..n."""
+    if x and x in series:
+        return list(series[x])
+    if shot is not None:
+        return list(shot)
+    return list(range(1, len(series[y0]) + 1))
+
+
+def fit_columns(
+    series: Mapping[str, Sequence],
+    y: Sequence[Optional[str]],
+    models: Sequence[Optional[str]],
+    *,
+    x: Optional[str] = None,
+    shot: Optional[Sequence] = None,
+    orders: Sequence[int] = (),
+) -> list[Optional[CurveFit]]:
+    """Fit each Y slot against X with its model: GEECSplotter's per-plot Fit.
+
+    Parameters
+    ----------
+    series, x, shot
+        As :func:`shots_figure`: the points fitted are the points drawn.
+    y : Sequence[str or None]
+        The Y slots (``None`` is a list that is off).
+    models : Sequence[str or None]
+        One :data:`FITS` key per slot; ``None`` or ``"none"`` is no fit.
+    orders : Sequence[int], optional
+        The polynomial order per slot (default 2).
+
+    Returns
+    -------
+    list of CurveFit or None
+        One per slot, ``None`` where no fit was asked for or the list is off.
+        A fit that could not be made has ``error`` set.
+    """
+    ys = list(y)
+    x_values = _x_values(series, ys[0], x, shot)
+    picked = list(models) + [None] * (len(ys) - len(models))
+    degrees = list(orders) + [2] * (len(ys) - len(orders))
+    fits: list[Optional[CurveFit]] = []
+    for name, model, order in zip(ys, picked, degrees):
+        if not name or model in (None, "none"):
+            fits.append(None)
+            continue
+        fits.append(fit_curve(x_values, list(series[name]), model, order=order))
+    return fits
+
+
 def shots_figure(
     series: Mapping[str, Sequence],
     y: Union[str, Sequence[str]],
@@ -198,6 +271,7 @@ def shots_figure(
     x_label: Optional[str] = None,
     y_label: Optional[str] = None,
     y_labels: Sequence[Optional[str]] = (),
+    fits: Sequence[Optional[CurveFit]] = (),
     palette: Palette = NOTEBOOK_PALETTE,
 ) -> go.Figure:
     """The per-shot scatter: one marker trace per Y column, against ``x``.
@@ -222,6 +296,10 @@ def shots_figure(
     y_labels : Sequence[str or None], optional
         One title per Y slot, ``None`` for the column name. Per axis, not
         per column: the same column may be on two axes.
+    fits : Sequence[CurveFit or None], optional
+        One per Y slot (:func:`fit_columns`): each fit made is drawn as a
+        dashed line over its fitted range, on its slot's axis, in its
+        slot's colour.
     palette : Palette, optional
         :data:`NOTEBOOK_PALETTE` (default) or :data:`THEMED_PALETTE`.
 
@@ -238,12 +316,7 @@ def shots_figure(
         labels[0] = y_label
     drawn = [(i, name, labels[i] or name) for i, name in enumerate(ys) if name]
     x = x if x and x in series else None
-    if x:
-        x_values = list(series[x])
-    elif shot is not None:
-        x_values = list(shot)
-    else:
-        x_values = list(range(1, len(series[ys[0]]) + 1))
+    x_values = _x_values(series, ys[0], x, shot)
     fig = go.Figure(layout={"template": pio.templates["none"]})
     for i, name, title in drawn:
         fig.add_scatter(
@@ -252,6 +325,20 @@ def shots_figure(
             mode="markers",
             name=title,
             marker={"color": palette.trace[i], "size": 5.0},
+            yaxis="y" if i == 0 else f"y{i + 1}",
+        )
+    for i, _, title in drawn:
+        fit = fits[i] if i < len(fits) else None
+        if fit is None or not fit.ok:
+            continue
+        curve_x, curve_y = fit.curve(FIT_POINTS)
+        fig.add_scatter(
+            x=curve_x.tolist(),
+            y=curve_y.tolist(),
+            mode="lines",
+            name=f"{title}: {FITS.get(fit.model, fit.model)} fit",
+            line={"color": palette.trace[i], "dash": "dash", "width": 2},
+            hoverinfo="skip",
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
     layout = base_layout(palette)
