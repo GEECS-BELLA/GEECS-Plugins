@@ -10,6 +10,7 @@ the Data Portal's ``tests/test_resources.py``.
 from __future__ import annotations
 
 import io
+import warnings
 
 import h5py
 import numpy as np
@@ -442,5 +443,10 @@ class TestDisplayPng:
         assert np.asarray(Image.open(io.BytesIO(png))).max() == 0
 
     def test_a_nan_pixel_draws_black_under_levels(self):
-        png = to_display_png(np.array([[np.nan, 10.0]]), levels=(0.0, 10.0))
+        """Black by rule, not by the platform: casting NaN to a byte is
+        undefined (0 on some machines, with only a warning), so the
+        warning fails the test."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            png = to_display_png(np.array([[np.nan, 10.0]]), levels=(0.0, 10.0))
         assert np.asarray(Image.open(io.BytesIO(png))).tolist() == [[0, 255]]
