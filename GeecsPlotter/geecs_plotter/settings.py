@@ -146,8 +146,11 @@ class PlotterSettings(BaseModel):
     image_columns: int = Field(default=5, ge=1, le=MAX_IMAGE_COLUMNS)
     #: A matplotlib name; one this copy does not know draws greyscale.
     image_cmap: str = "gray"
-    image_plo: float = Field(default=1.0, ge=0.0, le=100.0)
-    image_phi: float = Field(default=99.7, ge=0.0, le=100.0)
+    #: The percentile window; 0 and 100 are the darkest and brightest pixel
+    #: (LabVIEW's autoscale; a small bright spot, a laser mode, stays
+    #: unsaturated).
+    image_plo: float = Field(default=0.0, ge=0.0, le=100.0)
+    image_phi: float = Field(default=100.0, ge=0.0, le=100.0)
     #: The z scale: each tile its own window ("tile"), one window over
     #: every tile ("shared"), or the black and white values below ("fixed").
     image_zscale: str = "tile"

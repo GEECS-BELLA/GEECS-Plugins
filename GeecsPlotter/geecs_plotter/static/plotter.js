@@ -175,7 +175,7 @@
     const zscale = strip.dataset.zscale;
     let shared = null;  // [black, white] for the shared z scale, once read
     const display = () => {
-      const query = new URLSearchParams({ cmap: value("cmap"), plo: value("plo") || "1", phi: value("phi") || "99.7" });
+      const query = new URLSearchParams({ cmap: value("cmap"), plo: value("plo") || "0", phi: value("phi") || "100" });
       if (strip.dataset.roi) query.set("roi", strip.dataset.roi);
       const levels = zscale === "fixed" ? [value("zmin"), value("zmax")]
         : zscale === "shared" && shared ? shared.map(String) : null;

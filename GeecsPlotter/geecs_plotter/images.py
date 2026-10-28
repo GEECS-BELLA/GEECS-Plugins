@@ -116,6 +116,11 @@ def bins(frame: pd.DataFrame) -> list[tuple[object, tuple[int, ...]]]:
     ]
 
 
+def _number(label: object) -> object:
+    """A whole-number bin label as an integer (``Bin #`` may read as 1.0)."""
+    return int(label) if isinstance(label, float) and label.is_integer() else label
+
+
 def _value(values: Optional[pd.Series], rows: tuple[int, ...]) -> str:
     """The scan variable over *rows* (its median), for the caption."""
     if values is None:
@@ -157,7 +162,7 @@ def tiles(
         Tile(
             index,
             rows,
-            f"bin {label} · {len(rows)} shot{'s' if len(rows) != 1 else ''}"
+            f"bin {_number(label)} · {len(rows)} shot{'s' if len(rows) != 1 else ''}"
             f"{_value(scan_values, rows)}",
         )
         for index, (label, rows) in enumerate(bins(frame))

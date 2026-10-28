@@ -202,8 +202,8 @@ def register(router: APIRouter, ctx: Context) -> None:
         roi: str = Query(
             default="", description="x0,y0,x1,y1 in pixels; empty is whole"
         ),
-        plo: float = Query(default=1.0, description="each tile's black percentile"),
-        phi: float = Query(default=99.7, description="each tile's white percentile"),
+        plo: float = Query(default=0.0, description="each tile's black percentile"),
+        phi: float = Query(default=100.0, description="each tile's white percentile"),
     ) -> JSONResponse:
         """One black and white for the whole strip (the "shared" z scale).
 
@@ -230,8 +230,8 @@ def register(router: APIRouter, ctx: Context) -> None:
         strip: Strip = "bins",
         index: int = Query(default=0, description="the bin's position, or the row"),
         cmap: str = Query(default="gray", description="a matplotlib colour map"),
-        plo: float = Query(default=1.0, description="black at this percentile"),
-        phi: float = Query(default=99.7, description="white at this percentile"),
+        plo: float = Query(default=0.0, description="black at this percentile"),
+        phi: float = Query(default=100.0, description="white at this percentile"),
         roi: str = Query(
             default="", description="x0,y0,x1,y1 in pixels; empty is whole"
         ),

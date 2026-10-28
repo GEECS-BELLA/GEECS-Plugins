@@ -318,3 +318,26 @@ class TestRoiAndZScale:
 def test_a_bad_z_or_roi_control_is_refused(field: str, value: str) -> None:
     with pytest.raises(SettingsError):
         merged(PlotterSettings(image_device=CAM), {field: value})
+
+
+def test_the_default_window_is_the_darkest_to_the_brightest_pixel(
+    client: TestClient, camera: Path
+) -> None:
+    """LabVIEW's autoscale: a small bright spot (a laser mode) is the only
+    white, never the 99.7th percentile, which saturates the whole spot."""
+    assert (PlotterSettings().image_plo, PlotterSettings().image_phi) == (0.0, 100.0)
+    params = {**SCAN, "device": CAM, "strip": "shots", "index": 1, "cmap": "none"}
+    bare = client.get("/api/images/tile.png", params=params).content
+    widest = client.get(
+        "/api/images/tile.png", params={**params, "plo": 0, "phi": 100}
+    ).content
+    assert bare == widest
+
+
+def test_a_bin_read_as_a_decimal_is_captioned_whole(share: Path) -> None:
+    frame, _ = _opened(share)
+    frame = frame.assign(**{"Bin #": [1.0, 1.0, 2.0, 2.0]})
+    assert [t.caption for t in images.tiles(frame, "bins")] == [
+        "bin 1 · 2 shots",
+        "bin 2 · 2 shots",
+    ]
