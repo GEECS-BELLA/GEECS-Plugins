@@ -244,6 +244,42 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # An entry may name its family ('template', one of its kind's); absent,
+  # the kind's default. Older readers refuse the key.
+""",
+    "family_file": """\
+schema_version: 1
+# Package data (geecs_schemas/epics/families/<template>.json; JSON there,
+# shown here as YAML). One file per IOC record template.
+template: example_supply
+kind: setpoint_device
+description: A supply's StreamDevice template, trimmed to four roles.
+roles:
+  - {name: current_sp, suffix: "current:SP", type: setpoint, label: current setpoint,
+     writable: true, readback: current, fields: [DRVH, DRVL], archive: true}
+  - {name: current, suffix: current, type: readback, label: current, archive: true}
+  - {name: output_sp, suffix: "enable_output:SP", type: bit, label: output,
+     writable: true, confirm: hazard}
+  - {name: fault, suffix: fault, type: bit, label: fault, fault: true}
+actions:
+  current: {label: current, roles: [current_sp]}
+  output: {label: output, roles: [output_sp]}
+""",
+    "panel_devices": """\
+schema_version: 1
+# Read by the native-device readers; a device here may still be owned by the GEECS DB.
+devices:
+  U_ESP302_01:
+    family: motor_record
+    prefix: "undulator:esptest1:"   # a bench IOC; absent: <experiment>:<device>:
+    axes: [m1, m2, m3]
+    allow: [move, tweak, stop]      # actuators on mirror mounts: no home
+    note: The driver polls only during a move it started.
+  U_ChicaneInner:
+    family: fastps
+    prefix: "undulator:fpstest1:"
+    labels: {interlock_1: chiller flow}
+    allow: [current, output, reset]
 """,
     "analysis_recipe": """\
 schema_version: 3

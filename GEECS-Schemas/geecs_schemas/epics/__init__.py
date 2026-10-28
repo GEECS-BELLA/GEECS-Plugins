@@ -20,17 +20,77 @@ the scan) and ``epics_motor`` (one or more EPICS motor records, scan axes).
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import Field, field_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    ValidationInfo,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas.epics.family import (
+    REGISTRY_KIND_FAMILIES,
+    TemplateName,
+    families_from,
+)
 
 #: The registry's file name in the experiment's configs folder.
 NATIVE_DEVICES_FILENAME = "native_devices.yaml"
 
 
-class AravisCamera(SchemaModel):
+class _NativeEntry(SchemaModel):
+    """What every registry entry carries beside its kind: the family it instantiates."""
+
+    kind: str
+    template: Optional[TemplateName] = Field(
+        None,
+        description=(
+            "The family file the device instantiates, one of its kind's; "
+            "absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also "
+            "in panel_devices.yaml names the same family there. Older readers "
+            "refuse the key: write it only once every reader has this schema."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _a_family_of_this_kind(self, info: ValidationInfo) -> "_NativeEntry":
+        if self.template is None:
+            return self
+        families = families_from(info)
+        family = families.get(self.template)
+        if family is None:
+            raise ValueError(
+                f"template {self.template!r} is not an installed family "
+                f"({', '.join(sorted(families))})"
+            )
+        if family.kind != self.kind:
+            raise ValueError(
+                f"template {self.template!r} is a {family.kind!r} family, "
+                f"not {self.kind!r}"
+            )
+        return self
+
+    @model_serializer(mode="wrap")
+    def _absent_stays_absent(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        # The deployed worker refuses unknown keys: never write a 'template' nobody set.
+        data = handler(self)
+        if self.template is None:
+            data.pop("template", None)
+        return data
+
+    @property
+    def family_template(self) -> str:
+        """The family this device instantiates: ``template``, else its kind's default."""
+        return self.template or REGISTRY_KIND_FAMILIES[self.kind]
+
+
+class AravisCamera(_NativeEntry):
     """A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file plugin."""
 
     kind: Literal["aravis_camera"] = Field(
@@ -49,7 +109,7 @@ class AravisCamera(SchemaModel):
     )
 
 
-class EpicsMotor(SchemaModel):
+class EpicsMotor(_NativeEntry):
     """A positioner: one device, one EPICS motor record per axis.
 
     The axes are the record names under the device's prefix

@@ -677,6 +677,8 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # An entry may name its family ('template', one of its kind's); absent,
+  # the kind's default. Older readers refuse the key.
 ```
 
 ### AravisCamera
@@ -686,6 +688,7 @@ A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file pl
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'aravis_camera'` | yes | — | Device kind: 'aravis_camera' (an areaDetector ADAravis camera). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
 | `trigger_source` | `'line0' \| 'line1' \| 'software'` | yes | — | Where each frame comes from. 'line0' / 'line1': the camera's hardware input on that line (a Basler's opto-isolated input is Line1, a FLIR Blackfly's Line0), wired to a timing-system output gated by the trigger box; the line must be one of the camera's own TriggerSource choices. 'software': the scan worker presses the camera's software trigger at each shot (exposed when the worker says go, not when the laser fires). |
 
 ### EpicsMotor
@@ -695,7 +698,134 @@ A positioner: one device, one EPICS motor record per axis.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'epics_motor'` | yes | — | Device kind: 'epics_motor' (EPICS motor records, one per axis). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
 | `axes` | `list[str]` | yes | — | The axes, as the motor record names under the device's prefix (e.g. ['x', 'y', 'z'] for '<experiment>:<device>:x' …). Each is a scan axis 'Device:axis'. The record owns the axis's limits, units and deadband. |
+
+## `family_file`
+
+### FamilyFile
+
+The records of one IOC record template, by role: what every device of the family serves.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `template` | `str` | yes | — | The record template's name (the file's stem), e.g. 'motor_record'. |
+| `kind` | `'aravis_camera' \| 'epics_motor' \| 'setpoint_device' \| 'array_detector'` | yes | — | The native-device kind whose devices instantiate the template. |
+| `description` | `str` | yes | — | One line: what the template is and where it comes from. |
+| `per_axis` | `bool` | no | False | The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names. |
+| `roles` | `list[Role]` | yes | — | The template's records, by role, in the page's order. |
+| `actions` | `dict[str, FamilyAction]` | no | empty | The page's actions and the roles each writes; a device may permit a subset. When there are actions, every writable role belongs to one. Empty: every writable role is its own permission. |
+
+Example:
+
+```yaml
+schema_version: 1
+# Package data (geecs_schemas/epics/families/<template>.json; JSON there,
+# shown here as YAML). One file per IOC record template.
+template: example_supply
+kind: setpoint_device
+description: A supply's StreamDevice template, trimmed to four roles.
+roles:
+  - {name: current_sp, suffix: "current:SP", type: setpoint, label: current setpoint,
+     writable: true, readback: current, fields: [DRVH, DRVL], archive: true}
+  - {name: current, suffix: current, type: readback, label: current, archive: true}
+  - {name: output_sp, suffix: "enable_output:SP", type: bit, label: output,
+     writable: true, confirm: hazard}
+  - {name: fault, suffix: fault, type: bit, label: fault, fault: true}
+actions:
+  current: {label: current, roles: [current_sp]}
+  output: {label: output, roles: [output_sp]}
+```
+
+### Role
+
+One record of the template, by what it does for a page.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | The role's name: a plain word, unique in the family; it keys the device stream. |
+| `suffix` | `str` | yes | — | The record (or record field, e.g. '.RBV') under the device's prefix that the role reads; for a command, the record pressed. |
+| `type` | `'readback' \| 'setpoint' \| 'enum' \| 'bit' \| 'command' \| 'array' \| 'image' \| 'counter'` | yes | — | What the value is and the widget a page draws: readback, setpoint, enum (shown by its state name), bit (0/1), command (a press), array (read on request), image (the frame source), counter (a plugin's frame counter, which judges freshness). |
+| `label` | `str` | yes | — | What a page calls it. |
+| `units` | `str (optional)` | no | None | The units the value travels in, where the record carries none (a record's EGU wins when it has one). |
+| `level` | `'operator' \| 'expert'` | no | 'operator' | 'operator': on the page by default; 'expert': in the expert view only. |
+| `writable` | `bool` | no | False | Whether a page may write it. Setpoints and commands always are; readbacks, counters, arrays and images never are; an enum or a bit says. |
+| `write` | `str (optional)` | no | None | The record a write goes to, when it is not 'suffix' (the setpoint beside an _RBV readback). Implies writable. |
+| `confirm` | `'hazard' (optional)` | no | None | 'hazard': the page asks the operator to confirm the write, naming device, role and value (a supply's output, a motor's home). |
+| `archive` | `bool` | no | False | The archiver takes it: the history an engineer reads later (readbacks, setpoints, limit switches, fault bits). |
+| `autosaved` | `bool` | no | False | The IOC's autosave restores this setting's last value at boot (its request files in geecs-epics); descriptive only, not a power-on default an operator chooses. False also where no request file documents it. |
+| `locked` | `bool` | no | False | Refused while a run holds the device (the run lock), or while the lock cannot be read: what a scan saves. |
+| `settled_by` | `str (optional)` | no | None | A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag. |
+| `readback` | `str (optional)` | no | None | A setpoint's readback, shown beside it (a motor's .RBV beside .VAL). |
+| `fresh_by` | `str (optional)` | no | None | The counter role whose advance makes this value fresh (the producing plugin's ArrayCounter_RBV): statistics post only on change, so a steady value is judged by its producer. Absent: fresh while connected. |
+| `computed_by` | `str (optional)` | no | None | The flag that must be on for the value to be computed at all (ComputeCentroid): with it off the value reads 'off', not fresh. |
+| `text` | `'string' \| 'char_array' (optional)` | no | None | Read as text: a string record, or a char-array record longer than a string's 40 characters. Enums are read by state name regardless. |
+| `fields` | `list[str]` | no | empty | Record fields read beside the value and carried with it, e.g. ['DRVH', 'DRVL'] for a setpoint's drive limits. |
+| `limits` | `tuple[float, float] (optional)` | no | None | The bridge's own bounds on a write, low then high, where the record enforces none (a pixel, an exposure). A motor's soft limits and a supply's drive limits are the record's, read at put time. |
+| `integer` | `bool` | no | False | A write takes a whole number. |
+| `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
+| `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
+| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL), never (a command's record). |
+
+### FamilyAction
+
+One thing a page does to a device of the family, and the roles it writes.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `label` | `str` | yes | — | What the page's control is called. |
+| `roles` | `list[str]` | yes | — | The writable roles the action writes. |
+| `requires` | `list[str]` | no | empty | Actions a device permitting this one must permit too (a motion needs stop). |
+
+## `panel_devices`
+
+### PanelDevices
+
+The experiment's devices with a panel: each one's family and per-device panel data.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `devices` | `dict[str, PanelDevice]` | no | empty | GEECS device name → its family and panel data. |
+
+Example:
+
+```yaml
+schema_version: 1
+# Read by the native-device readers; a device here may still be owned by the GEECS DB.
+devices:
+  U_ESP302_01:
+    family: motor_record
+    prefix: "undulator:esptest1:"   # a bench IOC; absent: <experiment>:<device>:
+    axes: [m1, m2, m3]
+    allow: [move, tweak, stop]      # actuators on mirror mounts: no home
+    note: The driver polls only during a move it started.
+  U_ChicaneInner:
+    family: fastps
+    prefix: "undulator:fpstest1:"
+    labels: {interlock_1: chiller flow}
+    allow: [current, output, reset]
+```
+
+### PanelDevice
+
+One device's panel data: its family and what differs from it on this device.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `family` | `str` | yes | — | The record template the device instantiates (a family file's name). |
+| `prefix` | `str (optional)` | no | None | The device's PV prefix, ending in ':', for a device on a bench IOC (not in native_devices.yaml). Absent: '<experiment>:<device>:'. |
+| `axes` | `list[str] (optional)` | no | None | A per-axis family's axes (the motor record names under the prefix), for a device the registry does not list. |
+| `roles` | `dict[str, str]` | no | empty | Role → this device's own record suffix, where it differs from the family's (a supply's IOC names its own PVs). |
+| `labels` | `dict[str, str]` | no | empty | Role → what this device's page calls it (a bit's label: 'chiller flow'). |
+| `allow` | `list[str] (optional)` | no | None | The family actions the page may take on this device (no homing for actuators on a mirror mount). Absent: every action. |
+| `note` | `str` | no | '' | A line the device's page shows. |
+| `omit` | `list[str]` | no | empty | Family roles this device does not have or use (an unwired interlock): never read, never shown, and their actions are unavailable. |
+| `hazard` | `list[str]` | no | empty | Writable roles that need the hazard confirm on this device, beyond the family's own (one stage's move). |
+| `archive` | `list[str]` | no | empty | Roles the archiver takes on this device beyond the family's own. |
+| `no_archive` | `list[str]` | no | empty | Roles the family archives that the archiver leaves out on this device (a readback too noisy to keep); the page still shows them. |
+| `ioc` | `str (optional)` | no | None | The IOC serving the device, as its host's compose file names it (IOC_NAME, e.g. 'adtest-cam1'): the archiver keeps that IOC's devIocStats heartbeat. Absent: no heartbeat for it. |
 
 ## `analysis_recipe`
 

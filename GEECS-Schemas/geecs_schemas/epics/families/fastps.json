@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "template": "fastps",
+  "kind": "setpoint_device",
+  "description": "A CAEN FAST-PS supply behind StreamDevice (geecs-epics services/fpstest1, fastps.template): the ramped current setpoint, the regulation loop, two external interlocks.",
+  "roles": [
+    {"name": "current_sp", "suffix": "current_ramp:SP", "type": "setpoint", "label": "current setpoint", "writable": true, "readback": "current", "fields": ["DRVH", "DRVL", "HIHI", "LOLO", "HHSV", "LLSV", "EGU", "PREC", "SEVR", "STAT"], "archive": true},
+    {"name": "current", "suffix": "current", "type": "readback", "label": "current", "fields": ["EGU", "PREC", "SEVR", "STAT"], "archive": true},
+    {"name": "voltage", "suffix": "voltage", "type": "readback", "label": "voltage", "fields": ["EGU", "PREC"], "archive": true},
+    {"name": "output_sp", "suffix": "enable_output:SP", "type": "bit", "label": "output", "writable": true, "readback": "output", "confirm": "hazard", "fields": ["SEVR", "STAT"], "archive": true},
+    {"name": "output", "suffix": "enable_output", "type": "bit", "label": "output on", "archive": true},
+    {"name": "reset", "suffix": "reset:SP", "type": "command", "label": "reset faults", "writable": true},
+    {"name": "loop_mode", "suffix": "loop_mode", "type": "enum", "label": "regulation loop"},
+    {"name": "fault", "suffix": "fault", "type": "bit", "label": "fault", "fault": true, "archive": true},
+    {"name": "interlock_1", "suffix": "interlock_1", "type": "bit", "label": "interlock 1", "fault": true, "archive": true},
+    {"name": "interlock_2", "suffix": "interlock_2", "type": "bit", "label": "interlock 2", "fault": true, "archive": true}
+  ],
+  "actions": {
+    "current": {"label": "current", "roles": ["current_sp"]},
+    "output": {"label": "output", "roles": ["output_sp"]},
+    "reset": {"label": "reset", "roles": ["reset"]}
+  }
+}
