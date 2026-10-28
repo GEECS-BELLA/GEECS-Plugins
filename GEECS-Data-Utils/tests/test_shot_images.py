@@ -19,6 +19,7 @@ from PIL import Image
 
 from geecs_data_utils.io.display_png import to_display_png, window_percentiles
 from geecs_data_utils.io.scan_stack import (
+    ATTRIBUTES_GROUP,
     FRAMES_DATASET,
     LABVIEW_EPOCH_OFFSET,
     TIMESTAMPS_DATASET,
@@ -28,8 +29,10 @@ from geecs_data_utils.io.shot_images import (
     image_devices,
     load_shot_array,
     load_shot_image,
+    load_shot_trace,
     row_acq_timestamp,
     row_file_shot,
+    stack_content,
 )
 
 #: A LabVIEW-epoch acquisition time (seconds since 1904).
@@ -44,6 +47,28 @@ def _peak(png: bytes) -> tuple[int, int]:
     rendered = np.asarray(Image.open(io.BytesIO(png)))
     row, col = np.unravel_index(np.argmax(rendered), rendered.shape)
     return int(row), int(col)
+
+
+def _write_array_stack(path, *, device, variable, frames, axis):
+    """An ARRAY capture stack, as GeecsPvaGateway's file plugin writes one.
+
+    Same layout as a camera stack, with the per-frame ``wave_*`` attributes
+    that declare the frames an array variable's and carry a waveform's axis.
+    """
+    frames = np.asarray(frames, dtype=float)
+    prefix = f"{ATTRIBUTES_GROUP}/{device}-hdf-{variable}"
+    labview = _LV + np.array([0.5, 1.0, 2.0, 3.0])[: len(frames)]
+    with h5py.File(path, "w") as handle:
+        handle.attrs["finalized"] = True
+        handle.create_dataset(FRAMES_DATASET, data=frames)
+        handle.create_dataset(
+            f"{prefix}-frame_acq_timestamp", data=labview - LABVIEW_EPOCH_OFFSET
+        )
+        for key, values in zip(
+            ("wave_x0", "wave_dx", "wave_samples"), zip(*axis), strict=True
+        ):
+            handle.create_dataset(f"{prefix}-{key}", data=np.asarray(values, float))
+    return path
 
 
 @pytest.fixture()
@@ -72,6 +97,34 @@ def scan_folder(tmp_path):
         # The stack stores Unix epoch; the rows hold LabVIEW epoch.
         labview = np.array([_LV + 0.5, _LV + 1.0, _LV + 2.0, _LV + 3.0])
         handle.create_dataset(TIMESTAMPS_DATASET, data=labview - LABVIEW_EPOCH_OFFSET)
+
+    # Two ARRAY capture stacks: same plugin and layout, x-vs-y frames.
+    scope_stack = folder / "U_ICT"
+    scope_stack.mkdir()
+    _write_array_stack(
+        scope_stack / "U_ICT.h5",
+        device="u_ict",
+        variable="scopetrace_channel0",
+        # Four samples per shot, four shots, the same leading extra frame.
+        frames=np.array([[float(i), 1.0, 2.0, 1.0] for i in range(4)]),
+        axis=[(-1e-9, 2.5e-9, 4.0)] * 4,
+    )
+    spectrum = folder / "U_MagSpec"
+    spectrum.mkdir()
+    # Padded to 5 rows; shot 2 (frame index 1) is 3 rows long, every other
+    # frame 2, so a reader that keeps the padding gives one shape for all.
+    lineout = np.full((4, 5, 2), np.nan)
+    for index in range(4):
+        rows = 3 if index == 1 else 2
+        lineout[index, :rows, 0] = np.arange(rows, dtype=float) * 10.0
+        lineout[index, :rows, 1] = float(index) + np.arange(rows, dtype=float)
+    _write_array_stack(
+        spectrum / "U_MagSpec.h5",
+        device="u_magspec",
+        variable="interpspec",
+        frames=lineout,
+        axis=[(np.nan, np.nan, np.nan)] * 4,
+    )
 
     vendor = folder / "U_HasoWFS"
     vendor.mkdir()
@@ -107,6 +160,8 @@ class TestTierLadder:
             "UC_TestCam",
             "U_HasoLift",
             "U_HasoWFS",
+            "U_ICT",
+            "U_MagSpec",
             "U_Scope",
             "cam",
         ]
@@ -249,6 +304,67 @@ class TestRowJoins:
         assert row_file_shot(frame, 2) == 0  # no number: a file no one has
         assert row_file_shot(frame, 3) is None
         assert row_file_shot(self._frame(scan_event_index=[1]), 1) is None
+
+
+class TestArrayStacks:
+    """A device whose shots are traces, not pixels.
+
+    One file plugin writes image and array stacks alike, so a viewer must
+    decide per device which it has — a lineout drawn as pixels is a
+    two-pixel-wide strip, not a refusal, which is why the classification is
+    pinned rather than left to the renderer to notice.
+    """
+
+    def test_a_device_s_stack_says_whether_its_shots_are_pixels(self, scan_folder):
+        kinds = {
+            device: stack_content(device_kind(scan_folder, device))
+            for device in ("UC_StackCam", "U_ICT", "U_MagSpec", "UC_TestCam")
+        }
+        assert kinds == {
+            "UC_StackCam": "image",
+            "U_ICT": "waveform",
+            "U_MagSpec": "lineout",
+            # No stack at all: a per-shot-file device stays on the path
+            # it has always taken.
+            "UC_TestCam": "image",
+        }
+
+    def test_an_unreadable_stack_degrades_to_the_image_path(self, scan_folder):
+        """A damaged stack must fall back to today's rendering, not to nothing."""
+        (scan_folder / "U_ICT" / "U_ICT.h5").write_bytes(b"not hdf5")
+        probe = device_kind(scan_folder, "U_ICT")
+        assert stack_content(probe) == "image"
+
+    def test_a_waveform_shot_reads_as_volts_against_a_time_axis(self, scan_folder):
+        """Ordinal fallback: shot 2 is frame index 1, pinned by the identity marker."""
+        trace = load_shot_trace(scan_folder, "U_ICT", 2)
+        assert (trace.kind, trace.content) == ("stack", "waveform")
+        np.testing.assert_allclose(
+            trace.result.data[:, 0], [-1e-9, 1.5e-9, 4e-9, 6.5e-9], rtol=0, atol=1e-21
+        )
+        np.testing.assert_array_equal(trace.result.data[:, 1], [1.0, 1.0, 2.0, 1.0])
+        assert trace.result.x_units == "s"
+
+    def test_the_timestamp_join_is_the_image_path_s_join(self, scan_folder):
+        """Frame 2 by its stamp, not by its ordinal — the leading extra must not shift it."""
+        trace = load_shot_trace(scan_folder, "U_ICT", 1, acq_timestamp=_LV + 2.0)
+        assert trace.result.data[0, 1] == 2.0  # the identity marker of frame index 2
+
+    def test_a_shot_the_device_missed_is_refused(self, scan_folder):
+        trace = load_shot_trace(scan_folder, "U_ICT", 1, acq_timestamp=_LV + 9.0)
+        assert trace.kind == "missing" and "no stack frame" in trace.reason
+
+    def test_a_lineout_reaches_the_portal_at_its_true_length(self, scan_folder):
+        """The padding must not survive the read — it is what makes shots look alike."""
+        lengths = {
+            shot: load_shot_trace(scan_folder, "U_MagSpec", shot).result.data.shape[0]
+            for shot in (1, 2, 3)
+        }
+        assert lengths == {1: 2, 2: 3, 3: 2}
+
+    def test_an_image_device_has_no_trace(self, scan_folder):
+        trace = load_shot_trace(scan_folder, "UC_StackCam", 1)
+        assert trace.kind == "missing" and trace.result is None
 
 
 class TestDisplayPng:

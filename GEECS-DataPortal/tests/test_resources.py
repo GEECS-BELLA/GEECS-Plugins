@@ -17,7 +17,6 @@ from PIL import Image
 
 from geecs_data_utils.io import shot_images
 
-from geecs_portal import resources
 from geecs_portal.app import create_app
 
 from test_app import _LV, TEST_DAY, FakeCatalog, _detail
@@ -254,69 +253,10 @@ class TestArrayStacks:
     """A device whose shots are traces, not pixels.
 
     The gateway serves images and arrays through one file plugin, so the
-    portal must decide per device which it has — and a lineout drawn as
-    pixels is a two-pixel-wide strip, not a refusal, which is why the
-    classification is pinned rather than left to the renderer to notice.
+    portal must decide per device which it has (the classification and the
+    trace reader are pinned in Data-Utils' ``test_shot_images.py``); these
+    are the routes over them.
     """
-
-    def test_a_device_s_stack_says_whether_its_shots_are_pixels(self, scan_folder):
-        kinds = {
-            device: resources.stack_content(
-                shot_images.device_kind(scan_folder, device)
-            )
-            for device in ("UC_StackCam", "U_ICT", "U_MagSpec", "UC_TestCam")
-        }
-        assert kinds == {
-            "UC_StackCam": "image",
-            "U_ICT": "waveform",
-            "U_MagSpec": "lineout",
-            # No stack at all: a per-shot-file device stays on the path
-            # it has always taken.
-            "UC_TestCam": "image",
-        }
-
-    def test_an_unreadable_stack_degrades_to_the_image_path(self, scan_folder):
-        """A damaged stack must fall back to today's rendering, not to nothing."""
-        (scan_folder / "U_ICT" / "U_ICT.h5").write_bytes(b"not hdf5")
-        probe = shot_images.device_kind(scan_folder, "U_ICT")
-        assert resources.stack_content(probe) == "image"
-
-    def test_a_waveform_shot_reads_as_volts_against_a_time_axis(self, scan_folder):
-        """Ordinal fallback: shot 2 is frame index 1, pinned by the identity marker."""
-        trace = resources.load_shot_trace(scan_folder, "U_ICT", 2)
-        assert (trace.kind, trace.content) == ("stack", "waveform")
-        np.testing.assert_allclose(
-            trace.result.data[:, 0], [-1e-9, 1.5e-9, 4e-9, 6.5e-9], rtol=0, atol=1e-21
-        )
-        np.testing.assert_array_equal(trace.result.data[:, 1], [1.0, 1.0, 2.0, 1.0])
-        assert trace.result.x_units == "s"
-
-    def test_the_timestamp_join_is_the_image_path_s_join(self, scan_folder):
-        """Frame 2 by its stamp, not by its ordinal — the leading extra must not shift it."""
-        trace = resources.load_shot_trace(
-            scan_folder, "U_ICT", 1, acq_timestamp=_LV + 2.0
-        )
-        assert trace.result.data[0, 1] == 2.0  # the identity marker of frame index 2
-
-    def test_a_shot_the_device_missed_is_refused(self, scan_folder):
-        trace = resources.load_shot_trace(
-            scan_folder, "U_ICT", 1, acq_timestamp=_LV + 9.0
-        )
-        assert trace.kind == "missing" and "no stack frame" in trace.reason
-
-    def test_a_lineout_reaches_the_portal_at_its_true_length(self, scan_folder):
-        """The padding must not survive the read — it is what makes shots look alike."""
-        lengths = {
-            shot: resources.load_shot_trace(
-                scan_folder, "U_MagSpec", shot
-            ).result.data.shape[0]
-            for shot in (1, 2, 3)
-        }
-        assert lengths == {1: 2, 2: 3, 3: 2}
-
-    def test_an_image_device_has_no_trace(self, scan_folder):
-        trace = resources.load_shot_trace(scan_folder, "UC_StackCam", 1)
-        assert trace.kind == "missing" and trace.result is None
 
     def test_the_trace_endpoint_serves_a_figure_and_stays_read_only(self, scan_folder):
         client = _gallery_client(scan_folder)

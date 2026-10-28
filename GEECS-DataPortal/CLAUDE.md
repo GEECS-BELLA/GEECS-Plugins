@@ -207,8 +207,8 @@ geecs_portal/
                  #   plot into a scan's logbook entry (HTTP only)
   figures.py     # server-side Plot-tab figure authoring (plotly.py):
                  #   palette, base layout, multi-axis ladder, display
-  resources.py   # array-stack traces + figure_png (a shot's pixels and its
-                 #   PNG are geecs_data_utils.io.shot_images / .display_png)
+  resources.py   # figure_png (a shot's pixels, traces and PNG are
+                 #   geecs_data_utils.io.shot_images / .display_png)
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
@@ -496,7 +496,7 @@ every lookup — hit or miss — must leave the tree untouched (pinned in
 
 The same file plugin captures a device's **array** variables — scope
 traces and spectra — so a scan folder holds three kinds of stack through
-one layout. `resources.stack_content(probe)` names which a device has,
+one layout. `shot_images.stack_content(probe)` (Data-Utils) names which a device has,
 from the stack's own declaration (`stack_content_kind` in
 `geecs_data_utils.io.scan_stack`: the plugin writes `wave_*` attributes
 for an array variable and never for an image one, and **rank alone
@@ -505,7 +505,7 @@ readable array stack reads as `"image"`, so a damaged or unfamiliar
 stack degrades to the path the portal has always taken.
 
 For an array device the tab serves a **figure, not a PNG**:
-`load_shot_trace` → `ShotTrace` → `figures.trace_figure` →
+`shot_images.load_shot_trace` → `ShotTrace` → `figures.trace_figure` →
 `/api/run/{uid}/trace`. The two transports differ on purpose — a 2048²
 frame as JSON is absurd, a few thousand trace samples want the hover
 readout — and the split is keyed on the stack, never guessed in the

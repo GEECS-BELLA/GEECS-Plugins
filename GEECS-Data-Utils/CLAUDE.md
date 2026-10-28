@@ -90,8 +90,11 @@ geecs_data_utils/
                                #   (row_acq_timestamp refuses a shot the
                                #   device missed: never a neighbour's image;
                                #   row_file_shot), load_shot_array /
-                               #   load_shot_image; moved from the portal so
-                               #   every viewer resolves a shot alike
+                               #   load_shot_image; a "stack" may hold
+                               #   traces: stack_content says which, and
+                               #   load_shot_trace reads one as x-vs-y;
+                               #   moved from the portal so every viewer
+                               #   resolves a shot alike
                                #   + display_png.py: frame → 8-bit PNG
                                #   through a percentile window, optional
                                #   matplotlib colour map (lazy import; no

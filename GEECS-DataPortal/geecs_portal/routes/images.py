@@ -62,7 +62,7 @@ def api_run_trace(
         raise HTTPException(
             status_code=404, detail="device missed this shot (no timestamp)"
         )
-    resolved = resources.load_shot_trace(folder, device, shot, acq_timestamp=acq)
+    resolved = shot_images.load_shot_trace(folder, device, shot, acq_timestamp=acq)
     if resolved.result is None:
         raise HTTPException(status_code=404, detail=resolved.reason or resolved.kind)
     trace = resolved.result
