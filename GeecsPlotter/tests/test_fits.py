@@ -226,3 +226,12 @@ class TestPage:
     def test_a_fit_this_copy_lacks_stays_picked(self, client: TestClient) -> None:
         html = post(client, scan=1, yfit="lorentzian")
         assert "lorentzian (not in this version)" in html
+
+    def test_each_fit_menu_is_above_its_list(self, client: TestClient) -> None:
+        # Under a 10-row list the menu fell past the bottom of the rail, where
+        # the author never saw it.
+        html = post(client, scan=1, ycount="2")
+        for key in ("y", "y2"):
+            assert html.index(f'name="{key}fit"') < html.index(
+                f'id="{key}" name="{key}"'
+            )

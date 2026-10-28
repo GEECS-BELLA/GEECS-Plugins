@@ -15,7 +15,7 @@
 .kit .swatch.t2 { background: var(--trace-2); }
 .kit .swatch.t3 { background: var(--trace-3); }
 
-/* The Fit menu under each Y list, and the fits' numbers under the plot. */
+/* The Fit menu above each Y list, and the fits' numbers under the plot. */
 .kit .fit-row { gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 /* Wide enough for "SuperGaussianNoOffset"; a polynomial's order wraps under. */
 .kit .fit-row select { flex: 1 1 11em; min-width: 0; }
