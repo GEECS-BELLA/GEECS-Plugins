@@ -141,7 +141,7 @@ is still running at `http://127.0.0.1:8000` (stop: `cd
 | 07 refusals | IOC refusal = 502 `pv_write_failed`; device NAK = 200 + INVALID (rule 11 holds) | a bounds gate: a put beyond DRVH is a silent 200, clamped; unset limits read `0.0`, so fail closed | — |
 | 08 denied | — | per-device allow list, 403 before Hare (built); binding only while operator keys carry no Canopy `write` (§7.6 a), since a write key reaches Hare's and Squirrel's own routes directly | — |
 | 09 stale | `connected:false` in one diff ≈70 ms after the IOC dies; reconnect automatic | freshness by the producing counter and the `Compute*` flag (built, polled; streaming version = an internal broker client) | — |
-| 10–14 snapshots | registry with device/setpoint/readback, save, restore a subset with put-callback, tolerances, snapshot-vs-snapshot compare | per-device scope (save = every registered PV), live compare, restore ordering and confirm, unreachable rows (saved as `null`, job "completed") | — |
+| 10–14 snapshots | registry with device/setpoint/readback, save, tolerances, snapshot-vs-snapshot compare; restore a subset with put-callback (service use only) | per-device scope (save = every registered PV), live compare, the restore itself through the module's guarded put path (Squirrel's worker writes unguarded and unattributed, see 7.6 a), ordering and confirm, unreachable rows (saved as `null`, job "completed") | — |
 | 15–16 scanner | beside Canopy | — | — |
 | 17 three tabs | one WebSocket per page; 4 clients, 10 monitors, no starvation | the front end multiplexes per page | — |
 
@@ -206,7 +206,9 @@ modification.
    6. Open error codes; per-module Alembic trees; named env keys. 7. Raccoon:
    a structured device → PVs call, the conformance suite shipped in the
    package, an adapter-declared pattern grammar. 8. Snapshot-vs-live compare
-   and per-scope save in Squirrel; unreachable rows marked. 9. An arm64 image.
+   and per-scope save in Squirrel; unreachable rows marked; a per-write
+   authorizer and attribution hook in the restore worker, so a facility can
+   guard restores without executing them itself. 9. An arm64 image.
 
 ### 7.5 Questions only SLAC can answer (the note for Sam to send)
 
@@ -245,10 +247,17 @@ Conditions and guards (the review changed a, b, d and added f):
 `PUT /hare/v1/pvs/{pv}` and Squirrel's restore directly, skipping the allow
 list, bounds, hazard confirm, run lock and journal, and the IOC sees one CA
 user either way. Operators get read keys; the module authorizes its own puts
-after `require_read_access` against its operator policy and reaches Hare and
-Squirrel in-process; `write` and `admin` keys are service and ops keys only.
-Pinned by a test: an operator key gets 403 at Hare's PUT and at Squirrel's
-restore. (b) `routes.py` keeps no Canopy import (as C3 built it), so a
+after `require_read_access` against its operator policy and reaches Hare
+in-process; `write` and `admin` keys are service and ops keys only. Pinned
+by a test: an operator key gets 403 at Hare's PUT and at Squirrel's
+restore. **Squirrel is storage and compare, never the executor of an
+operator's restore**: its restore job builds its own EPICS adapter in the
+worker and writes directly, so a check before enqueueing cannot hold a run
+lock that changes while the job waits, and nothing attributes the rows.
+The module performs restores itself, row by row through its own guarded
+put path (lock, bounds, hazard confirm and journal checked at execution,
+motion rows last), reading the saved values from Squirrel. Squirrel's
+restore endpoint stays reachable to service keys only. (b) `routes.py` keeps no Canopy import (as C3 built it), so a
 sidecar reuses it; a sidecar would still need its own key check (Canopy has
 no key-introspection route) and its own Hare WebSocket client for freshness.
 (c) Sam sends the §7.5 note before the package is deployed anywhere. (d) One
@@ -294,3 +303,9 @@ verdict stayed "adopt" with changed conditions.
 | 6 | Mole "already speaks our Appliance" was a source reading, not observed | Accepted: §7.6 reworded |
 | 7 | Hare's PUT already takes a per-write timeout; the gaps are the default and Squirrel's fixed restore timeout | Accepted: §7.4 item 5 |
 | 8 | The licence paragraph asserted a grantee and a reading the text does not state | Accepted: §7.3 states both points as open for Sam |
+
+Second review (the maintainer's GPT pass on head 8ff4181f0), one finding:
+
+| # | Finding | Disposition |
+|---|---|---|
+| 9 | Squirrel's restore job builds its own `EpicsIO` in the worker (`squirrel/tasks.py`, `snapshot_service.py`) and writes directly, so an authorization check before enqueueing cannot enforce a run lock that changes while the job waits, nor attribute rows; blocking operators from the endpoint alone does not establish guarded execution | Accepted: condition (a) now makes Squirrel storage and compare only; the module executes restores row by row through its guarded put path; row 10–14 qualified. Upstream candidate added to §7.4: a per-write authorizer hook in Squirrel's restore |
