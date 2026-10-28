@@ -26,9 +26,8 @@ import plotly.io as pio
 #: GEECSplotter's Y1, Y2 and Y3: the most Y columns one figure draws.
 MAX_Y = 3
 
-#: The plot's share of the width when two axes stand on the right: the
-#: rest holds the inner right axis's ticks and title.
-_RIGHT_DOMAIN = 0.82
+#: Pixels between the inner right axis's title and the outer axis's ticks.
+_OUTER_AXIS_GAP = 20
 
 
 @dataclass(frozen=True)
@@ -150,10 +149,14 @@ def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
     After the portal's ``_multi_y_layout``, with the third axis moved:
     axis 1 (left) owns the grid; every other axis is on the right, with a
     coloured title. The first right-hand axis anchors to the plot; a second
-    one sits outside it at the paper's edge, the plot narrowed to make room
-    (``_RIGHT_DOMAIN``). The portal's free ``autoshift`` axis cannot carry
-    a title (its rotated title does not shift with it, portal #725), and
-    GEECSplotter's operators want the third label.
+    one is free at the plot's edge with ``autoshift``, which places it just
+    past the first's tick labels and title (plus ``_OUTER_AXIS_GAP``)
+    whatever the plot's width. Its title moves with it on the bundled
+    plotly.js 3.1.1 (re-checked in the browser 2026-10-27, left and right
+    sides), so the third label shows: the portal's #725 note that a free
+    axis's title does not shift does not hold on this same bundle.
+    A fixed share of the width, the first cut, left a wide gap on a wide
+    window.
 
     *axes* is ``(slot, title)`` per drawn trace: the slot (0–2, the Y list
     it came from) decides colour and axis id, so Y3 is Y3 with Y2 off.
@@ -178,8 +181,9 @@ def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
         else:
             axis.update(overlaying="y", side="right", gridcolor="rgba(0,0,0,0)")
             if right:
-                axis.update(anchor="free", position=1.0)
-                layout["xaxis"] = {"domain": [0.0, _RIGHT_DOMAIN]}
+                axis.update(
+                    anchor="free", position=1.0, autoshift=True, shift=_OUTER_AXIS_GAP
+                )
             right += 1
         layout["yaxis" if i == 0 else f"yaxis{i + 1}"] = axis
     return layout
@@ -253,8 +257,6 @@ def shots_figure(
     layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": (x_label or x) if x else "shot #"}
     del layout["yaxis"]
-    axes = _y_axes([(i, title) for i, _, title in drawn], palette)
-    layout["xaxis"].update(axes.pop("xaxis", {}))
-    layout.update(axes)
+    layout.update(_y_axes([(i, title) for i, _, title in drawn], palette))
     fig.update_layout(layout)
     return fig

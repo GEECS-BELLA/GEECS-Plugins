@@ -66,12 +66,13 @@ def test_three_ys_get_three_axes_in_their_trace_colours() -> None:
     assert layout.yaxis.title.font.color == trace[0]
     assert (layout.yaxis2.side, layout.yaxis2.overlaying) == ("right", "y")
     assert layout.yaxis2.title.font.color == trace[1]
-    # Y3 on the right, outside Y2, with its own title (the operators' ask).
+    # Y3 on the right, just outside Y2 at any width, with its own title.
     assert (layout.yaxis3.side, layout.yaxis3.anchor) == ("right", "free")
-    assert layout.yaxis3.position == 1.0
+    assert (layout.yaxis3.position, layout.yaxis3.autoshift) == (1.0, True)
+    assert layout.yaxis3.shift == figures._OUTER_AXIS_GAP
     assert layout.yaxis3.title.text == "c"
     assert layout.yaxis3.title.font.color == trace[2]
-    assert tuple(layout.xaxis.domain) == (0.0, figures._RIGHT_DOMAIN)
+    assert layout.xaxis.domain is None  # the plot keeps its full width
     assert layout.showlegend
 
 
