@@ -83,6 +83,19 @@ geecs_data_utils/
                                #   + himg_worker.py: run any of those jobs in
                                #   a child interpreter, streaming progress,
                                #   logs, the report and errors back as events
+                               #   + shot_images.py: (scan folder, device,
+                               #   shot) → pixels, one shot at a time — the
+                               #   tier ladder (device_kind: stack / native /
+                               #   vendor / unrenderable), the row joins
+                               #   (row_acq_timestamp refuses a shot the
+                               #   device missed: never a neighbour's image;
+                               #   row_file_shot), load_shot_array /
+                               #   load_shot_image; moved from the portal so
+                               #   every viewer resolves a shot alike
+                               #   + display_png.py: frame → 8-bit PNG
+                               #   through a percentile window, optional
+                               #   matplotlib colour map (lazy import; no
+                               #   matplotlib = greyscale)
   himg_cli.py                  # geecs-himg convert | verify | compact | restore: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
 ```

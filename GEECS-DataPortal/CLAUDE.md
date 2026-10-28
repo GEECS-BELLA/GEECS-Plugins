@@ -207,7 +207,8 @@ geecs_portal/
                  #   plot into a scan's logbook entry (HTTP only)
   figures.py     # server-side Plot-tab figure authoring (plotly.py):
                  #   palette, base layout, multi-axis ladder, display
-  resources.py   # (folder, device, shot) → PNG bytes / tiered refusal
+  resources.py   # array-stack traces + figure_png (a shot's pixels and its
+                 #   PNG are geecs_data_utils.io.shot_images / .display_png)
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
@@ -216,7 +217,8 @@ geecs_portal/
   templates/     # base.html / day.html / run.html (Jinja2; every colour a GeecsWebTheme token)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)
-  test_resources.py  # tmp scan trees: gallery routes + tier ladder + union
+  test_resources.py  # tmp scan trees: gallery routes + union (the tier
+                     #   ladder's own tests: Data-Utils' test_shot_images.py)
   test_analysis_runs.py  # the run ladder over an injected fake analyzer
   test_logbook_link.py   # the run page's link to the logbook service; /log is not served here
   test_logbook_send.py   # the send: the conversation (fake logbook over an
@@ -460,10 +462,12 @@ fleet map (`docs/platform/fleet_map.md`) carries the service row and
 must move in the same PR as any deployment change.
 `geecs-data-portal --experiment <name>` serves directly for development.
 
-## The resource viewer (`resources.py`, arc phase 4)
+## The resource viewer (arc phase 4)
 
 (run, device, shot) → displayable image, per the Tier A/B/C ladder in
-`resources.py`.
+`geecs_data_utils.io.shot_images` (moved down from `resources.py` so the
+plotter resolves a shot the same way; the event-row joins are its
+`row_acq_timestamp` / `row_file_shot`, the PNG `io.display_png`).
 Since 0.12.0 the ladder resolves to raw pixels first
 (`load_shot_array` → `ShotArray`); `load_shot_image` is the
 render-one-shot wrapper over it, and per-bin averaging consumes the

@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse, Response
 from matplotlib.figure import Figure
 
 from geecs_data_utils import tiled_schema as schema_map
+from geecs_data_utils.io import shot_images
+from geecs_data_utils.io.display_png import to_display_png
 from geecs_data_utils.io.images import average_frames
 from geecs_data_utils.scan_frame import scan_frame
 
@@ -129,7 +131,7 @@ def run_image(
         )
     complete = bool(detail.summary.exit_status)
     if processing:
-        resolved = resources.load_shot_array(
+        resolved = shot_images.load_shot_array(
             folder,
             device,
             shot,
@@ -149,7 +151,7 @@ def run_image(
         else:
             (processed,) = portal.apply_processing([resolved.array], processing)
             try:
-                png = resources.to_display_png(processed, **render)
+                png = to_display_png(processed, **render)
             except Exception as exc:
                 raise HTTPException(
                     status_code=404, detail=f"render failed: {exc}"
@@ -164,7 +166,7 @@ def run_image(
             media_type="image/png",
             headers={"Cache-Control": "no-cache"},
         )
-    result = resources.load_shot_image(
+    result = shot_images.load_shot_image(
         folder,
         device,
         shot,
@@ -230,7 +232,7 @@ def run_bin_image(  # noqa: C901
         acq, column_present = _acq_timestamp(detail, device, shot)
         if column_present and acq is None:
             continue  # device missed this shot
-        resolved = resources.load_shot_array(
+        resolved = shot_images.load_shot_array(
             folder,
             device,
             shot,
@@ -258,7 +260,7 @@ def run_bin_image(  # noqa: C901
         png = portal.render_frame_figure(averaged, render)
     else:
         try:
-            png = resources.to_display_png(averaged, **render)
+            png = to_display_png(averaged, **render)
         except Exception as exc:
             raise HTTPException(
                 status_code=404, detail=f"render failed: {exc}"
