@@ -20,6 +20,7 @@ from __future__ import annotations
 import configparser
 import contextlib
 import json
+import math
 import os
 import re
 import tempfile
@@ -44,6 +45,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "tab": ("xy", "images"),
     "image_strip": ("bins", "shots"),
     "image_layout": ("grid", "row"),
+    "image_zscale": ("tile", "shared", "fixed"),
 }
 
 #: A fit name as stored: GEECSplotter's Fit menu (``figures.FITS``) or one
@@ -146,6 +148,14 @@ class PlotterSettings(BaseModel):
     image_cmap: str = "gray"
     image_plo: float = Field(default=1.0, ge=0.0, le=100.0)
     image_phi: float = Field(default=99.7, ge=0.0, le=100.0)
+    #: The z scale: each tile its own window ("tile"), one window over
+    #: every tile ("shared"), or the black and white values below ("fixed").
+    image_zscale: str = "tile"
+    image_zmin: Optional[float] = None
+    image_zmax: Optional[float] = None
+    #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
+    #: (x right, y down, the end excluded); a camera not here is whole.
+    image_rois: dict[str, list[int]] = Field(default_factory=dict)
 
 
 def set_name(name: str) -> str:
@@ -349,6 +359,9 @@ FORM_FIELDS = {
     "cmap": "image_cmap",
     "plo": "image_plo",
     "phi": "image_phi",
+    "zscale": "image_zscale",
+    "zmin": "image_zmin",
+    "zmax": "image_zmax",
 }
 
 _BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
@@ -366,6 +379,9 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
 #: The percentile fields: a number from 0 to 100.
 _PERCENTILES = ("image_plo", "image_phi")
 
+#: The fixed z-scale values: any finite number, or empty for none.
+_LEVELS = ("image_zmin", "image_zmax")
+
 #: A colour-map name as stored (matplotlib's names are of this shape).
 _CMAP_NAME = re.compile(r"[A-Za-z0-9_]{1,40}")
 
@@ -381,7 +397,36 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
         for field, key in FORM_FIELDS.items()
         if field in form and not (key in ("day", "scan") and not form[field])
     }
+    if "roi" in form:
+        device = changes.get("image_device") or settings.image_device
+        if device:
+            rois = dict(settings.image_rois)
+            roi = roi_value(form["roi"])
+            if roi is None:
+                rois.pop(device, None)
+            else:
+                rois[device] = roi
+            changes["image_rois"] = rois
     return settings.model_copy(update=changes)
+
+
+def roi_value(text: str) -> Optional[list[int]]:
+    """``"x0,y0,x1,y1"`` as pixels, ``None`` for ``""`` (the whole image).
+
+    Raises
+    ------
+    SettingsError
+        Not four whole numbers, a negative one, or an empty region.
+    """
+    if not text.strip():
+        return None
+    try:
+        x0, y0, x1, y1 = (int(v) for v in text.split(","))
+    except ValueError:
+        raise SettingsError(f"roi={text!r}: must be four whole numbers") from None
+    if min(x0, y0) < 0 or x1 <= x0 or y1 <= y0:
+        raise SettingsError(f"roi={text!r}: must be x0,y0,x1,y1 with x0 < x1, y0 < y1")
+    return [x0, y0, x1, y1]
 
 
 def form_value(field: str, value: str) -> object:
@@ -423,6 +468,13 @@ def _text_value(key: str, value: str) -> object:
         number = float(value)
         if not 0.0 <= number <= 100.0:
             raise ValueError("must be 0 to 100")
+        return number
+    if key in _LEVELS:
+        if not value:
+            return None
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("must be a number")
         return number
     if key == "image_cmap" and not _CMAP_NAME.fullmatch(value):
         raise ValueError("is not a colour-map name")

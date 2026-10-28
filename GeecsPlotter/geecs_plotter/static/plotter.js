@@ -166,15 +166,56 @@
 
   // The image strip. Tiles across, the colour map and the levels redraw in
   // place (no reload) and save into the set as they change; a tile with no
-  // image says why, from the server's answer.
+  // image says why, from the server's answer. The display half of a tile's
+  // URL is built here as pages.display_query builds it.
   const strip = document.getElementById("strip");
   if (strip) {
     const tiles = Array.from(strip.querySelectorAll("img[data-tile]"));
-    const display = () => new URLSearchParams({
-      cmap: form.elements.cmap.value,
-      plo: form.elements.plo.value,
-      phi: form.elements.phi.value,
-    });
+    const value = (name) => (form.elements[name] ? form.elements[name].value : "");
+    const zscale = strip.dataset.zscale;
+    let shared = null;  // [black, white] for the shared z scale, once read
+    const display = () => {
+      const query = new URLSearchParams({ cmap: value("cmap"), plo: value("plo") || "1", phi: value("phi") || "99.7" });
+      if (strip.dataset.roi) query.set("roi", strip.dataset.roi);
+      const levels = zscale === "fixed" ? [value("zmin"), value("zmax")]
+        : zscale === "shared" && shared ? shared.map(String) : null;
+      if (levels && levels.every((v) => v !== "")) {
+        query.set("zmin", levels[0]);
+        query.set("zmax", levels[1]);
+      }
+      return query;
+    };
+    const drawTiles = () => {
+      for (const img of tiles) {
+        img.closest(".tile").classList.remove("missing");
+        img.src = `${img.dataset.tile}&${display()}`;
+      }
+    };
+    // The shared z scale reads every tile first (the server's
+    // /api/images/levels), then draws them all on that one scale.
+    const sharedNote = document.getElementById("shared-levels");
+    const readShared = () => {
+      const url = new URL(strip.dataset.levelsUrl, location.href);
+      url.searchParams.set("plo", value("plo"));
+      url.searchParams.set("phi", value("phi"));
+      if (sharedNote) sharedNote.textContent = "reading every tile…";
+      return fetch(url)
+        .then((response) => response.json().then((body) => ({ response, body })))
+        .then(({ response, body }) => {
+          if (!response.ok) throw new Error(String(body.detail || response.statusText));
+          shared = [body.zmin, body.zmax];
+          if (sharedNote) sharedNote.textContent =
+            `${body.zmin.toPrecision(4)} to ${body.zmax.toPrecision(4)}, over ${body.tiles} tiles`;
+          drawTiles();
+        })
+        .catch((error) => {
+          shared = null;
+          if (sharedNote) sharedNote.textContent = `no shared scale: ${error.message}`;
+          drawTiles();  // each tile its own window, rather than nothing
+        });
+    };
+    if (zscale === "shared") readShared();
+
     // Tiles across, as the template writes it: equal columns in a grid; in
     // one row, tiles that wide with the rest scrolled to.
     const across = (n) => {
@@ -191,10 +232,8 @@
         clearTimeout(redraw);
         redraw = setTimeout(() => {
           if (control.name === "cols") across(Number(control.value));
-          else for (const img of tiles) {
-            img.closest(".tile").classList.remove("missing");
-            img.src = `${img.dataset.tile}&${display()}`;
-          }
+          else if (zscale === "shared" && (control.name === "plo" || control.name === "phi")) readShared();
+          else drawTiles();
           saveField(control.name, control.value);
         }, AUTO_OPEN_MS);
       });
@@ -210,6 +249,85 @@
           .catch(() => { caption.dataset.reason = "no image"; });
       });
     }
+
+    // The ROI, kept per camera: saved with the camera's name, then the page
+    // reloads so every tile (and a shared scale) is taken over it.
+    const saveRoi = (roi) => {
+      const set = form.elements.set.value;
+      const url = new URL(`api/settings/${encodeURIComponent(set)}`, form.action);
+      const body = new URLSearchParams({ device: strip.dataset.device, roi });
+      return fetch(url, { method: "POST", body }).then(() => location.reload());
+    };
+    document.querySelector("[data-roi-clear]")?.addEventListener("click", () => saveRoi(""));
+    const drawerEl = document.getElementById("roi-drawer");
+    const opener = document.querySelector("[data-roi-open]");
+    // kit.js loads after this script, so the drawer is asked for on click.
+    if (drawerEl && opener) roiDrawer(drawerEl, opener, saveRoi);
+  }
+
+  // The ROI drawer: the camera's first tile, whole, with a rectangle drawn
+  // by dragging (or typed in the four boxes), in the image's own pixels.
+  function roiDrawer(drawerEl, opener, saveRoi) {
+    const image = document.getElementById("roi-image");
+    const box = document.getElementById("roi-box");
+    const stage = document.getElementById("roi-stage");
+    const boxes = ["x0", "y0", "x1", "y1"].map((k) => document.getElementById(`roi-${k}`));
+    const size = document.getElementById("roi-size");
+    let roi = null;  // [x0, y0, x1, y1] in image pixels
+    const scale = () => image.clientWidth / (image.naturalWidth || 1);
+    const show = () => {
+      box.hidden = !roi;
+      if (!roi) { size.textContent = "whole image"; return; }
+      const k = scale();
+      Object.assign(box.style, {
+        left: `${roi[0] * k}px`, top: `${roi[1] * k}px`,
+        width: `${(roi[2] - roi[0]) * k}px`, height: `${(roi[3] - roi[1]) * k}px`,
+      });
+      boxes.forEach((input, i) => { input.value = roi[i]; });
+      size.textContent = `${roi[2] - roi[0]} × ${roi[3] - roi[1]} px`;
+    };
+    const pixel = (event) => {
+      const rect = image.getBoundingClientRect();
+      const k = scale();
+      const clamp = (v, n) => Math.max(0, Math.min(n, Math.round(v / k)));
+      return [clamp(event.clientX - rect.left, image.naturalWidth), clamp(event.clientY - rect.top, image.naturalHeight)];
+    };
+    let start = null;
+    stage.addEventListener("pointerdown", (event) => {
+      if (!image.naturalWidth) return;
+      event.preventDefault();
+      stage.setPointerCapture(event.pointerId);
+      start = pixel(event);
+    });
+    stage.addEventListener("pointermove", (event) => {
+      if (!start) return;
+      const [x, y] = pixel(event);
+      roi = [Math.min(start[0], x), Math.min(start[1], y), Math.max(start[0], x), Math.max(start[1], y)];
+      show();
+    });
+    stage.addEventListener("pointerup", () => {
+      start = null;
+      if (roi && (roi[2] - roi[0] < 2 || roi[3] - roi[1] < 2)) roi = null;  // a click, not a drag
+      show();
+    });
+    for (const input of boxes) {
+      input.addEventListener("input", () => {
+        const v = boxes.map((b) => Number(b.value));
+        if (boxes.every((b) => b.value !== "") && v[2] > v[0] && v[3] > v[1]) { roi = v; show(); }
+      });
+    }
+    image.addEventListener("load", show);
+    window.addEventListener("resize", show);
+    opener.addEventListener("click", () => {
+      const saved = strip.dataset.roi;
+      roi = saved ? saved.split(",").map(Number) : null;
+      // The whole image, in the strip's colour map and each tile's window.
+      const query = new URLSearchParams({ cmap: form.elements.cmap.value });
+      image.src = `${strip.dataset.fullUrl}&${query}`;
+      if (window.GeecsKit) window.GeecsKit.drawer(drawerEl).open(opener);
+      show();
+    });
+    document.getElementById("roi-apply").addEventListener("click", () => saveRoi(roi ? roi.join(",") : ""));
   }
 
   const host = document.getElementById("plot");

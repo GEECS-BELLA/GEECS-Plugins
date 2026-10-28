@@ -109,6 +109,19 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   images are never loaded all at once; tiles across, the colour map and
   the levels redraw in place and save as typed; device, tiles and layout
   reload. `/api/images/strip` returns the tiles and the `code` snippet.
+  The **z scale** (`image_zscale`) is each tile's own percentile window,
+  one window over the whole strip ("shared": `images.shared_levels`, the
+  lowest black and highest white of the tiles' windows, from
+  `/api/images/levels`, which reads every tile first), or black and white
+  typed in ("fixed"); both reach the tile as `zmin`/`zmax`, drawn by
+  `to_display_png(levels=)`. The **ROI** is kept per camera
+  (`image_rois`, `[x0, y0, x1, y1]` pixels, end excluded), drawn in a
+  rung-2 drawer on the first tile, and applies to every tile and to the
+  shared scale; `merged` takes it with the camera's name (`roi` + `device`),
+  so picking another camera never carries one camera's ROI to the next.
+  Tiles read for the shared scale are kept in memory
+  (`images.kept_tile_array`, keyed by the camera folder's mtime) so
+  drawing them does not read every file twice.
 - **Replacing a saved set** is Save as onto its name (the box offers the
   saved names): `plotter.js` asks in a rung-3 `<dialog>` (focus on "Keep
   it"), whose Replace posts `overwrite=true`; without it the server

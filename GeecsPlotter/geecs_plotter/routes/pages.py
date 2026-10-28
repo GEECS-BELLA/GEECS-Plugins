@@ -266,6 +266,12 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "cmaps": images.CMAPS,
         "plo": settings.image_plo,
         "phi": settings.image_phi,
+        "zscale": _choice(settings, "image_zscale"),
+        "zmin": settings.image_zmin,
+        "zmax": settings.image_zmax,
+        "roi": "",
+        "display_query": "",
+        "levels_url": "",
         "devices": [],
         "device": "",
         "device_kept": "",
@@ -363,3 +369,32 @@ def _fill_images(
         page["device_problem"] = missing.detail
         return
     page["strip_code"] = strip_code(day, scan, device, page["strip"], experiment)
+    roi = settings.image_rois.get(device)
+    page["roi"] = ",".join(str(v) for v in roi) if roi else ""
+    page["display_query"] = display_query(page)
+    page["levels_url"] = "api/images/levels?" + urlencode(
+        {
+            "day": day.isoformat(),
+            "scan": scan,
+            "device": device,
+            "strip": page["strip"],
+            "roi": page["roi"],
+            "plo": page["plo"],
+            "phi": page["phi"],
+        }
+    )
+
+
+def display_query(page: dict) -> str:
+    """The display half of a tile's URL (plotter.js builds the same).
+
+    The colour map, the window, the ROI and, on a fixed z scale with both
+    values set, the black and white; a shared z scale's values come from
+    ``/api/images/levels`` in the browser.
+    """
+    query = {"cmap": page["cmap"], "plo": page["plo"], "phi": page["phi"]}
+    if page["roi"]:
+        query["roi"] = page["roi"]
+    if page["zscale"] == "fixed" and None not in (page["zmin"], page["zmax"]):
+        query.update(zmin=page["zmin"], zmax=page["zmax"])
+    return urlencode(query)

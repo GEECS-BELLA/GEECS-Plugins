@@ -14,6 +14,9 @@ tile loads its own shots when the browser asks for it.
 
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -22,10 +25,35 @@ import numpy as np
 import pandas as pd
 from geecs_data_utils.data.binning import BinningConfig, compute_bin_key
 from geecs_data_utils.io import shot_images
+from geecs_data_utils.io.display_png import window_levels
 from geecs_data_utils.io.images import average_frames
 
-#: The colour maps offered (matplotlib names); "gray" first, the default.
-CMAPS = ("gray", "viridis", "magma", "inferno", "plasma", "cividis", "jet", "turbo")
+#: The colour maps offered (matplotlib names), "gray" first, the default:
+#: the perceptual ones, then the classic false-colour tables.
+CMAPS = (
+    "gray",
+    "viridis",
+    "magma",
+    "inferno",
+    "plasma",
+    "cividis",
+    "jet",
+    "turbo",
+    "hot",
+    "rainbow",
+    "nipy_spectral",
+    "gist_ncar",
+    "cubehelix",
+    "coolwarm",
+    "gray_r",
+)
+
+#: A region of interest, ``(x0, y0, x1, y1)`` in pixels, the end excluded.
+Roi = tuple[int, int, int, int]
+
+#: Tiles kept in memory: a strip's tiles are read once for a shared z
+#: scale and again to draw, and the camera's files do not change.
+_KEPT_TILES = 64
 
 
 class NoImage(LookupError):
@@ -189,3 +217,94 @@ def tile_array(
     if averaged is None:
         raise NoImage(reason if not arrays else "the shots' images differ in size")
     return averaged
+
+
+_kept: OrderedDict[tuple, np.ndarray] = OrderedDict()
+_kept_lock = threading.Lock()
+
+
+def kept_tile_array(
+    folder: Path, frame: pd.DataFrame, device: str, rows: tuple[int, ...]
+) -> np.ndarray:
+    """:func:`tile_array`, remembered until the camera's folder changes.
+
+    The key carries the device folder's modification time, so a file
+    added while a scan runs is read; a refusal is never remembered.
+    """
+    try:
+        stamp = (folder / device).stat().st_mtime_ns
+    except OSError:
+        return tile_array(folder, frame, device, rows)
+    key = (str(folder), device, rows, len(frame), stamp)
+    with _kept_lock:
+        if key in _kept:
+            _kept.move_to_end(key)
+            return _kept[key]
+    pixels = tile_array(folder, frame, device, rows)
+    pixels.flags.writeable = False  # shared between requests: never edited
+    with _kept_lock:
+        _kept[key] = pixels
+        while len(_kept) > _KEPT_TILES:
+            _kept.popitem(last=False)
+    return pixels
+
+
+def crop(pixels: np.ndarray, roi: Optional[Roi]) -> np.ndarray:
+    """The ROI of *pixels* (a view), or all of them when *roi* is ``None``.
+
+    A region past the image's edge is cut at the edge.
+
+    Raises
+    ------
+    NoImage
+        The region lies wholly outside the image.
+    """
+    if roi is None:
+        return pixels
+    x0, y0, x1, y1 = roi
+    part = pixels[y0:y1, x0:x1]
+    if part.size == 0:
+        height, width = pixels.shape[:2]
+        raise NoImage(f"the ROI is outside this {width}×{height} image")
+    return part
+
+
+def shared_levels(
+    folder: Path,
+    frame: pd.DataFrame,
+    device: str,
+    tiles: list[Tile],
+    roi: Optional[Roi] = None,
+    plo: Optional[float] = None,
+    phi: Optional[float] = None,
+) -> tuple[float, float, int]:
+    """One black and one white for every tile: the widest of their windows.
+
+    Each tile's percentile window (``window_levels``, over its ROI); the
+    lowest black and the highest white, so no tile saturates that would
+    not on its own. Tiles are read a few at a time.
+
+    Returns
+    -------
+    tuple
+        ``(black, white, tiles)``: the levels and how many tiles had an
+        image.
+
+    Raises
+    ------
+    NoImage
+        No tile has an image.
+    """
+
+    def levels(tile: Tile) -> Optional[tuple[float, float]]:
+        try:
+            pixels = crop(kept_tile_array(folder, frame, device, tile.rows), roi)
+        except NoImage:
+            return None
+        return window_levels(pixels, plo, phi)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        found = [w for w in pool.map(levels, tiles) if w is not None]
+    if not found:
+        raise NoImage("no tile has an image")
+    return min(lo for lo, _ in found), max(hi for _, hi in found), len(found)

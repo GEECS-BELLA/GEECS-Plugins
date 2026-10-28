@@ -225,3 +225,96 @@ class TestPage:
 def test_a_bad_image_control_is_refused(field: str, value: str) -> None:
     with pytest.raises(SettingsError):
         merged(PlotterSettings(), {field: value})
+
+
+class TestRoiAndZScale:
+    def test_crop_is_the_region_cut_at_the_edge(self) -> None:
+        pixels = np.arange(24).reshape(4, 6)
+        assert images.crop(pixels, None) is pixels
+        assert images.crop(pixels, (1, 2, 3, 4)).tolist() == [[13, 14], [19, 20]]
+        assert images.crop(pixels, (4, 0, 99, 1)).tolist() == [[4, 5]]
+        with pytest.raises(images.NoImage, match="6×4"):
+            images.crop(pixels, (10, 10, 12, 12))
+
+    def test_shared_levels_are_the_widest_of_the_tiles(
+        self, share: Path, camera: Path
+    ) -> None:
+        frame, folder = _opened(share)
+        tiles = images.tiles(frame, "shots")  # shot 3 has no file
+        zmin, zmax, count = images.shared_levels(
+            folder, frame, CAM, tiles, roi=(1, 1, 6, 4), plo=0, phi=100
+        )
+        # Inside the ROI (off the bright corner) shot n is flat at 10 * n.
+        assert (zmin, zmax, count) == (10.0, 40.0, 3)
+
+    def test_the_levels_route(self, client: TestClient, camera: Path) -> None:
+        body = client.get(
+            "/api/images/levels",
+            params={
+                **SCAN,
+                "device": CAM,
+                "strip": "bins",
+                "roi": "1,1,6,4",
+                "plo": 0,
+                "phi": 100,
+            },
+        ).json()
+        assert body == {"zmin": 15.0, "zmax": 40.0, "tiles": 2}
+
+    def test_a_tile_on_fixed_levels(self, client: TestClient, camera: Path) -> None:
+        params = {
+            **SCAN,
+            "device": CAM,
+            "strip": "shots",
+            "index": 2,
+            "roi": "1,1,3,2",
+            "zmin": 0,
+            "zmax": 40,
+        }
+        png = client.get("/api/images/tile.png", params=params)
+        # Shot 2 is 20 everywhere in the ROI: half way up a 0–40 scale (the
+        # gray map draws it in RGB).
+        drawn = np.asarray(Image.open(io.BytesIO(png.content)))
+        assert drawn.shape == (1, 2, 3)
+        assert set(drawn.ravel().tolist()) <= {127, 128}
+
+    @pytest.mark.parametrize("roi", ["1,2,3", "3,0,1,2", "-1,0,2,2", "a,b,c,d"])
+    def test_a_bad_roi_is_a_422(
+        self, client: TestClient, camera: Path, roi: str
+    ) -> None:
+        params = {**SCAN, "device": CAM, "strip": "shots", "index": 1, "roi": roi}
+        assert client.get("/api/images/tile.png", params=params).status_code == 422
+
+    def test_the_roi_is_kept_per_camera(self) -> None:
+        settings = merged(PlotterSettings(), {"device": CAM, "roi": "1,2,30,40"})
+        settings = merged(settings, {"device": "U_Other", "roi": "0,0,5,5"})
+        assert settings.image_rois == {CAM: [1, 2, 30, 40], "U_Other": [0, 0, 5, 5]}
+        cleared = merged(settings, {"device": CAM, "roi": ""})
+        assert cleared.image_rois == {"U_Other": [0, 0, 5, 5]}
+        assert settings.image_rois[CAM] == [1, 2, 30, 40]  # the old copy kept
+
+    def test_the_page_draws_the_saved_roi_and_fixed_scale(
+        self, client: TestClient, camera: Path
+    ) -> None:
+        client.post("/api/settings/default", data={"device": CAM, "roi": "1,1,6,4"})
+        page = post(
+            client, scan=1, tab="images", device=CAM, zscale="fixed", zmin=0, zmax=50
+        )
+        assert "x 1–6, y 1–4" in page
+        assert "roi=1%2C1%2C6%2C4&amp;zmin=0.0&amp;zmax=50.0" in page
+
+    def test_a_shared_scale_leaves_the_tiles_to_the_script(
+        self, client: TestClient, camera: Path
+    ) -> None:
+        page = post(client, scan=1, tab="images", device=CAM, zscale="shared")
+        assert 'data-zscale="shared"' in page
+        assert "api/images/levels?day=2026-10-02" in page
+        assert "&amp;cmap=" not in page  # no tile asks before the scale is read
+
+
+@pytest.mark.parametrize(
+    "field, value", [("zscale", "log"), ("zmin", "inf"), ("roi", "1,1,1,1")]
+)
+def test_a_bad_z_or_roi_control_is_refused(field: str, value: str) -> None:
+    with pytest.raises(SettingsError):
+        merged(PlotterSettings(image_device=CAM), {field: value})
