@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from geecs_data_utils.data.binning import compute_bin_key
+from geecs_data_utils.data.binning import bin_rows
 from geecs_data_utils.data.row_filters import filter_mask
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import safe_cmap, window_percentiles
@@ -286,14 +286,15 @@ def _resolved_folder(detail, day: str):
 def _bin_groups(pf, mask, bincfg_raw: str):
     """Per-bin shot membership over the filtered union frame.
 
-    Same primitives and grouping semantics as ``/binned``
-    (``compute_bin_key`` + ``groupby(dropna=False, observed=True,
-    sort)``, ``min_count`` applied to per-bin ROW counts exactly as
-    ``bin_frame`` does), so the two tabs' bins agree under one
-    shared ``bincfg`` — and the same code path serves both
-    bin-images endpoints, so a ``bin`` INDEX is stable between the
-    JSON listing and the PNG renders regardless of how labels
-    serialize.
+    ``geecs_data_utils.data.binning.bin_rows`` over the WHOLE union frame
+    with the filter as its ``mask`` — the same labels, NaN bin and
+    ``min_count`` (per-bin ROW counts) as ``/binned``'s ``bin_frame``, so
+    the two tabs' bins agree under one shared ``bincfg`` — and the same
+    call serves both bin-images endpoints, so a ``bin`` INDEX is stable
+    between the JSON listing and the PNG renders regardless of how
+    labels serialize. Each row is then named by its shot identity
+    (``shot_axis_for_frame``): the union's rows are not the event
+    table's, the shot number is what the image loaders read.
 
     Returns
     -------
@@ -306,21 +307,16 @@ def _bin_groups(pf, mask, bincfg_raw: str):
         cfg = analysis.parse_bincfg(bincfg_raw)
     except analysis.BadParam as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    frame = pf.frame[mask]
     try:
-        labels, _ = compute_bin_key(frame, cfg)
+        bins = bin_rows(pf.frame, cfg, mask=mask)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"no bin column: {exc}") from exc
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    shots = figures.shot_axis_for_frame(frame)
+    shots = figures.shot_axis_for_frame(pf.frame)
     groups = [
-        (label, sorted({int(s) for s in group.dropna()}))
-        for label, group in shots.groupby(labels, dropna=False, observed=True)
-        # min_count mirrors bin_frame (row counts, not shot counts):
-        # the binset popup's "min shots / bin" must govern this grid
-        # exactly as it governs the Plot tab's binned view.
-        if cfg.min_count <= 1 or len(group) >= cfg.min_count
+        (label, sorted({int(s) for s in shots.iloc[[r - 1 for r in rows]].dropna()}))
+        for label, rows in bins
     ]
     return cfg, groups
 

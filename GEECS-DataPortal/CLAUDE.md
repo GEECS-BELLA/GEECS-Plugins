@@ -258,8 +258,9 @@ onto the y result's bins so diverging per-column dropna can never
 shift points) ·
 `/api/run/{uid}/filter-count?filters=` (live pass count) ·
 `/api/run/{uid}/bin-images?device=&filters=&bincfg=` (the Images tab's
-per-bin membership: bins/counts/member shots over `compute_bin_key` +
-the same groupby semantics as `/binned`; the `view` URL state is ONE
+per-bin membership: bins/counts/member shots over Data-Utils'
+`bin_rows` (the filter as its `mask`, never a filtered frame — the
+plotter's own call), the same bins as `/binned`; the `view` URL state is ONE
 per-shot ⇄ binned toggle shared by the Plot and Images tabs —
 deliberate: a binned link means binned everywhere)
 · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar PNG, kept for
@@ -267,9 +268,10 @@ embedding) · `/run/{uid}/image.png?device=&shot=` (one rendered device
 shot) · `/run/{uid}/bin-image.png?device=&bin=<index>&filters=&bincfg=`
 (one bin's `nanmean`-averaged device image — `bin` is the INDEX in
 `bin-images` order, both endpoints run the same membership call;
-member shots that resolve to pixels average via the shared
-`average_frames`, windowed once after averaging; per-shot refusals
-carry over; always `no-cache` — bin membership comes off the union
+member shots load and average through Data-Utils'
+`shot_images.average_rows` (with `processing`: `load_row_array` per
+shot, processed, then `average_frames`), windowed once after
+averaging; the per-shot refusals are that module's; always `no-cache` — bin membership comes off the union
 frame) · `/health` (catalog probe + version — the fleet-map health check)
 · **the browsing API** (0.20.0 — the pages' own data as JSON, the
 agent/script surface; served `no-cache`): `/api/day/{iso}?experiment=&filter=`
