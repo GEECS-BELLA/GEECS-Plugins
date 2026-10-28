@@ -90,7 +90,11 @@ geecs_data_utils/
                                #   (row_acq_timestamp refuses a shot the
                                #   device missed: never a neighbour's image;
                                #   row_file_shot), load_shot_array /
-                               #   load_shot_image; a "stack" may hold
+                               #   load_shot_image, load_row_array (a
+                               #   table row → its file) and average_rows
+                               #   (a bin's rows → one average; the
+                               #   bins are data.binning.bin_rows);
+                               #   a "stack" may hold
                                #   traces: stack_content says which, and
                                #   load_shot_trace reads one as x-vs-y;
                                #   moved from the portal so every viewer
