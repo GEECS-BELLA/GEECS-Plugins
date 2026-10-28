@@ -26,6 +26,7 @@ import asyncio
 import fnmatch
 import os
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -81,18 +82,20 @@ class GeecsDirectoryAdapter:
         native: NativeSource,
         gateway: Any = None,  # gateway.GatewaySource, or None for db=off
         *,
-        health_ttl_s: float = 30.0,
+        cache_ttl_s: float = 10.0,
     ) -> None:
         self._base = canopy_base()
-        self._native, self._gateway, self._ttl = native, gateway, health_ttl_s
-        self._health: Any = None
-        self._health_at = 0.0
+        self._native, self._gateway, self._ttl = native, gateway, cache_ttl_s
+        # Raccoon asks once per uncached literal (`exists`, `validate` fans out
+        # 64 wide): each source is read once per TTL, a failure included.
+        self._cache: dict[str, tuple[float, list[Device] | SourceError]] = {}
+        self._lock = threading.Lock()
         # Both sources block (SMB reads, MySQL): an adapter-owned pool.
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="geecs")
 
     @classmethod
     def from_config(cls, cfg: InstanceConfig) -> GeecsDirectoryAdapter:
-        """Build from ``extras``: experiment, configs_root, db (on|off), health_ttl_s."""
+        """Build from ``extras``: experiment, configs_root, db (on|off), cache_ttl_s."""
         base = canopy_base()
         extras = {k.lower(): v for k, v in cfg.extras.items()}
         experiment, root = extras.get("experiment"), extras.get("configs_root")
@@ -110,8 +113,20 @@ class GeecsDirectoryAdapter:
                 gateway = GatewaySource(str(experiment), os.environ.get(DB_URL_ENV, ""))
             except ValueError as exc:
                 raise base.AdapterMisconfigured(str(exc)) from exc
-        ttl = float(extras.get("health_ttl_s", 30.0))
-        return cls(native, gateway, health_ttl_s=ttl)
+        return cls(native, gateway, cache_ttl_s=float(extras.get("cache_ttl_s", 10.0)))
+
+    def _read(self, key: str, read) -> list[Device]:
+        with self._lock:
+            at, value = self._cache.get(key, (float("-inf"), []))
+            if time.monotonic() - at >= self._ttl:
+                try:
+                    value = read()
+                except SourceError as exc:
+                    value = exc
+                self._cache[key] = (time.monotonic(), value)
+        if isinstance(value, SourceError):
+            raise SourceError(str(value))
+        return value
 
     def _load(self, element_type: str | None) -> list[Device]:
         base = self._base
@@ -123,7 +138,7 @@ class GeecsDirectoryAdapter:
         gateway: list[Device] = []
         if element_type != "gateway":
             try:
-                native = self._native.devices()
+                native = self._read("native", self._native.devices)
             except SourceError as exc:
                 raise base.AdapterMisconfigured(str(exc)) from exc
         if element_type != "native":
@@ -131,7 +146,7 @@ class GeecsDirectoryAdapter:
                 raise base.DirectoryUnavailable("the GEECS DB source is off (db=off)")
             if self._gateway is not None:
                 try:
-                    gateway = self._gateway.devices()
+                    gateway = self._read("gateway", self._gateway.devices)
                 except SourceError as exc:
                     raise base.DirectoryUnavailable(str(exc)) from exc
         return merged(native, gateway)
@@ -182,22 +197,18 @@ class GeecsDirectoryAdapter:
         return await self._names(scope, pattern, tag, sort_by, element_type)
 
     async def health(self) -> Any:  # canopy's AdapterHealth
-        """Read every enabled source, at most once per ``health_ttl_s``."""
-        if self._health is not None and time.monotonic() - self._health_at < self._ttl:
-            return self._health
+        """Every enabled source, as last read (at most once per ``cache_ttl_s``)."""
         start, error = time.monotonic(), None
         try:
             await self._names("device", "*", None, None, None)
         except self._base.RaccoonError as exc:
             error = str(exc)
-        self._health_at = time.monotonic()
-        self._health = self._base.AdapterHealth(
+        return self._base.AdapterHealth(
             healthy=error is None,
-            latency_ms=(self._health_at - start) * 1000,
+            latency_ms=(time.monotonic() - start) * 1000,
             last_error=error,
             last_check_ts_ns=time.time_ns(),
         )
-        return self._health
 
     async def close(self) -> None:
         """Release the pool without waiting on a hung DB call."""

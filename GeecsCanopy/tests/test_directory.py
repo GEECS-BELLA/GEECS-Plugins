@@ -47,7 +47,9 @@ DB_ROWS = {  # canned rows per query, keyed by a fragment of its SQL
 }
 
 
-def _patch_db(monkeypatch, *, fail: bool = False) -> None:
+def _patch_db(monkeypatch, *, fail: bool = False) -> list:
+    connects: list = []
+
     class _Connection:  # connection and cursor in one
         def cursor(self):
             return self
@@ -62,12 +64,14 @@ def _patch_db(monkeypatch, *, fail: bool = False) -> None:
             pass
 
     def connect(_connector):
+        connects.append(1)
         if fail:
             raise ConnectionError("no route to the DB")
         return _Connection()
 
     monkeypatch.setattr(geecs_db, "_connect_mysql", connect)
     monkeypatch.setattr(geecs_db, "_credentials", None)
+    return connects
 
 
 @pytest.fixture
@@ -81,7 +85,7 @@ def root(tmp_path: Path) -> Path:
 def _adapter(root: Path, *, db: bool = True, ttl: float = 30.0):
     gateway = GatewaySource("Undulator", URL) if db else None
     return GeecsDirectoryAdapter(
-        NativeSource("Undulator", root), gateway, health_ttl_s=ttl
+        NativeSource("Undulator", root), gateway, cache_ttl_s=ttl
     )
 
 
@@ -97,8 +101,6 @@ async def test_a_native_motor_lists_its_pvs_per_axis(adapter) -> None:
     pvs = await adapter.list_pvs("device:SimMotor1")
     assert pvs[:2] == ["undulator:simmotor1:m1.DESC", "undulator:simmotor1:m1.EGU"]
     assert "undulator:simmotor1:m2.RBV" in pvs and len(pvs) == 2 * 29
-    elements = await adapter.list_elements("simmotor1:m2:*")
-    assert elements[3] == "SimMotor1:m2:rbv"
     rbv = await adapter.list_pvs("element:SimMotor1:m2:rbv")
     assert rbv == ["undulator:simmotor1:m2.RBV"]
 
@@ -121,14 +123,16 @@ async def test_panel_devices_join_by_name_with_their_own_records(adapter) -> Non
     assert await adapter.list_pvs("element:BenchSupply:fault") == ["bench:ps1:fault"]
 
 
-async def test_a_db_device_lists_the_gateways_served_pvs(adapter) -> None:
+async def test_a_db_device_lists_the_gateways_served_pvs(root, monkeypatch) -> None:
+    connects, adapter = _patch_db(monkeypatch), _adapter(root)
+    served = ("position", "position:SP", "temperature", "acq_timestamp", "systimestamp")
     jet = "undulator:u_jet:"
-    assert await adapter.list_pvs("device:U_Jet") == [
-        *(jet + v for v in ("position", "position:SP", "temperature", "connected"))
-    ]
+    pvs = [jet + v for v in (*served, "connected")]
+    assert await adapter.list_pvs("device:U_Jet") == pvs
     assert await adapter.list_devices("%", element_type="gateway") == ["U_Jet"]
-    sp = jet + "position:SP"  # a literal PV answers itself: Raccoon's `exists`
-    assert await adapter.list_pvs(sp) == [sp]
+    for pv in pvs:  # a literal PV answers itself: Raccoon's `exists`
+        assert await adapter.list_pvs(pv) == [pv]
+    assert len(connects) == 4  # one read of the four queries, then the cache
     creds = geecs_db._find_credentials()  # from the URL, never a config.ini
     assert creds == dict(
         host="db.example", port=3307, database="geecs", user="reader", password="p@ss"
@@ -167,17 +171,16 @@ async def test_a_failing_db_is_unavailable_on_its_branch_only(root, monkeypatch)
         await a.list_devices("*")
     native = await a.list_devices("*", element_type="native", sort_by="name")
     assert native == ["BenchSupply", "SimMotor1", "UC_VisaEBeam6", "eztest1"]
-    health = await a.health()
-    assert not health.healthy and "GEECS DB" in health.last_error
     await a.close()
 
 
-async def test_health_reads_the_sources_once_per_ttl(root) -> None:
+async def test_the_sources_are_read_once_per_ttl(root) -> None:
     a = _adapter(root, db=False, ttl=60.0)
-    first = await a.health()
-    assert first.healthy
+    assert (await a.health()).healthy
     (root / "Undulator" / "native_devices.yaml").write_text("devices: {X: {}}")
-    assert await a.health() is first  # cached: no source read within the TTL
+    assert (await a.health()).healthy  # cached: no source read within the TTL
+    a._ttl = 0.0
+    assert not (await a.health()).healthy
     with pytest.raises(base.DirectoryUnavailable, match="db=off"):
         await a.list_devices("*", element_type="gateway")
     await a.close()

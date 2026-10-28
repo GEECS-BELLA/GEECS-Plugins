@@ -3,8 +3,10 @@
 One instance per facility, on the services host (Linux, x86: the image is
 amd64 only). Everything below runs from the host's canopy clone
 (`<GEECS_CHECKOUT_ROOT>/canopy-checkout`); `dc` abbreviates
-`docker compose --env-file /etc/geecs/site.env --project-directory /etc/geecs/canopy --project-name geecs-canopy`
-(the env file feeds the compose file's `${VAR}`s, as the unit's `EnvironmentFile=` does).
+`sudo -u <service account> docker compose --env-file /etc/geecs/site.env --project-directory /etc/geecs/canopy --project-name geecs-canopy`:
+the account the unit runs as, since compose reads the 0600 `secrets.env`
+itself, and the env file feeds the compose file's `${VAR}`s as the unit's
+`EnvironmentFile=` does.
 
 ## 1. What runs
 
@@ -27,14 +29,18 @@ Canopy itself.
 ```bash
 GeecsCanopy/deploy/render_conf.sh /etc/geecs/site.env ~/deploy-staging/canopy
 deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging GeecsCanopy/deploy/geecs-canopy.service
-# root: the lines render_conf.sh printed, then fill secrets.env (each value: openssl rand -hex 32)
+# root: the lines render_conf.sh printed (the conf, secrets.env, the state and backup
+# folders owned by the service account; postgres runs as it), then fill secrets.env
+# (each value: openssl rand -hex 32)
 sudo install -m 0644 ~/deploy-staging/geecs-canopy.service /etc/systemd/system/ && sudo systemctl daemon-reload
 dc build                                   # the derived image, FROM pin.py's digest
 dc run --rm api alembic upgrade head       # creates Canopy's schema (postgres starts first)
 sudo systemctl enable --now geecs-canopy
 ```
 
-Check: `curl -s -H "X-API-Key: <display key>" http://<bind>:<port>/hare/v1/health/summary`
+A configs share that mounts after the containers start stays invisible to
+them (500 `adapter_misconfigured` on unscoped queries): restart the unit
+after remounting it. Check: `curl -s -H "X-API-Key: <display key>" http://<bind>:<port>/hare/v1/health/summary`
 answers `"backend": "epics"`. The default backend is `simulation`, which
 serves sine waves and still passes `/health`: the compose file sets
 `CANOPY_EPICS__BACKEND=epics`, and this check is part of every deploy.

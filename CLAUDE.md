@@ -131,9 +131,9 @@ own nested worktrees under `.claude/worktrees/`.
 - **Python:** `>=3.11, <3.12` across all packages — the integrated monorepo
   environment is Python 3.11 (the root project requires it). The exceptions:
   `LogMaker4GoogleDocs`, a standalone Google API wrapper with no GEECS deps,
-  which keeps a looser `>=3.9` floor, and `GEECS-Core` and `GEECS-Schemas`,
-  which allow `<3.13` because GeecsCanopy installs them into Canopy's
-  Python 3.12 image (CI still runs 3.11)
+  which keeps a looser `>=3.9` floor, and `GeecsCanopy`, `GEECS-Core` and
+  `GEECS-Schemas`, which allow `<3.13` because GeecsCanopy installs into
+  Canopy's Python 3.12 image (CI still runs 3.11)
 - **Package manager:** Poetry — `poetry install` at the repo root installs the
   main dev environment. Each subpackage can also be installed standalone.
 - **Linting:** `ruff` (replaces flake8/isort) + `pydocstyle` (numpy convention)

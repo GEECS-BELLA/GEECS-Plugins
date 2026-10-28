@@ -63,6 +63,8 @@ cat <<EOT
 Install (root; review the staged file first; DEPLOYMENT.md has the full runbook):
 
   sudo install -d -m 0755 /etc/geecs/canopy
+  sudo install -d -o $GEECS_SERVICE_USER -g $GEECS_SERVICE_USER -m 0750 /var/lib/geecs-canopy /var/backups/geecs-canopy
+  sudo install -d -o $GEECS_SERVICE_USER -g $GEECS_SERVICE_USER -m 0700 /var/lib/geecs-canopy/pgdata
   sudo install -m 0644 "$dst" /etc/geecs/canopy/compose.yaml
   sudo install -m 0600 -o $GEECS_SERVICE_USER GeecsCanopy/deploy/secrets.env.example /etc/geecs/canopy/secrets.env   # first install only, then fill it
   # the unit: deploy/render_units.sh SITE_ENV OUT GeecsCanopy/deploy/geecs-canopy.service

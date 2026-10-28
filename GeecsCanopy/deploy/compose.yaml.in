@@ -1,19 +1,9 @@
-# GeecsCanopy - docker compose TEMPLATE. Rendered by deploy/render_conf.sh
-# from the host's site.env into the staging dir, then installed by root as
-# /etc/geecs/canopy/compose.yaml. Never edit the installed copy: re-render.
-#
-#   @PLACEHOLDER@  filled at render time (the image pin, the build context,
-#                  the service account's ids)
-#   ${VARIABLE}    read by docker compose at `up` from the unit's environment
-#                  (EnvironmentFile=/etc/geecs/site.env)
-#   secrets        never interpolated: env_file /etc/geecs/canopy/secrets.env
-#                  reaches each container's environment directly
-#
-# Host networking throughout, as Canopy's production compose: the EPICS client
-# needs CA's UDP. Canopy's own Postgres 16 and Redis 7 run in this project,
-# bound to loopback on their own ports (5433, 6380: fleet constants), so the
-# queueserver's Redis is never shared. Postgres keeps its data in the unit's
-# state directory; Redis keeps nothing (arq's queue only).
+# GeecsCanopy - docker compose TEMPLATE, rendered by deploy/render_conf.sh and
+# installed as /etc/geecs/canopy/compose.yaml (never edit the installed copy).
+# @PLACEHOLDER@ = render time; ${VARIABLE} = compose at `up`, from site.env;
+# secrets reach the containers through env_file only, never interpolated.
+# Host networking throughout (CA needs UDP); Canopy's own Postgres and Redis
+# on loopback ports 5433 / 6380 (fleet constants). DEPLOYMENT.md section 1.
 x-logging: &logging
   driver: json-file
   options: {max-size: "50m", max-file: "3"}

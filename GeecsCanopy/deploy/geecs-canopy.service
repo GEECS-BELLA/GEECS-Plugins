@@ -15,8 +15,10 @@
 
 [Unit]
 Description=GeecsCanopy (SLAC Canopy display backend: api, workers, Postgres, Redis)
-After=network-online.target docker.service
-Wants=network-online.target
+# remote-fs: the configs share is bind-mounted at start; a share mounted
+# later stays invisible to the container until a restart.
+After=network-online.target docker.service remote-fs.target
+Wants=network-online.target remote-fs.target
 Requires=docker.service
 
 [Service]

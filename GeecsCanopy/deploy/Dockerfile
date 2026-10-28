@@ -1,11 +1,6 @@
-# The derived GEECS Canopy image: SLAC's image, pinned by digest, plus this
-# package, GEECS-Core and GEECS-Schemas, and the DB driver the transitional
-# gateway source needs. Build context = the repository root (only the three
-# package folders are sent: Dockerfile.dockerignore). render_conf.sh passes
-# CANOPY_IMAGE from geecs_canopy/pin.py; never build without it.
-#
-#   docker build --platform linux/amd64 -f GeecsCanopy/deploy/Dockerfile \
-#     --build-arg CANOPY_IMAGE=<pin.py CANOPY_IMAGE> -t geecs-canopy:<commit> .
+# The derived image: Canopy at pin.py's digest (passed as CANOPY_IMAGE; never
+# build without it) plus the three GEECS packages and the DB driver. Context =
+# the repository root, filtered by Dockerfile.dockerignore.
 ARG CANOPY_IMAGE
 FROM ${CANOPY_IMAGE}
 

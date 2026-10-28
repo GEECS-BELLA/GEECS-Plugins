@@ -12,7 +12,8 @@ are `Planning/geecs_canopy.md` §7; `DEPLOYMENT.md` is the runbook.
 geecs_canopy/
   pin.py         CANOPY_IMAGE (digest) + CANOPY_COMMIT: the one record of the pin
   directory.py   GeecsDirectoryAdapter: Raccoon's three list calls, the grammar,
-                 health with a TTL; imports canopy.raccoon.adapters.base lazily
+                 a per-source cache (cache_ttl_s, failures too) under a lock;
+                 imports canopy.raccoon.adapters.base lazily
   native.py      NativeSource: native_devices.yaml + panel_devices.yaml joined
                  by device name, validated through GEECS-Schemas, families from
                  geecs_schemas.load_families()
