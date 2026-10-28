@@ -819,6 +819,8 @@ One device's panel data: its family and what differs from it on this device.
 | `omit` | `list[str]` | no | empty | Family roles this device does not have or use (an unwired interlock): never read, never shown, and their actions are unavailable. |
 | `hazard` | `list[str]` | no | empty | Writable roles that need the hazard confirm on this device, beyond the family's own (one stage's move). |
 | `archive` | `list[str]` | no | empty | Roles the archiver takes on this device beyond the family's own. |
+| `no_archive` | `list[str]` | no | empty | Roles the family archives that the archiver leaves out on this device (a readback too noisy to keep); the page still shows them. |
+| `ioc` | `str (optional)` | no | None | The IOC serving the device, as its host's compose file names it (IOC_NAME, e.g. 'adtest-cam1'): the archiver keeps that IOC's devIocStats heartbeat. Absent: no heartbeat for it. |
 
 ## `analysis_recipe`
 

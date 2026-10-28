@@ -120,6 +120,7 @@ def test_a_family_must_exist() -> None:
         ("roles", {"levl": "x"}),
         ("labels", {"falt": "x"}),
         ("archive", ["meen"]),
+        ("no_archive", ["meen"]),
         ("omit", ["falt"]),
         ("hazard", ["levl"]),
     ],
@@ -166,6 +167,27 @@ def test_an_omitted_role_is_not_also_configured() -> None:
     d = doc()
     d["devices"]["U_Tiny"]["omit"] = ["fault"]
     _refused(d, r"omits role\(s\) \['fault'\] it also configures")
+
+
+def test_an_archive_opt_out_removes_a_familys_archived_role() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["no_archive"] = ["level_sp"]
+    roles = {r.name: r for r in validate(d).devices["U_Tiny"].resolve(FAMILIES["tiny"])}
+    assert not roles["level_sp"].archive and roles["mean"].archive
+
+
+def test_a_role_is_not_both_archived_and_not() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["no_archive"] = ["mean"]
+    _refused(d, r"\['mean'\] both archived and not archived")
+
+
+def test_an_ioc_is_named_as_its_compose_file_names_it() -> None:
+    d = doc()
+    d["devices"]["U_Tiny"]["ioc"] = "tiny-ioc1"
+    assert validate(d).devices["U_Tiny"].ioc == "tiny-ioc1"
+    d["devices"]["U_Tiny"]["ioc"] = "tiny:ioc"
+    _refused(d, "String should match pattern")
 
 
 def test_an_allowed_action_exists() -> None:

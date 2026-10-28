@@ -7,10 +7,12 @@ family on this device — its own PV names for a role (the two supplies have
 no shared record set), a bit's label, the actions the page may take on it
 (``allow``), the line the page shows (``note``), the roles it does not
 have (``omit``), the roles that need a hazard confirm on it alone
-(``hazard``), the roles the archiver takes beyond the family's.
+(``hazard``), the roles the archiver takes beyond the family's
+(``archive``) or leaves out on this device (``no_archive``), and the IOC
+serving it (``ioc``, whose devIocStats heartbeat the archiver keeps).
 
-Read by the PV bridge; the archiver's registry pass reads ``archive``
-alone (``Planning/epics_estate.md`` §2.5).  The scan worker never reads it, so a device
+Read by the PV bridge, and by the archiver's registry pass for the device's
+archived roles, prefix, axes and IOC (``Planning/epics_estate.md`` §2.5).  The scan worker never reads it, so a device
 listed here may still be owned by the GEECS DB (a bench device on a bench
 prefix): ``native_devices.yaml`` stays what the worker binds, and a device
 in both takes its axes from the registry and its panel data from here.
@@ -117,6 +119,22 @@ class PanelDevice(SchemaModel):
         default_factory=list,
         description="Roles the archiver takes on this device beyond the family's own.",
     )
+    no_archive: list[RoleName] = Field(
+        default_factory=list,
+        description=(
+            "Roles the family archives that the archiver leaves out on this device "
+            "(a readback too noisy to keep); the page still shows them."
+        ),
+    )
+    ioc: Optional[str] = Field(
+        None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$",
+        description=(
+            "The IOC serving the device, as its host's compose file names it "
+            "(IOC_NAME, e.g. 'adtest-cam1'): the archiver keeps that IOC's "
+            "devIocStats heartbeat. Absent: no heartbeat for it."
+        ),
+    )
 
     def resolve(self, family: FamilyFile) -> list[Role]:
         """The family's roles as this device has them: omissions, suffixes, labels, hazards and archive applied."""
@@ -127,7 +145,8 @@ class PanelDevice(SchemaModel):
                     "suffix": self.roles.get(role.name, role.suffix),
                     "label": self.labels.get(role.name, role.label),
                     "confirm": "hazard" if role.name in self.hazard else role.confirm,
-                    "archive": role.archive or role.name in self.archive,
+                    "archive": (role.archive or role.name in self.archive)
+                    and role.name not in self.no_archive,
                 },
             )
             for role in family.roles
@@ -158,6 +177,7 @@ class PanelDevice(SchemaModel):
             ("omit", self.omit),
             ("hazard", self.hazard),
             ("archive", self.archive),
+            ("no_archive", self.no_archive),
         ):
             unknown = sorted(set(names) - known)
             if unknown:
@@ -188,11 +208,17 @@ class PanelDevice(SchemaModel):
                 f"device {name!r}: hazard on read-only role(s) {read_only}"
             )
         both = sorted(
-            set(self.omit) & {*self.roles, *self.labels, *self.hazard, *self.archive}
+            set(self.omit)
+            & {*self.roles, *self.labels, *self.hazard, *self.archive, *self.no_archive}
         )
         if both:
             raise ValueError(
                 f"device {name!r}: omits role(s) {both} it also configures"
+            )
+        twice = sorted(set(self.archive) & set(self.no_archive))
+        if twice:
+            raise ValueError(
+                f"device {name!r}: role(s) {twice} both archived and not archived"
             )
         split = sorted(r for r in self.roles if family.role(r).write is not None)
         if split:
@@ -241,8 +267,7 @@ class PanelDevices(VersionedSchemaModel):
     """The experiment's devices with a panel: each one's family and per-device panel data.
 
     ``<experiment>/panel_devices.yaml`` in the configs repository, read by
-    the PV bridge (and, for ``archive`` alone, the archiver's registry
-    pass). A device here may still be owned by the GEECS DB
+    the PV bridge and the archiver's registry pass. A device here may still be owned by the GEECS DB
     (a bench device): the scan worker reads ``native_devices.yaml``, never
     this file.
     """

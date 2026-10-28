@@ -40,20 +40,20 @@ layout in GEECS-Analysis; add a step or measure in GEECS-Analysis alone.
 `epics/` holds the native-device registry (`NativeDevices`, in
 `__init__.py`) and the web estate's device data (`Planning/epics_estate.md`
 §2.2). `epics/family.py`: `FamilyFile`, one per IOC record template, its
-records by role; the files are **package data**,
+records by role (`REGISTRY_KIND_FAMILIES`: a registry kind's default
+family, for the bridge and the archiver alike); the files are **package data**,
 `epics/families/<template>.json`, read by `load_families()` — JSON so the
 runtime stays free of PyYAML. `epics/panel_devices.py`: `PanelDevices`,
 the configs repo's `<experiment>/panel_devices.yaml` (per-device family,
-suffix overrides, labels, `allow`, `note`, `omit`, `hazard`, archive
-opt-ins), read by the PV bridge (the archiver's registry pass reads
-`archive` alone). Both validate against the installed families; tests
+suffix overrides, labels, `allow`, `note`, `omit`, `hazard`, the archive
+opt-ins and opt-outs, the serving `ioc`), read by the PV bridge and the
+archiver's registry pass. Both validate against the installed families; tests
 pass tiny ones through the validation context (`context={"families":
 ...}`). The installed families are frozen and shared process-wide; a
 family with actions puts every writable role in one, so `allow` decides
 every write. A family file changes when its IOC template does;
-a pin in GeecsPanels' tests (web estate S2) holds the camera,
-scope, motor and supply files to the panels' own suffix tables until
-those tables are deleted.
+the pin holding the camera, scope, motor and supply files to GeecsPanels'
+own suffix tables (web estate S2) lives on `feat/web-estate`, not here.
 
 ## Sweep payload
 

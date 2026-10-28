@@ -16,9 +16,9 @@ keeps PyYAML out of its runtime dependencies (YAML is serialization, not
 the contract; see :meth:`VersionedSchemaModel.from_path`).
 
 The contents were transcribed from GeecsPanels' per-kind tables
-(``motor.py``, ``camera.py``, ``scope.py``, ``power.py``); a pin in
-GeecsPanels' tests (web estate S2) holds the
-two in step until those tables are deleted.
+(``motor.py``, ``camera.py``, ``scope.py``, ``power.py``); the pin that
+holds the two in step (web estate S2) lives on ``feat/web-estate`` with
+the PV bridge, not beside these files.
 
 The installed families are shared by everything in the process, so the
 models are frozen and :func:`load_families` returns a read-only mapping.
@@ -53,6 +53,13 @@ ReadMode = Literal["monitor", "on_request", "once", "never"]
 FamilyKind = Literal[
     "aravis_camera", "epics_motor", "setpoint_device", "array_detector"
 ]
+
+#: Registry kind (``NativeDevices``) → the family a registry device
+#: instantiates when its panel data names none. Read by the PV bridge and
+#: the archiver's registry pass, so the two cannot pick different families.
+REGISTRY_KIND_FAMILIES: Mapping[str, str] = MappingProxyType(
+    {"aravis_camera": "ad_camera_chain", "epics_motor": "motor_record"}
+)
 
 #: A template's name: the family file's stem.
 TemplateName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]

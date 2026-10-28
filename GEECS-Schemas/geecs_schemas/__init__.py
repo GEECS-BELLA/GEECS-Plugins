@@ -49,7 +49,13 @@ from geecs_schemas.epics import (
     NativeDevice,
     NativeDevices,
 )
-from geecs_schemas.epics.family import FamilyAction, FamilyFile, Role, load_families
+from geecs_schemas.epics.family import (
+    REGISTRY_KIND_FAMILIES,
+    FamilyAction,
+    FamilyFile,
+    Role,
+    load_families,
+)
 from geecs_schemas.epics.panel_devices import (
     PANEL_DEVICES_FILENAME,
     PanelDevice,
@@ -165,6 +171,7 @@ __all__ = [
     "FamilyAction",
     "Role",
     "load_families",
+    "REGISTRY_KIND_FAMILIES",
     "PanelDevices",
     "PanelDevice",
     "PANEL_DEVICES_FILENAME",
