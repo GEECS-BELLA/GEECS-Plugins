@@ -223,6 +223,23 @@ class TestFarFromZero:
         x = np.linspace(15, 45, 13)
         assert fit_curve(x, x**2, "polynomial", order=2).x_shift == 0.0
 
+    @pytest.mark.parametrize(
+        ("middle", "half", "order"),
+        [(800, 10, 6), (800, 10, 8), (9900, 100, 8), (100, 10, 8), (1e9, 1.1e7, 5)],
+    )
+    def test_a_high_order_over_a_narrow_range(self, middle, half, order):
+        # Review of #1174: a wavelength-like range at order 6 failed outright
+        # under a fixed offset rule; the conditioning decides now.
+        x = np.linspace(middle - half, middle + half, 40)
+        u = (x - middle) / half
+        rng = np.random.default_rng(2)
+        fit = fit_curve(
+            x, 1 + u - u**2 + rng.normal(0, 1e-3, 40), "polynomial", order=order
+        )
+        assert fit.ok and fit.x_shift == pytest.approx(middle)
+        assert all(math.isfinite(p.stderr) for p in fit.parameters)
+        assert fit.r2 == pytest.approx(1.0, abs=1e-5)
+
     def test_a_gaussian_far_from_zero_keeps_its_width(self):
         x = 1e9 + X
         fit = fit_curve(x, gaussian(X, 3.0, 1.5, 0.4, 0.5), "gaussian")

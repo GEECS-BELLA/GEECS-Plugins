@@ -17,10 +17,10 @@ kinds fix ``C = 0``):
   ``fwhm = 2w·(ln 2)^(1/p)``.
 - ``polynomial``: ``c0 + c1·u + … + cN·u^N`` with ``u = x - x_shift``
   (linear least squares, :func:`numpy.polyfit`), ``N = order``. The shift
-  is zero — plain powers of ``x`` — unless the ``x`` values sit far from
-  zero against their spread (a timestamp column: :data:`POLY_OFFSET`),
-  where powers of ``x`` itself cannot be solved in floating point; then
-  it is the middle of the range, and ``CurveFit.x_shift`` says so.
+  is zero — plain powers of ``x`` — unless powers of ``x`` itself are too
+  ill-conditioned to solve in floating point (a timestamp column, or a
+  high order over a narrow range far from zero: :data:`POLY_CONDITION`);
+  then it is the middle of the range, and ``CurveFit.x_shift`` says so.
 
 The nonlinear models are always solved about the middle of the ``x``
 range and their ``center`` reported in ``x``: the optimizer's
@@ -56,9 +56,10 @@ FWHM_PER_SIGMA = 2.0 * math.sqrt(2.0 * math.log(2.0))
 #: The bounds on the SuperGaussian power, so ``|x|^p`` stays finite.
 POWER_BOUNDS = (0.1, 100.0)
 
-#: A polynomial is fitted about the middle of its ``x`` range when that
-#: middle is more than this many half-ranges from zero.
-POLY_OFFSET = 100.0
+#: A polynomial is fitted about the middle of its ``x`` range when the
+#: column-scaled Vandermonde matrix of plain ``x`` (what ``polyfit``
+#: solves) has a condition number above this.
+POLY_CONDITION = 1e7
 
 #: A float that reads JSON ``null`` (how pydantic writes NaN) back as NaN,
 #: so a result survives its own JSON round trip.
@@ -264,6 +265,15 @@ def _notes(
     return notes
 
 
+def _poly_condition(xs: np.ndarray, order: int) -> float:
+    """The condition number of the column-scaled powers of ``xs`` up to ``order``."""
+    powers = np.vander(xs, order + 1)
+    norms = np.sqrt((powers * powers).sum(axis=0))
+    with np.errstate(all="ignore"):
+        condition = np.linalg.cond(powers / np.where(norms > 0, norms, 1.0))
+    return float(condition) if np.isfinite(condition) else math.inf
+
+
 def _solve_polynomial(
     xs: np.ndarray, ys: np.ndarray, order: int, exact: bool
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -317,12 +327,12 @@ def _solve(
 
     Both kinds are solved about the middle of the ``x`` range (the module
     docstring); a nonlinear centre is moved back to ``x``, a polynomial
-    keeps the shift only when it was needed (:data:`POLY_OFFSET`).
+    keeps the shift only when it was needed (:data:`POLY_CONDITION`).
     """
     low, high = float(xs.min()), float(xs.max())
-    middle, half = (low + high) / 2.0, (high - low) / 2.0
+    middle = (low + high) / 2.0
     if model == "polynomial":
-        shift = middle if abs(middle) > POLY_OFFSET * half else 0.0
+        shift = middle if _poly_condition(xs, order) > POLY_CONDITION else 0.0
         try:
             values, cov = _solve_polynomial(xs - shift, ys, order, exact)
         except (np.linalg.LinAlgError, ValueError) as exc:
