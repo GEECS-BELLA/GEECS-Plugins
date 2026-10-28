@@ -267,9 +267,10 @@ def _notes(
 
 def _poly_condition(xs: np.ndarray, order: int) -> float:
     """The condition number of the column-scaled powers of ``xs`` up to ``order``."""
-    powers = np.vander(xs, order + 1)
-    norms = np.sqrt((powers * powers).sum(axis=0))
+    # A high order of a large x overflows: that is an infinite condition.
     with np.errstate(all="ignore"):
+        powers = np.vander(xs, order + 1)
+        norms = np.sqrt((powers * powers).sum(axis=0))
         condition = np.linalg.cond(powers / np.where(norms > 0, norms, 1.0))
     return float(condition) if np.isfinite(condition) else math.inf
 
