@@ -203,3 +203,57 @@ def test_the_curve_spans_the_fitted_range():
 def test_an_undefined_error_is_json_null():
     fit = fit_curve([0, 1, 2], [1, 3, 7], "polynomial", order=2)
     assert '"stderr":null' in fit.model_dump_json()
+
+
+class TestFarFromZero:
+    """A timestamp-like X (review of #1174): solved about the range's middle."""
+
+    T = 1.7e9 + np.arange(30.0)
+
+    def test_a_polynomial_is_fitted_about_the_middle(self):
+        u = self.T - self.T.mean()
+        fit = fit_curve(self.T, 2 + 0.5 * u + 0.01 * u**2, "polynomial", order=2)
+        assert fit.ok and fit.x_shift == pytest.approx(1.7e9 + 14.5)
+        assert [p.value for p in fit.parameters] == pytest.approx([2, 0.5, 0.01])
+        assert fit.evaluate([self.T[3]]) == pytest.approx(
+            [2 + 0.5 * u[3] + 0.01 * u[3] ** 2]
+        )
+
+    def test_an_ordinary_range_keeps_plain_powers_of_x(self):
+        x = np.linspace(15, 45, 13)
+        assert fit_curve(x, x**2, "polynomial", order=2).x_shift == 0.0
+
+    def test_a_gaussian_far_from_zero_keeps_its_width(self):
+        x = 1e9 + X
+        fit = fit_curve(x, gaussian(X, 3.0, 1.5, 0.4, 0.5), "gaussian")
+        assert params(fit)["center"] == pytest.approx(1e9 + 1.5, abs=1e-6)
+        assert params(fit)["sigma"] == pytest.approx(0.4, rel=1e-6)
+        assert fit.r2 == pytest.approx(1.0)
+        assert fit.parameters[1].stderr < 1e-3
+
+
+def test_flat_data_is_no_peak():
+    fit = fit_curve(X, np.ones_like(X), "gaussian")
+    assert not fit.ok and "do not vary" in fit.error
+    assert params(
+        fit_curve(X, np.ones_like(X), "polynomial", order=1)
+    ) == pytest.approx({"c0": 1.0, "c1": 0.0}, abs=1e-12)
+
+
+def test_a_power_on_its_bound_is_noted():
+    # A top hat: the steepest edge the power can make, which is its bound.
+    fit = fit_curve(X, np.where(np.abs(X - 1) < 1, 1.0, 0.0), "supergaussian")
+    assert any("power sits on its bound" in note for note in fit.notes)
+
+
+@pytest.mark.parametrize(
+    "fit",
+    [
+        fit_curve([0, 1, 2], [1, 3, 7], "polynomial", order=2),  # NaN errors
+        fit_curve([0, 0], [1, 2], "gaussian"),  # an error: NaN r2 and range
+    ],
+    ids=["exact", "error"],
+)
+def test_a_result_survives_its_json_round_trip(fit):
+    again = type(fit).model_validate_json(fit.model_dump_json())
+    assert again.model_dump_json() == fit.model_dump_json()

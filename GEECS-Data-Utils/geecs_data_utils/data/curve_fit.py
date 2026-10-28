@@ -15,8 +15,17 @@ kinds fix ``C = 0``):
 - ``supergaussian``: ``A·exp(-(|x - x0| / w)^p) + C`` with the power ``p``
   fitted (``p = 2`` is a Gaussian with ``w = √2·σ``); derived
   ``fwhm = 2w·(ln 2)^(1/p)``.
-- ``polynomial``: ``c0 + c1·x + … + cN·x^N`` (linear least squares,
-  :func:`numpy.polyfit`), ``N = order``.
+- ``polynomial``: ``c0 + c1·u + … + cN·u^N`` with ``u = x - x_shift``
+  (linear least squares, :func:`numpy.polyfit`), ``N = order``. The shift
+  is zero — plain powers of ``x`` — unless the ``x`` values sit far from
+  zero against their spread (a timestamp column: :data:`POLY_OFFSET`),
+  where powers of ``x`` itself cannot be solved in floating point; then
+  it is the middle of the range, and ``CurveFit.x_shift`` says so.
+
+The nonlinear models are always solved about the middle of the ``x``
+range and their ``center`` reported in ``x``: the optimizer's
+finite-difference steps scale with the parameters, so a centre near
+``1e9`` would otherwise be stepped far wider than the peak.
 
 A fit that cannot be made — too few points, too few distinct ``x``, an
 optimizer that does not converge — is a :class:`CurveFit` with ``error``
@@ -28,10 +37,10 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import Callable, Literal, Sequence
+from typing import Annotated, Callable, Literal, Sequence
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 FitModel = Literal[
     "gaussian",
@@ -46,6 +55,14 @@ FWHM_PER_SIGMA = 2.0 * math.sqrt(2.0 * math.log(2.0))
 
 #: The bounds on the SuperGaussian power, so ``|x|^p`` stays finite.
 POWER_BOUNDS = (0.1, 100.0)
+
+#: A polynomial is fitted about the middle of its ``x`` range when that
+#: middle is more than this many half-ranges from zero.
+POLY_OFFSET = 100.0
+
+#: A float that reads JSON ``null`` (how pydantic writes NaN) back as NaN,
+#: so a result survives its own JSON round trip.
+Number = Annotated[float, BeforeValidator(lambda v: math.nan if v is None else v)]
 
 
 def gaussian(
@@ -96,15 +113,16 @@ class FitParameter(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str
-    value: float
-    stderr: float
+    value: Number
+    stderr: Number
 
 
 class CurveFit(BaseModel):
     """The result of :func:`fit_curve`: parameters, quality and the fitted range.
 
     ``parameters`` are the fitted numbers in the model's order (for
-    ``polynomial``, ``c0`` … ``cN`` by ascending power); ``derived`` are
+    ``polynomial``, ``c0`` … ``cN`` by ascending power of
+    ``x - x_shift``); ``derived`` are
     computed from them with first-order error propagation (``fwhm``).
     ``error`` is set, and ``parameters`` empty, when no fit was made.
     """
@@ -116,9 +134,12 @@ class CurveFit(BaseModel):
     parameters: list[FitParameter] = Field(default_factory=list)
     derived: list[FitParameter] = Field(default_factory=list)
     points: int = Field(0, description="Finite (x, y) pairs fitted.")
-    r2: float = float("nan")
-    x_min: float = float("nan")
-    x_max: float = float("nan")
+    r2: Number = math.nan
+    x_min: Number = math.nan
+    x_max: Number = math.nan
+    x_shift: float = Field(
+        0.0, description="The polynomial's origin: its powers are of x - x_shift."
+    )
     error: str | None = None
     notes: list[str] = Field(default_factory=list)
 
@@ -141,7 +162,7 @@ class CurveFit(BaseModel):
         xs = np.asarray(x, dtype=np.float64)
         values = [p.value for p in self.parameters]
         if self.model == "polynomial":
-            return np.polynomial.polynomial.polyval(xs, values)
+            return np.polynomial.polynomial.polyval(xs - self.x_shift, values)
         function, _ = _NONLINEAR[self.model]
         return function(xs, *values)
 
@@ -230,7 +251,7 @@ def _notes(
     """Say why standard errors are missing, and when the power is pinned."""
     notes: list[str] = []
     if model.startswith("supergaussian") and any(
-        math.isclose(values[3], bound) for bound in POWER_BOUNDS
+        math.isclose(values[3], bound, rel_tol=1e-3) for bound in POWER_BOUNDS
     ):
         notes.append(f"the power sits on its bound {values[3]:.3g}")
     if exact:
@@ -278,6 +299,46 @@ def _solve_nonlinear(
             x_scale="jac",
             max_nfev=max_evaluations,
         )
+
+
+class _NoFit(Exception):
+    """Why a fit could not be made: :func:`fit_curve` returns it as ``error``."""
+
+
+def _solve(
+    model: str,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    order: int,
+    exact: bool,
+    max_evaluations: int,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """The values (in ``x``), their covariance, and the polynomial's ``x_shift``.
+
+    Both kinds are solved about the middle of the ``x`` range (the module
+    docstring); a nonlinear centre is moved back to ``x``, a polynomial
+    keeps the shift only when it was needed (:data:`POLY_OFFSET`).
+    """
+    low, high = float(xs.min()), float(xs.max())
+    middle, half = (low + high) / 2.0, (high - low) / 2.0
+    if model == "polynomial":
+        shift = middle if abs(middle) > POLY_OFFSET * half else 0.0
+        try:
+            values, cov = _solve_polynomial(xs - shift, ys, order, exact)
+        except (np.linalg.LinAlgError, ValueError) as exc:
+            raise _NoFit(f"the polynomial could not be solved: {exc}") from None
+        return values, cov, shift
+    if np.ptp(ys) == 0:
+        raise _NoFit("the y values do not vary: no peak to fit")
+    try:
+        values, cov = _solve_nonlinear(model, xs - middle, ys, max_evaluations)
+    except (RuntimeError, ValueError) as exc:
+        raise _NoFit(f"the fit did not converge: {exc}") from None
+    values = values.copy()
+    values[1] += middle  # the centre, back in x; the covariance is unchanged
+    if exact:
+        cov = np.full((len(values), len(values)), np.nan)
+    return values, cov, 0.0
 
 
 def fit_curve(
@@ -337,19 +398,15 @@ def fit_curve(
                 f" values; the data has {distinct}"
             ),
         )
-    head |= {"x_min": float(xs.min()), "x_max": float(xs.max())}
+    low, high = float(xs.min()), float(xs.max())
+    head |= {"x_min": low, "x_max": high}
     exact = n == len(names)
-    derived: list[FitParameter] = []
-    if model == "polynomial":
-        values, cov = _solve_polynomial(xs, ys, order, exact)
-    else:
-        try:
-            values, cov = _solve_nonlinear(model, xs, ys, max_evaluations)
-        except (RuntimeError, ValueError) as exc:
-            return CurveFit(**head, error=f"the fit did not converge: {exc}")
-        if exact:
-            cov = np.full((len(names), len(names)), np.nan)
-        derived = _derived(model, values, cov)
+    try:
+        values, cov, shift = _solve(model, xs, ys, order, exact, max_evaluations)
+    except _NoFit as why:
+        return CurveFit(**head, error=str(why))
+    head["x_shift"] = shift
+    derived = [] if model == "polynomial" else _derived(model, values, cov)
     errors = _stderrs(cov)
     notes = _notes(model, values, errors, exact)
     parameters = [
