@@ -253,7 +253,14 @@
       const set = form.elements.set.value;
       const url = new URL(`api/settings/${encodeURIComponent(set)}`, form.action);
       const body = new URLSearchParams({ device: strip.dataset.device, roi });
-      return fetch(url, { method: "POST", body }).then(() => location.reload());
+      const problem = document.getElementById("roi-error");
+      return fetch(url, { method: "POST", body })
+        .then((response) => response.ok ? location.reload()
+          : response.json().then((answer) => { throw new Error(String(answer.detail || response.statusText)); }))
+        .catch((error) => {
+          // Shown in the drawer, which stays open with the rectangle drawn.
+          if (problem) { problem.textContent = `Not saved: ${error.message}`; problem.hidden = false; }
+        });
     };
     document.querySelector("[data-roi-clear]")?.addEventListener("click", () => saveRoi(""));
     const drawerEl = document.getElementById("roi-drawer");

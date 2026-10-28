@@ -338,7 +338,9 @@ def _fill_images(
 
     The saved device, when this scan has no folder for it, is kept in the
     list ("not in this scan") so the next click does not erase it, and the
-    strip says so; with none saved, the first device that has pictures.
+    strip says so. With none saved the page asks for one: finding a camera
+    by probing the folders one by one costs tens of seconds cold over the
+    share on a scan of trace and scalar devices.
     """
     folder = scans.scan_folder(run)
     devices = images.devices(folder)
@@ -348,14 +350,15 @@ def _fill_images(
         page["device_kept"] = saved
         page["device_problem"] = f"{saved} is not in this scan"
         return
-    device = saved or next(
-        (d for d in devices if images.is_image_device(folder, d, devices)), ""
-    )
+    device = saved or ""
     page["device"] = device
-    if not device:
-        page["device_problem"] = "this scan has no camera images"
+    if not devices:
+        page["device_problem"] = "this scan has no device folders"
         return
-    if saved and not images.is_image_device(folder, device, devices):
+    if not device:
+        page["device_problem"] = "pick a camera from the list"
+        return
+    if not images.is_image_device(folder, device, devices):
         page["device_problem"] = f"{device} has no pictures (traces or a vendor format)"
         return
     day, scan = page["day"], page["scan"]

@@ -92,9 +92,52 @@ class TestPixels:
     def test_a_missed_shot_is_refused(self, share: Path, camera: Path) -> None:
         frame, folder = _opened(share)
         frame = frame.assign(**{f"{CAM}-acq_timestamp": [1.0, float("nan"), 1.0, 1.0]})
-        assert images.row_array(folder, frame, CAM, 2).reason == (
-            "the device missed this shot"
+        with pytest.raises(images.NoImage, match="missed this shot"):
+            images.tile_array(folder, frame, CAM, (2,))
+
+    def test_rows_with_no_bin_are_a_bin_of_their_own(self, share: Path) -> None:
+        """The binned plot counts them; the strip must not drop them."""
+        frame, _ = _opened(share)
+        frame = frame.assign(**{"Bin #": [1, float("nan"), 2, 2]})
+        assert [t.caption for t in images.tiles(frame, "bins")] == [
+            "bin 1 · 1 shot",
+            "bin 2 · 2 shots",
+            "bin none · 1 shot",
+        ]
+
+    def test_shot_captions_are_whole_numbers(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        numbers = frame["Shotnumber"].astype(float)
+        numbers.iloc[1] = float("nan")
+        assert [t.caption for t in images.tiles(frame, "shots", shot_numbers=numbers)][
+            :2
+        ] == ["shot 1", "shot ? (row 2)"]
+
+    def test_a_tile_with_no_image_is_remembered_with_its_reason(
+        self, share: Path, camera: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        frame, folder = _opened(share)
+        calls = []
+        real = images.tile_array
+        monkeypatch.setattr(
+            images, "tile_array", lambda *a: calls.append(a) or real(*a)
         )
+        for _ in range(2):
+            with pytest.raises(images.NoImage, match="file not found"):
+                images.kept_tile_array(folder, frame, CAM, (3,))
+        assert len(calls) == 1  # the second ask is answered from memory
+
+    def test_the_memory_is_bounded_in_bytes(
+        self, share: Path, camera: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        frame, folder = _opened(share)
+        one = images.tile_array(folder, frame, CAM, (1,)).nbytes
+        monkeypatch.setattr(images, "_KEPT_BYTES", one + 1)
+        monkeypatch.setattr(images, "_kept", type(images._kept)())
+        monkeypatch.setattr(images, "_kept_bytes", 0)
+        images.kept_tile_array(folder, frame, CAM, (1,))
+        images.kept_tile_array(folder, frame, CAM, (2,))
+        assert len(images._kept) == 1 and images._kept_bytes <= one + 1
 
     def test_pictures_and_not(self, camera: Path) -> None:
         assert images.devices(camera) == [CAM, "U_Haso"]
@@ -168,7 +211,10 @@ class TestPage:
     def test_the_images_tab_shows_the_strip(
         self, client: TestClient, camera: Path
     ) -> None:
-        page = post(client, scan=1, tab="images")
+        first = post(client, scan=1, tab="images")
+        assert "pick a camera from the list" in first  # no probing for one
+        assert 'id="strip"' not in first
+        page = post(client, scan=1, tab="images", device=CAM)
         assert 'id="strip" class="strip grid"' in page
         assert page.count('class="tile"') == 2
         assert "bin 2 · 2 shots · 2" in page
@@ -352,3 +398,14 @@ def test_a_bin_read_as_a_decimal_is_captioned_whole(share: Path) -> None:
         "bin 1 · 2 shots",
         "bin 2 · 2 shots",
     ]
+
+
+def test_fixed_levels_with_white_below_black_say_so(
+    client: TestClient, camera: Path
+) -> None:
+    page = post(
+        client, scan=1, tab="images", device=CAM, zscale="fixed", zmin=50, zmax=10
+    )
+    assert "White must be above black" in page
+    fine = post(client, scan=1, tab="images", device=CAM, zmin=10, zmax=50)
+    assert "White must be above black" not in fine

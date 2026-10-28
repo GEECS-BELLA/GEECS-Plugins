@@ -95,25 +95,29 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   there), then a `FITS` entry here.
 - **Images** are GEECSplotter's image strip, the Images tab (`tab`;
   the brief's "Images"). A tile is one shot's image or its bin's average
-  (`Bin #`, `geecs_data_utils.data.binning.compute_bin_key`), laid out as
-  a grid or one row (`image_layout`, `image_columns`). The ladder,
-  the refusals and the trace check are `geecs_data_utils.io.shot_images`,
-  the average `io.images.average_frames`, the PNG `io.display_png` (the
-  colour map needs matplotlib, a dependency here). A shot is an s-file
+  (`geecs_data_utils.data.binning.bin_rows`: the binned plot's bins, an
+  empty `Bin #` a bin of its own), laid out as a grid or one row
+  (`image_layout`, `image_columns`). The ladder, the refusals, the trace
+  check and the per-row average are `geecs_data_utils.io.shot_images`
+  (`average_rows`; the plotter writes no loop of its own), the PNG
+  `io.display_png` (the colour map needs matplotlib, a dependency here). A shot is an s-file
   row: a row that says the device missed it, or a missing file, gives no
   image, and is left out of its bin's average, **never a neighbour's
   image**. The picker lists every device folder with ONE listing, and only
-  the picked one is probed (`images.is_image_device`): probing all of a
-  scan's ~70 folders costs tens of seconds cold over the share. Each tile
-  is an `<img loading="lazy">` on `/api/images/tile.png`, so a scan's
-  images are never loaded all at once; tiles across, the colour map and
+  the picked one is probed (`images.is_image_device`): probing a scan's
+  ~70 folders costs tens of seconds cold over the share, so a set with no
+  camera saved asks for one rather than search. Each tile is an
+  `<img loading="lazy">` on `/api/images/tile.png`, so each tile and
+  each per-tile z scale reads only what scrolls into view; tiles across, the colour map and
   the levels redraw in place and save as typed; device, tiles and layout
   reload. `/api/images/strip` returns the tiles and the `code` snippet.
   The **z scale** (`image_zscale`) is LabVIEW's autoscale: each tile
   from its own darkest to its brightest pixel, every tile on one scale
   from the darkest to the brightest pixel of all ("shared":
-  `images.shared_levels`, from `/api/images/levels`, which reads every
-  tile first), or black and white typed in ("fixed"); the last two reach
+  `images.shared_levels`, from `/api/images/levels`, which reads EVERY
+  tile first, the whole scan for a strip of shots: the author's ruling,
+  and the page says so), or black and white typed in ("fixed"; white not
+  above black is shown as a problem); the last two reach
   the tile as `zmin`/`zmax`, drawn by `to_display_png(levels=)`. There is
   **no percentile window** (the portal's 1–99.7): a laser mode is a small
   spot, the top fraction of its ROI, and a percentile white saturates it
@@ -122,9 +126,11 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   rung-2 drawer on the first tile, and applies to every tile and to the
   shared scale; `merged` takes it with the camera's name (`roi` + `device`),
   so picking another camera never carries one camera's ROI to the next.
-  Tiles read for the shared scale are kept in memory
-  (`images.kept_tile_array`, keyed by the camera folder's mtime) so
-  drawing them does not read every file twice.
+  Tiles are kept in memory (`images.kept_tile_array`, at most
+  `_KEPT_BYTES`, keyed by the camera folder's mtime and the table's
+  length) so the shared scale and the draw read a file once while the
+  strip fits; a tile with no image is kept as its reason, so the page's
+  ask for why does not search the share again.
 - **Replacing a saved set** is Save as onto its name (the box offers the
   saved names): `plotter.js` asks in a rung-3 `<dialog>` (focus on "Keep
   it"), whose Replace posts `overwrite=true`; without it the server

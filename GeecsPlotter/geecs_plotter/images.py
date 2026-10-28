@@ -23,10 +23,9 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from geecs_data_utils.data.binning import BinningConfig, compute_bin_key
+from geecs_data_utils.data.binning import bin_rows
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import window_levels
-from geecs_data_utils.io.images import average_frames
 
 #: The colour maps offered (matplotlib names), "gray" first, the default:
 #: the perceptual ones, then the classic false-colour tables.
@@ -51,9 +50,9 @@ CMAPS = (
 #: A region of interest, ``(x0, y0, x1, y1)`` in pixels, the end excluded.
 Roi = tuple[int, int, int, int]
 
-#: Tiles kept in memory: a strip's tiles are read once for a shared z
-#: scale and again to draw, and the camera's files do not change.
-_KEPT_TILES = 64
+#: Pixels kept in memory: a strip's tiles are read once for a shared z
+#: scale and again to draw. A strip larger than this is read twice.
+_KEPT_BYTES = 512 * 2**20
 
 
 class NoImage(LookupError):
@@ -100,25 +99,28 @@ def devices(folder: Path) -> list[str]:
 def bins(frame: pd.DataFrame) -> list[tuple[object, tuple[int, ...]]]:
     """Each bin's label and rows, in bin order (GEECSplotter's ``Bin #``).
 
+    ``geecs_data_utils.data.binning.bin_rows``: the binned plot's bins,
+    the rows with an empty ``Bin #`` a bin of their own (last).
+
     Raises
     ------
     NoImage
         The scan has no ``Bin #`` column.
     """
     try:
-        labels, _ = compute_bin_key(frame.reset_index(drop=True), BinningConfig())
+        return bin_rows(frame)
     except KeyError:
         raise NoImage("this scan has no Bin # column") from None
-    rows = pd.Series(range(1, len(frame) + 1), index=labels.index)
-    return [
-        (label, tuple(int(r) for r in group))
-        for label, group in rows.groupby(labels, sort=True, observed=True)
-    ]
 
 
-def _number(label: object) -> object:
-    """A whole-number bin label as an integer (``Bin #`` may read as 1.0)."""
-    return int(label) if isinstance(label, float) and label.is_integer() else label
+def _number(value: object, missing: str) -> str:
+    """A label or shot number as shown: 1.0 as 1, NaN as *missing*."""
+    if isinstance(value, float):
+        if value != value:
+            return missing
+        if value.is_integer():
+            return str(int(value))
+    return str(value)
 
 
 def _value(values: Optional[pd.Series], rows: tuple[int, ...]) -> str:
@@ -156,41 +158,18 @@ def tiles(
         out = []
         for row in range(1, len(frame) + 1):
             shot = row if shot_numbers is None else shot_numbers.iloc[row - 1]
-            out.append(Tile(row, (row,), f"shot {shot}{_value(scan_values, (row,))}"))
+            label = f"shot {_number(shot, f'? (row {row})')}"
+            out.append(Tile(row, (row,), f"{label}{_value(scan_values, (row,))}"))
         return out
     return [
         Tile(
             index,
             rows,
-            f"bin {_number(label)} · {len(rows)} shot{'s' if len(rows) != 1 else ''}"
+            f"bin {_number(label, 'none')} · {len(rows)} shot{'s' if len(rows) != 1 else ''}"
             f"{_value(scan_values, rows)}",
         )
         for index, (label, rows) in enumerate(bins(frame))
     ]
-
-
-def row_array(
-    folder: Path, frame: pd.DataFrame, device: str, row: int
-) -> shot_images.ShotArray:
-    """One row's image from *device*, or the refusal and its reason.
-
-    The row's own ``acq_timestamp`` (when the s-file has one) picks the
-    file; a row that says the device missed the shot is refused here.
-    """
-    if not 1 <= row <= len(frame):
-        return shot_images.ShotArray(kind="missing", reason=f"no shot {row}")
-    stamp, present = shot_images.row_acq_timestamp(frame, device, row)
-    if present and stamp is None:
-        return shot_images.ShotArray(
-            kind="missing", reason="the device missed this shot"
-        )
-    return shot_images.load_shot_array(
-        folder,
-        device,
-        row,
-        acq_timestamp=stamp,
-        file_shot=shot_images.row_file_shot(frame, row),
-    )
 
 
 def tile_array(
@@ -198,33 +177,23 @@ def tile_array(
 ) -> np.ndarray:
     """The tile's pixels: one shot's image, or its shots' average.
 
-    Shots the device missed, or whose file is missing or unreadable, are
-    left out of the average.
+    ``geecs_data_utils.io.shot_images.average_rows``: shots the device
+    missed, or whose file is missing or unreadable, are left out of the
+    average, never replaced by a neighbour's image.
 
     Raises
     ------
     NoImage
-        No shot of the tile has an image; the reason of the last one.
+        No shot of the tile has an image; the reason why.
     """
-    arrays = []
-    reason = "no shots"
-    for row in rows:
-        found = row_array(folder, frame, device, row)
-        if found.array is None:
-            if found.kind in ("vendor", "unrenderable"):
-                raise NoImage(found.reason or found.kind)  # the same for every shot
-            reason = found.reason or found.kind
-            continue
-        arrays.append(found.array)
-    if len(arrays) == 1:
-        return arrays[0]
-    averaged = average_frames(arrays, label=f"{device} rows {rows[0]}-{rows[-1]}")
-    if averaged is None:
-        raise NoImage(reason if not arrays else "the shots' images differ in size")
-    return averaged
+    found = shot_images.average_rows(folder, frame, device, rows)
+    if found.array is None:
+        raise NoImage(found.reason or found.kind)
+    return found.array
 
 
-_kept: OrderedDict[tuple, np.ndarray] = OrderedDict()
+_kept: OrderedDict[tuple, np.ndarray | str] = OrderedDict()
+_kept_bytes = 0
 _kept_lock = threading.Lock()
 
 
@@ -233,8 +202,16 @@ def kept_tile_array(
 ) -> np.ndarray:
     """:func:`tile_array`, remembered until the camera's folder changes.
 
-    The key carries the device folder's modification time, so a file
-    added while a scan runs is read; a refusal is never remembered.
+    The key carries the device folder's modification time and the table's
+    length, so a file or a row added while a scan runs is read again. A
+    tile with no image is remembered too (its reason), so the page's
+    second ask for the reason does not search the share again. The store
+    holds at most ``_KEPT_BYTES`` of pixels, oldest out first.
+
+    Raises
+    ------
+    NoImage
+        As :func:`tile_array`.
     """
     try:
         stamp = (folder / device).stat().st_mtime_ns
@@ -242,16 +219,39 @@ def kept_tile_array(
         return tile_array(folder, frame, device, rows)
     key = (str(folder), device, rows, len(frame), stamp)
     with _kept_lock:
-        if key in _kept:
+        kept = _kept.get(key)
+        if kept is not None:
             _kept.move_to_end(key)
-            return _kept[key]
-    pixels = tile_array(folder, frame, device, rows)
-    pixels.flags.writeable = False  # shared between requests: never edited
-    with _kept_lock:
-        _kept[key] = pixels
-        while len(_kept) > _KEPT_TILES:
-            _kept.popitem(last=False)
+    if isinstance(kept, str):
+        raise NoImage(kept)
+    if kept is not None:
+        return kept
+    try:
+        pixels: np.ndarray | str = tile_array(folder, frame, device, rows)
+    except NoImage as why:
+        pixels = str(why)
+    else:
+        pixels.flags.writeable = False  # shared between requests: never edited
+    _keep(key, pixels)
+    if isinstance(pixels, str):
+        raise NoImage(pixels)
     return pixels
+
+
+def _keep(key: tuple, value: np.ndarray | str) -> None:
+    """Store *value*, dropping the oldest until the store fits its bytes."""
+    global _kept_bytes
+    size = value.nbytes if isinstance(value, np.ndarray) else 0
+    if size > _KEPT_BYTES:
+        return  # one tile bigger than the whole store: never kept
+    with _kept_lock:
+        if key in _kept:
+            return
+        _kept[key] = value
+        _kept_bytes += size
+        while _kept_bytes > _KEPT_BYTES:
+            _, old = _kept.popitem(last=False)
+            _kept_bytes -= old.nbytes if isinstance(old, np.ndarray) else 0
 
 
 def crop(pixels: np.ndarray, roi: Optional[Roi]) -> np.ndarray:
@@ -284,7 +284,9 @@ def shared_levels(
     """One black and one white for every tile: the darkest and brightest pixel.
 
     Over each tile's ROI; the brightest tile sets white, so no tile
-    saturates. Tiles are read a few at a time.
+    saturates. This reads EVERY tile of the strip, the whole scan for a
+    strip of shots (the author's ruling: the scale must be consistent
+    across all of them), a few at a time; the page says so while it runs.
 
     Returns
     -------

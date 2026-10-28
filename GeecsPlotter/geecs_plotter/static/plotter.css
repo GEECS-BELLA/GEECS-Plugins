@@ -52,3 +52,6 @@
 .kit .roi-stage img { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; }
 .kit .roi-box { position: absolute; border: 2px solid var(--accent); pointer-events: none; }
 .kit .roi-corners { gap: 6px; flex-wrap: wrap; margin: var(--pad) 0; }
+
+/* A z-scale or ROI problem the page explains rather than drawing flat. */
+.kit .level-problem { color: var(--crit); }
