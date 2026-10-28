@@ -23,7 +23,7 @@ classifiers = [
 "Issues" = "https://github.com/GEECS-BELLA/GEECS-Plugins/issues"
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.12"
+python = ">=3.11,<3.13"
 # The whole point of this package is to be importable from anywhere —
 # engine, GUI, scripts, docs tooling — GEST adds only Pydantic.
 pydantic = "^2.0"
