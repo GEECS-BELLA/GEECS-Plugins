@@ -281,6 +281,29 @@ devices:
     labels: {interlock_1: chiller flow}
     allow: [current, output, reset]
 """,
+    "operator_policy": """\
+schema_version: 1
+# <experiment>/operator_policy.yaml; an operator no grant names may write nothing.
+grants:
+  - operators: [A. Operator, B. Operator]
+    families: [motor_record]        # every motor, whatever its allow list permits
+  - operators: [A. Operator]
+    devices: [U_ChicaneInner]
+    roles: [current_sp, reset]      # not the output
+""",
+    "journal_entry": """\
+schema_version: 1
+id: 41
+time: "2026-10-28T21:14:03+00:00"
+operator: A. Operator
+key_name: display
+device: U_ChicaneInner
+role: current_sp
+value: 12.5
+outcome: refused                    # accepted / denied / refused
+canopy_code: out_of_bounds
+detail: 12.5 is outside the record's limits [0.0, 10.0]
+""",
     "analysis_recipe": """\
 schema_version: 3
 device: UC_TopView               # the device folder under scans/ScanNNN/; stems the products
