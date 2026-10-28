@@ -105,8 +105,10 @@ def devices(folder: Path) -> list[str]:
 def bins(frame: pd.DataFrame) -> list[tuple[object, tuple[int, ...]]]:
     """Each bin's label and rows, in bin order (GEECSplotter's ``Bin #``).
 
-    ``geecs_data_utils.data.binning.bin_rows``: the binned plot's bins,
-    the rows with an empty ``Bin #`` a bin of their own (last).
+    ``geecs_data_utils.data.binning.bin_rows`` over the whole s-file (its
+    positions are the shot loaders' rows): the rows with an empty
+    ``Bin #`` a bin of their own (last). A bin whose measurements are all
+    missing is still a tile, though the binned plot drops it.
 
     Raises
     ------

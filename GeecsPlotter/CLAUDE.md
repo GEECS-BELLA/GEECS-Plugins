@@ -95,11 +95,14 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   there), then a `FITS` entry here.
 - **Images** are GEECSplotter's image strip, the Images tab (`tab`;
   the brief's "Images"). A tile is one shot's image or its bin's average
-  (`geecs_data_utils.data.binning.bin_rows`: the binned plot's bins, an
-  empty `Bin #` a bin of its own), laid out as a grid or one row
+  (`geecs_data_utils.data.binning.bin_rows` over the WHOLE s-file, an
+  empty `Bin #` a bin of its own; a filter goes in as its `mask`, never
+  as a filtered frame, whose positions would name other shots), laid out
+  as a grid or one row
   (`image_layout`, `image_columns`). The ladder, the refusals, the trace
   check and the per-row average are `geecs_data_utils.io.shot_images`
-  (`average_rows`; the plotter writes no loop of its own), the PNG
+  (`average_rows`; the plotter writes no loop of its own; the portal's
+  `run_bin_image` still has its own, to move onto these), the PNG
   `io.display_png` (the colour map needs matplotlib, a dependency here). A shot is an s-file
   row: a row that says the device missed it, or a missing file, gives no
   image, and is left out of its bin's average, **never a neighbour's
