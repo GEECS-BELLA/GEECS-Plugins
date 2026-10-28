@@ -1,0 +1,39 @@
+# GeecsCanopy - systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` - see
+# docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render time;
+# the facility values (EPICS addressing, TZ, GEECS_EXPERIMENT,
+# GEECS_CONFIGS_ROOT, the GEECS_CANOPY_* keys) reach docker compose's ${VAR}
+# interpolation through EnvironmentFile=. Secrets never pass through here: the
+# containers read /etc/geecs/canopy/secrets.env themselves.
+#
+# The rendered compose.yaml (GeecsCanopy/deploy/render_conf.sh) lives in
+# /etc/geecs/canopy; this unit only points docker compose at it. Before a
+# first start and after every image change: `pg_dump`, then
+# `alembic upgrade head` (DEPLOYMENT.md, upgrade runbook).
+
+[Unit]
+Description=GeecsCanopy (SLAC Canopy display backend: api, workers, Postgres, Redis)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+WorkingDirectory=/etc/geecs/canopy
+ExecStart=/usr/bin/docker compose --project-directory /etc/geecs/canopy --project-name geecs-canopy up --no-color --no-build --abort-on-container-exit
+ExecStop=/usr/bin/docker compose --project-directory /etc/geecs/canopy --project-name geecs-canopy down
+# Postgres's data (Squirrel's registry and snapshots, the minted keys: state
+# that exists nowhere else) lives under /var/lib/geecs-canopy/pgdata.
+StateDirectory=geecs-canopy
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=120
+SyslogIdentifier=geecs-canopy
+
+[Install]
+WantedBy=multi-user.target

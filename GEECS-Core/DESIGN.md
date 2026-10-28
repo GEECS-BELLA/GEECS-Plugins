@@ -94,7 +94,9 @@ Two supporting conventions:
   there.
 - **Configuration**: credentials resolve via the fleet-standard chain
   `~/.config/geecs_python_api/config.ini` → `[Paths] geecs_data` →
-  `{geecs_data}/Configurations.INI` `[Database]`. The directory name is a
+  `{geecs_data}/Configurations.INI` `[Database]`; a process that is no
+  GEECS client (the Canopy container's read-only user) passes its own with
+  `geecs_db.use_credentials()`. The directory name is a
   historical fossil of the package that first defined it — it is a
   fleet-installed contract; do not rename it. `GEECS-Data-Utils` keeps its own
   independent read of the *paths* half — deliberately not unified, because

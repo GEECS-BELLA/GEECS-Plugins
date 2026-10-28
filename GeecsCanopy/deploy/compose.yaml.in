@@ -1,0 +1,95 @@
+# GeecsCanopy - docker compose TEMPLATE. Rendered by deploy/render_conf.sh
+# from the host's site.env into the staging dir, then installed by root as
+# /etc/geecs/canopy/compose.yaml. Never edit the installed copy: re-render.
+#
+#   @PLACEHOLDER@  filled at render time (the image pin, the build context,
+#                  the service account's ids)
+#   ${VARIABLE}    read by docker compose at `up` from the unit's environment
+#                  (EnvironmentFile=/etc/geecs/site.env)
+#   secrets        never interpolated: env_file /etc/geecs/canopy/secrets.env
+#                  reaches each container's environment directly
+#
+# Host networking throughout, as Canopy's production compose: the EPICS client
+# needs CA's UDP. Canopy's own Postgres 16 and Redis 7 run in this project,
+# bound to loopback on their own ports (5433, 6380: fleet constants), so the
+# queueserver's Redis is never shared. Postgres keeps its data in the unit's
+# state directory; Redis keeps nothing (arq's queue only).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "50m", max-file: "3"}
+
+x-app: &app
+  image: geecs-canopy:@CANOPY_COMMIT@
+  build:
+    context: "@BUILD_CONTEXT@"
+    dockerfile: GeecsCanopy/deploy/Dockerfile
+    args: {CANOPY_IMAGE: "@CANOPY_IMAGE@"}
+  network_mode: host
+  # systemd supervises (Restart=on-failure on the unit); compose must not.
+  restart: "no"
+  logging: *logging
+  env_file: /etc/geecs/canopy/secrets.env
+  environment: &app-env
+    # Without this Canopy serves synthetic sine waves and still passes /health.
+    CANOPY_EPICS__BACKEND: epics
+    EPICS_CA_ADDR_LIST: "${EPICS_CA_ADDR_LIST}"
+    EPICS_CA_AUTO_ADDR_LIST: "${EPICS_CA_AUTO_ADDR_LIST}"
+    TZ: "${TZ}"
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+
+services:
+  api:
+    <<: *app
+    command: ["uvicorn", "canopy.main:app", "--host", "${GEECS_CANOPY_BIND}",
+              "--port", "${GEECS_CANOPY_PORT}", "--root-path", "${GEECS_CANOPY_ROOT_PATH}"]
+    environment:
+      <<: *app-env
+      CANOPY_RACCOON__DIRECTORY__TYPE: geecs_canopy.directory:GeecsDirectoryAdapter
+      CANOPY_RACCOON__DIRECTORY__EXTRAS__EXPERIMENT: "${GEECS_EXPERIMENT}"
+      CANOPY_RACCOON__DIRECTORY__EXTRAS__CONFIGS_ROOT: /opt/geecs-configs
+      CANOPY_RACCOON__DIRECTORY__EXTRAS__DB: "${GEECS_CANOPY_DB}"
+    volumes:
+      - "${GEECS_CONFIGS_ROOT}:/opt/geecs-configs:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:${GEECS_CANOPY_PORT}/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    <<: *app
+    command: ["arq", "canopy.worker.WorkerSettings"]
+    healthcheck: {disable: true}
+    deploy: {replicas: 2}
+
+  postgres:
+    image: postgres:16-alpine
+    network_mode: host
+    restart: "no"
+    logging: *logging
+    user: "@SERVICE_UID@:@SERVICE_GID@"
+    env_file: /etc/geecs/canopy/secrets.env
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1", "-c", "port=5433"]
+    volumes:
+      - /var/lib/geecs-canopy/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5433 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    network_mode: host
+    restart: "no"
+    logging: *logging
+    env_file: /etc/geecs/canopy/secrets.env
+    command: ["sh", "-c", "exec redis-server --bind 127.0.0.1 --port 6380 --save '' --appendonly no --requirepass \"$$REDIS_PASSWORD\""]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -p 6380 --no-auth-warning -a \"$$REDIS_PASSWORD\" ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

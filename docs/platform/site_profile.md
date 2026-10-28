@@ -87,9 +87,16 @@ Two kinds of keys, documented line by line in the example file:
   by `GeecsArchiver/deploy/render_conf.sh`, the package's own renderer for
   its non-unit conf, which the bootstrap calls). `GEECS_ARCHIVER_JAVA_OPTS`
   is a runtime key of the archiver alone: `docker compose` reads it from the
-  unit's environment at start.  These fill the unit templates' placeholders and
+  unit's environment at start; so are the `GEECS_CANOPY_*` keys
+  (GeecsCanopy's bind, port, front-door prefix and DB switch).  These fill the unit templates' placeholders and
   the rendered `config.ini`; they are harmless in the process
   environment.
+- **Secrets are never site values.** `site.env` is installed world-readable,
+  so a password or an API key has a file of its own beside it, mode 0600 and
+  owned by the service account: `/etc/geecs/canopy/secrets.env` for
+  GeecsCanopy (its `secrets.env.example` lists the keys, placeholders only),
+  read by the containers through `env_file:`, never interpolated into a unit
+  or a compose file.
 
 Syntax is systemd `EnvironmentFile=` syntax, which is stricter than
 shell: `KEY=VALUE` per line, comments **only on their own lines** (a

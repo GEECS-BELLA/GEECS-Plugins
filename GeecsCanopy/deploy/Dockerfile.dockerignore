@@ -1,0 +1,12 @@
+# Send only the three packages the derived image installs.
+*
+!GEECS-Core/geecs_core
+!GEECS-Core/pyproject.toml
+!GEECS-Core/README.md
+!GEECS-Schemas/geecs_schemas
+!GEECS-Schemas/pyproject.toml
+!GEECS-Schemas/README.md
+!GeecsCanopy/geecs_canopy
+!GeecsCanopy/pyproject.toml
+!GeecsCanopy/README.md
+**/__pycache__
