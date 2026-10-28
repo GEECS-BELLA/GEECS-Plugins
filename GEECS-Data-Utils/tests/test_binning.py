@@ -259,3 +259,29 @@ class TestScanDataCompat:
         assert isinstance(binned.columns, pd.MultiIndex)
         assert ("count", "center") in binned.columns
         assert len(binned) == 0
+
+
+def test_bin_rows_are_positions_with_the_unlabelled_rows_last():
+    """An empty Bin # is a bin of its own, as bin_frame aggregates it."""
+    from geecs_data_utils.data.binning import BinningConfig, bin_rows
+
+    frame = pd.DataFrame({"Bin #": [2, 1, np.nan, 2, 1]}, index=[10, 11, 12, 13, 14])
+    found = bin_rows(frame)
+    assert [(lbl, rows) for lbl, rows in found[:2]] == [(1.0, (2, 5)), (2.0, (1, 4))]
+    assert np.isnan(found[2][0]) and found[2][1] == (3,)
+    assert [rows for _, rows in bin_rows(frame, BinningConfig(min_count=2))] == [
+        (2, 5),
+        (1, 4),
+    ]
+
+
+def test_bin_rows_under_a_mask_keep_whole_table_positions():
+    """A filtered row is left out; the others keep their own positions, so
+    the image loaders read their own shots, never a neighbour's."""
+    from geecs_data_utils.data.binning import bin_rows
+
+    frame = pd.DataFrame({"Bin #": [1, 1, 2, 2, 3]})
+    found = bin_rows(frame, mask=[True, False, False, True, True])
+    assert found == [(1, (1,)), (2, (4,)), (3, (5,))]
+    with pytest.raises(ValueError, match="mask has 2 values"):
+        bin_rows(frame, mask=[True, False])

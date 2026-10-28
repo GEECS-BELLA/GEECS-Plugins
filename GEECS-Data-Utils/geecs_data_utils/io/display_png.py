@@ -75,12 +75,39 @@ def safe_cmap(cmap: Optional[str]) -> Optional[str]:
     return str(cmap) if str(cmap) in mpl.colormaps else None
 
 
+def window_levels(
+    array: np.ndarray, plo: Optional[float] = None, phi: Optional[float] = None
+) -> tuple[float, float]:
+    """The pixel values the percentile window maps to black and white.
+
+    Parameters
+    ----------
+    array : numpy.ndarray
+        The image data; non-finite pixels are ignored.
+    plo, phi : float, optional
+        The window's percentiles (:func:`window_percentiles`; the defaults
+        when ``None``).
+
+    Returns
+    -------
+    tuple of float
+        ``(black, white)``; ``(0.0, 0.0)`` for an image with no finite pixel.
+    """
+    data = np.asarray(array, dtype=np.float32)
+    finite = data[np.isfinite(data)]
+    if not finite.size:
+        return 0.0, 0.0
+    lo, hi = np.percentile(finite, window_percentiles(plo, phi))
+    return float(lo), float(hi)
+
+
 def to_display_png(
     array: np.ndarray,
     *,
     cmap: Optional[str] = None,
     plo: Optional[float] = None,
     phi: Optional[float] = None,
+    levels: Optional[tuple[float, float]] = None,
 ) -> bytes:
     """Render a 2D (or RGB) array to 8-bit PNG bytes with robust scaling.
 
@@ -97,6 +124,12 @@ def to_display_png(
         greyscale (:func:`safe_cmap`).
     plo, phi : float, optional
         Percentile window overrides (:func:`window_percentiles`).
+    levels : tuple of float, optional
+        The pixel values drawn black and white, in place of the percentile
+        window: a fixed z scale, or one shared by several images (each
+        image's :func:`window_levels`, combined). Non-finite values, or
+        white not above black, draw the image at the floor, as a flat
+        image does.
 
     Returns
     -------
@@ -107,20 +140,11 @@ def to_display_png(
     from PIL import Image
 
     data = np.asarray(array, dtype=np.float32)
-    lo_pct, hi_pct = (
-        window_percentiles(plo, phi)
-        if (plo is not None or phi is not None)
-        else DEFAULT_WINDOW
-    )
-    finite = data[np.isfinite(data)]
-    if finite.size:
-        lo, hi = np.percentile(finite, [lo_pct, hi_pct])
-    else:
-        lo, hi = 0.0, 0.0
-    if hi <= lo:
+    lo, hi = window_levels(data, plo, phi) if levels is None else levels
+    if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
         norm = np.zeros(data.shape, dtype=np.float32)
     else:
-        norm = np.clip((data - lo) / (hi - lo), 0.0, 1.0)
+        norm = np.nan_to_num(np.clip((data - lo) / (hi - lo), 0.0, 1.0))
     colormap = None
     known = safe_cmap(cmap)  # unknown name: greyscale, never a failure
     if known and data.ndim == 2:

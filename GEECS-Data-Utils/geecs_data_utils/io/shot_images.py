@@ -42,7 +42,7 @@ import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Optional, Protocol
+from typing import TYPE_CHECKING, NamedTuple, Optional, Protocol, Sequence
 
 import numpy as np
 
@@ -54,7 +54,11 @@ from geecs_data_utils.io.array1d import (
     Data1DType,
     read_1d_data,
 )
-from geecs_data_utils.io.images import DISPLAYABLE_IMAGE_EXTS, read_imaq_image
+from geecs_data_utils.io.images import (
+    DISPLAYABLE_IMAGE_EXTS,
+    average_frames,
+    read_imaq_image,
+)
 from geecs_data_utils.io.scan_stack import (
     ShotRef,
     find_stack_file,
@@ -531,6 +535,119 @@ def load_shot_image(
         reason=resolved.reason,
         cacheable=resolved.cacheable,
     )
+
+
+def load_row_array(
+    scan_folder: Path,
+    frame: Optional[pd.DataFrame],
+    device: str,
+    row: int,
+    *,
+    file_frame: Optional[pd.DataFrame] = None,
+    data_cache: Optional[ShotPixelCache] = None,
+    cache_key: Optional[tuple[str, str]] = None,
+) -> ShotArray:
+    """One row of the scan's table as *device*'s pixels, or the refusal.
+
+    The row decides the file: its ``acq_timestamp`` (:func:`row_acq_timestamp`)
+    and its announced shot (:func:`row_file_shot`). A row past the table
+    is refused (an ordinal join there would serve an orphan frame), and so
+    is a row that says the device missed the shot: **never a neighbour's
+    image**.
+
+    Parameters
+    ----------
+    scan_folder : Path
+        The scan's existing ``scans/ScanNNN`` folder.
+    frame : pandas.DataFrame or None
+        The scan's WHOLE per-shot table (event rows, or the s-file), one
+        row per shot in shot order: *row* is a position in it, and with no
+        timestamp or announced shot it is also the shot number in the file
+        name. Never a filtered frame, whose positions name other shots
+        (filter with ``data.binning.bin_rows``'s ``mask``). ``None`` (no
+        table) loads *row* by its number alone.
+    device : str
+        The device folder.
+    row : int
+        1-based row.
+    file_frame : pandas.DataFrame, optional
+        The table to read the announced shot from, when it is not *frame*
+        (a run whose event table lacks it reads the s-file).
+    data_cache, cache_key : optional
+        As :func:`load_shot_array`.
+
+    Returns
+    -------
+    ShotArray
+    """
+    if frame is not None and not 1 <= row <= len(frame):
+        return ShotArray(kind="missing", reason=f"no shot {row} in this scan")
+    stamp, present = row_acq_timestamp(frame, device, row)
+    if present and stamp is None:
+        return ShotArray(kind="missing", reason="the device missed this shot")
+    return load_shot_array(
+        scan_folder,
+        device,
+        row,
+        acq_timestamp=stamp,
+        data_cache=data_cache,
+        cache_key=cache_key,
+        file_shot=row_file_shot(frame if file_frame is None else file_frame, row),
+    )
+
+
+def average_rows(
+    scan_folder: Path,
+    frame: Optional[pd.DataFrame],
+    device: str,
+    rows: Sequence[int],
+    **load: object,
+) -> ShotArray:
+    """*device*'s pixels over *rows*: one row's image, or their average.
+
+    Rows with no image (the device missed the shot, the file is missing or
+    unreadable) are left out of the average; ``average_frames`` takes the
+    rest. A device-level refusal (a vendor format, a non-image file) is the
+    same for every row and is returned at once.
+
+    Parameters
+    ----------
+    scan_folder, frame, device
+        As :func:`load_row_array`.
+    rows : sequence of int
+        1-based rows, e.g. a bin's (``data.binning.bin_rows``).
+    **load
+        Passed to :func:`load_row_array` (``file_frame``, ``data_cache``,
+        ``cache_key``).
+
+    Returns
+    -------
+    ShotArray
+        The image (a float average for several rows), or the refusal, its
+        reason the last row's. ``cacheable`` only when every row's was.
+    """
+    arrays = []
+    last = ShotArray(kind="missing", reason="no shots")
+    cacheable = True
+    for row in rows:
+        found = load_row_array(scan_folder, frame, device, row, **load)
+        cacheable = cacheable and found.cacheable
+        if found.array is None:
+            if found.kind in ("vendor", "unrenderable"):
+                return found
+            last = found
+            continue
+        arrays.append(found)
+    if not arrays:
+        return ShotArray(kind="missing", path=last.path, reason=last.reason)
+    if len(arrays) == 1:
+        return arrays[0]
+    averaged = average_frames(
+        [a.array for a in arrays], label=f"{device} rows {rows[0]}-{rows[-1]}"
+    )
+    if averaged is None:
+        return ShotArray(kind="missing", reason="the shots' images differ in size")
+    return ShotArray(kind=arrays[0].kind, array=averaged, cacheable=cacheable)
 
 
 @dataclass(frozen=True)
