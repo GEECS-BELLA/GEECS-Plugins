@@ -530,8 +530,12 @@ def bin_images_code(
         + "]\n"
         + "members  # per bin: (label, shot list); counts = len(shot list)\n"
         + "\n"
-        + "# one grid image, before display windowing:\n"
-        + f"pixels = average_rows(folder, detail.data, {device!r}, members[0][1]).array\n"
+        + "# one grid image (the first bin's), before display windowing:\n"
+        + "pixels = (\n"
+        + f"    average_rows(folder, detail.data, {device!r}, members[0][1]).array\n"
+        + "    if members\n"
+        + "    else None\n"
+        + ")\n"
     )
 
 

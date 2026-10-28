@@ -598,6 +598,20 @@ class TestBinImages:
         assert [b["shots"] for b in payload["bins"]] == [[2, 3]]
         assert scope["pixels"] is not None
 
+    def test_the_snippet_runs_on_an_empty_listing(self, scan_folder, monkeypatch):
+        from geecs_data_utils.tiled_catalog import TiledScanCatalog
+
+        client = self._client(scan_folder)
+        monkeypatch.setattr(
+            TiledScanCatalog, "from_config", lambda: client.app.state.portal.catalog
+        )
+        params = {"device": "cam", "bincfg": '{"min_count": 5}'}
+        payload = client.get("/api/run/uid-002/bin-images", params=params).json()
+        assert payload["bins"] == []
+        scope = {}
+        exec(payload["code"], scope)
+        assert scope["members"] == [] and scope["pixels"] is None
+
     def test_bin_average_is_the_nanmean_of_member_shots(self, scan_folder):
         client = self._client(scan_folder)
         response = client.get(
