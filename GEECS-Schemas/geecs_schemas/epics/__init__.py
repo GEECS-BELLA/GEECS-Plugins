@@ -20,7 +20,7 @@ the scan) and ``epics_motor`` (one or more EPICS motor records, scan axes).
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import (
     Field,
@@ -66,7 +66,7 @@ class _NativeEntry(SchemaModel):
     @model_serializer(mode="wrap")
     def _absent_stays_absent(
         self, handler: SerializerFunctionWrapHandler
-    ) -> dict[str, Any]:  # Any: the entry's own fields, as pydantic dumps them
+    ) -> dict[str, object]:
         # The deployed worker refuses unknown keys: never write a 'template' nobody set.
         data = handler(self)
         if self.template is None:
