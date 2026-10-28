@@ -274,3 +274,18 @@ def test_a_power_on_its_bound_is_noted():
 def test_a_result_survives_its_json_round_trip(fit):
     again = type(fit).model_validate_json(fit.model_dump_json())
     assert again.model_dump_json() == fit.model_dump_json()
+
+
+def test_every_model_has_a_formula():
+    from typing import get_args
+
+    from geecs_data_utils.data.curve_fit import FORMULAS, FitModel
+
+    assert set(FORMULAS) == set(get_args(FitModel)) - {"polynomial"}
+
+
+def test_a_polynomial_formula_follows_its_order_and_shift():
+    assert fit_curve([0, 1, 2], [0, 1, 1], "polynomial", order=1).formula == "c0 + c1·x"
+    t = 1.7e9 + np.arange(10.0)
+    shifted = fit_curve(t, np.arange(10.0) ** 2, "polynomial", order=2)
+    assert shifted.formula == "c0 + c1·(x − 1700000004.5) + c2·(x − 1700000004.5)^2"
