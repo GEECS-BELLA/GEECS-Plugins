@@ -90,7 +90,7 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   plain string, so a set naming a fit a newer copy added still loads
   ("not in this version"); the API reports it instead of fitting. A new
   model is a data-utils PR first (its curve and `CurveFit.formula` live
-there), then a `FITS` entry here.
+  there), then a `FITS` entry here.
 - **Replacing a saved set** is Save as onto its name (the box offers the
   saved names): `plotter.js` asks in a rung-3 `<dialog>` (focus on "Keep
   it"), whose Replace posts `overwrite=true`; without it the server

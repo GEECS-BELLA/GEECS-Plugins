@@ -178,6 +178,8 @@ def test_a_shifted_polynomial_says_so_in_its_formula() -> None:
         # ...and a large value keeps every digit its error makes meaningful.
         (1234567.0, 5.0, "1234567.0 ± 5.0"),
         (1.2345678e12, 3.3e9, "1.2346e+12 ± 3.3e+09"),
+        # An error at float noise (a constant column) shows no noise digits.
+        (6.0000000000000044, 6.6e-15, "6.00000000000000e+00 ± 6.6e-15"),
     ],
 )
 def test_plus_minus(value: float, stderr: float, text: str) -> None:

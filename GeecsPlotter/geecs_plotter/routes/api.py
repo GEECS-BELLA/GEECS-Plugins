@@ -115,7 +115,8 @@ def plus_minus(value: float, stderr: float) -> str:
     exponent = math.floor(math.log10(stderr))
     if abs(exponent) > 5:
         magnitude = math.floor(math.log10(abs(value))) if value else exponent
-        digits = max(1, magnitude - exponent + 1)
+        # A double holds ~15 significant figures; past that is float noise.
+        digits = min(14, max(1, magnitude - exponent + 1))
         return f"{value:.{digits}e} ± {stderr:.1e}"
     decimals = 1 - exponent
     if decimals >= 0:
