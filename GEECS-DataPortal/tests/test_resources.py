@@ -569,8 +569,34 @@ class TestBinImages:
             (1, 2, [1, 2]),
             (2, 1, [3]),
         ]
-        assert "compute_bin_key" in payload["code"]
+        assert "bin_rows(pf.frame, cfg, mask=mask)" in payload["code"]
         assert response.headers["cache-control"] == "no-cache"  # s-file mutable
+
+    @pytest.mark.parametrize("filtered", [False, True])
+    def test_the_snippet_reproduces_the_listing(
+        self, scan_folder, monkeypatch, filtered
+    ):
+        # Bins 1, 2, 2 at min_count 2: unfiltered, bin 1 is dropped by
+        # min_count; filtered, shot 1 fails the filter. Both leave [2, 3].
+        from geecs_data_utils.tiled_catalog import TiledScanCatalog
+
+        client = self._client(scan_folder, bins=(1, 2, 2))
+        monkeypatch.setattr(
+            TiledScanCatalog, "from_config", lambda: client.app.state.portal.catalog
+        )
+        params = {
+            "device": "cam",
+            "filters": self._FILTERS if filtered else "",
+            "bincfg": '{"min_count": 2}',
+        }
+        payload = client.get("/api/run/uid-002/bin-images", params=params).json()
+        scope = {}
+        exec(payload["code"], scope)
+        assert [shots for _, shots in scope["members"]] == [
+            b["shots"] for b in payload["bins"]
+        ]
+        assert [b["shots"] for b in payload["bins"]] == [[2, 3]]
+        assert scope["pixels"] is not None
 
     def test_bin_average_is_the_nanmean_of_member_shots(self, scan_folder):
         client = self._client(scan_folder)
