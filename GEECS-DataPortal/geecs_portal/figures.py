@@ -446,6 +446,10 @@ def _pretty(pretty: Optional[Mapping], name: str) -> str:
     return (pretty or {}).get(name, name)
 
 
+#: Pixels between a free axis and the axis it shifts past (its title too).
+_FREE_AXIS_GAP = 20
+
+
 def _multi_y_layout(
     y: Sequence[str],
     pretty: Optional[Mapping],
@@ -454,10 +458,12 @@ def _multi_y_layout(
 ) -> dict:
     """Build the stacked-axis ladder for up to four y columns.
 
-    Axis 1 owns the grid and a colored title; axis 2 anchors right;
-    axes 3–4 are free + autoshift with color-matched ticks only (a
-    free-anchored axis's rotated title does not shift with it —
-    measured, see #725).
+    Axis 1 owns the grid; axis 2 anchors right; axes 3–4 are free +
+    autoshift, placed just past the axes already on their side (plus
+    ``_FREE_AXIS_GAP``). Every axis has a colored title and ticks. On the
+    vendored plotly.js 3.1.1 a free autoshift axis's rotated title moves
+    with it (re-checked in the browser 2026-10-27, both sides, by
+    GeecsPlotter #1172), so #725's ticks-only workaround is retired.
     """
     layout: dict = {
         "yaxis": {
@@ -484,14 +490,17 @@ def _multi_y_layout(
             "tickfont": {"color": trace_color(display, i, palette)},
             **_ticks(palette),
         }
+        axis["title"] = {
+            "text": _pretty(pretty, y[i]),
+            "font": {"color": trace_color(display, i, palette)},
+        }
         if i >= 2:
             axis["anchor"] = "free"
             axis["autoshift"] = True
-        else:
-            axis["title"] = {
-                "text": _pretty(pretty, y[i]),
-                "font": {"color": trace_color(display, i, palette)},
-            }
+            # Away from the plot: negative on the left, positive on the right.
+            axis["shift"] = (
+                _FREE_AXIS_GAP if axis["side"] == "right" else -_FREE_AXIS_GAP
+            )
         layout[f"yaxis{i + 1}"] = axis
     return layout
 

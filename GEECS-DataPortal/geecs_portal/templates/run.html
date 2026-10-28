@@ -786,9 +786,9 @@ const PLOT_CONFIG = {
   // The built-in camera button exports at EXPORT_SCALE too.
   toImageButtonOptions: { format: "png", scale: EXPORT_SCALE },
   // Granular (not editable:true): blanket editability renders grey
-  // "Click to enter …" placeholders for every unset title — and
-  // axisTitleText does too on the title-less stacked axes (3-4), so
-  // axis titles are auto-set/passthrough-set instead of in-place-edited.
+  // "Click to enter …" placeholders for every unset title, and
+  // axisTitleText would too wherever a title is unset, so axis titles
+  // are auto-set/passthrough-set instead of in-place-edited.
   edits: { legendText: true, annotationText: true, shapePosition: true },
   modeBarButtonsToAdd: [
     "togglespikelines", "hoverclosest", "hovercompare",

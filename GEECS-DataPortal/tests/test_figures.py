@@ -40,14 +40,20 @@ class TestShotsFigure:
         assert layout["yaxis2"]["side"] == "right"
         assert layout["yaxis2"]["title"]["text"] == "b"
         assert layout["yaxis2"]["overlaying"] == "y"
-        # Axes 3-4: free + autoshift, ticks only (no rotated title —
-        # Plotly does not shift a free-anchored axis's title, #725).
-        for name, side in (("yaxis3", "left"), ("yaxis4", "right")):
+        # Axes 3-4: free + autoshift, titled in their trace colour (the
+        # vendored plotly.js moves a free axis's title with it; #725's
+        # ticks-only workaround is retired), shifted away from the plot.
+        for name, side, col, colour in (
+            ("yaxis3", "left", "c", TRACE_COLORS[2]),
+            ("yaxis4", "right", "d", TRACE_COLORS[3]),
+        ):
             assert layout[name]["anchor"] == "free"
             assert layout[name]["autoshift"] is True
             assert layout[name]["side"] == side
-            assert "title" not in layout[name]
+            assert layout[name]["title"]["text"] == col
+            assert layout[name]["title"]["font"]["color"] == colour
             assert layout[name]["gridcolor"] == "rgba(0,0,0,0)"
+        assert layout["yaxis3"]["shift"] < 0 < layout["yaxis4"]["shift"]
 
     def test_single_trace_hides_the_legend(self):
         assert _fig_dict(shots_figure(SERIES, ["a"]))["layout"]["showlegend"] is False
