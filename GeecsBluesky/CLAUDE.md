@@ -181,7 +181,9 @@ qserver/                    # the worker: launcher, startup profile, permissions
   frame per row**: its own miss fails the step (no rewind), and it is
   never rewindable, so a pause never replays a shot.  Strict only: fly
   prepares are refused.  Built by the namespace from the native device
-  registry (below).
+  registry (below).  The IOCs themselves (instances, decisions, hardware
+  runbooks) live in the private repo `GEECS-BELLA/geecs-epics`, whose
+  `CLAUDE.md` is the entry point.
 - **`NativeMotor`** (`devices/native_motor.py`, `NATIVE_DEVICES.md` §7) —
   a positioner served by EPICS motor records (the registry's
   `epics_motor`): one noun per device, one stock ophyd-async `Motor` per

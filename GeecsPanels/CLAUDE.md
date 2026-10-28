@@ -4,6 +4,10 @@ Device panels: a browser GUI per native-device **kind** (the areaDetector
 camera, the oscilloscope, the positioner, the power supply), keyed by the experiment's
 `native_devices.yaml`. The design note is `Planning/device_panels.md`; read
 it before adding a panel or a control.
+The IOCs behind the panels, and the contracts the panels address them by
+(the camera chain, the scope contract, the run lock, access security), live
+in the private repo `GEECS-BELLA/geecs-epics`; its `CLAUDE.md` is the entry
+point.
 
 **It is a prototype** (maintainer, 2026-10-22): something to look at, play
 with and ask for features on, run on a laptop over the VPN. Where it lives
