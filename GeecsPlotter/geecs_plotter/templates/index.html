@@ -16,14 +16,10 @@
                 <button type="button" data-toggle-for="{{ key }}alias" data-value="true" aria-pressed="{{ 'true' if alias else 'false' }}">alias</button>
               </div>
             </div>
-            <input id="{{ key }}-filter" name="{{ key }}f" value="{{ filter_text }}" type="search" autocomplete="off" placeholder="filter {{ label }} columns"
-                   aria-label="Filter {{ label }} columns" data-filter-for="{{ key }}">
-            <select id="{{ key }}" name="{{ key }}" size="10" class="picks" data-pick>
-              {% if kept %}<option value="{{ kept }}" selected>{{ kept }} (not in this scan)</option>{% endif %}
-              {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}
-            </select>
             {# GEECSplotter's Fit menu, one per Y list: the curve is drawn
-               dashed in this list's colour, its numbers listed under the plot. #}
+               dashed in this list's colour, its numbers listed under the plot.
+               Above the list, not under it: a 10-row list pushes anything
+               below it past the bottom of the rail. #}
             <div class="row fit-row">
               <label for="{{ key }}-fit" class="hint">Fit</label>
               <select id="{{ key }}-fit" name="{{ key }}fit" data-submit-on-change>
@@ -37,6 +33,12 @@
                 </span>
               {% endif %}
             </div>
+            <input id="{{ key }}-filter" name="{{ key }}f" value="{{ filter_text }}" type="search" autocomplete="off" placeholder="filter {{ label }} columns"
+                   aria-label="Filter {{ label }} columns" data-filter-for="{{ key }}">
+            <select id="{{ key }}" name="{{ key }}" size="10" class="picks" data-pick>
+              {% if kept %}<option value="{{ kept }}" selected>{{ kept }} (not in this scan)</option>{% endif %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}
+            </select>
           </div>
 {% endmacro %}<!doctype html>
 <html lang="en">
