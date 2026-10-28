@@ -151,9 +151,10 @@ def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
     coloured title. The first right-hand axis anchors to the plot; a second
     one is free at the plot's edge with ``autoshift``, which places it just
     past the first's tick labels and title (plus ``_OUTER_AXIS_GAP``)
-    whatever the plot's width. With the bundled plotly.js 3.1.1 its title
-    moves with it (checked in the browser, 2026-10-27; the portal's #725
-    note that it does not predates this bundle), so the third label shows.
+    whatever the plot's width. Its title moves with it on the bundled
+    plotly.js 3.1.1 (re-checked in the browser 2026-10-27, left and right
+    sides), so the third label shows: the portal's #725 note that a free
+    axis's title does not shift does not hold on this same bundle.
     A fixed share of the width, the first cut, left a wide gap on a wide
     window.
 

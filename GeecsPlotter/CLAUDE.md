@@ -72,7 +72,9 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   left with the grid; every other axis on the right with a coloured title,
   the second one free at the plot's edge with `autoshift` (plus
   `_OUTER_AXIS_GAP`), so it sits just past the first's labels and title at
-  any width; with the bundled plotly.js 3.1.1 its title moves with it. The
+  any width. Its title moves with it on the bundled plotly.js 3.1.1
+  (re-checked 2026-10-27), so the portal's #725 "titles don't shift" note
+  does not hold on this same bundle. The
   rail's swatch is the same `--trace-N` token. On a scan
   without a Y2/Y3 column it draws nothing, but the list keeps the pick
   ("not in this scan") so the next click does not erase it.
