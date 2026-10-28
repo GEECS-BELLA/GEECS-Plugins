@@ -139,7 +139,9 @@ async def _write(
     except HareRefused as exc:
         # A move's put-callback outlasting the timeout is no refusal: the IOC
         # took it and the motion goes on (an access refusal answers at once).
-        if not role.settled_by or loop.time() - started < 0.9 * timeout:
+        # The same timeout covers connecting, so an unconnected PV stays refused.
+        late = role.settled_by and loop.time() - started >= 0.9 * timeout
+        if not late or not (await module.hare.get(pv)).get("connected"):
             raise _Stop(exc.code, exc.detail, exc.status) from exc
         unsettled = f"dispatched; not settled after {timeout} s: the work goes on"
     taken = (await module.hare.get(pv)).get("value")

@@ -275,6 +275,9 @@ async def test_a_role_that_settles_gets_the_settle_timeout(
 
 async def test_a_move_outlasting_its_timeout_is_accepted_not_refused(env):
     env.hare.refuse, env.hare.slow = HareRefused(502, "pv_write_failed", "t/o"), True
+    unconnected = (await put(env, "Mot1", role="twf", axis="m1", value=1)).json()
+    assert unconnected["outcome"] == "refused"  # the timeout also covers connecting
+    env.hare.values[await pv(env, "Mot1", "twf", "m1", write=True)] = live(1)
     body = (await put(env, "Mot1", role="twf", axis="m1", value=1)).json()
     assert (body["outcome"], body["detail"][:10]) == ("accepted", "dispatched")
 
