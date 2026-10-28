@@ -273,3 +273,15 @@ def test_bin_rows_are_positions_with_the_unlabelled_rows_last():
         (2, 5),
         (1, 4),
     ]
+
+
+def test_bin_rows_under_a_mask_keep_whole_table_positions():
+    """A filtered row is left out; the others keep their own positions, so
+    the image loaders read their own shots, never a neighbour's."""
+    from geecs_data_utils.data.binning import bin_rows
+
+    frame = pd.DataFrame({"Bin #": [1, 1, 2, 2, 3]})
+    found = bin_rows(frame, mask=[True, False, False, True, True])
+    assert found == [(1, (1,)), (2, (4,)), (3, (5,))]
+    with pytest.raises(ValueError, match="mask has 2 values"):
+        bin_rows(frame, mask=[True, False])

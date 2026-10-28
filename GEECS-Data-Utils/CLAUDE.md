@@ -91,9 +91,11 @@ geecs_data_utils/
                                #   device missed: never a neighbour's image;
                                #   row_file_shot), load_shot_array /
                                #   load_shot_image, load_row_array (a
-                               #   table row → its file) and average_rows
-                               #   (a bin's rows → one average; the
-                               #   bins are data.binning.bin_rows);
+                               #   row of the WHOLE table → its file) and
+                               #   average_rows (rows → one average; a
+                               #   bin's rows from data.binning.bin_rows,
+                               #   a filter as its mask; the portal's
+                               #   bin-image route still has its own loop);
                                #   a "stack" may hold
                                #   traces: stack_content says which, and
                                #   load_shot_trace reads one as x-vs-y;

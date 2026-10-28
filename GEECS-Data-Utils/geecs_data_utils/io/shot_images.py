@@ -560,8 +560,12 @@ def load_row_array(
     scan_folder : Path
         The scan's existing ``scans/ScanNNN`` folder.
     frame : pandas.DataFrame or None
-        The scan's per-shot table (event rows, or the s-file). ``None``
-        (no table) loads *row* by its number alone.
+        The scan's WHOLE per-shot table (event rows, or the s-file), one
+        row per shot in shot order: *row* is a position in it, and with no
+        timestamp or announced shot it is also the shot number in the file
+        name. Never a filtered frame, whose positions name other shots
+        (filter with ``data.binning.bin_rows``'s ``mask``). ``None`` (no
+        table) loads *row* by its number alone.
     device : str
         The device folder.
     row : int
