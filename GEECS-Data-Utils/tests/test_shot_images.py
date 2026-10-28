@@ -17,7 +17,11 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from geecs_data_utils.io.display_png import to_display_png, window_percentiles
+from geecs_data_utils.io.display_png import (
+    to_display_png,
+    window_levels,
+    window_percentiles,
+)
 from geecs_data_utils.io.scan_stack import (
     ATTRIBUTES_GROUP,
     FRAMES_DATASET,
@@ -411,3 +415,32 @@ class TestDisplayPng:
     )
     def test_a_bad_window_degrades_to_the_default(self, plo, phi):
         assert window_percentiles(plo, phi) == (1.0, 99.7)
+
+    def test_the_window_s_levels_are_its_percentiles(self):
+        gradient = np.arange(101, dtype=np.float32)
+        assert window_levels(gradient, 10, 90) == pytest.approx((10.0, 90.0))
+        assert window_levels(np.full(3, np.nan)) == (0.0, 0.0)
+
+    def test_levels_replace_the_window(self):
+        """Fixed levels: 0 black, 100 white, whatever the image holds."""
+        ramp = np.array([[0.0, 50.0, 100.0, 200.0]])
+        decoded = np.asarray(
+            Image.open(io.BytesIO(to_display_png(ramp, levels=(0.0, 100.0))))
+        )
+        assert decoded.tolist() == [[0, 127, 255, 255]]
+        # The same levels on a dimmer image draw it dimmer: one scale.
+        dim = np.asarray(
+            Image.open(io.BytesIO(to_display_png(ramp / 2, levels=(0.0, 100.0))))
+        )
+        assert dim.tolist() == [[0, 63, 127, 255]]
+
+    @pytest.mark.parametrize(
+        "levels", [(5.0, 5.0), (9.0, 1.0), (float("nan"), 1.0), (0.0, float("inf"))]
+    )
+    def test_unusable_levels_draw_the_floor(self, levels):
+        png = to_display_png(np.arange(4.0).reshape(2, 2), levels=levels)
+        assert np.asarray(Image.open(io.BytesIO(png))).max() == 0
+
+    def test_a_nan_pixel_draws_black_under_levels(self):
+        png = to_display_png(np.array([[np.nan, 10.0]]), levels=(0.0, 10.0))
+        assert np.asarray(Image.open(io.BytesIO(png))).tolist() == [[0, 255]]
