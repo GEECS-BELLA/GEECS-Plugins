@@ -45,8 +45,9 @@ touches, so Sam can confirm or send it back at the promotion PR.
 | Where does view state live? | Named settings sets, files only |
 | Kit adoption | The whole portal at once |
 | Sharing a plot | `set=` in the URL is enough |
-| A URL with no `set=` (the day list, the logbook's link, MCP-built links, old bookmarks) | Opens **your own set**: the page asks your name once (kept in the browser, like the logbook author box) and opens and saves into the set of that name, so one person's browsing never rewrites another's plots. `default` is just a name |
-| Logbook links | The entry links the live set; no frozen copies |
+| A URL with no `set=` (the day list, the logbook scan page's link back to the portal, MCP-built links, old bookmarks) | Opens **your own set**: the page asks your name once (kept in the browser, like the logbook author box) and opens and saves into the set of that name, so one person's browsing never rewrites another's plots. `default` is just a name |
+| A URL naming someone else's set (`set=alice`) | Opens Alice's settings, but the viewer's first change copies them into the viewer's own set and saves there. Alice's set changes only on an explicit "Save into alice" |
+| Links stored by "send plot to log" | The entry links the live set; no frozen copies |
 | Images tab | The plotter's strip is the overview; clicking a tile opens the portal's large single-shot view (steppers, processing, traces) under it |
 | How many Y lists? | Three (Y1–Y3), as GEECSplotter; the portal's fourth goes |
 | Front page `/` | Today's scan list, as now. `/?set=<name>` opens that set's last scan |
@@ -120,7 +121,8 @@ only on the author's yes.
    `/api/settings/{name}` added. `CLAUDE.md`'s URL-state rule is
    rewritten (ruling 3 above), with `logbook_send`'s docstring and tests,
    and the settings write added to the charter. A URL without `set=`
-   opens the viewer's own set (the table above). The deployed settings
+   opens the viewer's own set, and a change made under someone else's
+   set saves into the viewer's own (the table above). The deployed settings
    folder (above). The one-time copy from `GeecsPlotter/settings/`.
 4. **The XY plot.** The plotter's rail: X and Y1–Y3 pick lists, each
    with its colour swatch, filter box (double-click or Enter picks the
