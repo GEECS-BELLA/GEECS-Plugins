@@ -228,4 +228,6 @@ def _settings(action: Callable[[], PlotterSettings]) -> PlotterSettings:
 
 
 def _json(body: BaseModel) -> JSONResponse:
-    return JSONResponse(body.model_dump(), headers=NO_CACHE)
+    # mode="json": a set's remembered day is a date, which JSONResponse
+    # cannot encode; every model goes out as plain JSON values.
+    return JSONResponse(body.model_dump(mode="json"), headers=NO_CACHE)
