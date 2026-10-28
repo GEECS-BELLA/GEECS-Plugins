@@ -280,14 +280,11 @@ def shared_levels(
     device: str,
     tiles: list[Tile],
     roi: Optional[Roi] = None,
-    plo: Optional[float] = None,
-    phi: Optional[float] = None,
 ) -> tuple[float, float, int]:
-    """One black and one white for every tile: the widest of their windows.
+    """One black and one white for every tile: the darkest and brightest pixel.
 
-    Each tile's percentile window (``window_levels``, over its ROI); the
-    lowest black and the highest white, so no tile saturates that would
-    not on its own. Tiles are read a few at a time.
+    Over each tile's ROI; the brightest tile sets white, so no tile
+    saturates. Tiles are read a few at a time.
 
     Returns
     -------
@@ -306,7 +303,7 @@ def shared_levels(
             pixels = crop(kept_tile_array(folder, frame, device, tile.rows), roi)
         except NoImage:
             return None
-        return window_levels(pixels, plo, phi)
+        return window_levels(pixels, 0.0, 100.0)  # its darkest and brightest
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         found = [w for w in pool.map(levels, tiles) if w is not None]

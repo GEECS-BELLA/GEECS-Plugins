@@ -264,8 +264,6 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "max_cols": MAX_IMAGE_COLUMNS,
         "cmap": settings.image_cmap,
         "cmaps": images.CMAPS,
-        "plo": settings.image_plo,
-        "phi": settings.image_phi,
         "zscale": _choice(settings, "image_zscale"),
         "zmin": settings.image_zmin,
         "zmax": settings.image_zmax,
@@ -379,8 +377,6 @@ def _fill_images(
             "device": device,
             "strip": page["strip"],
             "roi": page["roi"],
-            "plo": page["plo"],
-            "phi": page["phi"],
         }
     )
 
@@ -388,11 +384,11 @@ def _fill_images(
 def display_query(page: dict) -> str:
     """The display half of a tile's URL (plotter.js builds the same).
 
-    The colour map, the window, the ROI and, on a fixed z scale with both
-    values set, the black and white; a shared z scale's values come from
+    The colour map, the ROI and, on a fixed z scale with both values set,
+    the black and white; a shared z scale's values come from
     ``/api/images/levels`` in the browser.
     """
-    query = {"cmap": page["cmap"], "plo": page["plo"], "phi": page["phi"]}
+    query = {"cmap": page["cmap"]}
     if page["roi"]:
         query["roi"] = page["roi"]
     if page["zscale"] == "fixed" and None not in (page["zmin"], page["zmax"]):

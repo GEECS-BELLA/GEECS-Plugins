@@ -109,12 +109,15 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   images are never loaded all at once; tiles across, the colour map and
   the levels redraw in place and save as typed; device, tiles and layout
   reload. `/api/images/strip` returns the tiles and the `code` snippet.
-  The **z scale** (`image_zscale`) is each tile's own percentile window,
-  one window over the whole strip ("shared": `images.shared_levels`, the
-  lowest black and highest white of the tiles' windows, from
-  `/api/images/levels`, which reads every tile first), or black and white
-  typed in ("fixed"); both reach the tile as `zmin`/`zmax`, drawn by
-  `to_display_png(levels=)`. The **ROI** is kept per camera
+  The **z scale** (`image_zscale`) is LabVIEW's autoscale: each tile
+  from its own darkest to its brightest pixel, every tile on one scale
+  from the darkest to the brightest pixel of all ("shared":
+  `images.shared_levels`, from `/api/images/levels`, which reads every
+  tile first), or black and white typed in ("fixed"); the last two reach
+  the tile as `zmin`/`zmax`, drawn by `to_display_png(levels=)`. There is
+  **no percentile window** (the portal's 1–99.7): a laser mode is a small
+  spot, the top fraction of its ROI, and a percentile white saturates it
+  (the author's ruling, 2026-10-28). The **ROI** is kept per camera
   (`image_rois`, `[x0, y0, x1, y1]` pixels, end excluded), drawn in a
   rung-2 drawer on the first tile, and applies to every tile and to the
   shared scale; `merged` takes it with the camera's name (`roi` + `device`),

@@ -187,12 +187,10 @@ class TestPage:
             layout="row",
             cols=3,
             cmap="magma",
-            plo=2,
-            phi=99,
         )
         assert "grid-auto-columns: calc((100% - 2 * var(--gap)) / 3)" in page
         assert page.count('class="tile"') == 4
-        assert "cmap=magma&amp;plo=2.0&amp;phi=99.0" in page
+        assert "index=1&amp;cmap=magma" in page
         saved = client.get("/api/settings/default").json()
         assert saved["image_device"] == CAM and saved["image_strip"] == "shots"
 
@@ -213,8 +211,6 @@ class TestPage:
 @pytest.mark.parametrize(
     "field, value",
     [
-        ("plo", "101"),
-        ("phi", "nan"),
         ("layout", "diagonal"),
         ("strip", "all"),
         ("cols", "0"),
@@ -242,7 +238,7 @@ class TestRoiAndZScale:
         frame, folder = _opened(share)
         tiles = images.tiles(frame, "shots")  # shot 3 has no file
         zmin, zmax, count = images.shared_levels(
-            folder, frame, CAM, tiles, roi=(1, 1, 6, 4), plo=0, phi=100
+            folder, frame, CAM, tiles, roi=(1, 1, 6, 4)
         )
         # Inside the ROI (off the bright corner) shot n is flat at 10 * n.
         assert (zmin, zmax, count) == (10.0, 40.0, 3)
@@ -255,8 +251,6 @@ class TestRoiAndZScale:
                 "device": CAM,
                 "strip": "bins",
                 "roi": "1,1,6,4",
-                "plo": 0,
-                "phi": 100,
             },
         ).json()
         assert body == {"zmin": 15.0, "zmax": 40.0, "tiles": 2}
@@ -320,18 +314,35 @@ def test_a_bad_z_or_roi_control_is_refused(field: str, value: str) -> None:
         merged(PlotterSettings(image_device=CAM), {field: value})
 
 
-def test_the_default_window_is_the_darkest_to_the_brightest_pixel(
-    client: TestClient, camera: Path
+def test_each_tile_runs_from_its_darkest_to_its_brightest_pixel(
+    client: TestClient, camera: Path, settings_dir: Path
 ) -> None:
-    """LabVIEW's autoscale: a small bright spot (a laser mode) is the only
-    white, never the 99.7th percentile, which saturates the whole spot."""
-    assert (PlotterSettings().image_plo, PlotterSettings().image_phi) == (0.0, 100.0)
-    params = {**SCAN, "device": CAM, "strip": "shots", "index": 1, "cmap": "none"}
-    bare = client.get("/api/images/tile.png", params=params).content
-    widest = client.get(
-        "/api/images/tile.png", params={**params, "plo": 0, "phi": 100}
-    ).content
-    assert bare == widest
+    """LabVIEW's autoscale, with no percentile window: a graded spot keeps
+    its grades (a 99.7th-percentile white would put 400 at 122, not 100),
+    even under a set saved with the old window's fields."""
+    spot = np.full((10, 10), 10, dtype=np.uint16)
+    spot[4, 4], spot[4, 5], spot[5, 4] = 100, 400, 1000
+    folder = camera / "UC_Spot"
+    folder.mkdir()
+    Image.fromarray(spot).save(folder / "Scan001_UC_Spot_001.png")
+    settings_dir.mkdir(exist_ok=True)
+    (settings_dir / "default.json").write_text(
+        '{"schema_version": 1, "image_plo": 10.0, "image_phi": 99.7}'
+    )
+    page = post(client, scan=1, tab="images", device="UC_Spot", strip="shots")
+    assert "phi=" not in page and "plo=" not in page
+    tile = client.get(
+        "/api/images/tile.png",
+        params={
+            **SCAN,
+            "device": "UC_Spot",
+            "strip": "shots",
+            "index": 1,
+            "cmap": "none",
+        },
+    )
+    drawn = np.asarray(Image.open(io.BytesIO(tile.content)))
+    assert (drawn[0, 0], drawn[4, 4], drawn[4, 5], drawn[5, 4]) == (0, 23, 100, 255)
 
 
 def test_a_bin_read_as_a_decimal_is_captioned_whole(share: Path) -> None:

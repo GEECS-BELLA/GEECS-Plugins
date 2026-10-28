@@ -135,9 +135,10 @@
             </select>
           </div>
           <div class="field">
-            {# GEECSplotter's z scale: each tile its own percentile window; one
-               window over every tile ("shared": the lowest black and highest
-               white of the tiles' windows); or black and white typed in. #}
+            {# GEECSplotter's z scale (LabVIEW's autoscale): each tile from its
+               own darkest to brightest pixel; every tile on one scale, the
+               darkest to the brightest pixel of all ("shared"); or black and
+               white typed in. #}
             <div class="row">
               <span class="hint">Z scale</span>
               <span class="spacer"></span>
@@ -156,13 +157,7 @@
               </div>
               <span class="hint">Pixel values.{% if zmin is none or zmax is none %} Until both are set, each tile scales itself.{% endif %}</span>
             {% else %}
-              <div class="row levels">
-                <label for="plo" class="hint">black</label>
-                <input id="plo" name="plo" type="number" min="0" max="100" step="0.1" value="{{ plo }}" class="narrow-number" data-live>
-                <label for="phi" class="hint">white</label>
-                <input id="phi" name="phi" type="number" min="0" max="100" step="0.1" value="{{ phi }}" class="narrow-number" data-live>
-              </div>
-              <span class="hint">Percentiles of {{ 'each tile' if zscale == 'tile' else 'every tile, the widest range' }}: 0 and 100 are the darkest and brightest pixel. Lower white (99.9…) to hide a hot pixel.</span>
+              <span class="hint">{{ 'Each tile from its darkest to its brightest pixel.' if zscale == 'tile' else 'Every tile on one scale: the darkest to the brightest pixel of them all.' }}</span>
               {% if zscale == "shared" %}<span class="hint mono" id="shared-levels" aria-live="polite">reading every tile…</span>{% endif %}
             {% endif %}
           </div>

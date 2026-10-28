@@ -3,7 +3,7 @@
 ``/api/images/strip`` lists a device's tiles (one per bin or per shot) with
 each tile's PNG URL and the notebook snippet; ``/api/images/tile.png`` is
 one tile: a shot's image, or its bin's average, drawn with the colour map
-and percentile window. Each is a few calls into :mod:`geecs_plotter.images`.
+and z scale. Each is a few calls into :mod:`geecs_plotter.images`.
 """
 
 from __future__ import annotations
@@ -141,14 +141,13 @@ def tile_png(
     rows: tuple[int, ...],
     roi: Optional[images.Roi],
     cmap: str,
-    plo: float,
-    phi: float,
     levels: Optional[tuple[float, float]],
 ) -> bytes:
     """The tile's pixels, in its ROI, drawn as a PNG; a 404 naming why not."""
     try:
         pixels = images.crop(images.kept_tile_array(folder, frame, device, rows), roi)
-        return to_display_png(pixels, cmap=cmap, plo=plo, phi=phi, levels=levels)
+        # Without levels, the tile's own darkest to brightest pixel.
+        return to_display_png(pixels, cmap=cmap, plo=0.0, phi=100.0, levels=levels)
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
     except (TypeError, ValueError) as exc:  # an array no PNG can hold
@@ -202,20 +201,17 @@ def register(router: APIRouter, ctx: Context) -> None:
         roi: str = Query(
             default="", description="x0,y0,x1,y1 in pixels; empty is whole"
         ),
-        plo: float = Query(default=0.0, description="each tile's black percentile"),
-        phi: float = Query(default=100.0, description="each tile's white percentile"),
     ) -> JSONResponse:
         """One black and white for the whole strip (the "shared" z scale).
 
-        Reads every tile of the strip: the lowest of their blacks and the
-        highest of their whites.
+        Reads every tile of the strip: its darkest and its brightest pixel.
         """
         run, frame, folder = opened(day, scan)
         picture_device(folder, device)
         try:
             found = images.tiles(frame, strip)
             zmin, zmax, count = images.shared_levels(
-                folder, frame, device, found, parse_roi(roi), plo, phi
+                folder, frame, device, found, parse_roi(roi)
             )
         except images.NoImage as why:
             raise HTTPException(status_code=404, detail=str(why)) from None
@@ -230,8 +226,6 @@ def register(router: APIRouter, ctx: Context) -> None:
         strip: Strip = "bins",
         index: int = Query(default=0, description="the bin's position, or the row"),
         cmap: str = Query(default="gray", description="a matplotlib colour map"),
-        plo: float = Query(default=0.0, description="black at this percentile"),
-        phi: float = Query(default=100.0, description="white at this percentile"),
         roi: str = Query(
             default="", description="x0,y0,x1,y1 in pixels; empty is whole"
         ),
@@ -241,15 +235,13 @@ def register(router: APIRouter, ctx: Context) -> None:
         """One tile's PNG: the shot's image, or the bin's average, in its ROI.
 
         With ``zmin`` and ``zmax`` both given they are black and white
-        (a fixed or shared z scale); otherwise the tile's own percentile
-        window. A tile with no image (the device missed every shot of it,
+        (a fixed or shared z scale); otherwise the tile's own darkest and
+        brightest pixel. A tile with no image (the device missed every shot of it,
         or its files are not there) is a 404 naming why.
         """
         _, frame, folder = opened(day, scan)
         picture_device(folder, device)
         rows = tile_rows(frame, strip, index)
         levels = (zmin, zmax) if zmin is not None and zmax is not None else None
-        png = tile_png(
-            folder, frame, device, rows, parse_roi(roi), cmap, plo, phi, levels
-        )
+        png = tile_png(folder, frame, device, rows, parse_roi(roi), cmap, levels)
         return Response(png, media_type="image/png", headers=NO_CACHE)

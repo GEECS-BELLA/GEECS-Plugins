@@ -36,7 +36,7 @@
 
 /* The image strip, as a grid or one scrolling row; the tiles across are
    the element's own style (the template, and plotter.js on a change). */
-.kit .strip { display: grid; gap: var(--gap); }
+.kit .strip { display: grid; gap: var(--gap); align-items: start; }
 .kit .strip.row { grid-auto-flow: column; overflow-x: auto; padding-bottom: var(--gap); }
 .kit .tile { margin: 0; min-width: 0; }
 .kit .tile img { display: block; width: 100%; height: auto; min-height: 3em; object-fit: contain; background: var(--surface-2); }

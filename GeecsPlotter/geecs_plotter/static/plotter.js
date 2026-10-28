@@ -175,7 +175,7 @@
     const zscale = strip.dataset.zscale;
     let shared = null;  // [black, white] for the shared z scale, once read
     const display = () => {
-      const query = new URLSearchParams({ cmap: value("cmap"), plo: value("plo") || "0", phi: value("phi") || "100" });
+      const query = new URLSearchParams({ cmap: value("cmap") });
       if (strip.dataset.roi) query.set("roi", strip.dataset.roi);
       const levels = zscale === "fixed" ? [value("zmin"), value("zmax")]
         : zscale === "shared" && shared ? shared.map(String) : null;
@@ -196,8 +196,6 @@
     const sharedNote = document.getElementById("shared-levels");
     const readShared = () => {
       const url = new URL(strip.dataset.levelsUrl, location.href);
-      url.searchParams.set("plo", value("plo"));
-      url.searchParams.set("phi", value("phi"));
       if (sharedNote) sharedNote.textContent = "reading every tile…";
       return fetch(url)
         .then((response) => response.json().then((body) => ({ response, body })))
@@ -232,7 +230,6 @@
         clearTimeout(redraw);
         redraw = setTimeout(() => {
           if (control.name === "cols") across(Number(control.value));
-          else if (zscale === "shared" && (control.name === "plo" || control.name === "phi")) readShared();
           else drawTiles();
           saveField(control.name, control.value);
         }, AUTO_OPEN_MS);

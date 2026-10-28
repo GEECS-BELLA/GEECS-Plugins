@@ -274,9 +274,13 @@ Built in slices, each a PR into `users/ajgonsalves`:
    portal into GEECS-Data-Utils (`io.shot_images`, `io.display_png`,
    #1177).
 2. An **Images tab**: a camera picker; a strip of bin averages or of
-   shots; grid or one row, with N tiles across; a colour map and a
-   percentile window per tile. Every control is saved in the settings
-   set. Tiles load lazily, one PNG each.
+   shots; grid or one row, with N tiles across; false-colour maps; an
+   ROI per camera, dragged on the image; a z scale that is each tile's
+   own darkest-to-brightest pixel, one scale shared by every tile (the
+   brightest tile sets white), or fixed values (the author, 2026-10-28:
+   LabVIEW's autoscale, never a percentile window, which saturates a
+   laser mode). Every control is saved in the settings set. Tiles load
+   lazily, one PNG each.
 3. Still to come: a large view with shot and bin steppers, clicking a
    plot point to open its shot, several cameras in one layout, GIF
    export.

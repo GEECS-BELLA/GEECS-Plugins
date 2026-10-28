@@ -146,13 +146,13 @@ class PlotterSettings(BaseModel):
     image_columns: int = Field(default=5, ge=1, le=MAX_IMAGE_COLUMNS)
     #: A matplotlib name; one this copy does not know draws greyscale.
     image_cmap: str = "gray"
-    #: The percentile window; 0 and 100 are the darkest and brightest pixel
-    #: (LabVIEW's autoscale; a small bright spot, a laser mode, stays
-    #: unsaturated).
-    image_plo: float = Field(default=0.0, ge=0.0, le=100.0)
-    image_phi: float = Field(default=100.0, ge=0.0, le=100.0)
-    #: The z scale: each tile its own window ("tile"), one window over
-    #: every tile ("shared"), or the black and white values below ("fixed").
+    #: The z scale, LabVIEW's autoscale: each tile from its own darkest to
+    #: its brightest pixel ("tile"), every tile on one scale from the
+    #: darkest to the brightest pixel of all of them ("shared"), or the
+    #: black and white values below ("fixed"). No percentile window: a
+    #: laser mode is a small spot, and any top-percentile white saturates
+    #: it. (Sets saved with ``image_plo``/``image_phi`` keep them as
+    #: unused extras.)
     image_zscale: str = "tile"
     image_zmin: Optional[float] = None
     image_zmax: Optional[float] = None
@@ -360,8 +360,6 @@ FORM_FIELDS = {
     "layout": "image_layout",
     "cols": "image_columns",
     "cmap": "image_cmap",
-    "plo": "image_plo",
-    "phi": "image_phi",
     "zscale": "image_zscale",
     "zmin": "image_zmin",
     "zmax": "image_zmax",
@@ -378,9 +376,6 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
     "y3_fit_order": (0, MAX_FIT_ORDER),
     "image_columns": (1, MAX_IMAGE_COLUMNS),
 }
-
-#: The percentile fields: a number from 0 to 100.
-_PERCENTILES = ("image_plo", "image_phi")
 
 #: The fixed z-scale values: any finite number, or empty for none.
 _LEVELS = ("image_zmin", "image_zmax")
@@ -467,11 +462,6 @@ def _text_value(key: str, value: str) -> object:
         raise ValueError("is not a fit name")
     if key in CHOICES and value not in CHOICES[key]:
         raise ValueError(f"must be one of {', '.join(CHOICES[key])}")
-    if key in _PERCENTILES:
-        number = float(value)
-        if not 0.0 <= number <= 100.0:
-            raise ValueError("must be 0 to 100")
-        return number
     if key in _LEVELS:
         if not value:
             return None
