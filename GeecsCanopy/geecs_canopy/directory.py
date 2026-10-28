@@ -86,12 +86,13 @@ class GeecsDirectoryAdapter:
     ) -> None:
         self._base = canopy_base()
         self._native, self._gateway, self._ttl = native, gateway, cache_ttl_s
-        # Raccoon asks once per uncached literal (`exists`, `validate` fans out
-        # 64 wide): each source is read once per TTL, a failure included.
+        # Raccoon asks per uncached literal: each source is read once per TTL.
         self._cache: dict[str, tuple[float, list[Device] | SourceError]] = {}
-        self._lock = threading.Lock()
-        # Both sources block (SMB reads, MySQL): an adapter-owned pool.
-        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="geecs")
+        # Both sources block (SMB reads, MySQL): a pool and a lock per source,
+        # so a hung DB never holds up a native query.
+        keys = ("native", "gateway")
+        self._locks = {k: threading.Lock() for k in keys}
+        self._pools = {k: ThreadPoolExecutor(2, thread_name_prefix=k) for k in keys}
 
     @classmethod
     def from_config(cls, cfg: InstanceConfig) -> GeecsDirectoryAdapter:
@@ -116,7 +117,7 @@ class GeecsDirectoryAdapter:
         return cls(native, gateway, cache_ttl_s=float(extras.get("cache_ttl_s", 10.0)))
 
     def _read(self, key: str, read) -> list[Device]:
-        with self._lock:
+        with self._locks[key]:
             at, value = self._cache.get(key, (float("-inf"), []))
             if time.monotonic() - at >= self._ttl:
                 try:
@@ -128,7 +129,11 @@ class GeecsDirectoryAdapter:
             raise SourceError(str(value))
         return value
 
-    def _load(self, element_type: str | None) -> list[Device]:
+    async def _source(self, key: str, read) -> list[Device]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._pools[key], self._read, key, read)
+
+    async def _load(self, element_type: str | None) -> list[Device]:
         base = self._base
         if element_type not in (None, "native", "gateway"):
             raise base.InvalidQuery(
@@ -138,7 +143,7 @@ class GeecsDirectoryAdapter:
         gateway: list[Device] = []
         if element_type != "gateway":
             try:
-                native = self._read("native", self._native.devices)
+                native = await self._source("native", self._native.devices)
             except SourceError as exc:
                 raise base.AdapterMisconfigured(str(exc)) from exc
         if element_type != "native":
@@ -146,7 +151,7 @@ class GeecsDirectoryAdapter:
                 raise base.DirectoryUnavailable("the GEECS DB source is off (db=off)")
             if self._gateway is not None:
                 try:
-                    gateway = self._read("gateway", self._gateway.devices)
+                    gateway = await self._source("gateway", self._gateway.devices)
                 except SourceError as exc:
                     raise base.DirectoryUnavailable(str(exc)) from exc
         return merged(native, gateway)
@@ -155,8 +160,7 @@ class GeecsDirectoryAdapter:
         if sort_by not in (None, "name"):
             raise self._base.InvalidQuery(f"sort_by is 'name': {sort_by!r}")
         match = _matcher(pattern, case=scope == "pv", base=self._base).match
-        loop = asyncio.get_running_loop()
-        devices = await loop.run_in_executor(self._pool, self._load, element_type)
+        devices = await self._load(element_type)
         if tag is not None:
             devices = [d for d in devices if d.tag.lower() == tag.lower()]
         elements = [(d, e) for d in devices for e in d.elements]
@@ -212,4 +216,5 @@ class GeecsDirectoryAdapter:
 
     async def close(self) -> None:
         """Release the pool without waiting on a hung DB call."""
-        self._pool.shutdown(wait=False, cancel_futures=True)
+        for pool in self._pools.values():
+            pool.shutdown(wait=False, cancel_futures=True)

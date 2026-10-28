@@ -1,8 +1,10 @@
 """The adapter's answers: native documents, the DB through a connection double, Canopy's contract."""
 
+import asyncio
 import importlib.util
 import os
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,7 +42,6 @@ DB_ROWS = {  # canned rows per query, keyed by a fragment of its SQL
     "dtv.id": [
         _var(1, "Position", "yes", "numeric"),
         _var(2, "Temperature", "no", "numeric"),
-        _var(3, "Notes", "no", "string"),
     ],
     "v.devicetype_variable_id": [],
     "d.devicetype": [("U_Jet", "Jet stage")],
@@ -60,8 +61,7 @@ def _patch_db(monkeypatch, *, fail: bool = False) -> list:
         def fetchall(self):
             return self.rows
 
-        def close(self) -> None:
-            pass
+        close = cursor  # nothing to release
 
     def connect(_connector):
         connects.append(1)
@@ -83,10 +83,8 @@ def root(tmp_path: Path) -> Path:
 
 
 def _adapter(root: Path, *, db: bool = True, ttl: float = 30.0):
-    gateway = GatewaySource("Undulator", URL) if db else None
-    return GeecsDirectoryAdapter(
-        NativeSource("Undulator", root), gateway, cache_ttl_s=ttl
-    )
+    gw = GatewaySource("Undulator", URL) if db else None
+    return GeecsDirectoryAdapter(NativeSource("Undulator", root), gw, cache_ttl_s=ttl)
 
 
 @pytest.fixture
@@ -171,6 +169,18 @@ async def test_a_failing_db_is_unavailable_on_its_branch_only(root, monkeypatch)
         await a.list_devices("*")
     native = await a.list_devices("*", element_type="native", sort_by="name")
     assert native == ["BenchSupply", "SimMotor1", "UC_VisaEBeam6", "eztest1"]
+    health = await a.health()
+    assert not health.healthy and "GEECS DB" in health.last_error
+    await a.close()
+
+
+async def test_a_hung_db_never_holds_up_the_native_source(root) -> None:
+    hung = SimpleNamespace(devices=lambda: time.sleep(2) or [])
+    a = GeecsDirectoryAdapter(NativeSource("Undulator", root), hung)
+    stuck = [asyncio.ensure_future(a.list_devices("*")) for _ in range(8)]
+    native = a.list_devices("*", element_type="native")
+    assert "SimMotor1" in await asyncio.wait_for(native, 0.5)
+    await asyncio.gather(*stuck)
     await a.close()
 
 

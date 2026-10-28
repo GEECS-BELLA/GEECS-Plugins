@@ -16,12 +16,9 @@ def render(tmp_path: Path, drop: str = "") -> subprocess.CompletedProcess[str]:
     site = tmp_path / "site.env"
     lines = EXAMPLE.read_text(encoding="utf-8").splitlines()
     site.write_text("\n".join(ln for ln in lines if not (drop and ln.startswith(drop))))
-    return subprocess.run(
-        ["bash", str(RENDER), str(site), str(tmp_path / "out")],
-        capture_output=True,
-        text=True,
-        env={"PATH": "/usr/bin:/bin", "RENDER_QUIET": "1"},
-    )
+    cmd = ["bash", str(RENDER), str(site), str(tmp_path / "out")]
+    env = {"PATH": "/usr/bin:/bin", "RENDER_QUIET": "1"}
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
 
 
 def test_the_pin_and_the_site_reach_the_compose_file(tmp_path: Path) -> None:
@@ -42,3 +39,4 @@ def test_the_pin_and_the_site_reach_the_compose_file(tmp_path: Path) -> None:
 def test_a_missing_canopy_key_fails_before_rendering(tmp_path: Path) -> None:
     result = render(tmp_path, drop="GEECS_CANOPY_DB=")
     assert result.returncode == 2 and "GEECS_CANOPY_DB" in result.stderr
+    assert not (tmp_path / "out" / "compose.yaml").exists()

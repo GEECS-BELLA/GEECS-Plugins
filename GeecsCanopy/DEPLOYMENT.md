@@ -91,7 +91,7 @@ schema, so every bump is:
 ```bash
 dc run --rm api alembic current                     # note the revision: the rollback target
 dc exec -T postgres sh -c 'pg_dump -p 5433 -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' \
-  > /var/backups/geecs-canopy/pre-<new-commit>.dump
+  | sudo -u <service account> tee /var/backups/geecs-canopy/pre-<new-commit>.dump >/dev/null
 git pull && GeecsCanopy/deploy/render_conf.sh /etc/geecs/site.env ~/deploy-staging/canopy   # + install
 dc build && dc run --rm api alembic upgrade head
 sudo systemctl restart geecs-canopy                 # then the backend check of section 2
@@ -106,8 +106,8 @@ Once lane B's wrapper app is the api command, its self-test failing takes
 Hare, Squirrel and Mole down with it: the rollback is then the unwrapped
 `uvicorn canopy.main:app` command plus the previous pin.
 
-**Routine backup:** the same `pg_dump` nightly (a cron line or a timer of
-the service account), keeping a week. Postgres holds Squirrel's registry and
+**Routine backup:** the same `pg_dump` nightly from the service account's
+own crontab (it owns the backup folder; no `sudo` there), keeping a week. Postgres holds Squirrel's registry and
 snapshots and the minted keys: state that exists nowhere else.
 
 ## 6. Development
