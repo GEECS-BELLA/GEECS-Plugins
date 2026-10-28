@@ -26,3 +26,21 @@
 .kit .fit-head { gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
 .kit .fit table { width: auto; min-width: 220px; }
 .kit .fit-error { color: var(--crit); margin: 4px 0; }
+
+/* The XY | Images switch above the pane. */
+.kit .view-switch { margin-bottom: var(--pad); }
+
+/* The image controls' small number boxes (tiles across, the levels). */
+.kit .narrow-number { width: 5em; }
+.kit .levels { gap: 6px; }
+
+/* The image strip, as a grid or one scrolling row; the tiles across are
+   the element's own style (the template, and plotter.js on a change). */
+.kit .strip { display: grid; gap: var(--gap); }
+.kit .strip.row { grid-auto-flow: column; overflow-x: auto; padding-bottom: var(--gap); }
+.kit .tile { margin: 0; min-width: 0; }
+.kit .tile img { display: block; width: 100%; height: auto; min-height: 3em; object-fit: contain; background: var(--surface-2); }
+.kit .tile figcaption { margin-top: 2px; overflow-wrap: anywhere; }
+/* A tile with no image: its caption says why (the server's reason). */
+.kit .tile.missing img { display: none; }
+.kit .tile.missing figcaption[data-reason]::after { content: " — " attr(data-reason); color: var(--crit); }

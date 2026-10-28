@@ -164,6 +164,54 @@
     });
   }
 
+  // The image strip. Tiles across, the colour map and the levels redraw in
+  // place (no reload) and save into the set as they change; a tile with no
+  // image says why, from the server's answer.
+  const strip = document.getElementById("strip");
+  if (strip) {
+    const tiles = Array.from(strip.querySelectorAll("img[data-tile]"));
+    const display = () => new URLSearchParams({
+      cmap: form.elements.cmap.value,
+      plo: form.elements.plo.value,
+      phi: form.elements.phi.value,
+    });
+    // Tiles across, as the template writes it: equal columns in a grid; in
+    // one row, tiles that wide with the rest scrolled to.
+    const across = (n) => {
+      if (strip.classList.contains("row")) {
+        strip.style.gridAutoColumns = `calc((100% - ${n - 1} * var(--gap)) / ${n})`;
+      } else {
+        strip.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
+      }
+    };
+    let redraw = null;
+    for (const control of document.querySelectorAll("[data-live]")) {
+      control.addEventListener(control.tagName === "SELECT" ? "change" : "input", () => {
+        if (!control.checkValidity() || control.value === "") return;
+        clearTimeout(redraw);
+        redraw = setTimeout(() => {
+          if (control.name === "cols") across(Number(control.value));
+          else for (const img of tiles) {
+            img.closest(".tile").classList.remove("missing");
+            img.src = `${img.dataset.tile}&${display()}`;
+          }
+          saveField(control.name, control.value);
+        }, AUTO_OPEN_MS);
+      });
+    }
+    for (const img of tiles) {
+      img.addEventListener("error", () => {
+        const tile = img.closest(".tile");
+        const caption = tile.querySelector("figcaption");
+        tile.classList.add("missing");
+        fetch(img.src)
+          .then((response) => response.json())
+          .then((body) => { caption.dataset.reason = String(body.detail || "no image"); })
+          .catch(() => { caption.dataset.reason = "no image"; });
+      });
+    }
+  }
+
   const host = document.getElementById("plot");
   if (!host) return;
   const state = document.getElementById("plot-state");

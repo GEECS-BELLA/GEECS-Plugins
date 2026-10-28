@@ -15,7 +15,9 @@ geecs_plotter/
   scans.py      # find a scan folder, read its s-file: GEECS-Data-Utils calls only
   figures.py    # pure: columns in, plotly Figure out (copied from the portal)
   settings.py   # named settings sets: PlotterSettings, one JSON file per set, the folder
-  routes/       # Context (+ the 404 for a missing scan); pages.py (HTML), api.py (JSON)
+  images.py     # the image strip: devices, tiles (per bin / per shot), a tile's pixels (data-utils calls)
+  routes/       # Context (+ the 404 for a missing scan); pages.py (HTML), api.py (JSON),
+                #   images.py (the strip's JSON and each tile's PNG)
   templates/    # index.html, on the kit
   static/       # plotter.js, plotter.css, the vendored plotly-cartesian-3.1.1.min.js (MIT)
 tests/          # pytest over a fake share in tmp_path (conftest.py)
@@ -91,6 +93,22 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   ("not in this version"); the API reports it instead of fitting. A new
   model is a data-utils PR first (its curve and `CurveFit.formula` live
   there), then a `FITS` entry here.
+- **Images** are GEECSplotter's image strip, the Images tab (`tab`;
+  the brief's "Images"). A tile is one shot's image or its bin's average
+  (`Bin #`, `geecs_data_utils.data.binning.compute_bin_key`), laid out as
+  a grid or one row (`image_layout`, `image_columns`). The ladder,
+  the refusals and the trace check are `geecs_data_utils.io.shot_images`,
+  the average `io.images.average_frames`, the PNG `io.display_png` (the
+  colour map needs matplotlib, a dependency here). A shot is an s-file
+  row: a row that says the device missed it, or a missing file, gives no
+  image, and is left out of its bin's average, **never a neighbour's
+  image**. The picker lists every device folder with ONE listing, and only
+  the picked one is probed (`images.is_image_device`): probing all of a
+  scan's ~70 folders costs tens of seconds cold over the share. Each tile
+  is an `<img loading="lazy">` on `/api/images/tile.png`, so a scan's
+  images are never loaded all at once; tiles across, the colour map and
+  the levels redraw in place and save as typed; device, tiles and layout
+  reload. `/api/images/strip` returns the tiles and the `code` snippet.
 - **Replacing a saved set** is Save as onto its name (the box offers the
   saved names): `plotter.js` asks in a rung-3 `<dialog>` (focus on "Keep
   it"), whose Replace posts `overwrite=true`; without it the server
@@ -112,5 +130,6 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
 
 ## Out of scope
 
-See the brief: Tiled, images, cross-scan merging, deployment. (Fitting
-left this list on the author's ruling, 2026-10-27: the brief records it.)
+See the brief: Tiled, cross-scan merging, deployment. (Fitting and
+images left this list on the author's rulings, 2026-10-27: the brief
+records them.)

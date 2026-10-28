@@ -24,11 +24,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from geecs_data_utils.tiled_catalog import RunDetail
 
-from geecs_plotter import figures, scans
+from geecs_plotter import figures, images, scans
 from geecs_plotter.routes import Context, read_form
+from geecs_plotter.routes.images import strip_code, strip_tiles
 from geecs_plotter.settings import (
+    CHOICES,
     DEFAULT_SET,
     MAX_FIT_ORDER,
+    MAX_IMAGE_COLUMNS,
     MAX_Y_LISTS,
     NameRefused,
     PlotterSettings,
@@ -131,7 +134,7 @@ def _render(
         except HTTPException as missing:
             page["error"] = missing.detail
         else:
-            _fill(page, run, settings)
+            _fill(page, run, settings, ctx.experiment)
     return ctx.templates.TemplateResponse(
         request,
         "index.html",
@@ -251,12 +254,43 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "y3order": settings.y3_fit_order,
         "fits": figures.FITS,
         "max_fit_order": MAX_FIT_ORDER,
+        # The tab, and the image strip's controls. A choice a newer copy
+        # saved that this one lacks shows this copy's default.
+        "tab": _choice(settings, "tab"),
+        "devf": settings.image_device_filter,
+        "strip": _choice(settings, "image_strip"),
+        "layout": _choice(settings, "image_layout"),
+        "cols": settings.image_columns,
+        "max_cols": MAX_IMAGE_COLUMNS,
+        "cmap": settings.image_cmap,
+        "cmaps": images.CMAPS,
+        "plo": settings.image_plo,
+        "phi": settings.image_phi,
+        "devices": [],
+        "device": "",
+        "device_kept": "",
+        "device_problem": None,
+        "tiles": [],
+        "strip_code": "",
     }
 
 
-def _fill(page: dict, run: RunDetail, settings: PlotterSettings) -> None:
+def _choice(settings: PlotterSettings, key: str) -> str:
+    """The stored choice, or its default when this copy does not offer it."""
+    value = getattr(settings, key)
+    return value if value in CHOICES[key] else PlotterSettings.model_fields[key].default
+
+
+def _fill(
+    page: dict,
+    run: RunDetail,
+    settings: PlotterSettings,
+    experiment: str = "",
+) -> None:
     """Add the open scan's lists and the picks the settings resolve to."""
     frame = scans.load_frame(run)
+    if page["tab"] == "images":
+        _fill_images(page, run, frame, settings, experiment)
     picks = scans.columns(frame)
     page["columns"] = picks
     page["xnames"] = {c: scans.display_name(c, settings.x_alias) for c in picks}
@@ -291,3 +325,41 @@ def _fill(page: dict, run: RunDetail, settings: PlotterSettings) -> None:
         picked = getattr(settings, key) or default
         page[key] = picked if picked in picks else ""
         page[f"{key}_kept"] = "" if picked in picks else picked
+
+
+def _fill_images(
+    page: dict, run: RunDetail, frame, settings: PlotterSettings, experiment: str
+) -> None:
+    """Add the device list and, for a picture device, the strip's tiles.
+
+    The saved device, when this scan has no folder for it, is kept in the
+    list ("not in this scan") so the next click does not erase it, and the
+    strip says so; with none saved, the first device that has pictures.
+    """
+    folder = scans.scan_folder(run)
+    devices = images.devices(folder)
+    page["devices"] = devices
+    saved = settings.image_device
+    if saved and saved not in devices:
+        page["device_kept"] = saved
+        page["device_problem"] = f"{saved} is not in this scan"
+        return
+    device = saved or next(
+        (d for d in devices if images.is_image_device(folder, d, devices)), ""
+    )
+    page["device"] = device
+    if not device:
+        page["device_problem"] = "this scan has no camera images"
+        return
+    if saved and not images.is_image_device(folder, device, devices):
+        page["device_problem"] = f"{device} has no pictures (traces or a vendor format)"
+        return
+    day, scan = page["day"], page["scan"]
+    try:
+        page["tiles"] = strip_tiles(
+            run, frame, page["strip"], day=day, scan=scan, device=device
+        )
+    except HTTPException as missing:
+        page["device_problem"] = missing.detail
+        return
+    page["strip_code"] = strip_code(day, scan, device, page["strip"], experiment)

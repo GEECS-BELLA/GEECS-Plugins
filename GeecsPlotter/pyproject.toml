@@ -16,6 +16,9 @@ pandas = ">=2.1.1,<3.0"
 # The portal's pin: the vendored plotly.js bundle in static/ must draw what
 # plotly.py serializes.
 plotly = "^7.0"
+# Colour maps for the camera images (geecs_data_utils.io.display_png imports
+# it lazily; without it every image is greyscale).
+matplotlib = ">=3.8"
 # The s-file readers, column rules and (from M2) the binning and filters.
 # Installed WITHOUT the tiled extra: nothing here needs Tiled.
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }

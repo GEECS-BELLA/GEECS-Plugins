@@ -36,6 +36,16 @@ MAX_Y_LISTS = 3
 #: The highest polynomial order the Fit's order box takes.
 MAX_FIT_ORDER = 10
 
+#: The most image tiles across.
+MAX_IMAGE_COLUMNS = 20
+
+#: The choices of the tab and image controls, as stored.
+CHOICES: dict[str, tuple[str, ...]] = {
+    "tab": ("xy", "images"),
+    "image_strip": ("bins", "shots"),
+    "image_layout": ("grid", "row"),
+}
+
 #: A fit name as stored: GEECSplotter's Fit menu (``figures.FITS``) or one
 #: a newer copy offers, kept rather than refused (see ``extra`` below).
 _FIT_NAME = re.compile(r"[a-z0-9_]{1,40}")
@@ -122,6 +132,20 @@ class PlotterSettings(BaseModel):
     #: the plotter) goes back to it, as LabVIEW reopens its last file.
     day: Optional[date] = None
     scan: Optional[int] = None
+    #: The tab shown: the XY plot or the image strip.
+    tab: str = "xy"
+    #: The image strip: its camera (``None``: the scan's first), the device
+    #: list's filter, one tile per bin or per shot, a single row or a grid,
+    #: tiles across, and the display (colour map and percentile window).
+    image_device: Optional[str] = None
+    image_device_filter: str = ""
+    image_strip: str = "bins"
+    image_layout: str = "grid"
+    image_columns: int = Field(default=5, ge=1, le=MAX_IMAGE_COLUMNS)
+    #: A matplotlib name; one this copy does not know draws greyscale.
+    image_cmap: str = "gray"
+    image_plo: float = Field(default=1.0, ge=0.0, le=100.0)
+    image_phi: float = Field(default=99.7, ge=0.0, le=100.0)
 
 
 def set_name(name: str) -> str:
@@ -316,6 +340,15 @@ FORM_FIELDS = {
     "y3order": "y3_fit_order",
     "day": "day",
     "scan": "scan",
+    "tab": "tab",
+    "device": "image_device",
+    "devf": "image_device_filter",
+    "strip": "image_strip",
+    "layout": "image_layout",
+    "cols": "image_columns",
+    "cmap": "image_cmap",
+    "plo": "image_plo",
+    "phi": "image_phi",
 }
 
 _BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
@@ -327,7 +360,14 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
     "y_fit_order": (0, MAX_FIT_ORDER),
     "y2_fit_order": (0, MAX_FIT_ORDER),
     "y3_fit_order": (0, MAX_FIT_ORDER),
+    "image_columns": (1, MAX_IMAGE_COLUMNS),
 }
+
+#: The percentile fields: a number from 0 to 100.
+_PERCENTILES = ("image_plo", "image_phi")
+
+#: A colour-map name as stored (matplotlib's names are of this shape).
+_CMAP_NAME = re.compile(r"[A-Za-z0-9_]{1,40}")
 
 
 def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
@@ -368,8 +408,24 @@ def _form_value(field: str, key: str, value: str) -> object:
                     else f"must be {low} to {high}"
                 )
             return number
-        if key.endswith("_fit") and not _FIT_NAME.fullmatch(value):
-            raise ValueError("is not a fit name")
+        return _text_value(key, value)
     except ValueError as exc:
         raise SettingsError(f"{field}={value!r}: {exc}") from None
+
+
+def _text_value(key: str, value: str) -> object:
+    """A fit, choice, percentile, colour-map or device field; ``ValueError`` if bad."""
+    if key.endswith("_fit") and not _FIT_NAME.fullmatch(value):
+        raise ValueError("is not a fit name")
+    if key in CHOICES and value not in CHOICES[key]:
+        raise ValueError(f"must be one of {', '.join(CHOICES[key])}")
+    if key in _PERCENTILES:
+        number = float(value)
+        if not 0.0 <= number <= 100.0:
+            raise ValueError("must be 0 to 100")
+        return number
+    if key == "image_cmap" and not _CMAP_NAME.fullmatch(value):
+        raise ValueError("is not a colour-map name")
+    if key == "image_device" and not value:
+        return None
     return value

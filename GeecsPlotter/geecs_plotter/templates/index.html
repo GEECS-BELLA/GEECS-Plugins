@@ -82,9 +82,70 @@
         <input type="hidden" name="y2alias" value="{{ 'true' if y2alias else 'false' }}">
         <input type="hidden" name="y3alias" value="{{ 'true' if y3alias else 'false' }}">
         <input type="hidden" name="ycount" value="{{ ycount }}">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        <input type="hidden" name="strip" value="{{ strip }}">
+        <input type="hidden" name="layout" value="{{ layout }}">
         <button class="btn primary" type="submit">Open</button>
       </div>
-      {% if columns %}
+      {% if tab == "images" and (devices or device_kept) %}
+        {# The image strip's controls. The device, the tiles and the layout
+           reload the page; the columns across, the colour map and the
+           levels redraw the tiles in place (plotter.js) and save as typed. #}
+        <div class="group">
+          <div class="field">
+            <label for="device">Camera</label>
+            <input id="device-filter" name="devf" value="{{ devf }}" type="search" autocomplete="off" placeholder="filter devices"
+                   aria-label="Filter devices" data-filter-for="device">
+            <select id="device" name="device" size="10" class="picks" data-pick>
+              {% if device_kept %}<option value="{{ device_kept }}" selected>{{ device_kept }} (not in this scan)</option>{% endif %}
+              {% for d in devices %}<option value="{{ d }}"{% if d == device %} selected{% endif %}>{{ d }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <div class="row">
+              <span class="hint">Tiles</span>
+              <span class="spacer"></span>
+              <div class="seg" role="group" aria-label="One tile per bin or per shot">
+                <button type="button" data-toggle-for="strip" data-value="bins" aria-pressed="{{ 'true' if strip == 'bins' else 'false' }}">bin averages</button>
+                <button type="button" data-toggle-for="strip" data-value="shots" aria-pressed="{{ 'true' if strip == 'shots' else 'false' }}">shots</button>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <div class="row">
+              <span class="hint">Layout</span>
+              <span class="spacer"></span>
+              <div class="seg" role="group" aria-label="A grid or one row">
+                <button type="button" data-toggle-for="layout" data-value="grid" aria-pressed="{{ 'true' if layout == 'grid' else 'false' }}">grid</button>
+                <button type="button" data-toggle-for="layout" data-value="row" aria-pressed="{{ 'true' if layout == 'row' else 'false' }}">one row</button>
+              </div>
+            </div>
+            <div class="row">
+              <label for="cols" class="hint">Tiles across</label>
+              <span class="spacer"></span>
+              <input id="cols" name="cols" type="number" min="1" max="{{ max_cols }}" value="{{ cols }}" class="narrow-number" data-live>
+            </div>
+          </div>
+          <div class="field">
+            <label for="cmap">Colour map</label>
+            <select id="cmap" name="cmap" data-live>
+              {% for c in cmaps %}<option value="{{ c }}"{% if c == cmap %} selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% if cmap not in cmaps %}<option value="{{ cmap }}" selected>{{ cmap }} (not in this version)</option>{% endif %}
+            </select>
+          </div>
+          <div class="field">
+            {# The percentile window: pixels at or below the low percentile
+               draw black, at or above the high one white; each tile its own. #}
+            <span class="hint">Levels (percentiles of each tile)</span>
+            <div class="row levels">
+              <label for="plo" class="hint">black</label>
+              <input id="plo" name="plo" type="number" min="0" max="100" step="0.1" value="{{ plo }}" class="narrow-number" data-live>
+              <label for="phi" class="hint">white</label>
+              <input id="phi" name="phi" type="number" min="0" max="100" step="0.1" value="{{ phi }}" class="narrow-number" data-live>
+            </div>
+          </div>
+        </div>
+      {% elif columns %}
         <div class="group">
           <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots</span></div>
           {# One list per axis, each with its own substring filter (LabVIEW's
@@ -190,6 +251,15 @@
   </nav>
 
   <main class="pane">
+    {% if columns %}
+      {# The tabs: GEECSplotter's XY graphs, and the image strip. #}
+      <div class="row view-switch">
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" data-toggle-for="tab" data-value="xy" aria-pressed="{{ 'true' if tab == 'xy' else 'false' }}">XY plot</button>
+          <button type="button" data-toggle-for="tab" data-value="images" aria-pressed="{{ 'true' if tab == 'images' else 'false' }}">Images</button>
+        </div>
+      </div>
+    {% endif %}
     {% if error %}
       <div class="state" data-state="error">
         <div class="t">Scan not found</div>
@@ -205,6 +275,40 @@
         <div class="t">No columns to plot</div>
         <div class="m">Scan{{ '%03d' % scan }} has no s-file yet, or it has no numeric columns.</div>
       </div>
+    {% elif tab == "images" %}
+      <article class="panel">
+        <header>
+          <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
+          <span class="dim">{{ device or device_kept }}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'shots' }}{% endif %}</span>
+        </header>
+        <div class="body">
+          {% if device_problem %}
+            <div class="state" data-state="empty">
+              <div class="t">No images to show</div>
+              <div class="m">{{ device_problem }}</div>
+            </div>
+          {% else %}
+            {# One tile per bin (its shots' average) or per shot. Each image
+               loads when it scrolls into view; plotter.js adds the display
+               (colour map, levels) to every tile's URL. #}
+            {# Tiles across: the same rule plotter.js applies when the box changes. #}
+            <div id="strip" class="strip {{ layout }}"
+                 style="{% if layout == 'row' %}grid-auto-columns: calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% else %}grid-template-columns: repeat({{ cols }}, minmax(0, 1fr)){% endif %}">
+              {% for t in tiles %}
+                <figure class="tile">
+                  <img loading="lazy" alt="{{ device }} {{ t.caption }}" data-tile="{{ root }}/{{ t.url }}"
+                       src="{{ root }}/{{ t.url }}&amp;cmap={{ cmap | urlencode }}&amp;plo={{ plo }}&amp;phi={{ phi }}">
+                  <figcaption class="hint">{{ t.caption }}</figcaption>
+                </figure>
+              {% endfor %}
+            </div>
+            <details class="disc">
+              <summary>Notebook code</summary>
+              <pre class="well mono" id="code">{{ strip_code }}</pre>
+            </details>
+          {% endif %}
+        </div>
+      </article>
     {% else %}
       <article class="panel">
         <header>
