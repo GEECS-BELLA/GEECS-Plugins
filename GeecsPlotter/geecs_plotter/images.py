@@ -15,6 +15,7 @@ tile loads its own shots when the browser asks for it.
 from __future__ import annotations
 
 import threading
+import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -53,6 +54,11 @@ Roi = tuple[int, int, int, int]
 #: Pixels kept in memory: a strip's tiles are read once for a shared z
 #: scale and again to draw. A strip larger than this is read twice.
 _KEPT_BYTES = 512 * 2**20
+
+#: Seconds a tile's "no image" is remembered: long enough to answer the
+#: page's ask for the reason, short enough that a passing failure (a share
+#: blip, a file still being written) is looked at again on the next try.
+_REFUSAL_SECONDS = 30.0
 
 
 class NoImage(LookupError):
@@ -192,7 +198,7 @@ def tile_array(
     return found.array
 
 
-_kept: OrderedDict[tuple, np.ndarray | str] = OrderedDict()
+_kept: OrderedDict[tuple, np.ndarray | tuple[str, float]] = OrderedDict()
 _kept_bytes = 0
 _kept_lock = threading.Lock()
 
@@ -204,8 +210,9 @@ def kept_tile_array(
 
     The key carries the device folder's modification time and the table's
     length, so a file or a row added while a scan runs is read again. A
-    tile with no image is remembered too (its reason), so the page's
-    second ask for the reason does not search the share again. The store
+    tile with no image is remembered for ``_REFUSAL_SECONDS`` only (its
+    reason), so the page's ask for the reason does not search the share
+    again while a passing failure is never made permanent. The store
     holds at most ``_KEPT_BYTES`` of pixels, oldest out first.
 
     Raises
@@ -218,27 +225,29 @@ def kept_tile_array(
     except OSError:
         return tile_array(folder, frame, device, rows)
     key = (str(folder), device, rows, len(frame), stamp)
+    now = time.monotonic()
     with _kept_lock:
         kept = _kept.get(key)
+        if isinstance(kept, tuple) and now - kept[1] > _REFUSAL_SECONDS:
+            del _kept[key]  # look again: the failure may have passed
+            kept = None
         if kept is not None:
             _kept.move_to_end(key)
-    if isinstance(kept, str):
-        raise NoImage(kept)
+    if isinstance(kept, tuple):
+        raise NoImage(kept[0])
     if kept is not None:
         return kept
     try:
-        pixels: np.ndarray | str = tile_array(folder, frame, device, rows)
+        pixels = tile_array(folder, frame, device, rows)
     except NoImage as why:
-        pixels = str(why)
-    else:
-        pixels.flags.writeable = False  # shared between requests: never edited
+        _keep(key, (str(why), now))
+        raise
+    pixels.flags.writeable = False  # shared between requests: never edited
     _keep(key, pixels)
-    if isinstance(pixels, str):
-        raise NoImage(pixels)
     return pixels
 
 
-def _keep(key: tuple, value: np.ndarray | str) -> None:
+def _keep(key: tuple, value: np.ndarray | tuple[str, float]) -> None:
     """Store *value*, dropping the oldest until the store fits its bytes."""
     global _kept_bytes
     size = value.nbytes if isinstance(value, np.ndarray) else 0

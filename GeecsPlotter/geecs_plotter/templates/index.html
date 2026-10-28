@@ -156,7 +156,7 @@
                 <input id="zmax" name="zmax" type="number" step="any" value="{{ zmax if zmax is not none else '' }}" class="narrow-number" data-live>
               </div>
               <span class="hint">Pixel values.{% if zmin is none or zmax is none %} Until both are set, each tile scales itself.{% endif %}</span>
-              {% if zmin is not none and zmax is not none and zmax <= zmin %}<span class="hint level-problem" role="alert">White must be above black: every tile draws flat until it is.</span>{% endif %}
+              <span class="hint level-problem" id="level-warning" role="alert"{% if zmin is none or zmax is none or zmax > zmin %} hidden{% endif %}>White must be above black: every tile draws flat until it is.</span>
             {% else %}
               <span class="hint">{{ 'Each tile from its darkest to its brightest pixel.' if zscale == 'tile' else 'Every tile on one scale: the darkest to the brightest pixel of them all. It reads every image of the strip first (for shots, the whole scan).' }}</span>
               {% if zscale == "shared" %}<span class="hint mono" id="shared-levels" aria-live="polite">reading every tile…</span>{% endif %}

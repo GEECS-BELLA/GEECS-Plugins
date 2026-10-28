@@ -229,6 +229,13 @@
         if (!control.checkValidity() || control.value === "") return;
         clearTimeout(redraw);
         redraw = setTimeout(() => {
+          // The warning the page draws for white not above black, kept true
+          // as the fixed levels are typed.
+          const warning = document.getElementById("level-warning");
+          if (warning && (control.name === "zmin" || control.name === "zmax")) {
+            const [lo, hi] = [value("zmin"), value("zmax")];
+            warning.hidden = lo === "" || hi === "" || Number(hi) > Number(lo);
+          }
           if (control.name === "cols") across(Number(control.value));
           else drawTiles();
           saveField(control.name, control.value);

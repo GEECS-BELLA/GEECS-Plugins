@@ -126,6 +126,11 @@ class TestPixels:
             with pytest.raises(images.NoImage, match="file not found"):
                 images.kept_tile_array(folder, frame, CAM, (3,))
         assert len(calls) == 1  # the second ask is answered from memory
+        # ...but not for long: a passing failure is looked at again.
+        monkeypatch.setattr(images, "_REFUSAL_SECONDS", -1.0)
+        with pytest.raises(images.NoImage):
+            images.kept_tile_array(folder, frame, CAM, (3,))
+        assert len(calls) == 2
 
     def test_the_memory_is_bounded_in_bytes(
         self, share: Path, camera: Path, monkeypatch: pytest.MonkeyPatch
@@ -406,6 +411,6 @@ def test_fixed_levels_with_white_below_black_say_so(
     page = post(
         client, scan=1, tab="images", device=CAM, zscale="fixed", zmin=50, zmax=10
     )
-    assert "White must be above black" in page
+    assert 'id="level-warning" role="alert">' in page  # shown
     fine = post(client, scan=1, tab="images", device=CAM, zmin=10, zmax=50)
-    assert "White must be above black" not in fine
+    assert 'id="level-warning" role="alert" hidden>' in fine

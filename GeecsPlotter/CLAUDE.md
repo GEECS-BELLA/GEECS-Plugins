@@ -129,8 +129,10 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   Tiles are kept in memory (`images.kept_tile_array`, at most
   `_KEPT_BYTES`, keyed by the camera folder's mtime and the table's
   length) so the shared scale and the draw read a file once while the
-  strip fits; a tile with no image is kept as its reason, so the page's
-  ask for why does not search the share again.
+  strip fits; a tile with no image is kept as its reason for
+  `_REFUSAL_SECONDS` only, so the page's ask for why does not search the
+  share again, and a passing failure (a share blip, a file still being
+  written) is never made permanent.
 - **Replacing a saved set** is Save as onto its name (the box offers the
   saved names): `plotter.js` asks in a rung-3 `<dialog>` (focus on "Keep
   it"), whose Replace posts `overwrite=true`; without it the server
