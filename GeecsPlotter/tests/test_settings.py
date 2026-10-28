@@ -521,3 +521,14 @@ def test_the_page_offers_saved_names_and_asks_before_replacing(
     dialog = page.split('<dialog id="replace-set"')[1].split("</dialog>")[0]
     assert "autofocus>Keep it</button>" in dialog  # focus never on Replace
     assert 'name="overwrite" value="true">Replace</button>' in dialog
+
+
+def test_the_api_answers_for_a_set_that_remembers_a_scan(client: TestClient) -> None:
+    """A set with a day in it: the filter autosave and the read must not 500."""
+    post(client, scan=1)  # the set now remembers 2026-10-02, a date
+    saved = client.post("/api/settings/default", data={"yf": "gas"})
+    assert saved.status_code == 200
+    assert (saved.json()["day"], saved.json()["y_filter"]) == ("2026-10-02", "gas")
+    read = client.get("/api/settings/default")
+    assert read.status_code == 200
+    assert read.json()["scan"] == 1
