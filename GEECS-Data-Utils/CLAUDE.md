@@ -21,6 +21,7 @@ geecs_data_utils/
                                #   home the portal, logbook, ScanAnalysis and
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
+  data/curve_fit.py            # fit_curve → CurveFit: Gaussian, SuperGaussian, polynomial
   analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
@@ -229,6 +230,19 @@ deltas vs the pre-0.23.0 implementation (see CHANGELOG): `Shotnumber`
 is excluded from the default value columns, the bin key is excluded
 from the dropna row policy (NA-bin-labelled rows aggregate into their
 own row), and all-NaN columns never cause drops.
+
+## Curve fits (`data/curve_fit.py`)
+
+`fit_curve(x, y, model, order=)` → `CurveFit`: GEECSplotter's Fit menu as
+one pure call over the finite `(x, y)` pairs, unweighted, standard errors
+from the residual-scaled covariance. Models: `gaussian` (σ; derived
+`fwhm`), `supergaussian` (`A·exp(-(|x−x0|/w)^p)+C`, `p` fitted within
+`POWER_BOUNDS`; derived `fwhm = 2w·(ln 2)^(1/p)`), each with a
+`_no_offset` kind, and `polynomial` (`c0 … cN`, ascending powers,
+`numpy.polyfit`). A fit that cannot be made is a `CurveFit` with `error`
+set, never an exception; `evaluate(x)` / `curve(points)` redraw it.
+scipy is imported inside the call. The rest of LabVIEW's menu (Lorentzian,
+Boltzmann, Exp Growth, Extreme, Lorentzian w slope) is a model added here.
 
 ## Config Directory Management
 
