@@ -12,7 +12,7 @@ itself, and the env file feeds the compose file's `${VAR}`s as the unit's
 
 | Container | Listens | Notes |
 |---|---|---|
-| `api` | `GEECS_CANOPY_BIND:GEECS_CANOPY_PORT` | `uvicorn canopy.main:app --root-path $GEECS_CANOPY_ROOT_PATH`; Raccoon loads `geecs_canopy.directory:GeecsDirectoryAdapter` |
+| `api` | `GEECS_CANOPY_BIND:GEECS_CANOPY_PORT` | `uvicorn geecs_canopy.app:app --root-path $GEECS_CANOPY_ROOT_PATH`: Canopy with the GEECS device module at `/geecs` (section 3a); Raccoon loads `geecs_canopy.directory:GeecsDirectoryAdapter` |
 | `worker` ×2 | — | `arq canopy.worker.WorkerSettings`: Squirrel's snapshot jobs; no worker, no snapshots |
 | `postgres` 16 | 127.0.0.1:5433 | data in `/var/lib/geecs-canopy/pgdata` (the unit's state dir) |
 | `redis` 7 | 127.0.0.1:6380 | the arq queue only, no persistence; never the queueserver's Redis |
@@ -61,6 +61,72 @@ Squirrel's restore directly, around every guard of the GEECS module. Write
 keys are service keys only (the module itself, an ops script), never on a
 page, never handed to a person. Revocation is not instant (keys are cached).
 
+## 3a. The device module (`/geecs`)
+
+The api command is the wrapper `geecs_canopy.app:app`: Canopy's app,
+unpatched, with the module mounted in-process at `/geecs`. Its devices come
+from data only: the family files (GEECS-Schemas) and the experiment's
+`native_devices.yaml` + `panel_devices.yaml`, joined by GEECS device name
+as the directory joins them; never the GEECS DB. Only `@*` keys reach
+`/geecs` (Canopy's module set is fixed).
+
+| Route (read access) | Answers |
+|---|---|
+| `GET /geecs/v1/devices` | the roster, each device's family, axes and state |
+| `GET /geecs/v1/devices/{name}` | every role per axis: PVs, Hare's value, severity, a verdict (`live`, `stale`, `off`, `not answering`, `unreachable`, `error`, `unknown`; `not running` waits for a service-status source) |
+| `POST /geecs/v1/devices/{name}/put` | `{role, axis?, value, operator, confirm?}` through the gates (`geecs_canopy/gates.py`): policy 403, allow list 403, hazard 428, run lock 423, bounds 422, then Hare (its own status on refusal), every outcome a journal row |
+| `GET /geecs/v1/journal?entries=N` | the newest N `JournalEntry` rows (GEECS-Schemas), oldest first |
+
+Freshness is judged continuously: the module subscribes every monitored
+role and each `ioc`'s heartbeat as an internal Hare client and keeps when
+each counter last advanced.
+
+**Settings** (compose environment): `GEECS_CANOPY_EXPERIMENT`,
+`GEECS_CANOPY_CONFIGS_ROOT` (the configs repo's root, mounted
+`/opt/geecs-configs`), `GEECS_CANOPY_STATE_DIR` (the journal's folder,
+`/var/lib/geecs-canopy/module` on the host, owned by the image's `appuser`,
+uid 1000); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
+(5), `_SETTLE_TIMEOUT_S` (30: a move's put-callback, not Hare's 5 s
+connect timeout), `_RELOAD_S` (10: the device documents' re-read).
+
+**Who may write: `<experiment>/operator_policy.yaml`** in the configs repo
+(`OperatorPolicy`, GEECS-Schemas). No file, no grant: every put is denied.
+
+```yaml
+schema_version: 1
+grants:
+  - operators: [A. Operator, B. Operator]
+    families: [motor_record]          # every motor, within each allow list
+  - operators: [A. Operator]
+    devices: [U_ChicaneInner]
+    roles: [current_sp, reset]        # empty: every role the device allows
+```
+
+The operator is the name the request carries; the authenticated part is
+the Canopy key, journaled by name. Operator and page keys are `read`
+only (section 3): the module authorizes its own writes and reaches Hare
+in-process, so a person never needs Canopy `write`.
+
+**The journal** is SQLite (`journal.sqlite3` in the state folder), one
+`JournalEntry` per attempt; back it up with the Postgres dump. The
+Postgres path, a `geecs` schema with its own Alembic tree and version
+table (Canopy's tree is one for all its modules), is not built.
+
+**Squirrel.** Its registry is **derived, never hand-edited**: push 2
+reconciles it idempotently from the family files and the device documents
+(the GeecsArchiver pattern). Squirrel's restore job is **never the executor
+of an operator's restore**: its worker writes with its own EPICS adapter,
+around every guard and unattributed. A restore is a module route (push 2)
+that reads the saved values from Squirrel and runs each row through
+`gates.put_role`, the same function the put route calls (lock, bounds,
+confirm and journal checked at execution). Squirrel's restore endpoint
+stays reachable to service keys only.
+
+**The self-test.** `geecs_canopy/canopy_surface.py` lists every
+Canopy-internal name the package uses and the image they were verified
+at. The wrapper checks them, the pin and the installed commit before
+importing Canopy, and refuses to start naming the rollback (section 5).
+
 ## 4. The GEECS DB (transitional)
 
 The directory's gateway source (`elementType=gateway`) lists what the CA
@@ -102,9 +168,12 @@ still built, `dc run --rm api alembic downgrade <noted revision>` (every
 migration at `0a5ee23` has a real `downgrade()`), then check out the
 previous pin, re-render, `dc build`, restart. If a downgrade fails, stop the
 unit and restore the dump (`pg_restore --clean -p 5433 -U canopy -d canopy`).
-Once lane B's wrapper app is the api command, its self-test failing takes
-Hare, Squirrel and Mole down with it: the rollback is then the unwrapped
-`uvicorn canopy.main:app` command plus the previous pin.
+The wrapper app is the api command, so its self-test failing takes Hare,
+Squirrel and Mole down with it: the rollback is then the unwrapped
+`uvicorn canopy.main:app` command (edit the api `command:` in the
+installed compose file) plus the previous pin. A pin bump re-verifies
+`canopy_surface.py`'s names against the new commit and moves its
+`VERIFIED_IMAGE` in the same PR.
 
 **Routine backup:** the same `pg_dump` nightly from the service account's
 own crontab (it owns the backup folder; no `sudo` there), keeping a week. Postgres holds Squirrel's registry and

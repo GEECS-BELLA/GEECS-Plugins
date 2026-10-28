@@ -32,16 +32,22 @@ x-app: &app
 services:
   api:
     <<: *app
-    command: ["uvicorn", "canopy.main:app", "--host", "${GEECS_CANOPY_BIND}",
+    # The wrapper: Canopy + the GEECS device module at /geecs. Rollback when its
+    # self-test refuses to start: canopy.main:app with the previous pin (DEPLOYMENT.md 5).
+    command: ["uvicorn", "geecs_canopy.app:app", "--host", "${GEECS_CANOPY_BIND}",
               "--port", "${GEECS_CANOPY_PORT}", "--root-path", "${GEECS_CANOPY_ROOT_PATH}"]
     environment:
       <<: *app-env
+      GEECS_CANOPY_EXPERIMENT: "${GEECS_EXPERIMENT}"
+      GEECS_CANOPY_CONFIGS_ROOT: /opt/geecs-configs
+      GEECS_CANOPY_STATE_DIR: /var/lib/geecs-canopy-module
       CANOPY_RACCOON__DIRECTORY__TYPE: geecs_canopy.directory:GeecsDirectoryAdapter
       CANOPY_RACCOON__DIRECTORY__EXTRAS__EXPERIMENT: "${GEECS_EXPERIMENT}"
       CANOPY_RACCOON__DIRECTORY__EXTRAS__CONFIGS_ROOT: /opt/geecs-configs
       CANOPY_RACCOON__DIRECTORY__EXTRAS__DB: "${GEECS_CANOPY_DB}"
     volumes:
       - "${GEECS_CONFIGS_ROOT}:/opt/geecs-configs:ro"
+      - /var/lib/geecs-canopy/module:/var/lib/geecs-canopy-module   # the journal
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:${GEECS_CANOPY_PORT}/health')\""]
       interval: 10s

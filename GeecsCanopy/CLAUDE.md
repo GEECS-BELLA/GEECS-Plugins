@@ -2,8 +2,8 @@
 
 SLAC's Canopy runs here as the display backend, unpatched, in an image
 derived from upstream's by digest. This package holds what is GEECS's: the
-deploy recipe and the Raccoon directory adapter (push 1); the in-process
-device module follows (lane B). The decision and its conditions (a)–(f)
+deploy recipe, the Raccoon directory adapter and the in-process device
+module at `/geecs` (push 1). The decision and its conditions (a)–(f)
 are `Planning/geecs_canopy.md` §7; `DEPLOYMENT.md` is the runbook.
 
 ## Layout
@@ -19,6 +19,16 @@ geecs_canopy/
                  geecs_schemas.load_families()
   gateway.py     GatewaySource (TRANSITIONAL): the CA gateway's served set from
                  GeecsDb, credentials from GEECS_CANOPY_DB_URL
+  app.py         the api command: self-test, canopy.main:app + /geecs mounted,
+                 tagged, Canopy's error handler; the ONE Hare implementation
+  canopy_surface.py  every Canopy-internal name used + VERIFIED_IMAGE; self_test
+  hare.py        the Hare Protocol (get, describe, put, watch): no Canopy import
+  module.py      ModuleSettings (env GEECS_CANOPY_*), Module: devices from
+                 data (NativeSource.resolve), the operator policy, the tracker
+  freshness.py   Tracker (internal broker client) and the verdicts
+  gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal
+  journal.py     SQLite of GEECS-Schemas JournalEntry rows
+  routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal
 deploy/
   Dockerfile (+ .dockerignore)   FROM the pin; pip --python into /app/.venv
   compose.yaml.in   api + 2 workers + Postgres 16 + Redis 7, host networking
@@ -61,10 +71,18 @@ deploy/
   other module imports `geecs_core.db.geecs_db` (the
   `canopy-db-is-transitional` import contract); the native path depends on
   nothing in the DB.
+- **Routes and gates import no Canopy name** (condition (b)): `app.py`
+  alone does, through `canopy_surface.NAMES`; a new Canopy name goes into
+  that list in the same change. Every route needs Canopy read access only;
+  the module's own policy decides writes. Every write, a push-2 restore's
+  rows included, goes through `gates.put_role` and leaves one journal row.
+  Verdicts follow `Planning/operator_surfaces.md` §3 and Appendix A of
+  `Planning/epics_estate.md` (rules 1, 6, 8, 9, 10, 11, 18), each pinned by
+  a test in `tests/test_module.py`.
 - **The pin is a fleet constant.** `pin.py` is the one record of the image
   digest and commit, bumped only in a reviewed PR after a rehearsal on the
-  sim (DEPLOYMENT.md). Lane B's startup self-test and its pinned-imports
-  file (every Canopy-internal import, condition (d)) read it; never `latest`.
+  sim (DEPLOYMENT.md). The startup self-test and `canopy_surface.py`
+  (every Canopy-internal import, condition (d)) read it; never `latest`.
 - **Facility values have one home.** Non-secret values are `site.env` keys
   (`GEECS_CANOPY_BIND`, `_PORT`, `_ROOT_PATH`, `_DB`, plus the shared
   `GEECS_EXPERIMENT`, `GEECS_CONFIGS_ROOT`, EPICS and `TZ`); secrets are in

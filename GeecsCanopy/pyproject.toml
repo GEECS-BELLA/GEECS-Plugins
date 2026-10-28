@@ -31,9 +31,13 @@ pyyaml = ">=6.0"
 geecs-core = { path = "../GEECS-Core", develop = true }
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
+# FastAPI is Canopy's (the module's routes run inside its process); here only
+# for the tests, at the image's versions.
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.1"
 pytest-asyncio = ">=0.23"
+fastapi = "0.136.1"
+httpx = "0.28.1"
 
 [build-system]
 requires = ["poetry-core>=1.8"]

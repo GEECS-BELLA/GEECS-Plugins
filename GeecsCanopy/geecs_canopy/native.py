@@ -23,6 +23,7 @@ from geecs_schemas import (
     FamilyFile,
     NativeDevices,
     PanelDevices,
+    Role,
     load_families,
 )
 
@@ -49,6 +50,35 @@ class Device:
     elements: tuple[Element, ...]
 
 
+@dataclass(frozen=True)
+class Resolved:
+    """One native device as both documents make it: its family's roles as this device has them."""
+
+    name: str
+    family: FamilyFile
+    prefix: str
+    axes: tuple[str, ...]  # () unless the family repeats per axis
+    roles: tuple[Role, ...]
+    actions: tuple[str, ...]  # the family actions available on this device
+    ioc: str | None
+
+    def bases(self) -> list[tuple[str | None, str]]:
+        """``(axis, PV base)`` for each axis, or ``(None, prefix)``."""
+        return [(a, self.prefix + a) for a in self.axes] or [(None, self.prefix)]
+
+    def pv(self, role: Role, axis: str | None, *, write: bool = False) -> str:
+        """The role's PV on ``axis`` (its write record when ``write`` and it has one)."""
+        suffix = (role.write_suffix or role.suffix) if write else role.suffix
+        return self.prefix + (axis or "") + suffix
+
+    def writable_roles(self) -> set[str]:
+        """The roles a write may name: those of the available actions, else every writable role."""
+        if self.family.actions:
+            acts = self.family.actions
+            return {r for a in self.actions for r in acts[a].roles}
+        return {r.name for r in self.roles if r.writable}
+
+
 def _load(path: Path, model: type, families: Mapping[str, FamilyFile]):
     if not path.exists():
         return model()
@@ -71,8 +101,8 @@ class NativeSource:
         self.experiment, self.root = experiment, experiments_root
         self.families = load_families() if families is None else families
 
-    def devices(self) -> list[Device]:
-        """Every device in either document, with the family's roles as PVs."""
+    def resolve(self) -> list[Resolved]:
+        """Every device in either document, joined by name and validated."""
         if not self.root.is_dir():  # an unmounted share is not "no devices"
             raise SourceError(f"experiments root {self.root} is not reachable")
         folder = self.root / self.experiment
@@ -80,11 +110,15 @@ class NativeSource:
         panels = _load(folder / PANEL_DEVICES_FILENAME, PanelDevices, self.families)
         names = dict.fromkeys([*registry.devices, *panels.devices])
         return [
-            self._device(name, registry.devices.get(name), panels.devices.get(name))
+            self._resolve(name, registry.devices.get(name), panels.devices.get(name))
             for name in names
         ]
 
-    def _device(self, name: str, entry, panel) -> Device:
+    def devices(self) -> list[Device]:
+        """Every device, with the family's roles as PVs (Raccoon's elements)."""
+        return [_listed(device) for device in self.resolve()]
+
+    def _resolve(self, name: str, entry, panel) -> Resolved:
         template = entry.family_template if entry is not None else panel.family
         if panel is not None and panel.family != template:
             raise SourceError(
@@ -104,22 +138,32 @@ class NativeSource:
         prefix = panel.prefix if panel is not None and panel.prefix else derived
         family = self.families[template]
         roles = panel.resolve(family) if panel is not None else family.roles
+        axes: list[str] = []
         if family.per_axis:
             axes = entry.axes if isinstance(entry, EpicsMotor) else (panel.axes or [])
             if not axes:
                 raise SourceError(f"{name}: the {template} family needs axes")
-            bases = [(f"{name}:{axis}", prefix + axis) for axis in axes]
-        else:
-            bases = [(name, prefix)]
-        elements = tuple(
-            Element(
-                f"{label}:{role.name}",
-                tuple(
-                    base + s
-                    for s in dict.fromkeys([role.suffix, role.write or role.suffix])
-                ),
-            )
-            for label, base in bases
-            for role in roles
+        actions = panel.allowed_actions(family) if panel else list(family.actions)
+        ioc = panel.ioc if panel is not None else None
+        return Resolved(
+            name, family, prefix, tuple(axes), tuple(roles), tuple(actions), ioc
         )
-        return Device(name, "native", template, elements)
+
+
+def _listed(device: Resolved) -> Device:
+    bases = [
+        (device.name if axis is None else f"{device.name}:{axis}", base)
+        for axis, base in device.bases()
+    ]
+    elements = tuple(
+        Element(
+            f"{label}:{role.name}",
+            tuple(
+                base + s
+                for s in dict.fromkeys([role.suffix, role.write or role.suffix])
+            ),
+        )
+        for label, base in bases
+        for role in device.roles
+    )
+    return Device(device.name, "native", device.family.template, elements)

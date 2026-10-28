@@ -827,6 +827,78 @@ One device's panel data: its family and what differs from it on this device.
 | `no_archive` | `list[str]` | no | empty | Roles the family archives that the archiver leaves out on this device (a readback too noisy to keep); the page still shows them. |
 | `ioc` | `str (optional)` | no | None | The IOC serving the device, as its host's compose file names it (IOC_NAME, e.g. 'adtest-cam1'): the archiver keeps that IOC's devIocStats heartbeat. Absent: no heartbeat for it. |
 
+## `operator_policy`
+
+### OperatorPolicy
+
+Which operators may write what (``<experiment>/operator_policy.yaml``); default deny.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `grants` | `list[OperatorGrant]` | no | [] | Nobody else writes. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/operator_policy.yaml; an operator no grant names may write nothing.
+grants:
+  - operators: [A. Operator, B. Operator]
+    families: [motor_record]        # every motor, whatever its allow list permits
+  - operators: [A. Operator]
+    devices: [U_ChicaneInner]
+    roles: [current_sp, reset]      # not the output
+```
+
+### OperatorGrant
+
+Some operators may write some roles of some devices, named or by family.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `operators` | `list[str]` | yes | — | Operators, by name. |
+| `families` | `list[str]` | no | [] | Every device of these. |
+| `devices` | `list[str]` | no | [] | These GEECS devices. |
+| `roles` | `list[str]` | no | [] | Only these; empty: all allowed. |
+
+## `journal_entry`
+
+### JournalEntry
+
+One write attempt through the device module, whatever its outcome.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `id` | `int (optional)` | no | None | Row number, oldest first. |
+| `time` | `datetime` | yes | — | When it was decided (UTC). |
+| `operator` | `str` | yes | — | The operator the request named. |
+| `key_name` | `str (optional)` | no | None | The Canopy key's name. |
+| `device` | `str` | yes | — | The GEECS device name. |
+| `role` | `str` | yes | — | The family role written. |
+| `axis` | `str (optional)` | no | None | The axis, if per-axis. |
+| `value` | `float \| int \| bool \| str \| list[float \| int \| bool \| str] (optional)` | yes | — | Value requested. |
+| `outcome` | `'accepted' \| 'denied' \| 'refused'` | yes | — | denied: the module's guards; refused: bounds, IOC or Hare. |
+| `canopy_code` | `str (optional)` | no | None | Canopy's or our slug. |
+| `detail` | `str (optional)` | no | None | Why; or what a clamp took. |
+
+Example:
+
+```yaml
+schema_version: 1
+id: 41
+time: "2026-10-28T21:14:03+00:00"
+operator: A. Operator
+key_name: display
+device: U_ChicaneInner
+role: current_sp
+value: 12.5
+outcome: refused                    # accepted / denied / refused
+canopy_code: out_of_bounds
+detail: 12.5 is outside the record's limits [0.0, 10.0]
+```
+
 ## `analysis_recipe`
 
 ### AnalysisRecipe
