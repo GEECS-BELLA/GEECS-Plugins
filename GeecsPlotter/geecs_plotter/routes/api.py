@@ -94,50 +94,37 @@ class FigureResponse(BaseModel):
     fits: list[FitResult] = []
 
 
-#: Each model's curve, in its parameters' names (polynomial: see ``_formula``).
-FORMULAS = {
-    "gaussian": "amplitude·exp(−(x − center)² / (2·sigma²)) + offset",
-    "gaussian_no_offset": "amplitude·exp(−(x − center)² / (2·sigma²))",
-    "supergaussian": "amplitude·exp(−(|x − center| / width)^power) + offset",
-    "supergaussian_no_offset": "amplitude·exp(−(|x − center| / width)^power)",
-}
-
-
-def _formula(fit: CurveFit) -> str:
-    if fit.model != "polynomial":
-        return FORMULAS.get(fit.model, "")
-    # Far from zero (timestamps) the powers are of x - x_shift (data-utils).
-    u = f"(x − {fit.x_shift:.15g})" if fit.x_shift else "x"
-    terms = [
-        "c0",
-        f"c1·{u}",
-        *(f"c{k}·{u}^{k}" for k in range(2, (fit.order or 0) + 1)),
-    ]
-    return " + ".join(terms[: (fit.order or 0) + 1])
-
-
 def _finite(value: float) -> Optional[float]:
     return value if math.isfinite(value) else None
 
 
 def plus_minus(value: float, stderr: float) -> str:
-    """``value ± stderr``, both rounded to the error's second significant figure.
+    """``value ± stderr``, both to the error's second significant figure.
 
     No usable error (NaN, zero) shows the value to four significant
-    figures; magnitudes past 1e±5 are written in exponent form.
+    figures. A value smaller than its error's rounding step keeps three
+    significant figures of its own, so an unconstrained term reads
+    ``39 ± 3200``, never ``0 ± 3200`` while the curve is drawn at 39.
+    Errors past 1e±5 are written in exponent form, the value with as many
+    digits as the error leaves meaningful.
     """
     if not math.isfinite(value):
         return "undefined"
     if not math.isfinite(stderr) or stderr <= 0:
         return f"{value:.4g}"
     exponent = math.floor(math.log10(stderr))
-    if abs(exponent) > 5 or abs(value) >= 1e6:
-        return f"{value:.3e} ± {stderr:.1e}"
+    if abs(exponent) > 5:
+        magnitude = math.floor(math.log10(abs(value))) if value else exponent
+        digits = max(1, magnitude - exponent + 1)
+        return f"{value:.{digits}e} ± {stderr:.1e}"
     decimals = 1 - exponent
     if decimals >= 0:
         return f"{value:.{decimals}f} ± {stderr:.{decimals}f}"
     step = 10.0 ** (-decimals)
-    return f"{round(value / step) * step:.0f} ± {round(stderr / step) * step:.0f}"
+    err = f"{round(stderr / step) * step:.0f}"
+    if abs(value) < 10 * step:
+        return f"{value:.3g} ± {err}"
+    return f"{round(value / step) * step:.0f} ± {err}"
 
 
 def fit_result(
@@ -167,7 +154,7 @@ def fit_result(
         column=column,
         model=model,
         label=label,
-        formula=_formula(fit),
+        formula=fit.formula,
         error=fit.error,
         r2=_finite(fit.r2),
         points=fit.points,
@@ -246,7 +233,8 @@ def figure_code(
         f"series = scans.plot_series(frame, {names!r})\n"
         f"{fitting}"
         f"fig = figures.shots_figure(series, {y_arg}{x_arg}, shot=scans.shot_axis(frame){labels}{fit_arg})\n"
-        "fig.show()\n" + ("for fit in fits:\n    print(fit)\n" if fitting else "")
+        "fig.show()\n"
+        + ("for fit in filter(None, fits):\n    print(fit)\n" if fitting else "")
     )
 
 

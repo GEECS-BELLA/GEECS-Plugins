@@ -41,31 +41,32 @@
     });
   }
 
-  // Stepping the scan number opens that scan (GEECSplotter's scan stepper).
-  // It waits out a pause, so typing "12" does not open scan 1 first and a
-  // held arrow key does not reload on every step.
-  // The next page puts the cursor back in the box, so the arrow keys keep
-  // stepping; the marker is per tab and best-effort (storage may be off).
+  // A stepped number box (the scan, a polynomial's order) submits after a
+  // pause, so typing "12" does not open scan 1 first and a held arrow key
+  // does not reload on every step. The next page puts the cursor back in
+  // the box it came from, so the arrow keys keep stepping; the marker
+  // (that box's id) is per tab and best-effort (storage may be off).
   const STEPPED = "geecs-plotter:stepped";
-  const scanBox = document.querySelector("[data-auto-open]");
-  if (scanBox) {
-    try {
-      if (sessionStorage.getItem(STEPPED)) {
-        sessionStorage.removeItem(STEPPED);
-        scanBox.focus();
-      }
-    } catch (_) { /* no storage: the stepper still works, one key at a time */ }
+  try {
+    const back = sessionStorage.getItem(STEPPED);
+    sessionStorage.removeItem(STEPPED);
+    if (back) document.getElementById(back)?.focus();
+  } catch (_) { /* no storage: the stepper still works, one key at a time */ }
+  function stepper(box, ready) {
     let pending = null;
-    scanBox.addEventListener("input", () => {
+    box.addEventListener("input", () => {
       clearTimeout(pending);
       pending = setTimeout(() => {
-        if (scanBox.value && scanBox.checkValidity() && form.elements.day.value) {
-          try { sessionStorage.setItem(STEPPED, "1"); } catch (_) { /* see above */ }
+        if (box.value && box.checkValidity() && ready()) {
+          try { sessionStorage.setItem(STEPPED, box.id); } catch (_) { /* see above */ }
           form.requestSubmit();
         }
       }, AUTO_OPEN_MS);
     });
   }
+  // Stepping the scan number opens that scan (GEECSplotter's scan stepper).
+  const scanBox = document.querySelector("[data-auto-open]");
+  if (scanBox) stepper(scanBox, () => Boolean(form.elements.day.value));
 
   // The two-way toggles (name | alias, X = scan variable): set the hidden
   // field and resubmit; the filters ride along in the form.
@@ -76,20 +77,11 @@
     });
   }
 
-  // The Fit menus save and redraw on a choice; the polynomial order waits
-  // out a pause, as the scan stepper does, so stepping 2 → 5 reloads once.
+  // The Fit menus save and redraw on a choice; the polynomial order is a
+  // stepper, so stepping 2 → 5 reloads once.
   for (const control of document.querySelectorAll("[data-submit-on-change]")) {
-    if (control.type === "number") {
-      let pending = null;
-      control.addEventListener("input", () => {
-        clearTimeout(pending);
-        pending = setTimeout(() => {
-          if (control.value && control.checkValidity()) form.requestSubmit();
-        }, AUTO_OPEN_MS);
-      });
-    } else {
-      control.addEventListener("change", () => form.requestSubmit());
-    }
+    if (control.type === "number") stepper(control, () => true);
+    else control.addEventListener("change", () => form.requestSubmit());
   }
 
   // Switching settings sets opens the other set; nothing is saved.

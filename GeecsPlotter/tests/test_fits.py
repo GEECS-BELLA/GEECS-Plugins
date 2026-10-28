@@ -140,6 +140,7 @@ class TestApi:
             "experiment='Testexp'", f"experiment='Testexp', base_path={str(share)!r}"
         )
         assert "orders=[1]" in code and "fits=fits" in code
+        assert "filter(None, fits)" in code  # no None printed for an unfitted list
         namespace: dict = {}
         exec(
             code.replace("fig.show()\n", "").replace("    print(fit)", "    pass"),
@@ -170,7 +171,13 @@ def test_a_shifted_polynomial_says_so_in_its_formula() -> None:
         (1.5, math.nan, "1.5"),
         (1.5, 0.0, "1.5"),
         (math.nan, 1.0, "undefined"),
-        (3.2e-9, 1.1e-10, "3.200e-09 ± 1.1e-10"),
+        (3.2e-9, 1.1e-10, "3.20e-09 ± 1.1e-10"),
+        # Review of #1175: an unconstrained term keeps its own digits...
+        (38.95, 3217.0, "39 ± 3200"),
+        (-0.4, 2.0e4, "-0.4 ± 20000"),
+        # ...and a large value keeps every digit its error makes meaningful.
+        (1234567.0, 5.0, "1234567.0 ± 5.0"),
+        (1.2345678e12, 3.3e9, "1.2346e+12 ± 3.3e+09"),
     ],
 )
 def test_plus_minus(value: float, stderr: float, text: str) -> None:
