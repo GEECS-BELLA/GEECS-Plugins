@@ -207,7 +207,8 @@ geecs_portal/
                  #   plot into a scan's logbook entry (HTTP only)
   figures.py     # server-side Plot-tab figure authoring (plotly.py):
                  #   palette, base layout, multi-axis ladder, display
-  resources.py   # (folder, device, shot) → PNG bytes / tiered refusal
+  resources.py   # figure_png (a shot's pixels, traces and PNG are
+                 #   geecs_data_utils.io.shot_images / .display_png)
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
@@ -216,7 +217,8 @@ geecs_portal/
   templates/     # base.html / day.html / run.html (Jinja2; every colour a GeecsWebTheme token)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)
-  test_resources.py  # tmp scan trees: gallery routes + tier ladder + union
+  test_resources.py  # tmp scan trees: gallery routes + union (the tier
+                     #   ladder's own tests: Data-Utils' test_shot_images.py)
   test_analysis_runs.py  # the run ladder over an injected fake analyzer
   test_logbook_link.py   # the run page's link to the logbook service; /log is not served here
   test_logbook_send.py   # the send: the conversation (fake logbook over an
@@ -460,10 +462,12 @@ fleet map (`docs/platform/fleet_map.md`) carries the service row and
 must move in the same PR as any deployment change.
 `geecs-data-portal --experiment <name>` serves directly for development.
 
-## The resource viewer (`resources.py`, arc phase 4)
+## The resource viewer (arc phase 4)
 
 (run, device, shot) → displayable image, per the Tier A/B/C ladder in
-`resources.py`.
+`geecs_data_utils.io.shot_images` (moved down from `resources.py` so the
+plotter resolves a shot the same way; the event-row joins are its
+`row_acq_timestamp` / `row_file_shot`, the PNG `io.display_png`).
 Since 0.12.0 the ladder resolves to raw pixels first
 (`load_shot_array` → `ShotArray`); `load_shot_image` is the
 render-one-shot wrapper over it, and per-bin averaging consumes the
@@ -492,7 +496,7 @@ every lookup — hit or miss — must leave the tree untouched (pinned in
 
 The same file plugin captures a device's **array** variables — scope
 traces and spectra — so a scan folder holds three kinds of stack through
-one layout. `resources.stack_content(probe)` names which a device has,
+one layout. `shot_images.stack_content(probe)` (Data-Utils) names which a device has,
 from the stack's own declaration (`stack_content_kind` in
 `geecs_data_utils.io.scan_stack`: the plugin writes `wave_*` attributes
 for an array variable and never for an image one, and **rank alone
@@ -501,7 +505,7 @@ readable array stack reads as `"image"`, so a damaged or unfamiliar
 stack degrades to the path the portal has always taken.
 
 For an array device the tab serves a **figure, not a PNG**:
-`load_shot_trace` → `ShotTrace` → `figures.trace_figure` →
+`shot_images.load_shot_trace` → `ShotTrace` → `figures.trace_figure` →
 `/api/run/{uid}/trace`. The two transports differ on purpose — a 2048²
 frame as JSON is absurd, a few thousand trace samples want the hover
 readout — and the split is keyed on the stack, never guessed in the

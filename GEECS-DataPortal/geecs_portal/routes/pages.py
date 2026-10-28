@@ -10,9 +10,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.requests import Request
 
 from geecs_data_utils import tiled_schema as schema_map
+from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_catalog import fmt_time_of_day, metadata_rows
 
-from geecs_portal import figures, resources
+from geecs_portal import figures
 from geecs_portal.routes.common import (
     _acq_timestamp,
     _file_shot,
@@ -150,16 +151,16 @@ def run_view(
     """
     detail = portal.load_run(uid)
     run_day, folder = _resolved_folder(detail, day)
-    devices = resources.image_devices(folder) if folder else []
+    devices = shot_images.image_devices(folder) if folder else []
     sel_device = device if device in devices else ""
     if sel_device:
         # Reuse the listing just computed — no second directory scan.
-        probe = resources.device_kind(folder, sel_device, devices=devices)
+        probe = shot_images.device_kind(folder, sel_device, devices=devices)
         kind, kind_path = probe.kind, probe.path
         # Pixels or x-vs-y: the stack says which, and the gallery
         # renders a line for the array kinds (an (n, 2) lineout
         # drawn as pixels is a two-pixel-wide strip).
-        content_kind = resources.stack_content(probe)
+        content_kind = shot_images.stack_content(probe)
     else:
         kind, kind_path = "", None
         content_kind = "image"
@@ -187,7 +188,7 @@ def run_view(
             acq_s, present = _acq_timestamp(warm_detail, warm_device, s)
             if acq_s is None:
                 return  # device missed the shot (or no column)
-            resources.load_shot_image(
+            shot_images.load_shot_image(
                 warm_folder,
                 warm_device,
                 s,

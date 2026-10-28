@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
+from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_catalog import metadata_rows
 
-from geecs_portal import analysis, resources
+from geecs_portal import analysis
 from geecs_portal.routes.common import (
     _LISTING_HEADERS,
     _jump_target,
@@ -131,7 +132,7 @@ def api_run(
         "stop_doc": analysis.jsonable_document(detail.stop_doc or {}),
         "event_rows": None if detail.data is None else len(detail.data),
         "scan_folder": str(folder) if folder else None,
-        "devices": resources.image_devices(folder) if folder else [],
+        "devices": shot_images.image_devices(folder) if folder else [],
         "neighbours": {"prev_uid": prev_uid, "next_uid": next_uid},
         "day_runs": [_summary_json(run) for run in day_runs],
         "prev_day": (run_day - timedelta(days=1)).isoformat() if run_day else None,
@@ -163,7 +164,7 @@ def api_device(
     run_day, folder = _resolved_folder(detail, day)
     if folder is None:
         raise HTTPException(status_code=404, detail="scan folder not resolvable")
-    probe = resources.device_kind(folder, device)
+    probe = shot_images.device_kind(folder, device)
     if probe.kind == "missing":
         raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
     renderable = probe.kind in ("stack", "native")

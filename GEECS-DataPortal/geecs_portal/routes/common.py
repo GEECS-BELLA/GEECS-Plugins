@@ -10,9 +10,10 @@ from urllib.parse import urlencode
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from geecs_data_utils import tiled_schema as schema_map
 from geecs_data_utils.data.binning import compute_bin_key
 from geecs_data_utils.data.row_filters import filter_mask
+from geecs_data_utils.io import shot_images
+from geecs_data_utils.io.display_png import safe_cmap, window_percentiles
 from geecs_data_utils.data.sfile import (
     read_sfile,
     scan_data_txt_path_for,
@@ -25,7 +26,7 @@ from geecs_data_utils.tiled_catalog import (
     resolve_scan_folder,
 )
 
-from geecs_portal import analysis, figures, resources
+from geecs_portal import analysis, figures
 
 
 def _portal_version() -> str:
@@ -115,69 +116,22 @@ def _sticky_query(state: dict, **overrides) -> str:
 def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], bool]:
     """The event row's ``acq_timestamp`` for *device* at 1-based *shot*.
 
-    Column matching goes through
-    :func:`geecs_data_utils.tiled_schema.device_acq_timestamp_column`
-    (schema-safe normalization — never re-derived here).
-
-    Returns
-    -------
-    tuple of (float or None, bool)
-        ``(value, column_present)``.  No column → ``(None, False)`` and
-        the resource layer may fall back to ordinal file order; column
-        present but the row invalid (NaN / non-positive: the device
-        missed this shot; or the device's ``valid`` companion false: its
-        frame belongs to a different physical shot, the row a scan run
-        maps no file for) → ``(None, True)`` — the caller must refuse
-        rather than serve a neighbouring shot's image.  The ``valid``
-        column is matched by
-        :func:`geecs_data_utils.tiled_schema.device_valid_column`.
+    :func:`geecs_data_utils.io.shot_images.row_acq_timestamp` over the
+    run's event table: ``(None, True)`` means the device missed the shot
+    and the caller must refuse rather than serve a neighbour's image.
     """
-    import math
-
-    frame = detail.data
-    if frame is None or shot < 1 or shot > len(frame):
-        return (None, False)
-    column = schema_map.device_acq_timestamp_column(
-        [str(c) for c in frame.columns], device
-    )
-    if column is None:
-        return (None, False)
-    valid = schema_map.device_valid_column([str(c) for c in frame.columns], device)
-    if valid is not None:
-        try:
-            if not bool(frame[valid].iloc[shot - 1]):
-                return (None, True)
-        except (TypeError, ValueError):  # pd.NA: unknown, not false
-            pass
-    try:
-        value = float(frame[column].iloc[shot - 1])
-    except (TypeError, ValueError):
-        return (None, True)
-    if not math.isfinite(value) or value <= 0:
-        return (None, True)
-    return (value, True)
+    return shot_images.row_acq_timestamp(detail.data, device, shot)
 
 
 def _file_shot(detail, shot: int, folder: Optional[Path] = None) -> Optional[int]:
     """The number in the row's shot-numbered file names, when it is not *shot*.
 
-    A scan-mode run's devices save ``ScanNNN_<device>_SSS`` under the shot
-    the run announced
-    (:func:`geecs_data_utils.tiled_schema.announced_shots`), which is not
-    always the row index.  ``None`` for every other run.  A scan-mode row
-    without a usable value gives ``0``, a number no file carries, so the
-    native tier misses rather than serving the row index's file.  A run
-    with no event table (the folder catalog's) reads the number from the
-    s-file in *folder*.
+    :func:`geecs_data_utils.io.shot_images.row_file_shot` over the event
+    table; a run with no event table (the folder catalog's) reads the
+    number from the s-file in *folder*.
     """
     frame = detail.data if detail.data is not None else _sfile_rows(folder)
-    if frame is None or shot < 1 or shot > len(frame):
-        return None
-    numbers = schema_map.announced_shots(frame)
-    if numbers is None:
-        return None
-    number = numbers.iloc[shot - 1]
-    return 0 if number != number else int(number)
+    return shot_images.row_file_shot(frame, shot)
 
 
 def _sfile_rows(folder: Optional[Path]):
@@ -317,8 +271,8 @@ def _figure_kwargs(render: dict) -> dict:
     plasma).
     """
     return {
-        "cmap": resources.safe_cmap(render.get("cmap")) or "gray",
-        "window": resources.window_percentiles(render.get("plo"), render.get("phi")),
+        "cmap": safe_cmap(render.get("cmap")) or "gray",
+        "window": window_percentiles(render.get("plo"), render.get("phi")),
     }
 
 
@@ -377,6 +331,6 @@ def _image_folder(detail, day: str, device: str):
     folder = resolve_scan_folder(detail, run_day) if run_day else None
     if folder is None:
         raise HTTPException(status_code=404, detail="scan folder not resolvable")
-    if device not in resources.image_devices(folder):
+    if device not in shot_images.image_devices(folder):
         raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
     return folder, (run_day.isoformat() if run_day else None)
