@@ -76,6 +76,22 @@
     });
   }
 
+  // The Fit menus save and redraw on a choice; the polynomial order waits
+  // out a pause, as the scan stepper does, so stepping 2 → 5 reloads once.
+  for (const control of document.querySelectorAll("[data-submit-on-change]")) {
+    if (control.type === "number") {
+      let pending = null;
+      control.addEventListener("input", () => {
+        clearTimeout(pending);
+        pending = setTimeout(() => {
+          if (control.value && control.checkValidity()) form.requestSubmit();
+        }, AUTO_OPEN_MS);
+      });
+    } else {
+      control.addEventListener("change", () => form.requestSubmit());
+    }
+  }
+
   // Switching settings sets opens the other set; nothing is saved.
   for (const choice of document.querySelectorAll("[data-switch-set]")) {
     choice.addEventListener("change", () => choice.form.submit());
@@ -178,6 +194,43 @@
     const fig = resolveThemeTokens(JSON.parse(JSON.stringify(figure)));
     Plotly.react(host, fig.data, fig.layout, PLOT_CONFIG);
   }
+  // The fits' numbers under the plot: one table per fitted Y list, keyed
+  // by its swatch, each number with its standard error.
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function showFits(fits) {
+    const box = document.getElementById("fits");
+    if (!box) return;
+    box.replaceChildren(...fits.map((fit) => {
+      const block = element("section", "fit");
+      const head = element("div", "row fit-head");
+      head.append(element("span", `swatch t${fit.slot}`), element("strong", "", `Y${fit.slot === 1 ? "" : fit.slot} ${fit.label} fit`));
+      if (fit.formula) head.append(element("span", "dim mono", fit.formula));
+      block.append(head);
+      if (fit.error) {
+        block.append(element("p", "fit-error", fit.error));
+        return block;
+      }
+      const table = element("table");
+      const body = element("tbody");
+      const row = (name, text) => {
+        const tr = element("tr");
+        tr.append(element("td", "id", name), element("td", "num", text));
+        body.append(tr);
+      };
+      for (const term of fit.terms) row(term.name, term.text);
+      row("r²", fit.r2 === null ? "undefined" : fit.r2.toFixed(4));
+      row("points", String(fit.points));
+      table.append(body);
+      block.append(table);
+      for (const note of fit.notes) block.append(element("p", "hint", note));
+      return block;
+    }));
+  }
   function fail(message) {
     state.dataset.state = "error";
     state.querySelector(".t").textContent = message;
@@ -190,6 +243,7 @@
       figure = body.figure;
       state.hidden = true;
       document.getElementById("code").textContent = body.code;
+      showFits(body.fits || []);
       draw();
     })
     .catch((error) => fail(String(error)));

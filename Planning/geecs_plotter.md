@@ -41,7 +41,7 @@ The table reports what is recorded there.
 | "cf file" sub-tab | drop (owner, 2026-10-26) | not built |
 | Binned plot: bin by `Bin #`, median centre, quartile bars | keep (flagship) | M2; `BinningConfig(agg="median", err="iqr")` |
 | Fixed/auto bin interval; use-bin#, same-scale, subtract-mean | keep / adapt | `bin_width` / `bin_edges`; toggles behind a settings popup; subtract-mean = a data-utils transform |
-| Fitting, "gauss prop", peak/valley | defer | not in M1–M5 |
+| Fitting, "gauss prop", peak/valley | defer; **fitting pulled in by the author, 2026-10-27** | the Fit menu per Y list ("Fitting" below); gauss prop, peak/valley still deferred |
 | triple/double/single/errors/**data** sub-tabs; export to Origin / txt | adapt | multi-Y; the data sub-tab = a table + CSV + the notebook snippet |
 | Overview: per-bin averaged images (xcorr align); Intensity: trace waterfall | keep (later), xcorr defer; waterfall rastered, colour = intensity | images out of scope here; M3's heatmap is the trace step |
 | Setup · 3D graph · stats · XY Graphs · MultiScan · Analysis tabs | owner, 2026-10-26: Setup, 3D graph, stats, XY Graphs, MultiScan used; Analysis not | the used five need a milestone each after M5; Analysis dropped |
@@ -179,7 +179,7 @@ Everything here is in GEECS-Data-Utils and needs pandas only, no Tiled.
 ## Out of scope
 
 Tiled and the Bluesky side; images and per-bin averaged images; traces
-beyond M3's heatmap; fitting; cross-scan merging; Origin export; logbook
+beyond M3's heatmap; cross-scan merging; Origin export; logbook
 posting; portal integration; deployment, systemd units and the docs page; kHz data.
 
 ## Settings sets (built 2026-10-27)
@@ -220,6 +220,24 @@ integration branch first, and the milestone order need not hold.
   imported from it if it is readable.
 - **For the maintainer:** whether `PlotterSettings` stays in
   GeecsPlotter (one surface's state) or moves to GEECS-Schemas.
+
+## Fitting (ruled in 2026-10-27)
+
+**The author asked for GEECSplotter's Fit menu; this overrides "Out of
+scope" above, for the maintainer to confirm.** The author's answers:
+
+- **A fit per Y list** (Y, Y2, Y3 each pick their own, `None` by default),
+  drawn dashed in that list's colour, its parameters with standard errors
+  listed under the plot; every choice saved in the settings set.
+- **Fitted to the per-shot points**, unweighted; the errors are the
+  residual-scaled covariance's.
+- **Gaussian** in σ (FWHM beside it); **SuperGaussian**
+  `A·exp(-(|x-x0|/w)^p) + C` with `p` free; **Polynomial** of a chosen
+  order. Each Gaussian kind has its NoOffset twin, as in LabVIEW.
+- The math is `geecs_data_utils.data.curve_fit` (its own PR first, #1174).
+- **Still to come**, each a model in data-utils then a menu entry:
+  Lorentzian, Lorentzian w slope, Boltzmann, Exp Growth, Extreme (e.g.
+  discharge current), Sine ("not yet" in LabVIEW too).
 
 ## The prompt to paste
 

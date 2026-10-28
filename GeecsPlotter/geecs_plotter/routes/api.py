@@ -8,17 +8,25 @@ frame and figure.
 
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Any, Callable, Optional, Sequence, Union
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from geecs_data_utils.data.curve_fit import CurveFit
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from geecs_plotter import figures, scans
 from geecs_plotter.routes import Context, read_form
-from geecs_plotter.settings import PlotterSettings, SettingsError, merged, set_name
+from geecs_plotter.settings import (
+    MAX_FIT_ORDER,
+    PlotterSettings,
+    SettingsError,
+    merged,
+    set_name,
+)
 
 #: The s-file grows after a scan (analysis appends columns), so no answer
 #: is cached.
@@ -41,6 +49,35 @@ class SetsResponse(BaseModel):
     sets: list[str]
 
 
+class FitTerm(BaseModel):
+    """One fitted or derived number, its standard error, and both as text."""
+
+    name: str
+    #: ``None`` where undefined (NaN is not JSON).
+    value: Optional[float]
+    stderr: Optional[float]
+    #: ``value ± stderr`` rounded to the error's second significant figure.
+    text: str
+
+
+class FitResult(BaseModel):
+    """One Y list's fit, as the page lists it under the plot."""
+
+    #: 1, 2 or 3: the Y list (and its trace colour).
+    slot: int
+    column: str
+    model: str
+    #: GEECSplotter's name for the model (``figures.FITS``).
+    label: str
+    formula: str = ""
+    #: Why no fit was made; ``None`` when it was.
+    error: Optional[str] = None
+    r2: Optional[float] = None
+    points: int = 0
+    terms: list[FitTerm] = []
+    notes: list[str] = []
+
+
 class FigureResponse(BaseModel):
     """One plot: the figure JSON and the snippet that reproduces it."""
 
@@ -53,6 +90,84 @@ class FigureResponse(BaseModel):
     # The plotly figure JSON: the one free dict in a response (the brief).
     figure: dict[str, Any]
     code: str
+    #: One per Y list with a fit picked, in slot order.
+    fits: list[FitResult] = []
+
+
+#: Each model's curve, in its parameters' names (polynomial: see ``_formula``).
+FORMULAS = {
+    "gaussian": "amplitude·exp(−(x − center)² / (2·sigma²)) + offset",
+    "gaussian_no_offset": "amplitude·exp(−(x − center)² / (2·sigma²))",
+    "supergaussian": "amplitude·exp(−(|x − center| / width)^power) + offset",
+    "supergaussian_no_offset": "amplitude·exp(−(|x − center| / width)^power)",
+}
+
+
+def _formula(fit: CurveFit) -> str:
+    if fit.model != "polynomial":
+        return FORMULAS.get(fit.model, "")
+    terms = ["c0", "c1·x", *(f"c{k}·x^{k}" for k in range(2, (fit.order or 0) + 1))]
+    return " + ".join(terms[: (fit.order or 0) + 1])
+
+
+def _finite(value: float) -> Optional[float]:
+    return value if math.isfinite(value) else None
+
+
+def plus_minus(value: float, stderr: float) -> str:
+    """``value ± stderr``, both rounded to the error's second significant figure.
+
+    No usable error (NaN, zero) shows the value to four significant
+    figures; magnitudes past 1e±5 are written in exponent form.
+    """
+    if not math.isfinite(value):
+        return "undefined"
+    if not math.isfinite(stderr) or stderr <= 0:
+        return f"{value:.4g}"
+    exponent = math.floor(math.log10(stderr))
+    if abs(exponent) > 5 or abs(value) >= 1e6:
+        return f"{value:.3e} ± {stderr:.1e}"
+    decimals = 1 - exponent
+    if decimals >= 0:
+        return f"{value:.{decimals}f} ± {stderr:.{decimals}f}"
+    step = 10.0 ** (-decimals)
+    return f"{round(value / step) * step:.0f} ± {round(stderr / step) * step:.0f}"
+
+
+def fit_result(
+    slot: int, column: str, model: str, fit: Optional[CurveFit]
+) -> FitResult:
+    """The page's view of one fit; *fit* ``None`` is a model this copy lacks."""
+    label = figures.FITS.get(model, model)
+    if fit is None:
+        return FitResult(
+            slot=slot,
+            column=column,
+            model=model,
+            label=label,
+            error=f"this plotter has no fit called {model!r}",
+        )
+    terms = [
+        FitTerm(
+            name=p.name,
+            value=_finite(p.value),
+            stderr=_finite(p.stderr),
+            text=plus_minus(p.value, p.stderr),
+        )
+        for p in (*fit.parameters, *fit.derived)
+    ]
+    return FitResult(
+        slot=slot,
+        column=column,
+        model=model,
+        label=label,
+        formula=_formula(fit),
+        error=fit.error,
+        r2=_finite(fit.r2),
+        points=fit.points,
+        terms=terms,
+        notes=fit.notes,
+    )
 
 
 def figure_code(
@@ -63,8 +178,10 @@ def figure_code(
     experiment: str = "",
     x_label: Optional[str] = None,
     y_labels: Sequence[Optional[str]] = (),
+    fits: Sequence[Optional[str]] = (),
+    orders: Sequence[int] = (),
 ) -> str:
-    """The notebook snippet that rebuilds the frame and the figure.
+    """The notebook snippet that rebuilds the frame, the fits and the figure.
 
     Parameters
     ----------
@@ -82,6 +199,10 @@ def figure_code(
         The X title the alias toggle chose, when not the column name.
     y_labels : Sequence[str or None], optional
         The same for each Y axis.
+    fits : Sequence[str or None], optional
+        The fit per Y slot (``figures.FITS`` keys); none named, no fit code.
+    orders : Sequence[int], optional
+        The polynomial order per slot.
 
     Returns
     -------
@@ -101,14 +222,25 @@ def figure_code(
             if len(ys) == 1
             else f", y_labels={list(y_labels)!r}"
         )
+    fitting = ""
+    fit_arg = ""
+    if any(f and f != "none" for f in fits):
+        models = [f if f and f != "none" else None for f in fits]
+        order_arg = f", orders={list(orders)!r}" if "polynomial" in models else ""
+        fitting = (
+            f"fits = figures.fit_columns(series, {ys!r}, {models!r}{x_arg},"
+            f" shot=scans.shot_axis(frame){order_arg})\n"
+        )
+        fit_arg = ", fits=fits"
     return (
         "from datetime import date\n"
         "from geecs_plotter import figures, scans\n\n"
         f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
         "frame = scans.load_frame(run)\n"
         f"series = scans.plot_series(frame, {names!r})\n"
-        f"fig = figures.shots_figure(series, {y_arg}{x_arg}, shot=scans.shot_axis(frame){labels})\n"
-        "fig.show()\n"
+        f"{fitting}"
+        f"fig = figures.shots_figure(series, {y_arg}{x_arg}, shot=scans.shot_axis(frame){labels}{fit_arg})\n"
+        "fig.show()\n" + ("for fit in fits:\n    print(fit)\n" if fitting else "")
     )
 
 
@@ -140,6 +272,12 @@ def register(router: APIRouter, ctx: Context) -> None:
         yalias: bool = Query(default=True, description="title Y with its alias"),
         y2alias: bool = Query(default=True, description="title Y2 with its alias"),
         y3alias: bool = Query(default=True, description="title Y3 with its alias"),
+        yfit: str = Query(default="none", description="the fit on Y (figures.FITS)"),
+        y2fit: str = Query(default="none", description="the fit on Y2"),
+        y3fit: str = Query(default="none", description="the fit on Y3"),
+        yorder: int = Query(default=2, ge=0, le=MAX_FIT_ORDER),
+        y2order: int = Query(default=2, ge=0, le=MAX_FIT_ORDER),
+        y3order: int = Query(default=2, ge=0, le=MAX_FIT_ORDER),
     ) -> JSONResponse:
         """The per-shot figure of ``y`` (and ``y2``, ``y3``) against ``x``."""
         frame = scans.load_frame(ctx.run(day, scan))
@@ -161,15 +299,30 @@ def register(router: APIRouter, ctx: Context) -> None:
         # A title only where the toggle changes it, so the snippet stays bare.
         x_label = _changed(x, xalias) if x else None
         y_labels = [_changed(c, alias) if c else None for c, alias in axes]
+        # A fit only on a list that is drawn; a name this copy lacks (a
+        # newer copy saved it) is reported, not fitted.
+        asked = [m if c else "none" for c, m in zip(ys, (yfit, y2fit, y3fit))]
+        known = [m if m in figures.FITS else "none" for m in asked]
+        orders = [yorder, y2order, y3order][: len(ys)]
+        shot = scans.shot_axis(frame)
+        fits = figures.fit_columns(
+            series, ys, known, x=x or None, shot=shot, orders=orders
+        )
         fig = figures.shots_figure(
             series,
             ys,
             x=x or None,
-            shot=scans.shot_axis(frame),
+            shot=shot,
             x_label=x_label,
             y_labels=y_labels,
+            fits=fits,
             palette=figures.THEMED_PALETTE,
         )
+        results = [
+            fit_result(i + 1, c, m, fit)
+            for i, (c, m, fit) in enumerate(zip(ys, asked, fits))
+            if c and m != "none"
+        ]
         body = FigureResponse(
             x=x,
             y=y,
@@ -178,8 +331,17 @@ def register(router: APIRouter, ctx: Context) -> None:
             shots=len(frame),
             figure=figures.page_figure(fig),
             code=figure_code(
-                day, scan, ys, x or None, ctx.experiment, x_label, y_labels
+                day,
+                scan,
+                ys,
+                x or None,
+                ctx.experiment,
+                x_label,
+                y_labels,
+                fits=known,
+                orders=orders,
             ),
+            fits=results,
         )
         return _json(body)
 
