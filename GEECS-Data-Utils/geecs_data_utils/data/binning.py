@@ -196,6 +196,50 @@ def compute_bin_key(
     return labels, f"{src} (binned)"
 
 
+def bin_rows(
+    frame: "pd.DataFrame", cfg: Optional[BinningConfig] = None
+) -> "list[tuple[object, tuple[int, ...]]]":
+    """Each bin's label and its rows, by position, in bin order.
+
+    The membership :func:`bin_frame` aggregates: :func:`compute_bin_key`'s
+    labels, rows with no label (an empty ``Bin #``) kept as a bin of their
+    own (last), and ``min_count`` applied to the rows per bin. A viewer
+    that shows one thing per bin (an averaged image) uses this, so its
+    bins are the binned plot's.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The rows to bin, one per shot.
+    cfg : BinningConfig, optional
+        The binning; the default bins by ``Bin #``.
+
+    Returns
+    -------
+    list of (object, tuple of int)
+        Per bin, its label (NaN for the unlabelled rows) and its 1-based
+        row positions in *frame*.
+
+    Raises
+    ------
+    KeyError
+        When ``cfg.bin_col`` is absent.
+    """
+    import numpy as np
+    import pandas as pd
+
+    cfg = cfg or BinningConfig()
+    labels, _ = compute_bin_key(frame, cfg)
+    positions = pd.Series(np.arange(1, len(frame) + 1), index=frame.index)
+    return [
+        (label, tuple(int(r) for r in group))
+        for label, group in positions.groupby(
+            labels, dropna=False, observed=True, sort=True
+        )
+        if cfg.min_count <= 1 or len(group) >= cfg.min_count
+    ]
+
+
 def _select_value_cols(frame: "pd.DataFrame", cfg: BinningConfig) -> "list[str]":
     import numpy as np
 

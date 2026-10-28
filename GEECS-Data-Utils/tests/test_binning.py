@@ -259,3 +259,17 @@ class TestScanDataCompat:
         assert isinstance(binned.columns, pd.MultiIndex)
         assert ("count", "center") in binned.columns
         assert len(binned) == 0
+
+
+def test_bin_rows_are_positions_with_the_unlabelled_rows_last():
+    """An empty Bin # is a bin of its own, as bin_frame aggregates it."""
+    from geecs_data_utils.data.binning import BinningConfig, bin_rows
+
+    frame = pd.DataFrame({"Bin #": [2, 1, np.nan, 2, 1]}, index=[10, 11, 12, 13, 14])
+    found = bin_rows(frame)
+    assert [(lbl, rows) for lbl, rows in found[:2]] == [(1.0, (2, 5)), (2.0, (1, 4))]
+    assert np.isnan(found[2][0]) and found[2][1] == (3,)
+    assert [rows for _, rows in bin_rows(frame, BinningConfig(min_count=2))] == [
+        (2, 5),
+        (1, 4),
+    ]

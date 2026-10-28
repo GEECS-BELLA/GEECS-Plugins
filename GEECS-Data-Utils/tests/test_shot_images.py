@@ -30,10 +30,12 @@ from geecs_data_utils.io.scan_stack import (
     TIMESTAMPS_DATASET,
 )
 from geecs_data_utils.io.shot_images import (
+    average_rows,
     device_kind,
     image_devices,
     load_shot_array,
     load_shot_image,
+    load_row_array,
     load_shot_trace,
     row_acq_timestamp,
     row_file_shot,
@@ -370,6 +372,42 @@ class TestArrayStacks:
     def test_an_image_device_has_no_trace(self, scan_folder):
         trace = load_shot_trace(scan_folder, "UC_StackCam", 1)
         assert trace.kind == "missing" and trace.result is None
+
+
+class TestRows:
+    """A table row picks the file; a bin's rows average; refusals stay so."""
+
+    def test_a_row_reads_its_timestamped_file(self, scan_folder):
+        frame = pd.DataFrame({"cam-acq_timestamp": [_LV + 1.0, _LV + 2.0]})
+        found = load_row_array(scan_folder, frame, "cam", 2)
+        assert found.path.name == f"cam_{_LV + 2.0:.3f}.png"
+
+    def test_a_missed_shot_and_a_row_past_the_table_are_refused(self, scan_folder):
+        frame = pd.DataFrame({"cam-acq_timestamp": [_LV + 1.0, float("nan")]})
+        assert load_row_array(scan_folder, frame, "cam", 2).reason == (
+            "the device missed this shot"
+        )
+        assert "no shot 3" in load_row_array(scan_folder, frame, "cam", 3).reason
+
+    def test_the_announced_shot_can_come_from_another_table(self, scan_folder):
+        sfile = pd.DataFrame({"announced_shot": [2.0]})
+        found = load_row_array(scan_folder, None, "UC_TestCam", 1, file_frame=sfile)
+        assert found.path.name == "Scan002_UC_TestCam_002.png"
+
+    def test_rows_average_and_a_missing_row_is_left_out(self, scan_folder):
+        frame = pd.DataFrame(
+            {"cam-acq_timestamp": [_LV + 1.0, _LV + 2.0, _LV + 7.0]}  # 3 has no file
+        )
+        averaged = average_rows(scan_folder, frame, "cam", (1, 2, 3))
+        assert averaged.kind == "native"
+        # Shots 1 and 2 mark (0, 1) and (0, 2) with 1000: half each.
+        assert averaged.array[0, 1] == averaged.array[0, 2] == 500.0
+        alone = average_rows(scan_folder, frame, "cam", (3,))
+        assert alone.array is None and "not found" in alone.reason
+
+    def test_a_vendor_device_is_refused_at_once(self, scan_folder):
+        found = average_rows(scan_folder, None, "U_HasoWFS", (1, 2))
+        assert found.kind == "vendor"
 
 
 class TestDisplayPng:
