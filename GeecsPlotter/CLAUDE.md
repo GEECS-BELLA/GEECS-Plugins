@@ -15,7 +15,9 @@ geecs_plotter/
   scans.py      # find a scan folder, read its s-file: GEECS-Data-Utils calls only
   figures.py    # pure: columns in, plotly Figure out (copied from the portal)
   settings.py   # named settings sets: PlotterSettings, one JSON file per set, the folder
-  routes/       # Context (+ the 404 for a missing scan); pages.py (HTML), api.py (JSON)
+  images.py     # the image strip: devices, tiles (per bin / per shot), a tile's pixels (data-utils calls)
+  routes/       # Context (+ the 404 for a missing scan); pages.py (HTML), api.py (JSON),
+                #   images.py (the strip's JSON and each tile's PNG)
   templates/    # index.html, on the kit
   static/       # plotter.js, plotter.css, the vendored plotly-cartesian-3.1.1.min.js (MIT)
 tests/          # pytest over a fake share in tmp_path (conftest.py)
@@ -91,6 +93,49 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
   ("not in this version"); the API reports it instead of fitting. A new
   model is a data-utils PR first (its curve and `CurveFit.formula` live
   there), then a `FITS` entry here.
+- **Images** are GEECSplotter's image strip, the Images tab (`tab`;
+  the brief's "Images"). A tile is one shot's image or its bin's average
+  (`geecs_data_utils.data.binning.bin_rows` over the WHOLE s-file, an
+  empty `Bin #` a bin of its own; a filter goes in as its `mask`, never
+  as a filtered frame, whose positions would name other shots), laid out
+  as a grid or one row
+  (`image_layout`, `image_columns`). The ladder, the refusals, the trace
+  check and the per-row average are `geecs_data_utils.io.shot_images`
+  (`average_rows`; the plotter writes no loop of its own; the portal's
+  `run_bin_image` still has its own, to move onto these), the PNG
+  `io.display_png` (the colour map needs matplotlib, a dependency here). A shot is an s-file
+  row: a row that says the device missed it, or a missing file, gives no
+  image, and is left out of its bin's average, **never a neighbour's
+  image**. The picker lists every device folder with ONE listing, and only
+  the picked one is probed (`images.is_image_device`): probing a scan's
+  ~70 folders costs tens of seconds cold over the share, so a set with no
+  camera saved asks for one rather than search. Each tile is an
+  `<img loading="lazy">` on `/api/images/tile.png`, so each tile and
+  each per-tile z scale reads only what scrolls into view; tiles across, the colour map and
+  the levels redraw in place and save as typed; device, tiles and layout
+  reload. `/api/images/strip` returns the tiles and the `code` snippet.
+  The **z scale** (`image_zscale`) is LabVIEW's autoscale: each tile
+  from its own darkest to its brightest pixel, every tile on one scale
+  from the darkest to the brightest pixel of all ("shared":
+  `images.shared_levels`, from `/api/images/levels`, which reads EVERY
+  tile first, the whole scan for a strip of shots: the author's ruling,
+  and the page says so), or black and white typed in ("fixed"; white not
+  above black is shown as a problem); the last two reach
+  the tile as `zmin`/`zmax`, drawn by `to_display_png(levels=)`. There is
+  **no percentile window** (the portal's 1–99.7): a laser mode is a small
+  spot, the top fraction of its ROI, and a percentile white saturates it
+  (the author's ruling, 2026-10-28). The **ROI** is kept per camera
+  (`image_rois`, `[x0, y0, x1, y1]` pixels, end excluded), drawn in a
+  rung-2 drawer on the first tile, and applies to every tile and to the
+  shared scale; `merged` takes it with the camera's name (`roi` + `device`),
+  so picking another camera never carries one camera's ROI to the next.
+  Tiles are kept in memory (`images.kept_tile_array`, at most
+  `_KEPT_BYTES`, keyed by the camera folder's mtime and the table's
+  length) so the shared scale and the draw read a file once while the
+  strip fits; a tile with no image is kept as its reason for
+  `_REFUSAL_SECONDS` only, so the page's ask for why does not search the
+  share again, and a passing failure (a share blip, a file still being
+  written) is never made permanent.
 - **Replacing a saved set** is Save as onto its name (the box offers the
   saved names): `plotter.js` asks in a rung-3 `<dialog>` (focus on "Keep
   it"), whose Replace posts `overwrite=true`; without it the server
@@ -112,5 +157,6 @@ tests/          # pytest over a fake share in tmp_path (conftest.py)
 
 ## Out of scope
 
-See the brief: Tiled, images, cross-scan merging, deployment. (Fitting
-left this list on the author's ruling, 2026-10-27: the brief records it.)
+See the brief: Tiled, cross-scan merging, deployment. (Fitting and
+images left this list on the author's rulings, 2026-10-27: the brief
+records them.)

@@ -43,7 +43,7 @@ The table reports what is recorded there.
 | Fixed/auto bin interval; use-bin#, same-scale, subtract-mean | keep / adapt | `bin_width` / `bin_edges`; toggles behind a settings popup; subtract-mean = a data-utils transform |
 | Fitting, "gauss prop", peak/valley | defer; **fitting pulled in by the author, 2026-10-27** | the Fit menu per Y list ("Fitting" below); gauss prop, peak/valley still deferred |
 | triple/double/single/errors/**data** sub-tabs; export to Origin / txt | adapt | multi-Y; the data sub-tab = a table + CSV + the notebook snippet |
-| Overview: per-bin averaged images (xcorr align); Intensity: trace waterfall | keep (later), xcorr defer; waterfall rastered, colour = intensity | images out of scope here; M3's heatmap is the trace step |
+| Overview: per-bin averaged images (xcorr align); Intensity: trace waterfall | keep (later), xcorr defer; waterfall rastered, colour = intensity; **images pulled in by the author, 2026-10-27** | the Images tab ("Images" below); xcorr still deferred; M3's heatmap is the trace step |
 | Setup · 3D graph · stats · XY Graphs · MultiScan · Analysis tabs | owner, 2026-10-26: Setup, 3D graph, stats, XY Graphs, MultiScan used; Analysis not | the used five need a milestone each after M5; Analysis dropped |
 
 Two numbers to pin from the LabVIEW source, which you have: the binned centre
@@ -178,7 +178,7 @@ Everything here is in GEECS-Data-Utils and needs pandas only, no Tiled.
 
 ## Out of scope
 
-Tiled and the Bluesky side; images and per-bin averaged images; traces
+Tiled and the Bluesky side; traces
 beyond M3's heatmap; cross-scan merging; Origin export; logbook
 posting; portal integration; deployment, systemd units and the docs page; kHz data.
 
@@ -255,3 +255,32 @@ Nothing may need Tiled. Use a worktree under .claude/worktrees/, run
 a per-concern line count in the body. Do not merge. Ask me the "cf file"
 and unknown-tabs questions from the table in the first session.
 ```
+
+## Images (ruled in 2026-10-27)
+
+**The author asked for GEECSplotter's image views; this overrides "Out of
+scope" above, for the maintainer to confirm.** The author's answers:
+
+- **A movie strip** of one camera's images, a tile per shot or per bin
+  (the bin's shots averaged), laid out as one row or as a grid.
+- **Browsing** by a device picker, a shot stepper, a bin stepper, and by
+  clicking a point on the XY plot.
+- **Toward automation:** a layout with any number of cameras, which can be
+  exported as a GIF.
+
+Built in slices, each a PR into `users/ajgonsalves`:
+
+1. The shot ladder, the trace check and the display PNG move from the
+   portal into GEECS-Data-Utils (`io.shot_images`, `io.display_png`,
+   #1177).
+2. An **Images tab**: a camera picker; a strip of bin averages or of
+   shots; grid or one row, with N tiles across; false-colour maps; an
+   ROI per camera, dragged on the image; a z scale that is each tile's
+   own darkest-to-brightest pixel, one scale shared by every tile (the
+   brightest tile sets white), or fixed values (the author, 2026-10-28:
+   LabVIEW's autoscale, never a percentile window, which saturates a
+   laser mode). Every control is saved in the settings set. Tiles load
+   lazily, one PNG each.
+3. Still to come: a large view with shot and bin steppers, clicking a
+   plot point to open its shot, several cameras in one layout, GIF
+   export.

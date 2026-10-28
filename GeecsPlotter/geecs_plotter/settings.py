@@ -20,6 +20,7 @@ from __future__ import annotations
 import configparser
 import contextlib
 import json
+import math
 import os
 import re
 import tempfile
@@ -35,6 +36,17 @@ MAX_Y_LISTS = 3
 
 #: The highest polynomial order the Fit's order box takes.
 MAX_FIT_ORDER = 10
+
+#: The most image tiles across.
+MAX_IMAGE_COLUMNS = 20
+
+#: The choices of the tab and image controls, as stored.
+CHOICES: dict[str, tuple[str, ...]] = {
+    "tab": ("xy", "images"),
+    "image_strip": ("bins", "shots"),
+    "image_layout": ("grid", "row"),
+    "image_zscale": ("tile", "shared", "fixed"),
+}
 
 #: A fit name as stored: GEECSplotter's Fit menu (``figures.FITS``) or one
 #: a newer copy offers, kept rather than refused (see ``extra`` below).
@@ -122,6 +134,31 @@ class PlotterSettings(BaseModel):
     #: the plotter) goes back to it, as LabVIEW reopens its last file.
     day: Optional[date] = None
     scan: Optional[int] = None
+    #: The tab shown: the XY plot or the image strip.
+    tab: str = "xy"
+    #: The image strip: its camera (``None``: the scan's first), the device
+    #: list's filter, one tile per bin or per shot, a single row or a grid,
+    #: tiles across, and the display (colour map and percentile window).
+    image_device: Optional[str] = None
+    image_device_filter: str = ""
+    image_strip: str = "bins"
+    image_layout: str = "grid"
+    image_columns: int = Field(default=5, ge=1, le=MAX_IMAGE_COLUMNS)
+    #: A matplotlib name; one this copy does not know draws greyscale.
+    image_cmap: str = "gray"
+    #: The z scale, LabVIEW's autoscale: each tile from its own darkest to
+    #: its brightest pixel ("tile"), every tile on one scale from the
+    #: darkest to the brightest pixel of all of them ("shared"), or the
+    #: black and white values below ("fixed"). No percentile window: a
+    #: laser mode is a small spot, and any top-percentile white saturates
+    #: it. (Sets saved with ``image_plo``/``image_phi`` keep them as
+    #: unused extras.)
+    image_zscale: str = "tile"
+    image_zmin: Optional[float] = None
+    image_zmax: Optional[float] = None
+    #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
+    #: (x right, y down, the end excluded); a camera not here is whole.
+    image_rois: dict[str, list[int]] = Field(default_factory=dict)
 
 
 def set_name(name: str) -> str:
@@ -316,6 +353,16 @@ FORM_FIELDS = {
     "y3order": "y3_fit_order",
     "day": "day",
     "scan": "scan",
+    "tab": "tab",
+    "device": "image_device",
+    "devf": "image_device_filter",
+    "strip": "image_strip",
+    "layout": "image_layout",
+    "cols": "image_columns",
+    "cmap": "image_cmap",
+    "zscale": "image_zscale",
+    "zmin": "image_zmin",
+    "zmax": "image_zmax",
 }
 
 _BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
@@ -327,7 +374,14 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
     "y_fit_order": (0, MAX_FIT_ORDER),
     "y2_fit_order": (0, MAX_FIT_ORDER),
     "y3_fit_order": (0, MAX_FIT_ORDER),
+    "image_columns": (1, MAX_IMAGE_COLUMNS),
 }
+
+#: The fixed z-scale values: any finite number, or empty for none.
+_LEVELS = ("image_zmin", "image_zmax")
+
+#: A colour-map name as stored (matplotlib's names are of this shape).
+_CMAP_NAME = re.compile(r"[A-Za-z0-9_]{1,40}")
 
 
 def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
@@ -341,7 +395,36 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
         for field, key in FORM_FIELDS.items()
         if field in form and not (key in ("day", "scan") and not form[field])
     }
+    if "roi" in form:
+        device = changes.get("image_device") or settings.image_device
+        if device:
+            rois = dict(settings.image_rois)
+            roi = roi_value(form["roi"])
+            if roi is None:
+                rois.pop(device, None)
+            else:
+                rois[device] = roi
+            changes["image_rois"] = rois
     return settings.model_copy(update=changes)
+
+
+def roi_value(text: str) -> Optional[list[int]]:
+    """``"x0,y0,x1,y1"`` as pixels, ``None`` for ``""`` (the whole image).
+
+    Raises
+    ------
+    SettingsError
+        Not four whole numbers, a negative one, or an empty region.
+    """
+    if not text.strip():
+        return None
+    try:
+        x0, y0, x1, y1 = (int(v) for v in text.split(","))
+    except ValueError:
+        raise SettingsError(f"roi={text!r}: must be four whole numbers") from None
+    if min(x0, y0) < 0 or x1 <= x0 or y1 <= y0:
+        raise SettingsError(f"roi={text!r}: must be x0,y0,x1,y1 with x0 < x1, y0 < y1")
+    return [x0, y0, x1, y1]
 
 
 def form_value(field: str, value: str) -> object:
@@ -368,8 +451,26 @@ def _form_value(field: str, key: str, value: str) -> object:
                     else f"must be {low} to {high}"
                 )
             return number
-        if key.endswith("_fit") and not _FIT_NAME.fullmatch(value):
-            raise ValueError("is not a fit name")
+        return _text_value(key, value)
     except ValueError as exc:
         raise SettingsError(f"{field}={value!r}: {exc}") from None
+
+
+def _text_value(key: str, value: str) -> object:
+    """A fit, choice, percentile, colour-map or device field; ``ValueError`` if bad."""
+    if key.endswith("_fit") and not _FIT_NAME.fullmatch(value):
+        raise ValueError("is not a fit name")
+    if key in CHOICES and value not in CHOICES[key]:
+        raise ValueError(f"must be one of {', '.join(CHOICES[key])}")
+    if key in _LEVELS:
+        if not value:
+            return None
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("must be a number")
+        return number
+    if key == "image_cmap" and not _CMAP_NAME.fullmatch(value):
+        raise ValueError("is not a colour-map name")
+    if key == "image_device" and not value:
+        return None
     return value

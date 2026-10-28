@@ -23,6 +23,7 @@ from geecs_web_theme.web import (
 )
 
 from geecs_plotter.routes import STATIC_DIR, TEMPLATES_DIR, Context, api, pages
+from geecs_plotter.routes import images as image_routes
 from geecs_plotter.settings import resolve_store
 
 
@@ -82,6 +83,7 @@ def create_app(
     router = APIRouter()
     pages.register(router, ctx)
     api.register(router, ctx)
+    image_routes.register(router, ctx)
     app.include_router(router)
 
     @app.get("/health")

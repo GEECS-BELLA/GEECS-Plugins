@@ -82,9 +82,101 @@
         <input type="hidden" name="y2alias" value="{{ 'true' if y2alias else 'false' }}">
         <input type="hidden" name="y3alias" value="{{ 'true' if y3alias else 'false' }}">
         <input type="hidden" name="ycount" value="{{ ycount }}">
+        <input type="hidden" name="tab" value="{{ tab }}">
+        <input type="hidden" name="strip" value="{{ strip }}">
+        <input type="hidden" name="layout" value="{{ layout }}">
+        <input type="hidden" name="zscale" value="{{ zscale }}">
         <button class="btn primary" type="submit">Open</button>
       </div>
-      {% if columns %}
+      {% if tab == "images" and (devices or device_kept) %}
+        {# The image strip's controls. The device, the tiles and the layout
+           reload the page; the columns across, the colour map and the
+           levels redraw the tiles in place (plotter.js) and save as typed. #}
+        <div class="group">
+          <div class="field">
+            <label for="device">Camera</label>
+            <input id="device-filter" name="devf" value="{{ devf }}" type="search" autocomplete="off" placeholder="filter devices"
+                   aria-label="Filter devices" data-filter-for="device">
+            <select id="device" name="device" size="10" class="picks" data-pick>
+              {% if device_kept %}<option value="{{ device_kept }}" selected>{{ device_kept }} (not in this scan)</option>{% endif %}
+              {% for d in devices %}<option value="{{ d }}"{% if d == device %} selected{% endif %}>{{ d }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <div class="row">
+              <span class="hint">Tiles</span>
+              <span class="spacer"></span>
+              <div class="seg" role="group" aria-label="One tile per bin or per shot">
+                <button type="button" data-toggle-for="strip" data-value="bins" aria-pressed="{{ 'true' if strip == 'bins' else 'false' }}">bin averages</button>
+                <button type="button" data-toggle-for="strip" data-value="shots" aria-pressed="{{ 'true' if strip == 'shots' else 'false' }}">shots</button>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <div class="row">
+              <span class="hint">Layout</span>
+              <span class="spacer"></span>
+              <div class="seg" role="group" aria-label="A grid or one row">
+                <button type="button" data-toggle-for="layout" data-value="grid" aria-pressed="{{ 'true' if layout == 'grid' else 'false' }}">grid</button>
+                <button type="button" data-toggle-for="layout" data-value="row" aria-pressed="{{ 'true' if layout == 'row' else 'false' }}">one row</button>
+              </div>
+            </div>
+            <div class="row">
+              <label for="cols" class="hint">Tiles across</label>
+              <span class="spacer"></span>
+              <input id="cols" name="cols" type="number" min="1" max="{{ max_cols }}" value="{{ cols }}" class="narrow-number" data-live>
+            </div>
+          </div>
+          <div class="field">
+            <label for="cmap">Colour map</label>
+            <select id="cmap" name="cmap" data-live>
+              {% for c in cmaps %}<option value="{{ c }}"{% if c == cmap %} selected{% endif %}>{{ c }}</option>{% endfor %}
+              {% if cmap not in cmaps %}<option value="{{ cmap }}" selected>{{ cmap }} (not in this version)</option>{% endif %}
+            </select>
+          </div>
+          <div class="field">
+            {# GEECSplotter's z scale (LabVIEW's autoscale): each tile from its
+               own darkest to brightest pixel; every tile on one scale, the
+               darkest to the brightest pixel of all ("shared"); or black and
+               white typed in. #}
+            <div class="row">
+              <span class="hint">Z scale</span>
+              <span class="spacer"></span>
+              <div class="seg" role="group" aria-label="Z scale">
+                <button type="button" data-toggle-for="zscale" data-value="tile" aria-pressed="{{ 'true' if zscale == 'tile' else 'false' }}">each tile</button>
+                <button type="button" data-toggle-for="zscale" data-value="shared" aria-pressed="{{ 'true' if zscale == 'shared' else 'false' }}">shared</button>
+                <button type="button" data-toggle-for="zscale" data-value="fixed" aria-pressed="{{ 'true' if zscale == 'fixed' else 'false' }}">fixed</button>
+              </div>
+            </div>
+            {% if zscale == "fixed" %}
+              <div class="row levels">
+                <label for="zmin" class="hint">black</label>
+                <input id="zmin" name="zmin" type="number" step="any" value="{{ zmin if zmin is not none else '' }}" class="narrow-number" data-live>
+                <label for="zmax" class="hint">white</label>
+                <input id="zmax" name="zmax" type="number" step="any" value="{{ zmax if zmax is not none else '' }}" class="narrow-number" data-live>
+              </div>
+              <span class="hint">Pixel values.{% if zmin is none or zmax is none %} Until both are set, each tile scales itself.{% endif %}</span>
+              <span class="hint level-problem" id="level-warning" role="alert"{% if zmin is none or zmax is none or zmax > zmin %} hidden{% endif %}>White must be above black: every tile draws flat until it is.</span>
+            {% else %}
+              <span class="hint">{{ 'Each tile from its darkest to its brightest pixel.' if zscale == 'tile' else 'Every tile on one scale: the darkest to the brightest pixel of them all. It reads every image of the strip first (for shots, the whole scan).' }}</span>
+              {% if zscale == "shared" %}<span class="hint mono" id="shared-levels" aria-live="polite">reading every tile…</span>{% endif %}
+            {% endif %}
+          </div>
+          <div class="field">
+            {# The region of interest, kept per camera: every tile shows it,
+               and the z scale is taken over it. #}
+            <div class="row">
+              <span class="hint">ROI</span>
+              <span class="spacer"></span>
+              <span class="hint mono">{% if roi %}{% set r = roi.split(',') %}x {{ r[0] }}–{{ r[2] }}, y {{ r[1] }}–{{ r[3] }}{% else %}whole image{% endif %}</span>
+            </div>
+            <div class="row">
+              <button class="btn sm" type="button" data-roi-open{% if not tiles %} disabled{% endif %}>Draw ROI…</button>
+              <button class="btn sm" type="button" data-roi-clear{% if not roi %} disabled{% endif %}>Whole image</button>
+            </div>
+          </div>
+        </div>
+      {% elif columns %}
         <div class="group">
           <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots</span></div>
           {# One list per axis, each with its own substring filter (LabVIEW's
@@ -190,6 +282,15 @@
   </nav>
 
   <main class="pane">
+    {% if columns %}
+      {# The tabs: GEECSplotter's XY graphs, and the image strip. #}
+      <div class="row view-switch">
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" data-toggle-for="tab" data-value="xy" aria-pressed="{{ 'true' if tab == 'xy' else 'false' }}">XY plot</button>
+          <button type="button" data-toggle-for="tab" data-value="images" aria-pressed="{{ 'true' if tab == 'images' else 'false' }}">Images</button>
+        </div>
+      </div>
+    {% endif %}
     {% if error %}
       <div class="state" data-state="error">
         <div class="t">Scan not found</div>
@@ -205,6 +306,42 @@
         <div class="t">No columns to plot</div>
         <div class="m">Scan{{ '%03d' % scan }} has no s-file yet, or it has no numeric columns.</div>
       </div>
+    {% elif tab == "images" %}
+      <article class="panel">
+        <header>
+          <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
+          <span class="dim">{{ device or device_kept }}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'shots' }}{% endif %}</span>
+        </header>
+        <div class="body">
+          {% if device_problem %}
+            <div class="state" data-state="empty">
+              <div class="t">No images to show</div>
+              <div class="m">{{ device_problem }}</div>
+            </div>
+          {% else %}
+            {# One tile per bin (its shots' average) or per shot. Each image
+               loads when it scrolls into view; plotter.js adds the display
+               (colour map, levels) to every tile's URL. #}
+            {# Tiles across: the same rule plotter.js applies when the box changes. #}
+            <div id="strip" class="strip {{ layout }}" data-zscale="{{ zscale }}" data-roi="{{ roi }}"
+                 data-device="{{ device }}" data-levels-url="{{ root }}/{{ levels_url }}"
+                 data-full-url="{{ root }}/{{ tiles[0].url if tiles else '' }}"
+                 style="{% if layout == 'row' %}grid-auto-columns: calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% else %}grid-template-columns: repeat({{ cols }}, minmax(0, 1fr)){% endif %}">
+              {% for t in tiles %}
+                <figure class="tile">
+                  <img loading="lazy" alt="{{ device }} {{ t.caption }}" data-tile="{{ root }}/{{ t.url }}"
+                       {% if zscale != "shared" %}src="{{ root }}/{{ t.url }}&amp;{{ display_query }}"{% endif %}>
+                  <figcaption class="hint">{{ t.caption }}</figcaption>
+                </figure>
+              {% endfor %}
+            </div>
+            <details class="disc">
+              <summary>Notebook code</summary>
+              <pre class="well mono" id="code">{{ strip_code }}</pre>
+            </details>
+          {% endif %}
+        </div>
+      </article>
     {% else %}
       <article class="panel">
         <header>
@@ -228,6 +365,40 @@
     {% endif %}
   </main>
 </div>
+
+{# Rung 2: drawing the ROI is a sub-task on the open camera. The first
+   tile is shown whole; a drag on it (or the four boxes) sets the region,
+   Apply saves it for this camera and redraws the strip. #}
+<aside class="drawer roi-drawer" id="roi-drawer" role="dialog" aria-modal="false"
+       aria-labelledby="roi-drawer-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="roi-drawer-title">ROI · {{ device }}</span>
+    <button class="btn sm" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <p class="hint">Drag a rectangle on the image, or type the corners (pixels; x right, y down).</p>
+    <div class="roi-stage" id="roi-stage">
+      <img id="roi-image" alt="{{ device }}, whole image" draggable="false">
+      <div class="roi-box" id="roi-box" hidden></div>
+    </div>
+    <div class="row roi-corners">
+      <label class="hint" for="roi-x0">x</label>
+      <input id="roi-x0" type="number" min="0" step="1" class="narrow-number" aria-label="x from">
+      <span class="hint">–</span>
+      <input id="roi-x1" type="number" min="1" step="1" class="narrow-number" aria-label="x to">
+      <label class="hint" for="roi-y0">y</label>
+      <input id="roi-y0" type="number" min="0" step="1" class="narrow-number" aria-label="y from">
+      <span class="hint">–</span>
+      <input id="roi-y1" type="number" min="1" step="1" class="narrow-number" aria-label="y to">
+      <span class="hint mono" id="roi-size"></span>
+    </div>
+    <div class="row end">
+      <button class="btn" type="button" data-drawer-close>Cancel</button>
+      <button class="btn primary" type="button" id="roi-apply">Apply</button>
+    </div>
+    <p class="hint level-problem" id="roi-error" role="alert" hidden></p>
+  </div>
+</aside>
 
 <script src="{{ root }}/static/plotly-cartesian-3.1.1.min.js" defer></script>
 <script src="{{ root }}/static/plotter.js" defer></script>
