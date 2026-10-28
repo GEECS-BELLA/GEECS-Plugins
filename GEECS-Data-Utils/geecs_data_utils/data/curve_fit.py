@@ -108,6 +108,16 @@ _NONLINEAR: dict[str, tuple[Callable[..., np.ndarray], tuple[str, ...]]] = {
 }
 
 
+#: Each nonlinear model's curve, written in its parameters' names
+#: (:attr:`CurveFit.formula`; a polynomial's is built from its order).
+FORMULAS: dict[str, str] = {
+    "gaussian": "amplitude·exp(−(x − center)² / (2·sigma²)) + offset",
+    "gaussian_no_offset": "amplitude·exp(−(x − center)² / (2·sigma²))",
+    "supergaussian": "amplitude·exp(−(|x − center| / width)^power) + offset",
+    "supergaussian_no_offset": "amplitude·exp(−(|x − center| / width)^power)",
+}
+
+
 class FitParameter(BaseModel):
     """One fitted (or derived) number and its standard error (NaN when undefined)."""
 
@@ -148,6 +158,16 @@ class CurveFit(BaseModel):
     def ok(self) -> bool:
         """Whether a fit was made."""
         return self.error is None
+
+    @property
+    def formula(self) -> str:
+        """The fitted curve in its parameters' names, the shift written out."""
+        if self.model != "polynomial":
+            return FORMULAS[self.model]
+        u = f"(x − {self.x_shift:.15g})" if self.x_shift else "x"
+        order = self.order or 0
+        terms = ["c0", f"c1·{u}", *(f"c{k}·{u}^{k}" for k in range(2, order + 1))]
+        return " + ".join(terms[: order + 1])
 
     def value(self, name: str) -> float:
         """Return the fitted or derived number called ``name``."""
