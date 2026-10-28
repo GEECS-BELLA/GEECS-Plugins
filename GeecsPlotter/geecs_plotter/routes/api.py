@@ -106,7 +106,13 @@ FORMULAS = {
 def _formula(fit: CurveFit) -> str:
     if fit.model != "polynomial":
         return FORMULAS.get(fit.model, "")
-    terms = ["c0", "c1·x", *(f"c{k}·x^{k}" for k in range(2, (fit.order or 0) + 1))]
+    # Far from zero (timestamps) the powers are of x - x_shift (data-utils).
+    u = f"(x − {fit.x_shift:.15g})" if fit.x_shift else "x"
+    terms = [
+        "c0",
+        f"c1·{u}",
+        *(f"c{k}·{u}^{k}" for k in range(2, (fit.order or 0) + 1)),
+    ]
     return " + ".join(terms[: (fit.order or 0) + 1])
 
 

@@ -150,6 +150,17 @@ class TestApi:
         assert namespace["fits"][0].value("c1") == pytest.approx(19.0)
 
 
+def test_a_shifted_polynomial_says_so_in_its_formula() -> None:
+    from geecs_data_utils.data.curve_fit import fit_curve
+
+    from geecs_plotter.routes.api import fit_result
+
+    t = [1.7e9 + k for k in range(10)]
+    fit = fit_curve(t, [k * k for k in range(10)], "polynomial", order=2)
+    shown = fit_result(1, "y", "polynomial", fit)
+    assert shown.formula == "c0 + c1·(x − 1700000004.5) + c2·(x − 1700000004.5)^2"
+
+
 @pytest.mark.parametrize(
     ("value", "stderr", "text"),
     [
