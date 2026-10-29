@@ -2,6 +2,7 @@
 // words), the two lists from /api/home/devices (the module's words, sorted
 // there), the device pickers from the same roster. Nothing here judges a
 // device: a list the module could not give reads "unknown", never "none".
+// The list rule is home_rules.js's (tested under node), the polling poller.js's.
 (function () {
   "use strict";
   const POLL_MS = 2000, MAX_POINTS = 600;
@@ -24,25 +25,18 @@
 
   function list(key, body) {
     const journal = body.journal !== false; // a journal the module could not give is unknown, not "no command"
-    const panel = document.querySelector(`[data-list="${key}"]`);
-    const rows = body.ok ? body[key] : null, chip = panel.querySelector("header .chip");
-    const pane = panel.querySelector(".state"), scroll = panel.querySelector(".tscroll");
-    // devices whose detail the module did not give: their role alarms are unknown, so
-    // an empty alarm list is "none" only when every device was read (the state list
-    // sorts the roster's own word and needs no detail)
-    const unread = rows && key === "in_alarm" ? (body.unread || []).map((d) => d.name) : [];
-    const count = !rows ? "?" : unread.length ? `${rows.length}+?` : String(rows.length);
-    const none = rows && !rows.length && !unread.length;
-    $(`n-${key}`).textContent = count;
-    chip.dataset.state = !rows ? "unknown" : rows.length ? (key === "in_alarm" ? "failed" : "degraded") : none ? "ok" : "unknown";
-    chip.textContent = !rows ? "unknown" : rows.length ? count : none ? "none" : "unknown";
-    chip.title = unread.length ? `no roles read for ${unread.length}: ${unread.join(", ")}` : "";
-    scroll.hidden = !rows || !rows.length;
+    const panel = document.querySelector(`[data-list="${key}"]`), v = window.GeecsHomeRules.listView(key, body);
+    const chip = panel.querySelector("header .chip"), pane = panel.querySelector(".state"), scroll = panel.querySelector(".tscroll");
+    $(`n-${key}`).textContent = v.count;
+    chip.dataset.state = v.chipState;
+    chip.textContent = v.chipText;
+    chip.title = v.title;
+    scroll.hidden = !v.rows.length;
     pane.hidden = !scroll.hidden;
-    pane.dataset.state = none ? "empty" : "error";
-    pane.querySelector(".t").textContent = none ? "none" : "unknown";
-    pane.querySelector(".m").textContent = !rows ? body.detail || "" : unread.length ? `the module gave no roles for ${unread.length} device${unread.length > 1 ? "s" : ""}: ${unread.join(", ")}` : "";
-    panel.querySelector("tbody").replaceChildren(...(rows || []).map((d) => {
+    pane.dataset.state = v.none ? "empty" : "error";
+    pane.querySelector(".t").textContent = v.none ? "none" : "unknown";
+    pane.querySelector(".m").textContent = v.note;
+    panel.querySelector("tbody").replaceChildren(...v.rows.map((d) => {
       const tr = document.createElement("tr"), name = cell(""), link = document.createElement("a");
       link.href = deviceHref(d.name);
       link.textContent = d.name;
@@ -101,25 +95,26 @@
       .join(" "));
   }
 
-  async function read(path, draw, silent) {
-    try {
-      const r = await fetch(root + path);
-      draw(await r.json());
-    } catch (_) {
-      draw(silent);
-    }
-  }
-
-  function tick() {
-    const lists = (body) => {
+  // a read that fails or times out backs off; while it does, the page says the module is slow
+  const DEVICES = "/api/home/devices", STRIP = "/api/home/strip";
+  const draw = {
+    [DEVICES]: (body) => {
       list("not_live", body);
       list("in_alarm", body);
       if (body.ok) pickers(body.devices);
-    };
-    Promise.all([
-      read("/api/home/devices", lists, { ok: false, detail: "the Control Room did not answer" }),
-      read("/api/home/strip", strip, { scanner: "unreachable", run: "unknown", kit: "unknown" }),
-    ]).finally(() => setTimeout(tick, POLL_MS));
-  }
+    },
+    [STRIP]: strip,
+  };
+  const silent = {
+    [DEVICES]: (why) => ({ ok: false, detail: `the Control Room did not answer (${why}); asking again shortly` }),
+    [STRIP]: () => ({ scanner: "unreachable", run: "unknown", kit: "unknown" }),
+  };
+  const poller = window.GeecsPoller.makePoller({
+    fetch: async (path, signal) => (await fetch(root + path, { signal })).json(),
+    pollMs: POLL_MS,
+    onView: (path, got) => draw[path](got.ok ? got.value : silent[path](got.error)),
+  });
+  const tick = () => poller.tick([DEVICES, STRIP]);
   tick();
+  setInterval(tick, POLL_MS);
 })();

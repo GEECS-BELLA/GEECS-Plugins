@@ -11,7 +11,7 @@ from geecs_canopy.gateway import GatewaySource
 from geecs_canopy.journal import Journal
 from geecs_canopy.module import Module, ModuleSettings
 from geecs_canopy.routes import build_app
-from tests.test_module import KEY, FakeHare, live
+from geecs_canopy.testing import KEY, FakeHare, live
 
 
 def row(name, settable=False, vartype="numeric", choices=None, lo=None, hi=None):
