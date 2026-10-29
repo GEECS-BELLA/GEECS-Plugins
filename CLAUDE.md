@@ -25,6 +25,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk the portal's and the editor's templates too. **Read its `CLAUDE.md` before building a new web surface** |
 | `GeecsLogbook/` | The logbook (successor to LogMaker4GoogleDocs): two books in one store — the **scans** book, a day-document view over scan folders, and the **ops** book, routine operations read by month — its own web service (`geecs-logbook`, port 8400, unit + `StateDirectory` of its own; the Data Portal links to it and no longer mounts it). A day is a **query**, not a document — no daily job, no template stamping. Derived scan facts are rendered per request and stored nowhere; human commentary lives in the unit's state directory and is mirrored as markdown into `{experiment}/logbook/`, a tree of its own outside the data tree. Notes cite each other by permalink (`/entry/{id}`), stored relative in the body so no mount prefix ever reaches the record |
 | `GeecsPanels/` | Device panels — a **prototype** browser GUI per native-device *kind*: the areaDetector camera, the oscilloscope (geecs-epics' scope contract), the positioner (the EPICS motor record) and the power supply (roles mapped to each family's PVs, from the panels' bench file) (`geecs-panels`, port 8500; runs on a laptop over the VPN for now, deployment open — `Planning/device_panels.md`). Lists the experiment's `native_devices.yaml`; `/camera/{device}` pulls the IOC's JPEG one frame at a time through a shared proxy (colour map and levels client-side) and streams the STAT/STAT0 readings over SSE, each judged fresh by its plugin's `ArrayCounter_RBV`; `/scope/{device}`, `/motor/{device}` and `/supply/{device}` stream the record's fields the same way. Writes are allow-listed per kind and per device (the bench file's `allow`) (the camera's controls behind the run lock); addresses the IOC by the geecs-epics chain contract |
+| `GeecsControlRoom/` | The operator surfaces over Canopy (`Planning/operator_surfaces.md`): the experiment's home, the **Control Room**, and the **screens renderer** — a control GUI is a screen file in the configs repo (`<experiment>/screens/`) drawn by one renderer, never code per screen (`geecs-control-room`, port 8700). FastAPI + Jinja on the kit, plain JS, no build step. A client of Canopy, never part of it: live values from Hare's WebSocket with a display **read** key, verdicts from the GEECS module's device route, every write through the module's put route with the operator's name, sent once. A screen binds, groups, confirms and calls; it never computes |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs — being replaced by `GeecsLogbook/` |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
@@ -263,6 +264,13 @@ GeecsPanels          →  GEECS-Core (epics_env — the config.ini CA
                         client of their MJPEG servers. Never imports
                         GeecsBluesky, the scanner, the portal or the
                         logbook
+GeecsControlRoom     →  GEECS-Schemas (the screen document, the family
+                        files, PanelDevices), GeecsWebTheme (web extra) —
+                        an HTTP and WebSocket client of Canopy (Hare) and
+                        of the GEECS module (/geecs), consumed as
+                        SERVICES. Never imports GeecsCanopy, GEECS-Core,
+                        GeecsBluesky, the scanner, the portal, the
+                        logbook or the panels
 ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, GEECS-Schemas,
                         (+ fastapi/jinja2 via the
                         `editor` extra — scan_analysis.config_editor,
@@ -418,7 +426,7 @@ Every package has a `CHANGELOG.md` following
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
 `GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-MCP/`, `GEECS-DataPortal/`,
 `GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsPanels/`, `GeecsWebTheme/`, `GeecsScanner/`,
-`GeecsArchiver/`, `GeecsCanopy/`
+`GeecsArchiver/`, `GeecsCanopy/`, `GeecsControlRoom/`
 (`scripts/doc_audit.py` checks this list and the repository map above
 against the packages on disk).
 

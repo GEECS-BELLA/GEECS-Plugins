@@ -1,0 +1,35 @@
+# GeecsControlRoom - systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# - see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time; the settings (GEECS_EXPERIMENT, GEECS_CONFIGS_ROOT, the
+# GEECS_CONTROL_ROOM_* keys) are read from the environment by the process.
+# The display's Canopy READ key is a secret: it lives in
+# /etc/geecs/control-room/secrets.env (0600, the service account's), never in
+# site.env, and never a key that carries Canopy write.
+#
+# Upgrade:
+#   git -C <checkout> pull && poetry install && sudo systemctl restart geecs-control-room
+
+[Unit]
+Description=GeecsControlRoom (the Control Room and the screens, over Canopy)
+# Ordering only: without Canopy the pages say every value is unknown.
+After=network-online.target geecs-canopy.service remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+EnvironmentFile=/etc/geecs/control-room/secrets.env
+WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GeecsControlRoom
+ExecStart=@POETRY@ run geecs-control-room $GEECS_CONTROL_ROOM_EXTRA_ARGS
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+SyslogIdentifier=geecs-control-room
+
+[Install]
+WantedBy=multi-user.target
