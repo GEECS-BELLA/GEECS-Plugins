@@ -1,4 +1,4 @@
-"""The Plot and Grid tabs' JSON API over the union frame (+ bin membership)."""
+"""The scan's plot JSON API over the union frame: columns, frame, binned, grid, bin membership."""
 
 from __future__ import annotations
 
@@ -122,28 +122,10 @@ def api_grid(
     except (ValueError, TypeError, IndexError, OverflowError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     pretty = _pretty_names(detail, pf, [result.config.x, result.config.y, cfg.value])
-    payload = {
-        "cells": result.cells.to_dict("records"),
-        "config": result.config.model_dump(),
-        "kind": result.kind,
-        "x_values": result.x_values,
-        "y_values": result.y_values,
-        "visits": result.visits,
-        "pass": result.passing,
-        "total": result.total,
-        "bin_column": result.bin_column,
-        "notes": result.notes,
-        "error_label": figures.grid_error_label(result),
-        "pretty": pretty,
-        "figures": {
-            name: figures.page_figure(fig)
-            for name, fig in figures.grid_figures(
-                result, pretty=pretty, palette=figures.THEMED_PALETTE
-            ).items()
-        },
-        "code": analysis.grid_code(uid, run_day, result.config, flt, pretty),
-    }
-    return JSONResponse(analysis.jsonable_document(payload), headers=_UNION_HEADERS)
+    code = analysis.grid_code(uid, run_day, result.config, flt, pretty)
+    return JSONResponse(
+        figures.grid_document(result, pretty, code), headers=_UNION_HEADERS
+    )
 
 
 @router.get("/api/run/{uid}/frame")

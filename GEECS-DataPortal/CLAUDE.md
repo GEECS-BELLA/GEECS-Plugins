@@ -211,7 +211,7 @@ geecs_portal/
   state.py       # PortalState on app.state (catalog, caches, config, the
                  #   helpers that need them); get_state = the one Depends
   routes/        # one APIRouter per family: browse (health + browsing
-                 #   JSON), pages (HTML), plot_api (Plot/Grid JSON + bin
+                 #   JSON), pages (HTML), plot_api (plot and grid JSON + bin
                  #   membership), images (shot/bin images, traces,
                  #   plot.png), runs (analysis runs + artifacts), logbook
                  #   (plot send), config_editor (mount + previews);
@@ -224,7 +224,7 @@ geecs_portal/
                  #   ScanAnalysis factory seam, artifact containment
   logbook_send.py   # the four-call conversation that puts a rendered
                  #   plot into a scan's logbook entry (HTTP only)
-  figures.py     # server-side figure authoring (plotly.py) for the /api routes and the Grid:
+  figures.py     # server-side figure authoring (plotly.py) for the /api routes and the 2-D map:
                  #   palette, base layout, multi-axis ladder, display
   plotter/       # the Plot tab: GEECSplotter's page, mounted at /plot (its
                  #   app, routes, settings sets, figures, image strip)
@@ -262,9 +262,9 @@ over later, and the ruling and its consequences live in
 way here.
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
-· `/run/{uid}` (the scan page: rail + Overview/Plot/Grid/Images/Analysis
+· `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis
 tabs — Plot is a link to `/plot/`, Analysis only when runs are possible,
-see below; `?tab=&view=&filters=&bincfg=&display=&gridcfg=&gridbin=&imagebin=`
+see below; `?tab=&view=&filters=&bincfg=&display=&imagebin=`
 is the page's state, `?device=&shot=` the Images selection) · `/run/jump/{iso}` (day-step
 redirect: `?prefer=<scan number>`, all other params carried to the
 target day's matching/newest run; empty day → the day page) ·
@@ -526,7 +526,9 @@ rules that are the portal's own:
   `binned_figure`, `base_layout`, `_multi_y_layout`;
   `analysis.frame_code`, `binned_code`): they are the notebook view of
   those payloads, no longer what a page draws. `/columns`' `default_x`
-  has no reader in the portal either. Deleting any of it is an `/api`
+  and `grid_axes` have no reader in the portal either, nor `/grid`'s
+  figures and snippet (the Plot page's map has its own route,
+  `/plot/api/map`, over the same `figures.grid_document`). Deleting any of it is an `/api`
   change for the owner, not a cleanup.
 - **Accepted debt, for a later PR of the arc:** the other
   duplicates the move brought in (`plotter/scans.default_x` is
@@ -646,28 +648,48 @@ Two rules for anyone extending this:
   ruling: resampling belongs to whoever averages): a trace device shows
   one shot at a time whatever the per-shot/binned switch says.
 
-## Grid tab (0.29.0)
+## The 2-D map (the Plot page's view; the Grid tab until 2026-10-29)
 
-`GET /api/run/{uid}/grid` consumes strict JSON `gridcfg` (Data Utils `GridConfig`)
-and the existing `filters`/`day` parameters. It returns complete cell geometry,
-counts, member shots, independent center/error statistics, paired server-authored
-figures and a notebook snippet. `gridcfg` and selected `gridbin` travel in run URLs. `imagebin` independently
-records explicit cell-to-Images navigation; merely opening Grid never filters
-the image gallery, and changing the bin definition clears this image selection.
-`templates/grid_script.html` is included by `run.html`; it only handles controls,
-selection, sizing and Plotly rendering. Numerical work stays in `scan_grid`.
+The Grid tab moved onto the Plot page as its **2-D map** view (the
+author's ruling: one tab per job; the scan page no longer has a Grid
+tab, and a `tab=grid` link opens its Overview). The switch reads *XY
+plot | 2-D map | Image strip*; the map shares the rail's shot filters
+and saves into the viewer's set: `map_value`, `map_x`, `map_y` (each
+`None` = the default — Y1, the scan's variables — so a set that follows
+the viewer maps each scan's own axes), `map_filter`, and `map_config`
+(the statistics as `GridConfig` JSON, its column fields ignored;
+checked with `analysis.parse_gridcfg`). `plotter/maps.py` resolves the
+columns and writes the snippet; `/plot/api/map` answers with
+`figures.grid_document`, the one payload shape it shares with the
+scan's `GET /api/run/{uid}/grid` (kept: the `/api` contract);
+`plotter/static/map.js` draws both maps square, steps the cells (the
+selected cell is the browser tab's, in `sessionStorage`), checks the
+number boxes before saving, and links a cell to the scan page's Images
+tab averaged over its bin (`imagebin`, `bincfg`, `view=bin` through
+`/run/jump`; changing the bin settings there clears `imagebin`).
+Numerical work stays in `scan_grid`.
 
-Grid geometry is resolved before filters. Both maps share coordinates and selection
+**Measured positions only, for now** (the author's ruling,
+2026-10-29): the Plot page reads scans through the folder catalog,
+whose start document names one scan variable, so a folder scan's map
+has X = that variable, Y the viewer's pick, and each bin at its
+measured position (`kind == "points"`). A Bluesky 2-D scan's planned
+grid (both axes picked, unacquired cells drawn) needs the scan's Tiled
+record: it comes back when the plotter is handed the portal's catalog
+(the debt below). The map offers no "Equal cells · indexed" spacing
+until then: it needs a recorded grid, and a saved one would fail every
+scan's map.
+
+The map's geometry is resolved before filters. Both maps share coordinates and selection
 but use independent color scales. Figure edges preserve nonuniform/log spacing;
 equal-cell mode labels indices with physical values. Square refers to pixel area,
 not equal physical units. No interpolation is applied to arbitrary trajectories.
-The Images link uses the same acquisition-bin column and filters as Grid, keeping
+The Images link uses the same acquisition-bin column and filters as the map, keeping
 original bin indices for the image endpoint. Higher-dimensional slicing is deferred.
 
-The scan page's send-to-log modebar action exports its clicked Plotly host
-(Grid average, Grid error or a shot trace), through the same dialog and
-remembered browser entry. Grid captions identify the scalar, statistic, axes
-and visit; Grid exports retain square plotting areas.
+The Plot page's copy and send-to-log act on the clicked plot, a map
+included: map captions name the scalar, statistic, axes and visit, and a
+sent map keeps its plotting area square (`plot_tools.js`).
 
 ## Processing migration (0.31.0)
 

@@ -361,6 +361,53 @@ def grid_figures(
     return figures
 
 
+def grid_document(result: GridResult, pretty: dict[str, str], code: str) -> dict:
+    """A 2-D map's JSON answer: cells, axes, counts, both figures and *code*.
+
+    One shape for the scan's ``/api/run/{uid}/grid`` and the Plot page's
+    ``/plot/api/map``; the numbers are ``grid_scan``'s, the figures
+    :func:`grid_figures` in the page palette.
+
+    Parameters
+    ----------
+    result : GridResult
+        ``geecs_data_utils.scan_grid.grid_scan``'s answer.
+    pretty : dict[str, str]
+        Column → the name the figures title it with.
+    code : str
+        The notebook snippet that rebuilds the maps.
+
+    Returns
+    -------
+    dict
+        JSON-safe (NaN → ``None``).
+    """
+    from geecs_portal.analysis import jsonable_document
+
+    payload = {
+        "cells": result.cells.to_dict("records"),
+        "config": result.config.model_dump(),
+        "kind": result.kind,
+        "x_values": result.x_values,
+        "y_values": result.y_values,
+        "visits": result.visits,
+        "pass": result.passing,
+        "total": result.total,
+        "bin_column": result.bin_column,
+        "notes": result.notes,
+        "error_label": grid_error_label(result),
+        "pretty": pretty,
+        "figures": {
+            name: page_figure(fig)
+            for name, fig in grid_figures(
+                result, pretty=pretty, palette=THEMED_PALETTE
+            ).items()
+        },
+        "code": code,
+    }
+    return jsonable_document(payload)
+
+
 def base_layout(palette: Palette) -> dict:
     """The shared base layout in one palette (from run.html's PLOT_LAYOUT).
 

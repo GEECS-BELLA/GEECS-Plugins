@@ -89,24 +89,7 @@
 .kit .cedrawer #cedup { width: 9rem; }
 .kit .cedrawer #ceshot { width: 5rem; }
 
-/* The Grid tab. */
-.kit .gridcontrols { display: flex; flex-wrap: wrap; gap: 10px; }
-.kit .gridcontrols label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
-.kit .gridcontrols select, .kit .gridcontrols input { background: var(--surface); color: var(--ink); border: var(--bw) solid var(--rule);
-  border-radius: var(--r); padding: 4px; max-width: 19rem; font: inherit; font-size: 12px; }
-.kit .gridmaps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
-.kit .gridmaps > div { min-width: 0; }
-.kit .gridmaps h3 { font-size: 13px; font-weight: 500; margin: 0; }
-.kit .gridinspect select { max-width: 100%; }
-.kit .gridinspect .values { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; }
-.kit .gridnotes { font-size: 12px; color: var(--muted); margin: 0; }
-
 @media (max-width: 900px) {
   .kit .shell.wide { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 620px) {
-  .kit .gridmaps { grid-template-columns: 1fr; }
-  .kit .gridcontrols label { flex: 1 1 130px; }
-  .kit .gridcontrols select { width: 100%; }
 }
 .kit .shotbox { width: 5rem; }

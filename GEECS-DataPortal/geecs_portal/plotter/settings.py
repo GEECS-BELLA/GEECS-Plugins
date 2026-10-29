@@ -46,7 +46,7 @@ MAX_IMAGE_COLUMNS = 20
 
 #: The choices of the tab and image controls, as stored.
 CHOICES: dict[str, tuple[str, ...]] = {
-    "tab": ("xy", "images"),
+    "tab": ("xy", "map", "images"),
     "image_strip": ("bins", "shots"),
     "image_layout": ("grid", "row"),
     "image_zscale": ("tile", "shared", "fixed"),
@@ -143,7 +143,7 @@ class PlotterSettings(BaseModel):
     #: the plotter) goes back to it, as LabVIEW reopens its last file.
     day: Optional[date] = None
     scan: Optional[int] = None
-    #: The tab shown: the XY plot or the image strip.
+    #: The view shown: the XY plot, the 2-D map or the image strip.
     tab: str = "xy"
     #: The image strip: its camera (``None``: the scan's first), the device
     #: list's filter, one tile per bin or per shot, a single row or a grid,
@@ -177,6 +177,18 @@ class PlotterSettings(BaseModel):
     shot_filters: str = ""
     bin_config: str = ""
     display: str = ""
+    #: The 2-D map (the portal's old Grid tab): one scalar's average and
+    #: error in each cell of two scan variables. ``None`` is the default:
+    #: Y1 for the scalar, the open scan's two variables for the axes, so a
+    #: set that follows the viewer to another scan maps that scan's axes.
+    map_value: Optional[str] = None
+    map_x: Optional[str] = None
+    map_y: Optional[str] = None
+    map_filter: str = ""
+    #: The map's statistics (average, error, spacing, percentiles, visit):
+    #: ``scan_grid.GridConfig`` JSON, its column fields ignored (the three
+    #: above name the columns).
+    map_config: str = ""
 
 
 def set_name(name: str) -> str:
@@ -418,6 +430,11 @@ FORM_FIELDS = {
     "filters": "shot_filters",
     "bincfg": "bin_config",
     "display": "display",
+    "mapv": "map_value",
+    "mapx": "map_x",
+    "mapy": "map_y",
+    "mapf": "map_filter",
+    "mapcfg": "map_config",
 }
 
 #: The JSON-text fields and the portal parser each must pass.
@@ -425,6 +442,7 @@ _JSON_FIELDS = {
     "shot_filters": "parse_filters",
     "bin_config": "parse_bincfg",
     "display": "parse_display",
+    "map_config": "parse_gridcfg",
 }
 
 _BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
@@ -533,8 +551,8 @@ def _text_value(key: str, value: str) -> object:
         return number
     if key == "image_cmap" and not _CMAP_NAME.fullmatch(value):
         raise ValueError("is not a colour-map name")
-    if key == "image_device" and not value:
-        return None
+    if key in ("image_device", "map_value", "map_x", "map_y") and not value:
+        return None  # the default: the scan's first camera, Y1, the scan's axes
     if key in _JSON_FIELDS and value:
         from geecs_portal import analysis
 

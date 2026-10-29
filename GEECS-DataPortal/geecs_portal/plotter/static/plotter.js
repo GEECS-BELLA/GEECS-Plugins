@@ -448,24 +448,12 @@
   if (!host) return;
   const state = document.getElementById("plot-state");
   // The modebar's copy and send, the drawing tools (plot_tools.js).
-  const tools = window.PlotTools || { config: () => ({ responsive: true }), patch: (l) => l, counted: () => {} };
+  const tools = window.PlotTools || { config: () => ({ responsive: true }), patch: (l) => l, counted: () => {}, themed: (v) => v };
   const PLOT_CONFIG = tools.config();
   let figure = null;
 
-  function tokenColour(name) {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  }
-  function resolveThemeTokens(value) {
-    if (typeof value === "string")
-      return value.startsWith("$tok:") ? (tokenColour(value.slice(5)) || value) : value;
-    if (Array.isArray(value)) return value.map(resolveThemeTokens);
-    if (value && typeof value === "object") {
-      for (const k of Object.keys(value)) value[k] = resolveThemeTokens(value[k]);
-    }
-    return value;
-  }
   function draw() {
-    const fig = resolveThemeTokens(JSON.parse(JSON.stringify(figure)));
+    const fig = tools.themed(JSON.parse(JSON.stringify(figure)));
     Plotly.react(host, fig.data, tools.patch(fig.layout), PLOT_CONFIG);
   }
   // The fits' numbers under the plot: one table per fitted Y list, keyed

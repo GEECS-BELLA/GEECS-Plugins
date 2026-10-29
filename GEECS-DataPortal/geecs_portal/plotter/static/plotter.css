@@ -27,7 +27,7 @@
 .kit .fit table { width: auto; min-width: 220px; }
 .kit .fit-error { color: var(--crit); margin: 4px 0; }
 
-/* The XY | Images switch above the pane. */
+/* The XY plot, 2-D map and image strip switch above the pane. */
 .kit .view-switch { margin-bottom: var(--pad); }
 
 /* The image controls' small number boxes (tiles across, the levels). */
@@ -55,3 +55,16 @@
 
 /* A z-scale or ROI problem the page explains rather than drawing flat. */
 .kit .level-problem { color: var(--crit); }
+
+/* The 2-D map: its statistics in a wrapping row, the two maps side by
+   side (stacked on a narrow window), and the selected cell's numbers. */
+.kit .map-controls { gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.kit .map-controls .field { flex: 0 1 12rem; min-width: 0; }
+.kit .maps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
+.kit .maps > div { min-width: 0; }
+.kit .maps h3 { font-size: 13px; font-weight: 500; margin: 0; }
+.kit .map-inspect select { max-width: 100%; }
+.kit .map-values { gap: 18px; flex-wrap: wrap; font-size: 12px; }
+@media (max-width: 620px) {
+  .kit .maps { grid-template-columns: 1fr; }
+}

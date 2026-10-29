@@ -33,7 +33,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from geecs_data_utils.tiled_catalog import RunDetail
 
-from geecs_portal.plotter import figures, images, scans
+from geecs_portal.plotter import figures, images, maps, scans
 from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.routes.images import strip_code, strip_tiles
 from geecs_portal.plotter.settings import (
@@ -295,6 +295,19 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "bincfg": settings.bin_config,
         "display": settings.display,
         "filter_groups": _filter_groups(settings.shot_filters),
+        # The 2-D map: the columns drawn ("" until a scan is open), the
+        # saved picks ("" is the default entry), the statistics.
+        "mapv": "",
+        "mapx": "",
+        "mapy": "",
+        "mapv_saved": "",
+        "mapx_saved": "",
+        "mapy_saved": "",
+        "map_defaults": {"mapv": "", "mapx": "", "mapy": ""},
+        "mapf": settings.map_filter,
+        "mapcfg": settings.map_config,
+        "map_stats": maps.statistics(settings.map_config),
+        "map_url": "",
         "uid": "",
         "slots": [],
         "caption": "",
@@ -402,6 +415,38 @@ def _fill(
     x_name = page["xnames"][page["x"]] if page["x"] else "shot #"
     page["caption"] = f"{', '.join(names)} vs {x_name}" + (
         " (binned)" if page["view"] == "bin" else ""
+    )
+    if page["tab"] == "map":
+        _fill_map(page, run, picks, settings)
+
+
+def _fill_map(
+    page: dict, run: RunDetail, picks: list[str], settings: PlotterSettings
+) -> None:
+    """Add the 2-D map's columns and the URL its figures come from."""
+    value, x, y = maps.columns(run, picks, settings, page["y"])
+    page.update(mapv=value, mapx=x, mapy=y)
+    # What each list's first entry ("no pick") draws: Y1, the scan's axes.
+    defaults = maps.columns(run, picks, PlotterSettings(), page["y"])
+    page["map_defaults"] = dict(zip(("mapv", "mapx", "mapy"), defaults))
+    for key, saved in (
+        ("mapv", settings.map_value),
+        ("mapx", settings.map_x),
+        ("mapy", settings.map_y),
+    ):
+        page[f"{key}_saved"] = saved if saved in picks else ""
+    page["map_url"] = "api/map?" + urlencode(
+        {
+            "day": page["day"].isoformat(),
+            "scan": page["scan"],
+            "value": value,
+            "x": x,
+            "y": y,
+            "mapcfg": settings.map_config,
+            "filters": settings.shot_filters,
+            "valuealias": str(settings.y_alias).lower(),
+            "axisalias": str(settings.x_alias).lower(),
+        }
     )
 
 

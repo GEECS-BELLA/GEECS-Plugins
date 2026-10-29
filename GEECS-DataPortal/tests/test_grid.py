@@ -101,18 +101,19 @@ def test_grid_error_ladder(cfg, code):
     )
 
 
-def test_grid_state_and_prefix_are_preserved():
+def test_the_scan_page_has_no_grid_tab_and_keeps_a_map_cells_bin():
+    """The map is the Plot page's view now; a tab=grid link opens the
+    Overview, and the bin a map cell opened (imagebin) rides the links."""
     client, _ = grid_client()
-    cfg = json.dumps({"value": "signal"})
     r = client.get(
         "/run/uid-002",
-        params={"tab": "grid", "gridcfg": cfg, "gridbin": "2", "imagebin": "2"},
+        params={"tab": "grid", "imagebin": "2"},
         headers={"X-Forwarded-Prefix": "/portal"},
     )
     assert r.status_code == 200
-    assert 'data-pane="grid"' in r.text
-    assert 'id="grid-average"' in r.text and 'id="grid-error"' in r.text
-    assert "gridcfg=" in r.text and "gridbin=2" in r.text and "imagebin=2" in r.text
+    assert 'data-pane="grid"' not in r.text and 'id="pane-grid"' not in r.text
+    assert 'tab: p.get("tab") || "overview"' in r.text
+    assert "imagebin=2" in r.text
     assert "/portal/static/plotly" in r.text
 
 
