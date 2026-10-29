@@ -579,3 +579,31 @@ body.kit{
 .kit dialog.ack .qs label input{margin:3px 0 0}
 .kit dialog.ack .qs label .m{display:block;font-size:12px;color:var(--muted);margin-top:2px}
 .kit dialog.ack .qs label:has(input:checked){border-color:var(--ok);background:var(--ok-soft)}
+
+/* Tabs: views of the one object on screen (the portal's scan page:
+   Overview, Plot, Grid, Images, Analysis). The state is the ACCESSIBILITY
+   attribute, as with .picklist: the selected tab is aria-selected="true",
+   and an unselected panel is [hidden] — never a class, so it cannot be
+   styled-but-unannounced. A tab is a view, not a rung: anything that
+   covers the page is the overlay ladder's. */
+.kit .tabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:var(--bw) solid var(--rule)}
+.kit .tabs [role="tab"]{
+  font:inherit;font-size:13px;font-weight:500;
+  background:none;border:0;border-bottom:2px solid transparent;
+  margin-bottom:calc(-1*var(--bw));padding:8px 14px;
+  color:var(--muted);cursor:pointer;
+}
+.kit .tabs [role="tab"]:hover{color:var(--ink)}
+.kit .tabs [role="tab"][aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* A toast: one short line that something happened ("copied", "sent"),
+   which needs no answer and goes away on its own. Never a question (that
+   is rung 3) and never the only record of a failure the user must act on
+   (that is the pane's error state). GeecsKit.toast(text) shows it; a
+   surface with scripts off has nothing to announce. */
+.kit .toast{
+  position:fixed;right:20px;bottom:20px;z-index:60;max-width:min(420px,90vw);
+  background:var(--surface);color:var(--ink);
+  border:var(--bw) solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow);
+  padding:8px 12px;font-size:12.5px;
+}

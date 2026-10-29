@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.requests import Request
 
+from geecs_web_theme.web import root_of
+
 from geecs_data_utils import tiled_schema as schema_map
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_catalog import fmt_time_of_day, metadata_rows
@@ -22,7 +24,6 @@ from geecs_portal.routes.common import (
     _parse_iso_day,
     _portal_version,
     _resolved_folder,
-    _root,
     _scan_label,
     _sticky_query,
 )
@@ -34,7 +35,7 @@ router = APIRouter()
 @router.get("/", response_class=RedirectResponse)
 def index(request: Request) -> str:
     """Redirect to today's day view."""
-    return f"{_root(request)}/day/{date.today().isoformat()}"
+    return f"{root_of(request)}/day/{date.today().isoformat()}"
 
 
 @router.get("/go", response_class=RedirectResponse)
@@ -42,7 +43,9 @@ def go(request: Request, day: str = "", experiment: str = "", filter: str = "") 
     """The day/experiment picker form's target: redirect to the day view."""
     selected = _parse_day(day)
     query = _sticky_query({"experiment": experiment, "filter": filter})
-    return f"{_root(request)}/day/{selected.isoformat()}{'?' + query if query else ''}"
+    return (
+        f"{root_of(request)}/day/{selected.isoformat()}{'?' + query if query else ''}"
+    )
 
 
 @router.get("/day/{day}", response_class=HTMLResponse)
@@ -111,12 +114,12 @@ def run_jump(
             }
         )
         return (
-            f"{_root(request)}/day/{selected.isoformat()}"
+            f"{root_of(request)}/day/{selected.isoformat()}"
             f"{'?' + day_query if day_query else ''}"
         )
     target = _jump_target(runs, prefer)
     assert target is not None  # runs is non-empty here
-    return f"{_root(request)}/run/{target.uid}?{query}"
+    return f"{root_of(request)}/run/{target.uid}?{query}"
 
 
 @router.get("/run/{uid}", response_class=HTMLResponse)

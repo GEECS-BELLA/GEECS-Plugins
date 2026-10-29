@@ -763,6 +763,7 @@ const location = {href:'http://portal.example/portal/run/uid-002?tab=grid&gridcf
 const window = {open:()=>null};
 const closeModals = ()=>{};
 const flashNote = ()=>{};
+const GeecsKit = {drawer:()=>({open(){}}), closeDrawer(){}, toast(){}};
 const dispCfg = ()=>({width:900,height:300});
 let exported, posted;
 const Plotly = {toImage:async(gd,opts)=>{exported={id:gd.id,...opts};return 'data:image/png;base64,stub';}};

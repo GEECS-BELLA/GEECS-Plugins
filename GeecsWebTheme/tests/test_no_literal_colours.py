@@ -93,6 +93,8 @@ _SURFACES = [
     "GEECS-DataPortal/geecs_portal/templates/base.html",
     "GEECS-DataPortal/geecs_portal/templates/day.html",
     "GEECS-DataPortal/geecs_portal/templates/run.html",
+    "GEECS-DataPortal/geecs_portal/templates/grid_script.html",
+    "GEECS-DataPortal/geecs_portal/static/portal.css",
     "GeecsLogbook/geecs_logbook/static/scanlog.css",
     "GeecsLogbook/geecs_logbook/templates/day.html",
     "GeecsLogbook/geecs_logbook/templates/month.html",
@@ -128,7 +130,7 @@ _ALLOWED = {
     ".themepick .sw-bella": "each swatch shows ITS palette whichever one is active",
     ".themepick .sw-laser": "each swatch shows ITS palette whichever one is active",
     ".themepick .sw-plasma": "each swatch shows ITS palette whichever one is active",
-    "img.plot": "matplotlib renders onto white; the frame matches its own ground",
+    ".kit img.plot": "matplotlib renders onto white; the frame matches its own ground",
     ".ce-preview img": "matplotlib renders onto white; the frame matches its own ground",
 }
 
@@ -282,8 +284,8 @@ def test_every_referenced_token_is_defined() -> None:
     This is the test that would have caught ``--surface2`` vs
     ``--surface-2``: 34 references and zero definitions, invisible to a
     check that only compared theme blocks against each other. Scripts
-    count too — the portal's run page writes one token through
-    ``cssText`` — and a surface's own ``.tone-ok{--tone:var(--ok)}``
+    count too — a script may write a token through ``cssText`` —
+    and a surface's own ``.tone-ok{--tone:var(--ok)}``
     indirection is a definition, not an undefined reference.
     """
     defined: set[str] = set()
@@ -478,7 +480,7 @@ def test_reference_page_demonstrates_only_what_the_kit_provides() -> None:
 def test_referenced_tokens_sees_css_a_script_builds() -> None:
     """``cssText = "…var(--x)…"`` in a script counts as a reference.
 
-    The portal's run page writes one token this way; a check over
+    The portal's run page once wrote one token this way; a check over
     stylesheet files alone would have let ``var(--surfce-2)`` there ship.
     """
     js = 'note.style.cssText = "padding:2px; background:var(--surfce-2)";'
