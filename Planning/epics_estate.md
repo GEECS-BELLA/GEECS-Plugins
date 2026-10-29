@@ -425,7 +425,7 @@ mounting the apps in process and benefit from the stricter APIs.
 8. TLS: plain HTTP on the lab LAN for the MVP.
 9. Bench harness: `bench/<ioc>/` as dated records, or delete.
 10. The second surface at the gate: the scanner (recommended); the plotter
-    stays on its brief and is not counted.
+    is not counted (it folded into the Data Portal; see its `CLAUDE.md`).
 
 ## 9. Review dispositions (round one, 2026-10-25)
 
@@ -447,8 +447,9 @@ and public packages (P4); Grafana as its own slice, scan marks from an
 archived PV (P5); one authoritative snapshot copy (P6); the version lattice
 and the secrets home (P8). **Accepted in part**: O8 asked to keep the
 plotter off the new stack entirely; it is not counted toward the gate
-(its brief has since closed: the plotter folded into the portal), but moves to `geecs-web` in phase 4 rather than
-remaining a permanent Jinja surface. A5 asked to weigh autosave configMenu
+(it has since folded into the Data Portal; see the portal's `CLAUDE.md`),
+but moves to `geecs-web` in phase 4 rather than remaining a permanent
+Jinja surface. A5 asked to weigh autosave configMenu
 as the snapshot store; it is kept as the per-IOC store, and the cross-IOC
 snapshot document stands because configMenu cannot span IOCs.
 
