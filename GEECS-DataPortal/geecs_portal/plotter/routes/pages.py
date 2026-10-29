@@ -196,16 +196,19 @@ def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
     """Save *form* into its set, or a new one; the name saved to."""
     source = set_name(form.get("set", DEFAULT_SET))
     target = source
-    # A change made under someone else's set goes into the viewer's own
-    # (their name, which the page sends as ``owner``), with the open set's
-    # controls copied under it. No owner (a page without its script) saves
-    # where it is.
-    owner = form.get("owner", "")
-    if not as_new and owner:
-        try:
-            target = set_name(owner)
-        except SettingsError:
-            target = source
+    # A change saves into the viewer's own set (their name, which the page
+    # sends as ``owner``), with the open set's controls copied under it when
+    # that is someone else's. A change that names no owner is refused, not
+    # saved where it is: that would let a first-time viewer of a shared
+    # link rewrite its owner's set. Save as names its target itself.
+    if not as_new:
+        owner = form.get("owner", "")
+        if not owner:
+            raise SettingsError(
+                "say who you are before changing anything: your changes save "
+                "into your own set (the page asks your name)"
+            )
+        target = set_name(owner)
     if as_new:
         try:
             target = set_name(form.get("save_as", ""))

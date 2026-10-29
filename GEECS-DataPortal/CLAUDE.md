@@ -456,7 +456,10 @@ GeecsPlotter folded into the portal (the author's ruling, 2026-10-28,
 `geecs_portal/plotter/` nearly unchanged, with its tests
 (`tests/plotter/`), and `__main__` mounts its app at **`/plot`**
 (`create_app(plotter=…)`; `None`, as the tests pass, mounts nothing and
-keeps the scan page's own plot pane). The page is the Plot tab: the day
+keeps the scan page's own plot pane). It opens a scan by day and number
+in the portal's own experiment (`--experiment`): a run of another
+experiment, or one without a day or a scan number, keeps the scan
+page's plot pane and its day-list link to `/run/{uid}`. The page is the Plot tab: the day
 list opens a scan there, the scan page's Plot tab links there, and the
 page's own tab bar reaches the scan's other tabs through
 `/run/jump/{day}?prefer={scan}&tab=…` (so a Tiled run and a folder scan
@@ -472,10 +475,16 @@ rules that are the portal's own:
   keeps the answer under the logbook author box's key, and `plotter.js`
   sends it as `owner` with every save). Opening someone else's set
   writes nothing; the viewer's first change copies it, with the change,
-  into their own set and switches to it (`pages._store`, and
+  into their own set, **replacing what their own set held** (it is the
+  viewer's working copy; Save as keeps a named one), and switches to it
+  (`pages._store`, and
   `copy_from` on `/plot/api/settings/{name}` for the saves that do not
   reload). The owner's set changes only by Save as onto its name, which
-  asks before replacing. A link carries `set=`, which opens that set as
+  asks before replacing. A change that names no viewer is refused
+  (422), never saved where it is: the page asks the name before a first
+  change on a shared link. The name is kept under its own browser key,
+  first borrowing the logbook author box's name when it fits. A link
+  carries `set=`, which opens that set as
   it is now (ruling 3 of the brief: the portal's old URL-carried plot
   state is retired for this page).
 - **The settings folder** is chosen once at start
@@ -492,7 +501,13 @@ rules that are the portal's own:
   its old plot pane, hidden while the plotter is mounted. The next PR
   gives the plotter page the old pane's binned view, shot filters,
   send-to-log and display settings (the author's list), then deletes the
-  pane and folds the two figure modules into one. The page's "Image
+  pane and folds the two figure modules into one, with the other
+  duplicates the move brought in (`plotter/scans.default_x` is
+  `routes/plot_api._default_x`; `scans.display_name` overlaps
+  `_pretty_names`). That PR also hands the plotter the portal's catalog
+  (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
+  folder-only even under `--tiled`; the folder catalog caches finished
+  scans itself) and the experiment as a parameter. The page's "Image
   strip" view is GeecsPlotter's too, until it joins the Images tab.
 
 ## Adding an analysis tab (the checklist)

@@ -109,8 +109,11 @@ def test_the_shared_user_data_folder_comes_from_config_ini(tmp_path: Path) -> No
     "text", ["", "[Paths]\n", "[Paths]\ngeecs_data = /no/such/drive/user data\n"]
 )
 def test_an_unset_or_unreachable_user_data_folder_falls_back_locally(
-    tmp_path: Path, text: str
+    tmp_path: Path, text: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Re-rooted in tmp_path: resolving the local store may copy the
+    # plotter's sets, which must never touch the developer's checkout.
+    monkeypatch.setattr(settings_module, "LOCAL_USER_DATA", tmp_path / "user data")
     config = tmp_path / "config.ini"
     config.write_text(text)
     store = resolve_store(config_path=config)
@@ -192,6 +195,21 @@ def test_the_plotters_sets_are_copied_once_and_never_overwritten(
     assert "changed" in (store.folder / "jet.json").read_text()
 
 
+def test_the_local_fallback_copies_the_plotters_sets_and_ignores_itself(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings_module, "LOCAL_USER_DATA", tmp_path / "user data")
+    plotter = tmp_path / "user data" / "GeecsPlotter" / "settings"
+    plotter.mkdir(parents=True)
+    (plotter / "default.json").write_text('{"y": "a"}')
+    config = tmp_path / "config.ini"
+    config.write_text("[Paths]\ngeecs_data = /no/such/drive\n")
+    store = resolve_store(config_path=config)
+    assert store.origin == "local" and store.names() == ["default"]
+    marker = tmp_path / "user data" / ".gitignore"
+    assert marker.read_text().splitlines()[-1] == "*"
+
+
 def test_a_given_folder_wins(tmp_path: Path) -> None:
     store = resolve_store(tmp_path / "mine", config_path=tmp_path / "absent.ini")
     assert (store.folder, store.origin) == (tmp_path / "mine", "given")
@@ -205,7 +223,13 @@ def test_a_pick_saves_the_set_and_the_url_stays_short(
 ) -> None:
     response = client.post(
         "/",
-        data={"day": "2026-10-02", "scan": "1", "set": "default", "y": "U_ICT charge"},
+        data={
+            "day": "2026-10-02",
+            "scan": "1",
+            "set": "default",
+            "owner": "default",
+            "y": "U_ICT charge",
+        },
     )
     assert response.url.query.decode() == "day=2026-10-02&scan=1&set=default"
     saved = json.loads((settings_dir / "default.json").read_text())
@@ -621,6 +645,21 @@ def test_a_live_save_can_copy_the_shown_set(
     assert saved["x_filter"] == "jet" and saved["y"] == "U_ICT charge"
     assert (settings_dir / "alice.json").read_text() == alice
     assert "copy_from" not in saved
+
+
+def test_a_change_that_names_no_viewer_saves_nothing(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A first-time viewer of a shared set= link never writes into it."""
+    post(client, scan=1, set="alice", y="U_ICT charge")
+    alice = (settings_dir / "alice.json").read_text()
+    response = client.post(
+        "/", data={"day": "2026-10-02", "scan": "2", "set": "alice", "owner": ""}
+    )
+    assert response.status_code == 422
+    assert "say who you are" in response.text
+    assert (settings_dir / "alice.json").read_text() == alice
+    assert sorted(p.name for p in settings_dir.iterdir()) == ["alice.json"]
 
 
 def test_the_page_script_sends_the_viewers_name(client: TestClient) -> None:

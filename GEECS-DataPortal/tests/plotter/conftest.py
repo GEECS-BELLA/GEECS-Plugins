@@ -76,6 +76,10 @@ def client(share: Path, settings_dir: Path) -> TestClient:
 
 
 def post(client: TestClient, path: str = "/", **fields: object) -> str:
-    """POST the page form (day 2026-10-02 unless given) and follow to the page."""
+    """POST the page form (day 2026-10-02 unless given) and follow to the page.
+
+    The viewer is the set's own owner unless ``owner`` says otherwise.
+    """
     form = {"day": "2026-10-02", "set": "default", **fields}
+    form.setdefault("owner", form["set"])
     return client.post(path, data={k: str(v) for k, v in form.items()}).text

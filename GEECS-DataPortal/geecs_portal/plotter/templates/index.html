@@ -273,7 +273,15 @@
         {# The set saves itself, so a first-time user who looks here for a
            "load" sees why there is only one entry. #}
         <span class="hint">Every pick, and each scan opened here, saves into your own set; opening a set reopens its last scan.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
-        <span class="hint" id="you" hidden>You: <b id="you-name"></b>. A change made under another set saves into yours. <a href="{{ root }}/{% if day and scan %}?day={{ day }}&amp;scan={{ scan }}{% endif %}" id="you-change">Change</a></span>
+        <span class="hint" id="you" hidden>You: <b id="you-name"></b>. A change made under another set copies it into yours, replacing what yours held. <a href="{{ root }}/{% if day and scan %}?day={{ day }}&amp;scan={{ scan }}{% endif %}" id="you-change">Change</a></span>
+        {# No name known yet (a shared link opened first): asked before the
+           first change, which would otherwise have nowhere to go. #}
+        <div class="field" id="who" hidden>
+          <label for="who-name">Your name</label>
+          <input id="who-name" autocomplete="name" aria-describedby="who-hint who-err">
+          <span class="err" id="who-err" role="alert"></span>
+          <span class="hint" id="who-hint">Needed before a change saves: it saves into your own set, never into the one shown. Enter to go on.</span>
+        </div>
         <span class="hint mono settings-folder" title="{{ settings_folder }}">{{ settings_folder }}{% if settings_origin == 'local' %} (local: the shared user data folder is not reachable){% endif %}</span>
       </div>
       <div class="field">
@@ -446,7 +454,7 @@
   </div>
 </aside>
 
-<script src="{{ portal_root if in_portal else root }}/static/plotly-cartesian-3.1.1.min.js" defer></script>
+<script src="{{ portal_root }}/static/plotly-cartesian-3.1.1.min.js" defer></script>
 <script src="{{ root }}/static/plotter.js" defer></script>
 <script src="{{ root }}/theme/theme.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>

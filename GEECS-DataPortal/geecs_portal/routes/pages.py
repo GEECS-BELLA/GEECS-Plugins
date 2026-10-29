@@ -75,7 +75,8 @@ def day_view(
             "rows": [(run, fmt_time_of_day(run.start_time)) for run in runs],
             "scan_label": _scan_label,
             "error": error,
-            "plot_page": portal.plot_page,
+            # The plotter opens the portal's own experiment only.
+            "plot_page": portal.plot_page and exp == portal.default_experiment,
             "qs": lambda **kw: _sticky_query(day_state, **kw),
         },
     )
@@ -208,6 +209,14 @@ def run_view(
     prev_uid, next_uid, day_runs = portal.neighbours(
         uid, experiment or portal.default_experiment, run_day
     )
+    # The plotter page opens a scan by day and number in the portal's own
+    # experiment; a run it cannot open keeps this page's plot pane.
+    plot_page = (
+        portal.plot_page
+        and run_day is not None
+        and detail.summary.scan_number is not None
+        and experiment in ("", portal.default_experiment)
+    )
     state = {
         "day": day,
         "experiment": experiment or portal.default_experiment,
@@ -249,13 +258,13 @@ def run_view(
             "tab": (
                 tab
                 if tab in ("overview", "grid", "images")
-                or (tab == "plot" and not portal.plot_page)
+                or (tab == "plot" and not plot_page)
                 or (tab == "analysis" and analysis_enabled)
                 # With the plotter mounted, Plot is its own page (/plot/)
                 # and the scan page opens on the Overview.
-                else ("overview" if portal.plot_page else "plot")
+                else ("overview" if plot_page else "plot")
             ),
-            "plot_page": portal.plot_page,
+            "plot_page": plot_page,
             "analysis_enabled": analysis_enabled,
             "config_editor": portal.config_editor_enabled and analysis_enabled,
             "devices": devices,

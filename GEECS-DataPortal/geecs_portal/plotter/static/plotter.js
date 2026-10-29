@@ -7,18 +7,27 @@
 
 (function () {
   // The viewer's own settings set: their name, asked once and remembered
-  // by the browser (the key the logbook send's author box uses too), in the
-  // form the server stores (settings.set_name). A page whose script cannot
-  // store it asks again; the server never needs it.
-  const OWN_KEY = "geecs-portal:author";
+  // by the browser in the form the server stores (settings.set_name). A
+  // first visit borrows the logbook send's author name when it fits; the
+  // author box's own key is only read, never written or cleared. A page
+  // whose script cannot store the name asks again.
+  const OWN_KEY = "geecs-portal:set";
+  const AUTHOR_KEY = "geecs-portal:author";
   const folded = (name) => name.trim().split(/\s+/).join(" ").toLowerCase();
   const SET_NAME = /^[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?$/;
   function ownName() {
     try {
-      const name = folded(localStorage.getItem(OWN_KEY) || "");
-      return SET_NAME.test(name) ? name : "";
-    } catch (_) { return ""; }
+      for (const key of [OWN_KEY, AUTHOR_KEY]) {
+        const name = folded(localStorage.getItem(key) || "");
+        if (SET_NAME.test(name)) return name;
+      }
+    } catch (_) { /* no storage: asked */ }
+    return "";
   }
+  function remember(name) {
+    try { localStorage.setItem(OWN_KEY, name); } catch (_) { /* asked again next time */ }
+  }
+  const BAD_NAME = "Use letters, digits, spaces, '-', '_' and '.', starting with a letter or digit.";
 
   // A URL with no set asks the name; a remembered one answers at once.
   const ask = document.getElementById("ask-name");
@@ -31,26 +40,60 @@
       if (!SET_NAME.test(name)) {
         event.preventDefault();
         box.setAttribute("aria-invalid", "true");
-        document.getElementById("own-set-err").textContent =
-          "Use letters, digits, spaces, '-', '_' and '.', starting with a letter or digit.";
+        document.getElementById("own-set-err").textContent = BAD_NAME;
         return;
       }
       box.value = name;
-      try { localStorage.setItem(OWN_KEY, name); } catch (_) { /* asked again next time */ }
+      remember(name);
     });
     return;
   }
 
   const form = document.getElementById("pick");
-  const owner = ownName();
+  let owner = ownName();
   if (form && form.elements.owner) form.elements.owner.value = owner;
   const you = document.getElementById("you");
-  if (you && owner) {
+  const showYou = () => {
+    if (!you || !owner) return;
     document.getElementById("you-name").textContent = owner;
     you.hidden = false;
-    // "Change" forgets the name, so the page without a set asks again.
-    document.getElementById("you-change").addEventListener("click", () => {
-      try { localStorage.removeItem(OWN_KEY); } catch (_) { /* nothing kept */ }
+  };
+  showYou();
+  // "Change" forgets the name (this page's own key), so the page without
+  // a set asks again.
+  document.getElementById("you-change")?.addEventListener("click", () => {
+    try { localStorage.removeItem(OWN_KEY); } catch (_) { /* nothing kept */ }
+  });
+  // No name known (a shared link opened first): the first change waits for
+  // it. Save as names its own target, so it goes ahead.
+  const who = document.getElementById("who");
+  const whoName = document.getElementById("who-name");
+  let waiting = null;  // the submitter of the change that waits for a name
+  if (form && who && !owner) {
+    form.addEventListener("submit", (event) => {
+      if (owner) return;
+      const submitter = event.submitter;
+      if (submitter && (submitter.getAttribute("formaction") || "").endsWith("/save-as")) return;
+      event.preventDefault();
+      waiting = submitter || null;
+      who.hidden = false;
+      whoName.focus();
+    });
+    whoName.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const name = folded(whoName.value);
+      if (!SET_NAME.test(name)) {
+        whoName.setAttribute("aria-invalid", "true");
+        document.getElementById("who-err").textContent = BAD_NAME;
+        return;
+      }
+      owner = name;
+      remember(name);
+      form.elements.owner.value = name;
+      who.hidden = true;
+      showYou();
+      form.requestSubmit(waiting);
     });
   }
   const DOUBLE_CLICK_MS = 500;
@@ -165,9 +208,10 @@
   const FILTER_SAVE_MS = 500;
   function saveField(name, value) {
     const set = form.elements.set.value;
-    // Under someone else's set a change is the viewer's: the whole form
-    // posts, and the server copies the set into theirs and switches to it.
-    if (owner && owner !== set) { form.requestSubmit(); return Promise.resolve(); }
+    // Under someone else's set (or with no name yet) a change is the
+    // viewer's: the whole form posts, and the server copies the set into
+    // theirs and switches to it; with no name, the form asks for it first.
+    if (owner !== set) { form.requestSubmit(); return Promise.resolve(); }
     const url = new URL(`api/settings/${encodeURIComponent(set)}`, form.action);
     return fetch(url, { method: "POST", body: new URLSearchParams({ [name]: value }) })
       .catch(() => { /* the next pick posts the filter anyway */ });
@@ -308,7 +352,8 @@
       const shown = form.elements.set.value;
       // Under someone else's set the ROI goes into the viewer's own, copied
       // from the shown one, and the page then opens the viewer's set.
-      const set = owner || shown;
+      if (!owner) { form.requestSubmit(); return Promise.resolve(); }  // asks the name
+      const set = owner;
       const url = new URL(`api/settings/${encodeURIComponent(set)}`, form.action);
       const body = new URLSearchParams({ device: strip.dataset.device, roi });
       if (set !== shown) body.set("copy_from", shown);

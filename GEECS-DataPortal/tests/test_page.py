@@ -130,3 +130,16 @@ def test_without_the_plotter_the_scan_page_keeps_its_plot_pane() -> None:
 
     page = TestClient(create_app(FakeCatalog())).get("/run/uid-002").text
     assert "const PLOT_PAGE = false;" in page and 'data-pane="plot"' in page
+
+
+def test_another_experiments_run_keeps_the_scan_pages_plot(tmp_path) -> None:
+    """The plotter opens the portal's own experiment by day and number only."""
+    from tests.test_app import TEST_DAY
+
+    client = _with_plotter(tmp_path)
+    page = client.get("/run/uid-002", params={"experiment": "Thomson"}).text
+    assert "const PLOT_PAGE = false;" in page and 'data-pane="plot"' in page
+    day = client.get(
+        f"/day/{TEST_DAY.isoformat()}", params={"experiment": "Thomson"}
+    ).text
+    assert 'href="/plot/' not in day and 'href="/run/uid-002?' in day

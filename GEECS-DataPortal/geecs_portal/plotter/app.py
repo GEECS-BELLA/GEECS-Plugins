@@ -4,8 +4,9 @@ GeecsPlotter folded into the portal (``Planning/portal_plotter_merge.md``):
 its page moved here nearly unchanged and the portal mounts it at
 ``/plot`` (:func:`create_app` with ``mount="/plot"``), so the page keeps
 its own form, its named settings sets and its routes, and the portal's tab
-bar links it to the scan's other tabs. Standalone (the tests) it is the
-plotter as it was.
+bar links it to the scan's other tabs. Unmounted (``mount=""``, as the
+tests build it) the same page carries its own prefix middleware and no
+portal tab bar; nothing serves it that way.
 
 The web glue every GEECS surface shares is imported from
 ``geecs_web_theme.web``, never copied. What is the plotter's own: the
