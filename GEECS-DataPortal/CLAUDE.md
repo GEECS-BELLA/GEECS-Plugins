@@ -8,11 +8,15 @@ extending this package.
 
 ## Architecture rules
 
-- **Read-only, except explicit analysis runs, the config editor, and
-  sending a plot to the logbook** (charter amendments: owner rulings
-  2026-09-01, 2026-09-06, and 2026-09-15).
-  The portal itself has no write verbs: no annotations.  Three
-  exceptions, all explicit opt-ins.  (A MOUNTED scan logbook was a
+- **Read-only, except explicit analysis runs, the config editor,
+  sending a plot to the logbook, and the Plot tab's settings sets**
+  (charter amendments: owner rulings 2026-09-01, 2026-09-06 and
+  2026-09-15; the settings sets are the author's, 2026-10-28, for the
+  maintainer to confirm — `Planning/portal_plotter_merge.md`).
+  The portal itself has no write verbs: no annotations.  Four
+  exceptions, all explicit opt-ins; the fourth, the settings sets, writes
+  JSON files into the settings folder only (below, "The Plot tab"), never
+  the data share's scan tree.  (A MOUNTED scan logbook was a
   fourth, 0.22–0.26: a router at `/log` behind a `log` extra.  Since
   GeecsLogbook 0.10.0 it is **its own service** on port 8400 and this
   package only reaches it over HTTP — `--logbook-url` is the base the
@@ -222,6 +226,8 @@ geecs_portal/
                  #   plot into a scan's logbook entry (HTTP only)
   figures.py     # server-side Plot-tab figure authoring (plotly.py):
                  #   palette, base layout, multi-axis ladder, display
+  plotter/       # the Plot tab: GEECSplotter's page, mounted at /plot (its
+                 #   app, routes, settings sets, figures, image strip)
   resources.py   # figure_png (a shot's pixels, traces and PNG are
                  #   geecs_data_utils.io.shot_images / .display_png)
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
@@ -442,6 +448,52 @@ Template links build their queries through the one sticky-query helper
 (and the page JS mirrors the analysis state into the stepper links) so
 navigating one control never resets another; the day page's "clear"
 link is the one deliberate exception.
+
+## The Plot tab: GEECSplotter's page (`geecs_portal/plotter/`)
+
+GeecsPlotter folded into the portal (the author's ruling, 2026-10-28,
+`Planning/portal_plotter_merge.md`): its package moved to
+`geecs_portal/plotter/` nearly unchanged, with its tests
+(`tests/plotter/`), and `__main__` mounts its app at **`/plot`**
+(`create_app(plotter=…)`; `None`, as the tests pass, mounts nothing and
+keeps the scan page's own plot pane). The page is the Plot tab: the day
+list opens a scan there, the scan page's Plot tab links there, and the
+page's own tab bar reaches the scan's other tabs through
+`/run/jump/{day}?prefer={scan}&tab=…` (so a Tiled run and a folder scan
+both resolve). It keeps its own routes under `/plot` (`/plot/`,
+`/plot/save-as`, `/plot/api/…`); the portal's `/api/run/{uid}/…` routes
+and payloads are untouched. Until GeecsPlotter is deleted
+(`GeecsPlotter/`, kept for comparison), its `CLAUDE.md` holds the
+page's design rules; they move here in the PR that deletes it. The
+rules that are the portal's own:
+
+- **Each viewer saves into their own set.** The page asks the viewer's
+  name once (a URL without `set=` shows only that question; the browser
+  keeps the answer under the logbook author box's key, and `plotter.js`
+  sends it as `owner` with every save). Opening someone else's set
+  writes nothing; the viewer's first change copies it, with the change,
+  into their own set and switches to it (`pages._store`, and
+  `copy_from` on `/plot/api/settings/{name}` for the saves that do not
+  reload). The owner's set changes only by Save as onto its name, which
+  asks before replacing. A link carries `set=`, which opens that set as
+  it is now (ruling 3 of the brief: the portal's old URL-carried plot
+  state is retired for this page).
+- **The settings folder** is chosen once at start
+  (`plotter.settings.resolve_store`): `--settings-dir`, else
+  `{config.ini [Paths] geecs_data}/DataPortal/settings/` (the shared
+  `user data` folder), else `<main checkout>/user data/DataPortal/settings/`
+  (gitignored). On its first start beside GeecsPlotter's folder
+  (`…/GeecsPlotter/settings/`) it copies those sets once
+  (`adopt_plotter_sets`: never overwriting, never deleting). On the
+  service host, name the folder through `config.ini` or
+  `--settings-dir` in `GEECS_PORTAL_EXTRA_ARGS` (`DEPLOYMENT.md`).
+- **Accepted debt, for the next PR of the arc:** `plotter/figures.py` is
+  GeecsPlotter's copy of `figures.py`, and the scan page still carries
+  its old plot pane, hidden while the plotter is mounted. The next PR
+  gives the plotter page the old pane's binned view, shot filters,
+  send-to-log and display settings (the author's list), then deletes the
+  pane and folds the two figure modules into one. The page's "Image
+  strip" view is GeecsPlotter's too, until it joins the Images tab.
 
 ## Adding an analysis tab (the checklist)
 

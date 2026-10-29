@@ -99,7 +99,7 @@ def test_a_bad_day_is_a_422(client: TestClient) -> None:
 def test_a_lookup_never_creates_a_scan_folder(client: TestClient, share: Path) -> None:
     before = sorted(p for p in share.rglob("*"))
     client.get("/api/columns", params={"day": "2026-10-02", "scan": 9})
-    client.get("/", params={"day": "2026-10-03", "scan": 1})
+    client.get("/", params={"set": "default", "day": "2026-10-03", "scan": 1})
     assert sorted(p for p in share.rglob("*")) == before
 
 

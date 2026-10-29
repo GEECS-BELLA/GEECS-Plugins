@@ -239,7 +239,9 @@ def test_switching_sets_opens_the_other_one(client: TestClient) -> None:
     post(client, "/save-as", scan=1, y="U_ICT charge", xauto="false", x="", save_as="b")
     page = client.get("/", params={"day": "2026-10-02", "scan": 1, "set": "b"}).text
     assert '<option value="" selected>shot #</option>' in page
-    other = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    other = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert '<option value="" selected>shot #</option>' not in other
 
 
@@ -248,7 +250,9 @@ def test_a_broken_set_is_shown_and_never_overwritten(
 ) -> None:
     settings_dir.mkdir()
     (settings_dir / "default.json").write_text("{broken")
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert "Settings problem" in page
     response = client.post(
         "/", data={"day": "2026-10-02", "scan": "1", "set": "default"}
@@ -260,7 +264,7 @@ def test_a_broken_set_is_shown_and_never_overwritten(
 def test_the_page_names_the_settings_folder(
     client: TestClient, settings_dir: Path
 ) -> None:
-    assert str(settings_dir) in client.get("/").text
+    assert str(settings_dir) in client.get("/?set=default").text
 
 
 # -- the API ----------------------------------------------------------------
@@ -315,7 +319,9 @@ def test_a_dropped_share_keeps_the_saved_set(
     saved = store.path("default").read_text()
 
     user_data.rename(tmp_path / "unmounted")
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert "not reachable" in page
     response = client.post(
         "/", data={"day": "2026-10-02", "scan": "1", "set": "default", "yf": ""}
@@ -382,11 +388,11 @@ def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> 
 
 def test_the_set_list_says_how_to_add_one(client: TestClient) -> None:
     """With only "default", the rail says picks save themselves and how to add a set."""
-    page = client.get("/").text
-    assert "saves into this set (shared by everyone who opens it)" in page
+    page = client.get("/?set=default").text
+    assert "saves into your own set" in page
     assert "Use Save as" in page
     post(client, "/save-as", scan=1, save_as="HTU jet scan")
-    page = client.get("/").text
+    page = client.get("/?set=default").text
     assert '<option value="htu jet scan">htu jet scan</option>' in page
     assert "Use Save as" not in page
 
@@ -437,10 +443,10 @@ def test_opening_a_scan_saves_it_in_the_set(
 def test_starting_bare_reopens_the_last_scan(client: TestClient) -> None:
     """No day or scan in the URL: back to where this set left off."""
     post(client, scan=2, y="U_ICT charge")
-    response = client.get("/", follow_redirects=False)
+    response = client.get("/?set=default", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "./?day=2026-10-02&scan=2&set=default"
-    page = client.get("/").text
+    page = client.get("/?set=default").text
     assert "Scan002" in page
     assert '<option value="U_ICT charge" selected>' in page
 
@@ -454,14 +460,16 @@ def test_switching_sets_opens_that_sets_scan(client: TestClient) -> None:
 
 
 def test_a_set_that_never_opened_a_scan_is_the_empty_form(client: TestClient) -> None:
-    response = client.get("/", follow_redirects=False)
+    response = client.get("/?set=default", follow_redirects=False)
     assert response.status_code == 200
     assert 'data-state="empty"' in response.text
 
 
 def test_a_url_scan_wins_over_the_remembered_one(client: TestClient) -> None:
     post(client, scan=2)
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert "Scan001" in page
 
 
@@ -541,7 +549,9 @@ def test_the_page_offers_saved_names_and_asks_before_replacing(
     client: TestClient,
 ) -> None:
     post(client, "/save-as", scan=1, save_as="htu jet scan")
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert 'list="saved-sets"' in page
     assert '<option value="htu jet scan">' in page.split('id="saved-sets"')[1]
     dialog = page.split('<dialog id="replace-set"')[1].split("</dialog>")[0]
@@ -558,3 +568,61 @@ def test_the_api_answers_for_a_set_that_remembers_a_scan(client: TestClient) -> 
     read = client.get("/api/settings/default")
     assert read.status_code == 200
     assert read.json()["scan"] == 1
+
+
+# -- each viewer's own set ----------------------------------------------------
+
+
+def test_a_url_without_a_set_asks_the_viewers_name(client: TestClient) -> None:
+    """No set named: the page asks whose set to use, and draws nothing."""
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert 'id="ask-name"' in page
+    assert 'name="set"' in page and 'value="2026-10-02"' in page
+    assert "data-figure-url" not in page
+
+
+def test_opening_someone_elses_set_writes_nothing(
+    client: TestClient, settings_dir: Path
+) -> None:
+    post(client, scan=1, set="alice", owner="alice", y="U_ICT charge")
+    before = (settings_dir / "alice.json").read_text()
+    client.get("/", params={"set": "alice", "day": "2026-10-02", "scan": 2})
+    client.get("/", params={"set": "alice"}, follow_redirects=False)
+    assert (settings_dir / "alice.json").read_text() == before
+
+
+def test_a_change_under_someone_elses_set_saves_into_the_viewers(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """Bob steps a scan on Alice's set: Bob's set takes Alice's view and the step."""
+    post(client, scan=1, set="alice", owner="alice", y="U_ICT charge", xalias="false")
+    alice = (settings_dir / "alice.json").read_text()
+    response = client.post(
+        "/",
+        data={"day": "2026-10-02", "scan": "2", "set": "alice", "owner": "bob"},
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "./?day=2026-10-02&scan=2&set=bob"
+    assert (settings_dir / "alice.json").read_text() == alice
+    bob = client.get("/api/settings/bob").json()
+    assert bob["y"] == "U_ICT charge" and bob["x_alias"] is False  # Alice's view
+    assert bob["scan"] == 2  # and Bob's step
+
+
+def test_a_live_save_can_copy_the_shown_set(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A filter typed under Alice's set lands in Bob's, on top of Alice's view."""
+    post(client, scan=1, set="alice", owner="alice", y="U_ICT charge")
+    alice = (settings_dir / "alice.json").read_text()
+    saved = client.post(
+        "/api/settings/bob", data={"xf": "jet", "copy_from": "alice"}
+    ).json()
+    assert saved["x_filter"] == "jet" and saved["y"] == "U_ICT charge"
+    assert (settings_dir / "alice.json").read_text() == alice
+    assert "copy_from" not in saved
+
+
+def test_the_page_script_sends_the_viewers_name(client: TestClient) -> None:
+    page = client.get("/?set=default").text
+    assert '<input type="hidden" name="owner" value="">' in page

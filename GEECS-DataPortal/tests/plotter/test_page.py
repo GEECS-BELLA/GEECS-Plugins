@@ -44,13 +44,15 @@ def test_every_script_parses(script: Path) -> None:
 
 
 def test_the_empty_form(client: TestClient) -> None:
-    page = client.get("/").text
+    page = client.get("/?set=default").text
     assert 'data-state="empty"' in page
     assert "data-figure-url" not in page
 
 
 def test_a_scan_defaults_x_to_the_scan_variable(client: TestClient) -> None:
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert f'<option value="{SCAN_VARIABLE}" selected>' in page
     assert '<option value="U_ICT charge" selected>' in page  # the first measurement
     assert "x=U_Jet%20Position" in page
@@ -62,7 +64,9 @@ def test_x_empty_means_the_shot_number(client: TestClient) -> None:
 
 
 def test_a_missing_scan_says_so(client: TestClient) -> None:
-    page = client.get("/", params={"day": "2026-10-02", "scan": 9}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 9}
+    ).text
     assert 'data-state="error"' in page
     assert "Scan009" in page
 
@@ -70,7 +74,7 @@ def test_a_missing_scan_says_so(client: TestClient) -> None:
 def test_links_carry_the_proxy_prefix(client: TestClient) -> None:
     page = client.get(
         "/",
-        params={"day": "2026-10-02", "scan": 1},
+        params={"set": "default", "day": "2026-10-02", "scan": 1},
         headers={"X-Forwarded-Prefix": "/plot"},
     ).text
     assert 'href="/plot/theme/kit.css"' in page
@@ -80,7 +84,9 @@ def test_links_carry_the_proxy_prefix(client: TestClient) -> None:
 
 def test_options_carry_the_exact_column_name(client: TestClient) -> None:
     """A browser strips and collapses option text; the value keeps the name."""
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert '<option value="U_ICT charge" selected>U_ICT charge</option>' in page
 
 
@@ -92,13 +98,17 @@ def test_only_bookkeeping_columns_still_pick_a_y(
     from tests.plotter.conftest import write_scan
 
     write_scan(share, 3, pd.DataFrame({"Shotnumber": [1, 2], "Bin #": [1, 1]}))
-    page = client.get("/", params={"day": "2026-10-02", "scan": 3}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 3}
+    ).text
     assert "y=Shotnumber" in page
 
 
 def test_each_axis_has_its_own_filter(client: TestClient) -> None:
     """LabVIEW filters the X and Y lists independently; so does the page."""
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert 'data-filter-for="x"' in page
     assert 'data-filter-for="y"' in page
     assert "option.hidden" not in (_PKG / "static" / "plotter.js").read_text()
@@ -123,7 +133,9 @@ def test_the_toggles_survive_a_missing_scan(client: TestClient) -> None:
 
 
 def test_alias_and_auto_x_are_the_defaults(client: TestClient) -> None:
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert 'name="xalias" value="true"' in page
     assert 'name="yalias" value="true"' in page
     assert 'name="xauto" value="true"' in page
@@ -145,7 +157,9 @@ def test_the_filters_are_saved(client: TestClient) -> None:
     assert 'name="xf" value="jet"' in page
     assert 'name="yf" value="gas"' in page
     post(client, scan=9)  # no lists, so no filter fields sent
-    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert 'name="yf" value="gas"' in page
 
 
@@ -156,14 +170,16 @@ def test_a_scan_with_no_shots_says_so(client: TestClient, share: Path) -> None:
     from tests.plotter.conftest import write_scan
 
     write_scan(share, 4, pd.DataFrame(columns=["Shotnumber", "Bin #", "scan"]))
-    response = client.get("/", params={"day": "2026-10-02", "scan": 4})
+    response = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 4}
+    )
     assert response.status_code == 200
     assert "No columns to plot" in response.text
 
 
 def test_the_scan_number_opens_on_change(client: TestClient) -> None:
     """The scan box is marked for plotter.js to open the scan when it changes."""
-    page = client.get("/").text
+    page = client.get("/?set=default").text
     assert "data-auto-open" in page
     assert "[data-auto-open]" in (_PKG / "static" / "plotter.js").read_text()
 
@@ -186,7 +202,9 @@ def test_stepping_past_an_empty_scan_keeps_the_picks(
 
 def test_the_count_shows_one_two_or_three_y_lists(client: TestClient) -> None:
     """GEECSplotter's choice of one, two or three Y plots."""
-    one = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    one = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
     assert 'id="y2"' not in one and 'id="y3"' not in one
     assert 'data-toggle-for="ycount" data-value="1" aria-pressed="true"' in one
     assert "&amp;y2=&amp;y3=&amp;" in one  # one trace

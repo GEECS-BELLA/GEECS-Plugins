@@ -6,7 +6,53 @@
 "use strict";
 
 (function () {
+  // The viewer's own settings set: their name, asked once and remembered
+  // by the browser (the key the logbook send's author box uses too), in the
+  // form the server stores (settings.set_name). A page whose script cannot
+  // store it asks again; the server never needs it.
+  const OWN_KEY = "geecs-portal:author";
+  const folded = (name) => name.trim().split(/\s+/).join(" ").toLowerCase();
+  const SET_NAME = /^[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?$/;
+  function ownName() {
+    try {
+      const name = folded(localStorage.getItem(OWN_KEY) || "");
+      return SET_NAME.test(name) ? name : "";
+    } catch (_) { return ""; }
+  }
+
+  // A URL with no set asks the name; a remembered one answers at once.
+  const ask = document.getElementById("ask-name");
+  if (ask) {
+    const box = document.getElementById("own-set");
+    const known = ownName();
+    if (known) { box.value = known; ask.submit(); return; }
+    ask.addEventListener("submit", (event) => {
+      const name = folded(box.value);
+      if (!SET_NAME.test(name)) {
+        event.preventDefault();
+        box.setAttribute("aria-invalid", "true");
+        document.getElementById("own-set-err").textContent =
+          "Use letters, digits, spaces, '-', '_' and '.', starting with a letter or digit.";
+        return;
+      }
+      box.value = name;
+      try { localStorage.setItem(OWN_KEY, name); } catch (_) { /* asked again next time */ }
+    });
+    return;
+  }
+
   const form = document.getElementById("pick");
+  const owner = ownName();
+  if (form && form.elements.owner) form.elements.owner.value = owner;
+  const you = document.getElementById("you");
+  if (you && owner) {
+    document.getElementById("you-name").textContent = owner;
+    you.hidden = false;
+    // "Change" forgets the name, so the page without a set asks again.
+    document.getElementById("you-change").addEventListener("click", () => {
+      try { localStorage.removeItem(OWN_KEY); } catch (_) { /* nothing kept */ }
+    });
+  }
   const DOUBLE_CLICK_MS = 500;
   const AUTO_OPEN_MS = 500;
   // A hand-picked X turns "X = scan variable" off, or the next page would
@@ -102,7 +148,6 @@
     // A name already saved (compared as the server stores it) asks before
     // replacing; the dialog's Replace button posts overwrite=true.
     const saved = new Set(Array.from(document.querySelectorAll("#saved-sets option"), (o) => o.value));
-    const folded = (name) => name.trim().split(/\s+/).join(" ").toLowerCase();
     const replace = document.getElementById("replace-set");
     saveGo.addEventListener("click", (event) => {
       const name = folded(saveAs.value);
@@ -120,6 +165,9 @@
   const FILTER_SAVE_MS = 500;
   function saveField(name, value) {
     const set = form.elements.set.value;
+    // Under someone else's set a change is the viewer's: the whole form
+    // posts, and the server copies the set into theirs and switches to it.
+    if (owner && owner !== set) { form.requestSubmit(); return Promise.resolve(); }
     const url = new URL(`api/settings/${encodeURIComponent(set)}`, form.action);
     return fetch(url, { method: "POST", body: new URLSearchParams({ [name]: value }) })
       .catch(() => { /* the next pick posts the filter anyway */ });
@@ -257,12 +305,22 @@
     // The ROI, kept per camera: saved with the camera's name, then the page
     // reloads so every tile (and a shared scale) is taken over it.
     const saveRoi = (roi) => {
-      const set = form.elements.set.value;
+      const shown = form.elements.set.value;
+      // Under someone else's set the ROI goes into the viewer's own, copied
+      // from the shown one, and the page then opens the viewer's set.
+      const set = owner || shown;
       const url = new URL(`api/settings/${encodeURIComponent(set)}`, form.action);
       const body = new URLSearchParams({ device: strip.dataset.device, roi });
+      if (set !== shown) body.set("copy_from", shown);
+      const reopen = () => {
+        if (set === shown) { location.reload(); return; }
+        const next = new URL(location.href);
+        next.searchParams.set("set", set);
+        location.assign(next);
+      };
       const problem = document.getElementById("roi-error");
       return fetch(url, { method: "POST", body })
-        .then((response) => response.ok ? location.reload()
+        .then((response) => response.ok ? reopen()
           : response.json().then((answer) => { throw new Error(String(answer.detail || response.statusText)); }))
         .catch((error) => {
           // Shown in the drawer, which stays open with the rectangle drawn.

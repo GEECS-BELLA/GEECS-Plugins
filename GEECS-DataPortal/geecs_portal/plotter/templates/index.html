@@ -65,6 +65,29 @@
   </div>
 </header>
 
+{% if ask_name %}
+{# A URL that names no set: each viewer saves into their own set, the one
+   with their name, asked once here. plotter.js answers it from the
+   browser's memory when it can and remembers what is typed. #}
+<div class="shell solo">
+  <main class="pane">
+    <form method="get" action="{{ root }}/" id="ask-name" class="panel">
+      <header><span class="eyebrow">Your settings</span></header>
+      <div class="body">
+        <div class="field">
+          <label for="own-set">Your name</label>
+          <input id="own-set" name="set" required autocomplete="name" aria-describedby="own-set-hint own-set-err">
+          <span class="err" id="own-set-err" role="alert"></span>
+          <span class="hint" id="own-set-hint">Your plot choices save into a settings set with this name, so your clicks never change someone else's plots. This browser remembers it; letters, digits, spaces, '-', '_' and '.'.</span>
+        </div>
+        {% if day %}<input type="hidden" name="day" value="{{ day }}">{% endif %}
+        {% if scan %}<input type="hidden" name="scan" value="{{ scan }}">{% endif %}
+        <div class="row end"><button class="btn primary" type="submit">Open</button></div>
+      </div>
+    </form>
+  </main>
+</div>
+{% else %}
 <div class="shell">
   <nav class="rail" aria-label="Selection">
     <form method="post" action="{{ root }}/" id="pick">
@@ -80,6 +103,9 @@
         {# The set the controls save into. A field the page does not send
            (no lists while no scan is open) keeps its saved value. #}
         <input type="hidden" name="set" value="{{ set }}">
+        {# The viewer's own set (their name, from the browser): a change
+           made under someone else's set saves there instead. #}
+        <input type="hidden" name="owner" value="">
         <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
         <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
         <input type="hidden" name="xauto" value="{{ 'true' if xauto else 'false' }}">
@@ -246,7 +272,8 @@
         </select>
         {# The set saves itself, so a first-time user who looks here for a
            "load" sees why there is only one entry. #}
-        <span class="hint">Every pick, and each scan opened here, saves into this set (shared by everyone who opens it); opening the set reopens its last scan.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
+        <span class="hint">Every pick, and each scan opened here, saves into your own set; opening a set reopens its last scan.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
+        <span class="hint" id="you" hidden>You: <b id="you-name"></b>. A change made under another set saves into yours. <a href="{{ root }}/{% if day and scan %}?day={{ day }}&amp;scan={{ scan }}{% endif %}" id="you-change">Change</a></span>
         <span class="hint mono settings-folder" title="{{ settings_folder }}">{{ settings_folder }}{% if settings_origin == 'local' %} (local: the shared user data folder is not reachable){% endif %}</span>
       </div>
       <div class="field">
@@ -383,6 +410,7 @@
     {% endif %}
   </main>
 </div>
+{% endif %}
 
 {# Rung 2: drawing the ROI is a sub-task on the open camera. The first
    tile is shown whole; a drag on it (or the four boxes) sets the region,

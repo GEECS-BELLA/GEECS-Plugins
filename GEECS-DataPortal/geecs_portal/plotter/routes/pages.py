@@ -1,11 +1,20 @@
 """The one page: a day + scan form, the column pickers, the plot.
 
 The URL names what is open — ``?day=&scan=&set=`` — and every control
-lives in that named settings set (:mod:`geecs_portal.plotter.settings`), a file
+lives in a named settings set (:mod:`geecs_portal.plotter.settings`), a file
 the page saves on each pick, toggle or scan step. The form POSTs the
-controls; the server merges them into the set, saves it, and redirects
+controls; the server merges them into a set, saves it, and redirects
 back to the short URL. "Save as" POSTs the same form to ``/save-as``,
 which writes the controls to a new name instead.
+
+Each viewer saves into **their own set**, the one with their name: the
+page asks the name once (a URL without ``set=`` shows only that question;
+the browser remembers the answer and the page script sends it as
+``owner`` with every save). Opening someone else's set shows it and
+writes nothing; the viewer's first change copies it, with the change,
+into the viewer's own set and switches to it, so a shared link never
+lets one person rewrite another's plots. The owner's set changes only
+by "Save as" onto its name, which asks before replacing.
 
 With ``x_auto`` on (the default) X is the open scan's variable; a hand
 pick on X saves ``x_auto`` off. The page renders the pick lists
@@ -60,7 +69,7 @@ def register(router: APIRouter, ctx: Context) -> None:
         request: Request,
         day: Optional[date] = None,
         scan: Optional[int] = None,
-        name: str = Query(DEFAULT_SET, alias="set"),
+        name: Optional[str] = Query(None, alias="set"),
         here_day: Optional[date] = None,
         here_scan: Optional[int] = None,
     ) -> Response:
@@ -69,7 +78,20 @@ def register(router: APIRouter, ctx: Context) -> None:
         ``here_day`` / ``here_scan`` are the scan open when the sets list
         switched: kept when the new set has none of its own. A set that
         has never opened a scan, with nothing open, is the empty form.
+        Without a set, the page asks the viewer's name (their own set).
         """
+        if name is None:
+            return ctx.templates.TemplateResponse(
+                request,
+                "index.html",
+                {
+                    "experiment": ctx.experiment,
+                    **_page(day, scan, PlotterSettings()),
+                    "ask_name": True,
+                    "set": "",
+                    "sets": [],
+                },
+            )
         if day is None and scan is None:
             here = (
                 {"day": here_day.isoformat(), "scan": str(here_scan)}
@@ -174,6 +196,16 @@ def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
     """Save *form* into its set, or a new one; the name saved to."""
     source = set_name(form.get("set", DEFAULT_SET))
     target = source
+    # A change made under someone else's set goes into the viewer's own
+    # (their name, which the page sends as ``owner``), with the open set's
+    # controls copied under it. No owner (a page without its script) saves
+    # where it is.
+    owner = form.get("owner", "")
+    if not as_new and owner:
+        try:
+            target = set_name(owner)
+        except SettingsError:
+            target = source
     if as_new:
         try:
             target = set_name(form.get("save_as", ""))

@@ -359,11 +359,15 @@ def register(router: APIRouter, ctx: Context) -> None:
         """Merge the page's form fields into the set and save it.
 
         The page saves a filter as it is typed this way, without a reload.
+        ``copy_from`` names the set the page shows when it is not *name*
+        (someone else's): its controls are the base the fields merge into,
+        so the viewer's own set takes the whole view, not one field of it.
         """
         form = await read_form(request)
+        source = form.pop("copy_from", "") or name
 
         def save() -> PlotterSettings:
-            settings = merged(ctx.store.load(name), form)
+            settings = merged(ctx.store.load(source), form)
             ctx.store.save(set_name(name), settings)
             return settings
 
