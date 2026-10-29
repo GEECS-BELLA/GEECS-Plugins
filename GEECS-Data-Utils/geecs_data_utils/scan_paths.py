@@ -13,12 +13,14 @@ from __future__ import annotations
 import os
 import re
 import logging
+import threading
+import time
 import calendar as cal
 
 from pathlib import Path
 from datetime import datetime, date
 from configparser import ConfigParser
-from typing import Optional, Union, Sequence
+from typing import Callable, Optional, Union, Sequence
 import pandas as pd
 
 from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
@@ -844,6 +846,45 @@ def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
     return counts.most_common(1)[0][0] if counts else "png"
 
 
+#: How often an unresolved data root is looked for again (seconds): a
+#: share outage costs one config read and its log lines per window.
+CONFIG_RETRY_S = 30.0
+_config_retry_lock = threading.Lock()
+_config_retry_at = 0.0
+
+
+def current_paths_config(
+    clock: Callable[[], float] = time.monotonic,
+) -> Optional[GeecsPathsConfig]:
+    """``ScanPaths.paths_config``, looked for again while it is ``None``.
+
+    It is resolved once, at import, and is ``None`` when the data root did
+    not exist then (the share not mounted when a service started). Every
+    reader of the root goes through here, so a long-lived process
+    recovers when the share comes back instead of reading "no data" for
+    the rest of its life; the retry runs at most every
+    :data:`CONFIG_RETRY_S` seconds, one request thread at a time.
+
+    Parameters
+    ----------
+    clock : callable, optional
+        Monotonic seconds; tests inject one.
+
+    Returns
+    -------
+    GeecsPathsConfig or None
+        The configuration, or ``None`` while the root is unresolvable.
+    """
+    global _config_retry_at
+    if ScanPaths.paths_config is None:
+        with _config_retry_lock:
+            now = clock()
+            if ScanPaths.paths_config is None and now >= _config_retry_at:
+                _config_retry_at = now + CONFIG_RETRY_S
+                ScanPaths.reload_paths_config()
+    return ScanPaths.paths_config
+
+
 def daily_scan_folder(
     experiment: str = "",
     base_path: Optional[Path] = None,
@@ -877,7 +918,7 @@ def daily_scan_folder(
         The candidate ``.../{YY_MMDD}/scans`` path (existing or not), or
         ``None`` when the data root or the experiment is unresolvable.
     """
-    paths_config = ScanPaths.paths_config
+    paths_config = current_paths_config()
     if base_path is None:
         if paths_config is None:
             return None

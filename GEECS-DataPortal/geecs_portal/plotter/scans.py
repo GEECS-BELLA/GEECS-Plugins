@@ -15,7 +15,7 @@ from geecs_data_utils import tiled_schema
 from geecs_data_utils.data.sfile import column_alias
 from geecs_data_utils.folder_catalog import FolderScanCatalog, folder_uid
 from geecs_data_utils.scan_frame import scan_frame
-from geecs_data_utils.scan_paths import ScanPaths
+from geecs_data_utils.scan_paths import current_paths_config
 from geecs_data_utils.tiled_catalog import RunDetail
 
 
@@ -49,7 +49,7 @@ def find_scan(
     RunDetail or None
         The scan's documents; its folder is :func:`scan_folder`.
     """
-    config = ScanPaths.paths_config
+    config = current_paths_config()
     name = experiment or (getattr(config, "experiment", None) or "")
     if not name:
         return None

@@ -424,9 +424,13 @@ this package and must never depend on GeecsBluesky or a GUI package).
   An unreachable data root (an unmounted share, none configured) is an
   `OSError` from `list_runs`, never an empty day; `load_run` keeps its
   `KeyError`. A root that did not exist when the process started
-  (`ScanPaths.paths_config` resolved to `None` at import) is resolved
-  again on the next call, so a service started during a share outage
-  recovers when the share comes back.
+  (`ScanPaths.paths_config` resolved to `None` at import) is looked for
+  again by `scan_paths.current_paths_config()` — at most every
+  `CONFIG_RETRY_S` (30 s), one thread at a time — so a service started
+  during a share outage recovers when the share comes back. Every reader
+  of the root goes through it (`daily_scan_folder`, the catalog's
+  `list_runs`/`load_run`/`probe`, the Plot page's `find_scan`); read
+  `ScanPaths.paths_config` directly and that process never recovers.
   Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);

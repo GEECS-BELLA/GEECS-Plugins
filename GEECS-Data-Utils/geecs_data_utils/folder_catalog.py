@@ -48,7 +48,7 @@ from geecs_data_utils.scan_info import (
     scan_folder_name,
 )
 from geecs_data_utils.scan_log_loader import first_log_timestamp
-from geecs_data_utils.scan_paths import daily_scan_folder
+from geecs_data_utils.scan_paths import current_paths_config, daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
     CatalogUnreachable,
@@ -289,19 +289,13 @@ class FolderScanCatalog:
     def _data_root(self) -> Optional[Path]:
         """The data root: the constructor's, else ``config.ini``'s.
 
-        ``ScanPaths.paths_config`` is resolved once, at import, and is
-        ``None`` when the root did not exist then (the share not mounted
-        when the service started); it is resolved again here, so the
-        catalog recovers when the share comes back instead of reading an
-        empty day for the rest of the process's life.
+        Through :func:`~geecs_data_utils.scan_paths.current_paths_config`,
+        which looks again for a root that was missing when the process
+        started, so the catalog recovers when the share comes back.
         """
-        from geecs_data_utils.scan_paths import ScanPaths
-
         if self._base_path is not None:
             return self._base_path
-        if ScanPaths.paths_config is None:
-            ScanPaths.reload_paths_config()
-        config = ScanPaths.paths_config
+        config = current_paths_config()
         return Path(config.base_path) if config is not None else None
 
     def _scans_dir(self, experiment: str, day: date) -> Optional[Path]:
@@ -332,11 +326,7 @@ class FolderScanCatalog:
         CatalogStatus
             ``ok`` when the base path is a readable directory.
         """
-        from geecs_data_utils.scan_paths import ScanPaths
-
-        base = self._base_path
-        if base is None and ScanPaths.paths_config is not None:
-            base = Path(ScanPaths.paths_config.base_path)
+        base = self._data_root()
         try:
             if base is not None and base.is_dir():
                 return CatalogStatus(ok=True, label=f"folders: {base}")
