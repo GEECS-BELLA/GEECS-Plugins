@@ -2,11 +2,11 @@
 
 The lists sort the module's words; they judge nothing. **Not live** holds
 every device whose state is not ``live``; **In alarm** every device whose
-state, or any of whose roles' verdicts, is ``error`` (the module's word for
-an EPICS severity of major or invalid, and for a device, a tripped fault
-bit too: invalid for never-processed reads ``unknown`` and for a silent
-device ``not answering``, both of them "Not live"). A row's cause is the module's own evidence: the heartbeat's word
-and the roles that are not ``live``, by word. The strip reads the scanner's
+state, or any of whose roles' verdicts, is ``error``: the module's word for
+an EPICS severity of major or invalid (except a never-processed record,
+``unknown``, and a silent device, ``not answering``, both "Not live"), and
+for a device with a tripped fault bit. A row's cause is the module's own
+evidence: the heartbeat's word and the roles that are not ``live``, by word. The strip reads the scanner's
 API, its run word the manager's (``re_state``, as the scanner's own page
 has it); "unreachable" there is a state, not an error page.
 """
@@ -69,10 +69,11 @@ def cause(state: str, detail: Optional[dict[str, Any]], only: tuple[str, ...] = 
         if names := by_word.get(word):
             more = f" +{len(names) - _NAMED}" if len(names) > _NAMED else ""
             parts.append(f"{word}: {', '.join(names[:_NAMED])}{more}")
-    return (
-        "; ".join(parts)
-        or f"the module's state is {state}; it names no role (a fault bit is not in its device route yet)"
-    )
+    if parts:
+        return "; ".join(parts)
+    # a tripped fault bit makes a device error with every role live; the route does not name it yet
+    fault = " (a fault bit, perhaps: the device route does not name one yet)" if state == "error" else ""  # fmt: skip
+    return f"the module's state is {state}; it names no role{fault}"
 
 
 def sort_devices(

@@ -47,6 +47,8 @@ def test_a_row_names_its_cause_ioc_and_last_command() -> None:
     assert (row["ioc"], row["last"]["outcome"], row["kit"]) == ("ps1-ioc", "refused", "degraded")  # fmt: skip
     (silent,) = sort_devices(roster, {}, [], {})["not_live"]
     assert "no detail" in silent["cause"]
+    (between,) = sort_devices([roster[0] | {"state": "stale"}], {"ps1": _detail("live")}, [], {})["not_live"]  # fmt: skip
+    assert between["cause"] == "the module's state is stale; it names no role"
 
 
 def _module(roster: list[dict], fail: bool = False) -> ModuleClient:

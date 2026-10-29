@@ -81,7 +81,9 @@
     $("scan").textContent = known ? String(s.scan_number) : "—";
     $("shot").textContent = known ? `${s.shots_done ?? 0}${s.planned_total ? ` / ${s.planned_total}` : ""}` : "—";
     if (s.scan_number !== scan) { scan = s.scan_number; points = []; }
-    const active = s.run === "running" || s.run === "paused";
+    // the chip is the manager's word; a scan is open only while its documents say so (not an mv)
+    const open = s.state === "running" || s.state === "paused";
+    const active = open && (s.run === "running" || s.run === "paused");
     if (active) points = [...points, [Date.now(), s.shots_done || 0]].slice(-MAX_POINTS);
     $("plot-fig").hidden = !active || points.length < 2;
     if ($("plot-fig").hidden) return;
