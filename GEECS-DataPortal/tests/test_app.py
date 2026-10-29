@@ -198,7 +198,8 @@ class TestRunView:
     def test_page_has_tabs_and_the_vendored_plotly(self):
         response = _client().get("/run/uid-002")
         assert 'data-pane="overview"' in response.text
-        assert 'data-pane="plot"' in response.text
+        # Plot is the Plot page's link; without it mounted, no Plot tab.
+        assert 'id="tab-plot"' not in response.text
         assert 'data-pane="images"' in response.text
         # The one committed JS asset — version-pinned, served locally.
         assert "/static/plotly-cartesian-" in response.text
@@ -220,13 +221,12 @@ class TestRunView:
     def test_analysis_state_rides_the_stepper_links(self):
         client = _client(FakeCatalog(), default_experiment="Undulator")
         response = client.get(
-            "/run/uid-001?y=cam-MaxCounts&y=mono&view=bin"
-            "&filters=%7B%22groups%22%3A%5B%5D%7D&tab=plot"
+            "/run/uid-001?view=bin&filters=%7B%22groups%22%3A%5B%5D%7D&tab=grid"
         )
         stepper_line = next(
             line for line in response.text.splitlines() if "/run/uid-002?" in line
         )
-        assert "y=cam-MaxCounts" in stepper_line and "y=mono" in stepper_line
+        assert "tab=grid" in stepper_line
         assert "view=bin" in stepper_line
         assert "filters=" in stepper_line
 
@@ -815,13 +815,6 @@ class TestServerFigures:
         assert fig["layout"]["xaxis"]["title"]["text"] == "mono"
         assert "binned_figure" in payload["code"]
 
-    def test_page_injects_the_server_palette_and_marker_default(self):
-        from geecs_portal.figures import MARKER_SIZE_DEFAULT, TRACE_COLORS
-
-        text = _client().get("/run/uid-002").text
-        assert f"const TRACE_COLORS = {json.dumps(list(TRACE_COLORS))};" in text
-        assert f"const MSIZE_DEFAULT = {json.dumps(MARKER_SIZE_DEFAULT)};" in text
-
     def test_datetime_snippet_carries_kinds(self):
         # Without kinds the notebook figure would apply logx/x-ranges
         # to a date axis the page's figure guards — divergence.
@@ -934,9 +927,7 @@ class TestPlotTabPolish:
 
     def test_display_state_rides_run_view_links(self):
         client = _client(FakeCatalog(), default_experiment="Undulator")
-        response = client.get(
-            "/run/uid-001?y=cam-MaxCounts&display=%7B%22logy%22%3Atrue%7D"
-        )
+        response = client.get("/run/uid-001?display=%7B%22cmap%22%3A%22magma%22%7D")
         stepper_line = next(
             line for line in response.text.splitlines() if "/run/uid-002?" in line
         )
@@ -949,7 +940,6 @@ class TestPlotTabPolish:
         assert "scrollZoom: true" in text
         assert "drawrect" in text
         assert "togglespikelines" in text
-        assert "deepMerge(fig.layout, d.layout)" in text  # the passthrough
 
 
 class TestReverseProxy:

@@ -451,25 +451,25 @@ class TestShotBounds:
 
 class TestStickyState:
     """Navigating one control must never silently reset another — the
-    plot selection survives shot stepping and device picks, and vice
+    bin view survives shot stepping and device picks, and vice
     versa (every link goes through the one sticky-query helper)."""
 
-    def test_device_links_keep_the_plot_selection(self, scan_folder):
+    def test_device_links_keep_the_bin_selection(self, scan_folder):
         response = _gallery_client(scan_folder).get(
-            "/run/uid-002?y=cam-MaxCounts&device=UC_TestCam&shot=2"
+            "/run/uid-002?view=bin&device=UC_TestCam&shot=2"
         )
-        # device links keep the plot selection
+        # device links keep the per-bin view
         device_link = next(
             line for line in response.text.splitlines() if "device=UC_StackCam" in line
         )
-        assert "y=cam-MaxCounts" in device_link
-        # shot prev/next links keep the plot selection
+        assert "view=bin" in device_link
+        # shot prev/next links keep it too
         nav_lines = [
             line
             for line in response.text.splitlines()
             if "shot=1" in line or "shot=3" in line
         ]
-        assert nav_lines and all("y=cam-MaxCounts" in line for line in nav_lines)
+        assert nav_lines and all("view=bin" in line for line in nav_lines)
 
     def test_day_navigation_keeps_the_filter(self):
         catalog = FakeCatalog()

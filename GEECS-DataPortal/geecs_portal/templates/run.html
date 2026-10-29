@@ -54,8 +54,6 @@
       {% if plot_page %}
       {# GEECSplotter's page, mounted at /plot: the Plot tab is a link to it. #}
       <a role="tab" class="tab" id="tab-plot" aria-selected="false" href="{{ root }}/plot/?day={{ run_day }}&amp;scan={{ scan_number }}">Plot</a>
-      {% else %}
-      <button type="button" role="tab" class="tab" id="tab-plot" aria-controls="pane-plot" aria-selected="false" data-pane="plot" onclick="setTab('plot')">Plot</button>
       {% endif %}
       <button type="button" role="tab" class="tab" id="tab-grid" aria-controls="pane-grid" aria-selected="false" data-pane="grid" onclick="setTab('grid')">Grid</button>
       <button type="button" role="tab" class="tab" id="tab-images" aria-controls="pane-images" aria-selected="false" data-pane="images" onclick="setTab('images')">Images</button>
@@ -75,39 +73,6 @@
         </table>
         </div>
       </div>
-    </section>
-
-    <section role="tabpanel" class="group tabpane" id="pane-plot" aria-labelledby="tab-plot" hidden>
-      <div class="group">
-        <div class="row">
-          <div class="field spacer">
-            <label for="colfilter">Columns</label>
-            <input type="search" id="colfilter" placeholder="type to filter columns…" autocomplete="off">
-          </div>
-          <label class="dim" title="ts_ columns: the event pipeline's per-variable recording times">
-            <input type="checkbox" id="showts" onchange="renderPicker()"> timestamps</label>
-        </div>
-        <div class="collist" id="collist"></div>
-        <div class="row" id="picked"></div>
-      </div>
-      <div class="row plotbar">
-        <div class="field">
-          <label for="xcol">X</label>
-          <input class="mono" id="xcol" list="all-cols" placeholder="(shot #)" onchange="S.x=this.value; writeState(); refresh();">
-        </div>
-        <div class="seg" role="group" aria-label="Per shot or binned">
-          <button type="button" id="seg-shot" aria-pressed="false" onclick="setView('shot')">per-shot</button>
-          <button type="button" id="seg-bin" aria-pressed="false" onclick="setView('bin')">binned</button>
-        </div>
-        <button class="btn sm ghost" type="button" title="bin settings" onclick="openBinset(this)">⚙ bins</button>
-        <span class="spacer"></span>
-        <span class="dim" title="click a legend entry's name to edit it in place">zoom · pan · export = Plotly built-ins</span>
-        <button class="btn sm" type="button" onclick="openDisplay(this)">display…</button>
-        <button class="btn sm" type="button" onclick="toggleCode('codebox')">show the code</button>
-      </div>
-      <div id="plotdiv"><div class="state" data-state="empty"><div class="t">Pick up to 4 columns above</div></div></div>
-      <div class="well codebox" id="codebox" hidden></div>
-      <datalist id="all-cols"></datalist>
     </section>
 
     <section role="tabpanel" class="group tabpane" id="pane-grid" aria-labelledby="tab-grid" hidden>
@@ -248,7 +213,7 @@
       <div class="row plotbar">
         <span class="dim">Run a ScanAnalysis analyzer on this scan. Writes figures under
           <span class="mono">analysis/Scan{{ "%03d" | format(scan_number) }}/</span> and its
-          columns into the s-file (existing columns are overwritten); the Plot tab picks
+          columns into the s-file (existing columns are overwritten); the Plot page picks
           them up on reload.</span>
         <span class="spacer"></span>
         {% if config_editor %}<a class="btn sm" href="{{ root }}/configs/" target="_blank" title="the full editor: browse, create and edit diagnostics and groups">edit configs ↗</a>{% endif %}
@@ -300,6 +265,7 @@
   </header>
   <div class="body">
     <div id="fgroups" class="group"></div>
+    <datalist id="all-cols"></datalist>
     <div><button class="btn sm" type="button" onclick="FDRAFT.groups.push({name:'', enabled:true, conditions:[]}); renderFilterModal();">+ OR group</button></div>
     <div class="setrow">
       <label for="nanpolicy">rows with NaN</label>
@@ -312,45 +278,6 @@
     <div class="row end">
       <button class="btn" type="button" onclick="settleDraft('modal-filters')">Cancel</button>
       <button class="btn primary" type="button" onclick="applyFilters()">Apply</button>
-    </div>
-  </div>
-</aside>
-
-<aside class="drawer" id="modal-display" role="dialog" aria-modal="false" aria-labelledby="display-title" aria-hidden="true" data-open="false">
-  <header>
-    <span class="eyebrow" id="display-title">Display settings</span>
-    <button class="btn sm" type="button" data-drawer-close>Close</button>
-  </header>
-  <div class="body">
-    <div class="setrow"><label>log axes</label>
-      <label><input type="checkbox" id="ds-logx"> X</label>
-      <label><input type="checkbox" id="ds-logy"> Y</label></div>
-    <div class="setrow"><label>X range</label>
-      <input id="ds-xmin" class="narrow" placeholder="auto"> <span class="dim">–</span>
-      <input id="ds-xmax" class="narrow" placeholder="auto"></div>
-    <div class="setrow"><label>Y range</label>
-      <input id="ds-ymin" class="narrow" placeholder="auto"> <span class="dim">–</span>
-      <input id="ds-ymax" class="narrow" placeholder="auto">
-      <span class="note">first Y axis</span></div>
-    <div class="setrow"><label>marker size</label>
-      <input id="ds-msize" class="tiny" placeholder="5"></div>
-    <div class="setrow"><label>plot size</label>
-      <input id="ds-width" class="narrow" placeholder="auto"> <span class="dim">×</span>
-      <input id="ds-height" class="narrow" placeholder="auto">
-      <span class="note">px — fixes the exported size too</span></div>
-    <div class="setrow"><label>trace colors</label>
-      <span id="ds-colors"></span></div>
-    <div class="setrow"><label>advanced<br>
-      <a class="note" href="https://plotly.com/javascript/reference/layout/" target="_blank">layout ref ↗</a></label>
-      <textarea id="ds-layout" rows="3" spellcheck="false"
-        placeholder='any Plotly layout JSON, merged last — e.g. {"yaxis":{"tickformat":".2e"},"legend":{"orientation":"v"}}'></textarea></div>
-    <div class="state" data-state="error" id="ds-error" hidden></div>
-    <div class="note">
-      Legend names are click-to-edit on the plot; axis titles via the advanced
-      box (e.g. {"yaxis":{"title":{"text":"…"}}}).</div>
-    <div class="row end">
-      <button class="btn" type="button" onclick="settleDraft('modal-display')">Cancel</button>
-      <button class="btn primary" type="button" onclick="applyDisplay()">Apply</button>
     </div>
   </div>
 </aside>
@@ -471,16 +398,6 @@ const SCAN_NUMBER = {{ scan_number | tojson }};
 const SEL_DEVICE = {{ sel_device | tojson }};
 const SCAN_DEVICES = new Set({{ devices | tojson }});
 const VERSION = {{ portal_version | tojson }};
-const TRACE_COLORS = {{ trace_colors | tojson }};
-// The DEFAULT colour for trace i comes from the theme (--trace-1..4), read
-// at call time so a theme switch is honoured; the server's TRACE_COLORS is
-// the JS-off fallback and stays the injected contract.
-function defaultTraceColor(i) {
-  const n = TRACE_COLORS.length;                      // server cycles i % 4; match it
-  const c = getComputedStyle(document.documentElement).getPropertyValue(`--trace-${(i % n) + 1}`).trim();
-  return c || TRACE_COLORS[i % n];
-}
-const MSIZE_DEFAULT = {{ msize_default | tojson }};
 // Everything Plotly gives for free, switched ON: wheel zoom, in-place
 // legend-name editing, spike lines + hover modes, and the drawing
 // tools (annotate directly on the plot; shapes are editable/erasable).
@@ -536,8 +453,7 @@ const LOGBOOK_SEND = {{ logbook_send | tojson }};
 // window happens to be. The note scales the bitmap into its column, so
 // the text's apparent size is export-width ÷ column-width: a 1200px-wide
 // plot in a three-up figure grid has unreadable axis labels, and a
-// narrow one reads fine. An explicit display width/height still wins —
-// that is the user saying they meant it.
+// narrow one reads fine.
 const SEND_WIDTH = 720, SEND_HEIGHT = 460;
 const AUTHOR_KEY = "geecs-portal:author";
 // Which entry this scan's plots join, remembered per scan (day and number,
@@ -561,20 +477,16 @@ function plotCaption(gd) {
     return `${prettyName(cfg.value)} · ${statistic} vs ${prettyName(cfg.x)} / ${prettyName(cfg.y)} · visit ${cfg.visit}`;
   }
   if (gd && gd.id === "shottrace") {
-    // S.y / S.x are the PLOT tab's scalar state and say nothing about a
-    // captured trace — the logbook entry must name what it shows.
+    // The logbook entry must name what the captured trace shows.
     const variable = (((LAST_TRACE || {}).figure || {}).layout || {})
       .yaxis?.title?.text;
     return `${SEL_DEVICE}${variable ? " · " + variable : ""} · shot ${SHOT}`;
   }
-  const ys = S.y.map(prettyName).join(", ");
-  if (!ys) return "plot";
-  const x = prettyName(S.x || DEFAULT_X || "shot");
-  return `${ys} vs ${x}${S.view === "binned" ? " (binned)" : ""}`;
+  return "plot";
 }
 
 function openSendToLogbook(gd) {
-  SEND_PLOT = gd || document.getElementById("plotdiv");
+  SEND_PLOT = gd;
   const form = document.getElementById("sl-form");
   const done = document.getElementById("sl-done");
   form.hidden = false; done.hidden = true;
@@ -597,17 +509,14 @@ async function confirmSendToLogbook() {
   btn.disabled = true;
   btn.textContent = "sending…";
   try {
-    const d = dispCfg();
     const isGrid = ["grid-center", "grid-uncertainty"].includes(SEND_PLOT.id);
-    // Grid exports retain square plotting areas independently of the
-    // Plot tab's display settings. Every toolbar uses this same path.
+    // Grid exports keep square plotting areas. Every toolbar uses this path.
     const margin = SEND_PLOT.layout.margin;
     const image = await Plotly.toImage(SEND_PLOT, {
       format: "png",
       scale: EXPORT_SCALE,
-      width: isGrid ? SEND_WIDTH : (d.width > 0 ? d.width : SEND_WIDTH),
-      height: isGrid ? SEND_WIDTH - margin.l - margin.r + margin.t + margin.b
-        : (d.height > 0 ? d.height : SEND_HEIGHT),
+      width: SEND_WIDTH,
+      height: isGrid ? SEND_WIDTH - margin.l - margin.r + margin.t + margin.b : SEND_HEIGHT,
     });
     // DAY like every other /api/run call: a run whose start doc has no
     // usable time resolves its day ONLY from this param, and the page
@@ -721,16 +630,13 @@ const PLOT_CONFIG = {
 // ---- URL-carried state (statelessness doctrine: the link IS the analysis)
 const S = readState();
 let COLUMNS = [];      // [{name, provenance, pretty}] from /api/columns
-let DEFAULT_X = "";
 let FDRAFT = null;     // the filters popup's working copy
-let BOOTED = false;    // true once the columns bootstrap resolved
+let BOOTED = false;    // true once the columns bootstrap resolved (the Grid waits)
 
 function readState() {
   const p = new URLSearchParams(location.search);
   return {
     tab: p.get("tab") || {{ tab | tojson }},
-    y: p.getAll("y").filter(Boolean).slice(0, 4),
-    x: p.get("x") || "",
     view: p.get("view") || "shot",
     filters: p.get("filters") || "",
     bincfg: p.get("bincfg") || "",
@@ -747,9 +653,7 @@ function writeState() {
   // not analysis states — there is deliberately no popstate handler.
   // Shared/bookmarked links restore everything via readState().
   const p = new URLSearchParams(location.search);
-  ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => p.delete(k));
-  S.y.forEach(v => p.append("y", v));
-  if (S.x) p.set("x", S.x);
+  ["view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => p.delete(k));
   if (S.view !== "shot") p.set("view", S.view);
   if (S.filters) p.set("filters", S.filters);
   if (S.bincfg) p.set("bincfg", S.bincfg);
@@ -758,7 +662,7 @@ function writeState() {
   if (S.gridcfg) p.set("gridcfg", S.gridcfg);
   if (S.gridbin) p.set("gridbin", S.gridbin);
   if (S.imagebin) p.set("imagebin", S.imagebin);
-  if (S.tab !== "plot") p.set("tab", S.tab);
+  if (S.tab !== "overview") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
   // Server-rendered stepper links must carry the latest state too —
   // and so must the Show form's hidden fields (a form submit is a
@@ -770,7 +674,7 @@ function writeState() {
   if (dispField) dispField.value = S.display;
   document.querySelectorAll("#imgshot form").forEach(form => {
     form.querySelectorAll("[data-sticky-analysis]").forEach(el => el.remove());
-    ["gridcfg", "gridbin", "imagebin", "filters", "bincfg", "view", "x", "y"].forEach(key => {
+    ["gridcfg", "gridbin", "imagebin", "filters", "bincfg", "view"].forEach(key => {
       p.getAll(key).forEach(value => {
         const input = document.createElement("input"); input.type = "hidden";
         input.name = key; input.value = value; input.dataset.stickyAnalysis = "true";
@@ -785,9 +689,7 @@ function syncRailLinks(p) {
   // shot steppers) that must carry client-side analysis state too.
   document.querySelectorAll("a.act, a.carry").forEach(a => {
     const url = new URL(a.href, location.origin);
-    ["y", "x", "view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => url.searchParams.delete(k));
-    S.y.forEach(v => url.searchParams.append("y", v));
-    if (S.x) url.searchParams.set("x", S.x);
+    ["view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => url.searchParams.delete(k));
     if (S.view !== "shot") url.searchParams.set("view", S.view);
     if (S.filters) url.searchParams.set("filters", S.filters);
     if (S.bincfg) url.searchParams.set("bincfg", S.bincfg);
@@ -796,7 +698,7 @@ function syncRailLinks(p) {
     if (S.gridcfg) url.searchParams.set("gridcfg", S.gridcfg);
     if (S.gridbin) url.searchParams.set("gridbin", S.gridbin);
     if (S.imagebin) url.searchParams.set("imagebin", S.imagebin);
-    if (S.tab !== "plot") url.searchParams.set("tab", S.tab);
+    if (S.tab !== "overview") url.searchParams.set("tab", S.tab);
     a.href = url.pathname + "?" + url.searchParams.toString();
   });
 }
@@ -821,7 +723,6 @@ function api(path, params) {
 
 // ---------------- the analysis tab (ScanAnalysis runs) ----------------
 const ANALYSIS_ENABLED = {{ analysis_enabled | tojson }};
-const PLOT_PAGE = {{ plot_page | tojson }};
 const CONFIG_EDITOR = {{ config_editor | tojson }};
 const SHOT = {{ shot | tojson }};
 
@@ -1138,16 +1039,14 @@ function postAnalysis(id, confirm) {
 function setTab(tab) {
   // A URL-carried tab whose pane this page does not have (tab=analysis
   // carried by a stepper onto a scan whose folder is not resolvable, or
-  // opened on a portal without analysis runs) falls back to Plot —
-  // never a page with no tab lit and no pane shown.
-  if (!document.getElementById("pane-" + tab)) tab = "plot";
-  // With the plotter mounted, Plot is its own page, never this pane.
-  if (tab === "plot" && PLOT_PAGE) tab = "overview";
+  // opened on a portal without analysis runs, or a tab=plot link from
+  // before the Plot page) falls back to the Overview — never a page with
+  // no tab lit and no pane shown.
+  if (!document.getElementById("pane-" + tab)) tab = "overview";
   S.tab = tab;
   document.querySelectorAll('[role="tab"]').forEach(t => t.setAttribute("aria-selected", String(t.dataset.pane === tab)));
   document.querySelectorAll(".tabpane").forEach(pane => { pane.hidden = pane.id !== "pane-" + tab; });
   writeState();
-  if (tab === "plot") refresh();
   if (tab === "grid") refreshGrid();
   refreshImages();
   loadTrace();   // no-op unless this device's shots are traces
@@ -1155,19 +1054,14 @@ function setTab(tab) {
 }
 
 function setView(view) {
-  // ONE per-shot ⇄ binned state, deliberately shared by the Plot and
-  // Images tabs (the link IS the analysis: a binned link means binned
-  // everywhere) — both segmented controls mirror it.
+  // The Images tab's per-shot ⇄ per-bin switch, carried in the link.
   S.view = view;
-  document.getElementById("seg-shot").setAttribute("aria-pressed", String(view === "shot"));
-  document.getElementById("seg-bin").setAttribute("aria-pressed", String(view === "bin"));
   const imgSeg = document.getElementById("seg-img-shot");
   if (imgSeg) {
     imgSeg.setAttribute("aria-pressed", String(view === "shot"));
     document.getElementById("seg-img-bin").setAttribute("aria-pressed", String(view === "bin"));
   }
   writeState();
-  refresh();
   refreshImages();
 }
 
@@ -1267,8 +1161,8 @@ function loadTrace() {
   if (TRACE_DRAWN) {
     // Re-entry: re-lay the cached figure out (the pane may have been
     // hidden when the theme last changed) but never refetch — the shot
-    // form navigates, so one fetch per page load is right. Plot and Grid
-    // get this redraw for free from setTab; the trace must ask.
+    // form navigates, so one fetch per page load is right. The Grid gets
+    // this redraw for free from setTab; the trace must ask.
     if (LAST_TRACE) drawTrace(LAST_TRACE);
     return;
   }
@@ -1319,10 +1213,8 @@ function imgFailed(img) {
 function refreshImages() {
   const shotBox = document.getElementById("imgshot");
   const grid = document.getElementById("imggrid");
-  // The per-shot ⇄ binned state is shared with the Plot tab, but a
-  // trace device has no binned view to show: averaging traces across
+  // A trace device has no binned view to show: averaging traces across
   // shots is the consumer's job, since each shot carries its own axis.
-  // The Plot tab stays binned; this tab shows the one thing it can.
   const binned = S.view === "bin" && !IS_TRACE;
   document.getElementById("grid-image-selection").innerHTML = S.imagebin && binned
     ? `Grid selection: bin ${esc(S.imagebin)} <button class="btn sm" onclick="S.imagebin='';writeState();refreshImages()">show all bins</button>` : "";
@@ -1366,129 +1258,14 @@ function refreshImages() {
   });
 }
 
-// ---------------- column picker ----------------
-function renderPicker() {
-  const needle = document.getElementById("colfilter").value.trim().toLowerCase();
-  const showTs = document.getElementById("showts").checked;
-  const list = document.getElementById("collist");
-  // Pretty names lead (telemetry_ stripped); ts_ event-recording
-  // timestamps hide behind the toggle.
-  const pool = COLUMNS.filter(c => showTs || !c.timestamp);
-  const hits = pool.filter(c =>
-    !needle || c.name.toLowerCase().includes(needle) || c.pretty.toLowerCase().includes(needle));
-  const shown = hits.slice(0, 300);
-  list.innerHTML = shown.map(c =>
-    `<div class="colrow" data-col="${escAttr(c.name)}" title="${escAttr(c.name)}">
-       <span class="provider ${c.provenance}">${c.provenance}</span>
-       <span>${esc(c.pretty)}</span>
-       ${c.pretty !== c.name ? `<span class="pretty">${esc(c.name)}</span>` : ""}
-     </div>`).join("")
-    + (hits.length > shown.length ? `<div class="colrow dim">… ${hits.length - shown.length} more — keep typing</div>` : "");
-  list.querySelectorAll(".colrow[data-col]").forEach(row =>
-    row.addEventListener("click", () => addY(row.dataset.col)));
-  document.getElementById("colfilter").placeholder = `type to filter ${pool.length} columns…`;
-}
-
 function prettyName(name) {
   const hit = COLUMNS.find(c => c.name === name);
   return hit ? hit.pretty : name;
 }
 
-function renderPicked() {
-  document.getElementById("picked").innerHTML = S.y.map((name, i) =>
-    `<span class="ychip" style="border-left-color:${traceColor(i)}" title="${escAttr(name)}">${esc(prettyName(name))}
-       <span class="x" onclick="removeY(${i})">✕</span></span>`).join("");
-}
-
-function addY(name) {
-  if (S.y.includes(name) || S.y.length >= 4) return;
-  S.y.push(name);
-  renderPicked(); writeState(); refresh();
-}
-
-function removeY(i) {
-  S.y.splice(i, 1);
-  const d = dispCfg();
-  if (Array.isArray(d.colors)) {  // keep custom colors aligned with their traces
-    d.colors.splice(i, 1);
-    if (!d.colors.some((c, j) => c !== defaultTraceColor(j))) delete d.colors;
-    S.display = Object.keys(d).length ? JSON.stringify(d) : "";
-  }
-  renderPicked(); writeState(); refresh();
-}
-
-// ---------------- the plot ----------------
-function plotMessage(text, kind) {
-  const div = document.getElementById("plotdiv");
-  if (typeof Plotly !== "undefined") Plotly.purge(div);
-  div.innerHTML = paneState(kind || "empty", text);
-}
-
-function plotHost() {
-  // Plotly.react does not clear foreign children — drop any message
-  // div before handing the host over.
-  const div = document.getElementById("plotdiv");
-  if (div.querySelector(".state")) div.innerHTML = "";
-  return div;
-}
-
-function refresh() {
-  // Gated until the columns bootstrap resolves: the boot sequence
-  // (setTab/setView) would otherwise fire duplicate frame fetches
-  // before the default X is known.
-  if (!BOOTED || S.tab !== "plot") return;
-  if (!S.y.length) {
-    plotMessage("pick up to 4 columns above");
-    document.getElementById("codebox").textContent = "";
-    updatePassCount();
-    return;
-  }
-  const params = new URLSearchParams();
-  S.y.forEach(c => params.append("cols", c));
-  if (S.filters) params.set("filters", S.filters);
-  if (S.display) params.set("display", S.display);
-  // Both views take the X pick: per-shot plots it directly, binned
-  // plots each bin at the per-bin mean of it (bins group, X places).
-  if (S.x) params.set("x", S.x);
-  if (S.view === "bin") {
-    if (S.bincfg) params.set("bincfg", S.bincfg);
-    api("binned", params).then(drawFigure).catch(showPlotError);
-  } else {
-    api("frame", params).then(drawFigure).catch(showPlotError);
-  }
-}
-
 function dispCfg() {
   if (!S.display) return {};
   try { return JSON.parse(S.display); } catch (e) { return {}; }
-}
-
-function traceColor(i) {
-  // display JSON rides the URL (shared-link threat model, same as
-  // deepMerge's guard): only a hex color may reach the attribute
-  // sinks this feeds — anything else falls back to the palette.
-  const d = dispCfg();
-  const c = d.colors && d.colors[i];
-  // Same lengths the server's _is_hex_color accepts (3/4/6/8) — the
-  // chip and the trace must agree on what counts as a custom color.
-  return (typeof c === "string" && /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c))
-    ? c : defaultTraceColor(i);
-}
-
-function deepMerge(target, patch) {
-  for (const [key, value] of Object.entries(patch)) {
-    // Prototype-pollution guard: patch is URL-carried JSON, and a
-    // parsed "__proto__" key is an OWN property that would recurse
-    // into Object.prototype (shared-link threat model).
-    if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
-    if (value && typeof value === "object" && !Array.isArray(value)
-        && Object.prototype.hasOwnProperty.call(target, key)
-        && target[key] && typeof target[key] === "object" && !Array.isArray(target[key])) {
-      deepMerge(target[key], value);
-    } else {
-      target[key] = value;
-    }
-  }
 }
 
 // The server authors the figure with "$tok:--name" sentinels wherever a
@@ -1508,31 +1285,9 @@ function resolveThemeTokens(value) {
   }
   return value;
 }
-let LAST_FIGURE = null;
-
-function drawFigure(data) {
-  // The figure is server-authored (geecs_portal/figures.py — display
-  // state included).  Two client-side steps, in order: the theme's
-  // colours replace the server's placeholders, then the escape hatch —
-  // display.layout deep-merges LAST, so the whole Plotly layout schema
-  // stays reachable without new portal code — and the URL-carried
-  // patch stays in the browser with its prototype-pollution guard.
-  LAST_FIGURE = data;
-  const fig = resolveThemeTokens(JSON.parse(JSON.stringify(data.figure || { data: [], layout: {} })));
-  const d = dispCfg();
-  if (d.layout && typeof d.layout === "object") deepMerge(fig.layout, d.layout);
-  Plotly.react(plotHost(), fig.data, fig.layout, PLOT_CONFIG);
-  document.getElementById("codebox").textContent = data.code;
-  setPassCount(data.pass, data.total);
-}
 window.addEventListener("geecs:theme", () => {
-  if (LAST_FIGURE && S.tab === "plot" && S.y.length) drawFigure(LAST_FIGURE);
   if (GRID_DATA && S.tab === "grid") drawGrid();
 });
-
-function showPlotError(err) {
-  plotMessage(err.message, "error");
-}
 
 // ---------------- filters rail + popup ----------------
 function renderChips() {
@@ -1549,7 +1304,7 @@ function renderChips() {
 function setFilters(model) {
   const active = (model.groups || []).length;
   S.filters = active || model.nan_policy !== "exclude" ? JSON.stringify(model) : "";
-  renderChips(); writeState(); updatePassCount(); refresh(); refreshImages(); refreshGrid();
+  renderChips(); writeState(); updatePassCount(); refreshImages(); refreshGrid();
 }
 
 function toggleGroup(i, on) {
@@ -1666,77 +1421,7 @@ function applyBinset() {
   S.bincfg = Object.keys(cfg).length ? JSON.stringify(cfg) : "";
   S.imagebin = "";  // new bin definitions replace an explicit Grid image selection
   settleDraft("modal-binset"); writeState();
-  if (S.view !== "bin") setView("bin"); else { refresh(); refreshImages(); }
-}
-
-// ---------------- display settings popup ----------------
-function openDisplay(opener) {
-  openDraft("modal-display", opener, S.display + "\u0000" + S.y.join("\u0000"), () => {
-    const d = dispCfg();
-    document.getElementById("ds-logx").checked = !!d.logx;
-    document.getElementById("ds-logy").checked = !!d.logy;
-    for (const key of ["xmin", "xmax", "ymin", "ymax"]) {
-      document.getElementById("ds-" + key).value =
-        Number.isFinite(d[key]) ? d[key] : "";
-    }
-    document.getElementById("ds-msize").value =
-      Number.isFinite(d.msize) ? d.msize : "";
-    for (const key of ["width", "height"]) {
-      document.getElementById("ds-" + key).value =
-        Number.isFinite(d[key]) ? d[key] : "";
-    }
-    document.getElementById("ds-layout").value =
-      d.layout ? JSON.stringify(d.layout) : "";
-    document.getElementById("ds-error").hidden = true;
-    document.getElementById("ds-colors").innerHTML = S.y.map((name, i) =>
-      `<input type="color" id="ds-color-${i}" value="${traceColor(i)}" title="${escAttr(prettyName(name))}">`
-    ).join(" ") || '<span class="note">pick columns first</span>';
-  });
-}
-
-function applyDisplay() {
-  // Start from the SHARED state and rebuild only the keys this popup
-  // owns — the image slice (cmap/plo/phi) belongs to the Images
-  // popup and must survive a plot-cosmetics apply.
-  const d = {};
-  const prior = dispCfg();
-  for (const key of ["cmap", "plo", "phi"]) {
-    if (key in prior) d[key] = prior[key];
-  }
-  if (document.getElementById("ds-logx").checked) d.logx = true;
-  if (document.getElementById("ds-logy").checked) d.logy = true;
-  for (const key of ["xmin", "xmax", "ymin", "ymax"]) {
-    const value = parseFloat(document.getElementById("ds-" + key).value);
-    if (Number.isFinite(value)) d[key] = value;
-  }
-  const msize = parseFloat(document.getElementById("ds-msize").value);
-  if (Number.isFinite(msize) && msize > 0 && msize !== MSIZE_DEFAULT) d.msize = msize;
-  for (const key of ["width", "height"]) {
-    const value = parseFloat(document.getElementById("ds-" + key).value);
-    if (Number.isFinite(value) && value > 0) d[key] = value;
-  }
-  const colors = S.y.map((name, i) => {
-    const input = document.getElementById("ds-color-" + i);
-    return input ? input.value : defaultTraceColor(i);
-  });
-  if (colors.some((c, i) => c !== defaultTraceColor(i))) d.colors = colors;
-  const rawLayout = document.getElementById("ds-layout").value.trim();
-  if (rawLayout) {
-    try {
-      const parsed = JSON.parse(rawLayout);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error("expected a JSON object");
-      }
-      d.layout = parsed;
-    } catch (err) {
-      const box = document.getElementById("ds-error");
-      box.textContent = "layout JSON: " + err.message + " — nothing applied";
-      box.hidden = false;
-      return;  // keep the popup open — nothing applied
-    }
-  }
-  S.display = Object.keys(d).length ? JSON.stringify(d) : "";
-  settleDraft("modal-display"); renderPicked(); writeState(); refresh();
+  if (S.view !== "bin") setView("bin"); else refreshImages();
 }
 
 // ---------------- utilities + boot ----------------
@@ -1748,32 +1433,24 @@ function esc(s) {
 }
 function escAttr(s) { return esc(s); }
 
-document.getElementById("colfilter").addEventListener("input", renderPicker);
-
 api("columns", {}).then(data => {
   COLUMNS = data.columns;
   bootGrid(data.grid_axes || []);
-  DEFAULT_X = data.default_x || "";
-  if (!S.x && DEFAULT_X) S.x = DEFAULT_X;
-  document.getElementById("xcol").value = S.x;
   const counts = {};
   COLUMNS.forEach(c => { counts[c.provenance] = (counts[c.provenance] || 0) + 1; });
   document.getElementById("providers").innerHTML = Object.entries(counts)
     .map(([p, n]) => `<span class="provider ${p}">${p} · ${n}</span>`).join("");
   document.getElementById("all-cols").innerHTML =
     COLUMNS.map(c => `<option value="${escAttr(c.name)}">`).join("");
-  renderPicker();
-  renderPicked();  // chips re-label once pretty names are known
   BOOTED = true;
-  refresh(); refreshGrid();
+  refreshGrid();
 }).catch(err => {
   document.getElementById("providers").innerHTML =
     `<span class="error">columns: ${esc(err.message)}</span>`;
-  BOOTED = true;  // still render honest per-fetch errors on the plot
-  refresh();
+  BOOTED = true;  // still render honest per-fetch errors on the Grid
+  refreshGrid();
 });
 
-renderPicked();
 renderChips();
 updatePassCount();
 setTab(S.tab);

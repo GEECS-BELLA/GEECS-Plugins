@@ -57,13 +57,11 @@ const api=async path=>{
 def test_grid_visit_does_not_restrict_image_bins(tmp_path):
     page = (TEMPLATES / "run.html").read_text()
     images = page[
-        page.index("function refreshImages()") : page.index(
-            "// ---------------- column picker"
-        )
+        page.index("function refreshImages()") : page.index("function prettyName(")
     ]
     bins = page[
         page.index("function applyBinset()") : page.index(
-            "// ---------------- display settings popup"
+            "// ---------------- utilities + boot"
         )
     ]
     body = (
@@ -266,7 +264,7 @@ def test_a_theme_change_on_another_tab_does_not_strand_the_trace(tmp_path):
  loadTrace(); await new Promise(setImmediate);
  assert.equal(drawn, 1); assert.equal(fetches, 1);
  // Away from the Images tab: the pane is display:none.
- S.tab = "plot";
+ S.tab = "overview";
  listeners["geecs:theme"]();
  assert.equal(drawn, 1, "a hidden pane must not be re-laid-out");
  // Back: the figure must be redrawn (new palette) but never refetched.

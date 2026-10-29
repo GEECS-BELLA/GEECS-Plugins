@@ -731,7 +731,7 @@ class TestTheDayParamSurvivesTheSend:
         assert 'searchParams.set("day", DAY)' in send
 
 
-@pytest.mark.parametrize("host_id", ["plotdiv", "grid-center", "grid-uncertainty"])
+@pytest.mark.parametrize("host_id", ["grid-center", "grid-uncertainty"])
 def test_toolbar_sends_clicked_figure(host_id, tmp_path):
     """The shared dialog must export its invoking host, including Grid maps."""
     import shutil
@@ -747,8 +747,7 @@ def test_toolbar_sends_clicked_figure(host_id, tmp_path):
     harness = r"""
 const assert = require('node:assert/strict');
 const UID = 'uid-002', ROOT = '/portal', DAY = '2026-07-12', EXPORT_SCALE = 2;
-const S = {y:['signal'], x:'fast', view:'shot'};
-const DEFAULT_X = 'fast';
+const S = {view:'shot'};
 const GRID_DATA = {config:{value:'signal',x:'fast',y:'slow',average:'median',visit:2},error_label:'Standard deviation'};
 const prettyName = name => name;
 const elements = new Map();
@@ -763,7 +762,6 @@ const location = {href:'http://portal.example/portal/run/uid-002?tab=grid&gridcf
 const window = {open:()=>null};
 const flashNote = ()=>{};
 const GeecsKit = {drawer:()=>({open(){}}), closeDrawer(){}, toast(){}};
-const dispCfg = ()=>({width:900,height:300});
 let exported, posted;
 const Plotly = {toImage:async(gd,opts)=>{exported={id:gd.id,...opts};return 'data:image/png;base64,stub';}};
 const fetch = async(url,options)=>{posted={url:String(url),...JSON.parse(options.body)};return {ok:true,json:async()=>({entry_id:'saved',url:'http://logbook.example/entry/saved',appended:false})};};
@@ -782,14 +780,9 @@ const fetch = async(url,options)=>{posted={url:String(url),...JSON.parse(options
   assert.equal(posted.source_url, location.href);
   assert.equal(posted.url, 'http://portal.example/portal/api/run/uid-002/logbook?day=2026-07-12');
   assert.equal(remembered(ENTRY_KEY), 'saved');
-  if (HOST_ID === 'plotdiv') {
-    assert.equal(caption, 'signal vs fast');
-    assert.equal(exported.width, 900);assert.equal(exported.height, 300);
-  } else {
-    assert.equal(exported.width-65-14, exported.height-12-110);
-    assert.ok(caption.includes(HOST_ID === 'grid-center' ? 'median' : 'Standard deviation'));
-    assert.ok(caption.includes('signal'));assert.ok(caption.includes('visit 2'));
-  }
+  assert.equal(exported.width-65-14, exported.height-12-110);
+  assert.ok(caption.includes(HOST_ID === 'grid-center' ? 'median' : 'Standard deviation'));
+  assert.ok(caption.includes('signal'));assert.ok(caption.includes('visit 2'));
 })().catch(err=>{console.error(err);process.exit(1);});
 """
     script = tmp_path / "sender.cjs"

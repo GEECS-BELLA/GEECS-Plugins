@@ -29,19 +29,9 @@
 .kit .x { cursor: pointer; color: var(--muted); background: none; border: 0; font: inherit; padding: 0 2px; }
 .kit .x:hover { color: var(--crit); }
 
-/* The Plot tab: the column list, the picked Y chips (each edged in its
-   trace's colour), the bar of plot controls, the plot itself. */
-.kit .collist { max-height: 11rem; overflow-y: auto; border: var(--bw) solid var(--rule);
-  border-radius: var(--r); background: var(--surface); }
-.kit .colrow { display: flex; gap: 8px; padding: 3px 9px; font-size: 12px; cursor: pointer; font-family: var(--ff-mono); }
-.kit .colrow:hover { background: var(--surface-2); }
-.kit .colrow .pretty { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kit .ychip { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; font-family: var(--ff-mono);
-  background: var(--surface-2); border-left: 3px solid var(--rule); border-radius: var(--r); padding: 2px 8px; }
+/* A bar of controls above a plot or image; a snippet well. */
 .kit .plotbar { font-size: 12px; color: var(--muted); }
 .kit .plotbar .field { min-width: 0; }
-.kit #xcol { width: 16rem; }
-.kit #plotdiv { width: 100%; height: 26rem; background: var(--surface); border: var(--bw) solid var(--rule); border-radius: var(--r); }
 .kit .codebox { white-space: pre; }
 
 /* matplotlib renders onto white, so the frame matches its own ground

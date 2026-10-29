@@ -92,7 +92,7 @@ def test_the_plot_tab_links_to_the_plotter_page(tmp_path) -> None:
     client = _with_plotter(tmp_path)
     page = client.get("/run/uid-002").text
     assert 'id="tab-plot"' in page and 'href="/plot/?day=' in page
-    assert "const PLOT_PAGE = true;" in page
+    assert 'id="pane-plot"' not in page  # the scan page has no plot of its own
     # The scan page opens on the Overview; Plot is the other page now.
     assert client.get("/plot/health").json()["ok"] is True
 
@@ -121,7 +121,7 @@ def test_the_plot_page_carries_the_portals_tabs_behind_a_proxy(tmp_path) -> None
     assert 'action="/portal/plot/"' in page
 
 
-def test_without_the_plotter_the_scan_page_keeps_its_plot_pane() -> None:
+def test_without_the_plotter_the_scan_page_has_no_plot_tab() -> None:
     from fastapi.testclient import TestClient
 
     from tests.test_app import FakeCatalog
@@ -129,17 +129,77 @@ def test_without_the_plotter_the_scan_page_keeps_its_plot_pane() -> None:
     from geecs_portal.app import create_app
 
     page = TestClient(create_app(FakeCatalog())).get("/run/uid-002").text
-    assert "const PLOT_PAGE = false;" in page and 'data-pane="plot"' in page
+    assert 'id="tab-plot"' not in page and 'id="pane-plot"' not in page
 
 
-def test_another_experiments_run_keeps_the_scan_pages_plot(tmp_path) -> None:
-    """The plotter opens the portal's own experiment by day and number only."""
+def test_another_experiments_run_has_no_plot_tab(tmp_path) -> None:
+    """The Plot page opens the portal's own experiment by day and number only."""
     from tests.test_app import TEST_DAY
 
     client = _with_plotter(tmp_path)
     page = client.get("/run/uid-002", params={"experiment": "Thomson"}).text
-    assert "const PLOT_PAGE = false;" in page and 'data-pane="plot"' in page
+    assert 'id="tab-plot"' not in page and 'id="pane-plot"' not in page
     day = client.get(
         f"/day/{TEST_DAY.isoformat()}", params={"experiment": "Thomson"}
     ).text
     assert 'href="/plot/' not in day and 'href="/run/uid-002?' in day
+
+
+#: Every browser global the scan page touches, as a stub that answers any
+#: property, call or `new` with itself: enough to run the whole script, so
+#: a name the page reads but never defines throws.
+_BOOT_HARNESS = r"""
+const any = new Proxy(function () {}, {
+  get: (t, k) => k === Symbol.toPrimitive ? () => "" : k === "then" ? undefined : any,
+  apply: () => any, construct: () => any, set: () => true,
+});
+const fail = err => {
+  if (err instanceof ReferenceError) { console.error(err); process.exit(1); }
+};
+process.on("uncaughtException", fail);
+process.on("unhandledRejection", fail);
+if (typeof navigator === "undefined") globalThis.navigator = {};  // node < 21
+Object.assign(globalThis, {
+  document: any, window: any, history: any, localStorage: any,
+  Plotly: any, GeecsKit: any, ResizeObserver: any, ClipboardItem: undefined,
+  getComputedStyle: () => ({ getPropertyValue: () => "" }),
+  fetch: async () => ({ ok: true, json: async () => ({ columns: [], grid_axes: [] }) }),
+});
+"""
+
+
+@pytest.mark.parametrize("tab", ["overview", "grid", "images"])
+def test_the_scan_page_script_boots_without_an_undefined_name(
+    tab: str, tmp_path: Path
+) -> None:
+    """A deletion that leaves a reader behind (the Grid read the old Plot
+    pane's ``BOOTED``) passes the syntax check and breaks in the browser."""
+    import shutil
+    import subprocess
+
+    from fastapi.testclient import TestClient
+    from geecs_web_theme.testing import inline_scripts
+
+    from geecs_portal.app import create_app
+    from tests.test_app import FakeCatalog
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to boot the page script")
+    page = TestClient(create_app(FakeCatalog())).get(f"/run/uid-002?tab={tab}").text
+    location = (
+        "globalThis.location = new URL("
+        + json.dumps(f"http://portal.example/run/uid-002?tab={tab}")
+        + ");\n"
+    )
+    script = tmp_path / "boot.cjs"
+    script.write_text(
+        _BOOT_HARNESS
+        + location
+        + "\n".join(inline_scripts(page)).replace('"use strict";', "")
+        + "\nsetTimeout(() => {}, 50);\n"
+    )
+    result = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr

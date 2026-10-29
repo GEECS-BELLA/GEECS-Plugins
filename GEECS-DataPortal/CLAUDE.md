@@ -224,7 +224,7 @@ geecs_portal/
                  #   ScanAnalysis factory seam, artifact containment
   logbook_send.py   # the four-call conversation that puts a rendered
                  #   plot into a scan's logbook entry (HTTP only)
-  figures.py     # server-side Plot-tab figure authoring (plotly.py):
+  figures.py     # server-side figure authoring (plotly.py) for the /api routes and the Grid:
                  #   palette, base layout, multi-axis ladder, display
   plotter/       # the Plot tab: GEECSplotter's page, mounted at /plot (its
                  #   app, routes, settings sets, figures, image strip)
@@ -456,10 +456,12 @@ GeecsPlotter folded into the portal (the author's ruling, 2026-10-28,
 `geecs_portal/plotter/` nearly unchanged, with its tests
 (`tests/plotter/`), and `__main__` mounts its app at **`/plot`**
 (`create_app(plotter=…)`; `None`, as the tests pass, mounts nothing and
-keeps the scan page's own plot pane). It opens a scan by day and number
+the scan page has no Plot tab). It opens a scan by day and number
 in the portal's own experiment (`--experiment`): a run of another
-experiment, or one without a day or a scan number, keeps the scan
-page's plot pane and its day-list link to `/run/{uid}`. The page is the Plot tab: the day
+experiment, or one without a day or a scan number, has no Plot tab
+(the author's ruling, 2026-10-29) and its day-list link goes to
+`/run/{uid}`. The scan page has no plot of its own: its old plot pane
+was deleted once its tools were the page's (below). The page is the Plot tab: the day
 list opens a scan there, the scan page's Plot tab links there, and the
 page's own tab bar reaches the scan's other tabs through
 `/run/jump/{day}?prefer={scan}&tab=…` (so a Tiled run and a folder scan
@@ -513,23 +515,19 @@ rules that are the portal's own:
   absolute `--logbook-url`). `plot_tools.js` holds them; `/plot/api/figure`
   takes `view`, `filters`, `bincfg` and `display`, and its `code` rebuilds
   either view.
-- **Accepted debt, for the next PR of the arc:** `plotter/figures.py` is
-  GeecsPlotter's copy of `figures.py`, and the scan page still carries
-  its old plot pane, hidden while the plotter is mounted. The next PR
-  deletes the pane (its tools are the page's now, above) and folds the
-  two figure modules into one, with the other
+- **One figure code.** `plotter/figures.py` keeps only what is the
+  page's own (GEECSplotter's axis ladder, its layout without a legend,
+  the fits) and imports the rest from `figures.py`: the palettes,
+  `page_figure`, the display cosmetics (`apply_display`, `marker_size`,
+  `trace_color`) and the binned trace (`add_binned_trace`).
+- **Accepted debt, for a later PR of the arc:** the other
   duplicates the move brought in (`plotter/scans.default_x` is
   `routes/plot_api._default_x`; `scans.display_name` overlaps
   `_pretty_names`). That PR also hands the plotter the portal's catalog
   (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
   folder-only even under `--tiled`; the folder catalog caches finished
-  scans itself) and the experiment as a parameter. The same PR folds what
-  #1192's port left twice: `plotter.figures.binned_figure` beside
-  `figures.binned_figure` (the binning itself is already one,
-  `analysis.binned_series`), the private `figures._apply_display` /
-  `_marker_size` the plotter imports, the logbook-send client and the
-  layout `deepMerge` in both `plot_tools.js` and `run.html` (one shared
-  script under `static/`), and the filter and setting rows the plotter
+  scans itself). Still twice: the logbook-send client in `plot_tools.js`
+  and `run.html` (one shared script under `static/`), and the filter and setting rows the plotter
   page takes from `portal.css` (kit components, through `kit.html`, once
   the scan page's rail filters are gone). The page's "Image
   strip" view is GeecsPlotter's too, until it joins the Images tab.
@@ -637,8 +635,8 @@ Two rules for anyone extending this:
   the two drift.
 - **Per-bin averaging is not offered for traces.** Each shot carries its
   own axis, so averaging across shots is the consumer's job (the arc's
-  ruling: resampling belongs to whoever averages). The per-shot/binned
-  state stays shared with the Plot tab; only this tab's view is pinned.
+  ruling: resampling belongs to whoever averages): a trace device shows
+  one shot at a time whatever the per-shot/binned switch says.
 
 ## Grid tab (0.29.0)
 
@@ -658,10 +656,10 @@ not equal physical units. No interpolation is applied to arbitrary trajectories.
 The Images link uses the same acquisition-bin column and filters as Grid, keeping
 original bin indices for the image endpoint. Higher-dimensional slicing is deferred.
 
-The shared send-to-log modebar action exports its clicked Plotly host (Plot,
-Grid average or Grid error), through the same dialog and remembered browser
-entry. Grid captions identify the scalar, statistic, axes and visit; exports
-retain square plotting areas independently of the Plot tab's display settings.
+The scan page's send-to-log modebar action exports its clicked Plotly host
+(Grid average, Grid error or a shot trace), through the same dialog and
+remembered browser entry. Grid captions identify the scalar, statistic, axes
+and visit; Grid exports retain square plotting areas.
 
 ## Processing migration (0.31.0)
 

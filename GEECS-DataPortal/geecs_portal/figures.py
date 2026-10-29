@@ -1,7 +1,9 @@
-"""Server-side Plot-tab figure authoring (plotly.py → the vendored renderer).
+"""Server-side figure authoring (plotly.py → the vendored renderer).
 
-The Plot tab's traces and layout are authored HERE, in Python, and served
-to the page as ready Plotly figure JSON — the page's job shrinks to
+The ``/api/run/{uid}`` plot routes' and the Grid's traces and layouts are
+authored HERE, in Python, and served as ready Plotly figure JSON; the Plot
+page (``geecs_portal.plotter.figures``) builds on the same palette,
+serializer, cosmetics and binned trace. A page's job shrinks to
 ``Plotly.react(host, figure.data, figure.layout, PLOT_CONFIG)`` plus the
 client-side ``display.layout`` passthrough (which deliberately stays in
 the browser: the URL-carried patch is untrusted, and the deep-merge
@@ -146,8 +148,8 @@ def page_figure(fig: go.Figure) -> dict:
     return walk(fig.to_plotly_json())
 
 
-def _ticks(palette: Palette) -> dict:
-    """Outside tick marks in the palette's axis colour."""
+def axis_ticks(palette: Palette) -> dict:
+    """Outside tick marks in the palette's axis colour, for any axis."""
     return {"ticks": "outside", "ticklen": 4, "tickcolor": palette.grid}
 
 
@@ -380,7 +382,7 @@ def base_layout(palette: Palette) -> dict:
             "gridcolor": palette.grid_soft,
             "zerolinecolor": palette.grid,
             "automargin": True,
-            **_ticks(palette),
+            **axis_ticks(palette),
         },
     }
 
@@ -416,7 +418,8 @@ def _is_hex_color(value: str) -> bool:
 MARKER_SIZE_DEFAULT = 5.0
 
 
-def _marker_size(display: Optional[Mapping]) -> float:
+def marker_size(display: Optional[Mapping]) -> float:
+    """The display's marker size, or :data:`MARKER_SIZE_DEFAULT` when unset or bad."""
     size = (display or {}).get("msize")
     if isinstance(size, (int, float)) and not isinstance(size, bool):  # noqa: SIM102 — reads clearer nested
         if math.isfinite(size) and size > 0:
@@ -475,7 +478,7 @@ def _multi_y_layout(
                 "font": {"color": trace_color(display, 0, palette)},
             },
             "automargin": True,
-            **_ticks(palette),
+            **axis_ticks(palette),
         },
         # One trace: the axis title says it all.
         "showlegend": len(y) > 1,
@@ -488,7 +491,7 @@ def _multi_y_layout(
             "gridcolor": "rgba(0,0,0,0)",
             "zerolinecolor": palette.grid,
             "tickfont": {"color": trace_color(display, i, palette)},
-            **_ticks(palette),
+            **axis_ticks(palette),
         }
         axis["title"] = {
             "text": _pretty(pretty, y[i]),
@@ -505,14 +508,14 @@ def _multi_y_layout(
     return layout
 
 
-def _apply_display(
+def apply_display(
     layout: dict,
     display: Optional[Mapping],
     *,
     x_is_date: bool,
     y_is_date: bool,
 ) -> None:
-    """Apply display log types and explicit ranges to the layout.
+    """Apply display log types, explicit ranges and plot size to the layout.
 
     Date axes take neither log type nor numeric ranges (the page's
     rule, ported).
@@ -609,7 +612,7 @@ def shots_figure(
             name=_pretty(pretty, name),
             marker={
                 "color": trace_color(display, i, palette),
-                "size": _marker_size(display),
+                "size": marker_size(display),
             },
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
@@ -618,7 +621,7 @@ def shots_figure(
     if x_is_date:
         layout["xaxis"]["type"] = "date"  # ISO strings from the API
     layout.update(_multi_y_layout(y, pretty, display, palette))
-    _apply_display(layout, display, x_is_date=x_is_date, y_is_date=y_is_date)
+    apply_display(layout, display, x_is_date=x_is_date, y_is_date=y_is_date)
     fig.update_layout(layout)
     return fig
 
@@ -673,10 +676,61 @@ def trace_figure(
         "zerolinecolor": palette.grid,
         "automargin": True,
         "title": {"text": y_title},
-        **_ticks(palette),
+        **axis_ticks(palette),
     }
     fig.update_layout(layout)
     return fig
+
+
+def add_binned_trace(
+    fig: go.Figure,
+    positions: Sequence,
+    values: Optional[Mapping[str, Sequence]],
+    *,
+    name: str,
+    colour: str,
+    display: Optional[Mapping],
+    yaxis: str,
+) -> None:
+    """Add one binned column: its centres joined, with asymmetric error bars.
+
+    Parameters
+    ----------
+    fig : plotly.graph_objects.Figure
+        The figure to draw on.
+    positions : Sequence
+        The X of each bin.
+    values : Mapping[str, Sequence] or None
+        ``{"center", "err_low", "err_high"}``, one value per bin; ``None``
+        draws an empty trace (a column with no bin left).
+    name : str
+        The trace's legend name.
+    colour : str
+        Marker, line and error-bar colour.
+    display : Mapping, optional
+        The plot cosmetics (its marker size; a bin's marker is one larger
+        than a shot's).
+    yaxis : str
+        The plotly axis id, ``"y"``, ``"y2"`` and so on.
+    """
+    values = values or {"center": [], "err_low": [], "err_high": []}
+    fig.add_scatter(
+        x=positions,
+        y=list(values["center"]),
+        mode="markers+lines",
+        name=name,
+        marker={"color": colour, "size": marker_size(display) + 1},
+        line={"color": colour, "width": 1},
+        error_y={
+            "type": "data",
+            "symmetric": False,
+            "array": list(values["err_high"]),
+            "arrayminus": list(values["err_low"]),
+            "color": colour,
+            "thickness": 1,
+        },
+        yaxis=yaxis,
+    )
 
 
 def binned_figure(
@@ -722,31 +776,19 @@ def binned_figure(
     x_title = (x_label or bin_col) if x_values is not None else bin_col
     fig = _bare_figure()
     for i, name in enumerate(y):
-        s = series.get(name) or {"center": [], "err_low": [], "err_high": []}
-        fig.add_scatter(
-            x=positions,
-            y=list(s["center"]),
-            mode="markers+lines",
+        add_binned_trace(
+            fig,
+            positions,
+            series.get(name),
             name=_pretty(pretty, name),
-            marker={
-                "color": trace_color(display, i, palette),
-                "size": _marker_size(display) + 1,
-            },
-            line={"color": trace_color(display, i, palette), "width": 1},
-            error_y={
-                "type": "data",
-                "symmetric": False,
-                "array": list(s["err_high"]),
-                "arrayminus": list(s["err_low"]),
-                "color": trace_color(display, i, palette),
-                "thickness": 1,
-            },
+            colour=trace_color(display, i, palette),
+            display=display,
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
     layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": x_title}
     layout.update(_multi_y_layout(y, pretty, display, palette))
     # Binned serves raw numbers — no date axes on either side.
-    _apply_display(layout, display, x_is_date=False, y_is_date=False)
+    apply_display(layout, display, x_is_date=False, y_is_date=False)
     fig.update_layout(layout)
     return fig

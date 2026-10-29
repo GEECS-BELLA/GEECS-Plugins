@@ -31,19 +31,22 @@ number, mode, shot count, status, start time) and how to move:
   the portal knows where the logbook is.
 - **Filters** hold conditions on the scalar columns (AND inside a group,
   groups OR together), edited with **edit filters…**. They apply to the
-  plots, the grid maps and the images, and they follow you from scan to
-  scan and day to day, as do the columns you picked.
+  grid maps and the images, and they follow you from scan to scan and
+  day to day. The Plot page has shot filters of its own.
 
-Everything you choose (tab, columns, filters, bins, the selected cell or
-shot) is in the page's URL, so a link you copy opens the same view.
+Everything you choose on a scan's page (tab, filters, bins, the selected
+cell or shot) is in the page's URL, so a link you copy opens the same view.
 
 ## The tabs
 
 - **Overview** — the scan's metadata and settings as recorded.
-- **Plot** — any scalar against the shot number or another scalar, per
-  shot or **binned** by the scan variable. **show the code** gives the
-  notebook cell that reproduces the figure from Python. The toolbar's
-  **send to scan log** posts the figure into this scan's logbook entry.
+- **Plot** — its own page, GEECSplotter's: up to three scalars against
+  the shot number or another scalar, per shot or **binned**, with shot
+  filters, fits and display settings, all kept in your named settings
+  set. The page gives the notebook cell that reproduces the figure from
+  Python, and its toolbar can copy the plot or **send** it into this
+  scan's logbook entry. Scans from another experiment than the portal's
+  own have no Plot tab.
 - **Grid** — for a two-variable scan, a map of any scalar over the two
   scan axes, with the average (mean or median) and the error (standard
   error of the mean, or others) chosen separately. Click a cell for its

@@ -9,7 +9,6 @@ function bootGrid(axes) {
   const cfg = gridConfig();
   if (!cfg.x && axes.length >= 2) cfg.x = axes[axes.length - 1];
   if (!cfg.y && axes.length >= 2) cfg.y = axes[0];
-  if (!cfg.value && S.y.length) cfg.value = S.y[0];
   ["value", "x", "y"].forEach(name => {
     const select = gridControl(name);
     select.replaceChildren(new Option(name === "value" ? "Choose a scalar…" : "Choose an axis…", ""));

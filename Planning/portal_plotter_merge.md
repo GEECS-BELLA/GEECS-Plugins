@@ -200,6 +200,11 @@ The PRs from here: the Plot page's tools (#1192) → delete the old plot
 pane and share the figure code → the 2-D map view → the Images tab →
 `--browser` and the deletion of `GeecsPlotter/`.
 
+**The old pane went (2026-10-29)**, with one figure code: the Plot
+page imports the portal's palette, serializer, cosmetics and binned
+trace. A scan of another experiment than the portal's own has no Plot
+tab (the author's answer: teaching the page other experiments waits).
+
 ## Open, for Sam
 
 - The three reversed rulings above.

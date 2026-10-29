@@ -1,11 +1,10 @@
 """Pure figure authoring: columns in, a plotly ``Figure`` out.
 
-Copied from the portal's ``geecs_portal/figures.py`` (``Palette``,
-``page_figure``, ``base_layout``, ``shots_figure``) and cut to what M1
-draws — up to three Y columns against one X (the portal's multi-Y ladder,
-``_y_axes``). Accepted debt, named in this package's
-CLAUDE.md: the two copies may drift until portal/plotter integration.
-The fits (:func:`fit_columns`, the ``fits`` of :func:`shots_figure`) are
+The Plot page's figures: up to three Y columns against one X on
+GEECSplotter's axis ladder (``_y_axes``), per shot or binned. The palette,
+the page serializer, the display cosmetics and the binned trace are the
+portal's (``geecs_portal.figures``), imported, so the two cannot drift;
+the layout (no legend, the ladder) is this page's own. The fits (:func:`fit_columns`, the ``fits`` of :func:`shots_figure`) are
 the plotter's own: GEECSplotter's Fit menu, the numbers from
 ``geecs_data_utils.data.curve_fit``.
 
@@ -18,17 +17,25 @@ figure either way.
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
-from typing import Any, Mapping, Optional, Sequence, Union
+from typing import Mapping, Optional, Sequence, Union
 
 import plotly.graph_objects as go
 import plotly.io as pio
 from geecs_data_utils.data.curve_fit import CurveFit, fit_curve
 
-# The plot cosmetics (the scan page's display JSON) are the portal's: one
-# reading of a custom colour, a marker size and the axis ranges and logs.
-from geecs_portal.figures import _apply_display, _marker_size, trace_color
+# One palette, one serializer, one reading of the display cosmetics. The
+# page's palette and serializer are re-exported for this page's routes.
+from geecs_portal.figures import (
+    NOTEBOOK_PALETTE,
+    Palette,
+    page_figure as page_figure,
+    THEMED_PALETTE as THEMED_PALETTE,
+    add_binned_trace,
+    apply_display,
+    axis_ticks,
+    marker_size,
+    trace_color,
+)
 
 
 #: GEECSplotter's Y1, Y2 and Y3: the most Y columns one figure draws.
@@ -52,88 +59,6 @@ FITS: dict[str, str] = {
 FIT_POINTS = 400
 
 
-@dataclass(frozen=True)
-class Palette:
-    """Every colour a figure needs, in one place."""
-
-    trace: tuple[str, ...]
-    grid: str
-    grid_soft: str
-    font: str
-    paper: str
-    plot: str
-
-
-NOTEBOOK_PALETTE = Palette(
-    trace=("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8"),
-    grid="#2c353d",
-    grid_soft="#232a31",
-    font="#dde4ea",
-    paper="#1a2026",
-    plot="#12161a",
-)
-
-#: Placeholder hex no theme uses: plotly.py validates colours at build time
-#: and rejects a ``$tok:`` string, so :func:`page_figure` substitutes later.
-THEMED_PALETTE = Palette(
-    trace=("#010101", "#010102", "#010103", "#010104"),
-    grid="#010105",
-    grid_soft="#010106",
-    font="#010107",
-    paper="#010108",
-    plot="#010109",
-)
-
-#: Placeholder → sentinel, the substitution :func:`page_figure` applies.
-SENTINELS: dict[str, str] = {
-    "#010101": "$tok:--trace-1",
-    "#010102": "$tok:--trace-2",
-    "#010103": "$tok:--trace-3",
-    "#010104": "$tok:--trace-4",
-    "#010105": "$tok:--rule",
-    "#010106": "$tok:--rule-soft",
-    "#010107": "$tok:--ink",
-    "#010108": "$tok:--surface",
-    "#010109": "$tok:--paper",
-}
-
-
-def page_figure(fig: go.Figure) -> dict:
-    """Serialize a :data:`THEMED_PALETTE` figure for the page.
-
-    One walk replaces each placeholder with its sentinel and each
-    non-finite float with ``None`` (a gap, which is what a missing shot
-    is) — NaN is not valid JSON.
-
-    Parameters
-    ----------
-    fig : plotly.graph_objects.Figure
-        A figure built with :data:`THEMED_PALETTE`.
-
-    Returns
-    -------
-    dict
-        The figure JSON the page hands to ``Plotly.react``.
-    """
-
-    def walk(value: Any) -> Any:  # Any: arbitrary plotly JSON
-        if isinstance(value, str):
-            return SENTINELS.get(value, value)
-        if isinstance(value, float) and not math.isfinite(value):
-            return None
-        if isinstance(value, list):
-            return [walk(v) for v in value]
-        if isinstance(value, dict):
-            return {k: walk(v) for k, v in value.items()}
-        return value
-
-    return walk(fig.to_plotly_json())
-
-
-def _ticks(palette: Palette) -> dict:
-    return {"ticks": "outside", "ticklen": 4, "tickcolor": palette.grid}
-
-
 def base_layout(palette: Palette) -> dict:
     """The layout every figure starts from.
 
@@ -151,7 +76,7 @@ def base_layout(palette: Palette) -> dict:
         "gridcolor": palette.grid_soft,
         "zerolinecolor": palette.grid,
         "automargin": True,
-        **_ticks(palette),
+        **axis_ticks(palette),
     }
     return {
         "template": pio.templates["none"],
@@ -201,7 +126,7 @@ def _y_axes(
             "zerolinecolor": palette.grid,
             "tickfont": {"color": colour},
             "title": {"text": title, "font": {"color": colour}},
-            **_ticks(palette),
+            **axis_ticks(palette),
         }
         if i == 0:
             axis["gridcolor"] = palette.grid_soft
@@ -340,7 +265,7 @@ def shots_figure(
             name=title,
             marker={
                 "color": trace_color(display, i, palette),
-                "size": _marker_size(display),
+                "size": marker_size(display),
             },
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
@@ -366,7 +291,7 @@ def shots_figure(
     layout["xaxis"]["title"] = {"text": (x_label or x) if x else "shot #"}
     del layout["yaxis"]
     layout.update(_y_axes([(i, title) for i, _, title in drawn], palette, display))
-    _apply_display(layout, display, x_is_date=False, y_is_date=False)
+    apply_display(layout, display, x_is_date=False, y_is_date=False)
     fig.update_layout(layout)
     return fig
 
@@ -419,25 +344,14 @@ def binned_figure(
     drawn = [(i, name, labels[i] or name) for i, name in enumerate(ys) if name]
     positions = list(x_values) if x_values is not None else list(bins)
     fig = go.Figure(layout={"template": pio.templates["none"]})
-    empty = {"center": [], "err_low": [], "err_high": []}
     for i, name, title in drawn:
-        values = series.get(name) or empty
-        colour = trace_color(display, i, palette)
-        fig.add_scatter(
-            x=positions,
-            y=list(values["center"]),
-            mode="markers+lines",
+        add_binned_trace(
+            fig,
+            positions,
+            series.get(name),
             name=title,
-            marker={"color": colour, "size": _marker_size(display) + 1},
-            line={"color": colour, "width": 1},
-            error_y={
-                "type": "data",
-                "symmetric": False,
-                "array": list(values["err_high"]),
-                "arrayminus": list(values["err_low"]),
-                "color": colour,
-                "thickness": 1,
-            },
+            colour=trace_color(display, i, palette),
+            display=display,
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
     layout = base_layout(palette)
@@ -446,6 +360,6 @@ def binned_figure(
     }
     del layout["yaxis"]
     layout.update(_y_axes([(i, title) for i, _, title in drawn], palette, display))
-    _apply_display(layout, display, x_is_date=False, y_is_date=False)
+    apply_display(layout, display, x_is_date=False, y_is_date=False)
     fig.update_layout(layout)
     return fig
