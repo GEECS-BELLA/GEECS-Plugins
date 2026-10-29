@@ -74,8 +74,10 @@ deploy/
   `canopy-db-is-transitional` import contract); the native path depends on
   nothing in the DB. The module gets the DB devices as a callable from the
   wrapper (`app.py`), never by importing `gateway.py`; their writes take
-  the same gates, their hazards come from the policy's `hazards`, and a
-  setpoint without DB `min`/`max` is refused (rule 11).
+  the same gates but the run lock (a DB device has none), their hazards
+  come from the policy's `hazards`, and a setpoint without DB `min`/`max`
+  is refused (rule 11). One switch, `GEECS_CANOPY_DB`, turns the DB off for
+  the directory and the module alike.
 - **Routes and gates import no Canopy name** (condition (b)): `app.py`
   alone does, through `canopy_surface.NAMES`; a new Canopy name goes into
   that list in the same change. Every route needs Canopy read access only;

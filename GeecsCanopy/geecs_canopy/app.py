@@ -5,7 +5,8 @@ Canopy's app, unpatched, with the module mounted, tagged ``geecs`` (only
 ``@*`` keys reach it: Canopy's ``MODULES`` is fixed) and given Canopy's
 error handler. The one ``Hare`` implementation, over ``canopy.hare.gateway``;
 the module joins the broker as an internal client (as Vole does). With
-``GEECS_CANOPY_DB_URL`` set, the module writes the DB-served devices too.
+``GEECS_CANOPY_DB_URL`` set and ``GEECS_CANOPY_DB`` not ``off`` (the
+directory's switch), the module writes the DB-served devices too.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from geecs_canopy import canopy_surface
 from geecs_canopy.hare import HareRefused, Wire, WriteValue
 from geecs_canopy.journal import Journal
 from geecs_canopy.module import Module, ModuleSettings
+from geecs_canopy.native import Resolved, SourceError
 from geecs_canopy.routes import build_app
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,25 @@ class _GatewayHare:
         return await broker.subscribe(self.CLIENT_ID, pvs)
 
 
+def _db_devices(settings: ModuleSettings) -> Callable[[], list[Resolved]] | None:
+    """TRANSITIONAL: the DB-served devices' source, on the directory's switch (``GEECS_CANOPY_DB``) and the URL."""
+    from geecs_canopy.gateway import DB_URL_ENV, GatewaySource
+
+    url = os.environ.get(DB_URL_ENV)
+    if not url or os.environ.get("GEECS_CANOPY_DB", "on").lower() == "off":
+        return None
+    try:
+        return GatewaySource(settings.experiment, url).resolve
+    except ValueError as exc:  # malformed: the roster says so, the native devices stand
+        logger.exception("GEECS device module: the DB URL")
+        why = str(exc)
+
+        def unconfigured() -> list[Resolved]:
+            raise SourceError(why)
+
+        return unconfigured
+
+
 def _build() -> Any:
     """Check the surface, then import Canopy's app and mount the module on it."""
     canopy_surface.self_test()
@@ -99,11 +120,7 @@ def _build() -> Any:
     settings = ModuleSettings.from_env()
     settings.state_dir.mkdir(exist_ok=True)
     journal = Journal(settings.state_dir / "journal.sqlite3")
-    from geecs_canopy.gateway import DB_URL_ENV, GatewaySource  # TRANSITIONAL
-
-    url = os.environ.get(DB_URL_ENV)  # set: the DB-served devices join the native ones
-    gateway = GatewaySource(settings.experiment, url).resolve if url else None
-    module = Module(settings, _GatewayHare(), journal, gateway=gateway)
+    module = Module(settings, _GatewayHare(), journal, gateway=_db_devices(settings))
     geecs_app = build_app(module, read_access=require_read_access)
     register_canopy_error_handler(geecs_app)
     tag_module(geecs_app, "geecs")

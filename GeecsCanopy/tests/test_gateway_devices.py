@@ -27,6 +27,7 @@ VARIABLES = {
         row("Position.Axis 1", True, lo=-10.0, hi=10.0),
         row("Velocity", True),
         row("Comment", True, "string"),
+        row("Wheel", True, "choice", ",".join(map(str, range(20)))),  # 20: no CA enum
     ],  # fmt: skip
     "U_Off": [
         row("Current", True, lo=0.0, hi=1.0)
@@ -164,3 +165,19 @@ async def test_the_db_down_keeps_the_last_set_and_the_roster_says_so(env):
     assert {d["name"] for d in body["devices"]} == {"U_PLC", "U_Stage"}
     assert "no route to the DB" in body["sources"]["gateway"]["error"]
     assert body["sources"]["gateway"]["readAt"]  # the last good read's
+
+
+async def test_a_choice_beyond_a_ca_enum_is_text_as_the_gateway_serves_it(env):
+    wheel = (await roles(env, "U_Stage"))[1]["Wheel"]  # 20 options: a string PV
+    assert (wheel["type"], wheel["writable"]) == ("setpoint", True)
+    assert (await put(env, "U_Stage", role="Wheel", value="7")).json()["outcome"] == "accepted"  # fmt: skip
+
+
+async def test_a_native_device_wins_over_a_db_device_of_its_name(env, tmp_path):
+    panels = "devices:\n  U_Stage: {family: easydriver, prefix: 'bench:u_stage:'}\n"
+    (tmp_path / "scanner_configs/experiments/Test/panel_devices.yaml").write_text(
+        panels
+    )
+    env.clock[0] += 11  # the native documents' re-read
+    body = (await env.client.get("/v1/devices/U_Stage")).json()
+    assert (body["source"], body["family"]) == ("native", "easydriver")

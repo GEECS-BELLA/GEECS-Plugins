@@ -126,14 +126,17 @@ async def device_lists(settings: Settings, module: ModuleClient) -> dict[str, An
         return {"ok": False, "detail": f"the module answered {status}: {body.get('detail', body)}"}  # fmt: skip
     roster = body.get("devices", [])
 
-    async def detail(name: str) -> Optional[dict[str, Any]]:
+    async def detail(device: dict[str, Any]) -> Optional[dict[str, Any]]:
+        # a live DB device's roles carry no module verdict: its detail says nothing the roster does not
+        if device.get("source") == "gateway" and device.get("state") == "live":
+            return {"roles": []}
         try:
-            got, answer = await module.device(name)
+            got, answer = await module.device(device["name"])
         except ModuleUnavailable:
             return None
         return answer if got == 200 else None
 
-    answers = await asyncio.gather(*(detail(d["name"]) for d in roster))
+    answers = await asyncio.gather(*(detail(d) for d in roster))
     try:
         got, journal = await module.journal(200)
         journal = journal if got == 200 else None
