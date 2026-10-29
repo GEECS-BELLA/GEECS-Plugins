@@ -709,7 +709,7 @@ pages: the page form's `page` field says which one a save reopens
 plot or 2-D map), so a save here never moves the Plot page; a set an
 older copy saved on its strip (`tab="images"`) opens the XY plot.
 The rail is the strip's (camera, bins or shots, layout, colour map, z
-scale, ROI). `static/images.js` draws the **big view**: the tile
+scale, ROI). `plotter/static/images.js` draws the **big view**: the tile
 clicked (or stepped to with ‹ ›) at full size: the tile's own picture
 (its ROI, levels and colour map), redrawn whenever the tile's picture
 changes (a shared z scale read late, a new colour map) through a
