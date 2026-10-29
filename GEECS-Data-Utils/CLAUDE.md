@@ -421,6 +421,12 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `scan_reader` walks the same folders for a different product (its
   `ScanSummary`) over the same `scan_info` facts; folding the two walks
   together is its own change.
+  An unreachable data root (an unmounted share, none configured) is an
+  `OSError` from `list_runs`, never an empty day; `load_run` keeps its
+  `KeyError`. A root that did not exist when the process started
+  (`ScanPaths.paths_config` resolved to `None` at import) is resolved
+  again on the next call, so a service started during a share outage
+  recovers when the share comes back.
   Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);
