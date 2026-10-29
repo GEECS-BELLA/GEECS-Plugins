@@ -225,6 +225,65 @@ class TestFolderScanCatalog:
             catalog.load_run("folder:Thomson:2026-09-26:1")
         assert _tree(tmp_path) == before
 
+    def test_an_unreachable_root_is_an_outage_not_an_empty_day(self, tmp_path):
+        """An unmounted share must not read as "no scans recorded"."""
+        gone = FolderScanCatalog(tmp_path / "unmounted")
+        with pytest.raises(OSError, match="unreachable"):
+            gone.list_runs("Thomson", DAY)
+        with pytest.raises(KeyError):  # load_run's contract: no folder
+            gone.load_run("folder:Thomson:2026-09-25:1")
+        assert not (tmp_path / "unmounted").exists()
+
+    def test_the_config_root_is_resolved_again_when_it_comes_back(
+        self, tmp_path, monkeypatch
+    ):
+        """Started while the share was unmounted (``paths_config`` None), the
+        catalog lists the day once the root resolves, without a restart."""
+        from geecs_data_utils import scan_paths
+
+        _scan(tmp_path, 1)
+        monkeypatch.setattr(scan_paths.ScanPaths, "paths_config", None)
+        monkeypatch.setattr(scan_paths, "CONFIG_RETRY_S", 0.0)  # no throttle here
+        monkeypatch.setattr(scan_paths, "_config_retry_at", 0.0)
+        catalog = FolderScanCatalog()
+        monkeypatch.setattr(
+            scan_paths.ScanPaths, "reload_paths_config", classmethod(lambda cls: None)
+        )
+        with pytest.raises(OSError, match="none in config.ini"):
+            catalog.list_runs("Thomson", DAY)
+
+        def mounted(cls):
+            cls.paths_config = type(
+                "Config", (), {"base_path": tmp_path, "experiment": "Thomson"}
+            )()
+
+        monkeypatch.setattr(
+            scan_paths.ScanPaths, "reload_paths_config", classmethod(mounted)
+        )
+        assert catalog.probe().ok  # the health check sees it come back too
+        assert [r.scan_number for r in catalog.list_runs("Thomson", DAY)] == [1]
+
+    def test_a_missing_root_is_looked_for_at_most_once_a_window(self, monkeypatch):
+        """An outage costs one config read (and its log lines) per window,
+        not one per request."""
+        from geecs_data_utils import scan_paths
+
+        monkeypatch.setattr(scan_paths.ScanPaths, "paths_config", None)
+        monkeypatch.setattr(scan_paths, "_config_retry_at", 0.0)
+        reads = []
+        monkeypatch.setattr(
+            scan_paths.ScanPaths,
+            "reload_paths_config",
+            classmethod(lambda cls: reads.append(1)),
+        )
+        now = [100.0]
+        for _ in range(5):
+            scan_paths.current_paths_config(clock=lambda: now[0])
+        assert len(reads) == 1
+        now[0] += scan_paths.CONFIG_RETRY_S
+        scan_paths.current_paths_config(clock=lambda: now[0])
+        assert len(reads) == 2
+
     def test_probe(self, tmp_path):
         assert FolderScanCatalog(tmp_path).probe().ok
         assert not FolderScanCatalog(tmp_path / "gone").probe().ok

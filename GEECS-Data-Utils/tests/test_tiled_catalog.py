@@ -586,12 +586,22 @@ class TestDailyScanFolder:
         from geecs_data_utils.scan_paths import ScanPaths
 
         monkeypatch.setattr(ScanPaths, "paths_config", None)
+        # Hermetic: the look-again for a missing root must not read this
+        # machine's config.ini.
+        monkeypatch.setattr(
+            ScanPaths, "reload_paths_config", classmethod(lambda cls: None)
+        )
         assert daily_scan_folder("", base_path=tmp_path, day=TEST_DAY) is None
 
     def test_no_config_and_no_base_path_returns_none(self, monkeypatch):
         from geecs_data_utils.scan_paths import ScanPaths
 
         monkeypatch.setattr(ScanPaths, "paths_config", None)
+        # Hermetic: the look-again for a missing root must not read this
+        # machine's config.ini.
+        monkeypatch.setattr(
+            ScanPaths, "reload_paths_config", classmethod(lambda cls: None)
+        )
         assert daily_scan_folder("Undulator", day=TEST_DAY) is None
 
 
