@@ -156,7 +156,7 @@ def _render(
         except HTTPException as missing:
             page["error"] = missing.detail
         else:
-            _fill(page, run, settings, ctx.experiment)
+            _fill(page, run, settings, ctx.experiment, ctx.logbook_send)
     return ctx.templates.TemplateResponse(
         request,
         "index.html",
@@ -289,6 +289,15 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "y3order": settings.y3_fit_order,
         "fits": figures.FITS,
         "max_fit_order": MAX_FIT_ORDER,
+        # The XY plot's view, shot filters, bins and cosmetics (JSON text).
+        "view": _choice(settings, "xy_view"),
+        "filters": settings.shot_filters,
+        "bincfg": settings.bin_config,
+        "display": settings.display,
+        "filter_groups": _filter_groups(settings.shot_filters),
+        "uid": "",
+        "slots": [],
+        "caption": "",
         # The tab, and the image strip's controls. A choice a newer copy
         # saved that this one lacks shows this copy's default.
         "tab": _choice(settings, "tab"),
@@ -314,6 +323,24 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
     }
 
 
+def _filter_groups(text: str) -> list[dict]:
+    """The shot filters' groups as the rail's chips; none for bad or empty text."""
+    from geecs_portal import analysis
+
+    try:
+        filters = analysis.parse_filters(text)
+    except analysis.BadParam:
+        return []
+    return [
+        {
+            "name": g.name or f"filter {i + 1}",
+            "enabled": g.enabled,
+            "conditions": len(g.conditions),
+        }
+        for i, g in enumerate(filters.groups)
+    ]
+
+
 def _choice(settings: PlotterSettings, key: str) -> str:
     """The stored choice, or its default when this copy does not offer it."""
     value = getattr(settings, key)
@@ -325,6 +352,7 @@ def _fill(
     run: RunDetail,
     settings: PlotterSettings,
     experiment: str = "",
+    logbook_send: bool = False,
 ) -> None:
     """Add the open scan's lists and the picks the settings resolve to."""
     frame = scans.load_frame(run)
@@ -332,6 +360,8 @@ def _fill(
         _fill_images(page, run, frame, settings, experiment)
     picks = scans.columns(frame)
     page["columns"] = picks
+    page["uid"] = run.summary.uid
+    page["logbook_send"] = logbook_send
     page["xnames"] = {c: scans.display_name(c, settings.x_alias) for c in picks}
     page["ynames"] = {c: scans.display_name(c, settings.y_alias) for c in picks}
     page["shots"] = len(frame)
@@ -364,6 +394,15 @@ def _fill(
         picked = getattr(settings, key) or default
         page[key] = picked if picked in picks else ""
         page[f"{key}_kept"] = "" if picked in picks else picked
+    # The drawn Y slots (0-2: the display drawer's colour per slot) and
+    # the logbook caption: what the plot shows, as the panel heads it.
+    shown = [(0, page["y"]), (1, page["y2"]), (2, page["y3"])]
+    page["slots"] = [i for i, c in shown if c]
+    names = [page[f"{k}names"][c] for k, (_, c) in zip(("y", "y2", "y3"), shown) if c]
+    x_name = page["xnames"][page["x"]] if page["x"] else "shot #"
+    page["caption"] = f"{', '.join(names)} vs {x_name}" + (
+        " (binned)" if page["view"] == "bin" else ""
+    )
 
 
 def _fill_images(

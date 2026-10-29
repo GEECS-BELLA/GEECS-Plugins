@@ -8,16 +8,21 @@ frame and figure.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from datetime import date
 from typing import Any, Callable, Optional, Sequence, Union
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from geecs_data_utils.data.binning import bin_frame
 from geecs_data_utils.data.curve_fit import CurveFit
-from pydantic import BaseModel
+from geecs_data_utils.data.row_filters import RowFilters, apply_filters
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
+from geecs_portal import analysis
 from geecs_portal.plotter import figures, scans
 from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.settings import (
@@ -81,16 +86,24 @@ class FitResult(BaseModel):
 class FigureResponse(BaseModel):
     """One plot: the figure JSON and the snippet that reproduces it."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     x: str
     y: str
     #: Y2 and Y3, ``""`` when off.
     y2: str = ""
     y3: str = ""
     shots: int
+    #: ``"shot"`` or ``"bin"``: what the figure draws.
+    view: str = "shot"
+    #: The shots the filters pass, of all of them.
+    passing: int = Field(0, alias="pass")
+    total: int = 0
     # The plotly figure JSON: the one free dict in a response (the brief).
     figure: dict[str, Any]
     code: str
-    #: One per Y list with a fit picked, in slot order.
+    #: One per Y list with a fit picked, in slot order (per-shot view only:
+    #: a fit is made to the shots, never to bin centres).
     fits: list[FitResult] = []
 
 
@@ -174,6 +187,9 @@ def figure_code(
     y_labels: Sequence[Optional[str]] = (),
     fits: Sequence[Optional[str]] = (),
     orders: Sequence[int] = (),
+    filters: Optional[RowFilters] = None,
+    cfg: Optional[Any] = None,
+    display: Optional[dict] = None,
 ) -> str:
     """The notebook snippet that rebuilds the frame, the fits and the figure.
 
@@ -197,6 +213,13 @@ def figure_code(
         The fit per Y slot (``figures.FITS`` keys); none named, no fit code.
     orders : Sequence[int], optional
         The polynomial order per slot.
+    filters : RowFilters, optional
+        The shot filters; their active groups narrow the frame first.
+    cfg : BinningConfig, optional
+        Given, the snippet bins (the page's binned view) instead of
+        fitting and plotting the shots.
+    display : dict, optional
+        The plot cosmetics; its ``layout`` patch is the browser's.
 
     Returns
     -------
@@ -226,16 +249,74 @@ def figure_code(
             f" shot=scans.shot_axis(frame){order_arg})\n"
         )
         fit_arg = ", fits=fits"
-    return (
+    cosmetics = {k: v for k, v in (display or {}).items() if k != "layout"}
+    display_arg = f", display={cosmetics!r}" if cosmetics else ""
+    head = (
         "from datetime import date\n"
         "from geecs_portal.plotter import figures, scans\n\n"
         f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
         "frame = scans.load_frame(run)\n"
-        f"series = scans.plot_series(frame, {names!r})\n"
+    )
+    if filters is not None and filters.active_groups():
+        head += (
+            "from geecs_data_utils.data.row_filters import RowFilters, apply_filters\n"
+            f"frame = apply_filters(frame, RowFilters.model_validate_json("
+            f"{filters.model_dump_json()!r}))\n"
+        )
+    if cfg is not None:
+        return head + _binned_code(cfg, ys, drawn, x, x_label, y_labels, display_arg)
+    return (
+        head + f"series = scans.plot_series(frame, {names!r})\n"
         f"{fitting}"
-        f"fig = figures.shots_figure(series, {y_arg}{x_arg}, shot=scans.shot_axis(frame){labels}{fit_arg})\n"
+        f"fig = figures.shots_figure(series, {y_arg}{x_arg}, shot=scans.shot_axis(frame)"
+        f"{labels}{fit_arg}{display_arg})\n"
         "fig.show()\n"
         + ("for fit in filter(None, fits):\n    print(fit)\n" if fitting else "")
+    )
+
+
+def _binned_code(
+    cfg: Any,  # BinningConfig: a plain dataclass, its fields named below
+    ys: Sequence[Optional[str]],
+    drawn: Sequence[str],
+    x: Optional[str],
+    x_label: Optional[str],
+    y_labels: Sequence[Optional[str]],
+    display_arg: str,
+) -> str:
+    """The binned half of :func:`figure_code`: bin, place, draw."""
+    non_default = {
+        f.name: getattr(cfg, f.name)
+        for f in dataclasses.fields(cfg)
+        if f.name != "value_cols" and getattr(cfg, f.name) != f.default
+    }
+    kwargs = ", ".join(f"{k}={v!r}" for k, v in sorted(non_default.items()))
+    lines = (
+        "from dataclasses import replace\n"
+        "from geecs_data_utils.data.binning import BinningConfig, bin_frame\n"
+        "from geecs_portal.analysis import jsonable_labels, jsonable_values\n"
+        f"cfg = BinningConfig({kwargs})\n"
+        f"result = bin_frame(frame, replace(cfg, value_cols={tuple(drawn)!r}))\n"
+        "series = {c: {s: jsonable_values(result.frame[(c, s)])\n"
+        '              for s in ("center", "err_low", "err_high")}\n'
+        f"          for c in {list(drawn)!r} if (c, 'center') in result.frame}}\n"
+    )
+    place = ""
+    if x:
+        lines += (
+            "# bins group the shots; the X column's per-bin mean places them\n"
+            f"x_result = bin_frame(frame, replace(cfg, value_cols=({x!r},), agg='mean'))\n"
+            f"x_centers = jsonable_values(x_result.frame[({x!r}, 'center')]"
+            ".reindex(result.frame.index))\n"
+        )
+        place = f", x_values=x_centers, x_label={(x_label or x)!r}"
+    y_arg = repr(ys[0]) if len(ys) == 1 else repr(list(ys))
+    titled = f", y_labels={list(y_labels)!r}" if any(y_labels) else ""
+    return (
+        lines
+        + f"fig = figures.binned_figure(jsonable_labels(result.frame.index), series, {y_arg}"
+        f", bin_col={cfg.bin_col!r}{place}{titled}{display_arg})\n"
+        "fig.show()\n"
     )
 
 
@@ -273,72 +354,44 @@ def register(router: APIRouter, ctx: Context) -> None:
         yorder: int = Query(default=2, ge=0, le=MAX_FIT_ORDER),
         y2order: int = Query(default=2, ge=0, le=MAX_FIT_ORDER),
         y3order: int = Query(default=2, ge=0, le=MAX_FIT_ORDER),
+        view: str = Query(
+            default="shot", pattern="^(shot|bin)$", description="per shot or binned"
+        ),
+        filters: str = Query(default="", description="RowFilters JSON: the shots kept"),
+        bincfg: str = Query(default="", description="BinningConfig JSON, for view=bin"),
+        display: str = Query(default="", description="the plot cosmetics JSON"),
     ) -> JSONResponse:
-        """The per-shot figure of ``y`` (and ``y2``, ``y3``) against ``x``."""
-        frame = scans.load_frame(ctx.run(day, scan))
-        if not y:
-            raise HTTPException(status_code=404, detail="no plottable column ''")
-        # Each list keeps its slot (colour and axis): Y3 stays Y3 with Y2
-        # off. Trailing off slots are dropped so a one-Y snippet stays bare.
-        axes = [(y, yalias), (y2 or None, y2alias), (y3 or None, y3alias)]
-        while axes[-1][0] is None:
-            axes.pop()
-        ys = [c for c, _ in axes]
-        drawn = [c for c in ys if c]
-        try:
-            series = scans.plot_series(frame, [*drawn, x] if x else drawn)
-        except KeyError as missing:
-            raise HTTPException(
-                status_code=404, detail=f"no plottable column {missing.args[0]!r}"
-            ) from None
-        # A title only where the toggle changes it, so the snippet stays bare.
-        x_label = _changed(x, xalias) if x else None
-        y_labels = [_changed(c, alias) if c else None for c, alias in axes]
-        # A fit only on a list that is drawn; a name this copy lacks (a
-        # newer copy saved it) is reported, not fitted.
-        asked = [m if c else "none" for c, m in zip(ys, (yfit, y2fit, y3fit))]
-        known = [m if m in figures.FITS else "none" for m in asked]
-        orders = [yorder, y2order, y3order][: len(ys)]
-        shot = scans.shot_axis(frame)
-        fits = figures.fit_columns(
-            series, ys, known, x=x or None, shot=shot, orders=orders
-        )
-        fig = figures.shots_figure(
-            series,
-            ys,
-            x=x or None,
-            shot=shot,
-            x_label=x_label,
-            y_labels=y_labels,
-            fits=fits,
-            palette=figures.THEMED_PALETTE,
-        )
-        results = [
-            fit_result(i + 1, c, m, fit)
-            for i, (c, m, fit) in enumerate(zip(ys, asked, fits))
-            if c and m != "none"
-        ]
-        body = FigureResponse(
+        """The figure of ``y`` (and ``y2``, ``y3``) against ``x``, per shot or binned.
+
+        The filters narrow the shots first, in both views. Per shot, each Y
+        list's fit is made to the shots drawn; binned, each bin's centre and
+        error bars are drawn (the portal's ``/binned``: bins group, the X
+        column's per-bin mean places them) and no fit is made.
+        """
+        return _figure_response(
+            ctx,
+            day,
+            scan,
+            axes=[(y, yalias), (y2 or None, y2alias), (y3 or None, y3alias)],
             x=x,
-            y=y,
-            y2=y2,
-            y3=y3,
-            shots=len(frame),
-            figure=figures.page_figure(fig),
-            code=figure_code(
-                day,
-                scan,
-                ys,
-                x or None,
-                ctx.experiment,
-                x_label,
-                y_labels,
-                fits=known,
-                orders=orders,
-            ),
-            fits=results,
+            xalias=xalias,
+            fits=(yfit, y2fit, y3fit),
+            orders=(yorder, y2order, y3order),
+            view=view,
+            filters=filters,
+            bincfg=bincfg,
+            display=display,
         )
-        return _json(body)
+
+    @router.get("/api/filter-count")
+    def api_filter_count(day: date, scan: int, filters: str = "") -> JSONResponse:
+        """``{pass, total}``: the shots the filters keep, for the editor's live count."""
+        frame = scans.load_frame(ctx.run(day, scan))
+        try:
+            kept = apply_filters(frame, analysis.parse_filters(filters))
+        except (analysis.BadParam, ValueError) as bad:
+            raise HTTPException(status_code=400, detail=str(bad)) from None
+        return JSONResponse({"pass": len(kept), "total": len(frame)}, headers=NO_CACHE)
 
     @router.get("/api/settings", response_model=SetsResponse)
     def api_sets() -> JSONResponse:
@@ -374,6 +427,167 @@ def register(router: APIRouter, ctx: Context) -> None:
         return _json(await run_in_threadpool(_settings, save))
 
 
+def _figure_response(
+    ctx: Context,
+    day: date,
+    scan: int,
+    *,
+    axes: Sequence[tuple[Optional[str], bool]],
+    x: str,
+    xalias: bool,
+    fits: Sequence[str],
+    orders: Sequence[int],
+    view: str,
+    filters: str,
+    bincfg: str,
+    display: str,
+) -> JSONResponse:
+    """``/api/figure``'s answer: *axes* is ``(column or None, alias)`` per Y slot."""
+    y = axes[0][0] or ""
+    frame = scans.load_frame(ctx.run(day, scan))
+    if not y:
+        raise HTTPException(status_code=404, detail="no plottable column ''")
+    try:
+        flt = analysis.parse_filters(filters)
+        disp = analysis.parse_display(display)
+        cfg = analysis.parse_bincfg(bincfg) if view == "bin" else None
+        kept = apply_filters(frame, flt)
+    except (analysis.BadParam, ValueError) as bad:
+        raise HTTPException(status_code=400, detail=str(bad)) from None
+    # Each list keeps its slot (colour and axis): Y3 stays Y3 with Y2
+    # off. Trailing off slots are dropped so a one-Y snippet stays bare.
+    axes = list(axes)
+    while axes[-1][0] is None:
+        axes.pop()
+    ys = [c for c, _ in axes]
+    drawn = [c for c in ys if c]
+    try:
+        series = scans.plot_series(kept, [*drawn, x] if x else drawn)
+    except KeyError as missing:
+        raise HTTPException(
+            status_code=404, detail=f"no plottable column {missing.args[0]!r}"
+        ) from None
+    # A title only where the toggle changes it, so the snippet stays bare.
+    x_label = _changed(x, xalias) if x else None
+    y_labels = [_changed(c, alias) if c else None for c, alias in axes]
+    asked = [m if c else "none" for c, m in zip(ys, fits)]
+    known = [m if m in figures.FITS else "none" for m in asked]
+    orders = list(orders)[: len(ys)]
+    results: list[FitResult] = []
+    if cfg is None:
+        # A fit only on a list that is drawn; a name this copy lacks (a
+        # newer copy saved it) is reported, not fitted.
+        shot = scans.shot_axis(kept)
+        made = figures.fit_columns(
+            series, ys, known, x=x or None, shot=shot, orders=orders
+        )
+        fig = figures.shots_figure(
+            series,
+            ys,
+            x=x or None,
+            shot=shot,
+            x_label=x_label,
+            y_labels=y_labels,
+            fits=made,
+            display=disp,
+            palette=figures.THEMED_PALETTE,
+        )
+        results = [
+            fit_result(i + 1, c, m, fit)
+            for i, (c, m, fit) in enumerate(zip(ys, asked, made))
+            if c and m != "none"
+        ]
+    else:
+        fig = _binned(kept, cfg, ys, drawn, x, x_label, y_labels, disp)
+    body = FigureResponse(
+        x=x,
+        y=y,
+        y2=(ys[1] if len(ys) > 1 else None) or "",
+        y3=(ys[2] if len(ys) > 2 else None) or "",
+        shots=len(frame),
+        view=view,
+        passing=len(kept),
+        total=len(frame),
+        figure=figures.page_figure(fig),
+        code=figure_code(
+            day,
+            scan,
+            ys,
+            x or None,
+            ctx.experiment,
+            x_label,
+            y_labels,
+            fits=known if cfg is None else (),
+            orders=orders,
+            filters=flt,
+            cfg=cfg,
+            display=disp,
+        ),
+        fits=results,
+    )
+    return _json(body)
+
+
+def _binned(
+    frame: pd.DataFrame,
+    cfg: Any,  # BinningConfig
+    ys: Sequence[Optional[str]],
+    drawn: Sequence[str],
+    x: str,
+    x_label: Optional[str],
+    y_labels: Sequence[Optional[str]],
+    display: dict,
+) -> Any:  # a plotly Figure
+    """The binned figure of the kept shots: the portal's ``/binned`` on this page's axes.
+
+    Raises
+    ------
+    HTTPException
+        404 for a missing bin column, 400 for a column ``bin_frame`` cannot
+        aggregate or a degenerate percentile.
+    """
+    try:
+        result = bin_frame(frame, dataclasses.replace(cfg, value_cols=tuple(drawn)))
+        x_centers = None
+        if x:
+            # Reindexed onto the Y bins: X's own dropna may keep other bins,
+            # and a point must never plot at another bin's position.
+            x_result = bin_frame(
+                frame, dataclasses.replace(cfg, value_cols=(x,), agg="mean")
+            )
+            if (x, "center") in x_result.frame.columns:
+                x_centers = analysis.jsonable_values(
+                    x_result.frame[(x, "center")].reindex(result.frame.index)
+                )
+    except KeyError as missing:
+        raise HTTPException(
+            status_code=404, detail=f"no bin column: {missing}"
+        ) from None
+    except (TypeError, ValueError) as bad:
+        raise HTTPException(
+            status_code=400, detail=f"binned view needs numeric columns: {bad}"
+        ) from None
+    series = {
+        column: {
+            part: analysis.jsonable_values(result.frame[(column, part)])
+            for part in ("center", "err_low", "err_high")
+        }
+        for column in drawn
+        if (column, "center") in result.frame.columns
+    }
+    return figures.binned_figure(
+        analysis.jsonable_labels(result.frame.index),
+        series,
+        ys,
+        bin_col=cfg.bin_col,
+        x_values=x_centers,
+        x_label=(x_label or x) if x else None,
+        y_labels=y_labels,
+        display=display,
+        palette=figures.THEMED_PALETTE,
+    )
+
+
 def _changed(column: str, use_alias: bool) -> Optional[str]:
     """The axis title the alias toggle gives *column*, if not its name."""
     shown = scans.display_name(column, use_alias)
@@ -391,4 +605,4 @@ def _settings(action: Callable[[], PlotterSettings]) -> PlotterSettings:
 def _json(body: BaseModel) -> JSONResponse:
     # mode="json": a set's remembered day is a date, which JSONResponse
     # cannot encode; every model goes out as plain JSON values.
-    return JSONResponse(body.model_dump(mode="json"), headers=NO_CACHE)
+    return JSONResponse(body.model_dump(mode="json", by_alias=True), headers=NO_CACHE)

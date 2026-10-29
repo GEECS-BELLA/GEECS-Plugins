@@ -447,7 +447,9 @@
   const host = document.getElementById("plot");
   if (!host) return;
   const state = document.getElementById("plot-state");
-  const PLOT_CONFIG = { responsive: true, displaylogo: false, scrollZoom: true };
+  // The modebar's copy and send, the drawing tools (plot_tools.js).
+  const tools = window.PlotTools || { config: () => ({ responsive: true }), patch: (l) => l, counted: () => {} };
+  const PLOT_CONFIG = tools.config();
   let figure = null;
 
   function tokenColour(name) {
@@ -464,7 +466,7 @@
   }
   function draw() {
     const fig = resolveThemeTokens(JSON.parse(JSON.stringify(figure)));
-    Plotly.react(host, fig.data, fig.layout, PLOT_CONFIG);
+    Plotly.react(host, fig.data, tools.patch(fig.layout), PLOT_CONFIG);
   }
   // The fits' numbers under the plot: one table per fitted Y list, keyed
   // by its swatch, each number with its standard error.
@@ -516,6 +518,7 @@
       state.hidden = true;
       document.getElementById("code").textContent = body.code;
       showFits(body.fits || []);
+      tools.counted(body);
       draw();
     })
     .catch((error) => fail(String(error)));

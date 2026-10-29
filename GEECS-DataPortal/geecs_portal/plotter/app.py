@@ -52,6 +52,7 @@ def create_app(
     settings_dir: Optional[Union[Path, str]] = None,
     root_path: str = "",
     mount: str = "",
+    logbook_url: str = "",
 ) -> FastAPI:
     """Build the plotter application.
 
@@ -74,6 +75,10 @@ def create_app(
         middleware has already set the request's prefix, the page draws
         the portal's tab bar, and ``portal_root`` (the prefix without the
         mount) reaches the templates; empty is the standalone plotter.
+    logbook_url : str, optional
+        The portal's ``--logbook-url``. Absolute, the plot's toolbar offers
+        "send to the scan's log entry", which posts to the portal's own
+        ``/api/run/{uid}/logbook`` (server to server, as the scan page's).
 
     Returns
     -------
@@ -103,6 +108,7 @@ def create_app(
         templates=make_templates(TEMPLATES_DIR, context_processors=[portal_context]),
         catalog=FolderScanCatalog(Path(base_directory) if base_directory else None),
         store=resolve_store(Path(settings_dir) if settings_dir else None),
+        logbook_send=logbook_url.startswith(("http://", "https://")),
     )
     router = APIRouter()
     pages.register(router, ctx)
