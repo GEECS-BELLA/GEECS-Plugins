@@ -193,7 +193,8 @@
     document.querySelector(".hare .dot").dataset.state = hareUp ? "ok" : "unknown";
     widgets.forEach(draw);
   });
-  const devices = [...new Set(widgets.map((w) => w.dataset.device).filter(Boolean))];
+  // every device a widget or an indicator names (a bare-PV flipper's lamp may be a device's role)
+  const devices = [...new Set([...document.querySelectorAll(".w[data-device], .ind[data-device]")].map((e) => e.dataset.device))];
   const tick = () => devices.forEach(poll);
   tick();
   setInterval(tick, POLL_MS);

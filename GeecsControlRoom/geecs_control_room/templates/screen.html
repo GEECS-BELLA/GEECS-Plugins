@@ -6,6 +6,7 @@
 #}{% extends "base.html" %}
 {% set s = loaded.screen %}
 {% set RO_PV = "A DB device: its writes stay disabled until the module writes gateway PVs." %}
+{% set WRITES = ("setpoint", "toggle", "flipper", "button") %}
 {% block title %}{{ s.title if s else name }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">{% endblock %}
 {% block header %}
@@ -42,12 +43,13 @@
       {%- if w.confirm %} data-confirm="{{ w.confirm }}"{% endif %}
       {%- if w.precision is not none %} data-precision="{{ w.precision }}"{% endif %}
       {%- if w.units %} data-units="{{ w.units }}"{% endif %}
-      {%- if w.bind.pv and w.kind in ("setpoint", "toggle", "flipper", "button") %} title="{{ RO_PV }}"{% endif %}>
-      <span class="lbl">{{ w.label or (role.label if role else w.bind.pv) }}</span>
+      {%- if w.bind.pv and w.kind in WRITES %} title="{{ RO_PV }}"{% endif %}>
+      {%- set name = w.label or (role.label if role else w.bind.pv) %}{% set off = " disabled" if w.bind.pv else "" %}
+      <span class="lbl">{{ name }}</span>
       {% if w.kind == "setpoint" %}
-      <input class="sp" spellcheck="false" aria-label="{{ w.label or role.label }}"><span class="bounds"></span>
+      <input class="sp" spellcheck="false" aria-label="{{ name }}"{{ off }}><span class="bounds"></span>
       {% elif w.kind in ("toggle", "flipper", "button") %}
-      <button class="btn sm act" type="button">{{ w.label or role.label if w.kind == "button" else "…" }}</button>
+      <button class="btn sm act" type="button"{{ off }}>{{ name if w.kind == "button" else "…" }}</button>
       {% else %}
       <span class="v">—</span>
       {% endif %}

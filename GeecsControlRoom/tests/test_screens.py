@@ -122,6 +122,21 @@ def test_a_db_device_is_drawn_read_only_with_its_lamps_and_columns(client: TestC
     assert (
         page.count('title="A DB device: its writes stay disabled') == 2
     )  # the flipper and the setpoint
+    # disabled in the HTML itself, not only once screen.js has run
+    assert re.search(r'<input class="sp"[^>]*aria-label="Jet X" disabled>', page)
+    assert re.search(r'<button class="btn sm act" type="button" disabled>', page)
+
+
+def test_an_unlabelled_db_control_is_named_by_its_pv(client: TestClient, settings: Settings) -> None:  # fmt: skip
+    _screens(settings, 'title: T\ngroups: [{title: G, at: [1, 1], widgets: [{kind: setpoint, bind: {pv: "x:u_a:b"}}, {kind: button, bind: {pv: "x:u_a:go"}}]}]\n')  # fmt: skip
+    page = client.get("/screens/sim_bench").text
+    assert 'aria-label="x:u_a:b" disabled>' in page and ">x:u_a:go</button>" in page
+
+
+def test_every_device_an_indicator_names_is_polled() -> None:
+    """A lamp on a device no widget binds is still read: the poll covers indicators' devices (no node test of screen.js yet)."""
+    js = (Path(__file__).resolve().parents[1] / "geecs_control_room" / "static" / "screen.js").read_text()  # fmt: skip
+    assert 'querySelectorAll(".w[data-device], .ind[data-device]")' in js
 
 
 def test_the_dense_layout_rules_hold() -> None:
