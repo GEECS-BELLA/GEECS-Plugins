@@ -79,4 +79,4 @@
 <script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if s %}<script src="{{ root }}/static/screen.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if s %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/screen.js" defer></script>{% endif %}{% endblock %}

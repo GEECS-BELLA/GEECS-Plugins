@@ -20,6 +20,10 @@ geecs_control_room/
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the two /api/home reads, fills the device pickers
   static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
+  static/screen_rules.js, home_rules.js   the pages' rules, pure (verdict word, value shown,
+                    bounds, writable, differs, outcome state; the home lists' words)
+  static/poller.js  the pages' one poll loop: one request in flight per target, late answers
+                    dropped, a timeout, back-off to 10 s, at most 8 requests at once
   templates/        base.html (every page's shell), screen.html (EVERY screen), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
@@ -94,5 +98,9 @@ deploy/
 ## Testing
 
 `poetry run pytest tests -q`: the module is stubbed with httpx's
-`MockTransport`; `test_hare_js.py` runs `hare.js` under node with a fake
-socket (skipped without node).
+`MockTransport`. The page scripts run under node (skipped without it; no
+npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
+with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py`
+as tables, one row per rule (`tests/_node.py` is the harness). A rule a
+page needs goes in a `*_rules.js` file with a row here; the page script
+keeps the DOM work only.
