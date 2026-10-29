@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, Request
 from geecs_web_theme.web import (
     ForwardedPrefixMiddleware,
@@ -21,21 +22,29 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_control_room import screens
+from geecs_control_room import home, screens
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
 
 _PKG = Path(__file__).resolve().parent
 
 
-def create_app(settings: Settings, module: ModuleClient | None = None) -> FastAPI:
-    """Build the app; ``module`` defaults to a client of ``settings.canopy_url``."""
+def create_app(
+    settings: Settings,
+    module: ModuleClient | None = None,
+    scanner: httpx.AsyncClient | None = None,
+) -> FastAPI:
+    """Build the app; ``module`` and ``scanner`` default to clients of the settings' URLs."""
     module = module or ModuleClient(settings.canopy_url, settings.read_key)
+    if scanner is None and settings.scanner_url:
+        scanner = httpx.AsyncClient(base_url=settings.scanner_url, timeout=3.0)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         await module.aclose()
+        if scanner is not None:
+            await scanner.aclose()
 
     app = FastAPI(title=settings.title, lifespan=lifespan)
     app.add_middleware(ForwardedPrefixMiddleware)
@@ -53,13 +62,10 @@ def create_app(settings: Settings, module: ModuleClient | None = None) -> FastAP
     templates = make_templates(_PKG / "templates", context_processors=[canopy])
     app.state.templates = templates
     app.include_router(screens.router(settings))
+    app.include_router(home.router(settings, scanner))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok", "experiment": settings.experiment}
-
-    @app.get("/")
-    async def home(request: Request) -> Any:
-        return templates.TemplateResponse(request, "home.html", {})
 
     return app

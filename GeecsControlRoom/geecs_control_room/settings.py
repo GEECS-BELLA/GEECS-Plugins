@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 _P = "GEECS_CONTROL_ROOM_"
+#: The launcher's link words (GEECS-Schemas ``HomeLink``), each read from ``<P><WORD>_URL``.
+_LINKS = ("scanner", "portal", "logbook", "config_editor")
 
 
 class SettingsError(ValueError):
@@ -34,6 +36,10 @@ class Settings:
     title: str = "Control Room"
     bind: str = "127.0.0.1"
     port: int = 8700
+    #: The scanner as this process reaches it (the home's run state); empty: not configured.
+    scanner_url: str = ""
+    #: The launcher's links as the browser reaches them, by ``HomeLink`` word; empty: not configured.
+    links: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def experiment_dir(self) -> Path:
@@ -63,6 +69,9 @@ class Settings:
         port = env.get(_P + "PORT", "8700")
         if not port.isdigit():
             raise SettingsError(f"{_P}PORT is not a port: {port!r}")
+        links = {w: v for w in _LINKS if (v := env.get(f"{_P}{w.upper()}_URL", "").strip())}  # fmt: skip
+        if browser := env.get(_P + "SCANNER_BROWSER_URL", "").strip():
+            links["scanner"] = browser  # the scanner as the browser reaches it
         return cls(
             experiment=need("EXPERIMENT", "GEECS_EXPERIMENT"),
             configs_root=Path(need("CONFIGS_ROOT", "GEECS_CONFIGS_ROOT")),
@@ -72,4 +81,6 @@ class Settings:
             title=env.get(_P + "TITLE", "").strip() or "Control Room",
             bind=env.get(_P + "BIND", "").strip() or "127.0.0.1",
             port=int(port),
+            scanner_url=env.get(_P + "SCANNER_URL", "").strip().rstrip("/"),
+            links=links,
         )

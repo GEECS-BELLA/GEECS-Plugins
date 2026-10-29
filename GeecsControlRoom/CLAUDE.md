@@ -13,9 +13,12 @@ geecs_control_room/
   settings.py       Settings.from_env: GEECS_CONTROL_ROOM_* over the shared site keys
   app.py            create_app: the kit at /theme, /static, the pages, /healthz
   module_client.py  ModuleClient: GeecsCanopy's /geecs/v1 routes over HTTP (read key)
+  home.py           the home at /: the strip (/api/home/strip, the scanner's API), the
+                    "Not live" and "In alarm" lists (/api/home/devices), the launcher (home.yaml)
   screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
                     its image files, and the two module pass-throughs (/api/devices/{name}[/put])
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
+  static/home.js    the home's live half: polls the two /api/home reads, fills the device pickers
   static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
   templates/        base.html (every page's shell), screen.html (EVERY screen), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
@@ -47,6 +50,13 @@ deploy/
   for a bare PV (read only in this slice); "unknown" whenever either source
   is silent. PV names come from the module's device route, never derived
   here.
+- **The home sorts the module's words; it judges nothing.** "Not live" is
+  every device whose state is not `live`; "In alarm" every device whose
+  state or any role's verdict is `error` (the module's word for severity
+  major or invalid). A list the module could not give reads "unknown",
+  never "none". A row's cause is the module's evidence (heartbeat word,
+  roles by verdict). The launcher is `<experiment>/home.yaml` (GEECS-Schemas
+  `HomeLayout`); its link URLs are settings, never the file's.
 - **The GEECS device name is the one identity key.** A binding names a
   device and a family role (and an axis), never a PV a second time; a bare
   PV is for a DB-served device only.
@@ -70,6 +80,9 @@ deploy/
 | `GEECS_CONTROL_ROOM_READ_KEY` | the display's Canopy read key (secret) |
 | `GEECS_CONTROL_ROOM_BIND`, `_PORT` | where it listens (127.0.0.1, 8700) |
 | `GEECS_CONTROL_ROOM_TITLE` | the page title (default "Control Room") |
+| `GEECS_CONTROL_ROOM_SCANNER_URL` | the scanner as this process reaches it (the strip); unset: "not configured" |
+| `GEECS_CONTROL_ROOM_SCANNER_BROWSER_URL` | the scanner link as the browser reaches it; unset: the above |
+| `GEECS_CONTROL_ROOM_PORTAL_URL`, `_LOGBOOK_URL`, `_CONFIG_EDITOR_URL` | the launcher's links (browser URLs); unset: a disabled entry |
 
 ## Testing
 

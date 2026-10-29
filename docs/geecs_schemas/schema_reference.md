@@ -975,6 +975,51 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
 | `pv` | `str (optional)` | no | None | A bare PV, for a device the GEECS DB serves (read only). |
 
+## `home_layout`
+
+### HomeLayout
+
+The launcher: screens by area, device pages by family, the named links.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `areas` | `list[Area]` | no | [] | Screens grouped by area, in order. |
+| `device_pages` | `list[DevicePages]` | no | [] | Device-page entries, each with a device picker. |
+| `links` | `list['scanner' \| 'portal' \| 'logbook' \| 'config_editor']` | no | [] | Services to link to, in order; their URLs are settings. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/home.yaml: the Control Room's launcher. URLs are settings, never here.
+areas:
+  - title: Laser
+    screens: [control_center, compressor]   # files in the screens folder
+device_pages:
+  - title: Cameras
+    families: [ad_camera_chain]             # the picker lists the roster's devices of these
+links: [scanner, portal, logbook, config_editor]
+```
+
+### Area
+
+A titled set of screens, e.g. the laser's or the vacuum's.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The area's heading. |
+| `screens` | `list[str]` | yes | — | Screen names, the stems of files in the screens folder, in order. |
+
+### DevicePages
+
+A device-page entry: a picker over the roster's devices of these families.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | What the entry reads, e.g. 'Cameras'. |
+| `families` | `list[str]` | yes | — | Family file names whose devices the picker lists. |
+
 ## `analysis_recipe`
 
 ### AnalysisRecipe
