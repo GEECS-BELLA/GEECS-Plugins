@@ -88,7 +88,7 @@ def test_a_map_cell_opens_its_bin_tile(tmp_path: Path) -> None:
         "?bin=2",
         r"""
 assert.equal(tiles[1]["aria-current"], true);
-assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=1&cmap=gray");
+assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=1&cmap=gray&bar=true");
 """,
     )
 
@@ -103,7 +103,7 @@ def test_on_a_shots_strip_a_map_cell_opens_its_first_shot(tmp_path: Path) -> Non
         "?bin=2",
         r"""
 assert.equal(tiles[2]["aria-current"], true);
-assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=2&cmap=gray");
+assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=2&cmap=gray&bar=true");
 assert.ok(fetched.some((u) => u.startsWith("/portal/api/run/folder%3Ax%3A1/device?")));
 assert.equal(els["big-processing-box"].hidden, false);
 els["big-processing"].value = "UC_Crop";
@@ -129,7 +129,7 @@ tiles[0]._on.click();
 assert.equal(els["big-note"].textContent, "Waiting for the strip's levels…");
 tiles[0].img.getAttribute = () => "/plot/api/images/tile.png?index=0&zmin=1&zmax=9";
 observed([{target: tiles[0].img}]);
-assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=0&zmin=1&zmax=9");
+assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=0&zmin=1&zmax=9&bar=true");
 """,
     )
 
