@@ -183,6 +183,23 @@ runs the other way, on the author's choice:
 - Then the image strip joins the Images tab, `--browser`, and the
   deletion of `GeecsPlotter/` (step 6 above).
 
+**The tabs, settled by the author (2026-10-28), so no two do the same
+job:** Overview | Plot | Images | Analysis.
+
+- **Overview** stays a tab (the scan's metadata).
+- **Plot** is GEECSplotter's page with a view switch, *XY plot | 2-D
+  map*: the Grid tab becomes its 2-D view, on the same rail and set, and
+  the Grid tab goes.
+- **Images** is the image strip with the big single-shot view under it
+  (steppers, processing, traces), reading the viewer's set; the Plot
+  page's "Image strip" switch and the scan page's leftover filter rail
+  go.
+- **Analysis** stays.
+
+The PRs from here: the Plot page's tools (#1192) → delete the old plot
+pane and share the figure code → the 2-D map view → the Images tab →
+`--browser` and the deletion of `GeecsPlotter/`.
+
 ## Open, for Sam
 
 - The three reversed rulings above.
