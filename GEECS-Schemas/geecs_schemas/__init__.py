@@ -63,6 +63,7 @@ from geecs_schemas.epics.panel_devices import (
 )
 from geecs_schemas.epics.operations import (
     OPERATOR_POLICY_FILENAME,
+    HazardRule,
     JournalEntry,
     OperatorGrant,
     OperatorPolicy,
@@ -201,6 +202,7 @@ __all__ = [
     # epics.operations (GeecsCanopy's device module: who may write, what was tried)
     "OperatorPolicy",
     "OperatorGrant",
+    "HazardRule",
     "OPERATOR_POLICY_FILENAME",
     "JournalEntry",
     # screens (GeecsControlRoom's screen files: a control GUI as a document)

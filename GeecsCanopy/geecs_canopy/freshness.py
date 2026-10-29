@@ -15,6 +15,9 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE
+from geecs_schemas import Role
+
 from geecs_canopy.hare import Wire
 from geecs_canopy.native import Resolved
 
@@ -117,21 +120,41 @@ def device_state(verdicts: list[str], faulted: bool, heartbeat: str | None) -> s
     return "stale" if "stale" in verdicts else "live"
 
 
+def _judged(device: Resolved, role: Role) -> bool:
+    """Whether the module watches and judges ``role``: a native device's monitored roles; a DB device's ``connected`` alone.
+
+    The gateway serves thousands of PVs and Hare caps subscriptions: a DB
+    device's values are the page's to read over Hare, and a put ``get``s.
+    """
+    if device.source == "gateway":
+        return role.name == DEVICE_STATUS_VARIABLE
+    return role.read_mode == "monitor"
+
+
 def watched_pvs(device: Resolved) -> list[str]:
-    """Every PV the module subscribes for ``device``: its monitored roles, and its IOC's heartbeat."""
+    """Every PV the module subscribes for ``device``: its judged roles, and its IOC's heartbeat."""
     pvs = [
         device.pv(role, axis)
         for axis, _ in device.bases()
         for role in device.roles
-        if role.read_mode == "monitor"
+        if _judged(device, role)
     ]
     return pvs + ([heartbeat_pv(device.ioc)] if device.ioc else [])
+
+
+def connected_state(wire: Wire | None) -> str:
+    """A DB device's one word from the gateway's ``connected`` PV: Disconnected is unreachable."""
+    if wire is None:
+        return "unknown"
+    if not wire.get("connected"):
+        return "unreachable"  # the gateway itself does not answer
+    return {0: "unreachable", 1: "live", "Disconnected": "unreachable", "Connected": "live"}.get(wire.get("value"), "unknown")  # fmt: skip
 
 
 def view(device: Resolved, tracker: Tracker, stale_after_s: float) -> dict[str, Any]:
     """Answer for the device: state, heartbeat, and every role per axis with its verdict."""
     by_name = {role.name: role for role in device.roles}
-    writable = device.writable_roles()
+    writable = device.writable
     hb_pv = device.ioc and heartbeat_pv(device.ioc)
     hb = tracker.counter(hb_pv, stale_after_s) if hb_pv else None
     roles, verdicts, faulted = [], [], False
@@ -139,7 +162,10 @@ def view(device: Resolved, tracker: Tracker, stale_after_s: float) -> dict[str, 
         latest = {r.name: tracker.latest.get(device.pv(r, axis)) for r in device.roles}
         for role in device.roles:
             wire, verdict = latest[role.name] or {}, None
-            if role.read_mode == "monitor":
+            if device.source == "gateway" and _judged(device, role):
+                verdict = connected_state(latest[role.name])  # the device's state
+                verdicts.append(verdict)
+            elif _judged(device, role):
                 counter = None
                 if source := role.fresh_by or (role.type == "counter" and role.name):
                     counter_pv = device.pv(by_name[source], axis)

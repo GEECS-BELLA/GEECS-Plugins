@@ -837,6 +837,7 @@ Which operators may write what (``<experiment>/operator_policy.yaml``); default 
 |---|---|---|---|---|
 | `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
 | `grants` | `list[OperatorGrant]` | no | [] | Nobody else writes. |
+| `hazards` | `list[HazardRule]` | no | [] | Roles that need the hazard confirm. |
 
 Example:
 
@@ -849,6 +850,12 @@ grants:
   - operators: [A. Operator]
     devices: [U_ChicaneInner]
     roles: [current_sp, reset]      # not the output
+  - operators: [A. Operator]
+    families: [PLC Digital Output]  # a GEECS DB device type: every DB device of it
+    roles: [DO.Ch1, DO.Ch2]         # a DB device's role is its GEECS variable name
+hazards:                            # the hazard confirm for DB devices' roles
+  - devices: [U_ShutterPLC]
+    roles: [DO.Ch1]
 ```
 
 ### OperatorGrant
@@ -857,10 +864,20 @@ Some operators may write some roles of some devices, named or by family.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `operators` | `list[str]` | yes | — | Operators, by name. |
 | `families` | `list[str]` | no | [] | Every device of these. |
 | `devices` | `list[str]` | no | [] | These GEECS devices. |
+| `operators` | `list[str]` | yes | — | Operators, by name. |
 | `roles` | `list[str]` | no | [] | Only these; empty: all allowed. |
+
+### HazardRule
+
+These roles of these devices need the hazard confirm, as a family role with ``confirm: hazard`` does.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `families` | `list[str]` | no | [] | Every device of these. |
+| `devices` | `list[str]` | no | [] | These GEECS devices. |
+| `roles` | `list[str]` | yes | — | The roles a write confirms. |
 
 ## `journal_entry`
 

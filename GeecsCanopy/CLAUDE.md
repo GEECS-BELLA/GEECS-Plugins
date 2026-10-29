@@ -18,13 +18,15 @@ geecs_canopy/
                  by device name, validated through GEECS-Schemas, families from
                  geecs_schemas.load_families()
   gateway.py     GatewaySource (TRANSITIONAL): the CA gateway's served set from
-                 GeecsDb, credentials from GEECS_CANOPY_DB_URL
+                 GeecsDb, credentials from GEECS_CANOPY_DB_URL; resolve() =
+                 the module's DB devices (role = GEECS variable name)
   app.py         the api command: self-test, canopy.main:app + /geecs mounted,
                  tagged, Canopy's error handler; the ONE Hare implementation
   canopy_surface.py  every Canopy-internal name used + VERIFIED_IMAGE; self_test
   hare.py        the Hare Protocol (get, describe, put, watch): no Canopy import
   module.py      ModuleSettings (env GEECS_CANOPY_*), Module: devices from
-                 data (NativeSource.resolve), the operator policy, the tracker
+                 data (NativeSource.resolve) + the gateway callable (60 s,
+                 last good set kept), the operator policy, the tracker
   freshness.py   Tracker (internal broker client) and the verdicts
   gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal
   journal.py     SQLite of GEECS-Schemas JournalEntry rows
@@ -71,7 +73,12 @@ deploy/
   deleted with the CA gateway when the last LabVIEW device retires. No
   other module imports `geecs_core.db.geecs_db` (the
   `canopy-db-is-transitional` import contract); the native path depends on
-  nothing in the DB.
+  nothing in the DB. The module gets the DB devices as a callable from the
+  wrapper (`app.py`), never by importing `gateway.py`; their writes take
+  the same gates but the run lock (a DB device has none), their hazards
+  come from the policy's `hazards`, and a setpoint without DB `min`/`max`
+  is refused (rule 11). One switch, `GEECS_CANOPY_DB`, turns the DB off for
+  the directory and the module alike.
 - **Routes and gates import no Canopy name** (condition (b)): `app.py`
   alone does, through `canopy_surface.NAMES`; a new Canopy name goes into
   that list in the same change. Every route needs Canopy read access only;

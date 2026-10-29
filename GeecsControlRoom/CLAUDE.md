@@ -61,7 +61,9 @@ deploy/
   otherwise the grid aligns rows. A group's `columns` lays its widgets
   side by side, row by row.
 - **The home sorts the module's words; it judges nothing.** "Not live" is
-  every device whose state is not `live`; "In alarm" every device whose
+  every device whose state is not `live` (a DB device's state is its
+  gateway `connected` PV, so a Disconnected LabVIEW device is listed; a live
+  one is not read in detail: its roles carry no module verdict); "In alarm" every device whose
   state or any role's verdict is `error` (the module's word for severity
   major or invalid, and for a tripped fault bit). The strip's run word is
   the manager's `re_state`, as on the scanner's page. A list the module

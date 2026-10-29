@@ -2,10 +2,12 @@
 
 Checks in order, each a distinct outcome and one ``JournalEntry``: the
 operator policy (default deny); the device's allow list (Appendix A rule 8);
-the hazard confirm (rule 18); the run lock, failing closed (rule 6); the
+the hazard confirm (rule 18: the family role's, or the policy's
+``hazards``); the run lock, failing closed (rule 6); the
 bounds gate before Hare, failing closed on unread limits (rule 11); then
 Hare's put with ``wait`` and a per-role timeout, and the value the record
-took (an ``ao`` clamps beyond DRVH silently). An ``attempted`` row is
+took (an ``ao`` clamps beyond DRVH silently). A DB device's put waits for
+the GEECS set to converge, as a move does. An ``attempted`` row is
 written before Hare is called, and no put goes out without it; the outcome
 row names it, so an attempt without an outcome is a dispatch that never
 answered.
@@ -80,8 +82,10 @@ class _Stop(Exception):
         self.status, self.outcome = status or {**_REFUSED, **_DENIED}[code], outcome
 
 
-def _bounds(role: Role, value: WriteValue, meta: Wire) -> tuple[str, str] | None:
-    """``(code, why)`` when ``value`` may not be written to ``role``, else ``None``."""
+def _bounds(
+    role: Role, value: WriteValue, meta: Wire, fix: str = ""
+) -> tuple[str, str] | None:
+    """``(code, why)`` when ``value`` may not be written to ``role``, else ``None``; ``fix`` says where limits come from."""
     no = "out_of_bounds"
     if role.type in ("bit", "command"):
         ok = (is_number(value) or isinstance(value, bool)) and value in (0, 1)
@@ -104,7 +108,7 @@ def _bounds(role: Role, value: WriteValue, meta: Wire) -> tuple[str, str] | None
         return no, f"{role.name} takes a whole number, not {value!r}"
     low, high = role.limits or (meta.get("controlLow"), meta.get("controlHigh"))
     if low is None or high is None or low >= high:  # unset DRVL/DRVH read 0/0
-        return "bounds_unknown", f"{role.name} has no limits; refused until it has"
+        return "bounds_unknown", f"{role.name} has no limits; refused until it has{fix}"
     return (
         None if low <= value <= high else (no, f"{value!r} is outside [{low}, {high}]")
     )
@@ -135,18 +139,22 @@ def _entry(req: PutRequest, outcome: str, **fields: Any) -> JournalEntry:
 
 
 async def _write(
-    module: Module, device: Resolved, role: Role, req: PutRequest
+    module: Module, device: Resolved, role: Role, req: PutRequest, hazard: bool
 ) -> tuple[dict, str | None, int | None]:
     """Run the device's gates and the put; return what the record took, a clamp note, the attempt row."""
-    if role.confirm == "hazard" and not req.confirm:
+    if hazard and not req.confirm:
         raise _Stop("confirm_required", f"{role.name} needs the hazard confirm")
     if role.locked:
         await _check_lock(module, device, req.axis)
     pv = device.pv(role, req.axis, write=True)
-    if refusal := _bounds(role, req.value, await module.hare.describe(pv)):
+    db = device.source == "gateway"
+    fix = f": set min and max on {device.name}'s {role.name} row in the GEECS DB" if db else ""  # fmt: skip
+    if refusal := _bounds(role, req.value, await module.hare.describe(pv), fix):
         raise _Stop(*refusal)
     s = module.settings
-    timeout = s.settle_timeout_s if role.settled_by else s.put_timeout_s
+    # A GEECS set's put completes when the device converges (a stage's move): a settling wait.
+    settles = bool(role.settled_by) or db
+    timeout = s.settle_timeout_s if settles else s.put_timeout_s
     # A role that settles itself (an acquire) calls back only when the work ends.
     itself, unsettled = role.settled_by == role.name, None
     try:
@@ -163,7 +171,7 @@ async def _write(
         # A move's put-callback outlasting the timeout is no refusal: the IOC
         # took it and the motion goes on (an access refusal answers at once).
         # The same timeout covers connecting, so an unconnected PV stays refused.
-        late = role.settled_by and loop.time() - started >= 0.9 * timeout
+        late = settles and loop.time() - started >= 0.9 * timeout
         if not late or not (await module.hare.get(pv)).get("connected"):
             raise _Stop(exc.code, exc.detail, exc.status, attempt) from exc
         unsettled = f"dispatched; not settled after {timeout} s: the work goes on"
@@ -197,12 +205,14 @@ async def _decide(
         policy = await module.policy()
     except Exception as exc:  # unreadable, not YAML, not valid: deny, and journal it
         raise _Stop("not_permitted", f"the policy is unreadable: {exc}") from exc
-    if not policy.permits(req.operator, device.name, device.family.template, req.role):
+    if not policy.permits(req.operator, device.name, device.family, req.role):
         raise _Stop("not_permitted", f"no grant lets {req.operator!r} write that")
     role = {r.name: r for r in device.roles}.get(req.role)
-    if role is None or req.role not in device.writable_roles():
-        raise _Stop("not_allowed", f"{req.role!r} is in none of {list(device.actions)}")
-    return await _write(module, device, role, req)
+    if role is None or req.role not in device.writable:
+        why = f"is in none of {list(device.actions)}" if device.actions else f"is no writable role of {device.name}"  # fmt: skip
+        raise _Stop("not_allowed", f"{req.role!r} {why}")
+    hazard = role.confirm == "hazard" or policy.hazardous(device.name, device.family, role.name)  # fmt: skip
+    return await _write(module, device, role, req, hazard)
 
 
 async def put_role(module: Module, req: PutRequest) -> PutOutcome:

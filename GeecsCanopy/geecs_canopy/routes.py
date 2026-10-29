@@ -12,6 +12,7 @@ import asyncio
 from collections.abc import Callable
 from typing import Any
 
+import yaml
 from fastapi import FastAPI, Query, Request, Security
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -50,19 +51,28 @@ def build_app(module: Module, *, read_access: Callable[..., Any]) -> FastAPI:
     @app.get("/v1/devices", dependencies=read)
     async def roster() -> Any:
         listed = [
-            {"name": d.name, "family": d.family.template, "axes": list(d.axes)}
-            | {"state": view(d, module.tracker, stale)["state"]}
+            {"name": d.name, "family": d.family, "source": d.source}
+            | {"axes": list(d.axes), "state": view(d, module.tracker, stale)["state"]}
             for d in (await module.devices()).values()
         ]
-        return {"experiment": module.settings.experiment, "devices": listed}
+        body = {"experiment": module.settings.experiment, "devices": listed}
+        return body | {"sources": module.sources}
 
     @app.get("/v1/devices/{name}", dependencies=read)
     async def device(name: str) -> Any:
         if (d := (await module.devices()).get(name)) is None:
             return _error(404, "not_found", f"no device {name!r}")
-        body = {"name": d.name, "family": d.family.template, "axes": list(d.axes)}
-        body |= {"actions": list(d.actions), "staleAfterS": stale}
-        return body | view(d, module.tracker, stale)
+        body = {"name": d.name, "family": d.family, "source": d.source}
+        body |= {"axes": list(d.axes), "actions": list(d.actions), "staleAfterS": stale}
+        body |= view(d, module.tracker, stale)
+        try:  # the policy's hazards, so the page asks before it writes
+            policy = await module.policy()
+        except (OSError, ValueError, TimeoutError, yaml.YAMLError):
+            return body  # unreadable: every put is denied, and journaled
+        for entry in body["roles"]:
+            if policy.hazardous(d.name, d.family, entry["role"]):
+                entry["confirm"] = "hazard"
+        return body
 
     @app.post("/v1/devices/{name}/put")
     async def put(name: str, body: PutBody, key: Any = Security(read_access)) -> Any:
