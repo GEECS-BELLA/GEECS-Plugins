@@ -21,6 +21,7 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
+from geecs_control_room import screens
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
 
@@ -51,6 +52,7 @@ def create_app(settings: Settings, module: ModuleClient | None = None) -> FastAP
 
     templates = make_templates(_PKG / "templates", context_processors=[canopy])
     app.state.templates = templates
+    app.include_router(screens.router(settings))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
