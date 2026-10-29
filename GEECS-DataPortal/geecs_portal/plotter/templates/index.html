@@ -403,6 +403,7 @@
       {# The portal's tabs for this scan: Plot and Images are this app's two
          pages of the set; the others are the scan page's, reached through
          the day-step route, which finds the scan by day and number. #}
+      <div class="back-to-day"><a class="btn sm ghost" href="{{ portal_root }}/day/{{ day }}{% if experiment %}?experiment={{ experiment | urlencode }}{% endif %}">&larr; {{ day }}: all scans</a></div>
       <nav class="tabs" role="tablist" aria-label="Scan views">
         {% for key, label in (("overview", "Overview"), ("plot", "Plot"), ("images", "Images"), ("analysis", "Analysis")) %}
           {% if key in ("plot", "images") %}

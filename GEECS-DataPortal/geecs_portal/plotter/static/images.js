@@ -78,7 +78,9 @@
     const image = $("big-image");
     const thumb = tile.querySelector("img");
     const processed = mode === "shots" && portal && processing.value;
-    const src = processed ? shotUrl(tile.dataset.index) : thumb.getAttribute("src") || "";
+    // The tile's picture, drawn with a colour bar beside it.
+    const own = thumb.getAttribute("src") || "";
+    const src = processed ? shotUrl(tile.dataset.index) : own && `${own}&bar=true`;
     if (!src) {
       // A shared z scale: the strip's levels are still being read; the
       // tile's picture arriving redraws this (the observer below).

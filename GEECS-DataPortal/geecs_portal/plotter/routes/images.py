@@ -145,16 +145,57 @@ def tile_png(
     roi: Optional[images.Roi],
     cmap: str,
     levels: Optional[tuple[float, float]],
+    bar: bool = False,
 ) -> bytes:
-    """The tile's pixels, in its ROI, drawn as a PNG; a 404 naming why not."""
+    """The tile's pixels, in its ROI, drawn as a PNG; a 404 naming why not.
+
+    With *bar*, a figure with a colour bar beside the picture (the big
+    view): the same colour map and levels, so its values read off.
+    """
     try:
         pixels = images.crop(images.kept_tile_array(folder, frame, device, rows), roi)
+        if bar:
+            return _with_colour_bar(pixels, cmap, levels)
         # Without levels, the tile's own darkest to brightest pixel.
         return to_display_png(pixels, cmap=cmap, plo=0.0, phi=100.0, levels=levels)
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
     except (TypeError, ValueError) as exc:  # an array no PNG can hold
         raise HTTPException(status_code=404, detail=f"cannot draw: {exc}") from None
+
+
+def _with_colour_bar(pixels, cmap: str, levels: Optional[tuple[float, float]]) -> bytes:
+    """The picture and a colour bar, drawn by matplotlib's object API.
+
+    Black and white are *levels* when given, else the picture's own
+    darkest and brightest pixel, as the tile draws it. An unknown colour
+    map draws greyscale, as the tile does.
+    """
+    import numpy as np
+    from matplotlib import colormaps
+    from matplotlib.figure import Figure
+
+    from geecs_portal.resources import figure_png
+
+    data = np.asarray(pixels, dtype=float)
+    finite = data[np.isfinite(data)]
+    lo, hi = (
+        levels
+        if levels
+        else ((float(finite.min()), float(finite.max())) if finite.size else (0.0, 1.0))
+    )
+    height, width = data.shape[:2]
+    fig = Figure(figsize=(7, 7 * height / max(width, 1) + 0.4), dpi=110)
+    ax = fig.add_subplot()
+    shown = ax.imshow(
+        data,
+        cmap=cmap if cmap in colormaps else "gray",
+        vmin=lo,
+        vmax=hi,
+        interpolation="nearest",
+    )
+    fig.colorbar(shown, ax=ax, fraction=0.046, pad=0.03)
+    return figure_png(fig, tight=True)
 
 
 def register(router: APIRouter, ctx: Context) -> None:
@@ -234,6 +275,9 @@ def register(router: APIRouter, ctx: Context) -> None:
         ),
         zmin: Optional[float] = Query(default=None, description="black at this value"),
         zmax: Optional[float] = Query(default=None, description="white at this value"),
+        bar: bool = Query(
+            default=False, description="with a colour bar (the big view)"
+        ),
     ) -> Response:
         """One tile's PNG: the shot's image, or the bin's average, in its ROI.
 
@@ -246,5 +290,5 @@ def register(router: APIRouter, ctx: Context) -> None:
         picture_device(folder, device)
         rows = tile_rows(frame, strip, index)
         levels = (zmin, zmax) if zmin is not None and zmax is not None else None
-        png = tile_png(folder, frame, device, rows, parse_roi(roi), cmap, levels)
+        png = tile_png(folder, frame, device, rows, parse_roi(roi), cmap, levels, bar)
         return Response(png, media_type="image/png", headers=NO_CACHE)
