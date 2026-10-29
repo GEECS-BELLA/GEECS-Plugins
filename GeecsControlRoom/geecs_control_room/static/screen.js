@@ -60,9 +60,11 @@
 
   function judge(el) {
     const pv = pvOf(el), f = pv && wire[pv];
-    if (el.dataset.pv) {
+    if (el.dataset.pv) { // no module verdict: its alarm rules, as GeecsCanopy's freshness.judge has them
       if (!hareUp || !f) return "unknown";
       if (!f.connected) return "unreachable";
+      if (f.severity === "INVALID" && f.alarmStatus === 17) return "unknown"; // UDF: never processed
+      if (f.severity === "INVALID" && [1, 9, 10].includes(f.alarmStatus)) return "not answering"; // READ/COMM/TIMEOUT
       return f.severity === "MAJOR" || f.severity === "INVALID" ? "error" : "live";
     }
     const view = views[el.dataset.device], e = entryOf(el);
@@ -86,9 +88,9 @@
     if (value) value.textContent = show(pv, el);
     if (sp && !sp.dataset.draft) sp.value = show(pv, el) === "—" ? "" : show(pv, el);
     if (act && el.dataset.kind !== "button") act.textContent = show(pv, el);
-    const e = entryOf(el);
-    for (const c of [sp, act]) if (c) c.disabled = !el.dataset.pv && !!e && !e.writable;
-    if (el.dataset.pv && (sp || act)) for (const c of [sp, act]) if (c) c.disabled = true;
+    // writable only on the module's word, never while a write is in flight
+    const e = entryOf(el), open = !el.dataset.pv && !!e && e.writable && !el.dataset.busy;
+    for (const c of [sp, act]) if (c) c.disabled = !open;
     for (const ind of el.querySelectorAll(".ind")) ind.querySelector("b").textContent = show(pvOf(ind), ind);
     const rb = el.querySelector(".rb");
     if (rb) {
@@ -150,8 +152,8 @@
     if (el.dataset.axis) body.axis = el.dataset.axis;
     if (!el.dataset.hazard && !el.dataset.confirm) delete body.confirm;
     outcome(el, "sending");
-    const controls = el.querySelectorAll("input, button");
-    controls.forEach((c) => { c.disabled = true; });
+    el.dataset.busy = "1";
+    draw(el);
     try {
       const r = await fetch(`${root}/api/devices/${encodeURIComponent(el.dataset.device)}/put`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -161,7 +163,7 @@
     } catch (err) {
       outcome(el, "unknown", "no_answer", "read the device and the journal before repeating it");
     }
-    controls.forEach((c) => { c.disabled = false; });
+    delete el.dataset.busy;
     draw(el);
   }
 

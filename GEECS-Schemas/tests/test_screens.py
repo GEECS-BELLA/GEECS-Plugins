@@ -21,6 +21,14 @@ PANEL = PanelDevices.model_validate({"devices": {"ps": {"family": "easydriver"}}
 NATIVE = NativeDevices.model_validate({"devices": {"st": {"kind": "epics_motor", "axes": ["m1"]}}})  # fmt: skip
 
 
+OUT = {"device": "ps", "role": "output_sp"}
+FLIP = {
+    "kind": "flipper",
+    "bind": OUT,
+    "indicators": [{"device": "ps", "role": "output"}],
+}
+
+
 def screen(*widgets: dict, tone: str = "trace-1") -> Screen:
     group = {"title": "G", "at": [1, 1], "tone": tone, "widgets": list(widgets)}
     return Screen.model_validate({"title": "S", "groups": [group]})
@@ -67,8 +75,10 @@ def test_resolve_binds_roles_and_their_readbacks() -> None:
             "confirm": "Shutter first.",
         },  # fmt: skip
         {"kind": "readout", "bind": {"pv": "U_Gauge:pressure"}},
+        FLIP,
     )
     (row,) = resolve_screen(s, load_families(), PANEL, NATIVE)
+    assert [m.name for m in row.pop().indicators] == ["output"]
     assert [(b.role and b.role.name, b.readback and b.readback.name) for b in row] == [
         ("val", "rbv"), ("output_sp", "output"), (None, None)
     ]  # fmt: skip
@@ -92,6 +102,11 @@ def test_resolve_binds_roles_and_their_readbacks() -> None:
             "axis",
         ),  # fmt: skip
         ({"kind": "toggle", "bind": {"pv": "U_Gauge:valve"}}, "read only"),
+        (
+            FLIP | {"indicators": [{"pv": "U_X:in"}, *FLIP["indicators"]]},
+            "not a bare PV",
+        ),  # fmt: skip
+        (FLIP | {"indicators": [{"device": "ps", "role": "reset"}]}, "not readable"),
     ],
 )
 def test_resolve_refuses_a_misfit(widget: dict, why: str) -> None:

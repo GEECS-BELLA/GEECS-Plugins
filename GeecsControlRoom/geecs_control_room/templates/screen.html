@@ -32,7 +32,7 @@
     {% if w.kind == "annotation" %}
     <p class="note">{{ w.label }}</p>
     {% elif w.kind == "image" %}
-    <img class="pic" src="{{ root }}/screens/{{ name }}/files/{{ w.src }}" alt="{{ w.label }}">
+    <img class="pic" src="{{ root }}/screens/files/{{ w.src }}" alt="{{ w.label }}">
     {% else %}
     <div class="w" data-kind="{{ w.kind }}"{{ bindattrs(w.bind, role) }}
       {%- if bound.readback %} data-readback="{{ bound.readback.name }}"{% endif %}

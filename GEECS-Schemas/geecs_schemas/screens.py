@@ -82,7 +82,7 @@ class Widget(SchemaModel):
     precision: Optional[int] = Field(
         None, ge=0, le=12, description="Digits after the point."
     )
-    src: Optional[str] = Field(None, pattern=r"^[\w-]+(\.[\w-]+)+$", description="An image's file name in the screens folder.")  # fmt: skip
+    src: Optional[str] = Field(None, pattern=r"^[\w-]+\.(png|jpe?g|gif|svg|webp|PNG|JPE?G|GIF|SVG|WEBP)$", description="An image's file name in the screens folder.")  # fmt: skip
 
     @model_validator(mode="after")
     def _fields_fit_the_kind(self) -> "Widget":
@@ -156,13 +156,18 @@ def _device_roles(
     panel: PanelDevices,
     native: NativeDevices,
 ) -> tuple[dict[str, Role], tuple[str, ...]]:
+    """The device's roles and axes, joined from both files as GeecsCanopy's ``native.py`` joins them."""
     entry, registered = panel.devices.get(name), native.devices.get(name)
     template = entry.family if entry else registered and registered.family_template
     family = families.get(template or "")
     if family is None:
         raise KeyError(f"no device {name!r} in the experiment")
+    if entry and registered and registered.family_template != entry.family:
+        raise KeyError(f"{name} is a {registered.family_template} in the registry, a {entry.family} in the panel file")  # fmt: skip
     roles = entry.resolve(family) if entry else list(family.roles)
     axes = getattr(registered, "axes", None) or (entry and entry.axes) or []
+    if family.per_axis and not axes:
+        raise KeyError(f"{name}: the {template} family needs axes")
     return {r.name: r for r in roles}, tuple(axes)
 
 
@@ -170,6 +175,8 @@ def _misfit(widget: Widget, role: Optional[Role]) -> Optional[str]:
     """Why ``widget`` cannot be bound to ``role``, or ``None`` when it fits."""
     if widget.bind and widget.bind.pv and widget.kind in _WRITES:
         return "a bare PV is read only; bind the device's role"
+    if any(i.pv for i in widget.indicators):
+        return "an indicator is a device's role, not a bare PV"
     if role is None or widget.kind not in _FITS:
         return None
     types, writes = _FITS[widget.kind]
@@ -210,6 +217,11 @@ def resolve(
         if role is not None and role.readback and widget.bind:
             readback = role_of(widget.bind.model_copy(update={"role": role.readback}), where)  # fmt: skip
         marks = tuple(r for i in widget.indicators if (r := role_of(i, where)))
+        problems.extend(
+            f"{where}: indicator {m.name} is a {m.type}, not readable"
+            for m in marks
+            if m.type not in _FITS["readout"][0]  # an indicator reads like a readout
+        )
         return Bound(widget, role, readback, marks)
 
     out = [

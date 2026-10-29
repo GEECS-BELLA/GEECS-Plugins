@@ -35,7 +35,7 @@ from geecs_control_room.module_client import ModuleUnavailable
 from geecs_control_room.settings import Settings
 
 _NAME = re.compile(r"^[\w-]+$")
-_FILE = re.compile(r"^[\w-]+(\.[\w-]+)+$")
+_IMAGE = re.compile(r"^[\w-]+\.(png|jpe?g|gif|svg|webp)$", re.IGNORECASE)
 
 #: §3's words, each worn as a kit state: crit for an alarm, warn for any other doubt.
 KIT_STATE = {
@@ -98,7 +98,7 @@ class PutBody(BaseModel):
 
 
 def router(settings: Settings) -> APIRouter:
-    """The screen page, its images, and the two module pass-throughs."""
+    """The screen page, the screens' images, and the two module pass-throughs."""
     r = APIRouter()
 
     @r.get("/screens/{name}")
@@ -110,10 +110,10 @@ def router(settings: Settings) -> APIRouter:
             request, "screen.html", context, status_code=loaded.status
         )
 
-    @r.get("/screens/{name}/files/{file}")
-    async def screen_file(name: str, file: str) -> Any:
+    @r.get("/screens/files/{file}")
+    async def screen_image(file: str) -> Any:
         path: Path = settings.experiment_dir / SCREENS_DIRNAME / file
-        if not _FILE.fullmatch(file) or not path.is_file():
+        if not _IMAGE.fullmatch(file) or not path.is_file():
             return JSONResponse({"code": "not_found", "detail": file}, status_code=404)
         return FileResponse(path)
 
