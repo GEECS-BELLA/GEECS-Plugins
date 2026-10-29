@@ -421,6 +421,19 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `scan_reader` walks the same folders for a different product (its
   `ScanSummary`) over the same `scan_info` facts; folding the two walks
   together is its own change.
+  An unreachable data root (an unmounted share, none configured) is an
+  `OSError` from `list_runs`, never an empty day; `load_run` keeps its
+  `KeyError`. A root that did not exist when the process started
+  (`ScanPaths.paths_config` resolved to `None` at import) is looked for
+  again by `scan_paths.current_paths_config()` — at most every
+  `CONFIG_RETRY_S` (30 s), one thread at a time — so a service started
+  during a share outage recovers when the share comes back. The folder
+  catalog's readers go through it (`daily_scan_folder`, `list_runs`,
+  `load_run`, `probe`, and the portal Plot page's `find_scan`); a reader
+  of `ScanPaths.paths_config` directly does not recover — still
+  `ScanPaths.__init__`, GeecsBluesky's `data_paths`, LogTriage's
+  harvester and ScanAnalysis's config loader. A new reader of the root
+  uses `current_paths_config()`.
   Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);

@@ -48,7 +48,7 @@ from geecs_data_utils.scan_info import (
     scan_folder_name,
 )
 from geecs_data_utils.scan_log_loader import first_log_timestamp
-from geecs_data_utils.scan_paths import daily_scan_folder
+from geecs_data_utils.scan_paths import current_paths_config, daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
     CatalogUnreachable,
@@ -286,9 +286,37 @@ class FolderScanCatalog:
         # Copies: a consumer mutating its start_doc must not edit the cache.
         return copy.deepcopy(hit)
 
+    def _data_root(self) -> Optional[Path]:
+        """The data root: the constructor's, else ``config.ini``'s.
+
+        Through :func:`~geecs_data_utils.scan_paths.current_paths_config`,
+        which looks again for a root that was missing when the process
+        started, so the catalog recovers when the share comes back.
+        """
+        if self._base_path is not None:
+            return self._base_path
+        config = current_paths_config()
+        return Path(config.base_path) if config is not None else None
+
     def _scans_dir(self, experiment: str, day: date) -> Optional[Path]:
-        folder = daily_scan_folder(experiment, base_path=self._base_path, day=day)
-        return folder if folder is not None and folder.is_dir() else None
+        """The day's ``scans/`` folder; ``None`` when the day has none.
+
+        Raises
+        ------
+        OSError
+            The data root itself is unreachable (an unmounted share, or none
+            configured): that is an outage, never an empty day.
+        """
+        root = self._data_root()
+        folder = daily_scan_folder(experiment, base_path=root, day=day)
+        if folder is not None and folder.is_dir():
+            return folder
+        if root is None or not root.is_dir():
+            raise OSError(
+                f"the data root {str(root) if root else '(none in config.ini [Paths])'} "
+                "is unreachable: is the data share mounted?"
+            )
+        return None
 
     def probe(self) -> CatalogStatus:
         """Report whether the data root is reachable; never raises.
@@ -298,11 +326,7 @@ class FolderScanCatalog:
         CatalogStatus
             ``ok`` when the base path is a readable directory.
         """
-        from geecs_data_utils.scan_paths import ScanPaths
-
-        base = self._base_path
-        if base is None and ScanPaths.paths_config is not None:
-            base = Path(ScanPaths.paths_config.base_path)
+        base = self._data_root()
         try:
             if base is not None and base.is_dir():
                 return CatalogStatus(ok=True, label=f"folders: {base}")
@@ -330,6 +354,11 @@ class FolderScanCatalog:
         -------
         list of RunSummary
             One row per ``ScanNNN`` folder; empty when the day has none.
+
+        Raises
+        ------
+        OSError
+            The data root is unreachable (see :meth:`_scans_dir`).
         """
         scans_dir = self._scans_dir(experiment, day)
         if scans_dir is None:
@@ -375,7 +404,10 @@ class FolderScanCatalog:
         if parts is None:
             raise KeyError(f"not a folder run uid: {uid!r}")
         experiment, day, number = parts
-        scans_dir = self._scans_dir(experiment, day)
+        try:
+            scans_dir = self._scans_dir(experiment, day)
+        except OSError:  # the root unreachable is still "no folder" here
+            scans_dir = None
         scan_dir: Optional[Path] = None
         if scans_dir is not None:
             scan_dir = scans_dir / scan_folder_name(number)
