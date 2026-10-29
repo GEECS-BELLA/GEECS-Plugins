@@ -51,6 +51,7 @@ from geecs_data_utils.scan_log_loader import first_log_timestamp
 from geecs_data_utils.scan_paths import daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
+    CatalogUnreachable,
     RunDetail,
     RunSummary,
     ScanCatalog,
@@ -398,11 +399,15 @@ class FolderScanCatalog:
 class MergedScanCatalog:
     """A primary catalog with the day's uncaptured scan folders appended.
 
-    A primary that fails a listing is not asked again for ``retry_after``
-    seconds: an unreachable Tiled costs a connect timeout and its retries
-    (about a minute) on every call otherwise, and a page that lists a day
-    would wait that long each time. Meanwhile the folders answer alone, as
-    in an outage.
+    A primary that cannot be reached (:class:`CatalogUnreachable`, or any
+    ``ConnectionError``/``TimeoutError``) is not asked again for
+    ``retry_after`` seconds: an unreachable Tiled costs a connect timeout
+    and its retries (about a minute) on every call otherwise, and a page
+    that lists a day would wait that long each time. Meanwhile listings
+    come from the folders alone and a primary uid's ``load_run`` raises the
+    remembered error at once (an outage, as the protocol says). A primary
+    that answers but fails one query (one day's malformed run) is not
+    skipped: that error stays with its call.
 
     Parameters
     ----------
@@ -428,9 +433,24 @@ class MergedScanCatalog:
         self._folders = folders
         self._retry_after = retry_after
         self._clock = clock
-        # The primary's last listing failure and when it happened; cleared
-        # by its next success.
+        # When the primary was last found unreachable, and how; cleared by
+        # its next success.
         self._primary_failure: Optional[tuple[float, Exception]] = None
+
+    def _skipping(self) -> Optional[Exception]:
+        """The remembered unreachable-primary error while its window lasts."""
+        failure = self._primary_failure
+        if failure is not None and self._clock() - failure[0] < self._retry_after:
+            return failure[1]
+        return None
+
+    def _unreachable(self, exc: Exception) -> bool:
+        """Remember *exc* if it says the primary cannot be reached at all."""
+        if isinstance(exc, (CatalogUnreachable, ConnectionError, TimeoutError)):
+            self._primary_failure = (self._clock(), exc)
+            return True
+        self._primary_failure = None  # it answered, if only with an error
+        return False
 
     def _primary_listing(
         self, experiment: str, day: date
@@ -439,13 +459,13 @@ class MergedScanCatalog:
 
         ``fresh`` is false while a remembered failure skips the primary.
         """
-        failure = self._primary_failure
-        if failure is not None and self._clock() - failure[0] < self._retry_after:
-            return [], failure[1], False
+        skipped = self._skipping()
+        if skipped is not None:
+            return [], skipped, False
         try:
             runs = self._primary.list_runs(experiment, day)
         except Exception as exc:  # noqa: BLE001 — primary catalog fails over
-            self._primary_failure = (self._clock(), exc)
+            self._unreachable(exc)
             return [], exc, True
         self._primary_failure = None
         return runs, None, True
@@ -502,9 +522,10 @@ class MergedScanCatalog:
                 raise primary_error
             if fresh:
                 logger.warning(
-                    "primary catalog unavailable — listing scan folders only "
-                    "(not asked again for %.0f s)",
-                    self._retry_after,
+                    "primary catalog unavailable — listing scan folders only%s",
+                    f" (not asked again for {self._retry_after:.0f} s)"
+                    if self._primary_failure is not None
+                    else "",
                     exc_info=primary_error,
                 )
             else:
@@ -531,4 +552,13 @@ class MergedScanCatalog:
         """
         if uid.startswith(FOLDER_UID_PREFIX):
             return self._folders.load_run(uid)
-        return self._primary.load_run(uid)
+        skipped = self._skipping()
+        if skipped is not None:
+            raise skipped
+        try:
+            detail = self._primary.load_run(uid)
+        except Exception as exc:
+            self._unreachable(exc)
+            raise
+        self._primary_failure = None
+        return detail

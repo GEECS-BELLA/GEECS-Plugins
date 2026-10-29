@@ -75,6 +75,16 @@ def read_tiled_config(
     return cfg["tiled"].get("uri") or None, cfg["tiled"].get("api_key") or None
 
 
+class CatalogUnreachable(ConnectionError):
+    """The catalog server could not be reached at all.
+
+    Raised when the first connection fails (a timeout, a refused or
+    unroutable host), as distinct from a reachable server failing one
+    query: a caller that falls back to another source may stop asking an
+    unreachable server for a while, but not a server one day's runs broke.
+    """
+
+
 @dataclass(frozen=True)
 class RunSummary:
     """One run's listing row — built from run metadata only (no event data).
@@ -347,7 +357,10 @@ class TiledScanCatalog:
             )
         from tiled.client import from_uri
 
-        self._client = from_uri(self.uri, api_key=self._api_key)
+        try:
+            self._client = from_uri(self.uri, api_key=self._api_key)
+        except Exception as exc:
+            raise CatalogUnreachable(f"tiled at {self.uri}: {exc}") from exc
         return self._client
 
     # ------------------------------------------------------------------

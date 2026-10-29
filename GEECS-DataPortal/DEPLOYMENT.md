@@ -94,13 +94,14 @@ selector hides itself; nothing else changes.
 Smoke-test in the foreground before installing the unit:
 
 ```bash
-poetry run geecs-data-portal --experiment Undulator
+poetry run geecs-data-portal --tiled --experiment Undulator
 # in another shell:
 curl -s http://localhost:8200/health
 ```
 
 `/health` returns the catalog probe — `ok` requires the Tiled server
-reachable with the configured key. Then load a real day page in a
+reachable with the configured key (with `--tiled`, as the unit runs it;
+without it the probe is the scan folders'). Then load a real day page in a
 browser and open one run's image gallery (exercises the share mount).
 
 ## systemd unit

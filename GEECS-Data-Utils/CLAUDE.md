@@ -408,7 +408,15 @@ this package and must never depend on GeecsBluesky or a GUI package).
   passes its scan numbers as `skip`, so claimed folders are never read
   (a Bluesky day costs one directory listing); each side degrades to the
   other (primary down → folders, `OSError` on the share → primary), and
-  only both failing re-raises the primary's error. The logbook's
+  only both failing re-raises the primary's error. A primary that cannot
+  be reached at all (`tiled_catalog.CatalogUnreachable`, which
+  `TiledScanCatalog` raises when its first connection fails, or any
+  `ConnectionError`/`TimeoutError`) is skipped for `retry_after` seconds
+  (300; `clock` injectable): listings come from the folders alone and a
+  primary uid's `load_run` raises the remembered error at once, so an
+  unreachable Tiled costs one connect timeout per window, not one per
+  call. A reachable primary failing one query (a malformed run) is never
+  skipped. The logbook's
   `scan_reader` walks the same folders for a different product (its
   `ScanSummary`) over the same `scan_info` facts; folding the two walks
   together is its own change.

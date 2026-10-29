@@ -9,6 +9,7 @@ import pytest
 from geecs_data_utils.scan_paths import daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
+    CatalogUnreachable,
     RunDetail,
     StubCatalog,
     TiledScanCatalog,
@@ -309,6 +310,20 @@ class TestTiledScanCatalogListRuns:
         }
         catalog = _fake_catalog(runs)
         assert len(catalog.list_runs("", TEST_DAY)) == 2
+
+
+def test_a_failed_first_connection_is_catalog_unreachable(monkeypatch) -> None:
+    """The fallback catalogs tell an unreachable server by this type."""
+    tiled_client = pytest.importorskip("tiled.client")
+
+    def unreachable(*args, **kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(tiled_client, "from_uri", unreachable)
+    catalog = TiledScanCatalog(uri="http://tiled.invalid:8000", api_key="k")
+    with pytest.raises(CatalogUnreachable) as caught:
+        catalog.list_runs("Undulator", TEST_DAY)
+    assert isinstance(caught.value, ConnectionError)
 
 
 class TestTiledScanCatalogLoadRun:
