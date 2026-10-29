@@ -79,8 +79,10 @@ class Tracker:
         return "stale" if now - self._first[pv] > stale_after_s else "unknown"
 
 
-def judge(wire: Wire | None, flag: Wire | None, counter: str | None) -> str:
-    """One role's verdict from its frame, its ``computed_by`` flag's and its ``fresh_by`` counter's."""
+def judge(
+    wire: Wire | None, flag: Wire | None, counter: str | None, *, flagged: bool = False
+) -> str:
+    """One role's verdict from its frame, its ``computed_by`` flag's (``flagged``: it has one) and its ``fresh_by`` counter's."""
     if wire is None:
         return "unknown"
     if not wire.get("connected"):
@@ -92,6 +94,8 @@ def judge(wire: Wire | None, flag: Wire | None, counter: str | None) -> str:
         return "not answering"
     if severity in ("MAJOR", "INVALID"):
         return "error"
+    if flagged and not (flag and flag.get("connected")):
+        return "unknown"  # the counter cannot say the computation is on
     if flag is not None and flag.get("connected") and flag.get("value") in (0, False):
         return "off"
     return counter or "live"
@@ -141,7 +145,8 @@ def view(device: Resolved, tracker: Tracker, stale_after_s: float) -> dict[str, 
                     counter_pv = device.pv(by_name[source], axis)
                     counter = tracker.counter(counter_pv, stale_after_s)
                 flag = latest.get(role.computed_by or "")
-                verdict = judge(latest[role.name], flag, counter)
+                flagged = bool(role.computed_by)
+                verdict = judge(latest[role.name], flag, counter, flagged=flagged)
                 if (
                     not role.writable
                 ):  # the state is what the device reports, not its inputs

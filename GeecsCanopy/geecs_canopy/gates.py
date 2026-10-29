@@ -5,7 +5,10 @@ operator policy (default deny); the device's allow list (Appendix A rule 8);
 the hazard confirm (rule 18); the run lock, failing closed (rule 6); the
 bounds gate before Hare, failing closed on unread limits (rule 11); then
 Hare's put with ``wait`` and a per-role timeout, and the value the record
-took (an ``ao`` clamps beyond DRVH silently).
+took (an ``ao`` clamps beyond DRVH silently). An ``attempted`` row is
+written before Hare is called, and no put goes out without it; the outcome
+row names it, so an attempt without an outcome is a dispatch that never
+answered.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from geecs_schemas import JournalEntry, Role
 
 from geecs_canopy.freshness import is_number, json_safe
 from geecs_canopy.hare import HareRefused, Wire, WriteValue
+from geecs_canopy.journal import JournalUnavailable
 from geecs_canopy.module import DevicesUnavailable, Module
 from geecs_canopy.native import Resolved
 
@@ -27,7 +31,7 @@ from geecs_canopy.native import Resolved
 LOCK_ROLE, OWNER_ROLE, LOCK_FREE = "lock", "owner", "Free"
 
 #: The module's own slugs and their status: refused (the request, the bounds), denied (its guards).
-_REFUSED = {"devices_unavailable": 503, "not_found": 404, "bad_request": 400, "out_of_bounds": 422, "bounds_unknown": 422}  # fmt: skip
+_REFUSED = {"devices_unavailable": 503, "journal_unavailable": 503, "not_found": 404, "bad_request": 400, "out_of_bounds": 422, "bounds_unknown": 422}  # fmt: skip
 _DENIED = {"not_permitted": 403, "not_allowed": 403, "confirm_required": 428, "run_lock_held": 423, "run_lock_unreadable": 423}  # fmt: skip
 
 
@@ -63,9 +67,15 @@ class PutOutcome:
 
 
 class _Stop(Exception):
-    def __init__(self, code: str, detail: str, status: int | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        status: int | None = None,
+        attempt: int | None = None,
+    ) -> None:
         super().__init__(detail)
-        self.code, self.detail = code, detail
+        self.code, self.detail, self.attempt = code, detail, attempt
         outcome = "denied" if code in _DENIED else "refused"
         self.status, self.outcome = status or {**_REFUSED, **_DENIED}[code], outcome
 
@@ -117,10 +127,17 @@ async def _check_lock(module: Module, device: Resolved, axis: str | None) -> Non
         raise _Stop("run_lock_held", f"a run holds {device.name}: {held_by or '?'}")
 
 
+def _entry(req: PutRequest, outcome: str, **fields: Any) -> JournalEntry:
+    names = {k: v for k, v in asdict(req).items() if k != "confirm"}
+    return JournalEntry(
+        time=datetime.now(timezone.utc), outcome=outcome, **names, **fields
+    )
+
+
 async def _write(
     module: Module, device: Resolved, role: Role, req: PutRequest
-) -> tuple[dict, str | None]:
-    """Run the device's gates and the put; return what the record took and a clamp note."""
+) -> tuple[dict, str | None, int | None]:
+    """Run the device's gates and the put; return what the record took, a clamp note, the attempt row."""
     if role.confirm == "hazard" and not req.confirm:
         raise _Stop("confirm_required", f"{role.name} needs the hazard confirm")
     if role.locked:
@@ -132,6 +149,12 @@ async def _write(
     timeout = s.settle_timeout_s if role.settled_by else s.put_timeout_s
     # A role that settles itself (an acquire) calls back only when the work ends.
     itself, unsettled = role.settled_by == role.name, None
+    try:
+        row = _entry(req, "attempted")
+        attempt = (await asyncio.to_thread(module.journal.record, row)).id
+    except JournalUnavailable as exc:
+        why = f"no put without its journal row: {exc}"
+        raise _Stop("journal_unavailable", why) from exc
     loop = asyncio.get_running_loop()
     started = loop.time()
     try:
@@ -142,7 +165,7 @@ async def _write(
         # The same timeout covers connecting, so an unconnected PV stays refused.
         late = role.settled_by and loop.time() - started >= 0.9 * timeout
         if not late or not (await module.hare.get(pv)).get("connected"):
-            raise _Stop(exc.code, exc.detail, exc.status) from exc
+            raise _Stop(exc.code, exc.detail, exc.status, attempt) from exc
         unsettled = f"dispatched; not settled after {timeout} s: the work goes on"
     taken = (await module.hare.get(pv)).get("value")
     extra = {"requested": req.value}
@@ -152,13 +175,16 @@ async def _write(
         wire = await module.hare.get(device.pv(readback, req.axis))
         extra["readback"] = json_safe(wire.get("value"))
     if itself or unsettled:
-        return extra, unsettled or f"dispatched; {role.name} settles by its readback"
+        note = unsettled or f"dispatched; {role.name} settles by its readback"
+        return extra, note, attempt
     numbers = role.type == "setpoint" and is_number(taken) and is_number(req.value)
     clamped = numbers and not math.isclose(taken, req.value)
-    return extra, f"clamped: the record took {taken!r}" if clamped else None
+    return extra, f"clamped: the record took {taken!r}" if clamped else None, attempt
 
 
-async def _decide(module: Module, req: PutRequest) -> tuple[dict, str | None]:
+async def _decide(
+    module: Module, req: PutRequest
+) -> tuple[dict, str | None, int | None]:
     try:
         device = (await module.devices()).get(req.device)
     except DevicesUnavailable as exc:
@@ -182,12 +208,18 @@ async def _decide(module: Module, req: PutRequest) -> tuple[dict, str | None]:
 async def put_role(module: Module, req: PutRequest) -> PutOutcome:
     """Run one write through every check, journal it, and say how it ended."""
     try:
-        extra, detail = await _decide(module, req)
+        extra, detail, attempt = await _decide(module, req)
         status, outcome, code = 200, "accepted", None
     except _Stop as stop:
-        extra, detail = {}, stop.detail
+        extra, detail, attempt = {}, stop.detail, stop.attempt
         status, outcome, code = stop.status, stop.outcome, stop.code
-    names = {k: v for k, v in asdict(req).items() if k != "confirm"}
-    names |= {"outcome": outcome, "canopy_code": code, "detail": detail}
-    entry = JournalEntry(time=datetime.now(timezone.utc), **names)
-    return PutOutcome(status, module.journal.record(entry), extra)
+    entry = _entry(req, outcome, canopy_code=code, detail=detail, attempt=attempt)
+    if code == "journal_unavailable":
+        return PutOutcome(status, entry, extra)  # no second wait on a failed journal
+    # Off the loop: a locked journal must not stall Hare's websockets. If it
+    # fails now, Hare's answer stands and the attempted row is the evidence.
+    try:
+        entry = await asyncio.to_thread(module.journal.record, entry)
+    except JournalUnavailable as exc:
+        extra["journalError"] = str(exc)
+    return PutOutcome(status, entry, extra)

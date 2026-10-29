@@ -1,4 +1,4 @@
-"""The command journal: one ``JournalEntry`` per write attempt, whatever its outcome.
+"""The command journal: an ``attempted`` row before every dispatch, one outcome row per request.
 
 SQLite in the module's state directory for push 1 (one row = the entry's
 JSON, so the GEECS-Schemas model is the one contract); the Postgres path, a
@@ -16,21 +16,31 @@ from geecs_schemas import JournalEntry
 _SCHEMA = "CREATE TABLE IF NOT EXISTS journal (id INTEGER PRIMARY KEY AUTOINCREMENT, entry TEXT NOT NULL)"
 
 
+class JournalUnavailable(Exception):
+    """The journal cannot take a row: read-only, full or locked."""
+
+
 class Journal:
     """Append-only, in one SQLite file."""
 
     def __init__(self, path: Path) -> None:
-        self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+        # A lock (the nightly backup) fails a write after 1 s, not sqlite's 5 s.
+        self._db = sqlite3.connect(
+            path, timeout=1.0, check_same_thread=False, isolation_level=None
+        )
         self._db.execute(_SCHEMA)
         self._lock = threading.Lock()
 
     def record(self, entry: JournalEntry) -> JournalEntry:
         """Append ``entry`` and return it with its row number."""
-        with self._lock:
-            cursor = self._db.execute(
-                "INSERT INTO journal (entry) VALUES (?)",
-                (entry.model_dump_json(exclude={"id"}),),
-            )
+        try:
+            with self._lock:
+                cursor = self._db.execute(
+                    "INSERT INTO journal (entry) VALUES (?)",
+                    (entry.model_dump_json(exclude={"id"}),),
+                )
+        except sqlite3.Error as exc:
+            raise JournalUnavailable(str(exc)) from exc
         return entry.model_copy(update={"id": cursor.lastrowid})
 
     def last(self, entries: int) -> list[JournalEntry]:

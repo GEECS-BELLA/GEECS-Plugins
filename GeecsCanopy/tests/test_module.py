@@ -118,7 +118,8 @@ async def test_devices_come_from_the_documents_and_the_families(env):
 
 async def test_a_changing_value_with_a_still_counter_is_stale(env):  # rule 1
     mean, counter = await pv(env, "Cam1", "mean"), await pv(env, "Cam1", "stat_counter")
-    env.hare.on_frame({mean: live(1.0), counter: live(5)})
+    flag = await pv(env, "Cam1", "compute_statistics")
+    env.hare.on_frame({mean: live(1.0), counter: live(5), flag: live(1)})
     env.clock[0] += 4
     env.hare.on_frame(
         {mean: live(2.0), counter: live(5)}
@@ -135,7 +136,9 @@ async def test_a_changing_value_with_a_still_counter_is_stale(env):  # rule 1
 
 async def test_no_evidence_yet_is_unknown_not_live(env):
     counter = await pv(env, "Cam1", "stat_counter")
+    flag = await pv(env, "Cam1", "compute_statistics")
     env.hare.on_frame({await pv(env, "Cam1", "mean"): live(1.0), counter: live(5)})
+    env.hare.on_frame({flag: live(1)})
     assert (await roles(env, "Cam1"))[1][("mean", None)]["verdict"] == "unknown"
 
 
@@ -143,6 +146,17 @@ async def test_a_value_whose_compute_flag_is_off_reads_off(env):  # rule 1
     flag = await pv(env, "Cam1", "compute_centroid")
     env.hare.on_frame({await pv(env, "Cam1", "cx"): live(3.0), flag: live(0)})
     assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "off"
+
+
+async def test_a_computed_value_whose_flag_is_unavailable_is_unknown(env):  # rule 1
+    cx, flag = await pv(env, "Cam1", "cx"), await pv(env, "Cam1", "compute_centroid")
+    counter = await pv(env, "Cam1", "stat_counter")
+    env.hare.on_frame({cx: live(3.0), counter: live(1), flag: live(0)})
+    assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "off"
+    env.hare.on_frame({counter: live(2), flag: {"value": None, "connected": False}})
+    assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "unknown"
+    env.hare.on_frame({cx: live(3.0, severity="MAJOR")})  # an alarm still outranks it
+    assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "error"
 
 
 async def test_disconnected_is_unreachable_and_a_fault_outranks_it(env):  # rule 9
@@ -249,6 +263,8 @@ async def test_a_hare_refusal_keeps_hares_status_and_code(env):
         "outcome": "refused", "device": "ps1", "role": "reset", "axis": None, "journalId": None,
         "code": "pv_write_failed", "detail": "Write access denied",
     }  # fmt: skip
+    attempt, outcome = env.module.journal.last(2)
+    assert (attempt.outcome, outcome.attempt) == ("attempted", attempt.id)
 
 
 async def test_a_clamped_write_reports_the_value_the_record_took(
@@ -298,7 +314,38 @@ async def test_the_put_path_is_a_function_and_every_attempt_is_journaled(
         )
     rows = (await env.client.get("/v1/journal?entries=1")).json()
     entry = JournalEntry.model_validate(rows[0])
-    assert (len(rows), entry.id, entry.value, entry.outcome) == (1, 2, 2, "refused")
+    assert (len(rows), entry.id, entry.value, entry.outcome) == (1, 3, 2, "refused")
+
+
+async def test_no_put_reaches_hare_without_its_attempt_row(env):
+    env.module.journal._db.execute("PRAGMA query_only=ON")
+    response = await put(env, "ps1", role="reset", value=1)
+    assert (response.status_code, response.json()["code"]) == (
+        503,
+        "journal_unavailable",
+    )
+    assert env.hare.puts == []
+
+
+async def test_a_journal_failing_during_the_put_keeps_hares_answer(env):
+    put_ = env.hare.put
+
+    async def put_then_lock(*args, **kwargs):
+        await put_(*args, **kwargs)
+        env.module.journal._db.execute("PRAGMA query_only=ON")
+
+    env.hare.put = put_then_lock
+    body = (await put(env, "ps1", role="reset", value=1)).json()
+    assert (body["outcome"], body["journalId"]) == ("accepted", None)
+    assert "readonly" in body["journalError"]
+    assert env.module.journal.last(1)[0].outcome == "attempted"
+
+
+async def test_an_accepted_put_leaves_its_attempt_and_its_outcome(env):
+    await put(env, "ps1", role="reset", value=1)
+    attempt, outcome = env.module.journal.last(2)
+    assert (attempt.outcome, outcome.outcome) == ("attempted", "accepted")
+    assert (outcome.attempt, attempt.attempt) == (attempt.id, None)
 
 
 async def test_an_operator_put_needs_no_canopy_write(env):  # Hare/Squirrel 403: live
