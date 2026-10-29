@@ -879,7 +879,8 @@ One write attempt through the device module, whatever its outcome.
 | `role` | `str` | yes | — | The family role written. |
 | `axis` | `str (optional)` | no | None | The axis, if per-axis. |
 | `value` | `float \| int \| bool \| str \| list[float \| int \| bool \| str] (optional)` | yes | — | Value requested. |
-| `outcome` | `'accepted' \| 'denied' \| 'refused'` | yes | — | denied: the module's guards; refused: bounds, IOC or Hare. |
+| `outcome` | `'attempted' \| 'accepted' \| 'denied' \| 'refused'` | yes | — | attempted: written before Hare is called; denied: the module's guards; refused: bounds, IOC or Hare. |
+| `attempt` | `int (optional)` | no | None | The row of this write's attempted row, once dispatched. |
 | `canopy_code` | `str (optional)` | no | None | Canopy's or our slug. |
 | `detail` | `str (optional)` | no | None | Why; or what a clamp took. |
 

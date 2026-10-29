@@ -74,7 +74,7 @@ as the directory joins them; never the GEECS DB. Only `@*` keys reach
 |---|---|
 | `GET /geecs/v1/devices` | the roster, each device's family, axes and state |
 | `GET /geecs/v1/devices/{name}` | every role per axis: PVs, Hare's value, severity, a verdict (`live`, `stale`, `off`, `not answering`, `unreachable`, `error`, `unknown`; `not running` waits for a service-status source) |
-| `POST /geecs/v1/devices/{name}/put` | `{role, axis?, value, operator, confirm?}` through the gates (`geecs_canopy/gates.py`): policy 403, allow list 403, hazard 428, run lock 423, bounds 422, then Hare (its own status on refusal), every outcome a journal row |
+| `POST /geecs/v1/devices/{name}/put` | `{role, axis?, value, operator, confirm?}` through the gates (`geecs_canopy/gates.py`): policy 403, allow list 403, hazard 428, run lock 423, bounds 422, then Hare (its own status on refusal); an `attempted` journal row before Hare (503 `journal_unavailable`, nothing sent, when it cannot be written) and one outcome row per request |
 | `GET /geecs/v1/journal?entries=N` | the newest N `JournalEntry` rows (GEECS-Schemas), oldest first |
 
 Freshness is judged continuously: the module subscribes every monitored
@@ -115,8 +115,15 @@ its own writes and reaches Hare in-process, so a person never needs
 Canopy `write`.
 
 **The journal** is SQLite (`journal.sqlite3` in the state folder), one
-`JournalEntry` per attempt: the only record of who wrote what, so it has
-its own backup. The Postgres dump does not include it. Nightly, beside
+`JournalEntry` outcome row per request: the only record of who wrote what,
+so it has its own backup. A put that passed every gate first leaves an
+`attempted` row, and no put reaches Hare unless that row was written (a
+read-only, full or locked journal refuses writes with 503
+`journal_unavailable`). Its outcome row names it in `attempt`. **An
+`attempted` row no outcome row names is a write that may have reached the
+device with no recorded answer**: the module died, or the journal failed,
+during the put (the put's response then carries `journalError`). Read the
+device's value before repeating it. The Postgres dump does not include it. Nightly, beside
 that dump, from the service account's crontab (the folder's group is the
 service account's; the file is created group-readable):
 `dc exec -T api python -c "import sqlite3; sqlite3.connect('/var/lib/geecs-canopy-module/journal.sqlite3').backup(sqlite3.connect('/var/lib/geecs-canopy-module/journal.bak'))"`,

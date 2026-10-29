@@ -70,8 +70,12 @@ class JournalEntry(VersionedSchemaModel):
     role: str = Field(description="The family role written.")
     axis: Optional[str] = Field(None, description="The axis, if per-axis.")
     value: Union[Scalar, list[Scalar], None] = Field(description="Value requested.")
-    outcome: Literal["accepted", "denied", "refused"] = Field(
-        description="denied: the module's guards; refused: bounds, IOC or Hare."
+    outcome: Literal["attempted", "accepted", "denied", "refused"] = Field(
+        description="attempted: written before Hare is called; denied: the module's"
+        " guards; refused: bounds, IOC or Hare."
+    )
+    attempt: Optional[int] = Field(
+        None, description="The row of this write's attempted row, once dispatched."
     )
     canopy_code: Optional[str] = Field(None, description="Canopy's or our slug.")
     detail: Optional[str] = Field(None, description="Why; or what a clamp took.")
