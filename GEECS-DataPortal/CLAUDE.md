@@ -471,9 +471,9 @@ page's design rules; they move here in the PR that deletes it. The
 rules that are the portal's own:
 
 - **Each viewer saves into their own set.** The page asks the viewer's
-  name once (a URL without `set=` shows only that question; the browser
-  keeps the answer under the logbook author box's key, and `plotter.js`
-  sends it as `owner` with every save). Opening someone else's set
+  name once (a URL without `set=` shows only that question, and a
+  shared link asks before its first change; the browser keeps the
+  answer, and `plotter.js` sends it as `owner` with every save). Opening someone else's set
   writes nothing; the viewer's first change copies it, with the change,
   into their own set, **replacing what their own set held** (it is the
   viewer's working copy; Save as keeps a named one), and switches to it
@@ -482,7 +482,9 @@ rules that are the portal's own:
   reload). The owner's set changes only by Save as onto its name, which
   asks before replacing. A change that names no viewer is refused
   (422), never saved where it is: the page asks the name before a first
-  change on a shared link. The name is kept under its own browser key,
+  change on a shared link. `/plot/api/settings/{name}` names its target
+  in the URL, like Save as, and so takes no owner. The name is kept under
+  its own browser key,
   first borrowing the logbook author box's name when it fits. A link
   carries `set=`, which opens that set as
   it is now (ruling 3 of the brief: the portal's old URL-carried plot
