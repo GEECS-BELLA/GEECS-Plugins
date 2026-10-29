@@ -81,6 +81,7 @@ _DENSITY_TOKENS = {"--pad", "--row-h", "--gap"}
 _TOKEN_SOURCES = [
     "GEECS-DataPortal/geecs_portal/figures.py",
     "GeecsPlotter/geecs_plotter/figures.py",
+    "GEECS-DataPortal/geecs_portal/plotter/figures.py",
 ]
 
 #: The web surfaces bound by the rule. Adding a surface means adding it
@@ -95,6 +96,9 @@ _SURFACES = [
     "GEECS-DataPortal/geecs_portal/templates/run.html",
     "GEECS-DataPortal/geecs_portal/templates/grid_script.html",
     "GEECS-DataPortal/geecs_portal/static/portal.css",
+    "GEECS-DataPortal/geecs_portal/plotter/templates/index.html",
+    "GEECS-DataPortal/geecs_portal/plotter/static/plotter.css",
+    "GEECS-DataPortal/geecs_portal/plotter/static/plotter.js",
     "GeecsLogbook/geecs_logbook/static/scanlog.css",
     "GeecsLogbook/geecs_logbook/templates/day.html",
     "GeecsLogbook/geecs_logbook/templates/month.html",

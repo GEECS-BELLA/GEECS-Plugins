@@ -51,7 +51,12 @@
   <main class="pane">
     <div class="tabs" role="tablist" aria-label="Scan views">
       <button type="button" role="tab" class="tab" id="tab-overview" aria-controls="pane-overview" aria-selected="false" data-pane="overview" onclick="setTab('overview')">Overview</button>
+      {% if plot_page %}
+      {# GEECSplotter's page, mounted at /plot: the Plot tab is a link to it. #}
+      <a role="tab" class="tab" id="tab-plot" aria-selected="false" href="{{ root }}/plot/?day={{ run_day }}&amp;scan={{ scan_number }}">Plot</a>
+      {% else %}
       <button type="button" role="tab" class="tab" id="tab-plot" aria-controls="pane-plot" aria-selected="false" data-pane="plot" onclick="setTab('plot')">Plot</button>
+      {% endif %}
       <button type="button" role="tab" class="tab" id="tab-grid" aria-controls="pane-grid" aria-selected="false" data-pane="grid" onclick="setTab('grid')">Grid</button>
       <button type="button" role="tab" class="tab" id="tab-images" aria-controls="pane-images" aria-selected="false" data-pane="images" onclick="setTab('images')">Images</button>
       {% if analysis_enabled %}
@@ -814,6 +819,7 @@ function api(path, params) {
 
 // ---------------- the analysis tab (ScanAnalysis runs) ----------------
 const ANALYSIS_ENABLED = {{ analysis_enabled | tojson }};
+const PLOT_PAGE = {{ plot_page | tojson }};
 const CONFIG_EDITOR = {{ config_editor | tojson }};
 const SHOT = {{ shot | tojson }};
 
@@ -1133,6 +1139,8 @@ function setTab(tab) {
   // opened on a portal without analysis runs) falls back to Plot —
   // never a page with no tab lit and no pane shown.
   if (!document.getElementById("pane-" + tab)) tab = "plot";
+  // With the plotter mounted, Plot is its own page, never this pane.
+  if (tab === "plot" && PLOT_PAGE) tab = "overview";
   S.tab = tab;
   document.querySelectorAll('[role="tab"]').forEach(t => t.setAttribute("aria-selected", String(t.dataset.pane === tab)));
   document.querySelectorAll(".tabpane").forEach(pane => { pane.hidden = pane.id !== "pane-" + tab; });

@@ -162,6 +162,27 @@ only on the author's yes.
    LabVIEW settings import, the fits and images still to come) move to
    the portal's `CLAUDE.md` or to issues.
 
+## Re-planned, 2026-10-28 (after the author tried #1187)
+
+The author tried the portal on the kit and rejected it: "it acts like
+the data portal and not GEECSplotter" (one shared column filter, no
+per-axis lists). The order above rebuilt the plotter inside the portal
+piece by piece, so every PR before the last showed the portal. It now
+runs the other way, on the author's choice:
+
+- **#1188** (stacked on #1187): Tiled only with `--tiled`; an unreachable
+  Tiled is skipped for five minutes. On the author's Mac every page that
+  lists a day had waited 54 s for it.
+- **The Plot tab is GEECSplotter's page.** GeecsPlotter's package moves
+  into `geecs_portal/plotter/` nearly unchanged and is mounted at
+  `/plot`, with its settings sets, its image strip and its tests, plus
+  the "your own set" rule above. The old Plot pane stays hidden until:
+- **The plotter page gains the old Plot tab's binned view, shot filters,
+  send-to-log and display settings** (all four, the author's answer),
+  and the old pane and the duplicate figure module go.
+- Then the image strip joins the Images tab, `--browser`, and the
+  deletion of `GeecsPlotter/` (step 6 above).
+
 ## Open, for Sam
 
 - The three reversed rulings above.

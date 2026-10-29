@@ -104,6 +104,19 @@ reachable with the configured key (with `--tiled`, as the unit runs it;
 without it the probe is the scan folders'). Then load a real day page in a
 browser and open one run's image gallery (exercises the share mount).
 
+## The Plot tab's settings sets
+
+The Plot tab (GEECSplotter's page, `/plot`) saves each viewer's named
+settings set as a JSON file — the portal's one durable write outside the
+analysis and configs trees. The folder is `config.ini [Paths]
+geecs_data` + `DataPortal/settings/` when that folder is reachable (the
+shared `user data` folder LabVIEW tools use), else
+`<checkout>/user data/DataPortal/settings/`. On the service host prefer
+the shared folder, or pass `--settings-dir <folder>` through
+`GEECS_PORTAL_EXTRA_ARGS` in `site.env`: a fallback inside the deployed
+checkout must be writable by the service account and survives a
+redeploy only because `user data/` is gitignored.
+
 ## systemd unit
 
 `deploy/geecs-data-portal.service` is a **template**: render it from the

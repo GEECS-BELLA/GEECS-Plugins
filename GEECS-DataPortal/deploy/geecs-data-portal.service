@@ -51,7 +51,9 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # runs beside the scan folders; without it the portal reads the folders
 # alone (the default, for a machine that cannot reach Tiled).
 ExecStart=@POETRY@ run geecs-data-portal --tiled --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
-# No StateDirectory: the portal writes nothing durable. The logbook's
+# No StateDirectory: the portal's one durable write of its own is the Plot
+# tab's settings sets, in the folder DEPLOYMENT.md names (config.ini's
+# shared user data folder, or --settings-dir in GEECS_PORTAL_EXTRA_ARGS). The logbook's
 # entries, which lived in /var/lib/geecs-data-portal while the logbook was
 # a router in this process (portal 0.22-0.26), belong to geecs-logbook's
 # own state directory now — GeecsLogbook/deploy/DEPLOYMENT.md has the move.
