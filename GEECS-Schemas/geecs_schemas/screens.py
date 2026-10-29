@@ -82,7 +82,7 @@ class Widget(SchemaModel):
     precision: Optional[int] = Field(
         None, ge=0, le=12, description="Digits after the point."
     )
-    src: Optional[str] = Field(None, pattern=r"^[\w-]+\.(png|jpe?g|gif|svg|webp|PNG|JPE?G|GIF|SVG|WEBP)$", description="An image's file name in the screens folder.")  # fmt: skip
+    src: Optional[str] = Field(None, pattern=r"^[\w-]+\.(png|jpe?g|gif|webp|PNG|JPE?G|GIF|WEBP)$", description="An image's file name in the screens folder.")  # fmt: skip
 
     @model_validator(mode="after")
     def _fields_fit_the_kind(self) -> "Widget":

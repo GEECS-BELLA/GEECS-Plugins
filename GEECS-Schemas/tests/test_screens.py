@@ -112,3 +112,17 @@ def test_resolve_binds_roles_and_their_readbacks() -> None:
 def test_resolve_refuses_a_misfit(widget: dict, why: str) -> None:
     with pytest.raises(ScreenError, match=why):
         resolve_screen(screen(widget), load_families(), PANEL, NATIVE)
+
+
+@pytest.mark.parametrize(
+    "panel, why",
+    [
+        ({"st": {"family": "easydriver"}}, "two families|in the registry"),
+        ({"ps": {"family": "motor_record"}}, "needs axes"),
+    ],
+)
+def test_resolve_refuses_a_device_the_two_files_disagree_on(panel: dict, why: str) -> None:  # fmt: skip
+    name = next(iter(panel))
+    widget = {"kind": "readout", "bind": {"device": name, "role": "desc" if name == "ps" else "current"}}  # fmt: skip
+    with pytest.raises(ScreenError, match=why):
+        resolve_screen(screen(widget), load_families(), PanelDevices.model_validate({"devices": panel}), NATIVE)  # fmt: skip

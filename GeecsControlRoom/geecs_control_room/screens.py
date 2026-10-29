@@ -35,7 +35,8 @@ from geecs_control_room.module_client import ModuleUnavailable
 from geecs_control_room.settings import Settings
 
 _NAME = re.compile(r"^[\w-]+$")
-_IMAGE = re.compile(r"^[\w-]+\.(png|jpe?g|gif|svg|webp)$", re.IGNORECASE)
+#: Raster images only: an SVG opened directly would run its script on this origin.
+_IMAGE = re.compile(r"^[\w-]+\.(png|jpe?g|gif|webp)$", re.IGNORECASE)
 
 #: §3's words, each worn as a kit state: crit for an alarm, warn for any other doubt.
 KIT_STATE = {
