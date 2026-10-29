@@ -37,7 +37,11 @@ class Settings:
 
     @property
     def experiment_dir(self) -> Path:
-        """The experiment's folder in the configs repository."""
+        """The experiment's folder in the configs repository.
+
+        The layout is ``geecs_core.configs_repo.EXPERIMENTS_SUBDIR``'s, copied:
+        this package depends on GEECS-Schemas and the theme only.
+        """
         return self.configs_root / "scanner_configs" / "experiments" / self.experiment
 
     @property

@@ -1,4 +1,4 @@
-"""hare.js under node with a fake WebSocket: the key, the subscribe, the resubscribe after a drop."""
+"""hare.js under node with a fake WebSocket: the key, the subscribe, the resubscribe, the silent socket dropped."""
 
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ class FakeSocket {
 globalThis.window = { location: { href: "http://room.test/screens/x" } };
 require(process.argv[2]);
 const seen = [], states = [];
-const hare = window.GeecsHare.open({ url: "http://canopy.test/hare/v1/ws/pvs", key: "k 1", WebSocketImpl: FakeSocket });
+const hare = window.GeecsHare.open({
+  url: "http://canopy.test/hare/v1/ws/pvs", key: "k 1", WebSocketImpl: FakeSocket, silentMs: 300,
+});
 hare.onStatus((s) => states.push(s));
 hare.watch(["A:x"], (pv, wire) => seen.push([pv, wire && wire.value]));
 sockets[0].up();
@@ -32,17 +34,21 @@ sockets[0].frame({ type: "initial", data: { "A:x": { value: 1 } }, meta: { "A:x"
 sockets[0].close();  // the drop
 setTimeout(() => {
   sockets[1].up();
-  console.log(JSON.stringify({
-    url: sockets[0].url, first: sockets[0].sent, again: sockets[1].sent,
-    seen, states, units: hare.meta("A:x").units,
-  }));
-  hare.close();
+  sockets[1].frame({ type: "diff", data: { "A:x": { value: 2 } } });
+  sockets[1].close = () => {};  // half-open: close() never calls back
+  setTimeout(() => {           // ... yet the silence alone drops it
+    console.log(JSON.stringify({
+      url: sockets[0].url, first: sockets[0].sent, again: sockets[1].sent,
+      seen, states, units: hare.meta("A:x").units, redialled: sockets.length,
+    }));
+    hare.close();
+  }, 900);
 }, 700);
 """
 
 
 @pytest.mark.skipif(not node_available(), reason="node is not installed")
-def test_a_new_socket_subscribes_again_to_everything_watched(tmp_path: Path) -> None:
+def test_a_new_socket_resubscribes_and_a_silent_one_is_dropped(tmp_path: Path) -> None:
     harness = tmp_path / "harness.js"
     harness.write_text(_HARNESS)
     out = subprocess.run(
@@ -59,7 +65,15 @@ def test_a_new_socket_subscribes_again_to_everything_watched(tmp_path: Path) -> 
         {"type": "subscribe", "pvNames": ["A:y"]},
     ]
     assert got["again"] == [{"type": "subscribe", "pvNames": ["A:x", "A:y"]}]
-    # a drop tells every watcher that nothing is known any more
-    assert got["seen"] == [["A:x", 1], ["A:x", None]]
-    assert got["states"] == ["open", "closed", "connecting", "open"]
+    # a drop, or two heartbeats of silence, tells every watcher nothing is known
+    assert got["seen"] == [["A:x", 1], ["A:x", None], ["A:x", 2], ["A:x", None]]
+    assert got["states"] == [
+        "open",
+        "closed",
+        "connecting",
+        "open",
+        "closed",
+        "connecting",
+    ]
+    assert got["redialled"] == 3
     assert got["units"] == "mm"

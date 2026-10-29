@@ -132,6 +132,7 @@ delivers them.
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
 | `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
 | `archiver-checkout` | the Archiver Appliance's `geecs-archiver` CLI and its conf templates | the appliance itself is upstream's container: `geecs-archiver.service` runs `docker compose` from `/etc/geecs/archiver` and never reads the clone, so its uptime does not depend on a checkout; the clone is where onboarding runs and the conf is rendered from |
+| `control-room-checkout` | the Control Room and the screens (`geecs-control-room`) | the surface that writes to devices (through the module on Canopy): it never moves with the portal's pulls |
 | `qs-checkout` | queueserver worker **and** the Tiled writer (`geecs-tiled-writer`: the same package, `GeecsBluesky`, the same poetry env — the consumer half of the worker's document spool); also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server; the writer shares the worker's env on purpose (one spool line format, one env — a pull there is a deploy of both, so restart both) |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service

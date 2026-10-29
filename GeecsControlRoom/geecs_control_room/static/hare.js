@@ -14,7 +14,7 @@
   const SILENT_MS = 12000; // two heartbeats missed: the socket is dead
   const BACKOFF_MS = [500, 1000, 2000, 5000];
 
-  function open({ url, key, WebSocketImpl }) {
+  function open({ url, key, WebSocketImpl, silentMs = SILENT_MS }) {
     const WS = WebSocketImpl || window.WebSocket;
     const target = new URL(url, window.location.href);
     target.protocol = target.protocol === "https:" ? "wss:" : "ws:";
@@ -32,7 +32,22 @@
 
     function heard() {
       clearTimeout(watchdog);
-      watchdog = setTimeout(() => ws && ws.close(), SILENT_MS);
+      watchdog = setTimeout(drop, silentMs);
+    }
+
+    // The socket is gone, or silent for two heartbeats: forget every value at
+    // once (a half-open socket's close event can take a minute) and redial.
+    function drop() {
+      clearTimeout(watchdog);
+      if (ws) {
+        ws.onopen = ws.onmessage = ws.onclose = null;
+        try { ws.close(); } catch (_) { /* already closed */ }
+      }
+      ws = null;
+      for (const pv of Object.keys(latest)) delete latest[pv];
+      for (const pv of watchers.keys()) tell(pv);
+      status("closed");
+      timer = setTimeout(connect, BACKOFF_MS[Math.min(tries++, BACKOFF_MS.length - 1)]);
     }
 
     function connect() {
@@ -56,14 +71,7 @@
           }
         }
       };
-      ws.onclose = () => {
-        clearTimeout(watchdog);
-        ws = null;
-        for (const pv of Object.keys(latest)) delete latest[pv];
-        for (const pv of watchers.keys()) tell(pv);
-        status("closed");
-        timer = setTimeout(connect, BACKOFF_MS[Math.min(tries++, BACKOFF_MS.length - 1)]);
-      };
+      ws.onclose = drop;
     }
 
     const hare = {

@@ -24,7 +24,9 @@ User=@SERVICE_USER@
 Environment=HOME=@SERVICE_HOME@
 EnvironmentFile=@SITE_ENV@
 EnvironmentFile=/etc/geecs/control-room/secrets.env
-WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GeecsControlRoom
+# Its own clone: the surface that writes to devices never moves with the
+# portal's pulls (docs/platform/fleet_map.md, one clone per service).
+WorkingDirectory=@CHECKOUT_ROOT@/control-room-checkout/GeecsControlRoom
 ExecStart=@POETRY@ run geecs-control-room $GEECS_CONTROL_ROOM_EXTRA_ARGS
 Restart=on-failure
 RestartSec=5
