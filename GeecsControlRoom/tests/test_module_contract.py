@@ -65,7 +65,7 @@ async def put(room, device: str, **body):
 
 async def test_a_device_carries_what_the_screen_reads(room) -> None:
     first = await room.client.get("/api/devices/ps1")
-    assert first.status_code == 200 and "state" in first.json()
+    assert first.status_code == 200 and {"state", "heartbeat"} <= set(first.json())  # fmt: skip
     roles = {r["role"]: r for r in first.json()["roles"]}
     assert all(ROLE_FIELDS <= set(r) for r in roles.values())
     await asyncio.sleep(0)  # the module subscribes as a task
@@ -120,6 +120,16 @@ async def test_the_home_lists_come_from_the_roster_and_the_journal(room) -> None
     assert [d["name"] for d in body["in_alarm"]] == ["ps1"]
     last = next(d["last"] for d in body["not_live"] if d["name"] == "Mot1")
     assert JOURNAL_FIELDS <= set(last) and last["outcome"] == "accepted"
+
+
+async def test_a_live_device_leaves_not_live_and_its_family_reaches_the_pickers(room) -> None:  # fmt: skip
+    roles = (await room.client.get("/api/devices/ps1")).json()["roles"]
+    await asyncio.sleep(0)
+    room.env.hare.on_frame({r["pv"]: live(0) for r in roles if r["read"] == "monitor"})
+    body = (await room.client.get("/api/home/devices")).json()
+    families = {d["name"]: d["family"] for d in body["devices"]}
+    assert families == {"Cam1": "ad_camera_chain", "Mot1": "motor_record", "ps1": "easydriver"}  # fmt: skip
+    assert {d["name"] for d in body["not_live"]} == {"Cam1", "Mot1"}
 
 
 async def test_a_device_route_that_fails_is_unread(room) -> None:
