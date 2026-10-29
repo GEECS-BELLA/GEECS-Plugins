@@ -326,6 +326,17 @@ groups:
         confirm: Shutter the laser before switching.
       - {kind: readout, label: Gauge, bind: {pv: "U_Gauge:pressure"}}   # a DB device: read only
 """,
+    "home_layout": """\
+schema_version: 1
+# <experiment>/home.yaml: the Control Room's launcher. URLs are settings, never here.
+areas:
+  - title: Laser
+    screens: [control_center, compressor]   # files in the screens folder
+device_pages:
+  - title: Cameras
+    families: [ad_camera_chain]             # the picker lists the roster's devices of these
+links: [scanner, portal, logbook, config_editor]
+""",
     "analysis_recipe": """\
 schema_version: 3
 device: UC_TopView               # the device folder under scans/ScanNNN/; stems the products

@@ -77,6 +77,13 @@ from geecs_schemas.screens import (
     Widget,
     resolve as resolve_screen,
 )
+from geecs_schemas.home_layout import (
+    HOME_LAYOUT_FILENAME,
+    Area,
+    DevicePages,
+    HomeLayout,
+    HomeLink,
+)
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
@@ -204,6 +211,12 @@ __all__ = [
     "Bound",
     "ScreenError",
     "SCREENS_DIRNAME",
+    # home_layout (the Control Room's launcher: <experiment>/home.yaml)
+    "HomeLayout",
+    "Area",
+    "DevicePages",
+    "HomeLink",
+    "HOME_LAYOUT_FILENAME",
     "resolve_screen",
     # experiment_defaults
     "ExperimentDefaults",
@@ -272,6 +285,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "operator_policy": OperatorPolicy,
     "journal_entry": JournalEntry,
     "screen": Screen,
+    "home_layout": HomeLayout,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,

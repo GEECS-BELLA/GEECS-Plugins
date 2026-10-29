@@ -67,6 +67,15 @@ axis, or a bare PV). No expressions, scripts or conditions, ever. What
 depends on the families and instance data (the role exists, the kind fits
 its type, a bare PV is read only) is `resolve_screen`, not the model.
 
+## Home layout
+
+`home_layout.py`: `HomeLayout`, the Control Room's launcher
+(`<experiment>/home.yaml`): areas of screen names, device-page entries by
+family, and the named links (`HomeLink`: scanner, portal, logbook,
+config_editor). A link is a word; its URL is a deployment setting, never in
+the file. Whether a screen file exists or a family is installed is the
+page's check (a disabled entry with the reason), not the model's.
+
 ## Sweep payload
 
 `sweep.py` owns the validated JSON payload, not numerical trajectory
