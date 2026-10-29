@@ -169,6 +169,7 @@
 
   const asValue = (text) => (text.trim() !== "" && Number.isFinite(Number(text)) ? Number(text) : text);
 
+  for (const ind of document.querySelectorAll(".ind[data-pv]")) use(ind.dataset.pv, ind);
   for (const el of widgets) {
     if (el.dataset.pv) use(el.dataset.pv, el);
     const sp = el.querySelector(".sp"), act = el.querySelector(".act");

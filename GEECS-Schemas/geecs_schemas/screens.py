@@ -5,7 +5,8 @@ GeecsControlRoom's one renderer (``Planning/operator_surfaces.md`` §3). A
 screen binds, groups and confirms; it never computes: there are no
 expressions, scripts or conditions here, and no colour but a kit token. A
 binding names a GEECS device and a family role (and an axis), or a bare PV
-for a device the GEECS DB serves. Whether the role exists on the device and
+for a device the GEECS DB serves (a writing kind on one is drawn, and
+stays disabled until the module writes gateway PVs). Whether the role exists on the device and
 fits the widget depends on the family files and the instance data, so it is
 checked by :func:`resolve`, not by the model.
 """
@@ -56,7 +57,7 @@ class Binding(SchemaModel):
     axis: Optional[Suffix] = Field(
         None, description="The axis, for a per-axis family (a motor's m1)."
     )
-    pv: Optional[Suffix] = Field(None, description="A bare PV, for a device the GEECS DB serves (read only).")  # fmt: skip
+    pv: Optional[Suffix] = Field(None, description="A bare PV, for a device the GEECS DB serves (its writes disabled until the module writes gateway PVs).")  # fmt: skip
 
     @model_validator(mode="after")
     def _one_kind_of_binding(self) -> "Binding":
@@ -74,7 +75,7 @@ class Widget(SchemaModel):
     kind: WidgetKind = Field(description="The widget, one of the seven.")
     label: str = Field("", description="Free text shown beside it (an annotation's text); empty: the role's label.")  # fmt: skip
     bind: Optional[Binding] = Field(None, description="What it shows and writes; none for an annotation or an image.")  # fmt: skip
-    indicators: list[Binding] = Field([], max_length=2, description="A flipper's in and out indicators.")  # fmt: skip
+    indicators: list[Binding] = Field([], max_length=2, description="A flipper's in and out indicators, in that order.")  # fmt: skip
     confirm: Optional[str] = Field(None, min_length=1, description="A hazard note the operator confirms before the write.")  # fmt: skip
     units: Optional[str] = Field(
         None, description="Units shown, where the record carries none."
@@ -110,6 +111,9 @@ class Group(SchemaModel):
         description="Its top-left grid cell: row, column (from 1)."
     )
     size: tuple[int, int] = Field((1, 1), description="Rows and columns it spans.")
+    columns: int = Field(
+        1, ge=1, le=8, description="Widgets side by side inside it, filled row by row."
+    )
     tone: GroupTone = Field(
         "slate", description="Its colour, a kit token (never a literal)."
     )
@@ -139,7 +143,7 @@ class Bound:
     widget: Widget
     role: Optional[Role] = None
     readback: Optional[Role] = None
-    indicators: tuple[Role, ...] = ()
+    indicators: tuple[Optional[Role], ...] = ()  # one per indicator; None for a bare PV
 
 
 class ScreenError(ValueError):
@@ -173,10 +177,6 @@ def _device_roles(
 
 def _misfit(widget: Widget, role: Optional[Role]) -> Optional[str]:
     """Why ``widget`` cannot be bound to ``role``, or ``None`` when it fits."""
-    if widget.bind and widget.bind.pv and widget.kind in _WRITES:
-        return "a bare PV is read only; bind the device's role"
-    if any(i.pv for i in widget.indicators):
-        return "an indicator is a device's role, not a bare PV"
     if role is None or widget.kind not in _FITS:
         return None
     types, writes = _FITS[widget.kind]
@@ -216,11 +216,12 @@ def resolve(
         readback = None
         if role is not None and role.readback and widget.bind:
             readback = role_of(widget.bind.model_copy(update={"role": role.readback}), where)  # fmt: skip
-        marks = tuple(r for i in widget.indicators if (r := role_of(i, where)))
+        marks = tuple(role_of(i, where) for i in widget.indicators)
         problems.extend(
             f"{where}: indicator {m.name} is a {m.type}, not readable"
             for m in marks
-            if m.type not in _FITS["readout"][0]  # an indicator reads like a readout
+            if m
+            and m.type not in _FITS["readout"][0]  # an indicator reads like a readout
         )
         return Bound(widget, role, readback, marks)
 
