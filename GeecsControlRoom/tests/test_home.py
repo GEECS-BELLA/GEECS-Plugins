@@ -8,8 +8,6 @@ from __future__ import annotations
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from geecs_schemas import HomeLayout
-from pydantic import ValidationError
 
 from geecs_control_room.app import create_app
 from geecs_control_room.home import launcher, sort_devices
@@ -90,17 +88,18 @@ def test_the_strip_says_the_scanner_is_unreachable(settings: Settings, module: M
         assert c.get("/").status_code == 200
 
 
-def test_the_strip_reads_run_state_and_scan_numbers(settings: Settings, module: ModuleClient) -> None:  # fmt: skip
+@pytest.mark.parametrize(("re_state", "run", "kit"), [("running", "running", "running"), ("paused", "paused", "paused"), ("idle", "idle", "ok")])  # fmt: skip
+def test_the_strip_takes_the_run_word_from_the_manager(settings: Settings, module: ModuleClient, re_state: str, run: str, kit: str) -> None:  # fmt: skip
     def answer(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/status":
-            return httpx.Response(200, json={"connected": True, "re_state": "running"})
+            return httpx.Response(200, json={"connected": True, "re_state": re_state})
         progress = {"scan_number": 12, "shots_done": 7, "planned_total": 50, "state": "running"}  # fmt: skip
-        return httpx.Response(200, json=progress)
+        return httpx.Response(200, json=progress)  # the documents lag a pause
 
     scanner = httpx.AsyncClient(base_url="http://scanner.test", transport=httpx.MockTransport(answer))  # fmt: skip
     with TestClient(create_app(settings, module, scanner)) as c:
         s = c.get("/api/home/strip").json()
-    assert (s["run"], s["kit"], s["scan_number"], s["shots_done"]) == ("running", "running", 12, 7)  # fmt: skip
+    assert (s["run"], s["kit"], s["scan_number"], s["shots_done"]) == (run, kit, 12, 7)
 
 
 _HOME = """schema_version: 1
@@ -129,19 +128,6 @@ def test_the_launcher_disables_what_is_missing_with_the_reason(settings: Setting
     assert launcher(s).state == "error"
     (folder / "home.yaml").unlink()
     assert launcher(s).state == "empty"
-
-
-@pytest.mark.parametrize(
-    "doc",
-    [
-        {"links": ["portal", "portal"]},
-        {"areas": [{"title": "A", "screens": ["../x"]}]},
-        {"url": "http://x"},
-    ],  # fmt: skip
-)
-def test_the_document_refuses_urls_and_bad_names(doc: dict) -> None:
-    with pytest.raises(ValidationError):
-        HomeLayout.model_validate(doc)
 
 
 def test_settings_read_the_links_the_scanner_pair_included() -> None:

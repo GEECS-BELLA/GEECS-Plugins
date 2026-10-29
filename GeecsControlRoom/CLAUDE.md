@@ -53,7 +53,8 @@ deploy/
 - **The home sorts the module's words; it judges nothing.** "Not live" is
   every device whose state is not `live`; "In alarm" every device whose
   state or any role's verdict is `error` (the module's word for severity
-  major or invalid). A list the module could not give reads "unknown",
+  major or invalid, and for a tripped fault bit). The strip's run word is
+  the manager's `re_state`, as on the scanner's page. A list the module could not give reads "unknown",
   never "none". A row's cause is the module's evidence (heartbeat word,
   roles by verdict). The launcher is `<experiment>/home.yaml` (GEECS-Schemas
   `HomeLayout`); its link URLs are settings, never the file's.

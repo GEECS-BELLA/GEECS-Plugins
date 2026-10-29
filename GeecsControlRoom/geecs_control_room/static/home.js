@@ -23,6 +23,7 @@
   }
 
   function list(key, body) {
+    const journal = body.journal !== false; // a journal the module could not give is unknown, not "no command"
     const panel = document.querySelector(`[data-list="${key}"]`);
     const rows = body.ok ? body[key] : null, chip = panel.querySelector("header .chip");
     const pane = panel.querySelector(".state"), scroll = panel.querySelector(".tscroll");
@@ -44,7 +45,7 @@
       dot.className = "dot";
       dot.dataset.state = d.kit;
       state.replaceChildren(dot, ` ${d.state}`);
-      tr.append(name, cell(d.family), state, cell(d.cause), cell(d.ioc), cell(lastCommand(d.last)));
+      tr.append(name, cell(d.family), state, cell(d.cause), cell(d.ioc), cell(journal ? lastCommand(d.last) : "unknown"));
       return tr;
     }));
   }
@@ -80,7 +81,7 @@
     $("scan").textContent = known ? String(s.scan_number) : "—";
     $("shot").textContent = known ? `${s.shots_done ?? 0}${s.planned_total ? ` / ${s.planned_total}` : ""}` : "—";
     if (s.scan_number !== scan) { scan = s.scan_number; points = []; }
-    const active = s.state === "running" || s.state === "paused";
+    const active = s.run === "running" || s.run === "paused";
     if (active) points = [...points, [Date.now(), s.shots_done || 0]].slice(-MAX_POINTS);
     $("plot-fig").hidden = !active || points.length < 2;
     if ($("plot-fig").hidden) return;

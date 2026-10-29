@@ -82,6 +82,7 @@ from geecs_schemas.home_layout import (
     Area,
     DevicePages,
     HomeLayout,
+    HomeLink,
 )
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
@@ -214,6 +215,7 @@ __all__ = [
     "HomeLayout",
     "Area",
     "DevicePages",
+    "HomeLink",
     "HOME_LAYOUT_FILENAME",
     "resolve_screen",
     # experiment_defaults

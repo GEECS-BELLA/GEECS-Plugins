@@ -3,11 +3,12 @@
 The lists sort the module's words; they judge nothing. **Not live** holds
 every device whose state is not ``live``; **In alarm** every device whose
 state, or any of whose roles' verdicts, is ``error`` (the module's word for
-an EPICS severity of major or invalid: invalid for never-processed reads
-``unknown`` and for a silent device ``not answering``, both of them "Not
-live"). A row's cause is the module's own evidence: the heartbeat's word
+an EPICS severity of major or invalid, and for a device, a tripped fault
+bit too: invalid for never-processed reads ``unknown`` and for a silent
+device ``not answering``, both of them "Not live"). A row's cause is the module's own evidence: the heartbeat's word
 and the roles that are not ``live``, by word. The strip reads the scanner's
-API; "unreachable" there is a state, not an error page.
+API, its run word the manager's (``re_state``, as the scanner's own page
+has it); "unreachable" there is a state, not an error page.
 """
 
 from __future__ import annotations
@@ -38,8 +39,13 @@ _WORDS = ("error", "not answering", "unreachable", "stale", "off", "unknown")
 #: Role names shown per word before "+N".
 _NAMED = 3
 _LINK_TITLES = {"scanner": "Scanner", "portal": "Data Portal", "logbook": "Logbook", "config_editor": "Config editor"}  # fmt: skip
-#: The queue's words as the strip's kit states.
-_RUN_STATE = {"running": "running", "paused": "paused", "idle": "ok"}
+#: The manager's words as the strip's kit states (others: unknown).
+_RUN_STATE = {
+    "running": "running",
+    "paused": "paused",
+    "pausing": "paused",
+    "idle": "ok",
+}
 
 
 def _role(entry: dict[str, Any]) -> str:
@@ -63,7 +69,10 @@ def cause(state: str, detail: Optional[dict[str, Any]], only: tuple[str, ...] = 
         if names := by_word.get(word):
             more = f" +{len(names) - _NAMED}" if len(names) > _NAMED else ""
             parts.append(f"{word}: {', '.join(names[:_NAMED])}{more}")
-    return "; ".join(parts) or f"the module's state is {state}"
+    return (
+        "; ".join(parts)
+        or f"the module's state is {state}; it names no role (a fault bit is not in its device route yet)"
+    )
 
 
 def sort_devices(
@@ -138,10 +147,10 @@ async def strip(scanner: Optional[httpx.AsyncClient]) -> dict[str, Any]:
         return {"scanner": "unreachable", "run": "unknown", "kit": "unknown"}
     if not status.get("connected"):
         run = "queue server unreachable"
-    elif progress.get("state") in ("running", "paused"):
-        run = progress["state"]
     else:
-        run = status.get("re_state") or "unknown"
+        run = (
+            status.get("re_state") or "unknown"
+        )  # the manager's word; progress lags a pause
     keep = ("scan_number", "shots_done", "planned_total", "state")
     return {"scanner": "ok", "run": run, "kit": _RUN_STATE.get(run, "unknown")} | {
         k: progress.get(k) for k in keep
@@ -193,7 +202,7 @@ def launcher(settings: Settings) -> Launcher:
         pages.append(Entry(page.title, None if unknown else "", why, page.families))
     links = [
         Entry(
-            _LINK_TITLES[word],
+            _LINK_TITLES.get(word, word),
             url,
             "" if url else f"not configured: GEECS_CONTROL_ROOM_{word.upper()}_URL",
         )  # fmt: skip

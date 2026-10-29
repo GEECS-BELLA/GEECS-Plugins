@@ -13,10 +13,13 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import get_args
+
+from geecs_schemas import HomeLink
 
 _P = "GEECS_CONTROL_ROOM_"
 #: The launcher's link words (GEECS-Schemas ``HomeLink``), each read from ``<P><WORD>_URL``.
-_LINKS = ("scanner", "portal", "logbook", "config_editor")
+_LINKS: tuple[str, ...] = get_args(HomeLink)
 
 
 class SettingsError(ValueError):
