@@ -427,10 +427,13 @@ this package and must never depend on GeecsBluesky or a GUI package).
   (`ScanPaths.paths_config` resolved to `None` at import) is looked for
   again by `scan_paths.current_paths_config()` — at most every
   `CONFIG_RETRY_S` (30 s), one thread at a time — so a service started
-  during a share outage recovers when the share comes back. Every reader
-  of the root goes through it (`daily_scan_folder`, the catalog's
-  `list_runs`/`load_run`/`probe`, the Plot page's `find_scan`); read
-  `ScanPaths.paths_config` directly and that process never recovers.
+  during a share outage recovers when the share comes back. The folder
+  catalog's readers go through it (`daily_scan_folder`, `list_runs`,
+  `load_run`, `probe`, and the portal Plot page's `find_scan`); a reader
+  of `ScanPaths.paths_config` directly does not recover — still
+  `ScanPaths.__init__`, GeecsBluesky's `data_paths`, LogTriage's
+  harvester and ScanAnalysis's config loader. A new reader of the root
+  uses `current_paths_config()`.
   Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);
