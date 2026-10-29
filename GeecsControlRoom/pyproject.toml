@@ -27,6 +27,11 @@ pytest-asyncio = ">=0.23"
 # The theme's CSS helpers for the template guards (the form GeecsWebTheme's
 # CHANGELOG 0.6.0 prescribes: the runtime dependency re-declared).
 geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testing"] }
+# The contract test drives GeecsCanopy's own module (its routes, its test
+# doubles in geecs_canopy.testing) in process, so a route or field change there
+# fails this suite in the same PR. Dev-only: geecs_control_room never imports
+# it (the control-room-edges contract); Canopy itself is not installed.
+geecs-canopy = { path = "../GeecsCanopy", develop = true }
 
 [tool.poetry.scripts]
 geecs-control-room = "geecs_control_room.__main__:main"
