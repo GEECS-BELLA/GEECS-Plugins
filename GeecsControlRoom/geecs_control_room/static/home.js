@@ -27,14 +27,21 @@
     const panel = document.querySelector(`[data-list="${key}"]`);
     const rows = body.ok ? body[key] : null, chip = panel.querySelector("header .chip");
     const pane = panel.querySelector(".state"), scroll = panel.querySelector(".tscroll");
-    $(`n-${key}`).textContent = rows ? String(rows.length) : "?";
-    chip.dataset.state = !rows ? "unknown" : !rows.length ? "ok" : key === "in_alarm" ? "failed" : "degraded";
-    chip.textContent = !rows ? "unknown" : rows.length ? String(rows.length) : "none";
+    // devices whose detail the module did not give: their role alarms are unknown, so
+    // an empty alarm list is "none" only when every device was read (the state list
+    // sorts the roster's own word and needs no detail)
+    const unread = rows && key === "in_alarm" ? (body.unread || []).map((d) => d.name) : [];
+    const count = !rows ? "?" : unread.length ? `${rows.length}+?` : String(rows.length);
+    const none = rows && !rows.length && !unread.length;
+    $(`n-${key}`).textContent = count;
+    chip.dataset.state = !rows ? "unknown" : rows.length ? (key === "in_alarm" ? "failed" : "degraded") : none ? "ok" : "unknown";
+    chip.textContent = !rows ? "unknown" : rows.length ? count : none ? "none" : "unknown";
+    chip.title = unread.length ? `no roles read for ${unread.length}: ${unread.join(", ")}` : "";
     scroll.hidden = !rows || !rows.length;
     pane.hidden = !scroll.hidden;
-    pane.dataset.state = rows ? "empty" : "error";
-    pane.querySelector(".t").textContent = rows ? "none" : "unknown";
-    pane.querySelector(".m").textContent = rows ? "" : body.detail || "";
+    pane.dataset.state = none ? "empty" : "error";
+    pane.querySelector(".t").textContent = none ? "none" : "unknown";
+    pane.querySelector(".m").textContent = !rows ? body.detail || "" : unread.length ? `the module gave no roles for ${unread.length} device${unread.length > 1 ? "s" : ""}: ${unread.join(", ")}` : "";
     panel.querySelector("tbody").replaceChildren(...(rows || []).map((d) => {
       const tr = document.createElement("tr"), name = cell(""), link = document.createElement("a");
       link.href = deviceHref(d.name);

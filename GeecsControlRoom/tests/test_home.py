@@ -80,6 +80,24 @@ def test_the_lists_read_none_when_all_are_live_and_never_when_the_module_is_sile
     )
 
 
+def test_an_unread_detail_never_lets_the_alarm_list_read_none(settings: Settings) -> None:  # fmt: skip
+    """A live roster with a timed-out detail: ok, no alarms read, and the device named as unread (not "none")."""
+    roster = [{"name": "m", "family": "motor_record", "state": "live"}]
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/devices"):
+            return httpx.Response(200, json={"experiment": "Bench", "devices": roster})
+        if request.url.path.endswith("/journal"):
+            return httpx.Response(200, json=[])
+        raise httpx.ReadTimeout("the module took too long")
+
+    module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
+    with TestClient(create_app(settings, module)) as c:
+        body = c.get("/api/home/devices").json()
+    assert body["ok"] and body["in_alarm"] == [] and body["unread"] == [{"name": "m"}]
+    assert sort_devices(roster, {"m": _detail("live")}, [], {})["unread"] == []
+
+
 def test_the_strip_says_the_scanner_is_unreachable(settings: Settings, module: ModuleClient) -> None:  # fmt: skip
     def refuse(_: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")

@@ -6,7 +6,10 @@ state, or any of whose roles' verdicts, is ``error``: the module's word for
 an EPICS severity of major or invalid (except a never-processed record,
 ``unknown``, and a silent device, ``not answering``, both "Not live"), and
 for a device with a tripped fault bit. A row's cause is the module's own
-evidence: the heartbeat's word and the roles that are not ``live``, by word. The strip reads the scanner's
+evidence: the heartbeat's word and the roles that are not ``live``, by word.
+A device whose detail the module did not give is ``unread``: its roles'
+alarms are unknown, so the alarm list is "none" only when ``unread`` is
+empty (a ``live`` state says nothing about an alarmed setpoint). The strip reads the scanner's
 API, its run word the manager's (``re_state``, as the scanner's own page
 has it); "unreachable" there is a state, not an error page.
 """
@@ -82,9 +85,13 @@ def sort_devices(
     journal: list[dict[str, Any]],
     iocs: dict[str, str],
 ) -> dict[str, list[dict[str, Any]]]:
-    """Sort the roster into ``not_live`` and ``in_alarm``; a device may sit in both."""
+    """Sort the roster into ``not_live`` and ``in_alarm`` (a device may sit in both); ``unread`` names the devices without detail."""
     last = {row["device"]: row for row in journal}  # oldest first: the newest wins
     lists: dict[str, list[dict[str, Any]]] = {"not_live": [], "in_alarm": []}
+    # no detail: the roles' verdicts are unknown, not clear; the page must not read "none"
+    lists["unread"] = [
+        {"name": d["name"]} for d in roster if details.get(d["name"]) is None
+    ]
     for device in roster:
         name, state = device["name"], device.get("state") or "unknown"
         detail = details.get(name)
