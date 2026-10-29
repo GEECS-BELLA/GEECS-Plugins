@@ -216,8 +216,21 @@ def test_the_send_drawer_needs_an_absolute_logbook_url(
 KEEP_NONE = KEEP_HIGH.replace('"low": 11, "high": 40', '"low": 1000, "high": 2000')
 
 
-def test_a_filter_keeping_no_shot_draws_an_empty_plot(client: TestClient) -> None:
-    """Zero kept shots is an answer ("0 / 4 pass"), not a missing column."""
+def _rebuilt(body: dict, share: Path) -> list:
+    """The snippet's figure data, run against the same share."""
+    code = body["code"].replace(
+        "experiment='Testexp'", f"experiment='Testexp', base_path={str(share)!r}"
+    )
+    namespace: dict = {}
+    exec(code.replace("fig.show()\n", ""), namespace)
+    return figures.page_figure(namespace["fig"])["data"]
+
+
+def test_a_filter_keeping_no_shot_draws_an_empty_plot(
+    client: TestClient, share: Path
+) -> None:
+    """Zero kept shots is an answer ("0 / 4 pass"), not a missing column;
+    the snippet draws the same empty plot."""
     for params in (
         {},
         {"view": "bin"},
@@ -227,9 +240,12 @@ def test_a_filter_keeping_no_shot_draws_an_empty_plot(client: TestClient) -> Non
         body = _figure(client, filters=KEEP_NONE, **params)
         assert (body["pass"], body["total"]) == (0, 4)
         assert body["figure"]["data"][0]["y"] == []
+        assert _rebuilt(body, share)[0]["y"] == []
 
 
-def test_a_y_with_no_value_left_still_draws_the_others(client: TestClient) -> None:
+def test_a_y_with_no_value_left_still_draws_the_others(
+    client: TestClient, share: Path
+) -> None:
     """Shot 3 alone: its charge is NaN, its jet is not; Y1 draws, Y2 is a gap."""
     only_3 = KEEP_HIGH.replace(CHARGE, "Shotnumber").replace(
         '"low": 11, "high": 40', '"low": 2.5, "high": 3.5'
@@ -238,6 +254,7 @@ def test_a_y_with_no_value_left_still_draws_the_others(client: TestClient) -> No
     y1, y2 = body["figure"]["data"][0], body["figure"]["data"][1]
     assert y1["y"] == [2.0] and y2["y"] == [None]
     assert body["pass"] == 1
+    assert [t["y"] for t in _rebuilt(body, share)] == [[2.0], [None]]
 
 
 def test_a_saved_filter_on_a_column_this_scan_lacks_says_so(client: TestClient) -> None:

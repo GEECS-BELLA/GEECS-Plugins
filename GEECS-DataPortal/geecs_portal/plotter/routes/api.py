@@ -255,17 +255,28 @@ def figure_code(
         f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
         "frame = scans.load_frame(run)\n"
     )
-    if filters is not None and filters.active_groups():
-        head += (
-            "from geecs_data_utils.data.row_filters import RowFilters, apply_filters\n"
-            f"frame = apply_filters(frame, RowFilters.model_validate_json("
-            f"{filters.model_dump_json()!r}))\n"
-        )
+    filtering = filters is not None and bool(filters.active_groups())
+    keep = (
+        "from geecs_data_utils.data.row_filters import RowFilters, apply_filters\n"
+        "kept = apply_filters(frame, RowFilters.model_validate_json("
+        f"{filters.model_dump_json()!r}))\n"
+        if filtering and filters is not None
+        else ""
+    )
     if cfg is not None:
-        return head + _binned_code(cfg, ys, drawn, x, x_label, y_labels, display_arg)
+        binned = head + keep + ("frame = kept\n" if filtering else "")
+        return binned + _binned_code(cfg, ys, drawn, x, x_label, y_labels, display_arg)
+    # As the endpoint: columns are read off the whole scan, then cut to the
+    # kept shots, so a filter that keeps none still draws (an empty plot).
+    series = (
+        "series = {n: v.loc[kept.index] for n, v in "
+        f"scans.plot_series(frame, {names!r}).items()}}\n"
+        "frame = kept\n"
+        if filtering
+        else f"series = scans.plot_series(frame, {names!r})\n"
+    )
     return (
-        head + f"series = scans.plot_series(frame, {names!r})\n"
-        f"{fitting}"
+        head + keep + series + f"{fitting}"
         f"fig = figures.shots_figure(series, {y_arg}{x_arg}, shot=scans.shot_axis(frame)"
         f"{labels}{fit_arg}{display_arg})\n"
         "fig.show()\n"
