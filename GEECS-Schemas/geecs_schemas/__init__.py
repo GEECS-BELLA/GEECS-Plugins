@@ -49,6 +49,24 @@ from geecs_schemas.epics import (
     NativeDevice,
     NativeDevices,
 )
+from geecs_schemas.epics.family import (
+    REGISTRY_KIND_FAMILIES,
+    FamilyAction,
+    FamilyFile,
+    Role,
+    load_families,
+)
+from geecs_schemas.epics.panel_devices import (
+    PANEL_DEVICES_FILENAME,
+    PanelDevice,
+    PanelDevices,
+)
+from geecs_schemas.epics.operations import (
+    OPERATOR_POLICY_FILENAME,
+    JournalEntry,
+    OperatorGrant,
+    OperatorPolicy,
+)
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
@@ -154,6 +172,20 @@ __all__ = [
     "EpicsMotor",
     "DETECTOR_KINDS",
     "NATIVE_DEVICES_FILENAME",
+    # epics.family / epics.panel_devices (the web estate's device data)
+    "FamilyFile",
+    "FamilyAction",
+    "Role",
+    "load_families",
+    "REGISTRY_KIND_FAMILIES",
+    "PanelDevices",
+    "PanelDevice",
+    "PANEL_DEVICES_FILENAME",
+    # epics.operations (GeecsCanopy's device module: who may write, what was tried)
+    "OperatorPolicy",
+    "OperatorGrant",
+    "OPERATOR_POLICY_FILENAME",
+    "JournalEntry",
     # experiment_defaults
     "ExperimentDefaults",
     "DefaultActions",
@@ -216,6 +248,10 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "archive_policy": ArchivePolicy,
     "shot_offsets": ShotOffsets,
     "native_devices": NativeDevices,
+    "family_file": FamilyFile,
+    "panel_devices": PanelDevices,
+    "operator_policy": OperatorPolicy,
+    "journal_entry": JournalEntry,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,

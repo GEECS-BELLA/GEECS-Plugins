@@ -1,0 +1,47 @@
+[tool.poetry]
+name = "geecs-canopy"
+version = "0.1.0"
+description = "SLAC's Canopy as the GEECS display backend: the deploy recipe (digest-pinned image, Postgres, Redis, workers, keys) and the Raccoon directory adapter over GEECS's device knowledge."
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+license = "BSD-3-Clause"
+homepage = "https://github.com/GEECS-BELLA/GEECS-Plugins"
+repository = "https://github.com/GEECS-BELLA/GEECS-Plugins"
+keywords = ["GEECS", "EPICS", "Canopy", "directory"]
+
+packages = [{ include = "geecs_canopy" }]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: POSIX :: Linux",
+]
+
+[tool.poetry.urls]
+"Source (subdir)" = "https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/GeecsCanopy"
+"Issues" = "https://github.com/GEECS-BELLA/GEECS-Plugins/issues"
+
+# Canopy itself is NOT a dependency: it is the host process (its image, Python
+# 3.12), and the adapter imports canopy.raccoon.adapters.base when it is built.
+# The ceiling is Canopy's 3.12; CI runs 3.11.
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+pyyaml = ">=6.0"
+geecs-core = { path = "../GEECS-Core", develop = true }
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+# FastAPI is Canopy's (the module's routes run inside its process); here only
+# for the tests, at the image's versions.
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.1"
+pytest-asyncio = ">=0.23"
+fastapi = "0.136.1"
+httpx = "0.28.1"
+
+[build-system]
+requires = ["poetry-core>=1.8"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

@@ -116,6 +116,17 @@ def _find_credentials() -> dict:
     return _credentials
 
 
+def use_credentials(credentials: Optional[dict]) -> None:
+    """Connect with these parameters instead of the ``config.ini`` lookup.
+
+    For a process that is not a GEECS client (a service container with a
+    read-only user from its secrets file). Keys: ``host``, ``port``,
+    ``database``, ``user``, ``password``. ``None`` restores the lookup.
+    """
+    global _credentials
+    _credentials = None if credentials is None else dict(credentials)
+
+
 # Bound on the TCP connect to the DB host.  On the lab network connections
 # complete in milliseconds; off-network the OS default lets a connect block
 # for ~75 s per query.  Module-level so callers with unusual links can tune it.

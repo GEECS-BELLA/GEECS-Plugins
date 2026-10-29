@@ -17,7 +17,8 @@ docs site), or launch Claude Code from the repo root and type
 
 ## Setup
 
-- Python **3.11** (`>=3.11,<3.12`) and Poetry. `poetry install` at the repo
+- Python **3.11** (`>=3.11,<3.12`; GeecsCanopy, GEECS-Core and GEECS-Schemas
+  allow `<3.13` for Canopy's 3.12 image) and Poetry. `poetry install` at the repo
   root builds the main dev environment; each package can also be installed
   standalone from its own directory.
 - Some packages need extras for their full test suite:

@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{ include = "geecs_core" }]
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.12"
+python = ">=3.11,<3.13"
 # Deliberately thin (see DESIGN.md): transport/ and the contracts are
 # stdlib-only; db/ needs pydantic (AlarmLimits model) and mysql-connector
 # (imported lazily — the package imports fine without lab access).
