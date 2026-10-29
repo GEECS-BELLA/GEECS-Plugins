@@ -130,7 +130,10 @@ def main() -> None:
         config_editor=args.config_editor,
         logbook_url=args.logbook_url,
         plotter=create_plotter(
-            args.experiment, settings_dir=args.settings_dir, mount="/plot"
+            args.experiment,
+            settings_dir=args.settings_dir,
+            mount="/plot",
+            logbook_url=args.logbook_url,
         ),
     )
     uvicorn.run(

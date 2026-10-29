@@ -498,18 +498,40 @@ rules that are the portal's own:
   (`adopt_plotter_sets`: never overwriting, never deleting). On the
   service host, name the folder through `config.ini` or
   `--settings-dir` in `GEECS_PORTAL_EXTRA_ARGS` (`DEPLOYMENT.md`).
+- **The old Plot tab's tools** (the author's list, 2026-10-28) are the
+  page's too, each a field of the set as the JSON text the scan page
+  carried in its URL, checked with the same parsers (`analysis.parse_*`):
+  the **shot filters** (`shot_filters`; the rail's chips and a drawer,
+  live count from `/plot/api/filter-count`) narrow the shots before
+  anything is drawn, the **binned view** (`xy_view`, `bin_config`: the
+  scan page's `/binned` on this page's three-slot axes,
+  `plotter.figures.binned_figure`; no fit is made to bin centres), the
+  **display settings** (`display`: server-side through the portal's own
+  helpers, the raw `layout` patch merged in the browser only) and the
+  toolbar's **copy** and **send to the scan's log entry**, which posts to
+  the portal's `/api/run/{uid}/logbook` with the run's uid (only with an
+  absolute `--logbook-url`). `plot_tools.js` holds them; `/plot/api/figure`
+  takes `view`, `filters`, `bincfg` and `display`, and its `code` rebuilds
+  either view.
 - **Accepted debt, for the next PR of the arc:** `plotter/figures.py` is
   GeecsPlotter's copy of `figures.py`, and the scan page still carries
   its old plot pane, hidden while the plotter is mounted. The next PR
-  gives the plotter page the old pane's binned view, shot filters,
-  send-to-log and display settings (the author's list), then deletes the
-  pane and folds the two figure modules into one, with the other
+  deletes the pane (its tools are the page's now, above) and folds the
+  two figure modules into one, with the other
   duplicates the move brought in (`plotter/scans.default_x` is
   `routes/plot_api._default_x`; `scans.display_name` overlaps
   `_pretty_names`). That PR also hands the plotter the portal's catalog
   (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
   folder-only even under `--tiled`; the folder catalog caches finished
-  scans itself) and the experiment as a parameter. The page's "Image
+  scans itself) and the experiment as a parameter. The same PR folds what
+  #1192's port left twice: `plotter.figures.binned_figure` beside
+  `figures.binned_figure` (the binning itself is already one,
+  `analysis.binned_series`), the private `figures._apply_display` /
+  `_marker_size` the plotter imports, the logbook-send client and the
+  layout `deepMerge` in both `plot_tools.js` and `run.html` (one shared
+  script under `static/`), and the filter and setting rows the plotter
+  page takes from `portal.css` (kit components, through `kit.html`, once
+  the scan page's rail filters are gone). The page's "Image
   strip" view is GeecsPlotter's too, until it joins the Images tab.
 
 ## Adding an analysis tab (the checklist)

@@ -26,6 +26,10 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from geecs_data_utils.data.curve_fit import CurveFit, fit_curve
 
+# The plot cosmetics (the scan page's display JSON) are the portal's: one
+# reading of a custom colour, a marker size and the axis ranges and logs.
+from geecs_portal.figures import _apply_display, _marker_size, trace_color
+
 
 #: GEECSplotter's Y1, Y2 and Y3: the most Y columns one figure draws.
 MAX_Y = 3
@@ -161,7 +165,11 @@ def base_layout(palette: Palette) -> dict:
     }
 
 
-def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
+def _y_axes(
+    axes: Sequence[tuple[int, str]],
+    palette: Palette,
+    display: Optional[Mapping] = None,
+) -> dict:
     """The y-axis ladder, one axis per trace, each in its trace's colour.
 
     After the portal's ``_multi_y_layout``, with the third axis moved:
@@ -177,7 +185,8 @@ def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
     window.
 
     *axes* is ``(slot, title)`` per drawn trace: the slot (0–2, the Y list
-    it came from) decides colour and axis id, so Y3 is Y3 with Y2 off.
+    it came from) decides colour and axis id, so Y3 is Y3 with Y2 off. A
+    custom colour in *display* colours its axis as it does its trace.
     """
     layout: dict = {
         "showlegend": len(axes) > 1,
@@ -186,7 +195,7 @@ def _y_axes(axes: Sequence[tuple[int, str]], palette: Palette) -> dict:
     }
     right = 0
     for i, title in axes:
-        colour = palette.trace[i]
+        colour = trace_color(display, i, palette)
         axis: dict = {
             "automargin": True,
             "zerolinecolor": palette.grid,
@@ -272,6 +281,7 @@ def shots_figure(
     y_label: Optional[str] = None,
     y_labels: Sequence[Optional[str]] = (),
     fits: Sequence[Optional[CurveFit]] = (),
+    display: Optional[Mapping] = None,
     palette: Palette = NOTEBOOK_PALETTE,
 ) -> go.Figure:
     """The per-shot scatter: one marker trace per Y column, against ``x``.
@@ -300,6 +310,10 @@ def shots_figure(
         One per Y slot (:func:`fit_columns`): each fit made is drawn as a
         dashed line over its fitted range, on its slot's axis, in its
         slot's colour.
+    display : Mapping, optional
+        The plot cosmetics (``geecs_portal.analysis.parse_display``): log
+        axes, X and first-Y ranges, marker size, plot size, a colour per
+        slot. Its raw ``layout`` patch is the browser's to merge.
     palette : Palette, optional
         :data:`NOTEBOOK_PALETTE` (default) or :data:`THEMED_PALETTE`.
 
@@ -324,7 +338,10 @@ def shots_figure(
             y=list(series[name]),
             mode="markers",
             name=title,
-            marker={"color": palette.trace[i], "size": 5.0},
+            marker={
+                "color": trace_color(display, i, palette),
+                "size": _marker_size(display),
+            },
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
     for i, _, title in drawn:
@@ -337,13 +354,98 @@ def shots_figure(
             y=curve_y.tolist(),
             mode="lines",
             name=f"{title}: {FITS.get(fit.model, fit.model)} fit",
-            line={"color": palette.trace[i], "dash": "dash", "width": 2},
+            line={
+                "color": trace_color(display, i, palette),
+                "dash": "dash",
+                "width": 2,
+            },
             hoverinfo="skip",
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
     layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": (x_label or x) if x else "shot #"}
     del layout["yaxis"]
-    layout.update(_y_axes([(i, title) for i, _, title in drawn], palette))
+    layout.update(_y_axes([(i, title) for i, _, title in drawn], palette, display))
+    _apply_display(layout, display, x_is_date=False, y_is_date=False)
+    fig.update_layout(layout)
+    return fig
+
+
+def binned_figure(
+    bins: Sequence,
+    series: Mapping[str, Mapping[str, Sequence]],
+    y: Union[str, Sequence[Optional[str]]],
+    *,
+    bin_col: str = "Bin #",
+    x_values: Optional[Sequence] = None,
+    x_label: Optional[str] = None,
+    y_labels: Sequence[Optional[str]] = (),
+    display: Optional[Mapping] = None,
+    palette: Palette = NOTEBOOK_PALETTE,
+) -> go.Figure:
+    """The binned plot: each bin's centre and error bars, Y1–Y3 in their slots.
+
+    The portal's binned view (``geecs_portal.figures.binned_figure``) on
+    this page's axis ladder: bins group the shots (``bin_col``), the X
+    column's per-bin mean places them.
+
+    Parameters
+    ----------
+    bins : Sequence
+        The bin labels: the X axis when no ``x_values`` are given.
+    series : Mapping[str, Mapping[str, Sequence]]
+        Column → ``{"center", "err_low", "err_high"}``, one value per bin
+        (``geecs_data_utils.data.binning.bin_frame``'s columns).
+    y : str or Sequence[str or None]
+        As :func:`shots_figure`: the Y slots, ``None`` for one off.
+    bin_col : str, optional
+        The X title when plotting against the bin labels.
+    x_values : Sequence, optional
+        Per-bin X positions, aligned one-to-one with ``bins``.
+    x_label : str, optional
+        The X title for ``x_values``.
+    y_labels, display, palette
+        As :func:`shots_figure`.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        Exactly what the page draws in the binned view, up to palette.
+    """
+    ys = [y] if isinstance(y, str) else list(y)
+    if not 1 <= len(ys) <= MAX_Y or not ys[0]:
+        raise ValueError(f"plot 1 to {MAX_Y} Y columns, Y1 first, not {ys!r}")
+    labels = list(y_labels) + [None] * (len(ys) - len(y_labels))
+    drawn = [(i, name, labels[i] or name) for i, name in enumerate(ys) if name]
+    positions = list(x_values) if x_values is not None else list(bins)
+    fig = go.Figure(layout={"template": pio.templates["none"]})
+    empty = {"center": [], "err_low": [], "err_high": []}
+    for i, name, title in drawn:
+        values = series.get(name) or empty
+        colour = trace_color(display, i, palette)
+        fig.add_scatter(
+            x=positions,
+            y=list(values["center"]),
+            mode="markers+lines",
+            name=title,
+            marker={"color": colour, "size": _marker_size(display) + 1},
+            line={"color": colour, "width": 1},
+            error_y={
+                "type": "data",
+                "symmetric": False,
+                "array": list(values["err_high"]),
+                "arrayminus": list(values["err_low"]),
+                "color": colour,
+                "thickness": 1,
+            },
+            yaxis="y" if i == 0 else f"y{i + 1}",
+        )
+    layout = base_layout(palette)
+    layout["xaxis"]["title"] = {
+        "text": (x_label or bin_col) if x_values is not None else bin_col
+    }
+    del layout["yaxis"]
+    layout.update(_y_axes([(i, title) for i, _, title in drawn], palette, display))
+    _apply_display(layout, display, x_is_date=False, y_is_date=False)
     fig.update_layout(layout)
     return fig

@@ -20,9 +20,9 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
-from geecs_data_utils.data.binning import BinningConfig
+from geecs_data_utils.data.binning import BinningConfig, bin_frame
 from geecs_data_utils.data.row_filters import RowFilters
 from geecs_data_utils.scan_grid import GridConfig
 
@@ -361,6 +361,54 @@ def jsonable_datetimes(series: Any, epoch: str) -> list:
     return out
 
 
+def binned_series(
+    frame: Any,  # pandas.DataFrame: the kept shots
+    cfg: BinningConfig,
+    columns: Sequence[str],
+    x: Optional[str] = None,
+) -> tuple[Any, dict, Optional[list]]:
+    """Bin *columns* of *frame*: the binned views' one call into ``bin_frame``.
+
+    Bins group the shots (``cfg.bin_col``); with an *x*, each bin is
+    placed at that column's per-bin mean, reindexed onto the Y bins (X's
+    own dropna may keep other bins, and a point must never plot at another
+    bin's position; a bin X lacks is a null, which Plotly skips).
+
+    Returns
+    -------
+    tuple
+        ``(result, series, x_centers)``: ``bin_frame``'s result, column →
+        ``{"center", "err_low", "err_high"}`` as JSON values (columns
+        ``bin_frame`` dropped are left out), and the X positions or ``None``.
+
+    Raises
+    ------
+    KeyError
+        The bin column is not in *frame*.
+    TypeError, ValueError
+        A column ``bin_frame`` cannot aggregate, or degenerate percentiles.
+    """
+    result = bin_frame(frame, dataclasses.replace(cfg, value_cols=tuple(columns)))
+    x_centers = None
+    if x:
+        x_result = bin_frame(
+            frame, dataclasses.replace(cfg, value_cols=(x,), agg="mean")
+        )
+        if (x, "center") in x_result.frame.columns:
+            x_centers = jsonable_values(
+                x_result.frame[(x, "center")].reindex(result.frame.index)
+            )
+    series = {
+        column: {
+            part: jsonable_values(result.frame[(column, part)])
+            for part in ("center", "err_low", "err_high")
+        }
+        for column in columns
+        if (column, "center") in result.frame.columns
+    }
+    return result, series, x_centers
+
+
 def jsonable_labels(index: Any) -> list:
     """Bin labels (a frame index) as JSON-safe scalars.
 
@@ -422,7 +470,7 @@ def _snippet_filters(filters: RowFilters) -> str:
     )
 
 
-def _snippet_display(display: Optional[dict]) -> str:
+def snippet_display(display: Optional[dict]) -> str:
     """Render the snippet's ``display=`` argument text.
 
     Empty when no cosmetics are set; the ``layout`` key is client-side
@@ -481,7 +529,7 @@ def frame_code(
         + "from geecs_portal.figures import shots_figure"
         + "  # pip install geecs-data-portal\n"
         + f"shots_figure(frame, y={columns!r}{x_arg}{kinds_arg}"
-        + f"{_snippet_display(display)})"
+        + f"{snippet_display(display)})"
         + "  # the figure the Plot tab renders\n"
     )
 
@@ -590,6 +638,6 @@ def binned_code(
         + '               for s in ("center", "err_low", "err_high")}\n'
         + f"          for c in {columns!r} if (c, 'center') in result.frame}}\n"
         + f"binned_figure({x_args}, y={columns!r}, "
-        + f"bin_col={cfg.bin_col!r}{_snippet_display(display)})"
+        + f"bin_col={cfg.bin_col!r}{snippet_display(display)})"
         + "  # the figure the Plot tab renders\n"
     )

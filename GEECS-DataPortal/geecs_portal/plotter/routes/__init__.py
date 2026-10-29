@@ -27,6 +27,9 @@ class Context:
     templates: Jinja2Templates
     catalog: FolderScanCatalog
     store: SettingsStore
+    #: Whether the plot can be sent to the scan's logbook entry (the portal
+    #: has an absolute ``--logbook-url``; its route does the sending).
+    logbook_send: bool = False
 
     def run(self, day: date, scan: int) -> RunDetail:
         """The scan, or a 404 naming what was looked for."""

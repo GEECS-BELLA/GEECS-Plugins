@@ -50,6 +50,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "image_strip": ("bins", "shots"),
     "image_layout": ("grid", "row"),
     "image_zscale": ("tile", "shared", "fixed"),
+    "xy_view": ("shot", "bin"),
 }
 
 #: A fit name as stored: GEECSplotter's Fit menu (``figures.FITS``) or one
@@ -167,6 +168,15 @@ class PlotterSettings(BaseModel):
     #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
     #: (x right, y down, the end excluded); a camera not here is whole.
     image_rois: dict[str, list[int]] = Field(default_factory=dict)
+    #: The XY plot per shot or binned (each bin's centre and error bars).
+    xy_view: str = "shot"
+    #: The plot's shot filters, the bin settings and the plot cosmetics,
+    #: as the JSON text the portal's scan page carried in its URL
+    #: (``filters``, ``bincfg``, ``display``) and checks with the same
+    #: parsers (:mod:`geecs_portal.analysis`); empty is none / the defaults.
+    shot_filters: str = ""
+    bin_config: str = ""
+    display: str = ""
 
 
 def set_name(name: str) -> str:
@@ -404,6 +414,17 @@ FORM_FIELDS = {
     "zscale": "image_zscale",
     "zmin": "image_zmin",
     "zmax": "image_zmax",
+    "view": "xy_view",
+    "filters": "shot_filters",
+    "bincfg": "bin_config",
+    "display": "display",
+}
+
+#: The JSON-text fields and the portal parser each must pass.
+_JSON_FIELDS = {
+    "shot_filters": "parse_filters",
+    "bin_config": "parse_bincfg",
+    "display": "parse_display",
 }
 
 _BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
@@ -514,4 +535,11 @@ def _text_value(key: str, value: str) -> object:
         raise ValueError("is not a colour-map name")
     if key == "image_device" and not value:
         return None
+    if key in _JSON_FIELDS and value:
+        from geecs_portal import analysis
+
+        try:
+            getattr(analysis, _JSON_FIELDS[key])(value)
+        except analysis.BadParam as bad:
+            raise ValueError(str(bad)) from None
     return value

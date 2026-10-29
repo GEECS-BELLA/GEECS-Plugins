@@ -99,6 +99,7 @@ _SURFACES = [
     "GEECS-DataPortal/geecs_portal/plotter/templates/index.html",
     "GEECS-DataPortal/geecs_portal/plotter/static/plotter.css",
     "GEECS-DataPortal/geecs_portal/plotter/static/plotter.js",
+    "GEECS-DataPortal/geecs_portal/plotter/static/plot_tools.js",
     "GeecsLogbook/geecs_logbook/static/scanlog.css",
     "GeecsLogbook/geecs_logbook/templates/day.html",
     "GeecsLogbook/geecs_logbook/templates/month.html",
