@@ -1,8 +1,10 @@
 """Run the GEECS Data Portal: ``geecs-data-portal`` / ``python -m geecs_portal``.
 
-Injects the real catalog (``TiledScanCatalog.from_config()`` — the
-``[tiled]`` section of ``~/.config/geecs_python_api/config.ini``) and
-serves with uvicorn.  The service is read-only except explicit analysis
+Injects the real catalog and serves with uvicorn. The catalog is the
+data share's scan folders (``FolderScanCatalog``), read directly; with
+``--tiled`` it is the Tiled catalog (the ``[tiled]`` section of
+``~/.config/geecs_python_api/config.ini``) with every scan folder Tiled
+does not claim beside it, which is what the lab service runs.  The service is read-only except explicit analysis
 runs; see the package ``CLAUDE.md``.
 """
 
@@ -32,6 +34,16 @@ def main() -> None:
         help="default experiment for day listings (query param overrides)",
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument(
+        "--tiled",
+        action="store_true",
+        help=(
+            "list runs from the Tiled catalog (config.ini [tiled]) as well as "
+            "the scan folders. Off by default: the scan folders alone, read "
+            "straight off the share, so a machine that cannot reach Tiled "
+            "never waits for it. The lab service passes it"
+        ),
+    )
     parser.add_argument(
         "--processing-configs",
         default="",
@@ -89,12 +101,16 @@ def main() -> None:
     from geecs_portal.cache import CachingScanCatalog
 
     # Completed runs are immutable: cache their details so plot/image
-    # requests stop re-downloading the full event table from Tiled.
-    # Scan folders no Tiled run claims (Master Control scans, other
-    # experiments) list beside the runs.
-    catalog = CachingScanCatalog(
+    # requests stop re-reading them. With Tiled, scan folders no Tiled run
+    # claims (Master Control scans, other experiments) list beside the
+    # runs, and an unreachable Tiled is skipped for a while after it fails
+    # rather than costing every page its connect timeout.
+    source = (
         MergedScanCatalog(TiledScanCatalog.from_config(), FolderScanCatalog())
+        if args.tiled
+        else FolderScanCatalog()
     )
+    catalog = CachingScanCatalog(source)
     app = create_app(
         catalog,
         default_experiment=args.experiment,

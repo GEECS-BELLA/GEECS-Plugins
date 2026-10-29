@@ -367,6 +367,47 @@ class TestMergedScanCatalog:
         with pytest.raises(ConnectionError):
             merged.list_runs("Thomson", DAY)
 
+    def test_a_failed_primary_is_skipped_until_retry_after(self, tmp_path):
+        """An unreachable Tiled is asked once per window, not on every page."""
+        _scan(tmp_path, 1)
+        now = [0.0]
+
+        class _Counting(_Primary):
+            calls = 0
+
+            def list_runs(self, experiment, day):
+                _Counting.calls += 1
+                return super().list_runs(experiment, day)
+
+        primary = _Counting(fail=True)
+        merged = MergedScanCatalog(
+            primary, FolderScanCatalog(tmp_path), retry_after=300, clock=lambda: now[0]
+        )
+        for _ in range(3):
+            assert [r.scan_number for r in merged.list_runs("Thomson", DAY)] == [1]
+        assert _Counting.calls == 1
+        now[0] = 299.0
+        merged.list_runs("Thomson", DAY)
+        assert _Counting.calls == 1
+        # Past the window it is asked again, and a success ends the skipping.
+        now[0] = 301.0
+        primary.fail = False
+        primary.runs = [_summary("uuid-1", 1, 9)]
+        assert [r.uid for r in merged.list_runs("Thomson", DAY)] == ["uuid-1"]
+        assert _Counting.calls == 2
+        now[0] = 302.0
+        merged.list_runs("Thomson", DAY)
+        assert _Counting.calls == 3
+
+    def test_a_skipped_primary_with_no_folders_still_reports_the_outage(self, tmp_path):
+        now = [0.0]
+        merged = MergedScanCatalog(
+            _Primary(fail=True), FolderScanCatalog(tmp_path), clock=lambda: now[0]
+        )
+        for _ in range(2):
+            with pytest.raises(ConnectionError):
+                merged.list_runs("Thomson", DAY)
+
     def test_load_run_routes_by_uid(self, tmp_path):
         _scan(tmp_path, 1)
         primary = _Primary()

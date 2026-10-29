@@ -33,7 +33,11 @@ restart between runs.
 - Ubuntu with **Python 3.11** and **Poetry** on the service account
   (same account and tooling as the other services on the box).
 - `~/.config/geecs_python_api/config.ini` with a `[tiled]` section
-  (`uri`, `api_key`) and a `[Paths]` section whose
+  (`uri`, `api_key`), read because the unit passes `--tiled` (without it
+  the portal lists the share's scan folders alone — the default, for a
+  laptop that cannot reach Tiled; a unit installed before `--tiled`
+  existed lists folders only until it is re-rendered, which every deploy
+  does), and a `[Paths]` section whose
   `geecs_data_local_base_path` points at the mounted data share —
   the same file every GEECS-Plugins package reads.
 - The data share mounted at that path (e.g. `/mnt/<share>/data/`) —
