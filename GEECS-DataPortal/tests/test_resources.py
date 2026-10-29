@@ -172,18 +172,6 @@ class TestGalleryRoutes:
         assert "U_HasoWFS" in response.text
         assert "analysis_status" not in response.text
 
-    def test_selected_device_embeds_image(self, scan_folder):
-        response = _gallery_client(scan_folder).get(
-            "/run/uid-002?device=UC_TestCam&shot=2"
-        )
-        assert "image.png?device=UC_TestCam&amp;shot=2" in response.text
-
-    def test_vendor_device_shows_path_card(self, scan_folder):
-        response = _gallery_client(scan_folder).get("/run/uid-002?device=U_HasoWFS")
-        assert "vendor-SDK format" in response.text
-        assert "U_HasoWFS" in response.text
-        assert "image.png?device=U_HasoWFS" not in response.text
-
     def test_image_endpoint_joins_timestamp_files_via_event_row(self, scan_folder):
         # The frame carries cam-acq_timestamp LabVIEW doubles; shot=2 must
         # serve shot 2's file through the full route, pixel-verified.
@@ -329,18 +317,6 @@ class TestArrayStacks:
         }
         assert codes == {1: 200, 2: 404, 3: 200}
 
-    def test_the_images_tab_draws_a_line_for_a_trace_device(self, scan_folder):
-        client = _gallery_client(scan_folder)
-        page = client.get("/run/uid-002", params={"device": "U_ICT", "tab": "images"})
-        assert 'id="shottrace"' in page.text
-        assert 'id="shotimg"' not in page.text
-        assert "const IS_TRACE = true" in page.text
-        camera = client.get(
-            "/run/uid-002", params={"device": "UC_StackCam", "tab": "images"}
-        )
-        assert 'id="shotimg"' in camera.text and 'id="shottrace"' not in camera.text
-        assert "const IS_TRACE = false" in camera.text
-
     def test_unresolvable_folder_hides_gallery(self, monkeypatch):
         from geecs_data_utils import scan_paths as scan_paths_mod
 
@@ -351,9 +327,6 @@ class TestArrayStacks:
         client = TestClient(create_app(catalog))
         response = client.get("/run/uid-002")
         assert response.status_code == 200
-        # The Images tab exists but offers no device links.
-        assert "No image device folders resolvable" in response.text
-        assert "?device=" not in response.text.replace("&amp;device=", "")
         assert client.get("/run/uid-002/image.png?device=x&shot=1").status_code == 404
 
     def test_api_run_lists_devices_and_device_probes_tiers(self, scan_folder):
@@ -435,41 +408,11 @@ class TestShotBounds:
         assert response.status_code == 404
         assert "beyond" in response.json()["detail"]
 
-    def test_next_link_stops_at_last_event_row(self, scan_folder):
-        client = _gallery_client(scan_folder)
-        at_last = client.get("/run/uid-002?device=UC_TestCam&shot=3")
-        assert "next &rarr;" not in at_last.text
-        mid_run = client.get("/run/uid-002?device=UC_TestCam&shot=2")
-        assert "next &rarr;" in mid_run.text
-
-    def test_shot_param_is_clamped_to_event_rows(self, scan_folder):
-        response = _gallery_client(scan_folder).get(
-            "/run/uid-002?device=UC_TestCam&shot=99"
-        )
-        assert 'name="shot" value="3"' in response.text
-
 
 class TestStickyState:
     """Navigating one control must never silently reset another — the
-    bin view survives shot stepping and device picks, and vice
-    versa (every link goes through the one sticky-query helper)."""
-
-    def test_device_links_keep_the_bin_selection(self, scan_folder):
-        response = _gallery_client(scan_folder).get(
-            "/run/uid-002?view=bin&device=UC_TestCam&shot=2"
-        )
-        # device links keep the per-bin view
-        device_link = next(
-            line for line in response.text.splitlines() if "device=UC_StackCam" in line
-        )
-        assert "view=bin" in device_link
-        # shot prev/next links keep it too
-        nav_lines = [
-            line
-            for line in response.text.splitlines()
-            if "shot=1" in line or "shot=3" in line
-        ]
-        assert nav_lines and all("view=bin" in line for line in nav_lines)
+    day list's filter survives run round-trips (every link goes through
+    the one sticky-query helper)."""
 
     def test_day_navigation_keeps_the_filter(self):
         catalog = FakeCatalog()
@@ -970,17 +913,21 @@ class TestProcessingSelector:
         raw = client.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
         assert "immutable" in raw.headers["cache-control"]  # raw path unchanged
 
-    def test_selector_rendered_only_with_configs(
+    def test_the_choices_are_the_loadable_recipes_only(
         self, scan_folder, configs_tree, analysis_extra
     ):
-        with_configs = self._client(scan_folder, configs_tree).get(
-            "/run/uid-002", params={"device": "cam", "tab": "images"}
-        )
-        assert "procsel" in with_configs.text
-        assert "UC_Crop" in with_configs.text
+        """The device route's ``processing_options``: what the Images page's
+        big view offers on a shot."""
+        device = "/api/run/uid-002/device?device=cam"
+        names = {
+            "names": self._client(scan_folder, configs_tree)
+            .get(device)
+            .json()["processing_options"]
+        }
+        assert "UC_Crop" in names["names"]
         # Discoverable-but-unloadable legacy config: dropped from the
-        # selector (a log line, not a broken image)…
-        assert "UC_Legacy" not in with_configs.text
+        # choices (a log line, not a broken image)…
+        assert "UC_Legacy" not in names["names"]
         # …while a hand-edited URL still gets the honest refusal.
         forced = self._client(scan_folder, configs_tree).get(
             "/run/uid-002/image.png",
@@ -988,18 +935,10 @@ class TestProcessingSelector:
         )
         assert forced.status_code == 400
         assert "Invalid diagnostic" in forced.json()["detail"]
-        # A bookmarked link naming the dropped diagnostic renders it as
-        # a selected "(unavailable)" option — picking raw then fires a
-        # real change event instead of silently showing "raw".
-        bookmarked = self._client(scan_folder, configs_tree).get(
-            "/run/uid-002",
-            params={"device": "cam", "tab": "images", "processing": "UC_Legacy"},
+        # No configured tree: no choice offered.
+        assert (
+            _gallery_client(scan_folder).get(device).json()["processing_options"] == []
         )
-        assert "UC_Legacy (unavailable)" in bookmarked.text
-        without = _gallery_client(scan_folder).get(
-            "/run/uid-002", params={"device": "cam", "tab": "images"}
-        )
-        assert "procsel" not in without.text
 
     def test_processing_error_ladder(self, scan_folder, configs_tree, analysis_extra):
         client = self._client(scan_folder, configs_tree)

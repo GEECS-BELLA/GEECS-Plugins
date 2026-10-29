@@ -17,26 +17,9 @@ from PIL import Image
 
 from geecs_portal.plotter import images, scans
 from geecs_portal.plotter.settings import SettingsError, merged, PlotterSettings
-from tests.plotter.conftest import DAY, EXPERIMENT, post
+from tests.plotter.conftest import CAM, DAY, EXPERIMENT, post
 
-CAM = "UC_Cam"
 SCAN = {"day": "2026-10-02", "scan": 1}
-
-
-@pytest.fixture
-def camera(share: Path) -> Path:
-    """Scan001's camera and vendor folders; shot 3 has no file."""
-    folder = share / EXPERIMENT / "Y2026" / "10-Oct" / "26_1002" / "scans" / "Scan001"
-    cam = folder / CAM
-    cam.mkdir()
-    for shot in (1, 2, 4):
-        frame = np.full((4, 6), 10 * shot, dtype=np.uint16)
-        frame[0, 0] = 1000  # a bright corner, so the window is not flat
-        Image.fromarray(frame).save(cam / f"Scan001_{CAM}_{shot:03d}.png")
-    haso = folder / "U_Haso"
-    haso.mkdir()
-    (haso / "Scan001_U_Haso_001.himg").write_bytes(b"proprietary")
-    return folder
 
 
 def _tree(root: Path) -> list[str]:
@@ -216,10 +199,10 @@ class TestPage:
     def test_the_images_tab_shows_the_strip(
         self, client: TestClient, camera: Path
     ) -> None:
-        first = post(client, scan=1, tab="images")
+        first = post(client, scan=1, page="images")
         assert "pick a camera from the list" in first  # no probing for one
         assert 'id="strip"' not in first
-        page = post(client, scan=1, tab="images", device=CAM)
+        page = post(client, scan=1, page="images", device=CAM)
         assert 'id="strip" class="strip grid"' in page
         assert page.count('class="tile"') == 2
         assert "bin 2 · 2 shots · 2" in page
@@ -232,7 +215,7 @@ class TestPage:
         page = post(
             client,
             scan=1,
-            tab="images",
+            page="images",
             device=CAM,
             strip="shots",
             layout="row",
@@ -248,8 +231,8 @@ class TestPage:
     def test_a_camera_not_in_this_scan_is_kept(
         self, client: TestClient, camera: Path
     ) -> None:
-        post(client, scan=1, tab="images", device=CAM)
-        page = post(client, scan=2)
+        post(client, scan=1, page="images", device=CAM)
+        page = post(client, scan=2, page="images")
         assert f"{CAM} (not in this scan)" in page
         assert f"{CAM} is not in this scan" in page
 
@@ -343,7 +326,7 @@ class TestRoiAndZScale:
     ) -> None:
         client.post("/api/settings/default", data={"device": CAM, "roi": "1,1,6,4"})
         page = post(
-            client, scan=1, tab="images", device=CAM, zscale="fixed", zmin=0, zmax=50
+            client, scan=1, page="images", device=CAM, zscale="fixed", zmin=0, zmax=50
         )
         assert "x 1–6, y 1–4" in page
         assert "roi=1%2C1%2C6%2C4&amp;zmin=0.0&amp;zmax=50.0" in page
@@ -351,7 +334,7 @@ class TestRoiAndZScale:
     def test_a_shared_scale_leaves_the_tiles_to_the_script(
         self, client: TestClient, camera: Path
     ) -> None:
-        page = post(client, scan=1, tab="images", device=CAM, zscale="shared")
+        page = post(client, scan=1, page="images", device=CAM, zscale="shared")
         assert 'data-zscale="shared"' in page
         assert "api/images/levels?day=2026-10-02" in page
         assert "&amp;cmap=" not in page  # no tile asks before the scale is read
@@ -380,7 +363,7 @@ def test_each_tile_runs_from_its_darkest_to_its_brightest_pixel(
     (settings_dir / "default.json").write_text(
         '{"schema_version": 1, "image_plo": 10.0, "image_phi": 99.7}'
     )
-    page = post(client, scan=1, tab="images", device="UC_Spot", strip="shots")
+    page = post(client, scan=1, page="images", device="UC_Spot", strip="shots")
     assert "phi=" not in page and "plo=" not in page
     tile = client.get(
         "/api/images/tile.png",
@@ -409,8 +392,8 @@ def test_fixed_levels_with_white_below_black_say_so(
     client: TestClient, camera: Path
 ) -> None:
     page = post(
-        client, scan=1, tab="images", device=CAM, zscale="fixed", zmin=50, zmax=10
+        client, scan=1, page="images", device=CAM, zscale="fixed", zmin=50, zmax=10
     )
     assert 'id="level-warning" role="alert">' in page  # shown
-    fine = post(client, scan=1, tab="images", device=CAM, zmin=10, zmax=50)
+    fine = post(client, scan=1, page="images", device=CAM, zmin=10, zmax=50)
     assert 'id="level-warning" role="alert" hidden>' in fine

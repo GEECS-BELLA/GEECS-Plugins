@@ -68,3 +68,15 @@
 @media (max-width: 620px) {
   .kit .maps { grid-template-columns: 1fr; }
 }
+
+/* The Images page: a tile is clicked to show it in the big view under the
+   strip; the one shown is marked (aria-current, the state attribute). */
+.kit .strip .tile { cursor: pointer; }
+.kit .strip .tile[aria-current] img { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kit .bigview { margin-top: var(--pad); }
+.kit .bigbar { gap: 6px; align-items: center; flex-wrap: wrap; }
+.kit .big-image { display: block; max-width: 100%; height: auto; margin-top: 6px; background: var(--surface-2); }
+/* One row: only the tiles spread over the scan show (plotter.js). */
+.kit .strip .tile[hidden] { display: none; }
+/* The way back to the day's list of scans, above the tabs. */
+.kit .back-to-day { margin-bottom: 6px; }

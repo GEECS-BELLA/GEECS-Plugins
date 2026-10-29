@@ -55,10 +55,19 @@ from geecs_portal.plotter.settings import (
 _BOOKKEEPING = ("Shotnumber", "Bin #")
 
 
+#: The two pages of one set: the Plot tab (``/``: the XY plot or the 2-D
+#: map) and the Images tab (``/images``: the strip and the big view).
+PAGES = {"plot": "./", "images": "./images"}
+
+
 def _opened(form: dict[str, str], name: str) -> str:
-    """The page URL for *form*'s day and scan under set *name*, relative."""
+    """The page URL for *form*'s day and scan under set *name*, relative.
+
+    The page the form came from (its ``page`` field) is the one reopened.
+    """
     query = {k: form[k] for k in ("day", "scan") if form.get(k)}
-    return "./?" + urlencode({**query, "set": name})
+    path = PAGES.get(form.get("page", ""), PAGES["plot"])
+    return f"{path}?" + urlencode({**query, "set": name})
 
 
 def register(router: APIRouter, ctx: Context) -> None:
@@ -73,35 +82,26 @@ def register(router: APIRouter, ctx: Context) -> None:
         here_day: Optional[date] = None,
         here_scan: Optional[int] = None,
     ) -> Response:
-        """The plotter page; without a day and scan, the set's last scan.
+        """The Plot tab; without a day and scan, the set's last scan.
 
         ``here_day`` / ``here_scan`` are the scan open when the sets list
         switched: kept when the new set has none of its own. A set that
         has never opened a scan, with nothing open, is the empty form.
         Without a set, the page asks the viewer's name (their own set).
         """
-        if name is None:
-            return ctx.templates.TemplateResponse(
-                request,
-                "index.html",
-                {
-                    "experiment": ctx.experiment,
-                    **_page(day, scan, PlotterSettings()),
-                    "ask_name": True,
-                    "set": "",
-                    "sets": [],
-                },
-            )
-        if day is None and scan is None:
-            here = (
-                {"day": here_day.isoformat(), "scan": str(here_scan)}
-                if here_day is not None and here_scan is not None
-                else None
-            )
-            target = _last_scan(ctx, name) or (here and _opened(here, name))
-            if target:
-                return RedirectResponse(target, status_code=303)
-        return _render(ctx, request, day, scan, name)
+        return _entry(ctx, request, "plot", day, scan, name, here_day, here_scan)
+
+    @router.get("/images", response_class=HTMLResponse)
+    def images_page(
+        request: Request,
+        day: Optional[date] = None,
+        scan: Optional[int] = None,
+        name: Optional[str] = Query(None, alias="set"),
+        here_day: Optional[date] = None,
+        here_scan: Optional[int] = None,
+    ) -> Response:
+        """The Images tab: the set's image strip, the big view under it."""
+        return _entry(ctx, request, "images", day, scan, name, here_day, here_scan)
 
     @router.post("/", response_class=HTMLResponse)
     async def apply(request: Request) -> Response:
@@ -114,6 +114,43 @@ def register(router: APIRouter, ctx: Context) -> None:
         return await _save(ctx, request, as_new=True)
 
 
+def _entry(
+    ctx: Context,
+    request: Request,
+    page: str,
+    day: Optional[date],
+    scan: Optional[int],
+    name: Optional[str],
+    here_day: Optional[date],
+    here_scan: Optional[int],
+) -> Response:
+    """Either page of a set: its name asked, its last scan, or the scan."""
+    if name is None:
+        return ctx.templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "experiment": ctx.experiment,
+                **_page(day, scan, PlotterSettings(), page),
+                "ask_name": True,
+                "set": "",
+                "sets": [],
+            },
+        )
+    if day is None and scan is None:
+        here = (
+            {"day": here_day.isoformat(), "scan": str(here_scan)}
+            if here_day is not None and here_scan is not None
+            else None
+        )
+        target = _last_scan(ctx, name, page) or (
+            here and _opened({**here, "page": page}, name)
+        )
+        if target:
+            return RedirectResponse(target, status_code=303)
+    return _render(ctx, request, day, scan, name, page_name=page)
+
+
 def _render(
     ctx: Context,
     request: Request,
@@ -121,6 +158,7 @@ def _render(
     scan: Optional[int],
     name: str,
     *,
+    page_name: str = "plot",
     problem: Optional[str] = None,
     save_as: str = "",
     name_error: Optional[str] = None,
@@ -138,7 +176,7 @@ def _render(
         settings = ctx.store.load(name)
     except SettingsError as bad:
         problem = problem or str(bad)
-    page = _page(day, scan, settings)
+    page = _page(day, scan, settings, page_name)
     page.update(
         {
             "set": name,
@@ -184,6 +222,7 @@ async def _save(ctx: Context, request: Request, *, as_new: bool) -> Response:
             day,
             scan,
             form.get("set", DEFAULT_SET),
+            page_name=form.get("page", "") if form.get("page") in PAGES else "plot",
             problem=None if refused else str(bad),
             save_as=form.get("save_as", ""),
             name_error=str(bad) if refused else None,
@@ -222,7 +261,7 @@ def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
     return target
 
 
-def _last_scan(ctx: Context, name: str) -> Optional[str]:
+def _last_scan(ctx: Context, name: str, page: str = "plot") -> Optional[str]:
     """The page URL for the scan set *name* last opened, if it has one.
 
     A bad name or an unreadable set is left for the page to report.
@@ -233,7 +272,7 @@ def _last_scan(ctx: Context, name: str) -> Optional[str]:
         return None
     if settings.day is None or settings.scan is None:
         return None
-    last = {"day": settings.day.isoformat(), "scan": str(settings.scan)}
+    last = {"day": settings.day.isoformat(), "scan": str(settings.scan), "page": page}
     return _opened(last, set_name(name))
 
 
@@ -257,9 +296,25 @@ def _when(form: dict[str, str]) -> tuple[Optional[date], Optional[int]]:
     )
 
 
-def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -> dict:
-    """The template context before a scan is opened."""
+def _page(
+    day: Optional[date],
+    scan: Optional[int],
+    settings: PlotterSettings,
+    page_name: str = "plot",
+) -> dict:
+    """The template context before a scan is opened.
+
+    ``tab`` is what the pane shows: the Images page's strip, or the Plot
+    page's view (``plot_view``: the XY plot or the 2-D map, which the
+    form saves back; a set saved by an older copy on its image strip
+    opens the XY plot here).
+    """
+    plot_view = _choice(settings, "tab")
+    plot_view = "xy" if plot_view == "images" else plot_view
     return {
+        "page": page_name,
+        "plot_view": plot_view,
+        "tab": "images" if page_name == "images" else plot_view,
         "day": day,
         "scan": scan,
         "error": None,
@@ -311,9 +366,8 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "uid": "",
         "slots": [],
         "caption": "",
-        # The tab, and the image strip's controls. A choice a newer copy
-        # saved that this one lacks shows this copy's default.
-        "tab": _choice(settings, "tab"),
+        # The image strip's controls. A choice a newer copy saved that
+        # this one lacks shows this copy's default.
         "devf": settings.image_device_filter,
         "strip": _choice(settings, "image_strip"),
         "layout": _choice(settings, "image_layout"),
@@ -332,6 +386,7 @@ def _page(day: Optional[date], scan: Optional[int], settings: PlotterSettings) -
         "device_kept": "",
         "device_problem": None,
         "tiles": [],
+        "trace": "",
         "strip_code": "",
     }
 
@@ -478,7 +533,14 @@ def _fill_images(
         page["device_problem"] = "pick a camera from the list"
         return
     if not images.is_image_device(folder, device, devices):
-        page["device_problem"] = f"{device} has no pictures (traces or a vendor format)"
+        trace = images.trace_kind(folder, device, devices)
+        if trace:
+            # No strip: the big view draws one shot's trace at a time.
+            page["trace"] = trace
+            return
+        page["device_problem"] = (
+            f"{device} has no pictures (a vendor format or a file the page cannot draw)"
+        )
         return
     day, scan = page["day"], page["scan"]
     try:

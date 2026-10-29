@@ -65,13 +65,11 @@
   const visitCells = () => data.cells.filter((c) => c.visit === data.config.visit);
   const fmt = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString(undefined, { maximumSignificantDigits: 5 }));
   function imagesUrl(cell) {
-    // The scan page's Images tab, averaged over this cell's acquisition bin.
-    const url = new URL(host.dataset.imagesUrl, location.origin);
-    url.searchParams.set("view", "bin");
-    url.searchParams.set("bincfg", JSON.stringify({ bin_col: data.bin_column, min_count: 1 }));
-    url.searchParams.set("imagebin", String(cell.bin));
-    const filters = form.elements.filters.value;
-    if (filters) url.searchParams.set("filters", filters);
+    // The Images page under this set, its big view on this cell's bin.
+    const url = new URL("images", form.action);
+    url.search = new URLSearchParams({
+      day: host.dataset.day, scan: host.dataset.scan, set: form.elements.set.value, bin: String(cell.bin),
+    }).toString();
     return url.pathname + url.search;
   }
   function select(bin) {

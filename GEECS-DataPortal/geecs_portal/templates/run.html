@@ -2,7 +2,6 @@
 {% block title %}Scan {{ summary.scan_number or uid[:8] }} — GEECS Data Portal{% endblock %}
 {% block head %}
 {% if config_editor %}<link rel="stylesheet" href="{{ root }}/configs/static/editor.css?v={{ portal_version | urlencode }}">{% endif %}
-<script src="{{ root }}/static/plotly-cartesian-3.1.1.min.js"></script>
 {% endblock %}
 {% block shell %}
 <div class="shell wide">
@@ -36,15 +35,8 @@
         {% endif %}
         {% if next_uid %}<a class="btn sm act" href="{{ root }}/run/{{ next_uid }}?{{ qs() }}" title="next scan">scan ›</a>{% else %}<button class="btn sm" type="button" disabled title="no later scan">scan ›</button>{% endif %}
       </div>
-      <div class="note">filters &amp; columns persist across day/scan steps</div>
       <div class="row" id="providers"></div>
       <div class="dim mono uid">{{ uid }}</div>
-    </div>
-    <div class="group">
-      <h4>Filters</h4>
-      <div id="fchips"></div>
-      <div class="count" id="passcount"></div>
-      <div><button class="btn sm" type="button" onclick="openFilters(this)">edit filters…</button></div>
     </div>
   </nav>
 
@@ -52,10 +44,11 @@
     <div class="tabs" role="tablist" aria-label="Scan views">
       <button type="button" role="tab" class="tab" id="tab-overview" aria-controls="pane-overview" aria-selected="false" data-pane="overview" onclick="setTab('overview')">Overview</button>
       {% if plot_page %}
-      {# GEECSplotter's page, mounted at /plot: the Plot tab is a link to it. #}
+      {# The Plot and Images tabs are the plotter's two pages, mounted at
+         /plot, reading the viewer's settings set. #}
       <a role="tab" class="tab" id="tab-plot" aria-selected="false" href="{{ root }}/plot/?day={{ run_day }}&amp;scan={{ scan_number }}">Plot</a>
+      <a role="tab" class="tab" id="tab-images" aria-selected="false" href="{{ root }}/plot/images?day={{ run_day }}&amp;scan={{ scan_number }}">Images</a>
       {% endif %}
-      <button type="button" role="tab" class="tab" id="tab-images" aria-controls="pane-images" aria-selected="false" data-pane="images" onclick="setTab('images')">Images</button>
       {% if analysis_enabled %}
       <button type="button" role="tab" class="tab" id="tab-analysis" aria-controls="pane-analysis" aria-selected="false" data-pane="analysis" onclick="setTab('analysis')">Analysis</button>
       {% endif %}
@@ -72,94 +65,6 @@
         </table>
         </div>
       </div>
-    </section>
-
-    <section role="tabpanel" class="group tabpane" id="pane-images" aria-labelledby="tab-images" hidden>
-      <div id="image-bin-selection" class="note"></div>
-      {% if devices %}
-      <nav class="row devices" aria-label="Devices">
-        {% for dev in devices %}
-        <a class="btn sm ghost carry mono" href="{{ root }}/run/{{ uid }}?{{ qs(device=dev, shot=1, tab="images") }}"{% if dev == sel_device %} aria-current="page"{% endif %}>{{ dev }}</a>
-        {% endfor %}
-      </nav>
-      {% if sel_device %}
-      {% if kind == "vendor" %}
-      <div class="state" data-state="empty">
-        <div class="t">{{ sel_device }} saves a vendor-SDK format the portal cannot render.</div>
-        <div class="m">Files live at: <span class="mono">{{ kind_path }}</span></div>
-      </div>
-      {% elif kind == "unrenderable" %}
-      <div class="state" data-state="empty">
-        <div class="t">{{ sel_device }} saves a file format the portal does not render (trace/array data, not an image).</div>
-        <div class="m">Files live at: <span class="mono">{{ kind_path }}</span></div>
-      </div>
-      {% else %}
-      <div class="row plotbar">
-        {% if is_trace %}
-        {# A trace device has no per-bin view, no ephemeral image
-           diagnostic and no image cosmetics: averaging traces across
-           shots is the consumer's job (each shot carries its own axis),
-           and the rest are pixel controls. #}
-        <span class="dim" title="this device captures {{ content_kind }}s, not images">{{ content_kind }} — one shot at a time</span>
-        {% else %}
-        <div class="seg" role="group" aria-label="Per shot or per-bin average">
-          <button type="button" id="seg-img-shot" aria-pressed="false" onclick="setView('shot')">per-shot</button>
-          <button type="button" id="seg-img-bin" aria-pressed="false" onclick="setView('bin')">per-bin avg</button>
-        </div>
-        <button class="btn sm ghost" type="button" title="bin settings" onclick="openBinset(this)">⚙ bins</button>
-        {% endif %}
-        {% if processing_options %}
-        <label class="dim" title="run an analysis recipe ephemerally on the served pixels (write-free); per-bin view processes each shot, then averages">processing
-          <select class="btn sm" id="procsel" onchange="setProcessing(this.value)">
-            <option value="">raw</option>
-            {% if processing and processing not in processing_options %}
-            {# A bookmarked link naming a since-dropped diagnostic must
-               render as selected (not silently as "raw") so picking
-               raw fires a change event and actually clears it. #}
-            <option value="{{ processing }}" selected>{{ processing }} (unavailable)</option>
-            {% endif %}
-            {% for name in processing_options %}
-            <option value="{{ name }}"{% if name == processing %} selected{% endif %}>{{ name }}</option>
-            {% endfor %}
-          </select></label>
-        {% endif %}
-        {% if not is_trace %}
-        <span class="spacer"></span>
-        <button class="btn sm" type="button" onclick="openImgDisplay(this)">display…</button>
-        {% endif %}
-      </div>
-      <div id="imgshot" class="group">
-      <form class="row" method="get" action="{{ root }}/run/{{ uid }}">
-        <input type="hidden" name="device" value="{{ sel_device }}">
-        <input type="hidden" name="day" value="{{ day }}">
-        <input type="hidden" name="experiment" value="{{ experiment }}">
-        <input type="hidden" name="tab" value="images">
-        {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
-        <input type="hidden" name="processing" id="procfield" value="{{ processing }}">
-        <input type="hidden" name="display" id="dispfield" value="{{ display }}">
-        {% if shot > 1 %}<a class="btn sm carry" href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot - 1, tab="images") }}">&larr; prev</a>{% endif %}
-        <label class="dim">shot
-          <input class="shotbox" type="number" name="shot" value="{{ shot }}" min="1">
-        </label>
-        <button class="btn sm" type="submit">Show</button>
-        {% if has_next_shot %}<a class="btn sm carry" href="{{ root }}/run/{{ uid }}?{{ qs(shot=shot + 1, tab="images") }}">next &rarr;</a>{% endif %}
-        {% if total_shots %}<span class="dim mono">of ~{{ total_shots }}</span>{% endif %}
-        <span class="dim mono">{{ kind }}</span>
-      </form>
-      {% if is_trace %}
-      <div class="plot" id="shottrace"></div>
-      {% else %}
-      <img class="plot" id="shotimg" onerror="imgFailed(this)" src="{{ root }}/run/{{ uid }}/image.png?device={{ sel_device | urlencode }}&amp;shot={{ shot }}&amp;day={{ day | urlencode }}{% if processing %}&amp;processing={{ processing | urlencode }}{% endif %}{% if display %}&amp;display={{ display | urlencode }}{% endif %}" alt="{{ sel_device }} shot {{ shot }}">
-      {% endif %}
-      </div>
-      <div id="imggrid" class="bingrid" hidden></div>
-      {% endif %}
-      {% else %}
-      <div class="state" data-state="empty"><div class="t">Pick a device above.</div></div>
-      {% endif %}
-      {% else %}
-      <div class="state" data-state="empty"><div class="t">No image device folders resolvable for this run.</div></div>
-      {% endif %}
     </section>
 
     {% if analysis_enabled %}
@@ -212,436 +117,50 @@
 </aside>
 {% endif %}
 
-<aside class="drawer" id="modal-filters" role="dialog" aria-modal="false" aria-labelledby="filters-title" aria-hidden="true" data-open="false">
-  <header>
-    <span class="eyebrow" id="filters-title">Filters · AND inside a group, groups OR together</span>
-    <button class="btn sm" type="button" data-drawer-close>Close</button>
-  </header>
-  <div class="body">
-    <div id="fgroups" class="group"></div>
-    <datalist id="all-cols"></datalist>
-    <div><button class="btn sm" type="button" onclick="FDRAFT.groups.push({name:'', enabled:true, conditions:[]}); renderFilterModal();">+ OR group</button></div>
-    <div class="setrow">
-      <label for="nanpolicy">rows with NaN</label>
-      <select id="nanpolicy" onchange="FDRAFT.nan_policy=this.value; draftCount();">
-        <option value="exclude">exclude (fail the condition)</option>
-        <option value="keep">keep (pass the condition)</option>
-      </select>
-    </div>
-    <div class="count" id="draftcount"></div>
-    <div class="row end">
-      <button class="btn" type="button" onclick="settleDraft('modal-filters')">Cancel</button>
-      <button class="btn primary" type="button" onclick="applyFilters()">Apply</button>
-    </div>
-  </div>
-</aside>
-
-<aside class="drawer" id="modal-binset" role="dialog" aria-modal="false" aria-labelledby="binset-title" aria-hidden="true" data-open="false">
-  <header>
-    <span class="eyebrow" id="binset-title">Bin settings</span>
-    <button class="btn sm" type="button" data-drawer-close>Close</button>
-  </header>
-  <div class="body">
-    <div class="setrow"><label for="bs-col">bin column</label>
-      <input id="bs-col" list="all-cols" class="mono"></div>
-    <div class="setrow"><label for="bs-width">bin width</label>
-      <input id="bs-width" class="narrow" placeholder="(identity)">
-      <span class="note">blank = group by exact value</span></div>
-    <div class="setrow"><label for="bs-agg">center</label>
-      <select id="bs-agg"><option>median</option><option>mean</option></select></div>
-    <div class="setrow"><label for="bs-err">error band</label>
-      <select id="bs-err">
-        <option value="iqr">quartiles (25–75%)</option>
-        <option value="percentile">percentiles…</option>
-        <option value="std">std</option>
-        <option value="stderr">std / √N</option>
-        <option value="mad">MAD</option>
-      </select></div>
-    <div class="setrow"><label>percentiles</label>
-      <input id="bs-plo" class="tiny" value="0.25"> <span class="dim">–</span>
-      <input id="bs-phi" class="tiny" value="0.75"></div>
-    <div class="setrow"><label for="bs-min">min shots / bin</label>
-      <input id="bs-min" class="tiny" value="1"></div>
-    <div class="row end">
-      <button class="btn" type="button" onclick="settleDraft('modal-binset')">Cancel</button>
-      <button class="btn primary" type="button" onclick="applyBinset()">Apply</button>
-    </div>
-  </div>
-</aside>
-
-{% if logbook_send %}
-<aside class="drawer" id="modal-sendlog" role="dialog" aria-modal="false" aria-labelledby="sendlog-title" aria-hidden="true" data-open="false">
-  <header>
-    <span class="eyebrow" id="sendlog-title">Send plot to the scan log</span>
-    <button class="btn sm" type="button" data-drawer-close>Close</button>
-  </header>
-  <div class="body">
-    <div id="sl-form" class="group">
-      <div class="setrow"><label for="sl-author">your name</label>
-        <input id="sl-author" placeholder="who is logging this"></div>
-      <div class="setrow"><label for="sl-caption">caption</label>
-        <input id="sl-caption"></div>
-      <div class="setrow" id="sl-targetrow" hidden><label for="sl-target">add to</label>
-        <select id="sl-target">
-          <option value="same">the entry this page already made</option>
-          <option value="new">a new entry</option>
-        </select></div>
-      <p class="note">The plot goes to this scan's card in the logbook as a
-      PNG, with a link back to this exact view. Plots added to the same entry lay themselves out
-      as a figure grid.</p>
-      <div class="row end">
-        <button class="btn" type="button" data-drawer-close>Cancel</button>
-        <button class="btn primary" type="button" id="sl-send" onclick="confirmSendToLogbook()">Send</button>
-      </div>
-    </div>
-    <div id="sl-done" class="group" hidden>
-      <p id="sl-doneword">Sent.</p>
-      <div class="row end">
-        <button class="btn" type="button" data-drawer-close>Close</button>
-        <a class="btn primary" id="sl-open" href="#" target="_blank" rel="noopener">Open the entry ↗</a>
-      </div>
-    </div>
-  </div>
-</aside>
-{% endif %}
-
-<!-- images display drawer: colormap + percentile window -->
-<aside class="drawer" id="modal-imgdisplay" role="dialog" aria-modal="false" aria-labelledby="imgdisplay-title" aria-hidden="true" data-open="false">
-  <header>
-    <span class="eyebrow" id="imgdisplay-title">Image display</span>
-    <button class="btn sm" type="button" data-drawer-close>Close</button>
-  </header>
-  <div class="body">
-    <div class="setrow"><label for="id-cmap">colormap</label>
-      <select id="id-cmap">
-        <option value="">grayscale</option>
-        <option value="viridis">viridis</option>
-        <option value="magma">magma</option>
-        <option value="inferno">inferno</option>
-        <option value="plasma">plasma</option>
-        <option value="turbo">turbo</option>
-        <option value="jet">jet</option>
-        <option value="hot">hot</option>
-      </select></div>
-    <div class="setrow"><label>window percentiles</label>
-      <input id="id-plo" class="tiny"> <span class="dim">–</span>
-      <input id="id-phi" class="tiny"></div>
-    <div class="setrow"><label for="id-mode">rendered figure</label>
-      <input type="checkbox" id="id-mode">
-      <span class="note">the analyzer's own plot (overlays, axes, colorbar) — needs a processing selection; per-bin shows the averaged image without overlays</span></div>
-    <p class="note">Applies to the served images (per-shot and per-bin);
-    defaults 1 – 99.7. Out-of-range values fall back to the defaults.</p>
-    <div class="row end">
-      <button class="btn" type="button" onclick="settleDraft('modal-imgdisplay')">Cancel</button>
-      <button class="btn primary" type="button" onclick="applyImgDisplay()">Apply</button>
-    </div>
-  </div>
-</aside>
-
 <script>
 "use strict";
 const UID = {{ uid | tojson }};
 const ROOT = {{ root | tojson }};  // proxy mount prefix ("" at root)
-// This device's shots are x-vs-y (a scope trace or a spectrum), not
-// pixels — the Images tab draws a line and has no per-bin view.
-const IS_TRACE = {{ is_trace | tojson }};
 const DAY = {{ day | tojson }};
 // This scan's number — what a destructive analyzer's confirmation asks
 // the user to type (the server checks the same value: confirm=<number>).
 const SCAN_NUMBER = {{ scan_number | tojson }};
-const SEL_DEVICE = {{ sel_device | tojson }};
+// The scan's device folders: the analysis list puts recipes for them first.
 const SCAN_DEVICES = new Set({{ devices | tojson }});
 const VERSION = {{ portal_version | tojson }};
-// Everything Plotly gives for free, switched ON: wheel zoom, in-place
-// legend-name editing, spike lines + hover modes, and the drawing
-// tools (annotate directly on the plot; shapes are editable/erasable).
-const EXPORT_SCALE = 2;  // crisp paste targets — one knob for every export path
-
-// A real bitmap reaches the clipboard ONLY through the async Clipboard
-// API, and browsers gate that on a secure context.  There is no fallback
-// worth writing: the legacy execCommand("copy") path does run on http,
-// but setData() carries text/plain and text/html only — image/* is
-// dropped — and the logbook composer uploads what arrives as a clipboard
-// FILE, so an <img src="data:…"> flavour would not paste there either.
-// So on an http lab host the button downloads, and says why.
-const CLIPBOARD_OK = !!(navigator.clipboard && window.ClipboardItem);
-
-async function copyPlotImage(gd) {
-  // Copy-paste is how plots travel around the lab.
-  if (!CLIPBOARD_OK) {
-    downloadPlotImage(gd);
-    flashNote(window.isSecureContext
-      ? "this browser has no clipboard API — downloaded PNG instead"
-      : "clipboard needs an https or localhost page — downloaded PNG instead");
-    return;
-  }
-  try {
-    // The PNG is rendered INSIDE the ClipboardItem, not awaited before it:
-    // Safari expires the click's user activation across an await and
-    // rejects a write that arrives after it, while a promise VALUE keeps
-    // the write attached to the gesture.  Chrome accepts either shape.
-    const png = Plotly.toImage(gd, { format: "png", scale: EXPORT_SCALE })
-      .then((url) => fetch(url))
-      .then((res) => res.blob());
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
-    flashNote("copied to clipboard");
-  } catch (err) {
-    // Name the error: "NotAllowedError" here is almost always the window
-    // having lost focus, which is a different fix from a missing API.
-    downloadPlotImage(gd);
-    flashNote("copy failed (" + (err && err.name || "error") + ") — downloaded PNG instead");
-  }
-}
-
-function downloadPlotImage(gd) {
-  Plotly.downloadImage(gd, { format: "png", scale: EXPORT_SCALE, filename: "geecs-plot" });
-}
-
-// ---- sending a plot to the scan logbook
-// The route out of here that does NOT depend on the page's origin: the
-// browser hands the PNG to the portal and the portal talks to the
-// logbook server-to-server, so this works on the plain-http deployment
-// where the clipboard cannot.
-const LOGBOOK_SEND = {{ logbook_send | tojson }};
-// A sent plot is rendered at a FIXED size rather than at whatever the
-// window happens to be. The note scales the bitmap into its column, so
-// the text's apparent size is export-width ÷ column-width: a 1200px-wide
-// plot in a three-up figure grid has unreadable axis labels, and a
-// narrow one reads fine.
-const SEND_WIDTH = 720, SEND_HEIGHT = 460;
-const AUTHOR_KEY = "geecs-portal:author";
-// Which entry this scan's plots join, remembered per scan (day and number,
-// as the Plot page keys it too, so a Tiled run and its folder share one).
-const ENTRY_KEY = "geecs-portal:logentry:" + {{ ((run_day ~ ":" ~ summary.scan_number) if run_day and summary.scan_number is not none else uid) | tojson }};
-let SEND_PLOT = null;
-
-/** localStorage, treated as a convenience that may not be there. */
-function remembered(key) {
-  try { return localStorage.getItem(key) || ""; } catch (err) { return ""; }
-}
-function remember(key, value) {
-  try { localStorage.setItem(key, value); } catch (err) { /* private window */ }
-}
-
-/** What the plot shows, for the alt text of the image in the note. */
-function plotCaption(gd) {
-  if (gd && gd.id === "shottrace") {
-    // The logbook entry must name what the captured trace shows.
-    const variable = (((LAST_TRACE || {}).figure || {}).layout || {})
-      .yaxis?.title?.text;
-    return `${SEL_DEVICE}${variable ? " · " + variable : ""} · shot ${SHOT}`;
-  }
-  return "plot";
-}
-
-function openSendToLogbook(gd) {
-  SEND_PLOT = gd;
-  const form = document.getElementById("sl-form");
-  const done = document.getElementById("sl-done");
-  form.hidden = false; done.hidden = true;
-  document.getElementById("sl-author").value = remembered(AUTHOR_KEY);
-  document.getElementById("sl-caption").value = plotCaption(SEND_PLOT);
-  // The choice only exists once this page has an entry to add to.
-  const row = document.getElementById("sl-targetrow");
-  row.hidden = !remembered(ENTRY_KEY);
-  if (!row.hidden) document.getElementById("sl-target").value = "same";
-  GeecsKit.drawer(document.getElementById("modal-sendlog")).open();
-  document.getElementById(remembered(AUTHOR_KEY) ? "sl-send" : "sl-author").focus();
-}
-
-async function confirmSendToLogbook() {
-  const author = document.getElementById("sl-author").value.trim();
-  if (!author) { document.getElementById("sl-author").focus(); return; }
-  const btn = document.getElementById("sl-send");
-  const target = document.getElementById("sl-targetrow").hidden
-    ? "new" : document.getElementById("sl-target").value;
-  btn.disabled = true;
-  btn.textContent = "sending…";
-  try {
-    const image = await Plotly.toImage(SEND_PLOT, {
-      format: "png", scale: EXPORT_SCALE, width: SEND_WIDTH, height: SEND_HEIGHT,
-    });
-    // DAY like every other /api/run call: a run whose start doc has no
-    // usable time resolves its day ONLY from this param, and the page
-    // itself was rendered with it — dropping it here would show the
-    // button and then 404 every send.
-    const send = new URL(`${ROOT}/api/run/${UID}/logbook`, location.origin);
-    if (DAY) send.searchParams.set("day", DAY);
-    const res = await fetch(send, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        author,
-        image,
-        caption: document.getElementById("sl-caption").value,
-        source_url: location.href,
-        entry: target === "same" ? remembered(ENTRY_KEY) : "",
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || res.statusText);
-    remember(AUTHOR_KEY, author);
-    remember(ENTRY_KEY, data.entry_id);
-    // Offer the entry rather than opening it: the user stays on the plot
-    // and follows the link only if they want to write there.
-    document.getElementById("sl-form").hidden = true;
-    document.getElementById("sl-done").hidden = false;
-    document.getElementById("sl-open").href = data.url;
-    document.getElementById("sl-doneword").textContent =
-      data.appended ? "Added to this scan's log entry." : "New log entry created for this scan.";
-    flashNote(data.appended ? "added to the scan log entry" : "scan log entry created");
-  } catch (err) {
-    flashNote("could not send: " + (err && err.message || "unknown error"));
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Send";
-  }
-}
 
 function flashNote(text) {
   GeecsKit.toast(text);
 }
 
 /** A pane state (the kit's five: loading, empty, error, stale, denied) as
- *  HTML: what a plot host, a list or a grid shows in place of its content. */
+ *  HTML: what a list or the editor shows in place of its content. */
 function paneState(kind, text) {
   return `<div class="state" data-state="${kind}"><div class="t">${esc(text)}</div></div>`;
 }
 
-//: The settings drawers holding an unapplied draft, each with the state
-//: it was filled from. Esc and the scrim close a kit drawer without
-//: asking, so a draft must survive that: reopening keeps it, unless the
-//: state it came from changed meanwhile (another control applied first),
-//: and Apply or Cancel settles it.
-const DRAFTS = new Map();
-
-/** Open a settings drawer, filling it from `source` unless it holds a draft of that. */
-function openDraft(id, opener, source, fill) {
-  if (DRAFTS.get(id) !== source) { fill(); DRAFTS.set(id, source); }
-  GeecsKit.drawer(document.getElementById(id)).open(opener);
-}
-
-/** Apply or Cancel: the draft is spent, the drawer closes. */
-function settleDraft(id) {
-  DRAFTS.delete(id);
-  GeecsKit.closeDrawer();
-}
-
-/** "show the code": the snippet well under a plot, shown or hidden. */
-function toggleCode(id) {
-  const box = document.getElementById(id);
-  box.hidden = !box.hidden;
-}
-
-const PLOT_CONFIG = {
-  responsive: true, displaylogo: false, scrollZoom: true,
-  // The built-in camera button exports at EXPORT_SCALE too.
-  toImageButtonOptions: { format: "png", scale: EXPORT_SCALE },
-  // Granular (not editable:true): blanket editability renders grey
-  // "Click to enter …" placeholders for every unset title, and
-  // axisTitleText would too wherever a title is unset, so axis titles
-  // are auto-set/passthrough-set instead of in-place-edited.
-  edits: { legendText: true, annotationText: true, shapePosition: true },
-  modeBarButtonsToAdd: [
-    "togglespikelines", "hoverclosest", "hovercompare",
-    "drawline", "drawopenpath", "drawrect", "drawcircle", "eraseshape",
-    {
-      name: "copyimage",
-      title: CLIPBOARD_OK
-        ? "Copy plot to clipboard (PNG)"
-        : "Download plot PNG — clipboard copy needs an https or localhost page",
-      icon: {  // material content_copy, 24×24 viewBox
-        width: 24, height: 24,
-        path: "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z",
-      },
-      click: copyPlotImage,
-    },
-  ].concat(LOGBOOK_SEND ? [{
-    name: "sendtolog",
-    title: "Send plot to this scan's log entry",
-    icon: {  // material description (a page with lines), 24×24 viewBox
-      width: 24, height: 24,
-      path: "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z",
-    },
-    click: openSendToLogbook,
-  }] : []),
-};
-// Traces and layout are authored SERVER-SIDE (geecs_portal/figures.py)
-// and arrive as the /api response's `figure` — the palette is injected
-// so the rail's chips stay color-matched to the server's traces.
-
-// ---- URL-carried state (statelessness doctrine: the link IS the analysis)
+// ---- URL-carried state: the tab (the link opens the same tab)
 const S = readState();
 let COLUMNS = [];      // [{name, provenance, pretty}] from /api/columns
-let FDRAFT = null;     // the filters popup's working copy
 
 function readState() {
   const p = new URLSearchParams(location.search);
-  return {
-    tab: p.get("tab") || {{ tab | tojson }},
-    view: p.get("view") || "shot",
-    filters: p.get("filters") || "",
-    bincfg: p.get("bincfg") || "",
-    display: p.get("display") || "",
-    processing: p.get("processing") || "",
-    imagebin: p.get("imagebin") || "",
-  };
+  return { tab: p.get("tab") || {{ tab | tojson }} };
 }
 
 function writeState() {
-  // replaceState, never pushState: Back/Forward moves between PAGES,
-  // not analysis states — there is deliberately no popstate handler.
-  // Shared/bookmarked links restore everything via readState().
+  // replaceState, never pushState: Back/Forward moves between PAGES.
   const p = new URLSearchParams(location.search);
-  ["view", "filters", "bincfg", "display", "processing", "tab", "imagebin"].forEach(k => p.delete(k));
-  if (S.view !== "shot") p.set("view", S.view);
-  if (S.filters) p.set("filters", S.filters);
-  if (S.bincfg) p.set("bincfg", S.bincfg);
-  if (S.display) p.set("display", S.display);
-  if (S.processing) p.set("processing", S.processing);
-  if (S.imagebin) p.set("imagebin", S.imagebin);
+  p.delete("tab");
   if (S.tab !== "overview") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
-  // Server-rendered stepper links must carry the latest state too —
-  // and so must the Show form's hidden fields (a form submit is a
-  // navigation like any stepper click).
-  syncRailLinks(p);
-  const procField = document.getElementById("procfield");
-  if (procField) procField.value = S.processing;
-  const dispField = document.getElementById("dispfield");
-  if (dispField) dispField.value = S.display;
-  document.querySelectorAll("#imgshot form").forEach(form => {
-    form.querySelectorAll("[data-sticky-analysis]").forEach(el => el.remove());
-    ["imagebin", "filters", "bincfg", "view"].forEach(key => {
-      p.getAll(key).forEach(value => {
-        const input = document.createElement("input"); input.type = "hidden";
-        input.name = key; input.value = value; input.dataset.stickyAnalysis = "true";
-        form.appendChild(input);
-      });
-    });
-  });
-}
-
-function syncRailLinks(p) {
-  // a.act = the rail's steppers/dropdown; a.carry = in-pane links (the
-  // shot steppers) that must carry client-side analysis state too.
-  document.querySelectorAll("a.act, a.carry").forEach(a => {
+  // The rail's steppers carry the tab too.
+  document.querySelectorAll("a.act").forEach(a => {
     const url = new URL(a.href, location.origin);
-    ["view", "filters", "bincfg", "display", "processing", "tab", "imagebin"].forEach(k => url.searchParams.delete(k));
-    if (S.view !== "shot") url.searchParams.set("view", S.view);
-    if (S.filters) url.searchParams.set("filters", S.filters);
-    if (S.bincfg) url.searchParams.set("bincfg", S.bincfg);
-    if (S.display) url.searchParams.set("display", S.display);
-    if (S.processing) url.searchParams.set("processing", S.processing);
-    if (S.imagebin) url.searchParams.set("imagebin", S.imagebin);
+    url.searchParams.delete("tab");
     if (S.tab !== "overview") url.searchParams.set("tab", S.tab);
     a.href = url.pathname + "?" + url.searchParams.toString();
   });
-}
-
-function parsedFilters() {
-  if (!S.filters) return { groups: [], nan_policy: "exclude" };
-  try { return JSON.parse(S.filters); } catch (e) { return { groups: [], nan_policy: "exclude" }; }
 }
 
 function api(path, params) {
@@ -660,7 +179,6 @@ function api(path, params) {
 // ---------------- the analysis tab (ScanAnalysis runs) ----------------
 const ANALYSIS_ENABLED = {{ analysis_enabled | tojson }};
 const CONFIG_EDITOR = {{ config_editor | tojson }};
-const SHOT = {{ shot | tojson }};
 
 // ---------------- config editor drawer ----------------
 // The editor script (served by the mounted router) renders the form; this
@@ -696,14 +214,10 @@ function openConfigEditor(id) {
       base: `${ROOT}/configs`,
       layout: "drawer",
       preview: { params: cePreviewParams, label: "preview (unsaved document, current shot)" },
-      onSaved: (saved) => {
+      onSaved: () => {
         refreshAnalysis(true);
         CE.reloadListing().then(ceFillDiagnostics);
         document.getElementById("cetitle").textContent = CE_TITLE;
-        // the Images tab's processed view keys the diagnostic by name; a
-        // save changes it — re-fetch the shot image if it is showing it
-        const img = document.getElementById("shotimg");
-        if (img && S.processing === saved.id) img.src = img.src.replace(/([&?])_=\d+/, "") + `&_=${Date.now()}`;
       },
     });
     document.getElementById("ceshot").addEventListener("change", () => CE && CE.refreshPreview());
@@ -975,380 +489,15 @@ function postAnalysis(id, confirm) {
 function setTab(tab) {
   // A URL-carried tab whose pane this page does not have (tab=analysis
   // carried by a stepper onto a scan whose folder is not resolvable, or
-  // opened on a portal without analysis runs, or a tab=plot link from
-  // before the Plot page) falls back to the Overview — never a page with
+  // opened on a portal without analysis runs, or a tab=plot / images / grid
+  // link from before those moved to the Plot pages) falls back to the Overview — never a page with
   // no tab lit and no pane shown.
   if (!document.getElementById("pane-" + tab)) tab = "overview";
   S.tab = tab;
   document.querySelectorAll('[role="tab"]').forEach(t => t.setAttribute("aria-selected", String(t.dataset.pane === tab)));
   document.querySelectorAll(".tabpane").forEach(pane => { pane.hidden = pane.id !== "pane-" + tab; });
   writeState();
-  refreshImages();
-  loadTrace();   // no-op unless this device's shots are traces
   if (tab === "analysis") refreshAnalysis(true);
-}
-
-function setView(view) {
-  // The Images tab's per-shot ⇄ per-bin switch, carried in the link.
-  S.view = view;
-  const imgSeg = document.getElementById("seg-img-shot");
-  if (imgSeg) {
-    imgSeg.setAttribute("aria-pressed", String(view === "shot"));
-    document.getElementById("seg-img-bin").setAttribute("aria-pressed", String(view === "bin"));
-  }
-  writeState();
-  refreshImages();
-}
-
-// ---------------- the images tab's per-bin grid ----------------
-let IMG_KEY = null;  // last-rendered grid params — skip redundant refetches
-
-function setProcessing(name) {
-  S.processing = name;
-  writeState();  // syncs the Show form's hidden fields too
-  updateShotImage();
-  refreshImages();
-}
-
-function updateShotImage() {
-  // The per-shot image is server-rendered; a processing/display change
-  // only needs its src re-pointed (the URL carries the whole state).
-  const img = document.getElementById("shotimg");
-  if (!img) return;
-  clearImgError(img);  // a previous failure must not mask the retry
-  const url = new URL(img.src, location.origin);
-  if (S.processing) url.searchParams.set("processing", S.processing);
-  else url.searchParams.delete("processing");
-  if (S.display) url.searchParams.set("display", S.display);
-  else url.searchParams.delete("display");
-  img.src = url.pathname + "?" + url.searchParams.toString();
-}
-
-function openImgDisplay(opener) {
-  openDraft("modal-imgdisplay", opener, S.display, () => {
-    const d = dispCfg();
-    document.getElementById("id-cmap").value = typeof d.cmap === "string" ? d.cmap : "";
-    document.getElementById("id-plo").value = typeof d.plo === "number" ? d.plo : 1;
-    document.getElementById("id-phi").value = typeof d.phi === "number" ? d.phi : 99.7;
-    document.getElementById("id-mode").checked = d.mode === "rendered";
-  });
-}
-
-function applyImgDisplay() {
-  // Image cosmetics merge into the ONE shared display state (the plot
-  // figures ignore these keys); defaults are stored as key-absent so
-  // pristine links stay short.
-  const d = dispCfg();
-  const cmap = document.getElementById("id-cmap").value;
-  if (cmap) d.cmap = cmap; else delete d.cmap;
-  const plo = parseFloat(document.getElementById("id-plo").value);
-  const phi = parseFloat(document.getElementById("id-phi").value);
-  if (isFinite(plo) && plo !== 1) d.plo = plo; else delete d.plo;
-  if (isFinite(phi) && phi !== 99.7) d.phi = phi; else delete d.phi;
-  if (document.getElementById("id-mode").checked) d.mode = "rendered"; else delete d.mode;
-  S.display = Object.keys(d).length ? JSON.stringify(d) : "";
-  settleDraft("modal-imgdisplay");
-  writeState();
-  updateShotImage();
-  refreshImages();
-}
-
-function clearImgError(img) {
-  img.hidden = false;
-  const note = img.nextElementSibling;
-  if (note && note.classList.contains("imgerr")) note.remove();
-}
-
-// ---------------- the shot trace (array devices) ----------------
-// A camera shot is a rendered PNG; a scope trace or a spectrum is a few
-// thousand numbers, so it comes down as a server-authored figure (the
-// same figures.py + theme-sentinel path as every other plot here) and
-// is drawn as a line.  Rank decides which: an (n, 2) lineout rendered
-// as pixels would be a two-pixel-wide strip.
-let LAST_TRACE = null, TRACE_DRAWN = false;
-
-function traceHost() {
-  // Same rule as plotHost(): Plotly.react does not clear foreign
-  // children, so drop a message div before handing the host over — but
-  // NEVER wipe a live graph's own DOM, which would leave react updating
-  // an SVG that is no longer in the document (the theme-change path
-  // redraws into a host that already holds a plot).
-  const div = document.getElementById("shottrace");
-  if (div && div.querySelector(".state")) div.innerHTML = "";
-  return div;
-}
-
-function drawTrace(data) {
-  LAST_TRACE = data;
-  const host = traceHost();
-  if (!host) return;
-  const fig = resolveThemeTokens(JSON.parse(JSON.stringify(data.figure)));
-  Plotly.react(host, fig.data, fig.layout, PLOT_CONFIG);
-}
-
-function loadTrace() {
-  // Drawn only while the pane is visible: Plotly lays a figure out
-  // against its container, and the bundled build has no ResizeObserver,
-  // so a figure drawn into a display:none pane stays zero-sized until
-  // the window itself is resized.  Every other draw on this page is
-  // gated the same way.
-  if (!document.getElementById("shottrace") || S.tab !== "images") return;
-  if (TRACE_DRAWN) {
-    // Re-entry: re-lay the cached figure out (the pane may have been
-    // hidden when the theme last changed) but never refetch — the shot
-    // form navigates, so one fetch per page load is right.
-    if (LAST_TRACE) drawTrace(LAST_TRACE);
-    return;
-  }
-  TRACE_DRAWN = true;
-  api("trace", { device: SEL_DEVICE, shot: SHOT })
-    .then(drawTrace)
-    .catch(err => {
-      const host = document.getElementById("shottrace");
-      if (typeof Plotly !== "undefined") Plotly.purge(host);
-      host.innerHTML = paneState("error", err.message);
-      TRACE_DRAWN = false;   // a failed load may be retried on re-entry
-    });
-}
-
-// Gated on the visible tab like its sibling below: with loadTrace no
-// longer drawing at boot, this is the only other way into a hidden pane,
-// and TRACE_DRAWN would make a mis-sized layout stick for the page's life.
-window.addEventListener("geecs:theme", () => {
-  if (LAST_TRACE && S.tab === "images") drawTrace(LAST_TRACE);
-});
-
-function imgFailed(img) {
-  // A 4xx from the image endpoints carries an honest `detail` the
-  // <img> tag can only show as a broken icon — fetch and surface it.
-  // Cost note: config-validation 400s are cheap, but an ANALYZER
-  // failure 400s only after the server loaded+processed the frames,
-  // so this refetch re-runs that work once — bounded at 2× (onerror
-  // fires once per src assignment), accepted for an error path.
-  const src = img.src;  // staleness guard: a retry must not be masked
-  const show = msg => {
-    if (img.src !== src || !img.isConnected) return;  // superseded
-    img.hidden = true;
-    let note = img.nextElementSibling;
-    if (!note || !note.classList.contains("imgerr")) {
-      note = document.createElement("div");
-      note.className = "state imgerr";
-      note.dataset.state = "error";
-      img.after(note);
-    }
-    note.textContent = msg;
-  };
-  fetch(src)
-    .then(r => r.json())
-    .then(body => show(body.detail || "image failed to load"))
-    .catch(() => show("image failed to load"));
-}
-
-function refreshImages() {
-  const shotBox = document.getElementById("imgshot");
-  const grid = document.getElementById("imggrid");
-  // A trace device has no binned view to show: averaging traces across
-  // shots is the consumer's job, since each shot carries its own axis.
-  const binned = S.view === "bin" && !IS_TRACE;
-  // A 2-D map cell opened here from the Plot page shows that bin alone.
-  document.getElementById("image-bin-selection").innerHTML = S.imagebin && binned
-    ? `2-D map cell: bin ${esc(S.imagebin)} <button class="btn sm" onclick="S.imagebin='';writeState();refreshImages()">show all bins</button>` : "";
-  if (!shotBox || !SEL_DEVICE) return;  // no device / vendor / unrenderable
-  shotBox.hidden = binned;
-  grid.hidden = !binned;
-  if (!binned || S.tab !== "images") return;
-  const key = JSON.stringify([SEL_DEVICE, S.filters, S.bincfg, S.processing, S.display, S.imagebin]);
-  if (key === IMG_KEY) return;
-  IMG_KEY = key;  // set before the fetch: dedupes the boot's setTab+setView pair
-  const params = new URLSearchParams({ device: SEL_DEVICE });
-  if (S.filters) params.set("filters", S.filters);
-  if (S.bincfg) params.set("bincfg", S.bincfg);
-  grid.innerHTML = paneState("loading", "Loading bins…");
-  api("bin-images", params).then(data => {
-    if (key !== IMG_KEY) return;  // superseded in flight — never render stale bins
-    if (!data.bins.length || (S.imagebin && !data.bins.some(b => String(b.bin) === String(S.imagebin)))) {
-      grid.innerHTML = paneState("empty", "No bins (check filters / bin column)");
-      return;
-    }
-    grid.innerHTML = data.bins.map((b, i) => {
-      if (S.imagebin && String(b.bin) !== String(S.imagebin)) return "";
-      const q = new URLSearchParams({ device: SEL_DEVICE, bin: i, v: VERSION });
-      if (S.filters) q.set("filters", S.filters);
-      if (S.bincfg) q.set("bincfg", S.bincfg);
-      if (S.processing) q.set("processing", S.processing);
-      if (S.display) q.set("display", S.display);
-      if (DAY) q.set("day", DAY);
-      const label = b.bin === null ? "—" : String(b.bin);
-      return `<figure class="bincard">
-        <img class="plot" loading="lazy" onerror="imgFailed(this)"
-             src="${ROOT}/run/${UID}/bin-image.png?${q.toString()}"
-             alt="${escAttr(data.bin_col)} ${escAttr(label)}">
-        <figcaption class="dim mono" title="n counts member shots passing filters — frames the device missed or that fail to load are skipped in the average">${esc(data.bin_col)}: ${esc(label)} · n=${b.count}</figcaption>
-      </figure>`;
-    }).join("");
-  }).catch(err => {
-    if (key !== IMG_KEY) return;
-    IMG_KEY = null;
-    grid.innerHTML = paneState("error", err.message);
-  });
-}
-
-function dispCfg() {
-  if (!S.display) return {};
-  try { return JSON.parse(S.display); } catch (e) { return {}; }
-}
-
-// The server authors the figure with "$tok:--name" sentinels wherever a
-// colour goes (figures.THEMED_PALETTE).  One walk here resolves them
-// against the live theme tokens — traces, tick fonts, grids, titles and
-// the legend alike, with no per-property list to fall out of step.  A
-// theme change re-draws the last figure in place.
-function tokenColour(name) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-function resolveThemeTokens(value) {
-  if (typeof value === "string")
-    return value.startsWith("$tok:") ? (tokenColour(value.slice(5)) || value) : value;
-  if (Array.isArray(value)) return value.map(resolveThemeTokens);
-  if (value && typeof value === "object") {
-    for (const k of Object.keys(value)) value[k] = resolveThemeTokens(value[k]);
-  }
-  return value;
-}
-
-// ---------------- filters rail + popup ----------------
-function renderChips() {
-  const f = parsedFilters();
-  document.getElementById("fchips").innerHTML = (f.groups || []).map((g, i) =>
-    `<div class="fchip">
-       <input type="checkbox" ${g.enabled !== false ? "checked" : ""} onchange="toggleGroup(${i}, this.checked)">
-       <span class="n">${esc(g.name || "filter " + (i + 1))}</span>
-       <span class="dim">${(g.conditions || []).length} cond</span>
-       <span class="x" onclick="removeGroup(${i})">✕</span>
-     </div>`).join("") || '<div class="note">none — every shot passes</div>';
-}
-
-function setFilters(model) {
-  const active = (model.groups || []).length;
-  S.filters = active || model.nan_policy !== "exclude" ? JSON.stringify(model) : "";
-  renderChips(); writeState(); updatePassCount(); refreshImages();
-}
-
-function toggleGroup(i, on) {
-  const f = parsedFilters(); f.groups[i].enabled = on; setFilters(f);
-}
-
-function removeGroup(i) {
-  const f = parsedFilters(); f.groups.splice(i, 1); setFilters(f);
-}
-
-function updatePassCount() {
-  if (!S.filters) { document.getElementById("passcount").textContent = ""; return; }
-  api("filter-count", { filters: S.filters })
-    .then(c => setPassCount(c.pass, c.total))
-    .catch(() => {});
-}
-
-function setPassCount(passing, total) {
-  document.getElementById("passcount").innerHTML =
-    S.filters ? `<b>${passing}</b> / ${total} shots pass` : "";
-}
-
-function openFilters(opener) {
-  openDraft("modal-filters", opener, S.filters, () => {
-    FDRAFT = parsedFilters();
-    if (!FDRAFT.groups.length) FDRAFT.groups.push({ name: "", enabled: true, conditions: [] });
-    renderFilterModal();
-  });
-}
-
-function renderFilterModal() {
-  document.getElementById("nanpolicy").value = FDRAFT.nan_policy || "exclude";
-  document.getElementById("fgroups").innerHTML = FDRAFT.groups.map((g, gi) => `
-    <div class="fgroup">
-      <div class="ghead"><span class="dim">name</span>
-        <input type="text" value="${escAttr(g.name || "")}" placeholder="filter ${gi + 1}"
-               onchange="FDRAFT.groups[${gi}].name=this.value">
-        <span class="spacer"></span><button type="button" class="x" onclick="FDRAFT.groups.splice(${gi},1); renderFilterModal();">✕ group</button></div>
-      ${(g.conditions || []).map((c, ci) => `
-        <div class="frow">
-          <input class="col" list="all-cols" value="${escAttr(c.column || "")}" placeholder="column"
-                 onchange="FDRAFT.groups[${gi}].conditions[${ci}].column=this.value; draftCount();">
-          <select onchange="FDRAFT.groups[${gi}].conditions[${ci}].mode=this.value; draftCount();">
-            <option ${c.mode !== "outside" ? "selected" : ""}>within</option>
-            <option ${c.mode === "outside" ? "selected" : ""}>outside</option>
-          </select>
-          <input class="val" value="${typeof c.low === "number" ? c.low : ""}" placeholder="low"
-                 onchange="FDRAFT.groups[${gi}].conditions[${ci}].low=parseFloat(this.value); draftCount();">
-          <span class="dim">–</span>
-          <input class="val" value="${typeof c.high === "number" ? c.high : ""}" placeholder="high"
-                 onchange="FDRAFT.groups[${gi}].conditions[${ci}].high=parseFloat(this.value); draftCount();">
-          <span class="x" onclick="FDRAFT.groups[${gi}].conditions.splice(${ci},1); renderFilterModal();">✕</span>
-        </div>`).join("")}
-      <button class="btn sm" type="button" onclick="FDRAFT.groups[${gi}].conditions.push({column:'', mode:'within', low:0, high:1}); renderFilterModal();">+ AND condition</button>
-    </div>`).join('<div class="orjoin">— OR —</div>');
-  draftCount();
-}
-
-function draftModel() {
-  return {
-    groups: FDRAFT.groups
-      .map(g => ({ name: g.name || "", enabled: g.enabled !== false,
-                   conditions: (g.conditions || []).filter(c =>
-                     c.column && Number.isFinite(c.low) && Number.isFinite(c.high)) }))
-      .filter(g => g.conditions.length),
-    nan_policy: FDRAFT.nan_policy || "exclude",
-  };
-}
-
-function draftCount() {
-  const model = draftModel();
-  const el = document.getElementById("draftcount");
-  if (!model.groups.length) { el.textContent = "no complete conditions — every shot would pass"; return; }
-  api("filter-count", { filters: JSON.stringify(model) })
-    .then(c => { el.innerHTML = `<b>${c.pass}</b> / ${c.total} shots would pass`; })
-    .catch(err => { el.textContent = "⚠ " + err.message; });
-}
-
-function applyFilters() {
-  setFilters(draftModel());
-  settleDraft("modal-filters");
-}
-
-// ---------------- bin settings popup ----------------
-function openBinset(opener) {
-  openDraft("modal-binset", opener, S.bincfg, () => {
-    const cfg = S.bincfg ? JSON.parse(S.bincfg) : {};
-    document.getElementById("bs-col").value = cfg.bin_col || "Bin #";
-    document.getElementById("bs-width").value = cfg.bin_width ?? "";
-    document.getElementById("bs-agg").value = cfg.agg || "median";
-    document.getElementById("bs-err").value = cfg.err || "iqr";
-    document.getElementById("bs-plo").value = cfg.percentiles ? cfg.percentiles[0] : "0.25";
-    document.getElementById("bs-phi").value = cfg.percentiles ? cfg.percentiles[1] : "0.75";
-    document.getElementById("bs-min").value = cfg.min_count ?? "1";
-  });
-}
-
-function applyBinset() {
-  const cfg = {};
-  const col = document.getElementById("bs-col").value.trim();
-  if (col && col !== "Bin #") cfg.bin_col = col;
-  const width = parseFloat(document.getElementById("bs-width").value);
-  if (Number.isFinite(width) && width > 0) cfg.bin_width = width;
-  const agg = document.getElementById("bs-agg").value;
-  if (agg !== "median") cfg.agg = agg;
-  const err = document.getElementById("bs-err").value;
-  if (err !== "iqr") cfg.err = err;
-  const plo = parseFloat(document.getElementById("bs-plo").value);
-  const phi = parseFloat(document.getElementById("bs-phi").value);
-  if ((err === "iqr" || err === "percentile") && Number.isFinite(plo) && Number.isFinite(phi)
-      && (plo !== 0.25 || phi !== 0.75)) cfg.percentiles = [plo, phi];
-  const minCount = parseInt(document.getElementById("bs-min").value, 10);
-  if (Number.isFinite(minCount) && minCount > 1) cfg.min_count = minCount;
-  S.bincfg = Object.keys(cfg).length ? JSON.stringify(cfg) : "";
-  S.imagebin = "";  // new bin definitions replace a 2-D map cell's selection
-  settleDraft("modal-binset"); writeState();
-  if (S.view !== "bin") setView("bin"); else refreshImages();
 }
 
 // ---------------- utilities + boot ----------------
@@ -1365,16 +514,11 @@ api("columns", {}).then(data => {
   COLUMNS.forEach(c => { counts[c.provenance] = (counts[c.provenance] || 0) + 1; });
   document.getElementById("providers").innerHTML = Object.entries(counts)
     .map(([p, n]) => `<span class="provider ${p}">${p} · ${n}</span>`).join("");
-  document.getElementById("all-cols").innerHTML =
-    COLUMNS.map(c => `<option value="${escAttr(c.name)}">`).join("");
 }).catch(err => {
   document.getElementById("providers").innerHTML =
     `<span class="error">columns: ${esc(err.message)}</span>`;
 });
 
-renderChips();
-updatePassCount();
 setTab(S.tab);
-setView(S.view);
 </script>
 {% endblock %}

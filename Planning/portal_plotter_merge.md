@@ -200,6 +200,12 @@ The PRs from here: the Plot page's tools (#1192) → delete the old plot
 pane and share the figure code → the 2-D map view → the Images tab →
 `--browser` and the deletion of `GeecsPlotter/`.
 
+**The Images tab became the plotter's second page (2026-10-29)**,
+`/plot/images`: the strip with the big view under it, reading the set;
+the scan page keeps Overview and Analysis. A bin's big view is its strip
+average (processing previews single shots), and another experiment's
+scan gets no Images tab (the author: one experiment at a time).
+
 **The Grid tab became the Plot page's 2-D map (2026-10-29)**, named by
 the author. It shows measured bin positions only for now (the Plot page
 reads folders; a Bluesky scan's planned grid waits for the plotter to

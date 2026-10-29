@@ -97,6 +97,18 @@ def test_the_plot_tab_links_to_the_plotter_page(tmp_path) -> None:
     assert client.get("/plot/health").json()["ok"] is True
 
 
+def test_the_images_tab_is_the_plotters_images_page(tmp_path) -> None:
+    """The scan page links its Images tab there, and an old tab=images link
+    is sent on (the scan page has no Images pane)."""
+    client = _with_plotter(tmp_path)
+    page = client.get("/run/uid-002").text
+    assert 'id="tab-images"' in page and 'href="/plot/images?day=' in page
+    assert 'id="pane-images"' not in page
+    moved = client.get("/run/uid-002", params={"tab": "images"}, follow_redirects=False)
+    assert moved.status_code == 303
+    assert moved.headers["location"].startswith("/plot/images?day=")
+
+
 def test_the_day_list_opens_a_scan_on_its_plot(tmp_path) -> None:
     from tests.test_app import TEST_DAY
 

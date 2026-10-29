@@ -42,8 +42,11 @@ extending this package.
   host), one panel per shot. A document the core declines at compilation
   is a 400 naming the reason, in every view (the legacy ImageAnalysis
   fallback was retired in #1039).
-  The Images tab's processing selector keeps `render_document_ephemeral`
-  and the portal's own window, analysing through the same seam.
+  The Images page's processing preview (its big view, on a shot:
+  `image.png?processing=`, the choices from the device route's
+  `processing_options`) keeps
+  `render_document_ephemeral` and the portal's own window, analysing
+  through the same seam.
   The other is `POST /api/run/{uid}/analysis`, which
   runs ONE ScanAnalysis analyzer on ONE scan on the user's click —
   `geecs_portal/analysis_runs.py`, calling `ScanAnalyzer.run_analysis`
@@ -263,9 +266,10 @@ way here.
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
 · `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis
-tabs — Plot is a link to `/plot/`, Analysis only when runs are possible,
-see below; `?tab=&view=&filters=&bincfg=&display=&imagebin=`
-is the page's state, `?device=&shot=` the Images selection) · `/run/jump/{iso}` (day-step
+tabs — Plot and Images are links to the plotter's pages `/plot/` and
+`/plot/images`, Analysis only when runs are possible, see below;
+`?tab=` is the page's state, and `tab=images` redirects to the Images
+page) · `/run/jump/{iso}` (day-step
 redirect: `?prefer=<scan number>`, all other params carried to the
 target day's matching/newest run; empty day → the day page) ·
 `/api/run/{uid}/columns` (union pick list with provenance, a
@@ -281,11 +285,11 @@ rendering is per-shot-only, deliberately; `x_centers` come reindexed
 onto the y result's bins so diverging per-column dropna can never
 shift points) ·
 `/api/run/{uid}/filter-count?filters=` (live pass count) ·
-`/api/run/{uid}/bin-images?device=&filters=&bincfg=` (the Images tab's
-per-bin membership: bins/counts/member shots over Data-Utils'
-`bin_rows` (the filter as its `mask`, never a filtered frame — the
-plotter's own call), the same bins as `/binned`; the `view` URL state is the Images tab's
-per-shot ⇄ per-bin switch)
+`/api/run/{uid}/bin-images?device=&filters=&bincfg=` (per-bin
+membership: bins/counts/member shots over Data-Utils' `bin_rows` (the
+filter as its `mask`, never a filtered frame — the plotter's own call),
+the same bins as `/binned`; no page reads it since the Images pane
+moved, see the debt below)
 · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar PNG, kept for
 embedding) · `/run/{uid}/image.png?device=&shot=` (one rendered device
 shot) · `/run/{uid}/bin-image.png?device=&bin=<index>&filters=&bincfg=`
@@ -410,8 +414,7 @@ data folder** (`diag.data_folder` — the server ignores any device in the
 params; there is no device picker, 0.37.0: it once drew one camera
 through another's recipe), on demand via its `preview` button or per
 edit with `auto`; **duplicate as** copies the open recipe for the same
-device with `output_name` set to the new id; a save refreshes the analyzer list and, when the Images tab
-shows that diagnostic, the shot image.  The editor's own API is documented
+device with `output_name` set to the new id; a save refreshes the analyzer list.  The editor's own API is documented
 in `ScanAnalysis/CLAUDE.md`.
 `GET /run/{uid}/artifact?path=<relative>` serves one produced file —
 the resolved path must stay inside the scan's own analysis folder
@@ -528,19 +531,23 @@ rules that are the portal's own:
   those payloads, no longer what a page draws. `/columns`' `default_x`
   and `grid_axes` have no reader in the portal either, nor `/grid`'s
   figures and snippet (the Plot page's map has its own route,
-  `/plot/api/map`, over the same `figures.grid_document`). Deleting any of it is an `/api`
-  change for the owner, not a cleanup.
+  `/plot/api/map`, over the same `figures.grid_document`), nor
+  `/bin-images` and `bin-image.png` since the scan page's Images pane
+  went (the Images page's bins are the strip's own tiles). Deleting any
+  of it is an `/api` change for the owner, not a cleanup.
 - **Accepted debt, for a later PR of the arc:** the other
   duplicates the move brought in (`plotter/scans.default_x` is
   `routes/plot_api._default_x`; `scans.display_name` overlaps
   `_pretty_names`; fold toward the plotter's, which a page uses). That PR also hands the plotter the portal's catalog
   (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
   folder-only even under `--tiled`; the folder catalog caches finished
-  scans itself). Still twice: the logbook-send client in `plot_tools.js`
-  and `run.html` (one shared script under `static/`), and the filter and setting rows the plotter
-  page takes from `portal.css` (kit components, through `kit.html`, once
-  the scan page's rail filters are gone). The page's "Image
-  strip" view is GeecsPlotter's too, until it joins the Images tab.
+  scans itself). The filter and setting rows the plotter page takes from
+  `portal.css` can become kit components (through `kit.html`) now that
+  the scan page's rail filters are gone. A native camera's shots were
+  background-warmed into the data cache when the scan page opened its
+  Images pane (`data_cache.warm_native`, now without a production
+  caller); the Images page's processed preview asks `image.png` one
+  shot at a time, uncached until something warms it again.
 
 ## Adding an analysis tab (the checklist)
 
@@ -653,7 +660,7 @@ Two rules for anyone extending this:
 The Grid tab moved onto the Plot page as its **2-D map** view (the
 author's ruling: one tab per job; the scan page no longer has a Grid
 tab, and a `tab=grid` link opens its Overview). The switch reads *XY
-plot | 2-D map | Image strip*; the map shares the rail's shot filters
+plot | 2-D map*; the map shares the rail's shot filters
 and saves into the viewer's set: `map_value`, `map_x`, `map_y` (each
 `None` = the default — Y1, the scan's variables — so a set that follows
 the viewer maps each scan's own axes), `map_filter`, and `map_config`
@@ -664,9 +671,9 @@ columns and writes the snippet; `/plot/api/map` answers with
 scan's `GET /api/run/{uid}/grid` (kept: the `/api` contract);
 `plotter/static/map.js` draws both maps square, steps the cells (the
 selected cell is the browser tab's, in `sessionStorage`), checks the
-number boxes before saving, and links a cell to the scan page's Images
-tab averaged over its bin (`imagebin`, `bincfg`, `view=bin` through
-`/run/jump`; changing the bin settings there clears `imagebin`).
+number boxes before saving, and links a cell to the Images page under
+the same set, its big view on that cell's bin (`?bin=`: the bin's tile,
+or on a shots strip its first shot).
 Numerical work stays in `scan_grid`.
 
 **Measured positions only, for now** (the author's ruling,
@@ -690,6 +697,35 @@ original bin indices for the image endpoint. Higher-dimensional slicing is defer
 The Plot page's copy and send-to-log act on the clicked plot, a map
 included: map captions name the scalar, statistic, axes and visit, and a
 sent map keeps its plotting area square (`plot_tools.js`).
+
+## The Images tab: the plotter's second page (`/plot/images`)
+
+The author's ruling (2026-10-28): Images is the image strip with the big
+single-shot view under it, reading the viewer's set. The Plot page's
+"Image strip" view moved here, and the scan page's Images pane and its
+filter rail went (a `tab=images` link redirects here). One set, two
+pages: the page form's `page` field says which one a save reopens
+(`pages._opened`), and its `tab` field carries the Plot page's view (XY
+plot or 2-D map), so a save here never moves the Plot page; a set an
+older copy saved on its strip (`tab="images"`) opens the XY plot.
+The rail is the strip's (camera, bins or shots, layout, colour map, z
+scale, ROI). `plotter/static/images.js` draws the **big view**: the tile
+clicked (or stepped to with ‹ ›) at full size: the tile's own picture
+(its ROI, levels and colour map), redrawn whenever the tile's picture
+changes (a shared z scale read late, a new colour map) through a
+`MutationObserver`. With a recipe picked, a shot is the portal's
+processing preview instead (`image.png?processing=`, the whole frame on
+its own levels; the choices are `/api/run/{uid}/device`'s
+`processing_options`). A bin has no processing (the author's choice:
+it always matches its tile). The strip shows every shot: the shot
+filters narrow the Plot page's plots and map, not the strip, and a map
+cell's link says so. A device whose stack holds traces
+(`images.trace_kind`) has no strip and draws one shot's trace from the
+portal's `/api/run/{uid}/trace`. Tiles carry their bin label
+(`images.Tile.bin`), which is how a 2-D map cell opens on its bin. The
+selection is the browser tab's (`sessionStorage`), never the set's. Like
+the Plot page, it opens the portal's own experiment only (the author:
+one experiment at a time).
 
 ## Processing migration (0.31.0)
 

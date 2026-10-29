@@ -74,6 +74,9 @@ class Tile:
     #: The 1-based s-file rows whose images it shows.
     rows: tuple[int, ...]
     caption: str
+    #: The bin it is (bins) or its shot was taken in (shots), as shown
+    #: (``""``: no ``Bin #``); a 2-D map cell finds its tile by it.
+    bin: str = ""
 
 
 def is_image_device(
@@ -89,6 +92,19 @@ def is_image_device(
     return probe.kind == "native" or (
         probe.kind == "stack" and shot_images.stack_content(probe) == "image"
     )
+
+
+def trace_kind(folder: Path, device: str, devices: Optional[list[str]] = None) -> str:
+    """``"lineout"`` or ``"waveform"`` for a device whose stack holds traces, else ``""``.
+
+    A trace has no strip (one shot carries its own axis, so shots do not
+    average); the Images page draws it one shot at a time.
+    """
+    probe = shot_images.device_kind(folder, device, devices=devices)
+    if probe.kind != "stack":
+        return ""
+    content = shot_images.stack_content(probe)
+    return "" if content == "image" else content
 
 
 def devices(folder: Path) -> list[str]:
@@ -164,10 +180,15 @@ def tiles(
     """
     if strip == "shots":
         out = []
+        bin_numbers = frame.get("Bin #")
         for row in range(1, len(frame) + 1):
             shot = row if shot_numbers is None else shot_numbers.iloc[row - 1]
             label = f"shot {_number(shot, f'? (row {row})')}"
-            out.append(Tile(row, (row,), f"{label}{_value(scan_values, (row,))}"))
+            in_bin = (
+                "" if bin_numbers is None else _number(bin_numbers.iloc[row - 1], "")
+            )
+            caption = f"{label}{_value(scan_values, (row,))}"
+            out.append(Tile(row, (row,), caption, in_bin))
         return out
     return [
         Tile(
@@ -175,6 +196,7 @@ def tiles(
             rows,
             f"bin {_number(label, 'none')} · {len(rows)} shot{'s' if len(rows) != 1 else ''}"
             f"{_value(scan_values, rows)}",
+            _number(label, ""),
         )
         for index, (label, rows) in enumerate(bins(frame))
     ]

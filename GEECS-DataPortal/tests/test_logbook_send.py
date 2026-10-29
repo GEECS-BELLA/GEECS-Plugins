@@ -442,14 +442,10 @@ class TestRouteGate:
         assert _post(client).status_code == 404
         assert not stub.calls
 
-    def test_the_page_advertises_the_button_only_when_it_works(self) -> None:
-        """The modebar entry and its dialog appear on the gate, not always."""
-        on = _client().get(f"/run/{_UID}").text
-        off = _client(logbook_url="").get(f"/run/{_UID}").text
-        assert "const LOGBOOK_SEND = true;" in on
-        assert 'id="modal-sendlog"' in on
-        assert "const LOGBOOK_SEND = false;" in off
-        assert 'id="modal-sendlog"' not in off
+    def test_the_gate_is_in_the_run_json_and_the_scan_page_sends_nothing(self) -> None:
+        """Plots are sent from the Plot pages (their gate:
+        ``tests/plotter/test_plot_tools.py``); the scan page draws none."""
+        assert 'id="modal-sendlog"' not in _client().get(f"/run/{_UID}").text
         assert _client().get(f"/api/run/{_UID}").json()["logbook_send"] is True
         assert (
             _client(logbook_url="").get(f"/api/run/{_UID}").json()["logbook_send"]
@@ -684,9 +680,7 @@ class TestTheDayParamSurvivesTheSend:
         )
         return catalog
 
-    def test_the_page_offers_the_button_and_the_send_then_works(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_the_send_with_the_day_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
         stub = _StubSend()
         monkeypatch.setattr(logbook_send, "send_plot", stub)
         client = TestClient(
@@ -697,9 +691,6 @@ class TestTheDayParamSurvivesTheSend:
             )
         )
         day = "2026-07-12"
-        assert (
-            "const LOGBOOK_SEND = true;" in client.get(f"/run/uid-007?day={day}").text
-        )
         body = {"author": "Ada", "image": _DATA_URL, "caption": "y vs shot"}
         assert (
             client.post(f"/api/run/uid-007/logbook?day={day}", json=body).status_code
@@ -725,78 +716,13 @@ class TestTheDayParamSurvivesTheSend:
         assert not stub.calls
 
     def test_the_page_fetch_carries_the_day(self) -> None:
-        """The template is the only place this can be got wrong."""
-        page = _client().get(f"/run/{_UID}").text
-        send = page[page.index("/api/run/${UID}/logbook") :][:400]
-        assert 'searchParams.set("day", DAY)' in send
-
-
-@pytest.mark.parametrize("host_id", ["shottrace"])
-def test_toolbar_sends_clicked_figure(host_id, tmp_path):
-    """The shared dialog exports its invoking host (the scan page's shot trace)."""
-    import shutil
-    import subprocess
-
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node is required for the browser-handler regression")
-    page = _client().get(f"/run/{_UID}").text
-    sender = page[
-        page.index("const LOGBOOK_SEND =") : page.index("function flashNote(")
-    ]
-    harness = r"""
-const assert = require('node:assert/strict');
-const UID = 'uid-002', ROOT = '/portal', DAY = '2026-07-12', EXPORT_SCALE = 2;
-const S = {view:'shot'};
-const SEL_DEVICE = 'U_BCaveICT', SHOT = 7;
-const LAST_TRACE = {figure:{layout:{yaxis:{title:{text:'scopetrace_channel0'}}}}};
-const elements = new Map();
-const document = {getElementById(id) {
-  if (!elements.has(id)) elements.set(id, {id, value:'', hidden:false,
-    classList:{add(){}}, focus(){}, layout:{margin:{l:65,r:14,t:12,b:110}}});
-  return elements.get(id);
-}};
-const storage = new Map();
-const localStorage = {getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)};
-const location = {href:'http://portal.example/portal/run/uid-002?tab=images&filters=kept',origin:'http://portal.example'};
-const window = {open:()=>null};
-const flashNote = ()=>{};
-const GeecsKit = {drawer:()=>({open(){}}), closeDrawer(){}, toast(){}};
-let exported, posted;
-const Plotly = {toImage:async(gd,opts)=>{exported={id:gd.id,...opts};return 'data:image/png;base64,stub';}};
-const fetch = async(url,options)=>{posted={url:String(url),...JSON.parse(options.body)};return {ok:true,json:async()=>({entry_id:'saved',url:'http://logbook.example/entry/saved',appended:false})};};
-"""
-    assertions = r"""
-(async()=>{
-  const host = document.getElementById(HOST_ID);
-  remember(ENTRY_KEY, 'existing');
-  openSendToLogbook(host);
-  const caption = document.getElementById('sl-caption').value;
-  document.getElementById('sl-author').value = 'Ada';
-  await confirmSendToLogbook();
-  assert.equal(exported.id, HOST_ID);
-  assert.equal(posted.image, 'data:image/png;base64,stub');
-  assert.equal(posted.entry, 'existing');
-  assert.equal(posted.source_url, location.href);
-  assert.equal(posted.url, 'http://portal.example/portal/api/run/uid-002/logbook?day=2026-07-12');
-  assert.equal(remembered(ENTRY_KEY), 'saved');
-  assert.equal(exported.width, 720);assert.equal(exported.height, 460);
-  assert.equal(caption, 'U_BCaveICT · scopetrace_channel0 · shot 7');
-})().catch(err=>{console.error(err);process.exit(1);});
-"""
-    script = tmp_path / "sender.cjs"
-    script.write_text(
-        harness
-        + sender
-        + "\nconst HOST_ID = "
-        + json.dumps(host_id)
-        + ";\n"
-        + assertions
-    )
-    result = subprocess.run(
-        [node, str(script)], capture_output=True, text=True, timeout=20
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+        """The Plot pages' send script is the only place this can be got wrong."""
+        tools = Path(__file__).resolve().parents[1] / "geecs_portal" / "plotter"
+        script = (tools / "static" / "plot_tools.js").read_text()
+        send = script[
+            script.index("/api/run/${encodeURIComponent(data.uid)}/logbook") :
+        ][:300]
+        assert 'url.searchParams.set("day", data.day)' in send
 
 
 # ----------------------------------------------------- the artifact source

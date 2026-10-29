@@ -307,14 +307,22 @@
     if (zscale === "shared") readShared();
 
     // Tiles across, as the template writes it: equal columns in a grid; in
-    // one row, tiles that wide with the rest scrolled to.
+    // one row, that many tiles spread evenly over the whole scan (the
+    // first, the last and evenly between), the rest hidden — the big view
+    // still steps through every one.
     const across = (n) => {
       if (strip.classList.contains("row")) {
         strip.style.gridAutoColumns = `calc((100% - ${n - 1} * var(--gap)) / ${n})`;
+        const figures = tiles.map((img) => img.closest(".tile"));
+        const total = figures.length;
+        const shown = new Set(total <= n ? figures.keys()
+          : Array.from({ length: n }, (_, i) => Math.round((i * (total - 1)) / Math.max(n - 1, 1))));
+        figures.forEach((figure, i) => { figure.hidden = !shown.has(i); });
       } else {
         strip.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
       }
     };
+    across(Number(value("cols")) || 1);
     let redraw = null;
     for (const control of document.querySelectorAll("[data-live]")) {
       control.addEventListener(control.tagName === "SELECT" ? "change" : "input", () => {
