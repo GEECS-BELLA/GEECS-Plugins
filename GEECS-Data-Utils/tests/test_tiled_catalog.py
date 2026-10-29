@@ -326,6 +326,34 @@ def test_a_failed_first_connection_is_catalog_unreachable(monkeypatch) -> None:
     assert isinstance(caught.value, ConnectionError)
 
 
+def test_a_server_gone_down_after_connecting_is_catalog_unreachable() -> None:
+    """A cached client meets a dead server in its queries, as httpx errors."""
+    pytest.importorskip("tiled")
+    httpx = pytest.importorskip("httpx")
+
+    class _DeadClient:
+        def search(self, *args, **kwargs):
+            raise httpx.ConnectError("connection refused")
+
+        def __getitem__(self, uid):
+            raise httpx.ReadTimeout("timed out")
+
+    catalog = TiledScanCatalog(uri="http://fake:8000")
+    catalog._client = _DeadClient()
+    with pytest.raises(CatalogUnreachable):
+        catalog.list_runs("Undulator", TEST_DAY)
+    with pytest.raises(CatalogUnreachable):
+        catalog.load_run("uid-001")
+
+
+def test_an_unknown_uid_stays_a_key_error() -> None:
+    """Not-found is the protocol's KeyError, never an outage."""
+    pytest.importorskip("tiled")
+    catalog = _fake_catalog({})
+    with pytest.raises(KeyError):
+        catalog.load_run("uid-missing")
+
+
 class TestTiledScanCatalogLoadRun:
     def test_load_run_reads_primary_frame(self):
         import pandas as pd

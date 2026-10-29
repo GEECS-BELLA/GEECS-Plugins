@@ -30,12 +30,13 @@ dispatch them off the GUI thread.
 from __future__ import annotations
 
 import configparser
+import functools
 import logging
 import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, TypeVar, cast, runtime_checkable
 
 from geecs_data_utils import tiled_schema
 
@@ -78,11 +79,48 @@ def read_tiled_config(
 class CatalogUnreachable(ConnectionError):
     """The catalog server could not be reached at all.
 
-    Raised when the first connection fails (a timeout, a refused or
-    unroutable host), as distinct from a reachable server failing one
+    Raised when a connection fails (a timeout, a refused or unroutable
+    host), first or later, as distinct from a reachable server failing one
     query: a caller that falls back to another source may stop asking an
     unreachable server for a while, but not a server one day's runs broke.
     """
+
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    """Whether *exc* is the HTTP client failing to reach the server.
+
+    tiled talks through httpx, whose network errors (``ConnectError``,
+    ``ConnectTimeout``, ``ReadTimeout``…) are ``httpx.TransportError``
+    and neither a builtin ``ConnectionError`` nor ``TimeoutError``.
+    """
+    try:
+        import httpx
+    except ImportError:  # no tiled extra: nothing here talks HTTP
+        return False
+    return isinstance(exc, httpx.TransportError)
+
+
+def _unreachable_on_transport_errors(method: _F) -> _F:
+    """Re-raise a network failure inside *method* as :class:`CatalogUnreachable`.
+
+    A cached client meets a server that went down in its queries, not in
+    ``_connect``; this gives those the same type. Every other error,
+    ``KeyError`` (not found) included, passes through unchanged.
+    """
+
+    @functools.wraps(method)
+    def wrapped(self: "TiledScanCatalog", *args: Any, **kwargs: Any) -> Any:
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:
+            if _is_transport_error(exc):
+                raise CatalogUnreachable(f"tiled at {self.uri}: {exc}") from exc
+            raise
+
+    return cast(_F, wrapped)
 
 
 @dataclass(frozen=True)
@@ -392,6 +430,7 @@ class TiledScanCatalog:
             logger.debug("tiled probe failed: %s", exc)
             return CatalogStatus(ok=False, label=f"tiled: {host} unreachable")
 
+    @_unreachable_on_transport_errors
     def list_runs(self, experiment: str, day: date) -> list[RunSummary]:
         """Search the catalog for *day*'s runs — metadata only, newest first.
 
@@ -430,6 +469,7 @@ class TiledScanCatalog:
         summaries.sort(key=lambda s: s.start_time, reverse=True)
         return summaries
 
+    @_unreachable_on_transport_errors
     def load_run(self, uid: str) -> RunDetail:
         """Load one run: documents plus the primary table as a DataFrame.
 
