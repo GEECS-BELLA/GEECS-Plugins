@@ -232,7 +232,9 @@ window.PlotTools = (function () {
   const CLIPBOARD_OK = !!(navigator.clipboard && window.ClipboardItem);
   const sendable = data.logbookSend === "true";
   const AUTHOR_KEY = "geecs-portal:author";
-  const ENTRY_KEY = `geecs-portal:logentry:${data.uid}`;
+  // Per scan (day and number), as the scan page keys it, so plots sent
+  // from either page join one entry.
+  const ENTRY_KEY = `geecs-portal:logentry:${data.day}:${data.scan}`;
   const remembered = (key) => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
   const keep = (key, value) => { try { localStorage.setItem(key, value); } catch (_) { /* private window */ } };
   const download = (gd) => Plotly.downloadImage(gd, { format: "png", scale: EXPORT_SCALE, filename: "geecs-plot" });

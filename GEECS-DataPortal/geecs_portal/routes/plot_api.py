@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from geecs_data_utils import tiled_schema as schema_map
-from geecs_data_utils.data.binning import bin_frame
 from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
 from geecs_data_utils.scan_grid import grid_axes, grid_scan
 
@@ -224,7 +223,7 @@ def api_frame(
 
 
 @router.get("/api/run/{uid}/binned")
-def api_binned(  # noqa: C901
+def api_binned(
     uid: str,
     cols: list[str] = Query(default=[]),
     x: str = "",
@@ -257,13 +256,12 @@ def api_binned(  # noqa: C901
             raise HTTPException(
                 status_code=404, detail=f"no plottable column {column!r}"
             )
-    cfg = dataclasses.replace(cfg, value_cols=tuple(requested))
     try:
-        result = bin_frame(pf.frame[mask], cfg)
+        result, binned_series, x_centers = analysis.binned_series(
+            pf.frame[mask], cfg, requested, x or None
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"no bin column: {exc}") from exc
-    except ValueError as exc:  # e.g. degenerate percentile bounds
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except TypeError as exc:
         # A coercible-string column (dtype-tolerant telemetry) plots
         # in per-shot view but bin_frame aggregates the RAW dtype —
@@ -272,37 +270,10 @@ def api_binned(  # noqa: C901
             status_code=400,
             detail=f"binned view needs numeric columns: {exc}",
         ) from exc
-    x_centers = None
-    if x:
-        # Same primitive, mean-aggregated — the snippet mirrors this
-        # exactly.  The x call's dropna/min_count runs over x ALONE,
-        # so its surviving bins can differ from the y call's:
-        # reindex onto the y bins, or points silently plot at the
-        # wrong bin's x (a missing x center degrades to a null →
-        # Plotly skips that point instead of mis-placing it).
-        try:
-            x_result = bin_frame(
-                pf.frame[mask],
-                dataclasses.replace(cfg, value_cols=(x,), agg="mean"),
-            )
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"binned view needs a numeric x: {exc}",
-            ) from exc
-        if (x, "center") in x_result.frame.columns:
-            x_centers = analysis.jsonable_values(
-                x_result.frame[(x, "center")].reindex(result.frame.index)
-            )
+    except ValueError as exc:  # e.g. degenerate percentile bounds
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    cfg = dataclasses.replace(cfg, value_cols=tuple(requested))
     bin_labels = analysis.jsonable_labels(result.frame.index)
-    binned_series = {
-        column: {
-            sub: analysis.jsonable_values(result.frame[(column, sub)])
-            for sub in ("center", "err_low", "err_high")
-        }
-        for column in requested
-        if (column, "center") in result.frame.columns
-    }
     x_name = x or None
     pretty = _pretty_names(detail, pf, [*requested, *([x_name] if x_name else [])])
     payload = {

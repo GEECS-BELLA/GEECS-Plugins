@@ -523,7 +523,15 @@ rules that are the portal's own:
   `_pretty_names`). That PR also hands the plotter the portal's catalog
   (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
   folder-only even under `--tiled`; the folder catalog caches finished
-  scans itself) and the experiment as a parameter. The page's "Image
+  scans itself) and the experiment as a parameter. The same PR folds what
+  #1192's port left twice: `plotter.figures.binned_figure` beside
+  `figures.binned_figure` (the binning itself is already one,
+  `analysis.binned_series`), the private `figures._apply_display` /
+  `_marker_size` the plotter imports, the logbook-send client and the
+  layout `deepMerge` in both `plot_tools.js` and `run.html` (one shared
+  script under `static/`), and the filter and setting rows the plotter
+  page takes from `portal.css` (kit components, through `kit.html`, once
+  the scan page's rail filters are gone). The page's "Image
   strip" view is GeecsPlotter's too, until it joins the Images tab.
 
 ## Adding an analysis tab (the checklist)

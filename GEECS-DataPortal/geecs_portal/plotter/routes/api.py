@@ -16,7 +16,6 @@ from typing import Any, Callable, Optional, Sequence, Union
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from geecs_data_utils.data.binning import bin_frame
 from geecs_data_utils.data.curve_fit import CurveFit
 from geecs_data_utils.data.row_filters import RowFilters, apply_filters
 from pydantic import BaseModel, ConfigDict, Field
@@ -249,8 +248,7 @@ def figure_code(
             f" shot=scans.shot_axis(frame){order_arg})\n"
         )
         fit_arg = ", fits=fits"
-    cosmetics = {k: v for k, v in (display or {}).items() if k != "layout"}
-    display_arg = f", display={cosmetics!r}" if cosmetics else ""
+    display_arg = analysis.snippet_display(display)
     head = (
         "from datetime import date\n"
         "from geecs_portal.plotter import figures, scans\n\n"
@@ -388,9 +386,10 @@ def register(router: APIRouter, ctx: Context) -> None:
         """``{pass, total}``: the shots the filters keep, for the editor's live count."""
         frame = scans.load_frame(ctx.run(day, scan))
         try:
-            kept = apply_filters(frame, analysis.parse_filters(filters))
-        except (analysis.BadParam, ValueError) as bad:
+            flt = analysis.parse_filters(filters)
+        except analysis.BadParam as bad:
             raise HTTPException(status_code=400, detail=str(bad)) from None
+        kept = _kept(frame, flt)
         return JSONResponse({"pass": len(kept), "total": len(frame)}, headers=NO_CACHE)
 
     @router.get("/api/settings", response_model=SetsResponse)
@@ -451,9 +450,9 @@ def _figure_response(
         flt = analysis.parse_filters(filters)
         disp = analysis.parse_display(display)
         cfg = analysis.parse_bincfg(bincfg) if view == "bin" else None
-        kept = apply_filters(frame, flt)
-    except (analysis.BadParam, ValueError) as bad:
+    except analysis.BadParam as bad:
         raise HTTPException(status_code=400, detail=str(bad)) from None
+    kept = _kept(frame, flt)
     # Each list keeps its slot (colour and axis): Y3 stays Y3 with Y2
     # off. Trailing off slots are dropped so a one-Y snippet stays bare.
     axes = list(axes)
@@ -461,12 +460,16 @@ def _figure_response(
         axes.pop()
     ys = [c for c, _ in axes]
     drawn = [c for c in ys if c]
+    # Columns are judged on the whole scan, then cut to the kept shots: a
+    # filter that keeps no shot (or none with a value of one Y) draws an
+    # empty plot and a "0 / n shots pass" count, never a missing column.
     try:
-        series = scans.plot_series(kept, [*drawn, x] if x else drawn)
+        whole = scans.plot_series(frame, [*drawn, x] if x else drawn)
     except KeyError as missing:
         raise HTTPException(
             status_code=404, detail=f"no plottable column {missing.args[0]!r}"
         ) from None
+    series = {name: values.loc[kept.index] for name, values in whole.items()}
     # A title only where the toggle changes it, so the snippet stays bare.
     x_label = _changed(x, xalias) if x else None
     y_labels = [_changed(c, alias) if c else None for c, alias in axes]
@@ -528,6 +531,24 @@ def _figure_response(
     return _json(body)
 
 
+def _kept(frame: pd.DataFrame, filters: RowFilters) -> pd.DataFrame:
+    """The shots *filters* keep; a 400 that says so when one does not fit this scan.
+
+    The filters live in the viewer's set and follow them from scan to scan,
+    so a filter on a device that did not save this scan is the usual case.
+    """
+    try:
+        return apply_filters(frame, filters)
+    except (KeyError, ValueError) as bad:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"a saved shot filter does not fit this scan ({bad}): turn its "
+                "group off or remove it under Shot filters"
+            ),
+        ) from None
+
+
 def _binned(
     frame: pd.DataFrame,
     cfg: Any,  # BinningConfig
@@ -547,34 +568,16 @@ def _binned(
         aggregate or a degenerate percentile.
     """
     try:
-        result = bin_frame(frame, dataclasses.replace(cfg, value_cols=tuple(drawn)))
-        x_centers = None
-        if x:
-            # Reindexed onto the Y bins: X's own dropna may keep other bins,
-            # and a point must never plot at another bin's position.
-            x_result = bin_frame(
-                frame, dataclasses.replace(cfg, value_cols=(x,), agg="mean")
-            )
-            if (x, "center") in x_result.frame.columns:
-                x_centers = analysis.jsonable_values(
-                    x_result.frame[(x, "center")].reindex(result.frame.index)
-                )
+        result, series, x_centers = analysis.binned_series(frame, cfg, drawn, x or None)
     except KeyError as missing:
         raise HTTPException(
-            status_code=404, detail=f"no bin column: {missing}"
+            status_code=404,
+            detail=f"the saved bin column {missing} is not in this scan: change it under ⚙ bins",
         ) from None
     except (TypeError, ValueError) as bad:
         raise HTTPException(
             status_code=400, detail=f"binned view needs numeric columns: {bad}"
         ) from None
-    series = {
-        column: {
-            part: analysis.jsonable_values(result.frame[(column, part)])
-            for part in ("center", "err_low", "err_high")
-        }
-        for column in drawn
-        if (column, "center") in result.frame.columns
-    }
     return figures.binned_figure(
         analysis.jsonable_labels(result.frame.index),
         series,

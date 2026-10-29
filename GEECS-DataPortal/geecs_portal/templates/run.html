@@ -540,7 +540,9 @@ const LOGBOOK_SEND = {{ logbook_send | tojson }};
 // that is the user saying they meant it.
 const SEND_WIDTH = 720, SEND_HEIGHT = 460;
 const AUTHOR_KEY = "geecs-portal:author";
-const ENTRY_KEY = "geecs-portal:logentry:" + UID;
+// Which entry this scan's plots join, remembered per scan (day and number,
+// as the Plot page keys it too, so a Tiled run and its folder share one).
+const ENTRY_KEY = "geecs-portal:logentry:" + {{ ((run_day ~ ":" ~ summary.scan_number) if run_day and summary.scan_number is not none else uid) | tojson }};
 let SEND_PLOT = null;
 
 /** localStorage, treated as a convenience that may not be there. */

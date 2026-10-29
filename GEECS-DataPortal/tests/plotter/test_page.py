@@ -19,7 +19,7 @@ from tests.plotter.conftest import ALIASED, SCAN_VARIABLE, post
 
 _PKG = Path(__file__).resolve().parents[2] / "geecs_portal" / "plotter"
 _TEMPLATES = sorted((_PKG / "templates").glob("*.html"))
-_SCRIPTS = sorted((_PKG / "static").glob("plotter*.js"))
+_SCRIPTS = sorted((_PKG / "static").glob("*.js"))
 
 
 @pytest.mark.parametrize("template", _TEMPLATES, ids=lambda p: p.name)

@@ -209,3 +209,58 @@ def test_the_send_drawer_needs_an_absolute_logbook_url(
     assert 'data-uid="folder:Testexp:2026-10-02:1"' in sending
     for path_only in ("", "/log"):
         assert 'id="send-drawer"' not in page(path_only)
+
+
+# -- filters that keep nothing, or do not fit the scan ----------------------
+
+KEEP_NONE = KEEP_HIGH.replace('"low": 11, "high": 40', '"low": 1000, "high": 2000')
+
+
+def test_a_filter_keeping_no_shot_draws_an_empty_plot(client: TestClient) -> None:
+    """Zero kept shots is an answer ("0 / 4 pass"), not a missing column."""
+    for params in (
+        {},
+        {"view": "bin"},
+        {"view": "bin", "x": SCAN_VARIABLE},
+        {"yfit": "gaussian"},
+    ):
+        body = _figure(client, filters=KEEP_NONE, **params)
+        assert (body["pass"], body["total"]) == (0, 4)
+        assert body["figure"]["data"][0]["y"] == []
+
+
+def test_a_y_with_no_value_left_still_draws_the_others(client: TestClient) -> None:
+    """Shot 3 alone: its charge is NaN, its jet is not; Y1 draws, Y2 is a gap."""
+    only_3 = KEEP_HIGH.replace(CHARGE, "Shotnumber").replace(
+        '"low": 11, "high": 40', '"low": 2.5, "high": 3.5'
+    )
+    body = _figure(client, y=SCAN_VARIABLE, y2=CHARGE, filters=only_3)
+    y1, y2 = body["figure"]["data"][0], body["figure"]["data"][1]
+    assert y1["y"] == [2.0] and y2["y"] == [None]
+    assert body["pass"] == 1
+
+
+def test_a_saved_filter_on_a_column_this_scan_lacks_says_so(client: TestClient) -> None:
+    """The set follows the viewer to Scan002, which has no jet column."""
+    jet = KEEP_HIGH.replace(CHARGE, SCAN_VARIABLE)
+    response = client.get(
+        "/api/figure",
+        params={"day": "2026-10-02", "scan": 2, "y": CHARGE, "filters": jet},
+    )
+    assert response.status_code == 400
+    assert "saved shot filter" in response.json()["detail"]
+
+
+def test_a_saved_bin_column_this_scan_lacks_says_so(client: TestClient) -> None:
+    response = client.get(
+        "/api/figure",
+        params={
+            "day": "2026-10-02",
+            "scan": 2,
+            "y": CHARGE,
+            "view": "bin",
+            "bincfg": json.dumps({"bin_col": SCAN_VARIABLE}),
+        },
+    )
+    assert response.status_code == 404
+    assert "saved bin column" in response.json()["detail"]
