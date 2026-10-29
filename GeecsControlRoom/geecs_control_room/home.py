@@ -42,8 +42,9 @@ _WORDS = ("error", "not answering", "unreachable", "stale", "off", "unknown")
 #: Role names shown per word before "+N".
 _NAMED = 3
 _LINK_TITLES = {"scanner": "Scanner", "portal": "Data Portal", "logbook": "Logbook", "config_editor": "Config editor"}  # fmt: skip
-#: Each of the strip's two scanner reads (in sequence: both inside the page's 3 s timeout).
-SCANNER_TIMEOUT_S = 1.0
+#: Each of the strip's two scanner reads, made at once: inside the page's 3 s timeout,
+#: yet longer than one of the queue client's 2 s manager round trips.
+SCANNER_TIMEOUT_S = 2.5
 #: The manager's words as the strip's kit states (others: unknown).
 _RUN_STATE = {
     "running": "running",
@@ -154,8 +155,8 @@ async def strip(scanner: Optional[httpx.AsyncClient]) -> dict[str, Any]:
     if scanner is None:
         return {"scanner": "not configured", "run": "unknown", "kit": "unknown"}
     try:
-        status = (await scanner.get("/api/status")).raise_for_status().json()
-        progress = (await scanner.get("/api/progress")).raise_for_status().json()
+        answers = await asyncio.gather(scanner.get("/api/status"), scanner.get("/api/progress"))  # fmt: skip
+        status, progress = (r.raise_for_status().json() for r in answers)
     except (httpx.HTTPError, ValueError):
         return {"scanner": "unreachable", "run": "unknown", "kit": "unknown"}
     if not status.get("connected"):
