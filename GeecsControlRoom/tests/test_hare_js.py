@@ -36,13 +36,16 @@ setTimeout(() => {
   sockets[1].up();
   sockets[1].frame({ type: "diff", data: { "A:x": { value: 2 } } });
   sockets[1].close = () => {};  // half-open: close() never calls back
-  setTimeout(() => {           // ... yet the silence alone drops it
+  const waited = Date.now();   // ... yet the silence alone drops it and redials
+  const done = setInterval(() => {
+    if (sockets.length < 3 && Date.now() - waited < 5000) return;
+    clearInterval(done);
     console.log(JSON.stringify({
       url: sockets[0].url, first: sockets[0].sent, again: sockets[1].sent,
       seen, states, units: hare.meta("A:x").units, redialled: sockets.length,
     }));
     hare.close();
-  }, 900);
+  }, 20);
 }, 700);
 """
 

@@ -53,6 +53,7 @@
     function connect() {
       status("connecting");
       ws = new WS(target.toString());
+      heard(); // a dial into nothing is dropped like a silent socket
       ws.onopen = () => {
         tries = 0;
         status("open");
