@@ -85,6 +85,28 @@ def test_resolve_binds_roles_and_their_readbacks() -> None:
     assert row[1].role.confirm == "hazard"
 
 
+def test_a_db_device_draws_its_controls_through_bare_pvs() -> None:
+    """A DB device's setpoint, toggle and flipper (in/out lamps) bind bare PVs; the renderer keeps them disabled."""
+    s = screen(
+        {"kind": "setpoint", "label": "Jet X", "bind": {"pv": "x:u_jet:position_axis_1"}},
+        {"kind": "toggle", "label": "Slit", "bind": {"pv": "x:u_plc:do_ch2"}, "confirm": "Shutter first."},
+        {"kind": "flipper", "label": "Amp2", "bind": {"pv": "x:u_plc:do_ch3"},
+         "indicators": [{"pv": "x:u_plc:di_ch5"}, {"device": "ps", "role": "output"}]},
+    )  # fmt: skip
+    (row,) = resolve_screen(s, load_families(), PANEL, NATIVE)
+    assert [b.role for b in row] == [None, None, None]
+    assert [m and m.name for m in row[2].indicators] == [None, "output"]
+
+
+def test_a_group_lays_its_widgets_in_columns() -> None:
+    group = {"title": "G", "at": [1, 1], "columns": 3, "widgets": [{"kind": "annotation", "label": "x"}]}  # fmt: skip
+    assert (
+        Screen.model_validate({"title": "S", "groups": [group]}).groups[0].columns == 3
+    )
+    with pytest.raises(ValidationError):
+        Screen.model_validate({"title": "S", "groups": [group | {"columns": 0}]})
+
+
 @pytest.mark.parametrize(
     "widget, why",
     [
@@ -100,11 +122,6 @@ def test_resolve_binds_roles_and_their_readbacks() -> None:
         (
             {"kind": "readout", "bind": {"device": "st", "role": "rbv", "axis": "m9"}},
             "axis",
-        ),  # fmt: skip
-        ({"kind": "toggle", "bind": {"pv": "U_Gauge:valve"}}, "read only"),
-        (
-            FLIP | {"indicators": [{"pv": "U_X:in"}, *FLIP["indicators"]]},
-            "not a bare PV",
         ),  # fmt: skip
         (FLIP | {"indicators": [{"device": "ps", "role": "reset"}]}, "not readable"),
     ],

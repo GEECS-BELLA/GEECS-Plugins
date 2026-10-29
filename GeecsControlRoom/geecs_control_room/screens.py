@@ -65,6 +65,17 @@ class Loaded:
         groups = self.screen.groups if self.screen else []
         return max((g.at[1] + g.size[1] - 1 for g in groups), default=1)
 
+    @property
+    def stacks(self) -> Optional[list[list[int]]]:
+        """Each column's groups top to bottom, packed as a LabVIEW panel is; ``None`` (the grid) when one spans columns."""
+        groups = self.screen.groups if self.screen else []
+        if any(g.size[1] > 1 for g in groups):
+            return None
+        columns: list[list[int]] = [[] for _ in range(self.columns)]
+        for i in sorted(range(len(groups)), key=lambda i: groups[i].at):
+            columns[groups[i].at[1] - 1].append(i)
+        return columns
+
 
 def load(settings: Settings, name: str) -> Loaded:
     """Read and bind ``<name>.yaml``; a missing file is 404, any misfit 422."""

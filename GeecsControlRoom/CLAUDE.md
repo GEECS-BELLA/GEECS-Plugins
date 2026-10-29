@@ -49,7 +49,13 @@ deploy/
   is the module's verdict for a device role and Hare's connection and alarm
   for a bare PV (read only in this slice); "unknown" whenever either source
   is silent. PV names come from the module's device route, never derived
-  here.
+  here. A writing kind on a bare PV (a DB device's setpoint, toggle or
+  flipper) is drawn disabled until the module writes gateway PVs.
+- **Dense, like the panel it replaces.** When no group spans columns,
+  each column packs its groups top to bottom in row order (a LabVIEW
+  panel's layout; grid row tracks would leave gaps under short groups);
+  otherwise the grid aligns rows. A group's `columns` lays its widgets
+  side by side, row by row.
 - **The home sorts the module's words; it judges nothing.** "Not live" is
   every device whose state is not `live`; "In alarm" every device whose
   state or any role's verdict is `error` (the module's word for severity

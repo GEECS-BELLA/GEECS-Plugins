@@ -65,7 +65,9 @@ token (`GroupTone`, never a literal), of widgets of exactly seven kinds
 (`WidgetKind`), each a free label and a `Binding` (device + family role +
 axis, or a bare PV). No expressions, scripts or conditions, ever. What
 depends on the families and instance data (the role exists, the kind fits
-its type, a bare PV is read only) is `resolve_screen`, not the model.
+its type) is `resolve_screen`, not the model. A bare PV may carry a writing
+kind or a flipper's indicators: the renderer draws its writes disabled until
+the module writes gateway PVs.
 
 ## Home layout
 

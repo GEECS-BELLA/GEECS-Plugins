@@ -946,6 +946,7 @@ A titled block of widgets on the screen's grid, worn in a kit colour token.
 | `title` | `str` | yes | — | The group's heading. |
 | `at` | `tuple[int, int]` | yes | — | Its top-left grid cell: row, column (from 1). |
 | `size` | `tuple[int, int]` | no | (1, 1) | Rows and columns it spans. |
+| `columns` | `int` | no | 1 | Widgets side by side inside it, filled row by row. |
 | `tone` | `'accent' \| 'slate' \| 'muted' \| 'trace-1' \| 'trace-2' \| 'trace-3' \| 'trace-4'` | no | 'slate' | Its colour, a kit token (never a literal). |
 | `widgets` | `list[Widget]` | yes | — | Its controls, in order. |
 
@@ -958,7 +959,7 @@ One control: its kind, the label a person reads, and what it is bound to.
 | `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'readout' \| 'annotation' \| 'image'` | yes | — | The widget, one of the seven. |
 | `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label. |
 | `bind` | `Binding (optional)` | no | None | What it shows and writes; none for an annotation or an image. |
-| `indicators` | `list[Binding]` | no | [] | A flipper's in and out indicators. |
+| `indicators` | `list[Binding]` | no | [] | A flipper's in and out indicators, in that order. |
 | `confirm` | `str (optional)` | no | None | A hazard note the operator confirms before the write. |
 | `units` | `str (optional)` | no | None | Units shown, where the record carries none. |
 | `precision` | `int (optional)` | no | None | Digits after the point. |
@@ -973,7 +974,7 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `device` | `str (optional)` | no | None | The GEECS device name. |
 | `role` | `str (optional)` | no | None | The device family's role. |
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
-| `pv` | `str (optional)` | no | None | A bare PV, for a device the GEECS DB serves (read only). |
+| `pv` | `str (optional)` | no | None | A bare PV, for a device the GEECS DB serves (its writes disabled until the module writes gateway PVs). |
 
 ## `home_layout`
 
