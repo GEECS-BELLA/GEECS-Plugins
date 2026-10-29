@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from geecs_portal.plotter.app import create_app
 
@@ -16,6 +18,8 @@ DAY = date(2026, 10, 2)
 SCAN_VARIABLE = "U_Jet Position"
 #: A Master Control column carrying a LabVIEW alias.
 ALIASED = "U_Gas Pressure Alias:Gas (psi)"
+#: Scan001's camera (the ``camera`` fixture).
+CAM = "UC_Cam"
 
 
 def write_scan(
@@ -83,3 +87,19 @@ def post(client: TestClient, path: str = "/", **fields: object) -> str:
     form = {"day": "2026-10-02", "set": "default", **fields}
     form.setdefault("owner", form["set"])
     return client.post(path, data={k: str(v) for k, v in form.items()}).text
+
+
+@pytest.fixture
+def camera(share: Path) -> Path:
+    """Scan001's camera and vendor folders; shot 3 has no file."""
+    folder = share / EXPERIMENT / "Y2026" / "10-Oct" / "26_1002" / "scans" / "Scan001"
+    cam = folder / CAM
+    cam.mkdir()
+    for shot in (1, 2, 4):
+        frame = np.full((4, 6), 10 * shot, dtype=np.uint16)
+        frame[0, 0] = 1000  # a bright corner, so the window is not flat
+        Image.fromarray(frame).save(cam / f"Scan001_{CAM}_{shot:03d}.png")
+    haso = folder / "U_Haso"
+    haso.mkdir()
+    (haso / "Scan001_U_Haso_001.himg").write_bytes(b"proprietary")
+    return folder

@@ -9,8 +9,10 @@
 
 window.PlotTools = (function () {
   const form = document.getElementById("pick");
-  // The XY plot, or the 2-D map's box (its two maps are the plots).
-  const host = document.getElementById("plot") || document.getElementById("map");
+  // The XY plot, the 2-D map's box (its two maps are the plots), or the
+  // Images page's big view (a trace device's shot is a plot).
+  const host = document.getElementById("plot") || document.getElementById("map")
+    || document.getElementById("bigview");
   // The server's "$tok:--name" colour placeholders, resolved against the
   // live theme tokens (one walk: traces, ticks, grids, titles alike).
   const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();

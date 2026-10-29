@@ -39,6 +39,8 @@ class TileModel(BaseModel):
     #: The 1-based s-file rows it shows (one for a shot, a bin's for a bin).
     rows: list[int]
     caption: str
+    #: The bin it is, or its shot was taken in (``""``: no ``Bin #``).
+    bin: str = ""
     #: The tile's PNG, relative to the app (``api/images/tile.png?…``).
     url: str
 
@@ -91,6 +93,7 @@ def strip_tiles(
             index=t.index,
             rows=list(t.rows),
             caption=t.caption,
+            bin=t.bin,
             url=tile_url(day, scan, device, strip, t.index),
         )
         for t in found

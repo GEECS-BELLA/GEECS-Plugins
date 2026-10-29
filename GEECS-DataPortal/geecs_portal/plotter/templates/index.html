@@ -40,7 +40,27 @@
               {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}
             </select>
           </div>
-{% endmacro %}<!doctype html>
+{% endmacro %}{# The big view: the tile clicked in the strip (or, for a trace device,
+   one shot) at full size. A shot is drawn by the portal's own image
+   route, which takes a recipe's processing preview; a bin is its strip
+   average (images.js). #}
+{%- macro big_view(mode) %}
+            <section class="group bigview" id="bigview" aria-label="Big view" data-mode="{{ mode }}" data-device="{{ device }}"
+                     data-day="{{ day }}" data-scan="{{ scan }}" data-uid="{{ uid }}" data-shots="{{ shots }}" data-cmap="{{ cmap }}"
+                     data-in-portal="{{ 'true' if in_portal else 'false' }}" data-portal-root="{{ portal_root }}"
+                     data-logbook-send="{{ 'true' if logbook_send else 'false' }}" data-display-query="{{ display_query }}">
+              <div class="row bigbar">
+                <button class="btn sm" type="button" data-big-step="-1" aria-label="Previous">‹</button>
+                <span class="mono" id="big-caption" aria-live="polite"></span>
+                <button class="btn sm" type="button" data-big-step="1" aria-label="Next">›</button>
+                <span class="spacer"></span>
+                <label class="hint row" id="big-processing-box" hidden>processing
+                  <select id="big-processing" aria-label="Processing preview"><option value="">raw</option></select></label>
+              </div>
+              {% if mode == "trace" %}<div id="big-trace" class="plot"></div>{% else %}<img id="big-image" class="big-image" alt="">{% endif %}
+              <p class="hint" id="big-note" role="status"></p>
+            </section>
+{%- endmacro %}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -72,7 +92,7 @@
    browser's memory when it can and remembers what is typed. #}
 <div class="shell solo">
   <main class="pane">
-    <form method="get" action="{{ root }}/" id="ask-name" class="panel">
+    <form method="get" action="{{ root }}/{{ 'images' if page == 'images' else '' }}" id="ask-name" class="panel">
       <header><span class="eyebrow">Your settings</span></header>
       <div class="body">
         <div class="field">
@@ -121,7 +141,10 @@
         <input type="hidden" name="y2alias" value="{{ 'true' if y2alias else 'false' }}">
         <input type="hidden" name="y3alias" value="{{ 'true' if y3alias else 'false' }}">
         <input type="hidden" name="ycount" value="{{ ycount }}">
-        <input type="hidden" name="tab" value="{{ tab }}">
+        {# The Plot page's view (XY plot or 2-D map), saved back from either
+           page; the page the form came from is the one reopened. #}
+        <input type="hidden" name="tab" value="{{ plot_view }}">
+        <input type="hidden" name="page" value="{{ page }}">
         <input type="hidden" name="strip" value="{{ strip }}">
         <input type="hidden" name="layout" value="{{ layout }}">
         <input type="hidden" name="zscale" value="{{ zscale }}">
@@ -316,7 +339,7 @@
        plain GET (nothing is saved) that opens the scan the set last had, or
        keeps the open one (here_*) for a set that has none; Save as posts the
        main form's controls to a new name. #}
-    <form method="get" action="{{ root }}/" id="sets" class="group">
+    <form method="get" action="{{ root }}/{{ 'images' if page == 'images' else '' }}" id="sets" class="group">
       {% if day and scan %}<input type="hidden" name="here_day" value="{{ day }}">
       <input type="hidden" name="here_scan" value="{{ scan }}">{% endif %}
       <div class="field">
@@ -328,7 +351,7 @@
         {# The set saves itself, so a first-time user who looks here for a
            "load" sees why there is only one entry. #}
         <span class="hint">Every pick, and each scan opened here, saves into your own set; opening a set reopens its last scan.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
-        <span class="hint" id="you" hidden>You: <b id="you-name"></b>. A change made under another set copies it into yours, replacing what yours held. <a href="{{ root }}/{% if day and scan %}?day={{ day }}&amp;scan={{ scan }}{% endif %}" id="you-change">Change</a></span>
+        <span class="hint" id="you" hidden>You: <b id="you-name"></b>. A change made under another set copies it into yours, replacing what yours held. <a href="{{ root }}/{{ 'images' if page == 'images' else '' }}{% if day and scan %}?day={{ day }}&amp;scan={{ scan }}{% endif %}" id="you-change">Change</a></span>
         {# No name known yet (a shared link opened first): asked before the
            first change, which would otherwise have nowhere to go. #}
         <div class="field" id="who" hidden>
@@ -377,26 +400,25 @@
 
   <main class="pane">
     {% if in_portal and day and scan %}
-      {# The portal's tabs for this scan: this page is its Plot tab; the
-         others are the scan page's, reached through the day-step route,
-         which finds the scan by day and number (a Tiled run or a folder). #}
+      {# The portal's tabs for this scan: Plot and Images are this app's two
+         pages of the set; the others are the scan page's, reached through
+         the day-step route, which finds the scan by day and number. #}
       <nav class="tabs" role="tablist" aria-label="Scan views">
         {% for key, label in (("overview", "Overview"), ("plot", "Plot"), ("images", "Images"), ("analysis", "Analysis")) %}
-          {% if key == "plot" %}
-          <a role="tab" aria-selected="true" href="#">{{ label }}</a>
+          {% if key in ("plot", "images") %}
+          <a role="tab" aria-selected="{{ 'true' if key == page else 'false' }}" href="{{ root }}/{{ 'images' if key == 'images' else '' }}?day={{ day }}&amp;scan={{ scan }}&amp;set={{ set | urlencode }}">{{ label }}</a>
           {% else %}
           <a role="tab" aria-selected="false" href="{{ portal_root }}/run/jump/{{ day }}?prefer={{ scan }}&amp;tab={{ key }}{% if experiment %}&amp;experiment={{ experiment | urlencode }}{% endif %}">{{ label }}</a>
           {% endif %}
         {% endfor %}
       </nav>
     {% endif %}
-    {% if columns %}
-      {# GEECSplotter's XY graphs, the 2-D map, and the image strip. #}
+    {% if columns and page == "plot" %}
+      {# GEECSplotter's XY graphs, and the 2-D map. #}
       <div class="row view-switch">
         <div class="seg" role="group" aria-label="View">
           <button type="button" data-toggle-for="tab" data-value="xy" aria-pressed="{{ 'true' if tab == 'xy' else 'false' }}">XY plot</button>
           <button type="button" data-toggle-for="tab" data-value="map" aria-pressed="{{ 'true' if tab == 'map' else 'false' }}">2-D map</button>
-          <button type="button" data-toggle-for="tab" data-value="images" aria-pressed="{{ 'true' if tab == 'images' else 'false' }}">{{ 'Image strip' if in_portal else 'Images' }}</button>
         </div>
       </div>
     {% endif %}
@@ -419,7 +441,7 @@
       <article class="panel">
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          <span class="dim">{{ device or device_kept }}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'shots' }}{% endif %}</span>
+          <span class="dim">{{ device or device_kept }}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'shots' }}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}</span>
         </header>
         <div class="body">
           {% if device_problem %}
@@ -427,6 +449,10 @@
               <div class="t">No images to show</div>
               <div class="m">{{ device_problem }}</div>
             </div>
+          {% elif trace %}
+            {# A trace device: no strip (each shot has its own axis, so shots
+               do not average); one shot at a time. #}
+            {{ big_view("trace") }}
           {% else %}
             {# One tile per bin (its shots' average) or per shot. Each image
                loads when it scrolls into view; plotter.js adds the display
@@ -437,13 +463,14 @@
                  data-full-url="{{ root }}/{{ tiles[0].url if tiles else '' }}"
                  style="{% if layout == 'row' %}grid-auto-columns: calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% else %}grid-template-columns: repeat({{ cols }}, minmax(0, 1fr)){% endif %}">
               {% for t in tiles %}
-                <figure class="tile">
+                <figure class="tile" data-index="{{ t.index }}" data-bin="{{ t.bin }}" data-caption="{{ t.caption }}">
                   <img loading="lazy" alt="{{ device }} {{ t.caption }}" data-tile="{{ root }}/{{ t.url }}"
                        {% if zscale != "shared" %}src="{{ root }}/{{ t.url }}&amp;{{ display_query }}"{% endif %}>
                   <figcaption class="hint">{{ t.caption }}</figcaption>
                 </figure>
               {% endfor %}
             </div>
+            {{ big_view(strip) }}
             <details class="disc">
               <summary>Notebook code</summary>
               <pre class="well mono" id="code">{{ strip_code }}</pre>
@@ -461,8 +488,7 @@
         {# The map's host is there in every state: the rail's tools (filters,
            pass count) read the scan from it; map.js draws only with a URL. #}
         <div class="body" id="map" data-url="{% if mapv and mapx and mapy %}{{ root }}/{{ map_url }}{% endif %}" data-day="{{ day }}" data-scan="{{ scan }}" data-uid="{{ uid }}"
-             data-portal-root="{{ portal_root }}" data-logbook-send="{{ 'true' if logbook_send else 'false' }}"
-             data-images-url="{{ portal_root }}/run/jump/{{ day }}?prefer={{ scan }}&amp;tab=images{% if experiment %}&amp;experiment={{ experiment | urlencode }}{% endif %}">
+             data-portal-root="{{ portal_root }}" data-logbook-send="{{ 'true' if logbook_send else 'false' }}">
           {% if not (mapv and mapx and mapy) %}
             <div class="state" data-state="empty">
               <div class="t">Nothing to map yet</div>
@@ -743,6 +769,7 @@
 <script src="{{ root }}/static/plot_tools.js" defer></script>
 <script src="{{ root }}/static/plotter.js" defer></script>
 {% if tab == "map" %}<script src="{{ root }}/static/map.js" defer></script>{% endif %}
+{% if tab == "images" %}<script src="{{ root }}/static/images.js" defer></script>{% endif %}
 <script src="{{ root }}/theme/theme.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 </body>

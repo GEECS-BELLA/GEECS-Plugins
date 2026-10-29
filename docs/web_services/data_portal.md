@@ -29,13 +29,8 @@ number, mode, shot count, status, start time) and how to move:
 - **‹ scan / scan ›** and the scan dropdown step through the day.
 - **log ↗** opens this scan's entry in the [logbook](logbook.md), when
   the portal knows where the logbook is.
-- **Filters** hold conditions on the scalar columns (AND inside a group,
-  groups OR together), edited with **edit filters…**. They apply to the
-  grid maps and the images, and they follow you from scan to scan and
-  day to day. The Plot page has shot filters of its own.
-
-Everything you choose on a scan's page (tab, filters, bins, the selected
-cell or shot) is in the page's URL, so a link you copy opens the same view.
+The open tab is in the page's URL, so a link you copy opens the same tab.
+The Plot and Images tabs keep your choices in your settings set instead.
 
 ## The tabs
 
@@ -54,10 +49,15 @@ cell or shot) is in the page's URL, so a link you copy opens the same view.
   others), chosen separately. X starts as the scan variable; pick the
   Y axis in the rail. Click a cell for its readbacks, sample count and
   member shots, or open that cell's images on the Images tab.
-- **Images** — one device's shots, one at a time or averaged per bin. A
-  camera shows its image; a spectrometer or scope shows its trace as an
-  interactive plot. The **processing** selector runs a saved recipe's
-  processing on the shown image as a preview, without writing anything.
+- **Images** — its own page beside Plot, reading the same settings set:
+  one camera's strip of tiles, one per bin (its shots' average) or one
+  per shot, with the colour map, levels and region of interest you
+  chose. Click a tile to see it full size underneath, and step with
+  ‹ ›. On a single shot, the **processing** choice runs a saved recipe's
+  processing as a preview, without writing anything. A spectrometer or
+  scope has no strip: it shows one shot's trace at a time, as an
+  interactive plot. A 2-D map cell's **View this cell's images** opens
+  this page on that cell's bin.
 - **Analysis** — shown when the portal has an analysis configuration.
   See below.
 
