@@ -1,4 +1,4 @@
-"""The launcher: which address opens, in which browser, and when."""
+"""The launcher: which address opens, in which browser, and when (GeecsPlotter's, moved here)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import webbrowser
 
 import pytest
 
-from geecs_plotter import __main__ as launcher
+from geecs_portal import __main__ as launcher
 
 
 class _Recorder:
@@ -36,13 +36,13 @@ def browsers(monkeypatch: pytest.MonkeyPatch) -> dict[object, _Recorder]:
 @pytest.mark.parametrize(
     ("host", "root", "url"),
     [
-        ("127.0.0.1", "", "http://127.0.0.1:8600/"),
-        ("0.0.0.0", "", "http://127.0.0.1:8600/"),
-        ("::1", "/plot/", "http://[::1]:8600/plot/"),
+        ("127.0.0.1", "", "http://127.0.0.1:8200/"),
+        ("0.0.0.0", "", "http://127.0.0.1:8200/"),
+        ("::1", "/plot/", "http://[::1]:8200/plot/"),
     ],
 )
 def test_the_page_url(host: str, root: str, url: str) -> None:
-    assert launcher.page_url(host, 8600, root) == url
+    assert launcher.page_url(host, 8200, root) == url
 
 
 def test_default_is_the_system_browser(browsers: dict) -> None:
@@ -112,7 +112,7 @@ def test_open_browser_honours_a_missing_display(
     assert browsers["chrome"].opened == []
 
 
-def test_ctrl_c_exits_quietly(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ctrl_c_exits_quietly(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """uvicorn re-raises the Ctrl-C after shutdown; main() must not show it."""
     import uvicorn
 
@@ -128,5 +128,7 @@ def test_ctrl_c_exits_quietly(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(uvicorn, "Server", _Server)
     monkeypatch.setattr(uvicorn, "Config", lambda *a, **k: None)
-    monkeypatch.setattr(launcher.sys, "argv", ["geecs-plotter", "--browser", "none"])
+    # Hermetic: the settings sets go to a tmp folder, never this machine's.
+    argv = ["geecs-data-portal", "--browser", "none", "--settings-dir", str(tmp_path)]
+    monkeypatch.setattr(launcher.sys, "argv", argv)
     launcher.main()  # returns instead of raising

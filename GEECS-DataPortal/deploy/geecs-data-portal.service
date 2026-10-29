@@ -50,7 +50,7 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # Leave the editor flag off on a read-only viewer. --tiled lists Tiled's
 # runs beside the scan folders; without it the portal reads the folders
 # alone (the default, for a machine that cannot reach Tiled).
-ExecStart=@POETRY@ run geecs-data-portal --tiled --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
+ExecStart=@POETRY@ run geecs-data-portal --tiled --browser none --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
 # No StateDirectory: the portal's one durable write of its own is the Plot
 # tab's settings sets, in the folder DEPLOYMENT.md names (config.ini's
 # shared user data folder, or --settings-dir in GEECS_PORTAL_EXTRA_ARGS). The logbook's

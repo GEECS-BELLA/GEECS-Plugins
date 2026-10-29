@@ -80,7 +80,6 @@ _DENSITY_TOKENS = {"--pad", "--row-h", "--gap"}
 #: the theme leg for each, pinned by tests/test_ci_select.py.
 _TOKEN_SOURCES = [
     "GEECS-DataPortal/geecs_portal/figures.py",
-    "GeecsPlotter/geecs_plotter/figures.py",
     "GEECS-DataPortal/geecs_portal/plotter/figures.py",
 ]
 
@@ -112,9 +111,6 @@ _SURFACES = [
     "GeecsScanner/geecs_scanner/templates/console.html",
     "GeecsScanner/geecs_scanner/static/scanner.css",
     "GeecsScanner/geecs_scanner/static/scanner.js",
-    "GeecsPlotter/geecs_plotter/templates/index.html",
-    "GeecsPlotter/geecs_plotter/static/plotter.css",
-    "GeecsPlotter/geecs_plotter/static/plotter.js",
     "GeecsPanels/geecs_panels/templates/index.html",
     "GeecsPanels/geecs_panels/templates/camera.html",
     "GeecsPanels/geecs_panels/static/panels.css",
