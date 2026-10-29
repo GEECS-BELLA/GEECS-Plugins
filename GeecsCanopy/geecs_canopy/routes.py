@@ -8,6 +8,7 @@ authorizes its own writes by the operator policy. Errors are Canopy's
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -72,6 +73,7 @@ def build_app(module: Module, *, read_access: Callable[..., Any]) -> FastAPI:
 
     @app.get("/v1/journal", dependencies=read)
     async def journal(entries: int = Query(50, ge=1, le=1000)) -> Any:
-        return [row.model_dump(mode="json") for row in module.journal.last(entries)]
+        rows = await asyncio.to_thread(module.journal.last, entries)  # off the loop
+        return [row.model_dump(mode="json") for row in rows]
 
     return app
