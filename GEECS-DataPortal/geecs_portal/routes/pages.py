@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.requests import Request
 
@@ -15,7 +15,6 @@ from geecs_data_utils import tiled_schema as schema_map
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_catalog import fmt_time_of_day, metadata_rows
 
-from geecs_portal import figures
 from geecs_portal.routes.common import (
     _acq_timestamp,
     _file_shot,
@@ -130,8 +129,6 @@ def run_view(
     uid: str,
     day: str = "",
     experiment: str = "",
-    y: list[str] = Query(default=[]),
-    x: str = "",
     device: str = "",
     shot: int = 1,
     filter: str = "",
@@ -146,9 +143,9 @@ def run_view(
     imagebin: str = "",
     portal: PortalState = Depends(get_state),
 ) -> HTMLResponse:
-    """One run: the rail + tabs (Overview / Plot / Images).
+    """One run: the rail + tabs (Overview / Plot / Grid / Images / Analysis).
 
-    ``tab``/``filters``/``bincfg``/``view``/``y``/``x`` are the
+    ``tab``/``filters``/``bincfg``/``view`` and the grid and image keys are the
     analysis-tab state, carried in the URL (statelessness doctrine:
     a link IS the analysis) and consumed by the page's JS — the
     server only threads them through the sticky query so steppers
@@ -209,8 +206,8 @@ def run_view(
     prev_uid, next_uid, day_runs = portal.neighbours(
         uid, experiment or portal.default_experiment, run_day
     )
-    # The plotter page opens a scan by day and number in the portal's own
-    # experiment; a run it cannot open keeps this page's plot pane.
+    # The Plot page opens a scan by day and number in the portal's own
+    # experiment; a run it cannot open has no Plot tab.
     plot_page = (
         portal.plot_page
         and run_day is not None
@@ -222,8 +219,6 @@ def run_view(
         "experiment": experiment or portal.default_experiment,
         # The analysis-tab state (URL-carried; the page JS owns it):
         "tab": tab,
-        "y": [c for c in y if c],
-        "x": x,
         "view": view,
         "filters": filters,
         "bincfg": bincfg,
@@ -258,11 +253,10 @@ def run_view(
             "tab": (
                 tab
                 if tab in ("overview", "grid", "images")
-                or (tab == "plot" and not plot_page)
                 or (tab == "analysis" and analysis_enabled)
-                # With the plotter mounted, Plot is its own page (/plot/)
-                # and the scan page opens on the Overview.
-                else ("overview" if plot_page else "plot")
+                # Plot is its own page (/plot/); the scan page opens on
+                # the Overview.
+                else "overview"
             ),
             "plot_page": plot_page,
             "analysis_enabled": analysis_enabled,
@@ -284,11 +278,6 @@ def run_view(
             ),
             "display": display,
             "portal_version": _portal_version(),
-            # The rail's chips and the display popup must stay in
-            # step with the server-authored figures — one palette,
-            # one marker default, both injected.
-            "trace_colors": list(figures.TRACE_COLORS),
-            "msize_default": figures.MARKER_SIZE_DEFAULT,
             "qs": lambda **kw: _sticky_query(state, **kw),
         },
     )

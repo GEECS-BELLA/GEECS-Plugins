@@ -57,13 +57,11 @@ const api=async path=>{
 def test_grid_visit_does_not_restrict_image_bins(tmp_path):
     page = (TEMPLATES / "run.html").read_text()
     images = page[
-        page.index("function refreshImages()") : page.index(
-            "// ---------------- column picker"
-        )
+        page.index("function refreshImages()") : page.index("function prettyName(")
     ]
     bins = page[
         page.index("function applyBinset()") : page.index(
-            "// ---------------- display settings popup"
+            "// ---------------- utilities + boot"
         )
     ]
     body = (
@@ -266,7 +264,7 @@ def test_a_theme_change_on_another_tab_does_not_strand_the_trace(tmp_path):
  loadTrace(); await new Promise(setImmediate);
  assert.equal(drawn, 1); assert.equal(fetches, 1);
  // Away from the Images tab: the pane is display:none.
- S.tab = "plot";
+ S.tab = "overview";
  listeners["geecs:theme"]();
  assert.equal(drawn, 1, "a hidden pane must not be re-laid-out");
  // Back: the figure must be redrawn (new palette) but never refetched.
@@ -296,14 +294,9 @@ def test_a_camera_device_never_calls_the_trace_endpoint(tmp_path):
     )
 
 
-def test_the_logbook_caption_names_the_trace_not_the_plot_tab(tmp_path):
-    """A trace sent to the logbook must say what it shows.
-
-    `plotCaption` falls through to `S.y` / `S.x` — the PLOT tab's scalar
-    state — for any host it does not recognise, so the trace host would
-    post a real figure under an unrelated caption (or bare "plot") into a
-    durable record.
-    """
+def test_the_logbook_caption_names_the_trace(tmp_path):
+    """A trace sent to the logbook must say what it shows, not bare "plot"
+    (the caption a host the scan page does not recognise falls back to)."""
     page = (TEMPLATES / "run.html").read_text()
     caption = page[
         page.index("function plotCaption(gd)") : page.index(
@@ -313,7 +306,7 @@ def test_the_logbook_caption_names_the_trace_not_the_plot_tab(tmp_path):
     body = (
         r"""
 const assert = require('node:assert/strict');
-const S = {y: ["signal_x"], x: "Bin #", view: "shot"};
+const S = {view: "shot"};
 const GRID_DATA = null;
 const prettyName = String;
 const SEL_DEVICE = "U_BCaveICT", SHOT = 7;
@@ -325,9 +318,7 @@ const trace = plotCaption({id: "shottrace"});
 assert.ok(trace.includes("U_BCaveICT"), trace);
 assert.ok(trace.includes("scopetrace_channel0"), trace);
 assert.ok(trace.includes("7"), trace);
-assert.ok(!trace.includes("signal_x"), "the Plot tab's scalars must not leak in: " + trace);
-// The Plot tab's own caption is untouched.
-assert.equal(plotCaption({id: "plotdiv"}), "signal_x vs Bin #");
+assert.equal(plotCaption({id: "elsewhere"}), "plot");
 """
     )
     run_js(tmp_path, body)

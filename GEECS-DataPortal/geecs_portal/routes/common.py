@@ -98,7 +98,7 @@ def _sticky_query(state: dict, **overrides) -> str:
 
     Template links/forms build their hrefs through this (empty values
     dropped) so navigating one control never silently resets another —
-    the plot selection survives shot stepping, the day filter survives
+    the filters and bin view survive shot stepping, the day filter survives
     run round-trips.  The one deliberate exception is the day page's
     "clear" link, whose whole job is dropping the filter.
     """

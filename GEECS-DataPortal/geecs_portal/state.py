@@ -104,7 +104,7 @@ class PortalState:
     #: by tests so the conversation runs against an in-process logbook.
     logbook_client: Optional[httpx.Client] = None
     #: Whether GEECSplotter's page is mounted at ``/plot`` (then it is the
-    #: Plot tab, and the scan page's own plot pane is not shown).
+    #: Plot tab; without it the scan page has none).
     plot_page: bool = False
     config_editor_enabled: bool = False  # set when the editor router mounts
     # (fingerprint → valid names): re-validated only when the tree

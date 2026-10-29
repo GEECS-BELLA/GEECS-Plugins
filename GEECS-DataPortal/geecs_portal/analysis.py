@@ -495,8 +495,8 @@ def frame_code(
     columns the endpoint served as local datetimes — the snippet must
     perform the same conversion or it would hand back raw seconds while
     claiming to reproduce the view.  The closing ``shots_figure`` call
-    hands back the figure the Plot tab renders (from the notebook frame
-    it titles axes with raw column names — the page adds pretty names).
+    hands back the payload's figure (from the notebook frame
+    it titles axes with raw column names, where a page shows pretty names).
     """
     converted = datetime_columns or {}
     conversion = ""
@@ -530,7 +530,7 @@ def frame_code(
         + "  # pip install geecs-data-portal\n"
         + f"shots_figure(frame, y={columns!r}{x_arg}{kinds_arg}"
         + f"{snippet_display(display)})"
-        + "  # the figure the Plot tab renders\n"
+        + "  # the payload's figure\n"
     )
 
 
@@ -639,5 +639,5 @@ def binned_code(
         + f"          for c in {columns!r} if (c, 'center') in result.frame}}\n"
         + f"binned_figure({x_args}, y={columns!r}, "
         + f"bin_col={cfg.bin_col!r}{snippet_display(display)})"
-        + "  # the figure the Plot tab renders\n"
+        + "  # the payload's figure\n"
     )

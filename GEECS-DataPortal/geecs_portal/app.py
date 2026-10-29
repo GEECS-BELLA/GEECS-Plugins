@@ -123,8 +123,8 @@ def create_app(
     plotter : FastAPI, optional
         GEECSplotter's page (:func:`geecs_portal.plotter.app.create_app`
         with ``mount="/plot"``), mounted at ``/plot`` as the Plot tab.
-        ``None`` (the default, and the tests') mounts nothing and keeps
-        the scan page's own plot pane. Built by the caller because it
+        ``None`` (the default, and the tests') mounts nothing, and the
+        scan page then has no Plot tab. Built by the caller because it
         resolves its settings folder from ``config.ini`` when made.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)

@@ -24,7 +24,7 @@ from geecs_portal.state import PortalState, get_state
 
 router = APIRouter()
 
-#: Multi-Y ceiling on the Plot tab (mockup ruling: up to 4).
+#: Multi-Y ceiling on /frame and /binned (mockup ruling: up to 4).
 _MAX_Y_COLUMNS = 4
 
 

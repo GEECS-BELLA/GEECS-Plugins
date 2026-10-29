@@ -795,11 +795,14 @@ class TestAnalysisTab:
         assert page.status_code == 200
         assert 'data-pane="analysis"' not in page.text
         assert "const ANALYSIS_ENABLED = false;" in page.text
-        # The server default is Plot; the URL value still wins in
-        # readState, so the JS fallback (setTab: no pane → plot) is
+        # The server default is the Overview; the URL value still wins in
+        # readState, so the JS fallback (setTab: no pane → overview) is
         # what keeps a carried tab=analysis from lighting nothing.
-        assert 'tab: p.get("tab") || "plot"' in page.text
-        assert 'if (!document.getElementById("pane-" + tab)) tab = "plot";' in page.text
+        assert 'tab: p.get("tab") || "overview"' in page.text
+        assert (
+            'if (!document.getElementById("pane-" + tab)) tab = "overview";'
+            in page.text
+        )
 
     def test_tab_absent_when_folder_unresolvable(self, configs_tree):
         pytest.importorskip("scan_analysis")
