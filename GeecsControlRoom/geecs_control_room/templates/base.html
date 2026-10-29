@@ -1,0 +1,36 @@
+{#
+  Every page's shell: the kit, the header, and on <body> what a page script
+  needs to reach Canopy — Hare's WebSocket URL and the display's READ key
+  (never a write key: every write goes through the module's put route).
+  hare.js reads them; a page adds its own blocks.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{{ settings.title }}{% endblock %} — {{ settings.experiment }}</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/control_room.css">
+{% block head %}{% endblock %}
+</head>
+<body class="kit" data-root="{{ root }}" data-hare-url="{{ hare_url }}" data-hare-key="{{ settings.read_key }}">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="{{ root }}/">{{ settings.title }} <span class="sub">{{ settings.experiment }}</span></a>
+    {% block header %}{% endblock %}
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+{% block body %}{% endblock %}
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ root }}/static/hare.js" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,18 @@
+/* The Control Room's own rules, scoped to .kit and styled through the theme's
+   tokens only (GeecsWebTheme's literal-colour guard walks this file). */
+.kit .brand { color: inherit; text-decoration: none; }
+
+/* The home: the strip, the two lists side by side, the launcher and presets. */
+.kit .home { display: flex; flex-direction: column; gap: var(--gap); padding: var(--pad); max-width: var(--shell-max); margin: 0 auto; }
+.kit .home .strip { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--gap) 28px; padding: 10px var(--pad); }
+.kit .home .plot { margin: 0 0 0 auto; display: flex; flex-direction: column; gap: 2px; }
+.kit .home .plot svg { width: 240px; height: 48px; background: var(--surface-2); border-radius: var(--r); }
+.kit .home .plot polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.kit .home .lists { display: grid; gap: var(--gap); grid-template-columns: 1fr; }
+.kit .home .lists .state { min-height: 0; border: 0; padding: 10px var(--pad); }
+.kit .home .lists td { font-size: 12px; vertical-align: top; }
+.kit .home .lists td .dot { margin-right: 2px; }
+.kit .home .lists td:nth-child(-n+3) { white-space: nowrap; }
+.kit .home .field select { min-width: 12rem; }
+.kit .home .entry { display: inline-flex; align-items: center; gap: 6px; }
+.kit .home .entry .dim { font-size: 11.5px; }

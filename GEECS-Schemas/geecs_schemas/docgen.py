@@ -304,6 +304,39 @@ outcome: refused                    # accepted / denied / refused
 canopy_code: out_of_bounds
 detail: 12.5 is outside the record's limits [0.0, 10.0]
 """,
+    "screen": """\
+schema_version: 1
+# <experiment>/screens/<name>.yaml: groups on a grid, each widget a label and a binding.
+title: Bench
+groups:
+  - title: Stage
+    at: [1, 1]                      # row, column
+    size: [1, 2]                    # rows, columns spanned
+    tone: trace-1                   # a kit token, never a colour
+    widgets:
+      - {kind: setpoint, label: Stage X, bind: {device: U_Stage, role: val, axis: m1}}
+      - {kind: button, label: Tweak +, bind: {device: U_Stage, role: twf, axis: m1}}
+      - {kind: annotation, label: Home only with the beam off.}
+  - title: Magnet
+    at: [1, 3]
+    widgets:
+      - kind: toggle
+        label: Output
+        bind: {device: U_Supply, role: output_sp}
+        confirm: Shutter the laser before switching.
+      - {kind: readout, label: Gauge, bind: {pv: "U_Gauge:pressure"}}   # a DB device: read only
+""",
+    "home_layout": """\
+schema_version: 1
+# <experiment>/home.yaml: the Control Room's launcher. URLs are settings, never here.
+areas:
+  - title: Laser
+    screens: [control_center, compressor]   # files in the screens folder
+device_pages:
+  - title: Cameras
+    families: [ad_camera_chain]             # the picker lists the roster's devices of these
+links: [scanner, portal, logbook, config_editor]
+""",
     "analysis_recipe": """\
 schema_version: 3
 device: UC_TopView               # the device folder under scans/ScanNNN/; stems the products
