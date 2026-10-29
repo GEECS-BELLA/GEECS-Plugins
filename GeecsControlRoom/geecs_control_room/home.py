@@ -42,6 +42,9 @@ _WORDS = ("error", "not answering", "unreachable", "stale", "off", "unknown")
 #: Role names shown per word before "+N".
 _NAMED = 3
 _LINK_TITLES = {"scanner": "Scanner", "portal": "Data Portal", "logbook": "Logbook", "config_editor": "Config editor"}  # fmt: skip
+#: Each of the strip's two scanner reads, made at once: inside the page's 3 s timeout,
+#: yet longer than one of the queue client's 2 s manager round trips.
+SCANNER_TIMEOUT_S = 2.5
 #: The manager's words as the strip's kit states (others: unknown).
 _RUN_STATE = {
     "running": "running",
@@ -133,12 +136,15 @@ async def device_lists(settings: Settings, module: ModuleClient) -> dict[str, An
             return None
         return answer if got == 200 else None
 
-    answers = await asyncio.gather(*(detail(d["name"]) for d in roster))
-    try:
-        got, journal = await module.journal(200)
-        journal = journal if got == 200 else None
-    except ModuleUnavailable:
-        journal = None
+    async def rows() -> Optional[list[dict[str, Any]]]:
+        try:
+            got, journal = await module.journal(200)
+        except ModuleUnavailable:
+            return None
+        return journal if got == 200 else None
+
+    # the details and the journal at once: the whole read is two module reads long
+    *answers, journal = await asyncio.gather(*(detail(d["name"]) for d in roster), rows())  # fmt: skip
     lists = sort_devices(roster, dict(zip([d["name"] for d in roster], answers)), journal or [], _iocs(settings))  # fmt: skip
     devices = [{"name": d["name"], "family": d.get("family")} for d in roster]
     return {"ok": True, "devices": devices, "journal": journal is not None} | lists
@@ -149,8 +155,8 @@ async def strip(scanner: Optional[httpx.AsyncClient]) -> dict[str, Any]:
     if scanner is None:
         return {"scanner": "not configured", "run": "unknown", "kit": "unknown"}
     try:
-        status = (await scanner.get("/api/status")).raise_for_status().json()
-        progress = (await scanner.get("/api/progress")).raise_for_status().json()
+        answers = await asyncio.gather(scanner.get("/api/status"), scanner.get("/api/progress"))  # fmt: skip
+        status, progress = (r.raise_for_status().json() for r in answers)
     except (httpx.HTTPError, ValueError):
         return {"scanner": "unreachable", "run": "unknown", "kit": "unknown"}
     if not status.get("connected"):
