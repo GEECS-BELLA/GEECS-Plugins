@@ -57,7 +57,8 @@ The Plot and Images tabs keep your choices in your settings set instead.
   processing as a preview, without writing anything. A spectrometer or
   scope has no strip: it shows one shot's trace at a time, as an
   interactive plot. A 2-D map cell's **View this cell's images** opens
-  this page on that cell's bin.
+  this page on that cell's bin. The strip shows every shot: the Plot
+  page's shot filters narrow its plots and map, not the strip.
 - **Analysis** — shown when the portal has an analysis configuration.
   See below.
 

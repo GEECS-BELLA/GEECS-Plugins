@@ -34,16 +34,6 @@ router = APIRouter()
 _PLOT_MAX_ROWS = 100_000
 
 
-@router.get("/api/processing")
-def api_processing(portal: PortalState = Depends(get_state)) -> JSONResponse:
-    """``{"names": [...]}``: the recipes ``image.png``'s ``processing`` takes.
-
-    The Images page's big view offers them on a shot; ``[]`` hides the
-    choice (no configured tree, or no ``analysis`` extra).
-    """
-    return JSONResponse({"names": portal.processing_names()})
-
-
 @router.get("/api/run/{uid}/trace")
 def api_run_trace(
     uid: str,

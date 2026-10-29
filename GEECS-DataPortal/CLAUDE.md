@@ -43,7 +43,8 @@ extending this package.
   is a 400 naming the reason, in every view (the legacy ImageAnalysis
   fallback was retired in #1039).
   The Images page's processing preview (its big view, on a shot:
-  `image.png?processing=`, the choices from `GET /api/processing`) keeps
+  `image.png?processing=`, the choices from the device route's
+  `processing_options`) keeps
   `render_document_ephemeral` and the portal's own window, analysing
   through the same seam.
   The other is `POST /api/run/{uid}/analysis`, which
@@ -268,8 +269,7 @@ Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
 tabs — Plot and Images are links to the plotter's pages `/plot/` and
 `/plot/images`, Analysis only when runs are possible, see below;
 `?tab=` is the page's state, and `tab=images` redirects to the Images
-page) · `/api/processing` (the recipes the processing preview offers)
-· `/run/jump/{iso}` (day-step
+page) · `/run/jump/{iso}` (day-step
 redirect: `?prefer=<scan number>`, all other params carried to the
 target day's matching/newest run; empty day → the day page) ·
 `/api/run/{uid}/columns` (union pick list with provenance, a
@@ -545,8 +545,9 @@ rules that are the portal's own:
   `portal.css` can become kit components (through `kit.html`) now that
   the scan page's rail filters are gone. A native camera's shots were
   background-warmed into the data cache when the scan page opened its
-  Images pane (`data_cache.warm_native`); the Images page's big view
-  asks `image.png` one shot at a time, uncached until warmed again.
+  Images pane (`data_cache.warm_native`, now without a production
+  caller); the Images page's processed preview asks `image.png` one
+  shot at a time, uncached until something warms it again.
 
 ## Adding an analysis tab (the checklist)
 
@@ -709,11 +710,16 @@ plot or 2-D map), so a save here never moves the Plot page; a set an
 older copy saved on its strip (`tab="images"`) opens the XY plot.
 The rail is the strip's (camera, bins or shots, layout, colour map, z
 scale, ROI). `static/images.js` draws the **big view**: the tile
-clicked (or stepped to with ‹ ›) at full size. A shot comes from the
-portal's own `image.png` (so it takes the processing preview; the
-choices from `/api/processing`); a bin is its strip average, the
-tile's own picture (no processing for a bin — the author's choice: it
-always matches its tile); a device whose stack holds traces
+clicked (or stepped to with ‹ ›) at full size: the tile's own picture
+(its ROI, levels and colour map), redrawn whenever the tile's picture
+changes (a shared z scale read late, a new colour map) through a
+`MutationObserver`. With a recipe picked, a shot is the portal's
+processing preview instead (`image.png?processing=`, the whole frame on
+its own levels; the choices are `/api/run/{uid}/device`'s
+`processing_options`). A bin has no processing (the author's choice:
+it always matches its tile). The strip shows every shot: the shot
+filters narrow the Plot page's plots and map, not the strip, and a map
+cell's link says so. A device whose stack holds traces
 (`images.trace_kind`) has no strip and draws one shot's trace from the
 portal's `/api/run/{uid}/trace`. Tiles carry their bin label
 (`images.Tile.bin`), which is how a 2-D map cell opens on its bin. The

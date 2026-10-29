@@ -916,8 +916,14 @@ class TestProcessingSelector:
     def test_the_choices_are_the_loadable_recipes_only(
         self, scan_folder, configs_tree, analysis_extra
     ):
-        """``/api/processing``: what the Images page's big view offers."""
-        names = self._client(scan_folder, configs_tree).get("/api/processing").json()
+        """The device route's ``processing_options``: what the Images page's
+        big view offers on a shot."""
+        device = "/api/run/uid-002/device?device=cam"
+        names = {
+            "names": self._client(scan_folder, configs_tree)
+            .get(device)
+            .json()["processing_options"]
+        }
         assert "UC_Crop" in names["names"]
         # Discoverable-but-unloadable legacy config: dropped from the
         # choices (a log line, not a broken image)…
@@ -930,9 +936,9 @@ class TestProcessingSelector:
         assert forced.status_code == 400
         assert "Invalid diagnostic" in forced.json()["detail"]
         # No configured tree: no choice offered.
-        assert _gallery_client(scan_folder).get("/api/processing").json() == {
-            "names": []
-        }
+        assert (
+            _gallery_client(scan_folder).get(device).json()["processing_options"] == []
+        )
 
     def test_processing_error_ladder(self, scan_folder, configs_tree, analysis_extra):
         client = self._client(scan_folder, configs_tree)

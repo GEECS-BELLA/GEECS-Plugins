@@ -52,8 +52,10 @@ const sessionStorage = new Map([["store", 1]]);
 sessionStorage.getItem = () => null; sessionStorage.setItem = () => {};
 const window = {addEventListener(kind, fn) { listeners[kind] = fn; }};
 const fetch = (url) => { fetched.push(String(url));
-  return Promise.resolve({ok: true, json: async () => (String(url).includes("/api/processing")
-    ? {names: ["UC_Crop"]} : {figure: {data: [], layout: {}}})}); };
+  return Promise.resolve({ok: true, json: async () => (String(url).includes("/device?")
+    ? {processing_options: ["UC_Crop"]} : {figure: {data: [], layout: {}}})}); };
+let observed = null;
+const MutationObserver = class { constructor(fn) { observed = fn; } observe() {} };
 const Plotly = {react() { drawn++; }, purge() {}};
 const Option = class { constructor(text, value) { this.text = text; this.value = value; } };
 """
@@ -92,7 +94,8 @@ assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=1&cmap=gray"
 
 
 def test_on_a_shots_strip_a_map_cell_opens_its_first_shot(tmp_path: Path) -> None:
-    """A shot is drawn by the portal's image route, with the processing."""
+    """The shot is its tile's picture (its ROI and levels) until a recipe
+    is picked; then it is the portal's processing preview."""
     _run(
         tmp_path,
         "shots",
@@ -100,11 +103,33 @@ def test_on_a_shots_strip_a_map_cell_opens_its_first_shot(tmp_path: Path) -> Non
         "?bin=2",
         r"""
 assert.equal(tiles[2]["aria-current"], true);
+assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=2&cmap=gray");
+assert.ok(fetched.some((u) => u.startsWith("/portal/api/run/folder%3Ax%3A1/device?")));
+assert.equal(els["big-processing-box"].hidden, false);
+els["big-processing"].value = "UC_Crop";
+els["big-processing"]._on.change();
 const src = els["big-image"].src;
 assert.ok(src.startsWith("/portal/run/folder%3Ax%3A1/image.png?"), src);
-assert.ok(src.includes("shot=3") && src.includes("device=UC_Cam"), src);
-assert.ok(fetched.some((u) => u === "/portal/api/processing"));
-assert.equal(els["big-processing-box"].hidden, false);
+assert.ok(src.includes("shot=3") && src.includes("processing=UC_Crop"), src);
+""",
+    )
+
+
+def test_the_big_view_follows_its_tiles_picture(tmp_path: Path) -> None:
+    """A shared z scale read late, or a new colour map: the tile's picture
+    changes, and the big view redraws from it (no timed retries)."""
+    _run(
+        tmp_path,
+        "bins",
+        ["1", "2", "3"],
+        "",
+        r"""
+tiles[0].img.getAttribute = () => "";
+tiles[0]._on.click();
+assert.equal(els["big-note"].textContent, "Waiting for the strip's levels…");
+tiles[0].img.getAttribute = () => "/plot/api/images/tile.png?index=0&zmin=1&zmax=9";
+observed([{target: tiles[0].img}]);
+assert.equal(els["big-image"].src, "/plot/api/images/tile.png?index=0&zmin=1&zmax=9");
 """,
     )
 
@@ -134,6 +159,6 @@ await new Promise(setImmediate);
 assert.ok(fetched.some((u) => u.startsWith("/portal/api/run/folder%3Ax%3A1/trace?") && u.includes("shot=1")));
 assert.equal(els["big-caption"].textContent, "shot 1 of 5");
 assert.equal(drawn, 1);
-assert.ok(!fetched.some((u) => u.includes("/api/processing")), "no processing for traces");
+assert.ok(!fetched.some((u) => u.includes("/device?")), "no processing for traces");
 """,
     )

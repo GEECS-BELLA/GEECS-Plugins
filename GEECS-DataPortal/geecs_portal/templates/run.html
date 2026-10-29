@@ -214,14 +214,10 @@ function openConfigEditor(id) {
       base: `${ROOT}/configs`,
       layout: "drawer",
       preview: { params: cePreviewParams, label: "preview (unsaved document, current shot)" },
-      onSaved: (saved) => {
+      onSaved: () => {
         refreshAnalysis(true);
         CE.reloadListing().then(ceFillDiagnostics);
         document.getElementById("cetitle").textContent = CE_TITLE;
-        // the Images tab's processed view keys the diagnostic by name; a
-        // save changes it — re-fetch the shot image if it is showing it
-        const img = document.getElementById("shotimg");
-        if (img && S.processing === saved.id) img.src = img.src.replace(/([&?])_=\d+/, "") + `&_=${Date.now()}`;
       },
     });
     document.getElementById("ceshot").addEventListener("change", () => CE && CE.refreshPreview());

@@ -48,7 +48,7 @@
             <section class="group bigview" id="bigview" aria-label="Big view" data-mode="{{ mode }}" data-device="{{ device }}"
                      data-day="{{ day }}" data-scan="{{ scan }}" data-uid="{{ uid }}" data-shots="{{ shots }}" data-cmap="{{ cmap }}"
                      data-in-portal="{{ 'true' if in_portal else 'false' }}" data-portal-root="{{ portal_root }}"
-                     data-logbook-send="{{ 'true' if logbook_send else 'false' }}" data-display-query="{{ display_query }}">
+                     data-logbook-send="{{ 'true' if logbook_send else 'false' }}">
               <div class="row bigbar">
                 <button class="btn sm" type="button" data-big-step="-1" aria-label="Previous">‹</button>
                 <span class="mono" id="big-caption" aria-live="polite"></span>
@@ -555,7 +555,8 @@
                 </div>
                 <div id="map-values" class="row map-values" aria-live="polite"></div>
                 <details class="disc"><summary>Member shots passing the filters</summary><div id="map-members" class="dbody mono"></div></details>
-                <div><a class="btn sm" id="map-images" href="#">View this cell's images</a></div>
+                <div class="row"><a class="btn sm" id="map-images" href="#">View this cell's images</a>
+                  <span class="hint">every shot of its bin: the shot filters narrow the map, not the image strip</span></div>
               </div>
               <p class="hint" id="map-notes"></p>
               <details class="disc">

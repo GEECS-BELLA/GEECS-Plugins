@@ -1,8 +1,9 @@
 // The Images page's big view: the tile clicked in the strip at full size,
-// stepped with ‹ ›. A shot comes from the portal's own image route (which
-// takes a recipe's processing preview); a bin is its strip average, the
-// tile's own picture; a trace device has no strip and draws one shot's
-// trace (the portal's trace route). The selection is the browser tab's
+// stepped with ‹ ›. It is the tile's own picture (its ROI, levels and
+// colour map, following the tile as they change); with a recipe picked, a
+// shot is the portal's processing preview instead (image.png, the whole
+// frame on its own levels). A trace device has no strip and draws one
+// shot's trace (the portal's trace route). The selection is the browser tab's
 // (sessionStorage, per scan, device and strip), never the set's; a 2-D map
 // cell opens the page on its bin (?bin=).
 "use strict";
@@ -38,11 +39,13 @@
   let current = start();
 
   // ---- the processing preview (a shot's pixels, ephemeral, write-free) ----
+  // The choices are the device route's: recipes, for a device that renders.
   const processing = $("big-processing");
   if (portal && mode === "shots") {
-    fetch(`${d.portalRoot}/api/processing`)
-      .then((r) => (r.ok ? r.json() : { names: [] }))
-      .then(({ names }) => {
+    const query = new URLSearchParams({ device: d.device, day: d.day });
+    fetch(`${d.portalRoot}/api/run/${encodeURIComponent(d.uid)}/device?${query}`)
+      .then((r) => (r.ok ? r.json() : { processing_options: [] }))
+      .then(({ processing_options: names }) => {
         if (!names.length) return;
         for (const name of names) processing.add(new Option(name, name));
         const last = kept(PROCESSING_KEY);
@@ -56,9 +59,11 @@
 
   // ---- drawing one ----
   function shotUrl(row) {
+    // The colour map as it is now (the rail changes it without a reload).
+    const cmap = (document.getElementById("cmap") || {}).value || d.cmap;
     const query = new URLSearchParams({ device: d.device, shot: String(row), day: d.day });
-    query.set("display", JSON.stringify({ cmap: d.cmap }));
-    if (processing.value) query.set("processing", processing.value);
+    query.set("display", JSON.stringify({ cmap }));
+    query.set("processing", processing.value);
     return `${d.portalRoot}/run/${encodeURIComponent(d.uid)}/image.png?${query}`;
   }
   async function why(url) {
@@ -68,22 +73,21 @@
       return body.detail || "no image";
     } catch (_) { return "no image"; }
   }
-  let waits = 0;
   function picture(i) {
     const tile = tiles[i];
     const image = $("big-image");
     const thumb = tile.querySelector("img");
-    let src = "";
-    if (mode === "shots" && portal) src = shotUrl(tile.dataset.index);
-    else src = thumb.getAttribute("src") || "";
+    const processed = mode === "shots" && portal && processing.value;
+    const src = processed ? shotUrl(tile.dataset.index) : thumb.getAttribute("src") || "";
     if (!src) {
-      // A shared z scale: the strip's levels are still being read.
+      // A shared z scale: the strip's levels are still being read; the
+      // tile's picture arriving redraws this (the observer below).
       note.textContent = "Waiting for the strip's levels…";
-      if (waits++ < 40) setTimeout(() => { if (current === i) picture(i); }, 250);
       return;
     }
-    waits = 0;
-    note.textContent = mode === "bins" ? "The bin's average, as its tile draws it." : "";
+    note.textContent = processed
+      ? `${processing.value}, previewed: the whole frame on its own levels.`
+      : mode === "bins" ? "The bin's average, as its tile draws it." : "";
     image.alt = `${d.device} ${tile.dataset.caption}`;
     image.onerror = async () => { if (current === i) note.textContent = await why(src); };
     image.src = src;
@@ -117,6 +121,14 @@
   }
 
   tiles.forEach((tile, i) => tile.addEventListener("click", () => show(i)));
+  // The tile's picture changes under the big view (a shared z scale read,
+  // a new colour map, levels or ROI): follow it.
+  if (typeof MutationObserver !== "undefined") {
+    const observer = new MutationObserver((changes) => {
+      if (changes.some((c) => c.target === tiles[current]?.querySelector("img"))) picture(current);
+    });
+    for (const tile of tiles) observer.observe(tile.querySelector("img"), { attributes: true, attributeFilter: ["src"] });
+  }
   for (const button of document.querySelectorAll("[data-big-step]"))
     button.addEventListener("click", () => show(current + Number(button.dataset.bigStep)));
   window.addEventListener("geecs:theme", () => { if (mode === "trace") show(current); });
