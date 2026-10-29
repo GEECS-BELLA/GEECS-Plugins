@@ -1,0 +1,46 @@
+schema_version: 1
+# The worked example: the four devices of the geecs-epics simulator bench.
+# Copy to <configs root>/scanner_configs/experiments/<experiment>/screens/.
+title: Sim bench
+groups:
+  - title: Stage
+    at: [1, 1]
+    tone: trace-1
+    widgets:
+      - {kind: setpoint, label: X, bind: {device: SimMotor1, role: val, axis: m1}, precision: 3}
+      - {kind: setpoint, label: X step, bind: {device: SimMotor1, role: twv, axis: m1}, precision: 3}
+      - {kind: button, label: X −, bind: {device: SimMotor1, role: twr, axis: m1}}
+      - {kind: button, label: X +, bind: {device: SimMotor1, role: twf, axis: m1}}
+      - {kind: readout, label: X moving, bind: {device: SimMotor1, role: movn, axis: m1}}
+      - {kind: setpoint, label: Y, bind: {device: SimMotor1, role: val, axis: m2}, precision: 3}
+      - {kind: readout, label: Y moving, bind: {device: SimMotor1, role: movn, axis: m2}}
+  - title: Camera
+    at: [1, 2]
+    tone: trace-2
+    widgets:
+      - {kind: setpoint, label: Exposure, bind: {device: UC_VisaEBeam6, role: exposure}, units: s, precision: 4}
+      - {kind: readout, label: Frame rate, bind: {device: UC_VisaEBeam6, role: rate}, precision: 1}
+      - {kind: readout, label: Centroid x, bind: {device: UC_VisaEBeam6, role: cx}, precision: 1}
+      - {kind: readout, label: Centroid y, bind: {device: UC_VisaEBeam6, role: cy}, precision: 1}
+      - {kind: readout, label: Detector, bind: {device: UC_VisaEBeam6, role: state}}
+  - title: Easy-Driver
+    at: [1, 3]
+    tone: trace-3
+    widgets:
+      - {kind: setpoint, label: Current, bind: {device: eztest1, role: current_sp}, precision: 3}
+      - {kind: readout, label: Voltage, bind: {device: eztest1, role: voltage}, precision: 3}
+      - kind: toggle
+        label: Output
+        bind: {device: eztest1, role: output_sp}
+        confirm: Make sure nothing downstream is exposed before switching the output.
+      - {kind: readout, label: Fault, bind: {device: eztest1, role: fault}}
+      - {kind: button, label: Reset faults, bind: {device: eztest1, role: reset}}
+  - title: FAST-PS
+    at: [1, 4]
+    tone: accent
+    widgets:
+      - {kind: setpoint, label: Current, bind: {device: fpstest1, role: current_sp}, precision: 3}
+      - {kind: toggle, label: Output, bind: {device: fpstest1, role: output_sp}}
+      - {kind: readout, label: Loop, bind: {device: fpstest1, role: loop_mode}}
+      - {kind: readout, label: Fault, bind: {device: fpstest1, role: fault}}
+      - {kind: annotation, label: The output takes the hazard confirm (the family's).}

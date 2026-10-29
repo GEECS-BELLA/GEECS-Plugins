@@ -57,6 +57,16 @@ every write. A family file changes when its IOC template does;
 the pin holding the camera, scope, motor and supply files to GeecsPanels'
 own suffix tables (web estate S2) lives on `feat/web-estate`, not here.
 
+## Screens
+
+`screens.py`: `Screen`, a control GUI as a document (`<experiment>/screens/<name>.yaml`,
+drawn by GeecsControlRoom): titled groups on a grid, each a kit colour
+token (`GroupTone`, never a literal), of widgets of exactly seven kinds
+(`WidgetKind`), each a free label and a `Binding` (device + family role +
+axis, or a bare PV). No expressions, scripts or conditions, ever. What
+depends on the families and instance data (the role exists, the kind fits
+its type, a bare PV is read only) is `resolve_screen`, not the model.
+
 ## Sweep payload
 
 `sweep.py` owns the validated JSON payload, not numerical trajectory

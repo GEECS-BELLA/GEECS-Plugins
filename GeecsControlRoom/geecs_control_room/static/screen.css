@@ -1,0 +1,32 @@
+/* The screens renderer: a dense grid of groups (operator_surfaces.md §3, ~85
+   controls at once), each group worn in its kit token. Tokens only. */
+.kit .screen{display:grid;grid-auto-columns:minmax(17rem,1fr);gap:var(--gap);padding:var(--pad);align-items:start}
+.kit .sgroup{--tone:var(--slate);border:var(--bw) solid var(--rule);border-top:3px solid var(--tone);border-radius:var(--r);background:var(--surface);padding:4px 8px 6px}
+.kit .sgroup[data-tone="accent"]{--tone:var(--accent)}
+.kit .sgroup[data-tone="slate"]{--tone:var(--slate)}
+.kit .sgroup[data-tone="muted"]{--tone:var(--muted)}
+.kit .sgroup[data-tone="trace-1"]{--tone:var(--trace-1)}
+.kit .sgroup[data-tone="trace-2"]{--tone:var(--trace-2)}
+.kit .sgroup[data-tone="trace-3"]{--tone:var(--trace-3)}
+.kit .sgroup[data-tone="trace-4"]{--tone:var(--trace-4)}
+.kit .sgroup h3{margin:2px 0 4px;font-size:11px;letter-spacing:var(--tk);text-transform:uppercase;color:var(--tone)}
+.kit .w{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;min-height:26px;font-size:12px;border-top:var(--bw) solid var(--rule-soft);padding:2px 0}
+.kit .w .lbl{flex:1 1 6rem;min-width:6rem;color:var(--ink)}
+.kit .w .sp{width:6.5rem;font-family:var(--ff-mono);font-size:12px;text-align:right}
+.kit .w .sp[data-draft]{border-color:var(--accent)}
+.kit .w .v,.kit .w .rb,.kit .w .ind b{font-family:var(--ff-mono);font-variant-numeric:tabular-nums}
+.kit .w .rb{color:var(--slate)}
+.kit .w .rb::before{content:"rb ";color:var(--muted)}
+.kit .w .differs{color:var(--warn);font-size:11px}
+.kit .w .u,.kit .w .bounds{color:var(--muted);font-size:11px}
+.kit .w .ws{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;color:var(--muted)}
+.kit .w .out{flex-basis:100%;font-size:10.5px;font-family:var(--ff-mono);text-align:right}
+.kit .w .out:empty{display:none}
+.kit .w .out[data-state="ok"]{color:var(--ok)}
+.kit .w .out[data-state="degraded"]{color:var(--warn)}
+.kit .w .out[data-state="failed"]{color:var(--crit)}
+.kit .w .out[data-state="unknown"],.kit .w .out[data-state="running"]{color:var(--muted)}
+.kit .sgroup .note{margin:4px 0;font-size:11.5px;color:var(--slate);font-style:italic}
+.kit .sgroup .pic{max-width:100%}
+.kit .operator{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.kit .hare{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}

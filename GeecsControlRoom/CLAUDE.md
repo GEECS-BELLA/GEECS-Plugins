@@ -13,8 +13,13 @@ geecs_control_room/
   settings.py       Settings.from_env: GEECS_CONTROL_ROOM_* over the shared site keys
   app.py            create_app: the kit at /theme, /static, the pages, /healthz
   module_client.py  ModuleClient: GeecsCanopy's /geecs/v1 routes over HTTP (read key)
+  screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
+                    its image files, and the two module pass-throughs (/api/devices/{name}[/put])
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
-  templates/        base.html (every page's shell), the pages
+  static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
+  templates/        base.html (every page's shell), screen.html (EVERY screen), the pages
+examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
+docs/             the example rendered live (the PR's screenshots)
 deploy/
   geecs-control-room.service   unit TEMPLATE (rendered by deploy/render_units.sh)
 ```
@@ -35,6 +40,13 @@ deploy/
   in the renderer: verdicts are the module's (`freshness.py` there), alarms
   and connection are Hare's. A changing value is never evidence of
   freshness.
+- **One template draws every screen.** `screen.html` + `screen.js`, from
+  the screen document (GEECS-Schemas `Screen`, `resolve_screen`). A new
+  screen is a file in `<experiment>/screens/`, never code. A widget's word
+  is the module's verdict for a device role and Hare's connection and alarm
+  for a bare PV (read only in this slice); "unknown" whenever either source
+  is silent. PV names come from the module's device route, never derived
+  here.
 - **The GEECS device name is the one identity key.** A binding names a
   device and a family role (and an axis), never a PV a second time; a bare
   PV is for a DB-served device only.

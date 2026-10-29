@@ -900,6 +900,81 @@ canopy_code: out_of_bounds
 detail: 12.5 is outside the record's limits [0.0, 10.0]
 ```
 
+## `screen`
+
+### Screen
+
+A control GUI: a title and groups of widgets, drawn by one renderer.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `title` | `str` | yes | — | The screen's title. |
+| `groups` | `list[Group]` | yes | — | Its groups, placed on the grid. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/screens/<name>.yaml: groups on a grid, each widget a label and a binding.
+title: Bench
+groups:
+  - title: Stage
+    at: [1, 1]                      # row, column
+    size: [1, 2]                    # rows, columns spanned
+    tone: trace-1                   # a kit token, never a colour
+    widgets:
+      - {kind: setpoint, label: Stage X, bind: {device: U_Stage, role: val, axis: m1}}
+      - {kind: button, label: Tweak +, bind: {device: U_Stage, role: twf, axis: m1}}
+      - {kind: annotation, label: Home only with the beam off.}
+  - title: Magnet
+    at: [1, 3]
+    widgets:
+      - kind: toggle
+        label: Output
+        bind: {device: U_Supply, role: output_sp}
+        confirm: Shutter the laser before switching.
+      - {kind: readout, label: Gauge, bind: {pv: "U_Gauge:pressure"}}   # a DB device: read only
+```
+
+### Group
+
+A titled block of widgets on the screen's grid, worn in a kit colour token.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The group's heading. |
+| `at` | `tuple[int, int]` | yes | — | Its top-left grid cell: row, column (from 1). |
+| `size` | `tuple[int, int]` | no | (1, 1) | Rows and columns it spans. |
+| `tone` | `'accent' \| 'slate' \| 'muted' \| 'trace-1' \| 'trace-2' \| 'trace-3' \| 'trace-4'` | no | 'slate' | Its colour, a kit token (never a literal). |
+| `widgets` | `list[Widget]` | yes | — | Its controls, in order. |
+
+### Widget
+
+One control: its kind, the label a person reads, and what it is bound to.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'readout' \| 'annotation' \| 'image'` | yes | — | The widget, one of the seven. |
+| `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label. |
+| `bind` | `Binding (optional)` | no | None | What it shows and writes; none for an annotation or an image. |
+| `indicators` | `list[Binding]` | no | [] | A flipper's in and out indicators. |
+| `confirm` | `str (optional)` | no | None | A hazard note the operator confirms before the write. |
+| `units` | `str (optional)` | no | None | Units shown, where the record carries none. |
+| `precision` | `int (optional)` | no | None | Digits after the point. |
+| `src` | `str (optional)` | no | None | An image's file name in the screens folder. |
+
+### Binding
+
+What a widget shows and writes: a device's role (on an axis), or a bare PV.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str (optional)` | no | None | The GEECS device name. |
+| `role` | `str (optional)` | no | None | The device family's role. |
+| `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
+| `pv` | `str (optional)` | no | None | A bare PV, for a device the GEECS DB serves (read only). |
+
 ## `analysis_recipe`
 
 ### AnalysisRecipe

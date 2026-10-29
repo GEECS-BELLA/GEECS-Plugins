@@ -67,6 +67,16 @@ from geecs_schemas.epics.operations import (
     OperatorGrant,
     OperatorPolicy,
 )
+from geecs_schemas.screens import (
+    SCREENS_DIRNAME,
+    Binding,
+    Bound,
+    Group,
+    Screen,
+    ScreenError,
+    Widget,
+    resolve as resolve_screen,
+)
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.preset import PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
@@ -186,6 +196,15 @@ __all__ = [
     "OperatorGrant",
     "OPERATOR_POLICY_FILENAME",
     "JournalEntry",
+    # screens (GeecsControlRoom's screen files: a control GUI as a document)
+    "Screen",
+    "Group",
+    "Widget",
+    "Binding",
+    "Bound",
+    "ScreenError",
+    "SCREENS_DIRNAME",
+    "resolve_screen",
     # experiment_defaults
     "ExperimentDefaults",
     "DefaultActions",
@@ -252,6 +271,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "panel_devices": PanelDevices,
     "operator_policy": OperatorPolicy,
     "journal_entry": JournalEntry,
+    "screen": Screen,
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,
