@@ -40,9 +40,15 @@
     <tbody>
     {% for run, time_text in rows %}
     <tr>
-      <td class="id"><a href="{{ root }}/run/{{ run.uid }}?{{ qs(day=day.isoformat()) }}">
-        {{- scan_label(run) -}}
-      </a></td>
+      <td class="id">
+        {%- if plot_page and run.scan_number is not none -%}
+        {# GEECSplotter opens a scan on its plot; the Plot page's tabs
+           reach the scan's Overview, Grid, Images and Analysis. #}
+        <a href="{{ root }}/plot/?day={{ day.isoformat() }}&amp;scan={{ run.scan_number }}">{{ scan_label(run) }}</a>
+        {%- else -%}
+        <a href="{{ root }}/run/{{ run.uid }}?{{ qs(day=day.isoformat()) }}">{{ scan_label(run) }}</a>
+        {%- endif -%}
+      </td>
       <td class="mono">{{ time_text }}</td>
       <td>{{ run.mode }}</td>
       <td>{{ run.description }}</td>

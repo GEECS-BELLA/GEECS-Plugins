@@ -75,6 +75,7 @@ def day_view(
             "rows": [(run, fmt_time_of_day(run.start_time)) for run in runs],
             "scan_label": _scan_label,
             "error": error,
+            "plot_page": portal.plot_page,
             "qs": lambda **kw: _sticky_query(day_state, **kw),
         },
     )
@@ -247,10 +248,14 @@ def run_view(
             "next_day": ((run_day + timedelta(days=1)).isoformat() if run_day else ""),
             "tab": (
                 tab
-                if tab in ("overview", "plot", "grid", "images")
+                if tab in ("overview", "grid", "images")
+                or (tab == "plot" and not portal.plot_page)
                 or (tab == "analysis" and analysis_enabled)
-                else "plot"
+                # With the plotter mounted, Plot is its own page (/plot/)
+                # and the scan page opens on the Overview.
+                else ("overview" if portal.plot_page else "plot")
             ),
+            "plot_page": portal.plot_page,
             "analysis_enabled": analysis_enabled,
             "config_editor": portal.config_editor_enabled and analysis_enabled,
             "devices": devices,

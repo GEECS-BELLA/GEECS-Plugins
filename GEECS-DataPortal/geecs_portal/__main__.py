@@ -35,6 +35,15 @@ def main() -> None:
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
     parser.add_argument(
+        "--settings-dir",
+        default=None,
+        help=(
+            "where the Plot tab's named settings sets are saved (default: "
+            "config.ini [Paths] geecs_data/DataPortal/settings, else "
+            "user data/DataPortal/settings in the main checkout)"
+        ),
+    )
+    parser.add_argument(
         "--tiled",
         action="store_true",
         help=(
@@ -99,6 +108,7 @@ def main() -> None:
 
     from geecs_portal.app import create_app
     from geecs_portal.cache import CachingScanCatalog
+    from geecs_portal.plotter.app import create_app as create_plotter
 
     # Completed runs are immutable: cache their details so plot/image
     # requests stop re-reading them. With Tiled, scan folders no Tiled run
@@ -119,6 +129,9 @@ def main() -> None:
         ),
         config_editor=args.config_editor,
         logbook_url=args.logbook_url,
+        plotter=create_plotter(
+            args.experiment, settings_dir=args.settings_dir, mount="/plot"
+        ),
     )
     uvicorn.run(
         app,
