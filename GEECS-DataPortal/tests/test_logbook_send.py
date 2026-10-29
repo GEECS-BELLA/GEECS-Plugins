@@ -761,7 +761,6 @@ const storage = new Map();
 const localStorage = {getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)};
 const location = {href:'http://portal.example/portal/run/uid-002?tab=grid&gridcfg=kept&filters=kept',origin:'http://portal.example'};
 const window = {open:()=>null};
-const closeModals = ()=>{};
 const flashNote = ()=>{};
 const GeecsKit = {drawer:()=>({open(){}}), closeDrawer(){}, toast(){}};
 const dispCfg = ()=>({width:900,height:300});

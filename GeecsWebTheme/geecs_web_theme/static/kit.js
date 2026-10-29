@@ -3,7 +3,8 @@
  * Load deferred, beside theme.js. Everything here is additive: with this
  * file absent the page still renders correctly, <details> still opens, and
  * the density stamped by theme-boot.js still applies — only the drawer,
- * the dialog helper, the density control and the drawer picker go missing.
+ * the dialog helper, the density control, the drawer picker and the toast
+ * go missing.
  *
  *   <div data-density-picker></div>   the spacing control, built here
  *   GeecsKit.drawer(el)               rung 2 — open/close with Esc, scrim,

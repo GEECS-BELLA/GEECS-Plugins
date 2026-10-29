@@ -101,7 +101,6 @@
 
 /* The Grid tab. */
 .kit .gridcontrols { display: flex; flex-wrap: wrap; gap: 10px; }
-.kit .gridcontrols [hidden] { display: none; }
 .kit .gridcontrols label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); min-width: 0; }
 .kit .gridcontrols select, .kit .gridcontrols input { background: var(--surface); color: var(--ink); border: var(--bw) solid var(--rule);
   border-radius: var(--r); padding: 4px; max-width: 19rem; font: inherit; font-size: 12px; }

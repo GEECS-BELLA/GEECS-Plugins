@@ -53,16 +53,17 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
 
 #: A run's stop-document ``exit_status`` as the kit's status word: a
-#: Bluesky run ends ``success``, ``abort`` or ``fail``, and a run with no
-#: stop document yet is still going.
+#: Bluesky run ends ``success``, ``abort`` (amber, as the logbook shows an
+#: aborted scan) or ``fail``. No stop document is ``unknown``, never
+#: "running": a run whose worker died has none either, and a week-old
+#: crash must not pulse on the day list (the logbook's rule: status is
+#: reported, not inferred).
 _RUN_STATES = {"success": "ok", "abort": "degraded", "fail": "failed"}
 
 
 def run_state(exit_status: Optional[str]) -> str:
     """The kit status word (``data-state``) for a run's ``exit_status``."""
-    if not exit_status:
-        return "running"
-    return _RUN_STATES.get(exit_status, "unknown")
+    return _RUN_STATES.get(exit_status or "", "unknown")
 
 
 def create_app(

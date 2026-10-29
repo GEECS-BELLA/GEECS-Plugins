@@ -47,7 +47,7 @@
       <td>{{ run.mode }}</td>
       <td>{{ run.description }}</td>
       <td class="num">{{ run.shots if run.shots is not none else "" }}</td>
-      <td><span class="chip" data-state="{{ run.exit_status | run_state }}">{{ run.exit_status or "running" }}</span></td>
+      <td><span class="chip" data-state="{{ run.exit_status | run_state }}">{{ run.exit_status or "unknown" }}</span></td>
     </tr>
     {% endfor %}
     </tbody>
