@@ -47,10 +47,14 @@ deploy/
   the screen document (GEECS-Schemas `Screen`, `resolve_screen`). A new
   screen is a file in `<experiment>/screens/`, never code. A widget's word
   is the module's verdict for a device role and Hare's connection and alarm
-  for a bare PV (read only in this slice); "unknown" whenever either source
-  is silent. PV names come from the module's device route, never derived
-  here. A writing kind on a bare PV (a DB device's setpoint, toggle or
-  flipper) is drawn disabled until the module writes gateway PVs.
+  for a bare PV, read only forever; "unknown" whenever either source is
+  silent. PV names come from the module's device route, never derived
+  here. A DB device (on the module's roster, in neither device file) binds
+  `{device, role: <GEECS variable>}` and is **deferred**: the page judges it
+  by the module's device route ("unknown role" when the module lists no
+  such role, "wrong kind" when its type does not fit the kind, Hare's alarm
+  rules where the module gives no verdict) and writes it through the same
+  put route. A writing kind on a bare PV is drawn disabled.
 - **Dense, like the panel it replaces.** When no group spans columns,
   each column packs its groups top to bottom in row order (a LabVIEW
   panel's layout; grid row tracks would leave gaps under short groups);

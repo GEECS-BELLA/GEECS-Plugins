@@ -4,7 +4,10 @@
 // verdict for a device role, Hare's connection and alarm for a bare PV,
 // "unknown" while either source is silent. A changing value is never read
 // as freshness. Writes go to the module's put route once, and its outcome
-// word and code stay on the widget; nothing is retried.
+// word and code stay on the widget; nothing is retried. A deferred widget
+// (a DB device) is judged by the module's word alone: a role it does not
+// list reads "unknown role", a type the kind does not take "wrong kind";
+// a role the module watches not (verdict null) is judged as a bare PV is.
 (function () {
   "use strict";
   const POLL_MS = 2000;
@@ -58,20 +61,30 @@
     return digits === undefined || digits === null ? String(f.value) : f.value.toFixed(Number(digits));
   }
 
+  // no module verdict: Hare's alarm rules, as GeecsCanopy's freshness.judge has them
+  function alarmWord(f) {
+    if (!hareUp || !f) return "unknown";
+    if (!f.connected) return "unreachable";
+    if (f.severity === "INVALID" && f.alarmStatus === 17) return "unknown"; // UDF: never processed
+    if (f.severity === "INVALID" && [1, 9, 10].includes(f.alarmStatus)) return "not answering"; // READ/COMM/TIMEOUT
+    return f.severity === "MAJOR" || f.severity === "INVALID" ? "error" : "live";
+  }
+
+  // a deferred widget whose role the module types otherwise than the kind takes
+  const misfit = (el, e) => el.dataset.fits !== undefined && !el.dataset.fits.split(" ").includes(e.type);
+  const hazardOf = (el) => !!(el.dataset.hazard || el.dataset.confirm || (entryOf(el) || {}).confirm === "hazard");
+
   function judge(el) {
     const pv = pvOf(el), f = pv && wire[pv];
-    if (el.dataset.pv) { // no module verdict: its alarm rules, as GeecsCanopy's freshness.judge has them
-      if (!hareUp || !f) return "unknown";
-      if (!f.connected) return "unreachable";
-      if (f.severity === "INVALID" && f.alarmStatus === 17) return "unknown"; // UDF: never processed
-      if (f.severity === "INVALID" && [1, 9, 10].includes(f.alarmStatus)) return "not answering"; // READ/COMM/TIMEOUT
-      return f.severity === "MAJOR" || f.severity === "INVALID" ? "error" : "live";
-    }
+    if (el.dataset.pv) return alarmWord(f);
     const view = views[el.dataset.device], e = entryOf(el);
-    if (!view || !view.ok || !e) return "unknown"; // the module cannot say
+    if (!view || !view.ok) return "unknown"; // the module cannot say
+    if (!e) return el.dataset.deferred ? "unknown role" : "unknown";
+    if (misfit(el, e)) return "wrong kind";
     if (e.read === "never") return view.state || "unknown"; // a command: the device's word
     if (!hareUp || !f) return "unknown";
     if (!f.connected) return "unreachable";
+    if (e.verdict === null && e.read === "monitor") return alarmWord(f); // a DB device's role
     return e.verdict || "unknown";
   }
 
@@ -89,7 +102,7 @@
     if (sp && !sp.dataset.draft) sp.value = show(pv, el) === "—" ? "" : show(pv, el);
     if (act && el.dataset.kind !== "button") act.textContent = show(pv, el);
     // writable only on the module's word, never while a write is in flight
-    const e = entryOf(el), open = !el.dataset.pv && !!e && e.writable && !el.dataset.busy;
+    const e = entryOf(el), open = !el.dataset.pv && !!e && e.writable && !misfit(el, e) && !el.dataset.busy;
     for (const c of [sp, act]) if (c) c.disabled = !open;
     for (const ind of el.querySelectorAll(".ind")) ind.querySelector("b").textContent = show(pvOf(ind), ind);
     const rb = el.querySelector(".rb");
@@ -126,7 +139,7 @@
   // ---- writing: once, through the module, the outcome left on the widget
   const dialog = document.getElementById("confirm");
   function confirmWrite(el, value) {
-    if (!el.dataset.hazard && !el.dataset.confirm) return Promise.resolve(true);
+    if (!hazardOf(el)) return Promise.resolve(true);
     document.getElementById("confirm-title").textContent = `Write ${el.querySelector(".lbl").textContent}?`;
     document.getElementById("confirm-what").textContent = `${el.dataset.device} · ${el.dataset.role} ← ${value}`;
     document.getElementById("confirm-note").textContent = el.dataset.confirm || "This role needs the hazard confirm.";
@@ -150,7 +163,7 @@
     if (!(await confirmWrite(el, value))) return outcome(el, "unsent", "", "not confirmed");
     const body = { role: el.dataset.role, value, operator, confirm: true };
     if (el.dataset.axis) body.axis = el.dataset.axis;
-    if (!el.dataset.hazard && !el.dataset.confirm) delete body.confirm;
+    if (!hazardOf(el)) delete body.confirm;
     outcome(el, "sending");
     el.dataset.busy = "1";
     draw(el);

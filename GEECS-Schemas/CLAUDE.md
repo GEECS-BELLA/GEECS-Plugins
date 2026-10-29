@@ -65,9 +65,12 @@ token (`GroupTone`, never a literal), of widgets of exactly seven kinds
 (`WidgetKind`), each a free label and a `Binding` (device + family role +
 axis, or a bare PV). No expressions, scripts or conditions, ever. What
 depends on the families and instance data (the role exists, the kind fits
-its type) is `resolve_screen`, not the model. A bare PV may carry a writing
-kind or a flipper's indicators: the renderer draws its writes disabled until
-the module writes gateway PVs.
+its type) is `resolve_screen`, not the model. On a DB device a role is its
+GEECS variable name, and `resolve_screen(..., deferred=<the module's roster>)`
+binds it without a `Role` (`Bound.deferred`, `Bound.fits`): the page judges
+it by the module's word. A device in neither the files nor the roster is
+refused. A bare PV is read only; it may carry a writing kind or a flipper's
+indicators, drawn disabled.
 
 ## Home layout
 

@@ -4,24 +4,28 @@
 GeecsControlRoom's one renderer (``Planning/operator_surfaces.md`` §3). A
 screen binds, groups and confirms; it never computes: there are no
 expressions, scripts or conditions here, and no colour but a kit token. A
-binding names a GEECS device and a family role (and an axis), or a bare PV
-for a device the GEECS DB serves (a writing kind on one is drawn, and
-stays disabled until the module writes gateway PVs). Whether the role exists on the device and
-fits the widget depends on the family files and the instance data, so it is
-checked by :func:`resolve`, not by the model.
+binding names a GEECS device and a role (and an axis), or a bare PV. On a
+device the GEECS DB serves, the role is its GEECS variable name. A bare PV
+is read-only, for anything servable (a timestamp, a derived channel): a
+writing kind on one is drawn disabled; a write binds ``{device, role}``.
+Whether the role exists on the device and fits the widget depends on the
+family files and the instance data, so it is checked by :func:`resolve`,
+not by the model; a DB device's roles are the device module's, so
+:func:`resolve` defers them to the page.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal, Optional
 
 from pydantic import Field, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 from geecs_schemas.epics import NativeDevices
-from geecs_schemas.epics.family import FamilyFile, Role, RoleName, Suffix
+from geecs_schemas.epics.family import AnyRoleName, FamilyFile, Role, Suffix
 from geecs_schemas.epics.panel_devices import DeviceName, PanelDevices
 
 #: The screens' folder in the experiment's configs folder.
@@ -53,11 +57,11 @@ class Binding(SchemaModel):
     """What a widget shows and writes: a device's role (on an axis), or a bare PV."""
 
     device: Optional[DeviceName] = Field(None, description="The GEECS device name.")
-    role: Optional[RoleName] = Field(None, description="The device family's role.")
+    role: Optional[AnyRoleName] = Field(None, description="The device family's role; a DB device's GEECS variable name.")  # fmt: skip
     axis: Optional[Suffix] = Field(
         None, description="The axis, for a per-axis family (a motor's m1)."
     )
-    pv: Optional[Suffix] = Field(None, description="A bare PV, for a device the GEECS DB serves (its writes disabled until the module writes gateway PVs).")  # fmt: skip
+    pv: Optional[Suffix] = Field(None, description="A bare PV, read only: a writing kind on one is drawn disabled.")  # fmt: skip
 
     @model_validator(mode="after")
     def _one_kind_of_binding(self) -> "Binding":
@@ -138,12 +142,21 @@ class Screen(VersionedSchemaModel):
 
 @dataclass(frozen=True)
 class Bound:
-    """A widget with what it is bound to: the role, its readback, the indicators' roles."""
+    """A widget with what it is bound to: the role, its readback, the indicators' roles.
+
+    ``deferred``: bound to a device the module lists but neither device
+    file names (a DB device); its role is judged at page time by the
+    module's device route, against ``fits``, the role types the kind takes.
+    """
 
     widget: Widget
     role: Optional[Role] = None
     readback: Optional[Role] = None
-    indicators: tuple[Optional[Role], ...] = ()  # one per indicator; None for a bare PV
+    indicators: tuple[
+        Optional[Role], ...
+    ] = ()  # one per indicator; None for a bare PV or a deferred device
+    deferred: bool = False
+    fits: tuple[str, ...] = ()
 
 
 class ScreenError(ValueError):
@@ -185,18 +198,63 @@ def _misfit(widget: Widget, role: Optional[Role]) -> Optional[str]:
     return None
 
 
+def _unreadable(marks: tuple[Optional[Role], ...], where: str) -> list[str]:
+    """The indicators that cannot be read as a readout is (a bare PV's or a deferred device's have no role)."""
+    readable = _FITS["readout"][0]
+    return [f"{where}: indicator {m.name} is a {m.type}, not readable" for m in marks if m and m.type not in readable]  # fmt: skip
+
+
+def _later(
+    b: Optional[Binding],
+    deferred: Collection[str],
+    panel: PanelDevices,
+    known: NativeDevices,
+) -> bool:
+    """A device only the module lists (a DB device): its roles are the page's to judge."""
+    name = b.device or "" if b is not None else ""
+    return bool(name) and name in deferred and name not in panel.devices and name not in known.devices  # fmt: skip
+
+
+def _fits(widget: Widget, deferred: bool) -> tuple[str, ...]:
+    """The role types a deferred widget's kind takes, for the page to check the module's type against."""
+    return (
+        tuple(sorted(_FITS[widget.kind][0]))
+        if deferred and widget.kind in _FITS
+        else ()
+    )
+
+
+def _roleless(
+    b: Binding,
+    deferred: Collection[str],
+    panel: PanelDevices,
+    known: NativeDevices,
+) -> bool:
+    """A bare PV, or a deferred device's binding: no Role to look up."""
+    return b.pv is not None or _later(b, deferred, panel, known)
+
+
 def resolve(
     screen: Screen,
     families: Mapping[str, FamilyFile],
     panel: PanelDevices,
     native: Optional[NativeDevices] = None,
+    deferred: Collection[str] = (),
 ) -> list[list[Bound]]:
-    """Bind every widget to its role, group by group; raise :class:`ScreenError` naming every misfit."""
+    """Bind every widget to its role, group by group; raise :class:`ScreenError` naming every misfit.
+
+    ``deferred``: the devices the module lists (its roster); one that
+    neither device file names is bound without a role, for the page to
+    judge by the module's device route. A device in neither is refused.
+    """
     known = native or NativeDevices.model_validate({})
     problems: list[str] = []
 
+    later = partial(_later, deferred=deferred, panel=panel, known=known)
+    roleless = partial(_roleless, deferred=deferred, panel=panel, known=known)
+
     def role_of(b: Binding, where: str) -> Optional[Role]:
-        if b.pv is not None:
+        if roleless(b):
             return None
         try:
             roles, axes = _device_roles(b.device or "", families, panel, known)
@@ -210,20 +268,16 @@ def resolve(
         return role
 
     def bind(widget: Widget, where: str) -> Bound:
-        role = role_of(widget.bind, where) if widget.bind else None
+        role = role_of(widget.bind, where) if widget.bind else None  # deferred: None
         if why := _misfit(widget, role):
             problems.append(f"{where}: {why}")
         readback = None
         if role is not None and role.readback and widget.bind:
             readback = role_of(widget.bind.model_copy(update={"role": role.readback}), where)  # fmt: skip
         marks = tuple(role_of(i, where) for i in widget.indicators)
-        problems.extend(
-            f"{where}: indicator {m.name} is a {m.type}, not readable"
-            for m in marks
-            if m
-            and m.type not in _FITS["readout"][0]  # an indicator reads like a readout
-        )
-        return Bound(widget, role, readback, marks)
+        problems.extend(_unreadable(marks, where))
+        later_ = later(widget.bind)  # no Role: the module's device route says
+        return Bound(widget, role, readback, marks, later_, _fits(widget, later_))
 
     out = [
         [
