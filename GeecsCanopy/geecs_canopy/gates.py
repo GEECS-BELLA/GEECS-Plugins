@@ -150,7 +150,8 @@ async def _write(
     # A role that settles itself (an acquire) calls back only when the work ends.
     itself, unsettled = role.settled_by == role.name, None
     try:
-        attempt = module.journal.record(_entry(req, "attempted")).id
+        row = _entry(req, "attempted")
+        attempt = (await asyncio.to_thread(module.journal.record, row)).id
     except JournalUnavailable as exc:
         why = f"no put without its journal row: {exc}"
         raise _Stop("journal_unavailable", why) from exc
@@ -213,10 +214,12 @@ async def put_role(module: Module, req: PutRequest) -> PutOutcome:
         extra, detail, attempt = {}, stop.detail, stop.attempt
         status, outcome, code = stop.status, stop.outcome, stop.code
     entry = _entry(req, outcome, canopy_code=code, detail=detail, attempt=attempt)
+    if code == "journal_unavailable":
+        return PutOutcome(status, entry, extra)  # no second wait on a failed journal
+    # Off the loop: a locked journal must not stall Hare's websockets. If it
+    # fails now, Hare's answer stands and the attempted row is the evidence.
     try:
-        entry = module.journal.record(entry)
-    except (
-        JournalUnavailable
-    ) as exc:  # the answer stands; an attempt row is the evidence
+        entry = await asyncio.to_thread(module.journal.record, entry)
+    except JournalUnavailable as exc:
         extra["journalError"] = str(exc)
     return PutOutcome(status, entry, extra)

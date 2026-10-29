@@ -75,7 +75,9 @@ deploy/
   alone does, through `canopy_surface.NAMES`; a new Canopy name goes into
   that list in the same change. Every route needs Canopy read access only;
   the module's own policy decides writes. Every write, a push-2 restore's
-  rows included, goes through `gates.put_role` and leaves one journal row.
+  rows included, goes through `gates.put_role` and leaves one outcome row in the
+  journal, after an `attempted` row when it reached Hare (paired by
+  `attempt`); no put goes out without its attempted row.
   Verdicts follow `Planning/operator_surfaces.md` §3 and Appendix A of
   `Planning/epics_estate.md` (rules 1, 6, 8, 9, 10, 11, 18), each pinned by
   a test in `tests/test_module.py`.

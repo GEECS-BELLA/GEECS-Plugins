@@ -1,4 +1,4 @@
-"""OperatorPolicy and JournalEntry: who may write a device's roles, and each attempt's record.
+"""OperatorPolicy and JournalEntry: who may write a device's roles, and the record of each write.
 
 GeecsCanopy's device module enforces the one and writes the other; the
 logbook and GEECS-MCP read both without importing it. The GEECS device
@@ -59,7 +59,7 @@ Scalar = Union[float, int, bool, str]
 
 
 class JournalEntry(VersionedSchemaModel):
-    """One write attempt through the device module, whatever its outcome."""
+    """One journal row: a request's outcome, or the ``attempted`` row a dispatched write leaves first (its outcome names it in ``attempt``)."""
 
     schema_version: Literal[1] = Field(1, description=_VERSION)
     id: Optional[int] = Field(None, description="Row number, oldest first.")

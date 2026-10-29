@@ -123,7 +123,7 @@ read-only, full or locked journal refuses writes with 503
 `attempted` row no outcome row names is a write that may have reached the
 device with no recorded answer**: the module died, or the journal failed,
 during the put (the put's response then carries `journalError`). Read the
-device's value before repeating it. The Postgres dump does not include it. Nightly, beside
+device's value before repeating it. The journal has its own backup: The Postgres dump does not include it. Nightly, beside
 that dump, from the service account's crontab (the folder's group is the
 service account's; the file is created group-readable):
 `dc exec -T api python -c "import sqlite3; sqlite3.connect('/var/lib/geecs-canopy-module/journal.sqlite3').backup(sqlite3.connect('/var/lib/geecs-canopy-module/journal.bak'))"`,

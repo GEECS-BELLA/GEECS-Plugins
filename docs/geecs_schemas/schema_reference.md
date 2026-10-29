@@ -866,7 +866,7 @@ Some operators may write some roles of some devices, named or by family.
 
 ### JournalEntry
 
-One write attempt through the device module, whatever its outcome.
+One journal row: a request's outcome, or the ``attempted`` row a dispatched write leaves first (its outcome names it in ``attempt``).
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|

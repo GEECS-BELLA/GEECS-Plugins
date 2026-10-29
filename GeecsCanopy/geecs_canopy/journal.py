@@ -24,7 +24,10 @@ class Journal:
     """Append-only, in one SQLite file."""
 
     def __init__(self, path: Path) -> None:
-        self._db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
+        # A lock (the nightly backup) fails a write after 1 s, not sqlite's 5 s.
+        self._db = sqlite3.connect(
+            path, timeout=1.0, check_same_thread=False, isolation_level=None
+        )
         self._db.execute(_SCHEMA)
         self._lock = threading.Lock()
 

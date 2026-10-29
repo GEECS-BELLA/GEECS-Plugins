@@ -155,6 +155,8 @@ async def test_a_computed_value_whose_flag_is_unavailable_is_unknown(env):  # ru
     assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "off"
     env.hare.on_frame({counter: live(2), flag: {"value": None, "connected": False}})
     assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "unknown"
+    env.hare.on_frame({cx: live(3.0, severity="MAJOR")})  # an alarm still outranks it
+    assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "error"
 
 
 async def test_disconnected_is_unreachable_and_a_fault_outranks_it(env):  # rule 9
@@ -261,6 +263,8 @@ async def test_a_hare_refusal_keeps_hares_status_and_code(env):
         "outcome": "refused", "device": "ps1", "role": "reset", "axis": None, "journalId": None,
         "code": "pv_write_failed", "detail": "Write access denied",
     }  # fmt: skip
+    attempt, outcome = env.module.journal.last(2)
+    assert (attempt.outcome, outcome.attempt) == ("attempted", attempt.id)
 
 
 async def test_a_clamped_write_reports_the_value_the_record_took(
@@ -321,6 +325,20 @@ async def test_no_put_reaches_hare_without_its_attempt_row(env):
         "journal_unavailable",
     )
     assert env.hare.puts == []
+
+
+async def test_a_journal_failing_during_the_put_keeps_hares_answer(env):
+    put_ = env.hare.put
+
+    async def put_then_lock(*args, **kwargs):
+        await put_(*args, **kwargs)
+        env.module.journal._db.execute("PRAGMA query_only=ON")
+
+    env.hare.put = put_then_lock
+    body = (await put(env, "ps1", role="reset", value=1)).json()
+    assert (body["outcome"], body["journalId"]) == ("accepted", None)
+    assert "readonly" in body["journalError"]
+    assert env.module.journal.last(1)[0].outcome == "attempted"
 
 
 async def test_an_accepted_put_leaves_its_attempt_and_its_outcome(env):
