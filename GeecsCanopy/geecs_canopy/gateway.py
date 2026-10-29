@@ -23,7 +23,11 @@ from urllib.parse import unquote, urlsplit
 from geecs_core.db import geecs_db
 from geecs_core.db.geecs_db import GeecsDb
 from geecs_core.db.served_set import ServedVariable, served_variables
-from geecs_core.db.variable_types import TIMESTAMP_LADDER, effective_vartype
+from geecs_core.db.variable_types import (
+    TIMESTAMP_LADDER,
+    effective_vartype,
+    enum_choices,
+)
 from geecs_core.pv_naming import (
     DEVICE_STATUS_VARIABLE,
     device_status_pv,
@@ -61,9 +65,9 @@ def _role(var: ServedVariable, prefix: str, readback: str) -> Role:
     fields |= {"label": row.get("alias") or var.name, "units": row.get("units") or None}
     if settable:
         fields |= {"writable": True, "write": setpoint_pv(readback)[len(prefix) :]}
-    if (
-        vartype == "choice"
-    ):  # its options are read from the PV, as the gateway serves them
+    if vartype == "choice" and enum_choices(row.get("choices")) is None:
+        vartype = "string"  # beyond DBR_ENUM's limits: the gateway serves it as text
+    if vartype == "choice":  # options are read from the PV, as the gateway serves them
         fields["type"] = "enum"
     else:
         fields["type"] = "setpoint" if settable else "readback"

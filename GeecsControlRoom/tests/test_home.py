@@ -163,3 +163,23 @@ def test_settings_read_the_links_the_scanner_pair_included() -> None:
     s = Settings.from_env(env)
     assert s.scanner_url == "http://127.0.0.1:8300"
     assert dict(s.links) == {"scanner": "/scanner", "logbook": "/logbook"}
+
+
+def test_a_live_db_device_is_not_read_in_detail_and_never_unread(settings: Settings) -> None:  # fmt: skip
+    roster = [{"name": n, "source": "gateway", "state": s} for n, s in (("U_A", "live"), ("U_B", "unreachable"))]  # fmt: skip
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/devices"):
+            return httpx.Response(200, json={"experiment": "Bench", "devices": roster})
+        if path.endswith("/journal"):
+            return httpx.Response(200, json=[])
+        asked.append(path.rsplit("/", 1)[-1])
+        return httpx.Response(200, json=_detail("unreachable"))
+
+    module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
+    with TestClient(create_app(settings, module)) as c:
+        body = c.get("/api/home/devices").json()
+    assert asked == ["U_B"] and body["unread"] == []
+    assert [row["name"] for row in body["not_live"]] == ["U_B"]

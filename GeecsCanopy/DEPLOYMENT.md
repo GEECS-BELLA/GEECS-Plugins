@@ -120,7 +120,9 @@ is the name the request carries, and nothing binds it to a person: anyone
 holding the display key can name a granted operator. The authenticated
 part is the Canopy key, journaled by name. What does hold for every
 caller is the allow list, the hazard confirm, the run lock and the bounds,
-and that no page key reaches Hare's or Squirrel's own write routes.
+and that no page key reaches Hare's or Squirrel's own write routes. **A DB
+device has no run lock**: a scan driving a LabVIEW device through the
+gateway does not stop a module write to it (section 4).
 Binding the operator to a person needs a key per operator or the front
 door's user header (an upstream candidate, §7.4 of the decision page).
 Operator and page keys are `read` only (section 3): the module authorizes
@@ -196,8 +198,11 @@ verdict is `null`. A write goes to the variable's `:SP`, waiting for the
 GEECS set to converge (`_SETTLE_TIMEOUT_S`). **A setpoint whose DB row has no
 `min`/`max` is refused** (`bounds_unknown`, naming the row) until the row
 has them: fill them in the DB and restart the gateway (its restart is the DB
-resync). A native device wins over a DB device of the same name. Unset the
-URL and the module writes native devices only.
+resync). There is no run lock on a DB device (OWED: refuse its writes while
+a run holds it). A native device wins over a DB device of the same name.
+`GEECS_CANOPY_DB=off` (the directory's switch) or no URL: the module writes
+native devices only; a malformed URL leaves them standing and the roster's
+`sources.gateway.error` names it.
 
 ## 5. Upgrade and rollback
 

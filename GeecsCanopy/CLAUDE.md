@@ -31,6 +31,7 @@ geecs_canopy/
   gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal
   journal.py     SQLite of GEECS-Schemas JournalEntry rows
   routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal
+  testing.py     the shared test doubles: FakeHare, live(), write_documents, make_env
 deploy/
   Dockerfile (+ .dockerignore)   FROM the pin; pip --python into /app/.venv
   compose.yaml.in   api + 2 workers + Postgres 16 + Redis 7, host networking
@@ -74,8 +75,10 @@ deploy/
   `canopy-db-is-transitional` import contract); the native path depends on
   nothing in the DB. The module gets the DB devices as a callable from the
   wrapper (`app.py`), never by importing `gateway.py`; their writes take
-  the same gates, their hazards come from the policy's `hazards`, and a
-  setpoint without DB `min`/`max` is refused (rule 11).
+  the same gates but the run lock (a DB device has none), their hazards
+  come from the policy's `hazards`, and a setpoint without DB `min`/`max`
+  is refused (rule 11). One switch, `GEECS_CANOPY_DB`, turns the DB off for
+  the directory and the module alike.
 - **Routes and gates import no Canopy name** (condition (b)): `app.py`
   alone does, through `canopy_surface.NAMES`; a new Canopy name goes into
   that list in the same change. Every route needs Canopy read access only;
@@ -101,3 +104,10 @@ deploy/
 stands in for its adapter base). Canopy's own contract suite runs where
 Canopy is importable and `CANOPY_SOURCE` names a clone at the pin;
 DEPLOYMENT.md §6 has the command.
+
+`geecs_canopy.testing` is the one copy of the module's test doubles: this
+suite's `env` fixture and GeecsControlRoom's contract test
+(`tests/test_module_contract.py`, a dev-only path dependency) both build the
+module with `make_env`. A route or field change here fails that suite in
+the same PR (CI's leg selection runs it: dev groups count as edges); change
+the Control Room's reader with it, never the test's expectation alone.
