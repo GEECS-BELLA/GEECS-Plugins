@@ -340,9 +340,9 @@ rendered into files.
    click: the panels app with the camera viewer, the camera grid, the
    experiment home and **one composed page that writes** (a motor, a supply,
    a snapshot restore, with identity and confirm); the scanner app as the
-   second surface. The plotter is not counted: it stays on its own brief
-   as the LabVIEW developer's onboarding project and moves to `geecs-web`
-   with the portal in phase 4.
+   second surface. The plotter is not counted: it folded into the Data
+   Portal (2026-10-29; the portal's `CLAUDE.md` records how and what is
+   open) and moves to `geecs-web` with the portal in phase 4.
 6. **After a positive verdict**, the branch's additive routes land on master
    as ordinary PRs (they are additive; nothing on master breaks), and
    **each surface's deletion is its own PR** under the kill rule: when the
@@ -446,8 +446,8 @@ the short branch and per-surface deletions (P1, P7); the #1142 ordering
 and public packages (P4); Grafana as its own slice, scan marks from an
 archived PV (P5); one authoritative snapshot copy (P6); the version lattice
 and the secrets home (P8). **Accepted in part**: O8 asked to keep the
-plotter off the new stack entirely; it stays on its brief and is not
-counted toward the gate, but moves to `geecs-web` in phase 4 rather than
+plotter off the new stack entirely; it is not counted toward the gate
+(its brief has since closed: the plotter folded into the portal), but moves to `geecs-web` in phase 4 rather than
 remaining a permanent Jinja surface. A5 asked to weigh autosave configMenu
 as the snapshot store; it is kept as the per-IOC store, and the cross-IOC
 snapshot document stands because configMenu cannot span IOCs.
