@@ -110,8 +110,23 @@ extending this package.
   plot pick list is `plottable_columns`, coercion is `numeric_series` —
   one module so no front end reinterprets a column.
   Never interpret event-schema column names or dtypes in this package.
-- **No build chain.**  Server-rendered Jinja2 templates + minimal inline
-  CSS; page behaviour is plain inline JS.  No npm, no CDN assets
+- **On the GeecsWebTheme kit** (2026-10-28, the author's override of
+  the "portal last" ruling — `Planning/portal_plotter_merge.md`).  Every
+  page is `body class="kit"`: the kit's top bar, shell and rail, panels,
+  `.chip` status words (a run's `exit_status` through `app.run_state`, an
+  analysis job's state through the page's `JOB_STATES`), the five pane
+  states (`paneState(kind, text)` in the page script), its `.tabs` (the
+  selected tab `aria-selected`, every other panel `[hidden]`), its toast
+  (`GeecsKit.toast`), and the overlay ladder: the filter, bin, display,
+  send-to-log and config-editor panels are rung-2 drawers, the
+  destructive confirmation a rung-3 `<dialog>`.  What the kit does not
+  settle lives in `static/portal.css`, never in an inline style block; a
+  component another surface would want goes into the kit through
+  `kit.html` instead.  The glue is `geecs_web_theme.web`
+  (`ForwardedPrefixMiddleware`, `make_templates`, `mount_theme`,
+  `root_of`), never a copy (`tests/test_page.py`).
+- **No build chain.**  Server-rendered Jinja2 templates; page behaviour
+  is plain inline JS.  No npm, no CDN assets
   (control-room machines may lack internet).  The one amendment (owner
   approval 2026-08-30): **vendored, version-pinned JS assets committed
   under `geecs_portal/static/`** — today exactly one, the Plotly
@@ -161,9 +176,9 @@ extending this package.
   reverse-proxy mount (OSPREY panel tabs).  Templates never write a
   root-absolute portal URL directly: every href/action/src carries the
   `{{ root }}` context value (the per-request root path —
-  `X-Forwarded-Prefix` via `_ForwardedPrefixMiddleware`, else
-  `--root-path`), page JS builds fetches from `const ROOT`, and
-  redirect endpoints prefix with `_root(request)`.  Pinned by
+  `X-Forwarded-Prefix` via the theme's `ForwardedPrefixMiddleware`,
+  else `--root-path`), page JS builds fetches from `const ROOT`, and
+  redirect endpoints prefix with `root_of(request)`.  Pinned by
   `tests/test_app.py::TestReverseProxy`.
 - **Hermetic tests.**  `tests/` drives the app through
   `fastapi.testclient.TestClient` over fake catalogs — no network, no
@@ -210,6 +225,7 @@ geecs_portal/
   resources.py   # figure_png (a shot's pixels, traces and PNG are
                  #   geecs_data_utils.io.shot_images / .display_png)
   static/        # the vendored Plotly bundle (the ONE committed JS asset)
+                 #   and portal.css (what the kit does not settle)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
                  #   --logbook-url  the logbook service's base URL (its own process,
@@ -223,6 +239,7 @@ tests/
   test_logbook_link.py   # the run page's link to the logbook service; /log is not served here
   test_logbook_send.py   # the send: the conversation (fake logbook over an
                          #   httpx transport) and the route's gate ladder
+  test_page.py       # on the kit: status words, the theme's glue
 ```
 
 **Canonical day view (owner ruling 2026-09-13):** this package's `/day/`
@@ -293,7 +310,7 @@ mirrors every payload shape and must move with any change here.
 Both image endpoints also take `?display=` (the shared display state's
 image slice: `cmap` matplotlib-colormap name + `plo`/`phi` percentile
 window — types 400 at parse, values degrade to grayscale/defaults;
-edited via the Images plotbar's "display…" popup — plus `mode`
+edited via the Images plotbar's "display…" drawer — plus `mode`
 (0.18.0): `"rendered"` serves the analyzer's own figure via
 `geecs_portal.processing.render_diagnostic_ephemeral` (object-API
 `Figure`, never pyplot — the one sanctioned matplotlib path on a
@@ -446,10 +463,10 @@ list — a new tab should be exactly these steps:
 3. **Figure** — if the tab plots, its figure builder goes in
    `figures.py` (pure functions, plotly.py, unit-tested in
    `tests/test_figures.py`) and the endpoint serves it as `figure`.
-4. **Tab** — a `<section class="pane">` + a `.tab` button in
-   `run.html`; `Plotly.react` over the served figure (vendored
+4. **Tab** — a `<section role="tabpanel" class="tabpane">` + a
+   `role="tab"` button in `run.html`'s `.tabs`; `Plotly.react` over the served figure (vendored
    bundle); keep all view state in the URL (extend
-   `readState`/`writeState`); expansion UI goes behind a popup/⚙,
+   `readState`/`writeState`); expansion UI goes behind a drawer/⚙,
    never into the rail.
 5. **Tests** — endpoint tests against the fakes (hand-computed numbers,
    the 400/404 ladder, NaN→null, `no-cache` headers even on completed

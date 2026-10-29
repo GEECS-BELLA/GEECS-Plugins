@@ -8,7 +8,6 @@ from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import HTTPException
-from starlette.requests import Request
 
 from geecs_data_utils.data.binning import bin_rows
 from geecs_data_utils.data.row_filters import filter_mask
@@ -61,11 +60,6 @@ _UNION_HEADERS = {"Cache-Control": "no-cache"}
 #: run gains its stop document, and a device folder fills in as the run
 #: writes — always re-fetch, never pin.
 _LISTING_HEADERS = {"Cache-Control": "no-cache"}
-
-
-def _root(request: Request) -> str:
-    """The request's URL prefix (``""`` at root) — prepend to every path."""
-    return request.scope.get("root_path", "").rstrip("/")
 
 
 def _parse_day(day: str) -> date:

@@ -102,8 +102,11 @@ only on the author's yes.
    confirmation is already a `<dialog>`; the display popup and filter
    editor become a drawer). The inline style block goes; what the kit
    lacks (tabs, toasts, a plot frame) is added to `kit.css` with a
-   specimen on `kit.html`, never as inline style. The page script moves
-   to `static/portal.js` (no build chain: a plain file). The glue copy
+   specimen on `kit.html`, never as inline style. (As built, #1187: the
+   page script stays inline in `run.html`, because the Node harnesses
+   slice it by text, and the plot frame stays in `static/portal.css`
+   until PR 4 brings the plotter's frame beside it; one frame for both
+   is then a kit component.) The glue copy
    goes in the same change: `_ForwardedPrefixMiddleware`, `_clean_prefix`
    and the `root` processor are replaced by `geecs_web_theme.web`
    (`ForwardedPrefixMiddleware`, `mount_theme`, `make_templates`); the
@@ -170,6 +173,12 @@ only on the author's yes.
   kit work is thrown away at its phase 5.
 - Whether `PortalSettings` stays in the portal or moves to GEECS-Schemas
   (the plotter brief asked the same of `PlotterSettings`).
+- **A run's status word has three tables** (found in #1187's review): the
+  scanner (`service/summaries.py` `EXIT_WORDS`: abort → failed), the
+  logbook (`models.py` `KIT_STATE`: aborted → degraded) and now the
+  portal (`app.run_state`: abort → degraded, no stop document → unknown).
+  One table beside the stop-document reading in GEECS-Data-Utils, which
+  all three would import, needs a ruling on abort first.
 - Settings sets are shared files with no revisions: two people editing
   one set overwrite each other, as with LabVIEW's settings files. A
   deployed portal, used by more people than the plotter was, makes this

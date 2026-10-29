@@ -39,7 +39,8 @@ let BOOTED=true, writes=0, requests=0, IMG_KEY=null;
 const ROOT='',UID='uid-002',DAY='',VERSION='test',SEL_DEVICE='cam';
 // A camera device: its shots are pixels, so the per-bin view applies.
 const IS_TRACE=false;
-const esc=String,escAttr=String,flashNote=()=>{},closeModals=()=>{},refresh=()=>{};
+const esc=String,escAttr=String,flashNote=()=>{},settleDraft=()=>{},refresh=()=>{};
+const paneState=(kind,text)=>`<div class="state" data-state="${kind}">${text}</div>`;
 const writeState=()=>{writes++;};
 const setPassCount=()=>{};
 const setTab=value=>{S.tab=value;};
@@ -180,6 +181,7 @@ const S = {tab:'plot'};
 const elements = new Map();
 const document = {getElementById(id) {return elements.get(id);}};
 const esc = String;
+const paneState = (kind, text) => text;
 let fetches = 0, drawn = 0, cleared = 0;
 const Plotly = {react(){drawn++;}, purge(){}};
 const PLOT_CONFIG = {};
@@ -192,7 +194,7 @@ const api = async (path, params) => {
 const listeners = {};
 const window = {addEventListener(name, fn){listeners[name] = fn;}};
 const SEL_DEVICE = "U_ICT", SHOT = 3;
-// A live graph: no .plotmsg child, so traceHost must NOT wipe it.
+// A live graph: no .state child, so traceHost must NOT wipe it.
 const liveHost = {innerHTML:"live", querySelector(){return null;}};
 """
 
