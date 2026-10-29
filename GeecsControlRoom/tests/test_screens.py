@@ -175,3 +175,38 @@ def test_a_db_device_on_the_roster_draws_deferred_and_an_unknown_one_is_refused(
     with TestClient(create_app(settings, _roster([]))) as c:
         r = c.get("/screens/sim_bench")
     assert r.status_code == 422 and "no device &#39;U_PLC&#39;" in r.text
+
+
+def test_concurrent_pages_wait_for_the_one_roster_read() -> None:
+    import asyncio
+
+    from geecs_control_room.screens import _Roster
+
+    class Slow:
+        reads = 0
+
+        async def devices(self):
+            Slow.reads += 1
+            await asyncio.sleep(0.05)
+            return 200, {"devices": [{"name": "U_PLC"}]}
+
+    async def two():
+        roster, module = _Roster(), Slow()
+        return await asyncio.gather(roster.names(module), roster.names(module))
+
+    assert asyncio.run(two()) == [(frozenset({"U_PLC"}), None)] * 2 and Slow.reads == 1
+
+
+def test_a_db_the_module_has_not_read_is_named_when_a_db_device_is_refused(settings: Settings) -> None:  # fmt: skip
+    def answer(request: httpx.Request) -> httpx.Response:
+        down = {"gateway": {"readAt": None, "error": "GEECS DB unavailable: refused"}}
+        return httpx.Response(200, json={"experiment": "Bench", "devices": [], "sources": down})  # fmt: skip
+
+    _screens(settings, _ROSTER_SCREEN)
+    module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
+    with TestClient(create_app(settings, module)) as c:
+        r = c.get("/screens/sim_bench")
+    assert (
+        r.status_code == 422
+        and "has not read the GEECS DB: GEECS DB unavailable" in r.text
+    )

@@ -12,6 +12,7 @@ sent once.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 import time
@@ -119,27 +120,36 @@ class PutBody(BaseModel):
 
 
 class _Roster:
-    """The module's device names, re-read every ``ROSTER_TTL_S``; the last good set (and why) while it is unreadable."""
+    """The module's device names, re-read every ``ROSTER_TTL_S`` (one read at a time); the last good set, and why, while it is unreadable."""
 
     def __init__(self) -> None:
         self._names: frozenset[str] = frozenset()
-        self._at, self._error = -math.inf, None
+        self._at, self._error = -math.inf, "not read yet"
+        self._lock = (
+            asyncio.Lock()
+        )  # concurrent pages wait for the one read, never see an empty set
 
     async def names(self, module: ModuleClient) -> tuple[frozenset[str], Optional[str]]:
-        if time.monotonic() - self._at < ROSTER_TTL_S:
+        async with self._lock:
+            if time.monotonic() - self._at >= ROSTER_TTL_S:
+                self._error = await self._read(module)
+                self._at = time.monotonic()
             return self._names, self._error
-        self._at = time.monotonic()
+
+    async def _read(self, module: ModuleClient) -> Optional[str]:
         try:
             status, body = await module.devices()
         except ModuleUnavailable as exc:
-            self._error = str(exc)
-            return self._names, self._error
-        devices = body.get("devices") if status == 200 else None
-        if devices is None:
-            self._error = f"the module answered {status}"
-        else:
-            self._names, self._error = frozenset(d["name"] for d in devices), None
-        return self._names, self._error
+            return str(exc)
+        if status != 200 or body.get("devices") is None:
+            return f"the module answered {status}"
+        self._names = frozenset(d["name"] for d in body["devices"])
+        gateway = (body.get("sources") or {}).get("gateway") or {}
+        if gateway.get("error") and not gateway.get(
+            "readAt"
+        ):  # up, but no DB device read yet
+            return f"the module has not read the GEECS DB: {gateway['error']}"
+        return None
 
 
 def router(settings: Settings) -> APIRouter:
@@ -154,7 +164,7 @@ def router(settings: Settings) -> APIRouter:
         if (
             error and loaded.status == 422
         ):  # a DB device may be refused for want of the roster
-            loaded.problems.append(f"the module's roster is unreadable ({error}): a DB device cannot be bound")  # fmt: skip
+            loaded.problems.append(f"the module's roster is incomplete ({error}): a DB device cannot be bound")  # fmt: skip
         context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE}
         templates = request.app.state.templates
         return templates.TemplateResponse(

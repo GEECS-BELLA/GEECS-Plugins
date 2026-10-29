@@ -114,7 +114,6 @@
   // ---- writing: once, through the module, the outcome left on the widget
   const dialog = document.getElementById("confirm");
   function confirmWrite(el, value) {
-    if (!hazardOf(el)) return Promise.resolve(true);
     document.getElementById("confirm-title").textContent = `Write ${el.querySelector(".lbl").textContent}?`;
     document.getElementById("confirm-what").textContent = `${el.dataset.device} · ${el.dataset.role} ← ${value}`;
     document.getElementById("confirm-note").textContent = el.dataset.confirm || "This role needs the hazard confirm.";
@@ -135,10 +134,12 @@
   async function write(el, value) {
     const operator = opInput.value.trim();
     if (!operator) { opInput.focus(); return outcome(el, "unsent", "", "name yourself in the header first"); }
-    if (!(await confirmWrite(el, value))) return outcome(el, "unsent", "", "not confirmed");
-    const body = { role: el.dataset.role, value, operator, confirm: true };
+    // one decision: the confirm sent is the dialog the operator answered (the module's mark may change meanwhile)
+    const asked = hazardOf(el);
+    if (asked && !(await confirmWrite(el, value))) return outcome(el, "unsent", "", "not confirmed");
+    const body = { role: el.dataset.role, value, operator };
+    if (asked) body.confirm = true;
     if (el.dataset.axis) body.axis = el.dataset.axis;
-    if (!hazardOf(el)) delete body.confirm;
     outcome(el, "sending");
     el.dataset.busy = "1";
     draw(el);
