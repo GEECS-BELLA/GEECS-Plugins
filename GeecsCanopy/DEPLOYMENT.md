@@ -67,12 +67,13 @@ The api command is the wrapper `geecs_canopy.app:app`: Canopy's app,
 unpatched, with the module mounted in-process at `/geecs`. Its devices come
 from data only: the family files (GEECS-Schemas) and the experiment's
 `native_devices.yaml` + `panel_devices.yaml`, joined by GEECS device name
-as the directory joins them; never the GEECS DB. Only `@*` keys reach
-`/geecs` (Canopy's module set is fixed).
+as the directory joins them. With `GEECS_CANOPY_DB_URL` set, the DB-served
+(LabVIEW) devices join them through the gateway source (section 4). Only
+`@*` keys reach `/geecs` (Canopy's module set is fixed).
 
 | Route (read access) | Answers |
 |---|---|
-| `GET /geecs/v1/devices` | the roster, each device's family, axes and state |
+| `GET /geecs/v1/devices` | the roster, each device's family, source (`native`, `gateway`), axes and state; `sources.gateway` = the DB read's `{readAt, error}` |
 | `GET /geecs/v1/devices/{name}` | every role per axis: PVs, Hare's value, severity, a verdict (`live`, `stale`, `off`, `not answering`, `unreachable`, `error`, `unknown`; `not running` waits for a service-status source) |
 | `POST /geecs/v1/devices/{name}/put` | `{role, axis?, value, operator, confirm?}` through the gates (`geecs_canopy/gates.py`): policy 403, allow list 403, hazard 428, run lock 423, bounds 422, then Hare (its own status on refusal); an `attempted` journal row before Hare (503 `journal_unavailable`, nothing sent, when it cannot be written) and one outcome row per request |
 | `GET /geecs/v1/journal?entries=N` | the newest N `JournalEntry` rows (GEECS-Schemas), oldest first |
@@ -87,7 +88,8 @@ each counter last advanced.
 `/var/lib/geecs-canopy/module` on the host, owned by the image's `appuser`,
 uid 1000, group the service account); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
 (5), `_SETTLE_TIMEOUT_S` (30: a move's put-callback, not Hare's 5 s
-connect timeout), `_RELOAD_S` (10: the device documents' re-read).
+connect timeout), `_RELOAD_S` (10: the device documents' re-read),
+`_GATEWAY_RELOAD_S` (60: the DB devices' re-read).
 
 **Who may write: `<experiment>/operator_policy.yaml`** in the configs repo
 (`OperatorPolicy`, GEECS-Schemas). No file, no grant: every put is denied.
@@ -100,7 +102,18 @@ grants:
   - operators: [A. Operator]
     devices: [U_ChicaneInner]
     roles: [current_sp, reset]        # empty: every role the device allows
+  - operators: [A. Operator]
+    families: [PLC Digital Output]    # a DB device's family is its GEECS device type
+    roles: [DO.Ch1]                   # and a role its GEECS variable name
+hazards:                              # roles that need the hazard confirm
+  - devices: [U_ShutterPLC]
+    roles: [DO.Ch1]
 ```
+
+`hazards` is the one home of the hazard confirm for a DB device (a native
+device's comes from its family file's `confirm: hazard`; both apply to
+both). The device route marks such a role `confirm: hazard`, so the page
+asks before it writes.
 
 **The policy guards against mistakes, not against users.** The operator
 is the name the request carries, and nothing binds it to a person: anyone
@@ -167,6 +180,24 @@ GRANT SELECT ON <database>.choice               TO 'canopy_ro'@'<services-host>'
 
 A site without the DB sets `GEECS_CANOPY_DB=off`: unscoped queries list the
 native devices, `elementType=gateway` answers 503 `directory_unavailable`.
+
+**The module writes the DB devices** through the same gates, with the same
+read (`GatewaySource.resolve`), every 60 s off the event loop; while the DB
+is down the last good set stands and the roster's `sources.gateway.error`
+says why. A DB device's PV prefix is the naming rule's; its family is the
+DB device type; each served variable is a role named by its GEECS variable
+name: settable numeric → `setpoint` (limits = the variable's DB `min`/`max`,
+the span the gateway serves as DRVL/DRVH), a choice → `enum` (its options
+from the PV), string or path → text, not settable → read only; plus
+`connected`, the device's state (Disconnected = `unreachable`). The module
+subscribes `connected` alone (the served set is thousands of PVs; Hare caps
+subscriptions): a role's value is the page's to read over Hare, and its
+verdict is `null`. A write goes to the variable's `:SP`, waiting for the
+GEECS set to converge (`_SETTLE_TIMEOUT_S`). **A setpoint whose DB row has no
+`min`/`max` is refused** (`bounds_unknown`, naming the row) until the row
+has them: fill them in the DB and restart the gateway (its restart is the DB
+resync). A native device wins over a DB device of the same name. Unset the
+URL and the module writes native devices only.
 
 ## 5. Upgrade and rollback
 

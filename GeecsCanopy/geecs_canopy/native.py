@@ -52,15 +52,17 @@ class Device:
 
 @dataclass(frozen=True)
 class Resolved:
-    """One native device as both documents make it: its family's roles as this device has them."""
+    """One device the module writes: its roles as this device has them (a native family's, or a DB device's variables)."""
 
     name: str
-    family: FamilyFile
+    family: str  # the family template (native) or the GEECS DB device type (gateway)
     prefix: str
     axes: tuple[str, ...]  # () unless the family repeats per axis
     roles: tuple[Role, ...]
     actions: tuple[str, ...]  # the family actions available on this device
     ioc: str | None
+    writable: frozenset[str]  # the roles a write may name
+    source: str = "native"  # "native" | "gateway"
 
     def bases(self) -> list[tuple[str | None, str]]:
         """``(axis, PV base)`` for each axis, or ``(None, prefix)``."""
@@ -70,13 +72,6 @@ class Resolved:
         """The role's PV on ``axis`` (its write record when ``write`` and it has one)."""
         suffix = (role.write_suffix or role.suffix) if write else role.suffix
         return self.prefix + (axis or "") + suffix
-
-    def writable_roles(self) -> set[str]:
-        """The roles a write may name: those of the available actions, else every writable role."""
-        if self.family.actions:
-            acts = self.family.actions
-            return {r for a in self.actions for r in acts[a].roles}
-        return {r.name for r in self.roles if r.writable}
 
 
 def _load(path: Path, model: type, families: Mapping[str, FamilyFile]):
@@ -145,9 +140,12 @@ class NativeSource:
                 raise SourceError(f"{name}: the {template} family needs axes")
         actions = panel.allowed_actions(family) if panel else list(family.actions)
         ioc = panel.ioc if panel is not None else None
+        # those of the available actions, else every writable role
+        writable = {r for a in actions for r in family.actions[a].roles} if family.actions else {r.name for r in roles if r.writable}  # fmt: skip
         return Resolved(
-            name, family, prefix, tuple(axes), tuple(roles), tuple(actions), ioc
-        )
+            name, template, prefix, tuple(axes), tuple(roles), tuple(actions), ioc,
+            frozenset(writable),
+        )  # fmt: skip
 
 
 def _listed(device: Resolved) -> Device:
@@ -166,4 +164,4 @@ def _listed(device: Resolved) -> Device:
         for label, base in bases
         for role in device.roles
     )
-    return Device(device.name, "native", device.family.template, elements)
+    return Device(device.name, "native", device.family, elements)
