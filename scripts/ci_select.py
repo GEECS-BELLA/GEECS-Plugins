@@ -79,7 +79,6 @@ OWN_ENV_PKGS = (
     "GeecsCAGateway",
     "GeecsLogbook",
     "GeecsPanels",
-    "GeecsPlotter",
     "GeecsPvaGateway",
     "GeecsScanner",
     "GeecsWebTheme",
@@ -144,7 +143,6 @@ THEME_GUARDED_SUFFIXES = (".html", ".css", ".js")
 THEME_GUARDED_FILES = frozenset(
     {
         "GEECS-DataPortal/geecs_portal/figures.py",
-        "GeecsPlotter/geecs_plotter/figures.py",
         "GEECS-DataPortal/geecs_portal/plotter/figures.py",
     }
 )

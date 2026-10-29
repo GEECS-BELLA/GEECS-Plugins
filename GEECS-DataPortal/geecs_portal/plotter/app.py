@@ -1,6 +1,7 @@
 """The Plot tab: GEECSplotter's XY page (and its image strip), as an app.
 
-GeecsPlotter folded into the portal (``Planning/portal_plotter_merge.md``):
+GeecsPlotter folded into the portal (2026-10-28; the package was deleted
+once everything had moved, and its rules are the portal's ``CLAUDE.md``):
 its page moved here nearly unchanged and the portal mounts it at
 ``/plot`` (:func:`create_app` with ``mount="/plot"``), so the page keeps
 its own form, its named settings sets and its routes, and the portal's tab

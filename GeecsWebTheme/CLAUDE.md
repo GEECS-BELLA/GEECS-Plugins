@@ -70,14 +70,14 @@ the theme without being on the kit.
 | GeecsLogbook | yes | yes | yes (0.10.0) |
 | GeecsScanner (web console, its branch) | yes | yes | yes |
 | GeecsPanels (prototype) | yes | yes | yes |
-| GeecsPlotter | yes | yes | yes |
 | GEECS-DataPortal | yes | yes (2026-10-28, every page at once; its own rules in `static/portal.css`) | yes (the middleware copy and its `root` processor removed in the same change) |
 | ScanAnalysis config editor (`/configs`) | yes | no | no |
 
 **The portal went onto the kit on 2026-10-28**, ahead of the owner's
 ruling that it go LAST, once HTU is quiet, as the kit's acceptance test:
-the author overrode it to fold GeecsPlotter into the portal
-(`Planning/portal_plotter_merge.md`; for the maintainer to confirm at the
+the author overrode it to fold GeecsPlotter into the portal (deleted
+2026-10-29, its pages now the portal's `/plot`; the overrides are listed
+in the portal's `CLAUDE.md` for the maintainer to confirm at the
 promotion to `master`). The adoption still grew the kit as that ruling
 intended: `.tabs` and `.toast` (`GeecsKit.toast`) came from the portal's
 run page, each with a specimen on `kit.html`. The config editor follows

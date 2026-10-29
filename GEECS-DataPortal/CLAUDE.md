@@ -12,7 +12,7 @@ extending this package.
   sending a plot to the logbook, and the Plot tab's settings sets**
   (charter amendments: owner rulings 2026-09-01, 2026-09-06 and
   2026-09-15; the settings sets are the author's, 2026-10-28, for the
-  maintainer to confirm — `Planning/portal_plotter_merge.md`).
+  maintainer to confirm — below, "Open, for the maintainer").
   The portal itself has no write verbs: no annotations.  Four
   exceptions, all explicit opt-ins; the fourth, the settings sets, writes
   JSON files into the settings folder only (below, "The Plot tab"), never
@@ -118,7 +118,7 @@ extending this package.
   one module so no front end reinterprets a column.
   Never interpret event-schema column names or dtypes in this package.
 - **On the GeecsWebTheme kit** (2026-10-28, the author's override of
-  the "portal last" ruling — `Planning/portal_plotter_merge.md`).  Every
+  the "portal last" ruling — below, "Open, for the maintainer").  Every
   page is `body class="kit"`: the kit's top bar, shell and rail, panels,
   `.chip` status words (a run's `exit_status` through `app.run_state`, an
   analysis job's state through the page's `JOB_STATES`), the five pane
@@ -454,7 +454,7 @@ link is the one deliberate exception.
 ## The Plot tab: GEECSplotter's page (`geecs_portal/plotter/`)
 
 GeecsPlotter folded into the portal (the author's ruling, 2026-10-28,
-`Planning/portal_plotter_merge.md`): its package moved to
+below, "Open, for the maintainer"): its package moved to
 `geecs_portal/plotter/` nearly unchanged, with its tests
 (`tests/plotter/`), and `__main__` mounts its app at **`/plot`**
 (`create_app(plotter=…)`; `None`, as the tests pass, mounts nothing and
@@ -469,10 +469,9 @@ page's own tab bar reaches the scan's other tabs through
 `/run/jump/{day}?prefer={scan}&tab=…` (so a Tiled run and a folder scan
 both resolve). It keeps its own routes under `/plot` (`/plot/`,
 `/plot/save-as`, `/plot/api/…`); the portal's `/api/run/{uid}/…` routes
-and payloads are untouched. Until GeecsPlotter is deleted
-(`GeecsPlotter/`, kept for comparison), its `CLAUDE.md` holds the
-page's design rules; they move here in the PR that deletes it. The
-rules that are the portal's own:
+and payloads are untouched. GeecsPlotter itself was deleted at the end
+of the arc (2026-10-29); its design rules are below ("The Plot pages'
+design rules"). The rules that are the portal's own:
 
 - **Each viewer saves into their own set.** The page asks the viewer's
   name once (a URL without `set=` shows only that question, and a
@@ -548,6 +547,136 @@ rules that are the portal's own:
   Images pane (`data_cache.warm_native`, now without a production
   caller); the Images page's processed preview asks `image.png` one
   shot at a time, uncached until something warms it again.
+
+## The Plot pages' design rules (from GeecsPlotter, 2026-10-29)
+
+GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
+`/plot/images`). Its decisions are settled — do not reopen them here.
+
+- **Numerics are imported, never written here.** Column picks, coercion and
+  the shot axis come from `geecs_data_utils.tiled_schema`; the frame from
+  `geecs_data_utils.scan_frame` (the s-file alone — no Tiled run). Binning
+  and filters are `geecs_data_utils.data.binning` / `.row_filters`, fits
+  `data.curve_fit.fit_curve`. New math goes into GEECS-Data-Utils first,
+  in its own PR.
+- **Read-only on the share.** A scan not on the share is a 404 or the
+  page's error state, never created
+  (`tests/plotter/test_app.py::test_a_lookup_never_creates_a_scan_folder`).
+- **The server authors the figure; the browser draws it.** Endpoints return
+  `figure` (built with `THEMED_PALETTE`, serialized by `page_figure`, whose
+  `$tok:--name` sentinels `plot_tools.js`' `themed` resolves against the
+  theme) and `code`, the snippet that rebuilds the frame and the figure with
+  the same functions (`tests/plotter/test_app.py::test_the_code_rebuilds_the_same_numbers`).
+- **Every control lives in a named settings set, not the URL.** The URL
+  is `?day=&scan=&set=`. The set keeps the last `day` and `scan` posted,
+  so a URL with neither (a bare start, or switching sets) redirects to that
+  scan; a URL's own day and scan win, a switch to a set with none keeps the
+  open scan (`here_day` / `here_scan`), and otherwise it is the empty form.
+  `extra="allow"` keeps fields a newer copy wrote, so every copy on the
+  shared folder can load and save every set. The form POSTs its controls;
+  the server merges them into the set's file (`settings.merged`: a field
+  the page does not send keeps its saved value), saves it, and redirects
+  back (303) to the page the form came from (`page`). A list filter saves
+  as it is typed through `POST /plot/api/settings/{name}`. A new control
+  is a new `PlotterSettings` field with a default, so older files still
+  load; a change of meaning bumps `schema_version`. With `x_auto` on, X is
+  the open scan's variable ("autofill par1"); a hand pick saves it off,
+  and then X `""` is the shot number.
+- **Set names** are lower-cased letters, digits, spaces, `-`, `_` and
+  `.`, starting with a letter or digit and never ending in a space or a
+  dot. A refused Save-as name is `NameRefused`, shown on the box (the
+  kit's `aria-invalid` + `.err`); a store problem is the rail's error
+  state. **Replacing a saved set** is Save as onto its name: `plotter.js`
+  asks in a rung-3 `<dialog>` (focus on "Keep it"), whose Replace posts
+  `overwrite=true`; without it the server refuses a taken name.
+- **Y2 and Y3** are GEECSplotter's extra Y lists. `y_count` (the rail's
+  "Y plots 1 | 2 | 3") says how many show and draw; lists past it keep
+  their picks. Each list owns a slot (colour, axis id), so Y3 is Y3 with
+  Y2 off (`shots_figure(…, ["a", None, "c"])`). `plotter.figures._y_axes`:
+  Y1 left with the grid; every other axis on the right with a coloured
+  title, the second one free at the plot's edge with `autoshift` (plus
+  `_OUTER_AXIS_GAP`), so it sits just past the first's labels and title at
+  any width (its title moves with it on the bundled plotly.js 3.1.1). The
+  rail's swatch is the same `--trace-N` token. On a scan without a Y2/Y3
+  column it draws nothing, but the list keeps the pick ("not in this
+  scan") so the next click does not erase it.
+- **Fits** are GEECSplotter's Fit menu, one per Y list (`y_fit`,
+  `y2_fit`, `y3_fit`, plus `*_fit_order` for a polynomial; `"none"` by
+  default). `plotter.figures.FITS` is the menu (LabVIEW's names, only the
+  models data-utils has), `fit_columns` fits the drawn per-shot points,
+  and `shots_figure(…, fits=)` draws each fit dashed on its slot's axis.
+  `/plot/api/figure` returns the numbers as `fits` (each term
+  `value ± stderr`, `api.plus_minus`), and the snippet rebuilds them. A
+  fit name is stored as a plain string, so a set naming a fit a newer copy
+  added still loads ("not in this version"). A new model is a data-utils
+  PR first (its curve and `CurveFit.formula` live there), then a `FITS`
+  entry.
+- **The image strip** (the Images page): a tile is one shot's image or
+  its bin's average (`geecs_data_utils.data.binning.bin_rows` over the
+  WHOLE s-file, an empty `Bin #` a bin of its own; a filter would go in as
+  its `mask`, never as a filtered frame, whose positions name other
+  shots), laid out as a grid or one row (`image_layout`, `image_columns`;
+  one row spreads that many tiles evenly over the scan, `plotter.js`). The
+  ladder, the refusals, the trace check and the per-row average are
+  `geecs_data_utils.io.shot_images` (`average_rows`), the PNG
+  `io.display_png`. A row that says the device missed its shot, or a
+  missing file, gives no image and is left out of its bin's average,
+  **never a neighbour's image**. The picker lists every device folder
+  with ONE listing and probes only the picked one
+  (`images.is_image_device`): probing ~70 folders costs tens of seconds
+  cold over the share. Each tile is an `<img loading="lazy">` on
+  `/plot/api/images/tile.png`; tiles across, the colour map and the levels
+  redraw in place and save as typed; device, tiles and layout reload. The
+  **z scale** (`image_zscale`) is LabVIEW's autoscale: each tile from its
+  own darkest to brightest pixel, one scale shared by every tile
+  (`images.shared_levels` via `/plot/api/images/levels`, which reads EVERY
+  tile first — the author's ruling, and the page says so), or black and
+  white typed in ("fixed"). There is **no percentile window**: a laser
+  mode is a small spot and a percentile white saturates it (the author,
+  2026-10-28). The **ROI** is kept per camera (`image_rois`, `[x0, y0,
+  x1, y1]`, end excluded), drawn in a rung-2 drawer, applied to every tile
+  and to the shared scale. Tiles are kept in memory
+  (`images.kept_tile_array`, at most `_KEPT_BYTES`) so the shared scale and
+  the draw read a file once; a tile with no image is kept as its reason
+  for `_REFUSAL_SECONDS` only, so a passing failure is never made
+  permanent. The big view's colour bar is `tile.png?bar=true` (matplotlib's
+  object API, the same levels).
+- **The theme and kit are imported** (`geecs_web_theme.web`); every
+  colour is a token. `GeecsWebTheme/tests/test_no_literal_colours.py`
+  walks the plotter's template, CSS and scripts.
+- **`--browser`** (the portal's CLI): once the server is up it opens the
+  portal in the system browser (`default`), a named one, or `none` (what
+  the service unit passes); a Linux host with no display opens nothing.
+- No experiment, host or path in code: `config.ini`, or `--experiment`.
+
+## Open, for the maintainer (from the merge's briefs, 2026-10-29)
+
+The arc's two briefs (the plotter's and the merge's, under Planning)
+were deleted with GeecsPlotter; what
+they left open is here, for Sam at the promotion PR to `master`.
+
+- **The author's three overrides of Sam's rulings** (2026-10-28):
+  portal/plotter integration now rather than later (and no separate
+  package); the portal onto the kit now rather than last; view state in
+  named settings sets rather than the URL (old links with `y=`, `x=`,
+  `filters=` … open the scan but no longer reproduce the plot, including
+  links stored in logbook entries, and new entries link the live set).
+- **`Planning/epics_estate.md`** plans this merge differently (a React
+  `geecs-web` app that deletes the kit layer). Neither plan binds; this one
+  is built.
+- Whether `PlotterSettings` stays in the portal or moves to GEECS-Schemas.
+- **A run's status word has three tables**: the scanner (`EXIT_WORDS`:
+  abort → failed), the logbook (`KIT_STATE`: aborted → degraded) and the
+  portal (`app.run_state`: abort → degraded, no stop document → unknown);
+  one table in GEECS-Data-Utils needs a ruling on abort first.
+- Settings sets are shared files with no revisions: two people editing one
+  set overwrite each other, as with LabVIEW's settings files.
+- **For the author:** the LabVIEW settings file format — sets could be
+  imported from it if it is readable.
+- **Still to build** (the author's lists): clicking a plot point to open
+  its shot, several cameras in one layout, GIF export; deferred: gauss
+  prop, peak/valley, xcorr-aligned bin averages, merging s-files across
+  scans, a trace waterfall; and the strip honouring the shot filters.
 
 ## Adding an analysis tab (the checklist)
 

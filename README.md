@@ -30,7 +30,6 @@ its own `pyproject.toml`, managed by [Poetry](https://python-poetry.org/).
 | `GEECS-DataPortal/` | Web scan browser: day, scan, metadata, plots, images; on-request analysis | `geecs-data-portal`, port 8200 |
 | `GeecsLogbook/` | Web logbook: a scans book over scan folders and an ops book | `geecs-logbook`, port 8400 |
 | `GeecsPanels/` | Prototype device panels: a browser GUI per native-device kind, first the areaDetector camera | `geecs-panels`, port 8500 |
-| `GeecsPlotter/` | GEECSplotter as a web app: a scan's s-file, one column against another | `geecs-plotter`, port 8600 |
 | `GEECS-MCP/` | Experimental MCP server for AI agents: scan status and results, stop/pause, and a few gated actions (resume, clear queue, run analysis) | `python -m geecs_mcp`, port 8100 |
 | `LogMaker4GoogleDocs/` | Legacy Google Docs experiment-log uploader, being replaced by `GeecsLogbook/` | library |
 
@@ -51,7 +50,6 @@ graph TD
     Portal[GEECS-DataPortal]
     Logbook[GeecsLogbook]
     Panels[GeecsPanels]
-    Plotter[GeecsPlotter]
     MCP[GEECS-MCP]
   end
   subgraph services["Acquisition, EPICS services, scan analysis"]
@@ -75,7 +73,6 @@ graph TD
   Portal --> ScanAnalysis & Analysis & DataUtils & Theme
   Logbook --> DataUtils & Schemas & Theme
   Panels --> Core & Schemas & Theme
-  Plotter --> DataUtils & Theme
   MCP --> Bluesky & ScanAnalysis & DataUtils
   Bluesky --> Analysis & Core & DataUtils & Schemas
   ScanAnalysis --> Analysis & DataUtils & Schemas & Theme

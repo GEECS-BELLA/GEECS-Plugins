@@ -110,6 +110,6 @@ LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
 ScanAnalysis/frog.dat
 ImageAnalysis/frog.dat
 
-# GeecsPlotter (and future surfaces): local settings when the shared
+# The Data Portal's Plot pages (and future surfaces): local settings when the shared
 # GEECS user data folder is not reachable.
 /user data/

@@ -511,7 +511,7 @@ def _multi_y_layout(
     ``_FREE_AXIS_GAP``). Every axis has a colored title and ticks. On the
     vendored plotly.js 3.1.1 a free autoshift axis's rotated title moves
     with it (re-checked in the browser 2026-10-27, both sides, by
-    GeecsPlotter #1172), so #725's ticks-only workaround is retired.
+    #1172), so #725's ticks-only workaround is retired.
     """
     layout: dict = {
         "yaxis": {
