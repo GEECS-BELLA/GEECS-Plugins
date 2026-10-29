@@ -262,10 +262,10 @@ over later, and the ruling and its consequences live in
 way here.
 
 Routes: `/` (redirect to today) · `/day/{iso}` (run list; `?experiment=`)
-· `/run/{uid}` (the scan page: rail + Overview/Plot/Images/Analysis tabs
-— Analysis only when runs are possible, see below;
-`?tab=&y=&x=&view=&filters=&bincfg=&display=` is the Plot-tab state,
-`?device=&shot=` the Images selection) · `/run/jump/{iso}` (day-step
+· `/run/{uid}` (the scan page: rail + Overview/Plot/Grid/Images/Analysis
+tabs — Plot is a link to `/plot/`, Analysis only when runs are possible,
+see below; `?tab=&view=&filters=&bincfg=&display=&gridcfg=&gridbin=&imagebin=`
+is the page's state, `?device=&shot=` the Images selection) · `/run/jump/{iso}` (day-step
 redirect: `?prefer=<scan number>`, all other params carried to the
 target day's matching/newest run; empty day → the day page) ·
 `/api/run/{uid}/columns` (union pick list with provenance, a
@@ -284,9 +284,8 @@ shift points) ·
 `/api/run/{uid}/bin-images?device=&filters=&bincfg=` (the Images tab's
 per-bin membership: bins/counts/member shots over Data-Utils'
 `bin_rows` (the filter as its `mask`, never a filtered frame — the
-plotter's own call), the same bins as `/binned`; the `view` URL state is ONE
-per-shot ⇄ binned toggle shared by the Plot and Images tabs —
-deliberate: a binned link means binned everywhere)
+plotter's own call), the same bins as `/binned`; the `view` URL state is the Images tab's
+per-shot ⇄ per-bin switch)
 · `/run/{uid}/plot.png?y=&x=` (server-rendered scalar PNG, kept for
 embedding) · `/run/{uid}/image.png?device=&shot=` (one rendered device
 shot) · `/run/{uid}/bin-image.png?device=&bin=<index>&filters=&bincfg=`
@@ -520,10 +519,19 @@ rules that are the portal's own:
   the fits) and imports the rest from `figures.py`: the palettes,
   `page_figure`, the display cosmetics (`apply_display`, `marker_size`,
   `trace_color`) and the binned trace (`add_binned_trace`).
+- **The `/api/run/{uid}/frame` and `/binned` figures have no page now.**
+  The routes stay (the `/api` layer is the data contract: GEECS-MCP's
+  `get_scan_scalars` reads `/binned`'s numbers, scripts read either),
+  and so do their figures and snippets (`figures.shots_figure`,
+  `binned_figure`, `base_layout`, `_multi_y_layout`;
+  `analysis.frame_code`, `binned_code`): they are the notebook view of
+  those payloads, no longer what a page draws. `/columns`' `default_x`
+  has no reader in the portal either. Deleting any of it is an `/api`
+  change for the owner, not a cleanup.
 - **Accepted debt, for a later PR of the arc:** the other
   duplicates the move brought in (`plotter/scans.default_x` is
   `routes/plot_api._default_x`; `scans.display_name` overlaps
-  `_pretty_names`). That PR also hands the plotter the portal's catalog
+  `_pretty_names`; fold toward the plotter's, which a page uses). That PR also hands the plotter the portal's catalog
   (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
   folder-only even under `--tiled`; the folder catalog caches finished
   scans itself). Still twice: the logbook-send client in `plot_tools.js`

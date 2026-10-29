@@ -146,9 +146,11 @@ def test_another_experiments_run_has_no_plot_tab(tmp_path) -> None:
 
 
 #: Every browser global the scan page touches, as a stub that answers any
-#: property, call or `new` with itself: enough to run the whole script, so
-#: a name the page reads but never defines throws.
+#: property, call or `new` with itself: enough to run the whole script in
+#: strict mode, so a name the page reads, or assigns, but never defines
+#: throws — including inside the columns bootstrap, whose catch fails the run.
 _BOOT_HARNESS = r"""
+"use strict";
 const any = new Proxy(function () {}, {
   get: (t, k) => k === Symbol.toPrimitive ? () => "" : k === "then" ? undefined : any,
   apply: () => any, construct: () => any, set: () => true,
@@ -159,8 +161,17 @@ const fail = err => {
 process.on("uncaughtException", fail);
 process.on("unhandledRejection", fail);
 if (typeof navigator === "undefined") globalThis.navigator = {};  // node < 21
+// The columns bootstrap catches its own errors into the rail's provider
+// line, so a ReferenceError there would never reach the hooks above.
+const providers = { set innerHTML(html) {
+  if (String(html).includes("columns:")) { console.error(html); process.exit(1); }
+} };
+const document = new Proxy({}, {
+  get: (t, k) => k === "getElementById"
+    ? id => id === "providers" ? providers : any : any,
+});
 Object.assign(globalThis, {
-  document: any, window: any, history: any, localStorage: any,
+  document, window: any, history: any, localStorage: any, Option: any,
   Plotly: any, GeecsKit: any, ResizeObserver: any, ClipboardItem: undefined,
   getComputedStyle: () => ({ getPropertyValue: () => "" }),
   fetch: async () => ({ ok: true, json: async () => ({ columns: [], grid_axes: [] }) }),

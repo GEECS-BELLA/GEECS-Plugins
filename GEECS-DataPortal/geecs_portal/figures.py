@@ -45,10 +45,8 @@ import plotly.io as pio
 from geecs_data_utils.tiled_schema import shot_axis_for_frame
 
 
-#: The notebook trace palette — still injected into the page as the
-#: server's list (a pinned contract) and the JS-off / notebook fallback.
-#: On the page the chips and traces both come from the theme's
-#: ``--trace-1..4`` instead, so they cannot drift apart.
+#: The notebook trace palette; on a page the traces come from the theme's
+#: ``--trace-1..4`` instead (:data:`THEMED_PALETTE`).
 TRACE_COLORS: tuple[str, ...] = ("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8")
 
 
@@ -595,7 +593,8 @@ def shots_figure(
     Returns
     -------
     plotly.graph_objects.Figure
-        Exactly what the Plot tab renders.
+        The ``/frame`` payload's figure (its notebook view; the Plot page
+        draws ``geecs_portal.plotter.figures``).
     """
     # An unservable X falls back to the shot axis WITH its title — the
     # figure never claims an axis it did not draw.
@@ -770,7 +769,8 @@ def binned_figure(
     Returns
     -------
     plotly.graph_objects.Figure
-        Exactly what the Plot tab renders in binned view.
+        The ``/binned`` payload's figure (its notebook view; the Plot page
+        draws ``geecs_portal.plotter.figures``).
     """
     positions = list(x_values) if x_values is not None else list(bins)
     x_title = (x_label or bin_col) if x_values is not None else bin_col
