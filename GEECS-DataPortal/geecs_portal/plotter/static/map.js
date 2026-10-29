@@ -11,10 +11,11 @@
 (function () {
   const host = document.getElementById("map");
   const form = document.getElementById("pick");
-  if (!host || !form) return;
+  // No URL: nothing to map yet (the page asks for a column).
+  if (!host || !form || !host.dataset.url) return;
   const $ = (id) => document.getElementById(id);
   const message = $("map-message");
-  const tools = window.PlotTools || { config: () => ({ responsive: true }), counted: () => {} };
+  const tools = window.PlotTools || { config: () => ({ responsive: true }), counted: () => {}, themed: (v) => v };
   const PLOT_CONFIG = tools.config();
   let data = null;
 
@@ -104,9 +105,7 @@
     for (const name of ["center", "uncertainty"]) {
       const plot = $(`map-${name}`);
       if (!plot.data) continue;
-      const x = cfg.xscale === "index" ? data.x_values.indexOf(c.x) : c.x;
-      const y = cfg.yscale === "index" ? data.y_values.indexOf(c.y) : c.y;
-      Plotly.restyle(plot, { x: [[x]], y: [[y]] }, [plot.data.length - 1]);
+      Plotly.restyle(plot, { x: [[c.x]], y: [[c.y]] }, [plot.data.length - 1]);
     }
   }
   function step(delta) {
@@ -119,14 +118,7 @@
   for (const button of document.querySelectorAll("[data-map-step]"))
     button.addEventListener("click", () => step(Number(button.dataset.mapStep)));
 
-  // ---- drawing: square plotting areas, theme colours resolved here ----
-  const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  function themed(value) {
-    if (typeof value === "string") return value.startsWith("$tok:") ? (token(value.slice(5)) || value) : value;
-    if (Array.isArray(value)) return value.map(themed);
-    if (value && typeof value === "object") for (const k of Object.keys(value)) value[k] = themed(value[k]);
-    return value;
-  }
+  // ---- drawing: square plotting areas ----
   async function draw() {
     if (!data) return;
     const shown = data;
@@ -136,7 +128,7 @@
     };
     await Promise.all([["center", "center"], ["error", "uncertainty"]].map(async ([figure, name]) => {
       const plot = $(`map-${name}`);
-      const fig = themed(JSON.parse(JSON.stringify(data.figures[figure])));
+      const fig = tools.themed(JSON.parse(JSON.stringify(data.figures[figure])));
       // Equal pixel lengths of the plotting area, whatever the axis units.
       const width = plot.clientWidth;
       const m = fig.layout.margin;

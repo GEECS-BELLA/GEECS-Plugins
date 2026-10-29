@@ -154,7 +154,10 @@ def test_the_map_view_defaults_x_to_the_scan_variable_and_asks_for_y(
     assert f"scan variable: {SCAN_VARIABLE}" in page
     assert "scan variable: none (pick one)" in page
     assert "Pick the Y axis in the rail" in page
-    assert 'id="map"' not in page  # nothing to map until Y is picked
+    # Nothing to map until Y is picked, but the host is there: the rail's
+    # shot filters (plot_tools.js) read the scan from it.
+    assert 'id="map" data-url="" data-day="2026-10-02" data-scan="3"' in page
+    assert 'id="filters-open"' in page
 
 
 def test_a_picked_y_draws_the_map(client: TestClient, two_d: Path) -> None:
@@ -165,6 +168,7 @@ def test_a_picked_y_draws_the_map(client: TestClient, two_d: Path) -> None:
     assert 'data-map-stat="average"' in page
     assert 'id="map-min_count" type="number"' in page
     assert 'data-map-stat="error_view"' in page  # IQR: the error map's side
+    assert 'value="index"' not in page  # equal cells need a recorded grid
 
 
 def test_the_default_entries_save_as_no_pick(

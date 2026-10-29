@@ -24,7 +24,7 @@ from typing import Any, Optional, Sequence
 
 from geecs_data_utils.data.binning import BinningConfig, bin_frame
 from geecs_data_utils.data.row_filters import RowFilters
-from geecs_data_utils.scan_grid import GridConfig, GridResult
+from geecs_data_utils.scan_grid import GridConfig
 
 
 class BadParam(ValueError):
@@ -58,52 +58,6 @@ def grid_code(
         + f"figures = grid_figures(result, pretty={pretty!r})\n"
         + "for figure in figures.values():\n    figure.show()\n"
     )
-
-
-def grid_document(result: GridResult, pretty: dict[str, str], code: str) -> dict:
-    """A 2-D map's JSON answer: cells, axes, counts, both figures and *code*.
-
-    One shape for the scan page's ``/api/run/{uid}/grid`` and the Plot
-    page's ``/plot/api/map``; the numbers are ``grid_scan``'s.
-
-    Parameters
-    ----------
-    result : GridResult
-        ``geecs_data_utils.scan_grid.grid_scan``'s answer.
-    pretty : dict[str, str]
-        Column → the name the figures title it with.
-    code : str
-        The notebook snippet that rebuilds the maps.
-
-    Returns
-    -------
-    dict
-        JSON-safe (NaN → ``None``).
-    """
-    from geecs_portal import figures
-
-    payload = {
-        "cells": result.cells.to_dict("records"),
-        "config": result.config.model_dump(),
-        "kind": result.kind,
-        "x_values": result.x_values,
-        "y_values": result.y_values,
-        "visits": result.visits,
-        "pass": result.passing,
-        "total": result.total,
-        "bin_column": result.bin_column,
-        "notes": result.notes,
-        "error_label": figures.grid_error_label(result),
-        "pretty": pretty,
-        "figures": {
-            name: figures.page_figure(fig)
-            for name, fig in figures.grid_figures(
-                result, pretty=pretty, palette=figures.THEMED_PALETTE
-            ).items()
-        },
-        "code": code,
-    }
-    return jsonable_document(payload)
 
 
 def parse_filters(raw: str) -> RowFilters:

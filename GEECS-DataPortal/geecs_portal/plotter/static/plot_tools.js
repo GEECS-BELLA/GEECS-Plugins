@@ -11,7 +11,16 @@ window.PlotTools = (function () {
   const form = document.getElementById("pick");
   // The XY plot, or the 2-D map's box (its two maps are the plots).
   const host = document.getElementById("plot") || document.getElementById("map");
-  if (!form || !host) return { config: () => ({}), patch: (layout) => layout, counted: () => {} };
+  // The server's "$tok:--name" colour placeholders, resolved against the
+  // live theme tokens (one walk: traces, ticks, grids, titles alike).
+  const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  function themed(value) {
+    if (typeof value === "string") return value.startsWith("$tok:") ? (token(value.slice(5)) || value) : value;
+    if (Array.isArray(value)) return value.map(themed);
+    if (value && typeof value === "object") for (const k of Object.keys(value)) value[k] = themed(value[k]);
+    return value;
+  }
+  if (!form || !host) return { config: () => ({}), patch: (layout) => layout, counted: () => {}, themed };
   const data = host.dataset;
   const EXPORT_SCALE = 2;
 
@@ -333,6 +342,8 @@ window.PlotTools = (function () {
     patch(layout) {
       return DISPLAY.layout ? deepMerge(layout, DISPLAY.layout) : layout;
     },
+    /** A server figure's colour placeholders resolved against the theme. */
+    themed,
     /** The figure answer's pass count, for the rail. */
     counted(body) {
       if (passText && form.elements.filters.value) passText.textContent = `${body.pass} / ${body.total} shots pass`;

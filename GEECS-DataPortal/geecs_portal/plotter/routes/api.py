@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from geecs_portal import analysis
+from geecs_portal import figures as portal_figures
 from geecs_portal.plotter import figures, maps, scans
 from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.settings import (
@@ -596,7 +597,9 @@ def _map_response(
         raise HTTPException(status_code=400, detail=str(bad)) from None
     pretty = {c: scans.display_name(c, aliases[c]) for c in columns if c}
     code = maps.map_code(day, scan, result.config, flt, pretty, ctx.experiment)
-    return JSONResponse(analysis.grid_document(result, pretty, code), headers=NO_CACHE)
+    return JSONResponse(
+        portal_figures.grid_document(result, pretty, code), headers=NO_CACHE
+    )
 
 
 def _kept(frame: pd.DataFrame, filters: RowFilters) -> pd.DataFrame:

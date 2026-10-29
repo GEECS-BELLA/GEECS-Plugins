@@ -124,7 +124,7 @@ def api_grid(
     pretty = _pretty_names(detail, pf, [result.config.x, result.config.y, cfg.value])
     code = analysis.grid_code(uid, run_day, result.config, flt, pretty)
     return JSONResponse(
-        analysis.grid_document(result, pretty, code), headers=_UNION_HEADERS
+        figures.grid_document(result, pretty, code), headers=_UNION_HEADERS
     )
 
 

@@ -526,7 +526,9 @@ rules that are the portal's own:
   `binned_figure`, `base_layout`, `_multi_y_layout`;
   `analysis.frame_code`, `binned_code`): they are the notebook view of
   those payloads, no longer what a page draws. `/columns`' `default_x`
-  has no reader in the portal either. Deleting any of it is an `/api`
+  and `grid_axes` have no reader in the portal either, nor `/grid`'s
+  figures and snippet (the Plot page's map has its own route,
+  `/plot/api/map`, over the same `figures.grid_document`). Deleting any of it is an `/api`
   change for the owner, not a cleanup.
 - **Accepted debt, for a later PR of the arc:** the other
   duplicates the move brought in (`plotter/scans.default_x` is
@@ -658,7 +660,7 @@ the viewer maps each scan's own axes), `map_filter`, and `map_config`
 (the statistics as `GridConfig` JSON, its column fields ignored;
 checked with `analysis.parse_gridcfg`). `plotter/maps.py` resolves the
 columns and writes the snippet; `/plot/api/map` answers with
-`analysis.grid_document`, the one payload shape it shares with the
+`figures.grid_document`, the one payload shape it shares with the
 scan's `GET /api/run/{uid}/grid` (kept: the `/api` contract);
 `plotter/static/map.js` draws both maps square, steps the cells (the
 selected cell is the browser tab's, in `sessionStorage`), checks the
@@ -674,7 +676,9 @@ has X = that variable, Y the viewer's pick, and each bin at its
 measured position (`kind == "points"`). A Bluesky 2-D scan's planned
 grid (both axes picked, unacquired cells drawn) needs the scan's Tiled
 record: it comes back when the plotter is handed the portal's catalog
-(the debt below).
+(the debt below). The map offers no "Equal cells · indexed" spacing
+until then: it needs a recorded grid, and a saved one would fail every
+scan's map.
 
 The map's geometry is resolved before filters. Both maps share coordinates and selection
 but use independent color scales. Figure edges preserve nonuniform/log spacing;
