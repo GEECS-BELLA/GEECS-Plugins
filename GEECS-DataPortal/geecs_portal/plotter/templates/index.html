@@ -113,6 +113,8 @@
         <input type="hidden" name="filters" value="{{ filters }}">
         <input type="hidden" name="bincfg" value="{{ bincfg }}">
         <input type="hidden" name="display" value="{{ display }}">
+        {# The 2-D map's statistics (GridConfig JSON, map.js writes it). #}
+        <input type="hidden" name="mapcfg" value="{{ mapcfg }}">
         <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
         <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
         <input type="hidden" name="xauto" value="{{ 'true' if xauto else 'false' }}">
@@ -214,6 +216,33 @@
           </div>
         </div>
       {% elif columns %}
+        {% if tab == "map" %}
+        {# The 2-D map's columns: the scalar each cell averages, and the two
+           axes. The first entry of each is the default (Y1; the scan's own
+           variables), saved as "no pick" so a set that follows the viewer
+           to another scan maps that scan's axes. #}
+        <div class="group">
+          <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots</span></div>
+          <div class="field">
+            <label for="mapv">Scalar</label>
+            <input id="mapv-filter" name="mapf" value="{{ mapf }}" type="search" autocomplete="off" placeholder="filter columns"
+                   aria-label="Filter the scalar's columns" data-filter-for="mapv">
+            <select id="mapv" name="mapv" size="10" class="picks" data-pick>
+              <option value=""{% if not mapv_saved %} selected{% endif %}>same as Y1{% if map_defaults.mapv %}: {{ ynames[map_defaults.mapv] }}{% endif %}</option>
+              {% for c in columns %}<option value="{{ c }}"{% if c == mapv_saved %} selected{% endif %}>{{ ynames[c] }}</option>{% endfor %}
+            </select>
+          </div>
+          {% for key, label, saved in (("mapx", "X axis", mapx_saved), ("mapy", "Y axis", mapy_saved)) %}
+          <div class="field">
+            <label for="{{ key }}">{{ label }}</label>
+            <select id="{{ key }}" name="{{ key }}" data-submit-on-change>
+              <option value=""{% if not saved %} selected{% endif %}>{% if map_defaults[key] %}scan variable: {{ xnames[map_defaults[key]] }}{% else %}scan variable: none (pick one){% endif %}</option>
+              {% for c in columns %}<option value="{{ c }}"{% if c == saved %} selected{% endif %}>{{ xnames[c] }}</option>{% endfor %}
+            </select>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
         <div class="group">
           <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots</span></div>
           {# One list per axis, each with its own substring filter (LabVIEW's
@@ -262,6 +291,7 @@
           {% if ycount >= 2 %}{{ y_field("y2", "Y2", y2, y2names, y2alias, y2f, 2, y2fit, y2order, kept=y2_kept) }}{% endif %}
           {% if ycount >= 3 %}{{ y_field("y3", "Y3", y3, y3names, y3alias, y3f, 3, y3fit, y3order, kept=y3_kept) }}{% endif %}
         </div>
+        {% endif %}
         {# The shot filters: keep only the shots inside (or outside) bounds;
            conditions AND within a group, groups OR. A chip turns its group
            on or off, or removes it; the drawer edits them all. #}
@@ -351,7 +381,7 @@
          others are the scan page's, reached through the day-step route,
          which finds the scan by day and number (a Tiled run or a folder). #}
       <nav class="tabs" role="tablist" aria-label="Scan views">
-        {% for key, label in (("overview", "Overview"), ("plot", "Plot"), ("grid", "Grid"), ("images", "Images"), ("analysis", "Analysis")) %}
+        {% for key, label in (("overview", "Overview"), ("plot", "Plot"), ("images", "Images"), ("analysis", "Analysis")) %}
           {% if key == "plot" %}
           <a role="tab" aria-selected="true" href="#">{{ label }}</a>
           {% else %}
@@ -361,10 +391,11 @@
       </nav>
     {% endif %}
     {% if columns %}
-      {# GEECSplotter's XY graphs, and the image strip. #}
+      {# GEECSplotter's XY graphs, the 2-D map, and the image strip. #}
       <div class="row view-switch">
         <div class="seg" role="group" aria-label="View">
           <button type="button" data-toggle-for="tab" data-value="xy" aria-pressed="{{ 'true' if tab == 'xy' else 'false' }}">XY plot</button>
+          <button type="button" data-toggle-for="tab" data-value="map" aria-pressed="{{ 'true' if tab == 'map' else 'false' }}">2-D map</button>
           <button type="button" data-toggle-for="tab" data-value="images" aria-pressed="{{ 'true' if tab == 'images' else 'false' }}">{{ 'Image strip' if in_portal else 'Images' }}</button>
         </div>
       </div>
@@ -417,6 +448,91 @@
               <summary>Notebook code</summary>
               <pre class="well mono" id="code">{{ strip_code }}</pre>
             </details>
+          {% endif %}
+        </div>
+      </article>
+    {% elif tab == "map" %}
+      {% set st = map_stats %}
+      <article class="panel">
+        <header>
+          <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
+          <span class="dim">{% if mapv %}{{ ynames[mapv] }}{% endif %}{% if mapx and mapy %} over {{ xnames[mapx] }} and {{ xnames[mapy] }}{% endif %}</span>
+        </header>
+        <div class="body">
+          {% if not (mapv and mapx and mapy) %}
+            <div class="state" data-state="empty">
+              <div class="t">Nothing to map yet</div>
+              <div class="m">{% if not mapv %}Pick a scalar in the rail.{% elif mapx %}Pick the Y axis in the rail: this scan names one scan variable ({{ xnames[mapx] }}, across). Each bin is placed at its measured position.{% else %}Pick the X and Y axes in the rail.{% endif %}</div>
+            </div>
+          {% else %}
+          {# The statistics, saved in the set (map.js writes mapcfg). #}
+          <div class="row map-controls">
+            {% for key, label, options in (
+                 ("average", "Average", (("median", "Median"), ("mean", "Mean"))),
+                 ("error", "Error statistic", (("iqr", "25–75% interval (IQR)"), ("std", "Standard deviation"), ("stderr", "Standard error of mean"), ("mad", "Scaled MAD"), ("percentile", "Percentile interval"))),
+                 ("xscale", "X spacing", (("linear", "Linear coordinates"), ("log", "Logarithmic coordinates"), ("index", "Equal cells · indexed"))),
+                 ("yscale", "Y spacing", (("linear", "Linear coordinates"), ("log", "Logarithmic coordinates"), ("index", "Equal cells · indexed"))),
+               ) %}
+            <div class="field">
+              <label for="map-{{ key }}">{{ label }}</label>
+              <select id="map-{{ key }}" data-map-stat="{{ key }}">
+                {% for value, text in options %}<option value="{{ value }}"{% if st[key] == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+              </select>
+            </div>
+            {% endfor %}
+            {% if st.error in ("iqr", "percentile") %}
+            <div class="field">
+              <label for="map-error_view">Error map</label>
+              <select id="map-error_view" data-map-stat="error_view">
+                {% for value, text in (("width", "Full interval width"), ("low", "Lower error"), ("high", "Upper error")) %}<option value="{{ value }}"{% if st.error_view == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+              </select>
+            </div>
+            {% endif %}
+          </div>
+          <details class="disc">
+            <summary>Map settings</summary>
+            <div class="dbody row map-controls">
+              {% if st.error == "percentile" %}
+              <div class="field"><label for="map-lower">Lower percentile</label>
+                <input id="map-lower" type="number" min="0" max="100" step="1" value="{{ (st.lower * 100) | round(4) }}" data-map-stat="lower" data-percent class="narrow-number"></div>
+              <div class="field"><label for="map-upper">Upper percentile</label>
+                <input id="map-upper" type="number" min="0" max="100" step="1" value="{{ (st.upper * 100) | round(4) }}" data-map-stat="upper" data-percent class="narrow-number"></div>
+              {% endif %}
+              <div class="field"><label for="map-min_count">Minimum shots for error</label>
+                <input id="map-min_count" type="number" min="1" step="1" value="{{ st.min_count }}" data-map-stat="min_count" class="narrow-number"></div>
+              <div class="field"><label for="map-visit">Visit</label>
+                <select id="map-visit" data-map-stat="visit"><option value="{{ st.visit }}" selected>{{ st.visit }}</option></select></div>
+            </div>
+          </details>
+          <p class="hint" id="map-message" role="status">Loading the map…</p>
+          <div id="map" data-url="{{ root }}/{{ map_url }}" data-day="{{ day }}" data-scan="{{ scan }}" data-uid="{{ uid }}"
+               data-portal-root="{{ portal_root }}" data-logbook-send="{{ 'true' if logbook_send else 'false' }}"
+               data-images-url="{{ portal_root }}/run/jump/{{ day }}?prefer={{ scan }}&amp;tab=images{% if experiment %}&amp;experiment={{ experiment | urlencode }}{% endif %}">
+            <div id="map-results" hidden>
+              <div class="maps">
+                <div><h3 id="map-center-title"></h3><div id="map-center" class="map-plot"></div></div>
+                <div><h3 id="map-error-title"></h3><div id="map-uncertainty" class="map-plot"></div></div>
+              </div>
+              <p class="hint">× Not acquired · ⁄ All shots filtered · □ No finite scalar · ○ Insufficient shots for error</p>
+              {# One cell: its numbers and its shots (click a cell, or step). #}
+              <div class="group map-inspect">
+                <div class="row">
+                  <label class="hint" for="map-cell">Selected cell</label>
+                  <select id="map-cell"></select>
+                  <button type="button" class="btn sm" data-map-step="-1" aria-label="Previous cell">‹</button>
+                  <button type="button" class="btn sm" data-map-step="1" aria-label="Next cell">›</button>
+                </div>
+                <div id="map-values" class="row map-values" aria-live="polite"></div>
+                <details class="disc"><summary>Member shots passing the filters</summary><div id="map-members" class="dbody mono"></div></details>
+                <div><a class="btn sm" id="map-images" href="#">View this cell's images</a></div>
+              </div>
+              <p class="hint" id="map-notes"></p>
+              <details class="disc">
+                <summary>Notebook code</summary>
+                <pre class="well mono" id="code"></pre>
+              </details>
+            </div>
+          </div>
           {% endif %}
         </div>
       </article>
@@ -621,6 +737,7 @@
 <script src="{{ portal_root }}/static/plotly-cartesian-3.1.1.min.js" defer></script>
 <script src="{{ root }}/static/plot_tools.js" defer></script>
 <script src="{{ root }}/static/plotter.js" defer></script>
+{% if tab == "map" %}<script src="{{ root }}/static/map.js" defer></script>{% endif %}
 <script src="{{ root }}/theme/theme.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 </body>

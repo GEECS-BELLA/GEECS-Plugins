@@ -55,7 +55,6 @@
       {# GEECSplotter's page, mounted at /plot: the Plot tab is a link to it. #}
       <a role="tab" class="tab" id="tab-plot" aria-selected="false" href="{{ root }}/plot/?day={{ run_day }}&amp;scan={{ scan_number }}">Plot</a>
       {% endif %}
-      <button type="button" role="tab" class="tab" id="tab-grid" aria-controls="pane-grid" aria-selected="false" data-pane="grid" onclick="setTab('grid')">Grid</button>
       <button type="button" role="tab" class="tab" id="tab-images" aria-controls="pane-images" aria-selected="false" data-pane="images" onclick="setTab('images')">Images</button>
       {% if analysis_enabled %}
       <button type="button" role="tab" class="tab" id="tab-analysis" aria-controls="pane-analysis" aria-selected="false" data-pane="analysis" onclick="setTab('analysis')">Analysis</button>
@@ -75,53 +74,8 @@
       </div>
     </section>
 
-    <section role="tabpanel" class="group tabpane" id="pane-grid" aria-labelledby="tab-grid" hidden>
-      <div class="gridcontrols">
-        <label>Scalar<select id="grid-value" onchange="changeGrid('value',this.value)"><option value="">Choose a scalar…</option></select></label>
-        <label>X axis<select id="grid-x" onchange="changeGrid('x',this.value)"></select></label>
-        <label>Y axis<select id="grid-y" onchange="changeGrid('y',this.value)"></select></label>
-      </div>
-      <div class="gridcontrols">
-        <label>Average<select id="grid-average" onchange="changeGrid('average',this.value)"><option value="median">Median</option><option value="mean">Mean</option></select></label>
-        <label>Error statistic<select id="grid-error" onchange="changeGrid('error',this.value)"><option value="iqr">25–75% interval (IQR)</option><option value="std">Standard deviation</option><option value="stderr">Standard error of mean</option><option value="mad">Scaled MAD</option><option value="percentile">Percentile interval</option></select></label>
-        <label>X spacing<select id="grid-xscale" onchange="changeGrid('xscale',this.value)"><option value="linear">Linear coordinates</option><option value="log">Logarithmic coordinates</option><option value="index">Equal cells · indexed</option></select></label>
-        <label>Y spacing<select id="grid-yscale" onchange="changeGrid('yscale',this.value)"><option value="linear">Linear coordinates</option><option value="log">Logarithmic coordinates</option><option value="index">Equal cells · indexed</option></select></label>
-        <label>Error map<select id="grid-error_view" onchange="changeGrid('error_view',this.value)"><option value="width">Full interval width</option><option value="low">Lower error</option><option value="high">Upper error</option></select></label>
-      </div>
-      <details class="disc">
-        <summary>Grid settings</summary>
-        <div class="dbody gridcontrols">
-          <label>Lower percentile<input id="grid-lower" type="number" min="0" max="100" step="1" value="25" onchange="changeGridNumber('lower',this)"></label>
-          <label>Upper percentile<input id="grid-upper" type="number" min="0" max="100" step="1" value="75" onchange="changeGridNumber('upper',this)"></label>
-          <label>Minimum shots for error<input id="grid-min_count" type="number" min="1" value="3" onchange="changeGridNumber('min_count',this)"></label>
-          <label>Visit<select id="grid-visit" onchange="changeGrid('visit',Number(this.value))"><option value="1">1</option></select></label>
-        </div>
-      </details>
-      <p id="grid-message" class="gridnotes" role="status"></p>
-      <div id="grid-results" class="group" hidden>
-        <div class="gridmaps">
-          <div><h3 id="grid-center-title"></h3><div id="grid-center"></div></div>
-          <div><h3 id="grid-error-title"></h3><div id="grid-uncertainty"></div></div>
-        </div>
-        <div class="gridnotes">× Not acquired · ⁄ All shots filtered · □ No finite scalar · ○ Insufficient shots for error</div>
-        <div class="panel gridinspect"><div class="body">
-          <div class="row">
-            <label class="dim">Selected cell <select class="btn sm" id="grid-cell" onchange="selectGridBin(Number(this.value))"></select></label>
-            <button type="button" class="btn sm" onclick="stepGridBin(-1)" aria-label="Previous grid bin">‹</button>
-            <button type="button" class="btn sm" onclick="stepGridBin(1)" aria-label="Next grid bin">›</button>
-          </div>
-          <div id="grid-cell-values" class="values" aria-live="polite"></div>
-          <details class="disc"><summary>Member shots passing filters</summary><div id="grid-members" class="dbody mono"></div></details>
-          <div><button type="button" class="btn sm" id="grid-open-images" onclick="gridOpenImages()">View this bin’s images</button></div>
-        </div></div>
-        <p id="grid-notes" class="gridnotes"></p>
-        <div><button class="btn sm" type="button" onclick="toggleCode('grid-code')">show the code</button></div>
-        <div id="grid-code" class="well codebox" hidden></div>
-      </div>
-    </section>
-
     <section role="tabpanel" class="group tabpane" id="pane-images" aria-labelledby="tab-images" hidden>
-      <div id="grid-image-selection" class="gridnotes"></div>
+      <div id="image-bin-selection" class="note"></div>
       {% if devices %}
       <nav class="row devices" aria-label="Devices">
         {% for dev in devices %}
@@ -471,11 +425,6 @@ function remember(key, value) {
 
 /** What the plot shows, for the alt text of the image in the note. */
 function plotCaption(gd) {
-  if (gd && ["grid-center", "grid-uncertainty"].includes(gd.id) && GRID_DATA) {
-    const cfg = GRID_DATA.config;
-    const statistic = gd.id === "grid-center" ? cfg.average : GRID_DATA.error_label;
-    return `${prettyName(cfg.value)} · ${statistic} vs ${prettyName(cfg.x)} / ${prettyName(cfg.y)} · visit ${cfg.visit}`;
-  }
   if (gd && gd.id === "shottrace") {
     // The logbook entry must name what the captured trace shows.
     const variable = (((LAST_TRACE || {}).figure || {}).layout || {})
@@ -509,14 +458,8 @@ async function confirmSendToLogbook() {
   btn.disabled = true;
   btn.textContent = "sending…";
   try {
-    const isGrid = ["grid-center", "grid-uncertainty"].includes(SEND_PLOT.id);
-    // Grid exports keep square plotting areas. Every toolbar uses this path.
-    const margin = SEND_PLOT.layout.margin;
     const image = await Plotly.toImage(SEND_PLOT, {
-      format: "png",
-      scale: EXPORT_SCALE,
-      width: SEND_WIDTH,
-      height: isGrid ? SEND_WIDTH - margin.l - margin.r + margin.t + margin.b : SEND_HEIGHT,
+      format: "png", scale: EXPORT_SCALE, width: SEND_WIDTH, height: SEND_HEIGHT,
     });
     // DAY like every other /api/run call: a run whose start doc has no
     // usable time resolves its day ONLY from this param, and the page
@@ -631,7 +574,6 @@ const PLOT_CONFIG = {
 const S = readState();
 let COLUMNS = [];      // [{name, provenance, pretty}] from /api/columns
 let FDRAFT = null;     // the filters popup's working copy
-let BOOTED = false;    // true once the columns bootstrap resolved (the Grid waits)
 
 function readState() {
   const p = new URLSearchParams(location.search);
@@ -642,8 +584,6 @@ function readState() {
     bincfg: p.get("bincfg") || "",
     display: p.get("display") || "",
     processing: p.get("processing") || "",
-    gridcfg: p.get("gridcfg") || "",
-    gridbin: p.get("gridbin") || "",
     imagebin: p.get("imagebin") || "",
   };
 }
@@ -653,14 +593,12 @@ function writeState() {
   // not analysis states — there is deliberately no popstate handler.
   // Shared/bookmarked links restore everything via readState().
   const p = new URLSearchParams(location.search);
-  ["view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => p.delete(k));
+  ["view", "filters", "bincfg", "display", "processing", "tab", "imagebin"].forEach(k => p.delete(k));
   if (S.view !== "shot") p.set("view", S.view);
   if (S.filters) p.set("filters", S.filters);
   if (S.bincfg) p.set("bincfg", S.bincfg);
   if (S.display) p.set("display", S.display);
   if (S.processing) p.set("processing", S.processing);
-  if (S.gridcfg) p.set("gridcfg", S.gridcfg);
-  if (S.gridbin) p.set("gridbin", S.gridbin);
   if (S.imagebin) p.set("imagebin", S.imagebin);
   if (S.tab !== "overview") p.set("tab", S.tab);
   history.replaceState(null, "", location.pathname + "?" + p.toString());
@@ -674,7 +612,7 @@ function writeState() {
   if (dispField) dispField.value = S.display;
   document.querySelectorAll("#imgshot form").forEach(form => {
     form.querySelectorAll("[data-sticky-analysis]").forEach(el => el.remove());
-    ["gridcfg", "gridbin", "imagebin", "filters", "bincfg", "view"].forEach(key => {
+    ["imagebin", "filters", "bincfg", "view"].forEach(key => {
       p.getAll(key).forEach(value => {
         const input = document.createElement("input"); input.type = "hidden";
         input.name = key; input.value = value; input.dataset.stickyAnalysis = "true";
@@ -689,14 +627,12 @@ function syncRailLinks(p) {
   // shot steppers) that must carry client-side analysis state too.
   document.querySelectorAll("a.act, a.carry").forEach(a => {
     const url = new URL(a.href, location.origin);
-    ["view", "filters", "bincfg", "display", "processing", "tab", "gridcfg", "gridbin", "imagebin"].forEach(k => url.searchParams.delete(k));
+    ["view", "filters", "bincfg", "display", "processing", "tab", "imagebin"].forEach(k => url.searchParams.delete(k));
     if (S.view !== "shot") url.searchParams.set("view", S.view);
     if (S.filters) url.searchParams.set("filters", S.filters);
     if (S.bincfg) url.searchParams.set("bincfg", S.bincfg);
     if (S.display) url.searchParams.set("display", S.display);
     if (S.processing) url.searchParams.set("processing", S.processing);
-    if (S.gridcfg) url.searchParams.set("gridcfg", S.gridcfg);
-    if (S.gridbin) url.searchParams.set("gridbin", S.gridbin);
     if (S.imagebin) url.searchParams.set("imagebin", S.imagebin);
     if (S.tab !== "overview") url.searchParams.set("tab", S.tab);
     a.href = url.pathname + "?" + url.searchParams.toString();
@@ -1047,7 +983,6 @@ function setTab(tab) {
   document.querySelectorAll('[role="tab"]').forEach(t => t.setAttribute("aria-selected", String(t.dataset.pane === tab)));
   document.querySelectorAll(".tabpane").forEach(pane => { pane.hidden = pane.id !== "pane-" + tab; });
   writeState();
-  if (tab === "grid") refreshGrid();
   refreshImages();
   loadTrace();   // no-op unless this device's shots are traces
   if (tab === "analysis") refreshAnalysis(true);
@@ -1161,8 +1096,7 @@ function loadTrace() {
   if (TRACE_DRAWN) {
     // Re-entry: re-lay the cached figure out (the pane may have been
     // hidden when the theme last changed) but never refetch — the shot
-    // form navigates, so one fetch per page load is right. The Grid gets
-    // this redraw for free from setTab; the trace must ask.
+    // form navigates, so one fetch per page load is right.
     if (LAST_TRACE) drawTrace(LAST_TRACE);
     return;
   }
@@ -1216,8 +1150,9 @@ function refreshImages() {
   // A trace device has no binned view to show: averaging traces across
   // shots is the consumer's job, since each shot carries its own axis.
   const binned = S.view === "bin" && !IS_TRACE;
-  document.getElementById("grid-image-selection").innerHTML = S.imagebin && binned
-    ? `Grid selection: bin ${esc(S.imagebin)} <button class="btn sm" onclick="S.imagebin='';writeState();refreshImages()">show all bins</button>` : "";
+  // A 2-D map cell opened here from the Plot page shows that bin alone.
+  document.getElementById("image-bin-selection").innerHTML = S.imagebin && binned
+    ? `2-D map cell: bin ${esc(S.imagebin)} <button class="btn sm" onclick="S.imagebin='';writeState();refreshImages()">show all bins</button>` : "";
   if (!shotBox || !SEL_DEVICE) return;  // no device / vendor / unrenderable
   shotBox.hidden = binned;
   grid.hidden = !binned;
@@ -1258,11 +1193,6 @@ function refreshImages() {
   });
 }
 
-function prettyName(name) {
-  const hit = COLUMNS.find(c => c.name === name);
-  return hit ? hit.pretty : name;
-}
-
 function dispCfg() {
   if (!S.display) return {};
   try { return JSON.parse(S.display); } catch (e) { return {}; }
@@ -1285,9 +1215,6 @@ function resolveThemeTokens(value) {
   }
   return value;
 }
-window.addEventListener("geecs:theme", () => {
-  if (GRID_DATA && S.tab === "grid") drawGrid();
-});
 
 // ---------------- filters rail + popup ----------------
 function renderChips() {
@@ -1304,7 +1231,7 @@ function renderChips() {
 function setFilters(model) {
   const active = (model.groups || []).length;
   S.filters = active || model.nan_policy !== "exclude" ? JSON.stringify(model) : "";
-  renderChips(); writeState(); updatePassCount(); refreshImages(); refreshGrid();
+  renderChips(); writeState(); updatePassCount(); refreshImages();
 }
 
 function toggleGroup(i, on) {
@@ -1419,13 +1346,12 @@ function applyBinset() {
   const minCount = parseInt(document.getElementById("bs-min").value, 10);
   if (Number.isFinite(minCount) && minCount > 1) cfg.min_count = minCount;
   S.bincfg = Object.keys(cfg).length ? JSON.stringify(cfg) : "";
-  S.imagebin = "";  // new bin definitions replace an explicit Grid image selection
+  S.imagebin = "";  // new bin definitions replace a 2-D map cell's selection
   settleDraft("modal-binset"); writeState();
   if (S.view !== "bin") setView("bin"); else refreshImages();
 }
 
 // ---------------- utilities + boot ----------------
-{% include "grid_script.html" %}
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, ch => ({
@@ -1435,20 +1361,15 @@ function escAttr(s) { return esc(s); }
 
 api("columns", {}).then(data => {
   COLUMNS = data.columns;
-  bootGrid(data.grid_axes || []);
   const counts = {};
   COLUMNS.forEach(c => { counts[c.provenance] = (counts[c.provenance] || 0) + 1; });
   document.getElementById("providers").innerHTML = Object.entries(counts)
     .map(([p, n]) => `<span class="provider ${p}">${p} · ${n}</span>`).join("");
   document.getElementById("all-cols").innerHTML =
     COLUMNS.map(c => `<option value="${escAttr(c.name)}">`).join("");
-  BOOTED = true;
-  refreshGrid();
 }).catch(err => {
   document.getElementById("providers").innerHTML =
     `<span class="error">columns: ${esc(err.message)}</span>`;
-  BOOTED = true;  // still render honest per-fetch errors on the Grid
-  refreshGrid();
 });
 
 renderChips();

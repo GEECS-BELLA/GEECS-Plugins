@@ -3,12 +3,14 @@
 // to the scan's logbook entry. Each setting is a hidden field of the page
 // form (filters, bincfg, display, view); Apply writes it and submits the
 // form, so it saves into the viewer's own set like every other control.
-// plotter.js calls PlotTools.config() and PlotTools.patch() when it draws.
+// plotter.js calls PlotTools.config() and PlotTools.patch() when it draws;
+// map.js calls config() for its two maps, which copy and send the same way.
 "use strict";
 
 window.PlotTools = (function () {
   const form = document.getElementById("pick");
-  const host = document.getElementById("plot");
+  // The XY plot, or the 2-D map's box (its two maps are the plots).
+  const host = document.getElementById("plot") || document.getElementById("map");
   if (!form || !host) return { config: () => ({}), patch: (layout) => layout, counted: () => {} };
   const data = host.dataset;
   const EXPORT_SCALE = 2;
@@ -251,11 +253,13 @@ window.PlotTools = (function () {
       toast(`Copy failed (${(error && error.name) || "error"}): downloaded the PNG instead`);
     }
   }
-  function openSend() {
+  let sending = host;  // the plot whose modebar opened the drawer
+  function openSend(gd) {
+    sending = gd || host;
     document.getElementById("sl-form").hidden = false;
     document.getElementById("sl-done").hidden = true;
     document.getElementById("sl-author").value = remembered(AUTHOR_KEY);
-    document.getElementById("sl-caption").value = data.caption || "plot";
+    document.getElementById("sl-caption").value = sending.dataset.caption || data.caption || "plot";
     const row = document.getElementById("sl-targetrow");
     row.hidden = !remembered(ENTRY_KEY);
     if (!row.hidden) document.getElementById("sl-target").value = "same";
@@ -271,11 +275,13 @@ window.PlotTools = (function () {
     button.textContent = "Sending…";
     try {
       const d = DISPLAY;
-      // A fixed size, so the note's text reads the same in any window;
-      // an explicit plot size wins.
-      const image = await Plotly.toImage(host, {
-        format: "png", scale: EXPORT_SCALE, width: d.width > 0 ? d.width : 720, height: d.height > 0 ? d.height : 460,
-      });
+      // A fixed size, so the note's text reads the same in any window; an
+      // explicit plot size wins, and a map keeps its plotting area square.
+      const m = sending.layout && sending.layout.margin;
+      const size = sending.dataset.square && m
+        ? { width: 720, height: 720 - m.l - m.r + m.t + m.b }
+        : { width: d.width > 0 ? d.width : 720, height: d.height > 0 ? d.height : 460 };
+      const image = await Plotly.toImage(sending, { format: "png", scale: EXPORT_SCALE, ...size });
       const url = new URL(`${data.portalRoot}/api/run/${encodeURIComponent(data.uid)}/logbook`, location.origin);
       url.searchParams.set("day", data.day);
       const response = await fetch(url, {

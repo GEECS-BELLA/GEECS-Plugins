@@ -18,11 +18,12 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from geecs_data_utils.data.curve_fit import CurveFit
 from geecs_data_utils.data.row_filters import RowFilters, apply_filters
+from geecs_data_utils.scan_grid import grid_scan
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from geecs_portal import analysis
-from geecs_portal.plotter import figures, scans
+from geecs_portal.plotter import figures, maps, scans
 from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.settings import (
     MAX_FIT_ORDER,
@@ -403,6 +404,31 @@ def register(router: APIRouter, ctx: Context) -> None:
         kept = _kept(frame, flt)
         return JSONResponse({"pass": len(kept), "total": len(frame)}, headers=NO_CACHE)
 
+    @router.get("/api/map")
+    def api_map(
+        day: date,
+        scan: int,
+        value: str,
+        x: str,
+        y: str,
+        mapcfg: str = Query(default="", description="GridConfig JSON: the statistics"),
+        filters: str = Query(default="", description="RowFilters JSON: the shots kept"),
+        valuealias: bool = Query(
+            default=True, description="title the scalar with its alias"
+        ),
+        axisalias: bool = Query(
+            default=True, description="title the axes with their aliases"
+        ),
+    ) -> JSONResponse:
+        """The 2-D map of ``value`` over ``x`` and ``y``: both figures, the cells, the code.
+
+        The portal scan page's ``/api/run/{uid}/grid`` answer, over this
+        page's s-file frame; a column or filter the scan lacks is a 400
+        that says which.
+        """
+        names = {value: valuealias, x: axisalias, y: axisalias}
+        return _map_response(ctx, day, scan, (value, x, y), mapcfg, filters, names)
+
     @router.get("/api/settings", response_model=SetsResponse)
     def api_sets() -> JSONResponse:
         """Where sets are saved, and their names."""
@@ -540,6 +566,37 @@ def _figure_response(
         fits=results,
     )
     return _json(body)
+
+
+def _map_response(
+    ctx: Context,
+    day: date,
+    scan: int,
+    columns: tuple[str, str, str],
+    mapcfg: str,
+    filters: str,
+    aliases: dict[str, bool],
+) -> JSONResponse:
+    """The map's answer: ``grid_scan`` over the s-file, as ``grid_document``."""
+    run = ctx.run(day, scan)
+    frame = scans.load_frame(run)
+    try:
+        cfg = maps.grid_config(mapcfg, *columns)
+        flt = analysis.parse_filters(filters)
+        result = grid_scan(frame, run.start_doc, cfg, flt)
+    except KeyError as missing:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"this scan has no column {missing}: pick another, or turn "
+                "off the shot filter that names it"
+            ),
+        ) from None
+    except (ValueError, TypeError, IndexError, OverflowError) as bad:
+        raise HTTPException(status_code=400, detail=str(bad)) from None
+    pretty = {c: scans.display_name(c, aliases[c]) for c in columns if c}
+    code = maps.map_code(day, scan, result.config, flt, pretty, ctx.experiment)
+    return JSONResponse(analysis.grid_document(result, pretty, code), headers=NO_CACHE)
 
 
 def _kept(frame: pd.DataFrame, filters: RowFilters) -> pd.DataFrame:

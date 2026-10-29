@@ -47,11 +47,13 @@ cell or shot) is in the page's URL, so a link you copy opens the same view.
   Python, and its toolbar can copy the plot or **send** it into this
   scan's logbook entry. Scans from another experiment than the portal's
   own have no Plot tab.
-- **Grid** — for a two-variable scan, a map of any scalar over the two
-  scan axes, with the average (mean or median) and the error (standard
-  error of the mean, or others) chosen separately. Click a cell for its
-  readbacks, sample count and member shots, or open that cell's images.
-  It also has **show the code** and **send to scan log**.
+
+  Its **2-D map** view (the switch above the plot) maps any scalar over
+  two scan variables: each cell shows the scalar's average (mean or
+  median) and, beside it, its error (standard error of the mean, or
+  others), chosen separately. X starts as the scan variable; pick the
+  Y axis in the rail. Click a cell for its readbacks, sample count and
+  member shots, or open that cell's images on the Images tab.
 - **Images** — one device's shots, one at a time or averaged per bin. A
   camera shows its image; a spectrometer or scope shows its trace as an
   interactive plot. The **processing** selector runs a saved recipe's
@@ -71,7 +73,7 @@ scan (its device has data in the scan); the rest are folded away.
    figures behind a stepper, other files as links. They are saved under
    the day's `analysis/ScanNNN/` folder, and the scalars the recipe
    computes are added to the scan's `analysis/sNNN.txt`, so they show up
-   as new columns on the Plot and Grid tabs.
+   as new columns on the Plot page.
 3. Re-running replaces those outputs; the raw data is never touched.
 
 A missing scan folder is reported, never created.

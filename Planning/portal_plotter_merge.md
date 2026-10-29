@@ -200,6 +200,11 @@ The PRs from here: the Plot page's tools (#1192) → delete the old plot
 pane and share the figure code → the 2-D map view → the Images tab →
 `--browser` and the deletion of `GeecsPlotter/`.
 
+**The Grid tab became the Plot page's 2-D map (2026-10-29)**, named by
+the author. It shows measured bin positions only for now (the Plot page
+reads folders; a Bluesky scan's planned grid waits for the plotter to
+take the portal's catalog, the author's answer).
+
 **The old pane went (2026-10-29)**, with one figure code: the Plot
 page imports the portal's palette, serializer, cosmetics and binned
 trace. A scan of another experiment than the portal's own has no Plot

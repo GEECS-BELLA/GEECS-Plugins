@@ -138,14 +138,12 @@ def run_view(
     view: str = "",
     display: str = "",
     processing: str = "",
-    gridcfg: str = "",
-    gridbin: str = "",
     imagebin: str = "",
     portal: PortalState = Depends(get_state),
 ) -> HTMLResponse:
-    """One run: the rail + tabs (Overview / Plot / Grid / Images / Analysis).
+    """One run: the rail + tabs (Overview / Plot / Images / Analysis).
 
-    ``tab``/``filters``/``bincfg``/``view`` and the grid and image keys are the
+    ``tab``/``filters``/``bincfg``/``view`` and the image keys are the
     analysis-tab state, carried in the URL (statelessness doctrine:
     a link IS the analysis) and consumed by the page's JS — the
     server only threads them through the sticky query so steppers
@@ -224,8 +222,6 @@ def run_view(
         "bincfg": bincfg,
         "display": display,
         "processing": processing,
-        "gridcfg": gridcfg,
-        "gridbin": gridbin,
         "imagebin": imagebin,
         "device": sel_device,
         "shot": shot if sel_device else "",
@@ -252,7 +248,7 @@ def run_view(
             "next_day": ((run_day + timedelta(days=1)).isoformat() if run_day else ""),
             "tab": (
                 tab
-                if tab in ("overview", "grid", "images")
+                if tab in ("overview", "images")
                 or (tab == "analysis" and analysis_enabled)
                 # Plot is its own page (/plot/); the scan page opens on
                 # the Overview.
