@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ from geecs_web_theme.testing import (
     unknown_data_states,
 )
 
+from geecs_control_room.home import SCANNER_TIMEOUT_S
+from geecs_control_room.module_client import READ_TIMEOUT_S
 from geecs_control_room.settings import Settings, SettingsError
 
 _TEMPLATES = sorted(
@@ -73,3 +76,14 @@ def test_templates_keep_the_kit_rules(template: Path) -> None:
     if node_available():
         for code in inline_scripts(template):
             assert javascript_syntax_error(code) is None
+
+
+def test_every_polled_read_answers_inside_the_page_timeout() -> None:
+    # poller.js gives up at 1.5 x the period; a route's worst case is two reads in
+    # sequence (the home's roster, then details + journal; the strip's two scanner
+    # GETs), and a slow device must reach the page as unread, not as a page that gave up
+    static = Path(__file__).resolve().parents[1] / "geecs_control_room/static"
+    assert "timeoutMs = 1.5 * pollMs" in (static / "poller.js").read_text()
+    for page in ("screen.js", "home.js"):
+        poll_s = int(re.search(r"POLL_MS = (\d+)", (static / page).read_text())[1]) / 1000  # fmt: skip
+        assert 2 * max(READ_TIMEOUT_S, SCANNER_TIMEOUT_S) < 1.5 * poll_s, page

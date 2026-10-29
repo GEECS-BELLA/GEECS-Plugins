@@ -37,7 +37,7 @@ def create_app(
     """Build the app; ``module`` and ``scanner`` default to clients of the settings' URLs."""
     module = module or ModuleClient(settings.canopy_url, settings.read_key)
     if scanner is None and settings.scanner_url:
-        scanner = httpx.AsyncClient(base_url=settings.scanner_url, timeout=3.0)
+        scanner = httpx.AsyncClient(base_url=settings.scanner_url, timeout=home.SCANNER_TIMEOUT_S)  # fmt: skip
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

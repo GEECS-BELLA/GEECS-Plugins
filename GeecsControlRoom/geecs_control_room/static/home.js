@@ -106,7 +106,7 @@
     [STRIP]: strip,
   };
   const silent = {
-    [DEVICES]: (why) => ({ ok: false, detail: `module slow: the Control Room gave no list (${why}); asking again shortly` }),
+    [DEVICES]: (why) => ({ ok: false, detail: `the Control Room did not answer (${why}); asking again shortly` }),
     [STRIP]: () => ({ scanner: "unreachable", run: "unknown", kit: "unknown" }),
   };
   const poller = window.GeecsPoller.makePoller({

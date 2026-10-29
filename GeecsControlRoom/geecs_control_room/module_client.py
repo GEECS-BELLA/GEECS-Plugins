@@ -13,8 +13,11 @@ from urllib.parse import quote
 
 import httpx
 
-#: Long enough for a settling put (the module waits up to 30 s for a move's callback).
-PUT_TIMEOUT_S, READ_TIMEOUT_S = 45.0, 5.0
+#: A put: long enough for a settling move (the module waits up to 30 s for its callback).
+#: A read: the module answers from memory in milliseconds; two reads in sequence (the
+#: home's lists) must still finish inside the page's own timeout (1.5 x its 2 s poll),
+#: so a slow device reaches the page as ``unread``, not as a page that gave up.
+PUT_TIMEOUT_S, READ_TIMEOUT_S = 45.0, 1.0
 
 
 class ModuleUnavailable(Exception):
