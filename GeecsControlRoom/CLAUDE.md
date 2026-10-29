@@ -104,3 +104,11 @@ with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py`
 as tables, one row per rule (`tests/_node.py` is the harness). A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script
 keeps the DOM work only.
+
+`test_module_contract.py` is the cross-service contract: GeecsCanopy's own
+module (`geecs_canopy.testing.make_env`: its routes over a fake Hare) mounted
+at `/geecs` behind `ModuleClient`, driven through this app's routes. It pins
+the fields the pages read (a role's `role`, `axis`, `pv`, `read`, `writable`,
+`verdict`; the put envelope's `outcome`, `code`, `journalId`, `detail`; a
+journal row's fields) and the home's lists and `unread`. geecs-canopy is a
+dev-only dependency; `geecs_control_room` never imports it.
