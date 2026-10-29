@@ -1,0 +1,41 @@
+[tool.poetry]
+name = "geecs-control-room"
+version = "0.1.0"
+description = "The operator surfaces over Canopy: the Control Room home and the screens renderer (a control GUI is a screen file drawn by one renderer)"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_control_room" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+fastapi = ">=0.110"
+uvicorn = ">=0.29"
+jinja2 = ">=3.1"
+pydantic = ">=2.7"
+pyyaml = ">=6.0"
+# The module client: GeecsCanopy's /geecs routes, over HTTP. Canopy and
+# geecs-canopy are services here, never dependencies.
+httpx = ">=0.27"
+# The screen document, the family files and the panel data.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+# The kit and the FastAPI glue every surface shares. Imported, never copied.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+pytest-asyncio = ">=0.23"
+# The theme's CSS helpers for the template guards (the form GeecsWebTheme's
+# CHANGELOG 0.6.0 prescribes: the runtime dependency re-declared).
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testing"] }
+
+[tool.poetry.scripts]
+geecs-control-room = "geecs_control_room.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

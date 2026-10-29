@@ -1,0 +1,14 @@
+{#
+  The experiment's home: a placeholder until the home's first slice (the
+  top strip, the "Not live" and "In alarm" lists, the launcher) lands.
+#}{% extends "base.html" %}
+{% block body %}
+<div class="shell solo">
+  <main class="pane">
+    <div class="state" data-state="empty">
+      <div class="t">{{ settings.title }}</div>
+      <div class="m">The home page is not built yet.</div>
+    </div>
+  </main>
+</div>
+{% endblock %}

@@ -1,0 +1,3 @@
+/* The Control Room's own rules, scoped to .kit and styled through the theme's
+   tokens only (GeecsWebTheme's literal-colour guard walks this file). */
+.kit .brand { color: inherit; text-decoration: none; }

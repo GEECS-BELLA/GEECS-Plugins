@@ -78,6 +78,7 @@ OWN_ENV_PKGS = (
     "GeecsBluesky",
     "GeecsCAGateway",
     "GeecsCanopy",
+    "GeecsControlRoom",
     "GeecsLogbook",
     "GeecsPanels",
     "GeecsPvaGateway",
