@@ -181,6 +181,9 @@ class Presets:
     async def save(self, name: str, operator: str, scope: Mapping[str, list[str]], key_name: str | None) -> dict[str, Any]:  # fmt: skip
         """Save every registered PV as ``name`` (Squirrel's job, awaited), the scope in its description; an attempted row before, one outcome row after."""
         squirrel, text = self.squirrel, describe(operator, scope)
+        await self.scope_devices(
+            scope
+        )  # a screen the scope names must be readable now, not at the first diff
         attempt = await self._journal(operator, key_name, "snapshot", name, text.replace("\n", "; "), "attempted")  # fmt: skip
         job_id = await squirrel.create_snapshot(name, text)
         deadline = asyncio.get_running_loop().time() + SAVE_TIMEOUT_S
