@@ -7,7 +7,8 @@ semantics, pinned here:
 
 - ``set`` → ``bps.abs_set(signal, value, wait=wait_for_execution)``.
 - ``wait`` → ``bps.sleep(seconds)`` (RunEngine-interruptible).
-- ``check`` → :func:`values_match`: float-coerce the *actual* reading when
+- ``check`` → :func:`~geecs_schemas.action_plan.values_match` (the step
+  library both executors share): float-coerce the *actual* reading when
   it parses, then plain ``==``, no tolerance; a mismatch raises
   :class:`~geecs_bluesky.exceptions.ActionCheckFailedError`.
 - ``run`` → resolve by name from the registry and recurse; a missing name
@@ -23,7 +24,6 @@ experiment's action library and the device namespace, the production
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
@@ -37,6 +37,7 @@ from geecs_schemas.action_plan import (
     RunPlanStep,
     SetStep,
     WaitStep,
+    values_match,
 )
 
 from geecs_bluesky.actions.steps import flatten_action_steps
@@ -78,32 +79,6 @@ class SettableFactory(Protocol):
     def get_readable(self, device: str, variable: str) -> Readable:
         """Return a readable signal (accepted by ``bps.rd``) for a ``check`` step."""
         ...
-
-
-def values_match(expected: object, actual: object) -> bool:
-    """Compare a ``check`` step reading against its expected value, legacy-style.
-
-    Legacy comparison rules (see the module docstring), quirks included: a
-    numeric expected matches a device reporting ``"25"`` (the actual is
-    floated first), but a *string* expected ``"25"`` does **not** match a
-    numeric-looking readback.
-
-    Parameters
-    ----------
-    expected : object
-        The ``expected`` value from the plan (``str | float | int``).
-    actual : object
-        The value read back from the signal.
-
-    Returns
-    -------
-    bool
-        True when the values match under the legacy comparison rules.
-    """
-    if isinstance(actual, str):
-        with contextlib.suppress(ValueError):
-            actual = float(actual)
-    return bool(actual == expected)
 
 
 def compile_action_plan(

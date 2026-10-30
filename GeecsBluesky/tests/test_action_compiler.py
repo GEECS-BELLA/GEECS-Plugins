@@ -41,7 +41,6 @@ from geecs_bluesky.exceptions import (
 from geecs_bluesky.actions.compiler import (
     SettableFactory,
     compile_action_plan,
-    values_match,
 )
 
 CORPUS_ACTIONS = (
@@ -326,17 +325,6 @@ def test_check_legacy_quirk_string_expected_vs_numeric_readback_fails(
 
     with pytest.raises(ActionCheckFailedError):
         run_engine(compile_action_plan(plan, registry={}, settables=factory))
-
-
-def test_values_match_rules() -> None:
-    """The comparison helper reproduces legacy interpret_value + '=='."""
-    assert values_match("off", "off")
-    assert values_match(25.0, "25")  # actual floated, legacy-style
-    assert values_match(25, 25.0)  # plain Python numeric equality
-    assert values_match(0, 0.0)
-    assert not values_match("25", "25")  # legacy quirk: actual floats first
-    assert not values_match("on", "off")
-    assert not values_match(1.0, "on")  # unparseable string stays a string
 
 
 # ---------------------------------------------------------------------------

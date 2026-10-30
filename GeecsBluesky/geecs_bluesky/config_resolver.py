@@ -43,6 +43,7 @@ from geecs_schemas import (
     ShotOffsets,
     TriggerProfile,
 )
+from geecs_schemas.action_plan import ACTION_LIBRARY_FILENAME, ACTION_LIBRARY_FOLDER
 from geecs_schemas.convert import convert_shot_control
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,7 @@ class ConfigsRepoResolver:
 
     TRIGGER_FOLDER = SHOT_CONTROL_FOLDER
     SCAN_VARIABLES_FOLDER = "scan_devices"
-    ACTION_FOLDER = "action_library"
+    ACTION_FOLDER = ACTION_LIBRARY_FOLDER
     PRESET_FOLDER = "presets"
     OPTIMIZER_FOLDER = "optimizer_configs"
 
@@ -498,7 +499,7 @@ class ConfigsRepoResolver:
         ``actions.yaml`` must be what the next queue item runs.  One small
         YAML per item.
         """
-        path = self._root / self.ACTION_FOLDER / "actions.yaml"
+        path = self._root / self.ACTION_FOLDER / ACTION_LIBRARY_FILENAME
         document = self._load_yaml(path, "action library", "actions")
         if not document:
             # An empty file (a fresh experiment's placeholder) is an empty
@@ -533,7 +534,7 @@ class ConfigsRepoResolver:
         unreadable or legacy-dialect file **raises** (a listing that read
         empty would hide the regeneration a legacy file needs).
         """
-        if not (self._root / self.ACTION_FOLDER / "actions.yaml").exists():
+        if not (self._root / self.ACTION_FOLDER / ACTION_LIBRARY_FILENAME).exists():
             return {}
         return dict(self._action_library().plans)
 

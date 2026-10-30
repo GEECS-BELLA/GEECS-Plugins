@@ -8,6 +8,11 @@ import yaml
 from pydantic import ValidationError
 
 from geecs_schemas import ActionPlan, ActionPlanLibrary, CheckStep, SetStep
+from geecs_schemas.action_plan import (
+    ActionPlanCycleError,
+    ActionPlanNotFoundError,
+    values_match,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 GOLDEN = Path(__file__).parent / "golden"
@@ -137,3 +142,54 @@ class TestCorpusDocument:
         # a document that is merely incomplete gets the plain schema error
         with pytest.raises(ValidationError, match="plans"):
             ActionPlanLibrary.model_validate({"schema_version": 1})
+
+
+def _library(plans):
+    return ActionPlanLibrary.model_construct(
+        plans={
+            name: ActionPlan.model_validate({"steps": s}) for name, s in plans.items()
+        }
+    )
+
+
+SET = {"do": "set", "device": "U_Dev", "variable": "Var", "value": 1}
+
+
+class TestTheStepLibrary:
+    """The walk and the comparison both executors share (moved from GeecsBluesky)."""
+
+    def test_flatten_inlines_nested_plans_in_order_naming_their_origin(self):
+        library = _library(
+            {
+                "outer": [{"do": "run", "plan": "inner"}, {"do": "wait", "seconds": 1}],
+                "inner": [SET],
+            }
+        )
+        steps = library.flatten("outer")
+        assert [(s.do, origin) for s, origin in steps] == [
+            ("set", "inner"),
+            ("wait", None),
+        ]
+
+    def test_flatten_refuses_an_unknown_name(self):
+        with pytest.raises(ActionPlanNotFoundError) as excinfo:
+            _library({"a": [SET]}).flatten("ghost")
+        assert excinfo.value.known_plans == ["a"]
+
+    def test_flatten_refuses_a_loop_naming_the_chain(self):
+        library = _library(
+            {"A": [{"do": "run", "plan": "B"}], "B": [{"do": "run", "plan": "A"}]}
+        )
+        with pytest.raises(ActionPlanCycleError) as excinfo:
+            library.flatten("A")
+        assert excinfo.value.chain == ["B", "A", "B"]
+
+    def test_values_match_rules(self):
+        """Legacy interpret_value + '==': the actual is floated first."""
+        assert values_match("off", "off")
+        assert values_match(25.0, "25")
+        assert values_match(25, 25.0)
+        assert values_match(0, 0.0)
+        assert not values_match("25", "25")  # legacy quirk: actual floats first
+        assert not values_match("on", "off")
+        assert not values_match(1.0, "on")  # unparseable string stays a string

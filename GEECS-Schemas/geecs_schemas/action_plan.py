@@ -29,17 +29,25 @@ There is no converter from the legacy ``actions:`` dialect any more: the
 corpus was regenerated once as ``ActionPlanLibrary`` documents (0.22.0) and
 is authored v1-only since; a consumer meeting the legacy shape refuses it.
 
-In the target architecture a plan compiles to Bluesky plan
-stubs, inheriting abort/logging/event emission for free.
+One step library, two executors: GeecsBluesky compiles a plan into
+Bluesky plan stubs inside a scan, and GeecsCanopy's module runs one from a
+screen button.  Both walk it with :func:`flatten_action_steps` (nested
+``run`` steps inlined, in execution order) and judge a ``check`` with
+:func:`values_match`, so the two agree by construction.
 """
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Mapping
 from typing import Annotated, Literal, Union
 
 from pydantic import Field, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+
+#: Where an experiment's library lives in its configs folder: ``action_library/actions.yaml``.
+ACTION_LIBRARY_FOLDER, ACTION_LIBRARY_FILENAME = "action_library", "actions.yaml"
 
 # Values written to / expected from a device variable travel the GEECS wire
 # protocol, which accepts words ("on"), numbers, or enum strings — hence the
@@ -205,6 +213,21 @@ class ActionPlanLibrary(VersionedSchemaModel):
         description="All named plans, keyed by the name used to invoke them."
     )
 
+    def flatten(self, name: str) -> list[tuple[ConcreteStep, str | None]]:
+        """The plan *name*'s concrete steps in execution order (:func:`flatten_action_steps`).
+
+        Raises
+        ------
+        ActionPlanNotFoundError
+            When *name*, or a nested ``run`` target, is not in the library.
+        ActionPlanCycleError
+            When nested ``run`` steps form a loop.
+        """
+        plan = self.plans.get(name)
+        if plan is None:
+            raise ActionPlanNotFoundError(name, list(self.plans))
+        return flatten_action_steps(plan, registry=self.plans)
+
     @model_validator(mode="before")
     @classmethod
     def _refuse_legacy_dialect(cls, data: object) -> object:
@@ -259,3 +282,102 @@ class ActionPlanLibrary(VersionedSchemaModel):
                         f"Plan {name!r} has a 'run' step referencing unknown "
                         f"plan {step.plan!r}. Known plans: {sorted(self.plans)}"
                     )
+
+
+#: A step that does something: what :func:`flatten_action_steps` returns.
+ConcreteStep = Union[SetStep, WaitStep, CheckStep]
+
+
+class ActionPlanNotFoundError(ValueError):
+    """A ``run`` step (or a caller) named a plan the library does not hold."""
+
+    def __init__(self, plan_name: str, known_plans: list[str] | None = None) -> None:
+        self.plan_name = plan_name
+        self.known_plans = sorted(known_plans) if known_plans else []
+        super().__init__(f"action plan {plan_name!r} is not in the library")
+
+
+class ActionPlanCycleError(ValueError):
+    """Nested ``run`` steps form a loop; *chain* is the names that close it."""
+
+    def __init__(self, chain: list[str]) -> None:
+        self.chain = list(chain)
+        super().__init__("action plans run each other in a loop: " + " -> ".join(chain))
+
+
+def flatten_action_steps(
+    plan: ActionPlan,
+    *,
+    registry: Mapping[str, ActionPlan],
+) -> list[tuple[ConcreteStep, str | None]]:
+    """Flatten *plan* into its concrete steps, resolving nested ``run`` steps.
+
+    The one walk of an action plan: nested plans are inlined where their
+    ``run`` step sits, in the order every executor runs them.  It touches
+    no device, so it is the fail-fast check for unknown nested names and
+    cycles before anything is written.
+
+    Parameters
+    ----------
+    plan : ActionPlan
+        The validated plan to flatten.
+    registry : Mapping[str, ActionPlan]
+        Named plans that ``run`` steps may reference.
+
+    Returns
+    -------
+    list of (step, from_plan)
+        Concrete steps (``set`` / ``wait`` / ``check``) in execution order.
+        ``from_plan`` is the name of the nested plan a step was inlined
+        from (the innermost enclosing ``run`` target), or ``None`` for
+        *plan*'s own steps.
+
+    Raises
+    ------
+    ActionPlanNotFoundError
+        When a ``run`` step names a plan missing from *registry*.
+    ActionPlanCycleError
+        When nested ``run`` steps form a loop.
+    """
+    flattened: list[tuple[ConcreteStep, str | None]] = []
+
+    def _walk(current: ActionPlan, origin: str | None, stack: tuple[str, ...]) -> None:
+        for step in current.steps:
+            if isinstance(step, RunPlanStep):
+                if step.plan in stack:
+                    raise ActionPlanCycleError([*stack, step.plan])
+                nested = registry.get(step.plan)
+                if nested is None:
+                    raise ActionPlanNotFoundError(step.plan, list(registry))
+                _walk(nested, step.plan, (*stack, step.plan))
+            else:
+                flattened.append((step, origin))
+
+    _walk(plan, None, ())
+    return flattened
+
+
+def values_match(expected: object, actual: object) -> bool:
+    """Compare a ``check`` step's reading against its expected value, legacy-style.
+
+    The *actual* is floated first when it is a string that parses, then
+    plain ``==``, no tolerance.  Quirks included: a numeric expected
+    matches a device reporting ``"25"``, but a *string* expected ``"25"``
+    does **not** match a numeric-looking readback.
+
+    Parameters
+    ----------
+    expected : object
+        The ``expected`` value from the plan (``str | float | int``).
+    actual : object
+        The value read back from the device.
+
+    Returns
+    -------
+    bool
+        True when the values match under the legacy comparison rules.
+    """
+    if isinstance(actual, str):
+        with contextlib.suppress(ValueError):
+            actual = float(actual)
+    return bool(actual == expected)

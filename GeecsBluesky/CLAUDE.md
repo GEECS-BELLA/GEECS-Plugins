@@ -138,7 +138,7 @@ geecs_bluesky/
   native_scope.py           # a native camera's refused run shapes, worded once for the
                             #   worker's bind and the client's expansion
   log_markers.py            # log-line strings clients parse from the manager's text stream
-  actions/steps.py          # flatten_action_steps: the one walk of an action plan
+  actions/steps.py          # flatten_action_steps: GEECS-Schemas' walk, raising this package's errors
   utils.py                  # safe_name, identifier_name, resolve_annotations
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```

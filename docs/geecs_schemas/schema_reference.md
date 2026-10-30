@@ -900,6 +900,7 @@ One journal row: a request's outcome, or the ``attempted`` row a dispatched writ
 | `attempt` | `int (optional)` | no | None | The row of this write's attempted row, once dispatched. |
 | `canopy_code` | `str (optional)` | no | None | Canopy's or our slug. |
 | `detail` | `str (optional)` | no | None | Why; or what a clamp took. |
+| `run` | `str (optional)` | no | None | The action run this row belongs to. |
 
 Example:
 
