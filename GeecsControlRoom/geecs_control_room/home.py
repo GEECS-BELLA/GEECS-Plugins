@@ -228,9 +228,9 @@ async def presets(settings: Settings, module: ModuleClient) -> dict[str, Any]:
     return {"ok": True, "presets": body.get("presets", []), "screens": screens}
 
 
-async def baseline(settings: Settings, module: ModuleClient, listing: Optional[dict[str, Any]] = None) -> dict[str, Any]:  # fmt: skip
+async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
     """The golden snapshots' differing rows, summed: the strip's "differs from baseline"; none without a golden."""
-    listing = listing or await presets(settings, module)
+    listing = await presets(settings, module)
     if not listing["ok"]:
         return listing
     golden = [p for p in listing["presets"] if p.get("golden")]
@@ -260,9 +260,14 @@ class _Baseline:
         self._body: dict[str, Any] = {"ok": False, "detail": "not read yet"}
         self._at, self._lock = -math.inf, asyncio.Lock()
 
-    async def read(self, settings: Settings, module: ModuleClient) -> dict[str, Any]:
+    def invalidate(self) -> None:
+        """The next read is fresh (a golden mark changed what the baseline is)."""
+        self._at = -math.inf
+
+    async def read(self, settings: Settings, module: ModuleClient, fresh: bool = False) -> dict[str, Any]:  # fmt: skip
+        """The cached body, or a fresh one when it is older than the period or ``fresh`` (a run just ended)."""
         async with self._lock:
-            if time.monotonic() - self._at >= BASELINE_TTL_S:
+            if fresh or time.monotonic() - self._at >= BASELINE_TTL_S:
                 self._body = await baseline(settings, module)
                 self._at = time.monotonic()
             return self._body
@@ -334,8 +339,8 @@ def preset_router(settings: Settings) -> APIRouter:
         return await presets(settings, request.app.state.module)
 
     @r.get("/api/home/baseline")
-    async def baseline_chip(request: Request) -> dict[str, Any]:
-        return await cached.read(settings, request.app.state.module)
+    async def baseline_chip(request: Request, fresh: bool = False) -> dict[str, Any]:
+        return await cached.read(settings, request.app.state.module, fresh)
 
     @r.post("/api/presets")
     async def save(request: Request, body: SaveBody) -> Any:
@@ -353,6 +358,7 @@ def preset_router(settings: Settings) -> APIRouter:
 
     @r.post("/api/presets/{preset_id}/golden")
     async def golden(request: Request, preset_id: str, body: GoldenBody) -> Any:
+        cached.invalidate()  # the baseline is another snapshot's now
         call = request.app.state.module.post(f"/presets/{quote(preset_id, safe='')}/golden", body.model_dump())  # fmt: skip
         return await through(call, "no answer; the list says whether the mark took")
 

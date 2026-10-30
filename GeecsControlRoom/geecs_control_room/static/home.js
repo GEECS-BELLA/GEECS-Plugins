@@ -231,10 +231,13 @@
   }
   function seenRun(id, got) {
     if (!got.ok) return;
-    if (R.runEnded(got.value)) { watching.delete(id); slow.tick([BASELINE]); }
+    if (R.runEnded(got.value)) { watching.delete(id); refreshBaseline(); }
     const preset = Object.keys(runOf).find((k) => runOf[k] === id);
     if (preset) track(preset, got.value);
   }
+
+  // a run just ended: the baseline is read fresh, past the Control Room's 10 s cache
+  const refreshBaseline = () => read(BASELINE + "?fresh=1").then(baseline, () => {});
 
   function baseline(body) {
     const v = H.baselineChip(body), chip = $("baseline");
