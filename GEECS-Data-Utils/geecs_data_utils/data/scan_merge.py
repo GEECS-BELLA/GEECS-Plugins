@@ -46,11 +46,15 @@ def merge_scan_frames(frames: Mapping[ScanRef, "pd.DataFrame"]) -> "pd.DataFrame
         frames' columns in the order first seen; a column a scan lacks is
         NaN on its rows.
 
+        A frame's own ``scan`` or ``day`` column (the Bluesky s-files
+        carry ``scan``, the scan number on every row) is replaced by the
+        tag when every value it has names the same scan.
+
     Raises
     ------
     ValueError
-        No frames, or a frame that already has a ``scan`` or ``day``
-        column (the tag would overwrite it).
+        No frames, or a frame whose own ``scan`` or ``day`` column names
+        another scan (the tag would overwrite it).
     """
     import pandas as pd
 
@@ -58,16 +62,26 @@ def merge_scan_frames(frames: Mapping[ScanRef, "pd.DataFrame"]) -> "pd.DataFrame
         raise ValueError("merge at least one scan")
     parts = []
     for (day, scan), frame in frames.items():
-        taken = [c for c in (SCAN_COLUMN, DAY_COLUMN) if c in frame.columns]
-        if taken:
-            raise ValueError(
-                f"Scan{scan:03d} on {day.isoformat()} already has a column "
-                f"named {taken[0]!r}; the merge cannot tag its rows"
-            )
-        tags = pd.DataFrame(
-            {SCAN_COLUMN: int(scan), DAY_COLUMN: day.isoformat()},
-            index=frame.index,
-        )
-        parts.append(pd.concat([tags, frame], axis=1))
+        tag = {SCAN_COLUMN: int(scan), DAY_COLUMN: day.isoformat()}
+        for column, value in tag.items():
+            if column in frame.columns and not _names(frame[column], value):
+                raise ValueError(
+                    f"Scan{scan:03d} on {day.isoformat()} has a column {column!r} "
+                    f"that is not {value!r} on every row; the merge cannot tag its rows"
+                )
+        tags = pd.DataFrame(tag, index=frame.index)
+        own = frame.drop(columns=[c for c in tag if c in frame.columns])
+        parts.append(pd.concat([tags, own], axis=1))
     # sort=False keeps the columns in first-seen order (the union).
     return pd.concat(parts, ignore_index=True, sort=False)
+
+
+def _names(values: "pd.Series", tag: object) -> bool:
+    """Whether every value *values* has is *tag* (a number compares as one)."""
+    import pandas as pd
+
+    present = values.dropna()
+    if isinstance(tag, int):
+        numbers = pd.to_numeric(present, errors="coerce")
+        return bool(numbers.notna().all() and (numbers == tag).all())
+    return bool((present.astype(str) == tag).all())

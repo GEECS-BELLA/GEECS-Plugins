@@ -97,9 +97,27 @@ def test_nothing_to_merge_is_refused():
         merge_scan_frames({})
 
 
-@pytest.mark.parametrize("name", ["scan", "day"])
-def test_a_frame_with_a_tag_column_is_refused(name):
+def test_an_own_scan_column_naming_the_scan_is_the_tag():
+    # The Bluesky s-files carry ``scan``: the scan number on every row.
+    frame = _scan(2)
+    frame["scan"] = [6, 6]
+    merged = merge_scan_frames({(D1, 6): frame, (D2, 3): _scan(1)})
+    assert merged["scan"].tolist() == [6, 6, 3]
+    assert list(merged.columns).count("scan") == 1
+
+
+def test_an_own_day_column_naming_the_day_is_the_tag():
     frame = _scan(1)
-    frame[name] = [5]
+    frame["day"] = ["2026-10-26"]
+    assert merge_scan_frames({(D1, 1): frame})["day"].tolist() == ["2026-10-26"]
+
+
+@pytest.mark.parametrize(
+    "name, values",
+    [("scan", [5, 6]), ("scan", ["a", "a"]), ("day", ["2026-10-27"] * 2)],
+)
+def test_an_own_column_naming_another_scan_is_refused(name, values):
+    frame = _scan(2)
+    frame[name] = values
     with pytest.raises(ValueError, match=name):
-        merge_scan_frames({(D1, 1): frame})
+        merge_scan_frames({(D1, 6): frame})
