@@ -109,7 +109,8 @@
     return [r.status, await r.json()];
   };
   const ask = (dialog, yes) => new Promise((done) => {
-    dialog.onclick = (ev) => { if (ev.target.value) { dialog.close(); done(ev.target.value === yes); } };
+    // the dialog's buttons decide; an <option> picked in the scope list has a value too, and must not
+    dialog.onclick = (ev) => { if (ev.target.tagName === "BUTTON" && ev.target.value) { dialog.close(); done(ev.target.value === yes); } };
     dialog.oncancel = () => done(false);
     dialog.showModal();
   });
