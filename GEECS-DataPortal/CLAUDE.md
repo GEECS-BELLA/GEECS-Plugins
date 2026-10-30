@@ -611,6 +611,26 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   added still loads ("not in this version"). A new model is a data-utils
   PR first (its curve and `CurveFit.formula` live there), then a `FITS`
   entry.
+- **Several scans** (the XY plot only; the author's design, 2026-10-29):
+  the set's `extra_scans` (`[{day, scan}]`, from any day) beside the
+  main `day`/`scan`, which the steppers, the day picker, the 2-D map and
+  the Images page act on alone; the link stays `?day=&scan=&set=`. The
+  rail's Scans group is a chip per scan and **Add scan…**, the kit's
+  `GeecsKit.picker` over `/plot/api/day` (the plotter's folder catalog).
+  `/plot/api/figure?scans=YYYY-MM-DD:N,…` reads every scan into one frame
+  (`geecs_data_utils.data.scan_merge.merge_scan_frames`: rows tagged
+  `scan` and `day`, the union of columns, each shot its own number; an
+  s-file's own `scan` column naming the same scan is the tag), so a shot
+  filter can name `scan`. `scan_view` picks the view: **overlay** (the
+  default) draws one Y list (`overlay_y`), a trace, a fit and bins per
+  scan, coloured `--trace-1..8` by its place in the list, at most
+  `MAX_OVERLAY_SCANS` (8); **merged** (LabVIEW's "merge s files") plots
+  the pooled frame as one scan, Y1–Y3, one fit per Y, and bins by the X
+  value where the bin column is `Bin #` (it restarts in every scan:
+  `plotter.multi.merged_bins`; X = shot # is refused). The pick lists
+  are the union of the scans' columns, a column some lack marked "in 2
+  of 3 scans". `plotter/multi.py` holds the frame and the groups the
+  route and the snippet share; the `code` rebuilds either view.
 - **The image strip** (the Images page): a tile is one shot's image or
   its bin's average (`geecs_data_utils.data.binning.bin_rows` over the
   WHOLE s-file, an empty `Bin #` a bin of its own; a filter would go in as
@@ -675,8 +695,9 @@ they left open is here, for Sam at the promotion PR to `master`.
   imported from it if it is readable.
 - **Still to build** (the author's lists): clicking a plot point to open
   its shot, several cameras in one layout, GIF export; deferred: gauss
-  prop, peak/valley, xcorr-aligned bin averages, merging s-files across
-  scans, a trace waterfall; and the strip honouring the shot filters.
+  prop, peak/valley, xcorr-aligned bin averages, a trace waterfall;
+  several scans on the 2-D map and the Images page (the XY plot has
+  them: "Several scans", above); and the strip honouring the shot filters.
 
 ## Adding an analysis tab (the checklist)
 

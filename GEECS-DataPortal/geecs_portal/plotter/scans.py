@@ -16,7 +16,7 @@ from geecs_data_utils.data.sfile import column_alias
 from geecs_data_utils.folder_catalog import FolderScanCatalog, folder_uid
 from geecs_data_utils.scan_frame import scan_frame
 from geecs_data_utils.scan_paths import current_paths_config
-from geecs_data_utils.tiled_catalog import RunDetail
+from geecs_data_utils.tiled_catalog import RunDetail, RunSummary
 
 
 def find_scan(
@@ -58,6 +58,27 @@ def find_scan(
         return catalog.load_run(folder_uid(name, day, number))
     except (KeyError, OSError):
         return None
+
+
+def day_scans(
+    day: date,
+    *,
+    experiment: str = "",
+    catalog: Optional[FolderScanCatalog] = None,
+) -> list[RunSummary]:
+    """The day's scans on the share, by number; empty for a day with none.
+
+    Raises
+    ------
+    OSError
+        The data root is unreachable.
+    """
+    config = current_paths_config()
+    name = experiment or (getattr(config, "experiment", None) or "")
+    if not name:
+        return []
+    runs = (catalog or FolderScanCatalog()).list_runs(name, day)
+    return sorted(runs, key=lambda r: r.scan_number or 0)
 
 
 def scan_folder(run: RunDetail) -> Path:

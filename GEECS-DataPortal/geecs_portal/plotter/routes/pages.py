@@ -25,15 +25,17 @@ draws it.
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import Optional, Sequence
 from urllib.parse import urlencode
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
+from geecs_data_utils.data.scan_merge import SCAN_COLUMN
 from geecs_data_utils.tiled_catalog import RunDetail
 
-from geecs_portal.plotter import figures, images, maps, scans
+from geecs_portal.plotter import figures, images, maps, multi, scans
 from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.routes.images import strip_code, strip_tiles
 from geecs_portal.plotter.settings import (
@@ -41,12 +43,14 @@ from geecs_portal.plotter.settings import (
     DEFAULT_SET,
     MAX_FIT_ORDER,
     MAX_IMAGE_COLUMNS,
+    MAX_OVERLAY_SCANS,
     MAX_Y_LISTS,
     NameRefused,
     PlotterSettings,
     SettingsError,
     form_value,
     merged,
+    scan_refs_text,
     set_name,
 )
 
@@ -194,7 +198,8 @@ def _render(
         except HTTPException as missing:
             page["error"] = missing.detail
         else:
-            _fill(page, run, settings, ctx.experiment, ctx.logbook_send)
+            extras = _extra_runs(ctx, page) if page["page"] == "plot" else []
+            _fill(page, run, settings, ctx.experiment, ctx.logbook_send, extras)
     return ctx.templates.TemplateResponse(
         request,
         "index.html",
@@ -346,6 +351,28 @@ def _page(
         "max_fit_order": MAX_FIT_ORDER,
         # The XY plot's view, shot filters, bins and cosmetics (JSON text).
         "view": _choice(settings, "xy_view"),
+        # The scans beside the main one (the XY plot only): each a chip,
+        # "missing" when it is not on the share; the saved list as the
+        # form posts it, and the ones found as the figure route takes them.
+        "extra_scans": [
+            {
+                "day": r.day,
+                "scan": r.scan,
+                "label": multi.scan_label(r.day, r.scan),
+                "text": scan_refs_text([r]),
+                "missing": False,
+            }
+            for r in settings.extra_scans
+            if (r.day, r.scan) != (day, scan)
+        ],
+        "scans_saved": scan_refs_text(settings.extra_scans),
+        "scans_text": "",
+        "main_label": multi.scan_label(day, scan) if day and scan else "",
+        "scan_view": _choice(settings, "scan_view"),
+        "overlay_y": settings.overlay_y,
+        "max_overlay": MAX_OVERLAY_SCANS,
+        "coverage": {},
+        "scan_total": 1,
         "filters": settings.shot_filters,
         "bincfg": settings.bin_config,
         "display": settings.display,
@@ -421,12 +448,26 @@ def _fill(
     settings: PlotterSettings,
     experiment: str = "",
     logbook_send: bool = False,
+    extras: Sequence[tuple[date, int, pd.DataFrame]] = (),
 ) -> None:
-    """Add the open scan's lists and the picks the settings resolve to."""
+    """Add the open scan's lists and the picks the settings resolve to.
+
+    With *extras* (the XY plot's other scans, found on the share) the
+    lists are the union of every scan's columns, each noting how many of
+    them have it.
+    """
     frame = scans.load_frame(run)
     if page["tab"] == "images":
         _fill_images(page, run, frame, settings, experiment)
     picks = scans.columns(frame)
+    if extras and page["tab"] == "xy":
+        frames = {"main": frame, **{(d, n): f for d, n, f in extras}}
+        page["coverage"] = multi.column_coverage(frames)
+        page["scan_total"] = len(frames)
+        # A shot filter, or X, may name the scan itself.
+        page["coverage"][SCAN_COLUMN] = len(frames)  # the merge tags every row
+        picks = list(page["coverage"])
+        page["scans_text"] = ",".join(f"{d.isoformat()}:{n}" for d, n, _ in extras)
     page["columns"] = picks
     page["uid"] = run.summary.uid
     page["logbook_send"] = logbook_send
@@ -468,11 +509,33 @@ def _fill(
     page["slots"] = [i for i, c in shown if c]
     names = [page[f"{k}names"][c] for k, (_, c) in zip(("y", "y2", "y3"), shown) if c]
     x_name = page["xnames"][page["x"]] if page["x"] else "shot #"
+    # The overlay draws one Y list; a saved one past the count is Y1.
+    page["overlay_y"] = (
+        settings.overlay_y if settings.overlay_y <= settings.y_count else 1
+    )
+    overlaid = page["scans_text"] and page["scan_view"] == "overlay"
+    if overlaid:
+        names = names[page["overlay_y"] - 1 : page["overlay_y"]] or names[:1]
     page["caption"] = f"{', '.join(names)} vs {x_name}" + (
         " (binned)" if page["view"] == "bin" else ""
     )
+    if page["scans_text"]:
+        page["caption"] += f", {page['scan_total']} scans ({page['scan_view']})"
     if page["tab"] == "map":
         _fill_map(page, run, picks, settings)
+
+
+def _extra_runs(ctx: Context, page: dict) -> list[tuple[date, int, pd.DataFrame]]:
+    """The extra scans found on the share, with their frames; the rest marked missing."""
+    found = []
+    for chip in page["extra_scans"]:
+        try:
+            run = ctx.run(chip["day"], chip["scan"])
+        except HTTPException:
+            chip["missing"] = True
+            continue
+        found.append((chip["day"], chip["scan"], scans.load_frame(run)))
+    return found
 
 
 def _fill_map(

@@ -18,19 +18,23 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from geecs_data_utils.data.curve_fit import CurveFit
 from geecs_data_utils.data.row_filters import RowFilters, apply_filters
+from geecs_data_utils.data.scan_merge import merge_scan_frames
 from geecs_data_utils.scan_grid import grid_scan
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from geecs_portal import analysis
 from geecs_portal import figures as portal_figures
-from geecs_portal.plotter import figures, maps, scans
+from geecs_portal.plotter import figures, maps, multi, scans
 from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.settings import (
     MAX_FIT_ORDER,
+    MAX_OVERLAY_SCANS,
+    MAX_Y_LISTS,
     PlotterSettings,
     SettingsError,
     merged,
+    scan_refs,
     set_name,
 )
 
@@ -45,6 +49,22 @@ class ColumnsResponse(BaseModel):
     columns: list[str]
     default_x: str
     shots: int
+
+
+class DayScan(BaseModel):
+    """One scan of a day, as the Add-scan drawer lists it."""
+
+    scan: int
+    description: str = ""
+    #: The planned shots (the ScanInfo), ``None`` when it names none.
+    shots: Optional[int] = None
+
+
+class DayResponse(BaseModel):
+    """A day's scans, by number."""
+
+    day: date
+    scans: list[DayScan]
 
 
 class SetsResponse(BaseModel):
@@ -82,6 +102,11 @@ class FitResult(BaseModel):
     points: int = 0
     terms: list[FitTerm] = []
     notes: list[str] = []
+    #: The overlay's fits are one per scan: the scan's legend name, and the
+    #: trace colour it is drawn in (1-8). ``""`` / ``0`` on one scan, where
+    #: the colour is the slot's.
+    scan: str = ""
+    trace: int = 0
 
 
 class FigureResponse(BaseModel):
@@ -104,8 +129,13 @@ class FigureResponse(BaseModel):
     figure: dict[str, Any]
     code: str
     #: One per Y list with a fit picked, in slot order (per-shot view only:
-    #: a fit is made to the shots, never to bin centres).
+    #: a fit is made to the shots, never to bin centres); in the overlay,
+    #: one per scan for its one Y.
     fits: list[FitResult] = []
+    #: With extra scans: ``"overlay"`` or ``"merged"`` (``""`` for one
+    #: scan), and each scan's legend name, the main one first.
+    multi: str = ""
+    scans: list[str] = []
 
 
 def _finite(value: float) -> Optional[float]:
@@ -143,7 +173,13 @@ def plus_minus(value: float, stderr: float) -> str:
 
 
 def fit_result(
-    slot: int, column: str, model: str, fit: Optional[CurveFit]
+    slot: int,
+    column: str,
+    model: str,
+    fit: Optional[CurveFit],
+    *,
+    scan: str = "",
+    trace: int = 0,
 ) -> FitResult:
     """The page's view of one fit; *fit* ``None`` is a model this copy lacks."""
     label = figures.FITS.get(model, model)
@@ -154,6 +190,8 @@ def fit_result(
             model=model,
             label=label,
             error=f"this plotter has no fit called {model!r}",
+            scan=scan,
+            trace=trace,
         )
     terms = [
         FitTerm(
@@ -175,6 +213,8 @@ def fit_result(
         points=fit.points,
         terms=terms,
         notes=fit.notes,
+        scan=scan,
+        trace=trace,
     )
 
 
@@ -191,6 +231,7 @@ def figure_code(
     filters: Optional[RowFilters] = None,
     cfg: Optional[Any] = None,
     display: Optional[dict] = None,
+    extra: Sequence[tuple[date, int]] = (),
 ) -> str:
     """The notebook snippet that rebuilds the frame, the fits and the figure.
 
@@ -221,6 +262,9 @@ def figure_code(
         fitting and plotting the shots.
     display : dict, optional
         The plot cosmetics; its ``layout`` patch is the browser's.
+    extra : Sequence[tuple[datetime.date, int]], optional
+        The scans merged with this one (the merged view): the frame is
+        theirs and this one's together.
 
     Returns
     -------
@@ -252,10 +296,14 @@ def figure_code(
         fit_arg = ", fits=fits"
     display_arg = analysis.snippet_display(display)
     head = (
-        "from datetime import date\n"
-        "from geecs_portal.plotter import figures, scans\n\n"
-        f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
-        "frame = scans.load_frame(run)\n"
+        _merged_head([(day, scan), *extra], where)
+        if extra
+        else (
+            "from datetime import date\n"
+            "from geecs_portal.plotter import figures, scans\n\n"
+            f"run = scans.find_scan({_date(day)}, {scan}{where})\n"
+            "frame = scans.load_frame(run)\n"
+        )
     )
     filtering = filters is not None and bool(filters.active_groups())
     keep = (
@@ -281,6 +329,94 @@ def figure_code(
         head + keep + series + f"{fitting}"
         f"fig = figures.shots_figure(series, {y_arg}{x_arg}, shot=scans.shot_axis(frame)"
         f"{labels}{fit_arg}{display_arg})\n"
+        "fig.show()\n"
+        + ("for fit in filter(None, fits):\n    print(fit)\n" if fitting else "")
+    )
+
+
+def _date(day: date) -> str:
+    return f"date({day.year}, {day.month}, {day.day})"
+
+
+def _merged_head(refs: Sequence[tuple[date, int]], where: str) -> str:
+    """The snippet's first lines with several scans: their one merged frame."""
+    listed = ", ".join(f"({_date(d)}, {n})" for d, n in refs)
+    return (
+        "from datetime import date\n"
+        "from geecs_portal.plotter import figures, multi, scans\n\n"
+        f"refs = [{listed}]\n"
+        f"frame = multi.merged_frame(refs{where})\n"
+    )
+
+
+def _filter_lines(filters: Optional[RowFilters]) -> str:
+    """``kept = …``: the filters' lines of a snippet, or ``kept = frame``."""
+    if filters is None or not filters.active_groups():
+        return "kept = frame\n"
+    return (
+        "from geecs_data_utils.data.row_filters import RowFilters, apply_filters\n"
+        "kept = apply_filters(frame, RowFilters.model_validate_json("
+        f"{filters.model_dump_json()!r}))\n"
+    )
+
+
+def overlay_code(
+    refs: Sequence[tuple[date, int]],
+    y: str,
+    x: Optional[str],
+    experiment: str = "",
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    fit: str = "none",
+    order: int = 2,
+    filters: Optional[RowFilters] = None,
+    cfg: Optional[Any] = None,
+    display: Optional[dict] = None,
+) -> str:
+    """The overlay's snippet: the merged frame, split per scan, one Y drawn.
+
+    *fit* (a ``figures.FITS`` key) is made per scan; given *cfg*, each
+    scan is binned on its own instead. The other parameters are
+    :func:`figure_code`'s.
+    """
+    where = f", experiment={experiment!r}" if experiment else ""
+    labels = f", x_label={x_label!r}" if x_label else ""
+    labels += f", y_label={y_label!r}" if y_label else ""
+    display_arg = analysis.snippet_display(display)
+    head = _merged_head(refs, where) + _filter_lines(filters)
+    if cfg is not None:
+        non_default = {
+            f.name: getattr(cfg, f.name)
+            for f in dataclasses.fields(cfg)
+            if f.name != "value_cols" and getattr(cfg, f.name) != f.default
+        }
+        kwargs = ", ".join(f"{k}={v!r}" for k, v in sorted(non_default.items()))
+        return (
+            head + "from geecs_data_utils.data.binning import BinningConfig\n"
+            f"cfg = BinningConfig({kwargs})\n"
+            "# each scan binned on its own: Bin # restarts in every scan\n"
+            f"groups = multi.overlay_bins(kept, refs, cfg, {y!r}, {x!r})\n"
+            f"fig = figures.overlay_binned_figure(groups, {y!r}, bin_col={cfg.bin_col!r}"
+            f"{labels}{display_arg})\n"
+            "fig.show()\n"
+        )
+    names = [y, x] if x else [y]
+    x_arg = f", x={x!r}" if x else ""
+    fitting = ""
+    fit_arg = ""
+    if fit and fit != "none":
+        order_arg = f", orders=[{order}]" if fit == "polynomial" else ""
+        fitting = (
+            f"fits = [figures.fit_columns(series, [{y!r}], [{fit!r}]{x_arg}, shot=shot"
+            f"{order_arg})[0]\n        for _, series, shot in groups]\n"
+        )
+        fit_arg = ", fits=fits"
+    return (
+        head
+        + f"groups = multi.overlay_groups(frame, kept, refs, {names!r})\n"
+        + fitting
+        + f"fig = figures.overlay_figure(groups, {y!r}{x_arg}{labels}{fit_arg}"
+        f"{display_arg})\n"
         "fig.show()\n"
         + ("for fit in filter(None, fits):\n    print(fit)\n" if fitting else "")
     )
@@ -347,6 +483,11 @@ def register(router: APIRouter, ctx: Context) -> None:
         )
         return _json(body)
 
+    @router.get("/api/day", response_model=DayResponse)
+    def api_day(day: date) -> JSONResponse:
+        """The day's scans: what the Add-scan drawer offers beside the open one."""
+        return _day_response(ctx, day)
+
     @router.get("/api/figure", response_model=FigureResponse)
     def api_figure(
         day: date,
@@ -371,6 +512,19 @@ def register(router: APIRouter, ctx: Context) -> None:
         filters: str = Query(default="", description="RowFilters JSON: the shots kept"),
         bincfg: str = Query(default="", description="BinningConfig JSON, for view=bin"),
         display: str = Query(default="", description="the plot cosmetics JSON"),
+        extra: str = Query(
+            default="",
+            alias="scans",
+            description="more scans beside this one: YYYY-MM-DD:N, comma-separated",
+        ),
+        multi: str = Query(
+            default="overlay",
+            pattern="^(overlay|merged)$",
+            description="with more scans: a trace per scan, or one pooled frame",
+        ),
+        oy: int = Query(
+            default=1, ge=1, le=MAX_Y_LISTS, description="the Y list the overlay draws"
+        ),
     ) -> JSONResponse:
         """The figure of ``y`` (and ``y2``, ``y3``) against ``x``, per shot or binned.
 
@@ -378,6 +532,12 @@ def register(router: APIRouter, ctx: Context) -> None:
         list's fit is made to the shots drawn; binned, each bin's centre and
         error bars are drawn (the portal's ``/binned``: bins group, the X
         column's per-bin mean places them) and no fit is made.
+
+        With ``scans``, every scan is read into one frame
+        (``merge_scan_frames``: a shot filter can name ``scan``). ``merged``
+        plots it as one scan, binned by the X value rather than ``Bin #``;
+        ``overlay`` draws Y list ``oy`` alone, a trace (and a fit, and
+        bins) per scan, at most ``MAX_OVERLAY_SCANS`` of them.
         """
         return _figure_response(
             ctx,
@@ -392,12 +552,23 @@ def register(router: APIRouter, ctx: Context) -> None:
             filters=filters,
             bincfg=bincfg,
             display=display,
+            extra=extra,
+            scan_view=multi,
+            overlay_y=oy,
         )
 
     @router.get("/api/filter-count")
-    def api_filter_count(day: date, scan: int, filters: str = "") -> JSONResponse:
-        """``{pass, total}``: the shots the filters keep, for the editor's live count."""
-        frame = scans.load_frame(ctx.run(day, scan))
+    def api_filter_count(
+        day: date,
+        scan: int,
+        filters: str = "",
+        extra: str = Query(default="", alias="scans"),
+    ) -> JSONResponse:
+        """``{pass, total}``: the shots the filters keep, for the editor's live count.
+
+        With ``scans``, over every scan's shots together.
+        """
+        frame = _frame(ctx, _refs(day, scan, extra))
         try:
             flt = analysis.parse_filters(filters)
         except analysis.BadParam as bad:
@@ -429,6 +600,12 @@ def register(router: APIRouter, ctx: Context) -> None:
         """
         names = {value: valuealias, x: axisalias, y: axisalias}
         return _map_response(ctx, day, scan, (value, x, y), mapcfg, filters, names)
+
+    _register_settings(router, ctx)
+
+
+def _register_settings(router: APIRouter, ctx: Context) -> None:
+    """Add the settings-set routes to *router*."""
 
     @router.get("/api/settings", response_model=SetsResponse)
     def api_sets() -> JSONResponse:
@@ -478,10 +655,18 @@ def _figure_response(
     filters: str,
     bincfg: str,
     display: str,
+    extra: str = "",
+    scan_view: str = "overlay",
+    overlay_y: int = 1,
 ) -> JSONResponse:
-    """``/api/figure``'s answer: *axes* is ``(column or None, alias)`` per Y slot."""
+    """``/api/figure``'s answer: *axes* is ``(column or None, alias)`` per Y slot.
+
+    *extra* names the scans beside this one; with any, *scan_view* says how
+    they are drawn (the overlay of Y list *overlay_y*, or merged).
+    """
     y = axes[0][0] or ""
-    frame = scans.load_frame(ctx.run(day, scan))
+    refs = _refs(day, scan, extra, overlay=scan_view == "overlay")
+    frame = _frame(ctx, refs)
     if not y:
         raise HTTPException(status_code=404, detail="no plottable column ''")
     try:
@@ -491,6 +676,25 @@ def _figure_response(
     except analysis.BadParam as bad:
         raise HTTPException(status_code=400, detail=str(bad)) from None
     kept = _kept(frame, flt)
+    if len(refs) > 1 and scan_view == "overlay":
+        slot = overlay_y - 1
+        return _overlay_response(
+            ctx,
+            refs,
+            frame,
+            kept,
+            slot=slot,
+            axis=axes[slot],
+            x=x,
+            xalias=xalias,
+            fit=fits[slot],
+            order=orders[slot],
+            flt=flt,
+            cfg=cfg,
+            disp=disp,
+        )
+    if cfg is not None and len(refs) > 1:
+        cfg = _merged_bins(cfg, x)
     # Each list keeps its slot (colour and axis): Y3 stays Y3 with Y2
     # off. Trailing off slots are dropped so a one-Y snippet stays bare.
     axes = list(axes)
@@ -563,8 +767,177 @@ def _figure_response(
             filters=flt,
             cfg=cfg,
             display=disp,
+            extra=refs[1:],
         ),
         fits=results,
+        multi=scan_view if len(refs) > 1 else "",
+        scans=[multi.scan_label(d, n) for d, n in refs] if len(refs) > 1 else [],
+    )
+    return _json(body)
+
+
+def _day_response(ctx: Context, day: date) -> JSONResponse:
+    """``/api/day``'s answer: the day's numbered scans; a 503 off the share."""
+    try:
+        runs = scans.day_scans(day, experiment=ctx.experiment, catalog=ctx.catalog)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503, detail=f"the data share is not reachable: {exc}"
+        ) from None
+    body = DayResponse(
+        day=day,
+        scans=[
+            DayScan(scan=r.scan_number, description=r.description, shots=r.shots)
+            for r in runs
+            if r.scan_number is not None
+        ],
+    )
+    return _json(body)
+
+
+def _refs(
+    day: date, scan: int, extra: str, *, overlay: bool = False
+) -> list[tuple[date, int]]:
+    """The main scan and *extra* (``scan_refs`` text), each once, main first.
+
+    *overlay* refuses more than the overlay draws (a 400).
+    """
+    try:
+        refs = [(r.day, r.scan) for r in scan_refs(extra)]
+    except SettingsError as bad:
+        raise HTTPException(status_code=400, detail=f"scans: {bad}") from None
+    refs = [(day, scan), *(r for r in refs if r != (day, scan))]
+    if overlay and len(refs) > MAX_OVERLAY_SCANS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"the overlay draws at most {MAX_OVERLAY_SCANS} scans, not "
+                f"{len(refs)}: remove some, or merge them"
+            ),
+        )
+    return refs
+
+
+def _merged_bins(cfg: Any, x: str) -> Any:  # BinningConfig in, BinningConfig out
+    """``multi.merged_bins``, its refusal a 400."""
+    try:
+        return multi.merged_bins(cfg, x or None)
+    except ValueError as bad:
+        raise HTTPException(status_code=400, detail=str(bad)) from None
+
+
+def _frame(ctx: Context, refs: Sequence[tuple[date, int]]) -> pd.DataFrame:
+    """One scan's s-file, or several scans' merged; a 404 naming a missing one."""
+    if len(refs) == 1:
+        return scans.load_frame(ctx.run(*refs[0]))
+    frames = {ref: scans.load_frame(ctx.run(*ref)) for ref in refs}
+    try:
+        return merge_scan_frames(frames)
+    except ValueError as bad:
+        raise HTTPException(status_code=400, detail=str(bad)) from None
+
+
+def _overlay_response(
+    ctx: Context,
+    refs: Sequence[tuple[date, int]],
+    frame: pd.DataFrame,
+    kept: pd.DataFrame,
+    *,
+    slot: int,
+    axis: tuple[Optional[str], bool],
+    x: str,
+    xalias: bool,
+    fit: str,
+    order: int,
+    flt: RowFilters,
+    cfg: Optional[Any],
+    disp: dict,
+) -> JSONResponse:
+    """The overlay's answer: Y list *slot* (0-2) alone, a trace per scan.
+
+    *axis* is that list's ``(column or None, alias)``; off is a 400.
+    """
+    y, y_alias = axis
+    if not y:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"the overlay draws Y{'' if slot == 0 else slot + 1}, which is "
+                "off: pick its column, or draw another Y"
+            ),
+        )
+    x_label = _changed(x, xalias) if x else None
+    y_label = _changed(y, y_alias)
+    known = fit if fit in figures.FITS else "none"
+    labels = [multi.scan_label(d, n) for d, n in refs]
+    results: list[FitResult] = []
+    try:
+        if cfg is None:
+            groups = multi.overlay_groups(frame, kept, refs, [y, x] if x else [y])
+            made = [
+                figures.fit_columns(
+                    series, [y], [known], x=x or None, shot=shot, orders=[order]
+                )[0]
+                for _, series, shot in groups
+            ]
+            fig = figures.overlay_figure(
+                groups,
+                y,
+                x=x or None,
+                x_label=x_label,
+                y_label=y_label,
+                fits=made,
+                display=disp,
+                palette=figures.THEMED_PALETTE,
+            )
+            if fit != "none":
+                results = [
+                    fit_result(slot + 1, y, fit, one, scan=label, trace=i + 1)
+                    for i, (label, one) in enumerate(zip(labels, made))
+                ]
+        else:
+            fig = figures.overlay_binned_figure(
+                multi.overlay_bins(kept, refs, cfg, y, x or None),
+                y,
+                bin_col=cfg.bin_col,
+                x_label=(x_label or x) if x else None,
+                y_label=y_label,
+                display=disp,
+                palette=figures.THEMED_PALETTE,
+            )
+    except KeyError as missing:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no scan has the column {missing.args[0]!r}",
+        ) from None
+    except (TypeError, ValueError) as bad:
+        raise HTTPException(
+            status_code=400, detail=f"binned view needs numeric columns: {bad}"
+        ) from None
+    body = FigureResponse(
+        x=x,
+        y=y,
+        shots=len(frame),
+        view="shot" if cfg is None else "bin",
+        passing=len(kept),
+        total=len(frame),
+        figure=figures.page_figure(fig),
+        code=overlay_code(
+            refs,
+            y,
+            x or None,
+            ctx.experiment,
+            x_label,
+            y_label,
+            fit=known if cfg is None else "none",
+            order=order,
+            filters=flt,
+            cfg=cfg,
+            display=disp,
+        ),
+        fits=results,
+        multi="overlay",
+        scans=labels,
     )
     return _json(body)
 
