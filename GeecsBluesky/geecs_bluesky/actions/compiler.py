@@ -11,9 +11,10 @@ semantics, pinned here:
   library both executors share): float-coerce the *actual* reading when
   it parses, then plain ``==``, no tolerance; a mismatch raises
   :class:`~geecs_bluesky.exceptions.ActionCheckFailedError`.
-- ``run`` → resolve by name from the registry and recurse; a missing name
-  raises :class:`~geecs_bluesky.exceptions.ActionPlanNotFoundError`, a
-  cycle :class:`~geecs_bluesky.exceptions.ActionPlanCycleError`.
+- ``run`` → inlined by the shared walk (:func:`flatten_action_steps`)
+  before the first message; a missing name raises
+  :class:`~geecs_bluesky.exceptions.ActionPlanNotFoundError`, a cycle
+  :class:`~geecs_bluesky.exceptions.ActionPlanCycleError`.
 
 This module never touches Channel Access or PV strings: signals come from
 the injected :class:`SettableFactory`.  :func:`run_action_plan` is the
@@ -34,7 +35,6 @@ from bluesky.utils import MsgGenerator
 from geecs_schemas.action_plan import (
     ActionPlan,
     CheckStep,
-    RunPlanStep,
     SetStep,
     WaitStep,
     values_match,
@@ -44,8 +44,6 @@ from geecs_bluesky.actions.steps import flatten_action_steps
 from geecs_bluesky.utils import resolve_annotations
 from geecs_bluesky.exceptions import (
     ActionCheckFailedError,
-    ActionPlanCycleError,
-    ActionPlanNotFoundError,
     GeecsConfigurationError,
 )
 
@@ -120,17 +118,9 @@ def compile_action_plan(
     ActionPlanCycleError
         When nested ``run`` steps form a loop.
     """
-    yield from _compile(plan, registry, settables, stack=())
-
-
-def _compile(
-    plan: ActionPlan,
-    registry: Mapping[str, ActionPlan],
-    settables: SettableFactory,
-    stack: tuple[str, ...],
-) -> MsgGenerator:
-    """Execute *plan*'s steps; *stack* is the chain of nested plan names (cycle guard)."""
-    for step in plan.steps:
+    # The shared walk: nested plans inlined, unknown names and loops refused
+    # before the first message, in the order every executor runs them.
+    for step, _origin in flatten_action_steps(plan, registry=registry):
         if isinstance(step, SetStep):
             signal = settables.get_settable(step.device, step.variable)
             # Legacy sync semantics — see the module docstring.
@@ -147,14 +137,7 @@ def _compile(
                     expected=step.expected,
                     actual=actual,
                 )
-        elif isinstance(step, RunPlanStep):
-            if step.plan in stack:
-                raise ActionPlanCycleError([*stack, step.plan])
-            nested = registry.get(step.plan)
-            if nested is None:
-                raise ActionPlanNotFoundError(step.plan, list(registry))
-            yield from _compile(nested, registry, settables, (*stack, step.plan))
-        else:  # pragma: no cover - schema discriminator prevents this
+        else:  # pragma: no cover - flatten yields set/wait/check only
             raise TypeError(f"Unrecognized action step type: {type(step)!r}")
 
 
