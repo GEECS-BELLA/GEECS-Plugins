@@ -103,7 +103,9 @@
   const H = window.GeecsHomeRules, R = window.GeecsScreenRules;
   const PRESETS = "/api/home/presets", BASELINE = "/api/home/baseline";
   let presets = [], screens = [], current = null, drawn = "", runs = {}, runOf = {}, watching = new Set();
-  const opInput = $("operator"); // the header's, as on a screen
+  const opInput = $("operator"), OP_KEY = "geecs-control-room-operator"; // the header's, remembered as on a screen
+  try { opInput.value = localStorage.getItem(OP_KEY) || ""; } catch (_) { /* no storage */ }
+  opInput.addEventListener("change", () => { try { localStorage.setItem(OP_KEY, opInput.value.trim()); } catch (_) { /* no storage */ } });
   const json = async (path, body) => {
     const r = await fetch(root + path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
     return [r.status, await r.json()];
@@ -121,6 +123,7 @@
       chip.dataset.state = "unknown"; chip.textContent = "unknown";
       pane.hidden = false; pane.dataset.state = "error"; pane.querySelector(".t").textContent = "unknown"; pane.querySelector(".m").textContent = body.detail || "";
       scroll.hidden = true;
+      drawn = ""; // the next good list must redraw, whatever it holds
       return;
     }
     presets = body.presets; screens = body.screens || [];
@@ -154,7 +157,8 @@
   }
 
   async function savePreset() {
-    scopeOptions();
+    scopeOptions(); // afresh: no name and no picks carried from the last save
+    $("preset-name").value = "";
     const operator = opInput.value.trim();
     if (!operator) { opInput.focus(); return note("unsent", "name yourself in the header first"); }
     if (!(await ask($("preset-save"), "save"))) return;

@@ -17,7 +17,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import FastAPI
-from geecs_canopy.testing import EXPERIMENT, live, make_env
+from geecs_canopy.testing import EXPERIMENT, FakeSquirrel, live, make_env
 
 from geecs_control_room.app import create_app
 from geecs_control_room.module_client import ModuleClient
@@ -43,7 +43,7 @@ class _Failing(httpx.AsyncBaseTransport):
 
 @pytest.fixture
 async def room(tmp_path: Path):
-    env = make_env(tmp_path)
+    env = make_env(tmp_path, squirrel=FakeSquirrel())
     canopy = FastAPI()
     canopy.mount("/geecs", env.app)
     broken: set[str] = set()
@@ -166,3 +166,57 @@ async def test_a_button_runs_an_action_plan_and_the_page_reads_its_run(room) -> 
         await asyncio.sleep(0.01)
     assert {"id", "plan", "state", "steps"} <= set(run) and run["state"] == "done"
     assert {"index", "state", "journalId"} <= set(run["steps"][0])
+
+
+#: Every field home.js reads from a preset, a diff row and the diff's counts.
+PRESET_FIELDS = {"id", "name", "time", "operator", "scope", "golden", "pvCount"}
+ROW_FIELDS = {"device", "role", "axis", "saved", "live", "tolerance", "word"}
+
+
+async def test_the_presets_region_reads_what_the_module_answers(room) -> None:
+    sp, mot = "bench:ps1:current:SP", "test:mot1:m1.VAL"
+    fake = room.env.squirrel  # the FakeSquirrel behind the module's client
+    room.env.hare.meta[sp] = {"controlLow": 0.0, "controlHigh": 5.0}
+    for pv, value in (
+        (sp, 1.0),
+        ("bench:ps1:current", 1.0),
+        (mot, 2.0),
+        ("test:mot1:m1.RBV", 2.0),
+    ):
+        room.env.hare.values[pv] = live(value)
+    for address, rb, device, role in ((sp, "bench:ps1:current", "ps1", "current_sp"), (mot, "test:mot1:m1.RBV", "Mot1", "m1.val")):  # fmt: skip
+        fake.handle(httpx.Request("POST", "http://s/squirrel/v1/pvs", json={"setpointAddress": address, "readbackAddress": rb, "device": device, "description": role}))  # fmt: skip
+    fake.values = {sp: 1.0, mot: 2.0}
+    saved = await room.client.post("/api/presets", json={"name": "bench-a", "operator": "ann", "scope": {"devices": ["ps1", "Mot1"]}})  # fmt: skip
+    assert saved.status_code == 201 and PRESET_FIELDS <= set(saved.json())
+    listing = (await room.client.get("/api/home/presets")).json()
+    assert listing["ok"] and [p["name"] for p in listing["presets"]] == ["bench-a"] and listing["screens"] == []  # fmt: skip
+    room.env.hare.values[sp] = live(1.5)
+    sid = saved.json()["id"]
+    diff = (
+        await room.client.get(f"/api/presets/{sid}/diff", params={"devices": ["ps1"]})
+    ).json()
+    assert [r["device"] for r in diff["rows"]] == ["ps1"] and ROW_FIELDS <= set(
+        diff["rows"][0]
+    )
+    assert diff["rows"][0]["word"] == "differs" and diff["counts"]["differs"] == 1
+    gold = await room.client.post(
+        f"/api/presets/{sid}/golden", json={"operator": "ann"}
+    )
+    assert gold.status_code == 200 and gold.json()["golden"] is True
+    chip = (await room.client.get("/api/home/baseline")).json()
+    assert (chip["ok"], chip["golden"], chip["differs"], chip["presets"]) == (True, 1, 1, [{"name": "bench-a", "differs": 1}])  # fmt: skip
+    started = await room.client.post(f"/api/presets/{sid}/restore", json={"operator": "ann", "confirm": True, "devices": ["ps1"]})  # fmt: skip
+    assert started.status_code == 202 and {"runId", "id", "plan", "state", "steps"} <= set(started.json())  # fmt: skip
+    for _ in range(100):
+        run = (
+            await room.client.get(f"/api/actions/runs/{started.json()['runId']}")
+        ).json()
+        if run["state"] != "running":
+            break
+        await asyncio.sleep(0.01)
+    assert (
+        run["state"] == "done"
+        and run["plan"] == f"restore:{sid}"
+        and fake.restores == []
+    )

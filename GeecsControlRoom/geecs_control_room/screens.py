@@ -178,6 +178,21 @@ def unreachable(exc: ModuleUnavailable, what: str) -> JSONResponse:
     return JSONResponse(body, status_code=502)
 
 
+def passed(status: int, body: Any) -> JSONResponse:
+    """The module's answer, as it gave it."""
+    return JSONResponse(body, status_code=status)
+
+
+async def through(
+    call: Any, why: str
+) -> JSONResponse:  # Any: the module client's awaitable
+    """One pass-through: the module's answer, or ``module_unreachable`` with ``why``."""
+    try:
+        return passed(*await call)
+    except ModuleUnavailable as exc:
+        return unreachable(exc, why)
+
+
 def router(settings: Settings) -> APIRouter:
     """The screen page, the screens' images, and the device pass-throughs."""
     r = APIRouter()
@@ -225,40 +240,31 @@ def router(settings: Settings) -> APIRouter:
     return r
 
 
-def _passed(status: int, body: Any) -> JSONResponse:
-    return JSONResponse(body, status_code=status)
-
-
 def action_router() -> APIRouter:
     """The action pass-throughs: the module's plans, a run's start (sent once), its state and its stop."""
     r = APIRouter()
 
     @r.get("/api/actions")
     async def actions(request: Request) -> Any:
-        try:
-            return _passed(*await request.app.state.module.get("/actions"))
-        except ModuleUnavailable as exc:
-            return unreachable(exc, "the module did not answer")
+        return await through(request.app.state.module.get("/actions"), "the module did not answer")  # fmt: skip
 
     @r.post("/api/actions/{plan}/run")
     async def run(request: Request, plan: str, body: RunBody) -> Any:
-        try:
-            return _passed(*await request.app.state.module.post(f"/actions/{quote(plan, safe='')}/run", body.model_dump()))  # fmt: skip
-        except ModuleUnavailable as exc:
-            return unreachable(exc, "no answer; read the actions list before running it again")  # fmt: skip
+        call = request.app.state.module.post(f"/actions/{quote(plan, safe='')}/run", body.model_dump())  # fmt: skip
+        return await through(
+            call, "no answer; read the actions list before running it again"
+        )
 
     @r.get("/api/actions/runs/{run_id}")
     async def action_run(request: Request, run_id: str) -> Any:
-        try:
-            return _passed(*await request.app.state.module.get(f"/actions/runs/{quote(run_id, safe='')}"))  # fmt: skip
-        except ModuleUnavailable as exc:
-            return unreachable(exc, "the module did not answer")
+        call = request.app.state.module.get(f"/actions/runs/{quote(run_id, safe='')}")
+        return await through(call, "the module did not answer")
 
     @r.post("/api/actions/runs/{run_id}/stop")
     async def stop(request: Request, run_id: str) -> Any:
-        try:
-            return _passed(*await request.app.state.module.post(f"/actions/runs/{quote(run_id, safe='')}/stop", {}))  # fmt: skip
-        except ModuleUnavailable as exc:
-            return unreachable(exc, "no answer; the run's state says whether it stopped")  # fmt: skip
+        call = request.app.state.module.post(
+            f"/actions/runs/{quote(run_id, safe='')}/stop", {}
+        )
+        return await through(call, "no answer; the run's state says whether it stopped")
 
     return r

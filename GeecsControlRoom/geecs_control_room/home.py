@@ -21,13 +21,14 @@ golden snapshots' differing rows, polled slowly.
 from __future__ import annotations
 
 import asyncio
+import math
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import httpx
 import yaml
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from geecs_schemas import (
     HOME_LAYOUT_FILENAME,
@@ -42,7 +43,7 @@ from pydantic import ValidationError
 from urllib.parse import quote
 
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
-from geecs_control_room.screens import KIT_STATE, unreachable
+from geecs_control_room.screens import KIT_STATE, through
 from geecs_control_room.settings import Settings
 
 #: The cause's words, most telling first; ``live`` is never a cause.
@@ -55,6 +56,8 @@ _LINK_TITLES = {"scanner": "Scanner", "portal": "Data Portal", "logbook": "Logbo
 SCANNER_TIMEOUT_S = 2.5
 #: A save waits for Squirrel's job inside the module (60 s there); a diff reads every saved row live.
 SAVE_TIMEOUT_S, DIFF_TIMEOUT_S = 65.0, 12.0
+#: The baseline's diffs read every saved PV live: once per process per period, however many tabs poll.
+BASELINE_TTL_S = 10.0
 #: The manager's words as the strip's kit states (others: unknown).
 _RUN_STATE = {
     "running": "running",
@@ -194,6 +197,15 @@ class SaveBody(BaseModel):
     scope: dict[str, list[str]] = {}
 
 
+class GoldenBody(BaseModel):
+    """The golden mark as the module takes it: who sets it, for this scope (default the snapshot's own)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operator: str = Field(min_length=1)
+    scope: dict[str, list[str]] = {}
+
+
 class RestoreBody(BaseModel):
     """A restore as the module takes it: who asks, the one hazard confirm, a device subset."""
 
@@ -216,24 +228,44 @@ async def presets(settings: Settings, module: ModuleClient) -> dict[str, Any]:
     return {"ok": True, "presets": body.get("presets", []), "screens": screens}
 
 
-async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
+async def baseline(settings: Settings, module: ModuleClient, listing: Optional[dict[str, Any]] = None) -> dict[str, Any]:  # fmt: skip
     """The golden snapshots' differing rows, summed: the strip's "differs from baseline"; none without a golden."""
-    listing = await presets(settings, module)
+    listing = listing or await presets(settings, module)
     if not listing["ok"]:
         return listing
     golden = [p for p in listing["presets"] if p.get("golden")]
 
-    async def differs(p: dict[str, Any]) -> Optional[dict[str, Any]]:
+    async def differs(p: dict[str, Any]) -> dict[str, Any]:
         try:
             status, body = await module.get(f"/presets/{quote(p['id'], safe='')}/diff", DIFF_TIMEOUT_S)  # fmt: skip
-        except ModuleUnavailable:
-            return None
-        return {"name": p["name"], "differs": body["counts"]["differs"]} if status == 200 else None  # fmt: skip
+        except ModuleUnavailable as exc:
+            return {"name": p["name"], "error": f"the module did not answer: {exc}"}
+        if status != 200:
+            return {"name": p["name"], "error": f"the module answered {status}: {body.get('detail', body)}"}  # fmt: skip
+        return {"name": p["name"], "differs": body["counts"]["differs"]}
 
     rows = await asyncio.gather(*(differs(p) for p in golden))
-    if any(r is None for r in rows):
-        return {"ok": False, "detail": "a golden snapshot's diff could not be read"}
-    return {"ok": True, "golden": len(golden), "differs": sum(r["differs"] for r in rows if r), "presets": rows}  # fmt: skip
+    if failed := [r for r in rows if "error" in r]:
+        return {
+            "ok": False,
+            "detail": "; ".join(f"{r['name']}: {r['error']}" for r in failed),
+        }
+    return {"ok": True, "golden": len(golden), "differs": sum(r["differs"] for r in rows), "presets": rows}  # fmt: skip
+
+
+class _Baseline:
+    """The baseline, read at most every ``BASELINE_TTL_S`` for the whole process: every tab shares one diff of each golden."""
+
+    def __init__(self) -> None:
+        self._body: dict[str, Any] = {"ok": False, "detail": "not read yet"}
+        self._at, self._lock = -math.inf, asyncio.Lock()
+
+    async def read(self, settings: Settings, module: ModuleClient) -> dict[str, Any]:
+        async with self._lock:
+            if time.monotonic() - self._at >= BASELINE_TTL_S:
+                self._body = await baseline(settings, module)
+                self._at = time.monotonic()
+            return self._body
 
 
 @dataclass
@@ -292,19 +324,10 @@ def launcher(settings: Settings) -> Launcher:
     return Launcher(areas, pages, links)
 
 
-async def _through(
-    call: Any, why: str
-) -> JSONResponse:  # Any: the module client's awaitable
-    """The module's answer passed through, or ``module_unreachable`` with ``why``."""
-    try:
-        return _passed(*await call)
-    except ModuleUnavailable as exc:
-        return unreachable(exc, why)
-
-
 def preset_router(settings: Settings) -> APIRouter:
     """The presets: the list and the baseline the home polls, and the pass-throughs (a save, a diff, the golden mark, a restore), each sent once."""
     r = APIRouter()
+    cached = _Baseline()
 
     @r.get("/api/home/presets")
     async def preset_list(request: Request) -> dict[str, Any]:
@@ -312,33 +335,31 @@ def preset_router(settings: Settings) -> APIRouter:
 
     @r.get("/api/home/baseline")
     async def baseline_chip(request: Request) -> dict[str, Any]:
-        return await baseline(settings, request.app.state.module)
+        return await cached.read(settings, request.app.state.module)
 
     @r.post("/api/presets")
     async def save(request: Request, body: SaveBody) -> Any:
         call = request.app.state.module.post(
             "/presets", body.model_dump(), SAVE_TIMEOUT_S
         )
-        return await _through(
+        return await through(
             call, "no answer; read the presets list before saving again"
         )
 
     @r.get("/api/presets/{preset_id}/diff")
     async def diff(request: Request, preset_id: str, devices: list[str] = Query([])) -> Any:  # fmt: skip
         call = request.app.state.module.get(f"/presets/{quote(preset_id, safe='')}/diff", DIFF_TIMEOUT_S, **({"devices": devices} if devices else {}))  # fmt: skip
-        return await _through(call, "the module did not answer")
+        return await through(call, "the module did not answer")
 
     @r.post("/api/presets/{preset_id}/golden")
-    async def golden(request: Request, preset_id: str, body: dict[str, Any]) -> Any:
-        call = request.app.state.module.post(f"/presets/{quote(preset_id, safe='')}/golden", body)  # fmt: skip
-        return await _through(call, "no answer; the list says whether the mark took")
+    async def golden(request: Request, preset_id: str, body: GoldenBody) -> Any:
+        call = request.app.state.module.post(f"/presets/{quote(preset_id, safe='')}/golden", body.model_dump())  # fmt: skip
+        return await through(call, "no answer; the list says whether the mark took")
 
     @r.post("/api/presets/{preset_id}/restore")
     async def restore(request: Request, preset_id: str, body: RestoreBody) -> Any:
         call = request.app.state.module.post(f"/presets/{quote(preset_id, safe='')}/restore", body.model_dump(exclude_none=True))  # fmt: skip
-        return await _through(
-            call, "no answer; read the journal before restoring again"
-        )
+        return await through(call, "no answer; read the journal before restoring again")
 
     return r
 
@@ -361,7 +382,3 @@ def router(settings: Settings, scanner: Optional[httpx.AsyncClient]) -> APIRoute
         return await strip(scanner)
 
     return r
-
-
-def _passed(status: int, body: Any) -> JSONResponse:
-    return JSONResponse(body, status_code=status)
