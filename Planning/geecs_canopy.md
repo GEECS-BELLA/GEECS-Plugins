@@ -209,6 +209,10 @@ modification.
    and per-scope save in Squirrel; unreachable rows marked; a per-write
    authorizer and attribution hook in the restore worker, so a facility can
    guard restores without executing them itself. 9. An arm64 image.
+   10. (push 3, lane P) A soft retire for registry rows: deleting a PV
+   cascades its saved values out of every snapshot, so a derived registry
+   that drops a retired role loses its history; a deactivated row would
+   keep it and stop being saved.
 
 ### 7.5 Questions only SLAC can answer (the note for Sam to send)
 

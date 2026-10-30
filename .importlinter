@@ -222,7 +222,8 @@ forbidden_modules =
 # The GEECS DB is transitional in GeecsCanopy: it enters through the
 # gateway source alone, deleted with the CA gateway (GeecsCanopy/CLAUDE.md).
 # Direct imports only: the adapter builds the gateway source on db=on, the
-# wrapper (app) when GEECS_CANOPY_DB_URL is set; the module takes a callable.
+# wrappers (app, and the geecs-canopy command) when GEECS_CANOPY_DB_URL is
+# set; the module takes a callable.
 [importlinter:contract:canopy-db-is-transitional]
 name = In GeecsCanopy only the transitional gateway source imports GeecsDb
 type = forbidden
@@ -236,6 +237,8 @@ source_modules =
     geecs_canopy.routes
     geecs_canopy.journal
     geecs_canopy.hare
+    geecs_canopy.actions
+    geecs_canopy.squirrel
 forbidden_modules =
     geecs_core.db.geecs_db
 allow_indirect_imports = True
