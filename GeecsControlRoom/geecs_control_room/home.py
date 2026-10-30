@@ -11,18 +11,25 @@ A device whose detail the module did not give is ``unread``: its roles'
 alarms are unknown, so the alarm list is "none" only when ``unread`` is
 empty (a ``live`` state says nothing about an alarmed setpoint). The strip reads the scanner's
 API, its run word the manager's (``re_state``, as the scanner's own page
-has it); "unreachable" there is a state, not an error page.
+has it); "unreachable" there is a state, not an error page. The presets
+are the module's (Squirrel's snapshots behind it): listed, saved, diffed,
+marked golden and restored through its routes, each write sent once (the
+module resolves a scope, screens included). The strip's "baseline" is the
+golden snapshots' differing rows, polled slowly.
 """
 
 from __future__ import annotations
 
 import asyncio
+import math
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import httpx
 import yaml
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 from geecs_schemas import (
     HOME_LAYOUT_FILENAME,
     PANEL_DEVICES_FILENAME,
@@ -33,8 +40,10 @@ from geecs_schemas import (
 )
 from pydantic import ValidationError
 
+from urllib.parse import quote
+
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
-from geecs_control_room.screens import KIT_STATE
+from geecs_control_room.screens import KIT_STATE, through
 from geecs_control_room.settings import Settings
 
 #: The cause's words, most telling first; ``live`` is never a cause.
@@ -45,6 +54,10 @@ _LINK_TITLES = {"scanner": "Scanner", "portal": "Data Portal", "logbook": "Logbo
 #: Each of the strip's two scanner reads, made at once: inside the page's 3 s timeout,
 #: yet longer than one of the queue client's 2 s manager round trips.
 SCANNER_TIMEOUT_S = 2.5
+#: A save waits for Squirrel's job inside the module (60 s there); a diff reads every saved row live.
+SAVE_TIMEOUT_S, DIFF_TIMEOUT_S = 65.0, 12.0
+#: The baseline's diffs read every saved PV live: once per process per period, however many tabs poll.
+BASELINE_TTL_S = 10.0
 #: The manager's words as the strip's kit states (others: unknown).
 _RUN_STATE = {
     "running": "running",
@@ -174,6 +187,92 @@ async def strip(scanner: Optional[httpx.AsyncClient]) -> dict[str, Any]:
     }
 
 
+class SaveBody(BaseModel):
+    """A save as the module takes it: the name, who saves, the scope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    operator: str = Field(min_length=1)
+    scope: dict[str, list[str]] = {}
+
+
+class GoldenBody(BaseModel):
+    """The golden mark as the module takes it: who sets it, for this scope (default the snapshot's own)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operator: str = Field(min_length=1)
+    scope: dict[str, list[str]] = {}
+
+
+class RestoreBody(BaseModel):
+    """A restore as the module takes it: who asks, the one hazard confirm, a device subset."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operator: str = Field(min_length=1)
+    confirm: bool = False
+    devices: Optional[list[str]] = None
+
+
+async def presets(settings: Settings, module: ModuleClient) -> dict[str, Any]:
+    """The module's presets, and the launcher's screens for the save dialog's scope picker."""
+    try:
+        status, body = await module.get("/presets")
+    except ModuleUnavailable as exc:
+        return {"ok": False, "detail": f"the module did not answer: {exc}"}
+    if status != 200:
+        return {"ok": False, "detail": f"the module answered {status}: {body.get('detail', body)}"}  # fmt: skip
+    screens = [e.title for _, entries in launcher(settings).areas for e in entries if e.href]  # fmt: skip
+    return {"ok": True, "presets": body.get("presets", []), "screens": screens}
+
+
+async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
+    """The golden snapshots' differing rows, summed: the strip's "differs from baseline"; none without a golden."""
+    listing = await presets(settings, module)
+    if not listing["ok"]:
+        return listing
+    golden = [p for p in listing["presets"] if p.get("golden")]
+
+    async def differs(p: dict[str, Any]) -> dict[str, Any]:
+        try:
+            status, body = await module.get(f"/presets/{quote(p['id'], safe='')}/diff", DIFF_TIMEOUT_S)  # fmt: skip
+        except ModuleUnavailable as exc:
+            return {"name": p["name"], "error": f"the module did not answer: {exc}"}
+        if status != 200:
+            return {"name": p["name"], "error": f"the module answered {status}: {body.get('detail', body)}"}  # fmt: skip
+        return {"name": p["name"], "differs": body["counts"]["differs"]}
+
+    rows = await asyncio.gather(*(differs(p) for p in golden))
+    if failed := [r for r in rows if "error" in r]:
+        return {
+            "ok": False,
+            "detail": "; ".join(f"{r['name']}: {r['error']}" for r in failed),
+        }
+    return {"ok": True, "golden": len(golden), "differs": sum(r["differs"] for r in rows), "presets": rows}  # fmt: skip
+
+
+class _Baseline:
+    """The baseline, read at most every ``BASELINE_TTL_S`` for the whole process: every tab shares one diff of each golden."""
+
+    def __init__(self) -> None:
+        self._body: dict[str, Any] = {"ok": False, "detail": "not read yet"}
+        self._at, self._lock = -math.inf, asyncio.Lock()
+
+    def invalidate(self) -> None:
+        """The next read is fresh (a golden mark changed what the baseline is)."""
+        self._at = -math.inf
+
+    async def read(self, settings: Settings, module: ModuleClient, fresh: bool = False) -> dict[str, Any]:  # fmt: skip
+        """The cached body, or a fresh one when it is older than the period or ``fresh`` (a run just ended)."""
+        async with self._lock:
+            if fresh or time.monotonic() - self._at >= BASELINE_TTL_S:
+                self._body = await baseline(settings, module)
+                self._at = time.monotonic()
+            return self._body
+
+
 @dataclass
 class Entry:
     """One launcher entry: where it opens, or why it cannot (``href`` None)."""
@@ -228,6 +327,48 @@ def launcher(settings: Settings) -> Launcher:
     ]
     areas = [(a.title, [screen(n) for n in a.screens]) for a in layout.areas]
     return Launcher(areas, pages, links)
+
+
+def preset_router(settings: Settings) -> APIRouter:
+    """The presets: the list and the baseline the home polls, and the pass-throughs (a save, a diff, the golden mark, a restore), each sent once."""
+    r = APIRouter()
+    cached = _Baseline()
+
+    @r.get("/api/home/presets")
+    async def preset_list(request: Request) -> dict[str, Any]:
+        return await presets(settings, request.app.state.module)
+
+    @r.get("/api/home/baseline")
+    async def baseline_chip(request: Request, fresh: bool = False) -> dict[str, Any]:
+        return await cached.read(settings, request.app.state.module, fresh)
+
+    @r.post("/api/presets")
+    async def save(request: Request, body: SaveBody) -> Any:
+        call = request.app.state.module.post(
+            "/presets", body.model_dump(), SAVE_TIMEOUT_S
+        )
+        return await through(
+            call, "no answer; read the presets list before saving again"
+        )
+
+    @r.get("/api/presets/{preset_id}/diff")
+    async def diff(request: Request, preset_id: str, devices: list[str] = Query([])) -> Any:  # fmt: skip
+        call = request.app.state.module.get(f"/presets/{quote(preset_id, safe='')}/diff", DIFF_TIMEOUT_S, **({"devices": devices} if devices else {}))  # fmt: skip
+        return await through(call, "the module did not answer")
+
+    @r.post("/api/presets/{preset_id}/golden")
+    async def golden(request: Request, preset_id: str, body: GoldenBody) -> Any:
+        call = request.app.state.module.post(f"/presets/{quote(preset_id, safe='')}/golden", body.model_dump())  # fmt: skip
+        answer = await through(call, "no answer; the list says whether the mark took")
+        cached.invalidate()  # after the module answered: the baseline is another snapshot's now
+        return answer
+
+    @r.post("/api/presets/{preset_id}/restore")
+    async def restore(request: Request, preset_id: str, body: RestoreBody) -> Any:
+        call = request.app.state.module.post(f"/presets/{quote(preset_id, safe='')}/restore", body.model_dump(exclude_none=True))  # fmt: skip
+        return await through(call, "no answer; read the journal before restoring again")
+
+    return r
 
 
 def router(settings: Settings, scanner: Optional[httpx.AsyncClient]) -> APIRouter:

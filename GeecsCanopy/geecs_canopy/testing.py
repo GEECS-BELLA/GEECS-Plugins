@@ -106,7 +106,7 @@ def write_documents(
 def make_env(
     tmp_path: Path, *, key: Any = KEY, squirrel: FakeSquirrel | None = None
 ) -> SimpleNamespace:  # Any: Canopy's key object
-    """The module over the documents and a ``FakeHare`` (and a ``FakeSquirrel``), and its routes: ``module, hare, app, clock, folder``."""
+    """The module over the documents and a ``FakeHare`` (and a ``FakeSquirrel``), and its routes: ``module, hare, app, clock, folder, squirrel``."""
     from geecs_canopy.routes import build_app
 
     folder = write_documents(tmp_path)
@@ -116,9 +116,7 @@ def make_env(
     hare = FakeHare()
     module = Module(settings, hare, Journal(tmp_path / "j.sqlite3"), clock=lambda: clock[0])  # fmt: skip
     app = build_app(module, read_access=lambda: key, squirrel_transport=squirrel.transport() if squirrel else None)  # fmt: skip
-    return SimpleNamespace(
-        module=module, hare=hare, app=app, clock=clock, folder=folder
-    )
+    return SimpleNamespace(module=module, hare=hare, app=app, clock=clock, folder=folder, squirrel=squirrel)  # fmt: skip
 
 
 class FakeSquirrel:
