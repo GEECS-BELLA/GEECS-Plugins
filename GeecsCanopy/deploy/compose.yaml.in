@@ -42,6 +42,8 @@ services:
       GEECS_CANOPY_CONFIGS_ROOT: /opt/geecs-configs
       GEECS_CANOPY_STATE_DIR: /var/lib/geecs-canopy-module
       GEECS_CANOPY_DB: "${GEECS_CANOPY_DB}"   # off: neither the directory nor the module reads the DB
+      # Squirrel, as the module (and `geecs-canopy squirrel-sync`) reaches it: this api itself.
+      GEECS_CANOPY_SQUIRREL_URL: "http://${GEECS_CANOPY_BIND}:${GEECS_CANOPY_PORT}"
       CANOPY_RACCOON__DIRECTORY__TYPE: geecs_canopy.directory:GeecsDirectoryAdapter
       CANOPY_RACCOON__DIRECTORY__EXTRAS__EXPERIMENT: "${GEECS_EXPERIMENT}"
       CANOPY_RACCOON__DIRECTORY__EXTRAS__CONFIGS_ROOT: /opt/geecs-configs

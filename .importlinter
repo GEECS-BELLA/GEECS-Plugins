@@ -236,6 +236,8 @@ source_modules =
     geecs_canopy.routes
     geecs_canopy.journal
     geecs_canopy.hare
+    geecs_canopy.actions
+    geecs_canopy.squirrel
 forbidden_modules =
     geecs_core.db.geecs_db
 allow_indirect_imports = True

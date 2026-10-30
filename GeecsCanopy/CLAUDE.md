@@ -32,10 +32,15 @@ geecs_canopy/
   actions.py     Executor: the experiment's ActionPlanLibrary run for an operator
                  (pre-check every step, then each set through put_role, rows
                  carrying the run's id); the last 100 runs in memory
+  squirrel.py    SquirrelClient (Squirrel's REST, the service write key), derive():
+                 the PV registry from the module's devices, reconcile() (add,
+                 update, remove, --check): the registry is derived, never hand-edited
+  cli.py         the `geecs-canopy` command: squirrel-sync (at deploy, after a
+                 device-file change)
   journal.py     SQLite of GEECS-Schemas JournalEntry rows
   routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal,
                  /v1/actions, .../{name}/run, /v1/actions/runs/{id}[/stop]
-  testing.py     the shared test doubles: FakeHare, live(), write_documents, make_env
+  testing.py     the shared test doubles: FakeHare, FakeSquirrel, live(), write_documents, make_env
 deploy/
   Dockerfile (+ .dockerignore)   FROM the pin; pip --python into /app/.venv
   compose.yaml.in   api + 2 workers + Postgres 16 + Redis 7, host networking
@@ -57,7 +62,11 @@ deploy/
   Squirrel's restore directly, around every module guard. Operators and
   pages get `read` keys; `write` and `admin` are service and ops keys only.
   Squirrel is storage and compare, never the executor of an operator's
-  restore.
+  restore. Its registry is derived from the module's devices by
+  `geecs-canopy squirrel-sync` (every writable, non-command role's
+  setpoint with its readback; `device` the GEECS name, `description` the
+  step variable, tags family/source/axis) and never hand-edited; the one
+  write key for its REST is the module's (`GEECS_CANOPY_SQUIRREL_KEY`).
 - **One identity: the GEECS device name.** It is the Raccoon device name,
   the journal's key, a Squirrel label and a screen binding. A PV prefix is
   derived by the naming rule (`geecs_core.pv_naming.pv_name(experiment,

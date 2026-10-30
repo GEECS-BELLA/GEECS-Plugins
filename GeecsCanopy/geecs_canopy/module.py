@@ -56,6 +56,12 @@ class ModuleSettings:
     settle_timeout_s: float = 30.0  # a move's: not Hare's 5 s connect timeout
     reload_s: float = 10.0  # the device documents' re-read interval
     gateway_reload_s: float = 60.0  # the DB devices' re-read interval
+    squirrel_url: str = (
+        ""  # Canopy as this process reaches its own Squirrel; empty: no presets
+    )
+    squirrel_key: str = (
+        ""  # the service WRITE key for Squirrel's REST (a secret; never an operator's)
+    )
 
     @property
     def folder(self) -> Path:

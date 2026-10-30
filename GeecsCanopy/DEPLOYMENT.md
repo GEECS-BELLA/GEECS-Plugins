@@ -36,6 +36,7 @@ sudo install -m 0644 ~/deploy-staging/geecs-canopy.service /etc/systemd/system/ 
 dc build                                   # the derived image, FROM pin.py's digest
 dc run --rm api alembic upgrade head       # creates Canopy's schema (postgres starts first)
 sudo systemctl enable --now geecs-canopy
+dc run --rm api geecs-canopy squirrel-sync  # Squirrel's PV registry from the device documents (section 3a)
 ```
 
 A configs share that mounts after the containers start stays invisible to
@@ -89,7 +90,9 @@ each counter last advanced.
 uid 1000, group the service account); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
 (5), `_SETTLE_TIMEOUT_S` (30: a move's put-callback, not Hare's 5 s
 connect timeout), `_RELOAD_S` (10: the device documents' re-read),
-`_GATEWAY_RELOAD_S` (60: the DB devices' re-read).
+`_GATEWAY_RELOAD_S` (60: the DB devices' re-read); `GEECS_CANOPY_SQUIRREL_URL`
+(Canopy as the module reaches its own Squirrel: the compose file sets it)
+with the secret `GEECS_CANOPY_SQUIRREL_KEY`.
 
 **Who may write: `<experiment>/operator_policy.yaml`** in the configs repo
 (`OperatorPolicy`, GEECS-Schemas). No file, no grant: every put is denied.
@@ -147,15 +150,29 @@ then `cp /var/lib/geecs-canopy/module/journal.bak /var/backups/geecs-canopy/jour
 Postgres path, a `geecs` schema with its own Alembic tree and version
 table (Canopy's tree is one for all its modules), is not built.
 
-**Squirrel.** Its registry is **derived, never hand-edited**: push 2
-reconciles it idempotently from the family files and the device documents
-(the GeecsArchiver pattern). Squirrel's restore job is **never the executor
-of an operator's restore**: its worker writes with its own EPICS adapter,
-around every guard and unattributed. A restore is a module route (push 2)
-that reads the saved values from Squirrel and runs each row through
-`gates.put_role`, the same function the put route calls (lock, bounds,
-confirm and journal checked at execution). Squirrel's restore endpoint
-stays reachable to service keys only.
+**Squirrel.** Its registry is **derived, never hand-edited**:
+`dc run --rm api geecs-canopy squirrel-sync` reconciles it with the module's
+devices (the GeecsArchiver pattern: add, update, remove; `--check` prints
+the drift, writes nothing and exits 1 on drift) — one row per writable,
+non-command role of every device, the setpoint record as the address with
+its readback beside it, `device` the GEECS name, `description` the role as
+an action step names it (`m1.val` on an axis), tags `family`, `source`
+(`native`/`gateway`) and `axis`, tolerance 0 (exact; a family or DB
+tolerance is OWED). Run it at the first install, after every
+device-file change and after a DB change that adds or retires a served
+setpoint (with the DB on, the served set is part of the derivation; with
+the DB unreachable the command writes nothing and exits 3). It needs
+`GEECS_CANOPY_SQUIRREL_URL` (the compose file sets it to this api) and
+`GEECS_CANOPY_SQUIRREL_KEY` in `secrets.env`: a key minted
+`create_key.py "geecs-module" -r -w`, the one write key in the fleet, held
+by the module's process alone. Squirrel keeps a deleted row's saved values
+in no snapshot, so a retired role's history leaves with the row.
+Squirrel's restore job is **never the executor of an operator's restore**:
+its worker writes with its own EPICS adapter, around every guard and
+unattributed. A restore is a module route that reads the saved values from
+Squirrel and runs each row through `gates.put_role`, the same function the
+put route calls (lock, bounds, confirm and journal checked at execution).
+Squirrel's restore endpoint stays reachable to service keys only.
 
 **The self-test.** `geecs_canopy/canopy_surface.py` lists every
 Canopy-internal name the package uses and the image they were verified

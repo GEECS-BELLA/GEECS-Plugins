@@ -18,6 +18,9 @@ in the container's secrets file, never from a client ``config.ini``.
 
 from __future__ import annotations
 
+import logging
+import os
+from collections.abc import Callable, Mapping
 from urllib.parse import unquote, urlsplit
 
 from geecs_core.db import geecs_db
@@ -38,8 +41,27 @@ from geecs_schemas import Role
 
 from geecs_canopy.native import Device, Element, Resolved, SourceError
 
+logger = logging.getLogger(__name__)
+
 #: The environment variable carrying the DB URL (a secret: never an ``extras`` key).
 DB_URL_ENV = "GEECS_CANOPY_DB_URL"
+
+
+def source_from_env(experiment: str, env: Mapping[str, str] = os.environ) -> Callable[[], list[Resolved]] | None:  # fmt: skip
+    """The DB devices' source on the directory's switch (``GEECS_CANOPY_DB``) and the URL; ``None`` without either."""
+    url = env.get(DB_URL_ENV)
+    if not url or env.get("GEECS_CANOPY_DB", "on").lower() == "off":
+        return None
+    try:
+        return GatewaySource(experiment, url).resolve
+    except ValueError as exc:  # malformed: the roster says so, the native devices stand
+        logger.exception("GEECS device module: the DB URL")
+        why = str(exc)
+
+        def unconfigured() -> list[Resolved]:
+            raise SourceError(why)
+
+        return unconfigured
 
 
 def credentials_from_url(url: str) -> dict[str, object]:
