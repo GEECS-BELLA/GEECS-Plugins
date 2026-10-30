@@ -153,7 +153,7 @@ async def test_one_golden_per_scope_and_a_persons_lines_survive(env):
     )
     rows = (await env.client.get("/v1/journal")).json()
     assert [(r["role"], r["value"]) for r in rows if r["role"] == "golden"] == [("golden", "a"), ("golden", "c"), ("golden", "b")]  # fmt: skip
-    assert "a unmarked" in rows[-1]["detail"]
+    assert rows[-1]["detail"] == "golden for devices Mot1, ps1; a unmarked"
     assert (await gold(b, "x\ngolden")).status_code == 422  # the grammar's characters
 
 
@@ -167,8 +167,16 @@ async def test_a_screen_scope_reads_the_screen_file_and_no_scope_restores_a_subs
     assert await presets.scope_devices({"families": ["motor_record"]}) == {"Mot1"}
     assert await presets.scope_devices({"screen": ["bench"]}) == {"Mot1"}
     assert await presets.scope_devices({}) is None
-    with pytest.raises(Exception, match="cannot be read"):
+    with pytest.raises(Exception, match="cannot be read as a screen file"):
         await presets.scope_devices({"screen": ["missing"]})
+    (env.folder.parent / "leak.yaml").write_text("secret: do-not-echo\n")
+    for name in ("../leak", "/etc/passwd", "a,b"):
+        with pytest.raises(Exception, match="is not a screen name") as refused:
+            await presets.scope_devices({"screen": [name]})
+        assert "do-not-echo" not in str(refused.value)
+    assert (
+        await save(env, name="x", screen=["../leak"])
+    ).status_code == 422  # the body model refuses the path first
     sid = (await save(env, name="bench", screen=["bench"])).json()["id"]
     env.hare.values[MOT], env.hare.values[SP] = live(3.0), live(1.5)
     body = (await env.client.get(f"/v1/presets/{sid}/diff")).json()

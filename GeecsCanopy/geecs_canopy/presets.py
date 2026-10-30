@@ -24,7 +24,9 @@ reaches the device through no other path.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -42,6 +44,9 @@ from geecs_canopy.module import DevicesUnavailable, Module
 from geecs_canopy.native import Resolved
 from geecs_canopy.squirrel import Entry, SquirrelClient, SquirrelError, derive
 
+logger = logging.getLogger(__name__)
+#: A screen name is a file stem under the experiment's screens folder, never a path (the schema's ScreenName).
+_SCREEN = re.compile(r"[\w-]+")
 #: A save reads every registered PV in the worker; the route waits this long for the job.
 SAVE_TIMEOUT_S, _POLL_S = 60.0, 0.25
 SCOPE_KINDS = ("devices", "families", "screen")
@@ -50,9 +55,9 @@ SAME, DIFFERS, UNSAVED, RETIRED, UNREAD, UNSUPPORTED = "same", "differs", "unsav
 _COUNTED = (DIFFERS, UNSAVED, RETIRED, UNREAD, UNSUPPORTED)
 
 
-def describe(operator: str, scope: Mapping[str, Iterable[str]], golden: bool = False, extra: Iterable[str] = ()) -> str:  # fmt: skip
-    """The description of a snapshot saved by ``operator`` over ``scope``; ``extra``: a person's own lines, kept."""
-    lines = [f"saved by {operator}"]
+def describe(operator: str | None, scope: Mapping[str, Iterable[str]], golden: bool = False, extra: Iterable[str] = ()) -> str:  # fmt: skip
+    """The description of a snapshot saved by ``operator`` (none: no such line) over ``scope``; ``extra``: a person's own lines, kept."""
+    lines = [f"saved by {operator}"] if operator else []
     lines += [f"scope: {kind} {', '.join(names)}" for kind, names in scope.items() if kind in SCOPE_KINDS and list(names)]  # fmt: skip
     return "\n".join([*lines, *(["golden"] if golden else []), *extra])
 
@@ -133,11 +138,20 @@ class Presets:
 
     def screen_devices(self, name: str) -> set[str]:
         """The devices ``<experiment>/screens/<name>.yaml`` binds; raise ``Refusal`` 422 when it cannot be read."""
+        if not _SCREEN.fullmatch(name):
+            raise Refusal(
+                422, "bad_scope", f"the scope's screen {name!r} is not a screen name"
+            )
         path = self.module.settings.folder / SCREENS_DIRNAME / f"{name}.yaml"
         try:
             screen = Screen.from_path(path)
-        except (OSError, ValidationError, yaml.YAMLError) as exc:
-            raise Refusal(422, "bad_scope", f"the scope's screen {name!r} cannot be read: {exc}") from exc  # fmt: skip
+        except (
+            OSError,
+            ValidationError,
+            yaml.YAMLError,
+        ) as exc:  # the detail names the file, never its contents
+            logger.warning("preset scope: screen %s cannot be read: %s", name, exc)
+            raise Refusal(422, "bad_scope", f"the scope's screen {name!r} cannot be read as a screen file") from exc  # fmt: skip
         return {w.bind.device for g in screen.groups for w in g.widgets if w.bind and w.bind.device}  # fmt: skip
 
     async def scope_devices(
@@ -261,12 +275,15 @@ class Presets:
         for other in await self.squirrel.snapshots():
             op, sc, gold, more = parse(other.get("description"))
             if gold and other["id"] != snapshot_id and {k: sorted(v) for k, v in sc.items() if v} == scope:  # fmt: skip
-                await self.squirrel.describe_snapshot(other["id"], describe(op or "?", sc, extra=more))  # fmt: skip
+                await self.squirrel.describe_snapshot(other["id"], describe(op, sc, extra=more))  # fmt: skip
                 unmarked.append(other["title"])
-        await self.squirrel.describe_snapshot(snapshot_id, describe(saved_by or "?", scope, golden=True, extra=extra))  # fmt: skip
+        await self.squirrel.describe_snapshot(snapshot_id, describe(saved_by, scope, golden=True, extra=extra))  # fmt: skip
         was = f"; {', '.join(unmarked)} unmarked" if unmarked else ""
-        await self._journal(operator, key_name, "golden", snapshot["title"], f"golden for {describe('', scope).splitlines()[1:] or 'everything'}{was}")  # fmt: skip
-        return preset(await self._snapshot(snapshot_id))
+        for_ = (
+            "; ".join(f"{k} {', '.join(v)}" for k, v in scope.items()) or "everything"
+        )
+        row = await self._journal(operator, key_name, "golden", snapshot["title"], f"golden for {for_}{was}")  # fmt: skip
+        return preset(await self._snapshot(snapshot_id)) | ({} if row is not None else {"journalError": "the journal could not take the row"})  # fmt: skip
 
     async def restore(self, snapshot_id: str, operator: str, confirm: bool, devices: list[str] | None, key_name: str | None) -> Run:  # fmt: skip
         """A run of one ``set`` per differing saved row in scope, the settling rows last, through the executor."""

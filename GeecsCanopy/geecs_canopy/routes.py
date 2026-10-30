@@ -18,6 +18,8 @@ from fastapi import FastAPI, Query, Request, Security
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from geecs_schemas.home_layout import ScreenName
+
 from geecs_canopy.actions import Executor
 from geecs_canopy.freshness import view
 from geecs_canopy.gates import PutRequest, Refusal, put_role
@@ -59,7 +61,9 @@ class Scope(BaseModel):
 
     devices: list[_Name] = []
     families: list[_Name] = []
-    screen: list[_Name] = []
+    screen: list[
+        ScreenName
+    ] = []  # a file stem under <experiment>/screens/, never a path
 
 
 class SaveBody(BaseModel):
