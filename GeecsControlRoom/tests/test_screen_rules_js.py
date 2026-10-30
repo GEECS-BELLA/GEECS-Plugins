@@ -105,6 +105,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("run: a failed step's detail is the tooltip", "runDetail", [{"state": "failed", "steps": [{"state": "failed", "detail": "read 'off', expected 'on'"}]}], "read 'off', expected 'on'"),
     ("run: a stopped run wears degraded", "runState", [{"state": "stopped"}], "degraded"),
     ("run: running has not ended", "runEnded", [{"state": "running"}], False),
+    ("run: a run the module lost has ended, unknown", "runState", [{"state": "lost"}], "unknown"),
 ]  # fmt: skip
 
 

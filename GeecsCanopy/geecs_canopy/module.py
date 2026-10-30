@@ -24,8 +24,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
 from geecs_core.configs_repo import EXPERIMENTS_SUBDIR
-from geecs_schemas import OPERATOR_POLICY_FILENAME, OperatorPolicy
+from geecs_schemas import (
+    ACTION_LIBRARY_FILENAME,
+    ACTION_LIBRARY_FOLDER,
+    OPERATOR_POLICY_FILENAME,
+    ActionPlanLibrary,
+    OperatorPolicy,
+    load_action_library,
+)
 
 from geecs_canopy.freshness import Tracker, watched_pvs
 from geecs_canopy.hare import Hare
@@ -68,6 +76,10 @@ class DevicesUnavailable(Exception):
     """The device documents cannot be read or do not validate."""
 
 
+class LibraryUnavailable(Exception):
+    """The experiment's action library cannot be read or does not validate."""
+
+
 class Module:
     """The module's state, one per process."""
 
@@ -92,6 +104,8 @@ class Module:
         self._watched: set[str] = set()
         self._tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
+        self._library_at, self._library = -math.inf, ActionPlanLibrary(plans={})
+        self._library_error: str | None = None
 
     async def start(self) -> None:
         """Read and subscribe the devices (the DB's too), so judging starts before the first request."""
@@ -175,3 +189,19 @@ class Module:
             return OperatorPolicy.from_path(path) if path.exists() else OperatorPolicy()
 
         return await asyncio.wait_for(asyncio.to_thread(read), _READ_TIMEOUT_S)
+
+    async def action_library(self) -> ActionPlanLibrary:
+        """The experiment's action library (none: empty), re-read at most every ``reload_s``; raise ``LibraryUnavailable`` while it does not validate."""
+        if self._clock() - self._library_at >= self.settings.reload_s:
+            self._library_at = self._clock()
+            path = (
+                self.settings.folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME
+            )
+            reading = asyncio.to_thread(load_action_library, path)
+            try:
+                self._library, self._library_error = await asyncio.wait_for(reading, _READ_TIMEOUT_S), None  # fmt: skip
+            except (OSError, ValueError, TimeoutError, yaml.YAMLError) as exc:
+                self._library_error = f"{path.name} does not validate: {exc}"
+        if self._library_error is not None:
+            raise LibraryUnavailable(self._library_error)
+        return self._library

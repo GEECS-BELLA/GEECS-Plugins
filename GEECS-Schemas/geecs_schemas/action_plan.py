@@ -33,13 +33,16 @@ One step library, two executors: GeecsBluesky compiles a plan into
 Bluesky plan stubs inside a scan, and GeecsCanopy's module runs one from a
 screen button.  Both walk it with :func:`flatten_action_steps` (nested
 ``run`` steps inlined, in execution order) and judge a ``check`` with
-:func:`values_match`, so the two agree by construction.
+:func:`values_match`, so they agree on the order and the comparison.  How
+a ``set`` waits is each executor's: the module's gate always waits for
+the put (``wait_for_execution`` is honoured in a scan only).
 """
 
 from __future__ import annotations
 
 import contextlib
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Annotated, Literal, Union
 
 from pydantic import Field, model_validator
@@ -282,6 +285,21 @@ class ActionPlanLibrary(VersionedSchemaModel):
                         f"Plan {name!r} has a 'run' step referencing unknown "
                         f"plan {step.plan!r}. Known plans: {sorted(self.plans)}"
                     )
+
+
+def load_action_library(path: str | Path) -> ActionPlanLibrary:
+    """Read an experiment's library; a missing or empty file is the empty library (a fresh experiment's placeholder).
+
+    Raises
+    ------
+    ValueError
+        When the file does not validate (``pydantic.ValidationError``), or
+        is in the legacy dialect.
+    """
+    file = Path(path)
+    if not file.exists() or not file.read_text(encoding="utf-8").strip():
+        return ActionPlanLibrary(plans={})
+    return ActionPlanLibrary.from_path(file)
 
 
 #: A step that does something: what :func:`flatten_action_steps` returns.

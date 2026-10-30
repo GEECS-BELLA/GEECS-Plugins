@@ -33,6 +33,7 @@ from geecs_schemas.action_plan import (
     SetStep,
     WaitStep,
     flatten_action_steps,
+    load_action_library,
     values_match,
 )
 from geecs_schemas.archive_policy import (
@@ -237,6 +238,7 @@ __all__ = [
     "ActionPlanNotFoundError",
     "ConcreteStep",
     "flatten_action_steps",
+    "load_action_library",
     "values_match",
     "ActionPlan",
     "ActionPlanLibrary",

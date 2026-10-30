@@ -33,12 +33,12 @@ from geecs_schemas import (
     NATIVE_DEVICES_FILENAME,
     PANEL_DEVICES_FILENAME,
     SCREENS_DIRNAME,
-    ActionPlanLibrary,
     Bound,
     NativeDevices,
     PanelDevices,
     Screen,
     ScreenError,
+    load_action_library,
     load_families,
     resolve_screen,
 )
@@ -108,11 +108,8 @@ def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loade
         plans: set[str] = set()
         library = folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME
         runs = any(w.bind and w.bind.action for g in screen.groups for w in g.widgets)
-        if (
-            runs and library.is_file()
-        ):  # a button names a plan: the module's library holds it
-            doc = yaml.safe_load(library.read_text(encoding="utf-8"))
-            plans = set(ActionPlanLibrary.model_validate(doc).plans) if doc else set()
+        if runs:  # a button names a plan: the module's library holds it
+            plans = set(load_action_library(library).plans)
         bound = resolve_screen(screen, load_families(), panel, native, deferred, plans)
         return Loaded(screen, bound)
     except ScreenError as exc:

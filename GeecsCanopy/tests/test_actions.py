@@ -130,3 +130,29 @@ async def test_a_library_that_does_not_validate_is_503(env):
     )
     answer = await env.client.get("/v1/actions")
     assert (answer.status_code, answer.json()["code"]) == (503, "library_unavailable")
+
+
+async def test_an_unreadable_run_lock_refuses_before_the_first_write(env):
+    expose = {"do": "set", "device": "Cam1", "variable": "exposure", "value": 0.1}
+    library(env, shoot=[SET, expose])
+    refused = await run(env, "shoot")
+    assert (refused.status_code, refused.json()["code"], refused.json()["steps"]) == (423, "run_lock_unreadable", [2])  # fmt: skip
+    assert env.hare.puts == []
+
+
+async def test_a_stop_during_the_last_step_that_completes_it_is_done(env):
+    gate, put = asyncio.Event(), env.hare.put
+
+    async def held(pv, value, *, wait, timeout):
+        await gate.wait()
+        await put(pv, value, wait=wait, timeout=timeout)
+
+    env.hare.put = held
+    library(env, one=[SET])
+    run_id = (await run(env, "one")).json()["runId"]
+    await asyncio.sleep(0.05)
+    await env.client.post(
+        f"/v1/actions/runs/{run_id}/stop"
+    )  # the put is in flight: it completes
+    gate.set()
+    assert (await ended(env, run_id))["state"] == "done"

@@ -80,7 +80,10 @@ actions=<the plan names>)` refuses another).
 the one step library both executors share, GeecsBluesky's compiler in a
 scan and GeecsCanopy's module from a screen button: `flatten` (nested
 `run` steps inlined, unknown names and loops refused) and `values_match`
-(a `check`'s legacy comparison). A step's semantics change here, once.
+(a `check`'s legacy comparison), and `load_action_library` (a missing or
+empty file is the empty library). The order and the comparison change
+here, once; how a `set` waits is each executor's (the module's gate
+always waits; `wait_for_execution` is honoured in a scan).
 
 ## Home layout
 

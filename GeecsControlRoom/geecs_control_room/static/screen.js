@@ -192,7 +192,7 @@
       if (!r.ok) throw new Error(body.detail || `answered ${r.status}`);
       plansError = null;
       for (const p of body.plans) plans[p.name] = p;
-      for (const p of body.plans) if (p.running && !runs[p.running]) track(p.name, { id: p.running, state: "running", steps: [] });
+      for (const p of body.plans) if (p.running && !runs[p.running]) track(p.name, { id: p.running, plan: p.name, state: "running", steps: [] });
     } catch (err) {
       plansError = `the module's actions: ${err.message}`;
     }
@@ -226,8 +226,10 @@
     ofPlan(plan.name).forEach(drawAction);
   }
 
+  // a 404: the module no longer holds the run (restarted, or past the last 100): it is lost, not running
   async function readRun(id, signal) {
     const r = await fetch(`${root}/api/actions/runs/${encodeURIComponent(id)}`, { signal });
+    if (r.status === 404) return { ...runs[id], state: "lost" };
     if (!r.ok) throw new Error(`answered ${r.status}`);
     return r.json();
   }
@@ -235,7 +237,8 @@
   function seenRun(id, got) {
     if (!got.ok) return;
     if (R.runEnded(got.value)) watching.delete(id);
-    track(got.value.plan, got.value);
+    const plan = got.value.plan || Object.keys(runOf).find((p) => runOf[p] === id);
+    if (plan) track(plan, got.value);
   }
 
   const actionWidgets = widgets.filter((w) => w.dataset.action);
@@ -249,6 +252,7 @@
     readPlans();
     const runPoller = window.GeecsPoller.makePoller({ fetch: readRun, pollMs: POLL_MS / 2, onView: seenRun });
     setInterval(() => runPoller.tick([...watching]), POLL_MS / 2);
+    setInterval(readPlans, 5 * POLL_MS); // a module back up, a library edited, a run started elsewhere
   }
 
   const asValue = (text) => (text.trim() !== "" && Number.isFinite(Number(text)) ? Number(text) : text);

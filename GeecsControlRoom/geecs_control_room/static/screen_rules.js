@@ -82,7 +82,8 @@
   }
 
   // An action run as its button says it: "running 2/5", "done", "failed · step 3 · out_of_bounds", "stopped".
-  const RUN = { queued: "running", running: "running", done: "ok", failed: "failed", stopped: "degraded" };
+  // "lost": the module no longer holds the run (it restarted); the journal says what it wrote.
+  const RUN = { queued: "running", running: "running", done: "ok", failed: "failed", stopped: "degraded", lost: "unknown" };
   function runWord(run) {
     const steps = run.steps || [];
     if (run.state === "running" || run.state === "queued") {
@@ -95,7 +96,7 @@
   // The word's tooltip: the failed step's detail (a check's value read), else nothing.
   const runDetail = (run) => ((run.steps || []).find((s) => s.state === "failed") || {}).detail || "";
   const runState = (run) => RUN[run.state] || "unknown";
-  const runEnded = (run) => ["done", "failed", "stopped"].includes(run.state);
+  const runEnded = (run) => ["done", "failed", "stopped", "lost"].includes(run.state);
 
   Object.assign(rules, { key, deviceView, misfit, judge, show, bounds, writable, hazard, differs, outcomeState, sourceLine, runWord, runDetail, runState, runEnded });
 })(typeof module === "object" ? module.exports : (window.GeecsScreenRules = {}));

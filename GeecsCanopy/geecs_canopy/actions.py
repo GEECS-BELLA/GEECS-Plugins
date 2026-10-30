@@ -17,7 +17,9 @@ run per plan at a time; a device written by one run makes another run's
 ``set`` on it wait. On a per-axis device a step's ``variable`` names the
 axis (its setpoint to set, that setpoint's readback to check, as the
 worker's namespace has it) or ``<axis>.<role>``. ``wait_for_execution``
-is the gate's to decide: a set waits as ``put_role`` waits. The last
+is the gate's to decide: a set waits as ``put_role`` waits (a scan honours
+it; this executor does not). A run's devices are locked per ``set``, not
+for the run: another run may write a device between this run's steps. The last
 ``RUNS_KEPT`` runs are kept in memory; the journal is the durable record.
 """
 
@@ -25,17 +27,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import uuid
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import yaml
 from geecs_schemas import (
-    ACTION_LIBRARY_FILENAME,
-    ACTION_LIBRARY_FOLDER,
     ActionPlanCycleError,
     ActionPlanLibrary,
     ActionPlanNotFoundError,
@@ -48,8 +46,15 @@ from geecs_schemas import (
 )
 
 from geecs_canopy.freshness import is_number, json_safe
-from geecs_canopy.gates import PutRequest, bounds_refusal, hazardous, put_role
-from geecs_canopy.module import DevicesUnavailable, Module
+from geecs_canopy.gates import (
+    PutRequest,
+    Stop,
+    bounds_refusal,
+    check_lock,
+    hazardous,
+    put_role,
+)
+from geecs_canopy.module import DevicesUnavailable, LibraryUnavailable, Module
 from geecs_canopy.native import Resolved
 
 logger = logging.getLogger(__name__)
@@ -147,27 +152,14 @@ class Executor:
         self.module = module
         self.runs: OrderedDict[str, Run] = OrderedDict()
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-        self._read_at, self._library, self._error = -math.inf, None, None
         self._tasks: set[asyncio.Task] = set()
 
     async def library(self) -> ActionPlanLibrary:
-        """The experiment's library (none: empty); raise ``Refusal`` 503 while it does not validate."""
-        clock = self.module._clock
-        if clock() - self._read_at >= self.module.settings.reload_s:
-            self._read_at = clock()
-            path = self.module.settings.folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME  # fmt: skip
-
-            def read() -> ActionPlanLibrary:
-                doc = yaml.safe_load(path.read_text(encoding="utf-8")) if path.exists() else None  # fmt: skip
-                return ActionPlanLibrary.model_validate(doc) if doc else ActionPlanLibrary(plans={})  # fmt: skip
-
-            try:
-                self._library, self._error = await asyncio.wait_for(asyncio.to_thread(read), 5.0), None  # fmt: skip
-            except (OSError, ValueError, TimeoutError, yaml.YAMLError) as exc:
-                self._error = f"{path.name} does not validate: {exc}"
-        if self._error is not None or self._library is None:
-            raise Refusal(503, "library_unavailable", self._error or "not read")
-        return self._library
+        """The module's library; raise ``Refusal`` 503 while it does not validate."""
+        try:
+            return await self.module.action_library()
+        except LibraryUnavailable as exc:
+            raise Refusal(503, "library_unavailable", str(exc)) from exc
 
     async def _context(self) -> tuple[dict[str, Resolved], OperatorPolicy]:
         try:
@@ -238,19 +230,28 @@ class Executor:
                 why = f"names no role of {d.name}" + (f" (an axis of {list(d.axes)} first)" if d.axes else "")  # fmt: skip
                 raise Refusal(422, "bad_request", f"{where}: {why}", (s.index,))
             s.role = role.name
-            if isinstance(step, CheckStep):
-                continue
-            if not policy.permits(operator, d.name, d.family, role.name):
-                raise Refusal(403, "not_permitted", f"{where}: no grant lets {operator!r} write that", (s.index,))  # fmt: skip
-            if role.name not in d.writable:
-                raise Refusal(403, "not_allowed", f"{where}: {role.name!r} is not writable here", (s.index,))  # fmt: skip
-            meta = await self.module.hare.describe(d.pv(role, s.axis, write=True))
-            if refusal := bounds_refusal(d, role, step.value, meta):
-                raise Refusal(422, refusal[0], f"{where}: {refusal[1]}", (s.index,))
+            if isinstance(step, SetStep):
+                await self._precheck_set(s, step, d, role, operator, policy)
         hazards = self._hazards([s.step for s in steps], devices, policy)
         if hazards and not confirm:
             listed = ", ".join(f"{h['index']} ({h['device']} {h['role']})" for h in hazards)  # fmt: skip
             raise Refusal(428, "confirm_required", f"the plan writes hazard roles: steps {listed}", tuple(h["index"] for h in hazards))  # fmt: skip
+
+    async def _precheck_set(self, s: StepRun, step: SetStep, d: Resolved, role: Role, operator: str, policy: OperatorPolicy) -> None:  # fmt: skip
+        """A ``set``'s gates, as ``put_role`` will judge them: grant, allow, run lock, bounds."""
+        where, at = f"step {s.index} (set {step.device} {step.variable})", (s.index,)
+        if not policy.permits(operator, d.name, d.family, role.name):
+            raise Refusal(403, "not_permitted", f"{where}: no grant lets {operator!r} write that", at)  # fmt: skip
+        if role.name not in d.writable:
+            raise Refusal(403, "not_allowed", f"{where}: {role.name!r} is not writable here", at)  # fmt: skip
+        if role.locked:  # a run holding the device (a scan's camera) is foreseeable
+            try:
+                await check_lock(self.module, d, s.axis)
+            except Stop as exc:
+                raise Refusal(423, exc.code, f"{where}: {exc.detail}", at) from exc
+        meta = await self.module.hare.describe(d.pv(role, s.axis, write=True))
+        if refusal := bounds_refusal(d, role, step.value, meta):
+            raise Refusal(422, refusal[0], f"{where}: {refusal[1]}", at)
 
     async def start(self, name: str, operator: str, confirm: bool = False, key_name: str | None = None) -> Run:  # fmt: skip
         """Pre-check and start the plan ``name``; raise ``Refusal`` (nothing written) when it may not run."""
@@ -295,11 +296,12 @@ class Executor:
             current = next((s for s in run.steps if s.state == "running"), None)
             if current is not None:
                 current.end("failed", "internal", repr(exc))
-        failed = any(s.state == "failed" for s in run.steps)
-        run.state = "failed" if failed else "stopped" if run.stop.is_set() else "done"
         for s in run.steps:
             if s.state == "queued":
                 s.state = "skipped"
+        states = {s.state for s in run.steps}
+        # a stop asked during the last step that completed it cut nothing short
+        run.state = "failed" if "failed" in states else "stopped" if states & {"stopped", "skipped"} else "done"  # fmt: skip
         run.ended = _now()
 
     async def _step(self, run: Run, s: StepRun) -> bool:

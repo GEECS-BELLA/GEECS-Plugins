@@ -69,7 +69,9 @@ class PutOutcome:
         return body | ({"detail": e.detail} if e.detail else {})
 
 
-class _Stop(Exception):
+class Stop(Exception):
+    """A gate's refusal: the slug, why, and its status."""
+
     def __init__(
         self,
         code: str,
@@ -129,21 +131,22 @@ def hazardous(policy: OperatorPolicy, device: Resolved, role: Role) -> bool:
     return role.confirm == "hazard" or policy.hazardous(device.name, device.family, role.name)  # fmt: skip
 
 
-async def _check_lock(module: Module, device: Resolved, axis: str | None) -> None:
+async def check_lock(module: Module, device: Resolved, axis: str | None) -> None:
+    """Raise ``Stop`` unless the device's run lock reads Free (unread or held: refused, failing closed)."""
     roles = {role.name: role for role in device.roles}
     if LOCK_ROLE not in roles:
-        raise _Stop("run_lock_unreadable", f"{device.name} has no run lock")
+        raise Stop("run_lock_unreadable", f"{device.name} has no run lock")
     pv = device.pv(roles[LOCK_ROLE], axis)
     wire, meta = await asyncio.gather(module.hare.get(pv), module.hare.describe(pv))
     choices, value = meta.get("enumChoices") or [], wire.get("value")
     if not wire.get("connected") or not (
         is_number(value) and 0 <= value < len(choices)
     ):
-        raise _Stop("run_lock_unreadable", f"{pv} cannot be read")
+        raise Stop("run_lock_unreadable", f"{pv} cannot be read")
     if choices[int(value)] != LOCK_FREE:
         owner = roles.get(OWNER_ROLE)
         held_by = owner and (await module.hare.get(device.pv(owner, axis))).get("value")
-        raise _Stop("run_lock_held", f"a run holds {device.name}: {held_by or '?'}")
+        raise Stop("run_lock_held", f"a run holds {device.name}: {held_by or '?'}")
 
 
 def _entry(req: PutRequest, outcome: str, **fields: Any) -> JournalEntry:
@@ -158,14 +161,14 @@ async def _write(
 ) -> tuple[dict, str | None, int | None]:
     """Run the device's gates and the put; return what the record took, a clamp note, the attempt row."""
     if hazard and not req.confirm:
-        raise _Stop("confirm_required", f"{role.name} needs the hazard confirm")
+        raise Stop("confirm_required", f"{role.name} needs the hazard confirm")
     if role.locked:
-        await _check_lock(module, device, req.axis)
+        await check_lock(module, device, req.axis)
     pv = device.pv(role, req.axis, write=True)
     if refusal := bounds_refusal(
         device, role, req.value, await module.hare.describe(pv)
     ):
-        raise _Stop(*refusal)
+        raise Stop(*refusal)
     s = module.settings
     # A GEECS set's put completes when the device converges (a stage's move): a settling wait.
     settles = bool(role.settled_by) or device.source == "gateway"
@@ -177,7 +180,7 @@ async def _write(
         attempt = (await asyncio.to_thread(module.journal.record, row)).id
     except JournalUnavailable as exc:
         why = f"no put without its journal row: {exc}"
-        raise _Stop("journal_unavailable", why) from exc
+        raise Stop("journal_unavailable", why) from exc
     loop = asyncio.get_running_loop()
     started = loop.time()
     try:
@@ -188,7 +191,7 @@ async def _write(
         # The same timeout covers connecting, so an unconnected PV stays refused.
         late = settles and loop.time() - started >= 0.9 * timeout
         if not late or not (await module.hare.get(pv)).get("connected"):
-            raise _Stop(exc.code, exc.detail, exc.status, attempt) from exc
+            raise Stop(exc.code, exc.detail, exc.status, attempt) from exc
         unsettled = f"dispatched; not settled after {timeout} s: the work goes on"
     taken = (await module.hare.get(pv)).get("value")
     extra = {"requested": req.value}
@@ -211,21 +214,21 @@ async def _decide(
     try:
         device = (await module.devices()).get(req.device)
     except DevicesUnavailable as exc:
-        raise _Stop("devices_unavailable", str(exc)) from exc
+        raise Stop("devices_unavailable", str(exc)) from exc
     if device is None:
-        raise _Stop("not_found", f"no device {req.device!r}")
+        raise Stop("not_found", f"no device {req.device!r}")
     if (req.axis or None) not in (device.axes or (None,)):
-        raise _Stop("bad_request", f"{req.device} takes an axis of {list(device.axes)}")
+        raise Stop("bad_request", f"{req.device} takes an axis of {list(device.axes)}")
     try:
         policy = await module.policy()
     except Exception as exc:  # unreadable, not YAML, not valid: deny, and journal it
-        raise _Stop("not_permitted", f"the policy is unreadable: {exc}") from exc
+        raise Stop("not_permitted", f"the policy is unreadable: {exc}") from exc
     if not policy.permits(req.operator, device.name, device.family, req.role):
-        raise _Stop("not_permitted", f"no grant lets {req.operator!r} write that")
+        raise Stop("not_permitted", f"no grant lets {req.operator!r} write that")
     role = {r.name: r for r in device.roles}.get(req.role)
     if role is None or req.role not in device.writable:
         why = f"is in none of {list(device.actions)}" if device.actions else f"is no writable role of {device.name}"  # fmt: skip
-        raise _Stop("not_allowed", f"{req.role!r} {why}")
+        raise Stop("not_allowed", f"{req.role!r} {why}")
     return await _write(module, device, role, req, hazardous(policy, device, role))
 
 
@@ -234,7 +237,7 @@ async def put_role(module: Module, req: PutRequest) -> PutOutcome:
     try:
         extra, detail, attempt = await _decide(module, req)
         status, outcome, code = 200, "accepted", None
-    except _Stop as stop:
+    except Stop as stop:
         extra, detail, attempt = {}, stop.detail, stop.attempt
         status, outcome, code = stop.status, stop.outcome, stop.code
     entry = _entry(req, outcome, canopy_code=code, detail=detail, attempt=attempt)
