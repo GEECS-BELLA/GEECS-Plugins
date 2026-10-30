@@ -8,6 +8,9 @@ binding names a GEECS device and a role (and an axis), or a bare PV. On a
 device the GEECS DB serves, the role is its GEECS variable name. A bare PV
 is read-only, for anything servable (a timestamp, a derived channel): a
 writing kind on one is drawn disabled; a write binds ``{device, role}``.
+A button may instead name an action plan (``{action: <plan>}``) from the
+experiment's action library: the device module runs it, step by step
+through its gates; the screen only calls it.
 Whether the role exists on the device and fits the widget depends on the
 family files and the instance data, so it is checked by :func:`resolve`,
 not by the model; a DB device's roles are the device module's, so
@@ -62,12 +65,16 @@ class Binding(SchemaModel):
         None, description="The axis, for a per-axis family (a motor's m1)."
     )
     pv: Optional[Suffix] = Field(None, description="A bare PV, read only: a writing kind on one is drawn disabled.")  # fmt: skip
+    action: Optional[str] = Field(None, min_length=1, description="An action plan's name in the experiment's library: a button runs it.")  # fmt: skip
 
     @model_validator(mode="after")
     def _one_kind_of_binding(self) -> "Binding":
         named = self.device is not None and self.role is not None
-        if named == (self.pv is not None) or (self.pv and (self.device or self.role)):
-            raise ValueError("a binding names a device and a role, or a pv, not both")
+        loose = (self.device or self.role) and not named
+        if loose or named + (self.pv is not None) + (self.action is not None) != 1:
+            raise ValueError(
+                "a binding names a device and a role, a pv, or an action: one of them"
+            )
         if self.axis is not None and not named:
             raise ValueError("an axis belongs to a device's role")
         return self
@@ -104,6 +111,9 @@ class Widget(SchemaModel):
             raise ValueError("only a flipper has indicators")
         if self.confirm and self.kind not in _WRITES:
             raise ValueError(f"a {self.kind} writes nothing to confirm")
+        runs = [b for b in (self.bind, *self.indicators) if b and b.action]
+        if runs and (self.kind != "button" or runs[0] is not self.bind):
+            raise ValueError("only a button runs an action")
         return self
 
 
@@ -230,8 +240,14 @@ def _roleless(
     panel: PanelDevices,
     known: NativeDevices,
 ) -> bool:
-    """A bare PV, or a deferred device's binding: no Role to look up."""
-    return b.pv is not None or _later(b, deferred, panel, known)
+    """A bare PV, an action, or a deferred device's binding: no Role to look up."""
+    return b.pv is not None or b.action is not None or _later(b, deferred, panel, known)
+
+
+def _unplanned(widget: Widget, actions: Collection[str], where: str) -> list[str]:
+    """A button naming a plan the library does not hold."""
+    plan = widget.bind.action if widget.bind else None
+    return [f"{where}: no action plan {plan!r} in the library"] if plan and plan not in actions else []  # fmt: skip
 
 
 def resolve(
@@ -240,12 +256,15 @@ def resolve(
     panel: PanelDevices,
     native: Optional[NativeDevices] = None,
     deferred: Collection[str] = (),
+    actions: Collection[str] = (),
 ) -> list[list[Bound]]:
     """Bind every widget to its role, group by group; raise :class:`ScreenError` naming every misfit.
 
     ``deferred``: the devices the module lists (its roster); one that
     neither device file names is bound without a role, for the page to
     judge by the module's device route. A device in neither is refused.
+    ``actions``: the plan names in the experiment's library; a button
+    naming another is refused.
     """
     known = native or NativeDevices.model_validate({})
     problems: list[str] = []
@@ -268,6 +287,7 @@ def resolve(
         return role
 
     def bind(widget: Widget, where: str) -> Bound:
+        problems.extend(_unplanned(widget, actions, where))
         role = role_of(widget.bind, where) if widget.bind else None  # deferred: None
         if why := _misfit(widget, role):
             problems.append(f"{where}: {why}")

@@ -1,8 +1,8 @@
 """The module's routes, mounted at ``/geecs``; no Canopy import (condition (b)).
 
-Every route, the put included, needs Canopy read access only (condition
-(a)): an operator's key never carries Canopy ``write``; the module
-authorizes its own writes by the operator policy. Errors are Canopy's
+Every route, the put and an action run included, needs Canopy read access
+only (condition (a)): an operator's key never carries Canopy ``write``; the
+module authorizes its own writes by the operator policy, step by step. Errors are Canopy's
 ``{"code", "detail"}`` envelope.
 """
 
@@ -17,6 +17,7 @@ from fastapi import FastAPI, Query, Request, Security
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from geecs_canopy.actions import Executor, Refusal
 from geecs_canopy.freshness import view
 from geecs_canopy.gates import PutRequest, put_role
 from geecs_canopy.hare import WriteValue
@@ -31,6 +32,15 @@ class PutBody(BaseModel):
     role: str
     axis: str | None = None
     value: WriteValue
+    operator: str = Field(min_length=1)
+    confirm: bool = False
+
+
+class RunBody(BaseModel):
+    """A run of a plan: who asks, and the one hazard confirm for the whole plan."""
+
+    model_config = ConfigDict(extra="forbid")
+
     operator: str = Field(min_length=1)
     confirm: bool = False
 
@@ -81,9 +91,41 @@ def build_app(module: Module, *, read_access: Callable[..., Any]) -> FastAPI:
         outcome = await put_role(module, request)
         return JSONResponse(status_code=outcome.status, content=outcome.body())
 
+    _action_routes(app, Executor(module), read, read_access)
+
     @app.get("/v1/journal", dependencies=read)
     async def journal(entries: int = Query(50, ge=1, le=1000)) -> Any:
         rows = await asyncio.to_thread(module.journal.last, entries)  # off the loop
         return [row.model_dump(mode="json") for row in rows]
 
     return app
+
+
+def _action_routes(app: FastAPI, actions: Executor, read: list[Any], read_access: Callable[..., Any]) -> None:  # fmt: skip
+    """The action plans: the list, a run's start, its state and its stop; read access, as every route."""
+    app.state.actions = actions
+
+    @app.exception_handler(Refusal)
+    async def refused(_: Request, exc: Refusal) -> JSONResponse:
+        return JSONResponse(status_code=exc.status, content=exc.body())
+
+    @app.get("/v1/actions", dependencies=read)
+    async def action_plans() -> Any:
+        return {"plans": await actions.listing()}
+
+    @app.post("/v1/actions/{name}/run")
+    async def run(name: str, body: RunBody, key: Any = Security(read_access)) -> Any:
+        started = await actions.start(name, body.operator, body.confirm, getattr(key, "name", None))  # fmt: skip
+        return JSONResponse(status_code=202, content={"runId": started.id} | started.body())  # fmt: skip
+
+    @app.get("/v1/actions/runs/{run_id}", dependencies=read)
+    async def action_run(run_id: str) -> Any:
+        if (found := actions.runs.get(run_id)) is None:
+            return _error(404, "not_found", f"no run {run_id!r} (the last {len(actions.runs)} are kept)")  # fmt: skip
+        return found.body()
+
+    @app.post("/v1/actions/runs/{run_id}/stop", dependencies=read)
+    async def stop(run_id: str) -> Any:
+        if (found := actions.stop(run_id)) is None:
+            return _error(404, "not_found", f"no run {run_id!r}")
+        return JSONResponse(status_code=202, content=found.body())

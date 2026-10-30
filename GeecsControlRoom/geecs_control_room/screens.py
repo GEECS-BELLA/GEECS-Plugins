@@ -5,9 +5,11 @@
 ``panel_devices.yaml`` and ``native_devices.yaml``, and the module's roster
 (read at most every ``ROSTER_TTL_S``): a device only the module lists (a
 DB device) is bound deferred, its roles judged on the page by the module's
-device route. The page reads live values from Hare itself; the routes here
-only pass the module's answers through: a device's verdicts, and a put,
-sent once.
+device route. A button may name an action plan, checked against the
+experiment's library and run by the module. The page reads live values
+from Hare itself; the routes here only pass the module's answers through:
+a device's verdicts, a put, and an action run's start, state and stop,
+each write sent once.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import math
 import re
 import time
 from collections.abc import Collection
+from urllib.parse import quote
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -25,6 +28,8 @@ import yaml
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
 from geecs_schemas import (
+    ACTION_LIBRARY_FILENAME,
+    ACTION_LIBRARY_FOLDER,
     NATIVE_DEVICES_FILENAME,
     PANEL_DEVICES_FILENAME,
     SCREENS_DIRNAME,
@@ -33,6 +38,7 @@ from geecs_schemas import (
     PanelDevices,
     Screen,
     ScreenError,
+    load_action_library,
     load_families,
     resolve_screen,
 )
@@ -99,7 +105,12 @@ def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loade
             panel = PanelDevices.from_path(folder / PANEL_DEVICES_FILENAME)
         if (folder / NATIVE_DEVICES_FILENAME).is_file():
             native = NativeDevices.from_path(folder / NATIVE_DEVICES_FILENAME)
-        bound = resolve_screen(screen, load_families(), panel, native, deferred)
+        plans: set[str] = set()
+        library = folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME
+        runs = any(w.bind and w.bind.action for g in screen.groups for w in g.widgets)
+        if runs:  # a button names a plan: the module's library holds it
+            plans = set(load_action_library(library).plans)
+        bound = resolve_screen(screen, load_families(), panel, native, deferred, plans)
         return Loaded(screen, bound)
     except ScreenError as exc:
         return Loaded(problems=exc.problems, status=422)
@@ -115,6 +126,15 @@ class PutBody(BaseModel):
     role: str
     axis: Optional[str] = None
     value: Union[bool, float, int, str]
+    operator: str = Field(min_length=1)
+    confirm: bool = False
+
+
+class RunBody(BaseModel):
+    """An action run as the module takes it: who asks, and the plan's one hazard confirm."""
+
+    model_config = ConfigDict(extra="forbid")
+
     operator: str = Field(min_length=1)
     confirm: bool = False
 
@@ -152,8 +172,14 @@ class _Roster:
         return None
 
 
+def unreachable(exc: ModuleUnavailable, what: str) -> JSONResponse:
+    """The module did not answer: an unknown outcome, never a refusal."""
+    body = {"outcome": "unknown", "code": "module_unreachable", "detail": f"{what}: {exc}"}  # fmt: skip
+    return JSONResponse(body, status_code=502)
+
+
 def router(settings: Settings) -> APIRouter:
-    """The screen page, the screens' images, and the two module pass-throughs."""
+    """The screen page, the screens' images, and the device pass-throughs."""
     r = APIRouter()
     roster = _Roster()
 
@@ -178,10 +204,6 @@ def router(settings: Settings) -> APIRouter:
             return JSONResponse({"code": "not_found", "detail": file}, status_code=404)
         return FileResponse(path)
 
-    def unreachable(exc: ModuleUnavailable, what: str) -> JSONResponse:
-        body = {"outcome": "unknown", "code": "module_unreachable", "detail": f"{what}: {exc}"}  # fmt: skip
-        return JSONResponse(body, status_code=502)
-
     @r.get("/api/devices/{name}")
     async def device(request: Request, name: str) -> Any:
         try:
@@ -199,5 +221,44 @@ def router(settings: Settings) -> APIRouter:
             why = "no answer; read the device and the journal before repeating it"
             return unreachable(exc, why)
         return JSONResponse(answer, status_code=status)
+
+    return r
+
+
+def _passed(status: int, body: Any) -> JSONResponse:
+    return JSONResponse(body, status_code=status)
+
+
+def action_router() -> APIRouter:
+    """The action pass-throughs: the module's plans, a run's start (sent once), its state and its stop."""
+    r = APIRouter()
+
+    @r.get("/api/actions")
+    async def actions(request: Request) -> Any:
+        try:
+            return _passed(*await request.app.state.module.get("/actions"))
+        except ModuleUnavailable as exc:
+            return unreachable(exc, "the module did not answer")
+
+    @r.post("/api/actions/{plan}/run")
+    async def run(request: Request, plan: str, body: RunBody) -> Any:
+        try:
+            return _passed(*await request.app.state.module.post(f"/actions/{quote(plan, safe='')}/run", body.model_dump()))  # fmt: skip
+        except ModuleUnavailable as exc:
+            return unreachable(exc, "no answer; read the actions list before running it again")  # fmt: skip
+
+    @r.get("/api/actions/runs/{run_id}")
+    async def action_run(request: Request, run_id: str) -> Any:
+        try:
+            return _passed(*await request.app.state.module.get(f"/actions/runs/{quote(run_id, safe='')}"))  # fmt: skip
+        except ModuleUnavailable as exc:
+            return unreachable(exc, "the module did not answer")
+
+    @r.post("/api/actions/runs/{run_id}/stop")
+    async def stop(request: Request, run_id: str) -> Any:
+        try:
+            return _passed(*await request.app.state.module.post(f"/actions/runs/{quote(run_id, safe='')}/stop", {}))  # fmt: skip
+        except ModuleUnavailable as exc:
+            return unreachable(exc, "no answer; the run's state says whether it stopped")  # fmt: skip
 
     return r

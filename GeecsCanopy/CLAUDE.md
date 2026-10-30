@@ -29,8 +29,12 @@ geecs_canopy/
                  last good set kept), the operator policy, the tracker
   freshness.py   Tracker (internal broker client) and the verdicts
   gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal
+  actions.py     Executor: the experiment's ActionPlanLibrary run for an operator
+                 (pre-check every step, then each set through put_role, rows
+                 carrying the run's id); the last 100 runs in memory
   journal.py     SQLite of GEECS-Schemas JournalEntry rows
-  routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal
+  routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal,
+                 /v1/actions, .../{name}/run, /v1/actions/runs/{id}[/stop]
   testing.py     the shared test doubles: FakeHare, live(), write_documents, make_env
 deploy/
   Dockerfile (+ .dockerignore)   FROM the pin; pip --python into /app/.venv
@@ -85,7 +89,10 @@ deploy/
   the module's own policy decides writes. Every write, a push-2 restore's
   rows included, goes through `gates.put_role`, and no put reaches Hare without its
   `attempted` journal row; each request then leaves one outcome row naming
-  it in `attempt` (unless the journal cannot take one).
+  it in `attempt` (unless the journal cannot take one). An operator
+  sequence is an action plan (GEECS-Schemas' `ActionPlanLibrary`, the file
+  the worker reads; one step library, two executors), run by `actions.py`
+  from a screen button: never by Bluesky, never scripted in a screen.
   Verdicts follow `Planning/operator_surfaces.md` §3 and Appendix A of
   `Planning/epics_estate.md` (rules 1, 6, 8, 9, 10, 11, 18), each pinned by
   a test in `tests/test_module.py`.

@@ -11,6 +11,7 @@ from geecs_schemas import ActionPlan, ActionPlanLibrary, CheckStep, SetStep
 from geecs_schemas.action_plan import (
     ActionPlanCycleError,
     ActionPlanNotFoundError,
+    load_action_library,
     values_match,
 )
 
@@ -193,3 +194,10 @@ class TestTheStepLibrary:
         assert not values_match("25", "25")  # legacy quirk: actual floats first
         assert not values_match("on", "off")
         assert not values_match(1.0, "on")  # unparseable string stays a string
+
+
+@pytest.mark.parametrize("text", ["", "# placeholder: no plans yet\n", "{}\n"])
+def test_a_placeholder_library_file_is_the_empty_library(tmp_path, text):
+    (tmp_path / "actions.yaml").write_text(text)
+    assert load_action_library(tmp_path / "actions.yaml").plans == {}
+    assert load_action_library(tmp_path / "missing.yaml").plans == {}

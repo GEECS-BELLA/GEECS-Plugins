@@ -98,6 +98,14 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("view: roles keyed by role|axis", "deviceView", [True, {"state": "live", "roles": [{"role": "rbv", "axis": "m1"}]}],
      {"ok": True, "state": "live", "roles": {"rbv|m1": {"role": "rbv", "axis": "m1"}}}),
     ("view: a refusal is not ok", "deviceView", [False, {"code": "not_found"}], {"ok": False, "roles": {}}),
+    # an action run, as its button says it
+    ("run: the step running of all", "runWord", [{"state": "running", "steps": [{"state": "done"}, {"state": "running"}, {"state": "queued"}]}], "running 2/3"),
+    ("run: a failed step names its index and code", "runWord", [{"state": "failed", "steps": [{"index": 1, "state": "done"}, {"index": 2, "state": "failed", "code": "out_of_bounds"}]}], "failed · step 2 · out_of_bounds"),
+    ("run: done and stopped say so", "runWord", [{"state": "stopped", "steps": [{"state": "stopped"}]}], "stopped"),
+    ("run: a failed step's detail is the tooltip", "runDetail", [{"state": "failed", "steps": [{"state": "failed", "detail": "read 'off', expected 'on'"}]}], "read 'off', expected 'on'"),
+    ("run: a stopped run wears degraded", "runState", [{"state": "stopped"}], "degraded"),
+    ("run: running has not ended", "runEnded", [{"state": "running"}], False),
+    ("run: a run the module lost has ended, unknown", "runState", [{"state": "lost"}], "unknown"),
 ]  # fmt: skip
 
 

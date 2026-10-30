@@ -993,6 +993,7 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `role` | `str (optional)` | no | None | The device family's role; a DB device's GEECS variable name. |
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
 | `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
+| `action` | `str (optional)` | no | None | An action plan's name in the experiment's library: a button runs it. |
 
 ## `home_layout`
 
