@@ -361,6 +361,7 @@ def _page(
                 "label": multi.scan_label(r.day, r.scan),
                 "text": scan_refs_text([r]),
                 "missing": False,
+                "trace": 0,
             }
             for r in settings.extra_scans
             if (r.day, r.scan) != (day, scan)
@@ -535,6 +536,8 @@ def _extra_runs(ctx: Context, page: dict) -> list[tuple[date, int, pd.DataFrame]
             chip["missing"] = True
             continue
         found.append((chip["day"], chip["scan"], scans.load_frame(run)))
+        # The figure colours the scans found, the main one first.
+        chip["trace"] = len(found) + 1
     return found
 
 

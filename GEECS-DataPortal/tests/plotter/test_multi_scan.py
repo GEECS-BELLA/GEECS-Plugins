@@ -357,3 +357,13 @@ class TestPage:
     def test_the_map_says_it_draws_the_main_scan(self, client, two_days):
         html = post(client, scan=1, scans="2026-10-03:1", tab="map")
         assert "the map draws 10-02 S001 alone" in html
+
+
+def test_a_chip_s_colour_is_its_trace_s_with_a_missing_scan_first(client, two_days):
+    """The figure colours the scans found; a missing one before them shifts nothing."""
+    html = post(client, scan=1, scans="2026-10-09:4,2026-10-03:1")
+    before = html[: html.index("10-03 S001")]
+    # The last swatch before the chip's name is its own.
+    assert before[before.rindex('class="swatch t') :].startswith('class="swatch t2"')
+    body = figure(client, scans="2026-10-03:1")
+    assert body["figure"]["data"][1]["marker"]["color"] == "$tok:--trace-2"

@@ -284,13 +284,14 @@
           <div class="fchip"><span class="swatch t1" aria-hidden="true"{% if not (extra_scans and scan_view == 'overlay') %} hidden{% endif %}></span><span class="n">{{ main_label }}</span><span class="hint">main</span></div>
           {% for e in extra_scans %}
             <div class="fchip">
-              <span class="swatch t{{ loop.index + 1 if loop.index < max_overlay else max_overlay }}" aria-hidden="true"{% if scan_view != 'overlay' or e.missing %} hidden{% endif %}></span>
+              {# Its trace colour: its place among the scans found (the figure's order). #}
+              <span class="swatch t{{ e.trace }}" aria-hidden="true"{% if scan_view != 'overlay' or e.missing or e.trace > max_overlay %} hidden{% endif %}></span>
               <span class="n">{{ e.label }}</span>
               {% if e.missing %}<span class="hint level-problem">not on the share</span>{% endif %}
               <button type="button" class="x" data-scan-remove="{{ e.text }}" aria-label="remove {{ e.label }}">✕</button>
             </div>
           {% endfor %}
-          <div><button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer">Add scan…</button></div>
+          <div><button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer" data-max-overlay="{{ max_overlay }}">Add scan…</button></div>
           {% if extra_scans %}
             <div class="field">
               <div class="row">
@@ -311,7 +312,7 @@
                   </div>
                 </div>
                 {% endif %}
-                <span class="hint">A trace per scan, one Y; each scan fitted and binned on its own.{% if extra_scans | length + 1 > max_overlay %} <span class="level-problem">The overlay draws at most {{ max_overlay }} scans: remove some, or merge.</span>{% endif %}</span>
+                <span class="hint">A trace per scan, one Y; each scan fitted and binned on its own.{% if scan_total > max_overlay %} <span class="level-problem">The overlay draws at most {{ max_overlay }} scans: remove some, or merge.</span>{% endif %}</span>
               {% else %}
                 <span class="hint">Every scan's shots as one dataset: the fits use them all, and bins are by X (Bin # restarts in every scan). A shot filter can name <span class="mono">scan</span>.</span>
               {% endif %}
@@ -658,8 +659,6 @@
 {% if columns and tab != "images" %}
 <datalist id="filter-columns">{% for c in columns %}<option value="{{ c }}">{% endfor %}</datalist>
 
-{# Rung 2: the plot's settings, each a sub-task on the plot on screen. Esc
-   or the scrim closes one without applying; Apply saves into the set. #}
 {# Rung 2: Add scan…, the kit's drawer picker (GeecsKit.picker): a day,
    its scans (number, description, shots), the ticked ones added. #}
 <aside class="drawer" id="scans-drawer" role="dialog" aria-modal="false" aria-labelledby="scans-title" aria-hidden="true" data-open="false">
@@ -684,6 +683,8 @@
   </div>
 </aside>
 
+{# Rung 2: the plot's settings, each a sub-task on the plot on screen. Esc
+   or the scrim closes one without applying; Apply saves into the set. #}
 <aside class="drawer" id="filters-drawer" role="dialog" aria-modal="false" aria-labelledby="filters-title" aria-hidden="true" data-open="false">
   <header>
     <span class="eyebrow" id="filters-title">Shot filters · AND inside a group, groups OR together</span>

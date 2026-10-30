@@ -196,7 +196,7 @@
     const hint = document.getElementById("scans-hint");
     const main = `${form.elements.day.value}:${Number(form.elements.scan.value)}`;
     const overlay = form.elements.multi.value === "overlay";
-    const MAX_OVERLAY = 8;  // settings.MAX_OVERLAY_SCANS
+    const MAX_OVERLAY = Number(scansOpen.dataset.maxOverlay) || 8;  // settings.MAX_OVERLAY_SCANS
     let listed = { day: "", scans: [], error: "" };
     const key = (n) => `${listed.day}:${n}`;
     const name = (n) => `Scan ${String(n).padStart(3, "0")}`;
@@ -235,14 +235,19 @@
     });
     const load = () => {
       const day = dayBox.value;
-      if (!day) { listed = { day: "", scans: [], error: "" }; picker.refresh(); return; }
+      if (!day) { listed = { day: "", scans: [], error: "" }; picker.open(); return; }
+      listed = { day, scans: [], error: "" };
+      picker.open();
       hint.textContent = "listing…";
       const url = new URL("api/day", form.action);
       url.search = new URLSearchParams({ day }).toString();
       fetch(url)
         .then((r) => r.json().then((b) => (r.ok ? b : Promise.reject(new Error(b.detail || r.statusText)))))
-        .then((body) => { listed = { day, scans: body.scans, error: "" }; picker.refresh(); })
-        .catch((error) => { listed = { day, scans: [], error: error.message }; picker.refresh(); });
+        // A new day starts the picks afresh (open() clears them): a row is
+        // named by its number alone, so a pick kept across days would add
+        // that number on the new day, not the scan ticked.
+        .then((body) => { listed = { day, scans: body.scans, error: "" }; picker.open(); })
+        .catch((error) => { listed = { day, scans: [], error: error.message }; picker.open(); });
     };
     dayBox.addEventListener("change", load);
     return () => { picker.open(); if (listed.day !== dayBox.value) load(); };

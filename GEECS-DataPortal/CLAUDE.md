@@ -540,7 +540,9 @@ design rules"). The rules that are the portal's own:
   `_pretty_names`; fold toward the plotter's, which a page uses). That PR also hands the plotter the portal's catalog
   (`plotter/app.py` builds its own `FolderScanCatalog`, so the page is
   folder-only even under `--tiled`; the folder catalog caches finished
-  scans itself). The filter and setting rows the plotter page takes from
+  scans itself), and with it folds the Add-scan drawer's day listing
+  (`/plot/api/day`, `scans.day_scans`) onto the portal's `/api/day/{iso}`
+  (`PortalState.list_day`). The filter and setting rows the plotter page takes from
   `portal.css` can become kit components (through `kit.html`) now that
   the scan page's rail filters are gone. A native camera's shots were
   background-warmed into the data cache when the scan page opened its

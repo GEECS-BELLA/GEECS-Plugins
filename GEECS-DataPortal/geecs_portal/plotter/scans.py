@@ -64,7 +64,7 @@ def day_scans(
     day: date,
     *,
     experiment: str = "",
-    catalog: Optional[FolderScanCatalog] = None,
+    catalog: FolderScanCatalog,
 ) -> list[RunSummary]:
     """The day's scans on the share, by number; empty for a day with none.
 
@@ -77,7 +77,7 @@ def day_scans(
     name = experiment or (getattr(config, "experiment", None) or "")
     if not name:
         return []
-    runs = (catalog or FolderScanCatalog()).list_runs(name, day)
+    runs = catalog.list_runs(name, day)
     return sorted(runs, key=lambda r: r.scan_number or 0)
 
 
