@@ -121,3 +121,17 @@ def test_an_own_column_naming_another_scan_is_refused(name, values):
     frame[name] = values
     with pytest.raises(ValueError, match=name):
         merge_scan_frames({(D1, 6): frame})
+
+
+def test_shot_numbers_in_a_named_index_survive():
+    # ScanData's TDMS frame is indexed by Shotnumber.
+    frame = pd.DataFrame({"a": [1.0, 2.0]}, index=pd.Index([1, 2], name="Shotnumber"))
+    merged = merge_scan_frames({(D1, 1): frame, (D1, 2): frame})
+    assert merged["Shotnumber"].tolist() == [1, 2, 1, 2]
+    assert merged.index.tolist() == [0, 1, 2, 3]
+
+
+def test_multi_level_columns_are_refused():
+    frame = pd.DataFrame([[1.0]], columns=pd.MultiIndex.from_tuples([("dev", "x")]))
+    with pytest.raises(ValueError, match="multi-level"):
+        merge_scan_frames({(D1, 1): frame})
