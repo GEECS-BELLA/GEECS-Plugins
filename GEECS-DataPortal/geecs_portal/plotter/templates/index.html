@@ -4,7 +4,9 @@
   server saves the controls into the set and redirects back here. The pick
   lists are rendered here; plotter.js filters them, submits on change, and
   draws the figure fetched from data-figure-url.
-#}{# One Y pick list: its alias toggle, its filter, and its trace colour. #}
+#}{# A column only some of the plotted scans have says how many. #}
+{%- macro cov(c) %}{% if coverage and coverage[c] < scan_total %} · in {{ coverage[c] }} of {{ scan_total }} scans{% endif %}{% endmacro %}
+{# One Y pick list: its alias toggle, its filter, and its trace colour. #}
 {%- macro y_field(key, label, picked, names, alias, filter_text, trace, fit, order, kept="") %}
           <div class="field">
             <div class="row">
@@ -37,7 +39,7 @@
                    aria-label="Filter {{ label }} columns" data-filter-for="{{ key }}">
             <select id="{{ key }}" name="{{ key }}" size="10" class="picks" data-pick>
               {% if kept %}<option value="{{ kept }}" selected>{{ kept }} (not in this scan)</option>{% endif %}
-              {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}</option>{% endfor %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}{{ cov(c) }}</option>{% endfor %}
             </select>
           </div>
 {% endmacro %}{# The big view: the tile clicked in the strip (or, for a trace device,
@@ -141,6 +143,12 @@
         <input type="hidden" name="y2alias" value="{{ 'true' if y2alias else 'false' }}">
         <input type="hidden" name="y3alias" value="{{ 'true' if y3alias else 'false' }}">
         <input type="hidden" name="ycount" value="{{ ycount }}">
+        {# The XY plot's other scans (YYYY-MM-DD:N, comma-separated; the
+           Scans group's chips and drawer write it), overlay or merged, and
+           the Y list the overlay draws. #}
+        <input type="hidden" name="scans" value="{{ scans_saved }}">
+        <input type="hidden" name="multi" value="{{ scan_view }}">
+        <input type="hidden" name="oy" value="{{ overlay_y }}">
         {# The Plot page's view (XY plot or 2-D map), saved back from either
            page; the page the form came from is the one reopened. #}
         <input type="hidden" name="tab" value="{{ plot_view }}">
@@ -245,7 +253,7 @@
            variables), saved as "no pick" so a set that follows the viewer
            to another scan maps that scan's axes. #}
         <div class="group">
-          <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots</span></div>
+          <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots{% if extra_scans %}; the map draws {{ main_label }} alone{% endif %}</span></div>
           <div class="field">
             <label for="mapv">Scalar</label>
             <input id="mapv-filter" name="mapf" value="{{ mapf }}" type="search" autocomplete="off" placeholder="filter columns"
@@ -266,8 +274,53 @@
           {% endfor %}
         </div>
         {% else %}
+        {# The scans on the XY plot: the main one (the steppers and the day
+           above act on it; the map and the Images page show it alone) and
+           a chip per other scan, from any day. Several are drawn a trace
+           per scan (one Y list, at most max_overlay scans) or merged into
+           one dataset (LabVIEW's "merge s files"). #}
+        <div class="group" id="scans-group">
+          <h4>Scans</h4>
+          <div class="fchip"><span class="swatch t1" aria-hidden="true"{% if not (extra_scans and scan_view == 'overlay') %} hidden{% endif %}></span><span class="n">{{ main_label }}</span><span class="hint">main</span></div>
+          {% for e in extra_scans %}
+            <div class="fchip">
+              {# Its trace colour: its place among the scans found (the figure's order). #}
+              <span class="swatch t{{ e.trace }}" aria-hidden="true"{% if scan_view != 'overlay' or e.missing or e.trace > max_overlay %} hidden{% endif %}></span>
+              <span class="n">{{ e.label }}</span>
+              {% if e.missing %}<span class="hint level-problem">not on the share</span>{% endif %}
+              <button type="button" class="x" data-scan-remove="{{ e.text }}" aria-label="remove {{ e.label }}">✕</button>
+            </div>
+          {% endfor %}
+          <div><button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer" data-max-overlay="{{ max_overlay }}">Add scan…</button></div>
+          {% if extra_scans %}
+            <div class="field">
+              <div class="row">
+                <span class="hint">Scans drawn</span>
+                <span class="spacer"></span>
+                <div class="seg" role="group" aria-label="Several scans: a trace per scan, or merged">
+                  <button type="button" data-toggle-for="multi" data-value="overlay" aria-pressed="{{ 'true' if scan_view == 'overlay' else 'false' }}">overlay</button>
+                  <button type="button" data-toggle-for="multi" data-value="merged" aria-pressed="{{ 'true' if scan_view == 'merged' else 'false' }}">merged</button>
+                </div>
+              </div>
+              {% if scan_view == "overlay" %}
+                {% if ycount > 1 %}
+                <div class="row">
+                  <span class="hint">Overlay draws</span>
+                  <span class="spacer"></span>
+                  <div class="seg" role="group" aria-label="The Y list the overlay draws">
+                    {% for n in range(1, ycount + 1) %}<button type="button" data-toggle-for="oy" data-value="{{ n }}" aria-pressed="{{ 'true' if overlay_y == n else 'false' }}">Y{{ '' if n == 1 else n }}</button>{% endfor %}
+                  </div>
+                </div>
+                {% endif %}
+                <span class="hint">A trace per scan, one Y; each scan fitted and binned on its own.{% if scan_total > max_overlay %} <span class="level-problem">The overlay draws at most {{ max_overlay }} scans: remove some, or merge.</span>{% endif %}</span>
+              {% else %}
+                <span class="hint">Every scan's shots as one dataset: the fits use them all, and bins are by X (Bin # restarts in every scan). A shot filter can name <span class="mono">scan</span>.</span>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
         <div class="group">
-          <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots</span></div>
+          <div class="field"><span class="hint">{{ columns | length }} columns{% if scans_text %} over {{ scan_total }} scans{% else %}, {{ shots }} shots{% endif %}</span></div>
           {# One list per axis, each with its own substring filter (LabVIEW's
              par listboxes). The filter rebuilds the list and rides the URL;
              a click, or Enter, picks — arrow keys only move through the list;
@@ -296,7 +349,7 @@
                    aria-label="Filter X columns" data-filter-for="x">
             <select id="x" name="x" size="10" class="picks" data-pick>
               <option value=""{% if not x %} selected{% endif %}>shot #</option>
-              {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ xnames[c] }}</option>{% endfor %}
+              {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ xnames[c] }}{{ cov(c) }}</option>{% endfor %}
             </select>
           </div>
           <div class="field">
@@ -572,8 +625,8 @@
     {% else %}
       <article class="panel">
         <header>
-          <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          <span class="dim">{{ ynames[y] }}{% if y2 %}, {{ y2names[y2] }}{% endif %}{% if y3 %}, {{ y3names[y3] }}{% endif %} vs {{ xnames[x] if x else 'shot #' }}</span>
+          <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}{% if scans_text %} + {{ scan_total - 1 }} more{% endif %}</span>
+          <span class="dim">{{ caption }}</span>
           <div class="seg" role="group" aria-label="Per shot or binned">
             <button type="button" data-toggle-for="view" data-value="shot" aria-pressed="{{ 'true' if view == 'shot' else 'false' }}">per shot</button>
             <button type="button" data-toggle-for="view" data-value="bin" aria-pressed="{{ 'true' if view == 'bin' else 'false' }}">binned</button>
@@ -588,7 +641,8 @@
           <div id="plot" class="plot" data-day="{{ day }}" data-scan="{{ scan }}" data-uid="{{ uid }}"
                data-portal-root="{{ portal_root }}" data-logbook-send="{{ 'true' if logbook_send else 'false' }}"
                data-slots="{{ slots | join(',') }}" data-caption="{{ caption }}"
-               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;y2={{ y2 | urlencode }}&amp;y3={{ y3 | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}&amp;y2alias={{ y2alias | lower }}&amp;y3alias={{ y3alias | lower }}&amp;yfit={{ yfit | urlencode }}&amp;y2fit={{ y2fit | urlencode }}&amp;y3fit={{ y3fit | urlencode }}&amp;yorder={{ yorder }}&amp;y2order={{ y2order }}&amp;y3order={{ y3order }}&amp;view={{ view }}&amp;filters={{ filters | urlencode }}&amp;bincfg={{ bincfg | urlencode }}&amp;display={{ display | urlencode }}"></div>
+               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;y2={{ y2 | urlencode }}&amp;y3={{ y3 | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}&amp;y2alias={{ y2alias | lower }}&amp;y3alias={{ y3alias | lower }}&amp;yfit={{ yfit | urlencode }}&amp;y2fit={{ y2fit | urlencode }}&amp;y3fit={{ y3fit | urlencode }}&amp;yorder={{ yorder }}&amp;y2order={{ y2order }}&amp;y3order={{ y3order }}&amp;view={{ view }}&amp;filters={{ filters | urlencode }}&amp;bincfg={{ bincfg | urlencode }}&amp;display={{ display | urlencode }}&amp;scans={{ scans_text | urlencode }}&amp;multi={{ scan_view }}&amp;oy={{ overlay_y }}"
+               data-scans="{{ scans_text }}"></div>
           {# The fits' numbers, filled from the figure response by plotter.js. #}
           <div id="fits" class="fits"></div>
           <details class="disc">
@@ -604,6 +658,30 @@
 
 {% if columns and tab != "images" %}
 <datalist id="filter-columns">{% for c in columns %}<option value="{{ c }}">{% endfor %}</datalist>
+
+{# Rung 2: Add scan…, the kit's drawer picker (GeecsKit.picker): a day,
+   its scans (number, description, shots), the ticked ones added. #}
+<aside class="drawer" id="scans-drawer" role="dialog" aria-modal="false" aria-labelledby="scans-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="scans-title">Add scans to the plot</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="scans-day">Day</label>
+      <input id="scans-day" type="date" value="{{ day or '' }}"></div>
+    <div class="field"><label for="scans-q">search</label>
+      <input id="scans-q" placeholder="a number or words of the description" autocomplete="off">
+      <span class="hint" id="scans-hint" role="status"></span></div>
+    <div class="row">
+      <button class="btn primary sm" type="button" id="scans-add" disabled>Add</button>
+      <button class="btn sm ghost" type="button" id="scans-all">Select all shown</button>
+      <button class="btn sm ghost" type="button" id="scans-none" disabled>Clear</button>
+      <span class="spacer"></span>
+      <span class="dim">click to select &middot; shift-click for a range &middot; Enter adds</span>
+    </div>
+    <nav class="picklist" id="scans-list" aria-label="Scans"></nav>
+  </div>
+</aside>
 
 {# Rung 2: the plot's settings, each a sub-task on the plot on screen. Esc
    or the scrim closes one without applying; Apply saves into the set. #}
