@@ -178,6 +178,10 @@ async def test_a_screen_scope_reads_the_screen_file_and_no_scope_restores_a_subs
         await save(env, name="x", screen=["../leak"])
     ).status_code == 422  # the body model refuses the path first
     sid = (await save(env, name="bench", screen=["bench"])).json()["id"]
+    typo = await save(env, name="x", screen=["typo"])
+    assert (typo.status_code, typo.json()["code"]) == (422, "bad_scope") and len(
+        env.squirrel.snapshots
+    ) == 1  # refused before the save
     env.hare.values[MOT], env.hare.values[SP] = live(3.0), live(1.5)
     body = (await env.client.get(f"/v1/presets/{sid}/diff")).json()
     assert [r["device"] for r in body["rows"]] == [
