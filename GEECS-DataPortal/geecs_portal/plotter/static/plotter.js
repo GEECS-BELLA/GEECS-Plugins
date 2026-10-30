@@ -246,8 +246,9 @@
         // A new day starts the picks afresh (open() clears them): a row is
         // named by its number alone, so a pick kept across days would add
         // that number on the new day, not the scan ticked.
-        .then((body) => { listed = { day, scans: body.scans, error: "" }; picker.open(); })
-        .catch((error) => { listed = { day, scans: [], error: error.message }; picker.open(); });
+        // An answer for a day no longer in the box is dropped.
+        .then((body) => { if (day !== dayBox.value) return; listed = { day, scans: body.scans, error: "" }; picker.open(); })
+        .catch((error) => { if (day !== dayBox.value) return; listed = { day, scans: [], error: error.message }; picker.open(); });
     };
     dayBox.addEventListener("change", load);
     return () => { picker.open(); if (listed.day !== dayBox.value) load(); };
