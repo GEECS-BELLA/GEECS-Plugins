@@ -105,6 +105,7 @@ class Plan:
     )  # existing row, wanted, the fields that differ
     remove: list[dict[str, Any]] = field(default_factory=list)
     foreign: int = 0  # rows outside the experiment: left alone
+    refused: str = ""  # why the write form refuses this plan's removals, when it does
     applied: list[str] = field(
         default_factory=list
     )  # the lines written so far (a failure mid-way leaves them)
@@ -127,15 +128,21 @@ class Plan:
 
 
 def plan(wanted: Mapping[str, Entry], existing: Iterable[dict[str, Any]], tag_names: Mapping[str, tuple[str, str]], prefix: str = "") -> Plan:  # fmt: skip
-    """Compare the derivation with Squirrel's rows (``tag_names``: tag id → (group, name)); only a row under ``prefix`` or naming a derived device may be removed."""
+    """Compare the derivation with Squirrel's rows (``tag_names``: tag id → (group, name)).
+
+    Only a row this derivation owns may be removed: under ``prefix``, naming a
+    derived device, or carrying a ``source`` tag (a bench device that left the
+    panel file keeps neither the prefix nor the name, but keeps its tag).
+    """
     p = Plan()
     devices = {e.device for e in wanted.values()}
     by_setpoint: dict[str, dict[str, Any]] = {}
     for row in existing:
         address = row.get("setpointAddress") or row.get("readbackAddress") or ""
+        tagged = any(tag_names.get(t["id"], ("",))[0] == "source" for t in row.get("tags", []))  # fmt: skip
         if row.get("setpointAddress") in wanted:
             by_setpoint[row["setpointAddress"]] = row
-        elif (prefix and address.startswith(prefix)) or row.get("device") in devices:
+        elif (prefix and address.startswith(prefix)) or row.get("device") in devices or tagged:  # fmt: skip
             p.remove.append(
                 row
             )  # a hand-registered row, or a role no device has any more
@@ -227,20 +234,23 @@ class SquirrelClient:
 async def reconcile(client: SquirrelClient, wanted: Mapping[str, Entry], *, prefix: str = "", gateway_read: bool = True, check: bool = False, yes: bool = False) -> Plan:  # fmt: skip
     """Make the registry equal ``wanted`` (or, with ``check``, only say what differs).
 
-    Raise ``RemoveRefused`` before any write when a gateway-tagged row would go
+    ``Plan.refused`` names what the write form would refuse, so ``--check``
+    can say so beside its lines. Raise ``RemoveRefused`` before any write when a gateway-tagged row would go
     while the DB was not read (``gateway_read`` False), or when more than
     ``REMOVE_GUARD`` rows would go without ``yes``. A Squirrel refusal mid-way
     raises ``SquirrelError`` with ``plan.applied`` naming what was written.
     """
     existing, tag_names = await client.pvs(), await client.tags()
     p = plan(wanted, existing, tag_names, prefix)
-    if check or not p.drift:
-        return p
     gateway_rows = [r for r in p.remove if ("source", "gateway") in {tag_names.get(t["id"]) for t in r.get("tags", [])}]  # fmt: skip
     if gateway_rows and not gateway_read:
-        raise RemoveRefused(f"{len(gateway_rows)} DB-sourced rows would be removed while the GEECS DB was not read (set GEECS_CANOPY_DB_URL, or GEECS_CANOPY_DB=on); nothing written")  # fmt: skip
-    if len(p.remove) > REMOVE_GUARD and not yes:
-        raise RemoveRefused(f"{len(p.remove)} rows would be removed (more than {REMOVE_GUARD}); pass --yes after reading the --check output; nothing written")  # fmt: skip
+        p.refused = f"{len(gateway_rows)} DB-sourced rows would be removed while the GEECS DB was not read (set GEECS_CANOPY_DB_URL, or GEECS_CANOPY_DB=on)"  # fmt: skip
+    elif len(p.remove) > REMOVE_GUARD and not yes:
+        p.refused = f"{len(p.remove)} rows would be removed (more than {REMOVE_GUARD}); pass --yes after reading the --check output"  # fmt: skip
+    if check or not p.drift:
+        return p
+    if p.refused:
+        raise RemoveRefused(f"{p.refused}; nothing written")
     try:
         ids = await client.ensure_tags({t for e in wanted.values() for t in e.tags})
         for row in p.remove:

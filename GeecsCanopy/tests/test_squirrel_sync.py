@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pathlib
+
 import httpx
 import pytest
 from geecs_schemas import Role
@@ -139,4 +141,22 @@ async def test_squirrel_down_is_exit_3_and_a_refusal_names_what_was_applied(
     out = capsys.readouterr()
     assert (
         f"applied before the refusal:\n- {MOT}" in out.out and "answered 400" in out.err
+    )
+
+
+async def test_a_bench_device_that_leaves_the_panel_file_loses_its_rows(bench, capsys):
+    _, env, squirrel = bench
+    assert (
+        await squirrel_sync(check=False, env=env, transport=squirrel.transport()) == 0
+    )
+    (pathlib.Path(env["GEECS_CANOPY_CONFIGS_ROOT"]) / "scanner_configs" / "experiments" / EXPERIMENT / "panel_devices.yaml").write_text("schema_version: 1\ndevices: {}\n")  # fmt: skip
+    assert await squirrel_sync(check=True, env=env, transport=squirrel.transport()) == 1
+    assert (
+        "- bench:ps1:current:SP" in capsys.readouterr().out
+    )  # its prefix is not the experiment's: the source tag owns it
+    assert (
+        await squirrel_sync(check=False, env=env, transport=squirrel.transport()) == 0
+    )
+    assert not any(
+        p["setpointAddress"].startswith("bench:") for p in squirrel.pvs.values()
     )

@@ -67,8 +67,8 @@ deploy/
   setpoint with its readback; `device` the GEECS name, `description` the
   step variable, tags family/source/axis) and never hand-edited; the one
   write key for its REST is the module's (`GEECS_CANOPY_SQUIRREL_KEY`).
-  Its remove step is bounded as the archiver's: rows under the
-  experiment's prefix or naming its devices only, never a DB-sourced row
+  Its remove step is bounded as the archiver's: rows this derivation
+  owns only (the experiment's prefix, its devices, or its `source` tag), never a DB-sourced row
   while the DB is off, more than `REMOVE_GUARD` removals only with `--yes`
   — because Squirrel deletes a row's saved values with it.
 - **One identity: the GEECS device name.** It is the Raccoon device name,

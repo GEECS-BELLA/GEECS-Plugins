@@ -82,6 +82,8 @@ async def squirrel_sync(check: bool, url: str | None = None, env: Mapping[str, s
     finally:
         await client.aclose()
     print("\n".join(plan.lines()))
+    if plan.refused:  # --check: the write form would stop here
+        print(f"note: the removals would be refused: {plan.refused}")
     n = len(plan.add), len(plan.update), len(plan.remove)
     verb = "would change" if check else "reconciled"
     left = f"; {plan.foreign} rows outside {prefix} left alone" if plan.foreign else ""

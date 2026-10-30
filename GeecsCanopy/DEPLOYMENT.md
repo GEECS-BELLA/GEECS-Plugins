@@ -165,8 +165,10 @@ every device-file change and after a DB change that adds or retires a
 served setpoint (with the DB on, the served set is part of the
 derivation; with the DB unreachable the command writes nothing and exits
 3). Because Squirrel deletes a row's saved values with the row, the
-remove step is bounded: only rows under the experiment's prefix or
-naming one of its devices are removed, a DB-sourced row never while the
+remove step is bounded: only rows this derivation owns are removed
+(under the experiment's prefix, naming one of its devices, or carrying
+its `source` tag — so a bench device that leaves the panel file loses
+its rows too), a DB-sourced row never while the
 DB is off (exit 2), and more than ten removals in one run need `--yes`
 after reading the `--check` output. It needs
 `GEECS_CANOPY_SQUIRREL_URL` (the compose file sets it to this api) and
