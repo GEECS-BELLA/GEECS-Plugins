@@ -989,9 +989,9 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `device` | `str (optional)` | no | None | The GEECS device name. |
-| `role` | `str (optional)` | no | None | The device family's role. |
+| `role` | `str (optional)` | no | None | The device family's role; a DB device's GEECS variable name. |
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
-| `pv` | `str (optional)` | no | None | A bare PV, for a device the GEECS DB serves (its writes disabled until the module writes gateway PVs). |
+| `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
 
 ## `home_layout`
 

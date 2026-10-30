@@ -2,14 +2,21 @@
 
 ``<experiment>/screens/<name>.yaml`` is validated by GEECS-Schemas'
 ``Screen`` and bound by ``resolve_screen`` against the installed families,
-``panel_devices.yaml`` and ``native_devices.yaml``. The page reads live
-values from Hare itself; the routes here only pass the module's answers
-through: a device's verdicts, and a put, sent once.
+``panel_devices.yaml`` and ``native_devices.yaml``, and the module's roster
+(read at most every ``ROSTER_TTL_S``): a device only the module lists (a
+DB device) is bound deferred, its roles judged on the page by the module's
+device route. The page reads live values from Hare itself; the routes here
+only pass the module's answers through: a device's verdicts, and a put,
+sent once.
 """
 
 from __future__ import annotations
 
+import asyncio
+import math
 import re
+import time
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -31,12 +38,14 @@ from geecs_schemas import (
 )
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from geecs_control_room.module_client import ModuleUnavailable
+from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.settings import Settings
 
 _NAME = re.compile(r"^[\w-]+$")
 #: Raster images only: an SVG opened directly would run its script on this origin.
 _IMAGE = re.compile(r"^[\w-]+\.(png|jpe?g|gif|webp)$", re.IGNORECASE)
+#: How long the module's roster names are reused: the module's own native cadence.
+ROSTER_TTL_S = 10.0
 
 #: §3's words, each worn as a kit state: crit for an alarm, warn for any other doubt.
 KIT_STATE = {
@@ -77,8 +86,8 @@ class Loaded:
         return columns
 
 
-def load(settings: Settings, name: str) -> Loaded:
-    """Read and bind ``<name>.yaml``; a missing file is 404, any misfit 422."""
+def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loaded:
+    """Read and bind ``<name>.yaml`` (``deferred``: the module's device names); a missing file is 404, any misfit 422."""
     folder = settings.experiment_dir
     path = folder / SCREENS_DIRNAME / f"{name}.yaml"
     if not _NAME.fullmatch(name) or not path.is_file():
@@ -90,7 +99,8 @@ def load(settings: Settings, name: str) -> Loaded:
             panel = PanelDevices.from_path(folder / PANEL_DEVICES_FILENAME)
         if (folder / NATIVE_DEVICES_FILENAME).is_file():
             native = NativeDevices.from_path(folder / NATIVE_DEVICES_FILENAME)
-        return Loaded(screen, resolve_screen(screen, load_families(), panel, native))
+        bound = resolve_screen(screen, load_families(), panel, native, deferred)
+        return Loaded(screen, bound)
     except ScreenError as exc:
         return Loaded(problems=exc.problems, status=422)
     except (ValidationError, yaml.YAMLError, OSError) as exc:
@@ -109,13 +119,52 @@ class PutBody(BaseModel):
     confirm: bool = False
 
 
+class _Roster:
+    """The module's device names, re-read every ``ROSTER_TTL_S`` (one read at a time); the last good set, and why, while it is unreadable."""
+
+    def __init__(self) -> None:
+        self._names: frozenset[str] = frozenset()
+        self._at, self._error = -math.inf, "not read yet"
+        self._lock = (
+            asyncio.Lock()
+        )  # concurrent pages wait for the one read, never see an empty set
+
+    async def names(self, module: ModuleClient) -> tuple[frozenset[str], Optional[str]]:
+        async with self._lock:
+            if time.monotonic() - self._at >= ROSTER_TTL_S:
+                self._error = await self._read(module)
+                self._at = time.monotonic()
+            return self._names, self._error
+
+    async def _read(self, module: ModuleClient) -> Optional[str]:
+        try:
+            status, body = await module.devices()
+        except ModuleUnavailable as exc:
+            return str(exc)
+        if status != 200 or body.get("devices") is None:
+            return f"the module answered {status}"
+        self._names = frozenset(d["name"] for d in body["devices"])
+        gateway = (body.get("sources") or {}).get("gateway") or {}
+        if gateway.get("error") and not gateway.get(
+            "readAt"
+        ):  # up, but no DB device read yet
+            return f"the module has not read the GEECS DB: {gateway['error']}"
+        return None
+
+
 def router(settings: Settings) -> APIRouter:
     """The screen page, the screens' images, and the two module pass-throughs."""
     r = APIRouter()
+    roster = _Roster()
 
     @r.get("/screens/{name}")
     async def screen_page(request: Request, name: str) -> Any:
-        loaded = load(settings, name)
+        names, error = await roster.names(request.app.state.module)
+        loaded = load(settings, name, names)
+        if (
+            error and loaded.status == 422
+        ):  # a DB device may be refused for want of the roster
+            loaded.problems.append(f"the module's roster is incomplete ({error}): a DB device cannot be bound")  # fmt: skip
         context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE}
         templates = request.app.state.templates
         return templates.TemplateResponse(

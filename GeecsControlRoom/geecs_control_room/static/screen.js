@@ -4,7 +4,8 @@
 // verdict for a device role, Hare's connection and alarm for a bare PV,
 // "unknown" while either source is silent. A changing value is never read
 // as freshness. Writes go to the module's put route once, and its outcome
-// word and code stay on the widget; nothing is retried. The rules are
+// word and code stay on the widget; nothing is retried. A deferred widget
+// (a DB device, data-fits) is judged by the module's word alone. The rules are
 // screen_rules.js's (tested under node), the polling poller.js's; this file
 // keeps the DOM work.
 (function () {
@@ -50,11 +51,13 @@
     return e && e.read !== "never" ? e.pv : null;
   }
 
+  const fitsOf = (el) => (el.dataset.fits === undefined ? undefined : el.dataset.fits.split(" ").filter(Boolean));
+  const hazardOf = (el) => R.hazard(el.dataset.hazard || el.dataset.confirm, entryOf(el));
   const show = (pv, el) => R.show(pv && wire[pv], hare.meta(pv), el.closest(".w").dataset.precision);
 
   function judge(el) {
     const pv = pvOf(el), bare = !!el.dataset.pv;
-    return R.judge({ hareUp: hareState === "open", frame: pv && wire[pv], bare, view: views[el.dataset.device], entry: bare ? null : entryOf(el) });
+    return R.judge({ hareUp: hareState === "open", frame: pv && wire[pv], bare, view: views[el.dataset.device], entry: bare ? null : entryOf(el), fits: fitsOf(el) });
   }
 
   function draw(el) {
@@ -69,7 +72,7 @@
     if (value) value.textContent = show(pv, el);
     if (sp && !sp.dataset.draft) sp.value = show(pv, el) === "—" ? "" : show(pv, el);
     if (act && el.dataset.kind !== "button") act.textContent = show(pv, el);
-    const open = R.writable(entryOf(el), !!el.dataset.pv, !!el.dataset.busy);
+    const open = R.writable(entryOf(el), !!el.dataset.pv, !!el.dataset.busy, fitsOf(el));
     for (const c of [sp, act]) if (c) c.disabled = !open;
     for (const ind of el.querySelectorAll(".ind")) ind.querySelector("b").textContent = show(pvOf(ind), ind);
     const rb = el.querySelector(".rb");
@@ -111,7 +114,6 @@
   // ---- writing: once, through the module, the outcome left on the widget
   const dialog = document.getElementById("confirm");
   function confirmWrite(el, value) {
-    if (!el.dataset.hazard && !el.dataset.confirm) return Promise.resolve(true);
     document.getElementById("confirm-title").textContent = `Write ${el.querySelector(".lbl").textContent}?`;
     document.getElementById("confirm-what").textContent = `${el.dataset.device} · ${el.dataset.role} ← ${value}`;
     document.getElementById("confirm-note").textContent = el.dataset.confirm || "This role needs the hazard confirm.";
@@ -132,10 +134,12 @@
   async function write(el, value) {
     const operator = opInput.value.trim();
     if (!operator) { opInput.focus(); return outcome(el, "unsent", "", "name yourself in the header first"); }
-    if (!(await confirmWrite(el, value))) return outcome(el, "unsent", "", "not confirmed");
-    const body = { role: el.dataset.role, value, operator, confirm: true };
+    // one decision: the confirm sent is the dialog the operator answered (the module's mark may change meanwhile)
+    const asked = hazardOf(el);
+    if (asked && !(await confirmWrite(el, value))) return outcome(el, "unsent", "", "not confirmed");
+    const body = { role: el.dataset.role, value, operator };
+    if (asked) body.confirm = true;
     if (el.dataset.axis) body.axis = el.dataset.axis;
-    if (!el.dataset.hazard && !el.dataset.confirm) delete body.confirm;
     outcome(el, "sending");
     el.dataset.busy = "1";
     draw(el);

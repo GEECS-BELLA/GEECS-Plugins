@@ -17,10 +17,16 @@
     return { ok: true, state: body.state, roles };
   }
 
+  // A deferred widget (a DB device: `fits`, the role types its kind takes) whose
+  // role the module types otherwise.
+  const misfit = (entry, fits) => !!fits && !!entry && !fits.includes(entry.type);
+
   // A widget's word. A bare PV has no module verdict: its alarm rules, as
   // GeecsCanopy's freshness.judge has them. A device role: the module's verdict,
-  // "unknown" whenever the module or Hare is silent.
-  function judge({ hareUp, frame, bare, view, entry }) {
+  // "unknown" whenever the module or Hare is silent; a role the module does not
+  // judge (a DB device's: verdict null) by the bare PV's rules. A deferred
+  // widget: "unknown role" when the module lists none, "wrong kind" on a misfit.
+  function judge({ hareUp, frame, bare, view, entry, fits }) {
     if (bare) {
       if (!hareUp || !frame) return "unknown";
       if (!frame.connected) return "unreachable";
@@ -28,10 +34,13 @@
       if (frame.severity === "INVALID" && NOT_ANSWERING.includes(frame.alarmStatus)) return "not answering";
       return frame.severity === "MAJOR" || frame.severity === "INVALID" ? "error" : "live";
     }
-    if (!view || !view.ok || !entry) return "unknown"; // the module cannot say
+    if (!view || !view.ok) return "unknown"; // the module cannot say
+    if (!entry) return fits ? "unknown role" : "unknown";
+    if (misfit(entry, fits)) return "wrong kind";
     if (entry.read === "never") return view.state || "unknown"; // a command: the device's word
     if (!hareUp || !frame) return "unknown";
     if (!frame.connected) return "unreachable";
+    if (entry.verdict === null && entry.read === "monitor") return judge({ hareUp, frame, bare: true });
     return entry.verdict || "unknown";
   }
 
@@ -51,8 +60,11 @@
     return set(lo) && set(hi) && lo < hi ? `[${lo} … ${hi}]` : "";
   }
 
-  // Writable only on the module's word, never on a bare PV, never while a write is in flight.
-  const writable = (entry, bare, busy) => !bare && !!entry && !!entry.writable && !busy;
+  // Writable only on the module's word, never on a bare PV, never on a misfit, never while a write is in flight.
+  const writable = (entry, bare, busy, fits) => !bare && !!entry && !!entry.writable && !misfit(entry, fits) && !busy;
+
+  // The write asks first: the screen's own note or a family role's hazard, or the module's hazard mark (the policy's).
+  const hazard = (marked, entry) => !!marked || (!!entry && entry.confirm === "hazard");
 
   // Setpoint and readback disagree at the precision shown (-0.000 is 0.000).
   function differs(shownSp, shownRb, bothRead) {
@@ -69,5 +81,5 @@
     return { text, kit: !up ? "unknown" : slow.length ? "degraded" : "ok", title: slow.length ? `no answer for: ${slow.join(", ")}` : "" };
   }
 
-  Object.assign(rules, { key, deviceView, judge, show, bounds, writable, differs, outcomeState, sourceLine });
+  Object.assign(rules, { key, deviceView, misfit, judge, show, bounds, writable, hazard, differs, outcomeState, sourceLine });
 })(typeof module === "object" ? module.exports : (window.GeecsScreenRules = {}));

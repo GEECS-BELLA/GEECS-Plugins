@@ -113,14 +113,14 @@ def test_columns_pack_top_to_bottom_when_no_group_spans_them(client: TestClient,
     assert 'class="scol"' not in page and "grid-row: 3 / span 1" in page
 
 
-def test_a_db_device_is_drawn_read_only_with_its_lamps_and_columns(client: TestClient, settings: Settings) -> None:  # fmt: skip
+def test_a_bare_pv_is_drawn_read_only_with_its_lamps_and_columns(client: TestClient, settings: Settings) -> None:  # fmt: skip
     _screens(settings, _DB_SCREEN)
     page = client.get("/screens/sim_bench").text
     assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in page
     assert re.search(r'<span class="ind" data-pv="x:u_plc:di_ch5">in <b>', page)
     assert re.search(r'<span class="ind" data-pv="x:u_plc:di_ch6">out <b>', page)
     assert (
-        page.count('title="A DB device: its writes stay disabled') == 2
+        page.count('title="A bare PV is read only') == 2
     )  # the flipper and the setpoint
     # disabled in the HTML itself, not only once screen.js has run
     assert re.search(r'<input class="sp"[^>]*aria-label="Jet X" disabled>', page)
@@ -153,3 +153,60 @@ def test_the_dense_layout_rules_hold() -> None:
 
 def _screens_again(settings: Settings, screen: str) -> None:
     (settings.experiment_dir / "screens" / "sim_bench.yaml").write_text(screen)
+
+
+def _roster(names: list[str]) -> ModuleClient:
+    def answer(request: httpx.Request) -> httpx.Response:
+        devices = [{"name": n, "source": "gateway"} for n in names]
+        return httpx.Response(200, json={"experiment": "Bench", "devices": devices})
+
+    return ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
+
+
+_ROSTER_SCREEN = "title: T\ngroups: [{title: G, at: [1, 1], widgets: [{kind: toggle, bind: {device: U_PLC, role: DO.Ch1}}]}]\n"  # fmt: skip
+
+
+def test_a_db_device_on_the_roster_draws_deferred_and_an_unknown_one_is_refused(settings: Settings) -> None:  # fmt: skip
+    _screens(settings, _ROSTER_SCREEN)
+    with TestClient(create_app(settings, _roster(["U_PLC"]))) as c:
+        r = c.get("/screens/sim_bench")
+    assert r.status_code == 200
+    assert 'data-device="U_PLC" data-role="DO.Ch1"' in r.text and 'data-fits="bit enum"' in r.text  # fmt: skip
+    with TestClient(create_app(settings, _roster([]))) as c:
+        r = c.get("/screens/sim_bench")
+    assert r.status_code == 422 and "no device &#39;U_PLC&#39;" in r.text
+
+
+def test_concurrent_pages_wait_for_the_one_roster_read() -> None:
+    import asyncio
+
+    from geecs_control_room.screens import _Roster
+
+    class Slow:
+        reads = 0
+
+        async def devices(self):
+            Slow.reads += 1
+            await asyncio.sleep(0.05)
+            return 200, {"devices": [{"name": "U_PLC"}]}
+
+    async def two():
+        roster, module = _Roster(), Slow()
+        return await asyncio.gather(roster.names(module), roster.names(module))
+
+    assert asyncio.run(two()) == [(frozenset({"U_PLC"}), None)] * 2 and Slow.reads == 1
+
+
+def test_a_db_the_module_has_not_read_is_named_when_a_db_device_is_refused(settings: Settings) -> None:  # fmt: skip
+    def answer(request: httpx.Request) -> httpx.Response:
+        down = {"gateway": {"readAt": None, "error": "GEECS DB unavailable: refused"}}
+        return httpx.Response(200, json={"experiment": "Bench", "devices": [], "sources": down})  # fmt: skip
+
+    _screens(settings, _ROSTER_SCREEN)
+    module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
+    with TestClient(create_app(settings, module)) as c:
+        r = c.get("/screens/sim_bench")
+    assert (
+        r.status_code == 422
+        and "has not read the GEECS DB: GEECS DB unavailable" in r.text
+    )
