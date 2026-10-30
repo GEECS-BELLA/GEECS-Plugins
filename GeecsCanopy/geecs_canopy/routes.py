@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 import yaml
+import httpx
 from fastapi import FastAPI, Query, Request, Security
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,6 +23,8 @@ from geecs_canopy.freshness import view
 from geecs_canopy.gates import PutRequest, put_role
 from geecs_canopy.hare import WriteValue
 from geecs_canopy.module import DevicesUnavailable, Module
+from geecs_canopy.presets import Presets
+from geecs_canopy.squirrel import SquirrelClient, SquirrelError
 
 
 class PutBody(BaseModel):
@@ -45,12 +48,50 @@ class RunBody(BaseModel):
     confirm: bool = False
 
 
+class Scope(BaseModel):
+    """What a preset covers: named devices, whole families, a screen's devices (its names the page's to send)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    devices: list[str] = []
+    families: list[str] = []
+    screen: list[str] = []
+
+
+class SaveBody(BaseModel):
+    """A save: the snapshot's name, who saves, the scope its description records."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    operator: str = Field(min_length=1)
+    scope: Scope = Scope()
+
+
+class GoldenBody(BaseModel):
+    """The golden mark: for this scope (default: the snapshot's own)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Scope = Scope()
+
+
+class RestoreBody(BaseModel):
+    """A restore: who asks, the one hazard confirm, and a device subset of the scope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operator: str = Field(min_length=1)
+    confirm: bool = False
+    devices: list[str] | None = None
+
+
 def _error(status: int, code: str, detail: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"code": code, "detail": detail})
 
 
-def build_app(module: Module, *, read_access: Callable[..., Any]) -> FastAPI:
-    """Build the sub-app; the wrapper mounts and tags it and supplies Canopy's read check."""
+def build_app(module: Module, *, read_access: Callable[..., Any], squirrel_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:  # fmt: skip
+    """Build the sub-app; the wrapper mounts and tags it and supplies Canopy's read check (``squirrel_transport``: a test's)."""
     app = FastAPI(title="Canopy / GEECS", description="GEECS devices over Hare.")
     stale, read = module.settings.stale_after_s, [Security(read_access)]
 
@@ -91,7 +132,11 @@ def build_app(module: Module, *, read_access: Callable[..., Any]) -> FastAPI:
         outcome = await put_role(module, request)
         return JSONResponse(status_code=outcome.status, content=outcome.body())
 
-    _action_routes(app, Executor(module), read, read_access)
+    actions = Executor(module)
+    _action_routes(app, actions, read, read_access)
+    s = module.settings
+    squirrel = SquirrelClient(s.squirrel_url, s.squirrel_key, transport=squirrel_transport) if s.squirrel_url and s.squirrel_key else None  # fmt: skip
+    _preset_routes(app, Presets(module, actions, squirrel), read, read_access)
 
     @app.get("/v1/journal", dependencies=read)
     async def journal(entries: int = Query(50, ge=1, le=1000)) -> Any:
@@ -129,3 +174,35 @@ def _action_routes(app: FastAPI, actions: Executor, read: list[Any], read_access
         if (found := actions.stop(run_id)) is None:
             return _error(404, "not_found", f"no run {run_id!r}")
         return JSONResponse(status_code=202, content=found.body())
+
+
+def _preset_routes(app: FastAPI, presets: Presets, read: list[Any], read_access: Callable[..., Any]) -> None:  # fmt: skip
+    """The presets: Squirrel's snapshots listed, saved, compared with live, marked golden, restored as a run."""
+    app.state.presets = presets
+
+    @app.exception_handler(SquirrelError)
+    async def squirrel_down(_: Request, exc: SquirrelError) -> JSONResponse:
+        status = 502 if exc.status in (0, 401, 403) else exc.status
+        return _error(status, "squirrel_unavailable", exc.detail)
+
+    @app.get("/v1/presets", dependencies=read)
+    async def listing() -> Any:
+        return {"presets": await presets.listing()}
+
+    @app.post("/v1/presets")
+    async def save(body: SaveBody, key: Any = Security(read_access)) -> Any:
+        saved = await presets.save(body.name, body.operator, body.scope.model_dump(), getattr(key, "name", None))  # fmt: skip
+        return JSONResponse(status_code=201, content=saved)
+
+    @app.get("/v1/presets/{snapshot_id}/diff", dependencies=read)
+    async def diff(snapshot_id: str, devices: list[str] = Query([])) -> Any:
+        return await presets.diff(snapshot_id, devices or None)
+
+    @app.post("/v1/presets/{snapshot_id}/golden", dependencies=read)
+    async def golden(snapshot_id: str, body: GoldenBody) -> Any:
+        return await presets.golden(snapshot_id, body.scope.model_dump())
+
+    @app.post("/v1/presets/{snapshot_id}/restore")
+    async def restore(snapshot_id: str, body: RestoreBody, key: Any = Security(read_access)) -> Any:  # fmt: skip
+        run = await presets.restore(snapshot_id, body.operator, body.confirm, body.devices, getattr(key, "name", None))  # fmt: skip
+        return JSONResponse(status_code=202, content={"runId": run.id} | run.body())

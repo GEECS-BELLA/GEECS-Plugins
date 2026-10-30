@@ -230,6 +230,35 @@ class SquirrelClient:
         await self._send("POST", "/squirrel/v1/tags/bulk", json={"groups": {g: sorted(set(n)) for g, n in groups.items() if n}})  # fmt: skip
         return {gn: tag_id for tag_id, gn in (await self.tags()).items()}
 
+    async def snapshots(self) -> list[dict[str, Any]]:
+        """Every snapshot summary, newest first."""
+        rows, token = [], None
+        while True:
+            params = {"pageSize": 1000} | (
+                {"continuationToken": token} if token else {}
+            )
+            page = await self._send("GET", "/squirrel/v1/snapshots", params=params)
+            rows += page["results"]
+            if not (token := page.get("continuationToken")):
+                return rows
+
+    async def snapshot(self, snapshot_id: str) -> dict[str, Any]:
+        """One snapshot with its values."""
+        return await self._send("GET", f"/squirrel/v1/snapshots/{snapshot_id}")
+
+    async def create_snapshot(self, title: str, description: str) -> str:
+        """Enqueue a save of every registered PV; the job id."""
+        job = await self._send("POST", "/squirrel/v1/snapshots", json={"title": title, "description": description})  # fmt: skip
+        return job["jobId"]
+
+    async def job(self, job_id: str) -> dict[str, Any]:
+        """A job's status: ``status`` (pending, running, completed, failed), ``result``, ``error``."""
+        return await self._send("GET", f"/jobs/v1/{job_id}")
+
+    async def describe_snapshot(self, snapshot_id: str, description: str) -> None:
+        """Rewrite a snapshot's description (the scope and golden lines live there)."""
+        await self._send("PUT", f"/squirrel/v1/snapshots/{snapshot_id}", json={"description": description})  # fmt: skip
+
 
 async def reconcile(client: SquirrelClient, wanted: Mapping[str, Entry], *, prefix: str = "", gateway_read: bool = True, check: bool = False, yes: bool = False) -> Plan:  # fmt: skip
     """Make the registry equal ``wanted`` (or, with ``check``, only say what differs).

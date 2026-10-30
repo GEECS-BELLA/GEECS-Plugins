@@ -37,9 +37,14 @@ geecs_canopy/
                  update, remove, --check): the registry is derived, never hand-edited
   cli.py         the `geecs-canopy` command: squirrel-sync (at deploy, after a
                  device-file change)
+  presets.py     Presets over Squirrel's snapshots: list, save (Squirrel's job;
+                 scope + operator + golden in the description), diff live vs saved
+                 with the registry's tolerance, one golden per scope, restore as a
+                 synthesized action run (differing rows, motion last) through the Executor
   journal.py     SQLite of GEECS-Schemas JournalEntry rows
   routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal,
-                 /v1/actions, .../{name}/run, /v1/actions/runs/{id}[/stop]
+                 /v1/actions, .../{name}/run, /v1/actions/runs/{id}[/stop],
+                 /v1/presets, .../{id}/diff, .../{id}/golden, .../{id}/restore
   testing.py     the shared test doubles: FakeHare, FakeSquirrel, live(), write_documents, make_env
 deploy/
   Dockerfile (+ .dockerignore)   FROM the pin; pip --python into /app/.venv
@@ -70,7 +75,11 @@ deploy/
   Its remove step is bounded as the archiver's: rows this derivation
   owns only (the experiment's prefix, its devices, or its `source` tag), never a DB-sourced row
   while the DB is off, more than `REMOVE_GUARD` removals only with `--yes`
-  — because Squirrel deletes a row's saved values with it.
+  — because Squirrel deletes a row's saved values with it. A snapshot
+  carries no tags of its own, so who saved it, its scope and the golden
+  mark are lines in its description (`presets.describe`/`parse`); a
+  restore is a synthesized action run (`Executor.submit`), never
+  Squirrel's restore job.
 - **One identity: the GEECS device name.** It is the Raccoon device name,
   the journal's key, a Squirrel label and a screen binding. A PV prefix is
   derived by the naming rule (`geecs_core.pv_naming.pv_name(experiment,

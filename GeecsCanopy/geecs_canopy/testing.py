@@ -104,32 +104,39 @@ def write_documents(
 
 
 def make_env(
-    tmp_path: Path, *, key: Any = KEY
+    tmp_path: Path, *, key: Any = KEY, squirrel: FakeSquirrel | None = None
 ) -> SimpleNamespace:  # Any: Canopy's key object
-    """The module over the documents and a ``FakeHare``, and its routes: ``module, hare, app, clock, folder``."""
+    """The module over the documents and a ``FakeHare`` (and a ``FakeSquirrel``), and its routes: ``module, hare, app, clock, folder``."""
     from geecs_canopy.routes import build_app
 
     folder = write_documents(tmp_path)
     clock = [100.0]
-    settings = ModuleSettings(EXPERIMENT, tmp_path, tmp_path, 3.0, settle_timeout_s=0.05)  # fmt: skip
+    squirrel_settings = {"squirrel_url": "http://canopy.test", "squirrel_key": "service-write-key"} if squirrel else {}  # fmt: skip
+    settings = ModuleSettings(EXPERIMENT, tmp_path, tmp_path, 3.0, settle_timeout_s=0.05, **squirrel_settings)  # fmt: skip
     hare = FakeHare()
     module = Module(settings, hare, Journal(tmp_path / "j.sqlite3"), clock=lambda: clock[0])  # fmt: skip
-    app = build_app(module, read_access=lambda: key)
+    app = build_app(module, read_access=lambda: key, squirrel_transport=squirrel.transport() if squirrel else None)  # fmt: skip
     return SimpleNamespace(
         module=module, hare=hare, app=app, clock=clock, folder=folder
     )
 
 
 class FakeSquirrel:
-    """Squirrel's registry routes in memory, as an httpx transport.
+    """Squirrel's registry and snapshot routes in memory, as an httpx transport.
 
     ``pvs`` by id (Squirrel's wire shape), ``groups`` by id with their tags,
-    ``keys`` the key each request carried.
+    ``snapshots`` by id with the values a save read from ``values`` (a PV
+    not in ``values`` saves as ``None``, as an unreachable one does),
+    ``restores`` every call of Squirrel's own restore route (the module
+    must never make one), ``keys`` the key each request carried.
     """
 
     def __init__(self) -> None:
         self.pvs: dict[str, dict[str, Any]] = {}
         self.groups: dict[str, dict[str, Any]] = {}
+        self.snapshots: dict[str, dict[str, Any]] = {}
+        self.values: dict[str, Any] = {}
+        self.restores: list[tuple[str, Any]] = []
         self.keys: list[str | None] = []
         self._n = 0
 
@@ -168,6 +175,8 @@ class FakeSquirrel:
             return httpx.Response(404, json={"code": "not_found", "detail": pv_id})
         if m == "DELETE":
             del self.pvs[pv_id]
+            for snap in self.snapshots.values():  # the cascade
+                snap["pvValues"] = [v for v in snap["pvValues"] if v["pvId"] != pv_id]
             return httpx.Response(200, json=True)
         for k in ("device", "description", "absTolerance", "relTolerance"):
             if body.get(k) is not None:
@@ -194,13 +203,49 @@ class FakeSquirrel:
         group = self.groups.get(path.rsplit("/", 1)[1])
         return httpx.Response(200, json=[group]) if group else httpx.Response(404, json={"code": "not_found", "detail": path})  # fmt: skip
 
+    def _snapshots(self, request: httpx.Request, body: Any) -> httpx.Response:
+        m, path = request.method, request.url.path
+        if path == "/squirrel/v1/snapshots" and m == "GET":
+            rows = sorted(
+                self.snapshots.values(), key=lambda s: s["createdDate"], reverse=True
+            )
+            summaries = [{k: v for k, v in s.items() if k != "pvValues"} for s in rows]
+            return httpx.Response(200, json={"results": summaries, "continuationToken": None, "totalCount": len(rows)})  # fmt: skip
+        if (
+            path == "/squirrel/v1/snapshots" and m == "POST"
+        ):  # the save: a job, done at once
+            values = [{"pvId": p["id"], "pvName": p["setpointAddress"], "device": p["device"], "setpointName": p["setpointAddress"], "readbackName": p["readbackAddress"], "setpointValue": None if p["setpointAddress"] not in self.values else {"value": self.values[p["setpointAddress"]]}, "readbackValue": None, "tags": []} for p in self.pvs.values()]  # fmt: skip
+            sid = self._id()
+            self.snapshots[sid] = {"id": sid, "title": body["title"], "description": body.get("description"), "createdDate": f"2026-10-29T00:00:{self._n:02d}Z", "createdBy": None, "pvCount": len(values), "pvValues": values}  # fmt: skip
+            return httpx.Response(200, json={"jobId": f"job-{sid}", "statusUrl": f"/jobs/v1/job-{sid}"})  # fmt: skip
+        sid = path.split("/")[4]
+        if (snap := self.snapshots.get(sid)) is None:
+            return httpx.Response(404, json={"code": "not_found", "detail": sid})
+        if path.endswith("/restore"):
+            self.restores.append((sid, body))
+            return httpx.Response(
+                200, json={"jobId": "never", "statusUrl": "/jobs/v1/never"}
+            )
+        if m == "PUT":
+            snap |= {
+                k: body[k] for k in ("title", "description") if body.get(k) is not None
+            }
+            return httpx.Response(200, json={k: v for k, v in snap.items() if k != "pvValues"})  # fmt: skip
+        return httpx.Response(200, json=snap)
+
     def handle(self, request: httpx.Request) -> httpx.Response:
-        """Answer one request as Squirrel would."""
+        """Answer one request as Squirrel (or the jobs module) would."""
         self.keys.append(request.headers.get("X-API-Key"))
         body = json.loads(request.content) if request.content else None
         path = request.url.path
+        if path.startswith("/jobs/v1/"):
+            sid = path.rsplit("/", 1)[1].removeprefix("job-")
+            done = sid in self.snapshots
+            return httpx.Response(200, json={"id": path.rsplit("/", 1)[1], "status": "completed" if done else "failed", "result": {"type": "snapshot", "id": sid} if done else None, "error": None if done else "no such job"})  # fmt: skip
         if path.startswith("/squirrel/v1/pvs"):
             return self._pvs(request, body)
         if path.startswith("/squirrel/v1/tags"):
             return self._tags(request, body)
+        if path.startswith("/squirrel/v1/snapshots"):
+            return self._snapshots(request, body)
         return httpx.Response(404, json={"code": "not_found", "detail": path})

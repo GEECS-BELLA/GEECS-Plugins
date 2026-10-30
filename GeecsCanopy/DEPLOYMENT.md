@@ -78,6 +78,11 @@ as the directory joins them. With `GEECS_CANOPY_DB_URL` set, the DB-served
 | `GET /geecs/v1/devices/{name}` | every role per axis: PVs, Hare's value, severity, a verdict (`live`, `stale`, `off`, `not answering`, `unreachable`, `error`, `unknown`; `not running` waits for a service-status source) |
 | `POST /geecs/v1/devices/{name}/put` | `{role, axis?, value, operator, confirm?}` through the gates (`geecs_canopy/gates.py`): policy 403, allow list 403, hazard 428, run lock 423, bounds 422, then Hare (its own status on refusal); an `attempted` journal row before Hare (503 `journal_unavailable`, nothing sent, when it cannot be written) and one outcome row per request |
 | `GET /geecs/v1/journal?entries=N` | the newest N `JournalEntry` rows (GEECS-Schemas), oldest first |
+| `GET /geecs/v1/presets` | Squirrel's snapshots as presets: `id, name, time, operator, scope, golden, pvCount` (the description's lines) |
+| `POST /geecs/v1/presets` | `{name, operator, scope: {devices, families, screen}}`: a Squirrel save of every registered PV (its job, awaited up to 60 s), the scope and `saved by <operator>` in the description, one journal row (`device: squirrel, role: snapshot`) |
+| `GET /geecs/v1/presets/{id}/diff?devices=` | live against saved per row (`device, role, axis, saved, live, tolerance, word`): `same`/`differs` within the registry's tolerance, `unsaved` (unreachable at save time), `retired` (a PV no device has any more), `unread`; default scope the snapshot's own (a screen's devices are the caller's to pass) |
+| `POST /geecs/v1/presets/{id}/golden` | `{scope?}`: the one golden snapshot of that scope (the previous one loses the mark) |
+| `POST /geecs/v1/presets/{id}/restore` | `{operator, confirm?, devices?}` → 202, a run (`runId`, followed at `/v1/actions/runs/{id}`): one `set` per differing row in scope, motion rows last, every row through the gates; 409 `nothing_to_restore`; Squirrel's own restore is never called |
 
 Freshness is judged continuously: the module subscribes every monitored
 role and each `ioc`'s heartbeat as an internal Hare client and keeps when
@@ -174,7 +179,10 @@ after reading the `--check` output. It needs
 `GEECS_CANOPY_SQUIRREL_URL` (the compose file sets it to this api) and
 `GEECS_CANOPY_SQUIRREL_KEY` in `secrets.env`: a key minted
 `create_key.py "geecs-module" -r -w`, the one write key in the fleet, held
-by the module's process alone. Squirrel keeps a deleted row's saved values
+by the module's process alone (without both, the preset routes answer 503
+`squirrel_unconfigured`). A snapshot carries no tags of its own, so the
+module keeps who saved it, its scope and the golden mark as lines of its
+description; Squirrel's own UI shows them as text. Squirrel keeps a deleted row's saved values
 in no snapshot, so a retired role's history leaves with the row.
 Squirrel's restore job is **never the executor of an operator's restore**:
 its worker writes with its own EPICS adapter, around every guard and
