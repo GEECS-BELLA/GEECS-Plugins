@@ -256,6 +256,10 @@ class ActionPlanLibrary(VersionedSchemaModel):
         ValueError
             If the document is in the legacy dialect.
         """
+        if (
+            data == {}
+        ):  # an empty document (a fresh experiment's placeholder) is the empty library
+            return {"plans": {}}
         if isinstance(data, dict) and "actions" in data and "plans" not in data:
             raise ValueError(
                 "this is an action library in the legacy 'actions:' dialect, "
@@ -288,7 +292,7 @@ class ActionPlanLibrary(VersionedSchemaModel):
 
 
 def load_action_library(path: str | Path) -> ActionPlanLibrary:
-    """Read an experiment's library; a missing or empty file is the empty library (a fresh experiment's placeholder).
+    """Read an experiment's library; a missing file, an empty one or ``{}`` is the empty library (a fresh experiment's placeholder).
 
     Raises
     ------
@@ -297,9 +301,7 @@ def load_action_library(path: str | Path) -> ActionPlanLibrary:
         is in the legacy dialect.
     """
     file = Path(path)
-    if not file.exists() or not file.read_text(encoding="utf-8").strip():
-        return ActionPlanLibrary(plans={})
-    return ActionPlanLibrary.from_path(file)
+    return ActionPlanLibrary.from_path(file) if file.exists() else ActionPlanLibrary(plans={})  # fmt: skip
 
 
 #: A step that does something: what :func:`flatten_action_steps` returns.
