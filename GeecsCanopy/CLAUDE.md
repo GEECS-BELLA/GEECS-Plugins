@@ -67,6 +67,10 @@ deploy/
   setpoint with its readback; `device` the GEECS name, `description` the
   step variable, tags family/source/axis) and never hand-edited; the one
   write key for its REST is the module's (`GEECS_CANOPY_SQUIRREL_KEY`).
+  Its remove step is bounded as the archiver's: rows under the
+  experiment's prefix or naming its devices only, never a DB-sourced row
+  while the DB is off, more than `REMOVE_GUARD` removals only with `--yes`
+  — because Squirrel deletes a row's saved values with it.
 - **One identity: the GEECS device name.** It is the Raccoon device name,
   the journal's key, a Squirrel label and a screen binding. A PV prefix is
   derived by the naming rule (`geecs_core.pv_naming.pv_name(experiment,
@@ -86,8 +90,9 @@ deploy/
   deleted with the CA gateway when the last LabVIEW device retires. No
   other module imports `geecs_core.db.geecs_db` (the
   `canopy-db-is-transitional` import contract); the native path depends on
-  nothing in the DB. The module gets the DB devices as a callable from the
-  wrapper (`app.py`), never by importing `gateway.py`; their writes take
+  nothing in the DB. The module gets the DB devices as a callable
+  (`gateway.source_from_env`) from a wrapper — `app.py` or the
+  `geecs-canopy` command — never by importing `gateway.py` itself; their writes take
   the same gates but the run lock (a DB device has none), their hazards
   come from the policy's `hazards`, and a setpoint without DB `min`/`max`
   is refused (rule 11). One switch, `GEECS_CANOPY_DB`, turns the DB off for

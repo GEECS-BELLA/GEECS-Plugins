@@ -158,10 +158,17 @@ non-command role of every device, the setpoint record as the address with
 its readback beside it, `device` the GEECS name, `description` the role as
 an action step names it (`m1.val` on an axis), tags `family`, `source`
 (`native`/`gateway`) and `axis`, tolerance 0 (exact; a family or DB
-tolerance is OWED). Run it at the first install, after every
-device-file change and after a DB change that adds or retires a served
-setpoint (with the DB on, the served set is part of the derivation; with
-the DB unreachable the command writes nothing and exits 3). It needs
+tolerance is OWED). A DB device's settables are all setpoints or enums
+to the gateway source, so a LabVIEW "button" variable is a row too (the
+DB has no mark to exclude it by). Run it at the first install, after
+every device-file change and after a DB change that adds or retires a
+served setpoint (with the DB on, the served set is part of the
+derivation; with the DB unreachable the command writes nothing and exits
+3). Because Squirrel deletes a row's saved values with the row, the
+remove step is bounded: only rows under the experiment's prefix or
+naming one of its devices are removed, a DB-sourced row never while the
+DB is off (exit 2), and more than ten removals in one run need `--yes`
+after reading the `--check` output. It needs
 `GEECS_CANOPY_SQUIRREL_URL` (the compose file sets it to this api) and
 `GEECS_CANOPY_SQUIRREL_KEY` in `secrets.env`: a key minted
 `create_key.py "geecs-module" -r -w`, the one write key in the fleet, held
