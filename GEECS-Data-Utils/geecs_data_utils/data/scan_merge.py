@@ -53,8 +53,14 @@ def merge_scan_frames(frames: Mapping[ScanRef, "pd.DataFrame"]) -> "pd.DataFrame
     Raises
     ------
     ValueError
-        No frames, or a frame whose own ``scan`` or ``day`` column names
-        another scan (the tag would overwrite it).
+        No frames, a frame with multi-level columns, or one whose own
+        ``scan`` or ``day`` column names another scan (the tag would
+        overwrite it).
+
+    Notes
+    -----
+    A named index (``Shotnumber``, as ``ScanData``'s TDMS frame has it)
+    becomes a column first, so the shot numbers survive the fresh index.
     """
     import pandas as pd
 
@@ -62,6 +68,13 @@ def merge_scan_frames(frames: Mapping[ScanRef, "pd.DataFrame"]) -> "pd.DataFrame
         raise ValueError("merge at least one scan")
     parts = []
     for (day, scan), frame in frames.items():
+        if isinstance(frame.columns, pd.MultiIndex):
+            raise ValueError(
+                f"Scan{scan:03d} on {day.isoformat()} has multi-level columns; "
+                "flatten them first (data.columns.flatten_columns)"
+            )
+        if any(name is not None for name in frame.index.names):
+            frame = frame.reset_index()
         tag = {SCAN_COLUMN: int(scan), DAY_COLUMN: day.isoformat()}
         for column, value in tag.items():
             if column in frame.columns and not _names(frame[column], value):
@@ -72,7 +85,6 @@ def merge_scan_frames(frames: Mapping[ScanRef, "pd.DataFrame"]) -> "pd.DataFrame
         tags = pd.DataFrame(tag, index=frame.index)
         own = frame.drop(columns=[c for c in tag if c in frame.columns])
         parts.append(pd.concat([tags, own], axis=1))
-    # sort=False keeps the columns in first-seen order (the union).
     return pd.concat(parts, ignore_index=True, sort=False)
 
 

@@ -306,7 +306,9 @@ class DatasetBuilder:
 
         Frames are concatenated with ``pandas.concat(..., ignore_index=True)``.
         See the module docstring for column-alignment / NaN behavior when schemas
-        differ across scans.
+        differ across scans. Rows are not told apart by scan here:
+        :func:`geecs_data_utils.data.scan_merge.merge_scan_frames` tags each
+        row with its scan and day.
         """
         frames: list[pd.DataFrame] = []
         scan_infos: list[Dict[str, Any]] = []
