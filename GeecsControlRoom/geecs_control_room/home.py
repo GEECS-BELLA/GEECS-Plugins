@@ -358,9 +358,10 @@ def preset_router(settings: Settings) -> APIRouter:
 
     @r.post("/api/presets/{preset_id}/golden")
     async def golden(request: Request, preset_id: str, body: GoldenBody) -> Any:
-        cached.invalidate()  # the baseline is another snapshot's now
         call = request.app.state.module.post(f"/presets/{quote(preset_id, safe='')}/golden", body.model_dump())  # fmt: skip
-        return await through(call, "no answer; the list says whether the mark took")
+        answer = await through(call, "no answer; the list says whether the mark took")
+        cached.invalidate()  # after the module answered: the baseline is another snapshot's now
+        return answer
 
     @r.post("/api/presets/{preset_id}/restore")
     async def restore(request: Request, preset_id: str, body: RestoreBody) -> Any:
