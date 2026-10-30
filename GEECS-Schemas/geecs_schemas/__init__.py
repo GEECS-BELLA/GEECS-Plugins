@@ -20,13 +20,20 @@ from geecs_schemas.analysis import (
     HimgJob,
 )
 from geecs_schemas.action_plan import (
+    ACTION_LIBRARY_FILENAME,
+    ACTION_LIBRARY_FOLDER,
     ActionPlan,
+    ActionPlanCycleError,
     ActionPlanLibrary,
+    ActionPlanNotFoundError,
     ActionStep,
     CheckStep,
+    ConcreteStep,
     RunPlanStep,
     SetStep,
     WaitStep,
+    flatten_action_steps,
+    values_match,
 )
 from geecs_schemas.archive_policy import (
     ARCHIVE_POLICY_FILENAME,
@@ -224,6 +231,13 @@ __all__ = [
     "ExperimentDefaults",
     "DefaultActions",
     # action_plan
+    "ACTION_LIBRARY_FILENAME",
+    "ACTION_LIBRARY_FOLDER",
+    "ActionPlanCycleError",
+    "ActionPlanNotFoundError",
+    "ConcreteStep",
+    "flatten_action_steps",
+    "values_match",
     "ActionPlan",
     "ActionPlanLibrary",
     "ActionStep",

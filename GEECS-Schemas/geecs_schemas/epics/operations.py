@@ -103,3 +103,4 @@ class JournalEntry(VersionedSchemaModel):
     )
     canopy_code: Optional[str] = Field(None, description="Canopy's or our slug.")
     detail: Optional[str] = Field(None, description="Why; or what a clamp took.")
+    run: Optional[str] = Field(None, description="The action run this row belongs to.")
