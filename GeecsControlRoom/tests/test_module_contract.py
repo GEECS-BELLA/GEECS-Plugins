@@ -137,3 +137,32 @@ async def test_a_device_route_that_fails_is_unread(room) -> None:
     body = (await room.client.get("/api/home/devices")).json()
     assert body["ok"] and body["unread"] == [{"name": "Cam1"}]
     assert (await room.client.get("/api/devices/Cam1")).json()["code"] == "module_unreachable"  # fmt: skip
+
+
+async def test_a_button_runs_an_action_plan_and_the_page_reads_its_run(room) -> None:
+    folder = room.env.folder
+    room.env.hare.meta["bench:ps1:current:SP"] = {"controlLow": 0.0, "controlHigh": 5.0}
+    (folder / "action_library").mkdir()
+    (folder / "action_library" / "actions.yaml").write_text(
+        "plans:\n  park:\n    description: park it\n    steps:\n"
+        "      - {do: set, device: ps1, variable: current_sp, value: 1.0}\n"
+    )
+    (folder / "screens").mkdir()
+    (folder / "screens" / "s.yaml").write_text(
+        "title: S\ngroups:\n  - {title: G, at: [1, 1], widgets: [{kind: button, label: Park, bind: {action: park}}]}\n"  # fmt: skip
+    )
+    page = await room.client.get("/screens/s")
+    assert page.status_code == 200 and 'data-action="park"' in page.text
+    listed = (await room.client.get("/api/actions")).json()["plans"]
+    assert {"name", "description", "hazardSteps", "running"} <= set(listed[0])
+    started = await room.client.post("/api/actions/park/run", json={"operator": "ann"})
+    assert started.status_code == 202
+    for _ in range(100):
+        run = (
+            await room.client.get(f"/api/actions/runs/{started.json()['runId']}")
+        ).json()
+        if run["state"] != "running":
+            break
+        await asyncio.sleep(0.01)
+    assert {"id", "plan", "state", "steps"} <= set(run) and run["state"] == "done"
+    assert {"index", "state", "journalId"} <= set(run["steps"][0])

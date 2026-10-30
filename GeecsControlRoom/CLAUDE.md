@@ -16,7 +16,8 @@ geecs_control_room/
   home.py           the home at /: the strip (/api/home/strip, the scanner's API), the
                     "Not live" and "In alarm" lists (/api/home/devices), the launcher (home.yaml)
   screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
-                    its image files, and the two module pass-throughs (/api/devices/{name}[/put])
+                    its image files, and the module pass-throughs (/api/devices/{name}[/put],
+                    /api/actions, …/{plan}/run, …/runs/{id}[/stop])
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the two /api/home reads, fills the device pickers
   static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
@@ -59,6 +60,13 @@ deploy/
   such role, "wrong kind" when its type does not fit the kind, Hare's alarm
   rules where the module gives no verdict) and writes it through the same
   put route. A writing kind on a bare PV is drawn disabled.
+- **A button may name an action plan** (`bind: {action: <plan>}`, checked
+  against the experiment's `action_library/actions.yaml`). The module runs
+  it, every `set` through its gates; the page asks once (the plan's
+  description and its hazard steps) when it writes a hazard role, sends
+  the run once, and shows the module's run (`running 2/5`, `failed · step
+  3 · out_of_bounds`) with Stop while it runs. A sequence is never
+  scripted in a screen.
 - **Dense, like the panel it replaces.** When no group spans columns,
   each column packs its groups top to bottom in row order (a LabVIEW
   panel's layout; grid row tracks would leave gaps under short groups);

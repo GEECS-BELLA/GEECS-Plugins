@@ -62,6 +62,7 @@ def create_app(
     templates = make_templates(_PKG / "templates", context_processors=[canopy])
     app.state.templates = templates
     app.include_router(screens.router(settings))
+    app.include_router(screens.action_router())
     app.include_router(home.router(settings, scanner))
 
     @app.get("/healthz")

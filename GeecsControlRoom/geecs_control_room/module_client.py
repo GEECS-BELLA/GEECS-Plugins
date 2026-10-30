@@ -19,6 +19,8 @@ import httpx
 #: own timeout (1.5 x its 2 s poll), so a slow device reaches the page as ``unread``,
 #: not as a page that gave up. A reload over 1.4 s reads unknown for that poll.
 PUT_TIMEOUT_S, READ_TIMEOUT_S = 45.0, 1.4
+#: A run's start: the module pre-checks every step (a describe per set) before it answers.
+RUN_TIMEOUT_S = 10.0
 
 
 class ModuleUnavailable(Exception):
@@ -69,6 +71,10 @@ class ModuleClient:
         """One write, sent once: ``{role, axis?, value, operator, confirm?}``."""
         path = f"/devices/{quote(name, safe='')}/put"
         return await self._send("POST", path, json=body, timeout=PUT_TIMEOUT_S)
+
+    async def post(self, path: str, body: dict[str, Any], timeout: float = RUN_TIMEOUT_S) -> tuple[int, Any]:  # fmt: skip
+        """``POST /geecs/v1<path>``, sent once: an action run's start or stop."""
+        return await self._send("POST", path, json=body, timeout=timeout)
 
     async def aclose(self) -> None:
         """Close the connection pool."""

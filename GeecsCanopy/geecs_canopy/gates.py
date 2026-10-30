@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from geecs_schemas import JournalEntry, Role
+from geecs_schemas import JournalEntry, OperatorPolicy, Role
 
 from geecs_canopy.freshness import is_number, json_safe
 from geecs_canopy.hare import HareRefused, Wire, WriteValue
@@ -48,6 +48,7 @@ class PutRequest:
     axis: str | None = None
     confirm: bool = False
     key_name: str | None = None
+    run: str | None = None  # the action run this write is a step of
 
 
 @dataclass
@@ -114,6 +115,20 @@ def _bounds(
     )
 
 
+def bounds_refusal(
+    device: Resolved, role: Role, value: WriteValue, meta: Wire
+) -> tuple[str, str] | None:
+    """``(code, why)`` when ``value`` may not be written to the device's ``role``; a DB setpoint's limits are its DB row's."""
+    db = device.source == "gateway"
+    fix = f": set min and max on {device.name}'s {role.name} row in the GEECS DB" if db else ""  # fmt: skip
+    return _bounds(role, value, meta, fix)
+
+
+def hazardous(policy: OperatorPolicy, device: Resolved, role: Role) -> bool:
+    """Whether a write to ``role`` needs the hazard confirm: the family role's, or the policy's ``hazards``."""
+    return role.confirm == "hazard" or policy.hazardous(device.name, device.family, role.name)  # fmt: skip
+
+
 async def _check_lock(module: Module, device: Resolved, axis: str | None) -> None:
     roles = {role.name: role for role in device.roles}
     if LOCK_ROLE not in roles:
@@ -147,13 +162,13 @@ async def _write(
     if role.locked:
         await _check_lock(module, device, req.axis)
     pv = device.pv(role, req.axis, write=True)
-    db = device.source == "gateway"
-    fix = f": set min and max on {device.name}'s {role.name} row in the GEECS DB" if db else ""  # fmt: skip
-    if refusal := _bounds(role, req.value, await module.hare.describe(pv), fix):
+    if refusal := bounds_refusal(
+        device, role, req.value, await module.hare.describe(pv)
+    ):
         raise _Stop(*refusal)
     s = module.settings
     # A GEECS set's put completes when the device converges (a stage's move): a settling wait.
-    settles = bool(role.settled_by) or db
+    settles = bool(role.settled_by) or device.source == "gateway"
     timeout = s.settle_timeout_s if settles else s.put_timeout_s
     # A role that settles itself (an acquire) calls back only when the work ends.
     itself, unsettled = role.settled_by == role.name, None
@@ -211,8 +226,7 @@ async def _decide(
     if role is None or req.role not in device.writable:
         why = f"is in none of {list(device.actions)}" if device.actions else f"is no writable role of {device.name}"  # fmt: skip
         raise _Stop("not_allowed", f"{req.role!r} {why}")
-    hazard = role.confirm == "hazard" or policy.hazardous(device.name, device.family, role.name)  # fmt: skip
-    return await _write(module, device, role, req, hazard)
+    return await _write(module, device, role, req, hazardous(policy, device, role))
 
 
 async def put_role(module: Module, req: PutRequest) -> PutOutcome:

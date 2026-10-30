@@ -70,7 +70,17 @@ GEECS variable name, and `resolve_screen(..., deferred=<the module's roster>)`
 binds it without a `Role` (`Bound.deferred`, `Bound.fits`): the page judges
 it by the module's word. A device in neither the files nor the roster is
 refused. A bare PV is read only; it may carry a writing kind or a flipper's
-indicators, drawn disabled.
+indicators, drawn disabled. A button may bind `{action: <plan>}` instead,
+a plan in the experiment's action library (`resolve_screen(...,
+actions=<the plan names>)` refuses another).
+
+## Action plans
+
+`action_plan.py`: `ActionPlanLibrary` (`action_library/actions.yaml`) and
+the one step library both executors share, GeecsBluesky's compiler in a
+scan and GeecsCanopy's module from a screen button: `flatten` (nested
+`run` steps inlined, unknown names and loops refused) and `values_match`
+(a `check`'s legacy comparison). A step's semantics change here, once.
 
 ## Home layout
 

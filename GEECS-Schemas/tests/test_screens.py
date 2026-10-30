@@ -55,6 +55,8 @@ def test_a_group_wears_a_kit_token_never_a_colour(tone: str) -> None:
         {"role": "current"},
         {"device": "ps", "role": "current", "pv": "A:B"},
         {"pv": "A:B", "axis": "m1"},
+        {"action": "park", "pv": "A:B"},
+        {"action": "park", "device": "ps"},
     ],  # fmt: skip
 )
 def test_a_binding_is_a_device_and_role_or_a_pv(bind: dict) -> None:
@@ -167,3 +169,12 @@ def test_a_device_in_neither_the_files_nor_the_roster_is_refused() -> None:
         resolve_screen(
             screen(widget), load_families(), PANEL, NATIVE, deferred={"U_PLC"}
         )
+
+
+def test_only_a_button_runs_an_action_and_only_one_the_library_holds() -> None:
+    with pytest.raises(ValidationError, match="only a button"):
+        screen({"kind": "toggle", "bind": {"action": "park"}})
+    runs = screen({"kind": "button", "label": "Park", "bind": {"action": "park"}})
+    assert resolve_screen(runs, load_families(), PANEL, NATIVE, actions={"park"})[0][0].role is None  # fmt: skip
+    with pytest.raises(ScreenError, match="no action plan 'park'"):
+        resolve_screen(runs, load_families(), PANEL, NATIVE, actions={"other"})

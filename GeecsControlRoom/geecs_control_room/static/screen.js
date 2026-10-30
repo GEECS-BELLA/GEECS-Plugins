@@ -7,7 +7,9 @@
 // word and code stay on the widget; nothing is retried. A deferred widget
 // (a DB device, data-fits) is judged by the module's word alone. The rules are
 // screen_rules.js's (tested under node), the polling poller.js's; this file
-// keeps the DOM work.
+// keeps the DOM work. A button naming an action plan asks the module to run
+// it (once, confirmed when the plan writes a hazard role) and shows the run
+// as the module reports it, polled until it ends, with Stop while it runs.
 (function () {
   "use strict";
   const POLL_MS = 2000;
@@ -61,6 +63,7 @@
   }
 
   function draw(el) {
+    if (el.dataset.action) return drawAction(el);
     const word = judge(el), state = el.querySelector(".ws");
     state.querySelector(".dot").dataset.state = KIT[word] || "unknown";
     state.querySelector(".word").textContent = word;
@@ -113,10 +116,11 @@
 
   // ---- writing: once, through the module, the outcome left on the widget
   const dialog = document.getElementById("confirm");
-  function confirmWrite(el, value) {
-    document.getElementById("confirm-title").textContent = `Write ${el.querySelector(".lbl").textContent}?`;
-    document.getElementById("confirm-what").textContent = `${el.dataset.device} · ${el.dataset.role} ← ${value}`;
-    document.getElementById("confirm-note").textContent = el.dataset.confirm || "This role needs the hazard confirm.";
+  function ask(verb, what, note, el) {
+    document.getElementById("confirm-title").textContent = `${verb} ${el.querySelector(".lbl").textContent}?`;
+    document.getElementById("confirm-what").textContent = what;
+    document.getElementById("confirm-note").textContent = note;
+    document.getElementById("confirm-go").textContent = verb;
     return new Promise((done) => {
       dialog.onclick = (ev) => { if (ev.target.value) { dialog.close(); done(ev.target.value === "write"); } };
       dialog.oncancel = () => done(false);
@@ -136,7 +140,8 @@
     if (!operator) { opInput.focus(); return outcome(el, "unsent", "", "name yourself in the header first"); }
     // one decision: the confirm sent is the dialog the operator answered (the module's mark may change meanwhile)
     const asked = hazardOf(el);
-    if (asked && !(await confirmWrite(el, value))) return outcome(el, "unsent", "", "not confirmed");
+    const what = `${el.dataset.device} · ${el.dataset.role} ← ${value}`;
+    if (asked && !(await ask("Write", what, el.dataset.confirm || "This role needs the hazard confirm.", el))) return outcome(el, "unsent", "", "not confirmed");
     const body = { role: el.dataset.role, value, operator };
     if (asked) body.confirm = true;
     if (el.dataset.axis) body.axis = el.dataset.axis;
@@ -156,6 +161,96 @@
     draw(el);
   }
 
+  // ---- action plans: the module's library and its runs, by plan
+  const plans = {}, runs = {}, runOf = {}, watching = new Set();
+  let plansError = "not read yet";
+  const ofPlan = (plan) => widgets.filter((w) => w.dataset.action === plan);
+
+  function drawAction(el) {
+    const plan = plans[el.dataset.action], run = runs[runOf[el.dataset.action]];
+    const live = !!run && !R.runEnded(run);
+    const state = el.querySelector(".ws"), act = el.querySelector(".act");
+    state.querySelector(".word").textContent = run ? R.runWord(run) : plan ? "ready" : plansError ? "unknown" : "no such plan";
+    state.querySelector(".dot").dataset.state = run ? R.runState(run) : plan ? "ok" : "unknown";
+    state.title = run ? R.runDetail(run) : "";
+    act.disabled = !plan || live || !!el.dataset.busy;
+    act.title = plan ? plan.description : plansError || "not in the module's library";
+    el.querySelector(".stop").hidden = !live;
+  }
+
+  function track(plan, run) {
+    runs[run.id] = run;
+    runOf[plan] = run.id;
+    if (!R.runEnded(run)) watching.add(run.id);
+    ofPlan(plan).forEach(drawAction);
+  }
+
+  async function readPlans() {
+    try {
+      const r = await fetch(`${root}/api/actions`);
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.detail || `answered ${r.status}`);
+      plansError = null;
+      for (const p of body.plans) plans[p.name] = p;
+      for (const p of body.plans) if (p.running && !runs[p.running]) track(p.name, { id: p.running, state: "running", steps: [] });
+    } catch (err) {
+      plansError = `the module's actions: ${err.message}`;
+    }
+    actionWidgets.forEach(drawAction);
+  }
+
+  async function runAction(el) {
+    const operator = opInput.value.trim();
+    if (!operator) { opInput.focus(); return outcome(el, "unsent", "", "name yourself in the header first"); }
+    await readPlans(); // the hazard steps as the module sees them now
+    const plan = plans[el.dataset.action];
+    if (!plan) return outcome(el, "unsent", "", plansError || "not in the module's library");
+    const hazards = (plan.hazardSteps || []).map((h) => `step ${h.index}: ${h.device} · ${h.role} ← ${h.value}`);
+    const asked = hazards.length > 0 || !!el.dataset.confirm;
+    const note = [el.dataset.confirm, hazards.length ? `Hazard ${hazards.join("; ")}` : ""].filter(Boolean).join(" — ");
+    if (asked && !(await ask("Run", plan.description || plan.name, note, el))) return outcome(el, "unsent", "", "not confirmed");
+    outcome(el, "sending");
+    el.dataset.busy = "1";
+    drawAction(el);
+    try {
+      const r = await fetch(`${root}/api/actions/${encodeURIComponent(plan.name)}/run`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operator, confirm: asked }),
+      });
+      const a = await r.json();
+      if (r.status === 202) { outcome(el, ""); track(plan.name, a); }
+      else outcome(el, [403, 409, 428].includes(r.status) ? "denied" : "refused", a.code, a.detail);
+    } catch (err) {
+      outcome(el, "unknown", "no_answer", "read the run before running it again");
+    }
+    delete el.dataset.busy;
+    ofPlan(plan.name).forEach(drawAction);
+  }
+
+  async function readRun(id, signal) {
+    const r = await fetch(`${root}/api/actions/runs/${encodeURIComponent(id)}`, { signal });
+    if (!r.ok) throw new Error(`answered ${r.status}`);
+    return r.json();
+  }
+
+  function seenRun(id, got) {
+    if (!got.ok) return;
+    if (R.runEnded(got.value)) watching.delete(id);
+    track(got.value.plan, got.value);
+  }
+
+  const actionWidgets = widgets.filter((w) => w.dataset.action);
+  for (const el of actionWidgets) {
+    el.querySelector(".stop").addEventListener("click", () => {
+      const id = runOf[el.dataset.action];
+      if (id) fetch(`${root}/api/actions/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }).catch(() => {});
+    });
+  }
+  if (actionWidgets.length) {
+    readPlans();
+    const runPoller = window.GeecsPoller.makePoller({ fetch: readRun, pollMs: POLL_MS / 2, onView: seenRun });
+    setInterval(() => runPoller.tick([...watching]), POLL_MS / 2);
+  }
+
   const asValue = (text) => (text.trim() !== "" && Number.isFinite(Number(text)) ? Number(text) : text);
 
   for (const ind of document.querySelectorAll(".ind[data-pv]")) use(ind.dataset.pv, ind);
@@ -170,6 +265,7 @@
       });
     }
     if (act) act.addEventListener("click", () => {
+      if (el.dataset.action) return runAction(el);
       if (el.dataset.kind === "button") return write(el, 1);
       const f = wire[pvOf(el)];
       if (f && typeof f.value === "number") write(el, f.value ? 0 : 1);
