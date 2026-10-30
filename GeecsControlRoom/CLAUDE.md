@@ -13,13 +13,17 @@ geecs_control_room/
   settings.py       Settings.from_env: GEECS_CONTROL_ROOM_* over the shared site keys
   app.py            create_app: the kit at /theme, /static, the pages, /healthz
   module_client.py  ModuleClient: GeecsCanopy's /geecs/v1 routes over HTTP (read key)
-  home.py           the home at /: the strip (/api/home/strip, the scanner's API), the
-                    "Not live" and "In alarm" lists (/api/home/devices), the launcher (home.yaml)
+  home.py           the home at /: the strip (/api/home/strip, the scanner's API; /api/home/baseline,
+                    the golden presets' diff), the "Not live" and "In alarm" lists (/api/home/devices),
+                    the launcher (home.yaml), the presets (/api/home/presets and the pass-throughs
+                    /api/presets[/{id}/diff|golden|restore] to the module's preset routes)
   screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
                     its image files, and the module pass-throughs (/api/devices/{name}[/put],
                     /api/actions, …/{plan}/run, …/runs/{id}[/stop])
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
-  static/home.js    the home's live half: polls the two /api/home reads, fills the device pickers
+  static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
+                    slowly), fills the device pickers, the presets region (save dialog, diff drawer,
+                    restore confirm, the run on the row, the golden mark)
   static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
   static/screen_rules.js, home_rules.js   the pages' rules, pure (verdict word, value shown,
                     bounds, writable, differs, outcome state; the home lists' words)
@@ -72,6 +76,14 @@ deploy/
   panel's layout; grid row tracks would leave gaps under short groups);
   otherwise the grid aligns rows. A group's `columns` lays its widgets
   side by side, row by row.
+- **Presets are the module's.** The home lists Squirrel's snapshots as the
+  module's `/v1/presets` gives them, saves with the header's operator and a
+  scope of families and screens (the module resolves both), shows a diff
+  drawer (device · role · saved · live · tolerance · word, the module's
+  words), restores a device subset as a run the module synthesizes (the
+  confirm dialog first; the run shown on the row as on a screen button),
+  and marks golden by name. The strip's "Baseline" chip is the golden
+  snapshots' differing rows, polled every 10 s; hidden without a golden.
 - **The home sorts the module's words; it judges nothing.** "Not live" is
   every device whose state is not `live` (a DB device's state is its
   gateway `connected` PV, so a Disconnected LabVIEW device is listed; a live

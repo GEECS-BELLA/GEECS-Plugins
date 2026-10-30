@@ -16,3 +16,10 @@
 .kit .home .field select { min-width: 12rem; }
 .kit .home .entry { display: inline-flex; align-items: center; gap: 6px; }
 .kit .home .entry .dim { font-size: 11.5px; }
+.kit .home #presets td { font-size: 12px; vertical-align: middle; white-space: nowrap; }
+.kit .home #presets td .row { flex-wrap: nowrap; gap: 4px; }
+.kit .home #presets td .chip { margin-left: 4px; }
+.kit .drawer td, .kit .drawer th { font-size: 12px; white-space: nowrap; }
+.kit dialog .field { min-width: 0; }
+.kit dialog select[multiple] { height: auto; font-size: 12.5px; }
+.kit .home .grid #presets { grid-column: 1 / -1; }

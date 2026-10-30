@@ -64,6 +64,7 @@ def create_app(
     app.include_router(screens.router(settings))
     app.include_router(screens.action_router())
     app.include_router(home.router(settings, scanner))
+    app.include_router(home.preset_router(settings))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

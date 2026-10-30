@@ -51,9 +51,10 @@ class ModuleClient:
         except (httpx.HTTPError, ValueError) as exc:
             raise ModuleUnavailable(f"{method} {path}: {exc!r}") from exc
 
-    async def get(self, path: str, **params: Any) -> tuple[int, Any]:
-        """``GET /geecs/v1<path>``: the module's status and body."""
-        return await self._send("GET", path, params=params or None)
+    async def get(self, path: str, timeout: float | None = None, **params: Any) -> tuple[int, Any]:  # fmt: skip
+        """``GET /geecs/v1<path>``: the module's status and body (``timeout``: the read's own, else ``READ_TIMEOUT_S``)."""
+        kw = {"timeout": timeout} if timeout else {}
+        return await self._send("GET", path, params=params or None, **kw)
 
     async def devices(self) -> tuple[int, Any]:
         """The roster: ``{experiment, devices: [{name, family, axes, state}]}``."""
