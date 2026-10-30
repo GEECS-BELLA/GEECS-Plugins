@@ -4,17 +4,21 @@ Squirrel stores and compares; the module restores. A save is Squirrel's
 own job (every registered PV, as its model has it: there is no per-scope
 save); the scope and who saved it go into the snapshot's description,
 since a snapshot carries no tags of its own (``saved by <operator>``,
-``scope: <kind> <names>``, ``golden``: ``describe``/``parse``). A diff is
-live against saved, row by row, with the registry's tolerance: a row saved
-``null`` was unreachable at save time, a row whose PV no device has any
-more is retired. One golden snapshot per scope: the saved default, applied
-only deliberately. A restore is a **synthesized action run** through the
-executor, so every row takes ``gates.put_role`` (policy, allow, hazard
-confirm, run lock, bounds, journal): one ``set`` per saved row in scope
-that differs from live, motion rows (``settled_by``) last, named
-``restore:<snapshot>`` so one snapshot restores once at a time. Squirrel's
-restore route is never called; the saved value reaches the device through
-no other path.
+``scope: <kind> <names>``, ``golden``: ``describe``/``parse``, which keep
+any other line a person wrote there). A scope names devices, families or
+screens; a screen's devices are read from ``<experiment>/screens/<name>.yaml``
+beside the policy and the library. A diff is live against saved, row by
+row, with the registry's tolerance: a row saved ``null`` was unreachable at
+save time, a row whose PV no device has any more is retired. One golden
+snapshot per scope: the saved default, applied only deliberately, marked
+by a named operator and journaled. A restore is a **synthesized action
+run** through the executor, so every row takes ``gates.put_role`` (policy,
+allow, hazard confirm, run lock, bounds, journal): one ``set`` per saved
+row in scope that differs from live, the rows that settle (a move, a DB
+set: ``gates.settles``) last, named ``restore:<snapshot>`` so one snapshot
+restores once at a time; a snapshot with no scope restores only a named
+device subset. Squirrel's restore route is never called; the saved value
+reaches the device through no other path.
 """
 
 from __future__ import annotations
@@ -26,10 +30,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from geecs_schemas import JournalEntry, SetStep
+import yaml
+from geecs_schemas import SCREENS_DIRNAME, JournalEntry, Screen, SetStep
+from pydantic import ValidationError
 
-from geecs_canopy.actions import Executor, Refusal, Run
+from geecs_canopy.actions import Executor, Run, split_variable
 from geecs_canopy.freshness import is_number, json_safe
+from geecs_canopy.gates import Refusal, settles
 from geecs_canopy.journal import JournalUnavailable
 from geecs_canopy.module import DevicesUnavailable, Module
 from geecs_canopy.native import Resolved
@@ -40,45 +47,37 @@ SAVE_TIMEOUT_S, _POLL_S = 60.0, 0.25
 SCOPE_KINDS = ("devices", "families", "screen")
 #: The diff's words for a row.
 SAME, DIFFERS, UNSAVED, RETIRED, UNREAD, UNSUPPORTED = "same", "differs", "unsaved", "retired", "unread", "unsupported"  # fmt: skip
+_COUNTED = (DIFFERS, UNSAVED, RETIRED, UNREAD, UNSUPPORTED)
 
 
-def describe(
-    operator: str, scope: Mapping[str, Iterable[str]], golden: bool = False
-) -> str:
-    """The description lines of a snapshot saved by ``operator`` over ``scope``."""
+def describe(operator: str, scope: Mapping[str, Iterable[str]], golden: bool = False, extra: Iterable[str] = ()) -> str:  # fmt: skip
+    """The description of a snapshot saved by ``operator`` over ``scope``; ``extra``: a person's own lines, kept."""
     lines = [f"saved by {operator}"]
     lines += [f"scope: {kind} {', '.join(names)}" for kind, names in scope.items() if kind in SCOPE_KINDS and list(names)]  # fmt: skip
-    return "\n".join(lines + (["golden"] if golden else []))
+    return "\n".join([*lines, *(["golden"] if golden else []), *extra])
 
 
-def parse(description: str | None) -> tuple[str | None, dict[str, list[str]], bool]:
-    """``(operator, scope, golden)`` read back from a description; other lines are ignored."""
-    operator, scope, golden = None, {}, False
+def parse(description: str | None) -> tuple[str | None, dict[str, list[str]], bool, list[str]]:  # fmt: skip
+    """``(operator, scope, golden, other lines)`` read back from a description."""
+    operator, scope, golden, extra = None, {}, False, []
     for line in (description or "").splitlines():
         line = line.strip()
         if line.startswith("saved by "):
             operator = line[len("saved by ") :].strip() or None
-        elif line.startswith("scope: "):
+        elif line.startswith("scope: ") and line[len("scope: ") :].partition(" ")[0] in SCOPE_KINDS:  # fmt: skip
             kind, _, names = line[len("scope: ") :].partition(" ")
-            if kind in SCOPE_KINDS:
-                scope[kind] = [n.strip() for n in names.split(",") if n.strip()]
+            scope[kind] = [n.strip() for n in names.split(",") if n.strip()]
         elif line == "golden":
             golden = True
-    return operator, scope, golden
+        elif line:
+            extra.append(line)
+    return operator, scope, golden, extra
 
 
 def preset(summary: Mapping[str, Any]) -> dict[str, Any]:
     """Squirrel's snapshot summary as the presets route lists it."""
-    operator, scope, golden = parse(summary.get("description"))
+    operator, scope, golden, _ = parse(summary.get("description"))
     return {"id": summary["id"], "name": summary["title"], "time": summary["createdDate"], "operator": operator, "scope": scope, "golden": golden, "pvCount": summary.get("pvCount", 0)}  # fmt: skip
-
-
-def scope_devices(scope: Mapping[str, Iterable[str]], devices: Mapping[str, Resolved]) -> set[str] | None:  # fmt: skip
-    """The device names a scope covers; ``None`` for every device (a screen's devices are the caller's to name)."""
-    named = set(scope.get("devices") or [])
-    if families := set(scope.get("families") or []):
-        named |= {d.name for d in devices.values() if d.family in families}
-    return named or None if not scope.get("screen") or named else None
 
 
 def tolerance_word(abs_tol: float, rel_tol: float) -> str:
@@ -106,7 +105,7 @@ class Row:
     tolerance: str
     word: str
     entry: Entry | None = None
-    settles: bool = False
+    settling: bool = False  # written last: its put completes when the work ends
 
     def body(self) -> dict[str, Any]:
         """The diff route's row."""
@@ -132,33 +131,58 @@ class Presets:
         except DevicesUnavailable as exc:
             raise Refusal(503, "devices_unavailable", str(exc)) from exc
 
+    def screen_devices(self, name: str) -> set[str]:
+        """The devices ``<experiment>/screens/<name>.yaml`` binds; raise ``Refusal`` 422 when it cannot be read."""
+        path = self.module.settings.folder / SCREENS_DIRNAME / f"{name}.yaml"
+        try:
+            screen = Screen.from_path(path)
+        except (OSError, ValidationError, yaml.YAMLError) as exc:
+            raise Refusal(422, "bad_scope", f"the scope's screen {name!r} cannot be read: {exc}") from exc  # fmt: skip
+        return {w.bind.device for g in screen.groups for w in g.widgets if w.bind and w.bind.device}  # fmt: skip
+
+    async def scope_devices(
+        self, scope: Mapping[str, Iterable[str]]
+    ) -> set[str] | None:
+        """The device names a scope covers (devices, the roster's devices of its families, its screens' bindings); ``None`` for no scope at all."""
+        devices = await self._devices()
+        named = set(scope.get("devices") or [])
+        if families := set(scope.get("families") or []):
+            named |= {d.name for d in devices.values() if d.family in families}
+        for screen in scope.get("screen") or []:
+            named |= self.screen_devices(screen)
+        return named if any(scope.get(k) for k in SCOPE_KINDS) else None
+
+    async def _journal(self, operator: str, key_name: str | None, role: str, value: str, detail: str, outcome: str = "accepted", attempt: int | None = None) -> int | None:  # fmt: skip
+        """One row for a preset action; ``None`` when the journal cannot take it."""
+        row = JournalEntry(time=datetime.now(timezone.utc), operator=operator, key_name=key_name, device="squirrel", role=role, value=value, outcome=outcome, detail=detail, attempt=attempt)  # fmt: skip
+        try:
+            return (await asyncio.to_thread(self.module.journal.record, row)).id
+        except JournalUnavailable:
+            return None
+
     async def listing(self) -> list[dict[str, Any]]:
         """Every snapshot, newest first, with what its description says."""
         return [preset(s) for s in await self.squirrel.snapshots()]
 
     async def save(self, name: str, operator: str, scope: Mapping[str, list[str]], key_name: str | None) -> dict[str, Any]:  # fmt: skip
-        """Save every registered PV as ``name`` (Squirrel's job, awaited), the scope in its description; one journal row."""
-        squirrel = self.squirrel
-        job_id = await squirrel.create_snapshot(name, describe(operator, scope))
+        """Save every registered PV as ``name`` (Squirrel's job, awaited), the scope in its description; an attempted row before, one outcome row after."""
+        squirrel, text = self.squirrel, describe(operator, scope)
+        attempt = await self._journal(operator, key_name, "snapshot", name, text.replace("\n", "; "), "attempted")  # fmt: skip
+        job_id = await squirrel.create_snapshot(name, text)
         deadline = asyncio.get_running_loop().time() + SAVE_TIMEOUT_S
         while True:
             job = await squirrel.job(job_id)
             if job["status"] == "completed":
                 break
             if job["status"] == "failed":
+                await self._journal(operator, key_name, "snapshot", name, f"Squirrel's save failed: {job.get('error')}", "refused", attempt)  # fmt: skip
                 raise Refusal(502, "save_failed", f"Squirrel's save failed: {job.get('error')}")  # fmt: skip
             if asyncio.get_running_loop().time() > deadline:
-                raise Refusal(504, "save_pending", f"Squirrel's save job {job_id} has not finished after {SAVE_TIMEOUT_S:g} s; the list will show it when it does")  # fmt: skip
+                raise Refusal(504, "save_pending", f"Squirrel's save job {job_id} has not finished after {SAVE_TIMEOUT_S:g} s; the list will show it when it does (its attempted row is {attempt})")  # fmt: skip
             await asyncio.sleep(_POLL_S)
         saved = preset(await squirrel.snapshot(job["result"]["id"]))
-        row = JournalEntry(time=datetime.now(timezone.utc), operator=operator, key_name=key_name, device="squirrel", role="snapshot", value=name, outcome="accepted", detail=f"saved {saved['id']}: {describe(operator, scope).replace(chr(10), '; ')}")  # fmt: skip
-        try:
-            await asyncio.to_thread(self.module.journal.record, row)
-        except (
-            JournalUnavailable
-        ) as exc:  # the snapshot exists; say the journal missed it
-            saved["journalError"] = str(exc)
-        return saved
+        row = await self._journal(operator, key_name, "snapshot", name, f"saved {saved['id']}", attempt=attempt)  # fmt: skip
+        return saved | ({} if row is not None else {"journalError": "the journal could not take the row"})  # fmt: skip
 
     async def _rows(
         self, snapshot: Mapping[str, Any], only: set[str] | None
@@ -168,7 +192,7 @@ class Presets:
         derived = derive(devices.values())
         registry = {
             p.get("setpointAddress"): p for p in await self.squirrel.pvs()
-        }  # the role and tolerance of a retired row
+        }  # a retired row's role and tolerance
         rows, reads = [], []
         for v in snapshot.get("pvValues", []):
             address = v.get("setpointName") or v["pvName"]
@@ -176,21 +200,16 @@ class Presets:
             device = entry.device if entry else (v.get("device") or "?")
             if only is not None and device not in only:
                 continue
-            axis, role = (
-                None,
-                entry.role if entry else (reg.get("description") or address),
-            )
-            if entry and "." in role and role.split(".", 1)[0] in devices[device].axes:
-                axis, role = role.split(".", 1)
-            saved = (v.get("setpointValue") or {}).get("value")
-            family_role = (
-                {r.name: r for r in devices[device].roles}.get(role) if entry else None
-            )
+            role, axis, family_role = entry.role if entry else (reg.get("description") or address), None, None  # fmt: skip
+            if entry:
+                role, axis = split_variable(devices[device], entry.role)
+                family_role = {r.name: r for r in devices[device].roles}.get(role)
             tol = (
                 float(reg.get("absTolerance") or 0),
                 float(reg.get("relTolerance") or 0),
             )
-            rows.append(Row(device, role, axis, saved, None, tolerance_word(*tol), SAME, entry, bool(family_role and family_role.settled_by)))  # fmt: skip
+            settling = bool(family_role) and settles(devices[device], family_role)  # type: ignore[arg-type]
+            rows.append(Row(device, role, axis, (v.get("setpointValue") or {}).get("value"), None, tolerance_word(*tol), SAME, entry, settling))  # fmt: skip
             reads.append((address, tol))
         wires = await asyncio.gather(*(self.module.hare.get(a) for a, _ in reads))
         for row, (_, tol), wire in zip(rows, reads, wires):
@@ -217,47 +236,50 @@ class Presets:
                 raise Refusal(404, "not_found", f"no snapshot {snapshot_id!r}") from exc
             raise
 
+    async def _scope(self, snapshot: Mapping[str, Any], devices: list[str] | None) -> set[str] | None:  # fmt: skip
+        """The devices a diff or restore covers: the caller's (each on the roster), else the snapshot's scope."""
+        if devices:
+            if unknown := sorted(set(devices) - set(await self._devices())):
+                raise Refusal(422, "not_found", f"no device {', '.join(unknown)}")
+            return set(devices)
+        return await self.scope_devices(parse(snapshot.get("description"))[1])
+
     async def diff(self, snapshot_id: str, devices: list[str] | None) -> dict[str, Any]:
-        """Live against saved for the rows in ``devices`` (default: the snapshot's own scope)."""
+        """Live against saved for the rows in ``devices`` (default: the snapshot's own scope; none: every row)."""
         snapshot = await self._snapshot(snapshot_id)
-        only = set(devices) if devices else scope_devices(parse(snapshot.get("description"))[1], await self._devices())  # fmt: skip
-        rows = await self._rows(snapshot, only)
-        counts = {
-            w: sum(r.word == w for r in rows)
-            for w in (DIFFERS, UNSAVED, RETIRED, UNREAD)
-        }
+        rows = await self._rows(snapshot, await self._scope(snapshot, devices))
+        counts = {w: sum(r.word == w for r in rows) for w in _COUNTED}
         return preset(snapshot) | {"rows": [r.body() for r in rows], "counts": counts}
 
-    async def golden(
-        self, snapshot_id: str, scope: Mapping[str, list[str]]
-    ) -> dict[str, Any]:
-        """Mark the snapshot golden for ``scope`` (default: its own); the previous golden of that scope loses the mark."""
+    async def golden(self, snapshot_id: str, operator: str, scope: Mapping[str, list[str]], key_name: str | None) -> dict[str, Any]:  # fmt: skip
+        """Mark the snapshot golden for ``scope`` (default: its own); the previous golden of that scope loses the mark; one journal row."""
         snapshot = await self._snapshot(snapshot_id)
-        operator, own, _ = parse(snapshot.get("description"))
+        saved_by, own, _, extra = parse(snapshot.get("description"))
         given = {k: sorted(v) for k, v in scope.items() if v}
         scope = given or {k: sorted(v) for k, v in own.items() if v}
+        unmarked = []
         for other in await self.squirrel.snapshots():
-            op, sc, gold = parse(other.get("description"))
+            op, sc, gold, more = parse(other.get("description"))
             if gold and other["id"] != snapshot_id and {k: sorted(v) for k, v in sc.items() if v} == scope:  # fmt: skip
-                await self.squirrel.describe_snapshot(
-                    other["id"], describe(op or "?", sc)
-                )
-        await self.squirrel.describe_snapshot(snapshot_id, describe(operator or "?", scope, golden=True))  # fmt: skip
+                await self.squirrel.describe_snapshot(other["id"], describe(op or "?", sc, extra=more))  # fmt: skip
+                unmarked.append(other["title"])
+        await self.squirrel.describe_snapshot(snapshot_id, describe(saved_by or "?", scope, golden=True, extra=extra))  # fmt: skip
+        was = f"; {', '.join(unmarked)} unmarked" if unmarked else ""
+        await self._journal(operator, key_name, "golden", snapshot["title"], f"golden for {describe('', scope).splitlines()[1:] or 'everything'}{was}")  # fmt: skip
         return preset(await self._snapshot(snapshot_id))
 
     async def restore(self, snapshot_id: str, operator: str, confirm: bool, devices: list[str] | None, key_name: str | None) -> Run:  # fmt: skip
-        """A run of one ``set`` per differing saved row in scope, motion rows last, through the executor."""
+        """A run of one ``set`` per differing saved row in scope, the settling rows last, through the executor."""
         snapshot = await self._snapshot(snapshot_id)
-        only = set(devices) if devices else scope_devices(parse(snapshot.get("description"))[1], await self._devices())  # fmt: skip
-        rows = [
-            r for r in await self._rows(snapshot, only) if r.word == DIFFERS and r.entry
-        ]
-        rows.sort(
-            key=lambda r: r.settles
-        )  # a stable sort: settings first, moves last, saved order within
-        if not rows:
-            raise Refusal(
-                409, "nothing_to_restore", "every row in scope reads its saved value"
-            )
-        steps = [SetStep(do="set", device=r.entry.device, variable=r.entry.role, value=r.saved) for r in rows if r.entry]  # fmt: skip
+        only = await self._scope(snapshot, devices)
+        if only is None:
+            raise Refusal(422, "scope_required", "this snapshot has no scope: name the devices to restore")  # fmt: skip
+        rows = await self._rows(snapshot, only)
+        chosen = sorted(
+            (r for r in rows if r.word == DIFFERS and r.entry), key=lambda r: r.settling
+        )  # stable: settings first, then moves, saved order within
+        if not chosen:
+            counts = ", ".join(f"{sum(r.word == w for r in rows)} {w}" for w in (SAME, *_COUNTED) if any(r.word == w for r in rows))  # fmt: skip
+            raise Refusal(409, "nothing_to_restore", f"no row in scope differs from its saved value ({counts or 'no rows in scope'})")  # fmt: skip
+        steps = [SetStep(do="set", device=r.entry.device, variable=r.entry.role, value=r.saved) for r in chosen if r.entry]  # fmt: skip
         return await self.actions.submit(f"restore:{snapshot_id}", steps, operator, confirm, key_name)  # fmt: skip

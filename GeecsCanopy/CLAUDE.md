@@ -28,7 +28,8 @@ geecs_canopy/
                  data (NativeSource.resolve) + the gateway callable (60 s,
                  last good set kept), the operator policy, the tracker
   freshness.py   Tracker (internal broker client) and the verdicts
-  gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal
+  gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal;
+                 Refusal (the module's HTTP refusal) and settles() (the one rule)
   actions.py     Executor: the experiment's ActionPlanLibrary run for an operator
                  (pre-check every step, then each set through put_role, rows
                  carrying the run's id); the last 100 runs in memory
@@ -38,9 +39,11 @@ geecs_canopy/
   cli.py         the `geecs-canopy` command: squirrel-sync (at deploy, after a
                  device-file change)
   presets.py     Presets over Squirrel's snapshots: list, save (Squirrel's job;
-                 scope + operator + golden in the description), diff live vs saved
-                 with the registry's tolerance, one golden per scope, restore as a
-                 synthesized action run (differing rows, motion last) through the Executor
+                 scope + operator + golden as description lines, a person's own
+                 kept), a scope's devices (families from the roster, screens from
+                 <experiment>/screens/), diff live vs saved with the registry's
+                 tolerance, one golden per scope (journaled), restore as a
+                 synthesized action run (differing rows, gates.settles rows last)
   journal.py     SQLite of GEECS-Schemas JournalEntry rows
   routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal,
                  /v1/actions, .../{name}/run, /v1/actions/runs/{id}[/stop],

@@ -30,13 +30,13 @@ from typing import Any
 
 import httpx
 
+from geecs_canopy.actions import step_variable
 from geecs_canopy.native import Resolved
 
 #: The tag groups the derivation writes.
 TAG_GROUPS = ("family", "source", "axis")
 #: More removals than this in one run need ``--yes``: a half-read device list must not empty the registry.
 REMOVE_GUARD = 10
-_SCOPE_KINDS = ("devices", "families", "screen")
 
 
 class SquirrelError(Exception):
@@ -84,7 +84,7 @@ def derive(devices: Iterable[Resolved]) -> dict[str, Entry]:
                 setpoint, own = d.pv(role, axis, write=True), d.pv(role, axis)
                 readback = d.pv(roles[role.readback], axis) if role.readback and role.readback in roles else (own if own != setpoint else None)  # fmt: skip
                 tags = {("family", d.family), ("source", d.source)} | ({("axis", axis)} if axis else set())  # fmt: skip
-                variable = f"{axis}.{role.name}" if axis else role.name
+                variable = step_variable(role.name, axis)
                 out[setpoint] = Entry(
                     setpoint, readback, d.name, variable, frozenset(tags)
                 )

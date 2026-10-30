@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Any
+from typing import Annotated, Any
 
 import yaml
 import httpx
@@ -18,9 +18,9 @@ from fastapi import FastAPI, Query, Request, Security
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from geecs_canopy.actions import Executor, Refusal
+from geecs_canopy.actions import Executor
 from geecs_canopy.freshness import view
-from geecs_canopy.gates import PutRequest, put_role
+from geecs_canopy.gates import PutRequest, Refusal, put_role
 from geecs_canopy.hare import WriteValue
 from geecs_canopy.module import DevicesUnavailable, Module
 from geecs_canopy.presets import Presets
@@ -48,14 +48,18 @@ class RunBody(BaseModel):
     confirm: bool = False
 
 
+#: A name in a description line: no newline, no comma (the grammar's separators).
+_Name = Annotated[str, Field(min_length=1, pattern=r"^[^,\r\n]+$")]
+
+
 class Scope(BaseModel):
-    """What a preset covers: named devices, whole families, a screen's devices (its names the page's to send)."""
+    """What a preset covers: named devices, whole families, screens (their files' bindings)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    devices: list[str] = []
-    families: list[str] = []
-    screen: list[str] = []
+    devices: list[_Name] = []
+    families: list[_Name] = []
+    screen: list[_Name] = []
 
 
 class SaveBody(BaseModel):
@@ -64,15 +68,16 @@ class SaveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=255)
-    operator: str = Field(min_length=1)
+    operator: _Name
     scope: Scope = Scope()
 
 
 class GoldenBody(BaseModel):
-    """The golden mark: for this scope (default: the snapshot's own)."""
+    """The golden mark: who sets it, for this scope (default: the snapshot's own)."""
 
     model_config = ConfigDict(extra="forbid")
 
+    operator: _Name
     scope: Scope = Scope()
 
 
@@ -90,14 +95,24 @@ def _error(status: int, code: str, detail: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"code": code, "detail": detail})
 
 
+def _error_handlers(app: FastAPI) -> None:
+    """Canopy's ``{code, detail}`` envelope for what the module refuses before it writes."""
+
+    @app.exception_handler(DevicesUnavailable)
+    async def unavailable(_: Request, exc: DevicesUnavailable) -> JSONResponse:
+        return _error(503, "devices_unavailable", str(exc))
+
+    @app.exception_handler(Refusal)
+    async def refused(_: Request, exc: Refusal) -> JSONResponse:
+        return JSONResponse(status_code=exc.status, content=exc.body())
+
+
 def build_app(module: Module, *, read_access: Callable[..., Any], squirrel_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:  # fmt: skip
     """Build the sub-app; the wrapper mounts and tags it and supplies Canopy's read check (``squirrel_transport``: a test's)."""
     app = FastAPI(title="Canopy / GEECS", description="GEECS devices over Hare.")
     stale, read = module.settings.stale_after_s, [Security(read_access)]
 
-    @app.exception_handler(DevicesUnavailable)
-    async def unavailable(_: Request, exc: DevicesUnavailable) -> JSONResponse:
-        return _error(503, "devices_unavailable", str(exc))
+    _error_handlers(app)
 
     @app.get("/v1/devices", dependencies=read)
     async def roster() -> Any:
@@ -150,10 +165,6 @@ def _action_routes(app: FastAPI, actions: Executor, read: list[Any], read_access
     """The action plans: the list, a run's start, its state and its stop; read access, as every route."""
     app.state.actions = actions
 
-    @app.exception_handler(Refusal)
-    async def refused(_: Request, exc: Refusal) -> JSONResponse:
-        return JSONResponse(status_code=exc.status, content=exc.body())
-
     @app.get("/v1/actions", dependencies=read)
     async def action_plans() -> Any:
         return {"plans": await actions.listing()}
@@ -198,9 +209,9 @@ def _preset_routes(app: FastAPI, presets: Presets, read: list[Any], read_access:
     async def diff(snapshot_id: str, devices: list[str] = Query([])) -> Any:
         return await presets.diff(snapshot_id, devices or None)
 
-    @app.post("/v1/presets/{snapshot_id}/golden", dependencies=read)
-    async def golden(snapshot_id: str, body: GoldenBody) -> Any:
-        return await presets.golden(snapshot_id, body.scope.model_dump())
+    @app.post("/v1/presets/{snapshot_id}/golden")
+    async def golden(snapshot_id: str, body: GoldenBody, key: Any = Security(read_access)) -> Any:  # fmt: skip
+        return await presets.golden(snapshot_id, body.operator, body.scope.model_dump(), getattr(key, "name", None))  # fmt: skip
 
     @app.post("/v1/presets/{snapshot_id}/restore")
     async def restore(snapshot_id: str, body: RestoreBody, key: Any = Security(read_access)) -> Any:  # fmt: skip

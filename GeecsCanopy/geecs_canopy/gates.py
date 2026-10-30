@@ -69,6 +69,23 @@ class PutOutcome:
         return body | ({"detail": e.detail} if e.detail else {})
 
 
+class Refusal(Exception):
+    """A request refused before anything is written: an HTTP status, the envelope's ``code`` and ``detail``, the steps at fault (a run's)."""
+
+    def __init__(self, status: int, code: str, detail: str, steps: tuple[int, ...] = ()) -> None:  # fmt: skip
+        super().__init__(detail)
+        self.status, self.code, self.detail, self.steps = status, code, detail, steps
+
+    def body(self) -> dict[str, Any]:
+        """Canopy's envelope, and the steps it names."""
+        return {"code": self.code, "detail": self.detail} | ({"steps": list(self.steps)} if self.steps else {})  # fmt: skip
+
+
+def settles(device: Resolved, role: Role) -> bool:
+    """Whether a write to ``role`` completes only when work ends: a role settled by another (a move, an acquire), or any GEECS set (it converges)."""
+    return bool(role.settled_by) or device.source == "gateway"
+
+
 class Stop(Exception):
     """A gate's refusal: the slug, why, and its status."""
 
@@ -171,8 +188,8 @@ async def _write(
         raise Stop(*refusal)
     s = module.settings
     # A GEECS set's put completes when the device converges (a stage's move): a settling wait.
-    settles = bool(role.settled_by) or device.source == "gateway"
-    timeout = s.settle_timeout_s if settles else s.put_timeout_s
+    settling = settles(device, role)
+    timeout = s.settle_timeout_s if settling else s.put_timeout_s
     # A role that settles itself (an acquire) calls back only when the work ends.
     itself, unsettled = role.settled_by == role.name, None
     try:
@@ -189,7 +206,7 @@ async def _write(
         # A move's put-callback outlasting the timeout is no refusal: the IOC
         # took it and the motion goes on (an access refusal answers at once).
         # The same timeout covers connecting, so an unconnected PV stays refused.
-        late = settles and loop.time() - started >= 0.9 * timeout
+        late = settling and loop.time() - started >= 0.9 * timeout
         if not late or not (await module.hare.get(pv)).get("connected"):
             raise Stop(exc.code, exc.detail, exc.status, attempt) from exc
         unsettled = f"dispatched; not settled after {timeout} s: the work goes on"
