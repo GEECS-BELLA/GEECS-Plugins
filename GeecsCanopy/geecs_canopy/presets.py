@@ -137,7 +137,7 @@ class Presets:
             raise Refusal(503, "devices_unavailable", str(exc)) from exc
 
     def screen_devices(self, name: str) -> set[str]:
-        """The devices ``<experiment>/screens/<name>.yaml`` binds; raise ``Refusal`` 422 when it cannot be read."""
+        """The devices ``<experiment>/screens/<name>.yaml`` binds (its widgets', not an indicator's: those are readouts); raise ``Refusal`` 422 when it cannot be read."""
         if not _SCREEN.fullmatch(name):
             raise Refusal(
                 422, "bad_scope", f"the scope's screen {name!r} is not a screen name"
