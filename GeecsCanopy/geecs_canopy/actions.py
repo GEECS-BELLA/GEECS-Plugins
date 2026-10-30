@@ -48,6 +48,7 @@ from geecs_schemas import (
 from geecs_canopy.freshness import is_number, json_safe
 from geecs_canopy.gates import (
     PutRequest,
+    Refusal,
     Stop,
     bounds_refusal,
     check_lock,
@@ -64,18 +65,6 @@ _ENDED = ("done", "failed", "stopped")
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-
-
-class Refusal(Exception):
-    """The run cannot start: an HTTP status, the envelope's ``code`` and ``detail``, the steps at fault."""
-
-    def __init__(self, status: int, code: str, detail: str, steps: tuple[int, ...] = ()) -> None:  # fmt: skip
-        super().__init__(detail)
-        self.status, self.code, self.detail, self.steps = status, code, detail, steps
-
-    def body(self) -> dict[str, Any]:
-        """Canopy's envelope, and the steps it names."""
-        return {"code": self.code, "detail": self.detail} | ({"steps": list(self.steps)} if self.steps else {})  # fmt: skip
 
 
 @dataclass
@@ -131,18 +120,30 @@ class Run:
         return body | ({"endedAt": self.ended} if self.ended else {})
 
 
-def target(device: Resolved, step: SetStep | CheckStep) -> tuple[Role | None, str | None]:  # fmt: skip
-    """The step's role and axis on ``device`` (``None``: no such role)."""
-    roles = {r.name: r for r in device.roles}
-    axis, dot, rest = step.variable.partition(".")
+def step_variable(role: str, axis: str | None) -> str:
+    """A step's ``variable`` for ``role`` on ``axis``: ``<role>``, or ``<axis>.<role>`` on a per-axis device (the one grammar; ``split_variable`` reads it back)."""
+    return f"{axis}.{role}" if axis else role
+
+
+def split_variable(device: Resolved, variable: str) -> tuple[str, str | None]:
+    """``(role name, axis)`` of a step's ``variable`` on ``device``: a bare axis names its setpoint."""
+    axis, dot, rest = variable.partition(".")
     if axis not in device.axes:
-        return roles.get(step.variable), None
+        return variable, None
     if dot:
-        return roles.get(rest), axis
-    setpoint = next((r for r in device.roles if r.type == "setpoint" and r.readback), None)  # fmt: skip
-    if setpoint is None or isinstance(step, SetStep):
-        return setpoint, axis
-    return roles.get(setpoint.readback or ""), axis
+        return rest, axis
+    setpoint = next((r.name for r in device.roles if r.type == "setpoint" and r.readback), "")  # fmt: skip
+    return setpoint, axis
+
+
+def target(device: Resolved, step: SetStep | CheckStep) -> tuple[Role | None, str | None]:  # fmt: skip
+    """The step's role and axis on ``device`` (``None``: no such role); a ``check`` on a bare axis reads the setpoint's readback."""
+    roles = {r.name: r for r in device.roles}
+    name, axis = split_variable(device, step.variable)
+    role = roles.get(name)
+    if axis is not None and "." not in step.variable and role is not None and isinstance(step, CheckStep):  # fmt: skip
+        return roles.get(role.readback or ""), axis
+    return role, axis
 
 
 class Executor:

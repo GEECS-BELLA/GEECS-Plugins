@@ -30,13 +30,13 @@ from typing import Any
 
 import httpx
 
+from geecs_canopy.actions import step_variable
 from geecs_canopy.native import Resolved
 
 #: The tag groups the derivation writes.
 TAG_GROUPS = ("family", "source", "axis")
 #: More removals than this in one run need ``--yes``: a half-read device list must not empty the registry.
 REMOVE_GUARD = 10
-_SCOPE_KINDS = ("devices", "families", "screen")
 
 
 class SquirrelError(Exception):
@@ -84,7 +84,7 @@ def derive(devices: Iterable[Resolved]) -> dict[str, Entry]:
                 setpoint, own = d.pv(role, axis, write=True), d.pv(role, axis)
                 readback = d.pv(roles[role.readback], axis) if role.readback and role.readback in roles else (own if own != setpoint else None)  # fmt: skip
                 tags = {("family", d.family), ("source", d.source)} | ({("axis", axis)} if axis else set())  # fmt: skip
-                variable = f"{axis}.{role.name}" if axis else role.name
+                variable = step_variable(role.name, axis)
                 out[setpoint] = Entry(
                     setpoint, readback, d.name, variable, frozenset(tags)
                 )
@@ -229,6 +229,35 @@ class SquirrelClient:
             groups.setdefault(group, []).append(name)
         await self._send("POST", "/squirrel/v1/tags/bulk", json={"groups": {g: sorted(set(n)) for g, n in groups.items() if n}})  # fmt: skip
         return {gn: tag_id for tag_id, gn in (await self.tags()).items()}
+
+    async def snapshots(self) -> list[dict[str, Any]]:
+        """Every snapshot summary, newest first."""
+        rows, token = [], None
+        while True:
+            params = {"pageSize": 1000} | (
+                {"continuationToken": token} if token else {}
+            )
+            page = await self._send("GET", "/squirrel/v1/snapshots", params=params)
+            rows += page["results"]
+            if not (token := page.get("continuationToken")):
+                return rows
+
+    async def snapshot(self, snapshot_id: str) -> dict[str, Any]:
+        """One snapshot with its values."""
+        return await self._send("GET", f"/squirrel/v1/snapshots/{snapshot_id}")
+
+    async def create_snapshot(self, title: str, description: str) -> str:
+        """Enqueue a save of every registered PV; the job id."""
+        job = await self._send("POST", "/squirrel/v1/snapshots", json={"title": title, "description": description})  # fmt: skip
+        return job["jobId"]
+
+    async def job(self, job_id: str) -> dict[str, Any]:
+        """A job's status: ``status`` (pending, running, completed, failed), ``result``, ``error``."""
+        return await self._send("GET", f"/jobs/v1/{job_id}")
+
+    async def describe_snapshot(self, snapshot_id: str, description: str) -> None:
+        """Rewrite a snapshot's description (the scope and golden lines live there)."""
+        await self._send("PUT", f"/squirrel/v1/snapshots/{snapshot_id}", json={"description": description})  # fmt: skip
 
 
 async def reconcile(client: SquirrelClient, wanted: Mapping[str, Entry], *, prefix: str = "", gateway_read: bool = True, check: bool = False, yes: bool = False) -> Plan:  # fmt: skip
