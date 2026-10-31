@@ -296,3 +296,36 @@ checked" and `up` carries on. Against today's DB it will name the five
 Live read-only run against the lab DB (2026-10-31): `python -m geecs_core.db.overlap
 Undulator "Test stand default"` named exactly the five `pulsewire-*` devices
 as enabled in both, and exited 0.
+
+### 2026-10-31 — hand-off after slice 5 (the coordinator stops here)
+
+Lane PRs merged: #1224 (inventory), #1225 (templates), #1227 (code paths),
+#1228 (the verb), and #1229 (overlap). Slice 6 was not started; it waits on
+these maintainer decisions:
+
+1. **The data folder.** A worker on `Test stand default` claims scans under
+   `<data root>/Test stand default/`, beside the existing `TestStand/` tree.
+   The configs folder and the logbook key on the same name. The options are
+   (a) accept it, (b) rename the DB experiment (your DB edit), or (c) add a
+   later per-instance data-folder key.
+2. **The instance clones.** The services box's clones run Undulator at
+   `master`, which has none of this arc. The plan is to set
+   `GEECS_INSTANCE_CHECKOUT_ROOT` in the box's `site.env` (render-time only;
+   no main unit reads it), so the instance runs from its own clones at
+   `feat/multi-experiment`. That is a one-line edit to a file the Undulator
+   units load.
+3. **sudo on the box** for `experiment.sh up`'s install/enable steps.
+4. **The second gateway's reach.** The archiver and Canopy see the second
+   gateway only once site.env's `EPICS_CA_ADDR_LIST` gains its `host:port`.
+   That edit is yours.
+5. **Removing the five shared devices from Undulator** is yours (a DB edit).
+
+The slice-6 command, once those are settled:
+`deploy/experiment.sh up PulsedWire --db-experiment 'Test stand default'
+--address <box> --broadcast <bcast> [--ca-extra <IOC hosts>] --ref
+feat/multi-experiment`. Then `list`, a PulsedWire `count` through its
+scanner on `:8310`, and the `down`/`up` round trip.
+
+Slice 7 (docs and the promotion body) remains, including the
+`site_profile.md` placeholder table (`@EXPERIMENTS_DIR@`,
+`@INSTANCE_CHECKOUT_ROOT@`) and a per-instance `/fleet-status` probe.
