@@ -55,6 +55,8 @@ def test_a_group_wears_a_kit_token_never_a_colour(tone: str) -> None:
         {"role": "current"},
         {"device": "ps", "role": "current", "pv": "A:B"},
         {"pv": "A:B", "axis": "m1"},
+        {"action": "park", "pv": "A:B"},
+        {"action": "park", "device": "ps"},
     ],  # fmt: skip
 )
 def test_a_binding_is_a_device_and_role_or_a_pv(bind: dict) -> None:
@@ -86,7 +88,7 @@ def test_resolve_binds_roles_and_their_readbacks() -> None:
 
 
 def test_a_db_device_draws_its_controls_through_bare_pvs() -> None:
-    """A DB device's setpoint, toggle and flipper (in/out lamps) bind bare PVs; the renderer keeps them disabled."""
+    """A writing kind and a flipper's in/out lamps may bind bare PVs; the renderer keeps them disabled."""
     s = screen(
         {"kind": "setpoint", "label": "Jet X", "bind": {"pv": "x:u_jet:position_axis_1"}},
         {"kind": "toggle", "label": "Slit", "bind": {"pv": "x:u_plc:do_ch2"}, "confirm": "Shutter first."},
@@ -143,3 +145,36 @@ def test_resolve_refuses_a_device_the_two_files_disagree_on(panel: dict, why: st
     widget = {"kind": "readout", "bind": {"device": name, "role": "desc" if name == "ps" else "current"}}  # fmt: skip
     with pytest.raises(ScreenError, match=why):
         resolve_screen(screen(widget), load_families(), PanelDevices.model_validate({"devices": panel}), NATIVE)  # fmt: skip
+
+
+def test_a_db_device_the_module_lists_is_bound_deferred_by_its_variable_name() -> None:
+    lamp = {"device": "U_PLC", "role": "DI.Ch1"}
+    flip = {"kind": "flipper", "bind": {"device": "U_PLC", "role": "DO.Ch1"}, "indicators": [lamp]}  # fmt: skip
+    ((bound,),) = resolve_screen(screen(flip), load_families(), PANEL, NATIVE, deferred={"U_PLC", "ps"})  # fmt: skip
+    assert (bound.deferred, bound.role, bound.indicators) == (True, None, (None,))
+    assert bound.fits == (
+        "bit",
+        "enum",
+    )  # the page checks the module's type against these
+    ((native,),) = resolve_screen(screen(FLIP), load_families(), PANEL, NATIVE, deferred={"ps"})  # fmt: skip
+    assert not native.deferred and native.role.name == "output_sp"  # the files win
+
+
+def test_a_device_in_neither_the_files_nor_the_roster_is_refused() -> None:
+    widget = {
+        "kind": "setpoint",
+        "bind": {"device": "U_Gone", "role": "Position.Axis 1"},
+    }
+    with pytest.raises(ScreenError, match="no device 'U_Gone'"):
+        resolve_screen(
+            screen(widget), load_families(), PANEL, NATIVE, deferred={"U_PLC"}
+        )
+
+
+def test_only_a_button_runs_an_action_and_only_one_the_library_holds() -> None:
+    with pytest.raises(ValidationError, match="only a button"):
+        screen({"kind": "toggle", "bind": {"action": "park"}})
+    runs = screen({"kind": "button", "label": "Park", "bind": {"action": "park"}})
+    assert resolve_screen(runs, load_families(), PANEL, NATIVE, actions={"park"})[0][0].role is None  # fmt: skip
+    with pytest.raises(ScreenError, match="no action plan 'park'"):
+        resolve_screen(runs, load_families(), PANEL, NATIVE, actions={"other"})

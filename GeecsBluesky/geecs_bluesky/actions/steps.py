@@ -1,25 +1,19 @@
 """Flatten an action plan into its concrete steps — import-light on purpose.
 
-The one walk both sides of the queue share: the worker's compiler
-(:mod:`geecs_bluesky.actions.compiler`) executes exactly this order,
-and a client's preview (the web scanner's Actions panel) promises it.  It
-depends on the schema models and this package's exceptions alone — no
-bluesky, no hardware — so a client that must never import
-``geecs_bluesky.plans`` can still show the operator the steps the worker
-will run, from the same function.
+The walk itself is GEECS-Schemas' (:func:`geecs_schemas.action_plan.flatten_action_steps`),
+the one step library this worker and GeecsCanopy's module share; this
+wrapper raises this package's exceptions, so the worker's compiler and a
+client's preview (the web scanner's Actions panel) see the errors they
+always did.  It depends on the schema models and this package's
+exceptions alone — no bluesky, no hardware.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-from geecs_schemas.action_plan import (
-    ActionPlan,
-    CheckStep,
-    RunPlanStep,
-    SetStep,
-    WaitStep,
-)
+from geecs_schemas import action_plan as schema
+from geecs_schemas.action_plan import ActionPlan, ConcreteStep
 
 from geecs_bluesky.exceptions import ActionPlanCycleError, ActionPlanNotFoundError
 
@@ -30,31 +24,12 @@ def flatten_action_steps(
     plan: ActionPlan,
     *,
     registry: Mapping[str, ActionPlan],
-) -> list[tuple[SetStep | WaitStep | CheckStep, str | None]]:
+) -> list[tuple[ConcreteStep, str | None]]:
     """Flatten *plan* into its concrete steps, resolving nested ``run`` steps.
 
-    The dry-run / validation counterpart of
-    :func:`~geecs_bluesky.actions.compiler.compile_action_plan`: it
-    walks the exact same step order the compiler executes — nested plans
-    inlined where their ``run`` step sits — but touches no signals and needs
-    no factory, so it is safe to call with zero hardware.  Every nested
-    ``run`` reference is resolved eagerly, making this the one fail-fast
-    walk for unknown nested names and cycles.
-
-    Parameters
-    ----------
-    plan : ActionPlan
-        The validated plan to flatten.
-    registry : Mapping[str, ActionPlan]
-        Named plans that ``run`` steps may reference.
-
-    Returns
-    -------
-    list of (step, from_plan)
-        Concrete steps (``set`` / ``wait`` / ``check``) in execution order.
-        ``from_plan`` is the name of the nested plan a step was inlined
-        from (the innermost enclosing ``run`` target), or ``None`` for
-        *plan*'s own steps.
+    See :func:`geecs_schemas.action_plan.flatten_action_steps`: the same
+    order :func:`~geecs_bluesky.actions.compiler.compile_action_plan`
+    executes, touching no signals.
 
     Raises
     ------
@@ -63,19 +38,9 @@ def flatten_action_steps(
     ActionPlanCycleError
         When nested ``run`` steps form a loop.
     """
-    flattened: list[tuple[SetStep | WaitStep | CheckStep, str | None]] = []
-
-    def _walk(current: ActionPlan, origin: str | None, stack: tuple[str, ...]) -> None:
-        for step in current.steps:
-            if isinstance(step, RunPlanStep):
-                if step.plan in stack:
-                    raise ActionPlanCycleError([*stack, step.plan])
-                nested = registry.get(step.plan)
-                if nested is None:
-                    raise ActionPlanNotFoundError(step.plan, list(registry))
-                _walk(nested, step.plan, (*stack, step.plan))
-            else:
-                flattened.append((step, origin))
-
-    _walk(plan, None, ())
-    return flattened
+    try:
+        return schema.flatten_action_steps(plan, registry=registry)
+    except schema.ActionPlanNotFoundError as exc:
+        raise ActionPlanNotFoundError(exc.plan_name, exc.known_plans) from None
+    except schema.ActionPlanCycleError as exc:
+        raise ActionPlanCycleError(exc.chain) from None

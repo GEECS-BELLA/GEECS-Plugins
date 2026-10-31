@@ -20,13 +20,21 @@ from geecs_schemas.analysis import (
     HimgJob,
 )
 from geecs_schemas.action_plan import (
+    ACTION_LIBRARY_FILENAME,
+    ACTION_LIBRARY_FOLDER,
     ActionPlan,
+    ActionPlanCycleError,
     ActionPlanLibrary,
+    ActionPlanNotFoundError,
     ActionStep,
     CheckStep,
+    ConcreteStep,
     RunPlanStep,
     SetStep,
     WaitStep,
+    flatten_action_steps,
+    load_action_library,
+    values_match,
 )
 from geecs_schemas.archive_policy import (
     ARCHIVE_POLICY_FILENAME,
@@ -63,6 +71,7 @@ from geecs_schemas.epics.panel_devices import (
 )
 from geecs_schemas.epics.operations import (
     OPERATOR_POLICY_FILENAME,
+    HazardRule,
     JournalEntry,
     OperatorGrant,
     OperatorPolicy,
@@ -201,6 +210,7 @@ __all__ = [
     # epics.operations (GeecsCanopy's device module: who may write, what was tried)
     "OperatorPolicy",
     "OperatorGrant",
+    "HazardRule",
     "OPERATOR_POLICY_FILENAME",
     "JournalEntry",
     # screens (GeecsControlRoom's screen files: a control GUI as a document)
@@ -222,6 +232,14 @@ __all__ = [
     "ExperimentDefaults",
     "DefaultActions",
     # action_plan
+    "ACTION_LIBRARY_FILENAME",
+    "ACTION_LIBRARY_FOLDER",
+    "ActionPlanCycleError",
+    "ActionPlanNotFoundError",
+    "ConcreteStep",
+    "flatten_action_steps",
+    "load_action_library",
+    "values_match",
     "ActionPlan",
     "ActionPlanLibrary",
     "ActionStep",

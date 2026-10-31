@@ -837,6 +837,7 @@ Which operators may write what (``<experiment>/operator_policy.yaml``); default 
 |---|---|---|---|---|
 | `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
 | `grants` | `list[OperatorGrant]` | no | [] | Nobody else writes. |
+| `hazards` | `list[HazardRule]` | no | [] | Roles that need the hazard confirm. |
 
 Example:
 
@@ -849,6 +850,12 @@ grants:
   - operators: [A. Operator]
     devices: [U_ChicaneInner]
     roles: [current_sp, reset]      # not the output
+  - operators: [A. Operator]
+    families: [PLC Digital Output]  # a GEECS DB device type: every DB device of it
+    roles: [DO.Ch1, DO.Ch2]         # a DB device's role is its GEECS variable name
+hazards:                            # the hazard confirm for DB devices' roles
+  - devices: [U_ShutterPLC]
+    roles: [DO.Ch1]
 ```
 
 ### OperatorGrant
@@ -857,10 +864,20 @@ Some operators may write some roles of some devices, named or by family.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `operators` | `list[str]` | yes | — | Operators, by name. |
 | `families` | `list[str]` | no | [] | Every device of these. |
 | `devices` | `list[str]` | no | [] | These GEECS devices. |
+| `operators` | `list[str]` | yes | — | Operators, by name. |
 | `roles` | `list[str]` | no | [] | Only these; empty: all allowed. |
+
+### HazardRule
+
+These roles of these devices need the hazard confirm, as a family role with ``confirm: hazard`` does.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `families` | `list[str]` | no | [] | Every device of these. |
+| `devices` | `list[str]` | no | [] | These GEECS devices. |
+| `roles` | `list[str]` | yes | — | The roles a write confirms. |
 
 ## `journal_entry`
 
@@ -883,6 +900,7 @@ One journal row: a request's outcome, or the ``attempted`` row a dispatched writ
 | `attempt` | `int (optional)` | no | None | The row of this write's attempted row, once dispatched. |
 | `canopy_code` | `str (optional)` | no | None | Canopy's or our slug. |
 | `detail` | `str (optional)` | no | None | Why; or what a clamp took. |
+| `run` | `str (optional)` | no | None | The action run this row belongs to. |
 
 Example:
 
@@ -972,9 +990,10 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `device` | `str (optional)` | no | None | The GEECS device name. |
-| `role` | `str (optional)` | no | None | The device family's role. |
+| `role` | `str (optional)` | no | None | The device family's role; a DB device's GEECS variable name. |
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
-| `pv` | `str (optional)` | no | None | A bare PV, for a device the GEECS DB serves (its writes disabled until the module writes gateway PVs). |
+| `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
+| `action` | `str (optional)` | no | None | An action plan's name in the experiment's library: a button runs it. |
 
 ## `home_layout`
 

@@ -13,13 +13,22 @@ geecs_control_room/
   settings.py       Settings.from_env: GEECS_CONTROL_ROOM_* over the shared site keys
   app.py            create_app: the kit at /theme, /static, the pages, /healthz
   module_client.py  ModuleClient: GeecsCanopy's /geecs/v1 routes over HTTP (read key)
-  home.py           the home at /: the strip (/api/home/strip, the scanner's API), the
-                    "Not live" and "In alarm" lists (/api/home/devices), the launcher (home.yaml)
+  home.py           the home at /: the strip (/api/home/strip, the scanner's API; /api/home/baseline,
+                    the golden presets' diff), the "Not live" and "In alarm" lists (/api/home/devices),
+                    the launcher (home.yaml), the presets (/api/home/presets and the pass-throughs
+                    /api/presets[/{id}/diff|golden|restore] to the module's preset routes)
   screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
-                    its image files, and the two module pass-throughs (/api/devices/{name}[/put])
+                    its image files, and the module pass-throughs (/api/devices/{name}[/put],
+                    /api/actions, …/{plan}/run, …/runs/{id}[/stop])
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
-  static/home.js    the home's live half: polls the two /api/home reads, fills the device pickers
+  static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
+                    slowly), fills the device pickers, the presets region (save dialog, diff drawer,
+                    restore confirm, the run on the row, the golden mark)
   static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
+  static/screen_rules.js, home_rules.js   the pages' rules, pure (verdict word, value shown,
+                    bounds, writable, differs, outcome state; the home lists' words)
+  static/poller.js  the pages' one poll loop: one request in flight per target, late answers
+                    dropped, a timeout, back-off to 10 s, at most 8 requests at once
   templates/        base.html (every page's shell), screen.html (EVERY screen), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
@@ -47,17 +56,40 @@ deploy/
   the screen document (GEECS-Schemas `Screen`, `resolve_screen`). A new
   screen is a file in `<experiment>/screens/`, never code. A widget's word
   is the module's verdict for a device role and Hare's connection and alarm
-  for a bare PV (read only in this slice); "unknown" whenever either source
-  is silent. PV names come from the module's device route, never derived
-  here. A writing kind on a bare PV (a DB device's setpoint, toggle or
-  flipper) is drawn disabled until the module writes gateway PVs.
+  for a bare PV, read only forever; "unknown" whenever either source is
+  silent. PV names come from the module's device route, never derived
+  here. A DB device (on the module's roster, in neither device file) binds
+  `{device, role: <GEECS variable>}` and is **deferred**: the page judges it
+  by the module's device route ("unknown role" when the module lists no
+  such role, "wrong kind" when its type does not fit the kind, Hare's alarm
+  rules where the module gives no verdict) and writes it through the same
+  put route. A writing kind on a bare PV is drawn disabled.
+- **A button may name an action plan** (`bind: {action: <plan>}`, checked
+  against the experiment's `action_library/actions.yaml`). The module runs
+  it, every `set` through its gates; the page asks once (the plan's
+  description and its hazard steps) when it writes a hazard role, sends
+  the run once, and shows the module's run (`running 2/5`, `failed · step
+  3 · out_of_bounds`) with Stop while it runs. A sequence is never
+  scripted in a screen.
 - **Dense, like the panel it replaces.** When no group spans columns,
   each column packs its groups top to bottom in row order (a LabVIEW
   panel's layout; grid row tracks would leave gaps under short groups);
   otherwise the grid aligns rows. A group's `columns` lays its widgets
   side by side, row by row.
+- **Presets are the module's.** The home lists Squirrel's snapshots as the
+  module's `/v1/presets` gives them, saves with the header's operator and a
+  scope of families and screens (the module resolves both), shows a diff
+  drawer (device · role · saved · live · tolerance · word, the module's
+  words), restores a device subset as a run the module synthesizes (the
+  confirm dialog first; the run shown on the row as on a screen button),
+  and marks golden by name. The strip's "Baseline" chip is the golden
+  snapshots' differing rows, polled every 10 s, "not compared" (never
+  "as baseline") while a row of theirs could not be compared; hidden
+  without a golden.
 - **The home sorts the module's words; it judges nothing.** "Not live" is
-  every device whose state is not `live`; "In alarm" every device whose
+  every device whose state is not `live` (a DB device's state is its
+  gateway `connected` PV, so a Disconnected LabVIEW device is listed; a live
+  one is not read in detail: its roles carry no module verdict); "In alarm" every device whose
   state or any role's verdict is `error` (the module's word for severity
   major or invalid, and for a tripped fault bit). The strip's run word is
   the manager's `re_state`, as on the scanner's page. A list the module
@@ -94,5 +126,17 @@ deploy/
 ## Testing
 
 `poetry run pytest tests -q`: the module is stubbed with httpx's
-`MockTransport`; `test_hare_js.py` runs `hare.js` under node with a fake
-socket (skipped without node).
+`MockTransport`. The page scripts run under node (skipped without it; no
+npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
+with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py`
+as tables, one row per rule (`tests/_node.py` is the harness). A rule a
+page needs goes in a `*_rules.js` file with a row here; the page script
+keeps the DOM work only.
+
+`test_module_contract.py` is the cross-service contract: GeecsCanopy's own
+module (`geecs_canopy.testing.make_env`: its routes over a fake Hare) mounted
+at `/geecs` behind `ModuleClient`, driven through this app's routes. It pins
+the fields the pages read (a role's `role`, `axis`, `pv`, `read`, `writable`,
+`verdict`; the put envelope's `outcome`, `code`, `journalId`, `detail`; a
+journal row's fields) and the home's lists and `unread`. geecs-canopy is a
+dev-only dependency; `geecs_control_room` never imports it.

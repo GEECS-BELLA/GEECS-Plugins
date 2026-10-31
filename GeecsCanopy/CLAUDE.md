@@ -18,17 +18,37 @@ geecs_canopy/
                  by device name, validated through GEECS-Schemas, families from
                  geecs_schemas.load_families()
   gateway.py     GatewaySource (TRANSITIONAL): the CA gateway's served set from
-                 GeecsDb, credentials from GEECS_CANOPY_DB_URL
+                 GeecsDb, credentials from GEECS_CANOPY_DB_URL; resolve() =
+                 the module's DB devices (role = GEECS variable name)
   app.py         the api command: self-test, canopy.main:app + /geecs mounted,
                  tagged, Canopy's error handler; the ONE Hare implementation
   canopy_surface.py  every Canopy-internal name used + VERIFIED_IMAGE; self_test
   hare.py        the Hare Protocol (get, describe, put, watch): no Canopy import
   module.py      ModuleSettings (env GEECS_CANOPY_*), Module: devices from
-                 data (NativeSource.resolve), the operator policy, the tracker
+                 data (NativeSource.resolve) + the gateway callable (60 s,
+                 last good set kept), the operator policy, the tracker
   freshness.py   Tracker (internal broker client) and the verdicts
-  gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal
+  gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal;
+                 Refusal (the module's HTTP refusal) and settles() (the one rule)
+  actions.py     Executor: the experiment's ActionPlanLibrary run for an operator
+                 (pre-check every step, then each set through put_role, rows
+                 carrying the run's id); the last 100 runs in memory
+  squirrel.py    SquirrelClient (Squirrel's REST, the service write key), derive():
+                 the PV registry from the module's devices, reconcile() (add,
+                 update, remove, --check): the registry is derived, never hand-edited
+  cli.py         the `geecs-canopy` command: squirrel-sync (at deploy, after a
+                 device-file change)
+  presets.py     Presets over Squirrel's snapshots: list, save (Squirrel's job;
+                 scope + operator + golden as description lines, a person's own
+                 kept), a scope's devices (families from the roster, screens from
+                 <experiment>/screens/), diff live vs saved with the registry's
+                 tolerance, one golden per scope (journaled), restore as a
+                 synthesized action run (differing rows, gates.settles rows last)
   journal.py     SQLite of GEECS-Schemas JournalEntry rows
-  routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal
+  routes.py      /v1/devices, /v1/devices/{name}, .../put, /v1/journal,
+                 /v1/actions, .../{name}/run, /v1/actions/runs/{id}[/stop],
+                 /v1/presets, .../{id}/diff, .../{id}/golden, .../{id}/restore
+  testing.py     the shared test doubles: FakeHare, FakeSquirrel, live(), write_documents, make_env
 deploy/
   Dockerfile (+ .dockerignore)   FROM the pin; pip --python into /app/.venv
   compose.yaml.in   api + 2 workers + Postgres 16 + Redis 7, host networking
@@ -50,7 +70,19 @@ deploy/
   Squirrel's restore directly, around every module guard. Operators and
   pages get `read` keys; `write` and `admin` are service and ops keys only.
   Squirrel is storage and compare, never the executor of an operator's
-  restore.
+  restore. Its registry is derived from the module's devices by
+  `geecs-canopy squirrel-sync` (every writable, non-command role's
+  setpoint with its readback; `device` the GEECS name, `description` the
+  step variable, tags family/source/axis) and never hand-edited; the one
+  write key for its REST is the module's (`GEECS_CANOPY_SQUIRREL_KEY`).
+  Its remove step is bounded as the archiver's: rows this derivation
+  owns only (the experiment's prefix, its devices, or its `source` tag), never a DB-sourced row
+  while the DB is off, more than `REMOVE_GUARD` removals only with `--yes`
+  — because Squirrel deletes a row's saved values with it. A snapshot
+  carries no tags of its own, so who saved it, its scope and the golden
+  mark are lines in its description (`presets.describe`/`parse`); a
+  restore is a synthesized action run (`Executor.submit`), never
+  Squirrel's restore job.
 - **One identity: the GEECS device name.** It is the Raccoon device name,
   the journal's key, a Squirrel label and a screen binding. A PV prefix is
   derived by the naming rule (`geecs_core.pv_naming.pv_name(experiment,
@@ -70,14 +102,23 @@ deploy/
   deleted with the CA gateway when the last LabVIEW device retires. No
   other module imports `geecs_core.db.geecs_db` (the
   `canopy-db-is-transitional` import contract); the native path depends on
-  nothing in the DB.
+  nothing in the DB. The module gets the DB devices as a callable
+  (`gateway.source_from_env`) from a wrapper — `app.py` or the
+  `geecs-canopy` command — never by importing `gateway.py` itself; their writes take
+  the same gates but the run lock (a DB device has none), their hazards
+  come from the policy's `hazards`, and a setpoint without DB `min`/`max`
+  is refused (rule 11). One switch, `GEECS_CANOPY_DB`, turns the DB off for
+  the directory and the module alike.
 - **Routes and gates import no Canopy name** (condition (b)): `app.py`
   alone does, through `canopy_surface.NAMES`; a new Canopy name goes into
   that list in the same change. Every route needs Canopy read access only;
   the module's own policy decides writes. Every write, a push-2 restore's
   rows included, goes through `gates.put_role`, and no put reaches Hare without its
   `attempted` journal row; each request then leaves one outcome row naming
-  it in `attempt` (unless the journal cannot take one).
+  it in `attempt` (unless the journal cannot take one). An operator
+  sequence is an action plan (GEECS-Schemas' `ActionPlanLibrary`, the file
+  the worker reads; one step library, two executors), run by `actions.py`
+  from a screen button: never by Bluesky, never scripted in a screen.
   Verdicts follow `Planning/operator_surfaces.md` §3 and Appendix A of
   `Planning/epics_estate.md` (rules 1, 6, 8, 9, 10, 11, 18), each pinned by
   a test in `tests/test_module.py`.
@@ -96,3 +137,10 @@ deploy/
 stands in for its adapter base). Canopy's own contract suite runs where
 Canopy is importable and `CANOPY_SOURCE` names a clone at the pin;
 DEPLOYMENT.md §6 has the command.
+
+`geecs_canopy.testing` is the one copy of the module's test doubles: this
+suite's `env` fixture and GeecsControlRoom's contract test
+(`tests/test_module_contract.py`, a dev-only path dependency) both build the
+module with `make_env`. A route or field change here fails that suite in
+the same PR (CI's leg selection runs it: dev groups count as edges); change
+the Control Room's reader with it, never the test's expectation alone.

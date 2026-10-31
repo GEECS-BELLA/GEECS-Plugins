@@ -4,7 +4,9 @@
 Canopy's app, unpatched, with the module mounted, tagged ``geecs`` (only
 ``@*`` keys reach it: Canopy's ``MODULES`` is fixed) and given Canopy's
 error handler. The one ``Hare`` implementation, over ``canopy.hare.gateway``;
-the module joins the broker as an internal client (as Vole does).
+the module joins the broker as an internal client (as Vole does). With
+``GEECS_CANOPY_DB_URL`` set and ``GEECS_CANOPY_DB`` not ``off`` (the
+directory's switch), the module writes the DB-served devices too.
 """
 
 from __future__ import annotations
@@ -97,7 +99,9 @@ def _build() -> Any:
     settings = ModuleSettings.from_env()
     settings.state_dir.mkdir(exist_ok=True)
     journal = Journal(settings.state_dir / "journal.sqlite3")
-    module = Module(settings, _GatewayHare(), journal)
+    from geecs_canopy.gateway import source_from_env
+
+    module = Module(settings, _GatewayHare(), journal, gateway=source_from_env(settings.experiment))  # fmt: skip
     geecs_app = build_app(module, read_access=require_read_access)
     register_canopy_error_handler(geecs_app)
     tag_module(geecs_app, "geecs")

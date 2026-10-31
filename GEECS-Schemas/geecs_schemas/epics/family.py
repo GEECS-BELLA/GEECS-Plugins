@@ -84,6 +84,14 @@ RoleName = Annotated[
     str, Field(pattern=r"^[a-z][a-z0-9_]*$"), AfterValidator(_not_a_yaml_word)
 ]
 
+#: A role as a binding, a grant or a hazard names it: a family role, or, on a
+#: device the GEECS DB serves, its GEECS variable name ("Position.Axis 1").
+AnyRoleName = Annotated[str, Field(min_length=1, pattern=r"^\S(.*\S)?$")]
+
+#: A device's family word: its family template, or the GEECS DB device type
+#: of a device the DB serves ("Point Grey Camera").
+FamilyWord = Annotated[str, Field(min_length=1, pattern=r"^\S(.*\S)?$")]
+
 #: A PV suffix under the device's prefix: no whitespace.
 Suffix = Annotated[str, Field(pattern=r"^\S+$")]
 

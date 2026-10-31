@@ -290,6 +290,12 @@ grants:
   - operators: [A. Operator]
     devices: [U_ChicaneInner]
     roles: [current_sp, reset]      # not the output
+  - operators: [A. Operator]
+    families: [PLC Digital Output]  # a GEECS DB device type: every DB device of it
+    roles: [DO.Ch1, DO.Ch2]         # a DB device's role is its GEECS variable name
+hazards:                            # the hazard confirm for DB devices' roles
+  - devices: [U_ShutterPLC]
+    roles: [DO.Ch1]
 """,
     "journal_entry": """\
 schema_version: 1

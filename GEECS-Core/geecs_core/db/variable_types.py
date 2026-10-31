@@ -96,6 +96,21 @@ def effective_vartype(variabletype: str | None, choices: str | None) -> str:
     return "numeric"
 
 
+#: EPICS DBR_ENUM limits: at most 16 states, each label at most 26 chars. A GEECS
+#: ``choice`` exceeding either cannot be a CA enum, so the CA gateway serves it as
+#: a string PV (the option value still round-trips as text; only the dropdown is lost).
+MAX_ENUM_STATES, MAX_ENUM_STRING_LEN = 16, 26
+
+
+def enum_choices(choices: str | None) -> list[str] | None:
+    """A ``choice`` variable's options as the CA gateway serves them, or ``None`` when they cannot be a CA enum (served as a string)."""
+    options = [c.strip() for c in (choices or "").split(",") if c.strip()]
+    too_many = len(options) > MAX_ENUM_STATES
+    if not options or too_many or any(len(c) > MAX_ENUM_STRING_LEN for c in options):
+        return None
+    return options
+
+
 def is_scalar_vartype(effective: str) -> bool:
     """Whether an effective type is scalar CA data (not an image / array)."""
     return effective not in SKIP_VARTYPES

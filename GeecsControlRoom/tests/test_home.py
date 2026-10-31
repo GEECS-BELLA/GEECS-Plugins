@@ -163,3 +163,64 @@ def test_settings_read_the_links_the_scanner_pair_included() -> None:
     s = Settings.from_env(env)
     assert s.scanner_url == "http://127.0.0.1:8300"
     assert dict(s.links) == {"scanner": "/scanner", "logbook": "/logbook"}
+
+
+def test_a_live_db_device_is_not_read_in_detail_and_never_unread(settings: Settings) -> None:  # fmt: skip
+    roster = [{"name": n, "source": "gateway", "state": s} for n, s in (("U_A", "live"), ("U_B", "unreachable"))]  # fmt: skip
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/devices"):
+            return httpx.Response(200, json={"experiment": "Bench", "devices": roster})
+        if path.endswith("/journal"):
+            return httpx.Response(200, json=[])
+        asked.append(path.rsplit("/", 1)[-1])
+        return httpx.Response(200, json=_detail("unreachable"))
+
+    module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
+    with TestClient(create_app(settings, module)) as c:
+        body = c.get("/api/home/devices").json()
+    assert asked == ["U_B"] and body["unread"] == []
+    assert [row["name"] for row in body["not_live"]] == ["U_B"]
+
+
+async def test_the_baseline_sums_the_golden_diffs_and_is_none_without_one(settings: Settings) -> None:  # fmt: skip
+    from geecs_control_room.home import baseline
+
+    presets = [{"id": "g1", "name": "a", "golden": True, "scope": {"devices": ["X"]}}, {"id": "n", "name": "b", "golden": False, "scope": {}}, {"id": "g2", "name": "c", "golden": True, "scope": {"screen": ["none"]}}]  # fmt: skip
+    asked: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        asked.append(
+            request.url.path
+            + ("?" + request.url.query.decode() if request.url.query else "")
+        )
+        if request.url.path.endswith("/presets"):
+            return httpx.Response(200, json={"presets": presets})
+        return httpx.Response(
+            200,
+            json={
+                "counts": {"differs": 2 if "g1" in request.url.path else 1},
+                "rows": [
+                    {"word": "differs"},
+                    {
+                        "word": "stale" if "g2" in request.url.path else "same"
+                    },  # a word the module has not got yet: still not compared
+                ],
+            },
+        )
+
+    module = ModuleClient(
+        "http://canopy.test", "k", transport=httpx.MockTransport(answer)
+    )
+    body = await baseline(settings, module)
+    assert (body["golden"], body["differs"], body["incomplete"], [p["name"] for p in body["presets"]]) == (2, 3, 1, ["a", "c"])  # fmt: skip
+    assert sorted(asked)[1:] == [
+        "/geecs/v1/presets/g1/diff",
+        "/geecs/v1/presets/g2/diff",
+    ]  # a golden's own scope: the module's; no screen file here
+    presets[:] = [presets[1]]
+    assert await baseline(settings, module) == {"ok": True, "golden": 0, "differs": 0, "incomplete": 0, "presets": []}  # fmt: skip
+    silent = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(lambda r: (_ for _ in ()).throw(httpx.ConnectError("down"))))  # fmt: skip
+    assert (await baseline(settings, silent))["ok"] is False

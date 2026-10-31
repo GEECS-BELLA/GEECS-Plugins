@@ -1,9 +1,15 @@
 {#
   The experiment's home, the Control Room (operator_surfaces.md §4): the
   top strip, the two lists that should read "none", the launcher from
-  home.yaml, the presets' placeholder. home.js fills the strip and the
-  lists from /api/home/*; the launcher is drawn here, its pickers there.
+  home.yaml, the presets (Squirrel's snapshots through the module: save,
+  diff, restore as a run, golden). home.js fills the strip, the lists and
+  the presets from /api/home/*; the launcher is drawn here, its pickers
+  there. Overlays by the kit's ladder: the save and the restore's confirm
+  are dialogs, the diff with its device subset a drawer.
 #}{% extends "base.html" %}
+{% block header %}
+<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>
+{% endblock %}
 {% block body %}
 <main class="home">
   <section class="panel strip" aria-label="Run and alarm summary">
@@ -14,6 +20,7 @@
     <div class="live"><span class="k">Shot</span><span class="v" id="shot">—</span></div>
     <div class="live"><span class="k">Not live</span><span class="v" id="n-not_live">—</span></div>
     <div class="live"><span class="k">In alarm</span><span class="v" id="n-in_alarm">—</span></div>
+    <div class="live" hidden><span class="k">Baseline</span><span class="v"><span class="chip" id="baseline" data-state="unknown">unknown</span></span></div>
     <figure class="plot" id="plot-fig" hidden>
       <svg viewBox="0 0 240 48" preserveAspectRatio="none" aria-hidden="true"><polyline id="plot"></polyline></svg>
       <figcaption class="age">shots, this scan</figcaption>
@@ -72,16 +79,56 @@
       </div>
     </article>
 
-    <article class="panel">
-      <header><span class="eyebrow">Presets</span></header>
-      <div class="body">
-        <div class="state" data-state="empty">
-          <div class="t">Not built yet</div>
-          <div class="m">This experiment's Squirrel groups and action plans will appear here.</div>
-        </div>
-      </div>
+    <article class="panel" id="presets">
+      <header><span class="eyebrow">Presets</span><span class="chip" id="presets-chip" data-state="unknown">reading</span>
+        <button class="btn sm primary" type="button" id="preset-save-open">Save…</button></header>
+      <div class="tscroll" hidden><table>
+        <thead><tr><th>Name</th><th>When</th><th>By</th><th>Scope</th><th>Run</th><th></th></tr></thead>
+        <tbody id="preset-rows"></tbody>
+      </table></div>
+      <div class="state" data-state="loading" id="presets-state"><div class="t">reading the module</div><div class="m"></div></div>
     </article>
   </div>
 </main>
+
+{# Save: rung 3 — one question (save this?) with the name, the operator and the scope it needs. #}
+<dialog id="preset-save" aria-labelledby="preset-save-title">
+  <div class="body">
+    <h4 id="preset-save-title">Save the live configuration?</h4>
+    <p>Squirrel saves every registered PV; the scope names what this preset is for. The operator is the header's.</p>
+    <label class="field">Name <input id="preset-name" placeholder="e.g. bench-a" spellcheck="false"></label>
+    <label class="field">Scope <select id="preset-scope" multiple size="6"></select><span class="hint">families and screens from this home; nothing picked = everything</span></label>
+    <div class="row end">
+      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
+      <button class="btn primary" type="button" value="save">Save</button>
+    </div>
+  </div>
+</dialog>
+
+{# Diff and restore: rung 2 — the rows of one preset against live, the device subset; the restore's confirm is the dialog below. #}
+<aside class="drawer" id="preset-diff" role="dialog" aria-modal="false" aria-labelledby="preset-diff-title" aria-hidden="true" data-open="false">
+  <header><span class="eyebrow" id="preset-diff-title">Diff</span>
+    <button class="btn sm" type="button" id="preset-restore-open">Restore…</button>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button></header>
+  <div class="body">
+    <p class="dim" id="preset-diff-note"></p>
+    <div class="tscroll"><table>
+      <thead><tr><th></th><th>Device</th><th>Role</th><th>Saved</th><th>Live</th><th>Tolerance</th><th>Word</th></tr></thead>
+      <tbody id="preset-diff-rows"></tbody>
+    </table></div>
+  </div>
+</aside>
+
+<dialog id="preset-restore" aria-labelledby="preset-restore-title">
+  <div class="body">
+    <h4 id="preset-restore-title">Restore?</h4>
+    <p id="preset-restore-what" class="mono"></p>
+    <p id="preset-restore-note"></p>
+    <div class="row end">
+      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
+      <button class="btn danger" type="button" value="restore">Restore</button>
+    </div>
+  </div>
+</dialog>
 {% endblock %}
-{% block scripts %}<script src="{{ root }}/static/home.js" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/home_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/home.js" defer></script>{% endblock %}

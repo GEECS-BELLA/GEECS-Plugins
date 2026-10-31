@@ -28,18 +28,13 @@ from geecs_core.db.variable_types import (  # noqa: E402
     SKIP_VARTYPES as _SKIP_VARTYPES,
     VARTYPE_TO_DTYPE as _VARTYPE_TO_DTYPE,
     effective_vartype,
+    enum_choices,
 )
 
 # EPICS DBR_STRING (the .DESC field's type) caps at 40 characters. A longer
 # description is truncated by CA clients, so we clip it at the source with a
 # warning rather than silently shipping something that displays wrong.
 _MAX_DESC_LENGTH = 40
-
-# EPICS DBR_ENUM limits: at most 16 states, each label at most 26 chars. A GEECS
-# `choice` that exceeds either can't be a CA enum, so it degrades to a string PV
-# (the option value still round-trips as text; only the dropdown is lost).
-_MAX_ENUM_STATES = 16
-_MAX_ENUM_STRING_LEN = 26
 
 
 class VariableSpec(BaseModel):
@@ -206,22 +201,17 @@ class DeviceSpec(BaseModel):
 
             choices: list[str] = []
             if dtype == "enum":
-                choices = [c.strip() for c in raw_choices.split(",") if c.strip()]
-                too_many = len(choices) > _MAX_ENUM_STATES
-                too_long = any(len(c) > _MAX_ENUM_STRING_LEN for c in choices)
-                if not choices or too_many or too_long:
-                    # unusable or not CA-representable → fall back to a string PV
-                    if choices:
-                        logger.debug(
-                            "%s: %r enum not CA-representable "
-                            "(%d options, longest %d chars) → string",
-                            name,
-                            var_name,
-                            len(choices),
-                            max(len(c) for c in choices),
-                        )
+                # not CA-representable (DBR_ENUM's limits) → fall back to a string PV
+                if (served := enum_choices(raw_choices)) is None:
+                    logger.debug(
+                        "%s: %r enum not CA-representable (%r) → string",
+                        name,
+                        var_name,
+                        raw_choices[:80],
+                    )
                     dtype = "string"
-                    choices = []
+                else:
+                    choices = served
 
             specs.append(
                 VariableSpec(

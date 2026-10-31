@@ -4,25 +4,30 @@
 // verdict for a device role, Hare's connection and alarm for a bare PV,
 // "unknown" while either source is silent. A changing value is never read
 // as freshness. Writes go to the module's put route once, and its outcome
-// word and code stay on the widget; nothing is retried.
+// word and code stay on the widget; nothing is retried. A deferred widget
+// (a DB device, data-fits) is judged by the module's word alone. The rules are
+// screen_rules.js's (tested under node), the polling poller.js's; this file
+// keeps the DOM work. A button naming an action plan asks the module to run
+// it (once, confirmed when the plan writes a hazard role) and shows the run
+// as the module reports it, polled until it ends, with Stop while it runs.
 (function () {
   "use strict";
   const POLL_MS = 2000;
   const OP_KEY = "geecs-control-room-operator";
   const root = document.body.dataset.root || "";
   const KIT = JSON.parse(document.getElementById("kit-state").textContent);
-  const OUT = { accepted: "ok", denied: "degraded", refused: "failed", unknown: "unknown", sending: "running" };
+  const R = window.GeecsScreenRules;
   const hare = window.GeecsHare.fromPage();
   const wire = {};           // pv -> Hare's latest frame (null while the socket is down)
   const views = {};          // device -> {ok, state, roles: {"role|axis": entry}}
   const users = {};          // pv -> Set(element)
-  let hareUp = false;
+  const slow = new Set();    // devices the module is slow to answer for
+  let hareState = "connecting";
 
   const widgets = [...document.querySelectorAll(".w")];
-  const key = (role, axis) => role + "|" + (axis || "");
   const entryOf = (el, role) => {
     const v = views[el.dataset.device];
-    return v && v.roles[key(role || el.dataset.role, el.dataset.axis)];
+    return v && v.roles[R.key(role || el.dataset.role, el.dataset.axis)];
   };
 
   // ---- the operator, remembered in this browser
@@ -48,73 +53,59 @@
     return e && e.read !== "never" ? e.pv : null;
   }
 
-  function show(pv, el) {
-    const f = pv && wire[pv];
-    if (!f || f.value === null || f.value === undefined) return "—";
-    const meta = hare.meta(pv), host = el.closest(".w");
-    if (meta.enumChoices && typeof f.value === "number") return meta.enumChoices[f.value] ?? String(f.value);
-    if (typeof f.value !== "number") return String(f.value);
-    const digits = host.dataset.precision ?? meta.precision;
-    return digits === undefined || digits === null ? String(f.value) : f.value.toFixed(Number(digits));
-  }
+  const fitsOf = (el) => (el.dataset.fits === undefined ? undefined : el.dataset.fits.split(" ").filter(Boolean));
+  const hazardOf = (el) => R.hazard(el.dataset.hazard || el.dataset.confirm, entryOf(el));
+  const show = (pv, el) => R.show(pv && wire[pv], hare.meta(pv), el.closest(".w").dataset.precision);
 
   function judge(el) {
-    const pv = pvOf(el), f = pv && wire[pv];
-    if (el.dataset.pv) { // no module verdict: its alarm rules, as GeecsCanopy's freshness.judge has them
-      if (!hareUp || !f) return "unknown";
-      if (!f.connected) return "unreachable";
-      if (f.severity === "INVALID" && f.alarmStatus === 17) return "unknown"; // UDF: never processed
-      if (f.severity === "INVALID" && [1, 9, 10].includes(f.alarmStatus)) return "not answering"; // READ/COMM/TIMEOUT
-      return f.severity === "MAJOR" || f.severity === "INVALID" ? "error" : "live";
-    }
-    const view = views[el.dataset.device], e = entryOf(el);
-    if (!view || !view.ok || !e) return "unknown"; // the module cannot say
-    if (e.read === "never") return view.state || "unknown"; // a command: the device's word
-    if (!hareUp || !f) return "unknown";
-    if (!f.connected) return "unreachable";
-    return e.verdict || "unknown";
+    const pv = pvOf(el), bare = !!el.dataset.pv;
+    return R.judge({ hareUp: hareState === "open", frame: pv && wire[pv], bare, view: views[el.dataset.device], entry: bare ? null : entryOf(el), fits: fitsOf(el) });
   }
 
   function draw(el) {
+    if (el.dataset.action) return drawAction(el);
     const word = judge(el), state = el.querySelector(".ws");
     state.querySelector(".dot").dataset.state = KIT[word] || "unknown";
     state.querySelector(".word").textContent = word;
     const pv = pvOf(el), meta = pv ? hare.meta(pv) : {};
     el.querySelector(".u").textContent = el.dataset.units || meta.units || "";
-    const bounds = el.querySelector(".bounds"), lo = meta.controlLow, hi = meta.controlHigh;
-    const set = (x) => typeof x === "number" && Math.abs(x) < 1e300; // ±1e300: no limit set
-    if (bounds) bounds.textContent = set(lo) && set(hi) && lo < hi ? `[${lo} … ${hi}]` : "";
+    const bounds = el.querySelector(".bounds");
+    if (bounds) bounds.textContent = R.bounds(meta);
     const value = el.querySelector(".v"), sp = el.querySelector(".sp"), act = el.querySelector(".act");
     if (value) value.textContent = show(pv, el);
     if (sp && !sp.dataset.draft) sp.value = show(pv, el) === "—" ? "" : show(pv, el);
     if (act && el.dataset.kind !== "button") act.textContent = show(pv, el);
-    // writable only on the module's word, never while a write is in flight
-    const e = entryOf(el), open = !el.dataset.pv && !!e && e.writable && !el.dataset.busy;
+    const open = R.writable(entryOf(el), !!el.dataset.pv, !!el.dataset.busy, fitsOf(el));
     for (const c of [sp, act]) if (c) c.disabled = !open;
     for (const ind of el.querySelectorAll(".ind")) ind.querySelector("b").textContent = show(pvOf(ind), ind);
     const rb = el.querySelector(".rb");
     if (rb) {
       const rbPv = pvOf(el, el.dataset.readback);
       rb.textContent = show(rbPv, el);
-      const a = pv && wire[pv], b = rbPv && wire[rbPv];
-      // differs: the two disagree at the precision shown (-0.000 is 0.000)
-      const [x, y] = [show(pv, el), show(rbPv, el)];
-      const same = x === y || (x !== "—" && Number(x) === Number(y));
-      el.querySelector(".differs").hidden = !(a && b) || same;
+      const bothRead = !!(pv && wire[pv] && rbPv && wire[rbPv]);
+      el.querySelector(".differs").hidden = !R.differs(show(pv, el), show(rbPv, el), bothRead);
     }
   }
 
-  async function poll(device) {
-    let view = { ok: false, roles: {} };
-    try {
-      const r = await fetch(`${root}/api/devices/${encodeURIComponent(device)}`);
-      const body = await r.json();
-      if (r.ok) {
-        view = { ok: true, state: body.state, roles: {} };
-        for (const e of body.roles || []) view.roles[key(e.role, e.axis)] = e;
-      }
-    } catch (_) { /* the module is silent: every word is unknown */ }
-    views[device] = view;
+  // a 5xx is the module silent (back off); any other answer is the module's word
+  async function readDevice(device, signal) {
+    const r = await fetch(`${root}/api/devices/${encodeURIComponent(device)}`, { signal });
+    if (r.status >= 500) throw new Error(`answered ${r.status}`);
+    return R.deviceView(r.ok, await r.json());
+  }
+
+  function source() {
+    const line = R.sourceLine(hareState, [...slow]);
+    const host = document.getElementById("hare-state");
+    host.textContent = line.text;
+    host.title = line.title;
+    document.querySelector(".hare .dot").dataset.state = line.kit;
+  }
+
+  function seen(device, got) {
+    views[device] = got.ok ? got.value : { ok: false, roles: {} }; // silent: every word is unknown
+    if (got.slow) slow.add(device); else slow.delete(device);
+    source();
     for (const el of widgets.filter((w) => w.dataset.device === device)) {
       use(pvOf(el), el);
       if (el.dataset.readback) use(pvOf(el, el.dataset.readback), el);
@@ -125,11 +116,11 @@
 
   // ---- writing: once, through the module, the outcome left on the widget
   const dialog = document.getElementById("confirm");
-  function confirmWrite(el, value) {
-    if (!el.dataset.hazard && !el.dataset.confirm) return Promise.resolve(true);
-    document.getElementById("confirm-title").textContent = `Write ${el.querySelector(".lbl").textContent}?`;
-    document.getElementById("confirm-what").textContent = `${el.dataset.device} · ${el.dataset.role} ← ${value}`;
-    document.getElementById("confirm-note").textContent = el.dataset.confirm || "This role needs the hazard confirm.";
+  function ask(verb, what, note, el) {
+    document.getElementById("confirm-title").textContent = `${verb} ${el.querySelector(".lbl").textContent}?`;
+    document.getElementById("confirm-what").textContent = what;
+    document.getElementById("confirm-note").textContent = note;
+    document.getElementById("confirm-go").textContent = verb;
     return new Promise((done) => {
       dialog.onclick = (ev) => { if (ev.target.value) { dialog.close(); done(ev.target.value === "write"); } };
       dialog.oncancel = () => done(false);
@@ -139,7 +130,7 @@
 
   function outcome(el, word, code, detail) {
     const out = el.querySelector(".out");
-    out.dataset.state = OUT[word] || "unknown";
+    out.dataset.state = R.outcomeState(word);
     out.textContent = code ? `${word} · ${code}` : word;
     out.title = detail || "";
   }
@@ -147,10 +138,13 @@
   async function write(el, value) {
     const operator = opInput.value.trim();
     if (!operator) { opInput.focus(); return outcome(el, "unsent", "", "name yourself in the header first"); }
-    if (!(await confirmWrite(el, value))) return outcome(el, "unsent", "", "not confirmed");
-    const body = { role: el.dataset.role, value, operator, confirm: true };
+    // one decision: the confirm sent is the dialog the operator answered (the module's mark may change meanwhile)
+    const asked = hazardOf(el);
+    const what = `${el.dataset.device} · ${el.dataset.role} ← ${value}`;
+    if (asked && !(await ask("Write", what, el.dataset.confirm || "This role needs the hazard confirm.", el))) return outcome(el, "unsent", "", "not confirmed");
+    const body = { role: el.dataset.role, value, operator };
+    if (asked) body.confirm = true;
     if (el.dataset.axis) body.axis = el.dataset.axis;
-    if (!el.dataset.hazard && !el.dataset.confirm) delete body.confirm;
     outcome(el, "sending");
     el.dataset.busy = "1";
     draw(el);
@@ -167,6 +161,100 @@
     draw(el);
   }
 
+  // ---- action plans: the module's library and its runs, by plan
+  const plans = {}, runs = {}, runOf = {}, watching = new Set();
+  let plansError = "not read yet";
+  const ofPlan = (plan) => widgets.filter((w) => w.dataset.action === plan);
+
+  function drawAction(el) {
+    const plan = plans[el.dataset.action], run = runs[runOf[el.dataset.action]];
+    const live = !!run && !R.runEnded(run);
+    const state = el.querySelector(".ws"), act = el.querySelector(".act");
+    state.querySelector(".word").textContent = run ? R.runWord(run) : plan ? "ready" : plansError ? "unknown" : "no such plan";
+    state.querySelector(".dot").dataset.state = run ? R.runState(run) : plan ? "ok" : "unknown";
+    state.title = run ? R.runDetail(run) : "";
+    act.disabled = !plan || live || !!el.dataset.busy;
+    act.title = plan ? plan.description : plansError || "not in the module's library";
+    el.querySelector(".stop").hidden = !live;
+  }
+
+  function track(plan, run) {
+    runs[run.id] = run;
+    runOf[plan] = run.id;
+    if (!R.runEnded(run)) watching.add(run.id);
+    ofPlan(plan).forEach(drawAction);
+  }
+
+  async function readPlans() {
+    try {
+      const r = await fetch(`${root}/api/actions`);
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.detail || `answered ${r.status}`);
+      plansError = null;
+      for (const p of body.plans) plans[p.name] = p;
+      for (const p of body.plans) if (p.running && !runs[p.running]) track(p.name, { id: p.running, plan: p.name, state: "running", steps: [] });
+    } catch (err) {
+      plansError = `the module's actions: ${err.message}`;
+    }
+    actionWidgets.forEach(drawAction);
+  }
+
+  async function runAction(el) {
+    const operator = opInput.value.trim();
+    if (!operator) { opInput.focus(); return outcome(el, "unsent", "", "name yourself in the header first"); }
+    await readPlans(); // the hazard steps as the module sees them now
+    const plan = plans[el.dataset.action];
+    if (!plan) return outcome(el, "unsent", "", plansError || "not in the module's library");
+    const hazards = (plan.hazardSteps || []).map((h) => `step ${h.index}: ${h.device} · ${h.role} ← ${h.value}`);
+    const asked = hazards.length > 0 || !!el.dataset.confirm;
+    const note = [el.dataset.confirm, hazards.length ? `Hazard ${hazards.join("; ")}` : ""].filter(Boolean).join(" — ");
+    if (asked && !(await ask("Run", plan.description || plan.name, note, el))) return outcome(el, "unsent", "", "not confirmed");
+    outcome(el, "sending");
+    el.dataset.busy = "1";
+    drawAction(el);
+    try {
+      const r = await fetch(`${root}/api/actions/${encodeURIComponent(plan.name)}/run`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operator, confirm: asked }),
+      });
+      const a = await r.json();
+      if (r.status === 202) { outcome(el, ""); track(plan.name, a); }
+      else outcome(el, [403, 409, 428].includes(r.status) ? "denied" : "refused", a.code, a.detail);
+    } catch (err) {
+      outcome(el, "unknown", "no_answer", "read the run before running it again");
+    }
+    delete el.dataset.busy;
+    ofPlan(plan.name).forEach(drawAction);
+  }
+
+  // a 404: the module no longer holds the run (restarted, or past the last 100): it is lost, not running
+  async function readRun(id, signal) {
+    const r = await fetch(`${root}/api/actions/runs/${encodeURIComponent(id)}`, { signal });
+    if (r.status === 404) return { ...runs[id], state: "lost" };
+    if (!r.ok) throw new Error(`answered ${r.status}`);
+    return r.json();
+  }
+
+  function seenRun(id, got) {
+    if (!got.ok) return;
+    if (R.runEnded(got.value)) watching.delete(id);
+    const plan = got.value.plan || Object.keys(runOf).find((p) => runOf[p] === id);
+    if (plan) track(plan, got.value);
+  }
+
+  const actionWidgets = widgets.filter((w) => w.dataset.action);
+  for (const el of actionWidgets) {
+    el.querySelector(".stop").addEventListener("click", () => {
+      const id = runOf[el.dataset.action];
+      if (id) fetch(`${root}/api/actions/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }).catch(() => {});
+    });
+  }
+  if (actionWidgets.length) {
+    readPlans();
+    const runPoller = window.GeecsPoller.makePoller({ fetch: readRun, pollMs: POLL_MS / 2, onView: seenRun });
+    setInterval(() => runPoller.tick([...watching]), POLL_MS / 2);
+    setInterval(readPlans, 5 * POLL_MS); // a module back up, a library edited, a run started elsewhere
+  }
+
   const asValue = (text) => (text.trim() !== "" && Number.isFinite(Number(text)) ? Number(text) : text);
 
   for (const ind of document.querySelectorAll(".ind[data-pv]")) use(ind.dataset.pv, ind);
@@ -181,6 +269,7 @@
       });
     }
     if (act) act.addEventListener("click", () => {
+      if (el.dataset.action) return runAction(el);
       if (el.dataset.kind === "button") return write(el, 1);
       const f = wire[pvOf(el)];
       if (f && typeof f.value === "number") write(el, f.value ? 0 : 1);
@@ -188,14 +277,14 @@
   }
 
   hare.onStatus((s) => {
-    hareUp = s === "open";
-    document.getElementById("hare-state").textContent = hareUp ? "live values" : `Hare ${s}`;
-    document.querySelector(".hare .dot").dataset.state = hareUp ? "ok" : "unknown";
+    hareState = s;
+    source();
     widgets.forEach(draw);
   });
   // every device a widget or an indicator names (a bare-PV flipper's lamp may be a device's role)
   const devices = [...new Set([...document.querySelectorAll(".w[data-device], .ind[data-device]")].map((e) => e.dataset.device))];
-  const tick = () => devices.forEach(poll);
+  const poller = window.GeecsPoller.makePoller({ fetch: readDevice, pollMs: POLL_MS, onView: seen });
+  const tick = () => poller.tick(devices);
   tick();
   setInterval(tick, POLL_MS);
 })();
