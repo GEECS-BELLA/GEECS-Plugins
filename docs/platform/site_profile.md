@@ -209,11 +209,54 @@ experiment's units and never instead of them. Tiled, the Data Portal
   stops them and keeps file, state, configs and data; `list` shows them.
 - **Clients reach its gateway** by adding `<host>:<CA port>` to their CA
   address list (and the site's, for the archiver and Canopy).
+- **Collisions are refused before anything is cloned, installed or
+  enabled.** `up` refuses:
+  - the main experiment (by DB name or instance name) while its plain
+    worker or gateway units run on this host;
+  - a second running instance of the same DB experiment;
+  - a slot whose ports are taken (TCP, plus the CA port's UDP), unless the
+    instance itself already holds them.
+
+  These checks see this host only; a plain family on another host is the
+  operator's to rule out.
+- All six instance units are poetry-run processes. An instance unit that
+  ever runs a container instead needs `stop_grace_period` in compose and
+  `SuccessExitStatus=143` on the unit (the archiver's #1219 pattern).
+  Without them a stop is a SIGKILL that reads as a failure.
 - `GEECS_INSTANCE_CHECKOUT_ROOT` (render-time) lets instances run from
   clones of their own. It exists for the multi-experiment proof, while the
   arc's code is not yet on the main clones' ref — a **transitional
   exception**: once promoted, one clone serves every experiment and the key
   is removed.
+
+### Moving an experiment from plain units to an instance
+
+The main experiment's units are plain (`geecs-qserver.service`, …). Moving it
+onto `<unit>@<Name>` is the maintainer's run, between scans, in this order so
+two copies of the worker or the logbook never run at once:
+
+1. Drain the queue; `systemctl disable --now` the plain units of the family
+   being moved (manager + readiness, Tiled writer, scanner, logbook).
+2. Move their state into the instance's tree:
+   `/var/lib/geecs-tiled-writer` → `/var/lib/geecs-experiments/<Name>/engine`
+   (spool, `scan_mode.json`), `/var/lib/geecs-scanner` → `…/scanner`,
+   `/var/lib/geecs-logbook` → `…/logbook` (the notes store). The plan list
+   is regenerated at the first environment open.
+3. If clients must not change, write `/etc/geecs/experiments/<Name>.env` by
+   hand before the first `up`: start from the example, then set
+   `GEECS_INSTANCE_SLOT=0`, the stock ports (5064, 60615/60625, 5567/5568,
+   8300, 8400) and `QS_REDIS_PREFIX=qs_default` (the plain manager's queue
+   and history, the stock prefix). Then run `sudo deploy/experiment.sh up
+   <Name>` **without** the creation flags; it reuses the file. `list`, then
+   a `count`.
+4. Only then delete the plain unit files.
+
+A gateway moved onto the hub as an instance is a **client** change: each
+client's `config.ini` `[epics] ca_addr_list` (and the site's
+`EPICS_CA_ADDR_LIST`, and Phoebus settings) names the hub's `host:port`.
+Scan mode needs the worker and the gateway on one host
+(`check_gateway_host`); a per-experiment gateway instance on the hub is
+what satisfies it for a worker that runs there.
 
 ## Onboarding a second facility
 

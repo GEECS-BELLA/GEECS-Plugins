@@ -208,7 +208,55 @@ up)
     # Validate in a subshell: the instance's values must not leak into ours.
     ( load_site_env "$INSTANCE_FILE"; check_instance_env "$INSTANCE" "$INSTANCE_FILE" )
     EXPT="$(env_value "$INSTANCE_FILE" GEECS_EXPERIMENT)"
-    [ "$EXPT" != "$MAIN_EXPERIMENT" ] || { echo "'$EXPT' is the main experiment (site.env) — it keeps its own units" >&2; exit 2; }
+    # The main experiment as an instance is the plain-units migration: only
+    # once its plain worker family is stopped (two live workers, two
+    # logbooks, one DB experiment otherwise).
+    lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+    if [ "$(lc "$EXPT")" = "$(lc "$MAIN_EXPERIMENT")" ] || [ "$(lc "$INSTANCE")" = "$(lc "$MAIN_EXPERIMENT")" ]; then
+        PLAIN_ACTIVE=""
+        for u in geecs-qserver geecs-tiled-writer geecs-scanner geecs-logbook geecs-ca-gateway; do
+            systemctl is-active --quiet "$u.service" 2>/dev/null && PLAIN_ACTIVE="$PLAIN_ACTIVE $u"
+        done
+        if [ -n "$PLAIN_ACTIVE" ]; then
+            echo "'$EXPT' is the main experiment (site.env) and its plain units are running:$PLAIN_ACTIVE" >&2
+            echo "  migration order (docs/platform/site_profile.md): stop the plain units first, move their state, then up" >&2
+            exit 2
+        fi
+    fi
+    # Nor two running instances of one DB experiment (this host's view only).
+    for f in "$EXPERIMENTS_DIR"/*.env; do
+        [ -f "$f" ] || continue
+        i="$(basename "$f" .env)"; [ "$i" = "$INSTANCE" ] && continue
+        [ "$(lc "$(env_value "$f" GEECS_EXPERIMENT)")" = "$(lc "$EXPT")" ] || continue
+        # shellcheck disable=SC2046
+        if systemctl is-active --quiet $(units_for "$i") 2>/dev/null; then
+            echo "instance '$i' already serves '$EXPT' and is running — down it first" >&2; exit 2
+        fi
+    done
+    # The slot's ports must be free unless this instance already holds any of
+    # them (a re-run `up` recovers a running or half-running instance in
+    # place). Before anything is cloned, installed or enabled.
+    # (The readiness oneshot is not counted: RemainAfterExit keeps it
+    # "active" after its manager is gone.)
+    # shellcheck disable=SC2046
+    if ! systemctl is-active --quiet $(units_for "$INSTANCE" | tr ' ' '\n' | grep -v '^geecs-qserver-ready@') 2>/dev/null; then
+        if command -v ss >/dev/null 2>&1; then
+            f="$INSTANCE_FILE"; busy=""
+            ca="$(env_value "$f" GEECS_CA_SERVER_PORT)"
+            for p in "$ca" "$(env_value "$f" QS_DOC_PROXY_IN)" "$(env_value "$f" QS_DOC_PROXY_OUT)" \
+                     "$(env_value "$f" QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER | sed 's/.*://')" \
+                     "$(env_value "$f" QSERVER_ZMQ_INFO_ADDRESS_FOR_SERVER | sed 's/.*://')" \
+                     "$(env_value "$f" GEECS_SCANNER_PORT)" "$(env_value "$f" GEECS_LOGBOOK_PORT)"; do
+                case "$p" in ''|*[!0-9]*) echo "instance file: '$p' is not a port" >&2; exit 2 ;; esac
+                [ -n "$(ss -ltnH "sport = :$p" 2>/dev/null)" ] && busy="$busy $p/tcp"
+            done
+            # The CA gateway is found by its UDP search port.
+            [ -n "$(ss -lunH "sport = :$ca" 2>/dev/null)" ] && busy="$busy $ca/udp"
+            if [ -n "$busy" ]; then
+                echo "the slot's port(s)$busy are already in use — another experiment's units? nothing cloned, installed or enabled" >&2; exit 1
+            fi
+        else echo "  (no ss on this host: the slot's ports were not checked)"; fi
+    fi
     ENGINE="$INSTANCE_ROOT/qs-checkout/GeecsBluesky"
     claim_staging
     claim_instance_root
@@ -281,6 +329,9 @@ up)
         echo "  geecs-qserver-ready@$INSTANCE: ${state:-unknown}$([ "$state" = active ] || echo " — see: journalctl -u geecs-qserver-ready@$INSTANCE -u geecs-qserver@$INSTANCE")"
     fi
 
+    # Hook (not built): the status page's config generator, deploy/gatus_config.py,
+    # is called here (and at the end of `down`) once it exists, so the
+    # instance appears on (and leaves) the page with its units.
     say "instance '$INSTANCE' — experiment '$EXPT'"
     f="$INSTANCE_FILE"
     echo "  CA gateway   $(env_value "$f" EPICS_CAS_INTF_ADDR_LIST):$(env_value "$f" GEECS_CA_SERVER_PORT)   (clients add this host:port to their CA address list)"

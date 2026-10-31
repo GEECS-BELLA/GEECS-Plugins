@@ -428,8 +428,11 @@ week's proof; this file is deleted in that PR):
 > - #1229 the read-only overlap check
 > - the slice-7 docs PR
 >
-> **Proof:** PulsedWire beside Undulator for a week; `/fleet-status` shows
-> both; an Undulator scan is unaffected; `down`/`up` round-trips. The
+> **Proof:** concurrent scans on the hub on 2026-10-31, PulsedWire Scan001
+> and Undulator Scan002, each with 20 shots, in their own data trees and
+> registered by their own Tiled writers, with the Undulator units untouched.
+> Still to come: the week beside Undulator, `/fleet-status` showing both,
+> and the `down`/`up` round trip. The
 > evidence is in this file's § Status, moved into this body at promotion.
 >
 > **Exception, not design:** `GEECS_INSTANCE_CHECKOUT_ROOT`. Instances ran
@@ -528,3 +531,68 @@ The tests use the box's shape.
 
 `down` now runs `reset-failed` on loaded units only, so a clean `down` is
 quiet.
+
+
+### 2026-10-31 — notes from the services-box migration session
+
+- **The box's main family is plain units.** The box runs Undulator's worker
+  family as plain, non-templated units, rendered at master. The old host
+  keeps only the main CA gateway and MySQL. `site_profile.md` now has a new
+  subsection, "Moving an experiment from plain units to an instance". It
+  gives the order for the maintainer's run: stop the plain family, move or
+  point the state dirs, `up` the instance, then delete the plain unit files.
+  Done in that order, two workers or two logbooks never run at once.
+- **Scan mode is refused from the box today.** The worker runs on the box
+  while the gateway is on the old host, and `check_gateway_host` requires
+  both on one host. A per-experiment gateway instance on the hub resolves
+  this. Moving Undulator's gateway is then a client change: `config.ini`
+  `[epics] ca_addr_list`, site.env `EPICS_CA_ADDR_LIST`, and Phoebus.
+- **Follow-up, not built: probing instance gateways.**
+  `scripts/lib/lab_env.sh` probes only the first `[epics] ca_addr_list`
+  entry. Probing each instance's gateway needs a loop over the entries.
+- **Follow-up, not built: the status page.** Instances should appear on the
+  box's status page (Gatus). The migration session writes the config
+  generator, `deploy/gatus_config.py`, after the arc lands.
+  `experiment.sh` carries a one-comment hook where `up` and `down` will
+  call it.
+- **Collision guard (built).** `up` refuses the main experiment, by DB name
+  or instance name, while any plain worker unit (`geecs-qserver`,
+  `-tiled-writer`, `-scanner`, `-logbook`) is active. The message names the
+  migration order. Unless the instance is already running, `up` also
+  refuses a slot whose ports are already listening (`ss -ltn`). Both checks
+  run before anything is installed.
+- **Compose-based instance units.** None exist; all six instance units run
+  under poetry. If one ever runs a container, it needs `stop_grace_period`
+  plus `SuccessExitStatus=143` (#1219). `site_profile.md` says so.
+
+### 2026-10-31 — the proof: two experiments at once
+
+PulsedWire and Undulator ran scans concurrently on the hub:
+
+| Experiment | Scan | Profile | Shots | Local time |
+|---|---|---|---|---|
+| PulsedWire (`Test stand default`) | Scan001 | strict, `PulseWire-Bench` | 20 | 16:11:00.9–16:11:04.9 |
+| Undulator | Scan002 | `HTU-LaserOFF` | 20 | 16:11:02.8–16:11:07.5 |
+
+Each scan landed in its own data tree and was registered by its own Tiled
+writer. The Undulator units were not touched.
+
+The rest of the brief's proof of done still runs this week: a week of
+PulsedWire beside Undulator, `/fleet-status` showing both, and a
+`down`/`up` round trip.
+
+**Follow-ups, not built:**
+
+- **Preflight checks trigger profiles against a different set than the
+  worker uses.** The worker loads its profiles when it starts. The
+  scanner's preflight validates against the configs directory on disk.
+  PulsedWire's profile was copied into its tree after `up`. Preflight
+  passed, but the plan failed with "unknown trigger profile
+  'PulseWire-Bench'; choose one of: none loaded" until
+  `systemctl restart geecs-qserver@PulsedWire`. Candidates:
+  - the preflight checks the worker's loaded set;
+  - the worker reloads profiles per plan.
+- **A new experiment starts with no trigger profile.** `experiment.sh up`
+  leaves `shot_control_configurations/` empty, so the first scan needs a
+  profile there before the copy or a worker restart after it. The verb
+  could warn when that directory is empty.

@@ -157,7 +157,38 @@ def test_a_new_instance_needs_its_experiment_and_address(profile) -> None:
     assert "--db-experiment" in result.stderr
 
 
-def test_the_main_experiment_is_refused(profile) -> None:
+def test_the_main_experiment_is_refused_while_its_plain_units_run(
+    tmp_path: Path, profile
+) -> None:
+    fake = tmp_path / "plain"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *"is-active --quiet geecs-qserver.service"*) exit 0 ;; esac\nexit 3\n'
+    )
+    (fake / "systemctl").chmod(0o755)
+    args = [
+        "--db-experiment",
+        "Undulator",
+        "--address",
+        "127.0.0.1",
+        "--broadcast",
+        "x",
+    ]
+    result = _verb(
+        profile,
+        "up",
+        "Main",
+        *args,
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 2
+    assert "plain units are running: geecs-qserver" in result.stderr
+    assert "stop the plain units first" in result.stderr
+
+
+def test_the_main_experiment_proceeds_once_its_plain_units_are_stopped(profile) -> None:
+    """The migration's step 3: no plain unit active (no systemd here at all)."""
     args = [
         "--db-experiment",
         "Undulator",
@@ -167,8 +198,42 @@ def test_the_main_experiment_is_refused(profile) -> None:
         "x",
     ]
     result = _verb(profile, "up", "Main", *args, "--dry-run")
-    assert result.returncode == 2
-    assert "main experiment" in result.stderr
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_busy_slot_port_installs_nothing(tmp_path: Path, profile) -> None:
+    import getpass
+
+    fake = tmp_path / "busy"
+    fake.mkdir()
+    (fake / "ss").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *":8310"*) echo "LISTEN 0 128 0.0.0.0:8310 0.0.0.0:*" ;; esac\nexit 0\n'
+    )
+    (fake / "ss").chmod(0o755)
+    sys.path.insert(0, str(REPO_ROOT / "tests"))
+    from test_render_units_sh import _fake_clones
+
+    _fake_clones(
+        profile["root"], stale=False
+    )  # existing clones: nothing cloned or installed
+    configs = profile["site"].parent / "configs" / "scanner_configs" / "experiments"
+    (configs / "Bench stand").mkdir()  # the scaffold has nothing to do
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_SERVICE_USER={getpass.getuser()}\n")
+    result = _verb(
+        profile,
+        "up",
+        "PulsedWire",
+        *NEW,
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "8310" in result.stderr
+    assert (
+        "$ as_root install" not in result.stdout
+    )  # checked before anything is installed
+    assert "$ as_root systemctl" not in result.stdout
+    assert "rendered " not in result.stdout  # ...and before the bootstrap ran
 
 
 def test_a_non_slug_instance_is_refused(profile) -> None:
@@ -545,3 +610,78 @@ def test_canonical_dir_terminates_on_a_missing_relative_path() -> None:
         timeout=10,
     )
     assert result.returncode == 0
+
+
+def test_a_second_running_instance_of_one_experiment_is_refused(
+    tmp_path: Path, profile
+) -> None:
+    (profile["experiments"] / "First.env").write_text(
+        'GEECS_EXPERIMENT="Bench stand"\nGEECS_INSTANCE_SLOT=1\n'
+    )
+    fake = tmp_path / "first-running"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *"is-active --quiet"*"@First.service"*) exit 0 ;; esac\nexit 3\n'
+    )
+    (fake / "systemctl").chmod(0o755)
+    result = _verb(
+        profile,
+        "up",
+        "Second",
+        *NEW,
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 2
+    assert "instance 'First' already serves 'Bench stand'" in result.stderr
+
+
+def test_a_half_running_instance_is_not_refused_on_its_own_ports(
+    tmp_path: Path, profile
+) -> None:
+    """Re-running `up` is how a half-up instance recovers: its own scanner on
+    its slot port must not read as a collision."""
+    fake = tmp_path / "half"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *"is-active --quiet"*"geecs-scanner@PulsedWire.service"*) exit 0 ;; esac\nexit 3\n'
+    )
+    (fake / "ss").write_text(
+        '#!/usr/bin/env bash\necho "LISTEN 0 128 0.0.0.0:8310 0.0.0.0:*"\n'
+    )
+    for f in fake.iterdir():
+        f.chmod(0o755)
+    result = _verb(
+        profile,
+        "up",
+        "PulsedWire",
+        *NEW,
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert "already in use" not in result.stderr, result.stderr
+
+
+def test_the_readiness_oneshot_alone_does_not_skip_the_port_check(
+    tmp_path: Path, profile
+) -> None:
+    fake = tmp_path / "ready-only"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in geecs-qserver-ready@*) [ "$1" = is-active ] && exit 0 ;; esac; done\nexit 3\n'
+    )
+    (fake / "ss").write_text(
+        '#!/usr/bin/env bash\necho "LISTEN 0 128 0.0.0.0:8310 0.0.0.0:*"\n'
+    )
+    for f in fake.iterdir():
+        f.chmod(0o755)
+    result = _verb(
+        profile,
+        "up",
+        "PulsedWire",
+        *NEW,
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 1
+    assert "already in use" in result.stderr
