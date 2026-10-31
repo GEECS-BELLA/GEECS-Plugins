@@ -166,6 +166,7 @@ if [ -n "$INSTANCE" ]; then
     INSTANCE_ROOT="${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}"
     echo "  clones under $INSTANCE_ROOT; a missing one is cloned at --ref $REF (the ref the instance templates and their code are on)"
     TEMPLATE_PATHS=(); ENABLE=(); NEW_CLONES=" "; INSTALLED_ENVS=" "
+    SEPARATE_ROOT=0; if instance_root_is_separate; then SEPARATE_ROOT=1; fi
     for s in $INSTANCE_SERVICES; do
         iwanted "$s" || continue
         dir="$INSTANCE_ROOT/$(clone_of "$s")"
@@ -175,11 +176,14 @@ if [ -n "$INSTANCE" ]; then
         # it: there its envs are (re)installed every run, so a re-run `up`
         # is a correct fresh start under THIS account.
         case "$NEW_CLONES" in *" $dir "*) ;; *)
-            if [ -e "$dir/.git" ] && [ "$INSTANCE_ROOT" != "$GEECS_CHECKOUT_ROOT" ]; then
+            if [ -e "$dir/.git" ] && [ "$SEPARATE_ROOT" -eq 1 ]; then
                 echo "  $s: $(clone_of "$s") exists ($(git -C "$dir" rev-parse --abbrev-ref HEAD) $(git -C "$dir" rev-parse --short=8 HEAD)) under the instance root — brought to $REF, envs reinstalled"
                 run git -C "$dir" fetch --quiet origin
                 run git -C "$dir" checkout --quiet "$REF"
-                run git -C "$dir" merge --quiet --ff-only "origin/$REF"
+                # A branch follows its remote; a tag or a SHA is already exact.
+                if git -C "$dir" rev-parse --verify -q "refs/remotes/origin/$REF" >/dev/null; then
+                    run git -C "$dir" merge --quiet --ff-only "origin/$REF"
+                fi
                 NEW_CLONES="$NEW_CLONES$dir "
             elif [ -e "$dir/.git" ]; then
                 echo "  $s: $(clone_of "$s") exists ($(git -C "$dir" rev-parse --abbrev-ref HEAD) $(git -C "$dir" rev-parse --short=8 HEAD)) — used as it is"

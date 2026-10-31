@@ -410,7 +410,7 @@ def test_the_ready_instance_unit_retries_and_names_its_manager(tmp_path: Path) -
     ready = REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service"
     d = _directives(ready.read_text(encoding="utf-8"))
     exec_start = next(x for x in d if x.startswith("ExecStart="))
-    assert "--control-addr ${QS_CONTROL_ADDR}" in exec_start
+    assert "QS_CONTROL_ADDR" not in exec_start  # read from the instance file's env
     assert "Restart=on-failure" in d
     assert any(x.startswith("StartLimitBurst=") for x in d)
     assert (

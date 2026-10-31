@@ -27,9 +27,10 @@
 # list  Every instance file, its experiment, slot, scanner port and unit states.
 #
 # Never touches the main experiment's units, site.env or config.ini. Run it
-# as the service account (sudo for the install/enable steps). Knobs (from the
-# environment): GEECS_SITE_ENV_PATH (default /etc/geecs/site.env),
-# GEECS_EXPERIMENTS_DIR (default /etc/geecs/experiments).
+# as root (`sudo experiment.sh …`): code steps drop to the service account,
+# only the installs and systemctl stay root. Knobs (from the environment,
+# passed on to the service-account steps): GEECS_SITE_ENV_PATH (default
+# /etc/geecs/site.env), GEECS_EXPERIMENTS_DIR (default /etc/geecs/experiments).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -136,7 +137,9 @@ if [ "$(id -u)" -eq 0 ]; then AS_ROOT=()
 elif [ "$VERB" != "list" ] && ! $SUDO -n true 2>/dev/null; then
     echo "experiment.sh $VERB needs root: run it as 'sudo $0 …' (this account, $(id -un), has no sudo)" >&2; exit 2
 else AS_ROOT=("$SUDO"); fi
-if [ "$(id -un)" = "$SVC" ]; then AS_SVC=(); else AS_SVC=("$SUDO" -u "$SVC" -H); fi
+# sudo resets the environment: the knobs travel explicitly.
+KNOBS=(env "GEECS_SITE_ENV_PATH=$SITE_ENV" "GEECS_EXPERIMENTS_DIR=$EXPERIMENTS_DIR")
+if [ "$(id -un)" = "$SVC" ]; then AS_SVC=("${KNOBS[@]}"); else AS_SVC=("$SUDO" -u "$SVC" -H "${KNOBS[@]}"); fi
 as_svc() { "${AS_SVC[@]+"${AS_SVC[@]}"}" "$@"; }
 as_root() { "${AS_ROOT[@]+"${AS_ROOT[@]}"}" "$@"; }
 in_engine() {  # in_engine CMD... — CMD in the instance clone's GeecsBluesky dir, as the service account
@@ -154,7 +157,7 @@ claim_staging() {
     fi
 }
 claim_instance_root() {
-    [ "$INSTANCE_ROOT" != "$GEECS_CHECKOUT_ROOT" ] || return 0
+    instance_root_is_separate || return 0
     if [ -e "$INSTANCE_ROOT" ] && [ -n "$(as_root find "$INSTANCE_ROOT" -maxdepth 3 ! -user "$SVC" -print -quit 2>/dev/null)" ]; then
         run as_root chown -R "$SVC:" "$INSTANCE_ROOT"
     fi
@@ -257,7 +260,20 @@ up)
     run as_root systemctl daemon-reload
     # Restart, not just start: a re-run `up` must pick up reinstalled envs.
     run as_root systemctl enable "${STAGED[@]}"
-    run as_root systemctl restart "${STAGED[@]}"
+    # A failed or rate-limited state from an earlier run must not refuse this
+    # start; and the start must not block on the readiness oneshot's retries.
+    run as_root systemctl reset-failed "${STAGED[@]}" || true
+    run as_root systemctl restart --no-block "${STAGED[@]}"
+    if [ "$DRY" -eq 0 ]; then
+        say "readiness (geecs-qserver-ready@$INSTANCE, up to 5 min; it keeps retrying after)"
+        state=""
+        for _ in $(seq 1 30); do
+            state="$({ systemctl is-active "geecs-qserver-ready@$INSTANCE.service" 2>/dev/null || true; } | head -1)"
+            [ "$state" = "active" ] && break
+            sleep 10
+        done
+        echo "  geecs-qserver-ready@$INSTANCE: ${state:-unknown}$([ "$state" = active ] || echo " — see: journalctl -u geecs-qserver-ready@$INSTANCE -u geecs-qserver@$INSTANCE")"
+    fi
 
     say "instance '$INSTANCE' — experiment '$EXPT'"
     f="$INSTANCE_FILE"

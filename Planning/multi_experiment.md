@@ -473,16 +473,18 @@ journals below confirm them.
 3. **`geecs-qserver-ready@`** failed at `enable --now`. Its journal shows
    the same `No module named 'geecs_core'` as the manager, so (1) is the
    cause. The template now:
-   - names the instance's manager explicitly
-     (`--control-addr ${QS_CONTROL_ADDR}`), with `check_instance_env`
-     pinning that port, and `QS_CLIENT_CONTROL_ADDR`'s, to the manager's
+   - reads the instance's manager address (`QS_CONTROL_ADDR` from the
+     instance file, which overrides site.env's), and `check_instance_env`
+     now pins that port, and `QS_CLIENT_CONTROL_ADDR`'s, to the manager's
      own `QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER`;
    - retries, bounded (`Restart=on-failure`, 30 s apart, at most 4 starts in
      30 min), on top of `ensure-ready`'s own 600 s wait;
    - keeps `After=`/`Requires=`/`PartOf=` on `geecs-qserver@%i`.
 
-`down` now also runs `reset-failed` on the units, so the next `up` is a
-clean start. That start reuses the instance file and brings the clones and
+`down` and `up` both run `reset-failed` on the units. `up` starts them with
+`restart --no-block` and then waits, bounded, for the readiness oneshot. The
+"instance root of its own" test compares canonical paths and refuses nested
+roots. A re-run `up` is therefore a clean start. That start reuses the instance file and brings the clones and
 envs up to date as the service account.
 
 **Left from the first run, harmless:**

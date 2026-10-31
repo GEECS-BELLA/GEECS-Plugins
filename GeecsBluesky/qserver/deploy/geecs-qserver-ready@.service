@@ -30,10 +30,10 @@ Environment=HOME=@SERVICE_HOME@
 EnvironmentFile=@SITE_ENV@
 EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
 WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
-# The INSTANCE's manager, by name: the instance file's QS_CONTROL_ADDR (it
-# overrides site.env's main one; check_instance_env pins its port to the
-# manager's own QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER).
-ExecStart=@POETRY@ run geecs-qserver-ensure-ready --timeout 600 --control-addr ${QS_CONTROL_ADDR}
+# The INSTANCE's manager: ensure-ready reads QS_CONTROL_ADDR, which the
+# instance file sets (overriding site.env's main one); check_instance_env pins
+# its port to the manager's own QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER.
+ExecStart=@POETRY@ run geecs-qserver-ensure-ready --timeout 600
 TimeoutStartSec=660
 Restart=on-failure
 RestartSec=30

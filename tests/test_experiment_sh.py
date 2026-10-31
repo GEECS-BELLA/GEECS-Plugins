@@ -314,7 +314,13 @@ def test_code_runs_as_the_service_account_and_only_installs_as_root(profile) -> 
     assert result.returncode == 0, result.stderr
     log = _log(profile)
     assert any(x.startswith("geecs: ") and "bootstrap_host.sh" in x for x in log), log
-    assert any(x.startswith("geecs: bash -c mkdir") for x in log), log
+    assert any(x.startswith("geecs: ") and "bash -c mkdir" in x for x in log), log
+    # sudo resets the environment: the knobs travel to the service account
+    assert all(
+        f"GEECS_EXPERIMENTS_DIR={profile['experiments']}" in x
+        for x in log
+        if x.startswith("geecs: ")
+    ), log
     assert not any(x.startswith("root: ") and "bootstrap_host.sh" in x for x in log), (
         log
     )
@@ -377,5 +383,40 @@ def test_an_existing_instance_root_clone_is_brought_to_ref_and_reinstalled(
     site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={inst_root}\n")
     result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
     assert "envs reinstalled" in result.stdout, result.stdout + result.stderr
-    assert "merge --quiet --ff-only origin/master" in result.stdout
+    assert "checkout --quiet master" in result.stdout
+    # no origin/master in these bare clones: a tag/SHA-like ref is not ff-merged
+    assert "merge --quiet --ff-only" not in result.stdout
     assert "poetry install" in result.stdout
+
+
+@pytest.mark.parametrize("where", ["inside", "around"])
+def test_a_nested_instance_root_is_refused(tmp_path: Path, profile, where: str) -> None:
+    """One root inside the other would let the instance's chown or fast-forward
+    reach the main clones."""
+    main = profile["root"]
+    main.mkdir(parents=True, exist_ok=True)
+    inst = main / "instances" if where == "inside" else main.parent
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={inst}/\n")
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 2
+    assert "GEECS_INSTANCE_CHECKOUT_ROOT" in result.stderr
+
+
+def test_the_main_root_spelled_differently_is_still_the_main_root(profile) -> None:
+    """A trailing slash must not make the main clones look like an instance root."""
+    main = profile["root"]
+    (main / "qs-checkout").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(main / "qs-checkout")], check=True)
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={main}/\n")
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert "envs reinstalled" not in result.stdout
+    assert "used as it is" in result.stdout
+
+
+def test_up_never_blocks_on_the_readiness_retries(profile) -> None:
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "systemctl reset-failed" in result.stdout
+    assert "systemctl restart --no-block" in result.stdout
