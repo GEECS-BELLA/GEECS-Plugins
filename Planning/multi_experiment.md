@@ -428,8 +428,11 @@ week's proof; this file is deleted in that PR):
 > - #1229 the read-only overlap check
 > - the slice-7 docs PR
 >
-> **Proof:** PulsedWire beside Undulator for a week; `/fleet-status` shows
-> both; an Undulator scan is unaffected; `down`/`up` round-trips. The
+> **Proof:** concurrent scans on the hub on 2026-10-31, PulsedWire Scan001
+> and Undulator Scan002, each with 20 shots, in their own data trees and
+> registered by their own Tiled writers, with the Undulator units untouched.
+> Still to come: the week beside Undulator, `/fleet-status` showing both,
+> and the `down`/`up` round trip. The
 > evidence is in this file's § Status, moved into this body at promotion.
 >
 > **Exception, not design:** `GEECS_INSTANCE_CHECKOUT_ROOT`. Instances ran
@@ -561,3 +564,35 @@ quiet.
 - **Compose-based instance units.** None exist; all six instance units run
   under poetry. If one ever runs a container, it needs `stop_grace_period`
   plus `SuccessExitStatus=143` (#1219). `site_profile.md` says so.
+
+### 2026-10-31 — the proof: two experiments at once
+
+PulsedWire and Undulator ran scans concurrently on the hub:
+
+| Experiment | Scan | Profile | Shots | Local time |
+|---|---|---|---|---|
+| PulsedWire (`Test stand default`) | Scan001 | strict, `PulseWire-Bench` | 20 | 16:11:00.9–16:11:04.9 |
+| Undulator | Scan002 | `HTU-LaserOFF` | 20 | 16:11:02.8–16:11:07.5 |
+
+Each scan landed in its own data tree and was registered by its own Tiled
+writer. The Undulator units were not touched.
+
+The rest of the brief's proof of done still runs this week: a week of
+PulsedWire beside Undulator, `/fleet-status` showing both, and a
+`down`/`up` round trip.
+
+**Follow-ups, not built:**
+
+- **Preflight checks trigger profiles against a different set than the
+  worker uses.** The worker loads its profiles when it starts. The
+  scanner's preflight validates against the configs directory on disk.
+  PulsedWire's profile was copied into its tree after `up`. Preflight
+  passed, but the plan failed with "unknown trigger profile
+  'PulseWire-Bench'; choose one of: none loaded" until
+  `systemctl restart geecs-qserver@PulsedWire`. Candidates:
+  - the preflight checks the worker's loaded set;
+  - the worker reloads profiles per plan.
+- **A new experiment starts with no trigger profile.** `experiment.sh up`
+  leaves `shot_control_configurations/` empty, so the first scan needs a
+  profile there before the copy or a worker restart after it. The verb
+  could warn when that directory is empty.
