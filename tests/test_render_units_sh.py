@@ -404,3 +404,32 @@ def test_bootstrap_renders_no_instance_over_code_that_ignores_its_keys(
     assert ("does not read" in result.stdout) is stale
     assert "geecs-ca-gateway@PulsedWire.service" in enable
     assert "geecs-tiled-writer@PulsedWire.service" in enable
+
+
+def test_the_ready_instance_unit_retries_and_names_its_manager(tmp_path: Path) -> None:
+    ready = REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service"
+    d = _directives(ready.read_text(encoding="utf-8"))
+    exec_start = next(x for x in d if x.startswith("ExecStart="))
+    assert "QS_CONTROL_ADDR" not in exec_start  # read from the instance file's env
+    assert "Restart=on-failure" in d
+    assert any(x.startswith("StartLimitBurst=") for x in d)
+    assert (
+        "Requires=geecs-qserver@%i.service" in d
+        and "After=geecs-qserver@%i.service" in d
+    )
+
+
+def test_a_client_address_naming_another_manager_is_refused(tmp_path: Path) -> None:
+    text = (
+        Path(_filled_example(tmp_path))
+        .read_text()
+        .replace(
+            "QS_CONTROL_ADDR=tcp://localhost:60715",
+            "QS_CONTROL_ADDR=tcp://localhost:60615",
+        )
+    )
+    bad = tmp_path / "bad.env"
+    bad.write_text(text)
+    result = _check_instance(str(bad))
+    assert result.returncode != 0
+    assert "not this instance's manager" in result.stderr

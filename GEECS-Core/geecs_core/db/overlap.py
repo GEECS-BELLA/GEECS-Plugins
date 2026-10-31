@@ -101,9 +101,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         shared = shared_devices(args.experiments)
     except _db_errors() as exc:  # "not checked", said so; a code bug still raises
+        import getpass
+        from pathlib import Path
+
         print(
             f"WARNING: overlap check skipped — the GEECS DB could not be read "
-            f"({type(exc).__name__}: {exc})",
+            f"as {getpass.getuser()!r} (its DB credentials come from "
+            f"{Path('~/.config/geecs_python_api/config.ini').expanduser()}): "
+            f"{type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
         return 3

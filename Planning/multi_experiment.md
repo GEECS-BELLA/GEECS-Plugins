@@ -445,3 +445,61 @@ week's proof; this file is deleted in that PR):
 > - the bench experiment's DB name (maintainer cleanup)
 > - the two maintainer follow-ups above
 > - no version bumps here
+
+### 2026-10-31 — slice 6, first run by the maintainer: three defects fixed
+
+The maintainer ran `sudo deploy/experiment.sh up PulsedWire …` on the box
+from a driver clone. It ran end to end, but exposed three defects. The read-only
+journals below confirm them.
+
+1. **Account split.** Under sudo, the verb ran the bootstrap, the overlap
+   check and the scaffold as root.
+   - Root's poetry cache got the envs. The service account's venvs for the
+     instance clones stayed empty, so every instance unit crash-looped with
+     `start-re-manager is not on PATH` / `No module named 'geecs_core'`.
+   - Fixed: the verb now runs everything that builds or reads code (the
+     bootstrap, the overlap check, the scaffold, writing the staged
+     instance file) as `GEECS_SERVICE_USER` via `sudo -u … -H`. Root keeps
+     only `install`, `daemon-reload` and `enable` + `restart`.
+   - The verb refuses a non-root account without sudo.
+     `bootstrap_host.sh --experiment` refuses root.
+   - Under an instance root of its own, an existing clone is
+     fast-forwarded to `--ref` and its envs reinstalled on every `up`.
+   - A tree left root-owned (the staging dir, the instance root) is handed
+     back to the service account first.
+2. **The overlap check under root** read root's config.ini (exit 3,
+   "skipped"). Fixed by (1). The skip message now names the account and
+   the config.ini it read.
+3. **`geecs-qserver-ready@`** failed at `enable --now`. Its journal shows
+   the same `No module named 'geecs_core'` as the manager, so (1) is the
+   cause. The template now:
+   - reads the instance's manager address (`QS_CONTROL_ADDR` from the
+     instance file, which overrides site.env's), and `check_instance_env`
+     now pins that port, and `QS_CLIENT_CONTROL_ADDR`'s, to the manager's
+     own `QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER`;
+   - retries, bounded (`Restart=on-failure`, 30 s apart, at most 4 starts in
+     30 min), on top of `ensure-ready`'s own 600 s wait;
+   - keeps `After=`/`Requires=`/`PartOf=` on `geecs-qserver@%i`.
+
+`down` and `up` both run `reset-failed` on the units. `up` starts them with
+`restart --no-block` and then waits, bounded, for the readiness oneshot. The
+"instance root of its own" test compares canonical paths and refuses nested
+roots. A re-run `up` is therefore a clean start. That start reuses the instance file and brings the clones and
+envs up to date as the service account.
+
+**Left from the first run, harmless:**
+- Root's poetry cache holds venvs for the instance clones. Nothing uses
+  them; the maintainer may delete them.
+- The configs folder `Test stand default/` was created by root on the
+  share. If its ownership is root's, hand it to the service account.
+
+**Steady state (the whole deploy):**
+
+```bash
+sudo <driver>/deploy/experiment.sh up <Name> --db-experiment '<DB name>' --address <host> --broadcast <bcast> [--ca-extra '<IOC hosts>'] [--ref <ref>]
+sudo <driver>/deploy/experiment.sh down <Name>        # and `up <Name>` again: no flags, the file is reused
+<driver>/deploy/experiment.sh list
+```
+
+Nothing else is done by hand. The step-by-step split in the earlier entry is
+superseded. The driver clone must be readable by the service account.

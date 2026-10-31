@@ -18,9 +18,12 @@
 #                  one experiment INSTANCE beside the main units: renders the
 #                  instance templates (<unit>@.service) of gateway, logbook,
 #                  qserver, tiled-writer and scanner and prints their enable
-#                  lines for <unit>@INSTANCE. Existing clones are used AS
-#                  THEY ARE (they run the main experiment's services: never
-#                  fetched, moved or reinstalled here); an absent one is
+#                  lines for <unit>@INSTANCE. Never as root. Existing clones
+#                  are used AS THEY ARE (they run the main experiment's
+#                  services: never fetched, moved or reinstalled here) —
+#                  except under an instance root of its own
+#                  (GEECS_INSTANCE_CHECKOUT_ROOT), where each run brings them
+#                  to --ref and reinstalls their envs; an absent one is
 #                  cloned at --ref and installed. Clones live under
 #                  GEECS_INSTANCE_CHECKOUT_ROOT when site.env sets it (else
 #                  the main root). config.ini is not touched.
@@ -136,6 +139,11 @@ $(instance_code_of "$1")
 EOF_CODE
 }
 if [ -n "$INSTANCE" ]; then
+    # Never as root: the clones and poetry envs are the service account's
+    # (its cache, its venvs) — built as root, the units could not use them.
+    if [ "$(id -u)" -eq 0 ]; then
+        echo "bootstrap_host.sh --experiment must not run as root: run it as $GEECS_SERVICE_USER (deploy/experiment.sh does)" >&2; exit 2
+    fi
     case "$INSTANCE" in *[!A-Za-z0-9_-]*) echo "--experiment: instance '$INSTANCE' is not a slug (letters, digits, '-', '_')" >&2; exit 2 ;; esac
     EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
     INSTANCE_ENV_INSTALLED="$EXPERIMENTS_DIR/$INSTANCE.env"
@@ -158,13 +166,26 @@ if [ -n "$INSTANCE" ]; then
     INSTANCE_ROOT="${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}"
     echo "  clones under $INSTANCE_ROOT; a missing one is cloned at --ref $REF (the ref the instance templates and their code are on)"
     TEMPLATE_PATHS=(); ENABLE=(); NEW_CLONES=" "; INSTALLED_ENVS=" "
+    SEPARATE_ROOT=0; if instance_root_is_separate; then SEPARATE_ROOT=1; fi
     for s in $INSTANCE_SERVICES; do
         iwanted "$s" || continue
         dir="$INSTANCE_ROOT/$(clone_of "$s")"
         # A clone this run created is ours to install into (every package dir
-        # in it, once); one that already existed is used exactly as it is.
+        # in it, once). One that already existed is used as it is — except
+        # under an instance root of its own, where no main unit runs from
+        # it: there its envs are (re)installed every run, so a re-run `up`
+        # is a correct fresh start under THIS account.
         case "$NEW_CLONES" in *" $dir "*) ;; *)
-            if [ -e "$dir/.git" ]; then
+            if [ -e "$dir/.git" ] && [ "$SEPARATE_ROOT" -eq 1 ]; then
+                echo "  $s: $(clone_of "$s") exists ($(git -C "$dir" rev-parse --abbrev-ref HEAD) $(git -C "$dir" rev-parse --short=8 HEAD)) under the instance root — brought to $REF, envs reinstalled"
+                run git -C "$dir" fetch --quiet origin
+                run git -C "$dir" checkout --quiet "$REF"
+                # A branch follows its remote; a tag or a SHA is already exact.
+                if git -C "$dir" rev-parse --verify -q "refs/remotes/origin/$REF" >/dev/null; then
+                    run git -C "$dir" merge --quiet --ff-only "origin/$REF"
+                fi
+                NEW_CLONES="$NEW_CLONES$dir "
+            elif [ -e "$dir/.git" ]; then
                 echo "  $s: $(clone_of "$s") exists ($(git -C "$dir" rev-parse --abbrev-ref HEAD) $(git -C "$dir" rev-parse --short=8 HEAD)) — used as it is"
             else
                 run git clone --quiet --branch "$REF" "$GEECS_REPO_URL" "$dir"; NEW_CLONES="$NEW_CLONES$dir "

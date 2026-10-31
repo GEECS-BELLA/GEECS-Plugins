@@ -53,7 +53,26 @@ def profile(tmp_path: Path) -> dict[str, Path]:
         + f"\nGEECS_CHECKOUT_ROOT={root}\nGEECS_CONFIGS_ROOT={configs}\n",
         encoding="utf-8",
     )
-    return {"site": site, "experiments": experiments, "root": root}
+    # A stand-in for sudo: logs who each command would run as, then runs it
+    # as the test's own user (no privilege is ever taken).
+    log = tmp_path / "sudo.log"
+    stub = tmp_path / "sudo-stub"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        "who=root\n"
+        'while [ $# -gt 0 ]; do case "$1" in -n) shift ;; -H) shift ;; -u) who="$2"; shift 2 ;; *) break ;; esac; done\n'
+        f'[ $# -gt 0 ] && echo "$who: $*" >> "{log}"\n'
+        '[ $# -eq 0 ] || [ "$1" = true ] && exit 0\n'
+        'exec "$@"\n'
+    )
+    stub.chmod(0o755)
+    return {
+        "site": site,
+        "experiments": experiments,
+        "root": root,
+        "sudo": stub,
+        "log": log,
+    }
 
 
 def _verb(
@@ -65,6 +84,7 @@ def _verb(
         "HOME": str(profile["root"]),
         "GEECS_SITE_ENV_PATH": str(profile["site"]),
         "GEECS_EXPERIMENTS_DIR": str(profile["experiments"]),
+        "GEECS_EXPERIMENT_SUDO": str(profile["sudo"]),
         **extra,
     }
     return subprocess.run(
@@ -98,8 +118,10 @@ def test_up_writes_slot_one_and_enables_the_six_instance_units(profile) -> None:
     assert env["QS_CLIENT_DOC_ADDR"] == "localhost:5668"
     assert env["QS_REDIS_PREFIX"] == "qs_PulsedWire"
     assert (env["GEECS_SCANNER_PORT"], env["GEECS_LOGBOOK_PORT"]) == ("8310", "8410")
-    enable = next(line for line in result.stdout.splitlines() if "enable --now" in line)
-    assert sorted(enable.split("enable --now", 1)[1].split()) == sorted(
+    enable = next(
+        line for line in result.stdout.splitlines() if "systemctl restart" in line
+    )
+    assert sorted(enable.split("restart --no-block", 1)[1].split()) == sorted(
         f"{u}@PulsedWire.service" for u in UNITS
     )
     assert "http://127.0.0.1:8310/" in result.stdout
@@ -213,6 +235,12 @@ def test_an_incomplete_instance_installs_nothing(profile) -> None:
     from test_render_units_sh import _fake_clones
 
     _fake_clones(profile["root"], stale=True)
+    import getpass
+
+    # A real (non-dry) run: the service account is this test's own user, so
+    # no ownership change is ever attempted.
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_SERVICE_USER={getpass.getuser()}\n")
     result = _verb(profile, "up", "PulsedWire", *NEW)
     assert result.returncode == 1
     assert "INCOMPLETE" in result.stderr
@@ -259,3 +287,136 @@ def test_the_instance_itself_counts_once(profile) -> None:
     assert again.returncode == 0, again.stderr
     line = next(x for x in again.stdout.splitlines() if "geecs_core.db.overlap" in x)
     assert line.endswith("python -m geecs_core.db.overlap 'Undulator' 'Bench stand'")
+
+
+def _log(profile: dict[str, Path]) -> list[str]:
+    path = profile["log"]
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def test_without_root_or_sudo_the_verb_refuses(profile) -> None:
+    result = _verb(
+        profile,
+        "up",
+        "PulsedWire",
+        *NEW,
+        "--dry-run",
+        env={"GEECS_EXPERIMENT_SUDO": "false"},
+    )
+    assert result.returncode == 2
+    assert "needs root" in result.stderr
+
+
+def test_code_runs_as_the_service_account_and_only_installs_as_root(profile) -> None:
+    """The bootstrap (clones, envs, render) and the staged file are the service
+    account's; the root steps are printed (dry run) for root alone."""
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    log = _log(profile)
+    assert any(x.startswith("geecs: ") and "bootstrap_host.sh" in x for x in log), log
+    assert any(x.startswith("geecs: ") and "bash -c mkdir" in x for x in log), log
+    # sudo resets the environment: the knobs travel to the service account
+    assert all(
+        f"GEECS_EXPERIMENTS_DIR={profile['experiments']}" in x
+        for x in log
+        if x.startswith("geecs: ")
+    ), log
+    assert not any(x.startswith("root: ") and "bootstrap_host.sh" in x for x in log), (
+        log
+    )
+    root_steps = [x for x in result.stdout.splitlines() if "[dry] as_root" in x]
+    assert any("install -D" in x for x in root_steps)
+    assert any("daemon-reload" in x for x in root_steps)
+    assert not any("bootstrap" in x or "poetry" in x for x in root_steps)
+
+
+def test_the_bootstrap_refuses_root(tmp_path: Path, profile) -> None:
+    fake = tmp_path / "fakebin"
+    fake.mkdir()
+    (fake / "id").write_text(
+        '#!/usr/bin/env bash\n[ "$1" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id "$@"\n'
+    )
+    (fake / "id").chmod(0o755)
+    inst = profile["root"].parent / "PulsedWire.env"
+    first = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert first.returncode == 0, first.stderr
+    shutil.copy(
+        profile["root"] / "deploy-staging" / "instances" / "PulsedWire.env", inst
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            str(REPO_ROOT / "deploy" / "bootstrap_host.sh"),
+            str(profile["site"]),
+            "--experiment",
+            "PulsedWire",
+            "--instance-env",
+            str(inst),
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": f"{fake}:/usr/bin:/bin", "HOME": str(tmp_path)},
+    )
+    assert result.returncode == 2
+    assert "must not run as root" in result.stderr
+
+
+def test_down_clears_a_failed_state(profile) -> None:
+    result = _verb(profile, "down", "PulsedWire", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "reset-failed" in result.stdout
+
+
+def test_an_existing_instance_root_clone_is_brought_to_ref_and_reinstalled(
+    tmp_path: Path, profile
+) -> None:
+    """A re-run `up` is a fresh start under the service account: under an
+    instance root of its own, existing clones are fast-forwarded and their envs
+    reinstalled (never under the main root, which runs the main units)."""
+    inst_root = tmp_path / "instances"
+    for clone in ("gateway-checkout", "portal-checkout", "qs-checkout"):
+        (inst_root / clone).mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(inst_root / clone)], check=True)
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={inst_root}\n")
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert "envs reinstalled" in result.stdout, result.stdout + result.stderr
+    assert "checkout --quiet master" in result.stdout
+    # no origin/master in these bare clones: a tag/SHA-like ref is not ff-merged
+    assert "merge --quiet --ff-only" not in result.stdout
+    assert "poetry install" in result.stdout
+
+
+@pytest.mark.parametrize("where", ["inside", "around"])
+def test_a_nested_instance_root_is_refused(tmp_path: Path, profile, where: str) -> None:
+    """One root inside the other would let the instance's chown or fast-forward
+    reach the main clones."""
+    main = profile["root"]
+    main.mkdir(parents=True, exist_ok=True)
+    inst = main / "instances" if where == "inside" else main.parent
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={inst}/\n")
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 2
+    assert "GEECS_INSTANCE_CHECKOUT_ROOT" in result.stderr
+
+
+def test_the_main_root_spelled_differently_is_still_the_main_root(profile) -> None:
+    """A trailing slash must not make the main clones look like an instance root."""
+    main = profile["root"]
+    (main / "qs-checkout").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(main / "qs-checkout")], check=True)
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={main}/\n")
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert "envs reinstalled" not in result.stdout
+    assert "used as it is" in result.stdout
+
+
+def test_up_never_blocks_on_the_readiness_retries(profile) -> None:
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "systemctl reset-failed" in result.stdout
+    assert "systemctl restart --no-block" in result.stdout
