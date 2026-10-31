@@ -15,7 +15,8 @@ has it); "unreachable" there is a state, not an error page. The presets
 are the module's (Squirrel's snapshots behind it): listed, saved, diffed,
 marked golden and restored through its routes, each write sent once (the
 module resolves a scope, screens included). The strip's "baseline" is the
-golden snapshots' differing rows, polled slowly.
+golden snapshots' differing rows, polled slowly, and incomplete while a
+row of theirs could not be compared.
 """
 
 from __future__ import annotations

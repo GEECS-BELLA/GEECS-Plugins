@@ -48,7 +48,17 @@
   // older generation (opened for another preset meanwhile) or for a drawer no longer open is dropped, never shown.
   // The drawer's own openness is the fourth guard: the kit closes it on Esc, the scrim or Close, none of which the page sees.
   const openSelection = (state, preset) => ({ generation: (state ? state.generation : 0) + 1, preset, rows: [] });
-  const takeDiff = (state, generation, rows, open) => (open && state && generation === state.generation ? { ...state, rows } : null);
+  // Whether an answer still belongs to the drawer: it is open and on the generation the request was made for.
+  // Every answer the drawer awaits (a diff of any status, a restore's) goes through this one predicate.
+  const stillCurrent = (state, generation, open) => !!open && !!state && generation === state.generation;
+  const takeDiff = (state, generation, rows, open) => (stillCurrent(state, generation, open) ? { ...state, rows } : null);
+
+  // The drawer's summary of a diff: a row was compared only when its word is same or differs, as the baseline counts.
+  function diffSummary(rows) {
+    const differs = rows.filter((r) => r.word === "differs").length;
+    const notCompared = rows.filter((r) => r.word !== "same" && r.word !== "differs").length;
+    return `${rows.length} rows · ${differs} differ · ${notCompared} not compared; tick the devices to restore`;
+  }
 
   // A diff row's word as a kit state; "unsaved: unreachable at save time" explains a null.
   const DIFF = { same: "ok", differs: "degraded", unsaved: "unknown", retired: "unknown", unread: "unknown", unsupported: "unknown" };
@@ -64,5 +74,5 @@
     return { rows: chosen, devices, text };
   }
 
-  Object.assign(rules, { listView, presetRow, baselineChip, openSelection, takeDiff, diffState, diffNote, restorePlan });
+  Object.assign(rules, { listView, presetRow, baselineChip, openSelection, stillCurrent, takeDiff, diffSummary, diffState, diffNote, restorePlan });
 })(typeof module === "object" ? module.exports : (window.GeecsHomeRules = {}));

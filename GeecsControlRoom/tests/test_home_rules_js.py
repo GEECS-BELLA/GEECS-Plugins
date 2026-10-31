@@ -51,6 +51,10 @@ PRESET_ROWS: list[tuple[str, str, list[Any], dict[str, Any]]] = [
     ("a diff for the current generation of an open drawer is taken", "takeDiff", [{"generation": 2, "preset": {"id": "b"}, "rows": []}, 2, [{"device": "M"}], True], {"generation": 2, "preset": {"id": "b"}, "rows": [{"device": "M"}]}),
     ("a late diff for a superseded generation is dropped", "takeDiff", [{"generation": 2, "preset": {"id": "b"}, "rows": []}, 1, [{"device": "M"}], True], NULL),
     ("a diff for a drawer closed meanwhile (Esc, the scrim) is dropped", "takeDiff", [{"generation": 2, "preset": {"id": "b"}, "rows": []}, 2, [{"device": "M"}], False], NULL),
+    ("an answer for the open drawer's generation is current", "stillCurrent", [{"generation": 2}, 2, True], True),
+    ("an answer for a superseded generation is not", "stillCurrent", [{"generation": 2}, 1, True], False),
+    ("an answer for a closed drawer is not (any status)", "stillCurrent", [{"generation": 2}, 2, False], False),
+    ("the drawer's summary counts every word but same and differs as not compared", "diffSummary", [[{"word": "differs"}, {"word": "same"}, {"word": "unread"}, {"word": "stale"}]], "4 rows · 1 differ · 2 not compared; tick the devices to restore"),
     ("an unsaved row explains itself", "diffNote", ["unsaved"], None),
 ]  # fmt: skip
 
@@ -68,6 +72,8 @@ def test_preset_rule(preset_answers: list[Any], i: int) -> None:
         assert preset_answers[i] == "unsaved: unreachable at save time"
     elif want == NULL:
         assert preset_answers[i] is None
+    elif not isinstance(want, dict):
+        assert preset_answers[i] == want
     else:
         assert {k: preset_answers[i][k] for k in want} == want
 

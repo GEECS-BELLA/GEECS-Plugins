@@ -204,7 +204,9 @@ async def test_the_baseline_sums_the_golden_diffs_and_is_none_without_one(settin
                 "counts": {"differs": 2 if "g1" in request.url.path else 1},
                 "rows": [
                     {"word": "differs"},
-                    {"word": "unread" if "g2" in request.url.path else "same"},
+                    {
+                        "word": "stale" if "g2" in request.url.path else "same"
+                    },  # a word the module has not got yet: still not compared
                 ],
             },
         )

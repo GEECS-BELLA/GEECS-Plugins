@@ -186,12 +186,10 @@
     const drawer = window.GeecsKit.drawer($("preset-diff"));
     drawer.open();
     const [status, body] = await json(`/api/presets/${encodeURIComponent(p.id)}/diff`);
-    const taken = status === 200 ? H.takeDiff(selection, generation, body.rows, drawer.isOpen) : null;
-    if (!taken && (!drawer.isOpen || !selection || generation !== selection.generation)) return; // closed or superseded: not this drawer's answer any more
+    if (!H.stillCurrent(selection, generation, drawer.isOpen)) return; // closed or superseded: not this drawer's answer any more
     if (status !== 200) { $("preset-diff-note").textContent = `${body.code || status}: ${body.detail || ""}`; return; }
-    selection = taken;
-    const c = body.counts || {};
-    $("preset-diff-note").textContent = `${body.rows.length} rows · ${c.differs || 0} differ · ${c.unsaved || 0} unsaved · ${c.retired || 0} retired; tick the devices to restore`;
+    selection = H.takeDiff(selection, generation, body.rows, drawer.isOpen);
+    $("preset-diff-note").textContent = H.diffSummary(body.rows);
     $("preset-diff-rows").replaceChildren(...body.rows.map((r) => {
       const tr = document.createElement("tr"), pick = cell(""), box = document.createElement("input");
       box.type = "checkbox"; box.value = r.device; box.disabled = r.word !== "differs"; box.checked = r.word === "differs"; box.setAttribute("aria-label", `restore ${r.device}`);
@@ -204,9 +202,11 @@
     if (restoring) restore(generation);
   }
 
-  async function restore(generation) {
+  let restoreInFlight = false; // a restore in flight: the drawer sends one at a time, once
+  async function restore(asked) {
     const drawer = window.GeecsKit.drawer($("preset-diff"));
-    if (!drawer.isOpen || !selection || (generation !== undefined && generation !== selection.generation)) return; // the drawer closed or moved on
+    const generation = asked === undefined ? selection.generation : asked; // the Restore button's: the drawer's own now
+    if (restoreInFlight || !H.stillCurrent(selection, generation, drawer.isOpen)) return; // in flight, or the drawer closed or moved on
     const p = selection.preset, operator = opInput.value.trim();
     if (!operator) { drawer.close(); opInput.focus(); return note("unsent", "name yourself in the header first"); }
     const picked = [...new Set([...document.querySelectorAll("#preset-diff-rows input:checked")].map((b) => b.value))];
@@ -215,9 +215,21 @@
     $("preset-restore-what").textContent = `${p.name} → ${plan.text}`;
     $("preset-restore-note").textContent = "Each row goes through the module's gates; a hazard role is confirmed here, once.";
     if (!(await ask($("preset-restore"), "restore"))) return;
-    const [status, a] = await json(`/api/presets/${encodeURIComponent(p.id)}/restore`, { operator, confirm: true, devices: plan.devices });
-    if (status === 202) { track(p.id, a); drawer.close(); }
-    else { $("preset-diff-note").textContent = `${a.code || status}: ${a.detail || ""}`; }
+    restoreInFlight = true;
+    $("preset-restore-open").disabled = true;
+    let status, a;
+    try {
+      [status, a] = await json(`/api/presets/${encodeURIComponent(p.id)}/restore`, { operator, confirm: true, devices: plan.devices });
+    } catch (err) {
+      [status, a] = [0, { code: "no_answer", detail: "read the journal before restoring again" }];
+    } finally {
+      restoreInFlight = false;
+      $("preset-restore-open").disabled = false;
+    }
+    if (status === 202) track(p.id, a); // the run is the row's, whatever the drawer shows now
+    if (!H.stillCurrent(selection, generation, drawer.isOpen)) return; // the drawer moved on: its note and openness are not this answer's
+    if (status === 202) drawer.close();
+    else $("preset-diff-note").textContent = `${a.code || status}: ${a.detail || ""}`;
   }
 
   async function golden(p) {
