@@ -155,9 +155,10 @@ Undulator gateway is still on the old services host, and the box's
 | scanner | manager control/info/doc | `config.ini [qserver]` only (`qs_client.read_qserver_config`) | **env override needed (code)** — config.ini is per account, shared by both instances |
 | scanner | state dir, writer heartbeat | `$STATE_DIRECTORY`, `GEECS_TILED_WRITER_STATE` | template `%i` (unit) |
 | logbook | HTTP 8400, notes DB | `--port` arg; `$STATE_DIRECTORY/logbook.db` | unit arg + `StateDirectory=geecs-logbook/%i` (unit) |
-| CA gateway | CA server port 5064 | caproto reads `EPICS_CA_SERVER_PORT` | env — but **only in the gateway's process**: the same key in the worker's env would re-port every port-less address-list entry, so the instance env carries `GEECS_CA_SERVER_PORT` and the template maps it |
+| CA gateway | CA server port 5064 | caproto reads `EPICS_CA_SERVER_PORT` | env — but **only in the gateway's process**: the same key in the worker's env would re-port every port-less address-list entry, so the instance env carries `GEECS_CA_SERVER_PORT` and the template's `ExecStart=/usr/bin/env EPICS_CA_SERVER_PORT=${GEECS_CA_SERVER_PORT} …` hands it over (`Environment=` does not expand `${}`). The ruling "no gateway code change" wins: slice 3's "from config" is met by the instance file |
 | CA gateway | serving interface / beacons | `EPICS_CAS_INTF_ADDR_LIST` / `..._BEACON_...` | instance env (overrides site.env) |
-| worker | CA address list | `EPICS_CA_ADDR_LIST` (env wins over config.ini) | instance env: `<box>:<GEECS_CA_SERVER_PORT>` first, then the IOC hosts |
+| worker | CA address list | `EPICS_CA_ADDR_LIST` (env wins over config.ini) | instance env: `<box>:<GEECS_CA_SERVER_PORT>` first, then the IOC hosts — every instance unit reads the file, so the scanner's readback PVs (a CA client too) follow it |
+| fleet probe | manager address | `scripts/qserver_probe.py` reads config.ini `[qserver]` (one per account) | per-instance probe needed for "`/fleet-status` shows both" (slice 6/7) |
 
 The PV prefix is `normalize_component(experiment)` — `test_stand_default:` vs
 `undulator:` — so two gateways never serve one PV name even for the five
@@ -178,6 +179,16 @@ DB name, spaces allowed — the instance name is a slug), `GEECS_CA_SERVER_PORT`
 `QS_REDIS_PREFIX`, `QS_DOC_PROXY_IN`, `QS_DOC_PROXY_OUT`, `QS_DOC_PUBLISH_ADDR`,
 `QS_CONTROL_ADDR`, `QS_INFO_ADDR`, `QS_DOC_ADDR` (the clients' side),
 `GEECS_SCANNER_PORT`, `GEECS_LOGBOOK_PORT`.
+Paired keys (`QS_DOC_PUBLISH_ADDR` = proxy in, `QS_DOC_ADDR` = proxy out,
+`QS_CONTROL_ADDR`/`QS_INFO_ADDR` = the manager's two sockets) restate the slot:
+slice 4's verb derives every port from `GEECS_INSTANCE_SLOT`, never as
+independent inputs. The client keys are new `QS_*` names, not the existing
+site key `GEECS_QS_DOC_ADDR`: the main scanner reads site.env too, and must
+not start honouring a key it ignores today.
+
+**Open — the maintainer's site.env edit, not a lane's:** the archiver and
+Canopy take `EPICS_CA_ADDR_LIST` from site.env, so they reach a second
+gateway only when the site list gains its `host:port` entry.
 
 **Open — needs the maintainer before slice 6** (slices 2–5 do not depend on
 it): the data folder. A scan claims `<data root>/<experiment>/Y…`, so a
