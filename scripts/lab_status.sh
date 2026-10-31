@@ -77,9 +77,9 @@ else
     NET_UP=0
 fi
 if port_open "$LAB_HOST" "$CA_PORT"; then
-    ok "CA gateway  $LAB_HOST:$CA_PORT (TCP only — liveness needs --hardware)"
+    ok "CA gateway  $LAB_HOST:$CA_PORT (first [epics] ca_addr_list entry; TCP only — liveness needs --hardware)"
 else
-    bad "CA gateway  $LAB_HOST:$CA_PORT"
+    bad "CA gateway  $LAB_HOST:$CA_PORT (first [epics] ca_addr_list entry)"
     NET_UP=0
 fi
 if [ -n "$ARCHIVER_HOST" ]; then

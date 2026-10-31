@@ -35,8 +35,8 @@
 #      deployed sha, and how far each is from origin/master
 #
 # Endpoints come from ~/.config/geecs_python_api/config.ini (the one client
-# contract) — the lab server from [tiled] uri, the worker from [qserver]
-# host, ssh aliases from ~/.ssh/config by matching HostName. Nothing lab-
+# contract) — the gateway + DB box from the first [epics] ca_addr_list
+# entry, Tiled from [tiled] uri, the worker from [qserver] host, ssh aliases from ~/.ssh/config by matching HostName. Nothing lab-
 # specific is hardcoded here beyond the fleet map's port numbers.
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
 
@@ -742,7 +742,7 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
 if [ "$NET_UP" -eq 1 ] && [ "$DO_SSH" -eq 1 ]; then
     echo "== Stage 2: host checkouts (ssh, read-only) =="
     if [ -z "$HOSTS" ]; then
-        skip "no hosts derivable from config.ini ([tiled] uri / [qserver] host)"
+        skip "no hosts derivable from config.ini ([epics] ca_addr_list / [tiled] uri / [qserver] host)"
     fi
     for host in $HOSTS; do
         target="$(ssh_target "$host")"

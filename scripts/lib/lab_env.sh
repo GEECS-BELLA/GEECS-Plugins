@@ -32,7 +32,9 @@ url_host() { printf '%s' "$1" | sed -E 's|^[a-z]+://||; s|[:/].*$||'; }         
 url_port() { printf '%s' "$1" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p'; }    # url_port URL — the explicit port, or empty
 TILED_URI="$(ini_get tiled uri)"
 TILED_HOST="$(url_host "$TILED_URI")"
-CA_ADDR_FIRST="$(ini_get epics ca_addr_list | awk '{print $1}')"
+# The gateway is taken to be the FIRST entry (commas or spaces separate, as
+# geecs_core.epics_env reads it); the probes print that they took it so.
+CA_ADDR_FIRST="$(ini_get epics ca_addr_list | tr ',' ' ' | awk '{print $1}')"
 LAB_HOST="${CA_ADDR_FIRST%%:*}"
 LAB_HOST="${LAB_HOST:-$TILED_HOST}"
 TILED_PORT="$(url_port "$TILED_URI")"

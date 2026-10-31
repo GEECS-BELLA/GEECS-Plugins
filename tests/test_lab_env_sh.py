@@ -109,3 +109,9 @@ def test_no_ca_list_keeps_the_one_box_reading(tmp_path: Path) -> None:
     cfg.write_text("[tiled]\nuri = http://lab:8000\n")
     out = _run(cfg, 'echo "$LAB_HOST $TILED_HOST"')
     assert out.strip() == "lab lab"
+
+
+def test_a_comma_separated_ca_list_yields_its_first_host(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.ini"
+    cfg.write_text("[epics]\nca_addr_list = gw.example,ioc.example\n")
+    assert _run(cfg, 'echo "$LAB_HOST"').strip() == "gw.example"
