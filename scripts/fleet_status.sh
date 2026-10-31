@@ -103,7 +103,7 @@ if [ "$WATCH" != "0" ]; then
     done
 fi
 
-# config.ini reader, endpoints (LAB_HOST, TILED_PORT, WORKER_HOST), printers,
+# config.ini reader, endpoints (LAB_HOST, TILED_HOST, TILED_PORT, WORKER_HOST), printers,
 # bounded() and port_open() — shared with lab_status.sh (scripts/lib/lab_env.sh).
 . "$REPO_ROOT/scripts/lib/lab_env.sh"
 
@@ -128,7 +128,7 @@ fi
 # host, deduplicated (today they are one box; the fleet map says which
 # services live where).
 HOSTS=""
-for h in "$LAB_HOST" "$WORKER_HOST" "$ARCHIVER_HOST"; do
+for h in "$LAB_HOST" "$TILED_HOST" "$WORKER_HOST" "$ARCHIVER_HOST"; do
     [ -n "$h" ] || continue
     case " $HOSTS " in *" $h "*) ;; *) HOSTS="$HOSTS $h" ;; esac
 done
@@ -172,9 +172,9 @@ fi
 if [ "$NET_UP" -eq 1 ]; then
     echo "== Stage 1: what each service says about itself (read-only) =="
     # Tiled — pip-installed, no checkout; its library version is the whole story.
-    tv="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$LAB_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
-    if [ -n "$tv" ]; then ok "Tiled        $LAB_HOST:$TILED_PORT  tiled $tv"; rec "role=Tiled	state=ok	version=$tv	checkout=pip install"
-    else bad "Tiled        $LAB_HOST:$TILED_PORT"; rec "role=Tiled	state=down	checkout=pip install"; fi
+    tv="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$TILED_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
+    if [ -n "$tv" ]; then ok "Tiled        $TILED_HOST:$TILED_PORT  tiled $tv"; rec "role=Tiled	state=ok	version=$tv	checkout=pip install"
+    else bad "Tiled        $TILED_HOST:$TILED_PORT"; rec "role=Tiled	state=down	checkout=pip install"; fi
     # Archiver Appliance — upstream's container under geecs-archiver; its own
     # management API is the whole story (version, PV counts). No checkout:
     # the unit runs docker compose from /etc/geecs/archiver. A site with no
