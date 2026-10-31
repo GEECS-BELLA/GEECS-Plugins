@@ -17,7 +17,8 @@
 #       see the example). Again: reuses the installed file as it is (and
 #       refuses those flags). Then renders the instance units
 #       (bootstrap_host.sh --experiment) — all six or it stops, nothing
-#       installed — scaffolds <configs>/scanner_configs/experiments/<DB
+#       installed — prints the device-overlap WARNING for the live
+#       experiments (geecs_core.db.overlap, read-only), scaffolds <configs>/scanner_configs/experiments/<DB
 #       experiment>/ when absent, installs + enables the units (sudo), and
 #       prints the ports and the scanner URL.
 # down  Stops and disables the instance's units. The instance file (its slot),
@@ -175,6 +176,22 @@ up)
     if [ "${#STAGED[@]}" -ne "$(echo $INSTANCE_UNITS | wc -w)" ]; then
         echo "INCOMPLETE: $(( $(echo $INSTANCE_UNITS | wc -w) - ${#STAGED[@]} )) instance unit(s) not rendered (see the WARNINGs above) — nothing installed or enabled" >&2
         exit 1
+    fi
+
+    # Devices enabled in more than one live experiment: a WARNING, never a
+    # refusal (fixing a device set is its owner's DB edit). Read-only; a DB
+    # or code that cannot answer says "not checked", never "clean".
+    say "device overlap (read-only, the live experiments)"
+    LIVE=("$MAIN_EXPERIMENT")
+    for f in "$EXPERIMENTS_DIR"/*.env; do
+        [ -f "$f" ] && ! [ "$f" -ef "$INSTANCE_FILE" ] && LIVE+=("$(env_value "$f" GEECS_EXPERIMENT)")
+    done
+    LIVE+=("$EXPT")
+    if [ "$DRY" -eq 1 ]; then printf '  [dry] python -m geecs_core.db.overlap'; printf " '%s'" "${LIVE[@]}"; echo
+    else
+        rc=0; OVERLAP="$(cd "$ENGINE" && "$GEECS_POETRY" run python -m geecs_core.db.overlap "${LIVE[@]}" 2>&1)" || rc=$?
+        printf '%s\n' "$OVERLAP" | sed 's/^/  /'
+        [ "$rc" -eq 0 ] || echo "  WARNING: overlap NOT checked (exit $rc) — continuing; run python -m geecs_core.db.overlap by hand"
     fi
 
     # The configs folder, after the bootstrap (a fresh instance clone exists

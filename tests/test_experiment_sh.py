@@ -213,3 +213,14 @@ def test_an_incomplete_instance_installs_nothing(profile) -> None:
     assert result.returncode == 1
     assert "INCOMPLETE" in result.stderr
     assert "$ sudo" not in result.stdout  # run() echoes every command it executes
+
+
+def test_up_checks_overlap_over_every_live_experiment(profile) -> None:
+    """Main (site.env) + every other instance + this one, names intact."""
+    (profile["experiments"] / "Other.env").write_text(
+        'GEECS_EXPERIMENT="Third bench"\nGEECS_INSTANCE_SLOT=1\n'
+    )
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    line = next(x for x in result.stdout.splitlines() if "geecs_core.db.overlap" in x)
+    assert line.endswith("'Undulator' 'Third bench' 'Bench stand'")

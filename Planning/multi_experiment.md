@@ -271,3 +271,25 @@ The verb is `deploy/experiment.sh up|down|list`.
 The scaffold lives in GeecsBluesky, beside the resolver that owns the folder
 layout. GEECS-Core cannot import the schemas, and GEECS-Schemas carries no
 YAML runtime.
+
+### 2026-10-31 — slice 5, the overlap check
+
+Slice 4 merged as #1228. Its review made `up` all-or-nothing: fewer than six
+rendered units means INCOMPLETE, and nothing is installed. It also moved the
+scaffold after the bootstrap, refuses creation flags on an existing
+instance, and passes values verbatim.
+
+Slice 5 adds `geecs_core.db.overlap`, a read-only check that reuses
+`GeecsDb.get_experiment_devices(enabled_only=True)`, the existing SELECT.
+`python -m geecs_core.db.overlap EXPT...` prints one `WARNING:` line per
+device enabled in two or more of the experiments it is given, naming each
+experiment that holds it, then the remedy, which is the owner's DB edit.
+
+Its exit code is 0 either way, 1 under `--strict`, and 3 when the DB could
+not be read. The 3 means "not checked", which is not the same as "clean".
+
+`experiment.sh up` runs it over the live set: site.env's main experiment,
+every other instance file and this one. A failure is reported as "NOT
+checked" and `up` carries on. Against today's DB it will name the five
+`pulsewire-*` devices as enabled in both `Undulator` and
+`Test stand default` (slice 1).
