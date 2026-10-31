@@ -107,3 +107,83 @@ committed file or PR body.
 ## Status
 
 (The coordinator appends dated entries here.)
+
+### 2026-10-31 — slice 1, the inventory (no code)
+
+**Kind → family → page.** The URL's kind word maps to a family file's
+`kind` (GEECS-Schemas `load_families()`), and from there to one template:
+
+| `/device/<kind>` | family `kind` | families today | page |
+|---|---|---|---|
+| `camera` | `aravis_camera` | `ad_camera_chain` (82 roles) | `device_camera.html` |
+| `scope` | `array_detector` | `scope_contract` (71 roles) | `device_scope.html` |
+| `motor` | `epics_motor` | `motor_record` (29 roles, per axis) | `device_motor.html` |
+| `supply` | `setpoint_device` | `easydriver` (8), `fastps` (10) | `device_supply.html` |
+
+A new family of an existing kind gets the kind's page with no code; a new
+kind is a template and a row in that table.
+
+**Device selection.** The picker lists the registry: `native_devices.yaml` +
+`panel_devices.yaml` read through GEECS-Schemas (`NativeDevices`,
+`PanelDevices`, joined by device name as `screens.load` already reads them),
+a device's kind from its panel entry's family, else from its native
+`kind` (the same words: `aravis_camera`, `epics_motor`). Each row carries the module's roster
+state (`GET /geecs/v1/devices`) when the module answers, `unknown` when it
+does not. The free-text name is the fallback for a device the files do not
+list (a bench device on the module's roster, a typo): it is resolved against
+the module like any other.
+
+**Resolution.** `/device/<kind>/<name>` reads the module's device route; the
+page never derives a PV. Not on the roster (404) → the kit's `denied` pane
+("not on the module's roster"); a family of another kind → `denied` ("wrong
+kind: `<family>` is a `<kind>`"); the module silent → `stale`/`unknown`,
+never a blank page. The template draws the family file's roles (label,
+`level`: the operator set open, `expert` folded in a `details`, `type`) and
+the script fills each from the device route (`pv`, `writePv`, `writable`,
+`locked`, `verdict`) and Hare (value, alarm, connection).
+
+**What each GeecsPanels page renders, and who carries it now.**
+
+| Kind | GeecsPanels renders (from) | Hare + the module carry | Neither carries (moves into GeecsControlRoom) |
+|---|---|---|---|
+| camera | state, rate, exposure, pixel format, centroid/sigma/max/mean/total, raw max (`cam1`, `STAT`, `STAT0`); counters of `cam1`/`STAT`/`STAT0`/`MJPG1`; crosshairs (`OVER1:1/2`), analysis ROI (`ROI1`), cursor, background + transform (`PROC1`, `TRANS1`), run lock, capture, the driver's exposure/period/gain/trigger mode/acquire/camera ROI | every scalar above is an `ad_camera_chain` role with its verdict (freshness by the producing plugin's counter, `off` by the `Compute*` flag: the module's `freshness.py`); writes by role through `put_role` (policy, allow, hazard, the run lock as `locked` roles and a 423) | the **frame** (role `image`, `read: once`, the `JPG_URL_RBV` string: the frame proxy, one frame in flight, rehosted to the IOC's CA address); the **arrays** (`profile_x/y`, `cursor_profile_x/y`, `histogram`, `read: on_request`: read on request, shared, at most every 0.5 s, only while a page has the plots open); colour map, levels, zoom/pan, the ROI and crosshair layer (client side) |
+| scope | identity, state, acquire, image mode, timebase (interval, samples, pre-trigger), trigger (mode, source, level, edge, auto ms), per channel present/enable/range/coupling/offset/overrange and `STAT_<CH>` stats; enum choices from the PVs | every one a `scope_contract` role; enum choices are Hare's `enumChoices` meta; writes through `put_role` | the **traces** (`data` = `ARR:ArrayData` [channels, samples], `time_axis`): read once per new capture (`arr_uid`), split per present channel, min/max-decimated to the screen width, streamed over SSE |
+| motor | per axis `.RBV/.VAL/.DMOV/.HLM/.LLM`, switches, `.MSTA` by name, `.VELO/.VMAX`, tweak, stop, home | every field a `motor_record` role per axis; the family's actions (`move`, `tweak`, `stop`, `home`, `velocity`) and a device's `allow` gate the writes in the module | nothing |
+| supply | the roles (current sp/readback, voltage, output sp/readback, reset, loop mode) and the fault bits, from the panels' bench file | the `easydriver`/`fastps` roles; drive limits and `HIHI` as the module's bounds (422) | nothing |
+
+**What does not move (cheap to veto).** Each is a computation the page would
+own, so each is the module's to give or is dropped:
+
+- the camera's **saturation chip** (raw max against the pixel format's full
+  scale) and its **history plot** (centroid/mean/max kept in the service):
+  OWED to the module (a verdict) and to Vole (trends); the page shows raw max
+  and the pixel format;
+- **"crosshair to centroid"** (converts STAT's ROI pixels to image pixels on
+  the server): OWED, a module action; crosshairs are set by value;
+- the **run-lock override** (writes `RUN:Lock` 0): the module's `lock` role is
+  read only, and its 423 says why a driver write is refused;
+- the motor's **`.MSTA` decoded by name** and the supply's **state word**: the
+  page shows the module's verdicts and the raw word; a decoded word is the
+  module's to add;
+- GeecsPanels' bench file (`allow`, `note`, bench supplies), `--scope
+  NAME=PREFIX`, `--read-only` and its own CA writes: the module's policy and
+  `panel_devices.yaml` replace them.
+
+**The image/array path.** The Control Room's server reads the frame URL and
+the arrays over Channel Access itself (aioca; the standard `EPICS_CA_*`
+environment, the site's EPICS keys; no GEECS-Core), at the PVs the module's
+device route names, behind its own small routes:
+`/api/device/{name}/frame.jpg`, `/api/device/{name}/arrays` and
+`/api/device/{name}/traces` (SSE). Read only; no write ever leaves the page
+but through the module's put route.
+
+**The bench.** The Mac sim stack serves the camera (`UC_VisaEBeam6`), the
+motor (`SimMotor1`) and two supplies (`eztest1`, `fpstest1`). **It has no
+scope simulator** (geecs-epics' `hosts/sim-undulator` lists none; the
+PicoScope IOC needs its SDK and hardware): slice 4 proves the scope page on
+a bench-only caproto soft IOC serving the scope contract's names on
+loopback, kept out of the repo, and says so. A scope sim in geecs-epics is
+the durable fix (its owner's call). Each lane runs its own Canopy api
+container (the shared derived image, the lane's packages mounted, a configs
+copy with a bench policy) and its own Control Room; the shared api and the
+sims are left as found.
