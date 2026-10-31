@@ -552,3 +552,12 @@ quiet.
   generator, `deploy/gatus_config.py`, after the arc lands.
   `experiment.sh` carries a one-comment hook where `up` and `down` will
   call it.
+- **Collision guard (built).** `up` refuses the main experiment, by DB name
+  or instance name, while any plain worker unit (`geecs-qserver`,
+  `-tiled-writer`, `-scanner`, `-logbook`) is active. The message names the
+  migration order. Unless the instance is already running, `up` also
+  refuses a slot whose ports are already listening (`ss -ltn`). Both checks
+  run before anything is installed.
+- **Compose-based instance units.** None exist; all six instance units run
+  under poetry. If one ever runs a container, it needs `stop_grace_period`
+  plus `SuccessExitStatus=143` (#1219). `site_profile.md` says so.

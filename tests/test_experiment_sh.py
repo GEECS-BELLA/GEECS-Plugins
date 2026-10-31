@@ -157,7 +157,38 @@ def test_a_new_instance_needs_its_experiment_and_address(profile) -> None:
     assert "--db-experiment" in result.stderr
 
 
-def test_the_main_experiment_is_refused(profile) -> None:
+def test_the_main_experiment_is_refused_while_its_plain_units_run(
+    tmp_path: Path, profile
+) -> None:
+    fake = tmp_path / "plain"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *"is-active --quiet geecs-qserver.service"*) exit 0 ;; esac\nexit 3\n'
+    )
+    (fake / "systemctl").chmod(0o755)
+    args = [
+        "--db-experiment",
+        "Undulator",
+        "--address",
+        "127.0.0.1",
+        "--broadcast",
+        "x",
+    ]
+    result = _verb(
+        profile,
+        "up",
+        "Main",
+        *args,
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 2
+    assert "plain units are running: geecs-qserver" in result.stderr
+    assert "stop the plain units first" in result.stderr
+
+
+def test_the_main_experiment_proceeds_once_its_plain_units_are_stopped(profile) -> None:
+    """The migration's step 3: no plain unit active (no systemd here at all)."""
     args = [
         "--db-experiment",
         "Undulator",
@@ -167,8 +198,41 @@ def test_the_main_experiment_is_refused(profile) -> None:
         "x",
     ]
     result = _verb(profile, "up", "Main", *args, "--dry-run")
-    assert result.returncode == 2
-    assert "main experiment" in result.stderr
+    assert result.returncode == 0, result.stderr
+
+
+def test_a_busy_slot_port_installs_nothing(tmp_path: Path, profile) -> None:
+    import getpass
+
+    fake = tmp_path / "busy"
+    fake.mkdir()
+    (fake / "ss").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *":8310"*) echo "LISTEN 0 128 0.0.0.0:8310 0.0.0.0:*" ;; esac\nexit 0\n'
+    )
+    (fake / "ss").chmod(0o755)
+    sys.path.insert(0, str(REPO_ROOT / "tests"))
+    from test_render_units_sh import _fake_clones
+
+    _fake_clones(
+        profile["root"], stale=False
+    )  # existing clones: nothing cloned or installed
+    configs = profile["site"].parent / "configs" / "scanner_configs" / "experiments"
+    (configs / "Bench stand").mkdir()  # the scaffold has nothing to do
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_SERVICE_USER={getpass.getuser()}\n")
+    result = _verb(
+        profile,
+        "up",
+        "PulsedWire",
+        *NEW,
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "8310" in result.stderr
+    assert (
+        "$ as_root install" not in result.stdout
+    )  # checked before anything is installed
+    assert "$ as_root systemctl" not in result.stdout
 
 
 def test_a_non_slug_instance_is_refused(profile) -> None:

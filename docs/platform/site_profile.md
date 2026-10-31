@@ -209,6 +209,13 @@ experiment's units and never instead of them. Tiled, the Data Portal
   stops them and keeps file, state, configs and data; `list` shows them.
 - **Clients reach its gateway** by adding `<host>:<CA port>` to their CA
   address list (and the site's, for the archiver and Canopy).
+- **Collisions are refused.** `up` refuses the main experiment (by DB name
+  or instance name) while its plain worker units run, and refuses a slot
+  whose ports are already listening, before installing anything.
+- All six instance units are poetry-run processes. An instance unit that
+  ever runs a container instead needs `stop_grace_period` in compose and
+  `SuccessExitStatus=143` on the unit (the archiver's #1219 pattern).
+  Without them a stop is a SIGKILL that reads as a failure.
 - `GEECS_INSTANCE_CHECKOUT_ROOT` (render-time) lets instances run from
   clones of their own. It exists for the multi-experiment proof, while the
   arc's code is not yet on the main clones' ref — a **transitional

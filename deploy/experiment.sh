@@ -208,7 +208,21 @@ up)
     # Validate in a subshell: the instance's values must not leak into ours.
     ( load_site_env "$INSTANCE_FILE"; check_instance_env "$INSTANCE" "$INSTANCE_FILE" )
     EXPT="$(env_value "$INSTANCE_FILE" GEECS_EXPERIMENT)"
-    [ "$EXPT" != "$MAIN_EXPERIMENT" ] || { echo "'$EXPT' is the main experiment (site.env) — it keeps its own units" >&2; exit 2; }
+    # The main experiment as an instance is the plain-units migration: only
+    # once its plain worker family is stopped (two live workers, two
+    # logbooks, one DB experiment otherwise).
+    lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+    if [ "$(lc "$EXPT")" = "$(lc "$MAIN_EXPERIMENT")" ] || [ "$(lc "$INSTANCE")" = "$(lc "$MAIN_EXPERIMENT")" ]; then
+        PLAIN_ACTIVE=""
+        for u in geecs-qserver geecs-tiled-writer geecs-scanner geecs-logbook; do
+            systemctl is-active --quiet "$u.service" 2>/dev/null && PLAIN_ACTIVE="$PLAIN_ACTIVE $u"
+        done
+        if [ -n "$PLAIN_ACTIVE" ]; then
+            echo "'$EXPT' is the main experiment (site.env) and its plain units are running:$PLAIN_ACTIVE" >&2
+            echo "  migration order (docs/platform/site_profile.md): stop the plain units first, move their state, then up" >&2
+            exit 2
+        fi
+    fi
     ENGINE="$INSTANCE_ROOT/qs-checkout/GeecsBluesky"
     claim_staging
     claim_instance_root
@@ -228,6 +242,22 @@ up)
         exit 1
     fi
 
+    # The slot's ports must be free unless this instance already holds them
+    # (a re-run `up` of a running instance restarts it in place).
+    if ! systemctl is-active --quiet "geecs-qserver@$INSTANCE.service" "geecs-ca-gateway@$INSTANCE.service" 2>/dev/null; then
+        if command -v ss >/dev/null 2>&1; then
+            f="$INSTANCE_FILE"; busy=""
+            for p in $(env_value "$f" GEECS_CA_SERVER_PORT) $(env_value "$f" QS_DOC_PROXY_IN) $(env_value "$f" QS_DOC_PROXY_OUT) \
+                     "$(env_value "$f" QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER | sed 's/.*://')" \
+                     "$(env_value "$f" QSERVER_ZMQ_INFO_ADDRESS_FOR_SERVER | sed 's/.*://')" \
+                     $(env_value "$f" GEECS_SCANNER_PORT) $(env_value "$f" GEECS_LOGBOOK_PORT); do
+                [ -n "$(ss -ltnH "sport = :$p" 2>/dev/null)" ] && busy="$busy $p"
+            done
+            if [ -n "$busy" ]; then
+                echo "the slot's port(s)$busy are already listening — another experiment's units? nothing installed or enabled" >&2; exit 1
+            fi
+        else echo "  (no ss on this host: the slot's ports were not checked)"; fi
+    fi
     # Devices enabled in more than one live experiment: a WARNING, never a
     # refusal (fixing a device set is its owner's DB edit). Read-only; a DB
     # or code that cannot answer says "not checked", never "clean".
