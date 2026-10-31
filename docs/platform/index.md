@@ -58,4 +58,15 @@ facility value, and the bootstrap that stands a host up from it.
     [Running a scan](../geecs_schemas/running_a_scan.md) ·
     [Schema reference](../geecs_schemas/schema_reference.md)
 
+-   :material-monitor-dashboard:{ .lg .middle } **GEECS module (Canopy)**
+
+    ---
+
+    SLAC's Canopy as the display backend, with the GEECS device module
+    inside it: the one path for an operator's write (policy, hazard
+    confirm, run lock, limits, journal), action plans and presets. How to
+    write the Control Room's screens, its launcher and the write policy.
+
+    [:octicons-arrow-right-24: Authoring screens and policy](../geecs_canopy/authoring.md)
+
 </div>
