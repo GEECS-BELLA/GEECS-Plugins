@@ -244,6 +244,98 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # An entry may name its family ('template', one of its kind's); absent,
+  # the kind's default. Older readers refuse the key.
+""",
+    "family_file": """\
+schema_version: 1
+# Package data (geecs_schemas/epics/families/<template>.json; JSON there,
+# shown here as YAML). One file per IOC record template.
+template: example_supply
+kind: setpoint_device
+description: A supply's StreamDevice template, trimmed to four roles.
+roles:
+  - {name: current_sp, suffix: "current:SP", type: setpoint, label: current setpoint,
+     writable: true, readback: current, fields: [DRVH, DRVL], archive: true}
+  - {name: current, suffix: current, type: readback, label: current, archive: true}
+  - {name: output_sp, suffix: "enable_output:SP", type: bit, label: output,
+     writable: true, confirm: hazard}
+  - {name: fault, suffix: fault, type: bit, label: fault, fault: true}
+actions:
+  current: {label: current, roles: [current_sp]}
+  output: {label: output, roles: [output_sp]}
+""",
+    "panel_devices": """\
+schema_version: 1
+# Read by the native-device readers; a device here may still be owned by the GEECS DB.
+devices:
+  U_ESP302_01:
+    family: motor_record
+    prefix: "undulator:esptest1:"   # a bench IOC; absent: <experiment>:<device>:
+    axes: [m1, m2, m3]
+    allow: [move, tweak, stop]      # actuators on mirror mounts: no home
+    note: The driver polls only during a move it started.
+  U_ChicaneInner:
+    family: fastps
+    prefix: "undulator:fpstest1:"
+    labels: {interlock_1: chiller flow}
+    allow: [current, output, reset]
+""",
+    "operator_policy": """\
+schema_version: 1
+# <experiment>/operator_policy.yaml; an operator no grant names may write nothing.
+grants:
+  - operators: [A. Operator, B. Operator]
+    families: [motor_record]        # every motor, whatever its allow list permits
+  - operators: [A. Operator]
+    devices: [U_ChicaneInner]
+    roles: [current_sp, reset]      # not the output
+""",
+    "journal_entry": """\
+schema_version: 1
+id: 41
+time: "2026-10-28T21:14:03+00:00"
+operator: A. Operator
+key_name: display
+device: U_ChicaneInner
+role: current_sp
+value: 12.5
+outcome: refused                    # accepted / denied / refused
+canopy_code: out_of_bounds
+detail: 12.5 is outside the record's limits [0.0, 10.0]
+""",
+    "screen": """\
+schema_version: 1
+# <experiment>/screens/<name>.yaml: groups on a grid, each widget a label and a binding.
+title: Bench
+groups:
+  - title: Stage
+    at: [1, 1]                      # row, column
+    size: [1, 2]                    # rows, columns spanned
+    tone: trace-1                   # a kit token, never a colour
+    widgets:
+      - {kind: setpoint, label: Stage X, bind: {device: U_Stage, role: val, axis: m1}}
+      - {kind: button, label: Tweak +, bind: {device: U_Stage, role: twf, axis: m1}}
+      - {kind: annotation, label: Home only with the beam off.}
+  - title: Magnet
+    at: [1, 3]
+    widgets:
+      - kind: toggle
+        label: Output
+        bind: {device: U_Supply, role: output_sp}
+        confirm: Shutter the laser before switching.
+      - {kind: readout, label: Gauge, bind: {pv: "U_Gauge:pressure"}}   # a DB device: read only
+""",
+    "home_layout": """\
+schema_version: 1
+# <experiment>/home.yaml: the Control Room's launcher. URLs are settings, never here.
+areas:
+  - title: Laser
+    screens: [control_center, compressor]   # files in the screens folder
+device_pages:
+  - title: Cameras
+    families: [ad_camera_chain]             # the picker lists the roster's devices of these
+links: [scanner, portal, logbook, config_editor]
 """,
     "analysis_recipe": """\
 schema_version: 3

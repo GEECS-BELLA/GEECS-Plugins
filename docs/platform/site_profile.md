@@ -87,9 +87,19 @@ Two kinds of keys, documented line by line in the example file:
   by `GeecsArchiver/deploy/render_conf.sh`, the package's own renderer for
   its non-unit conf, which the bootstrap calls). `GEECS_ARCHIVER_JAVA_OPTS`
   is a runtime key of the archiver alone: `docker compose` reads it from the
-  unit's environment at start.  These fill the unit templates' placeholders and
+  unit's environment at start; so are the `GEECS_CANOPY_*` keys
+  (GeecsCanopy's bind, port, front-door prefix and DB switch). The
+  `GEECS_CONTROL_ROOM_*` keys are read by that process itself at start.  These fill the unit templates' placeholders and
   the rendered `config.ini`; they are harmless in the process
   environment.
+- **Secrets are never site values.** `site.env` is installed world-readable,
+  so a password or an API key has a file of its own beside it, mode 0600 and
+  owned by the service account: `/etc/geecs/canopy/secrets.env` for
+  GeecsCanopy (its `secrets.env.example` lists the keys, placeholders only),
+  read by the containers through `env_file:`, and
+  `/etc/geecs/control-room/secrets.env` for GeecsControlRoom's display read
+  key (`GEECS_CONTROL_ROOM_READ_KEY`), the unit's second `EnvironmentFile=`;
+  never interpolated into a unit or a compose file.
 
 Syntax is systemd `EnvironmentFile=` syntax, which is stricter than
 shell: `KEY=VALUE` per line, comments **only on their own lines** (a
@@ -122,6 +132,7 @@ delivers them.
 | `gateway-checkout` | CA gateway | control-room-critical, moves rarely |
 | `portal-checkout` | Data Portal **and** the logbook (its own unit and poetry env inside `GeecsLogbook/`) | iterates in days; the two web viewers ship together — a pull is a deploy of both, so restart both |
 | `archiver-checkout` | the Archiver Appliance's `geecs-archiver` CLI and its conf templates | the appliance itself is upstream's container: `geecs-archiver.service` runs `docker compose` from `/etc/geecs/archiver` and never reads the clone, so its uptime does not depend on a checkout; the clone is where onboarding runs and the conf is rendered from |
+| `control-room-checkout` | the Control Room and the screens (`geecs-control-room`) | the surface that writes to devices (through the module on Canopy): it never moves with the portal's pulls |
 | `qs-checkout` | queueserver worker **and** the Tiled writer (`geecs-tiled-writer`: the same package, `GeecsBluesky`, the same poetry env — the consumer half of the worker's document spool); also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server; the writer shares the worker's env on purpose (one spool line format, one env — a pull there is a deploy of both, so restart both) |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service

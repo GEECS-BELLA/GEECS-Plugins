@@ -123,6 +123,14 @@ _SURFACES = [
     "GeecsPanels/geecs_panels/static/scope.js",
     "GeecsPanels/geecs_panels/templates/motor.html",
     "GeecsPanels/geecs_panels/static/motor.js",
+    "GeecsControlRoom/geecs_control_room/templates/base.html",
+    "GeecsControlRoom/geecs_control_room/templates/home.html",
+    "GeecsControlRoom/geecs_control_room/static/control_room.css",
+    "GeecsControlRoom/geecs_control_room/static/hare.js",
+    "GeecsControlRoom/geecs_control_room/static/home.js",
+    "GeecsControlRoom/geecs_control_room/templates/screen.html",
+    "GeecsControlRoom/geecs_control_room/static/screen.css",
+    "GeecsControlRoom/geecs_control_room/static/screen.js",
 ]
 
 #: Selectors whose rules may carry a literal, each with its reason. This is

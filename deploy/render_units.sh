@@ -59,6 +59,8 @@ TEMPLATES=(
     GEECS-MCP/deploy/geecs-mcp.service
     GeecsScanner/deploy/geecs-scanner.service
     GeecsArchiver/deploy/geecs-archiver.service
+    GeecsCanopy/deploy/geecs-canopy.service
+    GeecsControlRoom/deploy/geecs-control-room.service
 )
 if [ $# -gt 0 ]; then TEMPLATES=("$@"); fi
 

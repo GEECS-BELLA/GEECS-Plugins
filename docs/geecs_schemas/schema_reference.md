@@ -677,6 +677,8 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # An entry may name its family ('template', one of its kind's); absent,
+  # the kind's default. Older readers refuse the key.
 ```
 
 ### AravisCamera
@@ -686,6 +688,7 @@ A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file pl
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'aravis_camera'` | yes | — | Device kind: 'aravis_camera' (an areaDetector ADAravis camera). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
 | `trigger_source` | `'line0' \| 'line1' \| 'software'` | yes | — | Where each frame comes from. 'line0' / 'line1': the camera's hardware input on that line (a Basler's opto-isolated input is Line1, a FLIR Blackfly's Line0), wired to a timing-system output gated by the trigger box; the line must be one of the camera's own TriggerSource choices. 'software': the scan worker presses the camera's software trigger at each shot (exposed when the worker says go, not when the laser fires). |
 
 ### EpicsMotor
@@ -695,7 +698,328 @@ A positioner: one device, one EPICS motor record per axis.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'epics_motor'` | yes | — | Device kind: 'epics_motor' (EPICS motor records, one per axis). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
 | `axes` | `list[str]` | yes | — | The axes, as the motor record names under the device's prefix (e.g. ['x', 'y', 'z'] for '<experiment>:<device>:x' …). Each is a scan axis 'Device:axis'. The record owns the axis's limits, units and deadband. |
+
+## `family_file`
+
+### FamilyFile
+
+The records of one IOC record template, by role: what every device of the family serves.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `template` | `str` | yes | — | The record template's name (the file's stem), e.g. 'motor_record'. |
+| `kind` | `'aravis_camera' \| 'epics_motor' \| 'setpoint_device' \| 'array_detector'` | yes | — | The native-device kind whose devices instantiate the template. |
+| `description` | `str` | yes | — | One line: what the template is and where it comes from. |
+| `per_axis` | `bool` | no | False | The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names. |
+| `roles` | `list[Role]` | yes | — | The template's records, by role, in the page's order. |
+| `actions` | `dict[str, FamilyAction]` | no | empty | The page's actions and the roles each writes; a device may permit a subset. When there are actions, every writable role belongs to one. Empty: every writable role is its own permission. |
+
+Example:
+
+```yaml
+schema_version: 1
+# Package data (geecs_schemas/epics/families/<template>.json; JSON there,
+# shown here as YAML). One file per IOC record template.
+template: example_supply
+kind: setpoint_device
+description: A supply's StreamDevice template, trimmed to four roles.
+roles:
+  - {name: current_sp, suffix: "current:SP", type: setpoint, label: current setpoint,
+     writable: true, readback: current, fields: [DRVH, DRVL], archive: true}
+  - {name: current, suffix: current, type: readback, label: current, archive: true}
+  - {name: output_sp, suffix: "enable_output:SP", type: bit, label: output,
+     writable: true, confirm: hazard}
+  - {name: fault, suffix: fault, type: bit, label: fault, fault: true}
+actions:
+  current: {label: current, roles: [current_sp]}
+  output: {label: output, roles: [output_sp]}
+```
+
+### Role
+
+One record of the template, by what it does for a page.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | The role's name: a plain word, unique in the family; it keys the device stream. |
+| `suffix` | `str` | yes | — | The record (or record field, e.g. '.RBV') under the device's prefix that the role reads; for a command, the record pressed. |
+| `type` | `'readback' \| 'setpoint' \| 'enum' \| 'bit' \| 'command' \| 'array' \| 'image' \| 'counter'` | yes | — | What the value is and the widget a page draws: readback, setpoint, enum (shown by its state name), bit (0/1), command (a press), array (read on request), image (the frame source), counter (a plugin's frame counter, which judges freshness). |
+| `label` | `str` | yes | — | What a page calls it. |
+| `units` | `str (optional)` | no | None | The units the value travels in, where the record carries none (a record's EGU wins when it has one). |
+| `level` | `'operator' \| 'expert'` | no | 'operator' | 'operator': on the page by default; 'expert': in the expert view only. |
+| `writable` | `bool` | no | False | Whether a page may write it. Setpoints and commands always are; readbacks, counters, arrays and images never are; an enum or a bit says. |
+| `write` | `str (optional)` | no | None | The record a write goes to, when it is not 'suffix' (the setpoint beside an _RBV readback). Implies writable. |
+| `confirm` | `'hazard' (optional)` | no | None | 'hazard': the page asks the operator to confirm the write, naming device, role and value (a supply's output, a motor's home). |
+| `archive` | `bool` | no | False | The archiver takes it: the history an engineer reads later (readbacks, setpoints, limit switches, fault bits). |
+| `autosaved` | `bool` | no | False | The IOC's autosave restores this setting's last value at boot (its request files in geecs-epics); descriptive only, not a power-on default an operator chooses. False also where no request file documents it. |
+| `locked` | `bool` | no | False | Refused while a run holds the device (the run lock), or while the lock cannot be read: what a scan saves. |
+| `settled_by` | `str (optional)` | no | None | A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag. |
+| `readback` | `str (optional)` | no | None | A setpoint's readback, shown beside it (a motor's .RBV beside .VAL). |
+| `fresh_by` | `str (optional)` | no | None | The counter role whose advance makes this value fresh (the producing plugin's ArrayCounter_RBV): statistics post only on change, so a steady value is judged by its producer. Absent: fresh while connected. |
+| `computed_by` | `str (optional)` | no | None | The flag that must be on for the value to be computed at all (ComputeCentroid): with it off the value reads 'off', not fresh. |
+| `text` | `'string' \| 'char_array' (optional)` | no | None | Read as text: a string record, or a char-array record longer than a string's 40 characters. Enums are read by state name regardless. |
+| `fields` | `list[str]` | no | empty | Record fields read beside the value and carried with it, e.g. ['DRVH', 'DRVL'] for a setpoint's drive limits. |
+| `limits` | `tuple[float, float] (optional)` | no | None | The bridge's own bounds on a write, low then high, where the record enforces none (a pixel, an exposure). A motor's soft limits and a supply's drive limits are the record's, read at put time. |
+| `integer` | `bool` | no | False | A write takes a whole number. |
+| `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
+| `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
+| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL), never (a command's record). |
+
+### FamilyAction
+
+One thing a page does to a device of the family, and the roles it writes.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `label` | `str` | yes | — | What the page's control is called. |
+| `roles` | `list[str]` | yes | — | The writable roles the action writes. |
+| `requires` | `list[str]` | no | empty | Actions a device permitting this one must permit too (a motion needs stop). |
+
+## `panel_devices`
+
+### PanelDevices
+
+The experiment's devices with a panel: each one's family and per-device panel data.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `devices` | `dict[str, PanelDevice]` | no | empty | GEECS device name → its family and panel data. |
+
+Example:
+
+```yaml
+schema_version: 1
+# Read by the native-device readers; a device here may still be owned by the GEECS DB.
+devices:
+  U_ESP302_01:
+    family: motor_record
+    prefix: "undulator:esptest1:"   # a bench IOC; absent: <experiment>:<device>:
+    axes: [m1, m2, m3]
+    allow: [move, tweak, stop]      # actuators on mirror mounts: no home
+    note: The driver polls only during a move it started.
+  U_ChicaneInner:
+    family: fastps
+    prefix: "undulator:fpstest1:"
+    labels: {interlock_1: chiller flow}
+    allow: [current, output, reset]
+```
+
+### PanelDevice
+
+One device's panel data: its family and what differs from it on this device.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `family` | `str` | yes | — | The record template the device instantiates (a family file's name). |
+| `prefix` | `str (optional)` | no | None | The device's PV prefix, ending in ':', for a device on a bench IOC (not in native_devices.yaml). Absent: '<experiment>:<device>:'. |
+| `axes` | `list[str] (optional)` | no | None | A per-axis family's axes (the motor record names under the prefix), for a device the registry does not list. |
+| `roles` | `dict[str, str]` | no | empty | Role → this device's own record suffix, where it differs from the family's (a supply's IOC names its own PVs). |
+| `labels` | `dict[str, str]` | no | empty | Role → what this device's page calls it (a bit's label: 'chiller flow'). |
+| `allow` | `list[str] (optional)` | no | None | The family actions the page may take on this device (no homing for actuators on a mirror mount). Absent: every action. |
+| `note` | `str` | no | '' | A line the device's page shows. |
+| `omit` | `list[str]` | no | empty | Family roles this device does not have or use (an unwired interlock): never read, never shown, and their actions are unavailable. |
+| `hazard` | `list[str]` | no | empty | Writable roles that need the hazard confirm on this device, beyond the family's own (one stage's move). |
+| `archive` | `list[str]` | no | empty | Roles the archiver takes on this device beyond the family's own. |
+| `no_archive` | `list[str]` | no | empty | Roles the family archives that the archiver leaves out on this device (a readback too noisy to keep); the page still shows them. |
+| `ioc` | `str (optional)` | no | None | The IOC serving the device, as its host's compose file names it (IOC_NAME, e.g. 'adtest-cam1'): the archiver keeps that IOC's devIocStats heartbeat. Absent: no heartbeat for it. |
+
+## `operator_policy`
+
+### OperatorPolicy
+
+Which operators may write what (``<experiment>/operator_policy.yaml``); default deny.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `grants` | `list[OperatorGrant]` | no | [] | Nobody else writes. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/operator_policy.yaml; an operator no grant names may write nothing.
+grants:
+  - operators: [A. Operator, B. Operator]
+    families: [motor_record]        # every motor, whatever its allow list permits
+  - operators: [A. Operator]
+    devices: [U_ChicaneInner]
+    roles: [current_sp, reset]      # not the output
+```
+
+### OperatorGrant
+
+Some operators may write some roles of some devices, named or by family.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `operators` | `list[str]` | yes | — | Operators, by name. |
+| `families` | `list[str]` | no | [] | Every device of these. |
+| `devices` | `list[str]` | no | [] | These GEECS devices. |
+| `roles` | `list[str]` | no | [] | Only these; empty: all allowed. |
+
+## `journal_entry`
+
+### JournalEntry
+
+One journal row: a request's outcome, or the ``attempted`` row a dispatched write leaves first (its outcome names it in ``attempt``).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `id` | `int (optional)` | no | None | Row number, oldest first. |
+| `time` | `datetime` | yes | — | When it was decided (UTC). |
+| `operator` | `str` | yes | — | The operator the request named. |
+| `key_name` | `str (optional)` | no | None | The Canopy key's name. |
+| `device` | `str` | yes | — | The GEECS device name. |
+| `role` | `str` | yes | — | The family role written. |
+| `axis` | `str (optional)` | no | None | The axis, if per-axis. |
+| `value` | `float \| int \| bool \| str \| list[float \| int \| bool \| str] (optional)` | yes | — | Value requested. |
+| `outcome` | `'attempted' \| 'accepted' \| 'denied' \| 'refused'` | yes | — | attempted: written before Hare is called; denied: the module's guards; refused: bounds, IOC or Hare. |
+| `attempt` | `int (optional)` | no | None | The row of this write's attempted row, once dispatched. |
+| `canopy_code` | `str (optional)` | no | None | Canopy's or our slug. |
+| `detail` | `str (optional)` | no | None | Why; or what a clamp took. |
+
+Example:
+
+```yaml
+schema_version: 1
+id: 41
+time: "2026-10-28T21:14:03+00:00"
+operator: A. Operator
+key_name: display
+device: U_ChicaneInner
+role: current_sp
+value: 12.5
+outcome: refused                    # accepted / denied / refused
+canopy_code: out_of_bounds
+detail: 12.5 is outside the record's limits [0.0, 10.0]
+```
+
+## `screen`
+
+### Screen
+
+A control GUI: a title and groups of widgets, drawn by one renderer.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `title` | `str` | yes | — | The screen's title. |
+| `groups` | `list[Group]` | yes | — | Its groups, placed on the grid. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/screens/<name>.yaml: groups on a grid, each widget a label and a binding.
+title: Bench
+groups:
+  - title: Stage
+    at: [1, 1]                      # row, column
+    size: [1, 2]                    # rows, columns spanned
+    tone: trace-1                   # a kit token, never a colour
+    widgets:
+      - {kind: setpoint, label: Stage X, bind: {device: U_Stage, role: val, axis: m1}}
+      - {kind: button, label: Tweak +, bind: {device: U_Stage, role: twf, axis: m1}}
+      - {kind: annotation, label: Home only with the beam off.}
+  - title: Magnet
+    at: [1, 3]
+    widgets:
+      - kind: toggle
+        label: Output
+        bind: {device: U_Supply, role: output_sp}
+        confirm: Shutter the laser before switching.
+      - {kind: readout, label: Gauge, bind: {pv: "U_Gauge:pressure"}}   # a DB device: read only
+```
+
+### Group
+
+A titled block of widgets on the screen's grid, worn in a kit colour token.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The group's heading. |
+| `at` | `tuple[int, int]` | yes | — | Its top-left grid cell: row, column (from 1). |
+| `size` | `tuple[int, int]` | no | (1, 1) | Rows and columns it spans. |
+| `columns` | `int` | no | 1 | Widgets side by side inside it, filled row by row. |
+| `tone` | `'accent' \| 'slate' \| 'muted' \| 'trace-1' \| 'trace-2' \| 'trace-3' \| 'trace-4'` | no | 'slate' | Its colour, a kit token (never a literal). |
+| `widgets` | `list[Widget]` | yes | — | Its controls, in order. |
+
+### Widget
+
+One control: its kind, the label a person reads, and what it is bound to.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'readout' \| 'annotation' \| 'image'` | yes | — | The widget, one of the seven. |
+| `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label. |
+| `bind` | `Binding (optional)` | no | None | What it shows and writes; none for an annotation or an image. |
+| `indicators` | `list[Binding]` | no | [] | A flipper's in and out indicators, in that order. |
+| `confirm` | `str (optional)` | no | None | A hazard note the operator confirms before the write. |
+| `units` | `str (optional)` | no | None | Units shown, where the record carries none. |
+| `precision` | `int (optional)` | no | None | Digits after the point. |
+| `src` | `str (optional)` | no | None | An image's file name in the screens folder. |
+
+### Binding
+
+What a widget shows and writes: a device's role (on an axis), or a bare PV.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str (optional)` | no | None | The GEECS device name. |
+| `role` | `str (optional)` | no | None | The device family's role. |
+| `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
+| `pv` | `str (optional)` | no | None | A bare PV, for a device the GEECS DB serves (its writes disabled until the module writes gateway PVs). |
+
+## `home_layout`
+
+### HomeLayout
+
+The launcher: screens by area, device pages by family, the named links.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `1` | no | 1 | Format version. Leave at 1. |
+| `areas` | `list[Area]` | no | [] | Screens grouped by area, in order. |
+| `device_pages` | `list[DevicePages]` | no | [] | Device-page entries, each with a device picker. |
+| `links` | `list['scanner' \| 'portal' \| 'logbook' \| 'config_editor']` | no | [] | Services to link to, in order; their URLs are settings. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/home.yaml: the Control Room's launcher. URLs are settings, never here.
+areas:
+  - title: Laser
+    screens: [control_center, compressor]   # files in the screens folder
+device_pages:
+  - title: Cameras
+    families: [ad_camera_chain]             # the picker lists the roster's devices of these
+links: [scanner, portal, logbook, config_editor]
+```
+
+### Area
+
+A titled set of screens, e.g. the laser's or the vacuum's.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The area's heading. |
+| `screens` | `list[str]` | yes | — | Screen names, the stems of files in the screens folder, in order. |
+
+### DevicePages
+
+A device-page entry: a picker over the roster's devices of these families.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | What the entry reads, e.g. 'Cameras'. |
+| `families` | `list[str]` | yes | — | Family file names whose devices the picker lists. |
 
 ## `analysis_recipe`
 

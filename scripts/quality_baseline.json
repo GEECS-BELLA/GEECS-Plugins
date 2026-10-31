@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "stamps": 100,
+=======
+  "stamps": 102,
+>>>>>>> master
   "noqa": 269,
   "max_complexity": 10,
   "max_branches": 12,

@@ -35,6 +35,49 @@ allowed on purpose): the numerical vocabulary is GEECS-Analysis' registry and is
 never duplicated here. Add a summary kind's option model here and its
 layout in GEECS-Analysis; add a step or measure in GEECS-Analysis alone.
 
+## EPICS device data (the web estate)
+
+`epics/` holds the native-device registry (`NativeDevices`, in
+`__init__.py`) and the web estate's device data (`Planning/epics_estate.md`
+§2.2). `epics/family.py`: `FamilyFile`, one per IOC record template, its
+records by role (`REGISTRY_KIND_FAMILIES`: a registry kind's default
+family, for the bridge and the archiver alike); the files are **package data**,
+`epics/families/<template>.json`, read by `load_families()` — JSON so the
+runtime stays free of PyYAML. `epics/panel_devices.py`: `PanelDevices`,
+the configs repo's `<experiment>/panel_devices.yaml` (per-device family,
+suffix overrides, labels, `allow`, `note`, `omit`, `hazard`, the archive
+opt-ins and opt-outs, the serving `ioc`). Their readers (the PV bridge and
+the archiver's registry pass) are on `feat/web-estate`; GeecsCanopy reads
+them next. A `NativeDevices` entry may name its family (`template`, one of
+its kind's; `family_template` falls back to the kind's default). Both validate against the installed families; tests
+pass tiny ones through the validation context (`context={"families":
+...}`). The installed families are frozen and shared process-wide; a
+family with actions puts every writable role in one, so `allow` decides
+every write. A family file changes when its IOC template does;
+the pin holding the camera, scope, motor and supply files to GeecsPanels'
+own suffix tables (web estate S2) lives on `feat/web-estate`, not here.
+
+## Screens
+
+`screens.py`: `Screen`, a control GUI as a document (`<experiment>/screens/<name>.yaml`,
+drawn by GeecsControlRoom): titled groups on a grid, each a kit colour
+token (`GroupTone`, never a literal), of widgets of exactly seven kinds
+(`WidgetKind`), each a free label and a `Binding` (device + family role +
+axis, or a bare PV). No expressions, scripts or conditions, ever. What
+depends on the families and instance data (the role exists, the kind fits
+its type) is `resolve_screen`, not the model. A bare PV may carry a writing
+kind or a flipper's indicators: the renderer draws its writes disabled until
+the module writes gateway PVs.
+
+## Home layout
+
+`home_layout.py`: `HomeLayout`, the Control Room's launcher
+(`<experiment>/home.yaml`): areas of screen names, device-page entries by
+family, and the named links (`HomeLink`: scanner, portal, logbook,
+config_editor). A link is a word; its URL is a deployment setting, never in
+the file. Whether a screen file exists or a family is installed is the
+page's check (a disabled entry with the reason), not the model's.
+
 ## Sweep payload
 
 `sweep.py` owns the validated JSON payload, not numerical trajectory

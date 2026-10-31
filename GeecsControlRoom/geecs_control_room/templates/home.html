@@ -1,0 +1,87 @@
+{#
+  The experiment's home, the Control Room (operator_surfaces.md §4): the
+  top strip, the two lists that should read "none", the launcher from
+  home.yaml, the presets' placeholder. home.js fills the strip and the
+  lists from /api/home/*; the launcher is drawn here, its pickers there.
+#}{% extends "base.html" %}
+{% block body %}
+<main class="home">
+  <section class="panel strip" aria-label="Run and alarm summary">
+    <div class="live"><span class="k">Run</span>
+      <span class="v"><span class="chip" id="run" data-state="unknown">unknown</span></span>
+      <span class="age" id="scanner">scanner: reading</span></div>
+    <div class="live"><span class="k">Scan</span><span class="v" id="scan">—</span></div>
+    <div class="live"><span class="k">Shot</span><span class="v" id="shot">—</span></div>
+    <div class="live"><span class="k">Not live</span><span class="v" id="n-not_live">—</span></div>
+    <div class="live"><span class="k">In alarm</span><span class="v" id="n-in_alarm">—</span></div>
+    <figure class="plot" id="plot-fig" hidden>
+      <svg viewBox="0 0 240 48" preserveAspectRatio="none" aria-hidden="true"><polyline id="plot"></polyline></svg>
+      <figcaption class="age">shots, this scan</figcaption>
+    </figure>
+  </section>
+
+  <div class="lists">
+    {% for key, title in [("not_live", "Not live"), ("in_alarm", "In alarm")] %}
+    <article class="panel" data-list="{{ key }}">
+      <header><span class="eyebrow">{{ title }}</span><span class="chip" data-state="unknown">reading</span></header>
+      <div class="tscroll" hidden><table>
+        <thead><tr><th>Device</th><th>Family</th><th>State</th><th>Cause</th><th>IOC</th><th>Last command</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="state" data-state="loading"><div class="t">reading the module</div><div class="m"></div></div>
+    </article>
+    {% endfor %}
+  </div>
+
+  <div class="grid">
+    <article class="panel">
+      <header><span class="eyebrow">Launcher</span></header>
+      <div class="body">
+      {% if launcher.state != "ok" %}
+        <div class="state" data-state="{{ launcher.state }}">
+          <div class="t">{{ "No launcher file" if launcher.state == "empty" else "home.yaml cannot be read" }}</div>
+          {% for p in launcher.problems %}<div class="m mono">{{ p }}</div>{% endfor %}
+        </div>
+      {% endif %}
+      {% for title, entries in launcher.areas %}
+        <div class="group"><span class="eyebrow">{{ title }}</span><div class="row">
+        {% for e in entries %}
+          {% if e.href %}<a class="btn sm" href="{{ root }}{{ e.href }}">{{ e.title }}</a>
+          {% else %}<span class="entry"><button class="btn sm" type="button" disabled title="{{ e.reason }}">{{ e.title }}</button><span class="dim">{{ e.reason }}</span></span>{% endif %}
+        {% endfor %}
+        </div></div>
+      {% endfor %}
+      {% if launcher.device_pages %}
+        <div class="group"><span class="eyebrow">Device pages</span><div class="row">
+        {% for e in launcher.device_pages %}
+          <label class="field">{{ e.title }}
+            <select data-families="{{ e.families | join(' ') }}"{% if e.reason %} data-reason="1" title="{{ e.reason }}"{% endif %} disabled>
+              <option value="">{{ e.reason or "reading the roster" }}</option>
+            </select></label>
+        {% endfor %}
+        </div></div>
+      {% endif %}
+      {% if launcher.links %}
+        <div class="group"><span class="eyebrow">Services</span><div class="row">
+        {% for e in launcher.links %}
+          {% if e.href %}<a class="btn sm" href="{{ e.href }}" target="_blank" rel="noopener">{{ e.title }}</a>
+          {% else %}<span class="entry"><button class="btn sm" type="button" disabled title="{{ e.reason }}">{{ e.title }}</button><span class="dim">{{ e.reason }}</span></span>{% endif %}
+        {% endfor %}
+        </div></div>
+      {% endif %}
+      </div>
+    </article>
+
+    <article class="panel">
+      <header><span class="eyebrow">Presets</span></header>
+      <div class="body">
+        <div class="state" data-state="empty">
+          <div class="t">Not built yet</div>
+          <div class="m">This experiment's Squirrel groups and action plans will appear here.</div>
+        </div>
+      </div>
+    </article>
+  </div>
+</main>
+{% endblock %}
+{% block scripts %}<script src="{{ root }}/static/home.js" defer></script>{% endblock %}

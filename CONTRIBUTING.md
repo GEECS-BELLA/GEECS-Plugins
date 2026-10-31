@@ -17,7 +17,8 @@ docs site), or launch Claude Code from the repo root and type
 
 ## Setup
 
-- Python **3.11** (`>=3.11,<3.12`) and Poetry. `poetry install` at the repo
+- Python **3.11** (`>=3.11,<3.12`; GeecsCanopy, GEECS-Core and GEECS-Schemas
+  allow `<3.13` for Canopy's 3.12 image) and Poetry. `poetry install` at the repo
   root builds the main dev environment; each package can also be installed
   standalone from its own directory.
 - Some packages need extras for their full test suite:
@@ -193,7 +194,7 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 CI (`.github/workflows/unit-tests.yml`, one Ubuntu job) runs: root
 `tests/`, ScanAnalysis, GEECS-Data-Utils and GEECS-Schemas
 from the **root env**, and GeecsWebTheme, GeecsLogbook, GeecsPanels, GeecsScanner,
-GEECS-DataPortal, GEECS-Core, GeecsCAGateway, GeecsBluesky (pure unit
+GeecsControlRoom, GEECS-DataPortal, GEECS-Core, GeecsCAGateway, GeecsBluesky (pure unit
 tests, `qs-client` extra included), GEECS-MCP and GeecsPvaGateway each
 from its **own env**. Not in CI — run locally via `scripts/check.sh` when
 touching it: GEECS-LogTriage. Everything is hermetic — no lab network, no

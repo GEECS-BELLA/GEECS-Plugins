@@ -1,0 +1,82 @@
+{#
+  The ONE template every screen file renders through: groups on the grid,
+  each widget by kind. The binding travels as data-* (device, role, axis,
+  or a bare pv); screen.js asks the module for the device's PVs and
+  verdicts, reads values from Hare, and writes through /api/…/put only.
+#}{% extends "base.html" %}
+{% set s = loaded.screen %}
+{% set RO_PV = "A DB device: its writes stay disabled until the module writes gateway PVs." %}
+{% set WRITES = ("setpoint", "toggle", "flipper", "button") %}
+{% block title %}{{ s.title if s else name }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">{% endblock %}
+{% block header %}
+<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>
+<span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
+{% endblock %}
+{% macro bindattrs(b, role) -%}
+{%- if b.pv %} data-pv="{{ b.pv }}"{% else %} data-device="{{ b.device }}" data-role="{{ b.role }}"{% if b.axis %} data-axis="{{ b.axis }}"{% endif %}{% endif -%}
+{%- if role %} data-type="{{ role.type }}"{% if role.confirm == "hazard" %} data-hazard="1"{% endif %}{% endif -%}
+{%- endmacro %}
+{% block body %}
+{% if not s %}
+<div class="shell solo"><main class="pane">
+  <div class="state" data-state="error">
+    <div class="t">Screen {{ name }} cannot be drawn</div>
+    {% for p in loaded.problems %}<div class="m mono">{{ p }}</div>{% endfor %}
+  </div>
+</main></div>
+{% else %}
+{% set stacks = loaded.stacks %}
+<main class="screen" style="grid-template-columns: repeat({{ loaded.columns }}, minmax(17rem, 1fr))">
+  {% for column in stacks or [range(s.groups | length)] %}{% if stacks %}<div class="scol">{% endif %}
+  {% for gi in column %}{% set group = s.groups[gi] %}
+  <section class="sgroup" data-tone="{{ group.tone }}" style="{% if not stacks %}grid-row: {{ group.at[0] }} / span {{ group.size[0] }}; grid-column: {{ group.at[1] }} / span {{ group.size[1] }}; {% endif %}grid-template-columns: repeat({{ group.columns }}, minmax(0, 1fr))">
+    <h3>{{ group.title }}</h3>
+    {% for bound in loaded.rows[gi] %}{% set w, role = bound.widget, bound.role %}
+    {% if w.kind == "annotation" %}
+    <p class="note">{{ w.label }}</p>
+    {% elif w.kind == "image" %}
+    <img class="pic" src="{{ root }}/screens/files/{{ w.src }}" alt="{{ w.label }}">
+    {% else %}
+    <div class="w" data-kind="{{ w.kind }}"{{ bindattrs(w.bind, role) }}
+      {%- if bound.readback %} data-readback="{{ bound.readback.name }}"{% endif %}
+      {%- if w.confirm %} data-confirm="{{ w.confirm }}"{% endif %}
+      {%- if w.precision is not none %} data-precision="{{ w.precision }}"{% endif %}
+      {%- if w.units %} data-units="{{ w.units }}"{% endif %}
+      {%- if w.bind.pv and w.kind in WRITES %} title="{{ RO_PV }}"{% endif %}>
+      {%- set name = w.label or (role.label if role else w.bind.pv) %}{% set off = " disabled" if w.bind.pv else "" %}
+      <span class="lbl">{{ name }}</span>
+      {% if w.kind == "setpoint" %}
+      <input class="sp" spellcheck="false" aria-label="{{ name }}"{{ off }}><span class="bounds"></span>
+      {% elif w.kind in ("toggle", "flipper", "button") %}
+      <button class="btn sm act" type="button"{{ off }}>{{ name if w.kind == "button" else "…" }}</button>
+      {% else %}
+      <span class="v">—</span>
+      {% endif %}
+      {% if bound.readback %}<span class="rb" title="{{ bound.readback.label }}">—</span><span class="differs" hidden>differs</span>{% endif %}
+      {% for i in w.indicators %}{% set r = bound.indicators[loop.index0] %}<span class="ind"{{ bindattrs(i, r) }}>{{ r.label if r else ("in", "out")[loop.index0] }} <b>—</b></span>{% endfor %}
+      <span class="u"></span>
+      <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>
+      <span class="out" aria-live="polite"></span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </section>
+  {% endfor %}
+  {% if stacks %}</div>{% endif %}{% endfor %}
+</main>
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <div class="body">
+    <h4 id="confirm-title">Write?</h4>
+    <p id="confirm-what" class="mono"></p>
+    <p id="confirm-note"></p>
+    <div class="row end">
+      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
+      <button class="btn danger" type="button" value="write">Write</button>
+    </div>
+  </div>
+</dialog>
+<script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if s %}<script src="{{ root }}/static/screen.js" defer></script>{% endif %}{% endblock %}

@@ -318,9 +318,9 @@ class FakeGeecsServer:
         """Shut down listeners and active TCP subscriptions."""
         if self._tcp_server is not None:
             self._tcp_server.close()
-            await self._tcp_server.wait_closed()
-            self._tcp_server = None
 
+        # Close the subscriptions before waiting on the server: from Python
+        # 3.12 its wait_closed() waits for every open connection.
         writers = list(self._tcp_writers)
         self._tcp_writers.clear()
         if writers:
@@ -328,6 +328,10 @@ class FakeGeecsServer:
                 *(_close_writer(writer) for writer in writers),
                 return_exceptions=True,
             )
+
+        if self._tcp_server is not None:
+            await self._tcp_server.wait_closed()
+            self._tcp_server = None
 
         handler_tasks = [
             task
