@@ -42,3 +42,5 @@ the device, `test_geecs_db` fakes the MySQL connector, `asyncio_mode = "auto"`,
 
 Repo-wide conventions apply (root `CLAUDE.md`): Pydantic v2, NumPy docstrings,
 type hints, `poetry version` + `CHANGELOG.md` at deploy/tag time, not per PR.
+
+**Experiment instances.** `geecs_core.db.overlap` reports devices enabled in more than one live experiment and never changes a device set — that is the owner's DB edit.

@@ -1021,3 +1021,5 @@ with no dependency edge between them.
   package; the edge is one-way, pinned by `.importlinter` and
   `tests/test_dependency_direction.py`), the portal, the logbook or the
   gateway's code.
+
+**Experiment instances.** Every per-instance value the worker and the queue client read (`QS_REDIS_PREFIX`, `QS_EXISTING_PLANS_DEVICES`, `QS_CLIENT_*_ADDR`) defaults to the main experiment's behaviour when unset, so a non-templated unit never changes when an instance is added.

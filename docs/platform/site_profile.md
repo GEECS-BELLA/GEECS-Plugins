@@ -115,7 +115,7 @@ arguments**. It does not expand in `WorkingDirectory=`, `User=`,
 
 | Hole | Filled | Examples |
 |---|---|---|
-| `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@`, `@PORTAL_MEMORY_HIGH@`, `@PORTAL_MEMORY_MAX@` |
+| `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@`, `@PORTAL_MEMORY_HIGH@`, `@PORTAL_MEMORY_MAX@`; the instance templates' `@EXPERIMENTS_DIR@` (`GEECS_EXPERIMENTS_DIR`, default `/etc/geecs/experiments`) and `@INSTANCE_CHECKOUT_ROOT@` (`GEECS_INSTANCE_CHECKOUT_ROOT`, default `GEECS_CHECKOUT_ROOT`) |
 | `${VARIABLE}` | at start, by systemd from `site.env` | `--experiment ${GEECS_EXPERIMENT}`, `--doc-addr ${GEECS_QS_DOC_ADDR}`, `--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"` (quoted: substituted as one argument, spaces survive) |
 | `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS`, `$GEECS_LOGBOOK_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--config-editor` and `--logbook-url`) |
 
@@ -184,6 +184,36 @@ rather than passing the old hand-edit unit through — pull that clone
 forward first. The fleet map's bootstrap gotchas (poetry off the service account's
 `PATH`, CRLF on the share-mounted configs checkout, quoting share paths
 with spaces) are baked into the scripts and the example file.
+
+## A second experiment on the same hub
+
+A second experiment is an **instance**: its own CA gateway, queueserver
+worker (+ readiness), Tiled writer, scanner and logbook, beside the main
+experiment's units and never instead of them. Tiled, the Data Portal
+(`?experiment=`), the archiver and Canopy stay shared.
+
+- **Its values have one home**: `/etc/geecs/experiments/<Instance>.env`
+  (keys and the port scheme in `deploy/experiments.env.example`), read by
+  the `<unit>@.service` templates *after* `site.env`, so it overrides the
+  site for that instance only. `<Instance>` is a slug; the DB experiment
+  it serves (`GEECS_EXPERIMENT`) may carry spaces, and it is the name the
+  scan folders, the configs folder and the logbook use.
+- **Ports come from a slot** `N` (1..9; the main experiment is slot 0, the
+  stock ports): CA `5064+100N`, 0MQ `60615+100N` / `60625+100N`, documents
+  `5567+100N` / `5568+100N`, scanner `8300+10N`, logbook `8400+10N`.
+- **One verb**: `deploy/experiment.sh up <Instance> --db-experiment '<DB
+  name>' --address <this host> --broadcast <its broadcast>` writes the file,
+  renders the six units (all or none), warns about devices enabled in more
+  than one live experiment (`geecs_core.db.overlap`, read-only), scaffolds
+  the configs folder when absent, and enables `<unit>@<Instance>`; `down`
+  stops them and keeps file, state, configs and data; `list` shows them.
+- **Clients reach its gateway** by adding `<host>:<CA port>` to their CA
+  address list (and the site's, for the archiver and Canopy).
+- `GEECS_INSTANCE_CHECKOUT_ROOT` (render-time) lets instances run from
+  clones of their own. It exists for the multi-experiment proof, while the
+  arc's code is not yet on the main clones' ref — a **transitional
+  exception**: once promoted, one clone serves every experiment and the key
+  is removed.
 
 ## Onboarding a second facility
 
