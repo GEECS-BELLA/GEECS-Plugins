@@ -74,7 +74,7 @@ check_instance_env() {  # check_instance_env INSTANCE [FILE] — after load_site
     local port="${QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER:-}"; port="${port##*:}"
     for k in QS_CONTROL_ADDR QS_CLIENT_CONTROL_ADDR; do
         local v="${!k:-}"
-        [ "${v##*:}" = "$port" ] || { echo "instance file: $k (${!k}) is not this instance's manager (QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER port $port)" >&2; exit 2; }
+        [ "${v##*:}" = "$port" ] || { echo "instance file: $k ($v) is not this instance's manager (QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER port $port)" >&2; exit 2; }
     done
     [ -z "${EPICS_CA_SERVER_PORT:-}" ] || { echo "instance file: EPICS_CA_SERVER_PORT must not be set (it would re-port the worker's CA clients) — use GEECS_CA_SERVER_PORT" >&2; exit 2; }
     check_site_env_consistency
