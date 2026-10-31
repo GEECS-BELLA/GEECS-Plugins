@@ -167,6 +167,21 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
         ["detector"],
     ),  # fmt: skip
     ("alarms: none while the module is silent", "alarms", [{"ok": False}], []),
+    # the module's hazard marks, asked once for a whole write list
+    (
+        "hazards: the roles the module marks, in order",
+        "hazards",
+        [
+            [["min_x", 0], ["size_x", 64], ["size_y", 64]],
+            {
+                "min_x": {"writable": True},
+                "size_x": {"confirm": "hazard"},
+                "size_y": {"confirm": "hazard"},
+            },
+        ],
+        ["size_x", "size_y"],
+    ),  # fmt: skip
+    ("hazards: an unknown role is none", "hazards", [[["gain", 2]], {}], []),
     ("valid: the waveform's length", "valid", [[1, 2, 3, 4], 2], [1, 2]),
     ("valid: unread length keeps all", "valid", [[1, 2], None], [1, 2]),
     ("whole: a typed number, rounded", "whole", [" 12.6 "], 13),

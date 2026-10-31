@@ -153,6 +153,9 @@
   const alarms = (view) => (!view || !view.ok ? [] : Object.values(view.roles).filter((e) => e.verdict === "error").map((e) => e.label || e.role));
 
   // An array's first n values (the waveform's valid length, a role of its own); all of them when n is unread.
+  // The roles of a write list the module marks as hazards (its device route's `confirm: "hazard"`, the policy's):
+  // the page asks once for the whole list before sending any of it, so a refusal never half-applies it.
+  const hazards = (pairs, entries) => pairs.map(([role]) => role).filter((role) => !!entries[role] && entries[role].confirm === "hazard");
   const valid = (values, n) => (typeof n === "number" && n >= 0 ? (values || []).slice(0, n) : values || []);
 
   // A whole number typed into a field, or null for an empty or non-numeric one (which writes nothing).
@@ -165,5 +168,5 @@
     return s === "" || !Number.isFinite(n) ? null : n;
   }
 
-  Object.assign(rules, { MAPS, levels, lut, autoLevels, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, valid, whole, number });
+  Object.assign(rules, { MAPS, levels, lut, autoLevels, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, valid, whole, number });
 })(typeof module === "object" ? module.exports : (window.GeecsCameraRules = {}));

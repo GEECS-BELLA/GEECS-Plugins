@@ -181,8 +181,8 @@ own, so each is the module's to give or is dropped:
 **The image/array path (a decision, cheap to veto).** The Control Room's
 server reads the frame URL and the arrays over Channel Access itself (aioca),
 at the PVs the module's device route names, behind its own small routes:
-`/api/device/{name}/frame.jpg`, `/api/device/{name}/arrays` and
-`/api/device/{name}/traces` (SSE). Read only; no write ever leaves the page
+`/api/devices/{name}/frame.jpg`, `/api/devices/{name}/arrays` and
+`/api/devices/{name}/traces` (SSE). Read only; no write ever leaves the page
 but through the module's put route. This makes GeecsControlRoom a CA client
 as well as a Canopy client, so the slice that adds it (3) changes, in the same
 PR, the root `CLAUDE.md` row and graph entry, `GeecsControlRoom/CLAUDE.md`'s
@@ -253,11 +253,11 @@ make. The "not a native device" pane has no bench device (proved in tests).
 
 ### 2026-10-31 — slice 3, the camera page
 
-**Landed.** `images.py`: `/api/device/{name}/frame.jpg` (the JPEG at the
+**Landed.** `images.py`: `/api/devices/{name}/frame.jpg` (the JPEG at the
 URL role `image` names, read over CA as a char string and rehosted to the
 IOC's CA address; one fetch in flight per device, a frame shared within
 0.1 s; `X-Frame-Tag` the bytes' checksum, so a frozen frame is never "new")
-and `/api/device/{name}/arrays` (every `on_request` role by name, at most
+and `/api/devices/{name}/arrays` (every `on_request` role by name, at most
 every 0.5 s, shared), both read only, the module's device route cached 10 s;
 404 when the module names no such role (never a derived PV), 503 with words
 when a source is silent. aioca is a runtime dependency; CA addressing is

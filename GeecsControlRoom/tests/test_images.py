@@ -91,7 +91,7 @@ def test_the_url_is_rehosted_to_the_ca_address_keeping_its_port() -> None:
 async def test_the_frame_is_the_jpeg_at_the_url_the_module_names() -> None:
     env = Env()
     async with env.client() as c:
-        r = await c.get("/api/device/Cam/frame.jpg")
+        r = await c.get("/api/devices/Cam/frame.jpg")
     assert r.status_code == 200 and r.content.startswith(b"\xff\xd8")
     assert r.headers["content-type"] == "image/jpeg" and r.headers["cache-control"] == "no-store"  # fmt: skip
     assert r.headers["x-frame-tag"]
@@ -103,16 +103,16 @@ async def test_viewers_share_one_fetch_in_flight_and_one_frame_within_the_floor(
     env = Env()
     env.gate = asyncio.Event()
     async with env.client() as c:
-        pending = [asyncio.create_task(c.get("/api/device/Cam/frame.jpg")) for _ in range(5)]  # fmt: skip
+        pending = [asyncio.create_task(c.get("/api/devices/Cam/frame.jpg")) for _ in range(5)]  # fmt: skip
         await asyncio.sleep(0.05)
         env.gate.set()
         tags = {(await t).headers["x-frame-tag"] for t in pending}
         assert len(env.urls) == 1 and len(tags) == 1
         env.clock[0] += FRAME_EVERY_S / 2
-        await c.get("/api/device/Cam/frame.jpg")
+        await c.get("/api/devices/Cam/frame.jpg")
         assert len(env.urls) == 1  # inside the floor: the held frame
         env.clock[0] += FRAME_EVERY_S
-        again = await c.get("/api/device/Cam/frame.jpg")
+        again = await c.get("/api/devices/Cam/frame.jpg")
     assert len(env.urls) == 2 and again.headers["x-frame-tag"] not in tags
     assert env.reads == 1  # the module's route, read once for all of it
 
@@ -121,10 +121,10 @@ async def test_a_failed_fetch_is_a_503_with_words_and_the_url_is_read_again() ->
     env = Env()
     env.fetch_fails = True
     async with env.client() as c:
-        r = await c.get("/api/device/Cam/frame.jpg")
+        r = await c.get("/api/devices/Cam/frame.jpg")
         assert r.status_code == 503 and "no frame from the IOC" in r.json()["detail"]
         env.fetch_fails = False
-        assert (await c.get("/api/device/Cam/frame.jpg")).status_code == 200
+        assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 200
     assert [k for k, _ in env.ca.calls] == ["text", "host", "text", "host"]
 
 
@@ -140,7 +140,7 @@ async def test_a_failed_fetch_is_a_503_with_words_and_the_url_is_read_again() ->
 async def test_a_frame_the_module_does_not_name_is_never_derived(roles, status, code, words) -> None:  # fmt: skip
     env = Env(roles, status)
     async with env.client() as c:
-        r = await c.get("/api/device/Cam/frame.jpg")
+        r = await c.get("/api/devices/Cam/frame.jpg")
     assert r.status_code == code and words in r.json()["detail"]
     assert env.ca.calls == [] and env.urls == []
 
@@ -148,7 +148,7 @@ async def test_a_frame_the_module_does_not_name_is_never_derived(roles, status, 
 async def test_the_arrays_are_the_on_request_roles_by_name_finite_only() -> None:
     env = Env()
     async with env.client() as c:
-        body = (await c.get("/api/device/Cam/arrays")).json()
+        body = (await c.get("/api/devices/Cam/arrays")).json()
     assert body["arrays"] == {"profile_x": [1.0, None], "histogram": [3.0, None, 4.0]}
     assert body["pvs"]["profile_x"] == "bench:cam:STAT:ProfileAverageX_RBV"
     assert env.ca.calls == [("arrays", ("bench:cam:STAT:ProfileAverageX_RBV", "bench:cam:STAT:Histogram_RBV"))]  # fmt: skip
@@ -159,16 +159,16 @@ async def test_the_arrays_are_shared_and_read_at_most_every_half_second() -> Non
     env.ca.gate = asyncio.Event()
     async with env.client() as c:
         pending = [
-            asyncio.create_task(c.get("/api/device/Cam/arrays")) for _ in range(4)
+            asyncio.create_task(c.get("/api/devices/Cam/arrays")) for _ in range(4)
         ]
         await asyncio.sleep(0.05)
         env.ca.gate.set()
         assert [(await t).status_code for t in pending] == [200] * 4
         env.clock[0] += ARRAYS_EVERY_S / 2
-        await c.get("/api/device/Cam/arrays")
+        await c.get("/api/devices/Cam/arrays")
         assert len(env.ca.calls) == 1
         env.clock[0] += ARRAYS_EVERY_S
-        await c.get("/api/device/Cam/arrays")
+        await c.get("/api/devices/Cam/arrays")
     assert len(env.ca.calls) == 2
 
 
@@ -176,11 +176,11 @@ async def test_unreadable_arrays_are_a_503_and_none_named_a_404() -> None:
     env = Env()
     env.ca.fail = True
     async with env.client() as c:
-        r = await c.get("/api/device/Cam/arrays")
+        r = await c.get("/api/devices/Cam/arrays")
     assert r.status_code == 503 and "could not be read" in r.json()["detail"]
     bare = Env([ROLES[0], ROLES[3]])
     async with bare.client() as c:
-        r = await c.get("/api/device/Cam/arrays")
+        r = await c.get("/api/devices/Cam/arrays")
     assert r.status_code == 404 and "no on-request array" in r.json()["detail"]
     assert bare.ca.calls == []
 
@@ -188,7 +188,43 @@ async def test_unreadable_arrays_are_a_503_and_none_named_a_404() -> None:
 async def test_the_module_route_is_reread_after_its_ttl() -> None:
     env = Env()
     async with env.client() as c:
-        await c.get("/api/device/Cam/arrays")
+        await c.get("/api/devices/Cam/arrays")
         env.clock[0] += ROUTE_TTL_S + 1
-        await c.get("/api/device/Cam/arrays")
+        await c.get("/api/devices/Cam/arrays")
     assert env.reads == 2
+
+
+async def test_a_silent_module_serves_the_last_good_route_and_is_asked_once_per_ttl() -> None:  # fmt: skip
+    env = Env()
+    async with env.client() as c:
+        assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 200
+        env.status = 0  # the module stops answering
+        env.clock[0] += ROUTE_TTL_S + 1
+        assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 200
+        assert (await c.get("/api/devices/Cam/arrays")).status_code == 200
+        assert env.reads == 2  # the failed refresh, then the held roles for another TTL
+        env.status = 503
+        env.clock[0] += ROUTE_TTL_S + 1
+        assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 200
+        env.status = 404  # off the roster: forgotten, never served from memory
+        env.clock[0] += ROUTE_TTL_S + 1
+        r = await c.get("/api/devices/Cam/frame.jpg")
+    assert r.status_code == 404 and "not on the module's roster" in r.json()["detail"]
+
+
+async def test_waiters_share_one_route_read_even_when_it_fails() -> None:
+    env = Env(status=0)
+    gate = asyncio.Event()
+    device = env.module.device
+
+    async def slow(name: str) -> Any:
+        await gate.wait()
+        return await device(name)
+
+    env.module.device = slow  # type: ignore[method-assign]
+    async with env.client() as c:
+        pending = [asyncio.create_task(c.get("/api/devices/Cam/frame.jpg")) for _ in range(6)]  # fmt: skip
+        await asyncio.sleep(0.05)
+        gate.set()
+        codes = [(await t).status_code for t in pending]
+    assert codes == [503] * 6 and env.reads == 1

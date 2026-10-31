@@ -2,13 +2,13 @@
   The camera page (Planning/device_pages.md slice 3): device.html with the
   camera's component in `kind_component`, every role's table folded below.
   The frame is pulled one at a time from this server's frame proxy
-  (/api/device/<name>/frame.jpg: the JPEG the IOC's MJPEG server holds, at
+  (/api/devices/<name>/frame.jpg: the JPEG the IOC's MJPEG server holds, at
   the URL the module names for role `image`); colour map, levels and scale
   are this viewer's own. Crosshairs, the analysis ROI and the acquisition
   controls are family roles, each written through the module's put route
   with the operator's name, sent once; a run-locked role is refused by the
   module while a run holds the camera (its outcome says so). The lineouts
-  and histogram are the on-request arrays (/api/device/<name>/arrays), read
+  and histogram are the on-request arrays (/api/devices/<name>/arrays), read
   only while the plots are open. Every word is the module's verdict.
 #}{% extends "device.html" %}
 {% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
@@ -19,7 +19,7 @@
 {% block kind_component %}
 {% set labels, units = {}, {} %}{% for r in device.roles %}{% set _ = labels.update({r.role: r.label or r.role}) %}{% endfor %}
 {% for _axis, rows in tables %}{% for r in rows %}{% set _ = units.update({r.name: r.units}) %}{% endfor %}{% endfor %}
-<div class="camera" id="camera" data-frame-url="{{ root }}/api/device/{{ name | urlencode }}/frame.jpg" data-arrays-url="{{ root }}/api/device/{{ name | urlencode }}/arrays">
+<div class="camera" id="camera" data-frame-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.jpg" data-arrays-url="{{ root }}/api/devices/{{ name | urlencode }}/arrays">
   <aside class="rail">
     <section class="group">
       <h4>Camera</h4>
@@ -122,9 +122,21 @@
     <h4 id="roi-dialog-title">Change the camera ROI?</h4>
     <p>This changes what every scan with this camera saves, from its next frame.</p>
     <p class="mono" id="roi-dialog-text"></p>
+    <p id="roi-dialog-hazard"></p>
     <div class="row end">
       <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
       <button class="btn primary" type="button" value="apply">Apply</button>
+    </div>
+  </div>
+</dialog>
+<dialog id="hazard-dialog" aria-labelledby="hazard-dialog-title">
+  <div class="body">
+    <h4 id="hazard-dialog-title">Write a hazard role?</h4>
+    <p id="hazard-dialog-roles"></p>
+    <p class="mono" id="hazard-dialog-text"></p>
+    <div class="row end">
+      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
+      <button class="btn primary" type="button" value="write">Write</button>
     </div>
   </div>
 </dialog>

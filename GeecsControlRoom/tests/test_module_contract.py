@@ -271,13 +271,16 @@ async def test_the_camera_page_reads_the_image_and_arrays_at_the_pvs_the_module_
     assert all(CAMERA_FIELDS <= set(r) for r in roles.values())
     assert roles["image"]["read"] == "once" and roles["exposure"]["locked"] is True
     image = roles["image"]["pv"]
-    frame = await room.client.get("/api/device/Cam1/frame.jpg")
+    frame = await room.client.get("/api/devices/Cam1/frame.jpg")
     assert frame.status_code == 200 and room.ca.calls == [
         ("text", image),
         ("host", image),
     ]
-    arrays = (await room.client.get("/api/device/Cam1/arrays")).json()
+    arrays = (await room.client.get("/api/devices/Cam1/arrays")).json()
     asked = {r: e["pv"] for r, e in roles.items() if e["read"] == "on_request"}
     assert arrays["pvs"] == asked and set(asked) == {"profile_x", "profile_y", "cursor_profile_x", "cursor_profile_y", "histogram"}  # fmt: skip
     page = await room.client.get("/device/camera/Cam1")
-    assert 'id="camera"' in page.text and "/api/device/Cam1/frame.jpg" in page.text
+    assert 'id="camera"' in page.text and "/api/devices/Cam1/frame.jpg" in page.text
+    assert (
+        'id="hazard-dialog"' in page.text
+    )  # a policy-marked role is asked, then sent with confirm

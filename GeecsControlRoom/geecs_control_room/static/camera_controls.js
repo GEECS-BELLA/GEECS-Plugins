@@ -12,7 +12,7 @@
   const $ = (id) => document.getElementById(id);
   const focused = (el) => document.activeElement === el;
   let busy = false, roiDraft = false;
-  const send = async (pairs) => { busy = true; fill(); const ok = await V.write(pairs); busy = false; fill(); return ok; };
+  const send = async (pairs, confirmed = false) => { busy = true; fill(); const ok = await V.write(pairs, confirmed); busy = false; fill(); return ok; };
 
   // ---- every [data-role] control: filled unless focused (or a camera-ROI draft), enabled on the module's word
   const controls = [...document.querySelectorAll("#camera .rail [data-role]")];
@@ -57,12 +57,16 @@
   $("cam-roi-revert").addEventListener("click", revert);
   const dialog = $("roi-dialog");
   function ask(r) {
+    const pairs = CAM_ROI.map((role, i) => [role, r[i]]);
+    const marked = V.hazardsOf(pairs);
     $("roi-dialog-text").textContent = `x ${r[0]}  y ${r[1]}  width ${r[2]}  height ${r[3]}`;
+    $("roi-dialog-hazard").textContent = marked.length ? `Hazard: ${marked.join(", ")}.` : "";
     dialog.onclick = async (ev) => {
       if (!ev.target.value) return;
       dialog.close();
-      // offsets, then sizes: the last size is checked against the final offset
-      if (ev.target.value === "apply" && (await send(CAM_ROI.map((role, i) => [role, r[i]])))) revert();
+      // offsets, then sizes: the last size is checked against the final offset;
+      // this dialog named the hazards, so its Apply is their confirm
+      if (ev.target.value === "apply" && (await send(pairs, true))) revert();
     };
     dialog.showModal();
   }

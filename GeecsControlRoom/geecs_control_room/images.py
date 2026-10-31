@@ -3,7 +3,7 @@
 Hare carries scalars; a camera's frame and its plots' arrays do not travel
 through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
 
-- ``GET /api/device/{name}/frame.jpg``: the JPEG the IOC's MJPEG server
+- ``GET /api/devices/{name}/frame.jpg``: the JPEG the IOC's MJPEG server
   holds. Its URL is the string at the PV the module's device route names
   for role ``image`` (``read: once``), read as a char string, its host
   replaced with the address CA reached the IOC at (lab DNS names the IOC
@@ -11,13 +11,14 @@ through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
   device, a frame reused for everyone within ``FRAME_EVERY_S``; the
   ``X-Frame-Tag`` names the bytes, so a page never decodes the same frame
   twice (a frozen camera's frame is not "new").
-- ``GET /api/device/{name}/arrays``: every ``read: on_request`` role of the
+- ``GET /api/devices/{name}/arrays``: every ``read: on_request`` role of the
   device (lineouts, histogram) by role name, read at most every
   ``ARRAYS_EVERY_S`` and shared by every viewer. The page polls it only
   while its plots are open.
 
 PV names come from the module's device route only, never derived here; the
-route's answer is reused for ``ROUTE_TTL_S``. CA addressing is the standard
+route's answer is reused for ``ROUTE_TTL_S``, one read in flight per device,
+and the last good answer is served while the module is silent. CA addressing is the standard
 ``EPICS_CA_*`` environment (``site.env``'s keys, loaded by the unit). The
 transports are injected (:class:`Ca`, ``fetch``) so the logic runs in tests
 without a CA library or an IOC; :class:`AiocaCa` is the real one. No write
@@ -152,29 +153,45 @@ class Images:
 
     def __init__(self, ca: Ca, fetch: Callable[[str], Awaitable[bytes]], clock: Callable[[], float] = time.monotonic) -> None:  # fmt: skip
         self._ca, self._fetch, self._clock = ca, fetch, clock
-        self._routes: dict[str, tuple[float, dict[str, dict[str, Any]]]] = {}
-        self._route_lock = asyncio.Lock()
+        self._routes: dict[str, Shared[dict[str, dict[str, Any]]]] = {}
+        self._good: dict[str, dict[str, dict[str, Any]]] = {}
         self._frames: dict[tuple[str, str], Shared[tuple[bytes, str]]] = {}
         self._urls: dict[str, str] = {}
         self._arrays: dict[tuple[str, tuple[str, ...]], Shared[dict[str, Any]]] = {}
 
     async def roles(self, module: ModuleClient, name: str) -> dict[str, dict[str, Any]]:  # fmt: skip
-        """The device's roles by name as the module's device route gave them (at most ``ROUTE_TTL_S`` old)."""
-        async with self._route_lock:  # concurrent viewers wait for the one read
-            held = self._routes.get(name)
-            if held and self._clock() - held[0] < ROUTE_TTL_S:
-                return held[1]
-            try:
-                status, body = await module.device(name)
-            except ModuleUnavailable as exc:
-                raise Unavailable(503, f"the module did not answer: {exc}") from exc
-            if status == 404:
-                raise Unavailable(404, f"{name} is not on the module's roster")
-            if status != 200 or not isinstance(body, dict):
-                raise Unavailable(503, f"the module answered {status} for {name}")
-            roles = {r["role"]: r for r in body.get("roles") or [] if r.get("pv") and not r.get("axis")}  # fmt: skip
-            self._routes[name] = (self._clock(), roles)
-            return roles
+        """The device's roles by name as the module's device route gave them (at most ``ROUTE_TTL_S`` old).
+
+        One read in flight per device, shared by every waiter (a slow module
+        holds up only its own device's first viewers, never another camera).
+        While the module is silent or failing, the last good answer is served
+        and held for another ``ROUTE_TTL_S``: PV names do not change between
+        reads, and a frame from a healthy IOC need not wait on the module. A
+        404 (off the roster) forgets it.
+        """
+        source = self._routes.get(name)
+        if source is None:
+            source = self._routes[name] = Shared(lambda: self._read_roles(module, name), ROUTE_TTL_S, self._clock)  # fmt: skip
+        return await source.get()
+
+    async def _read_roles(self, module: ModuleClient, name: str) -> dict[str, dict[str, Any]]:  # fmt: skip
+        good = self._good.get(name)
+        try:
+            status, body = await module.device(name)
+        except ModuleUnavailable as exc:
+            if good is not None:
+                return good
+            raise Unavailable(503, f"the module did not answer: {exc}") from exc
+        if status == 404:
+            self._good.pop(name, None)
+            raise Unavailable(404, f"{name} is not on the module's roster")
+        if status != 200 or not isinstance(body, dict):
+            if good is not None:
+                return good
+            raise Unavailable(503, f"the module answered {status} for {name}")
+        roles = {r["role"]: r for r in body.get("roles") or [] if r.get("pv") and not r.get("axis")}  # fmt: skip
+        self._good[name] = roles
+        return roles
 
     async def frame(self, module: ModuleClient, name: str) -> tuple[bytes, str]:
         """The latest JPEG and its tag (the bytes' checksum)."""
@@ -244,7 +261,7 @@ def router(images: Images) -> APIRouter:
     def refused(exc: Unavailable) -> JSONResponse:
         return JSONResponse({"code": "unavailable", "detail": exc.detail}, status_code=exc.status)  # fmt: skip
 
-    @r.get("/api/device/{name}/frame.jpg")
+    @r.get("/api/devices/{name}/frame.jpg")
     async def frame(request: Request, name: str) -> Response:
         try:
             jpeg, tag = await images.frame(request.app.state.module, name)
@@ -253,7 +270,7 @@ def router(images: Images) -> APIRouter:
         headers = {"Cache-Control": "no-store", "X-Frame-Tag": tag}
         return Response(jpeg, media_type="image/jpeg", headers=headers)
 
-    @r.get("/api/device/{name}/arrays")
+    @r.get("/api/devices/{name}/arrays")
     async def arrays(request: Request, name: str) -> Any:
         try:
             return await images.arrays(request.app.state.module, name)

@@ -23,9 +23,9 @@ geecs_control_room/
   device_pages.py   KINDS (kind word → family kind → template); /device/{kind} the picker (the registry's
                     devices of the kind, /api/device/{kind} their roster states), /device/{kind}/{name} the
                     device resolved by one module read (denied / stale panes, never blank)
-  images.py         a camera's frame (/api/device/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
+  images.py         a camera's frame (/api/devices/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
                     names, rehosted to the IOC's CA address, one fetch in flight, shared) and arrays
-                    (/api/device/{name}/arrays: the `on_request` roles, at most every 0.5 s, shared),
+                    (/api/devices/{name}/arrays: the `on_request` roles, at most every 0.5 s, shared),
                     over CA (aioca), read only; the module's route cached ROUTE_TTL_S
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline

@@ -288,20 +288,39 @@
   $("reset-levels").addEventListener("click", () => { blackIn.value = 0; whiteIn.value = 255; scaleSel.value = "linear"; autoLive.checked = false; buildLut(); recolour(); save(); });
   $("roi-show").addEventListener("change", draw);
 
-  // ---- writes: POST /api/devices/<name>/put {role, value, operator}, each sent once; a list stops at its first refusal
+  // ---- writes: POST /api/devices/<name>/put {role, value, operator[, confirm]}, each sent once; a list stops at its first refusal
   const OP_KEY = "geecs-control-room-operator", opInput = $("operator");
   try { opInput.value = localStorage.getItem(OP_KEY) || ""; } catch (_) { /* no storage */ }
   opInput.addEventListener("change", () => { try { localStorage.setItem(OP_KEY, opInput.value.trim()); } catch (_) { /* no storage */ } });
   const out = $("write-out");
   const say = (word, text, detail) => { out.dataset.state = S.outcomeState(word); out.textContent = text; out.title = detail || ""; };
-  async function write(pairs) {
+  // The roles in `pairs` the module marks as hazards (asked before anything is sent).
+  const hazardsOf = (pairs) => R.hazards(pairs, Object.fromEntries(pairs.map(([role]) => [role, P.entry(role)])));
+  const hazardDialog = $("hazard-dialog");
+  function askHazard(pairs, roles) {
+    $("hazard-dialog-text").textContent = pairs.map(([role, v]) => `${P.name} · ${role} ← ${v}`).join("\n");
+    $("hazard-dialog-roles").textContent = `Hazard: ${roles.join(", ")}.`;
+    return new Promise((done) => {
+      hazardDialog.onclick = (ev) => { if (ev.target.value) { hazardDialog.close(); done(ev.target.value === "write"); } };
+      hazardDialog.oncancel = () => done(false);
+      hazardDialog.showModal();
+    });
+  }
+  // `confirmed`: the caller's own dialog, naming these writes and their hazards, was answered (the camera ROI's).
+  async function write(pairs, confirmed = false) {
     const operator = opInput.value.trim();
     if (!operator) { opInput.focus(); say("unknown", "unsent · name yourself in the header first"); return false; }
+    // one decision for the whole list: the confirm sent is the dialog the operator answered
+    const marked = hazardsOf(pairs);
+    if (marked.length && !confirmed && !(await askHazard(pairs, marked))) { say("unknown", "unsent · not confirmed"); return false; }
+    const confirm = confirmed || marked.length > 0;
     for (const [role, v] of pairs) {
       say("sending", `${role} ← ${v} · sending`);
       let a;
       try {
-        const r = await fetch(`${P.root}/api/devices/${encodeURIComponent(P.name)}/put`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role, value: v, operator }) });
+        const body = { role, value: v, operator };
+        if (confirm) body.confirm = true;
+        const r = await fetch(`${P.root}/api/devices/${encodeURIComponent(P.name)}/put`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         a = await r.json();
       } catch (_) { a = { outcome: "unknown", code: "no_answer", detail: "read the device and the journal before repeating it" }; }
       const word = a.outcome || "unknown";
@@ -310,7 +329,7 @@
     }
     return true;
   }
-  const W = window.GeecsCameraView = { write, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => [iw, ih] };
+  const W = window.GeecsCameraView = { write, hazardsOf, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => [iw, ih] };
   resize();
   loop();
 })();

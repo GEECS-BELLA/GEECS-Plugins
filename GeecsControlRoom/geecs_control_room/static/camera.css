@@ -28,3 +28,4 @@
 .kit .plot-head .key.t2{color:var(--trace-2)}
 .kit .operator{display:inline-flex;align-items:center;gap:6px;font-size:12px}
 .kit .device[data-kind="camera"]{max-width:none}
+.kit #hazard-dialog-text{white-space:pre-line}
