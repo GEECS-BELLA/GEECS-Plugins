@@ -811,9 +811,11 @@ async def test_a_seed_fed_undecodable_frames_lapses_for_good(monkeypatch):
         budget = server_module.SEED_DECODE_BUDGET
         for k in range(budget - 1):  # not yet a verdict: the seed holds on
             cam.push(IMG, time.time() + k)
-        await _wait_until(
-            lambda: worker._seed_decode_failures.get("image") == budget - 1
-        )
+            # one decode per push: the worker's slot is latest-wins, so a
+            # second push read before the publisher drains it would coalesce
+            await _wait_until(
+                lambda n=k + 1: worker._seed_decode_failures.get("image") == n
+            )
         await asyncio.sleep(0.2)
         assert cam.connections == 1 and worker._seeding == {"image"}
         cam.push(IMG, time.time() + budget)
