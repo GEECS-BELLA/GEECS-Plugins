@@ -168,3 +168,48 @@ def test_list_shows_each_instance(profile) -> None:
     assert result.returncode == 0, result.stderr
     row = next(x for x in result.stdout.splitlines() if x.startswith("PulsedWire"))
     assert "'Bench stand'" in row and " 1 " in row and "8310" in row
+
+
+def test_flags_with_an_existing_instance_file_are_refused(profile) -> None:
+    (profile["experiments"] / "PulsedWire.env").write_text(
+        "GEECS_INSTANCE=PulsedWire\n"
+    )
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 2
+    assert "would be ignored" in result.stderr
+
+
+def test_backslashes_in_the_db_name_are_kept_verbatim(profile) -> None:
+    args = [
+        "--db-experiment",
+        r"Foo\tBar",
+        "--address",
+        "127.0.0.1",
+        "--broadcast",
+        "x",
+    ]
+    result = _verb(profile, "up", "PulsedWire", *args, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert _staged(profile, "PulsedWire")["GEECS_EXPERIMENT"] == r"Foo\tBar"
+
+
+def test_list_never_shows_the_main_value_for_a_missing_key(profile) -> None:
+    (profile["experiments"] / "Bare.env").write_text("GEECS_INSTANCE_SLOT=3\n")
+    row = next(
+        x for x in _verb(profile, "list").stdout.splitlines() if x.startswith("Bare")
+    )
+    assert "Undulator" not in row  # site.env's experiment never stands in
+    assert "''" in row
+
+
+def test_an_incomplete_instance_installs_nothing(profile) -> None:
+    """Code that ignores the instance keys (a stale clone) leaves units
+    unrendered: up stops before installing or enabling anything."""
+    sys.path.insert(0, str(REPO_ROOT / "tests"))
+    from test_render_units_sh import _fake_clones
+
+    _fake_clones(profile["root"], stale=True)
+    result = _verb(profile, "up", "PulsedWire", *NEW)
+    assert result.returncode == 1
+    assert "INCOMPLETE" in result.stderr
+    assert "$ sudo" not in result.stdout  # run() echoes every command it executes

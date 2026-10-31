@@ -14,10 +14,12 @@
 # up    First time: writes the instance file from deploy/experiments.env.example
 #       (--db-experiment, the address this host serves CA on and its
 #       broadcast are required; every port follows from the first free SLOT,
-#       see the example). Again: reuses the installed file as it is. Then
-#       scaffolds <configs>/scanner_configs/experiments/<DB experiment>/ when
-#       absent, renders the instance units (bootstrap_host.sh --experiment) and
-#       installs + enables them (sudo), and prints the ports and the scanner URL.
+#       see the example). Again: reuses the installed file as it is (and
+#       refuses those flags). Then renders the instance units
+#       (bootstrap_host.sh --experiment) — all six or it stops, nothing
+#       installed — scaffolds <configs>/scanner_configs/experiments/<DB
+#       experiment>/ when absent, installs + enables the units (sudo), and
+#       prints the ports and the scanner URL.
 # down  Stops and disables the instance's units. The instance file (its slot),
 #       its state under /var/lib/geecs-experiments/INSTANCE/, its configs and
 #       its data stay where they are; `up` again brings it back as it was.
@@ -63,7 +65,9 @@ INSTANCE_UNITS="geecs-ca-gateway geecs-qserver geecs-qserver-ready geecs-tiled-w
 units_for() { local u; for u in $INSTANCE_UNITS; do printf '%s@%s.service ' "$u" "$1"; done; }
 
 env_value() {  # env_value FILE KEY — one key of an env file, parsed as systemd does
-    ( load_site_env "$1" >/dev/null 2>&1 || true; printf '%s' "${!2:-}" )
+    # The key is unset first: the parent's site.env values must never stand in
+    # for one the instance file lacks.
+    ( unset "$2"; load_site_env "$1" >/dev/null 2>&1 || true; printf '%s' "${!2:-}" )
 }
 
 # The ports of slot N (deploy/experiments.env.example; slot 0 = the stock ports).
@@ -84,11 +88,15 @@ render_instance_env() {  # render_instance_env SLOT > file — the example with 
     din="$(slot_port "$n" 5567 100)"; dout="$(slot_port "$n" 5568 100)"
     scanner="$(slot_port "$n" 8300 10)"; logbook="$(slot_port "$n" 8400 10)"
     local addr_list="$ADDRESS:$ca${CA_EXTRA:+ $CA_EXTRA}"
-    awk -v inst="$INSTANCE" -v slot="$n" -v expt="$DB_EXPERIMENT" -v ca="$ca" \
-        -v intf="$ADDRESS" -v bcast="$BROADCAST" -v addrs="$addr_list" \
-        -v control="$control" -v info="$info" -v din="$din" -v dout="$dout" \
-        -v scanner="$scanner" -v logbook="$logbook" '
+    # Values through ENVIRON, never -v: awk would read backslash escapes in -v.
+    INST="$INSTANCE" SLOT="$n" EXPT="$DB_EXPERIMENT" CA="$ca" INTF="$ADDRESS" BCAST="$BROADCAST" \
+    ADDRS="$addr_list" CONTROL="$control" INFO="$info" DIN="$din" DOUT="$dout" \
+    SCANNER="$scanner" LOGBOOK="$logbook" awk '
         BEGIN {
+            inst = ENVIRON["INST"]; slot = ENVIRON["SLOT"]; expt = ENVIRON["EXPT"]; ca = ENVIRON["CA"]
+            intf = ENVIRON["INTF"]; bcast = ENVIRON["BCAST"]; addrs = ENVIRON["ADDRS"]
+            control = ENVIRON["CONTROL"]; info = ENVIRON["INFO"]; din = ENVIRON["DIN"]; dout = ENVIRON["DOUT"]
+            scanner = ENVIRON["SCANNER"]; logbook = ENVIRON["LOGBOOK"]
             v["GEECS_INSTANCE"] = inst; v["GEECS_INSTANCE_SLOT"] = slot
             v["GEECS_EXPERIMENT"] = expt; v["QS_EXPERIMENT"] = expt
             v["GEECS_CA_SERVER_PORT"] = ca
@@ -136,6 +144,9 @@ up)
     INSTALLED="$EXPERIMENTS_DIR/$INSTANCE.env"
     if [ -f "$INSTALLED" ]; then
         INSTANCE_FILE="$INSTALLED"
+        if [ -n "$DB_EXPERIMENT$ADDRESS$BROADCAST$CA_EXTRA" ]; then
+            echo "'$INSTANCE' already has an instance file ($INSTALLED): --db-experiment/--address/--broadcast/--ca-extra would be ignored — edit that file (as root) instead" >&2; exit 2
+        fi
         say "up '$INSTANCE' — instance file exists ($INSTALLED), used as it is"
     else
         [ -n "$DB_EXPERIMENT" ] && [ -n "$ADDRESS" ] && [ -n "$BROADCAST" ] || {
@@ -150,26 +161,35 @@ up)
     EXPT="$(env_value "$INSTANCE_FILE" GEECS_EXPERIMENT)"
     [ "$EXPT" != "$MAIN_EXPERIMENT" ] || { echo "'$EXPT' is the main experiment (site.env) — it keeps its own units" >&2; exit 2; }
     ENGINE="$INSTANCE_ROOT/qs-checkout/GeecsBluesky"
-    py() { if [ -d "$ENGINE" ]; then (cd "$ENGINE" && "$GEECS_POETRY" run python "$@"); else echo "  ($ENGINE absent: skipped python -m $2)"; return 0; fi; }
-
-    say "configs ($EXPT)"
-    if [ "$DRY" -eq 1 ]; then echo "  [dry] python -m geecs_bluesky.config_scaffold '$EXPT' --experiments-root '$GEECS_CONFIGS_ROOT/scanner_configs/experiments'"
-    else py -m geecs_bluesky.config_scaffold "$EXPT" --experiments-root "$GEECS_CONFIGS_ROOT/scanner_configs/experiments" | sed 's/^/  /'; fi
 
     say "units"
-    "$REPO_ROOT/deploy/bootstrap_host.sh" "$SITE_ENV" --experiment "$INSTANCE" --instance-env "$INSTANCE_FILE" \
-        ${REF:+--ref "$REF"} $([ "$DRY" -eq 1 ] && echo --dry-run) | sed -n '/^== root steps/q;p'
+    # The bootstrap's own enable line names exactly the units it rendered
+    # (dry run or not); its root-steps section is ours to run, not to print.
+    BOOT_OUT="$("$REPO_ROOT/deploy/bootstrap_host.sh" "$SITE_ENV" --experiment "$INSTANCE" --instance-env "$INSTANCE_FILE" \
+        ${REF:+--ref "$REF"} $([ "$DRY" -eq 1 ] && echo --dry-run))"
+    printf '%s\n' "$BOOT_OUT" | sed '/^== root steps/,$d'
     STAGED=()
-    for u in $(units_for "$INSTANCE"); do
-        t="${u%%@*}@.service"
-        if [ -f "$STAGE/$t" ] || [ "$DRY" -eq 1 ]; then STAGED+=("$u"); else echo "  WARNING: $t not rendered (see above) — ${u} not enabled"; fi
-    done
-    [ "$INSTANCE_FILE" -ef "$INSTALLED" ] || run sudo install -D -m 0644 "$INSTANCE_FILE" "$INSTALLED"
-    if [ "${#STAGED[@]}" -gt 0 ]; then
-        run sudo install -m 0644 "$STAGE"/*@.service /etc/systemd/system/
-        run sudo systemctl daemon-reload
-        run sudo systemctl enable --now "${STAGED[@]}"
+    for u in $(printf '%s\n' "$BOOT_OUT" | sed -n 's/.*systemctl enable --now //p'); do STAGED+=("$u"); done
+    # All six or none: a half instance (a manager without its scanner, a
+    # scanner without its manager) is worse than none, and must not look done.
+    if [ "${#STAGED[@]}" -ne "$(echo $INSTANCE_UNITS | wc -w)" ]; then
+        echo "INCOMPLETE: $(( $(echo $INSTANCE_UNITS | wc -w) - ${#STAGED[@]} )) instance unit(s) not rendered (see the WARNINGs above) — nothing installed or enabled" >&2
+        exit 1
     fi
+
+    # The configs folder, after the bootstrap (a fresh instance clone exists
+    # now) and before the units start (they read it). Checked here first, so
+    # an instance whose folder exists needs no particular code.
+    say "configs ($EXPT)"
+    EXPERIMENTS_ROOT="$GEECS_CONFIGS_ROOT/scanner_configs/experiments"
+    if [ -d "$EXPERIMENTS_ROOT/$EXPT" ]; then echo "  $EXPERIMENTS_ROOT/$EXPT exists — left as it is"
+    elif [ "$DRY" -eq 1 ]; then echo "  [dry] python -m geecs_bluesky.config_scaffold '$EXPT' --experiments-root '$EXPERIMENTS_ROOT'"
+    else (cd "$ENGINE" && "$GEECS_POETRY" run python -m geecs_bluesky.config_scaffold "$EXPT" --experiments-root "$EXPERIMENTS_ROOT") | sed 's/^/  /'; fi
+
+    [ "$INSTANCE_FILE" -ef "$INSTALLED" ] || run sudo install -D -m 0644 "$INSTANCE_FILE" "$INSTALLED"
+    run sudo install -m 0644 "$STAGE"/*@.service /etc/systemd/system/
+    run sudo systemctl daemon-reload
+    run sudo systemctl enable --now "${STAGED[@]}"
 
     say "instance '$INSTANCE' — experiment '$EXPT'"
     f="$INSTANCE_FILE"
