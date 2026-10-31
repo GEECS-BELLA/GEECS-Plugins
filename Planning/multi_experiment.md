@@ -503,3 +503,28 @@ sudo <driver>/deploy/experiment.sh down <Name>        # and `up <Name>` again: n
 
 Nothing else is done by hand. The step-by-step split in the earlier entry is
 superseded. The driver clone must be readable by the service account.
+
+### 2026-10-31 — slice 6, the second run: the root guard was wrong
+
+The maintainer pulled db26b5829 and re-ran. `down` worked. `up` was refused
+with "`GEECS_INSTANCE_CHECKOUT_ROOT` (`<home>/instances`) is inside
+`GEECS_CHECKOUT_ROOT` (`<home>`)". On the box the service home IS the
+checkout root, so the documented `<home>/instances` is always inside it. The
+#1232 guard was wrong, not the layout.
+
+The guard now refuses only an instance root that could reach main code:
+
+- one equal to, inside or around a main clone directory
+  (`MAIN_CLONE_DIRS`, which a test pins to `bootstrap_host.sh`'s `clone_of`);
+- the deploy-staging directory;
+- the checkout root itself when the key is set explicitly;
+- anything around the checkout root.
+
+Paths must be absolute, with no `.` or `..` components. They are compared
+physically, and a path not yet created resolves through its nearest existing
+parent. A sibling of
+the main clones is allowed. Unsetting the key still shares the main clones.
+The tests use the box's shape.
+
+`down` now runs `reset-failed` on loaded units only, so a clean `down` is
+quiet.

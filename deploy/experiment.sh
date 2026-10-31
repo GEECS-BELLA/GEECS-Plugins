@@ -180,7 +180,13 @@ down)
     run as_root systemctl disable --now $(units_for "$INSTANCE")
     # Clear a failed state so the next `up` starts clean (the instance file,
     # its clones and their envs stay; `up` reinstalls the envs).
-    run as_root systemctl reset-failed $(units_for "$INSTANCE") || true
+    loaded_units() {  # only units systemd has loaded: reset-failed complains about the rest
+        local u; for u in "$@"; do
+            [ "$({ systemctl show -p LoadState --value "$u" 2>/dev/null || true; } | head -1)" = loaded ] && printf '%s ' "$u"
+        done; return 0
+    }
+    LOADED="$(loaded_units $(units_for "$INSTANCE"))"
+    if [ -n "$LOADED" ]; then run as_root systemctl reset-failed $LOADED || true; fi
     ;;
 up)
     INSTALLED="$EXPERIMENTS_DIR/$INSTANCE.env"

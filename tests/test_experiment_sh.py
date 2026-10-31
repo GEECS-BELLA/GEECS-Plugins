@@ -363,10 +363,28 @@ def test_the_bootstrap_refuses_root(tmp_path: Path, profile) -> None:
     assert "must not run as root" in result.stderr
 
 
-def test_down_clears_a_failed_state(profile) -> None:
-    result = _verb(profile, "down", "PulsedWire", "--dry-run")
+def _fake_systemctl(tmp_path: Path, load_state: str) -> str:
+    fake = tmp_path / "fake-systemctl"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        f'#!/usr/bin/env bash\ncase "$*" in *LoadState*) echo {load_state} ;; esac\nexit 0\n'
+    )
+    (fake / "systemctl").chmod(0o755)
+    return f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def test_down_clears_a_failed_state(tmp_path: Path, profile) -> None:
+    path = _fake_systemctl(tmp_path, "loaded")
+    result = _verb(profile, "down", "PulsedWire", "--dry-run", env={"PATH": path})
     assert result.returncode == 0, result.stderr
     assert "reset-failed" in result.stdout
+
+
+def test_down_is_quiet_about_units_never_loaded(tmp_path: Path, profile) -> None:
+    path = _fake_systemctl(tmp_path, "not-found")
+    result = _verb(profile, "down", "PulsedWire", "--dry-run", env={"PATH": path})
+    assert result.returncode == 0, result.stderr
+    assert "reset-failed" not in result.stdout
 
 
 def test_an_existing_instance_root_clone_is_brought_to_ref_and_reinstalled(
@@ -375,44 +393,123 @@ def test_an_existing_instance_root_clone_is_brought_to_ref_and_reinstalled(
     """A re-run `up` is a fresh start under the service account: under an
     instance root of its own, existing clones are fast-forwarded and their envs
     reinstalled (never under the main root, which runs the main units)."""
-    inst_root = tmp_path / "instances"
+    # The box's shape: the instance root is <checkout root>/instances, beside
+    # the main clones, and this is the RE-RUN: the instance file exists.
+    main = profile["root"]
+    for clone in ("gateway-checkout", "portal-checkout", "qs-checkout"):
+        (main / clone).mkdir(parents=True)
+    inst_root = main / "instances"
     for clone in ("gateway-checkout", "portal-checkout", "qs-checkout"):
         (inst_root / clone).mkdir(parents=True)
         subprocess.run(["git", "init", "-q", str(inst_root / clone)], check=True)
     site = profile["site"]
     site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={inst_root}\n")
-    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    first = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert first.returncode in (0, 1), first.stderr  # fake clones render nothing
+    shutil.copy(
+        main / "deploy-staging" / "instances" / "PulsedWire.env",
+        profile["experiments"] / "PulsedWire.env",
+    )
+    result = _verb(profile, "up", "PulsedWire", "--dry-run")
+    assert "GEECS_INSTANCE_CHECKOUT_ROOT" not in result.stderr, result.stderr
+    assert "used as it is" in result.stdout  # the installed instance file
+    assert "chown -R geecs:" in result.stdout  # trees handed to the service account
     assert "envs reinstalled" in result.stdout, result.stdout + result.stderr
     assert "checkout --quiet master" in result.stdout
     # no origin/master in these bare clones: a tag/SHA-like ref is not ff-merged
     assert "merge --quiet --ff-only" not in result.stdout
+    # the main clones are never touched
+    assert f"-C {main}/qs-checkout " not in result.stdout
     assert "poetry install" in result.stdout
 
 
-@pytest.mark.parametrize("where", ["inside", "around"])
-def test_a_nested_instance_root_is_refused(tmp_path: Path, profile, where: str) -> None:
-    """One root inside the other would let the instance's chown or fast-forward
-    reach the main clones."""
-    main = profile["root"]
-    main.mkdir(parents=True, exist_ok=True)
-    inst = main / "instances" if where == "inside" else main.parent
-    site = profile["site"]
-    site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={inst}/\n")
-    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
-    assert result.returncode == 2
+LIB = REPO_ROOT / "deploy" / "site_env_lib.sh"
+
+
+def _root_verdict(
+    checkout_root: Path, instance_root: str
+) -> subprocess.CompletedProcess[str]:
+    script = (
+        f'. "{LIB}"; GEECS_CHECKOUT_ROOT="$1"; GEECS_INSTANCE_CHECKOUT_ROOT="$2"; '
+        "instance_root_is_separate && echo SEPARATE || echo SHARED"
+    )
+    return subprocess.run(
+        ["bash", "-c", script, "verdict", str(checkout_root), instance_root],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.fixture
+def box(tmp_path: Path) -> Path:
+    """The services box's shape: the service home IS the checkout root, the
+    main clones and deploy-staging are its direct children."""
+    home = tmp_path / "home" / "svc"
+    for d in (
+        "gateway-checkout",
+        "portal-checkout",
+        "qs-checkout",
+        "archiver-checkout",
+        "deploy-staging",
+    ):
+        (home / d).mkdir(parents=True)
+    return home
+
+
+@pytest.mark.parametrize("sub", ["instances", "instances/", "other/instances"])
+def test_a_sibling_of_the_main_clones_is_a_root_of_its_own(box: Path, sub: str) -> None:
+    result = _root_verdict(box, f"{box}/{sub}")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "SEPARATE"
+
+
+def test_an_unset_key_shares_the_main_clones(box: Path) -> None:
+    result = _root_verdict(box, "")
+    assert result.stdout.strip() == "SHARED", result.stderr
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",
+        "/",
+        "/qs-checkout",
+        "/qs-checkout/x",
+        "/gateway-checkout/",
+        "/deploy-staging",
+        "/..",
+        "/new/..",  # resolves into the checkout root once `new` exists
+        "/new/../qs-checkout",
+        "/./instances",
+    ],
+)
+def test_a_root_reaching_main_code_is_refused(box: Path, bad: str) -> None:
+    """The checkout root itself (set explicitly), a main clone or anything in
+    it, the staging dir, or a directory around the checkout root."""
+    result = _root_verdict(box, f"{box}{bad}")
+    assert result.returncode == 2, (bad, result.stdout, result.stderr)
     assert "GEECS_INSTANCE_CHECKOUT_ROOT" in result.stderr
 
 
-def test_the_main_root_spelled_differently_is_still_the_main_root(profile) -> None:
-    """A trailing slash must not make the main clones look like an instance root."""
-    main = profile["root"]
-    (main / "qs-checkout").mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(main / "qs-checkout")], check=True)
-    site = profile["site"]
-    site.write_text(site.read_text() + f"GEECS_INSTANCE_CHECKOUT_ROOT={main}/\n")
-    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
-    assert "envs reinstalled" not in result.stdout
-    assert "used as it is" in result.stdout
+def test_a_symlink_to_a_main_clone_is_refused(tmp_path: Path, box: Path) -> None:
+    link = tmp_path / "looks-separate"
+    link.symlink_to(box / "qs-checkout")
+    result = _root_verdict(box, str(link))
+    assert result.returncode == 2, result.stdout
+
+
+def test_the_main_clone_list_is_the_bootstraps(box: Path) -> None:
+    """MAIN_CLONE_DIRS (site_env_lib.sh) must be every clone dir bootstrap_host.sh
+    makes for the main services — a new one missing here would be unguarded."""
+    import re
+
+    boot = (REPO_ROOT / "deploy" / "bootstrap_host.sh").read_text()
+    clone_of = next(x for x in boot.splitlines() if x.startswith("clone_of()"))
+    expected = set(re.findall(r'echo "([a-z-]+-checkout)"', clone_of))
+    lib = LIB.read_text()
+    listed = set(re.search(r'MAIN_CLONE_DIRS="([^"]+)"', lib).group(1).split())
+    assert listed == expected
 
 
 def test_up_never_blocks_on_the_readiness_retries(profile) -> None:
@@ -420,3 +517,31 @@ def test_up_never_blocks_on_the_readiness_retries(profile) -> None:
     assert result.returncode == 0, result.stderr
     assert "systemctl reset-failed" in result.stdout
     assert "systemctl restart --no-block" in result.stdout
+
+
+@pytest.mark.parametrize("rel", ["instances", "~/instances", "a/b"])
+def test_a_relative_instance_root_is_refused_not_hung(box: Path, rel: str) -> None:
+    script = (
+        f'. "{LIB}"; GEECS_CHECKOUT_ROOT="$1"; GEECS_INSTANCE_CHECKOUT_ROOT="$2"; '
+        "instance_root_is_separate"
+    )
+    result = subprocess.run(
+        ["bash", "-c", script, "v", str(box), rel],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert "absolute" in result.stderr
+
+
+def test_canonical_dir_terminates_on_a_missing_relative_path() -> None:
+    result = subprocess.run(
+        ["bash", "-c", f'. "{LIB}"; canonical_dir no/such/dir'],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0
