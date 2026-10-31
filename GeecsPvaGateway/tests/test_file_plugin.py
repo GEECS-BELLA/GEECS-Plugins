@@ -69,8 +69,10 @@ class StampedCamera:
         self._server: asyncio.Server | None = None
         self.port = 0
 
-    async def start(self) -> None:
-        self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+    async def start(self, port: int = 0) -> None:
+        """Listen on *port* (0: any free one) — a fixed port is a camera app
+        coming up where a gateway already dialed and failed."""
+        self._server = await asyncio.start_server(self._handle, "127.0.0.1", port)
         self.port = self._server.sockets[0].getsockname()[1]
 
     async def stop(self) -> None:
@@ -120,7 +122,7 @@ class StampedCamera:
 
 
 async def _start_gateway(
-    cam: StampedCamera, scalar_variables: tuple[str, ...] = ()
+    cam: StampedCamera, scalar_variables: tuple[str, ...] = (), *, seed: bool = False
 ) -> tuple[GeecsPvaGateway, asyncio.Task]:
     spec = DeviceSpec(
         device=DEVICE.decode(),
@@ -130,7 +132,12 @@ async def _start_gateway(
         image_variables=["image"],
         scalar_variables=list(scalar_variables),
     )
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
+    # Unseeded by default: these tests pin the never-decoded arm and count
+    # connections; the seed (#1216) is pinned by the tests that pass seed=True.
+    gateway = GeecsPvaGateway(
+        PvaGatewayConfig(experiment="testexp", devices=[spec]),
+        seed_held_frames=seed,
+    )
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):
         await asyncio.sleep(0.05)
@@ -699,6 +706,127 @@ async def test_never_seen_variable_waits_for_the_first_push(tmp_path):
     finally:
         file_plugin.ARM_TIMEOUT_S = 8.0
         ctx.close()
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_the_seed_holds_a_frame_so_the_first_arm_never_waits(tmp_path):
+    """A fresh gateway seeds the held frame with no client (#1216): the first
+    session of a camera arms at once with the box quiet, never the 8 s wait."""
+    cam = StampedCamera()
+    await cam.start()
+    gateway, task = await _start_gateway(cam, seed=True)
+    worker = gateway._workers[0]
+    ctx = Context("pva", conf=gateway.conf(), useenv=False)
+    loop = asyncio.get_running_loop()
+
+    async def put(suffix: str, value) -> None:
+        await loop.run_in_executor(None, lambda: ctx.put(PREFIX + suffix, value))
+
+    async def get(suffix: str):
+        return await loop.run_in_executor(None, lambda: ctx.get(PREFIX + suffix))
+
+    run_dir = tmp_path / "Scan001" / "UC_TestCam"
+    run_dir.mkdir(parents=True)
+    try:
+        # No client anywhere, yet the seed holds the subscription while the
+        # camera is silent (a box that fires nothing leaves it open).
+        await asyncio.wait_for(cam.connected.wait(), 5)
+        await asyncio.sleep(0.3)
+        assert cam.connections == 1
+        assert "image" not in worker._last_frame
+        # One push (STANDBY free-running): held, and the seed lets go.
+        cam.push(IMG, time.time())
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+        assert worker._last_frame["image"].shape == IMG.shape
+        assert worker._seeding == set()
+
+        # The box goes quiet (ARMED / OFF): the arm completes on the held
+        # frame, far inside a timeout that would otherwise fail it.
+        file_plugin.ARM_TIMEOUT_S = 0.5
+        await put("FilePath", str(run_dir) + os.sep)
+        await put("FileName", "UC_TestCam")
+        await put("Capture", True)
+        assert bool(await get("Capture_RBV")) is True
+        assert int(await get("ArraySizeX_RBV")) == IMG.shape[1]
+        assert int(await get("ArraySizeY_RBV")) == IMG.shape[0]
+        # The seed never comes back: Capture=0 releases the last retain.
+        await put("Capture", False)
+        await _wait_until(lambda: cam.connections == 0, timeout=10)
+        assert worker._seeding == set()
+    finally:
+        file_plugin.ARM_TIMEOUT_S = 8.0
+        ctx.close()
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_a_client_during_the_seed_keeps_the_subscription_after_it():
+    """The seed is one retain among the clients': its release never cuts a
+    watcher that arrived while it was held."""
+    cam = StampedCamera()
+    await cam.start()
+    gateway, task = await _start_gateway(cam, seed=True)
+    ctx = Context("pva", conf=gateway.conf(), useenv=False)
+    try:
+        await asyncio.wait_for(cam.connected.wait(), 5)
+        updates: list = []
+        sub = ctx.monitor("testexp:uc_testcam:image", updates.append)
+        await asyncio.sleep(0.5)  # the monitor's channel is up (retain #2)
+        cam.push(IMG, time.time())
+        await _wait_until(lambda: "image" in gateway._workers[0]._last_frame)
+        await asyncio.sleep(0.3)
+        assert cam.connections == 1  # the watcher still holds it
+        cam.push(IMG, time.time() + 1)
+        await _wait_until(lambda: any(u.shape == IMG.shape for u in updates))
+        sub.close()
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+    finally:
+        ctx.close()
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_a_seed_fed_undecodable_frames_lapses_for_good(monkeypatch):
+    """A variable whose payload never decodes: the seed lets go after
+    SEED_DECODE_BUDGET frames in a row and is never retried — no subscription, no flatten/send and a
+    traceback per frame, forever, for a variable nobody watches (#1216)."""
+    from geecs_pva_gateway import server as server_module
+
+    def undecodable(self, var, blob):
+        raise ValueError("not a frame this gateway can account for")
+
+    monkeypatch.setattr(server_module._DeviceWorker, "decode", undecodable)
+    cam = StampedCamera()
+    await cam.start()
+    gateway, task = await _start_gateway(cam, seed=True)
+    worker = gateway._workers[0]
+    try:
+        await asyncio.wait_for(cam.connected.wait(), 5)
+        budget = server_module.SEED_DECODE_BUDGET
+        for k in range(budget - 1):  # not yet a verdict: the seed holds on
+            cam.push(IMG, time.time() + k)
+            # one decode per push: the worker's slot is latest-wins, so a
+            # second push read before the publisher drains it would coalesce
+            await _wait_until(
+                lambda n=k + 1: worker._seed_decode_failures.get("image") == n
+            )
+        await asyncio.sleep(0.2)
+        assert cam.connections == 1 and worker._seeding == {"image"}
+        cam.push(IMG, time.time() + budget)
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+        assert worker._seeding == set()
+        assert worker._unseedable == {"image"}
+        worker.seed(retry=True)  # what every roster tick does
+        await asyncio.sleep(0.3)
+        assert cam.connections == 0 and worker._seeding == set()
+    finally:
         await _shutdown(task)
         await cam.stop()
 
