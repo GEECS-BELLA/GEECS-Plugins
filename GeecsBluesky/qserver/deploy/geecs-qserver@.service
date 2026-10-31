@@ -26,8 +26,8 @@ User=@SERVICE_USER@
 Environment=HOME=@SERVICE_HOME@
 EnvironmentFile=@SITE_ENV@
 EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
-WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
-ExecStart=@POETRY@ run @CHECKOUT_ROOT@/qs-checkout/GeecsBluesky/qserver/launch_re_manager.sh
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
+ExecStart=@POETRY@ run @INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsBluesky/qserver/launch_re_manager.sh
 StateDirectory=geecs-experiments/%i/engine
 Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-experiments/%i/engine
 Environment=GEECS_SCAN_MODE_STATE=/var/lib/geecs-experiments/%i/engine/scan_mode.json

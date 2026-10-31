@@ -27,7 +27,7 @@ User=@SERVICE_USER@
 Environment=HOME=@SERVICE_HOME@
 EnvironmentFile=@SITE_ENV@
 EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
-WorkingDirectory=@CHECKOUT_ROOT@/gateway-checkout/GeecsCAGateway
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/gateway-checkout/GeecsCAGateway
 ExecStart=/usr/bin/env EPICS_CA_SERVER_PORT=${GEECS_CA_SERVER_PORT} @POETRY@ run python -m geecs_ca_gateway --experiment ${GEECS_EXPERIMENT}
 Restart=on-failure
 RestartSec=10

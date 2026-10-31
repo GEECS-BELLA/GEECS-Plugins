@@ -181,7 +181,8 @@ def test_gateway_instance_hands_its_port_to_the_gateway_alone(tmp_path: Path) ->
 def test_experiments_dir_knob_moves_the_instance_file(tmp_path: Path) -> None:
     site = tmp_path / "site.env"
     site.write_text(
-        SITE_ENV.read_text(encoding="utf-8") + "\nGEECS_EXPERIMENTS_DIR=/srv/x\n",
+        SITE_ENV.read_text(encoding="utf-8")
+        + "\nGEECS_EXPERIMENTS_DIR=/srv/x\nGEECS_INSTANCE_CHECKOUT_ROOT=/srv/clones\n",
         encoding="utf-8",
     )
     result = subprocess.run(
@@ -201,6 +202,10 @@ def test_experiments_dir_knob_moves_the_instance_file(tmp_path: Path) -> None:
         encoding="utf-8"
     )
     assert "EnvironmentFile=/srv/x/%i.env" in rendered
+    assert "WorkingDirectory=/srv/clones/qs-checkout/GeecsBluesky" in rendered
+    assert (
+        "/srv/clones/qs-checkout/GeecsBluesky/qserver/launch_re_manager.sh" in rendered
+    )
 
 
 LIB = REPO_ROOT / "deploy" / "site_env_lib.sh"

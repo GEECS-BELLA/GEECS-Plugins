@@ -15,7 +15,7 @@
 # EnvironmentFile= ONLY in command arguments — never in WorkingDirectory=,
 # User=, Environment= lines, or the executable path. So paths and identity
 # are filled here at install time (@CHECKOUT_ROOT@, @SERVICE_USER@,
-# @SERVICE_HOME@, @POETRY@, @SITE_ENV@, @EXPERIMENTS_DIR@, the portal's @PORTAL_MEMORY_HIGH@
+# @SERVICE_HOME@, @POETRY@, @SITE_ENV@, @EXPERIMENTS_DIR@, @INSTANCE_CHECKOUT_ROOT@, the portal's @PORTAL_MEMORY_HIGH@
 # / @PORTAL_MEMORY_MAX@ — resource directives take no variables either)
 # and runtime values (experiment,
 # EPICS addressing, TZ) reach the process through EnvironmentFile= at
@@ -77,6 +77,8 @@ SITE_ENV_INSTALLED="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"
 # Where the per-experiment instance files live (<Instance>.env) — the
 # instance templates' second EnvironmentFile=.
 EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
+# The instances' clones: the main root unless site.env names another.
+INSTANCE_CHECKOUT_ROOT="${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}"
 
 mkdir -p "$OUT_DIR"
 for t in "${TEMPLATES[@]}"; do
@@ -98,6 +100,7 @@ for t in "${TEMPLATES[@]}"; do
         -e "s|@POETRY@|$GEECS_POETRY|g" \
         -e "s|@SITE_ENV@|$SITE_ENV_INSTALLED|g" \
         -e "s|@EXPERIMENTS_DIR@|$EXPERIMENTS_DIR|g" \
+        -e "s|@INSTANCE_CHECKOUT_ROOT@|$INSTANCE_CHECKOUT_ROOT|g" \
         -e "s|@PORTAL_MEMORY_HIGH@|$GEECS_PORTAL_MEMORY_HIGH|g" \
         -e "s|@PORTAL_MEMORY_MAX@|$GEECS_PORTAL_MEMORY_MAX|g" \
         "$src" > "$dst"

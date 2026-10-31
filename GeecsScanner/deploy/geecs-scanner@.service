@@ -22,7 +22,7 @@ User=@SERVICE_USER@
 Environment=HOME=@SERVICE_HOME@
 EnvironmentFile=@SITE_ENV@
 EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
-WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsScanner
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsScanner
 ExecStart=@POETRY@ run geecs-scanner --experiment ${GEECS_EXPERIMENT} --port ${GEECS_SCANNER_PORT} $GEECS_SCANNER_EXTRA_ARGS
 Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-experiments/%i/engine
 StateDirectory=geecs-experiments/%i/scanner

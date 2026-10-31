@@ -24,7 +24,7 @@ User=@SERVICE_USER@
 Environment=HOME=@SERVICE_HOME@
 EnvironmentFile=@SITE_ENV@
 EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
-WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
 ExecStart=@POETRY@ run geecs-qserver-ensure-ready --timeout 600
 TimeoutStartSec=660
 

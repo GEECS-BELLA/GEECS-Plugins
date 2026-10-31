@@ -21,7 +21,9 @@
 #                  lines for <unit>@INSTANCE. Existing clones are used AS
 #                  THEY ARE (they run the main experiment's services: never
 #                  fetched, moved or reinstalled here); an absent one is
-#                  cloned and installed. config.ini is not touched.
+#                  cloned at --ref and installed. Clones live under
+#                  GEECS_INSTANCE_CHECKOUT_ROOT when site.env sets it (else
+#                  the main root). config.ini is not touched.
 #   --instance-env FILE
 #                  the instance's values (default: the installed
 #                  /etc/geecs/experiments/INSTANCE.env; keys in
@@ -129,10 +131,15 @@ if [ -n "$INSTANCE" ]; then
     iwanted() { [ -z "$ONLY" ] && return 0; case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
     say "instance '$INSTANCE' — experiment '$GEECS_EXPERIMENT' (slot ${GEECS_INSTANCE_SLOT:-?}) — instance file $INSTANCE_ENV"
     STAGE="$GEECS_CHECKOUT_ROOT/deploy-staging/instances"
+    # Where the instances' clones live: the main ones by default; a separate
+    # root (GEECS_INSTANCE_CHECKOUT_ROOT in site.env) lets an instance run
+    # code the main units' clones are not on, without a deploy of theirs.
+    INSTANCE_ROOT="${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}"
+    echo "  clones under $INSTANCE_ROOT; a missing one is cloned at --ref $REF (the ref the instance templates and their code are on)"
     TEMPLATE_PATHS=(); ENABLE=(); NEW_CLONES=" "; INSTALLED_ENVS=" "
     for s in $INSTANCE_SERVICES; do
         iwanted "$s" || continue
-        dir="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")"
+        dir="$INSTANCE_ROOT/$(clone_of "$s")"
         # A clone this run created is ours to install into (every package dir
         # in it, once); one that already existed is used exactly as it is.
         case "$NEW_CLONES" in *" $dir "*) ;; *)
@@ -171,7 +178,7 @@ if [ -n "$INSTANCE" ]; then
     elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
     else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
     say "root steps (a human runs these; nothing above needed sudo)"
-    if [ "$INSTANCE_ENV" != "$INSTANCE_ENV_INSTALLED" ]; then echo "  sudo install -D -m 0644 \"$INSTANCE_ENV\" \"$INSTANCE_ENV_INSTALLED\""; fi
+    if ! [ "$INSTANCE_ENV" -ef "$INSTANCE_ENV_INSTALLED" ]; then echo "  sudo install -D -m 0644 \"$INSTANCE_ENV\" \"$INSTANCE_ENV_INSTALLED\""; fi
     if [ "${#TEMPLATE_PATHS[@]}" -gt 0 ]; then
         echo "  sudo install -m 0644 \"$STAGE\"/*.service /etc/systemd/system/"
         echo "  sudo systemctl daemon-reload"

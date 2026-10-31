@@ -21,7 +21,7 @@ User=@SERVICE_USER@
 Environment=HOME=@SERVICE_HOME@
 EnvironmentFile=@SITE_ENV@
 EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
-WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GeecsLogbook
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/portal-checkout/GeecsLogbook
 ExecStart=@POETRY@ run geecs-logbook --experiment ${GEECS_EXPERIMENT} --port ${GEECS_LOGBOOK_PORT} --templates-dir "${GEECS_CONFIGS_ROOT}/logbook_templates" $GEECS_LOGBOOK_EXTRA_ARGS
 StateDirectory=geecs-experiments/%i/logbook
 Restart=on-failure
