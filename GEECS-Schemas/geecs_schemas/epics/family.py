@@ -11,15 +11,15 @@ Per-device differences (a supply's own PV names, a bit's label, the
 permitted actions) are instance data, :mod:`geecs_schemas.epics.panel_devices`.
 
 JSON, not YAML: the files are read at run time by every native-device
-reader (the PV bridge and the archiver on ``feat/web-estate``, GeecsCanopy
-next), and this package
+reader (GeecsCanopy's module; the retired PV bridge and archiver pass at
+the tag ``web-estate-final``), and this package
 keeps PyYAML out of its runtime dependencies (YAML is serialization, not
 the contract; see :meth:`VersionedSchemaModel.from_path`).
 
 The contents were transcribed from GeecsPanels' per-kind tables
 (``motor.py``, ``camera.py``, ``scope.py``, ``power.py``); the pin that
-holds the two in step (web estate S2) lives on ``feat/web-estate`` with
-the PV bridge, not beside these files.
+holds the two in step (web estate S2) is kept with the PV bridge at
+the tag ``web-estate-final``, not beside these files.
 
 The installed families are shared by everything in the process, so the
 models are frozen and :func:`load_families` returns a read-only mapping.
@@ -57,8 +57,8 @@ FamilyKind = Literal[
 
 #: Registry kind (``NativeDevices``) → the family a registry device
 #: instantiates when it names none. One table for every reader (the PV
-#: bridge and the archiver's registry pass on ``feat/web-estate``,
-#: GeecsCanopy next), so no two pick different families.
+#: bridge and the archiver's registry pass kept at ``web-estate-final``,
+#: GeecsCanopy now), so no two pick different families.
 REGISTRY_KIND_FAMILIES: Mapping[str, str] = MappingProxyType(
     {"aravis_camera": "ad_camera_chain", "epics_motor": "motor_record"}
 )
