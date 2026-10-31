@@ -203,7 +203,12 @@ async def test_a_seed_on_an_unreachable_device_lapses_and_the_roster_tick_retrie
         assert not any(r.exc_info for r in caplog.records)
         assert "image" not in worker._last_frame
 
-        await cam.start(port)  # the app comes up on its DB port
+        # The app comes up on ANOTHER port (the boot-order case, #854): the
+        # DB says so, the roster tick hands it to the worker, the retry
+        # dials it.
+        await cam.start()
+        assert cam.port != port
+        roster.answer = [_spec(CAMERA, cam.port)]
         cam.push(IMG, time.time())
         await _wait_until(lambda: "image" in worker._last_frame, timeout=10)
         await _wait_until(lambda: cam.connections == 0, timeout=10)

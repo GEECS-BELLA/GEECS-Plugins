@@ -793,8 +793,8 @@ async def test_a_client_during_the_seed_keeps_the_subscription_after_it():
 
 @pytest.mark.timeout(60)
 async def test_a_seed_fed_undecodable_frames_lapses_for_good(monkeypatch):
-    """A variable whose payload never decodes: the seed lets go at the first
-    frame and is never retried — no subscription, no flatten/send and a
+    """A variable whose payload never decodes: the seed lets go after
+    SEED_DECODE_BUDGET frames in a row and is never retried — no subscription, no flatten/send and a
     traceback per frame, forever, for a variable nobody watches (#1216)."""
     from geecs_pva_gateway import server as server_module
 
@@ -808,7 +808,15 @@ async def test_a_seed_fed_undecodable_frames_lapses_for_good(monkeypatch):
     worker = gateway._workers[0]
     try:
         await asyncio.wait_for(cam.connected.wait(), 5)
-        cam.push(IMG, time.time())
+        budget = server_module.SEED_DECODE_BUDGET
+        for k in range(budget - 1):  # not yet a verdict: the seed holds on
+            cam.push(IMG, time.time() + k)
+        await _wait_until(
+            lambda: worker._seed_decode_failures.get("image") == budget - 1
+        )
+        await asyncio.sleep(0.2)
+        assert cam.connections == 1 and worker._seeding == {"image"}
+        cam.push(IMG, time.time() + budget)
         await asyncio.wait_for(cam.disconnected.wait(), 10)
         assert cam.connections == 0
         assert worker._seeding == set()

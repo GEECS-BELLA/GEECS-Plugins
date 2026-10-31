@@ -173,9 +173,12 @@ tests/
   and idle until the first shot. A seed that cannot get a frame lapses
   rather than hold the subscription: on an unreachable device (enabled in
   the DB, app down) at the first failed connect — no reconnect loop, no
-  `Disconnected` alarm, no traceback — retried every roster tick (so a
-  camera app started after its gateway is seeded within a tick); on an
-  undecodable frame for good. This is the one subscription no client
+  `Disconnected` alarm, no traceback — retried every roster tick at the
+  roster's current endpoint (`note_endpoint`: a seed alone never reaches
+  the supervisor's #854 re-resolve), so a camera app started after its
+  gateway is seeded within a tick or two on whatever port (no retry with
+  `--roster-interval 0`); after `SEED_DECODE_BUDGET` (3) undecodable
+  frames in a row, for good. This is the one subscription no client
   asked for; `seed_held_frames=False` turns it off (tests that pin the
   gating). Frames are deduped on `acq_timestamp` and
   stale-filtered against a watermark set at `Capture=1` and moved by

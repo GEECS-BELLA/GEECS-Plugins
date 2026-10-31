@@ -50,6 +50,10 @@ logger = logging.getLogger(__name__)
 _TIMESTAMP_VARS = TIMESTAMP_LADDER  # the one ladder (geecs_core.db.variable_types)
 _RECONNECT_MIN_S = 0.5
 _RECONNECT_MAX_S = 30.0
+#: Undecodable frames in a row after which a held-frame seed gives up on a
+#: variable for the life of its worker (#1216): one bad frame (a truncated
+#: read, a placeholder at app start) is not a verdict.
+SEED_DECODE_BUDGET = 3
 _HEARTBEAT_PERIOD_S = 5.0
 #: Budget for one off-loop DB endpoint lookup, and the ceiling cycles between
 #: two of them for a device that stays down — the CA gateway's numbers
@@ -190,9 +194,14 @@ class _DeviceWorker:
         # Variables whose seed lapsed since they last held a frame: the
         # lapse is logged at INFO once, its retries at DEBUG.
         self._lapsed: set[str] = set()
-        # Variables whose seed met an undecodable frame: never re-seeded
-        # (a retry would cost a frame and a traceback every tick, forever).
+        # Variables whose seed met SEED_DECODE_BUDGET undecodable frames in a
+        # row: never re-seeded (a retry would cost frames and tracebacks
+        # every tick, forever).
         self._unseedable: set[str] = set()
+        self._seed_decode_failures: dict[str, int] = {}
+        # Where the supervisors dial: the DB endpoint at build, moved by a
+        # supervisor's re-resolve (#854) or the roster's answer (note_endpoint).
+        self._endpoint: tuple[str, int] = (spec.host, spec.port)
         # The last decoded frame per variable: the file plugin arms on it
         # (#894).  Written by _publish on the loop, read on the writer thread.
         self._last_frame: dict[str, np.ndarray] = {}
@@ -326,9 +335,11 @@ class _DeviceWorker:
         instead of holding the subscription (:meth:`_lapse_seed`): a seed
         alone never reconnects, never posts ``Disconnected``, never logs a
         traceback.  The gateway re-seeds an unreachable device every roster
-        tick (``retry``, logged at DEBUG), so a camera app started after
-        its gateway is seeded within a tick of coming up; an undecodable
-        variable is not re-seeded for the life of the worker.  Event loop
+        tick (``retry``, logged at DEBUG) at the roster's current endpoint
+        (:meth:`note_endpoint`), so a camera app started after its gateway
+        is seeded within a tick or two of coming up, on whatever port; a
+        variable with ``SEED_DECODE_BUDGET`` undecodable frames in a row is
+        not re-seeded for the life of the worker.  Event loop
         only.
         """
         if self._stopping:
@@ -345,6 +356,25 @@ class _DeviceWorker:
             logger.log(level, "%s %s: seeding the held frame", self._spec.device, var)
             self._retain(var)
 
+    def note_endpoint(self, host: str, port: int) -> None:
+        """Take the roster's current endpoint for the next dial (event loop).
+
+        A seed alone lapses at its first failed connect, long before a
+        supervisor's re-resolve (#854) would find a moved port, so the
+        roster tick's answer is what lets the retry dial an app that came
+        up on another port after its gateway (#1216).  A move off this host
+        is not adopted (the served set is host-scoped).
+        """
+        endpoint = (str(host).strip(), int(port))
+        if endpoint != self._endpoint and endpoint[0] == self._spec.host:
+            logger.info(
+                "%s: endpoint %s:%s -> %s:%s (roster)",
+                self._spec.device,
+                *self._endpoint,
+                *endpoint,
+            )
+            self._endpoint = endpoint
+
     def _seed_only(self, var: str) -> bool:
         """Whether the seed is the only holder of *var*'s subscription."""
         return var in self._seeding and self._clients[var] == 1
@@ -354,6 +384,7 @@ class _DeviceWorker:
         if var in self._seeding:
             self._seeding.discard(var)
             self._lapsed.discard(var)
+            self._seed_decode_failures.pop(var, None)
             logger.info("%s %s: held frame seeded", self._spec.device, var)
             self._release(var)
 
@@ -470,7 +501,7 @@ class _DeviceWorker:
         there instead of found only by a gateway restart (#854).
         """
         backoff = _RECONNECT_MIN_S
-        host, port = self._spec.host, self._spec.port
+        host, port = self._endpoint
         resolve_holdoff = 0
         try:
             while True:
@@ -544,6 +575,7 @@ class _DeviceWorker:
                                     *resolved,
                                 )
                                 host, port = resolved
+                                self._endpoint = resolved
                                 backoff = _RECONNECT_MIN_S  # dial it promptly
                                 resolve_holdoff = 0
                 await asyncio.sleep(backoff)
@@ -603,8 +635,14 @@ class _DeviceWorker:
                     # A seed fed undecodable frames would hold the variable
                     # (and LabVIEW's flatten/send) for nothing, forever.
                     if var in self._seeding:
-                        self._unseedable.add(var)
-                        self._lapse_seed(var, "undecodable frame; not retried")
+                        failures = self._seed_decode_failures.get(var, 0) + 1
+                        self._seed_decode_failures[var] = failures
+                        if failures >= SEED_DECODE_BUDGET:
+                            self._unseedable.add(var)
+                            self._lapse_seed(
+                                var,
+                                f"{failures} undecodable frames in a row; not retried",
+                            )
         finally:
             self._publishing.discard(var)
 
@@ -925,6 +963,7 @@ class GeecsPvaGateway:
             spec = wanted.get(worker.device)
             if spec is not None:
                 self._note_drift(worker, spec)
+                worker.note_endpoint(spec.host, spec.port)  # the seed's retry dials it
                 continue
             busy = worker.capturing_variables
             if busy:
