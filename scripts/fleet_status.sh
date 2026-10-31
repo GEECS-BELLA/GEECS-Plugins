@@ -353,14 +353,14 @@ if isinstance(tw, dict):
             # Tier 2 died before its verdict (a traceback, an env error):
             # name its last line — never an empty finding — and record it.
             err="tier 2 gave no verdict: $(printf '%s\n' "$hw" | tail -1)"
-            bad "CA gateway   $LAB_HOST:5064  $err"
+            bad "CA gateway   $LAB_HOST:$CA_PORT  $err"
             rec "role=CA gateway	state=down	note=$(printf '%s' "$err" | cut -c1-80)"
         elif [ "$(rec_field state)" = "ok" ]; then
-            ok "CA gateway   $LAB_HOST:5064  version=$(rec_field version)  $(rec_field info)"
+            ok "CA gateway   $LAB_HOST:$CA_PORT  version=$(rec_field version)  $(rec_field info)"
             printf '%s\n' "$hw" | grep '\[WARN\]' | sed 's/^ *\[WARN\] /  [WARN] CA gateway: /'
             rec "$ca_rec"
         else
-            bad "CA gateway   $LAB_HOST:5064  $(rec_field note)"
+            bad "CA gateway   $LAB_HOST:$CA_PORT  $(rec_field note)"
             rec "$ca_rec"
         fi
     else

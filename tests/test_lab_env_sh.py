@@ -115,3 +115,11 @@ def test_a_comma_separated_ca_list_yields_its_first_host(tmp_path: Path) -> None
     cfg = tmp_path / "config.ini"
     cfg.write_text("[epics]\nca_addr_list = gw.example,ioc.example\n")
     assert _run(cfg, 'echo "$LAB_HOST"').strip() == "gw.example"
+
+
+def test_an_explicit_ca_port_is_kept_and_the_default_is_5064(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.ini"
+    cfg.write_text("[epics]\nca_addr_list = gw.example:6064 ioc.example\n")
+    assert _run(cfg, 'echo "$LAB_HOST $CA_PORT"').strip() == "gw.example 6064"
+    cfg.write_text("[epics]\nca_addr_list = gw.example ioc.example\n")
+    assert _run(cfg, 'echo "$LAB_HOST $CA_PORT"').strip() == "gw.example 5064"

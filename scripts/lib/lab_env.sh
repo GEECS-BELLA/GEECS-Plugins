@@ -36,6 +36,9 @@ TILED_HOST="$(url_host "$TILED_URI")"
 # geecs_core.epics_env reads it); the probes print that they took it so.
 CA_ADDR_FIRST="$(ini_get epics ca_addr_list | tr ',' ' ' | awk '{print $1}')"
 LAB_HOST="${CA_ADDR_FIRST%%:*}"
+# An explicit host:port entry names the gateway's CA port (EPICS WAN form).
+CA_PORT=""
+case "$CA_ADDR_FIRST" in *:*) CA_PORT="${CA_ADDR_FIRST##*:}" ;; esac
 LAB_HOST="${LAB_HOST:-$TILED_HOST}"
 TILED_PORT="$(url_port "$TILED_URI")"
 TILED_PORT="${TILED_PORT:-8000}"
@@ -51,7 +54,7 @@ archiver_version() {  # archiver_version HOST PORT — the appliance's version f
     bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$1:$2/mgmt/bpl/getVersions" | sed -nE 's/.*"mgmt_version":"Archiver Appliance Version ([^"]+)".*/\1/p'
 }
 DB_PORT=3306
-CA_PORT=5064
+CA_PORT="${CA_PORT:-5064}"
 
 config_experiment() {  # [Experiment] expt, else the legacy exp_name key
     local e; e="$(ini_get Experiment expt)"
