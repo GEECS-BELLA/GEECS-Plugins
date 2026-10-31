@@ -199,3 +199,21 @@ Options: (a) accept the new tree; (b) rename the DB experiment to a slug
 (the maintainer's DB edit); (c) a later per-instance data-folder key. The
 scanner configs repo has no directory for either name yet (slice 4's
 scaffold would create it).
+
+### 2026-10-31 — slice 2, template units + rendering
+
+Six instance templates beside the main units — `geecs-ca-gateway@`,
+`geecs-qserver@`, `geecs-qserver-ready@`, `geecs-tiled-writer@`,
+`geecs-scanner@`, `geecs-logbook@` — each reading `site.env` then
+`/etc/geecs/experiments/%i.env` (`@EXPERIMENTS_DIR@`, knob
+`GEECS_EXPERIMENTS_DIR`); state under `/var/lib/geecs-experiments/%i/`
+(`engine/` shared by worker + writer, `scanner/`, `logbook/`); the gateway's
+port handed over in its `ExecStart` alone. `render_units.sh` renders them;
+`bootstrap_host.sh --experiment <Instance> [--instance-env FILE]` stages only
+them and prints the `enable --now <unit>@<Instance>` line (existing clones used
+as they are; config.ini untouched); `deploy/experiments.env.example` is the
+schema with slot 1 as the worked example; `check_instance_env`
+(`site_env_lib.sh`) refuses a missing key, a leftover placeholder, a name
+mismatch and a process-wide `EPICS_CA_SERVER_PORT`. The units consume
+`QS_EXISTING_PLANS_DEVICES`, `QS_REDIS_PREFIX`, `QS_INFO_ADDR`, `QS_DOC_ADDR`
+that slice 3 teaches the code.
