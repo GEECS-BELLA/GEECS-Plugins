@@ -3,7 +3,12 @@
 Devices come from the family files and the experiment's two device
 documents through ``NativeSource`` (the directory's own join), re-read at
 most every ``reload_s``; each newly seen PV is subscribed once, so freshness
-is judged continuously. The GEECS DB is never read here.
+is judged continuously. With a gateway source (the DB-served devices, given
+by the wrapper when ``GEECS_CANOPY_DB_URL`` is set), its devices join them,
+read off the loop every ``gateway_reload_s`` and never waited for: the last
+good set stands while the DB is down, and the roster says so. A native
+device wins over a DB device of the same name. The GEECS DB is never read
+here: the source is a callable.
 """
 
 from __future__ import annotations
@@ -15,10 +20,20 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
+import yaml
 from geecs_core.configs_repo import EXPERIMENTS_SUBDIR
-from geecs_schemas import OPERATOR_POLICY_FILENAME, OperatorPolicy
+from geecs_schemas import (
+    ACTION_LIBRARY_FILENAME,
+    ACTION_LIBRARY_FOLDER,
+    OPERATOR_POLICY_FILENAME,
+    ActionPlanLibrary,
+    OperatorPolicy,
+    load_action_library,
+)
 
 from geecs_canopy.freshness import Tracker, watched_pvs
 from geecs_canopy.hare import Hare
@@ -40,6 +55,13 @@ class ModuleSettings:
     put_timeout_s: float = 5.0  # a setting's put-callback
     settle_timeout_s: float = 30.0  # a move's: not Hare's 5 s connect timeout
     reload_s: float = 10.0  # the device documents' re-read interval
+    gateway_reload_s: float = 60.0  # the DB devices' re-read interval
+    squirrel_url: str = (
+        ""  # Canopy as this process reaches its own Squirrel; empty: no presets
+    )
+    squirrel_key: str = (
+        ""  # the service WRITE key for Squirrel's REST (a secret; never an operator's)
+    )
 
     @property
     def folder(self) -> Path:
@@ -60,6 +82,10 @@ class DevicesUnavailable(Exception):
     """The device documents cannot be read or do not validate."""
 
 
+class LibraryUnavailable(Exception):
+    """The experiment's action library cannot be read or does not validate."""
+
+
 class Module:
     """The module's state, one per process."""
 
@@ -69,6 +95,7 @@ class Module:
         hare: Hare,
         journal: Journal,
         clock: Callable[[], float] = time.monotonic,
+        gateway: Callable[[], list[Resolved]] | None = None,
     ) -> None:
         self.settings, self.hare, self.journal = settings, hare, journal
         self.tracker, self._clock = Tracker(clock), clock
@@ -76,39 +103,80 @@ class Module:
         self._source = NativeSource(settings.experiment, root)
         self._read_at, self._error = -math.inf, None
         self._devices: dict[str, Resolved] = {}
+        self._gateway, self._gateway_at = gateway, -math.inf
+        self._gateway_devices: dict[str, Resolved] = {}
+        self._gateway_new = self._gateway_busy = False  # new: a read not yet subscribed
+        self._gateway_read: dict[str, Any] = {"readAt": None, "error": "not read yet"}
         self._watched: set[str] = set()
         self._tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
+        self._library_at, self._library = -math.inf, ActionPlanLibrary(plans={})
+        self._library_error: str | None = None
 
     async def start(self) -> None:
-        """Read and subscribe the devices, so judging starts before the first request."""
+        """Read and subscribe the devices (the DB's too), so judging starts before the first request."""
         try:
+            await self.read_gateway()
             await self.devices()
         except Exception:  # a bad document or an unbound broker must not stop Canopy
             logger.exception("GEECS device module: the first device read failed")
 
+    @property
+    def sources(self) -> dict[str, Any]:
+        """Each extra source's last read: ``{gateway: {readAt, error}}`` when there is one."""
+        return {"gateway": dict(self._gateway_read)} if self._gateway else {}
+
+    async def read_gateway(self) -> None:
+        """Read the DB devices off the loop; on failure keep the last good set and say why."""
+        if self._gateway is None:
+            return
+        self._gateway_at, self._gateway_busy = self._clock(), True
+        try:
+            listed = await asyncio.to_thread(self._gateway)
+        except SourceError as exc:  # the DB is down: the last set stands
+            self._gateway_read["error"] = str(exc)
+            return
+        finally:
+            self._gateway_busy = False
+        self._gateway_devices, self._gateway_new = {d.name: d for d in listed}, True
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self._gateway_read = {"readAt": now, "error": None}
+
+    def _spawn(self, work) -> None:
+        task = asyncio.create_task(work)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
     async def devices(self) -> dict[str, Resolved]:
         """Return the devices by GEECS name; raise ``DevicesUnavailable`` while unreadable."""
         async with self._lock:
-            if self._clock() - self._read_at >= self.settings.reload_s:
+            due = self._clock() - self._gateway_at >= self.settings.gateway_reload_s
+            if (
+                self._gateway and due and not self._gateway_busy
+            ):  # one read at a time: it is slow
+                self._gateway_busy = True
+                self._spawn(self.read_gateway())
+            read = self._clock() - self._read_at >= self.settings.reload_s
+            if read:
                 self._read_at = self._clock()
                 try:
-                    read = asyncio.to_thread(self._source.resolve)
-                    listed = await asyncio.wait_for(read, _READ_TIMEOUT_S)
+                    reading = asyncio.to_thread(self._source.resolve)
+                    listed = await asyncio.wait_for(reading, _READ_TIMEOUT_S)
                     self._devices, self._error = {d.name: d for d in listed}, None
                 except (SourceError, TimeoutError) as exc:
                     self._devices, self._error = {}, str(exc) or "timed out"
-                pvs = {pv for d in self._devices.values() for pv in watched_pvs(d)}
+            merged = self._gateway_devices | self._devices
+            if read or self._gateway_new:  # what the broker refused is tried on a read
+                self._gateway_new = False
+                pvs = {pv for d in merged.values() for pv in watched_pvs(d)}
                 if new := sorted(
                     pvs - self._watched
                 ):  # seeding is slow: not under the lock
                     self._watched.update(new)
-                    task = asyncio.create_task(self._subscribe(new))
-                    self._tasks.add(task)
-                    task.add_done_callback(self._tasks.discard)
+                    self._spawn(self._subscribe(new))
         if self._error is not None:
             raise DevicesUnavailable(self._error)
-        return self._devices
+        return merged
 
     async def _subscribe(self, pvs: list[str]) -> None:
         """Subscribe; what the broker refused (its caps) is tried again on the next read."""
@@ -127,3 +195,19 @@ class Module:
             return OperatorPolicy.from_path(path) if path.exists() else OperatorPolicy()
 
         return await asyncio.wait_for(asyncio.to_thread(read), _READ_TIMEOUT_S)
+
+    async def action_library(self) -> ActionPlanLibrary:
+        """The experiment's action library (none: empty), re-read at most every ``reload_s``; raise ``LibraryUnavailable`` while it does not validate."""
+        if self._clock() - self._library_at >= self.settings.reload_s:
+            self._library_at = self._clock()
+            path = (
+                self.settings.folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME
+            )
+            reading = asyncio.to_thread(load_action_library, path)
+            try:
+                self._library, self._library_error = await asyncio.wait_for(reading, _READ_TIMEOUT_S), None  # fmt: skip
+            except (OSError, ValueError, TimeoutError, yaml.YAMLError) as exc:
+                self._library_error = f"{path.name} does not validate: {exc}"
+        if self._library_error is not None:
+            raise LibraryUnavailable(self._library_error)
+        return self._library

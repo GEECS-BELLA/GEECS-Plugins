@@ -270,7 +270,9 @@ GeecsControlRoom     →  GEECS-Schemas (the screen document, the family
                         of the GEECS module (/geecs), consumed as
                         SERVICES. Never imports GeecsCanopy, GEECS-Core,
                         GeecsBluesky, the scanner, the portal, the
-                        logbook or the panels
+                        logbook or the panels. GeecsCanopy is a DEV-ONLY
+                        path dep: the contract test drives the module's
+                        own routes in process (geecs_canopy.testing)
 ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, GEECS-Schemas,
                         (+ fastapi/jinja2 via the
                         `editor` extra — scan_analysis.config_editor,

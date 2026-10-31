@@ -65,9 +65,25 @@ token (`GroupTone`, never a literal), of widgets of exactly seven kinds
 (`WidgetKind`), each a free label and a `Binding` (device + family role +
 axis, or a bare PV). No expressions, scripts or conditions, ever. What
 depends on the families and instance data (the role exists, the kind fits
-its type) is `resolve_screen`, not the model. A bare PV may carry a writing
-kind or a flipper's indicators: the renderer draws its writes disabled until
-the module writes gateway PVs.
+its type) is `resolve_screen`, not the model. On a DB device a role is its
+GEECS variable name, and `resolve_screen(..., deferred=<the module's roster>)`
+binds it without a `Role` (`Bound.deferred`, `Bound.fits`): the page judges
+it by the module's word. A device in neither the files nor the roster is
+refused. A bare PV is read only; it may carry a writing kind or a flipper's
+indicators, drawn disabled. A button may bind `{action: <plan>}` instead,
+a plan in the experiment's action library (`resolve_screen(...,
+actions=<the plan names>)` refuses another).
+
+## Action plans
+
+`action_plan.py`: `ActionPlanLibrary` (`action_library/actions.yaml`) and
+the one step library both executors share, GeecsBluesky's compiler in a
+scan and GeecsCanopy's module from a screen button: `flatten` (nested
+`run` steps inlined, unknown names and loops refused) and `values_match`
+(a `check`'s legacy comparison), and `load_action_library` (a missing or
+empty file is the empty library). The order and the comparison change
+here, once; how a `set` waits is each executor's (the module's gate
+always waits; `wait_for_execution` is honoured in a scan).
 
 ## Home layout
 

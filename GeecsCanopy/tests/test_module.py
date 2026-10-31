@@ -2,7 +2,6 @@
 
 import asyncio
 import math
-from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -11,82 +10,16 @@ from geecs_schemas import JournalEntry
 from geecs_canopy import canopy_surface
 from geecs_canopy.gates import PutRequest, put_role
 from geecs_canopy.hare import HareRefused
-from geecs_canopy.journal import Journal
-from geecs_canopy.module import Module, ModuleSettings
-from geecs_canopy.routes import build_app
-
-REGISTRY = """\
-schema_version: 1
-devices:
-  Cam1: {kind: aravis_camera, trigger_source: line0}
-  Mot1: {kind: epics_motor, axes: [m1]}
-"""
-PANELS = """\
-schema_version: 1
-devices:
-  ps1: {family: easydriver, prefix: "bench:ps1:", allow: [current, reset]}
-"""
-POLICY = """\
-grants:
-  - {operators: [ann], families: [ad_camera_chain, motor_record, easydriver]}
-"""
-KEY = SimpleNamespace(
-    name="display", read=True, write=False
-)  # an operator's key: no Canopy write
-
-
-def live(value, **wire):
-    return {
-        "value": value,
-        "connected": True,
-        "severity": "NO_ALARM",
-        "alarmStatus": 0,
-    } | wire
-
-
-class FakeHare:
-    def __init__(self):
-        self.values, self.meta, self.puts, self.clamp = {}, {}, [], {}
-        self.refuse, self.slow = None, False
-
-    async def get(self, pv):
-        return self.values.get(pv, {"pv": pv, "value": None, "connected": False})
-
-    async def describe(self, pv):
-        return self.meta.get(pv, {"pv": pv})
-
-    async def put(self, pv, value, *, wait, timeout):
-        if self.refuse:
-            await asyncio.sleep(timeout if self.slow else 0)
-            raise self.refuse
-        self.puts.append((pv, value, wait, timeout))
-        self.values[pv] = live(min(value, self.clamp.get(pv, value)))
-
-    async def watch(self, pvs, on_frame):
-        self.on_frame = on_frame
-        return pvs
+from geecs_canopy.testing import live, make_env
 
 
 @pytest.fixture
 def env(tmp_path):
-    folder = tmp_path / "scanner_configs" / "experiments" / "Test"
-    folder.mkdir(parents=True)
-    (folder / "native_devices.yaml").write_text(REGISTRY)
-    (folder / "panel_devices.yaml").write_text(PANELS)
-    (folder / "operator_policy.yaml").write_text(POLICY)
-    clock = [100.0]
-    settings = ModuleSettings("Test", tmp_path, tmp_path, 3.0, settle_timeout_s=0.05)
-    hare = FakeHare()
-    module = Module(
-        settings, hare, Journal(tmp_path / "j.sqlite3"), clock=lambda: clock[0]
+    env = make_env(tmp_path)
+    env.client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=env.app), base_url="http://t"
     )
-    app = build_app(module, read_access=lambda: KEY)
-    client = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://t"
-    )
-    return SimpleNamespace(
-        module=module, hare=hare, client=client, clock=clock, folder=folder
-    )
+    return env
 
 
 async def pv(env, device, role, axis=None, write=False):

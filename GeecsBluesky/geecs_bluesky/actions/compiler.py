@@ -7,12 +7,14 @@ semantics, pinned here:
 
 - ``set`` → ``bps.abs_set(signal, value, wait=wait_for_execution)``.
 - ``wait`` → ``bps.sleep(seconds)`` (RunEngine-interruptible).
-- ``check`` → :func:`values_match`: float-coerce the *actual* reading when
+- ``check`` → :func:`~geecs_schemas.action_plan.values_match` (the step
+  library both executors share): float-coerce the *actual* reading when
   it parses, then plain ``==``, no tolerance; a mismatch raises
   :class:`~geecs_bluesky.exceptions.ActionCheckFailedError`.
-- ``run`` → resolve by name from the registry and recurse; a missing name
-  raises :class:`~geecs_bluesky.exceptions.ActionPlanNotFoundError`, a
-  cycle :class:`~geecs_bluesky.exceptions.ActionPlanCycleError`.
+- ``run`` → inlined by the shared walk (:func:`flatten_action_steps`)
+  before the first message; a missing name raises
+  :class:`~geecs_bluesky.exceptions.ActionPlanNotFoundError`, a cycle
+  :class:`~geecs_bluesky.exceptions.ActionPlanCycleError`.
 
 This module never touches Channel Access or PV strings: signals come from
 the injected :class:`SettableFactory`.  :func:`run_action_plan` is the
@@ -23,7 +25,6 @@ experiment's action library and the device namespace, the production
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
@@ -34,17 +35,15 @@ from bluesky.utils import MsgGenerator
 from geecs_schemas.action_plan import (
     ActionPlan,
     CheckStep,
-    RunPlanStep,
     SetStep,
     WaitStep,
+    values_match,
 )
 
 from geecs_bluesky.actions.steps import flatten_action_steps
 from geecs_bluesky.utils import resolve_annotations
 from geecs_bluesky.exceptions import (
     ActionCheckFailedError,
-    ActionPlanCycleError,
-    ActionPlanNotFoundError,
     GeecsConfigurationError,
 )
 
@@ -78,32 +77,6 @@ class SettableFactory(Protocol):
     def get_readable(self, device: str, variable: str) -> Readable:
         """Return a readable signal (accepted by ``bps.rd``) for a ``check`` step."""
         ...
-
-
-def values_match(expected: object, actual: object) -> bool:
-    """Compare a ``check`` step reading against its expected value, legacy-style.
-
-    Legacy comparison rules (see the module docstring), quirks included: a
-    numeric expected matches a device reporting ``"25"`` (the actual is
-    floated first), but a *string* expected ``"25"`` does **not** match a
-    numeric-looking readback.
-
-    Parameters
-    ----------
-    expected : object
-        The ``expected`` value from the plan (``str | float | int``).
-    actual : object
-        The value read back from the signal.
-
-    Returns
-    -------
-    bool
-        True when the values match under the legacy comparison rules.
-    """
-    if isinstance(actual, str):
-        with contextlib.suppress(ValueError):
-            actual = float(actual)
-    return bool(actual == expected)
 
 
 def compile_action_plan(
@@ -145,17 +118,9 @@ def compile_action_plan(
     ActionPlanCycleError
         When nested ``run`` steps form a loop.
     """
-    yield from _compile(plan, registry, settables, stack=())
-
-
-def _compile(
-    plan: ActionPlan,
-    registry: Mapping[str, ActionPlan],
-    settables: SettableFactory,
-    stack: tuple[str, ...],
-) -> MsgGenerator:
-    """Execute *plan*'s steps; *stack* is the chain of nested plan names (cycle guard)."""
-    for step in plan.steps:
+    # The shared walk: nested plans inlined, unknown names and loops refused
+    # before the first message, in the order every executor runs them.
+    for step, _origin in flatten_action_steps(plan, registry=registry):
         if isinstance(step, SetStep):
             signal = settables.get_settable(step.device, step.variable)
             # Legacy sync semantics — see the module docstring.
@@ -172,14 +137,7 @@ def _compile(
                     expected=step.expected,
                     actual=actual,
                 )
-        elif isinstance(step, RunPlanStep):
-            if step.plan in stack:
-                raise ActionPlanCycleError([*stack, step.plan])
-            nested = registry.get(step.plan)
-            if nested is None:
-                raise ActionPlanNotFoundError(step.plan, list(registry))
-            yield from _compile(nested, registry, settables, (*stack, step.plan))
-        else:  # pragma: no cover - schema discriminator prevents this
+        else:  # pragma: no cover - flatten yields set/wait/check only
             raise TypeError(f"Unrecognized action step type: {type(step)!r}")
 
 

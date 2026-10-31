@@ -1,11 +1,14 @@
 {#
   The ONE template every screen file renders through: groups on the grid,
   each widget by kind. The binding travels as data-* (device, role, axis,
-  or a bare pv); screen.js asks the module for the device's PVs and
-  verdicts, reads values from Hare, and writes through /api/…/put only.
+  or a bare pv; data-deferred + data-fits for a DB device, whose role the
+  page judges by the module's word; data-action for a button that runs an
+  action plan); screen.js asks the module for the device's PVs and
+  verdicts, reads values from Hare, and writes through /api/…/put and
+  /api/actions/…/run only.
 #}{% extends "base.html" %}
 {% set s = loaded.screen %}
-{% set RO_PV = "A DB device: its writes stay disabled until the module writes gateway PVs." %}
+{% set RO_PV = "A bare PV is read only: bind the device and its variable to write it." %}
 {% set WRITES = ("setpoint", "toggle", "flipper", "button") %}
 {% block title %}{{ s.title if s else name }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">{% endblock %}
@@ -14,7 +17,7 @@
 <span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
 {% endblock %}
 {% macro bindattrs(b, role) -%}
-{%- if b.pv %} data-pv="{{ b.pv }}"{% else %} data-device="{{ b.device }}" data-role="{{ b.role }}"{% if b.axis %} data-axis="{{ b.axis }}"{% endif %}{% endif -%}
+{%- if b.pv %} data-pv="{{ b.pv }}"{% elif b.action %} data-action="{{ b.action }}"{% else %} data-device="{{ b.device }}" data-role="{{ b.role }}"{% if b.axis %} data-axis="{{ b.axis }}"{% endif %}{% endif -%}
 {%- if role %} data-type="{{ role.type }}"{% if role.confirm == "hazard" %} data-hazard="1"{% endif %}{% endif -%}
 {%- endmacro %}
 {% block body %}
@@ -39,17 +42,19 @@
     <img class="pic" src="{{ root }}/screens/files/{{ w.src }}" alt="{{ w.label }}">
     {% else %}
     <div class="w" data-kind="{{ w.kind }}"{{ bindattrs(w.bind, role) }}
+      {%- if bound.deferred %} data-deferred="1" data-fits="{{ bound.fits | join(' ') }}"{% endif %}
       {%- if bound.readback %} data-readback="{{ bound.readback.name }}"{% endif %}
       {%- if w.confirm %} data-confirm="{{ w.confirm }}"{% endif %}
       {%- if w.precision is not none %} data-precision="{{ w.precision }}"{% endif %}
       {%- if w.units %} data-units="{{ w.units }}"{% endif %}
       {%- if w.bind.pv and w.kind in WRITES %} title="{{ RO_PV }}"{% endif %}>
-      {%- set name = w.label or (role.label if role else w.bind.pv) %}{% set off = " disabled" if w.bind.pv else "" %}
+      {%- set name = w.label or (role.label if role else (w.bind.pv or w.bind.role or w.bind.action)) %}{% set off = " disabled" if w.bind.pv else "" %}
       <span class="lbl">{{ name }}</span>
       {% if w.kind == "setpoint" %}
       <input class="sp" spellcheck="false" aria-label="{{ name }}"{{ off }}><span class="bounds"></span>
       {% elif w.kind in ("toggle", "flipper", "button") %}
       <button class="btn sm act" type="button"{{ off }}>{{ name if w.kind == "button" else "…" }}</button>
+      {%- if w.bind.action %}<button class="btn sm stop" type="button" hidden>Stop</button>{% endif %}
       {% else %}
       <span class="v">—</span>
       {% endif %}
@@ -72,11 +77,11 @@
     <p id="confirm-note"></p>
     <div class="row end">
       <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
-      <button class="btn danger" type="button" value="write">Write</button>
+      <button class="btn danger" type="button" value="write" id="confirm-go">Write</button>
     </div>
   </div>
 </dialog>
 <script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if s %}<script src="{{ root }}/static/screen.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if s %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/screen.js" defer></script>{% endif %}{% endblock %}

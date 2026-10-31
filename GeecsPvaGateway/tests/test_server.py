@@ -116,7 +116,12 @@ async def _start_gateway(cam: FakeCamera) -> tuple[GeecsPvaGateway, asyncio.Task
         experiment="testexp",
         image_variables=["image"],
     )
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
+    # Purely client-gated: these tests pin the gating and the never-decoded
+    # arm; the seed (#1216) is pinned in test_file_plugin.py and test_roster.py.
+    gateway = GeecsPvaGateway(
+        PvaGatewayConfig(experiment="testexp", devices=[spec]),
+        seed_held_frames=False,
+    )
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):  # wait for the server to come up
         await asyncio.sleep(0.05)
@@ -352,7 +357,12 @@ async def test_gating_is_per_variable():
         experiment="testexp",
         image_variables=["bakground image", "image"],
     )
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
+    # Purely client-gated: these tests pin the gating and the never-decoded
+    # arm; the seed (#1216) is pinned in test_file_plugin.py and test_roster.py.
+    gateway = GeecsPvaGateway(
+        PvaGatewayConfig(experiment="testexp", devices=[spec]),
+        seed_held_frames=False,
+    )
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):
         await asyncio.sleep(0.05)

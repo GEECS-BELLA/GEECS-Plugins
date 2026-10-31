@@ -103,3 +103,11 @@ def test_scalar_attribute_variables_numeric_subscribed_minus_ladder(caplog) -> N
     assert scalar_attribute_variables(
         rows, ["maxcounts", "EXPOSURE", "Acq_Timestamp"], normalize=str.lower
     ) == ["MaxCounts", "exposure"]
+
+
+def test_enum_choices_are_the_ca_enum_the_gateway_serves_or_none():
+    from geecs_core.db.variable_types import enum_choices
+
+    assert enum_choices(" on , off ") == ["on", "off"]
+    assert enum_choices(",".join(map(str, range(17)))) is None  # > 16 states
+    assert enum_choices("x" * 27 + ",b") is None and enum_choices("") is None
