@@ -361,7 +361,7 @@ def _fake_clones(root: Path, *, stale: bool) -> None:
                 text = "\n".join(
                     line
                     for line in text.splitlines()
-                    if not any(k in line for k in ("QS_REDIS_PREFIX", "QS_INFO_ADDR"))
+                    if not any(k in line for k in ("QS_REDIS_PREFIX", "_ENV_KEYS = ("))
                 )
             dst.write_text(text, encoding="utf-8")
 

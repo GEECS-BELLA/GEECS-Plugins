@@ -114,19 +114,26 @@ instance_templates_of() { case "$1" in
     qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver@.service GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service";;
     tiled-writer) echo "GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service";;
     scanner) echo "GeecsScanner/deploy/geecs-scanner@.service";; esac; }
-# The per-instance keys each service's CODE must read (file: keys), so that a
-# rendered instance never silently runs on the main experiment's values.
-instance_keys_of() { case "$1" in
-    qserver) echo "GeecsBluesky/qserver/launch_re_manager.sh:QS_REDIS_PREFIX,QS_EXISTING_PLANS_DEVICES";;
-    scanner) echo "GeecsBluesky/geecs_bluesky/qs_client/client.py:QS_CONTROL_ADDR,QS_INFO_ADDR,QS_DOC_ADDR";; esac; }
-instance_keys_unread() {  # instance_keys_unread SERVICE CLONE_DIR — prints " KEY (FILE)" per key the clone's code lacks
-    local spec file key
-    for spec in $(instance_keys_of "$1"); do
-        file="${spec%%:*}"
-        for key in $(printf '%s' "${spec#*:}" | tr ',' ' '); do
-            grep -q "$key" "$2/$file" 2>/dev/null || printf ' %s (%s)' "$key" "$file"
-        done
-    done
+# The code lines that make each service read its per-instance keys, matched
+# literally (grep -F) so a mention in a comment or docstring never passes:
+# a rendered instance must never silently run on the main experiment's
+# values. Moving one of these lines fails CLOSED (nothing rendered) until
+# this table follows it.
+instance_code_of() { case "$1" in
+    qserver) printf '%s\n' \
+        'GeecsBluesky/qserver/launch_re_manager.sh|INSTANCE_ARGS+=(--redis-name-prefix "${QS_REDIS_PREFIX}")' \
+        'GeecsBluesky/qserver/launch_re_manager.sh|INSTANCE_ARGS+=(--existing-plans-devices "${QS_EXISTING_PLANS_DEVICES}")' ;;
+    scanner) printf '%s\n' \
+        'GeecsBluesky/geecs_bluesky/qs_client/client.py|_ENV_KEYS = ("QS_CLIENT_CONTROL_ADDR", "QS_CLIENT_INFO_ADDR", "QS_CLIENT_DOC_ADDR")' ;;
+    esac; }
+instance_keys_unread() {  # instance_keys_unread SERVICE CLONE_DIR — prints " FILE" per file lacking its line
+    local spec
+    while IFS= read -r spec; do
+        [ -n "$spec" ] || continue
+        grep -qF -- "${spec#*|}" "$2/${spec%%|*}" 2>/dev/null || printf ' the per-instance keys (%s)' "${spec%%|*}"
+    done <<EOF_CODE
+$(instance_code_of "$1")
+EOF_CODE
 }
 if [ -n "$INSTANCE" ]; then
     case "$INSTANCE" in *[!A-Za-z0-9_-]*) echo "--experiment: instance '$INSTANCE' is not a slug (letters, digits, '-', '_')" >&2; exit 2 ;; esac

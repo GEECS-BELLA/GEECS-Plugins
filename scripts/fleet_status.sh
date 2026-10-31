@@ -235,7 +235,8 @@ if [ "$NET_UP" -eq 1 ]; then
     # with bluesky-queueserver is at hand; otherwise fall back to port
     # liveness and say readiness is unknown. The address is config.ini's
     # [qserver] control_addr override when set (the same precedence as
-    # geecs_bluesky.qs_client), else tcp://<host>:60615.
+    # geecs_bluesky.qs_client's config.ini read), else tcp://<host>:60615 —
+    # the main manager; experiment instances are not probed here yet.
     QS_HOST="${WORKER_HOST:-$LAB_HOST}"
     QS_ADDR="$(ini_get qserver control_addr)"
     QS_ADDR="${QS_ADDR:-tcp://$QS_HOST:60615}"

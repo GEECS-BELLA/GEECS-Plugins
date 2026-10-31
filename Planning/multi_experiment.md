@@ -227,8 +227,11 @@ units carry, every default unchanged:
 - `launch_re_manager.sh` passes `--redis-name-prefix` / `--existing-plans-devices`
   only when `QS_REDIS_PREFIX` / `QS_EXISTING_PLANS_DEVICES` are set. The
   0MQ addresses are the manager's own `QSERVER_ZMQ_*_FOR_SERVER`.
-- `qs_client.read_qserver_config`: `QS_CONTROL_ADDR` / `QS_INFO_ADDR` /
-  `QS_DOC_ADDR` override config.ini's `[qserver]` per field (all three are
+- `qs_client.read_qserver_config`: `QS_CLIENT_CONTROL_ADDR` /
+  `QS_CLIENT_INFO_ADDR` / `QS_CLIENT_DOC_ADDR` override config.ini's
+  `[qserver]` per field. They are names of their own: site.env's
+  `QS_CONTROL_ADDR` stays the readiness unit's key, and the main scanner
+  never picks it up. All three are
   needed when it is absent). The scanner reaches its own manager this way.
 - The gateway: no code. Its port is caproto's `EPICS_CA_SERVER_PORT`, set
   in its unit alone and pinned by a gateway test. The worker's CA list

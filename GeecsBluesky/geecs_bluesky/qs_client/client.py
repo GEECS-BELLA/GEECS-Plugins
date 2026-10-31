@@ -55,8 +55,10 @@ _DOC_PORT = 5568
 
 #: Per-process overrides of the three addresses, in field order. config.ini is
 #: one file per account, shared by every experiment instance on a host; an
-#: instance's units carry these keys (deploy/experiments.env.example).
-_ENV_KEYS = ("QS_CONTROL_ADDR", "QS_INFO_ADDR", "QS_DOC_ADDR")
+#: instance's units carry these keys (deploy/experiments.env.example). Names
+#: of their own, never site.env's: the main units read site.env too, and its
+#: ``QS_CONTROL_ADDR`` is the readiness unit's key alone.
+_ENV_KEYS = ("QS_CLIENT_CONTROL_ADDR", "QS_CLIENT_INFO_ADDR", "QS_CLIENT_DOC_ADDR")
 
 #: Bound on one control-socket round trip (seconds). Chosen above the api's
 #: 2 s default recv timeout so a wedged manager degrades to "disconnected"
@@ -81,7 +83,8 @@ class QserverConfig:
 def read_qserver_config() -> Optional[QserverConfig]:
     """The manager's addresses: the environment's, else config.ini's ``[qserver]``.
 
-    ``QS_CONTROL_ADDR`` / ``QS_INFO_ADDR`` / ``QS_DOC_ADDR`` each override
+    ``QS_CLIENT_CONTROL_ADDR`` / ``QS_CLIENT_INFO_ADDR`` /
+    ``QS_CLIENT_DOC_ADDR`` each override
     their field — how an experiment instance's scanner reaches its own
     manager while config.ini (one per account) names the main one.  With
     no config.ini ``[qserver]``, all three must be set.
