@@ -58,6 +58,10 @@ RestartSec=10
 # Tomcat's shutdown flushes the short-term store's buffers; give it time
 # (compose.yaml's stop_grace_period, 170 s, sits inside this bound).
 TimeoutStopSec=180
+# A clean stop ends the container on SIGTERM (exit 143), which compose up
+# reports as its own exit status: count it a success, or every stop leaves
+# the unit 'failed' and /fleet-status reads a stopped archiver as broken.
+SuccessExitStatus=143
 SyslogIdentifier=geecs-archiver
 
 [Install]

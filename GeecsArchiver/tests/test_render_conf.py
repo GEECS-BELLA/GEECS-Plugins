@@ -93,3 +93,9 @@ def test_tomcat_gets_its_flush_inside_the_unit_stop_bound():
     bound = re.search(r"^TimeoutStopSec=(\d+)\s*$", unit, re.M)
     assert grace and bound
     assert 60 <= int(grace.group(1)) < int(bound.group(1))
+
+
+def test_a_clean_stop_is_not_a_unit_failure():
+    """SIGTERM ends the container with 143 (observed on the 2026-10-30 host move)."""
+    unit = (RENDER.parent / "geecs-archiver.service").read_text()
+    assert re.search(r"^SuccessExitStatus=.*\b143\b", unit, re.M)
