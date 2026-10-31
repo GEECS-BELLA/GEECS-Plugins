@@ -185,8 +185,10 @@ change. Rerunning when nothing changed is a no-op.
   the way up). Read upstream's release notes for persistence-format or
   Tomcat changes first. Weekly upstream images are never deployed.
 - **Stop / start.** `sudo systemctl stop geecs-archiver` runs `compose
-  down` (Tomcat flushes the short-term store on shutdown; the unit allows
-  180 s).
+  down`. Tomcat flushes the short-term store on shutdown, and the timeout
+  that governs it is `stop_grace_period: 170s` in `compose.yaml` (compose's
+  own default, 10 s, SIGKILLs it mid-flush); the unit's `TimeoutStopSec=180`
+  only bounds the whole stop.
 
 ---
 
