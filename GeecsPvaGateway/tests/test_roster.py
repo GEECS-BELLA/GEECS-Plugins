@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import socket
 import threading
 import time
 
@@ -166,6 +167,51 @@ async def test_a_device_the_roster_adds_is_seeded():
     finally:
         await _shutdown(task)
         await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_a_seed_on_an_unreachable_device_lapses_and_the_roster_tick_retries(
+    monkeypatch, caplog
+):
+    """A device enabled in the DB whose app is down: the seed lapses at the
+    first failed connect — no reconnect loop, never ``Disconnected``, one
+    INFO line — and a later roster tick seeds it once the app is up (#1216)."""
+    states: list[str] = []
+    original = server_module._DeviceWorker._set_connected
+
+    def record(self, var, state):
+        states.append(state)
+        original(self, var, state)
+
+    monkeypatch.setattr(server_module._DeviceWorker, "_set_connected", record)
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()  # nothing listens here: the app is down
+    spec = _spec(CAMERA, port)
+    roster = ScriptedRoster([spec])
+    caplog.set_level(logging.INFO, logger=LOGGER)
+    gateway, task = await _start([spec], roster, seed=True)
+    cam = StampedCamera()
+    try:
+        worker = gateway._workers[0]
+        await _wait_until(lambda: _messages(caplog, "seed lapsed"))
+        await asyncio.sleep(5 * TICK)  # several roster ticks of retries
+        assert server_module.CONNECTED_DOWN not in states
+        assert worker._connected_state["image"] == server_module.CONNECTED_IDLE
+        assert len(_messages(caplog, "seed lapsed")) == 1  # retries at DEBUG
+        assert not any(r.exc_info for r in caplog.records)
+        assert "image" not in worker._last_frame
+
+        await cam.start(port)  # the app comes up on its DB port
+        cam.push(IMG, time.time())
+        await _wait_until(lambda: "image" in worker._last_frame, timeout=10)
+        await _wait_until(lambda: cam.connections == 0, timeout=10)
+        assert worker._seeding == set()
+    finally:
+        await _shutdown(task)
+        if cam._server is not None:
+            await cam.stop()
 
 
 @pytest.mark.timeout(60)

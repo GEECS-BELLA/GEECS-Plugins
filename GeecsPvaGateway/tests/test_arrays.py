@@ -139,7 +139,7 @@ async def _start_gateway(dev: ArrayDevice, variable: str):
         array_variables=[variable],
     )
     # Purely client-gated: these tests pin the gating and the never-decoded
-    # arm; the seed (#1216) has its own tests in test_server.py.
+    # arm; the seed (#1216) is pinned in test_file_plugin.py and test_roster.py.
     gateway = GeecsPvaGateway(
         PvaGatewayConfig(experiment="testexp", devices=[spec]),
         seed_held_frames=False,

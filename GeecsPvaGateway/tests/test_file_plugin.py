@@ -69,8 +69,10 @@ class StampedCamera:
         self._server: asyncio.Server | None = None
         self.port = 0
 
-    async def start(self) -> None:
-        self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+    async def start(self, port: int = 0) -> None:
+        """Listen on *port* (0: any free one) — a fixed port is a camera app
+        coming up where a gateway already dialed and failed."""
+        self._server = await asyncio.start_server(self._handle, "127.0.0.1", port)
         self.port = self._server.sockets[0].getsockname()[1]
 
     async def stop(self) -> None:
@@ -785,6 +787,36 @@ async def test_a_client_during_the_seed_keeps_the_subscription_after_it():
         assert cam.connections == 0
     finally:
         ctx.close()
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_a_seed_fed_undecodable_frames_lapses_for_good(monkeypatch):
+    """A variable whose payload never decodes: the seed lets go at the first
+    frame and is never retried — no subscription, no flatten/send and a
+    traceback per frame, forever, for a variable nobody watches (#1216)."""
+    from geecs_pva_gateway import server as server_module
+
+    def undecodable(self, var, blob):
+        raise ValueError("not a frame this gateway can account for")
+
+    monkeypatch.setattr(server_module._DeviceWorker, "decode", undecodable)
+    cam = StampedCamera()
+    await cam.start()
+    gateway, task = await _start_gateway(cam, seed=True)
+    worker = gateway._workers[0]
+    try:
+        await asyncio.wait_for(cam.connected.wait(), 5)
+        cam.push(IMG, time.time())
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        assert cam.connections == 0
+        assert worker._seeding == set()
+        assert worker._unseedable == {"image"}
+        worker.seed(retry=True)  # what every roster tick does
+        await asyncio.sleep(0.3)
+        assert cam.connections == 0 and worker._seeding == set()
+    finally:
         await _shutdown(task)
         await cam.stop()
 

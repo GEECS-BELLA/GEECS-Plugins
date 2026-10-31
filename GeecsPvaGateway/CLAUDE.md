@@ -121,7 +121,9 @@ tests/
   gateway's device supervisors; a box ARMED through a long move pushes
   nothing for tens of seconds, #894). Each variable's `<image PV>:connected`
   (NTEnum `Idle` / `Disconnected` / `Connected`, MAJOR alarm while down)
-  shows that subscription's state — `Idle` is "gated off, nothing known",
+  shows that subscription's state — `Idle` is "gated off, nothing known"
+  (`Connected` with no client is the held-frame seed, below; a seed alone
+  never posts `Disconnected`),
   so a client wanting the verdict holds a monitor on the image PV for one
   gating round-trip. Once the backoff sits at its ceiling the endpoint is
   re-asked of the DB (`endpoint_resolver`, the CA gateway's idiom) and a
@@ -168,7 +170,12 @@ tests/
   newcomer, #1216): one retain per plugin variable, released by the
   first decoded frame. With the box free-running in STANDBY that costs
   one frame per variable. A quiet box (laser off) leaves the seed open
-  and idle until the first shot. This is the one subscription no client
+  and idle until the first shot. A seed that cannot get a frame lapses
+  rather than hold the subscription: on an unreachable device (enabled in
+  the DB, app down) at the first failed connect — no reconnect loop, no
+  `Disconnected` alarm, no traceback — retried every roster tick (so a
+  camera app started after its gateway is seeded within a tick); on an
+  undecodable frame for good. This is the one subscription no client
   asked for; `seed_held_frames=False` turns it off (tests that pin the
   gating). Frames are deduped on `acq_timestamp` and
   stale-filtered against a watermark set at `Capture=1` and moved by
