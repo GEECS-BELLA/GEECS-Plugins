@@ -184,6 +184,9 @@ class _DeviceWorker:
         self._spec = spec
         self._loop = loop
         self._endpoint_resolver = endpoint_resolver
+        # The plugin variables holding a seed retain until their first
+        # decoded frame (:meth:`seed`, #1216).  Event-loop state.
+        self._seeding: set[str] = set()
         # The last decoded frame per variable: the file plugin arms on it
         # (#894).  Written by _publish on the loop, read on the writer thread.
         self._last_frame: dict[str, np.ndarray] = {}
@@ -298,11 +301,42 @@ class _DeviceWorker:
             return decode_array(blob)
         return decode_image(blob)
 
+    def seed(self) -> None:
+        """Hold each plugin variable's subscription until its first decoded frame.
+
+        ``Capture=1`` arms at once on the held frame (#894), but the held
+        frame is filled only while something holds the variable's gated
+        subscription, and in normal operation nothing does: after every
+        gateway restart, and for a device the roster adds, the first
+        session waited ``ARM_TIMEOUT_S`` for a push the quiet box never
+        sends and the run's first prepare failed (#989, #1216).  A seed
+        retain per plugin variable, released by the first decoded frame,
+        fills it in STANDBY (the box free-runs: one frame, about a second)
+        without any client.  A box that fires nothing leaves the seed
+        open, idle on the wire, until the first shot.  Event loop only.
+        """
+        if self._stopping:
+            return
+        for var in self._plugins:
+            if var in self._last_frame or var in self._seeding:
+                continue
+            self._seeding.add(var)
+            logger.info("%s %s: seeding the held frame", self._spec.device, var)
+            self._retain(var)
+
+    def _end_seed(self, var: str) -> None:
+        """Release *var*'s seed retain once a frame is held (event loop)."""
+        if var in self._seeding:
+            self._seeding.discard(var)
+            logger.info("%s %s: held frame seeded", self._spec.device, var)
+            self._release(var)
+
     async def stop(self) -> None:
         """Cancel all supervisors (gateway shutdown)."""
         # Latch first: a client connecting mid-shutdown must not spawn a
         # supervisor this method has already passed.
         self._stopping = True
+        self._seeding.clear()
         # Snapshot: client disconnects mutate the dict concurrently.
         tasks = list(self._supervisors.values())
         self._supervisors.clear()
@@ -501,6 +535,7 @@ class _DeviceWorker:
                     if self._stopping:
                         return  # the PVs are closing (roster removal / shutdown)
                     self._last_frame[var] = image
+                    self._end_seed(var)
                     if attrib:
                         self._pvs[var].post(image, timestamp=ts, attrib=attrib)
                     else:
@@ -540,6 +575,11 @@ class GeecsPvaGateway:
         interval of 0) keeps the startup set for the life of the process.
     roster_interval_s :
         Seconds between two roster reads (:data:`ROSTER_INTERVAL_S`).
+    seed_held_frames :
+        Seed every plugin variable's held frame as its worker starts, at
+        startup and when the roster adds a device (:meth:`_DeviceWorker.seed`,
+        #1216).  ``False`` keeps the subscriptions purely client-gated
+        (tests that pin the gating).
     """
 
     def __init__(
@@ -549,8 +589,10 @@ class GeecsPvaGateway:
         endpoint_resolver: Callable[[str], tuple[str, int]] | None = None,
         roster_resolver: Callable[[], list[DeviceSpec]] | None = None,
         roster_interval_s: float = ROSTER_INTERVAL_S,
+        seed_held_frames: bool = True,
     ) -> None:
         self._config = config
+        self._seed_held_frames = seed_held_frames
         self._endpoint_resolver = endpoint_resolver
         self._roster_resolver = roster_resolver
         self._roster_interval_s = roster_interval_s
@@ -672,6 +714,9 @@ class GeecsPvaGateway:
             self._provider.add(name, providers[name])
 
         self._server = Server(providers=[self._provider], isolate=isolate)
+        if self._seed_held_frames:
+            for worker in self._workers:
+                worker.seed()
         roster_task: asyncio.Task | None = None
         if self._roster_resolver is not None and self._roster_interval_s > 0:
             roster_task = loop.create_task(self._roster_loop(), name="roster")
@@ -912,6 +957,8 @@ class GeecsPvaGateway:
             )
             return False
         self._workers.append(worker)
+        if self._seed_held_frames:
+            worker.seed()
         return True
 
     async def _unregister(

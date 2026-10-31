@@ -138,7 +138,12 @@ async def _start_gateway(dev: ArrayDevice, variable: str):
         devicetype="MagSpecCamera",
         array_variables=[variable],
     )
-    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", devices=[spec]))
+    # Purely client-gated: these tests pin the gating and the never-decoded
+    # arm; the seed (#1216) has its own tests in test_server.py.
+    gateway = GeecsPvaGateway(
+        PvaGatewayConfig(experiment="testexp", devices=[spec]),
+        seed_held_frames=False,
+    )
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):
         await asyncio.sleep(0.05)

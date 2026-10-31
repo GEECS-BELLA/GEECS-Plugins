@@ -75,11 +75,17 @@ def _spec(device: str, port: int, *variables: str) -> DeviceSpec:
 
 
 async def _start(
-    initial: list[DeviceSpec], roster: ScriptedRoster
+    initial: list[DeviceSpec], roster: ScriptedRoster, *, seed: bool = False
 ) -> tuple[GeecsPvaGateway, asyncio.Task]:
-    # host= names the identity PVs even while nothing is served.
+    # host= names the identity PVs even while nothing is served.  Unseeded
+    # by default: these tests count connections the seed (#1216) would add.
     config = PvaGatewayConfig(experiment="testexp", host="127.0.0.1", devices=initial)
-    gateway = GeecsPvaGateway(config, roster_resolver=roster, roster_interval_s=TICK)
+    gateway = GeecsPvaGateway(
+        config,
+        roster_resolver=roster,
+        roster_interval_s=TICK,
+        seed_held_frames=seed,
+    )
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):
         await asyncio.sleep(0.05)
@@ -135,6 +141,28 @@ async def test_a_device_enabled_in_the_db_is_served_without_a_restart(caplog):
             sub.close()
         finally:
             ctx.close()
+    finally:
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_a_device_the_roster_adds_is_seeded():
+    """A newcomer's held frame is seeded like a startup device's (#1216): its
+    first arm never waits on a quiet box because it joined mid-run."""
+    cam = StampedCamera()
+    await cam.start()
+    roster = ScriptedRoster([])
+    gateway, task = await _start([], roster, seed=True)
+    try:
+        roster.answer = [_spec(CAMERA, cam.port)]
+        await _wait_until(lambda: gateway.served_devices == [CAMERA])
+        await asyncio.wait_for(cam.connected.wait(), 5)  # no client: the seed
+        cam.push(IMG, time.time())
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        worker = gateway._workers[0]
+        assert worker._last_frame["image"].shape == IMG.shape
+        assert cam.connections == 0
     finally:
         await _shutdown(task)
         await cam.stop()
