@@ -10,8 +10,13 @@
   function pickerOptions(rows, current, kind) {
     const sorted = [...rows].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const head = { value: "", text: sorted.length ? `choose a ${kind}…` : `no ${kind} in the registry`, selected: !current };
-    return [head, ...sorted.map((d) => ({ value: d.name, text: `${d.name} · ${d.state || "unknown"}`, selected: d.name === current }))];
+    const options = sorted.map((d) => ({ value: d.name, text: `${d.name} · ${d.state || "unknown"}`, selected: d.name === current }));
+    const typed = current && !sorted.some((d) => d.name === current); // a typed name the registry lacks stays chosen
+    return [head, ...options, ...(typed ? [{ value: current, text: `${current} · typed`, selected: true }] : [])];
   }
+
+  // A stale page reloads once the module answers with the device (200) or without it (404); any other answer keeps it asking.
+  const recovered = (status) => status === 200 || status === 404;
 
   // The note beside the picker: why the states read unknown (the module silent, the files unreadable).
   const pickerNote = (body) => (body && body.detail) || "";
@@ -41,7 +46,7 @@
     return { state: view.state || "unknown", heartbeat: `heartbeat ${view.heartbeat || "—"}` };
   }
 
-  Object.assign(rules, { pickerOptions, pickerNote, watched, rowWord, units, deviceView, header });
+  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header });
 })(
   typeof module === "object" ? module.exports : (window.GeecsDeviceRules = {}),
   typeof module === "object" ? require("./screen_rules.js") : window.GeecsScreenRules,

@@ -3,7 +3,8 @@
   the device at /device/<kind>/<name> — the header (name, family, kind, the
   module's state as a chip, heartbeat), the switcher (the picker's select, so
   an operator changes device in place), and the role table from the device's
-  RESOLVED roles: the operator roles open, the expert roles in a disclosure,
+  roles as the module's device route serves them (resolved there), level and
+  units from the family: the operator roles open, the expert roles in a disclosure,
   one table per axis. Read only in this slice. Each row carries its role and
   axis; device.js fills the PV and verdict from the module's device route and
   the value from Hare. A device the page cannot draw is a kit pane saying why.
@@ -34,6 +35,7 @@
         <select id="pick" name="name" data-current="{{ name or '' }}">
           <option value="">{{ ("choose a " ~ kind ~ "…") if rows else ("no " ~ kind ~ " in the registry") }}</option>
           {% for d in rows %}<option value="{{ d.name }}"{% if d.name == name %} selected{% endif %}>{{ d.name }} · reading</option>{% endfor %}
+          {% if name and name not in rows | map(attribute="name") %}<option value="{{ name }}" selected>{{ name }} · typed</option>{% endif %}
         </select></div>
       <div class="field"><label for="typed">or a device name</label>
         <input id="typed" name="typed" spellcheck="false" autocomplete="off" placeholder="GEECS device name"></div>
@@ -69,7 +71,7 @@
     </header>
     {% block kind_component %}{# the kind's component: slice 3 the camera's frame, slice 4 the scope's traces #}{% endblock %}
     <div class="body">
-    {% for axis in axes %}
+    {% for axis, roles in tables %}
       {% if axis %}<span class="eyebrow">axis {{ axis }}</span>{% endif %}
       {{ role_table(roles | selectattr("level", "equalto", "operator") | list, axis) }}
       {% set expert = roles | selectattr("level", "equalto", "expert") | list %}

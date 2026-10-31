@@ -6,7 +6,7 @@ panel entry's family, else its native ``kind``) in a select, each with the
 module's roster state (``/api/device/<kind>``, polled by the page), and a
 free-text name for a device the files do not list. ``/device/<kind>/<name>``
 resolves the device with one read of the module's device route and draws
-the kind's page from the device's resolved roles; a device the page cannot
+the kind's page from the roles that route serves (already resolved there); a device the page cannot
 draw is a kit pane that says why (not on the roster, wrong kind, not a
 native device: ``denied``; the module silent: ``stale``, and the page polls
 until it answers), never a blank page and never a 500. Read only here: PV
@@ -56,22 +56,27 @@ def kind_of(family: Optional[str]) -> Optional[str]:
 
 
 def registered(settings: Settings, kind: str) -> tuple[list[dict[str, str]], Optional[str]]:  # fmt: skip
-    """The registry's devices of ``kind`` by name (``name``, ``family``), and why the files could not be read."""
+    """The registry's devices of ``kind`` by name (``name``, ``family``), and the files' problems.
+
+    The module's join rule (GeecsCanopy ``native.py``): a device both files name
+    with different families is no kind's; it is left out and named in the problem.
+    """
     try:
         panel, native = registry(settings.experiment_dir)
     except (ValidationError, yaml.YAMLError, OSError) as exc:
         return [], str(exc)
     families, want = load_families(), KINDS[kind].family_kind
-    rows: dict[str, dict[str, str]] = {}
-    for name, entry in native.devices.items():
-        if entry.kind == want:
-            rows[name] = {"name": name, "family": entry.family_template}
-    for name, panel_entry in panel.devices.items():  # the panel entry's family wins
-        family = families.get(panel_entry.family)
-        rows.pop(name, None)
+    rows, problems = [], []
+    for name in sorted({*native.devices, *panel.devices}):
+        entry, panel_entry = native.devices.get(name), panel.devices.get(name)
+        template = entry.family_template if entry else panel_entry.family
+        if panel_entry and entry and panel_entry.family != template:
+            problems.append(f"{name}: native_devices.yaml names {template}, panel_devices.yaml {panel_entry.family}; not listed")  # fmt: skip
+            continue
+        family = families.get(template)
         if family and family.kind == want:
-            rows[name] = {"name": name, "family": panel_entry.family}
-    return [rows[n] for n in sorted(rows)], None
+            rows.append({"name": name, "family": template})
+    return rows, "; ".join(problems) or None
 
 
 async def listing(settings: Settings, module: ModuleClient, kind: str) -> dict[str, Any]:  # fmt: skip
@@ -97,18 +102,26 @@ async def listing(settings: Settings, module: ModuleClient, kind: str) -> dict[s
     }
 
 
-def roles_of(settings: Settings, name: str, family: FamilyFile) -> list[Any]:
-    """The device's resolved roles: its panel entry's (omissions, labels), else the family's."""
-    try:
-        entry = registry(settings.experiment_dir)[0].devices.get(name)
-    except (ValidationError, yaml.YAMLError, OSError):
-        entry = None  # the files are the picker's to complain about; the family's roles still draw
-    if entry and entry.family == family.template:
-        return entry.resolve(family)
-    return list(family.roles)
+def tables(body: dict[str, Any], family: FamilyFile) -> list[tuple[Optional[str], list[dict[str, Any]]]]:  # fmt: skip
+    """The role rows per axis, from the module's device route (its roles are already resolved); ``level`` and units from the family."""
+    by_name = {r.name: r for r in family.roles}
+    axes = (body.get("axes") or []) if family.per_axis else [None]
+    out = []
+    for axis in axes:
+        rows = []
+        for entry in body.get("roles") or []:
+            if entry.get("axis") != axis:
+                continue
+            role = by_name.get(entry["role"])
+            level = role.level if role else "operator"
+            label = entry.get("label") or entry["role"]
+            row = {"name": entry["role"], "label": label, "type": entry.get("type")}
+            rows.append(row | {"level": level, "units": role.units if role else None})
+        out.append((axis, rows))
+    return out
 
 
-async def resolve(settings: Settings, module: ModuleClient, kind: str, name: str) -> tuple[int, dict[str, Any]]:  # fmt: skip
+async def resolve(module: ModuleClient, kind: str, name: str) -> tuple[int, dict[str, Any]]:  # fmt: skip
     """One read of the module's device route: the page's status and context, or the pane that says why not."""
     try:
         status, body = await module.device(name)
@@ -116,8 +129,12 @@ async def resolve(settings: Settings, module: ModuleClient, kind: str, name: str
         status, body = 0, {"detail": str(exc)}
     if status == 404:
         return 404, {"pane": ("denied", f"{name} is not on the module's roster", "Choose a device above, or check the name.")}  # fmt: skip
-    if status != 200 or not isinstance(body, dict) or "family" not in body:
-        why = body.get("detail") if isinstance(body, dict) else None
+    why = body.get("detail") if isinstance(body, dict) else None
+    if status in (401, 403):  # the read key refused: no amount of asking again helps
+        return status, {"pane": ("denied", "The module refused this display's read", why or f"it answered {status}")}  # fmt: skip
+    if 400 <= status < 500 or (status == 200 and (not isinstance(body, dict) or "family" not in body)):  # fmt: skip
+        return 502, {"pane": ("error", f"The module answered {status} for {name}", why or "not a device the page can read")}  # fmt: skip
+    if status != 200:  # unreachable, not JSON, or a 5xx: the page asks again
         note = (
             f"{why or f'it answered {status}'}; this page asks again every few seconds."
         )
@@ -127,9 +144,7 @@ async def resolve(settings: Settings, module: ModuleClient, kind: str, name: str
         return 422, {"pane": ("denied", f"{name} is not a native device", f"Its family {body['family']!r} is no installed family file (a GEECS DB device type): a screen draws it.")}  # fmt: skip
     if (word := _WORD.get(family.kind)) != kind:
         return 422, {"pane": ("denied", f"Wrong kind: {family.template} is a {word}", ""), "other": word}  # fmt: skip
-    axes = (body.get("axes") or []) if family.per_axis else [None]
-    roles = roles_of(settings, name, family)
-    return 200, {"pane": None, "device": body, "family": family, "axes": axes, "roles": roles}  # fmt: skip
+    return 200, {"pane": None, "device": body, "family": family, "tables": tables(body, family)}  # fmt: skip
 
 
 def router(settings: Settings) -> APIRouter:
@@ -171,7 +186,7 @@ def router(settings: Settings) -> APIRouter:
             return no_kind(request, kind)
         rows, problem = registered(settings, kind)
         view = {"kind": kind, "name": name, "rows": rows, "problem": problem}
-        status, context = await resolve(settings, request.app.state.module, kind, name)
+        status, context = await resolve(request.app.state.module, kind, name)
         return page(request, status, **view, **context)
 
     return r

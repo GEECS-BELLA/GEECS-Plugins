@@ -23,7 +23,10 @@
       try {
         const r = await fetch(`${root}/api/device/${kind}`);
         const body = await r.json();
-        pick.replaceChildren(...D.pickerOptions(body.devices || [], pick.dataset.current, kind).map((o) => new Option(o.text, o.value, o.selected, o.selected)));
+        const options = D.pickerOptions(body.devices || [], pick.dataset.current, kind);
+        const same = options.length === pick.options.length && options.every((o, i) => o.value === pick.options[i].value);
+        if (same) options.forEach((o, i) => { pick.options[i].text = o.text; }); // the words only: focus and choice survive
+        else if (document.activeElement !== pick) pick.replaceChildren(...options.map((o) => new Option(o.text, o.value, o.selected, o.selected)));
         document.getElementById("roster-note").textContent = D.pickerNote(body);
         for (const d of body.devices || []) { // the picker page's table: the module's word beside each
           const tr = document.querySelector(`#roster tr[data-name="${CSS.escape(d.name)}"]`);
@@ -46,7 +49,8 @@
   }
 
   if (main.dataset.recover) { // stale: ask until the module answers, then show its word
-    const poller = window.GeecsPoller.makePoller({ fetch: readDevice, pollMs: POLL_MS, onView: (_, got) => { if (got.ok) window.location.reload(); } });
+    const status = async (device, signal) => (await fetch(`${root}/api/devices/${encodeURIComponent(device)}`, { signal })).status;
+    const poller = window.GeecsPoller.makePoller({ fetch: status, pollMs: POLL_MS, onView: (_, got) => { if (got.ok && D.recovered(got.value)) window.location.reload(); } });
     poller.tick([name]);
     setInterval(() => poller.tick([name]), POLL_MS);
     return;

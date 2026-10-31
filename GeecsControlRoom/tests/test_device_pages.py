@@ -36,7 +36,10 @@ _ROSTER = [
 def _body(name: str) -> dict:
     d = next(d for d in _ROSTER if d["name"] == name)
     axes = ["m1", "m2"] if name == "Mot1" else []
-    return d | {"axes": axes, "heartbeat": "live", "roles": []}
+    roles = [{"role": "desc", "axis": a, "label": "description"} for a in axes]
+    if name == "Cam2":  # as the module resolves it: image omitted, exposure relabelled
+        roles = [{"role": "exposure", "axis": None, "label": "Shutter"}, {"role": "cam1_counter", "axis": None, "label": "camera frames"}]  # fmt: skip
+    return d | {"axes": axes, "heartbeat": "live", "roles": roles}
 
 
 @pytest.fixture
@@ -48,10 +51,12 @@ def folder(settings: Settings) -> Path:
     return folder
 
 
-def _room(settings: Settings, down: bool = False) -> TestClient:
+def _room(settings: Settings, down: bool = False, refuse: int = 0) -> TestClient:
     def answer(request: httpx.Request) -> httpx.Response:
         if down:
             raise httpx.ConnectError("refused", request=request)
+        if refuse:
+            return httpx.Response(refuse, json={"code": "refused", "detail": "no read for this key"})  # fmt: skip
         path = request.url.path.removeprefix("/geecs/v1")
         if path == "/devices":
             return httpx.Response(200, json={"devices": _ROSTER})
@@ -144,3 +149,18 @@ def test_the_home_pickers_carry_their_kind(settings: Settings, folder: Path) -> 
     (folder / "home.yaml").write_text("device_pages:\n  - {title: Cameras, families: [ad_camera_chain]}\n  - {title: Mixed, families: [ad_camera_chain, motor_record]}\n")  # fmt: skip
     assert [p.kind for p in launcher(settings).device_pages] == ["camera", None]
     assert set(KINDS) == {"camera", "scope", "motor", "supply"}
+
+
+@pytest.mark.parametrize("status, state", [(401, "denied"), (403, "denied"), (409, "error"), (503, "stale")])  # fmt: skip
+def test_only_a_silent_module_asks_again(settings: Settings, folder: Path, status: int, state: str) -> None:  # fmt: skip
+    with _room(settings, refuse=status) as c:
+        r = c.get("/device/camera/Cam1")
+    assert _pane(r.text)[0] == state and ("data-recover" in r.text) == (state == "stale")  # fmt: skip
+    assert state == "stale" or "no read for this key" in r.text
+
+
+def test_a_device_the_two_files_disagree_on_is_no_kind(settings: Settings, folder: Path) -> None:  # fmt: skip
+    (folder / "panel_devices.yaml").write_text(_PANEL + "  Mot1: {family: easydriver}\n")  # fmt: skip
+    rows, problem = registered(settings, "motor")
+    assert rows == [] and problem == "Mot1: native_devices.yaml names motor_record, panel_devices.yaml easydriver; not listed"  # fmt: skip
+    assert "Mot1" not in [d["name"] for d in registered(settings, "supply")[0]]

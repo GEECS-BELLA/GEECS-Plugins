@@ -236,6 +236,17 @@ only (the motor record serves its EGU on every field, bits included). The
 picker's select names are drawn server-side and its states filled by the
 page, so the select works without script and no word is decided twice.
 
-**OWED.** The sim camera reads `error` (`DetectorState` Disconnected, as
+**Review round 1.** The role rows are now the module's device route's
+roles (resolved there by `panel.resolve`), `level` and units from the
+family by role name, so rows and PVs share one source; the picker keeps
+the files and the module's join rule: a device the two files give
+different families is listed under no kind, named in the picker's note.
+A 401/403 from the module is a `denied` pane and any other 4xx an `error`
+pane, neither polling; only an unreachable module or a 5xx is `stale` and
+asks again, and the page reloads only on a 200 or a 404.
+
+**OWED.** The native/panel join (one family per device, roles resolved)
+is written twice, in GeecsCanopy's `native.py` and in the picker's
+listing; its home is GEECS-Schemas, a slice of its own. The sim camera reads `error` (`DetectorState` Disconnected, as
 the bench notes found it); the reset is a sim-side write this lane did not
 make. The "not a native device" pane has no bench device (proved in tests).
