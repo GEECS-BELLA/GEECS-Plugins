@@ -22,7 +22,7 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_control_room import device_pages, home, screens
+from geecs_control_room import device_pages, home, images, screens
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
 
@@ -33,9 +33,14 @@ def create_app(
     settings: Settings,
     module: ModuleClient | None = None,
     scanner: httpx.AsyncClient | None = None,
+    camera: images.Images | None = None,
 ) -> FastAPI:
-    """Build the app; ``module`` and ``scanner`` default to clients of the settings' URLs."""
+    """Build the app; ``module`` and ``scanner`` default to clients of the settings' URLs, ``camera`` to CA and HTTP."""
     module = module or ModuleClient(settings.canopy_url, settings.read_key)
+    fetch = None
+    if camera is None:
+        fetch = images.HttpFetch()
+        camera = images.Images(images.AiocaCa(), fetch)
     if scanner is None and settings.scanner_url:
         scanner = httpx.AsyncClient(base_url=settings.scanner_url, timeout=home.SCANNER_TIMEOUT_S)  # fmt: skip
 
@@ -45,6 +50,8 @@ def create_app(
         await module.aclose()
         if scanner is not None:
             await scanner.aclose()
+        if fetch is not None:
+            await fetch.aclose()
 
     app = FastAPI(title=settings.title, lifespan=lifespan)
     app.add_middleware(ForwardedPrefixMiddleware)
@@ -65,6 +72,7 @@ def create_app(
     app.include_router(screens.action_router())
     app.include_router(home.router(settings, scanner))
     app.include_router(home.preset_router(settings))
+    app.include_router(images.router(camera))
     app.include_router(device_pages.router(settings))
 
     @app.get("/healthz")

@@ -41,7 +41,7 @@ class Kind:
 
 #: The URL's kind word → the family kind → the page. A new family of a kind needs no code.
 KINDS = {
-    "camera": Kind("aravis_camera", "device.html"),
+    "camera": Kind("aravis_camera", "device_camera.html"),
     "scope": Kind("array_detector", "device.html"),
     "motor": Kind("epics_motor", "device.html"),
     "supply": Kind("setpoint_device", "device.html"),
@@ -158,7 +158,12 @@ def router(settings: Settings) -> APIRouter:
             "device": None,
         } | context
         templates = request.app.state.templates
-        return templates.TemplateResponse(request, "device.html", context, status_code=status)  # fmt: skip
+        name = (
+            KINDS[context["kind"]].template
+            if context["kind"] in KINDS
+            else "device.html"
+        )
+        return templates.TemplateResponse(request, name, context, status_code=status)  # fmt: skip
 
     def no_kind(request: Request, kind: str) -> Any:
         pane = ("error", f"No device kind {kind!r}", "The kinds are " + ", ".join(KINDS) + ".")  # fmt: skip

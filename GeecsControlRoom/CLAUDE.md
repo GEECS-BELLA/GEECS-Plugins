@@ -23,6 +23,10 @@ geecs_control_room/
   device_pages.py   KINDS (kind word → family kind → template); /device/{kind} the picker (the registry's
                     devices of the kind, /api/device/{kind} their roster states), /device/{kind}/{name} the
                     device resolved by one module read (denied / stale panes, never blank)
+  images.py         a camera's frame (/api/device/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
+                    names, rehosted to the IOC's CA address, one fetch in flight, shared) and arrays
+                    (/api/device/{name}/arrays: the `on_request` roles, at most every 0.5 s, shared),
+                    over CA (aioca), read only; the module's route cached ROUTE_TTL_S
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
                     slowly), fills the device pickers, the presets region (save dialog, diff drawer,
@@ -33,10 +37,14 @@ geecs_control_room/
   static/device.js, device_rules.js   the device pages' live half (roles from the module, values
                     from Hare, read only) and its rules (picker options, a role row's word and units)
   static/device.css the device pages' layout
+  static/camera.js, camera_controls.js, camera_rules.js, camera.css   the camera page (device_camera.html):
+                    the viewer (frame loop, zoom/pan, colour map, levels), crosshairs and analysis ROI
+                    drawn and dragged, the acquisition controls and camera ROI (a dialog first), the
+                    lineouts and histogram; device.js's GeecsDevicePage gives it the roles, values, words
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
                     dropped, a timeout, back-off to 10 s, at most 8 requests at once
   templates/        base.html (every page's shell), screen.html (EVERY screen), device.html (every
-                    device page until a kind gets its own, filling `kind_component`), the pages
+                    device page until a kind gets its own, filling `kind_component`; device_camera.html the camera's), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
 deploy/
@@ -48,7 +56,13 @@ deploy/
 - **A client of Canopy, never a part of it.** Canopy and GeecsCanopy are
   services: Hare's WebSocket for live values, the module's routes for
   verdicts and writes. Never import `geecs_canopy`, GeecsBluesky, the
-  portal or the logbook (import contract `control-room-edges`).
+  portal or the logbook (import contract `control-room-edges`). The one
+  exception to "through Canopy" is what Hare does not carry: a camera's
+  frame and its arrays are read over Channel Access by this server
+  (`images.py`, aioca), **read only**, at the PVs the module's device route
+  names (never derived here); CA addressing is the standard `EPICS_CA_*`
+  environment from `site.env`, never `config.ini` or GEECS-Core. No write
+  ever leaves this process but through the module's put route.
 - **Read keys only (condition (a), `Planning/geecs_canopy.md` §7.6).** The
   page carries the display's read key (on `<body>`, for Hare's socket);
   a write key never reaches this process. Every write is
@@ -133,10 +147,11 @@ deploy/
 ## Testing
 
 `poetry run pytest tests -q`: the module is stubbed with httpx's
-`MockTransport`. The page scripts run under node (skipped without it; no
+`MockTransport`; `test_images.py` drives the frame and arrays routes over a
+fake CA and a fake fetch (no CA library, no IOC). The page scripts run under node (skipped without it; no
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
-with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py`
-as tables, one row per rule (`tests/_node.py` is the harness). A rule a
+with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
+`test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness). A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script
 keeps the DOM work only.
 
@@ -144,6 +159,7 @@ keeps the DOM work only.
 module (`geecs_canopy.testing.make_env`: its routes over a fake Hare) mounted
 at `/geecs` behind `ModuleClient`, driven through this app's routes. It pins
 the fields the pages read (a role's `role`, `axis`, `pv`, `read`, `writable`,
-`verdict`; the put envelope's `outcome`, `code`, `journalId`, `detail`; a
+`verdict`, and for the camera `label` and `locked`; the image and arrays read
+at the PVs the module names; the put envelope's `outcome`, `code`, `journalId`, `detail`; a
 journal row's fields) and the home's lists and `unread`. geecs-canopy is a
 dev-only dependency; `geecs_control_room` never imports it.

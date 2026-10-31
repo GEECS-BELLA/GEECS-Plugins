@@ -250,3 +250,35 @@ is written twice, in GeecsCanopy's `native.py` and in the picker's
 listing; its home is GEECS-Schemas, a slice of its own. The sim camera reads `error` (`DetectorState` Disconnected, as
 the bench notes found it); the reset is a sim-side write this lane did not
 make. The "not a native device" pane has no bench device (proved in tests).
+
+### 2026-10-31 — slice 3, the camera page
+
+**Landed.** `images.py`: `/api/device/{name}/frame.jpg` (the JPEG at the
+URL role `image` names, read over CA as a char string and rehosted to the
+IOC's CA address; one fetch in flight per device, a frame shared within
+0.1 s; `X-Frame-Tag` the bytes' checksum, so a frozen frame is never "new")
+and `/api/device/{name}/arrays` (every `on_request` role by name, at most
+every 0.5 s, shared), both read only, the module's device route cached 10 s;
+404 when the module names no such role (never a derived PV), 503 with words
+when a source is silent. aioca is a runtime dependency; CA addressing is
+`EPICS_CA_*` alone. `device_camera.html` + `camera.js` (viewer, overlay,
+readings), `camera_controls.js` (acquisition, camera ROI behind a dialog,
+crosshairs and analysis ROI by value, lineouts and histogram, polled only
+while open), `camera_rules.js` (pure: colour maps, levels, the view, the
+ROI's pixels, formatting, which control is enabled). `device.js` exposes
+`GeecsDevicePage` (the view, each role's entry, frame, meta and word) to a
+kind's component; the role table stays, folded.
+
+**Judgment calls.** Arrays are polled JSON, not SSE (a plot is a read on
+request; SSE stays the scope's, slice 4). A run-locked role is not disabled
+on the page: the module refuses it while a run holds the camera and its
+outcome says so (the page would otherwise decide "held" from the lock's
+enum label, the module's rule). Units are the family's (exposure in s, not
+GeecsPanels' ms). Not built, cheap to add: background grab/subtract and
+rotate/flip (their roles show in the table), crosshair colour, shape and
+size edits. Not built by slice 1's rule: saturation chip, history plots,
+to-centroid, run-lock override.
+
+**OWED.** A live frame: the sim camera is in `error` (Disconnected, frames
+frozen); the page was proven on its frozen frame, and the reset is the
+maintainer's (a sim-side write) or the IOC host's camera.
