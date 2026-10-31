@@ -228,8 +228,9 @@ async def presets(settings: Settings, module: ModuleClient) -> dict[str, Any]:
     return {"ok": True, "presets": body.get("presets", []), "screens": screens}
 
 
-#: A diff row with one of these words was not compared: the baseline verdict is incomplete while any exists.
-_NOT_COMPARED = ("unread", "unsaved", "retired", "unsupported")
+#: A diff row was compared only when its word is a comparison's outcome; any other word (the module's, present
+#: or future: unread, unsaved, retired, unsupported) leaves the baseline verdict incomplete.
+_COMPARED = ("same", "differs")
 
 
 async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
@@ -246,11 +247,10 @@ async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
             return {"name": p["name"], "error": f"the module did not answer: {exc}"}
         if status != 200:
             return {"name": p["name"], "error": f"the module answered {status}: {body.get('detail', body)}"}  # fmt: skip
-        counts = body["counts"]
-        incomplete = sum(counts.get(w, 0) for w in _NOT_COMPARED)
+        incomplete = sum(r["word"] not in _COMPARED for r in body["rows"])
         return {
             "name": p["name"],
-            "differs": counts["differs"],
+            "differs": body["counts"]["differs"],
             "incomplete": incomplete,
         }
 

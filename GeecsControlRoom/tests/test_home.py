@@ -201,10 +201,11 @@ async def test_the_baseline_sums_the_golden_diffs_and_is_none_without_one(settin
         return httpx.Response(
             200,
             json={
-                "counts": {
-                    "differs": 2 if "g1" in request.url.path else 1,
-                    "unread": 1 if "g2" in request.url.path else 0,
-                }
+                "counts": {"differs": 2 if "g1" in request.url.path else 1},
+                "rows": [
+                    {"word": "differs"},
+                    {"word": "unread" if "g2" in request.url.path else "same"},
+                ],
             },
         )
 
