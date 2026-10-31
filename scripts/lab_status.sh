@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# config.ini reader, endpoints (LAB_HOST, TILED_PORT, DATA_ROOT, DB_PORT,
+# config.ini reader, endpoints (LAB_HOST, TILED_HOST, TILED_PORT, DATA_ROOT, DB_PORT,
 # CA_PORT), printers and the bounded port probe — shared with fleet_status.sh.
 . "$(cd "$(dirname "$0")" && pwd)/lib/lab_env.sh"
 [ -n "$EXPERIMENT" ] || EXPERIMENT="$(config_experiment)"
@@ -47,7 +47,7 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 if [ -z "$LAB_HOST" ]; then
-    bad "[tiled] uri absent from config.ini — cannot derive the lab server host"
+    bad "neither [epics] ca_addr_list nor [tiled] uri in config.ini — cannot derive the lab server host"
     exit 1
 fi
 
@@ -69,17 +69,17 @@ case $db_rc in
     137) skip "MySQL       $LAB_HOST:$DB_PORT not probed — the probe was killed at its $(( TCP_TIMEOUT + 10 )) s wall (a stalled credential lookup on the data share, or a stalled connect); not a DB verdict" ;;
     *) bad "MySQL       ${db_target:-$LAB_HOST:$DB_PORT} — GeecsDb calls would hang ~75 s; do not make them"; NET_UP=0 ;;
 esac
-if port_open "$LAB_HOST" "$TILED_PORT"; then
-    version="$(curl -s -m "$TCP_TIMEOUT" "http://$LAB_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
-    ok "Tiled       $LAB_HOST:$TILED_PORT (v${version:-?})"
+if port_open "$TILED_HOST" "$TILED_PORT"; then
+    version="$(curl -s -m "$TCP_TIMEOUT" "http://$TILED_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
+    ok "Tiled       $TILED_HOST:$TILED_PORT (v${version:-?})"
 else
-    bad "Tiled       $LAB_HOST:$TILED_PORT"
+    bad "Tiled       $TILED_HOST:$TILED_PORT"
     NET_UP=0
 fi
 if port_open "$LAB_HOST" "$CA_PORT"; then
-    ok "CA gateway  $LAB_HOST:$CA_PORT (TCP only — liveness needs --hardware)"
+    ok "CA gateway  $LAB_HOST:$CA_PORT (first [epics] ca_addr_list entry; TCP only — liveness needs --hardware)"
 else
-    bad "CA gateway  $LAB_HOST:$CA_PORT"
+    bad "CA gateway  $LAB_HOST:$CA_PORT (first [epics] ca_addr_list entry)"
     NET_UP=0
 fi
 if [ -n "$ARCHIVER_HOST" ]; then

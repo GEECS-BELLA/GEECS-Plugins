@@ -24,12 +24,22 @@ ini_get() {  # ini_get SECTION KEY — first match, trimmed
 }
 
 # --- endpoints from config.ini (never hardcode hosts in a script) ---------
-# The DB server, Tiled server, and CA gateway share one box (GeecsCAGateway/
-# DEPLOYMENT.md "one box") — the lab server host is derived from [tiled] uri.
+# The DB server and the CA gateway share one box (GeecsCAGateway/DEPLOYMENT.md
+# "one box"): LAB_HOST is the first [epics] ca_addr_list entry. Tiled has a
+# host of its own ([tiled] uri) since the services moved off that box; a
+# config with no ca_addr_list keeps the old one-box reading (the Tiled host).
 url_host() { printf '%s' "$1" | sed -E 's|^[a-z]+://||; s|[:/].*$||'; }            # url_host URL — the host part
 url_port() { printf '%s' "$1" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p'; }    # url_port URL — the explicit port, or empty
 TILED_URI="$(ini_get tiled uri)"
-LAB_HOST="$(url_host "$TILED_URI")"
+TILED_HOST="$(url_host "$TILED_URI")"
+# The gateway is taken to be the FIRST entry (commas or spaces separate, as
+# geecs_core.epics_env reads it); the probes print that they took it so.
+CA_ADDR_FIRST="$(ini_get epics ca_addr_list | tr ',' ' ' | awk '{print $1}')"
+LAB_HOST="${CA_ADDR_FIRST%%:*}"
+# An explicit host:port entry names the gateway's CA port (EPICS WAN form).
+CA_PORT=""
+case "$CA_ADDR_FIRST" in *:*) CA_PORT="${CA_ADDR_FIRST##*:}" ;; esac
+LAB_HOST="${LAB_HOST:-$TILED_HOST}"
 TILED_PORT="$(url_port "$TILED_URI")"
 TILED_PORT="${TILED_PORT:-8000}"
 WORKER_HOST="$(ini_get qserver host)"          # the queueserver worker ([qserver] host)
@@ -44,7 +54,7 @@ archiver_version() {  # archiver_version HOST PORT — the appliance's version f
     bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$1:$2/mgmt/bpl/getVersions" | sed -nE 's/.*"mgmt_version":"Archiver Appliance Version ([^"]+)".*/\1/p'
 }
 DB_PORT=3306
-CA_PORT=5064
+CA_PORT="${CA_PORT:-5064}"
 
 config_experiment() {  # [Experiment] expt, else the legacy exp_name key
     local e; e="$(ini_get Experiment expt)"
