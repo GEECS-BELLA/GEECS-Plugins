@@ -16,6 +16,9 @@ pyyaml = ">=6.0"
 # The module client: GeecsCanopy's /geecs routes, over HTTP. Canopy and
 # geecs-canopy are services here, never dependencies.
 httpx = ">=0.27"
+# A camera's frame URL and its plots' arrays, read over Channel Access by this
+# server (images.py): read only, at the PVs the module names; never a write.
+aioca = ">=1.7"
 # The screen document, the family files and the panel data.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 # The kit and the FastAPI glue every surface shares. Imported, never copied.

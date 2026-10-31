@@ -20,12 +20,16 @@ from fastapi import FastAPI
 from geecs_canopy.testing import EXPERIMENT, FakeSquirrel, live, make_env
 
 from geecs_control_room.app import create_app
+from geecs_control_room.images import Images
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
+from tests.test_images import FakeCa
 
 #: Every field screen.js reads from a role of /api/devices/{name}.
 ROLE_FIELDS = {"role", "axis", "pv", "read", "writable", "verdict"}
 #: Every field home.js reads from a journal row (and home.py's ``device``).
+#: And the camera page's: a role's label and its run-lock flag.
+CAMERA_FIELDS = ROLE_FIELDS | {"label", "locked"}
 JOURNAL_FIELDS = {"device", "time", "outcome", "role", "axis", "value", "operator", "canopy_code"}  # fmt: skip
 
 
@@ -53,9 +57,14 @@ async def room(tmp_path: Path):
         transport=_Failing(httpx.ASGITransport(app=canopy), broken),
     )
     settings = Settings(experiment=EXPERIMENT, configs_root=tmp_path, canopy_url="http://canopy.test", read_key="read-key")  # fmt: skip
-    app = create_app(settings, module)
+    ca = FakeCa()
+
+    async def fetch(url: str) -> bytes:
+        return b"\xff\xd8" + url.encode()
+
+    app = create_app(settings, module, camera=Images(ca, fetch))
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://room.test") as client:  # fmt: skip
-        yield SimpleNamespace(env=env, client=client, broken=broken)
+        yield SimpleNamespace(env=env, client=client, broken=broken, ca=ca)
 
 
 async def put(room, device: str, **body):
@@ -255,3 +264,20 @@ async def test_the_device_page_reads_its_fields_and_the_picker_its_states(room) 
     assert all(ROLE_FIELDS <= set(r) for r in body["roles"])
     listing = (await room.client.get("/api/device/camera")).json()
     assert listing["roster"] is True and [(d["name"], d["state"]) for d in listing["devices"]] == [("Cam1", "unknown")]  # fmt: skip
+
+
+async def test_the_camera_page_reads_the_image_and_arrays_at_the_pvs_the_module_names(room) -> None:  # fmt: skip
+    roles = {r["role"]: r for r in (await room.client.get("/api/devices/Cam1")).json()["roles"]}  # fmt: skip
+    assert all(CAMERA_FIELDS <= set(r) for r in roles.values())
+    assert roles["image"]["read"] == "once" and roles["exposure"]["locked"] is True
+    image = roles["image"]["pv"]
+    frame = await room.client.get("/api/device/Cam1/frame.jpg")
+    assert frame.status_code == 200 and room.ca.calls == [
+        ("text", image),
+        ("host", image),
+    ]
+    arrays = (await room.client.get("/api/device/Cam1/arrays")).json()
+    asked = {r: e["pv"] for r, e in roles.items() if e["read"] == "on_request"}
+    assert arrays["pvs"] == asked and set(asked) == {"profile_x", "profile_y", "cursor_profile_x", "cursor_profile_y", "histogram"}  # fmt: skip
+    page = await room.client.get("/device/camera/Cam1")
+    assert 'id="camera"' in page.text and "/api/device/Cam1/frame.jpg" in page.text

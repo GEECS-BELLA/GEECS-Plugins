@@ -70,14 +70,14 @@
       <span class="dim" id="heartbeat">heartbeat {{ device.heartbeat or "—" }}</span>
     </header>
     {% block kind_component %}{# the kind's component: slice 3 the camera's frame, slice 4 the scope's traces #}{% endblock %}
-    <div class="body">
+    {% block role_tables %}<div class="body">
     {% for axis, roles in tables %}
       {% if axis %}<span class="eyebrow">axis {{ axis }}</span>{% endif %}
       {{ role_table(roles | selectattr("level", "equalto", "operator") | list, axis) }}
       {% set expert = roles | selectattr("level", "equalto", "expert") | list %}
       {% if expert %}<details class="disc"><summary>Expert · {{ expert | length }} roles</summary><div class="dbody">{{ role_table(expert, axis) }}</div></details>{% endif %}
     {% endfor %}
-    </div>
+    </div>{% endblock %}
   </article>
   {% endif %}
 </main>

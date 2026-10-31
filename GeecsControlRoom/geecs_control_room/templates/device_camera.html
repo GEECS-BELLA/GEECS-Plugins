@@ -1,0 +1,133 @@
+{#
+  The camera page (Planning/device_pages.md slice 3): device.html with the
+  camera's component in `kind_component`, every role's table folded below.
+  The frame is pulled one at a time from this server's frame proxy
+  (/api/device/<name>/frame.jpg: the JPEG the IOC's MJPEG server holds, at
+  the URL the module names for role `image`); colour map, levels and scale
+  are this viewer's own. Crosshairs, the analysis ROI and the acquisition
+  controls are family roles, each written through the module's put route
+  with the operator's name, sent once; a run-locked role is refused by the
+  module while a run holds the camera (its outcome says so). The lineouts
+  and histogram are the on-request arrays (/api/device/<name>/arrays), read
+  only while the plots are open. Every word is the module's verdict.
+#}{% extends "device.html" %}
+{% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
+{% block header %}{% if device %}<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>{% endif %}{{ super() }}{% endblock %}
+{% macro num(role, label, step="any") -%}
+<div class="field coord"><label for="c-{{ role }}">{{ label }}</label><input type="number" id="c-{{ role }}" data-role="{{ role }}" step="{{ step }}" disabled></div>
+{%- endmacro %}
+{% block kind_component %}
+{% set labels, units = {}, {} %}{% for r in device.roles %}{% set _ = labels.update({r.role: r.label or r.role}) %}{% endfor %}
+{% for _axis, rows in tables %}{% for r in rows %}{% set _ = units.update({r.name: r.units}) %}{% endfor %}{% endfor %}
+<div class="camera" id="camera" data-frame-url="{{ root }}/api/device/{{ name | urlencode }}/frame.jpg" data-arrays-url="{{ root }}/api/device/{{ name | urlencode }}/arrays">
+  <aside class="rail">
+    <section class="group">
+      <h4>Camera</h4>
+      <div class="row">{{ num("exposure", "exposure s") }}{{ num("period", "period s") }}</div>
+      <div class="row">{{ num("gain", "gain") }}
+        <div class="field coord"><label for="c-trigger_mode">trigger</label><select id="c-trigger_mode" data-role="trigger_mode" disabled></select></div></div>
+      <div class="row">
+        <button class="btn sm" type="button" data-role="acquire" data-value="1" disabled>Start</button>
+        <button class="btn sm" type="button" data-role="acquire" data-value="0" disabled>Stop</button>
+        <span class="dim mono" id="acquire-now"></span>
+      </div>
+      <h4>Camera ROI</h4>
+      <div class="row">{{ num("min_x", "x", 1) }}{{ num("min_y", "y", 1) }}</div>
+      <div class="row">{{ num("size_x", "width", 1) }}{{ num("size_y", "height", 1) }}</div>
+      <div class="row">
+        <button class="btn sm" type="button" id="cam-roi-apply" disabled>Apply…</button>
+        <button class="btn sm ghost" type="button" id="cam-roi-full" disabled>Full sensor</button>
+        <button class="btn sm ghost" type="button" id="cam-roi-revert" hidden>Revert</button>
+      </div>
+      <div class="hint dim">The camera ROI changes what scans save; the analysis ROI does not. Camera writes are refused while a run holds the camera.</div>
+    </section>
+
+    <section class="group">
+      <h4>Display</h4>
+      <div class="row">
+        <div class="field"><label for="cmap">Colour map</label>
+          <select id="cmap">{% for m in ("grey", "viridis", "inferno", "jet") %}<option>{{ m }}</option>{% endfor %}</select></div>
+        <div class="field"><label for="scale">Scale</label>
+          <select id="scale"><option value="linear">linear</option><option value="sqrt">square root</option><option value="log">log</option></select></div>
+      </div>
+      <div class="row">
+        <div class="field levels"><label for="level-lo">Black</label><input id="level-lo" type="number" min="0" max="254" value="0"></div>
+        <div class="field levels"><label for="level-hi">White</label><input id="level-hi" type="number" min="1" max="255" value="255"></div>
+      </div>
+      <div class="row">
+        <button class="btn sm" type="button" id="auto-once">Auto levels</button>
+        <label class="dim"><input type="checkbox" id="auto-live"> every frame</label>
+        <button class="btn sm ghost" type="button" id="reset-levels">Reset</button>
+      </div>
+      <div class="hint dim">The 8-bit stream, stretched in this browser: nothing is written to the camera.</div>
+    </section>
+
+    <section class="group">
+      <h4>Crosshairs</h4>
+      {% for n in (1, 2) %}
+      <div class="row crosshair" data-n="{{ n }}">
+        <label class="dim"><input type="checkbox" data-role="crosshair{{ n }}_use" disabled> {{ n }}</label>
+        {{ num("crosshair" ~ n ~ "_x", "x", 1) }}{{ num("crosshair" ~ n ~ "_y", "y", 1) }}
+      </div>
+      {% endfor %}
+      <h4>Analysis ROI</h4>
+      <div class="row">{{ num("roi_minx", "x", 1) }}{{ num("roi_miny", "y", 1) }}</div>
+      <div class="row">{{ num("roi_sizex", "width", 1) }}{{ num("roi_sizey", "height", 1) }}</div>
+      <div class="row">
+        <button class="btn sm" type="button" id="roi-full" disabled>Full frame</button>
+        <label class="dim"><input type="checkbox" id="roi-show" checked> show</label>
+      </div>
+      <div class="hint dim">Drag a crosshair's centre or the ROI's edges on the image.</div>
+    </section>
+    <div class="out" id="write-out" data-state="unknown" role="status"></div>
+  </aside>
+
+  <div class="pane">
+    <div class="grid tight readings">
+      {% for role in ("state", "rate", "frame_rate", "pixel_format", "cx", "cy", "sx", "sy", "max", "mean", "total", "raw_max", "capture", "lock", "owner") %}
+      <div class="live" data-role="{{ role }}"><span class="k">{{ labels.get(role, role) }}{% if units.get(role) %} <small>{{ units[role] }}</small>{% endif %}</span><span class="v">—</span>
+        <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></span></div>
+      {% endfor %}
+    </div>
+    <div class="dim" id="alarms"></div>
+
+    <article class="panel image">
+      <header>
+        <span class="eyebrow">image</span>
+        <span class="mono dim" id="cursor"></span>
+        <span class="mono dim" id="zoom-level"></span>
+        <button class="btn sm ghost" type="button" id="zoom-fit">Fit</button>
+        <button class="btn sm ghost" type="button" id="zoom-one">1:1</button>
+        <span class="chip" id="image-state" data-state="unknown">image unknown</span>
+        <span class="mono dim" id="fps"></span>
+      </header>
+      <div class="viewport" id="viewport"><canvas id="image" aria-label="live camera image"></canvas></div>
+      <div class="state" data-state="error" id="image-error" hidden><div class="t">No frame</div><div class="m mono" id="image-error-text"></div></div>
+    </article>
+
+    <details class="disc plots" id="plots">
+      <summary>Lineouts and histogram <span class="dim">click the image to move the lineout cursor</span></summary>
+      <div class="dbody">
+        <div class="plot"><div class="plot-head"><span class="eyebrow">x lineout</span><span class="key t1">ROI average</span><span class="key t2">through cursor</span></div><canvas id="plot-x"></canvas></div>
+        <div class="plot"><div class="plot-head"><span class="eyebrow">y lineout</span><span class="key t1">ROI average</span><span class="key t2">through cursor</span></div><canvas id="plot-y"></canvas></div>
+        <div class="plot"><div class="plot-head"><span class="eyebrow">histogram</span><label class="dim"><input type="checkbox" id="hist-log" checked> log</label></div><canvas id="plot-hist"></canvas></div>
+        <div class="dim" id="plots-note" role="status"></div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<dialog id="roi-dialog" aria-labelledby="roi-dialog-title">
+  <div class="body">
+    <h4 id="roi-dialog-title">Change the camera ROI?</h4>
+    <p>This changes what every scan with this camera saves, from its next frame.</p>
+    <p class="mono" id="roi-dialog-text"></p>
+    <div class="row end">
+      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
+      <button class="btn primary" type="button" value="apply">Apply</button>
+    </div>
+  </div>
+</dialog>
+{% endblock %}
+{% block role_tables %}<details class="disc roles-all"><summary>Every role · {{ device.roles | length }}</summary>{{ super() }}</details>{% endblock %}
+{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/camera.js" defer></script><script src="{{ root }}/static/camera_controls.js" defer></script>{% endif %}{% endblock %}
