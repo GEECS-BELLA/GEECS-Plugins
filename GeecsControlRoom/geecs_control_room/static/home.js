@@ -186,8 +186,8 @@
     const drawer = window.GeecsKit.drawer($("preset-diff"));
     drawer.open();
     const [status, body] = await json(`/api/presets/${encodeURIComponent(p.id)}/diff`);
-    const taken = status === 200 ? H.takeDiff(selection, generation, body.rows) : null;
-    if (!taken && (!selection || generation !== selection.generation)) return; // superseded: not this drawer's answer any more
+    const taken = status === 200 ? H.takeDiff(selection, generation, body.rows, drawer.isOpen) : null;
+    if (!taken && (!drawer.isOpen || !selection || generation !== selection.generation)) return; // closed or superseded: not this drawer's answer any more
     if (status !== 200) { $("preset-diff-note").textContent = `${body.code || status}: ${body.detail || ""}`; return; }
     selection = taken;
     const c = body.counts || {};
@@ -205,9 +205,10 @@
   }
 
   async function restore(generation) {
-    if (!selection || (generation !== undefined && generation !== selection.generation)) return; // the drawer moved on
+    const drawer = window.GeecsKit.drawer($("preset-diff"));
+    if (!drawer.isOpen || !selection || (generation !== undefined && generation !== selection.generation)) return; // the drawer closed or moved on
     const p = selection.preset, operator = opInput.value.trim();
-    if (!operator) { window.GeecsKit.drawer($("preset-diff")).close(); opInput.focus(); return note("unsent", "name yourself in the header first"); }
+    if (!operator) { drawer.close(); opInput.focus(); return note("unsent", "name yourself in the header first"); }
     const picked = [...new Set([...document.querySelectorAll("#preset-diff-rows input:checked")].map((b) => b.value))];
     const plan = H.restorePlan(selection.rows, picked);
     if (!plan.rows.length) { $("preset-diff-note").textContent = `${plan.text}; nothing to restore`; return; }
@@ -215,7 +216,7 @@
     $("preset-restore-note").textContent = "Each row goes through the module's gates; a hazard role is confirmed here, once.";
     if (!(await ask($("preset-restore"), "restore"))) return;
     const [status, a] = await json(`/api/presets/${encodeURIComponent(p.id)}/restore`, { operator, confirm: true, devices: plan.devices });
-    if (status === 202) { track(p.id, a); window.GeecsKit.drawer($("preset-diff")).close(); }
+    if (status === 202) { track(p.id, a); drawer.close(); }
     else { $("preset-diff-note").textContent = `${a.code || status}: ${a.detail || ""}`; }
   }
 
@@ -282,6 +283,4 @@
   setInterval(() => runPoller.tick([...watching]), POLL_MS / 2);
   $("preset-save-open").addEventListener("click", savePreset);
   $("preset-restore-open").addEventListener("click", () => restore());
-  // closing the drawer ends its selection: a diff still in flight for it is dropped when it answers
-  $("preset-diff").addEventListener("click", (ev) => { if (ev.target.closest("[data-drawer-close]")) selection = H.openSelection(selection, null); });
 })();

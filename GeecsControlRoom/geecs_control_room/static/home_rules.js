@@ -45,9 +45,10 @@
   }
 
   // The diff drawer's selection: opening it for a preset starts a new generation; a diff that answers for an
-  // older generation (the drawer was closed, or opened for another preset meanwhile) is dropped, never shown.
+  // older generation (opened for another preset meanwhile) or for a drawer no longer open is dropped, never shown.
+  // The drawer's own openness is the fourth guard: the kit closes it on Esc, the scrim or Close, none of which the page sees.
   const openSelection = (state, preset) => ({ generation: (state ? state.generation : 0) + 1, preset, rows: [] });
-  const takeDiff = (state, generation, rows) => (state && generation === state.generation ? { ...state, rows } : null);
+  const takeDiff = (state, generation, rows, open) => (open && state && generation === state.generation ? { ...state, rows } : null);
 
   // A diff row's word as a kit state; "unsaved: unreachable at save time" explains a null.
   const DIFF = { same: "ok", differs: "degraded", unsaved: "unknown", retired: "unknown", unread: "unknown", unsupported: "unknown" };
