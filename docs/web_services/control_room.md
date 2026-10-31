@@ -21,6 +21,9 @@ write **once** and shows the module's answer; it never retries on its own.
 
 ## The home
 
+The screenshots on this page are from the simulator bench, running under
+the reference deployment's experiment name.
+
 ![The Control Room home](assets/control_room_01_home.jpg)
 
 ### The strip
@@ -142,8 +145,8 @@ The widget shows `sending`, then the module's answer:
 
 ![The hazard confirm](assets/control_room_05_hazard_confirm.png)
 
-Some roles are marked hazardous (by their device family, by the
-experiment's policy, or by the screen itself). Writing one opens a dialog
+Some roles are marked hazardous (by their device family, by the device's
+panel file, by the experiment's policy, or by the screen itself). Writing one opens a dialog
 naming the device, the role and the value, with the hazard note. **Write**
 sends it with your confirmation; **Cancel** sends nothing (`unsent · not
 confirmed`).

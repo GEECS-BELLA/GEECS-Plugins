@@ -46,8 +46,9 @@ groups:
       - {kind: setpoint, label: X, bind: {device: SimMotor1, role: val, axis: m1}, precision: 3}
 ```
 
-Groups that span no extra columns pack top to bottom in each column, as a
-LabVIEW panel does. A tone is a colour token of the theme with no status
+If no group spans more than one column, the groups in each column pack top
+to bottom, as a LabVIEW panel does. If any group spans columns, every
+group sits exactly at its `at` cell on a strict grid, gaps included. A tone is a colour token of the theme with no status
 meaning; there is no way to write a literal colour, an expression, a
 script or a condition in a screen. A screen binds, groups and confirms;
 it never computes.
@@ -166,11 +167,11 @@ scan's setup and closeout. A plan is an ordered list of steps:
 schema_version: 1
 plans:
   bench_park:
-    description: Park the stage at zero and check it arrived.
+    description: Park the stage at zero and check it stopped.
     steps:
       - {do: set, device: SimMotor1, variable: m1, value: 0}
       - {do: wait, seconds: 1}
-      - {do: check, device: SimMotor1, variable: m1, expected: 0}
+      - {do: check, device: SimMotor1, variable: m1.movn, expected: 0}
   closeout:
     steps:
       - {do: run, plan: bench_park}
@@ -178,9 +179,9 @@ plans:
 
 | Step | Fields | Does |
 |---|---|---|
-| `set` | `device`, `variable`, `value`, `wait_for_execution` (default true) | Writes the value through the module's gates. |
+| `set` | `device`, `variable`, `value`, `wait_for_execution` | Writes the value through the module's gates. From a button every set waits for the device; `wait_for_execution` is honoured in a scan only. |
 | `wait` | `seconds` (> 0) | Pauses. |
-| `check` | `device`, `variable`, `expected` | Reads the value and fails the run if it does not match. |
+| `check` | `device`, `variable`, `expected` | Reads the value and fails the run if it does not match **exactly** (no tolerance; an enum reads as its label). Check discrete values (a bit, an enum, a word), not a motor's position. |
 | `run` | `plan` | Runs another plan of the library. |
 
 On a per-axis device, `variable` is the axis (`m1`: its setpoint to set,
@@ -214,10 +215,11 @@ hazards:                              # roles that need the hazard confirm
 A grant names operators and a scope (`families` and/or `devices`), and
 optionally narrows it to `roles`. A grant never widens a device's allow
 list. `hazards` marks roles that need the confirm. A native device's
-family file can also mark a role `confirm: hazard`, and a screen widget's
-`confirm` note asks too; any of the three makes the page ask, and the
-module refuses an unconfirmed write to a role the policy or family marks
-(428 `confirm_required`).
+family file can also mark a role `confirm: hazard`, a device's `hazard`
+list in `panel_devices.yaml` marks roles of that one device, and a screen
+widget's `confirm` note asks too. Any of the four makes the page ask; the
+module refuses an unconfirmed write to a role the policy, the family or
+the panel file marks (428 `confirm_required`).
 
 !!! warning "The policy guards against mistakes, not against users"
     The operator is the name the request carries. Nothing binds it to a
