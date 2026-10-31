@@ -71,3 +71,30 @@ esac
     assert "role=Queueserver RE Manager @PulsedWire" in roles
     assert "role=GEECS Scanner" in roles
     assert "role=GEECS Scanner @PulsedWire" in roles
+
+
+def test_the_table_puts_an_instance_row_after_its_main_row() -> None:
+    spec = importlib.util.spec_from_file_location(
+        "fleet_table",
+        Path(__file__).resolve().parents[1] / "scripts" / "fleet_table.py",
+    )
+    assert spec and spec.loader
+    table = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(table)
+    recs = [
+        "role=GEECS Scanner\tmanaged=systemd\tproc=active/running",
+        "role=Queueserver RE Manager @PulsedWire\tmanaged=systemd\tproc=active/running\tpkg=geecs-bluesky\tversion=1.0",
+        "role=Queueserver RE Manager\tmanaged=systemd\tproc=active/running",
+        "role=GEECS Scanner @PulsedWire\tmanaged=systemd\tproc=active/running",
+    ]
+    merged = table.parse([r + "\n" for r in recs])
+    roles = table.ordered_roles(merged)
+    assert roles.index("Queueserver RE Manager") + 1 == roles.index(
+        "Queueserver RE Manager @PulsedWire"
+    )
+    assert roles.index("GEECS Scanner") + 1 == roles.index("GEECS Scanner @PulsedWire")
+    assert table.render(merged, 200)  # renders
+    assert (
+        table.version(merged["Queueserver RE Manager @PulsedWire"])
+        == "geecs-bluesky 1.0"
+    )

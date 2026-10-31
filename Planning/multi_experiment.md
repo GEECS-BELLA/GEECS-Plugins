@@ -362,14 +362,17 @@ sudo -u <service account> git clone --branch feat/multi-experiment <repo> /tmp/m
 sudo -u <service account> -H /tmp/me-driver/deploy/experiment.sh up PulsedWire \
   --db-experiment 'Test stand default' --address <box address> --broadcast <its broadcast> \
   --ca-extra '<IOC hosts, as in site.env>' --ref feat/multi-experiment --dry-run
-# 2) clones + envs + render, as the service account
+# 2) clones + envs + render, as the service account (<stage> = <checkout root>/deploy-staging/instances)
 sudo -u <service account> -H /tmp/me-driver/deploy/bootstrap_host.sh /etc/geecs/site.env \
-  --experiment PulsedWire --instance-env <service home>/deploy-staging/instances/PulsedWire.env --ref feat/multi-experiment
-# 3) configs scaffold, as the service account (from the new instance clone)
-(cd <service home>/instances/qs-checkout/GeecsBluesky && sudo -u <service account> -H <poetry> run python -m geecs_bluesky.config_scaffold 'Test stand default' --experiments-root '<configs>/scanner_configs/experiments')
-# 4) root steps, PulsedWire only
-sudo install -D -m 0644 <service home>/deploy-staging/instances/PulsedWire.env /etc/geecs/experiments/PulsedWire.env
-sudo install -m 0644 <service home>/deploy-staging/instances/*@.service /etc/systemd/system/
+  --experiment PulsedWire --instance-env <stage>/PulsedWire.env --ref feat/multi-experiment
+# 3) the device-overlap warning (read-only), then the configs scaffold — as the
+#    service account, from the new instance clone (cd INSIDE the sudo: the home may be 0750)
+sudo -u <service account> -H bash -c "cd <service home>/instances/qs-checkout/GeecsBluesky && \
+  <poetry> run python -m geecs_core.db.overlap '<main experiment>' 'Test stand default'; \
+  <poetry> run python -m geecs_bluesky.config_scaffold 'Test stand default' --experiments-root '<configs>/scanner_configs/experiments'"
+# 4) root steps, PulsedWire only (the glob expanded by root's shell, not the admin's)
+sudo install -D -m 0644 <stage>/PulsedWire.env /etc/geecs/experiments/PulsedWire.env
+sudo sh -c 'install -m 0644 <stage>/*@.service /etc/systemd/system/'
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-ca-gateway@PulsedWire geecs-qserver@PulsedWire geecs-qserver-ready@PulsedWire \
   geecs-tiled-writer@PulsedWire geecs-scanner@PulsedWire geecs-logbook@PulsedWire
@@ -377,7 +380,8 @@ sudo systemctl enable --now geecs-ca-gateway@PulsedWire geecs-qserver@PulsedWire
 ```
 
 The service account has no sudo, so `experiment.sh up` cannot run
-end-to-end as that account. The split above is the same sequence.
+end-to-end as that account. The split above is the same sequence, with the
+overlap warning (step 3) run by hand; the dry run in step 1 only prints it.
 
 After it runs, check:
 
