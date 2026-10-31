@@ -32,6 +32,8 @@ def home(tmp_path, monkeypatch):
     # temp home on both POSIX and Windows.
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    for key in ("QS_CONTROL_ADDR", "QS_INFO_ADDR", "QS_DOC_ADDR"):
+        monkeypatch.delenv(key, raising=False)
     return tmp_path
 
 
@@ -68,6 +70,36 @@ class TestReadQserverConfig:
         assert config.control_addr == "tcp://h:1"
         assert config.info_addr == "tcp://h:2"
         assert config.doc_addr == "h:3"
+
+    def test_the_environment_overrides_each_field(self, home, monkeypatch):
+        """An experiment instance's scanner reaches ITS manager (the instance
+        file's keys) while config.ini names the main one."""
+        _write_config(home, "[qserver]\nhost = h\n")
+        monkeypatch.setenv("QS_CONTROL_ADDR", "tcp://localhost:60715")
+        monkeypatch.setenv("QS_DOC_ADDR", "localhost:5668")
+        config = read_qserver_config()
+        assert config == QserverConfig(
+            control_addr="tcp://localhost:60715",
+            info_addr="tcp://h:60625",  # not overridden: config.ini's
+            doc_addr="localhost:5668",
+        )
+
+    def test_the_environment_alone_needs_all_three(self, home, monkeypatch):
+        monkeypatch.setenv("QS_CONTROL_ADDR", "tcp://localhost:60715")
+        assert read_qserver_config() is None
+        monkeypatch.setenv("QS_INFO_ADDR", "tcp://localhost:60725")
+        monkeypatch.setenv("QS_DOC_ADDR", "localhost:5668")
+        assert read_qserver_config() == QserverConfig(
+            "tcp://localhost:60715", "tcp://localhost:60725", "localhost:5668"
+        )
+
+    def test_blank_environment_keys_change_nothing(self, home, monkeypatch):
+        _write_config(home, "[qserver]\nhost = h\n")
+        for key in ("QS_CONTROL_ADDR", "QS_INFO_ADDR", "QS_DOC_ADDR"):
+            monkeypatch.setenv(key, "  ")
+        assert read_qserver_config() == QserverConfig(
+            "tcp://h:60615", "tcp://h:60625", "h:5568"
+        )
 
     def test_empty_section_reads_none(self, home):
         _write_config(home, "[qserver]\n")

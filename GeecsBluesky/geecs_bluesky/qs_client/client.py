@@ -28,6 +28,7 @@ clear them only when told to (``clear_pending=True``).
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -52,6 +53,11 @@ _CONTROL_PORT = 60615
 _INFO_PORT = 60625
 _DOC_PORT = 5568
 
+#: Per-process overrides of the three addresses, in field order. config.ini is
+#: one file per account, shared by every experiment instance on a host; an
+#: instance's units carry these keys (deploy/experiments.env.example).
+_ENV_KEYS = ("QS_CONTROL_ADDR", "QS_INFO_ADDR", "QS_DOC_ADDR")
+
 #: Bound on one control-socket round trip (seconds). Chosen above the api's
 #: 2 s default recv timeout so a wedged manager degrades to "disconnected"
 #: instead of stacking retries.
@@ -73,19 +79,47 @@ class QserverConfig:
 
 
 def read_qserver_config() -> Optional[QserverConfig]:
-    """Read the ``[qserver]`` section of the shared GEECS config file.
+    """The manager's addresses: the environment's, else config.ini's ``[qserver]``.
 
-    Keys: ``host`` (required — the worker machine) plus optional full
-    overrides ``control_addr`` (``tcp://host:60615``), ``info_addr``
+    ``QS_CONTROL_ADDR`` / ``QS_INFO_ADDR`` / ``QS_DOC_ADDR`` each override
+    their field — how an experiment instance's scanner reaches its own
+    manager while config.ini (one per account) names the main one.  With
+    no config.ini ``[qserver]``, all three must be set.
+
+    config.ini keys: ``host`` (required — the worker machine) plus optional
+    full overrides ``control_addr`` (``tcp://host:60615``), ``info_addr``
     (``tcp://host:60625``), and ``doc_addr`` (``host:5568``).  Defaults are
     derived from ``host`` with the deployment-standard ports.
 
     Returns
     -------
     QserverConfig or None
-        ``None`` when the file or section is absent — clients then run
+        ``None`` when neither source names a manager — clients then run
         with the stub client (submission disabled, everything else works).
     """
+    env = [os.environ.get(key, "").strip() for key in _ENV_KEYS]
+    from_file = _read_qserver_section()
+    if from_file is None:
+        if all(env):
+            return QserverConfig(*env)
+        if any(env):
+            logger.warning(
+                "%s set without the others and no config.ini [qserver] — "
+                "set all three, or none",
+                ", ".join(k for k, v in zip(_ENV_KEYS, env) if v),
+            )
+        return None
+    control, info, doc = (
+        override or default
+        for override, default in zip(
+            env, (from_file.control_addr, from_file.info_addr, from_file.doc_addr)
+        )
+    )
+    return QserverConfig(control_addr=control, info_addr=info, doc_addr=doc)
+
+
+def _read_qserver_section() -> Optional[QserverConfig]:
+    """config.ini's ``[qserver]`` alone; ``None`` when absent or empty."""
     import configparser
 
     path = _USER_CONFIG_PATH.expanduser()

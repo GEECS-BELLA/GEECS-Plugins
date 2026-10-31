@@ -49,6 +49,7 @@ case "$STUB_MODE" in
     term3) trap 'exit 3' TERM ;;
     crash) exit 1 ;;
     early) trap - TERM ;;
+    argv)  printf '%s\n' "$@" > "$STUB_READY"; exit 0 ;;
 esac
 : > "$STUB_READY"
 while :; do sleep 0.05; done
@@ -76,7 +77,9 @@ def redis_port():
         sock.close()
 
 
-def _launch(tmp_path: Path, mode: str) -> tuple[subprocess.Popen, Path]:
+def _launch(
+    tmp_path: Path, mode: str, extra_env: dict[str, str] | None = None
+) -> tuple[subprocess.Popen, Path]:
     stubbin = tmp_path / "stubbin"
     stubbin.mkdir()
     stub = stubbin / "start-re-manager"
@@ -89,7 +92,11 @@ def _launch(tmp_path: Path, mode: str) -> tuple[subprocess.Popen, Path]:
         "QS_DOC_PROXY": "OFF",
         "STUB_MODE": mode,
         "STUB_READY": str(ready),
+        **(extra_env or {}),
     }
+    for key in ("QS_REDIS_PREFIX", "QS_EXISTING_PLANS_DEVICES"):
+        if not (extra_env and key in extra_env):
+            env.pop(key, None)
     proc = subprocess.Popen(
         ["bash", str(LAUNCHER)],
         env=env,
@@ -134,3 +141,26 @@ def test_startup_failure_still_fails(tmp_path, redis_port):
     """Exit 1 with no SIGTERM is a real failure — Restart=on-failure must see it."""
     proc, _ = _launch(tmp_path, "crash")
     assert proc.wait(timeout=10) == 1
+
+
+def _argv(tmp_path: Path, extra_env: dict[str, str] | None = None) -> list[str]:
+    proc, ready = _launch(tmp_path, "argv", extra_env)
+    assert proc.wait(timeout=10) == 0
+    return ready.read_text(encoding="utf-8").splitlines()
+
+
+def test_the_main_unit_passes_no_instance_flags(tmp_path, redis_port):
+    """Unset (the non-templated unit): the stock prefix and plan-list path."""
+    argv = _argv(tmp_path)
+    assert "--redis-name-prefix" not in argv
+    assert "--existing-plans-devices" not in argv
+
+
+def test_an_instance_gets_its_own_prefix_and_plan_list(tmp_path, redis_port):
+    plans = tmp_path / "state with space" / "existing_plans_and_devices.yaml"
+    argv = _argv(
+        tmp_path,
+        {"QS_REDIS_PREFIX": "qs_PulsedWire", "QS_EXISTING_PLANS_DEVICES": str(plans)},
+    )
+    assert argv[argv.index("--redis-name-prefix") + 1] == "qs_PulsedWire"
+    assert argv[argv.index("--existing-plans-devices") + 1] == str(plans)

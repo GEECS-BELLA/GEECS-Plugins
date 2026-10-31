@@ -114,6 +114,20 @@ instance_templates_of() { case "$1" in
     qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver@.service GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service";;
     tiled-writer) echo "GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service";;
     scanner) echo "GeecsScanner/deploy/geecs-scanner@.service";; esac; }
+# The per-instance keys each service's CODE must read (file: keys), so that a
+# rendered instance never silently runs on the main experiment's values.
+instance_keys_of() { case "$1" in
+    qserver) echo "GeecsBluesky/qserver/launch_re_manager.sh:QS_REDIS_PREFIX,QS_EXISTING_PLANS_DEVICES";;
+    scanner) echo "GeecsBluesky/geecs_bluesky/qs_client/client.py:QS_CONTROL_ADDR,QS_INFO_ADDR,QS_DOC_ADDR";; esac; }
+instance_keys_unread() {  # instance_keys_unread SERVICE CLONE_DIR — prints " KEY (FILE)" per key the clone's code lacks
+    local spec file key
+    for spec in $(instance_keys_of "$1"); do
+        file="${spec%%:*}"
+        for key in $(printf '%s' "${spec#*:}" | tr ',' ' '); do
+            grep -q "$key" "$2/$file" 2>/dev/null || printf ' %s (%s)' "$key" "$file"
+        done
+    done
+}
 if [ -n "$INSTANCE" ]; then
     case "$INSTANCE" in *[!A-Za-z0-9_-]*) echo "--experiment: instance '$INSTANCE' is not a slug (letters, digits, '-', '_')" >&2; exit 2 ;; esac
     EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
@@ -167,6 +181,15 @@ if [ -n "$INSTANCE" ]; then
         done
         if [ -n "$missing" ]; then
             echo "  $s: WARNING — $(clone_of "$s") lacks the instance template(s)$missing (it predates them); nothing rendered for $s — pulling that clone forward is a deploy of the main experiment's service, decided by a human"
+            continue
+        fi
+        # A template alone is not enough: code that predates the instance keys
+        # would run this instance on the MAIN manager's Redis keys and plan
+        # list, and point its scanner at the main manager. Same base as above.
+        base="$dir"; if [ "$DRY" -eq 1 ] && [ ! -e "$dir/.git" ]; then base="$REPO_ROOT"; fi
+        unread="$(instance_keys_unread "$s" "$base")"
+        if [ -n "$unread" ]; then
+            echo "  $s: WARNING — the code in $(clone_of "$s") does not read$unread; nothing rendered for $s — an instance needs a clone at a ref that does"
             continue
         fi
         TEMPLATE_PATHS+=("${svc_paths[@]}")

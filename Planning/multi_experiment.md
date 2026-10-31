@@ -217,3 +217,23 @@ schema with slot 1 as the worked example; `check_instance_env`
 mismatch and a process-wide `EPICS_CA_SERVER_PORT`. The units consume
 `QS_EXISTING_PLANS_DEVICES`, `QS_REDIS_PREFIX`, `QS_INFO_ADDR`, `QS_DOC_ADDR`
 that slice 3 teaches the code.
+
+### 2026-10-31 — slice 3, per-instance code paths
+
+Slice 2 merged as #1225. Its review added an optional `GEECS_INSTANCE_CHECKOUT_ROOT`
+(site.env, render-time): instances may run from clones of their own, so a deploy
+from this branch never moves a main clone. Slice 3 teaches the code the keys the
+units carry, every default unchanged:
+- `launch_re_manager.sh` passes `--redis-name-prefix` / `--existing-plans-devices`
+  only when `QS_REDIS_PREFIX` / `QS_EXISTING_PLANS_DEVICES` are set. The
+  0MQ addresses are the manager's own `QSERVER_ZMQ_*_FOR_SERVER`.
+- `qs_client.read_qserver_config`: `QS_CONTROL_ADDR` / `QS_INFO_ADDR` /
+  `QS_DOC_ADDR` override config.ini's `[qserver]` per field (all three are
+  needed when it is absent). The scanner reaches its own manager this way.
+- The gateway: no code. Its port is caproto's `EPICS_CA_SERVER_PORT`, set
+  in its unit alone and pinned by a gateway test. The worker's CA list
+  is `EPICS_CA_ADDR_LIST` from the instance file, which already wins over
+  config.ini.
+- `bootstrap_host.sh --experiment` renders nothing for qserver or scanner
+  when the clone's code does not read those keys. That closes #1225's
+  HIGH finding.
