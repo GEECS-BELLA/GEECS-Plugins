@@ -77,6 +77,16 @@ def format_report(shared: Mapping[str, Sequence[str]]) -> list[str]:
     return lines
 
 
+def _db_errors() -> tuple[type[BaseException], ...]:
+    """What reading the DB raises: no driver, no credentials/config, the driver's own."""
+    errors: tuple[type[BaseException], ...] = (ImportError, OSError, KeyError)
+    try:
+        import mysql.connector
+    except ImportError:
+        return errors
+    return (*errors, mysql.connector.Error)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Print the overlap report for the experiments on the command line."""
     parser = argparse.ArgumentParser(
@@ -90,7 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         shared = shared_devices(args.experiments)
-    except Exception as exc:  # noqa: BLE001 — any DB failure means "not checked", said so
+    except _db_errors() as exc:  # "not checked", said so; a code bug still raises
         print(
             f"WARNING: overlap check skipped — the GEECS DB could not be read "
             f"({type(exc).__name__}: {exc})",

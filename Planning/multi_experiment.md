@@ -293,3 +293,6 @@ every other instance file and this one. A failure is reported as "NOT
 checked" and `up` carries on. Against today's DB it will name the five
 `pulsewire-*` devices as enabled in both `Undulator` and
 `Test stand default` (slice 1).
+Live read-only run against the lab DB (2026-10-31): `python -m geecs_core.db.overlap
+Undulator "Test stand default"` named exactly the five `pulsewire-*` devices
+as enabled in both, and exited 0.

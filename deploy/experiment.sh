@@ -182,9 +182,16 @@ up)
     # refusal (fixing a device set is its owner's DB edit). Read-only; a DB
     # or code that cannot answer says "not checked", never "clean".
     say "device overlap (read-only, the live experiments)"
+    # Live = the main experiment + every OTHER instance whose gateway or
+    # manager runs (a `down` instance keeps its file but drives nothing).
     LIVE=("$MAIN_EXPERIMENT")
     for f in "$EXPERIMENTS_DIR"/*.env; do
-        [ -f "$f" ] && ! [ "$f" -ef "$INSTANCE_FILE" ] && LIVE+=("$(env_value "$f" GEECS_EXPERIMENT)")
+        [ -f "$f" ] || continue
+        i="$(basename "$f" .env)"; [ "$i" = "$INSTANCE" ] && continue
+        if [ "${EXPERIMENT_ASSUME_ACTIVE:-0}" = "1" ] ||   # (tests: no systemd)
+            systemctl is-active --quiet "geecs-ca-gateway@$i.service" "geecs-qserver@$i.service" 2>/dev/null; then
+            LIVE+=("$(env_value "$f" GEECS_EXPERIMENT)")
+        fi
     done
     LIVE+=("$EXPT")
     if [ "$DRY" -eq 1 ]; then printf '  [dry] python -m geecs_core.db.overlap'; printf " '%s'" "${LIVE[@]}"; echo

@@ -75,3 +75,12 @@ def test_cli_db_failure_is_not_checked_not_clean(monkeypatch, capsys) -> None:
 def test_cli_needs_an_experiment(argv) -> None:
     with pytest.raises(SystemExit):
         overlap.main(argv)
+
+
+def test_cli_a_code_bug_is_not_dressed_as_a_db_failure(monkeypatch) -> None:
+    def buggy(_experiment: str) -> list[str]:
+        raise TypeError("a bug")
+
+    monkeypatch.setattr(overlap, "_db_devices", buggy)
+    with pytest.raises(TypeError):
+        overlap.main(["Main", "Bench stand"])

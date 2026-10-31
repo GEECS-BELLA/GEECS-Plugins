@@ -56,12 +56,16 @@ def profile(tmp_path: Path) -> dict[str, Path]:
     return {"site": site, "experiments": experiments, "root": root}
 
 
-def _verb(profile: dict[str, Path], *args: str) -> subprocess.CompletedProcess[str]:
+def _verb(
+    profile: dict[str, Path], *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    extra = env or {}
     env = {
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME": str(profile["root"]),
         "GEECS_SITE_ENV_PATH": str(profile["site"]),
         "GEECS_EXPERIMENTS_DIR": str(profile["experiments"]),
+        **extra,
     }
     return subprocess.run(
         ["bash", str(VERB), *args], capture_output=True, text=True, env=env, check=False
@@ -220,7 +224,38 @@ def test_up_checks_overlap_over_every_live_experiment(profile) -> None:
     (profile["experiments"] / "Other.env").write_text(
         'GEECS_EXPERIMENT="Third bench"\nGEECS_INSTANCE_SLOT=1\n'
     )
-    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    result = _verb(
+        profile,
+        "up",
+        "PulsedWire",
+        *NEW,
+        "--dry-run",
+        env={"EXPERIMENT_ASSUME_ACTIVE": "1"},
+    )
     assert result.returncode == 0, result.stderr
     line = next(x for x in result.stdout.splitlines() if "geecs_core.db.overlap" in x)
     assert line.endswith("'Undulator' 'Third bench' 'Bench stand'")
+
+
+def test_a_stopped_instance_is_not_live(profile) -> None:
+    """`down` keeps the file; a stopped instance drives no device."""
+    (profile["experiments"] / "Other.env").write_text(
+        'GEECS_EXPERIMENT="Third bench"\nGEECS_INSTANCE_SLOT=1\n'
+    )
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    line = next(x for x in result.stdout.splitlines() if "geecs_core.db.overlap" in x)
+    assert line.endswith("'Undulator' 'Bench stand'")
+
+
+def test_the_instance_itself_counts_once(profile) -> None:
+    first = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert first.returncode == 0, first.stderr
+    staged = profile["root"] / "deploy-staging" / "instances" / "PulsedWire.env"
+    shutil.copy(staged, profile["experiments"] / "PulsedWire.env")
+    again = _verb(
+        profile, "up", "PulsedWire", "--dry-run", env={"EXPERIMENT_ASSUME_ACTIVE": "1"}
+    )
+    assert again.returncode == 0, again.stderr
+    line = next(x for x in again.stdout.splitlines() if "geecs_core.db.overlap" in x)
+    assert line.endswith("python -m geecs_core.db.overlap 'Undulator' 'Bench stand'")
