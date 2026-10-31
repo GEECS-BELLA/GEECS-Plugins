@@ -214,7 +214,7 @@ up)
     lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
     if [ "$(lc "$EXPT")" = "$(lc "$MAIN_EXPERIMENT")" ] || [ "$(lc "$INSTANCE")" = "$(lc "$MAIN_EXPERIMENT")" ]; then
         PLAIN_ACTIVE=""
-        for u in geecs-qserver geecs-tiled-writer geecs-scanner geecs-logbook; do
+        for u in geecs-qserver geecs-tiled-writer geecs-scanner geecs-logbook geecs-ca-gateway; do
             systemctl is-active --quiet "$u.service" 2>/dev/null && PLAIN_ACTIVE="$PLAIN_ACTIVE $u"
         done
         if [ -n "$PLAIN_ACTIVE" ]; then
@@ -222,6 +222,38 @@ up)
             echo "  migration order (docs/platform/site_profile.md): stop the plain units first, move their state, then up" >&2
             exit 2
         fi
+    fi
+    # Nor two running instances of one DB experiment (this host's view only).
+    for f in "$EXPERIMENTS_DIR"/*.env; do
+        [ -f "$f" ] || continue
+        i="$(basename "$f" .env)"; [ "$i" = "$INSTANCE" ] && continue
+        [ "$(lc "$(env_value "$f" GEECS_EXPERIMENT)")" = "$(lc "$EXPT")" ] || continue
+        # shellcheck disable=SC2046
+        if systemctl is-active --quiet $(units_for "$i") 2>/dev/null; then
+            echo "instance '$i' already serves '$EXPT' and is running — down it first" >&2; exit 2
+        fi
+    done
+    # The slot's ports must be free unless this instance already holds any of
+    # them (a re-run `up` recovers a running or half-running instance in
+    # place). Before anything is cloned, installed or enabled.
+    # shellcheck disable=SC2046
+    if ! systemctl is-active --quiet $(units_for "$INSTANCE") 2>/dev/null; then
+        if command -v ss >/dev/null 2>&1; then
+            f="$INSTANCE_FILE"; busy=""
+            ca="$(env_value "$f" GEECS_CA_SERVER_PORT)"
+            for p in "$ca" "$(env_value "$f" QS_DOC_PROXY_IN)" "$(env_value "$f" QS_DOC_PROXY_OUT)" \
+                     "$(env_value "$f" QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER | sed 's/.*://')" \
+                     "$(env_value "$f" QSERVER_ZMQ_INFO_ADDRESS_FOR_SERVER | sed 's/.*://')" \
+                     "$(env_value "$f" GEECS_SCANNER_PORT)" "$(env_value "$f" GEECS_LOGBOOK_PORT)"; do
+                case "$p" in ''|*[!0-9]*) echo "instance file: '$p' is not a port" >&2; exit 2 ;; esac
+                [ -n "$(ss -ltnH "sport = :$p" 2>/dev/null)" ] && busy="$busy $p/tcp"
+            done
+            # The CA gateway is found by its UDP search port.
+            [ -n "$(ss -lunH "sport = :$ca" 2>/dev/null)" ] && busy="$busy $ca/udp"
+            if [ -n "$busy" ]; then
+                echo "the slot's port(s)$busy are already in use — another experiment's units? nothing cloned, installed or enabled" >&2; exit 1
+            fi
+        else echo "  (no ss on this host: the slot's ports were not checked)"; fi
     fi
     ENGINE="$INSTANCE_ROOT/qs-checkout/GeecsBluesky"
     claim_staging
@@ -242,22 +274,6 @@ up)
         exit 1
     fi
 
-    # The slot's ports must be free unless this instance already holds them
-    # (a re-run `up` of a running instance restarts it in place).
-    if ! systemctl is-active --quiet "geecs-qserver@$INSTANCE.service" "geecs-ca-gateway@$INSTANCE.service" 2>/dev/null; then
-        if command -v ss >/dev/null 2>&1; then
-            f="$INSTANCE_FILE"; busy=""
-            for p in $(env_value "$f" GEECS_CA_SERVER_PORT) $(env_value "$f" QS_DOC_PROXY_IN) $(env_value "$f" QS_DOC_PROXY_OUT) \
-                     "$(env_value "$f" QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER | sed 's/.*://')" \
-                     "$(env_value "$f" QSERVER_ZMQ_INFO_ADDRESS_FOR_SERVER | sed 's/.*://')" \
-                     $(env_value "$f" GEECS_SCANNER_PORT) $(env_value "$f" GEECS_LOGBOOK_PORT); do
-                [ -n "$(ss -ltnH "sport = :$p" 2>/dev/null)" ] && busy="$busy $p"
-            done
-            if [ -n "$busy" ]; then
-                echo "the slot's port(s)$busy are already listening — another experiment's units? nothing installed or enabled" >&2; exit 1
-            fi
-        else echo "  (no ss on this host: the slot's ports were not checked)"; fi
-    fi
     # Devices enabled in more than one live experiment: a WARNING, never a
     # refusal (fixing a device set is its owner's DB edit). Read-only; a DB
     # or code that cannot answer says "not checked", never "clean".
