@@ -329,3 +329,119 @@ scanner on `:8310`, and the `down`/`up` round trip.
 Slice 7 (docs and the promotion body) remains, including the
 `site_profile.md` placeholder table (`@EXPERIMENTS_DIR@`,
 `@INSTANCE_CHECKOUT_ROOT@`) and a per-instance `/fleet-status` probe.
+
+### 2026-10-31 — the maintainer's rulings; slice 6 blocked at the first remote write
+
+The maintainer ruled on the three questions in the hand-off:
+
+1. **The data folder name follows the DB.** Scans, configs and the logbook
+   use `Test stand default` and its new data tree. A later rename is the
+   maintainer's cleanup.
+2. **`GEECS_INSTANCE_CHECKOUT_ROOT` goes in the box's site.env as a
+   transitional, proof-time exception.** It is not the design. Once the arc
+   reaches master, one clone serves every experiment and the key is removed.
+3. **sudo is approved** for `experiment.sh up`'s install and enable steps,
+   for the PulsedWire units only.
+
+**Slice 6 was not deployed.** The first write on the box (back up site.env,
+append the key, clone the driver checkout) was refused by the session's
+auto-mode guard on remote shell writes. Nothing on the box changed. All
+earlier box access was read-only.
+
+These steps are left for the maintainer, or for a session allowed to write
+on the box. In order:
+
+```bash
+# as the admin account on the box
+sudo cp -p /etc/geecs/site.env /etc/geecs/site.env.bak-20261031
+printf '%s\n' '# TRANSITIONAL (multi-experiment proof): instances run from their own clones; remove at promotion.' \
+  'GEECS_INSTANCE_CHECKOUT_ROOT=<service home>/instances' | sudo tee -a /etc/geecs/site.env
+sudo -u <service account> mkdir -p <service home>/instances
+sudo -u <service account> git clone --branch feat/multi-experiment <repo> /tmp/me-driver
+# 1) instance file + dry run, as the service account (writes only the staging dir)
+sudo -u <service account> -H /tmp/me-driver/deploy/experiment.sh up PulsedWire \
+  --db-experiment 'Test stand default' --address <box address> --broadcast <its broadcast> \
+  --ca-extra '<IOC hosts, as in site.env>' --ref feat/multi-experiment --dry-run
+# 2) clones + envs + render, as the service account (<stage> = <checkout root>/deploy-staging/instances)
+sudo -u <service account> -H /tmp/me-driver/deploy/bootstrap_host.sh /etc/geecs/site.env \
+  --experiment PulsedWire --instance-env <stage>/PulsedWire.env --ref feat/multi-experiment
+# 3) the device-overlap warning (read-only), then the configs scaffold — as the
+#    service account, from the new instance clone (cd INSIDE the sudo: the home may be 0750)
+sudo -u <service account> -H bash -c "cd <service home>/instances/qs-checkout/GeecsBluesky && \
+  <poetry> run python -m geecs_core.db.overlap '<main experiment>' 'Test stand default'; \
+  <poetry> run python -m geecs_bluesky.config_scaffold 'Test stand default' --experiments-root '<configs>/scanner_configs/experiments'"
+# 4) root steps, PulsedWire only (the glob expanded by root's shell, not the admin's)
+sudo install -D -m 0644 <stage>/PulsedWire.env /etc/geecs/experiments/PulsedWire.env
+sudo sh -c 'install -m 0644 <stage>/*@.service /etc/systemd/system/'
+sudo systemctl daemon-reload
+sudo systemctl enable --now geecs-ca-gateway@PulsedWire geecs-qserver@PulsedWire geecs-qserver-ready@PulsedWire \
+  geecs-tiled-writer@PulsedWire geecs-scanner@PulsedWire geecs-logbook@PulsedWire
+/tmp/me-driver/deploy/experiment.sh list
+```
+
+The service account has no sudo, so `experiment.sh up` cannot run
+end-to-end as that account. The split above is the same sequence, with the
+overlap warning (step 3) run by hand; the dry run in step 1 only prints it.
+
+After it runs, check:
+
+- `list` shows six `active` units.
+- `/fleet-status` shows rows tagged `… @PulsedWire` beside the main ones.
+- The main units' `systemctl show -p ActiveEnterTimestamp` values are
+  unchanged.
+- A PulsedWire `count` with no movable devices, submitted through the
+  scanner on `:8310`, lands under `<data root>/Test stand default/`.
+- `experiment.sh down PulsedWire` followed by `up PulsedWire` round-trips.
+
+Then record the evidence here.
+
+**Maintainer follow-ups** (not lane work):
+
+- Add `<box>:5164` to site.env's `EPICS_CA_ADDR_LIST`, so the archiver and
+  Canopy reach the second gateway.
+- Remove the five shared `pulsewire-*` devices from Undulator in the DB
+  (`expt_device.enabled`).
+
+### 2026-10-31 — slice 7, docs + the promotion body (draft)
+
+- `docs/platform/site_profile.md` has a new section, "A second experiment
+  on the same hub", and its placeholder table now names
+  `@EXPERIMENTS_DIR@` and `@INSTANCE_CHECKOUT_ROOT@`.
+- `fleet_map.md` has a new "Experiment instances" section.
+- Each touched package's `CLAUDE.md` states its one rule.
+- `/fleet-status` gives each instance's units rows of their own: the role
+  carries `@<Instance>`.
+
+**Draft body for the promotion PR** (the maintainer opens it after the
+week's proof; this file is deleted in that PR):
+
+> Promote the multi-experiment arc: a second experiment runs as
+> `<unit>@<Instance>` beside the main units, with zero code changes between
+> experiments.
+>
+> Lane PRs:
+> - #1224 inventory, port plan and env schema
+> - #1225 instance templates, rendering and `bootstrap --experiment`
+> - #1227 per-instance code paths (Redis prefix, plan list,
+>   `QS_CLIENT_*` manager addresses; defaults unchanged)
+> - #1228 `deploy/experiment.sh up|down|list` and the configs scaffold
+> - #1229 the read-only overlap check
+> - the slice-7 docs PR
+>
+> **Proof:** PulsedWire beside Undulator for a week; `/fleet-status` shows
+> both; an Undulator scan is unaffected; `down`/`up` round-trips. The
+> evidence is in this file's § Status, moved into this body at promotion.
+>
+> **Exception, not design:** `GEECS_INSTANCE_CHECKOUT_ROOT`. Instances ran
+> from their own clones only while the arc was off master. After this
+> merge, one clone serves every experiment: remove the key from site.env
+> and re-render the instance units from the main clones.
+>
+> **Open:**
+> - the single live-set gateway (a later arc)
+> - migrating Undulator onto the templated units (maintainer-run)
+> - a scanner with an experiment picker
+> - a per-instance readiness probe in `/fleet-status`
+> - the bench experiment's DB name (maintainer cleanup)
+> - the two maintainer follow-ups above
+> - no version bumps here

@@ -200,6 +200,20 @@ rendered from it, never edited by hand.
     is the one statement of the rule — the probe scripts and the
     `/lab-status` skill point here rather than retelling it.
 
+## Experiment instances
+
+A second experiment runs as `<unit>@<Instance>` beside the main units
+(gateway, worker + readiness, Tiled writer, scanner, logbook), with its
+values in `/etc/geecs/experiments/<Instance>.env` and its state under
+`/var/lib/geecs-experiments/<Instance>/` —
+[Site Profile](site_profile.md#a-second-experiment-on-the-same-hub) has the
+model and the port slots; `deploy/experiment.sh list` shows what is up.
+`/fleet-status` lists each instance's units as rows of their own
+(`… @<Instance>`); its readiness probe answers for the main manager only.
+The units run from the same clones as the main experiment's — the one
+transitional exception being `GEECS_INSTANCE_CHECKOUT_ROOT` during the
+multi-experiment proof.
+
 ## One clone per service
 
 When several services from this monorepo share a host, **each service
