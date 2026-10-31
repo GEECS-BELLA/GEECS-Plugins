@@ -240,3 +240,34 @@ units carry, every default unchanged:
 - `bootstrap_host.sh --experiment` renders nothing for qserver or scanner
   when the clone's code does not read those keys. That closes #1225's
   HIGH finding.
+
+### 2026-10-31 — slice 4, the verb
+
+Slice 3 merged as #1227. Its review renamed the scanner's overrides to
+`QS_CLIENT_CONTROL_ADDR` / `QS_CLIENT_INFO_ADDR` / `QS_CLIENT_DOC_ADDR`;
+site.env's `QS_CONTROL_ADDR` stays the readiness key alone.
+
+The verb is `deploy/experiment.sh up|down|list`.
+
+- **`up <Instance>`, new instance.** It needs `--db-experiment`,
+  `--address` and `--broadcast`; `--ca-extra` adds IOC hosts. It writes the
+  instance file from the example, with every port derived from the first
+  free slot, never set by hand.
+- **`up <Instance>`, instance file already present.** It reuses the file
+  as it is.
+- **What `up` always does.** It refuses the main experiment. It scaffolds
+  `<configs>/scanner_configs/experiments/<DB experiment>/` when absent,
+  using `python -m geecs_bluesky.config_scaffold`: empty presets and
+  trigger-profile folders, an empty scan-variable catalog and the default
+  `experiment_defaults.yaml`; an existing folder is never touched. It runs
+  `bootstrap_host.sh --experiment`, then installs and enables
+  `<unit>@<Instance>` with sudo. Finally it prints the gateway's
+  `host:port`, the manager ports, the logbook port and the scanner URL.
+- **`down`.** It disables `--now` the six units. The instance file (and so
+  its slot), the state, the configs and the data stay.
+- **`list`.** It shows each instance's experiment, slot, scanner port and
+  unit states.
+
+The scaffold lives in GeecsBluesky, beside the resolver that owns the folder
+layout. GEECS-Core cannot import the schemas, and GEECS-Schemas carries no
+YAML runtime.
