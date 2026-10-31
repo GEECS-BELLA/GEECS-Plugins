@@ -11,6 +11,7 @@ mentions the placeholder names in prose).
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,16 @@ TEMPLATES = [
     REPO_ROOT / "GeecsCanopy/deploy/geecs-canopy.service",
     REPO_ROOT / "GeecsControlRoom/deploy/geecs-control-room.service",
 ]
+# The per-experiment instance templates (`<unit>@<Instance>`), beside the above.
+INSTANCE_TEMPLATES = [
+    REPO_ROOT / "GeecsCAGateway/deploy/geecs-ca-gateway@.service",
+    REPO_ROOT / "GeecsLogbook/deploy/geecs-logbook@.service",
+    REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver@.service",
+    REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service",
+    REPO_ROOT / "GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service",
+    REPO_ROOT / "GeecsScanner/deploy/geecs-scanner@.service",
+]
+TEMPLATES += INSTANCE_TEMPLATES
 
 # The shape of a unit file from before the site profile: real-looking
 # directives, generic account, no placeholders anywhere in the directives.
@@ -102,9 +113,8 @@ def test_in_tree_templates_render(tmp_path: Path) -> None:
             for line in rendered.splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         ]
-        assert not any(
-            "@" in line and "@" in line.split("=", 1)[-1] for line in directives
-        ), t.name
+        # An unfilled hole is @NAME@; an instance unit's own name (unit@%i) is not.
+        assert not any(re.search(r"@[A-Z_]+@", line) for line in directives), t.name
         assert "User=geecs\n" in rendered  # the example's GEECS_SERVICE_USER
         assert "EnvironmentFile=/etc/geecs/site.env" in rendered
 
@@ -117,3 +127,195 @@ def test_default_template_list_is_every_in_tree_template(tmp_path: Path) -> None
     assert result.returncode == 0, result.stderr
     rendered = sorted(p.name for p in (tmp_path / "out").glob("*.service"))
     assert rendered == sorted(t.name for t in TEMPLATES)
+
+
+def _directives(text: str) -> list[str]:
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+@pytest.mark.parametrize("template", INSTANCE_TEMPLATES, ids=lambda p: p.name)
+def test_instance_template_reads_its_file_after_site_env(
+    tmp_path: Path, template: Path
+) -> None:
+    """The instance file is the SECOND EnvironmentFile= (it overrides site.env),
+    its state is the instance's own, and the main unit's name is untouched."""
+    result = _render(tmp_path / "out", template)
+    assert result.returncode == 0, result.stderr
+    d = _directives((tmp_path / "out" / template.name).read_text(encoding="utf-8"))
+    env_files = [x for x in d if x.startswith("EnvironmentFile=")]
+    assert env_files == [
+        "EnvironmentFile=/etc/geecs/site.env",
+        "EnvironmentFile=/etc/geecs/experiments/%i.env",
+    ]
+    for x in d:
+        if x.startswith(("StateDirectory=", "Environment=GEECS_")):
+            assert "geecs-experiments/%i" in x, x
+        # Never set the CA server port for the whole process tree: the worker
+        # reads the same file and would re-port its CA clients.
+        assert not x.startswith("Environment=EPICS_CA_SERVER_PORT"), x
+    for x in d:
+        if x.startswith(("Wants=geecs-", "Requires=geecs-", "PartOf=geecs-")) or (
+            x.startswith("After=") and "geecs-" in x
+        ):
+            assert "@%i.service" in x, (
+                x
+            )  # bound to the SAME instance, never the main unit
+
+
+def test_gateway_instance_hands_its_port_to_the_gateway_alone(tmp_path: Path) -> None:
+    result = _render(tmp_path / "out", INSTANCE_TEMPLATES[0])
+    assert result.returncode == 0, result.stderr
+    d = _directives(
+        (tmp_path / "out" / INSTANCE_TEMPLATES[0].name).read_text(encoding="utf-8")
+    )
+    exec_start = next(x for x in d if x.startswith("ExecStart="))
+    assert exec_start.startswith(
+        "ExecStart=/usr/bin/env EPICS_CA_SERVER_PORT=${GEECS_CA_SERVER_PORT} "
+    )
+
+
+def test_experiments_dir_knob_moves_the_instance_file(tmp_path: Path) -> None:
+    site = tmp_path / "site.env"
+    site.write_text(
+        SITE_ENV.read_text(encoding="utf-8") + "\nGEECS_EXPERIMENTS_DIR=/srv/x\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            str(RENDER),
+            str(site),
+            str(tmp_path / "out"),
+            str(INSTANCE_TEMPLATES[2]),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    rendered = (tmp_path / "out" / INSTANCE_TEMPLATES[2].name).read_text(
+        encoding="utf-8"
+    )
+    assert "EnvironmentFile=/srv/x/%i.env" in rendered
+
+
+LIB = REPO_ROOT / "deploy" / "site_env_lib.sh"
+EXAMPLE = REPO_ROOT / "deploy" / "experiments.env.example"
+
+
+def _check_instance(
+    env_text: str, instance: str = "PulsedWire"
+) -> subprocess.CompletedProcess[str]:
+    script = (
+        f'. "{LIB}"; load_site_env "$1"; check_instance_env "{instance}" && echo OK'
+    )
+    return subprocess.run(
+        ["bash", "-c", script, "check", env_text],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _filled_example(tmp_path: Path, *, drop: str = "", extra: str = "") -> str:
+    text = EXAMPLE.read_text(encoding="utf-8")
+    text = (
+        text.replace("@DB_EXPERIMENT@", "Some Bench")
+        .replace("@THIS_HOST_ADDRESS@", "127.0.0.1")
+        .replace("@THIS_HOST_BROADCAST@", "127.255.255.255")
+    )
+    if drop:
+        text = "\n".join(x for x in text.splitlines() if not x.startswith(drop + "="))
+    path = tmp_path / "PulsedWire.env"
+    path.write_text(text + "\n" + extra, encoding="utf-8")
+    return str(path)
+
+
+def test_the_filled_example_is_a_valid_instance_file(tmp_path: Path) -> None:
+    result = _check_instance(_filled_example(tmp_path))
+    assert result.returncode == 0, result.stderr
+    assert "OK" in result.stdout
+
+
+def test_the_unfilled_example_is_refused(tmp_path: Path) -> None:
+    result = _check_instance(str(EXAMPLE))
+    assert result.returncode != 0
+    assert "placeholder" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "key", ["GEECS_CA_SERVER_PORT", "QS_CONTROL_ADDR", "QS_REDIS_PREFIX"]
+)
+def test_a_missing_instance_key_is_refused(tmp_path: Path, key: str) -> None:
+    result = _check_instance(_filled_example(tmp_path, drop=key))
+    assert result.returncode != 0
+    assert f"missing {key}" in result.stderr
+
+
+def test_a_process_wide_ca_server_port_is_refused(tmp_path: Path) -> None:
+    result = _check_instance(
+        _filled_example(tmp_path, extra="EPICS_CA_SERVER_PORT=5164\n")
+    )
+    assert result.returncode != 0
+    assert "EPICS_CA_SERVER_PORT" in result.stderr
+
+
+def test_the_instance_name_must_match_the_file(tmp_path: Path) -> None:
+    result = _check_instance(_filled_example(tmp_path), instance="Other")
+    assert result.returncode != 0
+    assert "GEECS_INSTANCE" in result.stderr
+
+
+BOOTSTRAP = REPO_ROOT / "deploy" / "bootstrap_host.sh"
+
+
+def test_bootstrap_instance_mode_enables_only_instance_units(tmp_path: Path) -> None:
+    """``--experiment`` stages the instance templates and enables
+    ``<unit>@<Instance>`` alone — never a main experiment unit."""
+    result = subprocess.run(
+        [
+            "bash",
+            str(BOOTSTRAP),
+            str(SITE_ENV),
+            "--experiment",
+            "PulsedWire",
+            "--instance-env",
+            _filled_example(tmp_path),
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    enable = next(
+        line for line in result.stdout.splitlines() if "systemctl enable --now" in line
+    )
+    units = enable.split("enable --now", 1)[1].split()
+    assert sorted(units) == sorted(
+        f"{t.name.removesuffix('.service')}PulsedWire.service"
+        for t in INSTANCE_TEMPLATES
+    )
+    assert "config.ini" not in result.stdout  # the shared account file is never touched
+
+
+def test_bootstrap_refuses_a_non_slug_instance(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            str(BOOTSTRAP),
+            str(SITE_ENV),
+            "--experiment",
+            "Test stand",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "not a slug" in result.stderr

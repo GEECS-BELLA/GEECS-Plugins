@@ -15,7 +15,7 @@
 # EnvironmentFile= ONLY in command arguments — never in WorkingDirectory=,
 # User=, Environment= lines, or the executable path. So paths and identity
 # are filled here at install time (@CHECKOUT_ROOT@, @SERVICE_USER@,
-# @SERVICE_HOME@, @POETRY@, @SITE_ENV@, the portal's @PORTAL_MEMORY_HIGH@
+# @SERVICE_HOME@, @POETRY@, @SITE_ENV@, @EXPERIMENTS_DIR@, the portal's @PORTAL_MEMORY_HIGH@
 # / @PORTAL_MEMORY_MAX@ — resource directives take no variables either)
 # and runtime values (experiment,
 # EPICS addressing, TZ) reach the process through EnvironmentFile= at
@@ -61,11 +61,22 @@ TEMPLATES=(
     GeecsArchiver/deploy/geecs-archiver.service
     GeecsCanopy/deploy/geecs-canopy.service
     GeecsControlRoom/deploy/geecs-control-room.service
+    # Per-experiment instance templates (`<unit>@<Instance>`): beside the
+    # units above, never instead of them — see deploy/experiments.env.example.
+    GeecsCAGateway/deploy/geecs-ca-gateway@.service
+    GeecsLogbook/deploy/geecs-logbook@.service
+    GeecsBluesky/qserver/deploy/geecs-qserver@.service
+    GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service
+    GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service
+    GeecsScanner/deploy/geecs-scanner@.service
 )
 if [ $# -gt 0 ]; then TEMPLATES=("$@"); fi
 
 # Where the installed site.env will live — the rendered units point at it.
 SITE_ENV_INSTALLED="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"
+# Where the per-experiment instance files live (<Instance>.env) — the
+# instance templates' second EnvironmentFile=.
+EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
 
 mkdir -p "$OUT_DIR"
 for t in "${TEMPLATES[@]}"; do
@@ -86,6 +97,7 @@ for t in "${TEMPLATES[@]}"; do
         -e "s|@CHECKOUT_ROOT@|$GEECS_CHECKOUT_ROOT|g" \
         -e "s|@POETRY@|$GEECS_POETRY|g" \
         -e "s|@SITE_ENV@|$SITE_ENV_INSTALLED|g" \
+        -e "s|@EXPERIMENTS_DIR@|$EXPERIMENTS_DIR|g" \
         -e "s|@PORTAL_MEMORY_HIGH@|$GEECS_PORTAL_MEMORY_HIGH|g" \
         -e "s|@PORTAL_MEMORY_MAX@|$GEECS_PORTAL_MEMORY_MAX|g" \
         "$src" > "$dst"

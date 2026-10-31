@@ -1,0 +1,35 @@
+# GEECS web scanner, per-experiment instance — systemd unit TEMPLATE: the
+# console over geecs-qserver@<Instance> (QS_CONTROL_ADDR / QS_INFO_ADDR /
+# QS_DOC_ADDR from the instance file), on GEECS_SCANNER_PORT.
+#
+# One instance per experiment: `systemctl enable --now <unit>@<Instance>`.
+# Render with deploy/render_units.sh (or bootstrap_host.sh --experiment);
+# @PLACEHOLDER@ holes are filled at render time. Runtime values come from
+# site.env and THEN the instance file @EXPERIMENTS_DIR@/<Instance>.env, which
+# overrides it (the experiment, ports, CA addressing — keys in
+# deploy/experiments.env.example). Per-instance state lives under
+# /var/lib/geecs-experiments/<Instance>/. The non-templated unit of the same
+# name is the main experiment's and stays as it is.
+
+[Unit]
+Description=GEECS Scanner (experiment instance %i)
+After=network-online.target geecs-qserver@%i.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
+WorkingDirectory=@CHECKOUT_ROOT@/qs-checkout/GeecsScanner
+ExecStart=@POETRY@ run geecs-scanner --experiment ${GEECS_EXPERIMENT} --port ${GEECS_SCANNER_PORT} $GEECS_SCANNER_EXTRA_ARGS
+Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-experiments/%i/engine
+StateDirectory=geecs-experiments/%i/scanner
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+SyslogIdentifier=geecs-scanner@%i
+
+[Install]
+WantedBy=multi-user.target

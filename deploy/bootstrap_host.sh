@@ -6,6 +6,7 @@
 # root steps for a human at the end.
 #
 #   deploy/bootstrap_host.sh SITE_ENV [--ref REF] [--only svc,svc] [--dry-run] [--no-install]
+#   deploy/bootstrap_host.sh SITE_ENV --experiment INSTANCE [--instance-env FILE] [--only ...] [--dry-run] [--no-install]
 #
 #   --ref REF      git ref to check out in each clone (default: master)
 #   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner,archiver
@@ -13,6 +14,18 @@
 #                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
 #   --dry-run      print what would happen
+#   --experiment INSTANCE
+#                  one experiment INSTANCE beside the main units: renders the
+#                  instance templates (<unit>@.service) of gateway, logbook,
+#                  qserver, tiled-writer and scanner and prints their enable
+#                  lines for <unit>@INSTANCE. Existing clones are used AS
+#                  THEY ARE (they run the main experiment's services: never
+#                  fetched, moved or reinstalled here); an absent one is
+#                  cloned and installed. config.ini is not touched.
+#   --instance-env FILE
+#                  the instance's values (default: the installed
+#                  /etc/geecs/experiments/INSTANCE.env; keys in
+#                  deploy/experiments.env.example)
 #
 # This is the fleet map's "fresh-host bootstrap" list made executable:
 # per-service clones under GEECS_CHECKOUT_ROOT (one clone per service
@@ -26,14 +39,16 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SITE_ENV="${1:-}"; [ -n "$SITE_ENV" ] && shift || true
-REF="master"; ONLY=""; DRY=0; INSTALL=1
+REF="master"; ONLY=""; DRY=0; INSTALL=1; INSTANCE=""; INSTANCE_ENV=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --ref) shift; REF="${1:-master}" ;;
         --only) shift; ONLY="${1:-}" ;;
         --dry-run) DRY=1 ;;
         --no-install) INSTALL=0 ;;
-        *) echo "usage: bootstrap_host.sh SITE_ENV [--ref REF] [--only LIST] [--dry-run] [--no-install]" >&2; exit 2 ;;
+        --experiment) shift; INSTANCE="${1:-}"; [ -n "$INSTANCE" ] || { echo "--experiment needs an instance name" >&2; exit 2; } ;;
+        --instance-env) shift; INSTANCE_ENV="${1:-}" ;;
+        *) echo "usage: bootstrap_host.sh SITE_ENV [--ref REF] [--only LIST] [--dry-run] [--no-install] [--experiment INSTANCE [--instance-env FILE]]" >&2; exit 2 ;;
     esac
     shift
 done
@@ -83,6 +98,88 @@ extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook
 # Tiled writer is its own service (own unit, own restart, no ordering
 # against the manager): the spool directory is the only thing they share.
 units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; esac; }
+# ---- --experiment: one experiment instance, beside the main units ----------
+# Additive by construction: it renders only the <unit>@.service templates,
+# never re-renders or re-enables a main unit, and never moves, fetches or
+# reinstalls a clone that exists (each one runs the main experiment's
+# services — a pull there is that service's deploy). The instance's values
+# come from its own file, which overrides site.env exactly as the units'
+# second EnvironmentFile= does.
+INSTANCE_SERVICES="gateway logbook qserver tiled-writer scanner"
+instance_templates_of() { case "$1" in
+    gateway) echo "GeecsCAGateway/deploy/geecs-ca-gateway@.service";;
+    logbook) echo "GeecsLogbook/deploy/geecs-logbook@.service";;
+    qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver@.service GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service";;
+    tiled-writer) echo "GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service";;
+    scanner) echo "GeecsScanner/deploy/geecs-scanner@.service";; esac; }
+if [ -n "$INSTANCE" ]; then
+    case "$INSTANCE" in *[!A-Za-z0-9_-]*) echo "--experiment: instance '$INSTANCE' is not a slug (letters, digits, '-', '_')" >&2; exit 2 ;; esac
+    EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
+    INSTANCE_ENV_INSTALLED="$EXPERIMENTS_DIR/$INSTANCE.env"
+    INSTANCE_ENV="${INSTANCE_ENV:-$INSTANCE_ENV_INSTALLED}"
+    [ -f "$INSTANCE_ENV" ] || { echo "no instance file: $INSTANCE_ENV (write it from deploy/experiments.env.example, or deploy/experiment.sh up)" >&2; exit 2; }
+    INSTANCE_ENV="$(cd "$(dirname "$INSTANCE_ENV")" && pwd)/$(basename "$INSTANCE_ENV")"
+    load_site_env "$INSTANCE_ENV"
+    check_instance_env "$INSTANCE"
+    if [ -n "$ONLY" ]; then
+        for requested in $(printf '%s' "$ONLY" | tr ',' ' '); do
+            case " $INSTANCE_SERVICES " in *" $requested "*) ;; *) echo "bootstrap_host.sh: --only: '$requested' has no instance template (instance services: $INSTANCE_SERVICES)" >&2; exit 2 ;; esac
+        done
+    fi
+    iwanted() { [ -z "$ONLY" ] && return 0; case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac; }
+    say "instance '$INSTANCE' — experiment '$GEECS_EXPERIMENT' (slot ${GEECS_INSTANCE_SLOT:-?}) — instance file $INSTANCE_ENV"
+    STAGE="$GEECS_CHECKOUT_ROOT/deploy-staging/instances"
+    TEMPLATE_PATHS=(); ENABLE=(); NEW_CLONES=" "; INSTALLED_ENVS=" "
+    for s in $INSTANCE_SERVICES; do
+        iwanted "$s" || continue
+        dir="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")"
+        # A clone this run created is ours to install into (every package dir
+        # in it, once); one that already existed is used exactly as it is.
+        case "$NEW_CLONES" in *" $dir "*) ;; *)
+            if [ -e "$dir/.git" ]; then
+                echo "  $s: $(clone_of "$s") exists ($(git -C "$dir" rev-parse --abbrev-ref HEAD) $(git -C "$dir" rev-parse --short=8 HEAD)) — used as it is"
+            else
+                run git clone --quiet --branch "$REF" "$GEECS_REPO_URL" "$dir"; NEW_CLONES="$NEW_CLONES$dir "
+            fi ;;
+        esac
+        pkg="$dir/$(pkgdir_of "$s")"
+        case "$NEW_CLONES" in *" $dir "*)
+            if [ "$INSTALL" -eq 1 ]; then case "$INSTALLED_ENVS" in *" $pkg "*) ;; *)
+                INSTALLED_ENVS="$INSTALLED_ENVS$pkg "; extras="$(extras_of "$s")"
+                if [ "$DRY" -eq 1 ]; then echo "  [dry] (cd $pkg && poetry install${extras:+ --extras \"$extras\"})"
+                elif [ -n "$extras" ]; then (cd "$pkg" && run "$GEECS_POETRY" install --quiet --extras "$extras")
+                else (cd "$pkg" && run "$GEECS_POETRY" install --quiet); fi ;; esac
+            fi ;;
+        esac
+        missing=""
+        svc_paths=()
+        for rel in $(instance_templates_of "$s"); do
+            t="$dir/$rel"
+            if [ "$DRY" -eq 1 ] && [ ! -e "$dir/.git" ]; then t="$REPO_ROOT/$rel"; fi   # a dry run cloned nothing: show this clone's template
+            if [ -f "$t" ] && is_unit_template "$t"; then svc_paths+=("$t"); else missing="$missing $rel"; fi
+        done
+        if [ -n "$missing" ]; then
+            echo "  $s: WARNING — $(clone_of "$s") lacks the instance template(s)$missing (it predates them); nothing rendered for $s — pulling that clone forward is a deploy of the main experiment's service, decided by a human"
+            continue
+        fi
+        TEMPLATE_PATHS+=("${svc_paths[@]}")
+        for rel in $(instance_templates_of "$s"); do u="$(basename "$rel" .service)"; ENABLE+=("${u}${INSTANCE}.service"); done
+    done
+    say "instance units (templates only, to $STAGE)"
+    [ "$DRY" -eq 0 ] && [ -d "$STAGE" ] && rm -f "$STAGE"/*.service
+    if [ "${#TEMPLATE_PATHS[@]}" -eq 0 ]; then echo "  nothing to render"
+    elif [ "$DRY" -eq 1 ]; then echo "  [dry] render_units.sh $SITE_ENV $STAGE ${TEMPLATE_PATHS[*]}"
+    else RENDER_QUIET=1 "$REPO_ROOT/deploy/render_units.sh" "$SITE_ENV" "$STAGE" "${TEMPLATE_PATHS[@]}" | sed 's/^/  /'; fi
+    say "root steps (a human runs these; nothing above needed sudo)"
+    if [ "$INSTANCE_ENV" != "$INSTANCE_ENV_INSTALLED" ]; then echo "  sudo install -D -m 0644 \"$INSTANCE_ENV\" \"$INSTANCE_ENV_INSTALLED\""; fi
+    if [ "${#TEMPLATE_PATHS[@]}" -gt 0 ]; then
+        echo "  sudo install -m 0644 \"$STAGE\"/*.service /etc/systemd/system/"
+        echo "  sudo systemctl daemon-reload"
+        echo "  sudo systemctl enable --now ${ENABLE[*]}"
+    fi
+    exit 0
+fi
+
 # The archiver is opt-in BY SITE: with no --only it is wanted only when
 # site.env names an appliance (GEECS_ARCHIVER_HOST set — the PVA "empty =
 # none" precedent), so a host without one keeps the smaller profile and a
