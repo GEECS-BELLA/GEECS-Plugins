@@ -660,3 +660,28 @@ def test_a_half_running_instance_is_not_refused_on_its_own_ports(
         env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
     )
     assert "already in use" not in result.stderr, result.stderr
+
+
+def test_the_readiness_oneshot_alone_does_not_skip_the_port_check(
+    tmp_path: Path, profile
+) -> None:
+    fake = tmp_path / "ready-only"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in geecs-qserver-ready@*) [ "$1" = is-active ] && exit 0 ;; esac; done\nexit 3\n'
+    )
+    (fake / "ss").write_text(
+        '#!/usr/bin/env bash\necho "LISTEN 0 128 0.0.0.0:8310 0.0.0.0:*"\n'
+    )
+    for f in fake.iterdir():
+        f.chmod(0o755)
+    result = _verb(
+        profile,
+        "up",
+        "PulsedWire",
+        *NEW,
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 1
+    assert "already in use" in result.stderr

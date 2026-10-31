@@ -236,8 +236,10 @@ up)
     # The slot's ports must be free unless this instance already holds any of
     # them (a re-run `up` recovers a running or half-running instance in
     # place). Before anything is cloned, installed or enabled.
+    # (The readiness oneshot is not counted: RemainAfterExit keeps it
+    # "active" after its manager is gone.)
     # shellcheck disable=SC2046
-    if ! systemctl is-active --quiet $(units_for "$INSTANCE") 2>/dev/null; then
+    if ! systemctl is-active --quiet $(units_for "$INSTANCE" | tr ' ' '\n' | grep -v '^geecs-qserver-ready@') 2>/dev/null; then
         if command -v ss >/dev/null 2>&1; then
             f="$INSTANCE_FILE"; busy=""
             ca="$(env_value "$f" GEECS_CA_SERVER_PORT)"
