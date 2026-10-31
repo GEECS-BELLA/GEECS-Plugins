@@ -215,6 +215,31 @@ experiment's units and never instead of them. Tiled, the Data Portal
   exception**: once promoted, one clone serves every experiment and the key
   is removed.
 
+### Moving an experiment from plain units to an instance
+
+The main experiment's units are plain (`geecs-qserver.service`, …). Moving it
+onto `<unit>@<Name>` is the maintainer's run, between scans, in this order so
+two copies of the worker or the logbook never run at once:
+
+1. Drain the queue; `systemctl disable --now` the plain units of the family
+   being moved (manager + readiness, Tiled writer, scanner, logbook).
+2. Move their state into the instance's tree, or point the instance at it:
+   `/var/lib/geecs-tiled-writer` → `/var/lib/geecs-experiments/<Name>/engine`
+   (spool, `scan_mode.json`, plan list), `/var/lib/geecs-scanner` →
+   `…/scanner`, `/var/lib/geecs-logbook` → `…/logbook` (the notes store);
+   the Redis queue moves only if the prefix is kept (`QS_REDIS_PREFIX=qs_default`
+   in the instance file keeps the plain manager's queue and history).
+3. `sudo deploy/experiment.sh up <Name> …` with the slot-0 ports in the
+   instance file if clients must not change, then `list` and a `count`.
+4. Only then delete the plain unit files.
+
+A gateway moved onto the hub as an instance is a **client** change: each
+client's `config.ini` `[epics] ca_addr_list` (and the site's
+`EPICS_CA_ADDR_LIST`, and Phoebus settings) names the hub's `host:port`.
+Scan mode needs the worker and the gateway on one host
+(`check_gateway_host`); a per-experiment gateway instance on the hub is
+what satisfies it for a worker that runs there.
+
 ## Onboarding a second facility
 
 1. Copy `deploy/site.env.example`; change every value; keep every key —

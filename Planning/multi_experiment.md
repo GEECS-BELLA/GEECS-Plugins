@@ -528,3 +528,27 @@ The tests use the box's shape.
 
 `down` now runs `reset-failed` on loaded units only, so a clean `down` is
 quiet.
+
+
+### 2026-10-31 — notes from the services-box migration session
+
+- **The box's main family is plain units.** The box runs Undulator's worker
+  family as plain, non-templated units, rendered at master. The old host
+  keeps only the main CA gateway and MySQL. `site_profile.md` now has a new
+  subsection, "Moving an experiment from plain units to an instance". It
+  gives the order for the maintainer's run: stop the plain family, move or
+  point the state dirs, `up` the instance, then delete the plain unit files.
+  Done in that order, two workers or two logbooks never run at once.
+- **Scan mode is refused from the box today.** The worker runs on the box
+  while the gateway is on the old host, and `check_gateway_host` requires
+  both on one host. A per-experiment gateway instance on the hub resolves
+  this. Moving Undulator's gateway is then a client change: `config.ini`
+  `[epics] ca_addr_list`, site.env `EPICS_CA_ADDR_LIST`, and Phoebus.
+- **Follow-up, not built: probing instance gateways.**
+  `scripts/lib/lab_env.sh` probes only the first `[epics] ca_addr_list`
+  entry. Probing each instance's gateway needs a loop over the entries.
+- **Follow-up, not built: the status page.** Instances should appear on the
+  box's status page (Gatus). The migration session writes the config
+  generator, `deploy/gatus_config.py`, after the arc lands.
+  `experiment.sh` carries a one-comment hook where `up` and `down` will
+  call it.
