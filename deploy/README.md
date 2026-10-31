@@ -9,6 +9,7 @@ runbooks live next to each service; the intended fleet is
 |---|---|
 | `site.env.example` | The host half of the site profile — every facility-specific value a service host needs, HTU/Undulator as the worked example. Copy, edit, install at `/etc/geecs/site.env`. |
 | `experiments.env.example` | One experiment **instance**'s values (ports by slot, its DB experiment, its CA addressing), installed at `/etc/geecs/experiments/<Instance>.env` and read by the instance template units (`<unit>@.service`) after site.env. The main experiment has no such file. |
+| `experiment.sh` | The instance verb: `up <Instance>` writes the instance file (ports from the first free slot), scaffolds the experiment's configs folder when absent, renders + installs + enables `<unit>@<Instance>` (sudo) and prints the ports and the scanner URL; `down` stops and disables them (file, state, configs and data stay); `list` shows every instance. |
 | `site_env_lib.sh` | Shared loader (mirrors systemd's `EnvironmentFile=` parsing). Sourced by the two scripts. |
 | `render_units.sh` | Fill the `@PLACEHOLDER@` holes in every service's unit template from a site.env into a staging directory; prints the root install lines. |
 | `bootstrap_host.sh` | Idempotent, unprivileged fresh-host bootstrap: per-service clones, poetry envs with each service's extras, the baked MCP venv, `config.ini` rendered from site.env if absent, units rendered to staging; prints the root steps. |
@@ -28,6 +29,8 @@ A second experiment beside the main one is an **instance**: its values in
 `deploy/bootstrap_host.sh ~/site.env --experiment <Instance>` renders the
 instance templates and prints the `enable --now <unit>@<Instance>` lines. It
 never re-renders, restarts or pulls under the main experiment's units.
+`deploy/experiment.sh up <Instance> --db-experiment '<DB name>' --address <this host> --broadcast <its broadcast>`
+does all of it in one verb (`down` / `list` beside it).
 
 The unit templates themselves stay with their services
 (`GeecsCAGateway/deploy/`, `GEECS-DataPortal/deploy/`,

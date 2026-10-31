@@ -58,7 +58,7 @@ require_site_keys() {  # require_site_keys KEY... — exit 2 naming the first mi
 INSTANCE_KEYS="GEECS_INSTANCE GEECS_EXPERIMENT QS_EXPERIMENT GEECS_CA_SERVER_PORT EPICS_CAS_INTF_ADDR_LIST EPICS_CAS_BEACON_ADDR_LIST EPICS_CA_ADDR_LIST EPICS_CA_AUTO_ADDR_LIST QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER QSERVER_ZMQ_INFO_ADDRESS_FOR_SERVER QS_REDIS_PREFIX QS_DOC_PROXY_IN QS_DOC_PROXY_OUT QS_DOC_PUBLISH_ADDR QS_CONTROL_ADDR QS_CLIENT_CONTROL_ADDR QS_CLIENT_INFO_ADDR QS_CLIENT_DOC_ADDR GEECS_SCANNER_PORT GEECS_LOGBOOK_PORT"
 
 check_instance_env() {  # check_instance_env INSTANCE [FILE] — after load_site_env of the instance FILE
-    local k INSTANCE_FILE_PATH="${2:-}"
+    local k INSTANCE_FILE_PATH="${2:?check_instance_env INSTANCE FILE}"
     for k in $INSTANCE_KEYS; do
         [ -n "${!k:-}" ] || { echo "instance file is missing $k" >&2; exit 2; }
         case "${!k}" in *@*@*) echo "instance file: $k still holds a placeholder (${!k})" >&2; exit 2 ;; esac
