@@ -4,8 +4,8 @@ Status, 2026-10-31: **§2 (the web estate) is retired.** The operator surfaces
 were rebuilt on the GeecsCanopy module with GeecsControlRoom as the front
 end (`Planning/geecs_canopy.md`, `Planning/operator_surfaces.md`); the
 `geecs-web` repository is archived, PR #1153 closed, and `feat/web-estate`
-is kept at the tag `web-estate-final`, whose comment lists the pieces worth
-salvaging. §1 (repos, families) still describes the estate.
+is kept at the tag `web-estate-final`; #1153's closing comment lists the
+pieces worth salvaging. §1 (repos, families) still describes the estate.
 
 Original status: **proposal, provisional until built** (2026-10-25, after one
 three-lens adversarial round; dispositions in §9). For the maintainer and the
