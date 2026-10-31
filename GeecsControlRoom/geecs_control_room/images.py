@@ -166,8 +166,8 @@ class Images:
         holds up only its own device's first viewers, never another camera).
         While the module is silent or failing, the last good answer is served
         and held for another ``ROUTE_TTL_S``: PV names do not change between
-        reads, and a frame from a healthy IOC need not wait on the module. A
-        404 (off the roster) forgets it.
+        reads, and a frame from a healthy IOC need not wait on the module. Any
+        other 4xx (off the roster, the key refused) forgets it.
         """
         source = self._routes.get(name)
         if source is None:
@@ -186,8 +186,12 @@ class Images:
             self._good.pop(name, None)
             raise Unavailable(404, f"{name} is not on the module's roster")
         if status != 200 or not isinstance(body, dict):
-            if good is not None:
+            if status >= 500 and good is not None:  # the module failing: as silent
                 return good
+            if (
+                status < 500
+            ):  # a refusal (the key revoked): forgotten, as the page's denied pane
+                self._good.pop(name, None)
             raise Unavailable(503, f"the module answered {status} for {name}")
         roles = {r["role"]: r for r in body.get("roles") or [] if r.get("pv") and not r.get("axis")}  # fmt: skip
         self._good[name] = roles

@@ -228,3 +228,17 @@ async def test_waiters_share_one_route_read_even_when_it_fails() -> None:
         gate.set()
         codes = [(await t).status_code for t in pending]
     assert codes == [503] * 6 and env.reads == 1
+
+
+@pytest.mark.parametrize("refusal", [401, 403])
+async def test_a_refused_key_forgets_the_held_route(refusal) -> None:
+    env = Env()
+    async with env.client() as c:
+        assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 200
+        env.status = refusal
+        env.clock[0] += ROUTE_TTL_S + 1
+        r = await c.get("/api/devices/Cam/frame.jpg")
+        assert r.status_code == 503 and f"answered {refusal}" in r.json()["detail"]
+        env.status = 0  # then silent: nothing held to serve
+        env.clock[0] += ROUTE_TTL_S + 1
+        assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 503
