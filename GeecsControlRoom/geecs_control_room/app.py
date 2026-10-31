@@ -22,7 +22,7 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_control_room import home, screens
+from geecs_control_room import device_pages, home, screens
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
 
@@ -65,6 +65,7 @@ def create_app(
     app.include_router(screens.action_router())
     app.include_router(home.router(settings, scanner))
     app.include_router(home.preset_router(settings))
+    app.include_router(device_pages.router(settings))
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

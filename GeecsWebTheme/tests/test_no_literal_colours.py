@@ -116,6 +116,9 @@ _SURFACES = [
     "GeecsControlRoom/geecs_control_room/templates/screen.html",
     "GeecsControlRoom/geecs_control_room/static/screen.css",
     "GeecsControlRoom/geecs_control_room/static/screen.js",
+    "GeecsControlRoom/geecs_control_room/templates/device.html",
+    "GeecsControlRoom/geecs_control_room/static/device.css",
+    "GeecsControlRoom/geecs_control_room/static/device.js",
 ]
 
 #: Selectors whose rules may carry a literal, each with its reason. This is
