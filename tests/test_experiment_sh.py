@@ -479,6 +479,9 @@ def test_an_unset_key_shares_the_main_clones(box: Path) -> None:
         "/gateway-checkout/",
         "/deploy-staging",
         "/..",
+        "/new/..",  # resolves into the checkout root once `new` exists
+        "/new/../qs-checkout",
+        "/./instances",
     ],
 )
 def test_a_root_reaching_main_code_is_refused(box: Path, bad: str) -> None:
@@ -514,3 +517,31 @@ def test_up_never_blocks_on_the_readiness_retries(profile) -> None:
     assert result.returncode == 0, result.stderr
     assert "systemctl reset-failed" in result.stdout
     assert "systemctl restart --no-block" in result.stdout
+
+
+@pytest.mark.parametrize("rel", ["instances", "~/instances", "a/b"])
+def test_a_relative_instance_root_is_refused_not_hung(box: Path, rel: str) -> None:
+    script = (
+        f'. "{LIB}"; GEECS_CHECKOUT_ROOT="$1"; GEECS_INSTANCE_CHECKOUT_ROOT="$2"; '
+        "instance_root_is_separate"
+    )
+    result = subprocess.run(
+        ["bash", "-c", script, "v", str(box), rel],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert "absolute" in result.stderr
+
+
+def test_canonical_dir_terminates_on_a_missing_relative_path() -> None:
+    result = subprocess.run(
+        ["bash", "-c", f'. "{LIB}"; canonical_dir no/such/dir'],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0

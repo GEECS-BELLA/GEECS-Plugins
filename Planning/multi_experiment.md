@@ -520,7 +520,9 @@ The guard now refuses only an instance root that could reach main code:
 - the checkout root itself when the key is set explicitly;
 - anything around the checkout root.
 
-Paths are compared physically, including paths not yet created. A sibling of
+Paths must be absolute, with no `.` or `..` components. They are compared
+physically, and a path not yet created resolves through its nearest existing
+parent. A sibling of
 the main clones is allowed. Unsetting the key still shares the main clones.
 The tests use the box's shape.
 

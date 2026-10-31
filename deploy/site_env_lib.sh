@@ -84,6 +84,7 @@ canonical_dir() {  # canonical_dir PATH — the physical path; for a path not ye
     local p="${1%/}" rest=""
     [ -n "$p" ] || p="/"
     while [ ! -d "$p" ] && [ "$p" != "/" ] && [ -n "$p" ]; do
+        case "$p" in */*) ;; *) break ;; esac   # relative and gone: no progress possible
         rest="/${p##*/}$rest"; p="${p%/*}"; [ -n "$p" ] || p="/"
     done
     if [ -d "$p" ] && p="$(cd "$p" 2>/dev/null && pwd -P)"; then :; fi
@@ -104,7 +105,14 @@ MAIN_CLONE_DIRS="gateway-checkout portal-checkout qs-checkout archiver-checkout"
 #     explicitly), one around it, one equal to, inside or around a main clone
 #     directory, or the deploy-staging directory.
 instance_root_is_separate() {
-    local main inst clone c
+    local main inst clone c k
+    # Absolute, and no . or .. components: a not-yet-created component could
+    # otherwise hide a path that resolves into main code once it exists.
+    for k in GEECS_CHECKOUT_ROOT GEECS_INSTANCE_CHECKOUT_ROOT; do
+        [ -n "${!k:-}" ] || continue
+        case "${!k}" in /*) ;; *) echo "$k (${!k}) must be an absolute path" >&2; exit 2 ;; esac
+        case "/${!k}/" in */./*|*/../*) echo "$k (${!k}) must not contain . or .. components" >&2; exit 2 ;; esac
+    done
     main="$(canonical_dir "$GEECS_CHECKOUT_ROOT")"
     inst="$(canonical_dir "${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}")"
     if [ "$inst" = "$main" ]; then
