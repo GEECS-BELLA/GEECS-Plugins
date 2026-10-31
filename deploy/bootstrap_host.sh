@@ -122,7 +122,7 @@ if [ -n "$INSTANCE" ]; then
     [ -f "$INSTANCE_ENV" ] || { echo "no instance file: $INSTANCE_ENV (write it from deploy/experiments.env.example, or deploy/experiment.sh up)" >&2; exit 2; }
     INSTANCE_ENV="$(cd "$(dirname "$INSTANCE_ENV")" && pwd)/$(basename "$INSTANCE_ENV")"
     load_site_env "$INSTANCE_ENV"
-    check_instance_env "$INSTANCE"
+    check_instance_env "$INSTANCE" "$INSTANCE_ENV"
     if [ -n "$ONLY" ]; then
         for requested in $(printf '%s' "$ONLY" | tr ',' ' '); do
             case " $INSTANCE_SERVICES " in *" $requested "*) ;; *) echo "bootstrap_host.sh: --only: '$requested' has no instance template (instance services: $INSTANCE_SERVICES)" >&2; exit 2 ;; esac

@@ -215,9 +215,7 @@ EXAMPLE = REPO_ROOT / "deploy" / "experiments.env.example"
 def _check_instance(
     env_text: str, instance: str = "PulsedWire"
 ) -> subprocess.CompletedProcess[str]:
-    script = (
-        f'. "{LIB}"; load_site_env "$1"; check_instance_env "{instance}" && echo OK'
-    )
+    script = f'. "{LIB}"; load_site_env "$1"; check_instance_env "{instance}" "$1" && echo OK'
     return subprocess.run(
         ["bash", "-c", script, "check", env_text],
         capture_output=True,
@@ -324,3 +322,14 @@ def test_bootstrap_refuses_a_non_slug_instance(tmp_path: Path) -> None:
     )
     assert result.returncode == 2
     assert "not a slug" in result.stderr
+
+
+@pytest.mark.parametrize("key", ["GEECS_INSTANCE_CHECKOUT_ROOT", "GEECS_CHECKOUT_ROOT"])
+def test_a_render_time_key_in_the_instance_file_is_refused(
+    tmp_path: Path, key: str
+) -> None:
+    """The units' paths are rendered from site.env alone: set per instance, the
+    key would move the bootstrap's clones but not the units that run them."""
+    result = _check_instance(_filled_example(tmp_path, extra=f"{key}=/srv/inst\n"))
+    assert result.returncode != 0
+    assert key in result.stderr
