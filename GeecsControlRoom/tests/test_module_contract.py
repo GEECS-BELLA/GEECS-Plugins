@@ -228,3 +228,30 @@ async def test_the_presets_region_reads_what_the_module_answers(room) -> None:
         and run["plan"] == f"restore:{sid}"
         and fake.restores == []
     )
+
+
+#: Every field device_pages.py and device.js read from the device route (the roles' are ROLE_FIELDS).
+DEVICE_FIELDS = {"family", "axes", "state", "heartbeat", "roles"}
+
+
+@pytest.mark.parametrize(
+    "path, status, words",
+    [
+        ("/device/camera/Cam1", 200, ['data-role="exposure"', 'id="device-state"']),
+        ("/device/motor/Mot1", 200, ['data-axis="m1"']),
+        ("/device/supply/ps1", 200, ['data-role="current"']),
+        ("/device/camera/Mot1", 422, ["Wrong kind: motor_record is a motor"]),
+        ("/device/camera/Nope", 404, ["not on the module&#39;s roster"]),
+    ],
+)  # fmt: skip
+async def test_a_device_page_resolves_through_the_module(room, path: str, status: int, words: list[str]) -> None:  # fmt: skip
+    r = await room.client.get(path)
+    assert r.status_code == status and all(w in r.text for w in words)
+
+
+async def test_the_device_page_reads_its_fields_and_the_picker_its_states(room) -> None:  # fmt: skip
+    body = (await room.client.get("/api/devices/Mot1")).json()
+    assert DEVICE_FIELDS <= set(body) and body["axes"] == ["m1"]
+    assert all(ROLE_FIELDS <= set(r) for r in body["roles"])
+    listing = (await room.client.get("/api/device/camera")).json()
+    assert listing["roster"] is True and [(d["name"], d["state"]) for d in listing["devices"]] == [("Cam1", "unknown")]  # fmt: skip

@@ -92,6 +92,16 @@ class Loaded:
         return columns
 
 
+def registry(folder: Path) -> tuple[PanelDevices, NativeDevices]:
+    """The experiment's ``panel_devices.yaml`` and ``native_devices.yaml`` (either missing: empty); a misfit raises."""
+    panel, native = PanelDevices(), NativeDevices.model_validate({})
+    if (folder / PANEL_DEVICES_FILENAME).is_file():
+        panel = PanelDevices.from_path(folder / PANEL_DEVICES_FILENAME)
+    if (folder / NATIVE_DEVICES_FILENAME).is_file():
+        native = NativeDevices.from_path(folder / NATIVE_DEVICES_FILENAME)
+    return panel, native
+
+
 def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loaded:
     """Read and bind ``<name>.yaml`` (``deferred``: the module's device names); a missing file is 404, any misfit 422."""
     folder = settings.experiment_dir
@@ -100,11 +110,7 @@ def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loade
         return Loaded(problems=[f"no screen {name!r} in {settings.experiment}"], status=404)  # fmt: skip
     try:
         screen = Screen.from_path(path)
-        panel, native = PanelDevices(), NativeDevices.model_validate({})
-        if (folder / PANEL_DEVICES_FILENAME).is_file():
-            panel = PanelDevices.from_path(folder / PANEL_DEVICES_FILENAME)
-        if (folder / NATIVE_DEVICES_FILENAME).is_file():
-            native = NativeDevices.from_path(folder / NATIVE_DEVICES_FILENAME)
+        panel, native = registry(folder)
         plans: set[str] = set()
         library = folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME
         runs = any(w.bind and w.bind.action for g in screen.groups for w in g.widgets)

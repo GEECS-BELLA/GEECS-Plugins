@@ -1,0 +1,84 @@
+{#
+  A device page (Planning/device_pages.md): the picker at /device/<kind>, and
+  the device at /device/<kind>/<name> — the header (name, family, kind, the
+  module's state as a chip, heartbeat), the switcher (the picker's select, so
+  an operator changes device in place), and the role table from the device's
+  RESOLVED roles: the operator roles open, the expert roles in a disclosure,
+  one table per axis. Read only in this slice. Each row carries its role and
+  axis; device.js fills the PV and verdict from the module's device route and
+  the value from Hare. A device the page cannot draw is a kit pane saying why.
+  Each kind's page extends this one and fills `kind_component`.
+#}{% extends "base.html" %}
+{% block title %}{{ name or kind }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css">{% endblock %}
+{% block header %}{% if device %}
+<span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
+{% endif %}{% endblock %}
+{% macro role_table(list, axis) -%}
+<div class="tscroll"><table class="roles">
+  <thead><tr><th>Role</th><th class="num">Value</th><th>Units</th><th>State</th><th>PV</th></tr></thead>
+  <tbody>{% for role in list %}
+    <tr data-role="{{ role.name }}"{% if axis %} data-axis="{{ axis }}"{% endif %} data-type="{{ role.type }}"{% if role.units %} data-units="{{ role.units }}"{% endif %}>
+      <td>{{ role.label }}</td><td class="num v">—</td><td class="u">{{ role.units or "" }}</td>
+      <td class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></td>
+      <td class="pv mono">—</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+{%- endmacro %}
+{% block body %}
+<main class="device" data-kind="{{ kind }}"{% if name %} data-device="{{ name }}"{% endif %}{% if recover %} data-recover="1"{% endif %}>
+  {% if rows is defined %}
+  <form class="panel picker" method="get" action="{{ root }}/device/{{ kind }}">
+    <div class="body"><div class="row">
+      <div class="field"><label for="pick">{{ kind | capitalize }}</label>
+        <select id="pick" name="name" data-current="{{ name or '' }}">
+          <option value="">{{ ("choose a " ~ kind ~ "…") if rows else ("no " ~ kind ~ " in the registry") }}</option>
+          {% for d in rows %}<option value="{{ d.name }}"{% if d.name == name %} selected{% endif %}>{{ d.name }} · reading</option>{% endfor %}
+        </select></div>
+      <div class="field"><label for="typed">or a device name</label>
+        <input id="typed" name="typed" spellcheck="false" autocomplete="off" placeholder="GEECS device name"></div>
+      <button class="btn" type="submit">Go</button>
+      <span class="dim" id="roster-note">{{ problem or "" }}</span>
+    </div></div>
+  </form>
+  {% endif %}
+
+  {% if rows is defined and not name %}
+  <article class="panel"><header><span class="eyebrow">{{ kind | capitalize }} devices in the registry</span></header>
+    <div class="tscroll"><table id="roster">
+      <thead><tr><th>Device</th><th>Family</th><th>State</th></tr></thead>
+      <tbody>{% for d in rows %}<tr data-name="{{ d.name }}"><td class="id"><a href="{{ root }}/device/{{ kind }}/{{ d.name | urlencode }}">{{ d.name }}</a></td><td>{{ d.family }}</td>
+        <td class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">reading</span></td></tr>{% endfor %}</tbody>
+    </table></div>
+  </article>
+  {% endif %}
+  {% if pane %}{% set st, title, note = pane %}
+  <div class="state" data-state="{{ st }}">
+    <div class="t">{{ title }}</div>
+    {% if note %}<div class="m">{{ note }}</div>{% endif %}
+    {% if other %}<a class="btn sm" href="{{ root }}/device/{{ other }}/{{ name | urlencode }}">Open it as a {{ other }}</a>{% endif %}
+    {% if st == "error" %}<div class="row">{% for k in kinds %}<a class="btn sm" href="{{ root }}/device/{{ k }}">{{ k }}</a>{% endfor %}</div>{% endif %}
+  </div>
+  {% elif device %}
+  <article class="panel">
+    <header>
+      <span class="mono name">{{ name }}</span>
+      <span class="dim">{{ family.template }} · {{ kind }}</span>
+      <span class="chip lg" id="device-state" data-state="{{ kit_state.get(device.state, 'unknown') }}">{{ device.state or "unknown" }}</span>
+      <span class="dim" id="heartbeat">heartbeat {{ device.heartbeat or "—" }}</span>
+    </header>
+    {% block kind_component %}{# the kind's component: slice 3 the camera's frame, slice 4 the scope's traces #}{% endblock %}
+    <div class="body">
+    {% for axis in axes %}
+      {% if axis %}<span class="eyebrow">axis {{ axis }}</span>{% endif %}
+      {{ role_table(roles | selectattr("level", "equalto", "operator") | list, axis) }}
+      {% set expert = roles | selectattr("level", "equalto", "expert") | list %}
+      {% if expert %}<details class="disc"><summary>Expert · {{ expert | length }} roles</summary><div class="dbody">{{ role_table(expert, axis) }}</div></details>{% endif %}
+    {% endfor %}
+    </div>
+  </article>
+  {% endif %}
+</main>
+<script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/device_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/device.js" defer></script>{% endblock %}

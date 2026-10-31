@@ -62,7 +62,7 @@
         <div class="group"><span class="eyebrow">Device pages</span><div class="row">
         {% for e in launcher.device_pages %}
           <label class="field">{{ e.title }}
-            <select data-families="{{ e.families | join(' ') }}"{% if e.reason %} data-reason="1" title="{{ e.reason }}"{% endif %} disabled>
+            <select data-families="{{ e.families | join(' ') }}"{% if e.kind %} data-kind="{{ e.kind }}"{% endif %}{% if e.reason %} data-reason="1" title="{{ e.reason }}"{% endif %} disabled>
               <option value="">{{ e.reason or "reading the roster" }}</option>
             </select></label>
         {% endfor %}

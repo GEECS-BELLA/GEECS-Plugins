@@ -20,6 +20,9 @@ geecs_control_room/
   screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
                     its image files, and the module pass-throughs (/api/devices/{name}[/put],
                     /api/actions, …/{plan}/run, …/runs/{id}[/stop])
+  device_pages.py   KINDS (kind word → family kind → template); /device/{kind} the picker (the registry's
+                    devices of the kind, /api/device/{kind} their roster states), /device/{kind}/{name} the
+                    device resolved by one module read (denied / stale panes, never blank)
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
                     slowly), fills the device pickers, the presets region (save dialog, diff drawer,
@@ -27,9 +30,13 @@ geecs_control_room/
   static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
   static/screen_rules.js, home_rules.js   the pages' rules, pure (verdict word, value shown,
                     bounds, writable, differs, outcome state; the home lists' words)
+  static/device.js, device_rules.js   the device pages' live half (roles from the module, values
+                    from Hare, read only) and its rules (picker options, a role row's word and units)
+  static/device.css the device pages' layout
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
                     dropped, a timeout, back-off to 10 s, at most 8 requests at once
-  templates/        base.html (every page's shell), screen.html (EVERY screen), the pages
+  templates/        base.html (every page's shell), screen.html (EVERY screen), device.html (every
+                    device page until a kind gets its own, filling `kind_component`), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
 deploy/

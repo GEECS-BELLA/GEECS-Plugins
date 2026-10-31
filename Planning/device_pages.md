@@ -208,3 +208,34 @@ the durable fix (its owner's call). Each lane runs its own Canopy api
 container (the shared derived image, the lane's packages mounted, a configs
 copy with a bench policy) and its own Control Room; the shared api and the
 sims are left as found.
+
+### 2026-10-31 — slice 2, the picker and routing
+
+**Landed.** `geecs_control_room/device_pages.py`: `KINDS` (the table above,
+every kind on `device.html` for now), the registry listing per kind
+(`screens.registry` is now the one reader of the two device files),
+`/device/<kind>` (a kit select, a table of the kind's devices with the
+roster word beside each, polled from `/api/device/<kind>`, and a free-text
+name; the form works without script, a 303 to the page),
+`/device/<kind>/<name>` (one module read; `denied` for not on the roster,
+wrong kind with a link to the right kind, not a native device; `stale`
+with a 503 for a silent module, the page polling until it answers; an
+unknown kind a 404 pane). `device.html`: header (name, family, kind, the
+module's state as a chip, heartbeat), the switcher, the role table from
+`PanelDevice.resolve` (else the family's roles), operator roles open and
+expert in a `details.disc`, one table per axis, and an empty
+`kind_component` block for slices 3 and 4. `device.js` / `device_rules.js`
+(reusing `screen_rules.js`'s judge, show and view). The home's pickers and
+its two lists open `/device/<kind>/<name>` when the family has a kind (a DB
+device still opens the module's raw answer).
+
+**Judgment calls.** An array role (`read: on_request`) is never subscribed
+on Hare and reads "on request" (the kind's component reads it); a row's
+units are the family's, else the record's EGU for a readback or setpoint
+only (the motor record serves its EGU on every field, bits included). The
+picker's select names are drawn server-side and its states filled by the
+page, so the select works without script and no word is decided twice.
+
+**OWED.** The sim camera reads `error` (`DetectorState` Disconnected, as
+the bench notes found it); the reset is a sim-side write this lane did not
+make. The "not a native device" pane has no bench device (proved in tests).
