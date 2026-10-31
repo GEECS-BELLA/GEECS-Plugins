@@ -191,9 +191,12 @@ dependency (aioca), and the host's reach to the IOCs' CA and MJPEG ports (the
 frame URL is rehosted to the IOC's CA address). The CA addressing has one
 home: `site.env`'s `EPICS_CA_ADDR_LIST`/`EPICS_CA_AUTO_ADDR_LIST`, which the
 Control Room's unit already loads (`EnvironmentFile=@SITE_ENV@`); never
-`config.ini`, never GEECS-Core's `epics_env`. The alternative, module routes in
-GeecsCanopy reading through Hare, is ruled out by the brief (images and arrays
-not through Hare; no module route beyond what the pages need).
+`config.ini`, never GEECS-Core's `epics_env`. Not chosen: a module route in GeecsCanopy
+reading the arrays through Hare (the brief keeps images and arrays off Hare),
+and a CA reader in the module beside Hare (the brief places these components
+in the Control Room, and it keeps the frame and array traffic, megabytes a
+second at a camera's rate, out of Canopy's api process, which serves every
+screen's scalars).
 
 **The bench.** The Mac sim stack serves the camera (`UC_VisaEBeam6`), the
 motor (`SimMotor1`) and two supplies (`eztest1`, `fpstest1`). **It has no
