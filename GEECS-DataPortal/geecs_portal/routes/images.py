@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse, Response
 from matplotlib.figure import Figure
 
 from geecs_data_utils import tiled_schema as schema_map
+from geecs_data_utils.io import shot_images
+from geecs_data_utils.io.display_png import to_display_png
 from geecs_data_utils.io.images import average_frames
 from geecs_data_utils.scan_frame import scan_frame
 
@@ -22,6 +24,7 @@ from geecs_portal.routes.common import (
     _png_headers,
     _render_opts,
     _rendered,
+    _sfile_rows,
 )
 from geecs_portal.state import PortalState, get_state
 
@@ -60,7 +63,7 @@ def api_run_trace(
         raise HTTPException(
             status_code=404, detail="device missed this shot (no timestamp)"
         )
-    resolved = resources.load_shot_trace(folder, device, shot, acq_timestamp=acq)
+    resolved = shot_images.load_shot_trace(folder, device, shot, acq_timestamp=acq)
     if resolved.result is None:
         raise HTTPException(status_code=404, detail=resolved.reason or resolved.kind)
     trace = resolved.result
@@ -129,7 +132,7 @@ def run_image(
         )
     complete = bool(detail.summary.exit_status)
     if processing:
-        resolved = resources.load_shot_array(
+        resolved = shot_images.load_shot_array(
             folder,
             device,
             shot,
@@ -149,7 +152,7 @@ def run_image(
         else:
             (processed,) = portal.apply_processing([resolved.array], processing)
             try:
-                png = resources.to_display_png(processed, **render)
+                png = to_display_png(processed, **render)
             except Exception as exc:
                 raise HTTPException(
                     status_code=404, detail=f"render failed: {exc}"
@@ -164,7 +167,7 @@ def run_image(
             media_type="image/png",
             headers={"Cache-Control": "no-cache"},
         )
-    result = resources.load_shot_image(
+    result = shot_images.load_shot_image(
         folder,
         device,
         shot,
@@ -182,8 +185,35 @@ def run_image(
     return Response(content=result.png, media_type="image/png", headers=headers)
 
 
+def _refused(found: shot_images.ShotArray):
+    """*found*'s pixels or ``None``; a device-level refusal is a 404.
+
+    A vendor format or a non-image file is the same for every shot, so
+    the bin has no image at all rather than a short average.
+    """
+    if found.kind in ("vendor", "unrenderable"):
+        raise HTTPException(status_code=404, detail=found.reason or found.kind)
+    return found.array
+
+
+def _processed_bin(portal, folder, frame, device, shots, processing, load):
+    """Process-then-average: each member through the pipeline, then the mean.
+
+    ``average_rows`` averages first, so it does not fit here; the per-row
+    refusals are still ``load_row_array``'s.
+    """
+    arrays = []
+    for shot in shots:
+        found = shot_images.load_row_array(folder, frame, device, shot, **load)
+        if _refused(found) is not None:
+            arrays.append(found.array)
+    if arrays:
+        arrays = portal.apply_processing(arrays, processing)
+    return average_frames(arrays, label=f"{device} bin")
+
+
 @router.get("/run/{uid}/bin-image.png")
-def run_bin_image(  # noqa: C901
+def run_bin_image(
     uid: str,
     device: str,
     bin_index: int = Query(default=0, alias="bin"),
@@ -198,9 +228,10 @@ def run_bin_image(  # noqa: C901
 
     ``bin`` is the bin's INDEX in ``/api/.../bin-images`` order
     (same ``_bin_groups`` call, so the two always agree). Member
-    shots that resolve to pixels are averaged (``average_frames``)
-    and windowed once; shots the device missed (no timestamp) or
-    that fail to load are skipped — the JSON's ``count`` is the
+    shots that resolve to pixels are averaged
+    (``shot_images.average_rows``, the plotter's own) and windowed
+    once; shots the device missed (no timestamp), past the event
+    table, or that fail to load are skipped — the JSON's ``count`` is the
     membership, the pixels are what actually loaded. With
     ``processing``, each member is ephemeral-processed FIRST and
     the processed images average (process-then-average — the
@@ -219,37 +250,21 @@ def run_bin_image(  # noqa: C901
         )
     _, shots = groups[bin_index]
     complete = bool(detail.summary.exit_status)
-    n_rows = None if detail.data is None else len(detail.data)
-    arrays: list = []
-    for shot in shots:
-        # Same refusals as the per-shot endpoint: never fall through
-        # to an ordinal join beyond the recorded events (orphan
-        # frames), never average a neighbour's image in.
-        if n_rows is not None and shot > n_rows:
-            continue
-        acq, column_present = _acq_timestamp(detail, device, shot)
-        if column_present and acq is None:
-            continue  # device missed this shot
-        resolved = resources.load_shot_array(
-            folder,
-            device,
-            shot,
-            acq_timestamp=acq,
-            data_cache=portal.data_cache if complete else None,
-            cache_key=(uid, device) if complete else None,
-            file_shot=_file_shot(detail, shot, folder),
+    # Shot numbers are rows of the event table; with none (the folder
+    # catalog's runs) the announced shot comes off the s-file.
+    load = {
+        "file_frame": _sfile_rows(folder) if detail.data is None else None,
+        "data_cache": portal.data_cache if complete else None,
+        "cache_key": (uid, device) if complete else None,
+    }
+    if processing:
+        averaged = _processed_bin(
+            portal, folder, detail.data, device, shots, processing, load
         )
-        if resolved.array is None:
-            if resolved.kind in ("vendor", "unrenderable"):
-                # Device-level refusal — identical for every shot.
-                raise HTTPException(
-                    status_code=404, detail=resolved.reason or resolved.kind
-                )
-            continue
-        arrays.append(resolved.array)
-    if processing and arrays:
-        arrays = portal.apply_processing(arrays, processing)
-    averaged = average_frames(arrays, label=f"{device} bin {bin_index}")
+    else:
+        averaged = _refused(
+            shot_images.average_rows(folder, detail.data, device, shots, **load)
+        )
     if averaged is None:
         raise HTTPException(status_code=404, detail="no renderable frames in this bin")
     if processing and _rendered(disp):
@@ -258,7 +273,7 @@ def run_bin_image(  # noqa: C901
         png = portal.render_frame_figure(averaged, render)
     else:
         try:
-            png = resources.to_display_png(averaged, **render)
+            png = to_display_png(averaged, **render)
         except Exception as exc:
             raise HTTPException(
                 status_code=404, detail=f"render failed: {exc}"

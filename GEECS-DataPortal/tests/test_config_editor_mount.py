@@ -428,7 +428,7 @@ class TestSummaryPreview:
         from types import SimpleNamespace
 
         import pandas as pd
-        from geecs_portal import resources
+        from geecs_data_utils.io import shot_images
         from test_app import _LV
 
         np = pytest.importorskip("numpy")
@@ -439,7 +439,7 @@ class TestSummaryPreview:
             loads.append(shot)
             return SimpleNamespace(array=frame, kind="png", reason=None)
 
-        monkeypatch.setattr(resources, "load_shot_array", counting_load)
+        monkeypatch.setattr(shot_images, "load_shot_array", counting_load)
         catalog = FakeCatalog()
         # a run of 20 events, every shot with a timestamp
         detail = replace(

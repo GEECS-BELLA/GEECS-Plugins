@@ -8,16 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
+from geecs_web_theme.web import root_of
+
+from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_catalog import metadata_rows
 
-from geecs_portal import analysis, resources
+from geecs_portal import analysis
 from geecs_portal.routes.common import (
     _LISTING_HEADERS,
     _jump_target,
     _parse_iso_day,
     _portal_version,
     _resolved_folder,
-    _root,
     _summary_json,
 )
 from geecs_portal.state import PortalState, get_state
@@ -62,7 +64,7 @@ def api_day(
         "experiment": exp,
         "filter": filter,
         "runs": [_summary_json(run) for run in runs],
-        "page": f"{_root(request)}/day/{selected.isoformat()}",
+        "page": f"{root_of(request)}/day/{selected.isoformat()}",
     }
     return JSONResponse(payload, headers=_LISTING_HEADERS)
 
@@ -83,9 +85,9 @@ def api_run_jump(
         raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
     target = _jump_target(runs, prefer)
     page = (
-        f"{_root(request)}/run/{target.uid}"
+        f"{root_of(request)}/run/{target.uid}"
         if target
-        else f"{_root(request)}/day/{selected.isoformat()}"
+        else f"{root_of(request)}/day/{selected.isoformat()}"
     )
     payload = {
         "day": selected.isoformat(),
@@ -131,7 +133,7 @@ def api_run(
         "stop_doc": analysis.jsonable_document(detail.stop_doc or {}),
         "event_rows": None if detail.data is None else len(detail.data),
         "scan_folder": str(folder) if folder else None,
-        "devices": resources.image_devices(folder) if folder else [],
+        "devices": shot_images.image_devices(folder) if folder else [],
         "neighbours": {"prev_uid": prev_uid, "next_uid": next_uid},
         "day_runs": [_summary_json(run) for run in day_runs],
         "prev_day": (run_day - timedelta(days=1)).isoformat() if run_day else None,
@@ -141,7 +143,7 @@ def api_run(
         "config_editor": portal.config_editor_enabled,
         "logbook": portal.logbook_url(request, detail, run_day) or None,
         "logbook_send": portal.logbook_sendable(detail, run_day),
-        "page": f"{_root(request)}/run/{uid}",
+        "page": f"{root_of(request)}/run/{uid}",
         "portal_version": _portal_version(),
     }
     return JSONResponse(payload, headers=_LISTING_HEADERS)
@@ -163,7 +165,7 @@ def api_device(
     run_day, folder = _resolved_folder(detail, day)
     if folder is None:
         raise HTTPException(status_code=404, detail="scan folder not resolvable")
-    probe = resources.device_kind(folder, device)
+    probe = shot_images.device_kind(folder, device)
     if probe.kind == "missing":
         raise HTTPException(status_code=404, detail=f"unknown device {device!r}")
     renderable = probe.kind in ("stack", "native")

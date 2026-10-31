@@ -21,6 +21,7 @@ geecs_data_utils/
                                #   home the portal, logbook, ScanAnalysis and
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
+  data/curve_fit.py            # fit_curve → CurveFit: Gaussian, SuperGaussian, polynomial
   analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
@@ -82,6 +83,28 @@ geecs_data_utils/
                                #   + himg_worker.py: run any of those jobs in
                                #   a child interpreter, streaming progress,
                                #   logs, the report and errors back as events
+                               #   + shot_images.py: (scan folder, device,
+                               #   shot) → pixels, one shot at a time — the
+                               #   tier ladder (device_kind: stack / native /
+                               #   vendor / unrenderable), the row joins
+                               #   (row_acq_timestamp refuses a shot the
+                               #   device missed: never a neighbour's image;
+                               #   row_file_shot), load_shot_array /
+                               #   load_shot_image, load_row_array (a
+                               #   row of the WHOLE table → its file) and
+                               #   average_rows (rows → one average; a
+                               #   bin's rows from data.binning.bin_rows,
+                               #   a filter as its mask; the portal's
+                               #   bin-image route still has its own loop);
+                               #   a "stack" may hold
+                               #   traces: stack_content says which, and
+                               #   load_shot_trace reads one as x-vs-y;
+                               #   moved from the portal so every viewer
+                               #   resolves a shot alike
+                               #   + display_png.py: frame → 8-bit PNG
+                               #   through a percentile window, optional
+                               #   matplotlib colour map (lazy import; no
+                               #   matplotlib = greyscale)
   himg_cli.py                  # geecs-himg convert | verify | compact | restore: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
 ```
@@ -230,6 +253,19 @@ is excluded from the default value columns, the bin key is excluded
 from the dropna row policy (NA-bin-labelled rows aggregate into their
 own row), and all-NaN columns never cause drops.
 
+## Curve fits (`data/curve_fit.py`)
+
+`fit_curve(x, y, model, order=)` → `CurveFit`: GEECSplotter's Fit menu as
+one pure call over the finite `(x, y)` pairs, unweighted, standard errors
+from the residual-scaled covariance. Models: `gaussian` (σ; derived
+`fwhm`), `supergaussian` (`A·exp(-(|x−x0|/w)^p)+C`, `p` fitted within
+`POWER_BOUNDS`; derived `fwhm = 2w·(ln 2)^(1/p)`), each with a
+`_no_offset` kind, and `polynomial` (`c0 … cN`, ascending powers,
+`numpy.polyfit`). A fit that cannot be made is a `CurveFit` with `error`
+set, never an exception; `evaluate(x)` / `curve(points)` redraw it.
+scipy is imported inside the call. The rest of LabVIEW's menu (Lorentzian,
+Boltzmann, Exp Growth, Extreme, Lorentzian w slope) is a model added here.
+
 ## Config Directory Management
 
 `analysis_configs` owns read-only discovery of unique diagnostic stems under
@@ -372,10 +408,32 @@ this package and must never depend on GeecsBluesky or a GUI package).
   passes its scan numbers as `skip`, so claimed folders are never read
   (a Bluesky day costs one directory listing); each side degrades to the
   other (primary down → folders, `OSError` on the share → primary), and
-  only both failing re-raises the primary's error. The logbook's
+  only both failing re-raises the primary's error. A primary that cannot
+  be reached at all (`tiled_catalog.CatalogUnreachable`, which
+  `TiledScanCatalog` raises when its first connection fails or a later
+  query meets an httpx network error — a server that went down after
+  the client was cached — or any `ConnectionError`/`TimeoutError`) is skipped for `retry_after` seconds
+  (300; `clock` injectable): listings come from the folders alone and a
+  primary uid's `load_run` raises the remembered error at once, so an
+  unreachable Tiled costs one connect timeout per window, not one per
+  call. A reachable primary failing one query (a malformed run) is never
+  skipped. The logbook's
   `scan_reader` walks the same folders for a different product (its
   `ScanSummary`) over the same `scan_info` facts; folding the two walks
   together is its own change.
+  An unreachable data root (an unmounted share, none configured) is an
+  `OSError` from `list_runs`, never an empty day; `load_run` keeps its
+  `KeyError`. A root that did not exist when the process started
+  (`ScanPaths.paths_config` resolved to `None` at import) is looked for
+  again by `scan_paths.current_paths_config()` — at most every
+  `CONFIG_RETRY_S` (30 s), one thread at a time — so a service started
+  during a share outage recovers when the share comes back. The folder
+  catalog's readers go through it (`daily_scan_folder`, `list_runs`,
+  `load_run`, `probe`, and the portal Plot page's `find_scan`); a reader
+  of `ScanPaths.paths_config` directly does not recover — still
+  `ScanPaths.__init__`, GeecsBluesky's `data_paths`, LogTriage's
+  harvester and ScanAnalysis's config loader. A new reader of the root
+  uses `current_paths_config()`.
   Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);

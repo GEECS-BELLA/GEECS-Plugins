@@ -20,9 +20,9 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
-from geecs_data_utils.data.binning import BinningConfig
+from geecs_data_utils.data.binning import BinningConfig, bin_frame
 from geecs_data_utils.data.row_filters import RowFilters
 from geecs_data_utils.scan_grid import GridConfig
 
@@ -361,6 +361,54 @@ def jsonable_datetimes(series: Any, epoch: str) -> list:
     return out
 
 
+def binned_series(
+    frame: Any,  # pandas.DataFrame: the kept shots
+    cfg: BinningConfig,
+    columns: Sequence[str],
+    x: Optional[str] = None,
+) -> tuple[Any, dict, Optional[list]]:
+    """Bin *columns* of *frame*: the binned views' one call into ``bin_frame``.
+
+    Bins group the shots (``cfg.bin_col``); with an *x*, each bin is
+    placed at that column's per-bin mean, reindexed onto the Y bins (X's
+    own dropna may keep other bins, and a point must never plot at another
+    bin's position; a bin X lacks is a null, which Plotly skips).
+
+    Returns
+    -------
+    tuple
+        ``(result, series, x_centers)``: ``bin_frame``'s result, column →
+        ``{"center", "err_low", "err_high"}`` as JSON values (columns
+        ``bin_frame`` dropped are left out), and the X positions or ``None``.
+
+    Raises
+    ------
+    KeyError
+        The bin column is not in *frame*.
+    TypeError, ValueError
+        A column ``bin_frame`` cannot aggregate, or degenerate percentiles.
+    """
+    result = bin_frame(frame, dataclasses.replace(cfg, value_cols=tuple(columns)))
+    x_centers = None
+    if x:
+        x_result = bin_frame(
+            frame, dataclasses.replace(cfg, value_cols=(x,), agg="mean")
+        )
+        if (x, "center") in x_result.frame.columns:
+            x_centers = jsonable_values(
+                x_result.frame[(x, "center")].reindex(result.frame.index)
+            )
+    series = {
+        column: {
+            part: jsonable_values(result.frame[(column, part)])
+            for part in ("center", "err_low", "err_high")
+        }
+        for column in columns
+        if (column, "center") in result.frame.columns
+    }
+    return result, series, x_centers
+
+
 def jsonable_labels(index: Any) -> list:
     """Bin labels (a frame index) as JSON-safe scalars.
 
@@ -422,7 +470,7 @@ def _snippet_filters(filters: RowFilters) -> str:
     )
 
 
-def _snippet_display(display: Optional[dict]) -> str:
+def snippet_display(display: Optional[dict]) -> str:
     """Render the snippet's ``display=`` argument text.
 
     Empty when no cosmetics are set; the ``layout`` key is client-side
@@ -447,8 +495,8 @@ def frame_code(
     columns the endpoint served as local datetimes — the snippet must
     perform the same conversion or it would hand back raw seconds while
     claiming to reproduce the view.  The closing ``shots_figure`` call
-    hands back the figure the Plot tab renders (from the notebook frame
-    it titles axes with raw column names — the page adds pretty names).
+    hands back the payload's figure (from the notebook frame
+    it titles axes with raw column names, where a page shows pretty names).
     """
     converted = datetime_columns or {}
     conversion = ""
@@ -481,8 +529,8 @@ def frame_code(
         + "from geecs_portal.figures import shots_figure"
         + "  # pip install geecs-data-portal\n"
         + f"shots_figure(frame, y={columns!r}{x_arg}{kinds_arg}"
-        + f"{_snippet_display(display)})"
-        + "  # the figure the Plot tab renders\n"
+        + f"{snippet_display(display)})"
+        + "  # the payload's figure\n"
     )
 
 
@@ -496,10 +544,8 @@ def bin_images_code(
     """The notebook snippet reproducing a ``/api/.../bin-images`` response.
 
     Reproduces the endpoint's NUMBERS exactly (bins, counts, member
-    shots — the same ``compute_bin_key`` + groupby); the pixel side is
-    sketched with the shared ``average_frames`` primitive over the
-    reader layer, since the portal's tier ladder (stack vs native vs
-    vendor) is serving logic, not numerics.
+    shots — the same ``bin_rows`` call with the filter as its mask) and
+    the unprocessed pixels (the same ``average_rows``).
     """
     non_default = {
         f.name: getattr(cfg, f.name)
@@ -507,24 +553,37 @@ def bin_images_code(
         if getattr(cfg, f.name) != f.default
     }
     kwargs = ", ".join(f"{k}={v!r}" for k, v in sorted(non_default.items()))
+    if filters.active_groups():
+        masking = (
+            "from geecs_data_utils.data.row_filters import RowFilters, filter_mask\n"
+            + "\n"
+            + f"filters = RowFilters.model_validate_json({filters.model_dump_json()!r})\n"
+            + "mask = filter_mask(pf.frame, filters)\n"
+        )
+    else:
+        masking = "mask = None\n"
     return (
         "# reproduces this listing exactly — the endpoint calls the same functions\n"
         + _snippet_prelude(uid, run_day)
-        + _snippet_filters(filters)
-        + "from geecs_data_utils.data.binning import BinningConfig, compute_bin_key\n"
-        + "from geecs_portal.figures import shot_axis_for_frame"
-        + "  # pip install geecs-data-portal\n"
+        + masking
+        + "from geecs_data_utils.data.binning import BinningConfig, bin_rows\n"
+        + "from geecs_data_utils.io.shot_images import average_rows\n"
+        + "from geecs_data_utils.tiled_schema import shot_axis_for_frame\n"
         + "\n"
         + f"cfg = BinningConfig({kwargs})\n"
-        + "labels, _ = compute_bin_key(frame, cfg)\n"
-        + "members = shot_axis_for_frame(frame).groupby(\n"
-        + "    labels, dropna=False, observed=True\n"
-        + ").apply(lambda s: sorted({int(v) for v in s.dropna()}))\n"
-        + "members  # per-bin shot lists; counts = members.map(len)\n"
+        + "shots = shot_axis_for_frame(pf.frame)  # union row -> shot number\n"
+        + "members = [\n"
+        + "    (label, sorted({int(s) for s in shots.iloc[[r - 1 for r in rows]].dropna()}))\n"
+        + "    for label, rows in bin_rows(pf.frame, cfg, mask=mask)\n"
+        + "]\n"
+        + "members  # per bin: (label, shot list); counts = len(shot list)\n"
         + "\n"
-        + "# each grid image = average_frames([...pixels of a bin's shots...])\n"
-        + "# (geecs_data_utils.io: read_imaq_image / scan_stack readers under\n"
-        + f"#  folder / {device!r}), display-windowed once after averaging\n"
+        + "# one grid image (the first bin's), before display windowing:\n"
+        + "pixels = (\n"
+        + f"    average_rows(folder, detail.data, {device!r}, members[0][1]).array\n"
+        + "    if members\n"
+        + "    else None\n"
+        + ")\n"
     )
 
 
@@ -579,6 +638,6 @@ def binned_code(
         + '               for s in ("center", "err_low", "err_high")}\n'
         + f"          for c in {columns!r} if (c, 'center') in result.frame}}\n"
         + f"binned_figure({x_args}, y={columns!r}, "
-        + f"bin_col={cfg.bin_col!r}{_snippet_display(display)})"
-        + "  # the figure the Plot tab renders\n"
+        + f"bin_col={cfg.bin_col!r}{snippet_display(display)})"
+        + "  # the payload's figure\n"
     )

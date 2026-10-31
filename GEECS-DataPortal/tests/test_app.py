@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from datetime import date, datetime
 
 import pandas as pd
@@ -195,13 +196,15 @@ class TestRunView:
         assert "Scan 002" in response.text
         assert "success" in response.text
 
-    def test_page_has_tabs_and_the_vendored_plotly(self):
+    def test_the_scan_page_keeps_the_overview_and_draws_no_plot(self):
         response = _client().get("/run/uid-002")
         assert 'data-pane="overview"' in response.text
-        assert 'data-pane="plot"' in response.text
-        assert 'data-pane="images"' in response.text
-        # The one committed JS asset — version-pinned, served locally.
-        assert "/static/plotly-cartesian-" in response.text
+        # Plot and Images are the plotter's pages; without it mounted,
+        # neither tab, and this page loads no Plotly.
+        assert 'id="tab-plot"' not in response.text
+        assert 'id="tab-images"' not in response.text
+        assert 'id="pane-images"' not in response.text
+        assert "/static/plotly-cartesian-" not in response.text
 
     def test_vendored_plotly_is_served(self):
         response = _client().get("/static/plotly-cartesian-3.1.1.min.js")
@@ -220,15 +223,14 @@ class TestRunView:
     def test_analysis_state_rides_the_stepper_links(self):
         client = _client(FakeCatalog(), default_experiment="Undulator")
         response = client.get(
-            "/run/uid-001?y=cam-MaxCounts&y=mono&view=bin"
-            "&filters=%7B%22groups%22%3A%5B%5D%7D&tab=plot"
+            "/run/uid-001?view=bin&filters=%7B%22groups%22%3A%5B%5D%7D&tab=analysis"
         )
         stepper_line = next(
             line for line in response.text.splitlines() if "/run/uid-002?" in line
         )
-        assert "y=cam-MaxCounts" in stepper_line and "y=mono" in stepper_line
-        assert "view=bin" in stepper_line
-        assert "filters=" in stepper_line
+        assert "tab=analysis" in stepper_line
+        # The images and filters state left with the Images tab.
+        assert "view=" not in stepper_line and "filters=" not in stepper_line
 
     def test_unknown_run_is_404(self):
         assert _client().get("/run/nope").status_code == 404
@@ -815,13 +817,6 @@ class TestServerFigures:
         assert fig["layout"]["xaxis"]["title"]["text"] == "mono"
         assert "binned_figure" in payload["code"]
 
-    def test_page_injects_the_server_palette_and_marker_default(self):
-        from geecs_portal.figures import MARKER_SIZE_DEFAULT, TRACE_COLORS
-
-        text = _client().get("/run/uid-002").text
-        assert f"const TRACE_COLORS = {json.dumps(list(TRACE_COLORS))};" in text
-        assert f"const MSIZE_DEFAULT = {json.dumps(MARKER_SIZE_DEFAULT)};" in text
-
     def test_datetime_snippet_carries_kinds(self):
         # Without kinds the notebook figure would apply logx/x-ranges
         # to a date axis the page's figure guards — divergence.
@@ -932,24 +927,15 @@ class TestPlotTabPolish:
         )
         assert "- LABVIEW_EPOCH_OFFSET" in labview["code"]
 
-    def test_display_state_rides_run_view_links(self):
-        client = _client(FakeCatalog(), default_experiment="Undulator")
-        response = client.get(
-            "/run/uid-001?y=cam-MaxCounts&display=%7B%22logy%22%3Atrue%7D"
-        )
-        stepper_line = next(
-            line for line in response.text.splitlines() if "/run/uid-002?" in line
-        )
-        assert "display=" in stepper_line
-
     def test_plot_config_suite_is_on(self):
         # The free-suite pin: wheel zoom, draw tools, spike lines are
-        # config (one line to maintain), never per-knob code.
-        text = _client().get("/run/uid-002").text
+        # config (one line to maintain), never per-knob code. Every plot
+        # is the Plot pages' now: their shared tools hold it.
+        tools = Path(__file__).resolve().parents[1] / "geecs_portal" / "plotter"
+        text = (tools / "static" / "plot_tools.js").read_text()
         assert "scrollZoom: true" in text
-        assert "drawrect" in text
-        assert "togglespikelines" in text
-        assert "deepMerge(fig.layout, d.layout)" in text  # the passthrough
+        assert '"drawrect"' in text
+        assert '"togglespikelines"' in text
 
 
 class TestReverseProxy:
@@ -978,7 +964,7 @@ class TestReverseProxy:
         client = _client(FakeCatalog(), default_experiment="Undulator")
         response = client.get("/run/uid-002", headers=self.PREFIX)
         assert response.status_code == 200
-        assert 'src="/portal/static/plotly-cartesian-' in response.text
+        assert 'href="/portal/static/portal.css' in response.text
         # The JS builds every /api fetch (and the scan-jump dropdown)
         # from this constant.
         assert 'const ROOT = "/portal";' in response.text
@@ -1006,7 +992,7 @@ class TestReverseProxy:
         client = _client(FakeCatalog(), default_experiment="Undulator")
         response = client.get("/run/uid-002")
         assert 'const ROOT = "";' in response.text
-        assert 'src="/static/plotly-cartesian-' in response.text
+        assert 'href="/static/portal.css' in response.text
         assert '"/run/uid-001?' in response.text
 
     def test_trailing_slash_prefix_is_normalized(self):

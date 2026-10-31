@@ -9,6 +9,7 @@ import pytest
 from geecs_data_utils.scan_paths import daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
+    CatalogUnreachable,
     RunDetail,
     StubCatalog,
     TiledScanCatalog,
@@ -311,6 +312,48 @@ class TestTiledScanCatalogListRuns:
         assert len(catalog.list_runs("", TEST_DAY)) == 2
 
 
+def test_a_failed_first_connection_is_catalog_unreachable(monkeypatch) -> None:
+    """The fallback catalogs tell an unreachable server by this type."""
+    tiled_client = pytest.importorskip("tiled.client")
+
+    def unreachable(*args, **kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(tiled_client, "from_uri", unreachable)
+    catalog = TiledScanCatalog(uri="http://tiled.invalid:8000", api_key="k")
+    with pytest.raises(CatalogUnreachable) as caught:
+        catalog.list_runs("Undulator", TEST_DAY)
+    assert isinstance(caught.value, ConnectionError)
+
+
+def test_a_server_gone_down_after_connecting_is_catalog_unreachable() -> None:
+    """A cached client meets a dead server in its queries, as httpx errors."""
+    pytest.importorskip("tiled")
+    httpx = pytest.importorskip("httpx")
+
+    class _DeadClient:
+        def search(self, *args, **kwargs):
+            raise httpx.ConnectError("connection refused")
+
+        def __getitem__(self, uid):
+            raise httpx.ReadTimeout("timed out")
+
+    catalog = TiledScanCatalog(uri="http://fake:8000")
+    catalog._client = _DeadClient()
+    with pytest.raises(CatalogUnreachable):
+        catalog.list_runs("Undulator", TEST_DAY)
+    with pytest.raises(CatalogUnreachable):
+        catalog.load_run("uid-001")
+
+
+def test_an_unknown_uid_stays_a_key_error() -> None:
+    """Not-found is the protocol's KeyError, never an outage."""
+    pytest.importorskip("tiled")
+    catalog = _fake_catalog({})
+    with pytest.raises(KeyError):
+        catalog.load_run("uid-missing")
+
+
 class TestTiledScanCatalogLoadRun:
     def test_load_run_reads_primary_frame(self):
         import pandas as pd
@@ -543,12 +586,22 @@ class TestDailyScanFolder:
         from geecs_data_utils.scan_paths import ScanPaths
 
         monkeypatch.setattr(ScanPaths, "paths_config", None)
+        # Hermetic: the look-again for a missing root must not read this
+        # machine's config.ini.
+        monkeypatch.setattr(
+            ScanPaths, "reload_paths_config", classmethod(lambda cls: None)
+        )
         assert daily_scan_folder("", base_path=tmp_path, day=TEST_DAY) is None
 
     def test_no_config_and_no_base_path_returns_none(self, monkeypatch):
         from geecs_data_utils.scan_paths import ScanPaths
 
         monkeypatch.setattr(ScanPaths, "paths_config", None)
+        # Hermetic: the look-again for a missing root must not read this
+        # machine's config.ini.
+        monkeypatch.setattr(
+            ScanPaths, "reload_paths_config", classmethod(lambda cls: None)
+        )
         assert daily_scan_folder("Undulator", day=TEST_DAY) is None
 
 

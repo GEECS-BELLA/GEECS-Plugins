@@ -8,6 +8,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
+from geecs_data_utils.io import shot_images
+
 from geecs_portal import resources
 from geecs_portal.routes.common import _acq_timestamp, _file_shot, _image_folder
 from geecs_portal.state import PortalState
@@ -94,7 +96,7 @@ def _camera_frame(
         raise LookupError("device missed this shot (no timestamp)")
     complete = bool(detail.summary.exit_status)
     try:
-        resolved = resources.load_shot_array(
+        resolved = shot_images.load_shot_array(
             folder,
             device,
             shot,
