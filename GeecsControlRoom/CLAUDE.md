@@ -83,7 +83,9 @@ deploy/
   words), restores a device subset as a run the module synthesizes (the
   confirm dialog first; the run shown on the row as on a screen button),
   and marks golden by name. The strip's "Baseline" chip is the golden
-  snapshots' differing rows, polled every 10 s; hidden without a golden.
+  snapshots' differing rows, polled every 10 s, "not compared" (never
+  "as baseline") while a row of theirs could not be compared; hidden
+  without a golden.
 - **The home sorts the module's words; it judges nothing.** "Not live" is
   every device whose state is not `live` (a DB device's state is its
   gateway `connected` PV, so a Disconnected LabVIEW device is listed; a live

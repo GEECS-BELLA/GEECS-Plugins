@@ -102,7 +102,7 @@
   // ---- presets: Squirrel's snapshots through the module; a restore is a run, shown on its row
   const H = window.GeecsHomeRules, R = window.GeecsScreenRules;
   const PRESETS = "/api/home/presets", BASELINE = "/api/home/baseline";
-  let presets = [], screens = [], current = null, drawn = "", runs = {}, runOf = {}, watching = new Set();
+  let presets = [], screens = [], selection = null, drawn = "", runs = {}, runOf = {}, watching = new Set();
   const opInput = $("operator"), OP_KEY = "geecs-control-room-operator"; // the header's, remembered as on a screen
   try { opInput.value = localStorage.getItem(OP_KEY) || ""; } catch (_) { /* no storage */ }
   opInput.addEventListener("change", () => { try { localStorage.setItem(OP_KEY, opInput.value.trim()); } catch (_) { /* no storage */ } });
@@ -178,17 +178,23 @@
   }
 
   async function openDiff(p, restoring) {
-    current = { preset: p, rows: [] };
+    selection = H.openSelection(selection, p);
+    const generation = selection.generation; // this open's; a later open or close supersedes it
     $("preset-diff-title").textContent = `${p.name} · saved vs live`;
     $("preset-diff-note").textContent = "reading…";
     $("preset-diff-rows").replaceChildren();
     const drawer = window.GeecsKit.drawer($("preset-diff"));
     drawer.open();
-    const [status, body] = await json(`/api/presets/${encodeURIComponent(p.id)}/diff`);
+    let status, body;
+    try {
+      [status, body] = await json(`/api/presets/${encodeURIComponent(p.id)}/diff`);
+    } catch (err) {
+      [status, body] = [0, { code: "no_answer", detail: "the Control Room did not answer; open the diff again" }];
+    }
+    if (!H.stillCurrent(selection, generation, drawer.isOpen)) return; // closed or superseded: not this drawer's answer any more
     if (status !== 200) { $("preset-diff-note").textContent = `${body.code || status}: ${body.detail || ""}`; return; }
-    current.rows = body.rows;
-    const c = body.counts || {};
-    $("preset-diff-note").textContent = `${body.rows.length} rows · ${c.differs || 0} differ · ${c.unsaved || 0} unsaved · ${c.retired || 0} retired; tick the devices to restore`;
+    selection = H.takeDiff(selection, generation, body.rows, drawer.isOpen);
+    $("preset-diff-note").textContent = H.diffSummary(body.rows);
     $("preset-diff-rows").replaceChildren(...body.rows.map((r) => {
       const tr = document.createElement("tr"), pick = cell(""), box = document.createElement("input");
       box.type = "checkbox"; box.value = r.device; box.disabled = r.word !== "differs"; box.checked = r.word === "differs"; box.setAttribute("aria-label", `restore ${r.device}`);
@@ -198,20 +204,42 @@
       tr.append(pick, cell(r.device), cell(r.axis ? `${r.role}[${r.axis}]` : r.role), cell(JSON.stringify(r.saved)), cell(JSON.stringify(r.live)), cell(r.tolerance), word);
       return tr;
     }));
-    if (restoring) restore();
+    if (restoring) restore(generation);
   }
 
-  async function restore() {
-    const p = current.preset, operator = opInput.value.trim();
-    if (!operator) { window.GeecsKit.drawer($("preset-diff")).close(); opInput.focus(); return note("unsent", "name yourself in the header first"); }
+  let restoreInFlight = false; // a restore in flight: the drawer sends one at a time, once
+  async function restore(asked) {
+    const drawer = window.GeecsKit.drawer($("preset-diff"));
+    const generation = asked === undefined ? selection.generation : asked; // the Restore button's: the drawer's own now
+    if (!H.stillCurrent(selection, generation, drawer.isOpen)) return; // the drawer closed or moved on
+    if (restoreInFlight) { $("preset-diff-note").textContent = "a restore is in flight; Restore… again once it answers"; return; }
+    const p = selection.preset, operator = opInput.value.trim();
+    if (!operator) { drawer.close(); opInput.focus(); return note("unsent", "name yourself in the header first"); }
     const picked = [...new Set([...document.querySelectorAll("#preset-diff-rows input:checked")].map((b) => b.value))];
-    const plan = H.restorePlan(current.rows, picked);
+    const plan = H.restorePlan(selection.rows, picked);
+    if (!plan.rows.length) { $("preset-diff-note").textContent = `${plan.text}; nothing to restore`; return; }
     $("preset-restore-what").textContent = `${p.name} → ${plan.text}`;
-    $("preset-restore-note").textContent = plan.rows.length ? "Each row goes through the module's gates; a hazard role is confirmed here, once." : "";
-    if (!plan.rows.length || !(await ask($("preset-restore"), "restore"))) return;
-    const [status, a] = await json(`/api/presets/${encodeURIComponent(p.id)}/restore`, { operator, confirm: true, devices: plan.devices });
-    if (status === 202) { track(p.id, a); window.GeecsKit.drawer($("preset-diff")).close(); }
-    else { $("preset-diff-note").textContent = `${a.code || status}: ${a.detail || ""}`; }
+    $("preset-restore-note").textContent = "Each row goes through the module's gates; a hazard role is confirmed here, once.";
+    if (!(await ask($("preset-restore"), "restore"))) return;
+    restoreInFlight = true;
+    $("preset-restore-open").disabled = true;
+    let status, a;
+    try {
+      [status, a] = await json(`/api/presets/${encodeURIComponent(p.id)}/restore`, { operator, confirm: true, devices: plan.devices });
+    } catch (err) {
+      [status, a] = [0, { code: "no_answer", detail: "read the journal before restoring again" }];
+    } finally {
+      restoreInFlight = false;
+      $("preset-restore-open").disabled = false;
+    }
+    if (status === 202) track(p.id, a); // the run is the row's, whatever the drawer shows now
+    if (!H.stillCurrent(selection, generation, drawer.isOpen)) {
+      // the drawer moved on: its note is not this answer's, so a refusal is said on the presets chip instead
+      if (status !== 202) note(a.code || String(status), `${p.name}: ${a.detail || ""}`, "failed");
+      return;
+    }
+    if (status === 202) drawer.close();
+    else $("preset-diff-note").textContent = `${a.code || status}: ${a.detail || ""}`;
   }
 
   async function golden(p) {
@@ -276,5 +304,5 @@
   setInterval(() => slow.tick([PRESETS, BASELINE]), SLOW_MS);
   setInterval(() => runPoller.tick([...watching]), POLL_MS / 2);
   $("preset-save-open").addEventListener("click", savePreset);
-  $("preset-restore-open").addEventListener("click", restore);
+  $("preset-restore-open").addEventListener("click", () => restore());
 })();

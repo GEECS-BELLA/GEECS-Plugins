@@ -33,11 +33,31 @@
   }
 
   // The strip's "differs from baseline": the golden snapshots' differing rows, summed; none without a golden.
+  // A row that could not be compared (unread, unsaved, retired, unsupported) makes the verdict incomplete:
+  // "as baseline" is said only when every row was.
   function baselineChip(body) {
     if (!body || !body.ok) return { hidden: false, text: "unknown", state: "unknown", title: (body && body.detail) || "" };
     if (!body.golden) return { hidden: true, text: "", state: "unknown", title: "" };
-    const n = body.differs;
-    return { hidden: false, text: n ? `${n} differ${n === 1 ? "s" : ""}` : "as baseline", state: n ? "degraded" : "ok", title: (body.presets || []).map((p) => `${p.name}: ${p.differs}`).join(", ") };
+    const n = body.differs, k = body.incomplete || 0;
+    const title = (body.presets || []).map((p) => `${p.name}: ${p.differs} differ${p.incomplete ? `, ${p.incomplete} not compared` : ""}`).join(", ");
+    if (k) return { hidden: false, text: `${n ? `${n} differ · ` : ""}${k} not compared`, state: "unknown", title };
+    return { hidden: false, text: n ? `${n} differ${n === 1 ? "s" : ""}` : "as baseline", state: n ? "degraded" : "ok", title };
+  }
+
+  // The diff drawer's selection: opening it for a preset starts a new generation; a diff that answers for an
+  // older generation (opened for another preset meanwhile) or for a drawer no longer open is dropped, never shown.
+  // The drawer's own openness is the fourth guard: the kit closes it on Esc, the scrim or Close, none of which the page sees.
+  const openSelection = (state, preset) => ({ generation: (state ? state.generation : 0) + 1, preset, rows: [] });
+  // Whether an answer still belongs to the drawer: it is open and on the generation the request was made for.
+  // Every answer the drawer awaits (a diff of any status, a restore's) goes through this one predicate.
+  const stillCurrent = (state, generation, open) => !!open && !!state && generation === state.generation;
+  const takeDiff = (state, generation, rows, open) => (stillCurrent(state, generation, open) ? { ...state, rows } : null);
+
+  // The drawer's summary of a diff: a row was compared only when its word is same or differs, as the baseline counts.
+  function diffSummary(rows) {
+    const differs = rows.filter((r) => r.word === "differs").length;
+    const notCompared = rows.filter((r) => r.word !== "same" && r.word !== "differs").length;
+    return `${rows.length} rows · ${differs} differ · ${notCompared} not compared; tick the devices to restore`;
   }
 
   // A diff row's word as a kit state; "unsaved: unreachable at save time" explains a null.
@@ -45,12 +65,14 @@
   const diffState = (word) => DIFF[word] || "unknown";
   const diffNote = (word) => (word === "unsaved" ? "unsaved: unreachable at save time" : word);
 
-  // What a restore would write: the differing rows among the picked devices (every device when none is picked).
+  // What a restore would write: the differing rows of the picked devices; nothing picked is nothing to restore
+  // (the drawer ticks the differing devices itself, so an empty pick is the operator's clearing).
   function restorePlan(rows, picked) {
-    const chosen = rows.filter((r) => r.word === "differs" && (!picked.length || picked.includes(r.device)));
+    const chosen = picked.length ? rows.filter((r) => r.word === "differs" && picked.includes(r.device)) : [];
     const devices = [...new Set(chosen.map((r) => r.device))];
-    return { rows: chosen, devices, text: chosen.length ? `${chosen.length} row${chosen.length === 1 ? "" : "s"} on ${devices.join(", ")}` : "nothing differs" };
+    const text = chosen.length ? `${chosen.length} row${chosen.length === 1 ? "" : "s"} on ${devices.join(", ")}` : picked.length ? "nothing differs on the picked devices" : "no device picked";
+    return { rows: chosen, devices, text };
   }
 
-  Object.assign(rules, { listView, presetRow, baselineChip, diffState, diffNote, restorePlan });
+  Object.assign(rules, { listView, presetRow, baselineChip, openSelection, stillCurrent, takeDiff, diffSummary, diffState, diffNote, restorePlan });
 })(typeof module === "object" ? module.exports : (window.GeecsHomeRules = {}));

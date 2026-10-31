@@ -15,7 +15,8 @@ has it); "unreachable" there is a state, not an error page. The presets
 are the module's (Squirrel's snapshots behind it): listed, saved, diffed,
 marked golden and restored through its routes, each write sent once (the
 module resolves a scope, screens included). The strip's "baseline" is the
-golden snapshots' differing rows, polled slowly.
+golden snapshots' differing rows, polled slowly, and incomplete while a
+row of theirs could not be compared.
 """
 
 from __future__ import annotations
@@ -228,8 +229,13 @@ async def presets(settings: Settings, module: ModuleClient) -> dict[str, Any]:
     return {"ok": True, "presets": body.get("presets", []), "screens": screens}
 
 
+#: A diff row was compared only when its word is a comparison's outcome; any other word (the module's, present
+#: or future: unread, unsaved, retired, unsupported) leaves the baseline verdict incomplete.
+_COMPARED = ("same", "differs")
+
+
 async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
-    """The golden snapshots' differing rows, summed: the strip's "differs from baseline"; none without a golden."""
+    """The golden snapshots' differing rows, summed, and the rows that could not be compared (``incomplete``): the strip's "differs from baseline"; none without a golden."""
     listing = await presets(settings, module)
     if not listing["ok"]:
         return listing
@@ -242,7 +248,12 @@ async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
             return {"name": p["name"], "error": f"the module did not answer: {exc}"}
         if status != 200:
             return {"name": p["name"], "error": f"the module answered {status}: {body.get('detail', body)}"}  # fmt: skip
-        return {"name": p["name"], "differs": body["counts"]["differs"]}
+        incomplete = sum(r["word"] not in _COMPARED for r in body["rows"])
+        return {
+            "name": p["name"],
+            "differs": body["counts"]["differs"],
+            "incomplete": incomplete,
+        }
 
     rows = await asyncio.gather(*(differs(p) for p in golden))
     if failed := [r for r in rows if "error" in r]:
@@ -250,7 +261,8 @@ async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
             "ok": False,
             "detail": "; ".join(f"{r['name']}: {r['error']}" for r in failed),
         }
-    return {"ok": True, "golden": len(golden), "differs": sum(r["differs"] for r in rows), "presets": rows}  # fmt: skip
+    total = {k: sum(r[k] for r in rows) for k in ("differs", "incomplete")}
+    return {"ok": True, "golden": len(golden), "presets": rows} | total
 
 
 class _Baseline:
