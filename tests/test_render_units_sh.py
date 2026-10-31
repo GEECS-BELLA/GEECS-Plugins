@@ -333,3 +333,74 @@ def test_a_render_time_key_in_the_instance_file_is_refused(
     result = _check_instance(_filled_example(tmp_path, extra=f"{key}=/srv/inst\n"))
     assert result.returncode != 0
     assert key in result.stderr
+
+
+def _fake_clones(root: Path, *, stale: bool) -> None:
+    """Clones under *root* holding the instance templates; *stale* = code that
+    predates the per-instance keys (the launcher and the queue client)."""
+    files = {
+        "gateway-checkout": ["GeecsCAGateway/deploy/geecs-ca-gateway@.service"],
+        "portal-checkout": ["GeecsLogbook/deploy/geecs-logbook@.service"],
+        "qs-checkout": [
+            "GeecsBluesky/qserver/deploy/geecs-qserver@.service",
+            "GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service",
+            "GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service",
+            "GeecsScanner/deploy/geecs-scanner@.service",
+            "GeecsBluesky/qserver/launch_re_manager.sh",
+            "GeecsBluesky/geecs_bluesky/qs_client/client.py",
+        ],
+    }
+    for clone, rels in files.items():
+        (root / clone).mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(root / clone)], check=True)
+        for rel in rels:
+            dst = root / clone / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            if stale and rel.endswith((".sh", ".py")):
+                text = "\n".join(
+                    line
+                    for line in text.splitlines()
+                    if not any(k in line for k in ("QS_REDIS_PREFIX", "_ENV_KEYS = ("))
+                )
+            dst.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("stale", [True, False])
+def test_bootstrap_renders_no_instance_over_code_that_ignores_its_keys(
+    tmp_path: Path, stale: bool
+) -> None:
+    """A clone whose code predates the instance keys would run the instance on
+    the main manager's Redis keys and plan list, and its scanner on the main
+    manager: nothing is rendered or enabled for those services."""
+    root = tmp_path / "root"
+    _fake_clones(root, stale=stale)
+    site = tmp_path / "site.env"
+    site.write_text(
+        SITE_ENV.read_text(encoding="utf-8") + f"\nGEECS_CHECKOUT_ROOT={root}\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            str(BOOTSTRAP),
+            str(site),
+            "--experiment",
+            "PulsedWire",
+            "--instance-env",
+            _filled_example(tmp_path),
+            "--no-install",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    enable = next(
+        line for line in result.stdout.splitlines() if "systemctl enable --now" in line
+    )
+    for unit in ("geecs-qserver@", "geecs-qserver-ready@", "geecs-scanner@"):
+        assert (unit in enable) is not stale, (unit, enable)
+    assert ("does not read" in result.stdout) is stale
+    assert "geecs-ca-gateway@PulsedWire.service" in enable
+    assert "geecs-tiled-writer@PulsedWire.service" in enable

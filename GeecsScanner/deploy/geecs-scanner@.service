@@ -1,6 +1,7 @@
 # GEECS web scanner, per-experiment instance — systemd unit TEMPLATE: the
-# console over geecs-qserver@<Instance> (QS_CONTROL_ADDR / QS_INFO_ADDR /
-# QS_DOC_ADDR from the instance file), on GEECS_SCANNER_PORT.
+# console over geecs-qserver@<Instance> (QS_CLIENT_CONTROL_ADDR /
+# QS_CLIENT_INFO_ADDR / QS_CLIENT_DOC_ADDR from the instance file), on
+# GEECS_SCANNER_PORT.
 #
 # One instance per experiment: `systemctl enable --now <unit>@<Instance>`.
 # Render with deploy/render_units.sh (or bootstrap_host.sh --experiment);

@@ -114,6 +114,27 @@ instance_templates_of() { case "$1" in
     qserver) echo "GeecsBluesky/qserver/deploy/geecs-qserver@.service GeecsBluesky/qserver/deploy/geecs-qserver-ready@.service";;
     tiled-writer) echo "GeecsBluesky/qserver/deploy/geecs-tiled-writer@.service";;
     scanner) echo "GeecsScanner/deploy/geecs-scanner@.service";; esac; }
+# The code lines that make each service read its per-instance keys, matched
+# literally (grep -F) so a mention in a comment or docstring never passes:
+# a rendered instance must never silently run on the main experiment's
+# values. Moving one of these lines fails CLOSED (nothing rendered) until
+# this table follows it.
+instance_code_of() { case "$1" in
+    qserver) printf '%s\n' \
+        'GeecsBluesky/qserver/launch_re_manager.sh|INSTANCE_ARGS+=(--redis-name-prefix "${QS_REDIS_PREFIX}")' \
+        'GeecsBluesky/qserver/launch_re_manager.sh|INSTANCE_ARGS+=(--existing-plans-devices "${QS_EXISTING_PLANS_DEVICES}")' ;;
+    scanner) printf '%s\n' \
+        'GeecsBluesky/geecs_bluesky/qs_client/client.py|_ENV_KEYS = ("QS_CLIENT_CONTROL_ADDR", "QS_CLIENT_INFO_ADDR", "QS_CLIENT_DOC_ADDR")' ;;
+    esac; }
+instance_keys_unread() {  # instance_keys_unread SERVICE CLONE_DIR — prints " FILE" per file lacking its line
+    local spec
+    while IFS= read -r spec; do
+        [ -n "$spec" ] || continue
+        grep -qF -- "${spec#*|}" "$2/${spec%%|*}" 2>/dev/null || printf ' the per-instance keys (%s)' "${spec%%|*}"
+    done <<EOF_CODE
+$(instance_code_of "$1")
+EOF_CODE
+}
 if [ -n "$INSTANCE" ]; then
     case "$INSTANCE" in *[!A-Za-z0-9_-]*) echo "--experiment: instance '$INSTANCE' is not a slug (letters, digits, '-', '_')" >&2; exit 2 ;; esac
     EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
@@ -167,6 +188,15 @@ if [ -n "$INSTANCE" ]; then
         done
         if [ -n "$missing" ]; then
             echo "  $s: WARNING — $(clone_of "$s") lacks the instance template(s)$missing (it predates them); nothing rendered for $s — pulling that clone forward is a deploy of the main experiment's service, decided by a human"
+            continue
+        fi
+        # A template alone is not enough: code that predates the instance keys
+        # would run this instance on the MAIN manager's Redis keys and plan
+        # list, and point its scanner at the main manager. Same base as above.
+        base="$dir"; if [ "$DRY" -eq 1 ] && [ ! -e "$dir/.git" ]; then base="$REPO_ROOT"; fi
+        unread="$(instance_keys_unread "$s" "$base")"
+        if [ -n "$unread" ]; then
+            echo "  $s: WARNING — the code in $(clone_of "$s") does not read$unread; nothing rendered for $s — an instance needs a clone at a ref that does"
             continue
         fi
         TEMPLATE_PATHS+=("${svc_paths[@]}")
