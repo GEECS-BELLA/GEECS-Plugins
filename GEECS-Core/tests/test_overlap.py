@@ -68,7 +68,13 @@ def test_cli_db_failure_is_not_checked_not_clean(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(overlap, "_db_devices", broken)
     assert overlap.main(["Main", "Bench stand"]) == 3
-    assert "overlap check skipped" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "overlap check skipped" in err
+    import getpass
+
+    assert (
+        repr(getpass.getuser()) in err and "config.ini" in err
+    )  # whose config it needed
 
 
 @pytest.mark.parametrize("argv", [[], ["--strict"]])

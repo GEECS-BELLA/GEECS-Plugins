@@ -69,6 +69,12 @@ check_instance_env() {  # check_instance_env INSTANCE [FILE] — after load_site
     for k in GEECS_CHECKOUT_ROOT GEECS_INSTANCE_CHECKOUT_ROOT GEECS_EXPERIMENTS_DIR GEECS_SITE_ENV_PATH GEECS_SERVICE_USER GEECS_SERVICE_HOME GEECS_POETRY; do
         if grep -q "^[[:space:]]*$k=" "$INSTANCE_FILE_PATH" 2>/dev/null; then echo "instance file: $k is a site.env key (render-time), not an instance one" >&2; exit 2; fi
     done
+    # The clients' addresses must name THIS instance's manager: the readiness
+    # oneshot and the scanner would otherwise assert / drive another one.
+    local port="${QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER##*:}"
+    for k in QS_CONTROL_ADDR QS_CLIENT_CONTROL_ADDR; do
+        [ "${!k##*:}" = "$port" ] || { echo "instance file: $k (${!k}) is not this instance's manager (QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER port $port)" >&2; exit 2; }
+    done
     [ -z "${EPICS_CA_SERVER_PORT:-}" ] || { echo "instance file: EPICS_CA_SERVER_PORT must not be set (it would re-port the worker's CA clients) — use GEECS_CA_SERVER_PORT" >&2; exit 2; }
     check_site_env_consistency
 }

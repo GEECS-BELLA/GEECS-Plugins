@@ -125,6 +125,41 @@ INSTANCE_ROOT="${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}"
 STAGE="$GEECS_CHECKOUT_ROOT/deploy-staging/instances"
 MAIN_EXPERIMENT="$GEECS_EXPERIMENT"
 
+# Two accounts, never mixed up: everything that builds or reads code — the
+# bootstrap (clones, poetry envs, rendering), the overlap check, the configs
+# scaffold — runs as the SERVICE account the units run as (its poetry cache,
+# its config.ini); only installing into /etc and systemctl run as root.
+# Run the verb as root (`sudo experiment.sh …`) or as an account with sudo.
+SUDO="${GEECS_EXPERIMENT_SUDO:-sudo}"   # tests substitute a stub
+SVC="$GEECS_SERVICE_USER"
+if [ "$(id -u)" -eq 0 ]; then AS_ROOT=()
+elif [ "$VERB" != "list" ] && ! $SUDO -n true 2>/dev/null; then
+    echo "experiment.sh $VERB needs root: run it as 'sudo $0 …' (this account, $(id -un), has no sudo)" >&2; exit 2
+else AS_ROOT=("$SUDO"); fi
+if [ "$(id -un)" = "$SVC" ]; then AS_SVC=(); else AS_SVC=("$SUDO" -u "$SVC" -H); fi
+as_svc() { "${AS_SVC[@]+"${AS_SVC[@]}"}" "$@"; }
+as_root() { "${AS_ROOT[@]+"${AS_ROOT[@]}"}" "$@"; }
+in_engine() {  # in_engine CMD... — CMD in the instance clone's GeecsBluesky dir, as the service account
+    as_svc bash -c 'cd "$1" && shift && exec "$@"' in_engine "$ENGINE" "$@"
+}
+
+# The instance's own trees must be the service account's: a run under the
+# wrong account (or an older verb) leaves them root-owned, and the bootstrap,
+# running as the service account, could then neither stage nor install.
+# Only trees no main unit runs from: the staging dir, and the instances'
+# clone root when it is a root of its own.
+claim_staging() {
+    if [ -e "$STAGE" ] && [ "$(stat -c %U "$STAGE" 2>/dev/null || stat -f %Su "$STAGE")" != "$SVC" ]; then
+        run as_root chown -R "$SVC:" "$STAGE"
+    fi
+}
+claim_instance_root() {
+    [ "$INSTANCE_ROOT" != "$GEECS_CHECKOUT_ROOT" ] || return 0
+    if [ -e "$INSTANCE_ROOT" ] && [ -n "$(as_root find "$INSTANCE_ROOT" -maxdepth 3 ! -user "$SVC" -print -quit 2>/dev/null)" ]; then
+        run as_root chown -R "$SVC:" "$INSTANCE_ROOT"
+    fi
+}
+
 case "$VERB" in
 list)
     printf '%-16s %-26s %-4s %-7s %s\n' INSTANCE EXPERIMENT SLOT SCANNER UNITS
@@ -139,7 +174,10 @@ list)
 down)
     say "down '$INSTANCE' — units stopped and disabled; instance file, state, configs and data stay"
     # shellcheck disable=SC2046
-    run sudo systemctl disable --now $(units_for "$INSTANCE")
+    run as_root systemctl disable --now $(units_for "$INSTANCE")
+    # Clear a failed state so the next `up` starts clean (the instance file,
+    # its clones and their envs stay; `up` reinstalls the envs).
+    run as_root systemctl reset-failed $(units_for "$INSTANCE") || true
     ;;
 up)
     INSTALLED="$EXPERIMENTS_DIR/$INSTANCE.env"
@@ -153,8 +191,9 @@ up)
         [ -n "$DB_EXPERIMENT" ] && [ -n "$ADDRESS" ] && [ -n "$BROADCAST" ] || {
             echo "a new instance needs --db-experiment NAME, --address (this host's CA serving address) and --broadcast" >&2; exit 2; }
         SLOT="$(free_slot)"
-        mkdir -p "$STAGE"; INSTANCE_FILE="$STAGE/$INSTANCE.env"
-        render_instance_env "$SLOT" > "$INSTANCE_FILE"
+        INSTANCE_FILE="$STAGE/$INSTANCE.env"
+        claim_staging
+        render_instance_env "$SLOT" | as_svc bash -c 'mkdir -p "$1" && cat > "$2"' stage "$STAGE" "$INSTANCE_FILE"
         say "up '$INSTANCE' — new instance file (slot $SLOT) at $INSTANCE_FILE"
     fi
     # Validate in a subshell: the instance's values must not leak into ours.
@@ -162,11 +201,13 @@ up)
     EXPT="$(env_value "$INSTANCE_FILE" GEECS_EXPERIMENT)"
     [ "$EXPT" != "$MAIN_EXPERIMENT" ] || { echo "'$EXPT' is the main experiment (site.env) — it keeps its own units" >&2; exit 2; }
     ENGINE="$INSTANCE_ROOT/qs-checkout/GeecsBluesky"
+    claim_staging
+    claim_instance_root
 
     say "units"
     # The bootstrap's own enable line names exactly the units it rendered
     # (dry run or not); its root-steps section is ours to run, not to print.
-    BOOT_OUT="$("$REPO_ROOT/deploy/bootstrap_host.sh" "$SITE_ENV" --experiment "$INSTANCE" --instance-env "$INSTANCE_FILE" \
+    BOOT_OUT="$(as_svc "$REPO_ROOT/deploy/bootstrap_host.sh" "$SITE_ENV" --experiment "$INSTANCE" --instance-env "$INSTANCE_FILE" \
         ${REF:+--ref "$REF"} $([ "$DRY" -eq 1 ] && echo --dry-run))"
     printf '%s\n' "$BOOT_OUT" | sed '/^== root steps/,$d'
     STAGED=()
@@ -196,7 +237,7 @@ up)
     LIVE+=("$EXPT")
     if [ "$DRY" -eq 1 ]; then printf '  [dry] python -m geecs_core.db.overlap'; printf " '%s'" "${LIVE[@]}"; echo
     else
-        rc=0; OVERLAP="$(cd "$ENGINE" && "$GEECS_POETRY" run python -m geecs_core.db.overlap "${LIVE[@]}" 2>&1)" || rc=$?
+        rc=0; OVERLAP="$(in_engine "$GEECS_POETRY" run python -m geecs_core.db.overlap "${LIVE[@]}" 2>&1)" || rc=$?
         printf '%s\n' "$OVERLAP" | sed 's/^/  /'
         [ "$rc" -eq 0 ] || echo "  WARNING: overlap NOT checked (exit $rc) — continuing; run python -m geecs_core.db.overlap by hand"
     fi
@@ -208,12 +249,15 @@ up)
     EXPERIMENTS_ROOT="$GEECS_CONFIGS_ROOT/scanner_configs/experiments"
     if [ -d "$EXPERIMENTS_ROOT/$EXPT" ]; then echo "  $EXPERIMENTS_ROOT/$EXPT exists — left as it is"
     elif [ "$DRY" -eq 1 ]; then echo "  [dry] python -m geecs_bluesky.config_scaffold '$EXPT' --experiments-root '$EXPERIMENTS_ROOT'"
-    else (cd "$ENGINE" && "$GEECS_POETRY" run python -m geecs_bluesky.config_scaffold "$EXPT" --experiments-root "$EXPERIMENTS_ROOT") | sed 's/^/  /'; fi
+    else in_engine "$GEECS_POETRY" run python -m geecs_bluesky.config_scaffold "$EXPT" --experiments-root "$EXPERIMENTS_ROOT" | sed 's/^/  /'; fi
 
-    [ "$INSTANCE_FILE" -ef "$INSTALLED" ] || run sudo install -D -m 0644 "$INSTANCE_FILE" "$INSTALLED"
-    run sudo install -m 0644 "$STAGE"/*@.service /etc/systemd/system/
-    run sudo systemctl daemon-reload
-    run sudo systemctl enable --now "${STAGED[@]}"
+    [ "$INSTANCE_FILE" -ef "$INSTALLED" ] || run as_root install -D -m 0644 "$INSTANCE_FILE" "$INSTALLED"
+    # The glob is expanded by root (the staging dir is the service account's).
+    run as_root sh -c 'install -m 0644 "$1"/*@.service /etc/systemd/system/' install-units "$STAGE"
+    run as_root systemctl daemon-reload
+    # Restart, not just start: a re-run `up` must pick up reinstalled envs.
+    run as_root systemctl enable "${STAGED[@]}"
+    run as_root systemctl restart "${STAGED[@]}"
 
     say "instance '$INSTANCE' — experiment '$EXPT'"
     f="$INSTANCE_FILE"
