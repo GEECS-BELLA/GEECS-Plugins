@@ -185,7 +185,12 @@
     $("preset-diff-rows").replaceChildren();
     const drawer = window.GeecsKit.drawer($("preset-diff"));
     drawer.open();
-    const [status, body] = await json(`/api/presets/${encodeURIComponent(p.id)}/diff`);
+    let status, body;
+    try {
+      [status, body] = await json(`/api/presets/${encodeURIComponent(p.id)}/diff`);
+    } catch (err) {
+      [status, body] = [0, { code: "no_answer", detail: "the Control Room did not answer; open the diff again" }];
+    }
     if (!H.stillCurrent(selection, generation, drawer.isOpen)) return; // closed or superseded: not this drawer's answer any more
     if (status !== 200) { $("preset-diff-note").textContent = `${body.code || status}: ${body.detail || ""}`; return; }
     selection = H.takeDiff(selection, generation, body.rows, drawer.isOpen);
@@ -206,7 +211,8 @@
   async function restore(asked) {
     const drawer = window.GeecsKit.drawer($("preset-diff"));
     const generation = asked === undefined ? selection.generation : asked; // the Restore button's: the drawer's own now
-    if (restoreInFlight || !H.stillCurrent(selection, generation, drawer.isOpen)) return; // in flight, or the drawer closed or moved on
+    if (!H.stillCurrent(selection, generation, drawer.isOpen)) return; // the drawer closed or moved on
+    if (restoreInFlight) { $("preset-diff-note").textContent = "a restore is in flight; Restore… again once it answers"; return; }
     const p = selection.preset, operator = opInput.value.trim();
     if (!operator) { drawer.close(); opInput.focus(); return note("unsent", "name yourself in the header first"); }
     const picked = [...new Set([...document.querySelectorAll("#preset-diff-rows input:checked")].map((b) => b.value))];
@@ -227,7 +233,11 @@
       $("preset-restore-open").disabled = false;
     }
     if (status === 202) track(p.id, a); // the run is the row's, whatever the drawer shows now
-    if (!H.stillCurrent(selection, generation, drawer.isOpen)) return; // the drawer moved on: its note and openness are not this answer's
+    if (!H.stillCurrent(selection, generation, drawer.isOpen)) {
+      // the drawer moved on: its note is not this answer's, so a refusal is said on the presets chip instead
+      if (status !== 202) note(a.code || String(status), `${p.name}: ${a.detail || ""}`, "failed");
+      return;
+    }
     if (status === 202) drawer.close();
     else $("preset-diff-note").textContent = `${a.code || status}: ${a.detail || ""}`;
   }
