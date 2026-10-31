@@ -31,6 +31,7 @@ from geecs_data_utils.data.row_filters import (
     apply_filters,
     filter_mask,
 )
+from geecs_data_utils.data.scan_merge import merge_scan_frames
 from geecs_data_utils.data.sfile import read_sfile, sfile_path_for_scan
 from geecs_data_utils.data.columns import (
     ColumnMatchMode,
@@ -56,6 +57,7 @@ __all__ = [
     "RowFilters",
     "apply_filters",
     "filter_mask",
+    "merge_scan_frames",
     "read_sfile",
     "sfile_path_for_scan",
     "apply_row_filters",

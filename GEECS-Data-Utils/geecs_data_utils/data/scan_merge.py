@@ -1,0 +1,99 @@
+"""Several scans' per-shot tables as one: GEECSplotter's "merge s files".
+
+:func:`merge_scan_frames` stacks one frame per scan, in the order given,
+and tags each row with the scan it came from (:data:`SCAN_COLUMN`,
+:data:`DAY_COLUMN`). The columns are the union: a column only some scans
+have is NaN on the others' rows. Nothing is renumbered: each shot keeps
+its own ``Shotnumber`` and ``Bin #``, so a shot is named by its scan and
+its number together, and ``Bin #`` means nothing across scans (bin a
+merged table by a value, never by ``Bin #``).
+
+Pure: frames in, a frame out; no file is read or written.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from typing import TYPE_CHECKING, Mapping
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import pandas as pd
+
+#: A scan as the merge names it: its day and its number.
+ScanRef = tuple[date, int]
+
+#: The scan number of each merged row.
+SCAN_COLUMN = "scan"
+#: The day of each merged row, as ISO text (``"2026-10-26"``).
+DAY_COLUMN = "day"
+
+
+def merge_scan_frames(frames: Mapping[ScanRef, "pd.DataFrame"]) -> "pd.DataFrame":
+    """Stack the scans' frames into one, each row tagged with its scan.
+
+    Parameters
+    ----------
+    frames : Mapping[tuple[datetime.date, int], pandas.DataFrame]
+        ``(day, scan number) -> that scan's per-shot table``, in the order
+        the rows are wanted.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Every row of every frame, in order, on a fresh ``0..n-1`` index
+        (labels are unique across scans). :data:`SCAN_COLUMN` (int) and
+        :data:`DAY_COLUMN` (ISO text) come first, then the union of the
+        frames' columns in the order first seen; a column a scan lacks is
+        NaN on its rows.
+
+        A frame's own ``scan`` or ``day`` column (the Bluesky s-files
+        carry ``scan``, the scan number on every row) is replaced by the
+        tag when every value it has names the same scan.
+
+    Raises
+    ------
+    ValueError
+        No frames, a frame with multi-level columns, or one whose own
+        ``scan`` or ``day`` column names another scan (the tag would
+        overwrite it).
+
+    Notes
+    -----
+    A named index (``Shotnumber``, as ``ScanData``'s TDMS frame has it)
+    becomes a column first, so the shot numbers survive the fresh index.
+    """
+    import pandas as pd
+
+    if not frames:
+        raise ValueError("merge at least one scan")
+    parts = []
+    for (day, scan), frame in frames.items():
+        if isinstance(frame.columns, pd.MultiIndex):
+            raise ValueError(
+                f"Scan{scan:03d} on {day.isoformat()} has multi-level columns; "
+                "flatten them first (data.columns.flatten_columns)"
+            )
+        if any(name is not None for name in frame.index.names):
+            frame = frame.reset_index()
+        tag = {SCAN_COLUMN: int(scan), DAY_COLUMN: day.isoformat()}
+        for column, value in tag.items():
+            if column in frame.columns and not _names(frame[column], value):
+                raise ValueError(
+                    f"Scan{scan:03d} on {day.isoformat()} has a column {column!r} "
+                    f"that is not {value!r} on every row; the merge cannot tag its rows"
+                )
+        tags = pd.DataFrame(tag, index=frame.index)
+        own = frame.drop(columns=[c for c in tag if c in frame.columns])
+        parts.append(pd.concat([tags, own], axis=1))
+    return pd.concat(parts, ignore_index=True, sort=False)
+
+
+def _names(values: "pd.Series", tag: object) -> bool:
+    """Whether every value *values* has is *tag* (a number compares as one)."""
+    import pandas as pd
+
+    present = values.dropna()
+    if isinstance(tag, int):
+        numbers = pd.to_numeric(present, errors="coerce")
+        return bool(numbers.notna().all() and (numbers == tag).all())
+    return bool((present.astype(str) == tag).all())

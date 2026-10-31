@@ -22,6 +22,11 @@ geecs_data_utils/
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
   data/curve_fit.py            # fit_curve → CurveFit: Gaussian, SuperGaussian, polynomial
+  data/scan_merge.py           # merge_scan_frames: several scans' frames as one
+                               #   (GEECSplotter's "merge s files"): rows tagged
+                               #   `scan` / `day`, the union of columns (NaN where
+                               #   a scan lacks one), each shot keeping its own
+                               #   number — so `Bin #` means nothing across scans
   analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
