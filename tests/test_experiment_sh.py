@@ -121,7 +121,7 @@ def test_up_writes_slot_one_and_enables_the_six_instance_units(profile) -> None:
     enable = next(
         line for line in result.stdout.splitlines() if "systemctl restart" in line
     )
-    assert sorted(enable.split("systemctl restart", 1)[1].split()) == sorted(
+    assert sorted(enable.split("restart --no-block", 1)[1].split()) == sorted(
         f"{u}@PulsedWire.service" for u in UNITS
     )
     assert "http://127.0.0.1:8310/" in result.stdout
