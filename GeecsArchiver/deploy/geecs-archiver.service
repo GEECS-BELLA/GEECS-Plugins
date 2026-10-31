@@ -55,7 +55,8 @@ ExecStop=/usr/bin/docker compose --project-directory /etc/geecs/archiver --proje
 StateDirectory=geecs-archiver
 Restart=on-failure
 RestartSec=10
-# Tomcat's shutdown flushes the short-term store's buffers; give it time.
+# Tomcat's shutdown flushes the short-term store's buffers; give it time
+# (compose.yaml's stop_grace_period, 170 s, sits inside this bound).
 TimeoutStopSec=180
 SyslogIdentifier=geecs-archiver
 

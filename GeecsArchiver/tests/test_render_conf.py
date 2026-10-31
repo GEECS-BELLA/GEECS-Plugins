@@ -1,5 +1,6 @@
 """deploy/render_conf.sh against the fleet's example site.env."""
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -81,3 +82,14 @@ def test_every_conf_file_is_ascii():
         if p.is_file() and not p.read_text(encoding="utf-8").isascii()
     }
     assert offenders == {}, offenders
+
+
+def test_tomcat_gets_its_flush_inside_the_unit_stop_bound():
+    """Compose's 10 s default SIGKILLed Tomcat mid-flush; the grace must fit TimeoutStopSec."""
+    deploy = RENDER.parent
+    compose = (deploy / "compose.yaml.in").read_text()
+    unit = (deploy / "geecs-archiver.service").read_text()
+    grace = re.search(r"^\s*stop_grace_period:\s*(\d+)s\s*$", compose, re.M)
+    bound = re.search(r"^TimeoutStopSec=(\d+)\s*$", unit, re.M)
+    assert grace and bound
+    assert 60 <= int(grace.group(1)) < int(bound.group(1))

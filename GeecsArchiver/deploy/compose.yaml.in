@@ -24,6 +24,11 @@ services:
     user: "@SERVICE_UID@:@SERVICE_GID@"
     # systemd supervises (Restart=on-failure on the unit); compose must not.
     restart: "no"
+    # Tomcat flushes the short-term store on shutdown. Compose's default
+    # stop timeout (10 s) SIGKILLs it first, from the unit's ExecStop
+    # (compose down) and from `compose up` on its SIGTERM alike; the unit's
+    # TimeoutStopSec=180 bounds this.
+    stop_grace_period: 170s
     environment:
       EPICS_CA_ADDR_LIST: "${EPICS_CA_ADDR_LIST}"
       EPICS_CA_AUTO_ADDR_LIST: "${EPICS_CA_AUTO_ADDR_LIST}"
