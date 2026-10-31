@@ -205,7 +205,15 @@ async def test_the_presets_region_reads_what_the_module_answers(room) -> None:
     )
     assert gold.status_code == 200 and gold.json()["golden"] is True
     chip = (await room.client.get("/api/home/baseline")).json()
-    assert (chip["ok"], chip["golden"], chip["differs"], chip["presets"]) == (True, 1, 1, [{"name": "bench-a", "differs": 1}])  # fmt: skip
+    assert (chip["ok"], chip["golden"], chip["differs"], chip["incomplete"], chip["presets"]) == (True, 1, 1, 0, [{"name": "bench-a", "differs": 1, "incomplete": 0}])  # fmt: skip
+    del room.env.hare.values[
+        mot
+    ]  # the motor's setpoint unread now: the baseline is incomplete, never "as baseline"
+    chip = (
+        await room.client.get("/api/home/baseline", params={"fresh": "true"})
+    ).json()
+    assert (chip["differs"], chip["incomplete"]) == (1, 1)
+    room.env.hare.values[mot] = live(2.0)
     started = await room.client.post(f"/api/presets/{sid}/restore", json={"operator": "ann", "confirm": True, "devices": ["ps1"]})  # fmt: skip
     assert started.status_code == 202 and {"runId", "id", "plan", "state", "steps"} <= set(started.json())  # fmt: skip
     for _ in range(100):

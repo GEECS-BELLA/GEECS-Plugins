@@ -199,19 +199,25 @@ async def test_the_baseline_sums_the_golden_diffs_and_is_none_without_one(settin
         if request.url.path.endswith("/presets"):
             return httpx.Response(200, json={"presets": presets})
         return httpx.Response(
-            200, json={"counts": {"differs": 2 if "g1" in request.url.path else 1}}
+            200,
+            json={
+                "counts": {
+                    "differs": 2 if "g1" in request.url.path else 1,
+                    "unread": 1 if "g2" in request.url.path else 0,
+                }
+            },
         )
 
     module = ModuleClient(
         "http://canopy.test", "k", transport=httpx.MockTransport(answer)
     )
     body = await baseline(settings, module)
-    assert (body["golden"], body["differs"], [p["name"] for p in body["presets"]]) == (2, 3, ["a", "c"])  # fmt: skip
+    assert (body["golden"], body["differs"], body["incomplete"], [p["name"] for p in body["presets"]]) == (2, 3, 1, ["a", "c"])  # fmt: skip
     assert sorted(asked)[1:] == [
         "/geecs/v1/presets/g1/diff",
         "/geecs/v1/presets/g2/diff",
     ]  # a golden's own scope: the module's; no screen file here
     presets[:] = [presets[1]]
-    assert await baseline(settings, module) == {"ok": True, "golden": 0, "differs": 0, "presets": []}  # fmt: skip
+    assert await baseline(settings, module) == {"ok": True, "golden": 0, "differs": 0, "incomplete": 0, "presets": []}  # fmt: skip
     silent = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(lambda r: (_ for _ in ()).throw(httpx.ConnectError("down"))))  # fmt: skip
     assert (await baseline(settings, silent))["ok"] is False

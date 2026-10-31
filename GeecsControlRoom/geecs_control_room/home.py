@@ -228,8 +228,12 @@ async def presets(settings: Settings, module: ModuleClient) -> dict[str, Any]:
     return {"ok": True, "presets": body.get("presets", []), "screens": screens}
 
 
+#: A diff row with one of these words was not compared: the baseline verdict is incomplete while any exists.
+_NOT_COMPARED = ("unread", "unsaved", "retired", "unsupported")
+
+
 async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
-    """The golden snapshots' differing rows, summed: the strip's "differs from baseline"; none without a golden."""
+    """The golden snapshots' differing rows, summed, and the rows that could not be compared (``incomplete``): the strip's "differs from baseline"; none without a golden."""
     listing = await presets(settings, module)
     if not listing["ok"]:
         return listing
@@ -242,7 +246,13 @@ async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
             return {"name": p["name"], "error": f"the module did not answer: {exc}"}
         if status != 200:
             return {"name": p["name"], "error": f"the module answered {status}: {body.get('detail', body)}"}  # fmt: skip
-        return {"name": p["name"], "differs": body["counts"]["differs"]}
+        counts = body["counts"]
+        incomplete = sum(counts.get(w, 0) for w in _NOT_COMPARED)
+        return {
+            "name": p["name"],
+            "differs": counts["differs"],
+            "incomplete": incomplete,
+        }
 
     rows = await asyncio.gather(*(differs(p) for p in golden))
     if failed := [r for r in rows if "error" in r]:
@@ -250,7 +260,8 @@ async def baseline(settings: Settings, module: ModuleClient) -> dict[str, Any]:
             "ok": False,
             "detail": "; ".join(f"{r['name']}: {r['error']}" for r in failed),
         }
-    return {"ok": True, "golden": len(golden), "differs": sum(r["differs"] for r in rows), "presets": rows}  # fmt: skip
+    total = {k: sum(r[k] for r in rows) for k in ("differs", "incomplete")}
+    return {"ok": True, "golden": len(golden), "presets": rows} | total
 
 
 class _Baseline:
