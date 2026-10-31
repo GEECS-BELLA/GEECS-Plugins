@@ -233,6 +233,7 @@ def test_a_busy_slot_port_installs_nothing(tmp_path: Path, profile) -> None:
         "$ as_root install" not in result.stdout
     )  # checked before anything is installed
     assert "$ as_root systemctl" not in result.stdout
+    assert "rendered " not in result.stdout  # ...and before the bootstrap ran
 
 
 def test_a_non_slug_instance_is_refused(profile) -> None:
@@ -609,3 +610,53 @@ def test_canonical_dir_terminates_on_a_missing_relative_path() -> None:
         timeout=10,
     )
     assert result.returncode == 0
+
+
+def test_a_second_running_instance_of_one_experiment_is_refused(
+    tmp_path: Path, profile
+) -> None:
+    (profile["experiments"] / "First.env").write_text(
+        'GEECS_EXPERIMENT="Bench stand"\nGEECS_INSTANCE_SLOT=1\n'
+    )
+    fake = tmp_path / "first-running"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *"is-active --quiet"*"@First.service"*) exit 0 ;; esac\nexit 3\n'
+    )
+    (fake / "systemctl").chmod(0o755)
+    result = _verb(
+        profile,
+        "up",
+        "Second",
+        *NEW,
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 2
+    assert "instance 'First' already serves 'Bench stand'" in result.stderr
+
+
+def test_a_half_running_instance_is_not_refused_on_its_own_ports(
+    tmp_path: Path, profile
+) -> None:
+    """Re-running `up` is how a half-up instance recovers: its own scanner on
+    its slot port must not read as a collision."""
+    fake = tmp_path / "half"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *"is-active --quiet"*"geecs-scanner@PulsedWire.service"*) exit 0 ;; esac\nexit 3\n'
+    )
+    (fake / "ss").write_text(
+        '#!/usr/bin/env bash\necho "LISTEN 0 128 0.0.0.0:8310 0.0.0.0:*"\n'
+    )
+    for f in fake.iterdir():
+        f.chmod(0o755)
+    result = _verb(
+        profile,
+        "up",
+        "PulsedWire",
+        *NEW,
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert "already in use" not in result.stderr, result.stderr
