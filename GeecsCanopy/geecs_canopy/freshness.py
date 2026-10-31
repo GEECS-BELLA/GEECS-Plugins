@@ -28,7 +28,7 @@ from geecs_canopy.native import Resolved
 _NOT_ANSWERING, _UDF = frozenset({1, 9, 10}), 17
 
 
-# The same rule is geecs_core.pv_naming.ioc_heartbeat_pv on feat/web-estate: use it once both meet.
+# The same rule was geecs_core.pv_naming.ioc_heartbeat_pv at the tag web-estate-final (never on master).
 def heartbeat_pv(ioc: str) -> str:
     """An IOC's devIocStats heartbeat, ``<IOC_NAME upper-cased>:HEARTBEAT`` (geecs-epics' iocAdminSoft)."""
     return f"{ioc.strip().upper()}:HEARTBEAT"

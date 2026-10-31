@@ -117,7 +117,7 @@ Docker, Postgres or the image work in reasonable time says so.
 The front-end choice and the composed-panel or screen format (SLAC's Screen
 Builder is not public); migration of any device; gated runs; the scanner,
 portal and logbook (they sit beside Canopy either way); touching `geecs-web`
-or `feat/web-estate`; contacting SLAC (a two-question note is drafted in §7
+or `feat/web-estate` (retired 2026-10-31, kept at the tag `web-estate-final`); contacting SLAC (a two-question note is drafted in §7
 for Sam to send).
 
 ## 7. Write-up and recommendation (2026-10-26)
