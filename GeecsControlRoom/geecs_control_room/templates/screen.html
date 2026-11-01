@@ -18,7 +18,7 @@
 {% endblock %}
 {% macro bindattrs(b, role) -%}
 {%- if b.pv %} data-pv="{{ b.pv }}"{% elif b.action %} data-action="{{ b.action }}"{% else %} data-device="{{ b.device }}" data-role="{{ b.role }}"{% if b.axis %} data-axis="{{ b.axis }}"{% endif %}{% endif -%}
-{%- if role %} data-type="{{ role.type }}"{% if role.confirm == "hazard" %} data-hazard="1"{% endif %}{% endif -%}
+{%- if role %} data-type="{{ role.type }}"{% if role.confirm == "hazard" %} data-hazard="1"{% endif %}{% if role.choices %} data-choices="{{ role.choices | tojson | forceescape }}"{% endif %}{% endif -%}
 {%- endmacro %}
 {% block body %}
 {% if not s %}

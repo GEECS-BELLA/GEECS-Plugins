@@ -56,6 +56,7 @@
   }
 
   const valuesOf = (el) => (el.dataset.on === undefined ? null : { on: Number(el.dataset.on), off: Number(el.dataset.off) });
+  const allowedOf = (el) => (el.dataset.choices ? JSON.parse(el.dataset.choices) : null);
   const fitsOf = (el) => (el.dataset.fits === undefined ? undefined : el.dataset.fits.split(" ").filter(Boolean));
   const hazardOf = (el) => R.hazard(el.dataset.hazard || el.dataset.confirm, entryOf(el));
   const show = (pv, el) => R.show(pv && wire[pv], hare.meta(pv), el.closest(".w").dataset.precision);
@@ -80,10 +81,10 @@
     const values = valuesOf(el), reads = values && R.valued(pv && wire[pv], values);
     if (act && el.dataset.kind !== "button") act.textContent = values ? reads : show(pv, el);
     const sel = el.querySelector(".sel");
-    if (sel && !sel.dataset.draft) fillSelect(sel, meta, pv && wire[pv]);
+    if (sel && !sel.dataset.draft) fillSelect(sel, meta, pv && wire[pv], allowedOf(el));
     const open = R.writable(entryOf(el), !!el.dataset.pv, !!el.dataset.busy, fitsOf(el));
     for (const c of [sp, act, sel]) if (c) c.disabled = !open;
-    if (sel && !R.options(meta).length) sel.disabled = true; // choices unread: the module would refuse
+    if (sel && !R.options(meta, allowedOf(el)).length) sel.disabled = true; // choices unread: the module would refuse
     if (act && values) {
       if (R.flipTo(reads, values) === null) act.disabled = true; // unknown: nothing to toggle from
       act.title = reads === "unknown" ? `reads ${show(pv, el)}: neither on (${values.on}) nor off (${values.off})` : "";
@@ -99,8 +100,8 @@
   }
 
   // a select's options from the enum's choices (rebuilt only when they change), its value the readback's
-  function fillSelect(sel, meta, frame) {
-    const opts = R.options(meta), sig = opts.map((o) => o.label).join("\n");
+  function fillSelect(sel, meta, frame, allowed) {
+    const opts = R.options(meta, allowed), sig = opts.map((o) => o.label).join("\n");
     if (sel.dataset.sig !== sig) {
       const none = new Option("—", "");
       none.disabled = true;

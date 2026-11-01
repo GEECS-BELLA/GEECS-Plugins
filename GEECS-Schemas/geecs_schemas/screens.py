@@ -61,8 +61,8 @@ _WRITES = frozenset({"setpoint", "toggle", "flipper", "button", "select"})
 class ToggleValues(SchemaModel):
     """The two numbers a toggle writes to a numeric role (a LabVIEW boolean kept as a number)."""
 
-    on: float = Field(description="Written to switch it on; a readback equal to it reads on.")  # fmt: skip
-    off: float = Field(description="Written to switch it off; a readback equal to it reads off. Any other readback reads unknown.")  # fmt: skip
+    on: float = Field(allow_inf_nan=False, description="Written to switch it on; a readback equal to it reads on.")  # fmt: skip
+    off: float = Field(allow_inf_nan=False, description="Written to switch it off; a readback equal to it reads off. Any other readback reads unknown.")  # fmt: skip
 
     @model_validator(mode="before")
     @classmethod
@@ -237,7 +237,7 @@ def _misfit(widget: Widget, role: Optional[Role]) -> Optional[str]:
     types, writes = _accepts(widget), _FITS[widget.kind][1]
     if role.type not in types or (writes and not role.writable):
         return f"{role.name} is a {role.type}, not for a {widget.kind}"
-    if role.type == "setpoint" and role.text and widget.kind != "setpoint":
+    if widget.values and role.type == "setpoint" and role.text:
         return f"{role.name} is text, not for a {widget.kind}'s values"
     return None
 

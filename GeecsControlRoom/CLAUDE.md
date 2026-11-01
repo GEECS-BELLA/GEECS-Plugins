@@ -64,16 +64,19 @@ deploy/
   such role, "wrong kind" when its type does not fit the kind, Hare's alarm
   rules where the module gives no verdict) and writes it through the same
   put route. A writing kind on a bare PV is drawn disabled.
-- **A LabVIEW variable's convention is the screen's word, never a DB
+- **A LabVIEW variable's convention is the screen's word, never a DB type
   edit.** A boolean a VI keeps as a number (an SVE's 1/0) is a `toggle`
   (or `flipper`) with `values: {on: <n>, off: <n>}`: it then binds a
   numeric setpoint role, writes `values.on`/`values.off` through the put
-  route, and reads on or off only when the readback equals one of them;
+  route, and reads on or off only when the value read equals one of them;
   anything else (a 99.0) reads "unknown" and the button is disabled (no
-  guessed direction). A choice the LabVIEW GUI showed as a number box is a
-  `select`: enum roles only, its options Hare's `enumChoices` (disabled
-  while unread), the current option the readback's index, the chosen
-  index written with the setpoint's confirm, hazard and busy handling. A
+  guessed direction). The module's bounds gate still applies: a DB
+  variable with no min/max on its row is refused (`bounds_unknown`). A
+  choice the LabVIEW GUI showed as a number box is a `select`: enum roles
+  only, its options Hare's `enumChoices` (narrowed to a family role's
+  `choices`, `data-choices`; disabled while unread), the current option the
+  readback's index, the chosen index written with the setpoint's confirm,
+  hazard and busy handling. A
   `setpoint` on an enum stays "wrong kind". The page's decisions are
   `valued`, `flipTo`, `options`, `chosen` in `screen_rules.js`; what a kind
   accepts is GEECS-Schemas' table, carried to the page as `data-fits`.

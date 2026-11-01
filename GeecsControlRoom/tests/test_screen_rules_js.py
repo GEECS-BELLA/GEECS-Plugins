@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import subprocess
 from typing import Any
 
 import pytest
+from geecs_web_theme.testing import javascript_syntax_error
 
 from tests._node import STATIC, call_all, needs_node
 
@@ -78,6 +78,8 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     # a select: the enum's choices, the readback's option
     ("options: the choices by index", "options", [{"enumChoices": ["Out", "ND1"]}], [{"value": 0, "label": "Out"}, {"value": 1, "label": "ND1"}]),
     ("options: none while unread", "options", [{}], []),
+    ("options: a role's choices narrow them, keeping the record's index", "options",
+     [{"enumChoices": ["Cross", "Ellipse", "Rectangle"]}, ["Cross", "Rectangle"]], [{"value": 0, "label": "Cross"}, {"value": 2, "label": "Rectangle"}]),
     ("chosen: the readback's index", "chosen", [{"value": 1}, {"enumChoices": ["Out", "ND1"]}], "1"),
     ("chosen: a label read is its index", "chosen", [{"value": "ND1"}, {"enumChoices": ["Out", "ND1"]}], "1"),
     ("chosen: past the choices is none", "chosen", [{"value": 2}, {"enumChoices": ["Out", "ND1"]}], ""),
@@ -146,4 +148,4 @@ def test_rule(answers: list[Any], i: int) -> None:
 @pytest.mark.parametrize("script", sorted(p.name for p in STATIC.glob("*.js")))
 def test_the_page_script_parses(script: str) -> None:
     """A page script with a syntax error draws nothing; node --check says so before a browser does."""
-    subprocess.run(["node", "--check", str(STATIC / script)], check=True, capture_output=True, timeout=10)  # fmt: skip
+    assert javascript_syntax_error((STATIC / script).read_text()) is None

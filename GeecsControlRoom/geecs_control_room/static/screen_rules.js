@@ -63,8 +63,10 @@
   // What its click writes: the other state's number; from "unknown" nothing (never a guess).
   const flipTo = (state, values) => (state === "on" ? values.off : state === "off" ? values.on : null);
 
-  // A select's options: the enum's choices as Hare serves them, by index; none while unread.
-  const options = (meta) => (meta.enumChoices || []).map((label, value) => ({ value, label }));
+  // A select's options: the enum's choices as Hare serves them, by index (the gate maps the index through
+  // them); only the family role's `choices` where it narrows them; none while unread.
+  const options = (meta, allowed) =>
+    (meta.enumChoices || []).map((label, value) => ({ value, label })).filter((o) => !allowed || allowed.includes(o.label));
 
   // The option the readback is (an index, or a label), "" (the placeholder) when it is none of them.
   function chosen(frame, meta) {

@@ -190,9 +190,10 @@ def test_a_select_binds_an_enum_and_a_valued_toggle_a_numeric_setpoint() -> None
         {"kind": "toggle", "bind": {"device": "ps", "role": "current_sp"}, "values": VALUES, "confirm": "Sure?"},
         {"kind": "flipper", "bind": {"device": "ps", "role": "current_sp"}, "values": VALUES},
         {"kind": "toggle", "bind": OUT, "values": VALUES},  # a bit still fits
+        {"kind": "readout", "bind": {"device": "cam", "role": "crosshair1_name"}},  # a text setpoint reads
     )  # fmt: skip
     (row,) = resolve_screen(s, load_families(), PANEL, CAM)
-    assert [b.role.name for b in row] == ["transform", "current_sp", "current_sp", "output_sp"]  # fmt: skip
+    assert [b.role.name for b in row] == ["transform", "current_sp", "current_sp", "output_sp", "crosshair1_name"]  # fmt: skip
 
 
 @pytest.mark.parametrize(
@@ -215,6 +216,7 @@ def test_a_select_takes_only_an_enum_and_a_toggle_a_setpoint_only_with_values(wi
         {"kind": "setpoint", "bind": OUT, "values": VALUES},
         {"kind": "toggle", "bind": OUT, "values": {"on": 1, "off": 1}},
         {"kind": "toggle", "bind": OUT, "values": {"on": 1}},
+        {"kind": "toggle", "bind": OUT, "values": {"on": float("nan"), "off": 0}},
     ],
 )
 def test_values_are_two_numbers_on_a_toggle_or_flipper(widget: dict) -> None:
