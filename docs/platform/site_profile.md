@@ -201,8 +201,9 @@ experiment's units and never instead of them. Tiled, the Data Portal
 - **Ports come from a slot** `N` (1..9; the main experiment is slot 0, the
   stock ports): CA `5064+100N`, 0MQ `60615+100N` / `60625+100N`, documents
   `5567+100N` / `5568+100N`, scanner `8300+10N`, logbook `8400+10N`.
-- **One verb**: `deploy/experiment.sh up <Instance> --db-experiment '<DB
-  name>' --address <this host> --broadcast <its broadcast>` writes the file,
+- **One verb, as root**: `sudo deploy/experiment.sh up <Instance>
+  --db-experiment '<DB name>' --address <this host> --broadcast <its
+  broadcast>` (code steps as the service account) writes the file,
   renders the six units (all or none), warns about devices enabled in more
   than one live experiment (`geecs_core.db.overlap`, read-only), scaffolds
   the configs folder when absent, and enables `<unit>@<Instance>`; `down`

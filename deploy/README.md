@@ -29,8 +29,20 @@ A second experiment beside the main one is an **instance**: its values in
 `deploy/bootstrap_host.sh ~/site.env --experiment <Instance>` renders the
 instance templates and prints the `enable --now <unit>@<Instance>` lines. It
 never re-renders, restarts or pulls under the main experiment's units.
-`deploy/experiment.sh up <Instance> --db-experiment '<DB name>' --address <this host> --broadcast <its broadcast>`
-does all of it in one verb (`down` / `list` beside it).
+In practice the whole deploy is one verb, run as root. The code steps drop
+to the service account, and only the installs and `systemctl` stay root.
+The clone holding the script must be readable by the service account.
+
+```bash
+sudo deploy/experiment.sh up <Instance> --db-experiment '<DB name>' --address <this host> --broadcast <its broadcast> [--ca-extra '<IOC hosts>'] [--ref <ref>]
+sudo deploy/experiment.sh down <Instance>     # then `up <Instance>` again: no flags, the instance file is reused
+deploy/experiment.sh list
+```
+
+Moving the main experiment from its plain units onto an instance has its own
+order, so that two workers never run at once. It is in
+`docs/platform/site_profile.md` § "Moving an experiment from plain units to
+an instance".
 
 The unit templates themselves stay with their services
 (`GeecsCAGateway/deploy/`, `GEECS-DataPortal/deploy/`,
