@@ -186,6 +186,19 @@ forward first. The fleet map's bootstrap gotchas (poetry off the service account
 `PATH`, CRLF on the share-mounted configs checkout, quoting share paths
 with spaces) are baked into the scripts and the example file.
 
+What the bootstrap does **not** do for `canopy` and `control-room`, in this
+order (each step lives in its runbook; this list only points there):
+
+- fill `/etc/geecs/canopy/secrets.env` ([Canopy §3](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#3-keys)) and the
+  Control Room's read-key file `/etc/geecs/control-room/secrets.env` ([its Deploy](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsControlRoom/README.md#deploy));
+- create the read-only GEECS DB user and type its URL line into Canopy's
+  secrets file ([§4](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#4-the-geecs-db-transitional)): a facility's own DB
+  is a different URL, no code;
+- `dc build` and `alembic upgrade head` ([§2](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#2-first-install));
+- mint the module's Squirrel key ([§2](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#2-first-install), [§3a](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#3a-the-device-module-geecs));
+- enable `geecs-canopy`, then `geecs-control-room` ([§2](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#2-first-install));
+- `squirrel-sync`, `--check` first ([§3a](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#3a-the-device-module-geecs)).
+
 ## A second experiment on the same hub
 
 A second experiment is an **instance**: its own CA gateway, queueserver
@@ -269,7 +282,9 @@ what satisfies it for a worker that runs there.
    [Getting started](../tutorials/getting_started.md) with that
    facility's experiment, gateway address, Tiled URI, queueserver host,
    and data path.
-3. Run the bootstrap on the service host; do the root steps.
+3. Run the bootstrap on the service host; do the root steps, then the
+   manual steps for Canopy and the Control Room
+   ([Standing up a host](#standing-up-a-host)).
 4. Experiment-specific *code* (analyzers, scan-database filters) follows
    the existing per-experiment package pattern
    (`analyzers/<Experiment>/`), not this profile.

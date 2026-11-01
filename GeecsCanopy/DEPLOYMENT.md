@@ -99,7 +99,8 @@ each counter last advanced.
 `GEECS_CANOPY_CONFIGS_ROOT` (the configs repo's root, mounted
 `/opt/geecs-configs`), `GEECS_CANOPY_STATE_DIR` (the journal's folder,
 `/var/lib/geecs-canopy/module` on the host, owned by the image's `appuser`,
-uid 1000, group the service account); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
+uid 1000, group the service account; where uid 1000 is a person's account on
+the host, that account shows as the journal's owner, which is harmless); optional `GEECS_CANOPY_STALE_AFTER_S` (3), `_PUT_TIMEOUT_S`
 (5), `_SETTLE_TIMEOUT_S` (30: a move's put-callback, not Hare's 5 s
 connect timeout), `_RELOAD_S` (10: the device documents' re-read),
 `_GATEWAY_RELOAD_S` (60: the DB devices' re-read); `GEECS_CANOPY_SQUIRREL_URL`
