@@ -77,16 +77,16 @@
     const value = el.querySelector(".v"), sp = el.querySelector(".sp"), act = el.querySelector(".act");
     if (value) value.textContent = show(pv, el);
     if (sp && !sp.dataset.draft) sp.value = show(pv, el) === "—" ? "" : show(pv, el);
-    const values = valuesOf(el), state = values && R.valued(pv && wire[pv], values);
-    if (act && el.dataset.kind !== "button") act.textContent = values ? state : show(pv, el);
+    const values = valuesOf(el), reads = values && R.valued(pv && wire[pv], values);
+    if (act && el.dataset.kind !== "button") act.textContent = values ? reads : show(pv, el);
     const sel = el.querySelector(".sel");
     if (sel && !sel.dataset.draft) fillSelect(sel, meta, pv && wire[pv]);
     const open = R.writable(entryOf(el), !!el.dataset.pv, !!el.dataset.busy, fitsOf(el));
     for (const c of [sp, act, sel]) if (c) c.disabled = !open;
     if (sel && !R.options(meta).length) sel.disabled = true; // choices unread: the module would refuse
     if (act && values) {
-      if (R.flipTo(state, values) === null) act.disabled = true; // unknown: nothing to toggle from
-      act.title = state === "unknown" ? `reads ${show(pv, el)}: neither on (${values.on}) nor off (${values.off})` : "";
+      if (R.flipTo(reads, values) === null) act.disabled = true; // unknown: nothing to toggle from
+      act.title = reads === "unknown" ? `reads ${show(pv, el)}: neither on (${values.on}) nor off (${values.off})` : "";
     }
     for (const ind of el.querySelectorAll(".ind")) ind.querySelector("b").textContent = show(pvOf(ind), ind);
     const rb = el.querySelector(".rb");

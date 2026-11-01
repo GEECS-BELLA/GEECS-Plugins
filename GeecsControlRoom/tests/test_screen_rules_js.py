@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 import pytest
 
-from tests._node import call_all, needs_node
+from tests._node import STATIC, call_all, needs_node
 
 UP = {"value": 1.0, "connected": True, "severity": "NO_ALARM", "alarmStatus": 0}
 VIEW = {"ok": True, "state": "off", "roles": {}}
@@ -139,3 +140,10 @@ def answers() -> list[Any]:
 @pytest.mark.parametrize("i", range(len(ROWS)), ids=[r[0] for r in ROWS])
 def test_rule(answers: list[Any], i: int) -> None:
     assert answers[i] == ROWS[i][3]
+
+
+@needs_node
+@pytest.mark.parametrize("script", sorted(p.name for p in STATIC.glob("*.js")))
+def test_the_page_script_parses(script: str) -> None:
+    """A page script with a syntax error draws nothing; node --check says so before a browser does."""
+    subprocess.run(["node", "--check", str(STATIC / script)], check=True, capture_output=True, timeout=10)  # fmt: skip
