@@ -101,7 +101,7 @@
   // ---- the layer: crosshairs (stored colour) and the analysis ROI (accent), this viewer's edit held until stored
   const token = (name) => getComputedStyle(document.body).getPropertyValue(name).trim();
   const held = { xh: {}, roi: null };
-  const can = (role) => R.control(P.view(), P.entry(role), false).enabled;
+  const can = (role) => R.control(P.view(), P.entry(role), write.busy()).enabled;
   const hex2 = (v) => Math.max(0, Math.min(255, Number(v) | 0)).toString(16).padStart(2, "0");
   function crosshair(n) {
     const g = (f) => value(`crosshair${n}_${f}`);
@@ -246,6 +246,7 @@
         const r = await fetch(box.dataset.frameUrl, { cache: "no-store" });
         if (!r.ok) { let d = `answered ${r.status}`; try { d = (await r.json()).detail || d; } catch (_) { /* not JSON */ } throw new Error(d); }
         const tag = r.headers.get("X-Frame-Tag"), blob = await r.blob();
+        $("image-error").hidden = true; // a good answer ends a transport error, new frame or not (a decode failure says so again)
         if (tag === null || tag !== lastTag) { lastTag = tag; waiting = blob; drawLatest(); }
       } catch (e) {
         $("image-error-text").textContent = String(e.message || e);
@@ -307,29 +308,34 @@
     });
   }
   // `confirmed`: the caller's own dialog, naming these writes and their hazards, was answered (the camera ROI's).
-  async function write(pairs, confirmed = false) {
+  // One list at a time for the whole page: while one is asked or in flight, every control is disabled and an
+  // image edit is refused, so two lists never interleave (an ROI assembled from two edits).
+  const write = R.single(async (pairs, confirmed = false) => {
     const operator = opInput.value.trim();
     if (!operator) { opInput.focus(); say("unknown", "unsent · name yourself in the header first"); return false; }
-    // one decision for the whole list: the confirm sent is the dialog the operator answered
-    const marked = hazardsOf(pairs);
-    if (marked.length && !confirmed && !(await askHazard(pairs, marked))) { say("unknown", "unsent · not confirmed"); return false; }
-    const confirm = confirmed || marked.length > 0;
-    for (const [role, v] of pairs) {
-      say("sending", `${role} ← ${v} · sending`);
-      let a;
-      try {
-        const body = { role, value: v, operator };
-        if (confirm) body.confirm = true;
-        const r = await fetch(`${P.root}/api/devices/${encodeURIComponent(P.name)}/put`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        a = await r.json();
-      } catch (_) { a = { outcome: "unknown", code: "no_answer", detail: "read the device and the journal before repeating it" }; }
-      const word = a.outcome || "unknown";
-      say(word, `${role} ← ${v} · ${word}${a.code ? " · " + a.code : ""}`, a.detail);
-      if (word !== "accepted") { held.xh = {}; held.roi = null; draw(); return false; }
-    }
-    return true;
-  }
-  const W = window.GeecsCameraView = { write, hazardsOf, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => [iw, ih] };
+    hooks.forEach((f) => f()); // the rail drawn disabled while this list runs
+    try {
+      // one decision for the whole list: the confirm sent is the dialog the operator answered
+      const marked = hazardsOf(pairs);
+      if (marked.length && !confirmed && !(await askHazard(pairs, marked))) { say("unknown", "unsent · not confirmed"); return false; }
+      const confirm = confirmed || marked.length > 0;
+      for (const [role, v] of pairs) {
+        say("sending", `${role} ← ${v} · sending`);
+        let a;
+        try {
+          const body = { role, value: v, operator };
+          if (confirm) body.confirm = true;
+          const r = await fetch(`${P.root}/api/devices/${encodeURIComponent(P.name)}/put`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+          a = await r.json();
+        } catch (_) { a = { outcome: "unknown", code: "no_answer", detail: "read the device and the journal before repeating it" }; }
+        const word = a.outcome || "unknown";
+        say(word, `${role} ← ${v} · ${word}${a.code ? " · " + a.code : ""}`, a.detail);
+        if (word !== "accepted") { held.xh = {}; held.roi = null; draw(); return false; }
+      }
+      return true;
+    } finally { setTimeout(() => hooks.forEach((f) => f())); } // after single() has let go: the rail enabled again
+  });
+  const W = window.GeecsCameraView = { write, busy: write.busy, hazardsOf, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => [iw, ih] };
   resize();
   loop();
 })();

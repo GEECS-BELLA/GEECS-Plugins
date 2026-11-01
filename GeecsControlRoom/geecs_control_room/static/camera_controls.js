@@ -11,15 +11,16 @@
   if (!P || !V) return;
   const $ = (id) => document.getElementById(id);
   const focused = (el) => document.activeElement === el;
-  let busy = false, roiDraft = false;
-  const send = async (pairs, confirmed = false) => { busy = true; fill(); const ok = await V.write(pairs, confirmed); busy = false; fill(); return ok; };
+  let roiDraft = false;
+  // camera.js's write runs one list at a time for the page (the rail and the image's edits); null: refused, one runs
+  const send = (pairs, confirmed = false) => V.write(pairs, confirmed);
 
   // ---- every [data-role] control: filled unless focused (or a camera-ROI draft), enabled on the module's word
   const controls = [...document.querySelectorAll("#camera .rail [data-role]")];
   const CAM_ROI = ["min_x", "min_y", "size_x", "size_y"];
   function fill() {
     for (const el of controls) {
-      const role = el.dataset.role, c = R.control(P.view(), P.entry(role), busy);
+      const role = el.dataset.role, c = R.control(P.view(), P.entry(role), V.busy());
       el.disabled = !c.enabled;
       el.title = c.why;
       const v = V.value(role);
@@ -35,7 +36,7 @@
       el.value = Number.isInteger(v) ? v : Number(v.toPrecision(6));
     }
     $("acquire-now").textContent = R.fmt(P.frame("acquire"), P.meta("acquire"));
-    const roiOk = (role) => R.control(P.view(), P.entry(role), busy).enabled;
+    const roiOk = (role) => R.control(P.view(), P.entry(role), V.busy()).enabled;
     $("cam-roi-apply").disabled = !roiOk("min_x");
     $("cam-roi-full").disabled = !roiOk("min_x") || !(V.value("max_x") > 0);
     $("roi-full").disabled = !roiOk("roi_minx");
@@ -122,11 +123,13 @@
     const note = [latest.error, why("stat_counter")].filter(Boolean).join(" · ");
     $("plots-note").textContent = note;
     const n = (k) => V.value(`profile_size_${k}`);
-    const prof = (k) => [{ values: R.valid(a[`profile_${k}`], n(k)), colour: "--trace-1" }, { values: R.valid(a[`cursor_profile_${k}`], n(k)), colour: "--trace-2" }];
-    lines($("plot-x"), prof("x"), { x: (i) => R.roiToImage(ax, i), empty: "no profile" });
-    lines($("plot-y"), prof("y"), { x: (i) => R.roiToImage(ay, i), empty: "no profile" });
+    // a computation switched off keeps its last array in STAT: drawn as nothing, and said
+    const profOff = R.notComputed(V.value("profiles_on"), "profiles"), histOff = R.notComputed(V.value("histogram_on"), "histogram");
+    const prof = (k) => (profOff ? [] : [{ values: R.valid(a[`profile_${k}`], n(k)), colour: "--trace-1" }, { values: R.valid(a[`cursor_profile_${k}`], n(k)), colour: "--trace-2" }]);
+    lines($("plot-x"), prof("x"), { x: (i) => R.roiToImage(ax, i), empty: profOff || "no profile" });
+    lines($("plot-y"), prof("y"), { x: (i) => R.roiToImage(ay, i), empty: profOff || "no profile" });
     const hist = a.histogram || [], lo = V.value("hist_min") || 0, step = ((V.value("hist_max") || hist.length) - lo) / (hist.length || 1);
-    lines($("plot-hist"), [{ values: hist, colour: "--trace-3" }], { x: (i) => lo + (i + 0.5) * step, log: $("hist-log").checked, empty: "no histogram" });
+    lines($("plot-hist"), histOff ? [] : [{ values: hist, colour: "--trace-3" }], { x: (i) => lo + (i + 0.5) * step, log: $("hist-log").checked, empty: histOff || "no histogram" });
   }
 
   let reading = false;
@@ -155,7 +158,7 @@
     c.moveTo(vx - 10, vy); c.lineTo(vx + 10, vy); c.moveTo(vx, vy - 10); c.lineTo(vx, vy + 10); c.stroke(); c.restore();
   });
   V.clicks.push((ix, iy) => {
-    if (!plots.open || !R.control(P.view(), P.entry("cursor_x"), busy).enabled) return;
+    if (!plots.open || !R.control(P.view(), P.entry("cursor_x"), V.busy()).enabled) return;
     send([["cursor_x", Math.round(R.imageToRoi(axis("x"), ix))], ["cursor_y", Math.round(R.imageToRoi(axis("y"), iy))]]);
   });
 })();

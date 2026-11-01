@@ -156,6 +156,20 @@
   // The roles of a write list the module marks as hazards (its device route's `confirm: "hazard"`, the policy's):
   // the page asks once for the whole list before sending any of it, so a refusal never half-applies it.
   const hazards = (pairs, entries) => pairs.map(([role]) => role).filter((role) => !!entries[role] && entries[role].confirm === "hazard");
+  // A plot whose STAT computation is off (its flag read 0) is not drawn: STAT keeps the last array it computed.
+  const notComputed = (on, what) => (on === 0 ? `${what} not computed` : null);
+  // One write list at a time for the whole page (the rail and the image's edits): a call while one runs
+  // is refused (resolves null) without starting; busy() says whether one runs.
+  const single = (run) => {
+    let running = false;
+    const call = async (...args) => {
+      if (running) return null;
+      running = true;
+      try { return await run(...args); } finally { running = false; }
+    };
+    call.busy = () => running;
+    return call;
+  };
   const valid = (values, n) => (typeof n === "number" && n >= 0 ? (values || []).slice(0, n) : values || []);
 
   // A whole number typed into a field, or null for an empty or non-numeric one (which writes nothing).
@@ -168,5 +182,5 @@
     return s === "" || !Number.isFinite(n) ? null : n;
   }
 
-  Object.assign(rules, { MAPS, levels, lut, autoLevels, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, valid, whole, number });
+  Object.assign(rules, { MAPS, levels, lut, autoLevels, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, single, valid, whole, number });
 })(typeof module === "object" ? module.exports : (window.GeecsCameraRules = {}));

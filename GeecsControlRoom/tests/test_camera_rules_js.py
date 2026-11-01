@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tests._node import call_all, needs_node
+from tests._node import call_all, needs_node, run
 
 VIEW = {"ok": True, "state": "live", "roles": {}}
 W = {"role": "exposure", "writable": True, "locked": True}
@@ -182,6 +182,10 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
         ["size_x", "size_y"],
     ),  # fmt: skip
     ("hazards: an unknown role is none", "hazards", [[["gain", 2]], {}], []),
+    # a computation switched off: STAT holds its last array, so nothing is drawn
+    ("not computed: off", "notComputed", [0, "profiles"], "profiles not computed"),
+    ("not computed: on", "notComputed", [1, "histogram"], None),
+    ("not computed: unread is not off", "notComputed", [None, "histogram"], None),
     ("valid: the waveform's length", "valid", [[1, 2, 3, 4], 2], [1, 2]),
     ("valid: unread length keeps all", "valid", [[1, 2], None], [1, 2]),
     ("whole: a typed number, rounded", "whole", [" 12.6 "], 13),
@@ -202,3 +206,26 @@ def test_the_lut_maps_through_the_levels() -> None:
     grey, viridis = call_all("camera_rules.js", [("lut", ["grey", "linear", 100, 200]), ("lut", ["viridis", "linear", 0, 255])])  # fmt: skip
     assert len(grey) == 768 and grey[:3] == [0, 0, 0] and grey[150 * 3] == 128 and grey[-3:] == [255, 255, 255]  # fmt: skip
     assert viridis[:3] == [68, 1, 84] and viridis[-3:] == [253, 231, 37]
+
+
+_SINGLE = """
+const R = require(process.argv[1]);
+(async () => {
+  const sent = [], gate = {};
+  const held = new Promise((r) => { gate.open = r; });
+  const write = R.single(async (name) => { sent.push(name); await held; return name; });
+  const first = write("drag roi");
+  const busy = write.busy();
+  const second = await write("rail exposure"); // refused while the first is in flight
+  gate.open();
+  const done = await first;
+  const third = await write("after");
+  console.log(JSON.stringify({ busy, second, done, third, sent, idle: !write.busy() }));
+})();
+"""
+
+
+@needs_node
+def test_one_write_list_at_a_time_for_the_page() -> None:
+    got = run("camera_rules.js", _SINGLE)
+    assert got == {"busy": True, "second": None, "done": "drag roi", "third": "after", "sent": ["drag roi", "after"], "idle": True}  # fmt: skip
