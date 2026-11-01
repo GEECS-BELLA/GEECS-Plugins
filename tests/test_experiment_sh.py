@@ -685,3 +685,78 @@ def test_the_readiness_oneshot_alone_does_not_skip_the_port_check(
     )
     assert result.returncode == 1
     assert "already in use" in result.stderr
+
+
+def test_an_instance_file_without_its_experiment_cannot_pass_as_the_main_one(
+    tmp_path: Path, profile
+) -> None:
+    """The external review's reproduction: an installed instance file without
+    GEECS_EXPERIMENT/QS_EXPERIMENT, the main experiment's plain worker active.
+    Before the fix the file inherited site.env's experiment, the collision
+    guard read it as empty, and six restarts were scheduled — a second worker
+    for the live main experiment. Now it is refused before anything runs."""
+    first = _verb(profile, "up", "Bench", *NEW, "--dry-run")
+    assert first.returncode == 0, first.stderr
+    staged = profile["root"] / "deploy-staging" / "instances" / "Bench.env"
+    text = "\n".join(
+        x
+        for x in staged.read_text().splitlines()
+        if not x.startswith(("GEECS_EXPERIMENT=", "QS_EXPERIMENT="))
+    )
+    (profile["experiments"] / "Bench.env").write_text(text + "\n")
+    fake = tmp_path / "plain-active"
+    fake.mkdir()
+    (fake / "systemctl").write_text(
+        '#!/usr/bin/env bash\ncase "$*" in *"is-active --quiet geecs-qserver.service"*) exit 0 ;; esac\nexit 3\n'
+    )
+    (fake / "systemctl").chmod(0o755)
+    result = _verb(
+        profile,
+        "up",
+        "Bench",
+        "--dry-run",
+        env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
+    )
+    assert result.returncode == 2, result.stdout
+    assert "missing GEECS_EXPERIMENT" in result.stderr
+    assert "restart" not in result.stdout
+
+
+def test_a_site_env_experiments_dir_is_honoured_everywhere(
+    tmp_path: Path, profile
+) -> None:
+    """The external review's second reproduction: GEECS_EXPERIMENTS_DIR set in
+    site.env only (no process override). `list`, slot allocation, the
+    existing-instance lookup and the install destination all use it."""
+    configured = tmp_path / "configured-experiments"
+    configured.mkdir()
+    (configured / "First.env").write_text(
+        'GEECS_EXPERIMENT="Other bench"\nGEECS_INSTANCE_SLOT=1\nGEECS_SCANNER_PORT=8310\n'
+    )
+    site = profile["site"]
+    site.write_text(site.read_text() + f"GEECS_EXPERIMENTS_DIR={configured}\n")
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": str(profile["root"]),
+        "GEECS_SITE_ENV_PATH": str(site),
+        "GEECS_EXPERIMENT_SUDO": str(profile["sudo"]),
+    }
+
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(VERB), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=False,
+        )
+
+    listed = run("list")
+    assert any(x.startswith("First") for x in listed.stdout.splitlines()), listed.stdout
+    up = run("up", "Second", *NEW, "--dry-run")
+    assert up.returncode == 0, up.stderr
+    assert _staged(profile, "Second")["GEECS_INSTANCE_SLOT"] == "2"  # slot 1 is First's
+    assert (
+        f"install -D -m 0644 {profile['root']}/deploy-staging/instances/Second.env {configured}/Second.env"
+        in up.stdout
+    )

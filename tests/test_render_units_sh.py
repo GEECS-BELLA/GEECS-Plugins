@@ -433,3 +433,33 @@ def test_a_client_address_naming_another_manager_is_refused(tmp_path: Path) -> N
     result = _check_instance(str(bad))
     assert result.returncode != 0
     assert "not this instance's manager" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "key", ["GEECS_EXPERIMENT", "QS_EXPERIMENT", "QS_REDIS_PREFIX"]
+)
+def test_a_key_missing_from_the_instance_file_is_refused_even_after_site_env(
+    tmp_path: Path, key: str
+) -> None:
+    """The instance units read site.env first: a key the instance file lacks
+    would silently run that instance on the MAIN experiment's value. The
+    file is validated alone, however the caller's environment was loaded."""
+    script = (
+        f'. "{LIB}"; load_site_env "$1"; load_site_env "$2"; '
+        'check_instance_env PulsedWire "$2" && echo OK'
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            script,
+            "check",
+            str(SITE_ENV),
+            _filled_example(tmp_path, drop=key),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0, result.stdout
+    assert f"missing {key}" in result.stderr

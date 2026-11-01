@@ -76,7 +76,7 @@ if [ $# -gt 0 ]; then TEMPLATES=("$@"); fi
 SITE_ENV_INSTALLED="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"
 # Where the per-experiment instance files live (<Instance>.env) — the
 # instance templates' second EnvironmentFile=.
-EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
+EXPERIMENTS_DIR="$(experiments_dir)"
 # The instances' clones: the main root unless site.env names another.
 INSTANCE_CHECKOUT_ROOT="${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}"
 

@@ -57,7 +57,6 @@ done
 case "$INSTANCE" in *[!A-Za-z0-9_-]*) echo "instance '$INSTANCE' is not a slug (letters, digits, '-', '_')" >&2; exit 2 ;; esac
 
 SITE_ENV="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"
-EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
 [ -f "$SITE_ENV" ] || { echo "no site.env at $SITE_ENV" >&2; exit 2; }
 run() { if [ "$DRY" -eq 1 ]; then echo "  [dry] $*"; else echo "  \$ $*"; "$@"; fi; }
 say() { printf '\n== %s\n' "$1"; }
@@ -122,6 +121,7 @@ render_instance_env() {  # render_instance_env SLOT > file — the example with 
 }
 
 load_site_env "$SITE_ENV"
+EXPERIMENTS_DIR="$(experiments_dir)"   # after site.env: it may set GEECS_EXPERIMENTS_DIR
 INSTANCE_ROOT="${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}"
 STAGE="$GEECS_CHECKOUT_ROOT/deploy-staging/instances"
 MAIN_EXPERIMENT="$GEECS_EXPERIMENT"
@@ -206,8 +206,9 @@ up)
         say "up '$INSTANCE' — new instance file (slot $SLOT) at $INSTANCE_FILE"
     fi
     # Validate in a subshell: the instance's values must not leak into ours.
-    ( load_site_env "$INSTANCE_FILE"; check_instance_env "$INSTANCE" "$INSTANCE_FILE" )
+    check_instance_env "$INSTANCE" "$INSTANCE_FILE"
     EXPT="$(env_value "$INSTANCE_FILE" GEECS_EXPERIMENT)"
+    [ -n "$EXPT" ] || { echo "instance file $INSTANCE_FILE names no GEECS_EXPERIMENT" >&2; exit 2; }
     # The main experiment as an instance is the plain-units migration: only
     # once its plain worker family is stopped (two live workers, two
     # logbooks, one DB experiment otherwise).

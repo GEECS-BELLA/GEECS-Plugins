@@ -145,13 +145,13 @@ if [ -n "$INSTANCE" ]; then
         echo "bootstrap_host.sh --experiment must not run as root: run it as $GEECS_SERVICE_USER (deploy/experiment.sh does)" >&2; exit 2
     fi
     case "$INSTANCE" in *[!A-Za-z0-9_-]*) echo "--experiment: instance '$INSTANCE' is not a slug (letters, digits, '-', '_')" >&2; exit 2 ;; esac
-    EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
+    EXPERIMENTS_DIR="$(experiments_dir)"
     INSTANCE_ENV_INSTALLED="$EXPERIMENTS_DIR/$INSTANCE.env"
     INSTANCE_ENV="${INSTANCE_ENV:-$INSTANCE_ENV_INSTALLED}"
     [ -f "$INSTANCE_ENV" ] || { echo "no instance file: $INSTANCE_ENV (write it from deploy/experiments.env.example, or deploy/experiment.sh up)" >&2; exit 2; }
     INSTANCE_ENV="$(cd "$(dirname "$INSTANCE_ENV")" && pwd)/$(basename "$INSTANCE_ENV")"
+    check_instance_env "$INSTANCE" "$INSTANCE_ENV"   # the file alone, before it is merged in
     load_site_env "$INSTANCE_ENV"
-    check_instance_env "$INSTANCE" "$INSTANCE_ENV"
     if [ -n "$ONLY" ]; then
         for requested in $(printf '%s' "$ONLY" | tr ',' ' '); do
             case " $INSTANCE_SERVICES " in *" $requested "*) ;; *) echo "bootstrap_host.sh: --only: '$requested' has no instance template (instance services: $INSTANCE_SERVICES)" >&2; exit 2 ;; esac
