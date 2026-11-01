@@ -109,7 +109,7 @@ canonical_dir() {  # canonical_dir PATH — the physical path; for a path not ye
 
 # The directories bootstrap_host.sh clones for the MAIN experiment's services,
 # under GEECS_CHECKOUT_ROOT (its clone_of table; a test pins the two equal).
-MAIN_CLONE_DIRS="gateway-checkout portal-checkout qs-checkout archiver-checkout"
+MAIN_CLONE_DIRS="gateway-checkout portal-checkout qs-checkout archiver-checkout canopy-checkout control-room-checkout"
 
 # Whether experiment instances have a clone root of their own.
 #   1 (not separate) — GEECS_INSTANCE_CHECKOUT_ROOT unset: instances use the
