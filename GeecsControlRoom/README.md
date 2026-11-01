@@ -10,5 +10,23 @@ step. Live values come from Hare's WebSocket with a read key; every write
 goes through the module's put route. `CLAUDE.md` holds the rules.
 
     GEECS_EXPERIMENT=… GEECS_CONFIGS_ROOT=… \
-    GEECS_CONTROL_ROOM_CANOPY_URL=http://127.0.0.1:8000 \
+    GEECS_CONTROL_ROOM_CANOPY_URL=http://127.0.0.1:8600 \
     GEECS_CONTROL_ROOM_READ_KEY=… poetry run geecs-control-room
+
+## Deploy
+
+On the services host, beside Canopy (`GeecsCanopy/DEPLOYMENT.md`), from its
+own clone `<GEECS_CHECKOUT_ROOT>/control-room-checkout` (`deploy/bootstrap_host.sh`
+clones it, installs the env and renders the unit). The `GEECS_CONTROL_ROOM_*`
+keys are in `site.env` (`deploy/site.env.example`). The secret is
+the display's read key, the `read@*` entry of Canopy's `CANOPY_API_KEYS`, never one
+that carries write:
+
+    sudo install -d -m 0755 /etc/geecs/control-room
+    sudo install -m 0600 -o <service account> /dev/null /etc/geecs/control-room/secrets.env
+    # then, as root: GEECS_CONTROL_ROOM_READ_KEY=<the display key>
+    sudo install -m 0644 <staging>/geecs-control-room.service /etc/systemd/system/
+    sudo systemctl daemon-reload && sudo systemctl enable --now geecs-control-room
+
+Check: `GET /healthz` → `{"status": "ok"}`. The home and the screens read the
+configs share per request; Canopy's containers do not (restart `geecs-canopy`).

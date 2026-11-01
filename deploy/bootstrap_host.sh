@@ -9,7 +9,7 @@
 #   deploy/bootstrap_host.sh SITE_ENV --experiment INSTANCE [--instance-env FILE] [--only ...] [--dry-run] [--no-install]
 #
 #   --ref REF      git ref to check out in each clone (default: master)
-#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner,archiver
+#   --only LIST    comma-separated subset of: gateway,portal,logbook,qserver,tiled-writer,mcp,scanner,archiver,canopy,control-room
 #                  (re-stages only these: the staging dir's units are cleared first,
 #                  so the printed install line covers exactly this run)
 #   --no-install   clone/fetch only; skip poetry/pip installs
@@ -93,16 +93,20 @@ say() { printf '\n== %s\n' "$1"; }
 # the conf templates; the unit itself runs docker compose from /etc/geecs/archiver
 # and never reads the clone. Its runtime prerequisite is Docker (checked below,
 # the Redis pattern); its conf is rendered by the package's own render_conf.sh.
-SERVICES="gateway portal logbook qserver tiled-writer mcp scanner archiver"
-clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; archiver) echo "archiver-checkout";; esac; }
-pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; archiver) echo "GeecsArchiver";; esac; }
-extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "";; scanner) echo "";; archiver) echo "";; esac; }
+# Canopy (GeecsCanopy) is the same shape: a derived image built from its clone,
+# run by docker compose from /etc/geecs/canopy, so no host env. The Control Room
+# is a plain poetry service over it, in a clone of its own (it writes to devices,
+# through the module: never moved by another service's pull).
+SERVICES="gateway portal logbook qserver tiled-writer mcp scanner archiver canopy control-room"
+clone_of()   { case "$1" in gateway) echo "gateway-checkout";; portal|logbook) echo "portal-checkout";; qserver|tiled-writer|mcp|scanner) echo "qs-checkout";; archiver) echo "archiver-checkout";; canopy) echo "canopy-checkout";; control-room) echo "control-room-checkout";; esac; }
+pkgdir_of()  { case "$1" in gateway) echo "GeecsCAGateway";; portal) echo "GEECS-DataPortal";; logbook) echo "GeecsLogbook";; qserver|tiled-writer) echo "GeecsBluesky";; mcp) echo "GEECS-MCP";; scanner) echo "GeecsScanner";; archiver) echo "GeecsArchiver";; canopy) echo "GeecsCanopy";; control-room) echo "GeecsControlRoom";; esac; }
+extras_of()  { case "$1" in gateway) echo "";; portal) echo "analysis";; logbook) echo "";; qserver|tiled-writer) echo "ca tiled qserver optimize";; mcp) echo "";; scanner) echo "";; archiver) echo "";; canopy|control-room) echo "";; esac; }
 # The queueserver is two units: the manager and the geecs-qserver-ready oneshot
 # that opens its worker environment and asserts the plan list after every
 # (re)start (#793) — enabled together, rendered from the same clone. The
 # Tiled writer is its own service (own unit, own restart, no ordering
 # against the manager): the spool directory is the only thing they share.
-units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; esac; }
+units_of()   { case "$1" in gateway) echo "geecs-ca-gateway";; portal) echo "geecs-data-portal";; logbook) echo "geecs-logbook";; qserver) echo "geecs-qserver geecs-qserver-ready";; tiled-writer) echo "geecs-tiled-writer";; mcp) echo "geecs-mcp";; scanner) echo "geecs-scanner";; archiver) echo "geecs-archiver";; canopy) echo "geecs-canopy";; control-room) echo "geecs-control-room";; esac; }
 # ---- --experiment: one experiment instance, beside the main units ----------
 # Additive by construction: it renders only the <unit>@.service templates,
 # never re-renders or re-enables a main unit, and never moves, fetches or
@@ -249,6 +253,9 @@ wanted() {
         # geecs-mcp likewise: without the services' host it could only
         # answer service_unreachable, so a site without the key deploys none.
         if [ "$1" = "mcp" ] && [ -z "${GEECS_SERVICES_HOST:-}" ]; then return 1; fi
+        # Canopy and the Control Room likewise, by their port keys.
+        if [ "$1" = "canopy" ] && [ -z "${GEECS_CANOPY_PORT:-}" ]; then return 1; fi
+        if [ "$1" = "control-room" ] && [ -z "${GEECS_CONTROL_ROOM_PORT:-}" ]; then return 1; fi
         return 0
     fi
     case ",$ONLY," in *",$1,"*) return 0;; *) return 1;; esac
@@ -273,6 +280,8 @@ fi
 if wanted archiver; then require_site_keys GEECS_ARCHIVER_HOST GEECS_ARCHIVER_DATA_ROOT GEECS_ARCHIVER_JAVA_OPTS; fi
 # geecs-mcp reaches the scanner, portal and logbook at this host ([mcp] in config.ini).
 if wanted mcp; then require_site_keys GEECS_SERVICES_HOST; fi
+if wanted canopy; then require_site_keys GEECS_CANOPY_BIND GEECS_CANOPY_PORT GEECS_CANOPY_DB; fi
+if wanted control-room; then require_site_keys GEECS_CONTROL_ROOM_PORT GEECS_CONTROL_ROOM_CANOPY_URL; fi
 
 say "site '${GEECS_SITE:-?}' experiment '$GEECS_EXPERIMENT' — ref $REF — root $GEECS_CHECKOUT_ROOT"
 if [ -z "$ONLY" ] && [ -z "${GEECS_ARCHIVER_HOST:-}" ]; then
@@ -323,7 +332,7 @@ fi
 # and the service account in the docker group. Judge each (the Redis
 # pattern); the root steps install what is missing. Never Docker Desktop.
 DOCKER_ROOT_STEP=""
-if wanted archiver; then
+if wanted archiver || wanted canopy; then
     docker_bin="$(command -v docker || true)"
     compose_ok="no"; [ -n "$docker_bin" ] && docker compose version >/dev/null 2>&1 && compose_ok="yes"
     docker_enabled="$({ systemctl is-enabled docker.service 2>/dev/null || true; } | head -1)"
@@ -332,9 +341,9 @@ if wanted archiver; then
         if id -nG "$GEECS_SERVICE_USER" 2>/dev/null | tr " " "\n" | grep -qx docker; then in_group="yes"; else in_group="no"; fi
     else in_group="unknown (no user $GEECS_SERVICE_USER on this machine)"; fi
     if [ -n "$docker_bin" ] && [ "$compose_ok" = "yes" ] && [ "$docker_enabled" = "enabled" ] && [ "$in_group" = "yes" ]; then
-        echo "  docker ready for the archiver: $docker_bin, compose plugin, docker.service enabled, $GEECS_SERVICE_USER in the docker group"
+        echo "  docker ready for the archiver and canopy: $docker_bin, compose plugin, docker.service enabled, $GEECS_SERVICE_USER in the docker group"
     else
-        echo "  WARNING: docker is not ready for the archiver (binary: ${docker_bin:-none}; compose plugin: $compose_ok; docker.service: $docker_enabled; $GEECS_SERVICE_USER in docker group: $in_group) — the root steps below install and enable it"
+        echo "  WARNING: docker is not ready for the archiver and canopy (binary: ${docker_bin:-none}; compose plugin: $compose_ok; docker.service: $docker_enabled; $GEECS_SERVICE_USER in docker group: $in_group) — the root steps below install and enable it"
         DOCKER_ROOT_STEP="yes"
     fi
 fi
@@ -382,6 +391,7 @@ say "environments (inside each package dir, with that service's extras)"
 INSTALLED_ENVS=" "
 for s in $SERVICES; do
     wanted "$s" || continue
+    if [ "$s" = "canopy" ]; then echo "  canopy: no host env (the image is built from the clone: GeecsCanopy/DEPLOYMENT.md)"; continue; fi
     dir="$GEECS_CHECKOUT_ROOT/$(clone_of "$s")/$(pkgdir_of "$s")"
     skipped_clone "$(clone_of "$s")" && { echo "  $s: skipped — $(clone_of "$s") is not a usable clone (see the clones stage)"; continue; }
     [ "$INSTALL" -eq 1 ] || { echo "  $s: skipped (--no-install)"; continue; }
@@ -516,7 +526,8 @@ templates_of() { case "$1" in
     tiled-writer) echo "GeecsBluesky/qserver/deploy/geecs-tiled-writer.service";;
     mcp) echo "GEECS-MCP/deploy/geecs-mcp.service";;
     scanner) echo "GeecsScanner/deploy/geecs-scanner.service";;
-    archiver) echo "GeecsArchiver/deploy/geecs-archiver.service";; esac; }
+    archiver) echo "GeecsArchiver/deploy/geecs-archiver.service";;
+    canopy) echo "GeecsCanopy/deploy/geecs-canopy.service";; control-room) echo "GeecsControlRoom/deploy/geecs-control-room.service";; esac; }
 TEMPLATE_PATHS=()
 # Services whose clone predates the templated units: no unit is rendered or
 # enabled for them (pulling that clone forward is a deploy of that service,
@@ -572,6 +583,17 @@ if wanted archiver; then
     fi
 fi
 
+# Canopy's compose file, the same way, from its own clone (render_conf.sh fills
+# the pin and the build context); its printed root lines are kept for below.
+CANOPY_CONF=""
+if wanted canopy && ! skipped_clone canopy-checkout && ! skipped_service canopy; then
+    say "canopy conf (compose.yaml from site.env and the image pin, to the staging dir)"
+    rc="$GEECS_CHECKOUT_ROOT/canopy-checkout/GeecsCanopy/deploy/render_conf.sh"
+    [ -x "$rc" ] || { echo "  clone absent — render_conf.sh from this clone ($REPO_ROOT)"; rc="$REPO_ROOT/GeecsCanopy/deploy/render_conf.sh"; }
+    if [ "$DRY" -eq 1 ]; then echo "  [dry] $rc $SITE_ENV $STAGE/canopy"; CANOPY_CONF="# [dry] the root lines render_conf.sh prints: /etc/geecs/canopy, the state and backup dirs, secrets.env"
+    else CANOPY_CONF="$("$rc" "$SITE_ENV" "$STAGE/canopy" | sed -n 's/^  sudo /sudo /p')"; echo "  rendered $STAGE/canopy/compose.yaml"; fi
+fi
+
 say "root steps (a human runs these; nothing above needed sudo)"
 if [ -n "$REDIS_ROOT_STEP" ]; then
     # First: geecs-qserver.service is ordered After= this unit, and its
@@ -600,10 +622,15 @@ if [ -n "$ARCHIVER_CONF" ]; then
     echo "  sudo install -d -m 0755 /etc/geecs/archiver && sudo install -m 0644 \"$STAGE/archiver\"/* /etc/geecs/archiver/   # the appliance's rendered conf (compose.yaml, appliances.xml, policies.py, ...)"
     echo "  sudo install -d -o $GEECS_SERVICE_USER -g $GEECS_SERVICE_USER -m 0750 \"$GEECS_ARCHIVER_DATA_ROOT/sts\" \"$GEECS_ARCHIVER_DATA_ROOT/lts\"   # the archive: short-term and long-term stores"
 fi
+[ -n "$CANOPY_CONF" ] && printf '%s\n' "$CANOPY_CONF" | sed 's/^/  /'
+if wanted control-room && ! skipped_service control-room; then
+    echo "  sudo install -d -m 0755 /etc/geecs/control-room && sudo install -m 0600 -o $GEECS_SERVICE_USER /dev/null /etc/geecs/control-room/secrets.env   # first install only: GEECS_CONTROL_ROOM_READ_KEY=<Canopy's display read key>"
+fi
 for s in $SERVICES; do
     wanted "$s" || continue
     if skipped_clone "$(clone_of "$s")"; then echo "  # $(units_of "$s"): NOT enabled — $(clone_of "$s") is not a usable clone (see above)"
     elif skipped_service "$s"; then echo "  # $(units_of "$s"): NOT enabled — $(clone_of "$s") predates the templated units; pull it forward, then rerun (see above)"
+    elif [ "$s" = "canopy" ]; then echo "  # first install, before enabling: GeecsCanopy/DEPLOYMENT.md §2 (dc build, alembic upgrade head, the module's key)"; echo "  sudo systemctl enable --now geecs-canopy"
     else echo "  sudo systemctl enable --now $(units_of "$s")"; fi
 done
 echo
@@ -624,7 +651,7 @@ if [ -n "$REDIS_ROOT_STEP" ]; then
     echo
 fi
 if [ -n "$DOCKER_ROOT_STEP" ]; then
-    echo "WARNING: docker is not ready on this host — run the Docker root steps above BEFORE enabling geecs-archiver" >&2
+    echo "WARNING: docker is not ready on this host — run the Docker root steps above BEFORE enabling geecs-archiver or geecs-canopy" >&2
     echo "         (the unit Requires=docker.service and runs compose as $GEECS_SERVICE_USER, who must be in the docker group)." >&2
     echo
 fi

@@ -396,13 +396,16 @@ def test_docker_without_the_compose_plugin_is_not_ready(tmp_path: Path) -> None:
 def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
     tmp_path: Path,
 ) -> None:
-    """The PVA 'empty = none' precedent: no GEECS_ARCHIVER_HOST, no appliance, no Docker demand."""
+    """The PVA 'empty = none' precedent: no GEECS_ARCHIVER_HOST, no appliance, no Docker demand.
+
+    Canopy needs Docker too, so this site has none of its keys either.
+    """
     site = _site_env(tmp_path)
     site.write_text(
         "\n".join(
             ln
             for ln in site.read_text().splitlines()
-            if not ln.startswith("GEECS_ARCHIVER_")
+            if not ln.startswith(("GEECS_ARCHIVER_", "GEECS_CANOPY_PORT"))
         )
         + "\n"
     )
@@ -430,6 +433,23 @@ def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
     assert (
         "sudo systemctl enable --now geecs-ca-gateway" in r.stdout
     )  # the rest of the fleet is untouched
+
+
+def test_canopy_and_the_control_room_have_their_clones_units_and_root_steps(
+    tmp_path: Path,
+) -> None:
+    r = _run_with_docker(tmp_path, "--only", "canopy,control-room")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout
+    assert "canopy-checkout" in out and "control-room-checkout" in out
+    assert "GeecsCanopy/deploy/geecs-canopy.service" in out
+    assert "GeecsControlRoom/deploy/geecs-control-room.service" in out
+    assert "canopy: no host env" in out  # the image is built from the clone
+    assert "deploy-staging/canopy" in out  # render_conf.sh's compose file
+    assert "/etc/geecs/control-room/secrets.env" in out
+    # the runbook's build + alembic + key step comes before enabling Canopy
+    assert out.index("DEPLOYMENT.md §2") < out.index("enable --now geecs-canopy")
+    assert "enable --now geecs-control-room" in out
 
 
 def _existing_config(tmp_path: Path, text: str) -> Path:

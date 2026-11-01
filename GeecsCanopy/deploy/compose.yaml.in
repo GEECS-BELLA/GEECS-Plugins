@@ -10,10 +10,6 @@ x-logging: &logging
 
 x-app: &app
   image: geecs-canopy:@CANOPY_COMMIT@
-  build:
-    context: "@BUILD_CONTEXT@"
-    dockerfile: GeecsCanopy/deploy/Dockerfile
-    args: {CANOPY_IMAGE: "@CANOPY_IMAGE@"}
   network_mode: host
   # systemd supervises (Restart=on-failure on the unit); compose must not.
   restart: "no"
@@ -32,6 +28,11 @@ x-app: &app
 services:
   api:
     <<: *app
+    # The build lives here alone: two services building one tag race ("already exists").
+    build:
+      context: "@BUILD_CONTEXT@"
+      dockerfile: GeecsCanopy/deploy/Dockerfile
+      args: {CANOPY_IMAGE: "@CANOPY_IMAGE@"}
     # The wrapper: Canopy + the GEECS device module at /geecs. Rollback when its
     # self-test refuses to start: canopy.main:app with the previous pin (DEPLOYMENT.md 5).
     command: ["uvicorn", "geecs_canopy.app:app", "--host", "${GEECS_CANOPY_BIND}",
