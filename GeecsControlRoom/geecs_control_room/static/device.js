@@ -63,6 +63,18 @@
   let view = null, hareState = "connecting";
   const entryOf = (tr) => view && view.roles[S.key(tr.dataset.role, tr.dataset.axis)];
 
+  // What a kind's component reads (camera.js): the module's view, and per role its entry, Hare's frame
+  // and meta, and its word; on(f) calls f after every change. Assigned before the component's deferred scripts run.
+  const listeners = [];
+  const changed = () => listeners.forEach((f) => f());
+  const entry = (role) => view && view.roles[S.key(role)];
+  const frameOf = (role) => { const e = entry(role); return e && D.watched(e) ? wire[e.pv] : undefined; };
+  window.GeecsDevicePage = {
+    name, root, on: (f) => listeners.push(f), view: () => view, entry, frame: frameOf,
+    meta: (role) => { const e = entry(role); return e && e.pv ? hare.meta(e.pv) : {}; },
+    word: (role) => D.rowWord({ hareUp: hareState === "open", frame: frameOf(role), view, entry: entry(role) }),
+  };
+
   function draw(tr) {
     const entry = entryOf(tr), pv = D.watched(entry) ? entry.pv : null;
     const word = D.rowWord({ hareUp: hareState === "open", frame: pv && wire[pv], view, entry });
@@ -77,7 +89,7 @@
   function use(pv, tr) {
     if (!pv || (users[pv] && users[pv].has(tr))) return;
     (users[pv] = users[pv] || new Set()).add(tr);
-    hare.watch([pv], (pvName, frame) => { wire[pvName] = frame; users[pvName].forEach(draw); });
+    hare.watch([pv], (pvName, frame) => { wire[pvName] = frame; users[pvName].forEach(draw); changed(); });
   }
 
   function seen(_, got) {
@@ -91,6 +103,7 @@
       if (D.watched(entry)) use(entry.pv, tr);
       draw(tr);
     }
+    changed();
   }
 
   hare.onStatus((s) => {
@@ -99,6 +112,7 @@
     host.textContent = line.text;
     document.querySelector(".hare .dot").dataset.state = line.kit;
     rows.forEach(draw);
+    changed();
   });
   const poller = window.GeecsPoller.makePoller({ fetch: readDevice, pollMs: POLL_MS, onView: seen });
   poller.tick([name]);
