@@ -3,13 +3,13 @@
   each widget by kind. The binding travels as data-* (device, role, axis,
   or a bare pv; data-deferred + data-fits for a DB device, whose role the
   page judges by the module's word; data-action for a button that runs an
-  action plan); screen.js asks the module for the device's PVs and
+  action plan; data-on/data-off for a toggle's values); screen.js asks the module for the device's PVs and
   verdicts, reads values from Hare, and writes through /api/…/put and
   /api/actions/…/run only.
 #}{% extends "base.html" %}
 {% set s = loaded.screen %}
 {% set RO_PV = "A bare PV is read only: bind the device and its variable to write it." %}
-{% set WRITES = ("setpoint", "toggle", "flipper", "button") %}
+{% set WRITES = ("setpoint", "toggle", "flipper", "button", "select") %}
 {% block title %}{{ s.title if s else name }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">{% endblock %}
 {% block header %}
@@ -18,7 +18,7 @@
 {% endblock %}
 {% macro bindattrs(b, role) -%}
 {%- if b.pv %} data-pv="{{ b.pv }}"{% elif b.action %} data-action="{{ b.action }}"{% else %} data-device="{{ b.device }}" data-role="{{ b.role }}"{% if b.axis %} data-axis="{{ b.axis }}"{% endif %}{% endif -%}
-{%- if role %} data-type="{{ role.type }}"{% if role.confirm == "hazard" %} data-hazard="1"{% endif %}{% endif -%}
+{%- if role %} data-type="{{ role.type }}"{% if role.confirm == "hazard" %} data-hazard="1"{% endif %}{% if role.choices %} data-choices="{{ role.choices | tojson | forceescape }}"{% endif %}{% endif -%}
 {%- endmacro %}
 {% block body %}
 {% if not s %}
@@ -45,6 +45,7 @@
       {%- if bound.deferred %} data-deferred="1" data-fits="{{ bound.fits | join(' ') }}"{% endif %}
       {%- if bound.readback %} data-readback="{{ bound.readback.name }}"{% endif %}
       {%- if w.confirm %} data-confirm="{{ w.confirm }}"{% endif %}
+      {%- if w.values %} data-on="{{ w.values.on }}" data-off="{{ w.values.off }}"{% endif %}
       {%- if w.precision is not none %} data-precision="{{ w.precision }}"{% endif %}
       {%- if w.units %} data-units="{{ w.units }}"{% endif %}
       {%- if w.bind.pv and w.kind in WRITES %} title="{{ RO_PV }}"{% endif %}>
@@ -52,6 +53,8 @@
       <span class="lbl">{{ name }}</span>
       {% if w.kind == "setpoint" %}
       <input class="sp" spellcheck="false" aria-label="{{ name }}"{{ off }}><span class="bounds"></span>
+      {% elif w.kind == "select" %}
+      <select class="sel" aria-label="{{ name }}"{{ off }}><option value="" disabled>—</option></select>
       {% elif w.kind in ("toggle", "flipper", "button") %}
       <button class="btn sm act" type="button"{{ off }}>{{ name if w.kind == "button" else "…" }}</button>
       {%- if w.bind.action %}<button class="btn sm stop" type="button" hidden>Stop</button>{% endif %}

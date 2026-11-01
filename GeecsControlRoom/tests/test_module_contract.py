@@ -228,3 +228,33 @@ async def test_the_presets_region_reads_what_the_module_answers(room) -> None:
         and run["plan"] == f"restore:{sid}"
         and fake.restores == []
     )
+
+
+async def test_a_select_and_a_valued_toggle_draw_and_write_through_the_put_route(room) -> None:  # fmt: skip
+    (room.env.folder / "screens").mkdir()
+    (room.env.folder / "screens" / "s.yaml").write_text(
+        "title: S\ngroups:\n  - {title: G, at: [1, 1], widgets: [\n"
+        "      {kind: select, bind: {device: Cam1, role: transform}},\n"
+        "      {kind: select, bind: {device: Cam1, role: crosshair1_shape}},\n"
+        "      {kind: toggle, bind: {device: ps1, role: current_sp}, values: {on: 2, off: 0}}]}\n"
+    )
+    page = await room.client.get("/screens/s")
+    assert page.status_code == 200 and '<select class="sel"' in page.text
+    assert 'data-on="2.0" data-off="0.0"' in page.text
+    assert (
+        'data-choices="[&#34;Cross&#34;, &#34;Rectangle&#34;]"' in page.text
+    )  # the family's narrowing
+    roles = {r["role"]: r for r in (await room.client.get("/api/devices/Cam1")).json()["roles"]}  # fmt: skip
+    assert roles["transform"]["type"] == "enum" and roles["transform"]["writable"]
+    sp = next(r["pv"] for r in (await room.client.get("/api/devices/ps1")).json()["roles"] if r["role"] == "current_sp")  # fmt: skip
+    room.env.hare.meta[sp] = {"controlLow": 0.0, "controlHigh": 5.0}
+    room.env.hare.meta[roles["transform"]["writePv"] or roles["transform"]["pv"]] = {"enumChoices": ["None", "Rot90"]}  # fmt: skip
+    status, body = await put(
+        room, "ps1", role="current_sp", value=2.0
+    )  # the toggle's values.on
+    assert (status, body["outcome"]) == (200, "accepted")
+    status, body = await put(
+        room, "Cam1", role="transform", value=1
+    )  # the select's option, by index
+    assert (status, body["outcome"]) == (200, "accepted")
+    assert room.env.hare.puts[-1][1] == 1

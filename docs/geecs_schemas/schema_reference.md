@@ -974,11 +974,12 @@ One control: its kind, the label a person reads, and what it is bound to.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'readout' \| 'annotation' \| 'image'` | yes | — | The widget, one of the seven. |
+| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'select' \| 'readout' \| 'annotation' \| 'image'` | yes | — | The widget, one of the eight. |
 | `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label. |
 | `bind` | `Binding (optional)` | no | None | What it shows and writes; none for an annotation or an image. |
 | `indicators` | `list[Binding]` | no | [] | A flipper's in and out indicators, in that order. |
 | `confirm` | `str (optional)` | no | None | A hazard note the operator confirms before the write. |
+| `values` | `ToggleValues (optional)` | no | None | A toggle's or flipper's on and off numbers: with them it binds a numeric setpoint role. |
 | `units` | `str (optional)` | no | None | Units shown, where the record carries none. |
 | `precision` | `int (optional)` | no | None | Digits after the point. |
 | `src` | `str (optional)` | no | None | An image's file name in the screens folder. |
@@ -994,6 +995,15 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
 | `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
 | `action` | `str (optional)` | no | None | An action plan's name in the experiment's library: a button runs it. |
+
+### ToggleValues
+
+The two numbers a toggle writes to a numeric role (a LabVIEW boolean kept as a number).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `on` | `float` | yes | — | Written to switch it on; a readback equal to it reads on. |
+| `off` | `float` | yes | — | Written to switch it off; a readback equal to it reads off. Any other readback reads unknown. |
 
 ## `home_layout`
 
