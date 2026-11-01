@@ -3,13 +3,15 @@
  * Load deferred, beside theme.js. Everything here is additive: with this
  * file absent the page still renders correctly, <details> still opens, and
  * the density stamped by theme-boot.js still applies — only the drawer,
- * the dialog helper, the density control and the drawer picker go missing.
+ * the dialog helper, the density control, the drawer picker and the toast
+ * go missing.
  *
  *   <div data-density-picker></div>   the spacing control, built here
  *   GeecsKit.drawer(el)               rung 2 — open/close with Esc, scrim,
  *                                     focus return
  *   GeecsKit.confirm(el)              rung 3 — <dialog>.showModal() with a
  *                                     fallback for browsers without it
+ *   GeecsKit.toast(text, ms)          one short line that something happened
  *   GeecsKit.picker(opts)             a multi-select .picklist in a drawer:
  *                                     search, click / shift-click, select
  *                                     all shown, clear, one Add for the lot
@@ -332,6 +334,27 @@
     };
   }
 
+  /* ---- toast -------------------------------------------------------- */
+
+  // One short line that something happened, gone after `ms`. One toast at
+  // a time: a second call replaces the text and restarts the clock. The
+  // element is made on first use, role="status" so it is announced.
+  var toastTimer = null;
+  function toast(text, ms) {
+    var el = document.querySelector(".toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "toast";
+      el.setAttribute("role", "status");
+      document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.hidden = true; }, ms || 2200);
+    return el;
+  }
+
   /* ---- wiring ------------------------------------------------------ */
 
   // Declarative openers/closers, so a surface needs no script of its own
@@ -384,6 +407,7 @@
     drawer: drawer,
     confirm: confirmDialog,
     closeDrawer: closeDrawer,
-    picker: picker
+    picker: picker,
+    toast: toast
   };
 })();

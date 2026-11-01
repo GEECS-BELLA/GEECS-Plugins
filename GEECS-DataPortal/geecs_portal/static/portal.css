@@ -1,0 +1,84 @@
+/* The portal's own rules: only what the GeecsWebTheme kit does not settle.
+   Every colour is a token (GeecsWebTheme/tests/test_no_literal_colours.py);
+   every rule is scoped to .kit like the kit's own. */
+
+/* The scan page runs the shell edge to edge: plots want the width. */
+.kit .shell.wide { grid-template-columns: 248px minmax(0, 1fr); }
+.kit .day-filter { min-width: min(26rem, 100%); }
+/* A form's buttons sit on the line of its boxes, under their labels. */
+.kit form.row { align-items: flex-end; flex-wrap: wrap; }
+
+/* The rail's scan summary and steppers. */
+.kit .scanline { font-size: 13px; }
+.kit .scanline .num { color: var(--accent); font-weight: 600; }
+.kit .uid { overflow-wrap: anywhere; font-size: 11px; }
+.kit .rail select.btn { max-width: 100%; }
+
+/* Where a column comes from: the event table (run) or the s-file. A
+   provenance tag, not a status, so not a .chip. */
+.kit .provider { font-family: var(--ff-mono); font-size: 11px; border-radius: var(--r); padding: 1px 6px; }
+.kit .provider.run { background: var(--accent-soft); color: var(--accent); }
+.kit .provider.sfile { background: var(--warn-soft); color: var(--warn); }
+
+/* A filter group in the rail, and the pass count under them. */
+.kit .fchip { display: flex; gap: 6px; align-items: center; background: var(--surface-2);
+  border-radius: var(--r); padding: 3px 8px; font-size: 12px; }
+.kit .fchip .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit .count { font-size: 12px; color: var(--muted); }
+.kit .count b { color: var(--ink); }
+.kit .x { cursor: pointer; color: var(--muted); background: none; border: 0; font: inherit; padding: 0 2px; }
+.kit .x:hover { color: var(--crit); }
+
+/* A bar of controls above a pane's content. */
+.kit .plotbar { font-size: 12px; color: var(--muted); }
+.kit .plotbar .field { min-width: 0; }
+
+/* matplotlib renders onto white, so the frame matches its own ground
+   rather than the page's — the one place a fixed colour is correct. */
+.kit img.plot { max-width: 100%; background: #fff; border: var(--bw) solid var(--rule); border-radius: var(--r); }
+
+/* The Analysis tab: one row per analyzer, its artifacts, the bin stepper. */
+.kit .arow .head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+.kit .arow .head .id { font-family: var(--ff-mono); }
+.kit .arow .err { color: var(--crit); font-size: 12px; white-space: pre-wrap; font-family: var(--ff-mono); }
+.kit .arow details pre { max-height: 14rem; overflow: auto; font-size: 11px; }
+.kit .chip .prog { font-family: var(--ff-mono); }
+/* What an analyzer does, not how it went: a warning tag beside the chip. */
+.kit .tag-warn { font-size: 11px; border-radius: var(--r); padding: 1px 6px; color: var(--warn); background: var(--warn-soft); }
+.kit .arts { display: flex; flex-wrap: wrap; gap: var(--gap); }
+.kit .arts img { max-width: 100%; max-height: 24rem; border: var(--bw) solid var(--rule); border-radius: var(--r); background: var(--surface-2); }
+
+/* The filter editor's OR groups and AND rows. */
+.kit .fgroup { border: var(--bw) solid var(--rule); border-radius: var(--r); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.kit .frow { display: flex; gap: 6px; align-items: center; }
+.kit .frow input, .kit .frow select, .kit .ghead input, .kit .setrow input, .kit .setrow select, .kit .setrow textarea {
+  background: var(--surface); color: var(--ink); border: var(--bw) solid var(--rule); border-radius: var(--r);
+  padding: 3px 6px; font: inherit; font-size: 12px; }
+.kit .frow input.col { flex: 1; min-width: 0; font-family: var(--ff-mono); }
+.kit .frow input.val { width: 5.5rem; }
+.kit .ghead { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.kit .orjoin { text-align: center; color: var(--muted); font-size: 11px; }
+/* A labelled setting row in the drawers (display, bins, send to log). */
+.kit .setrow { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.kit .setrow > label:first-child { width: 7.5rem; flex: none; color: var(--muted); font-size: 12px; }
+.kit .setrow .narrow { width: 6rem; }
+.kit .setrow .tiny { width: 4rem; }
+.kit .setrow textarea { flex: 1; font-family: var(--ff-mono); font-size: 11px; }
+.kit .note { font-size: 11px; color: var(--muted); }
+
+/* The confirmation for a destructive kind: the kit's rung-3 dialog; its
+   number box is mono so the digits read as typed. */
+.kit #confirmnum { width: 8rem; font-family: var(--ff-mono); }
+
+/* The config editor drawer: wide enough for the editor's two panes, and
+   its body hands the editor the height. */
+.kit .drawer.cedrawer { width: min(1120px, 92vw); }
+.kit .cedrawer > .body { flex: 1; min-height: 0; overflow: hidden; }
+.kit .cedrawer #ceditor { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.kit .cedrawer .ce { flex: 1 1 auto; min-height: 0; height: auto; }
+.kit .cedrawer #cedup { width: 9rem; }
+.kit .cedrawer #ceshot { width: 5rem; }
+
+@media (max-width: 900px) {
+  .kit .shell.wide { grid-template-columns: minmax(0, 1fr); }
+}

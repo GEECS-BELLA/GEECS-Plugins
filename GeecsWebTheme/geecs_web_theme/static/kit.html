@@ -44,6 +44,7 @@
         <a href="#tables">Tables</a>
         <a href="#live">Live controls</a>
         <a href="#states">Pane states</a>
+        <a href="#tabs">Tabs and toast</a>
         <a href="#overlays">Overlay ladder</a>
       </nav>
     </div>
@@ -341,6 +342,30 @@
       </div>
     </section>
 
+    <section id="tabs" class="group">
+      <h2>Tabs and toast</h2>
+      <p class="dim">Tabs are views of the one object on screen; the selected tab is
+        <code>aria-selected="true"</code> and every other panel is <code>[hidden]</code>.
+        A toast is one line that something happened, gone on its own &mdash; never a
+        question, never the only record of a failure.</p>
+      <div class="panel"><div class="body">
+        <div class="tabs" role="tablist" aria-label="Scan views">
+          <button type="button" role="tab" id="k-tab-plot" aria-controls="k-panel-plot" aria-selected="true">Plot</button>
+          <button type="button" role="tab" id="k-tab-images" aria-controls="k-panel-images" aria-selected="false">Images</button>
+        </div>
+        <div role="tabpanel" id="k-panel-plot" aria-labelledby="k-tab-plot">
+          <p class="dim">Charge against the scan variable, per shot.</p>
+        </div>
+        <div role="tabpanel" id="k-panel-images" aria-labelledby="k-tab-images" hidden>
+          <p class="dim">One camera's shots as a strip.</p>
+        </div>
+        <div class="row">
+          <button class="btn" type="button" id="k-toast-open">Copy plot</button>
+          <span class="dim"><code>GeecsKit.toast("copied to clipboard")</code></span>
+        </div>
+      </div></div>
+    </section>
+
     <section id="overlays" class="group">
       <h2>The overlay ladder</h2>
       <p class="dim">Take the lowest rung that fits. The decider: <strong>can the user
@@ -506,6 +531,17 @@
   // The picker specimen: the rows and what Add does are all a surface writes.
   window.addEventListener("DOMContentLoaded", function () {
     var $ = function (id) { return document.getElementById(id); };
+    // The tabs specimen: a surface flips aria-selected and [hidden], nothing else.
+    document.querySelectorAll('#tabs [role="tab"]').forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        document.querySelectorAll('#tabs [role="tab"]').forEach(function (t) {
+          var on = t === tab;
+          t.setAttribute("aria-selected", on ? "true" : "false");
+          $(t.getAttribute("aria-controls")).hidden = !on;
+        });
+      });
+    });
+    $("k-toast-open").addEventListener("click", function () { window.GeecsKit.toast("copied to clipboard"); });
     var inTable = { U_Hexapod: true };
     var all = ["UC_TC_Phosphor", "UC_ALineEBeam3", "U_ICT", "U_ChicaneSpec", "UC_HASO", "U_Hexapod", "U_S1H", "U_S1V"];
     window.GeecsKit.picker({

@@ -33,7 +33,11 @@ restart between runs.
 - Ubuntu with **Python 3.11** and **Poetry** on the service account
   (same account and tooling as the other services on the box).
 - `~/.config/geecs_python_api/config.ini` with a `[tiled]` section
-  (`uri`, `api_key`) and a `[Paths]` section whose
+  (`uri`, `api_key`), read because the unit passes `--tiled` (without it
+  the portal lists the share's scan folders alone — the default, for a
+  laptop that cannot reach Tiled; a unit installed before `--tiled`
+  existed lists folders only until it is re-rendered, which every deploy
+  does), and a `[Paths]` section whose
   `geecs_data_local_base_path` points at the mounted data share —
   the same file every GEECS-Plugins package reads.
 - The data share mounted at that path (e.g. `/mnt/<share>/data/`) —
@@ -90,14 +94,28 @@ selector hides itself; nothing else changes.
 Smoke-test in the foreground before installing the unit:
 
 ```bash
-poetry run geecs-data-portal --experiment Undulator
+poetry run geecs-data-portal --tiled --experiment Undulator
 # in another shell:
 curl -s http://localhost:8200/health
 ```
 
 `/health` returns the catalog probe — `ok` requires the Tiled server
-reachable with the configured key. Then load a real day page in a
+reachable with the configured key (with `--tiled`, as the unit runs it;
+without it the probe is the scan folders'). Then load a real day page in a
 browser and open one run's image gallery (exercises the share mount).
+
+## The Plot tab's settings sets
+
+The Plot tab (GEECSplotter's page, `/plot`) saves each viewer's named
+settings set as a JSON file — the portal's one durable write outside the
+analysis and configs trees. The folder is `config.ini [Paths]
+geecs_data` + `DataPortal/settings/` when that folder is reachable (the
+shared `user data` folder LabVIEW tools use), else
+`<checkout>/user data/DataPortal/settings/`. On the service host prefer
+the shared folder, or pass `--settings-dir <folder>` through
+`GEECS_PORTAL_EXTRA_ARGS` in `site.env`: a fallback inside the deployed
+checkout must be writable by the service account and survives a
+redeploy only because `user data/` is gitignored.
 
 ## systemd unit
 

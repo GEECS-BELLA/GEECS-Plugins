@@ -1,0 +1,82 @@
+/* The plotter's own rules: only what the kit does not settle. */
+.kit .plot { width: 100%; height: 60vh; min-height: 320px; }
+.kit #code { white-space: pre; overflow-x: auto; }
+/* A list box, not a dropdown: the kit fixes every .field select at one
+   row height, which would squash size="10" to a single line. */
+.kit .field select.picks { width: 100%; height: auto; padding: 4px 0; }
+
+/* The settings folder is a long path; let it wrap rather than widen the rail. */
+.kit .settings-folder { overflow-wrap: anywhere; }
+
+/* The Y lists' colour keys: each list's swatch is its trace's colour, the
+   same token the figure's axis uses, so a list and its axis match. */
+.kit .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.kit .swatch.t1 { background: var(--trace-1); }
+.kit .swatch.t2 { background: var(--trace-2); }
+.kit .swatch.t3 { background: var(--trace-3); }
+
+/* The Fit menu above each Y list, and the fits' numbers under the plot. */
+.kit .fit-row { gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+/* Wide enough for "SuperGaussianNoOffset"; a polynomial's order wraps under. */
+.kit .fit-row select { flex: 1 1 11em; min-width: 0; }
+.kit .fit-order-box { gap: 6px; }
+.kit .fit-order { width: 4.5em; }
+.kit .fits { display: flex; flex-wrap: wrap; gap: var(--pad); margin: var(--pad) 0; }
+.kit .fit { flex: 1 1 260px; min-width: 0; }
+.kit .fit-head { gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.kit .fit table { width: auto; min-width: 220px; }
+.kit .fit-error { color: var(--crit); margin: 4px 0; }
+
+/* The XY plot, 2-D map and image strip switch above the pane. */
+.kit .view-switch { margin-bottom: var(--pad); }
+
+/* The image controls' small number boxes (tiles across, the levels). */
+.kit .narrow-number { width: 5em; }
+.kit .levels { gap: 6px; }
+
+/* The image strip, as a grid or one scrolling row; the tiles across are
+   the element's own style (the template, and plotter.js on a change). */
+.kit .strip { display: grid; gap: var(--gap); align-items: start; }
+.kit .strip.row { grid-auto-flow: column; overflow-x: auto; padding-bottom: var(--gap); }
+.kit .tile { margin: 0; min-width: 0; }
+.kit .tile img { display: block; width: 100%; height: auto; min-height: 3em; object-fit: contain; background: var(--surface-2); }
+.kit .tile figcaption { margin-top: 2px; overflow-wrap: anywhere; }
+/* A tile with no image: its caption says why (the server's reason). */
+.kit .tile.missing img { display: none; }
+.kit .tile.missing figcaption[data-reason]::after { content: " — " attr(data-reason); color: var(--crit); }
+
+/* The ROI drawer: wide enough to draw on, the image at its own aspect with
+   the rectangle laid over it. */
+.kit .drawer.roi-drawer { width: min(1100px, 94vw); }
+.kit .roi-stage { position: relative; display: inline-block; max-width: 100%; cursor: crosshair; touch-action: none; user-select: none; }
+.kit .roi-stage img { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; }
+.kit .roi-box { position: absolute; border: 2px solid var(--accent); pointer-events: none; }
+.kit .roi-corners { gap: 6px; flex-wrap: wrap; margin: var(--pad) 0; }
+
+/* A z-scale or ROI problem the page explains rather than drawing flat. */
+.kit .level-problem { color: var(--crit); }
+
+/* The 2-D map: its statistics in a wrapping row, the two maps side by
+   side (stacked on a narrow window), and the selected cell's numbers. */
+.kit .map-controls { gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.kit .map-controls .field { flex: 0 1 12rem; min-width: 0; }
+.kit .maps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
+.kit .maps > div { min-width: 0; }
+.kit .maps h3 { font-size: 13px; font-weight: 500; margin: 0; }
+.kit .map-inspect select { max-width: 100%; }
+.kit .map-values { gap: 18px; flex-wrap: wrap; font-size: 12px; }
+@media (max-width: 620px) {
+  .kit .maps { grid-template-columns: 1fr; }
+}
+
+/* The Images page: a tile is clicked to show it in the big view under the
+   strip; the one shown is marked (aria-current, the state attribute). */
+.kit .strip .tile { cursor: pointer; }
+.kit .strip .tile[aria-current] img { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kit .bigview { margin-top: var(--pad); }
+.kit .bigbar { gap: 6px; align-items: center; flex-wrap: wrap; }
+.kit .big-image { display: block; max-width: 100%; height: auto; margin-top: 6px; background: var(--surface-2); }
+/* One row: only the tiles spread over the scan show (plotter.js). */
+.kit .strip .tile[hidden] { display: none; }
+/* The way back to the day's list of scans, above the tabs. */
+.kit .back-to-day { margin-bottom: 6px; }

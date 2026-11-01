@@ -256,6 +256,7 @@ def test_every_guarded_surface_selects_the_theme_leg() -> None:
     GeecsScanner surfaces, which would have let a literal colour land
     there with the guard never running.
 
+    The token check's ``_TOKEN_SOURCES`` (the figure builders) count too.
     Parsed rather than imported: the root env has no GeecsWebTheme.
     """
     import ast
@@ -265,9 +266,10 @@ def test_every_guarded_surface_selects_the_theme_leg() -> None:
     surfaces: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(
-            getattr(t, "id", None) == "_SURFACES" for t in node.targets
+            getattr(t, "id", None) in ("_SURFACES", "_TOKEN_SOURCES")
+            for t in node.targets
         ):
-            surfaces = [
+            surfaces += [
                 n.value
                 for n in ast.walk(node.value)
                 if isinstance(n, ast.Constant) and isinstance(n.value, str)

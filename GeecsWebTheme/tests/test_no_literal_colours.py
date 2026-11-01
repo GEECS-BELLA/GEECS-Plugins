@@ -75,6 +75,14 @@ _BOOT_JS = _REPO / "GeecsWebTheme/geecs_web_theme/static/theme-boot.js"
 #: fails, which is the point.
 _DENSITY_TOKENS = {"--pad", "--row-h", "--gap"}
 
+#: Python figure builders whose ``$tok:--name`` sentinels the token check
+#: reads (they author colours for the page). scripts/ci_select.py selects
+#: the theme leg for each, pinned by tests/test_ci_select.py.
+_TOKEN_SOURCES = [
+    "GEECS-DataPortal/geecs_portal/figures.py",
+    "GEECS-DataPortal/geecs_portal/plotter/figures.py",
+]
+
 #: The web surfaces bound by the rule. Adding a surface means adding it
 #: here — a new page that skips the tokens should fail loudly, not quietly.
 _SURFACES = [
@@ -85,6 +93,13 @@ _SURFACES = [
     "GEECS-DataPortal/geecs_portal/templates/base.html",
     "GEECS-DataPortal/geecs_portal/templates/day.html",
     "GEECS-DataPortal/geecs_portal/templates/run.html",
+    "GEECS-DataPortal/geecs_portal/static/portal.css",
+    "GEECS-DataPortal/geecs_portal/plotter/templates/index.html",
+    "GEECS-DataPortal/geecs_portal/plotter/static/plotter.css",
+    "GEECS-DataPortal/geecs_portal/plotter/static/plotter.js",
+    "GEECS-DataPortal/geecs_portal/plotter/static/plot_tools.js",
+    "GEECS-DataPortal/geecs_portal/plotter/static/map.js",
+    "GEECS-DataPortal/geecs_portal/plotter/static/images.js",
     "GeecsLogbook/geecs_logbook/static/scanlog.css",
     "GeecsLogbook/geecs_logbook/templates/day.html",
     "GeecsLogbook/geecs_logbook/templates/month.html",
@@ -125,7 +140,7 @@ _ALLOWED = {
     ".themepick .sw-bella": "each swatch shows ITS palette whichever one is active",
     ".themepick .sw-laser": "each swatch shows ITS palette whichever one is active",
     ".themepick .sw-plasma": "each swatch shows ITS palette whichever one is active",
-    "img.plot": "matplotlib renders onto white; the frame matches its own ground",
+    ".kit img.plot": "matplotlib renders onto white; the frame matches its own ground",
     ".ce-preview img": "matplotlib renders onto white; the frame matches its own ground",
 }
 
@@ -279,15 +294,15 @@ def test_every_referenced_token_is_defined() -> None:
     This is the test that would have caught ``--surface2`` vs
     ``--surface-2``: 34 references and zero definitions, invisible to a
     check that only compared theme blocks against each other. Scripts
-    count too — the portal's run page writes one token through
-    ``cssText`` — and a surface's own ``.tone-ok{--tone:var(--ok)}``
+    count too — a script may write a token through ``cssText`` —
+    and a surface's own ``.tone-ok{--tone:var(--ok)}``
     indirection is a definition, not an undefined reference.
     """
     defined: set[str] = set()
     for tokens in defined_tokens(_THEME_CSS.read_text()).values():
         defined |= tokens
     problems = []
-    for relative in _SURFACES + ["GEECS-DataPortal/geecs_portal/figures.py"]:
+    for relative in _SURFACES + _TOKEN_SOURCES:
         path = _REPO / relative
         text = path.read_text()
         names: set[str] = set()
@@ -475,7 +490,7 @@ def test_reference_page_demonstrates_only_what_the_kit_provides() -> None:
 def test_referenced_tokens_sees_css_a_script_builds() -> None:
     """``cssText = "…var(--x)…"`` in a script counts as a reference.
 
-    The portal's run page writes one token this way; a check over
+    The portal's run page once wrote one token this way; a check over
     stylesheet files alone would have let ``var(--surfce-2)`` there ship.
     """
     js = 'note.style.cssText = "padding:2px; background:var(--surfce-2)";'

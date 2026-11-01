@@ -14,13 +14,15 @@ from fastapi import HTTPException
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
+from geecs_web_theme.web import root_of
+
 from geecs_data_utils.scan_info import analysis_folder_for
 from geecs_data_utils.scan_paths import ScanPaths
 from geecs_data_utils.tiled_catalog import RunDetail, ScanCatalog
 
 from geecs_portal import analysis_runs, resources
 from geecs_portal.cache import ShotDataCache
-from geecs_portal.routes.common import _figure_kwargs, _resolved_folder, _root
+from geecs_portal.routes.common import _figure_kwargs, _resolved_folder
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +103,9 @@ class PortalState:
     #: The client the plot send uses (``None`` = one per send); injected
     #: by tests so the conversation runs against an in-process logbook.
     logbook_client: Optional[httpx.Client] = None
+    #: Whether GEECSplotter's page is mounted at ``/plot`` (then it is the
+    #: Plot tab; without it the scan page has none).
+    plot_page: bool = False
     config_editor_enabled: bool = False  # set when the editor router mounts
     # (fingerprint → valid names): re-validated only when the tree
     # changes — discovery lists every YAML stem, but legacy flat camera
@@ -130,7 +135,7 @@ class PortalState:
         if summary.experiment != self.default_experiment:
             return ""
         base = (
-            _root(request) + self.logbook_base
+            root_of(request) + self.logbook_base
             if self.logbook_base.startswith("/")
             else self.logbook_base
         )
