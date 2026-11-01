@@ -92,7 +92,8 @@ def _desired(args: argparse.Namespace, experiment: str) -> tuple[Desired, Archiv
         raise UsageError(
             f"the configs repository's {experiment!r} folder cannot be found "
             f"(configs base: {base}); the registry pass needs it — set "
-            "[Paths] scanner_config_root_path or GEECS_SCANNER_CONFIG_DIR"
+            "[Paths] scanner_config_root_path, GEECS_PLUGINS_CONFIGS or "
+            "GEECS_SCANNER_CONFIG_DIR"
         )
     policy_file = (
         Path(args.policy) if args.policy else config.policy_path(experiment, base)
