@@ -10,6 +10,8 @@
 // keeps the DOM work. A button naming an action plan asks the module to run
 // it (once, confirmed when the plan writes a hazard role) and shows the run
 // as the module reports it, polled until it ends, with Stop while it runs.
+// A toggle with values writes values.on/off and reads on, off or unknown by
+// matching the readback; a select offers the enum's choices from Hare.
 (function () {
   "use strict";
   const POLL_MS = 2000;
@@ -53,6 +55,7 @@
     return e && e.read !== "never" ? e.pv : null;
   }
 
+  const valuesOf = (el) => (el.dataset.on === undefined ? null : { on: Number(el.dataset.on), off: Number(el.dataset.off) });
   const fitsOf = (el) => (el.dataset.fits === undefined ? undefined : el.dataset.fits.split(" ").filter(Boolean));
   const hazardOf = (el) => R.hazard(el.dataset.hazard || el.dataset.confirm, entryOf(el));
   const show = (pv, el) => R.show(pv && wire[pv], hare.meta(pv), el.closest(".w").dataset.precision);
@@ -74,9 +77,17 @@
     const value = el.querySelector(".v"), sp = el.querySelector(".sp"), act = el.querySelector(".act");
     if (value) value.textContent = show(pv, el);
     if (sp && !sp.dataset.draft) sp.value = show(pv, el) === "—" ? "" : show(pv, el);
-    if (act && el.dataset.kind !== "button") act.textContent = show(pv, el);
+    const values = valuesOf(el), state = values && R.valued(pv && wire[pv], values);
+    if (act && el.dataset.kind !== "button") act.textContent = values ? state : show(pv, el);
+    const sel = el.querySelector(".sel");
+    if (sel && !sel.dataset.draft) fillSelect(sel, meta, pv && wire[pv]);
     const open = R.writable(entryOf(el), !!el.dataset.pv, !!el.dataset.busy, fitsOf(el));
-    for (const c of [sp, act]) if (c) c.disabled = !open;
+    for (const c of [sp, act, sel]) if (c) c.disabled = !open;
+    if (sel && !R.options(meta).length) sel.disabled = true; // choices unread: the module would refuse
+    if (act && values) {
+      if (R.flipTo(state, values) === null) act.disabled = true; // unknown: nothing to toggle from
+      act.title = state === "unknown" ? `reads ${show(pv, el)}: neither on (${values.on}) nor off (${values.off})` : "";
+    }
     for (const ind of el.querySelectorAll(".ind")) ind.querySelector("b").textContent = show(pvOf(ind), ind);
     const rb = el.querySelector(".rb");
     if (rb) {
@@ -85,6 +96,18 @@
       const bothRead = !!(pv && wire[pv] && rbPv && wire[rbPv]);
       el.querySelector(".differs").hidden = !R.differs(show(pv, el), show(rbPv, el), bothRead);
     }
+  }
+
+  // a select's options from the enum's choices (rebuilt only when they change), its value the readback's
+  function fillSelect(sel, meta, frame) {
+    const opts = R.options(meta), sig = opts.map((o) => o.label).join("\n");
+    if (sel.dataset.sig !== sig) {
+      const none = new Option("—", "");
+      none.disabled = true;
+      sel.replaceChildren(none, ...opts.map((o) => new Option(o.label, String(o.value))));
+      sel.dataset.sig = sig;
+    }
+    sel.value = R.chosen(frame, meta);
   }
 
   // a 5xx is the module silent (back off); any other answer is the module's word
@@ -135,12 +158,12 @@
     out.title = detail || "";
   }
 
-  async function write(el, value) {
+  async function write(el, value, shown) {
     const operator = opInput.value.trim();
     if (!operator) { opInput.focus(); return outcome(el, "unsent", "", "name yourself in the header first"); }
     // one decision: the confirm sent is the dialog the operator answered (the module's mark may change meanwhile)
     const asked = hazardOf(el);
-    const what = `${el.dataset.device} · ${el.dataset.role} ← ${value}`;
+    const what = `${el.dataset.device} · ${el.dataset.role} ← ${shown ?? value}`;
     if (asked && !(await ask("Write", what, el.dataset.confirm || "This role needs the hazard confirm.", el))) return outcome(el, "unsent", "", "not confirmed");
     const body = { role: el.dataset.role, value, operator };
     if (asked) body.confirm = true;
@@ -260,7 +283,14 @@
   for (const ind of document.querySelectorAll(".ind[data-pv]")) use(ind.dataset.pv, ind);
   for (const el of widgets) {
     if (el.dataset.pv) use(el.dataset.pv, el);
-    const sp = el.querySelector(".sp"), act = el.querySelector(".act");
+    const sp = el.querySelector(".sp"), act = el.querySelector(".act"), sel = el.querySelector(".sel");
+    if (sel) sel.addEventListener("change", async () => {
+      if (sel.value === "") return;
+      sel.dataset.draft = "1"; // the chosen option stays while the dialog asks and the write runs
+      await write(el, Number(sel.value), sel.selectedOptions[0].textContent);
+      delete sel.dataset.draft;
+      draw(el);
+    });
     if (sp) {
       sp.addEventListener("input", () => { sp.dataset.draft = "1"; });
       sp.addEventListener("keydown", (ev) => {
@@ -271,7 +301,11 @@
     if (act) act.addEventListener("click", () => {
       if (el.dataset.action) return runAction(el);
       if (el.dataset.kind === "button") return write(el, 1);
-      const f = wire[pvOf(el)];
+      const f = wire[pvOf(el)], values = valuesOf(el);
+      if (values) {
+        const to = R.flipTo(R.valued(f, values), values);
+        return to === null ? undefined : write(el, to);
+      }
       if (f && typeof f.value === "number") write(el, f.value ? 0 : 1);
     });
   }

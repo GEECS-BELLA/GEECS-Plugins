@@ -53,6 +53,26 @@
     return digits === undefined || digits === null ? String(frame.value) : frame.value.toFixed(Number(digits));
   }
 
+  // A toggle with values (a numeric role): "on" or "off" when the readback is that number, else "unknown" (a 99.0).
+  function valued(frame, values) {
+    const v = frame ? frame.value : null;
+    if (typeof v !== "number") return "unknown";
+    return v === values.on ? "on" : v === values.off ? "off" : "unknown";
+  }
+
+  // What its click writes: the other state's number; from "unknown" nothing (never a guess).
+  const flipTo = (state, values) => (state === "on" ? values.off : state === "off" ? values.on : null);
+
+  // A select's options: the enum's choices as Hare serves them, by index; none while unread.
+  const options = (meta) => (meta.enumChoices || []).map((label, value) => ({ value, label }));
+
+  // The option the readback is (an index, or a label), "" (the placeholder) when it is none of them.
+  function chosen(frame, meta) {
+    const v = frame ? frame.value : null, choices = meta.enumChoices || [];
+    const at = typeof v === "number" ? v : choices.indexOf(v);
+    return Number.isInteger(at) && at >= 0 && at < choices.length ? String(at) : "";
+  }
+
   // The control limits, when both are set (±1e300 is EPICS for no limit).
   function bounds(meta) {
     const lo = meta.controlLow, hi = meta.controlHigh;
@@ -98,5 +118,5 @@
   const runState = (run) => RUN[run.state] || "unknown";
   const runEnded = (run) => ["done", "failed", "stopped", "lost"].includes(run.state);
 
-  Object.assign(rules, { key, deviceView, misfit, judge, show, bounds, writable, hazard, differs, outcomeState, sourceLine, runWord, runDetail, runState, runEnded });
+  Object.assign(rules, { key, deviceView, misfit, judge, show, valued, flipTo, options, chosen, bounds, writable, hazard, differs, outcomeState, sourceLine, runWord, runDetail, runState, runEnded });
 })(typeof module === "object" ? module.exports : (window.GeecsScreenRules = {}));

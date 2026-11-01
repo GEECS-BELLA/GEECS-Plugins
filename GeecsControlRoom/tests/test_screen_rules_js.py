@@ -65,6 +65,27 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("show: else the record's precision", "show", [{"value": 1.23456}, {"precision": 1}, None], "1.2"),
     ("show: no precision is the number", "show", [{"value": 2.5}, {}, None], "2.5"),
     ("show: a string is itself", "show", [{"value": "idle"}, {}, None], "idle"),
+    # a toggle with values (a numeric role): the readback matched, else unknown; never a guess
+    ("valued: on is on", "valued", [{"value": 1.0}, {"on": 1, "off": 0}], "on"),
+    ("valued: off is off", "valued", [{"value": 0}, {"on": 1, "off": 0}], "off"),
+    ("valued: 99.0 is unknown", "valued", [{"value": 99.0}, {"on": 1, "off": 0}], "unknown"),
+    ("valued: nothing read is unknown", "valued", [None, {"on": 1, "off": 0}], "unknown"),
+    ("valued: a string is unknown", "valued", [{"value": "1"}, {"on": 1, "off": 0}], "unknown"),
+    ("flipTo: on writes off", "flipTo", ["on", {"on": 5, "off": 2}], 2),
+    ("flipTo: off writes on", "flipTo", ["off", {"on": 5, "off": 2}], 5),
+    ("flipTo: unknown writes nothing", "flipTo", ["unknown", {"on": 5, "off": 2}], None),
+    # a select: the enum's choices, the readback's option
+    ("options: the choices by index", "options", [{"enumChoices": ["Out", "ND1"]}], [{"value": 0, "label": "Out"}, {"value": 1, "label": "ND1"}]),
+    ("options: none while unread", "options", [{}], []),
+    ("chosen: the readback's index", "chosen", [{"value": 1}, {"enumChoices": ["Out", "ND1"]}], "1"),
+    ("chosen: a label read is its index", "chosen", [{"value": "ND1"}, {"enumChoices": ["Out", "ND1"]}], "1"),
+    ("chosen: past the choices is none", "chosen", [{"value": 2}, {"enumChoices": ["Out", "ND1"]}], ""),
+    ("chosen: nothing read is none", "chosen", [None, {"enumChoices": ["Out"]}], ""),
+    # what each kind accepts travels as data-fits (GEECS-Schemas' table): a select an enum, a valued toggle a setpoint
+    ("misfit: a select over a setpoint", "misfit", [ROLE | {"type": "setpoint"}, ["enum"]], True),
+    ("misfit: a select over an enum fits", "misfit", [ROLE | {"type": "enum"}, ["enum"]], False),
+    ("misfit: a valued toggle over a setpoint fits", "misfit", [ROLE | {"type": "setpoint"}, ["bit", "enum", "setpoint"]], False),
+    ("misfit: a plain toggle over a setpoint", "misfit", [ROLE | {"type": "setpoint"}, ["bit", "enum"]], True),
     # bounds
     ("bounds: both set", "bounds", [{"controlLow": -1, "controlHigh": 5}], "[-1 … 5]"),
     ("bounds: ±1e300 is no limit", "bounds", [{"controlLow": -1e300, "controlHigh": 5}], ""),

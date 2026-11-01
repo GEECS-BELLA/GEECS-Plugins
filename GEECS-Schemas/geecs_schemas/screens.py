@@ -34,10 +34,11 @@ from geecs_schemas.epics.panel_devices import DeviceName, PanelDevices
 #: The screens' folder in the experiment's configs folder.
 SCREENS_DIRNAME = "screens"
 
-#: The seven widgets: setpoint (with its readback), two-state toggle, flipper
-#: (a toggle with in/out indicators), latching button, read-only value, text, picture.
+#: The eight widgets: setpoint (with its readback), two-state toggle, flipper
+#: (a toggle with in/out indicators), latching button, a choice of an enum's
+#: options, read-only value, text, picture.
 WidgetKind = Literal[
-    "setpoint", "toggle", "flipper", "button", "readout", "annotation", "image"
+    "setpoint", "toggle", "flipper", "button", "select", "readout", "annotation", "image"
 ]  # fmt: skip
 
 #: The kit's colour tokens a group may wear: hues with no status meaning.
@@ -51,9 +52,31 @@ _FITS: dict[str, tuple[frozenset[str], bool]] = {
     "toggle": (frozenset({"bit", "enum"}), True),
     "flipper": (frozenset({"bit", "enum"}), True),
     "button": (frozenset({"command", "bit"}), True),
+    "select": (frozenset({"enum"}), True),
     "readout": (frozenset({"readback", "setpoint", "counter", "bit", "enum"}), False),
 }
-_WRITES = frozenset({"setpoint", "toggle", "flipper", "button"})
+_WRITES = frozenset({"setpoint", "toggle", "flipper", "button", "select"})
+
+
+class ToggleValues(SchemaModel):
+    """The two numbers a toggle writes to a numeric role (a LabVIEW boolean kept as a number)."""
+
+    on: float = Field(description="Written to switch it on; a readback equal to it reads on.")  # fmt: skip
+    off: float = Field(description="Written to switch it off; a readback equal to it reads off. Any other readback reads unknown.")  # fmt: skip
+
+    @model_validator(mode="before")
+    @classmethod
+    def _yaml_booleans(cls, data: object) -> object:
+        """YAML 1.1 (PyYAML) reads a bare ``on:``/``off:`` key as true/false: take those as the names."""
+        if isinstance(data, dict):
+            return {{True: "on", False: "off"}.get(k, k) if isinstance(k, bool) else k: v for k, v in data.items()}  # fmt: skip
+        return data
+
+    @model_validator(mode="after")
+    def _two_states(self) -> "ToggleValues":
+        if self.on == self.off:
+            raise ValueError("on and off are two different numbers")
+        return self
 
 
 class Binding(SchemaModel):
@@ -83,11 +106,12 @@ class Binding(SchemaModel):
 class Widget(SchemaModel):
     """One control: its kind, the label a person reads, and what it is bound to."""
 
-    kind: WidgetKind = Field(description="The widget, one of the seven.")
+    kind: WidgetKind = Field(description="The widget, one of the eight.")
     label: str = Field("", description="Free text shown beside it (an annotation's text); empty: the role's label.")  # fmt: skip
     bind: Optional[Binding] = Field(None, description="What it shows and writes; none for an annotation or an image.")  # fmt: skip
     indicators: list[Binding] = Field([], max_length=2, description="A flipper's in and out indicators, in that order.")  # fmt: skip
     confirm: Optional[str] = Field(None, min_length=1, description="A hazard note the operator confirms before the write.")  # fmt: skip
+    values: Optional[ToggleValues] = Field(None, description="A toggle's or flipper's on and off numbers: with them it binds a numeric setpoint role.")  # fmt: skip
     units: Optional[str] = Field(
         None, description="Units shown, where the record carries none."
     )
@@ -109,6 +133,8 @@ class Widget(SchemaModel):
             raise ValueError("an annotation's label is its text")
         if self.indicators and self.kind != "flipper":
             raise ValueError("only a flipper has indicators")
+        if self.values and self.kind not in ("toggle", "flipper"):
+            raise ValueError("only a toggle or a flipper has values")
         if self.confirm and self.kind not in _WRITES:
             raise ValueError(f"a {self.kind} writes nothing to confirm")
         runs = [b for b in (self.bind, *self.indicators) if b and b.action]
@@ -198,13 +224,21 @@ def _device_roles(
     return {r.name: r for r in roles}, tuple(axes)
 
 
+def _accepts(widget: Widget) -> frozenset[str]:
+    """The role types ``widget`` takes: its kind's, and a numeric setpoint for a toggle with values."""
+    types = _FITS[widget.kind][0]
+    return types | {"setpoint"} if widget.values else types
+
+
 def _misfit(widget: Widget, role: Optional[Role]) -> Optional[str]:
     """Why ``widget`` cannot be bound to ``role``, or ``None`` when it fits."""
     if role is None or widget.kind not in _FITS:
         return None
-    types, writes = _FITS[widget.kind]
+    types, writes = _accepts(widget), _FITS[widget.kind][1]
     if role.type not in types or (writes and not role.writable):
         return f"{role.name} is a {role.type}, not for a {widget.kind}"
+    if role.type == "setpoint" and role.text and widget.kind != "setpoint":
+        return f"{role.name} is text, not for a {widget.kind}'s values"
     return None
 
 
@@ -227,11 +261,7 @@ def _later(
 
 def _fits(widget: Widget, deferred: bool) -> tuple[str, ...]:
     """The role types a deferred widget's kind takes, for the page to check the module's type against."""
-    return (
-        tuple(sorted(_FITS[widget.kind][0]))
-        if deferred and widget.kind in _FITS
-        else ()
-    )
+    return tuple(sorted(_accepts(widget))) if deferred and widget.kind in _FITS else ()
 
 
 def _roleless(

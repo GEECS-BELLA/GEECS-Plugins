@@ -17,6 +17,8 @@
 .kit .w .lbl{flex:1 1 6rem;min-width:0;overflow-wrap:anywhere;color:var(--ink)}
 .kit .w .sp{width:6.5rem;max-width:100%;min-width:3.5rem;font-family:var(--ff-mono);font-size:12px;text-align:right}
 .kit .w .sp[data-draft]{border-color:var(--accent)}
+.kit .w .sel{max-width:100%;min-width:6.5rem;font-size:12px;padding:1px 4px;border:var(--bw) solid var(--rule);border-radius:var(--r);background:var(--surface);color:var(--ink)}
+.kit .w .sel[data-draft]{border-color:var(--accent)}
 .kit .w .v,.kit .w .rb,.kit .w .ind b{font-family:var(--ff-mono);font-variant-numeric:tabular-nums}
 .kit .w .rb{color:var(--slate)}
 .kit .w .rb::before{content:"rb ";color:var(--muted)}
