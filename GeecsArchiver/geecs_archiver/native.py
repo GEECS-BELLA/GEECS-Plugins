@@ -11,9 +11,10 @@ ownership, without it it says it did not check.
 
 Per device (``NATIVE_DEVICES.md`` §10, ``Planning/epics_estate.md`` §2.5):
 
-* the device's **family**: the one ``panel_devices.yaml`` names, else its
-  registry kind's (:data:`~geecs_schemas.REGISTRY_KIND_FAMILIES`, the PV
-  bridge's table too);
+* the device's **family**: a registry device's ``family_template`` (its
+  ``template``, else the kind's :data:`~geecs_schemas.REGISTRY_KIND_FAMILIES`
+  default), which its ``panel_devices.yaml`` entry must name too — the rule
+  GeecsCanopy's ``NativeSource`` applies; a bench device's panel ``family``;
 * its **archived roles**: the family's ``archive: true`` roles, or — for a
   family that marks none — the kind's own rule (:func:`default_archive_roles`);
   then the device's ``archive`` opt-ins added and ``no_archive`` /
@@ -37,8 +38,8 @@ Who is archived: every registry device, and every ``panel_devices.yaml``
 device the DB does not own (a bench device whose DB twin is enabled is the
 gateway's, and the DB pass has it).  A registry device the DB also owns is
 a **conflict**: reported, and left to the DB pass — never archived twice.
-A registry device the pass cannot resolve (panel data naming a family of
-another kind, a positioner without axes) is **unresolved**; both are drift,
+A registry device the pass cannot resolve (panel data naming another
+family than the registry's, a positioner without axes) is **unresolved**; both are drift,
 never a silent drop.
 """
 
@@ -53,7 +54,6 @@ from geecs_core.pv_naming import (
     normalize_component,
 )
 from geecs_schemas import (
-    REGISTRY_KIND_FAMILIES,
     ArchivePolicy,
     EpicsMotor,
     FamilyFile,
@@ -164,12 +164,6 @@ class RegistryPass:
         return bool(self.conflicts or self.unresolved)
 
 
-def family_for_kind(kind: str, families: Mapping[str, FamilyFile]) -> FamilyFile | None:
-    """The family a registry *kind* defaults to (:data:`~geecs_schemas.REGISTRY_KIND_FAMILIES`, the bridge's table)."""
-    template = REGISTRY_KIND_FAMILIES.get(kind)
-    return None if template is None else families.get(template)
-
-
 @dataclass(frozen=True)
 class _Device:
     """One device the pass archives: its family as it has it, where its records are."""
@@ -201,15 +195,16 @@ def _registry_device(
     entry: PanelDevice | None,
     families: Mapping[str, FamilyFile],
 ) -> _Device | str:
-    """A ``native_devices.yaml`` device: the panel data's family, else its kind's; the derived prefix."""
-    family = (
-        families.get(entry.family)
-        if entry is not None
-        else family_for_kind(native.kind, families)
-    )
+    """A ``native_devices.yaml`` device: its ``family_template``, which the panel data must match; the derived prefix."""
+    template = native.family_template
+    if entry is not None and entry.family != template:
+        return (
+            f"{name}: native_devices.yaml names family {template!r}, "
+            f"panel_devices.yaml {entry.family!r} (one family per device)"
+        )
+    family = families.get(template)
     if family is None or family.kind != native.kind:
-        named = f" (panel data names {entry.family!r})" if entry is not None else ""
-        return f"{name}: no family of kind {native.kind!r}{named}"
+        return f"{name}: no family {template!r} of kind {native.kind!r}"
     if isinstance(native, EpicsMotor):
         axes = tuple(native.axes)
     else:

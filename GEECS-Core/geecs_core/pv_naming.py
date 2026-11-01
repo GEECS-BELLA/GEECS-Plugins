@@ -209,8 +209,8 @@ def native_device_prefix(experiment: str | None, device: str) -> str:
     gateway when it migrates to its own IOC (geecs-epics' chain contract).
     The record names under it are the template's own, verbatim (mixed
     case: ``cam1:AcquireTime_RBV``, a motor axis's ``x.RBV``).  The one
-    home of the rule: the scan worker, the PV bridge and the archiver all
-    mint it here.
+    home of the rule: the scan worker, the panels, GeecsCanopy and the
+    archiver all mint it here.
 
     Parameters
     ----------

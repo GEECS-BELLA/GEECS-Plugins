@@ -985,7 +985,7 @@ never-connected list stays the drift alarm between registry and IOCs.
 
 **One home for the PV surface.** The native prefix is
 `geecs_core.pv_naming.native_device_prefix` (built: the namespace, the
-panels' registry and bridge, and the archiver all call it — the archiver
+panels' registry, GeecsCanopy and the archiver all call it — the archiver
 cannot import the namespace, `.importlinter`: `geecs_bluesky` and
 `geecs_archiver` share a layer). Each
 kind's record suffixes — what the archive pass, the scanner and the panel

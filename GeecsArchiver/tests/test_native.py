@@ -61,7 +61,9 @@ SUPPLY_PVS = sorted(
 def native(registry=None, panels=None, *, policy=None, db=None, families=FAMILIES):
     return derive_native_candidates(
         "Undulator",
-        NativeDevices.model_validate({"devices": registry or {}}),
+        NativeDevices.model_validate(
+            {"devices": registry or {}}, context={"families": families}
+        ),
         PanelDevices.model_validate(
             {"devices": panels or {}}, context={"families": families}
         ),
@@ -337,3 +339,31 @@ def test_a_registry_kind_defaults_to_the_shared_tables_family_whatever_else_is_i
     assert pvs(native(CAMERA, families=families)) == [
         pv for pv in CAMERA_PVS if not pv.endswith(":HEARTBEAT")
     ]
+
+
+def _gain_only_chain():
+    """A second camera family carrying one archived role: which family won is visible in the PVs."""
+    camera = FAMILIES["ad_camera_chain"]
+    gain = [r for r in camera.roles if r.suffix == "cam1:Gain_RBV"]
+    assert gain, "the installed camera family lost its Gain_RBV role"
+    return dict(FAMILIES) | {
+        "gain_chain": camera.model_copy(
+            update={"template": "gain_chain", "roles": gain, "actions": {}}
+        )
+    }
+
+
+def test_a_registry_template_picks_the_family_over_the_kinds_default():
+    registry = {"UC_VisaEBeam6": CAMERA["UC_VisaEBeam6"] | {"template": "gain_chain"}}
+    result = native(registry, families=_gain_only_chain())
+    assert pvs(result) == [
+        "undulator:uc_visaebeam6:cam1:AsynIO.CNCT",
+        "undulator:uc_visaebeam6:cam1:Gain_RBV",
+    ]
+
+
+def test_panel_data_naming_another_family_than_the_registrys_is_unresolved():
+    registry = {"UC_VisaEBeam6": CAMERA["UC_VisaEBeam6"] | {"template": "gain_chain"}}
+    result = native(registry, CAMERA_PANEL, families=_gain_only_chain())
+    assert result.candidates == [] and result.drift
+    assert "one family per device" in result.unresolved[0]

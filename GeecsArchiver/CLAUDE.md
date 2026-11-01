@@ -55,8 +55,9 @@ deploy/
   device is disabled in the GEECS DB, so the DB pass drops it; the registry
   pass (`native.py`) archives every `native_devices.yaml` device and every
   `panel_devices.yaml` device the DB does not own. Per device: its family
-  (the panel data's, else `geecs_schemas.REGISTRY_KIND_FAMILIES`, the
-  bridge's table too), the
+  (a registry device's `family_template` — its `template`, else the kind's
+  `geecs_schemas.REGISTRY_KIND_FAMILIES` default — which its panel entry
+  must name too, GeecsCanopy's rule; a bench device's panel `family`), the
   family's `archive: true` roles — or, for a family marking none, the
   kind's rule (`default_archive_roles`, `NATIVE_DEVICES.md` §10) — plus the
   device's `archive`, minus `no_archive` and `omit`; scalars only. A role

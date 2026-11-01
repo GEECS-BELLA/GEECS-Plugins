@@ -8,7 +8,7 @@ environment (``GEECS_ARCHIVER_URL`` overrides the file — the unit's
 GEECS-Core's (:mod:`geecs_core.configs_repo`), shared with the gateway.
 The registry pass reads two documents at the experiment folder's root —
 ``native_devices.yaml`` and ``panel_devices.yaml`` — the files the scan
-worker and the PV bridge read.  Nothing here is a lab literal.
+worker and GeecsCanopy read.  Nothing here is a lab literal.
 """
 
 from __future__ import annotations
