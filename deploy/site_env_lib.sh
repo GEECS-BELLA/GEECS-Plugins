@@ -57,8 +57,24 @@ require_site_keys() {  # require_site_keys KEY... — exit 2 naming the first mi
 # that instance on the MAIN experiment's value (its ports, its experiment).
 INSTANCE_KEYS="GEECS_INSTANCE GEECS_INSTANCE_SLOT GEECS_EXPERIMENT QS_EXPERIMENT GEECS_CA_SERVER_PORT EPICS_CAS_INTF_ADDR_LIST EPICS_CAS_BEACON_ADDR_LIST EPICS_CA_ADDR_LIST EPICS_CA_AUTO_ADDR_LIST QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER QSERVER_ZMQ_INFO_ADDRESS_FOR_SERVER QS_REDIS_PREFIX QS_DOC_PROXY_IN QS_DOC_PROXY_OUT QS_DOC_PUBLISH_ADDR QS_CONTROL_ADDR QS_CLIENT_CONTROL_ADDR QS_CLIENT_INFO_ADDR QS_CLIENT_DOC_ADDR GEECS_SCANNER_PORT GEECS_LOGBOOK_PORT"
 
-check_instance_env() {  # check_instance_env INSTANCE [FILE] — after load_site_env of the instance FILE
-    local k INSTANCE_FILE_PATH="${2:?check_instance_env INSTANCE FILE}"
+# The directory of instance files (<Instance>.env). Resolved AFTER site.env
+# is loaded — site.env may set it — by every script that reads or installs
+# one, so they can never disagree.
+experiments_dir() { printf '%s' "${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"; }
+
+check_instance_env() {  # check_instance_env INSTANCE FILE — validate FILE ALONE
+    # In a subshell with every instance key unset first: a key the file
+    # lacks must never pass on the value site.env (the MAIN experiment's)
+    # already put in this environment.
+    (
+        for k in $INSTANCE_KEYS EPICS_CA_SERVER_PORT; do unset "$k"; done
+        load_site_env "${2:?check_instance_env INSTANCE FILE}"
+        _check_instance_env_loaded "$1" "$2"
+    )
+}
+
+_check_instance_env_loaded() {  # the checks, over an environment holding the instance file's keys only
+    local k INSTANCE_FILE_PATH="$2"
     for k in $INSTANCE_KEYS; do
         [ -n "${!k:-}" ] || { echo "instance file is missing $k" >&2; exit 2; }
         case "${!k}" in *@*@*) echo "instance file: $k still holds a placeholder (${!k})" >&2; exit 2 ;; esac

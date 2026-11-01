@@ -28,9 +28,11 @@
 #
 # Never touches the main experiment's units, site.env or config.ini. Run it
 # as root (`sudo experiment.sh …`): code steps drop to the service account,
-# only the installs and systemctl stay root. Knobs (from the environment,
-# passed on to the service-account steps): GEECS_SITE_ENV_PATH (default
-# /etc/geecs/site.env), GEECS_EXPERIMENTS_DIR (default /etc/geecs/experiments).
+# only the installs and systemctl stay root. Knobs (passed on to the
+# service-account steps): GEECS_SITE_ENV_PATH (environment; default
+# /etc/geecs/site.env) picks the profile this run reads; GEECS_EXPERIMENTS_DIR
+# (default /etc/geecs/experiments) is site.env's when it sets one — the
+# environment only fills in when it does not, as for the bootstrap and render.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -57,7 +59,6 @@ done
 case "$INSTANCE" in *[!A-Za-z0-9_-]*) echo "instance '$INSTANCE' is not a slug (letters, digits, '-', '_')" >&2; exit 2 ;; esac
 
 SITE_ENV="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"
-EXPERIMENTS_DIR="${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"
 [ -f "$SITE_ENV" ] || { echo "no site.env at $SITE_ENV" >&2; exit 2; }
 run() { if [ "$DRY" -eq 1 ]; then echo "  [dry] $*"; else echo "  \$ $*"; "$@"; fi; }
 say() { printf '\n== %s\n' "$1"; }
@@ -122,6 +123,7 @@ render_instance_env() {  # render_instance_env SLOT > file — the example with 
 }
 
 load_site_env "$SITE_ENV"
+EXPERIMENTS_DIR="$(experiments_dir)"   # after site.env: it may set GEECS_EXPERIMENTS_DIR
 INSTANCE_ROOT="${GEECS_INSTANCE_CHECKOUT_ROOT:-$GEECS_CHECKOUT_ROOT}"
 STAGE="$GEECS_CHECKOUT_ROOT/deploy-staging/instances"
 MAIN_EXPERIMENT="$GEECS_EXPERIMENT"
@@ -206,8 +208,9 @@ up)
         say "up '$INSTANCE' — new instance file (slot $SLOT) at $INSTANCE_FILE"
     fi
     # Validate in a subshell: the instance's values must not leak into ours.
-    ( load_site_env "$INSTANCE_FILE"; check_instance_env "$INSTANCE" "$INSTANCE_FILE" )
+    check_instance_env "$INSTANCE" "$INSTANCE_FILE"
     EXPT="$(env_value "$INSTANCE_FILE" GEECS_EXPERIMENT)"
+    [ -n "$EXPT" ] || { echo "instance file $INSTANCE_FILE names no GEECS_EXPERIMENT" >&2; exit 2; }
     # The main experiment as an instance is the plain-units migration: only
     # once its plain worker family is stopped (two live workers, two
     # logbooks, one DB experiment otherwise).
@@ -227,7 +230,10 @@ up)
     for f in "$EXPERIMENTS_DIR"/*.env; do
         [ -f "$f" ] || continue
         i="$(basename "$f" .env)"; [ "$i" = "$INSTANCE" ] && continue
-        [ "$(lc "$(env_value "$f" GEECS_EXPERIMENT)")" = "$(lc "$EXPT")" ] || continue
+        # A sibling file lacking the key runs as the MAIN experiment (its units
+        # read site.env first): read it as that, never as "".
+        sib="$(env_value "$f" GEECS_EXPERIMENT)"; sib="${sib:-$MAIN_EXPERIMENT}"
+        [ "$(lc "$sib")" = "$(lc "$EXPT")" ] || continue
         # shellcheck disable=SC2046
         if systemctl is-active --quiet $(units_for "$i") 2>/dev/null; then
             echo "instance '$i' already serves '$EXPT' and is running — down it first" >&2; exit 2
@@ -288,7 +294,7 @@ up)
         i="$(basename "$f" .env)"; [ "$i" = "$INSTANCE" ] && continue
         if [ "${EXPERIMENT_ASSUME_ACTIVE:-0}" = "1" ] ||   # (tests: no systemd)
             systemctl is-active --quiet "geecs-ca-gateway@$i.service" "geecs-qserver@$i.service" 2>/dev/null; then
-            LIVE+=("$(env_value "$f" GEECS_EXPERIMENT)")
+            sib="$(env_value "$f" GEECS_EXPERIMENT)"; LIVE+=("${sib:-$MAIN_EXPERIMENT}")
         fi
     done
     LIVE+=("$EXPT")
