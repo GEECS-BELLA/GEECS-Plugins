@@ -303,7 +303,7 @@
     $("hazard-dialog-roles").textContent = `Hazard: ${roles.join(", ")}.`;
     return new Promise((done) => {
       hazardDialog.onclick = (ev) => { if (ev.target.value) { hazardDialog.close(); done(ev.target.value === "write"); } };
-      hazardDialog.oncancel = () => done(false);
+      hazardDialog.onclose = () => done(false); // however it closed (Escape, a close watcher): not confirmed; a button's answer came first
       hazardDialog.showModal();
     });
   }
@@ -335,7 +335,13 @@
       return true;
     } finally { setTimeout(() => hooks.forEach((f) => f())); } // after single() has let go: the rail enabled again
   });
-  const W = window.GeecsCameraView = { write, busy: write.busy, hazardsOf, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => [iw, ih] };
+  // a list refused because another runs is said, never silent (the edit snaps back to the readback)
+  const writeOrSay = async (pairs, confirmed = false) => {
+    const ok = await write(pairs, confirmed);
+    if (ok === null) say("unknown", "unsent · another write is in flight");
+    return ok;
+  };
+  const W = window.GeecsCameraView = { write: writeOrSay, busy: write.busy, hazardsOf, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => [iw, ih] };
   resize();
   loop();
 })();
