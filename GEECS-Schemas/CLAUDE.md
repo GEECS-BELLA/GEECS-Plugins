@@ -46,16 +46,18 @@ family, for the bridge and the archiver alike); the files are **package data**,
 runtime stays free of PyYAML. `epics/panel_devices.py`: `PanelDevices`,
 the configs repo's `<experiment>/panel_devices.yaml` (per-device family,
 suffix overrides, labels, `allow`, `note`, `omit`, `hazard`, the archive
-opt-ins and opt-outs, the serving `ioc`). Their readers (the PV bridge and
-the archiver's registry pass) are on `feat/web-estate`; GeecsCanopy reads
-them next. A `NativeDevices` entry may name its family (`template`, one of
+opt-ins and opt-outs, the serving `ioc`). GeecsCanopy's module reads them
+(`native.py`) and the Control Room's screens resolve against them; the
+retired PV bridge and the archiver's registry pass that also read them are
+kept at the tag `web-estate-final` (the web estate closed 2026-10-31). A `NativeDevices` entry may name its family (`template`, one of
 its kind's; `family_template` falls back to the kind's default). Both validate against the installed families; tests
 pass tiny ones through the validation context (`context={"families":
 ...}`). The installed families are frozen and shared process-wide; a
 family with actions puts every writable role in one, so `allow` decides
 every write. A family file changes when its IOC template does;
 the pin holding the camera, scope, motor and supply files to GeecsPanels'
-own suffix tables (web estate S2) lives on `feat/web-estate`, not here.
+own suffix tables (web estate S2) is kept at the tag `web-estate-final`,
+not here.
 
 ## Screens
 
