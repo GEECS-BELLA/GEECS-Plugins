@@ -436,7 +436,7 @@ def test_a_client_address_naming_another_manager_is_refused(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize(
-    "key", ["GEECS_EXPERIMENT", "QS_EXPERIMENT", "QS_REDIS_PREFIX"]
+    "key", ["GEECS_EXPERIMENT", "QS_EXPERIMENT", "EPICS_CA_ADDR_LIST"]
 )
 def test_a_key_missing_from_the_instance_file_is_refused_even_after_site_env(
     tmp_path: Path, key: str

@@ -28,9 +28,11 @@
 #
 # Never touches the main experiment's units, site.env or config.ini. Run it
 # as root (`sudo experiment.sh …`): code steps drop to the service account,
-# only the installs and systemctl stay root. Knobs (from the environment,
-# passed on to the service-account steps): GEECS_SITE_ENV_PATH (default
-# /etc/geecs/site.env), GEECS_EXPERIMENTS_DIR (default /etc/geecs/experiments).
+# only the installs and systemctl stay root. Knobs (passed on to the
+# service-account steps): GEECS_SITE_ENV_PATH (environment; default
+# /etc/geecs/site.env) picks the profile this run reads; GEECS_EXPERIMENTS_DIR
+# (default /etc/geecs/experiments) is site.env's when it sets one — the
+# environment only fills in when it does not, as for the bootstrap and render.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -228,7 +230,10 @@ up)
     for f in "$EXPERIMENTS_DIR"/*.env; do
         [ -f "$f" ] || continue
         i="$(basename "$f" .env)"; [ "$i" = "$INSTANCE" ] && continue
-        [ "$(lc "$(env_value "$f" GEECS_EXPERIMENT)")" = "$(lc "$EXPT")" ] || continue
+        # A sibling file lacking the key runs as the MAIN experiment (its units
+        # read site.env first): read it as that, never as "".
+        sib="$(env_value "$f" GEECS_EXPERIMENT)"; sib="${sib:-$MAIN_EXPERIMENT}"
+        [ "$(lc "$sib")" = "$(lc "$EXPT")" ] || continue
         # shellcheck disable=SC2046
         if systemctl is-active --quiet $(units_for "$i") 2>/dev/null; then
             echo "instance '$i' already serves '$EXPT' and is running — down it first" >&2; exit 2
@@ -289,7 +294,7 @@ up)
         i="$(basename "$f" .env)"; [ "$i" = "$INSTANCE" ] && continue
         if [ "${EXPERIMENT_ASSUME_ACTIVE:-0}" = "1" ] ||   # (tests: no systemd)
             systemctl is-active --quiet "geecs-ca-gateway@$i.service" "geecs-qserver@$i.service" 2>/dev/null; then
-            LIVE+=("$(env_value "$f" GEECS_EXPERIMENT)")
+            sib="$(env_value "$f" GEECS_EXPERIMENT)"; LIVE+=("${sib:-$MAIN_EXPERIMENT}")
         fi
     done
     LIVE+=("$EXPT")
