@@ -1,0 +1,41 @@
+# GEECS bluesky-queueserver RE Manager, per-experiment instance — systemd
+# unit TEMPLATE.
+#
+# One instance per experiment: `systemctl enable --now <unit>@<Instance>`.
+# Render with deploy/render_units.sh (or bootstrap_host.sh --experiment);
+# @PLACEHOLDER@ holes are filled at render time. Runtime values come from
+# site.env and THEN the instance file @EXPERIMENTS_DIR@/<Instance>.env, which
+# overrides it (the experiment, ports, CA addressing — keys in
+# deploy/experiments.env.example). Per-instance state lives under
+# /var/lib/geecs-experiments/<Instance>/. The non-templated unit of the same
+# name is the main experiment's and stays as it is.
+# The manager's 0MQ addresses come from the stock QSERVER_ZMQ_*_FOR_SERVER
+# keys, the Redis prefix and the doc-proxy ports from QS_* keys the launcher
+# reads; the plan/device list is written into the instance's state, never the
+# shared startup dir.
+
+[Unit]
+Description=GEECS Bluesky Queueserver RE Manager (experiment instance %i)
+After=network-online.target redis-server.service
+Wants=network-online.target
+Wants=geecs-qserver-ready@%i.service
+
+[Service]
+Type=exec
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
+ExecStart=@POETRY@ run @INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsBluesky/qserver/launch_re_manager.sh
+StateDirectory=geecs-experiments/%i/engine
+Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-experiments/%i/engine
+Environment=GEECS_SCAN_MODE_STATE=/var/lib/geecs-experiments/%i/engine/scan_mode.json
+Environment=QS_EXISTING_PLANS_DEVICES=/var/lib/geecs-experiments/%i/engine/existing_plans_and_devices.yaml
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+SyslogIdentifier=geecs-qserver@%i
+
+[Install]
+WantedBy=multi-user.target

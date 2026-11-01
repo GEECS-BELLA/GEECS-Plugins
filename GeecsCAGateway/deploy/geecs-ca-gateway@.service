@@ -1,0 +1,39 @@
+# GEECS to EPICS Channel Access gateway, per-experiment instance — systemd
+# unit TEMPLATE: serves one experiment's PVs on its own CA server port.
+#
+# One instance per experiment: `systemctl enable --now <unit>@<Instance>`.
+# Render with deploy/render_units.sh (or bootstrap_host.sh --experiment);
+# @PLACEHOLDER@ holes are filled at render time. Runtime values come from
+# site.env and THEN the instance file @EXPERIMENTS_DIR@/<Instance>.env, which
+# overrides it (the experiment, ports, CA addressing — keys in
+# deploy/experiments.env.example). Per-instance state lives under
+# /var/lib/geecs-experiments/<Instance>/. The non-templated unit of the same
+# name is the main experiment's and stays as it is.
+# The port: caproto's server reads EPICS_CA_SERVER_PORT, but that key must
+# not sit in the instance file — the worker reads the same file, and there it
+# would re-port every port-less CA address-list entry. The file carries
+# GEECS_CA_SERVER_PORT and this unit hands it to the gateway process alone.
+# EPICS_CAS_INTF_ADDR_LIST / EPICS_CAS_BEACON_ADDR_LIST come from the
+# instance file too: this host's interface, not the main gateway's.
+
+[Unit]
+Description=GEECS to EPICS Channel Access gateway (experiment instance %i)
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/gateway-checkout/GeecsCAGateway
+ExecStart=/usr/bin/env EPICS_CA_SERVER_PORT=${GEECS_CA_SERVER_PORT} @POETRY@ run python -m geecs_ca_gateway --experiment ${GEECS_EXPERIMENT}
+Restart=on-failure
+RestartSec=10
+SuccessExitStatus=86
+RestartForceExitStatus=86
+SyslogIdentifier=geecs-ca-gateway@%i
+
+[Install]
+WantedBy=multi-user.target
