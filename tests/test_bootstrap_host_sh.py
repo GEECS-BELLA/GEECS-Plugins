@@ -452,6 +452,37 @@ def test_canopy_and_the_control_room_have_their_clones_units_and_root_steps(
     assert "enable --now geecs-control-room" in out
 
 
+def test_the_canopy_root_lines_survive_the_bootstraps_extraction(
+    tmp_path: Path,
+) -> None:
+    """The bootstrap keeps render_conf.sh's ``  sudo `` lines (a dry run never renders,
+    so the test above cannot see them): a format change there must fail here."""
+    import re
+
+    boot = BOOTSTRAP.read_text()
+    pattern = re.search(r"sed -n 's/\^(  sudo )/sudo /p'", boot)
+    assert pattern, "the bootstrap's extraction of render_conf.sh's root lines moved"
+    r = subprocess.run(
+        [
+            "bash",
+            str(REPO_ROOT / "GeecsCanopy/deploy/render_conf.sh"),
+            str(_site_env(tmp_path)),
+            str(tmp_path / "out"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+    assert r.returncode == 0, r.stderr
+    kept = [ln for ln in r.stdout.splitlines() if ln.startswith(pattern.group(1))]
+    for needle in (
+        "-m 0755 /etc/geecs/canopy",
+        "/var/lib/geecs-canopy/pgdata",
+        "/etc/geecs/canopy/compose.yaml",
+    ):
+        assert any(needle in ln for ln in kept), needle
+
+
 def _existing_config(tmp_path: Path, text: str) -> Path:
     cfg = tmp_path / "checkouts" / ".config" / "geecs_python_api" / "config.ini"
     cfg.parent.mkdir(parents=True)

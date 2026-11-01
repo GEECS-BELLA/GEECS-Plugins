@@ -18,7 +18,10 @@ goes through the module's put route. `CLAUDE.md` holds the rules.
 On the services host, beside Canopy (`GeecsCanopy/DEPLOYMENT.md`), from its
 own clone `<GEECS_CHECKOUT_ROOT>/control-room-checkout` (`deploy/bootstrap_host.sh`
 clones it, installs the env and renders the unit). The `GEECS_CONTROL_ROOM_*`
-keys are in `site.env` (`deploy/site.env.example`). The secret is
+keys are in `site.env` (`deploy/site.env.example`); on a host without a front
+door, `GEECS_CONTROL_ROOM_BIND=0.0.0.0` and `GEECS_CONTROL_ROOM_CANOPY_BROWSER_URL=http://<host>:<Canopy's port>`
+(the browser opens Hare's WebSocket there; a path like `/canopy` would be this
+page's own origin). The secret is
 the display's read key, the `read@*` entry of Canopy's `CANOPY_API_KEYS`, never one
 that carries write:
 

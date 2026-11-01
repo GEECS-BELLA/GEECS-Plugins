@@ -42,7 +42,8 @@ dc build                                   # the derived image, FROM pin.py's di
 dc run --rm api alembic upgrade head       # creates Canopy's schema (postgres starts first)
 dc run --rm -T api python scripts/create_key.py "geecs-module" -r -w   # its Token line → GEECS_CANOPY_SQUIRREL_KEY in secrets.env
 sudo systemctl enable --now geecs-canopy
-dc exec -T api geecs-canopy squirrel-sync --check && dc exec -T api geecs-canopy squirrel-sync   # Squirrel's PV registry (section 3a)
+until curl -sf http://127.0.0.1:<port>/health >/dev/null; do sleep 3; done   # the api starts once postgres and redis are healthy
+dc exec -T api geecs-canopy squirrel-sync --check; dc exec -T api geecs-canopy squirrel-sync   # the drift (exit 1 on a first install), then Squirrel's PV registry (section 3a)
 ```
 
 A configs share that mounts after the containers start stays invisible to

@@ -622,8 +622,13 @@ if [ -n "$ARCHIVER_CONF" ]; then
     echo "  sudo install -d -m 0755 /etc/geecs/archiver && sudo install -m 0644 \"$STAGE/archiver\"/* /etc/geecs/archiver/   # the appliance's rendered conf (compose.yaml, appliances.xml, policies.py, ...)"
     echo "  sudo install -d -o $GEECS_SERVICE_USER -g $GEECS_SERVICE_USER -m 0750 \"$GEECS_ARCHIVER_DATA_ROOT/sts\" \"$GEECS_ARCHIVER_DATA_ROOT/lts\"   # the archive: short-term and long-term stores"
 fi
-[ -n "$CANOPY_CONF" ] && printf '%s\n' "$CANOPY_CONF" | sed 's/^/  /'
-if wanted control-room && ! skipped_service control-room; then
+# A rerun never prints the line that would reset a filled secrets file (the
+# files are 0600, but their folders are world-readable, so this test needs no root).
+if [ -n "$CANOPY_CONF" ]; then
+    if [ -e /etc/geecs/canopy/secrets.env ]; then CANOPY_CONF="$(printf '%s\n' "$CANOPY_CONF" | grep -v 'secrets.env' || true)"; echo "  # /etc/geecs/canopy/secrets.env exists: kept"; fi
+    printf '%s\n' "$CANOPY_CONF" | sed 's/^/  /'
+fi
+if wanted control-room && ! skipped_service control-room && [ ! -e /etc/geecs/control-room/secrets.env ]; then
     echo "  sudo install -d -m 0755 /etc/geecs/control-room && sudo install -m 0600 -o $GEECS_SERVICE_USER /dev/null /etc/geecs/control-room/secrets.env   # first install only: GEECS_CONTROL_ROOM_READ_KEY=<Canopy's display read key>"
 fi
 for s in $SERVICES; do
