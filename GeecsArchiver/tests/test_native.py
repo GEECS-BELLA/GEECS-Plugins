@@ -367,3 +367,10 @@ def test_panel_data_naming_another_family_than_the_registrys_is_unresolved():
     result = native(registry, CAMERA_PANEL, families=_gain_only_chain())
     assert result.candidates == [] and result.drift
     assert "one family per device" in result.unresolved[0]
+
+
+def test_panel_data_moving_a_registry_devices_prefix_is_unresolved():
+    panels = {"UC_VisaEBeam6": CAMERA_PANEL["UC_VisaEBeam6"] | {"prefix": "bench:cam:"}}
+    result = native(CAMERA, panels)
+    assert result.candidates == [] and result.drift
+    assert "prefix" in result.unresolved[0]

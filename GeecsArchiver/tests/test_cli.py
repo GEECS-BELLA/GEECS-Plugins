@@ -19,6 +19,14 @@ BASE_SET = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def empty_configs_checkout(tmp_path_factory, monkeypatch):
+    """An experiment folder with no registry: the CLI refuses an unresolvable one."""
+    root = tmp_path_factory.mktemp("configs")
+    (root / "Undulator").mkdir()
+    monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(root))
+
+
 def fake_build(experiment, *, policy, extra=(), registry=None, **_):
     return ArchiveSet([*BASE_SET, *extra], RegistryPass())
 
@@ -104,8 +112,7 @@ def appliance(monkeypatch):
 
     monkeypatch.setattr(cli.MgmtClient, "__init__", patched_init)
     monkeypatch.setenv("GEECS_ARCHIVER_URL", "http://fake:17665")
-    monkeypatch.delenv("GEECS_SCANNER_CONFIG_DIR", raising=False)
-    monkeypatch.setenv("GEECS_PLUGINS_CONFIGS", "/nonexistent")
+    # The configs repository is the autouse empty checkout, never the user's.
     return app
 
 
@@ -344,3 +351,22 @@ def test_a_registry_file_that_is_not_yaml_is_a_usage_exit(
     configs_checkout(tmp_path, monkeypatch, native="devices: [unclosed\n")
     assert cli.main(["list", "--experiment", "Undulator", "--no-db"]) == cli.EXIT_USAGE
     assert "cannot load a configuration document" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("where", ["unset", "absent"])
+def test_an_unresolvable_configs_folder_is_a_usage_exit_never_an_empty_registry(
+    appliance, tmp_path, monkeypatch, capsys, where
+):
+    # An unmounted share must not read as "no native devices": onboard
+    # would then pause every native PV's history.
+    appliance.archived.add("undulator:m:x.RBV")
+    monkeypatch.delenv("GEECS_SCANNER_CONFIG_DIR")
+    if where == "absent":
+        monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(tmp_path / "unmounted"))
+    else:
+        monkeypatch.delenv("GEECS_PLUGINS_CONFIGS", raising=False)
+        monkeypatch.setattr(cli.config, "scanner_configs_base", lambda: None)
+    rc = cli.main(["onboard", "--experiment", "Undulator", "--yes"])
+    assert rc == cli.EXIT_USAGE
+    assert "configs repository" in capsys.readouterr().err
+    assert appliance.paused == []

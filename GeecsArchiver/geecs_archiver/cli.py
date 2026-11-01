@@ -86,6 +86,14 @@ SERVER = {"db": "the gateway", "registry": "its IOC"}
 
 def _desired(args: argparse.Namespace, experiment: str) -> tuple[Desired, ArchiveSet]:
     base = config.scanner_configs_base()
+    if base is None or not (base / experiment).is_dir():
+        # An unmounted share or a wrong path is not "no native devices": an
+        # empty registry would have onboard pause every native PV's history.
+        raise UsageError(
+            f"the configs repository's {experiment!r} folder cannot be found "
+            f"(configs base: {base}); the registry pass needs it — set "
+            "[Paths] scanner_config_root_path or GEECS_SCANNER_CONFIG_DIR"
+        )
     policy_file = (
         Path(args.policy) if args.policy else config.policy_path(experiment, base)
     )

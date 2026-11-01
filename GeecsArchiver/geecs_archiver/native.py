@@ -39,7 +39,7 @@ device the DB does not own (a bench device whose DB twin is enabled is the
 gateway's, and the DB pass has it).  A registry device the DB also owns is
 a **conflict**: reported, and left to the DB pass — never archived twice.
 A registry device the pass cannot resolve (panel data naming another
-family than the registry's, a positioner without axes) is **unresolved**; both are drift,
+family or prefix than the registry's, a positioner without axes) is **unresolved**; both are drift,
 never a silent drop.
 """
 
@@ -205,11 +205,17 @@ def _registry_device(
     family = families.get(template)
     if family is None or family.kind != native.kind:
         return f"{name}: no family {template!r} of kind {native.kind!r}"
+    derived = native_device_prefix(experiment, name)
+    if entry is not None and entry.prefix not in (None, derived):
+        return (
+            f"{name}: panel_devices.yaml sets prefix {entry.prefix!r} on a "
+            f"registry device, whose prefix is {derived!r}"
+        )
     if isinstance(native, EpicsMotor):
         axes = tuple(native.axes)
     else:
         axes = tuple((entry.axes if entry is not None else None) or ())
-    return _device(name, entry, family, native_device_prefix(experiment, name), axes)
+    return _device(name, entry, family, derived, axes)
 
 
 def _panel_device(

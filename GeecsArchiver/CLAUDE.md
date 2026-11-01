@@ -70,9 +70,12 @@ deploy/
   `prefix`) + the suffix, per axis for a per-axis family — the prefix rule
   has one home, never re-derive it. A registry device the DB also owns
   (enabled) is a **conflict**: reported, archived from the DB only, exit 1;
-  a registry device the pass cannot resolve (panel data naming a family of
-  another kind, no axes) is **unresolved**, exit 1 too — a migrated device
-  never drops silently, or `onboard` would pause its history.
+  a registry device the pass cannot resolve (panel data naming another
+  family or prefix than the registry's, no axes) is **unresolved**, exit 1
+  too — a migrated device never drops silently, or `onboard` would pause its
+  history. For the same reason a configs base or experiment folder that
+  cannot be found (an unmounted share) is a usage exit (2), never an empty
+  registry; a missing `native_devices.yaml` in a found folder is none.
   `exclude` globs apply to both passes; `include` keeps its gateway
   spelling (natives are derived, never hand-listed). Every candidate carries
   its `source` (`db` | `registry`), and the never-connected line names it.
