@@ -67,7 +67,7 @@ touch (`geecs-epics:docs/runbooks/ioc-host.md:484-492`; readiness:
 | AB amplitude (gas jet) | `ABOutputAmpAO` / `ABOutputAmpAI` | `config/operator.db:143`; LAMP?1 readback, `check_readbacks.py:101-104` | readback proven; write not yet exercised |
 | Inhibit (alternative quiesce) | `TriggerInhibitMO` / `MI`: `Off, Triggers, AB, AB,CD, AB,CD,EF, AB,CD,EF,GH` | `config/operator.db:158`; `check_readbacks.py:38` | readback proven |
 | Rate (internal) | `TriggerRateAO` | `config/operator.db:157` | readback proven |
-| Status after a write | `StatusLI` (`LERR?`), `StatusSI` (`STATUS OK`) | `check_readbacks.py:122-123`; a refused delay is drained into `StatusSI` (`docs/runbooks/ioc-host.md`, phase B) | proven for a delay write |
+| Status after a write | `StatusLI` (`LERR?`), `StatusSI` (`STATUS OK`) | `check_readbacks.py:122-123`; a refused delay is drained into `StatusSI` (geecs-epics's IOC-host runbook, docs/runbooks/ioc-host.md, phase B) | proven for a delay write |
 | Readback freshness | **no poll**: a readback is the boot reading until its record processes; each setpoint re-reads its own readback after a write | `config/ioc.yaml` header; `ioc-host.md:515` | proven |
 | Liveness | **no CNCT-style record identified.** A busy/absent port at boot is final: every PV INVALID, no reconnect (`ioc-host.md:517`) | — | open: candidate verdict = `IdentSI` unreadable or INVALID |
 | Write access | today only the maintainer's account (`config/access.acf`, ASG OPERATOR) | — | the worker's CA user would be refused |
@@ -97,7 +97,7 @@ What changes:
 
 | Where | Change |
 |---|---|
-| **GEECS-Schemas** | `TriggerWrite` **unchanged** (`device`, `variable`, `value` are strings; for a native device `variable` reads as a role). New family file `epics/families/dg645.json` (kind `setpoint_device`, the estate plan's unbuilt `dg645` row): roles `trigger_source`, `fire` (type `command`, `confirm: hazard`), `ab_amplitude` (and the other outputs), `inhibit`, `rate`, `status`, `ident`. Registry: a `trigger_box` entry kind (or `setpoint_device` with `template: dg645`; open question 6). A validator helper: a profile write to a registry device must name a writable role of its family |
+| **GEECS-Schemas** | `TriggerWrite` **unchanged** (`device`, `variable`, `value` are strings; for a native device `variable` reads as a role). New family file dg645.json under the families directory (kind `setpoint_device`, the estate plan's unbuilt `dg645` row): roles `trigger_source`, `fire` (type `command`, `confirm: hazard`), `ab_amplitude` (and the other outputs), `inhibit`, `rate`, `status`, `ident`. Registry: a `trigger_box` entry kind (or `setpoint_device` with `template: dg645`; open question 6). A validator helper: a profile write to a registry device must name a writable role of its family |
 | **GeecsBluesky — device** | `ShotControl.__init__` takes the registry (or a resolver of device → family); per native device: a `NativePutSetter` (raw `caput(wait=True)` — never `signal.set()`, #868, `gateway_put.py:14-17` — then confirm the role's readback equals the value and `StatusLI` is 0), and a liveness signal from the family's `ident`/`status` roles |
 | **GeecsBluesky — load** | `TriggerProfiles.from_resolver` (`plans/registry.py:105-135`) passes the registry; a native write to an unknown role, or an IOC label outside the record's choices (checked at connect, before any write), skips the profile loudly as today |
 | **Worker liveness gate** | `liveness_gate` judges native box devices by the native rule — **unreadable = down**, like `down_native_cameras` (`plans/registry.py:186-188`; `devices/native.py:691`) — not the gateway's fail-open rule. `ShotControl` exposes the two sets apart (`liveness_signals` stays gateway-only) |
@@ -180,7 +180,7 @@ start the LabVIEW device, re-enable it in the DB.
 | S1 | GEECS-Schemas | `dg645` family file + registry kind + the "writable role" helper + docgen | ~120 / ~150 |
 | S2 | GeecsBluesky | per-device transport in `ShotControl` (`NativePutSetter`, readback + `StatusLI` confirm), native liveness in `liveness_gate`, registry-aware profile load | ~200 / ~300 |
 | S3 | GeecsBluesky | scan-mode exclusion, client preflight skip/probe, fire-stamp column (if ruled in) | ~80 / ~150 |
-| S4 | geecs-epics | sim acceptance: the box IOC on the SCPI fake beside the camera fake; `examples/sim_worker_count.py` with a native profile; the fake's transcript = ARMED writes, N fires, STANDBY writes; `--fault` paths (fake refuses the fire; fake port closed → liveness refusal before the claim) | ~120 / script |
+| S4 | geecs-epics | sim acceptance: the box IOC on the SCPI fake beside the camera fake; geecs-epics's examples/sim_worker_count.py with a native profile; the fake's transcript = ARMED writes, N fires, STANDBY writes; `--fault` paths (fake refuses the fire; fake port closed → liveness refusal before the claim) | ~120 / script |
 | S5 | GeecsBluesky | synchronous baseline for `NativeCamera` on a hardware line (§4) | ~60 / ~100 |
 | S6 | lab | hardware, below | — |
 
