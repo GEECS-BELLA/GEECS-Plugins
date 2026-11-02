@@ -20,6 +20,8 @@ from scan_analysis.services.haso_wavekit import (
     WaveKitSensorMismatch,
 )
 
+from .test_subprocess_group import _gone
+
 SENSOR = "WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
 HEIGHT, WIDTH = 4, 6
 
@@ -336,26 +338,6 @@ def test_the_worker_script_is_python_38(tmp_path):
     assert "from scan_analysis" not in source and "geecs_" not in source
 
 
-def _gone(pid: int, within: float = 5.0) -> bool:
-    """Whether ``pid`` no longer exists (or is a zombie) within ``within`` seconds."""
-    import os
-    import time
-
-    deadline = time.monotonic() + within
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        state = subprocess.run(
-            ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True
-        ).stdout.strip()
-        if not state or state.startswith("Z"):
-            return True
-        time.sleep(0.05)
-    return False
-
-
 @pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX")
 def test_a_timeout_kills_the_launchers_whole_process_tree(tree, tmp_path):
     """Wine 9 starts the interpreter as a child of the launcher (start.exe /exec).
@@ -376,15 +358,3 @@ def test_a_timeout_kills_the_launchers_whole_process_tree(tree, tmp_path):
         )
     grandchild = int(pidfile.read_text())
     assert _gone(grandchild), f"grandchild {grandchild} outlived the timeout"
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX")
-def test_the_group_runner_returns_what_subprocess_run_returns():
-    done = wavekit._run_process_group(
-        ["sh", "-c", "echo out; echo err >&2; exit 2"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        env=None,
-    )
-    assert (done.returncode, done.stdout, done.stderr) == (2, "out\n", "err\n")

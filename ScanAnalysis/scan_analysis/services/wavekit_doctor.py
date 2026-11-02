@@ -59,6 +59,7 @@ __all__ = [
 #: The Wine release the port was verified on (bit-identical to Windows on
 #: 26_0310 Scan012). Its C runtime lacks ``fetestexcept``, which is why the
 #: SDK's Python 3.8 + numpy 1.19 pair is used; another release is a warning.
+#: Wine 9.0 matches to float32 rounding (``REFERENCE_TOLERANCE``).
 WINE_VERSION = "6.0.3"
 
 #: The largest absolute difference from the Windows results a reference
@@ -403,6 +404,10 @@ def _reference_test(report: Report, paths: dict, reference: Path) -> None:
             for stem, product, _, detail in bad:
                 report.fail(f"{directory.name}/{stem} {product}: {detail}")
         elif any(r[3] for r in rows):
+            report.ok(
+                f"{directory.name}: {len(images)} shots, raw phase / processed phase / "
+                "intensity within tolerance of the Windows results"
+            )
             for stem, product, _, detail in rows:
                 if detail:
                     report.ok(f"{directory.name}/{stem} {product}: {detail}")
