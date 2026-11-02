@@ -17,8 +17,8 @@ the contract; see :meth:`VersionedSchemaModel.from_path`).
 
 The contents were transcribed from GeecsPanels' per-kind tables
 (``motor.py``, ``camera.py``, ``scope.py``, ``power.py``); the pin that
-holds the two in step (web estate S2) lives on ``feat/web-estate`` with
-the PV bridge, not beside these files.
+holds the two in step (web estate S2) is kept with the PV bridge at
+the tag ``web-estate-final``, not beside these files.
 
 The installed families are shared by everything in the process, so the
 models are frozen and :func:`load_families` returns a read-only mapping.

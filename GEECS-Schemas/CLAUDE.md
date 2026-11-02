@@ -54,7 +54,7 @@ pass tiny ones through the validation context (`context={"families":
 family with actions puts every writable role in one, so `allow` decides
 every write. A family file changes when its IOC template does;
 the pin holding the camera, scope, motor and supply files to GeecsPanels'
-own suffix tables (web estate S2) lives on `feat/web-estate`, not here.
+own suffix tables (web estate S2) is kept at the tag `web-estate-final`, not here.
 
 ## Screens
 
