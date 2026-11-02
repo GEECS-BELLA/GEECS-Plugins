@@ -46,9 +46,8 @@ family, for the bridge and the archiver alike); the files are **package data**,
 runtime stays free of PyYAML. `epics/panel_devices.py`: `PanelDevices`,
 the configs repo's `<experiment>/panel_devices.yaml` (per-device family,
 suffix overrides, labels, `allow`, `note`, `omit`, `hazard`, the archive
-opt-ins and opt-outs, the serving `ioc`). Their readers (the PV bridge and
-the archiver's registry pass) are on `feat/web-estate`; GeecsCanopy reads
-them next. A `NativeDevices` entry may name its family (`template`, one of
+opt-ins and opt-outs, the serving `ioc`). Read by GeecsCanopy and the
+archiver's registry pass. A `NativeDevices` entry may name its family (`template`, one of
 its kind's; `family_template` falls back to the kind's default). Both validate against the installed families; tests
 pass tiny ones through the validation context (`context={"families":
 ...}`). The installed families are frozen and shared process-wide; a

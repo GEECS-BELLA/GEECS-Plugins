@@ -72,6 +72,8 @@ def experiment_config_path(
 ) -> Path | None:
     """The conventional per-experiment file ``<base>/<experiment>/<folder>/<filename>``, if it exists.
 
+    An empty *folder* is the experiment folder's root (``native_devices.yaml``).
+
     ``None`` when the repository cannot be resolved or the file is absent —
     every consumer treats a missing overlay as "the defaults".
     """

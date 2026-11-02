@@ -261,7 +261,7 @@ qserver/                    # the worker: launcher, startup profile, permissions
   same children under its catalog name (`ALine_e_beam_angle_offset_x`) — a
   bad entry is ERROR-logged and skipped, never fatal to environment open.
   Each entry of the native device registry (`native_devices=`, below) is a
-  noun at the derived prefix `pv_name(experiment, device) + ":"`, by kind:
+  noun at the derived prefix `native_device_prefix(experiment, device)` (`geecs_core.pv_naming`, the one home), by kind:
   an `aravis_camera` a `NativeCamera` with a POSIX `PluginPathProvider`
   through `data_paths.native_ioc_save_path`, an `epics_motor` a
   `NativeMotor` whose axes bind by `settable_attribute` (the rule a
