@@ -192,9 +192,15 @@ The code after `denied` or `refused` says why. The ones you will meet:
 | `not_allowed` | 403 | The role is not on this device's allow list. |
 | `journal_unavailable` | 503 | The module could not write its journal, so it sent nothing. Tell whoever runs the services. |
 
-A refusal writes nothing to the device. A LabVIEW device (served through
-the CA gateway) has no run lock: a scan driving it does not stop a write
-from here.
+A `denied` answer, and a `refused` one with a code from the table, writes
+nothing: the module stopped before the put left. A `refused` answer with
+any other code came back from Hare *after* the put was dispatched (a
+timeout, a PV that would not connect, a put the IOC rejected), and then
+the device may or may not have taken the value: the module's journal
+holds an `attempted` row for it, and the readback is the truth. Read the
+row's value before writing again rather than assuming nothing happened.
+A LabVIEW device (served through the CA gateway) has no run lock: a scan
+driving it does not stop a write from here.
 
 ## Where to next
 
