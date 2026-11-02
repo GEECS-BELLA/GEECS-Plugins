@@ -9,7 +9,7 @@
                    is off; more than REMOVE_GUARD removals need ``--yes``.
 
 Run at deploy and after a device-file change, inside the api container
-(``dc run --rm api geecs-canopy squirrel-sync``): the module's settings
+(``dc exec -T api geecs-canopy squirrel-sync``): the module's settings
 and the Squirrel write key (``GEECS_CANOPY_SQUIRREL_KEY``, the secrets
 file's) are in its environment. Exit status: 0 in step (or reconciled) ·
 1 drift under ``--check``, or a request Squirrel refused (what was

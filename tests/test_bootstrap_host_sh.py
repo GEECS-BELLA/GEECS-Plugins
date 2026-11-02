@@ -263,7 +263,11 @@ def _run_with_docker(
     )
     for f in ("systemctl", "docker", "id"):
         (stub_dir / f).chmod(0o755)
-    env = dict(os.environ, PATH=f"{stub_dir}:{os.environ.get('PATH', '')}")
+    env = dict(
+        os.environ,
+        PATH=f"{stub_dir}:{os.environ.get('PATH', '')}",
+        GEECS_ETC_DIR=str(tmp_path / "etc"),  # never the host's /etc/geecs
+    )
     return subprocess.run(
         ["bash", str(BOOTSTRAP), str(_site_env(tmp_path)), "--dry-run", *extra],
         capture_output=True,
@@ -396,13 +400,16 @@ def test_docker_without_the_compose_plugin_is_not_ready(tmp_path: Path) -> None:
 def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
     tmp_path: Path,
 ) -> None:
-    """The PVA 'empty = none' precedent: no GEECS_ARCHIVER_HOST, no appliance, no Docker demand."""
+    """The PVA 'empty = none' precedent: no GEECS_ARCHIVER_HOST, no appliance, no Docker demand.
+
+    Canopy needs Docker too, so this site has none of its keys either.
+    """
     site = _site_env(tmp_path)
     site.write_text(
         "\n".join(
             ln
             for ln in site.read_text().splitlines()
-            if not ln.startswith("GEECS_ARCHIVER_")
+            if not ln.startswith(("GEECS_ARCHIVER_", "GEECS_CANOPY_PORT"))
         )
         + "\n"
     )
@@ -430,6 +437,68 @@ def test_a_site_without_archiver_keys_skips_the_archiver_by_default(
     assert (
         "sudo systemctl enable --now geecs-ca-gateway" in r.stdout
     )  # the rest of the fleet is untouched
+
+
+def test_canopy_and_the_control_room_have_their_clones_units_and_root_steps(
+    tmp_path: Path,
+) -> None:
+    r = _run_with_docker(tmp_path, "--only", "canopy,control-room")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout
+    assert "canopy-checkout" in out and "control-room-checkout" in out
+    assert "GeecsCanopy/deploy/geecs-canopy.service" in out
+    assert "GeecsControlRoom/deploy/geecs-control-room.service" in out
+    assert "canopy: no host env" in out  # the image is built from the clone
+    assert "deploy-staging/canopy" in out  # render_conf.sh's compose file
+    assert "/etc/geecs/control-room/secrets.env" in out
+    # the runbook's build + alembic + key step comes before enabling Canopy
+    assert out.index("DEPLOYMENT.md §2") < out.index("enable --now geecs-canopy")
+    assert "enable --now geecs-control-room" in out
+
+
+def test_a_rerun_never_prints_the_lines_that_reset_the_secrets_files(
+    tmp_path: Path,
+) -> None:
+    for folder in ("canopy", "control-room"):
+        (tmp_path / "etc" / folder).mkdir(parents=True)
+        (tmp_path / "etc" / folder / "secrets.env").write_text("FILLED=1\n")
+    r = _run_with_docker(tmp_path, "--only", "canopy,control-room")
+    assert r.returncode == 0, r.stderr
+    assert "/etc/geecs/canopy/secrets.env exists: kept" in r.stdout
+    assert "sudo install -m 0600" not in r.stdout
+    assert "/etc/geecs/control-room/secrets.env" not in r.stdout
+
+
+def test_the_canopy_root_lines_survive_the_bootstraps_extraction(
+    tmp_path: Path,
+) -> None:
+    """The bootstrap keeps render_conf.sh's ``  sudo `` lines (a dry run never renders,
+    so the test above cannot see them): a format change there must fail here."""
+    import re
+
+    boot = BOOTSTRAP.read_text()
+    pattern = re.search(r"sed -n 's/\^(  sudo )/sudo /p'", boot)
+    assert pattern, "the bootstrap's extraction of render_conf.sh's root lines moved"
+    r = subprocess.run(
+        [
+            "bash",
+            str(REPO_ROOT / "GeecsCanopy/deploy/render_conf.sh"),
+            str(_site_env(tmp_path)),
+            str(tmp_path / "out"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+    assert r.returncode == 0, r.stderr
+    kept = [ln for ln in r.stdout.splitlines() if ln.startswith(pattern.group(1))]
+    for needle in (
+        "-m 0755 /etc/geecs/canopy",
+        "/var/lib/geecs-canopy/pgdata",
+        "/etc/geecs/canopy/compose.yaml",
+        "/etc/geecs/canopy/secrets.env",  # the rerun filter drops the line naming it
+    ):
+        assert any(needle in ln for ln in kept), needle
 
 
 def _existing_config(tmp_path: Path, text: str) -> Path:
