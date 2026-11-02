@@ -37,10 +37,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import contextlib
 import logging
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import tempfile
 import weakref
@@ -109,6 +111,46 @@ class HasoWaveKitResult:
     image_serial: str
     config_serial: str
     timings: dict
+
+
+def _run_process_group(
+    cmd: Sequence[str],
+    *,
+    capture_output: bool,
+    text: bool,
+    timeout: float,
+    env: dict,
+) -> subprocess.CompletedProcess:
+    """``subprocess.run`` for a worker whose timeout must reach its whole process tree.
+
+    The worker runs as the leader of its own session, and a timeout kills
+    that whole process group, not just the direct child. Under Wine the
+    direct child is the launcher (``wine`` and, on Wine 9, ``start.exe``),
+    which starts the Windows interpreter as a child of its own. Killing only
+    the launcher left that interpreter running, holding its memory, once per
+    timed-out shot. The prefix's ``wineserver`` daemonizes into a session of
+    its own, so it is never in the group.
+    """
+    pipe = subprocess.PIPE if capture_output else None
+    with subprocess.Popen(
+        list(cmd), stdout=pipe, stderr=pipe, text=text, env=env, start_new_session=True
+    ) as proc:
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except BaseException:
+            _kill_group(proc)
+            proc.communicate()
+            raise
+    return subprocess.CompletedProcess(list(cmd), proc.returncode, stdout, stderr)
+
+
+def _kill_group(proc: subprocess.Popen) -> None:
+    """Kill ``proc``'s process group (POSIX), else ``proc`` alone."""
+    if os.name == "posix":
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        return
+    proc.kill()
 
 
 class HasoWaveKit:
@@ -362,7 +404,7 @@ class HasoWaveKit:
             env["MKL_NUM_THREADS"] = str(self.threads)
         logger.debug("Running WaveKit worker: %s", " ".join(cmd))
         try:
-            run = subprocess.run(
+            run = _run_process_group(
                 cmd, capture_output=True, text=True, timeout=self.timeout, env=env
             )
         except subprocess.TimeoutExpired as exc:

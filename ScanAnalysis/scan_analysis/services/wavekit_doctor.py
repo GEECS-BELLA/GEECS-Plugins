@@ -19,8 +19,9 @@ says what is missing, in order:
 4. the golden reference: every ``reference/<set>/`` beside the configs
    that holds a ``reference.json`` (the settings that produced its
    sidecars) is recomputed and compared in float32 with the Windows
-   results — raw phase, processed phase and intensity must be exactly
-   equal.
+   results: raw phase, processed phase and intensity, each exactly equal
+   or within its ``REFERENCE_TOLERANCE`` with an identical NaN pupil.
+   Every comparison that is not exact reports its largest difference.
 
 Nothing here touches a scan folder or the repository. The share's
 ``Examples/OUT_FILES`` is not written either: the sample runs through the
@@ -46,12 +47,27 @@ import numpy as np
 from geecs_data_utils.io.himg import read_himg
 from scan_analysis.services.haso_wavekit import CONFIG_KEYS, HasoWaveKit
 
-__all__ = ["WINE_VERSION", "Report", "compare_reference_set", "main", "wine_prefix"]
+__all__ = [
+    "REFERENCE_TOLERANCE",
+    "WINE_VERSION",
+    "Report",
+    "compare_reference_set",
+    "main",
+    "wine_prefix",
+]
 
 #: The Wine release the port was verified on (bit-identical to Windows on
 #: 26_0310 Scan012). Its C runtime lacks ``fetestexcept``, which is why the
 #: SDK's Python 3.8 + numpy 1.19 pair is used; another release is a warning.
 WINE_VERSION = "6.0.3"
+
+#: The largest absolute difference from the Windows results a reference
+#: product may show and still pass (phases in the sensor's micrometres).
+#: Wine 9.0 (Ubuntu 24.04) differs from Windows at float32 rounding only:
+#: 1.5e-5 on the raw phase (|phase| up to ~80), 5.7e-7 on the processed
+#: phase, intensity exact (services box, 2026-11-02). A real regression is
+#: orders of magnitude larger.
+REFERENCE_TOLERANCE = {"raw": 1e-4, "postprocessed": 1e-5, "intensity": 0.0}
 
 #: Where the engine writes the per-sensor DLL it extracts from a ``.dat``:
 #: the prefix's common application-data folder, which Wine places under
@@ -286,8 +302,10 @@ def compare_reference_set(
 ) -> list[tuple[str, str, bool, str]]:
     """Recompute every ``<stem>.himg`` of a reference set and compare its products.
 
-    Returns ``(stem, product, equal, detail)`` per comparison; equality is
-    ``np.array_equal`` in float32 with NaN equal to NaN.
+    Returns ``(stem, product, passed, detail)`` per comparison, in float32.
+    A product passes when it is exactly equal (NaN equal to NaN; ``detail``
+    empty) or when its NaN mask is identical and its largest absolute
+    difference is within ``REFERENCE_TOLERANCE`` (``detail`` names it).
     """
     mask = settings.get("mask")
     filters = settings.get("filters", {})
@@ -326,14 +344,31 @@ def compare_reference_set(
                     (stem, suffix, False, f"shape {got.shape} != {expected.shape}")
                 )
                 continue
-            equal = np.array_equal(got, expected, equal_nan=True)
-            differing = int(
-                np.sum(~((got == expected) | (np.isnan(got) & np.isnan(expected))))
-            )
-            rows.append(
-                (stem, suffix, equal, "" if equal else f"{differing} values differ")
-            )
+            if np.array_equal(got, expected, equal_nan=True):
+                rows.append((stem, suffix, True, ""))
+                continue
+            rows.append((stem, suffix, *_judge(got, expected, suffix)))
     return rows
+
+
+def _judge(got: np.ndarray, expected: np.ndarray, suffix: str) -> tuple[bool, str]:
+    """Pass/fail and the detail line for a product that is not exactly equal."""
+    nan_got, nan_expected = np.isnan(got), np.isnan(expected)
+    tolerance = REFERENCE_TOLERANCE.get(suffix, 0.0)
+    differing = int(np.sum((got != expected) & ~(nan_got & nan_expected)))
+    if not np.array_equal(nan_got, nan_expected):
+        mismatched = int(np.sum(nan_got != nan_expected))
+        return False, f"{mismatched} pupil (NaN) positions differ"
+    finite = ~nan_got
+    largest = (
+        float(np.max(np.abs(got[finite] - expected[finite]))) if finite.any() else 0.0
+    )
+    passed = largest <= tolerance
+    verdict = "within" if passed else "exceeds"
+    return passed, (
+        f"{differing} values differ, max |diff| {largest:.3g} "
+        f"({verdict} tolerance {tolerance:g})"
+    )
 
 
 def _reference_test(report: Report, paths: dict, reference: Path) -> None:
@@ -367,6 +402,10 @@ def _reference_test(report: Report, paths: dict, reference: Path) -> None:
         if bad:
             for stem, product, _, detail in bad:
                 report.fail(f"{directory.name}/{stem} {product}: {detail}")
+        elif any(r[3] for r in rows):
+            for stem, product, _, detail in rows:
+                if detail:
+                    report.ok(f"{directory.name}/{stem} {product}: {detail}")
         else:
             report.ok(
                 f"{directory.name}: {len(images)} shots, raw phase / processed phase / "
