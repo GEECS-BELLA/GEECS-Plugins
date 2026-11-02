@@ -43,7 +43,7 @@ from geecs_core.db.device_streams import (
     served_array_variables,
 )
 from geecs_core.db.served_set import served_variables
-from geecs_core.pv_naming import pv_name
+from geecs_core.pv_naming import native_device_prefix
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
     effective_vartype,
@@ -551,7 +551,7 @@ class GeecsNamespace:
                     f"and {device!r} both normalise to {safe_name(device)!r}"
                 )
             name = safe_name(device)
-            prefix = pv_name(self.experiment, device) + ":"
+            prefix = native_device_prefix(self.experiment, device)
             dev: Any
             attrs: dict[str, str] = {}
             if isinstance(entry, EpicsMotor):
