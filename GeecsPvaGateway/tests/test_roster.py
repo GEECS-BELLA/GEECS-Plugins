@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import socket
 import threading
 import time
 
@@ -75,11 +76,17 @@ def _spec(device: str, port: int, *variables: str) -> DeviceSpec:
 
 
 async def _start(
-    initial: list[DeviceSpec], roster: ScriptedRoster
+    initial: list[DeviceSpec], roster: ScriptedRoster, *, seed: bool = False
 ) -> tuple[GeecsPvaGateway, asyncio.Task]:
-    # host= names the identity PVs even while nothing is served.
+    # host= names the identity PVs even while nothing is served.  Unseeded
+    # by default: these tests count connections the seed (#1216) would add.
     config = PvaGatewayConfig(experiment="testexp", host="127.0.0.1", devices=initial)
-    gateway = GeecsPvaGateway(config, roster_resolver=roster, roster_interval_s=TICK)
+    gateway = GeecsPvaGateway(
+        config,
+        roster_resolver=roster,
+        roster_interval_s=TICK,
+        seed_held_frames=seed,
+    )
     task = asyncio.create_task(gateway.run(isolate=True))
     for _ in range(100):
         await asyncio.sleep(0.05)
@@ -138,6 +145,78 @@ async def test_a_device_enabled_in_the_db_is_served_without_a_restart(caplog):
     finally:
         await _shutdown(task)
         await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_a_device_the_roster_adds_is_seeded():
+    """A newcomer's held frame is seeded like a startup device's (#1216): its
+    first arm never waits on a quiet box because it joined mid-run."""
+    cam = StampedCamera()
+    await cam.start()
+    roster = ScriptedRoster([])
+    gateway, task = await _start([], roster, seed=True)
+    try:
+        roster.answer = [_spec(CAMERA, cam.port)]
+        await _wait_until(lambda: gateway.served_devices == [CAMERA])
+        await asyncio.wait_for(cam.connected.wait(), 5)  # no client: the seed
+        cam.push(IMG, time.time())
+        await asyncio.wait_for(cam.disconnected.wait(), 10)
+        worker = gateway._workers[0]
+        assert worker._last_frame["image"].shape == IMG.shape
+        assert cam.connections == 0
+    finally:
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(60)
+async def test_a_seed_on_an_unreachable_device_lapses_and_the_roster_tick_retries(
+    monkeypatch, caplog
+):
+    """A device enabled in the DB whose app is down: the seed lapses at the
+    first failed connect — no reconnect loop, never ``Disconnected``, one
+    INFO line — and a later roster tick seeds it once the app is up (#1216)."""
+    states: list[str] = []
+    original = server_module._DeviceWorker._set_connected
+
+    def record(self, var, state):
+        states.append(state)
+        original(self, var, state)
+
+    monkeypatch.setattr(server_module._DeviceWorker, "_set_connected", record)
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()  # nothing listens here: the app is down
+    spec = _spec(CAMERA, port)
+    roster = ScriptedRoster([spec])
+    caplog.set_level(logging.INFO, logger=LOGGER)
+    gateway, task = await _start([spec], roster, seed=True)
+    cam = StampedCamera()
+    try:
+        worker = gateway._workers[0]
+        await _wait_until(lambda: _messages(caplog, "seed lapsed"))
+        await asyncio.sleep(5 * TICK)  # several roster ticks of retries
+        assert server_module.CONNECTED_DOWN not in states
+        assert worker._connected_state["image"] == server_module.CONNECTED_IDLE
+        assert len(_messages(caplog, "seed lapsed")) == 1  # retries at DEBUG
+        assert not any(r.exc_info for r in caplog.records)
+        assert "image" not in worker._last_frame
+
+        # The app comes up on ANOTHER port (the boot-order case, #854): the
+        # DB says so, the roster tick hands it to the worker, the retry
+        # dials it.
+        await cam.start()
+        assert cam.port != port
+        roster.answer = [_spec(CAMERA, cam.port)]
+        cam.push(IMG, time.time())
+        await _wait_until(lambda: "image" in worker._last_frame, timeout=10)
+        await _wait_until(lambda: cam.connections == 0, timeout=10)
+        assert worker._seeding == set()
+    finally:
+        await _shutdown(task)
+        if cam._server is not None:
+            await cam.stop()
 
 
 @pytest.mark.timeout(60)

@@ -37,11 +37,11 @@ Session semantics:
   shape it declares is provisional (next bullet).  Only a variable the
   gateway has never decoded waits for its first push, ``ARM_TIMEOUT_S`` at
   most; a camera that pushes nothing then fails the put naming the device.
-  Never-decoded is every camera after each gateway restart (the service
-  restarts with the camera server; nothing holds an image monitor in
-  normal operation) until its first session receives a push — a monitor
-  on the image PV for one gating round-trip in STANDBY seeds the held
-  frame.  The held frame is never written: the stale watermark is stamped
+  The worker seeds the held frame as it starts (``_DeviceWorker.seed``,
+  #1216): it holds the subscription until the first decoded frame, so in
+  STANDBY every camera has one before its first session.  Never-decoded
+  is now only a camera whose box has fired nothing since the gateway
+  started (laser off).  The held frame is never written: the stale watermark is stamped
   at the arm.
 - A frame is written iff its stamp is unseen this session (LabVIEW
   re-pushes its last frame with an unchanged stamp when idle) and not

@@ -185,8 +185,10 @@ change. Rerunning when nothing changed is a no-op.
   the way up). Read upstream's release notes for persistence-format or
   Tomcat changes first. Weekly upstream images are never deployed.
 - **Stop / start.** `sudo systemctl stop geecs-archiver` runs `compose
-  down` (Tomcat flushes the short-term store on shutdown; the unit allows
-  180 s).
+  down`. Tomcat flushes the short-term store on shutdown, and the timeout
+  that governs it is `stop_grace_period: 170s` in `compose.yaml` (compose's
+  own default, 10 s, SIGKILLs it mid-flush); the unit's `TimeoutStopSec=180`
+  only bounds the whole stop.
 
 ---
 
@@ -211,6 +213,7 @@ change. Rerunning when nothing changed is a no-op.
 |---|---|
 | `onboard` exits 1 with `! never connected` PVs | The rule derives a PV the gateway does not serve (the appliance's never-connected list). Compare with the gateway's log at startup; the served-set rule changed on one side |
 | `onboard` exits 2, "refusing to pause N PVs" | The derived set shrank by more than the guard — usually a database maintenance state. Check `geecs-archiver list`; rerun with `--yes` only if the shrink is real |
+| `onboard`/`list` exits 2, "the configs repository's … folder cannot be found" | The configs share is unmounted or the path is wrong — never read as "no native devices". Check `config.ini [Paths] scanner_config_root_path` (or `GEECS_PLUGINS_CONFIGS` / `GEECS_SCANNER_CONFIG_DIR`) and the mount |
 | `onboard` exits 3 | The appliance did not answer (`geecs-archiver status`; the unit's journal) |
 | Engine log: `Cannot determine DBR type for pv …localsavingpath` | A `path` (char-array) PV reached the appliance. The rule excludes them; something submitted it by hand — pause it |
 | Appliance up, every PV disconnected | `EPICS_CA_ADDR_LIST` in `site.env` does not name the gateway, or the gateway is down (`caget <exp>:cagateway:heartbeat` from the host) |

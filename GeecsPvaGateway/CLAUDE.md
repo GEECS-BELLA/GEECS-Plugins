@@ -111,7 +111,7 @@ tests/
   `GeecsTcpSubscriber` (loopback in production), **gated per variable** — p4p
   `onFirstConnect`/`onLastDisconnect` refcount client channels; zero clients
   on a variable ⇒ no subscription, no flatten/send in LabVIEW, no decode
-  here. Watching `image` never costs anything for `processed image`.
+  here — except the file plugin's one-frame seed at worker start (#1216). Watching `image` never costs anything for `processed image`.
 - **Collision guard**: PV naming is lossy (normalization), so `run()` refuses
   to start if two (device, variable) sources land on one PV name — same
   doctrine as the CA gateway's manifest guard.
@@ -121,7 +121,9 @@ tests/
   gateway's device supervisors; a box ARMED through a long move pushes
   nothing for tens of seconds, #894). Each variable's `<image PV>:connected`
   (NTEnum `Idle` / `Disconnected` / `Connected`, MAJOR alarm while down)
-  shows that subscription's state — `Idle` is "gated off, nothing known",
+  shows that subscription's state — `Idle` is "gated off, nothing known"
+  (`Connected` with no client is the held-frame seed, below; a seed alone
+  never posts `Disconnected`),
   so a client wanting the verdict holds a monitor on the image PV for one
   gating round-trip. Once the backoff sits at its ceiling the endpoint is
   re-asked of the DB (`endpoint_resolver`, the CA gateway's idiom) and a
@@ -161,10 +163,24 @@ tests/
   Bluesky side describes the stream lazily for that reason); once the
   stack is open its shape is fixed for the session and a frame of
   another shape is dropped and counted. The held frame is never written.
-  A never-decoded variable waits `ARM_TIMEOUT_S` for its first push
-  (never-decoded is every camera after each gateway restart until its
-  first session gets a push — an image monitor held for one gating
-  round-trip in STANDBY seeds it); frames are deduped on `acq_timestamp` and
+  A never-decoded variable waits `ARM_TIMEOUT_S` for its first push.
+  Never-decoded used to be every camera after each gateway restart until
+  its first session got a push. Now the worker **seeds** the held frame
+  as it starts (`_DeviceWorker.seed`, at startup and for a roster
+  newcomer, #1216): one retain per plugin variable, released by the
+  first decoded frame. With the box free-running in STANDBY that costs
+  one frame per variable. A quiet box (laser off) leaves the seed open
+  and idle until the first shot. A seed that cannot get a frame lapses
+  rather than hold the subscription: on an unreachable device (enabled in
+  the DB, app down) at the first failed connect — no reconnect loop, no
+  `Disconnected` alarm, no traceback — retried every roster tick at the
+  roster's current endpoint (`note_endpoint`: a seed alone never reaches
+  the supervisor's #854 re-resolve), so a camera app started after its
+  gateway is seeded within a tick or two on whatever port (no retry with
+  `--roster-interval 0`); after `SEED_DECODE_BUDGET` (3) undecodable
+  frames in a row, for good. This is the one subscription no client
+  asked for; `seed_held_frames=False` turns it off (tests that pin the
+  gating). Frames are deduped on `acq_timestamp` and
   stale-filtered against a watermark set at `Capture=1` and moved by
   `Rewind` (the refire guard: truncate to N, drop older-stamped
   arrivals); `NumCaptured_RBV` posts after each frame is on disk, and an

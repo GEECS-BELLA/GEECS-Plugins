@@ -967,23 +967,27 @@ a motor, the readback record for a setpoint device — instead of
 `pv_name`'s gateway spelling. The move path is untouched: `MoveIn` →
 `scan_variable_reference` → the worker's `mv`.
 
-**Archive set.** `derive_candidates` reads only DB rows; a native device
-has none, so the archiver would silently drop a migrated device. A
-registry pass in `geecs_archiver.archive_set`, reading `NativeDevices`
-through the configs-repo wrappers in `config.py` (which already load
-`DerivedChannels`), derives per kind: a motor's `.RBV`, `.VAL` (under
-`include_setpoints`), `.DMOV` and the limit switches (status); a setpoint
-device's readbacks, `:SP`s and status bits; a detector's settings
-readbacks (`cam1:AcquireTime_RBV`, the contract's `_RBV`s), `AsynIO.CNCT`
-and, once #1136 lands, the run lock; devIocStats' heartbeat per IOC as
-the analogue of `cagateway:heartbeat`. `exclude` globs apply; `include`
-keeps its spelling rule (these are derived candidates). The
+**Archive set** (built: `geecs_archiver.native`, the registry pass;
+`GeecsArchiver/CLAUDE.md` is the rule as implemented). `derive_candidates`
+reads only DB rows and a native device has none, so the registry pass reads
+`native_devices.yaml` and `panel_devices.yaml` through `config.py`'s
+configs-repo wrappers and archives each device's family-file `archive`
+roles. For a family marking none, the per-kind rule applies: a motor's
+`.RBV`, `.VAL` (under `include_setpoints`), `.DMOV` and the limit
+switches; a setpoint device's readbacks, `:SP`s and bits; a detector's
+settings readbacks (`cam1:AcquireTime_RBV`, the contract's `_RBV`s) and
+the run lock. Under `include_status` it adds the camera's `AsynIO.CNCT`
+and devIocStats' heartbeat once per IOC a device's panel data names
+(`ioc:`), the analogue of `cagateway:heartbeat`. `exclude` globs apply;
+`include` keeps its spelling rule (these are derived candidates). A device
+both owners list, or one the pass cannot resolve, is drift. The
 never-connected list stays the drift alarm between registry and IOCs.
 
-**One home for the PV surface.** The native prefix is derived once today
-inside `GeecsNamespace._add_native_devices`, which the archiver cannot
-import (`.importlinter`: `geecs_bluesky` and `geecs_archiver` share a
-layer); it moves to `geecs_core.pv_naming` beside `gateway_status_pv`. Each
+**One home for the PV surface.** The native prefix is
+`geecs_core.pv_naming.native_device_prefix` (built: the namespace, the
+panels' registry, GeecsCanopy and the archiver all call it — the archiver
+cannot import the namespace, `.importlinter`: `geecs_bluesky` and
+`geecs_archiver` share a layer). Each
 kind's record suffixes — what the archive pass, the scanner and the panel
 need — become data beside the kind models in `geecs_schemas.epics`.
 

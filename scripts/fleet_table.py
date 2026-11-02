@@ -150,6 +150,22 @@ def checkout(rec: dict[str, str]) -> str:
     return rec.get("checkout", "—")
 
 
+def base_role(role: str) -> str:
+    """The role without an experiment instance's ``@<Instance>`` tag."""
+    return role.split(" @", 1)[0]
+
+
+def ordered_roles(merged: dict[str, dict[str, str]]) -> list[str]:
+    """ROLE_ORDER first, the rest alphabetical; an instance row after its main role."""
+    order = {r: i for i, r in enumerate(ROLE_ORDER)}
+
+    def key(role: str) -> tuple[int, str, str]:
+        base = base_role(role)
+        return (order.get(base, len(ROLE_ORDER)), "" if base in order else base, role)
+
+    return sorted(merged, key=key)
+
+
 def version(rec: dict[str, str]) -> str:
     """Self-reported version first (what is running), else the venv's."""
     ver = rec.get("version") or rec.get("installed") or rec.get("pyproject") or "?"
@@ -158,7 +174,7 @@ def version(rec: dict[str, str]) -> str:
     if (
         pkg
         and pkg not in ("tiled",)
-        and rec.get("role")
+        and base_role(rec.get("role", ""))
         in (
             "Queueserver RE Manager",
             "Queueserver readiness",
@@ -244,9 +260,7 @@ def glyph(rec: dict[str, str]) -> str:
 
 def render(merged: dict[str, dict[str, str]], width: int) -> str:
     """Box table sized to the terminal, columns wrapped, one service per row."""
-    roles = [r for r in ROLE_ORDER if r in merged] + sorted(
-        r for r in merged if r not in ROLE_ORDER
-    )
+    roles = ordered_roles(merged)
     rows = []
     for role in roles:
         rec = merged[role]

@@ -69,3 +69,13 @@ def test_resolution_order(tmp_path: Path, monkeypatch) -> None:
         )
         is None
     )
+
+
+def test_an_empty_folder_is_the_experiment_folders_root(tmp_path):
+    (tmp_path / "Exp").mkdir()
+    target = tmp_path / "Exp" / "native_devices.yaml"
+    target.write_text("devices: {}\n")
+    found = configs_repo.experiment_config_path(
+        "Exp", "", "native_devices.yaml", base=tmp_path
+    )
+    assert found == target

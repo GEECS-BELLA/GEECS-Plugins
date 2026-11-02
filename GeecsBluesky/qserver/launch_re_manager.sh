@@ -89,6 +89,19 @@ fi
 # ignored). The trap records the signal and does not forward it — the unit's
 # KillMode=control-group already delivers SIGTERM to the manager, and a
 # second TERM would re-enter its cleanup handler.
+# Per-experiment instance (geecs-qserver@<Instance>): its own Redis key
+# prefix, and its plan/device list written into its own state rather than
+# the startup dir every instance shares. Unset (the main unit) = the stock
+# behaviour, flags not passed at all. The 0MQ addresses need nothing here:
+# the manager reads QSERVER_ZMQ_{CONTROL,INFO}_ADDRESS_FOR_SERVER itself.
+INSTANCE_ARGS=()
+if [[ -n "${QS_REDIS_PREFIX:-}" ]]; then
+    INSTANCE_ARGS+=(--redis-name-prefix "${QS_REDIS_PREFIX}")
+fi
+if [[ -n "${QS_EXISTING_PLANS_DEVICES:-}" ]]; then
+    INSTANCE_ARGS+=(--existing-plans-devices "${QS_EXISTING_PLANS_DEVICES}")
+fi
+
 received_term=0
 trap 'received_term=1' TERM
 
@@ -97,7 +110,8 @@ start-re-manager \
     --startup-dir "${QS_STARTUP_DIR}" \
     --user-group-permissions "${PERMISSIONS_FILE}" \
     --keep-re \
-    --zmq-publish-console ON || status=$?
+    --zmq-publish-console ON \
+    ${INSTANCE_ARGS[@]+"${INSTANCE_ARGS[@]}"} || status=$?
 # 143 = the manager died OF the SIGTERM (128+15): a stop that landed before
 # start_manager installed its handler, during the imports. Under exec that
 # was a signal death, which systemd counts as a clean stop; bash reports it

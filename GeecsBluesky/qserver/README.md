@@ -190,12 +190,14 @@ worker's compiler executes); the web scanner's actions panel queues
   `NumCaptured_RBV` from the previous session is zeroed by the scan itself.
   The same symptom on a camera whose LabVIEW device was started *after*
   its gateway is the gateway's subscription gap.
-  **Any laser-off session, not only after a restart**:
-  `<image>:connected` reads `Idle` and the image PV holds an
-  epoch-zero placeholder — the gateway subscribes only while a client
-  monitors, so a shot fired with nothing monitoring seeds nothing. Recipe,
-  all operator verbs: keep a monitor on the camera's image (the portal's
-  or scanner's live view, or a `p4p` monitor), then queue two `mv` items —
+  **Any laser-off session, not only after a restart**: the gateway seeds
+  each camera's held frame by itself as it starts (#1216: it holds the
+  subscription until one frame arrives, so with the box free-running in
+  STANDBY the first arm never waits), but a box that fires nothing gives
+  it nothing to hold. Recipe, all operator verbs (no monitor needed on a
+  gateway with #1216; on an older one keep a monitor on the camera's
+  image first — the portal's or scanner's live view, or a `p4p`
+  monitor): queue two `mv` items —
   `U_DG645_ShotControl.trigger_source` → `Single shot`, then
   `U_DG645_ShotControl.trigger_executesingleshot` → `on`. One frame reaches
   the gateway and every later arm (strict or gated) is instant. The

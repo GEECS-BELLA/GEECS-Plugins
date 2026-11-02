@@ -89,3 +89,37 @@ def test_archiver_endpoint_is_optional_with_the_fleet_port_default(
         "[]",
         "17665",
     ]
+
+
+def test_gateway_host_comes_from_the_ca_list_and_tiled_keeps_its_own(
+    tmp_path: Path,
+) -> None:
+    """Services off the gateway box: LAB_HOST (gateway + DB) is the first CA entry."""
+    cfg = tmp_path / "config.ini"
+    cfg.write_text(
+        "[tiled]\nuri = http://services.example:8000\n"
+        "[epics]\nca_addr_list = gw.example:5064 ioc.example\n"
+    )
+    out = _run(cfg, 'echo "$LAB_HOST $TILED_HOST"')
+    assert out.strip() == "gw.example services.example"
+
+
+def test_no_ca_list_keeps_the_one_box_reading(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.ini"
+    cfg.write_text("[tiled]\nuri = http://lab:8000\n")
+    out = _run(cfg, 'echo "$LAB_HOST $TILED_HOST"')
+    assert out.strip() == "lab lab"
+
+
+def test_a_comma_separated_ca_list_yields_its_first_host(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.ini"
+    cfg.write_text("[epics]\nca_addr_list = gw.example,ioc.example\n")
+    assert _run(cfg, 'echo "$LAB_HOST"').strip() == "gw.example"
+
+
+def test_an_explicit_ca_port_is_kept_and_the_default_is_5064(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.ini"
+    cfg.write_text("[epics]\nca_addr_list = gw.example:6064 ioc.example\n")
+    assert _run(cfg, 'echo "$LAB_HOST $CA_PORT"').strip() == "gw.example 6064"
+    cfg.write_text("[epics]\nca_addr_list = gw.example ioc.example\n")
+    assert _run(cfg, 'echo "$LAB_HOST $CA_PORT"').strip() == "gw.example 5064"
