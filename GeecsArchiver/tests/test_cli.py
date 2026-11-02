@@ -370,3 +370,22 @@ def test_an_unresolvable_configs_folder_is_a_usage_exit_never_an_empty_registry(
     assert rc == cli.EXIT_USAGE
     assert "configs repository" in capsys.readouterr().err
     assert appliance.paused == []
+
+
+def test_an_unresolved_registry_device_changes_nothing_on_the_appliance(
+    appliance, monkeypatch, capsys
+):
+    """Review #1237: an unresolved device's existing history is never paused."""
+    native_pv = "undulator:cam:cam1:Gain_RBV"
+    appliance.archived.add(native_pv)
+
+    def unresolved_build(experiment, *, policy, **_):
+        return ArchiveSet(
+            list(BASE_SET), RegistryPass(unresolved=["CAM: panel prefix bench:cam:"])
+        )
+
+    monkeypatch.setattr(cli, "build_archive_set", unresolved_build)
+    rc = cli.main(["onboard", "--experiment", "Undulator", "--yes", "--wait", "0"])
+    assert rc == cli.EXIT_DRIFT
+    assert appliance.paused == [] and appliance.requests == []
+    assert "refusing to change the appliance" in capsys.readouterr().err

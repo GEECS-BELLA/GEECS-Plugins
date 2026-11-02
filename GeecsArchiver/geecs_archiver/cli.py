@@ -237,6 +237,16 @@ def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
             return EXIT_USAGE
         if args.dry_run or plan.is_noop:
             return rc
+        # An unresolved registry device has no candidates, so the plan would
+        # pause its existing history: change nothing until the config is fixed.
+        if archive_set.registry.unresolved:
+            print(
+                f"refusing to change the appliance while {len(archive_set.registry.unresolved)} "
+                "registry device(s) are unresolved — their history would be paused "
+                "(nothing was sent; fix the registry or panel data, or use --dry-run)",
+                file=sys.stderr,
+            )
+            return EXIT_DRIFT
         report = apply(client, plan)
         for rejected in report.rejected:
             print(f"  ! {rejected.get('pvName')}: {rejected.get('status')}")
