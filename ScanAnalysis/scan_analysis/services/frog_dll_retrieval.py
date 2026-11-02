@@ -36,6 +36,8 @@ from typing import Optional, Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+from scan_analysis.services._subprocess import run_process_group
+
 logger = logging.getLogger(__name__)
 
 # Path to the worker script, which lives next to this file
@@ -364,7 +366,7 @@ class FrogDllRetrieval:
             ]
             logger.debug("Running FROG worker: %s", " ".join(cmd))
 
-            result = subprocess.run(
+            result = run_process_group(
                 cmd,
                 capture_output=True,
                 text=True,

@@ -152,10 +152,14 @@ wavekit_launcher = env WINEDEBUG=-all wine            # add WINEPREFIX=<dir> for
 ### The Wine recipe (Linux)
 
 - **Wine 6.0.3** (Ubuntu 22.04's `wine64` + `wine32`), the release the
-  port was verified on. Its C runtime lacks `fetestexcept`, which is why
-  the SDK's own Python 3.8 + numpy 1.19.1 pair is used — numpy 1.2x
-  crashes at import. A newer Wine may lift that, but nothing has been
-  run on one; the doctor warns and the parity check decides.
+  port was verified on, bit-identical to Windows. Its C runtime lacks
+  `fetestexcept`, which is why the SDK's own Python 3.8 + numpy 1.19.1
+  pair is used — numpy 1.2x crashes at import.
+- **Wine 9.0** (Ubuntu 24.04) runs the same pair. On the services box
+  (2026-11-02) it matched the Windows references to float32 rounding:
+  raw phase within 1.5e-5 (|phase| up to ~80), processed phase within
+  5.7e-7, intensity exact, the pupil identical. The doctor still warns
+  on any release but 6.0.3; the parity check decides.
 - A **64-bit prefix** (`WINEARCH=win64`; a prefix created as `win32`
   cannot run a 64-bit `python.exe`). The launcher names it with
   `WINEPREFIX=`, or leaves Wine's default `~/.wine` — which on Ubuntu is
@@ -185,6 +189,11 @@ $ geecs-wavekit-doctor
 OK: 0 failure(s), 0 warning(s)
 ```
 
+On a release that differs at rounding (Wine 9.0), the set line says
+"within tolerance of the Windows results" and each product that is not
+exact gets its own line, for example
+`[ OK ] 26_0310_Scan012/Scan012_U_HasoLift_001 raw: 5044 values differ, max |diff| 1.53e-05 (within tolerance 0.0001)`.
+
 `--no-create` only reports; `--skip-sample` / `--skip-reference` skip the
 self-tests; `--reference DIR` points at another set of golden folders.
 
@@ -196,8 +205,12 @@ self-tests; `--reference DIR` points at another set of golden folders.
    settings that produced its sidecars: `sensor_config`, `mask`,
    `filters`, `wavelength_nm`, `start_subpupil`, `zonal_prefs`) is
    recomputed shot by shot and its raw phase, processed phase and
-   intensity compared with the Windows TSVs **in float32**: 100 % exactly
-   equal, NaN pattern included. (A float64 text comparison shows fake
+   intensity compared with the Windows TSVs **in float32**. A product
+   passes exactly equal, or with an identical NaN pupil and its largest
+   difference within the doctor's `REFERENCE_TOLERANCE` (raw phase 1e-4,
+   processed phase 1e-5, intensity exact). Every product that is not
+   exact reports its largest difference, so a regression shows its size.
+   (A float64 text comparison shows fake
    ~4e-6 differences — the text round-trip, not the SDK.) The `.has`
    files are not compared: a few printf half-way roundings differ
    between Windows and Wine while the binary values are identical.
@@ -212,6 +225,12 @@ the ~6 s of engine start and LIFT calibration are the price of
 reproducibility, and a pooled run (`scan.workers`) pays it in parallel.
 MKL takes every core by default, so the host gives each concurrent shot
 its share (`MKL_NUM_THREADS`) — a 4-core box runs one shot in ~20 s.
+Each shot's worker runs in a process group of its own: a shot that
+times out (300 s) is killed with every process under it, so the Windows
+interpreter Wine starts behind its launcher never outlives the shot.
+Memory, not cores, bounds `scan.workers` for this sensor: a 3000 × 4096
+frame per worker put 24 workers past the Data Portal's 48 GB limit on
+the services box, and 12 peaked near 30 GB.
 
 ## Adding a sensor
 

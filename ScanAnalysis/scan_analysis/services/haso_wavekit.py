@@ -52,6 +52,8 @@ import numpy as np
 from geecs_data_utils.io.himg import himg_bytes
 from numpy.typing import NDArray
 
+from scan_analysis.services._subprocess import run_process_group as _run_process_group
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["HasoWaveKit", "HasoWaveKitResult", "WaveKitError", "WaveKitSensorMismatch"]
@@ -362,7 +364,7 @@ class HasoWaveKit:
             env["MKL_NUM_THREADS"] = str(self.threads)
         logger.debug("Running WaveKit worker: %s", " ".join(cmd))
         try:
-            run = subprocess.run(
+            run = _run_process_group(
                 cmd, capture_output=True, text=True, timeout=self.timeout, env=env
             )
         except subprocess.TimeoutExpired as exc:
