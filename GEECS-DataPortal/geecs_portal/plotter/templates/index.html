@@ -6,11 +6,33 @@
   draws the figure fetched from data-figure-url.
 #}{# A column only some of the plotted scans have says how many. #}
 {%- macro cov(c) %}{% if coverage and coverage[c] < scan_total %} · in {{ coverage[c] }} of {{ scan_total }} scans{% endif %}{% endmacro %}
-{# One Y pick list: its alias toggle, its filter, and its trace colour. #}
+{# A one-line picker (the kit's .combo): the current pick on a button; a
+   click, or typing, opens a popover with the filter box over the list.
+   The list and its filter keep plotter.js's behaviour (a click or Enter
+   picks, a double-click copies a row into the filter, arrows move). #}
+{%- macro picker(key, label, shown, filter_name="", filter_text="", placeholder="") %}
+            <button type="button" class="combo" id="{{ key }}-pick" popovertarget="{{ key }}-pop" title="{{ shown }}"><span class="val">{{ shown }}</span></button>
+            <div popover id="{{ key }}-pop" class="combo-pop">
+              {% if filter_name %}<input id="{{ key }}-filter" name="{{ filter_name }}" value="{{ filter_text }}" type="search" autocomplete="off" placeholder="{{ placeholder or 'filter ' ~ label ~ ' columns' }}"
+                     aria-label="Filter {{ label }}" data-filter-for="{{ key }}" data-combo-filter>{% endif %}
+              <select id="{{ key }}" name="{{ key }}" size="12" class="picks" data-pick aria-label="{{ label }}">{{ caller() }}</select>
+            </div>
+{%- endmacro %}
+{# One Y row: its colour, its Fit menu and alias toggle on one line, its
+   picker under them. #}
 {%- macro y_field(key, label, picked, names, alias, filter_text, trace, fit, order, kept="") %}
           <div class="field">
-            <div class="row">
-              <label for="{{ key }}"><span class="swatch t{{ trace }}" aria-hidden="true"></span>{{ label }}</label>
+            <div class="row axis-row">
+              <label for="{{ key }}-pick"><span class="swatch t{{ trace }}" aria-hidden="true"></span>{{ label }}</label>
+              {# GEECSplotter's Fit menu, one per Y list: the curve is drawn
+                 dashed in this list's colour, its numbers listed under the plot. #}
+              <select id="{{ key }}-fit" name="{{ key }}fit" class="fit-menu" data-submit-on-change aria-label="{{ label }} fit" title="Fit">
+                {% for value, text in fits.items() %}<option value="{{ value }}"{% if value == fit %} selected{% endif %}>{{ 'no fit' if value == 'none' else text }}</option>{% endfor %}
+                {% if fit not in fits %}<option value="{{ fit }}" selected>{{ fit }} (not in this version)</option>{% endif %}
+              </select>
+              {% if fit == "polynomial" %}
+                <input id="{{ key }}-order" name="{{ key }}order" type="number" min="0" max="{{ max_fit_order }}" value="{{ order }}" class="fit-order" aria-label="{{ label }} polynomial order" title="order" data-submit-on-change>
+              {% endif %}
               <span class="spacer"></span>
               {# GEECSplotter's "use aliases", per axis. #}
               <div class="seg" role="group" aria-label="{{ label }} column names">
@@ -18,29 +40,11 @@
                 <button type="button" data-toggle-for="{{ key }}alias" data-value="true" aria-pressed="{{ 'true' if alias else 'false' }}">alias</button>
               </div>
             </div>
-            {# GEECSplotter's Fit menu, one per Y list: the curve is drawn
-               dashed in this list's colour, its numbers listed under the plot.
-               Above the list, not under it: a 10-row list pushes anything
-               below it past the bottom of the rail. #}
-            <div class="row fit-row">
-              <label for="{{ key }}-fit" class="hint">Fit</label>
-              <select id="{{ key }}-fit" name="{{ key }}fit" data-submit-on-change>
-                {% for value, text in fits.items() %}<option value="{{ value }}"{% if value == fit %} selected{% endif %}>{{ text }}</option>{% endfor %}
-                {% if fit not in fits %}<option value="{{ fit }}" selected>{{ fit }} (not in this version)</option>{% endif %}
-              </select>
-              {% if fit == "polynomial" %}
-                <span class="row fit-order-box">
-                  <label for="{{ key }}-order" class="hint">order</label>
-                  <input id="{{ key }}-order" name="{{ key }}order" type="number" min="0" max="{{ max_fit_order }}" value="{{ order }}" class="fit-order" data-submit-on-change>
-                </span>
-              {% endif %}
-            </div>
-            <input id="{{ key }}-filter" name="{{ key }}f" value="{{ filter_text }}" type="search" autocomplete="off" placeholder="filter {{ label }} columns"
-                   aria-label="Filter {{ label }} columns" data-filter-for="{{ key }}">
-            <select id="{{ key }}" name="{{ key }}" size="10" class="picks" data-pick>
+            {% set shown = (kept ~ " (not in this scan)") if kept else names[picked] if picked else "pick a column" %}
+            {% call picker(key, label, shown, key ~ "f", filter_text) %}
               {% if kept %}<option value="{{ kept }}" selected>{{ kept }} (not in this scan)</option>{% endif %}
               {% for c in columns %}<option value="{{ c }}"{% if c == picked %} selected{% endif %}>{{ names[c] }}{{ cov(c) }}</option>{% endfor %}
-            </select>
+            {% endcall %}
           </div>
 {% endmacro %}{# The big view: the tile clicked in the strip (or, for a trace device,
    one shot) at full size. A shot is drawn by the portal's own image
@@ -113,322 +117,264 @@
 {% else %}
 <div class="shell">
   <nav class="rail" aria-label="Selection">
+    {# One form: every control saves into the set and reopens the page. The
+       groups fold away (details.disc) and every list is a one-line picker,
+       so the rail is about a screen with nothing scrolling inside it; the
+       plot's switches are in the toolbar over the plot, the rarely changed
+       settings in the Settings drawer (rung 2). #}
     <form method="post" action="{{ root }}/" id="pick">
-      <div class="group">
-        <div class="field">
-          <label for="day">Day</label>
-          <input id="day" name="day" type="date" value="{{ day or '' }}" required>
+      <details class="disc rail-group" open>
+        <summary>Scan{% if scan %} <span class="hint">· {{ day }} · Scan{{ '%03d' % scan }}</span>{% endif %}</summary>
+        <div class="dbody">
+          <div class="row scan-row">
+            <div class="field">
+              <label for="day">Day</label>
+              <input id="day" name="day" type="date" value="{{ day or '' }}" required>
+            </div>
+            <div class="field scan-field">
+              <label for="scan">Scan</label>
+              <input id="scan" name="scan" type="number" min="1" value="{{ scan or '' }}" required data-auto-open>
+            </div>
+          </div>
+          {# The set the controls save into. A field the page does not send
+             (no lists while no scan is open) keeps its saved value. #}
+          <input type="hidden" name="set" value="{{ set }}">
+          {# The viewer's own set (their name, from the browser): a change
+             made under someone else's set saves there instead. #}
+          <input type="hidden" name="owner" value="">
+          {# The XY plot's view, shot filters, bin settings and cosmetics: the
+             JSON the drawers below write (plot_tools.js), saved with the set. #}
+          <input type="hidden" name="view" value="{{ view }}">
+          <input type="hidden" name="filters" value="{{ filters }}">
+          <input type="hidden" name="bincfg" value="{{ bincfg }}">
+          <input type="hidden" name="display" value="{{ display }}">
+          {# The 2-D map's statistics (GridConfig JSON, map.js writes it). #}
+          <input type="hidden" name="mapcfg" value="{{ mapcfg }}">
+          <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
+          <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
+          <input type="hidden" name="xauto" value="{{ 'true' if xauto else 'false' }}">
+          <input type="hidden" name="y2alias" value="{{ 'true' if y2alias else 'false' }}">
+          <input type="hidden" name="y3alias" value="{{ 'true' if y3alias else 'false' }}">
+          <input type="hidden" name="ycount" value="{{ ycount }}">
+          {# The XY plot's other scans (YYYY-MM-DD:N, comma-separated; the
+             Scans group's chips and drawer write it), overlay or merged, and
+             the Y list the overlay draws. #}
+          <input type="hidden" name="scans" value="{{ scans_saved }}">
+          <input type="hidden" name="multi" value="{{ scan_view }}">
+          <input type="hidden" name="oy" value="{{ overlay_y }}">
+          {# The Plot page's view (XY plot or 2-D map), saved back from either
+             page; the page the form came from is the one reopened. #}
+          <input type="hidden" name="tab" value="{{ plot_view }}">
+          <input type="hidden" name="page" value="{{ page }}">
+          <input type="hidden" name="strip" value="{{ strip }}">
+          <input type="hidden" name="layout" value="{{ layout }}">
+          <input type="hidden" name="zscale" value="{{ zscale }}">
+          <div class="row">
+            <button class="btn primary sm" type="submit">Open</button>
+            <span class="spacer"></span>
+            <button class="btn sm" type="button" data-drawer-open="settings-drawer" title="settings set, Save as{{ ', colour map, z scale' if tab == 'images' else '' }}">&#9881; Settings</button>
+          </div>
         </div>
-        <div class="field">
-          <label for="scan">Scan</label>
-          <input id="scan" name="scan" type="number" min="1" value="{{ scan or '' }}" required data-auto-open>
-        </div>
-        {# The set the controls save into. A field the page does not send
-           (no lists while no scan is open) keeps its saved value. #}
-        <input type="hidden" name="set" value="{{ set }}">
-        {# The viewer's own set (their name, from the browser): a change
-           made under someone else's set saves there instead. #}
-        <input type="hidden" name="owner" value="">
-        {# The XY plot's view, shot filters, bin settings and cosmetics: the
-           JSON the drawers below write (plot_tools.js), saved with the set. #}
-        <input type="hidden" name="view" value="{{ view }}">
-        <input type="hidden" name="filters" value="{{ filters }}">
-        <input type="hidden" name="bincfg" value="{{ bincfg }}">
-        <input type="hidden" name="display" value="{{ display }}">
-        {# The 2-D map's statistics (GridConfig JSON, map.js writes it). #}
-        <input type="hidden" name="mapcfg" value="{{ mapcfg }}">
-        <input type="hidden" name="xalias" value="{{ 'true' if xalias else 'false' }}">
-        <input type="hidden" name="yalias" value="{{ 'true' if yalias else 'false' }}">
-        <input type="hidden" name="xauto" value="{{ 'true' if xauto else 'false' }}">
-        <input type="hidden" name="y2alias" value="{{ 'true' if y2alias else 'false' }}">
-        <input type="hidden" name="y3alias" value="{{ 'true' if y3alias else 'false' }}">
-        <input type="hidden" name="ycount" value="{{ ycount }}">
-        {# The XY plot's other scans (YYYY-MM-DD:N, comma-separated; the
-           Scans group's chips and drawer write it), overlay or merged, and
-           the Y list the overlay draws. #}
-        <input type="hidden" name="scans" value="{{ scans_saved }}">
-        <input type="hidden" name="multi" value="{{ scan_view }}">
-        <input type="hidden" name="oy" value="{{ overlay_y }}">
-        {# The Plot page's view (XY plot or 2-D map), saved back from either
-           page; the page the form came from is the one reopened. #}
-        <input type="hidden" name="tab" value="{{ plot_view }}">
-        <input type="hidden" name="page" value="{{ page }}">
-        <input type="hidden" name="strip" value="{{ strip }}">
-        <input type="hidden" name="layout" value="{{ layout }}">
-        <input type="hidden" name="zscale" value="{{ zscale }}">
-        <button class="btn primary" type="submit">Open</button>
-      </div>
+      </details>
       {% if tab == "images" and (devices or device_kept) %}
-        {# The image strip's controls. The device, the tiles and the layout
-           reload the page; the columns across, the colour map and the
-           levels redraw the tiles in place (plotter.js) and save as typed. #}
-        <div class="group">
-          <div class="field">
-            <label for="device">Camera</label>
-            <input id="device-filter" name="devf" value="{{ devf }}" type="search" autocomplete="off" placeholder="filter devices"
-                   aria-label="Filter devices" data-filter-for="device">
-            <select id="device" name="device" size="10" class="picks" data-pick>
-              {% if device_kept %}<option value="{{ device_kept }}" selected>{{ device_kept }} (not in this scan)</option>{% endif %}
-              {% for d in devices %}<option value="{{ d }}"{% if d == device %} selected{% endif %}>{{ d }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="field">
-            <div class="row">
-              <span class="hint">Tiles</span>
-              <span class="spacer"></span>
-              <div class="seg" role="group" aria-label="One tile per bin or per shot">
-                <button type="button" data-toggle-for="strip" data-value="bins" aria-pressed="{{ 'true' if strip == 'bins' else 'false' }}">bin averages</button>
-                <button type="button" data-toggle-for="strip" data-value="shots" aria-pressed="{{ 'true' if strip == 'shots' else 'false' }}">shots</button>
+        {# The image strip's controls. The camera, the tiles and the layout
+           reload the page; the tiles across redraw in place and save as
+           typed. The colour map and the z scale are in the Settings drawer. #}
+        <details class="disc rail-group" open>
+          <summary>Strip</summary>
+          <div class="dbody">
+            <div class="field">
+              <label for="device-pick">Camera</label>
+              {% set shown = (device_kept ~ " (not in this scan)") if device_kept else device or "pick a camera" %}
+              {% call picker("device", "camera", shown, "devf", devf, "filter devices") %}
+                {% if device_kept %}<option value="{{ device_kept }}" selected>{{ device_kept }} (not in this scan)</option>{% endif %}
+                {% for d in devices %}<option value="{{ d }}"{% if d == device %} selected{% endif %}>{{ d }}</option>{% endfor %}
+              {% endcall %}
+            </div>
+            <div class="field">
+              <div class="row">
+                <span class="hint">Tiles</span>
+                <span class="spacer"></span>
+                <div class="seg" role="group" aria-label="One tile per bin or per shot">
+                  <button type="button" data-toggle-for="strip" data-value="bins" aria-pressed="{{ 'true' if strip == 'bins' else 'false' }}">bin averages</button>
+                  <button type="button" data-toggle-for="strip" data-value="shots" aria-pressed="{{ 'true' if strip == 'shots' else 'false' }}">shots</button>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <div class="row">
+                <span class="hint">Layout</span>
+                <span class="spacer"></span>
+                <div class="seg" role="group" aria-label="A grid or one row">
+                  <button type="button" data-toggle-for="layout" data-value="grid" aria-pressed="{{ 'true' if layout == 'grid' else 'false' }}">grid</button>
+                  <button type="button" data-toggle-for="layout" data-value="row" aria-pressed="{{ 'true' if layout == 'row' else 'false' }}">one row</button>
+                </div>
+              </div>
+              <div class="row">
+                <label for="cols" class="hint">Tiles across</label>
+                <span class="spacer"></span>
+                <input id="cols" name="cols" type="number" min="1" max="{{ max_cols }}" value="{{ cols }}" class="narrow-number" data-live>
+              </div>
+            </div>
+            <div class="field">
+              {# The region of interest, kept per camera: every tile shows it,
+                 and the z scale is taken over it. #}
+              <div class="row">
+                <span class="hint">ROI</span>
+                <span class="spacer"></span>
+                <span class="hint mono">{% if roi %}{% set r = roi.split(',') %}x {{ r[0] }}–{{ r[2] }}, y {{ r[1] }}–{{ r[3] }}{% else %}whole image{% endif %}</span>
+              </div>
+              <div class="row">
+                <button class="btn sm" type="button" data-roi-open{% if not tiles %} disabled{% endif %}>Draw ROI…</button>
+                <button class="btn sm" type="button" data-roi-clear{% if not roi %} disabled{% endif %}>Whole image</button>
               </div>
             </div>
           </div>
-          <div class="field">
-            <div class="row">
-              <span class="hint">Layout</span>
-              <span class="spacer"></span>
-              <div class="seg" role="group" aria-label="A grid or one row">
-                <button type="button" data-toggle-for="layout" data-value="grid" aria-pressed="{{ 'true' if layout == 'grid' else 'false' }}">grid</button>
-                <button type="button" data-toggle-for="layout" data-value="row" aria-pressed="{{ 'true' if layout == 'row' else 'false' }}">one row</button>
-              </div>
-            </div>
-            <div class="row">
-              <label for="cols" class="hint">Tiles across</label>
-              <span class="spacer"></span>
-              <input id="cols" name="cols" type="number" min="1" max="{{ max_cols }}" value="{{ cols }}" class="narrow-number" data-live>
-            </div>
-          </div>
-          <div class="field">
-            <label for="cmap">Colour map</label>
-            <select id="cmap" name="cmap" data-live>
-              {% for c in cmaps %}<option value="{{ c }}"{% if c == cmap %} selected{% endif %}>{{ c }}</option>{% endfor %}
-              {% if cmap not in cmaps %}<option value="{{ cmap }}" selected>{{ cmap }} (not in this version)</option>{% endif %}
-            </select>
-          </div>
-          <div class="field">
-            {# GEECSplotter's z scale (LabVIEW's autoscale): each tile from its
-               own darkest to brightest pixel; every tile on one scale, the
-               darkest to the brightest pixel of all ("shared"); or black and
-               white typed in. #}
-            <div class="row">
-              <span class="hint">Z scale</span>
-              <span class="spacer"></span>
-              <div class="seg" role="group" aria-label="Z scale">
-                <button type="button" data-toggle-for="zscale" data-value="tile" aria-pressed="{{ 'true' if zscale == 'tile' else 'false' }}">each tile</button>
-                <button type="button" data-toggle-for="zscale" data-value="shared" aria-pressed="{{ 'true' if zscale == 'shared' else 'false' }}">shared</button>
-                <button type="button" data-toggle-for="zscale" data-value="fixed" aria-pressed="{{ 'true' if zscale == 'fixed' else 'false' }}">fixed</button>
-              </div>
-            </div>
-            {% if zscale == "fixed" %}
-              <div class="row levels">
-                <label for="zmin" class="hint">black</label>
-                <input id="zmin" name="zmin" type="number" step="any" value="{{ zmin if zmin is not none else '' }}" class="narrow-number" data-live>
-                <label for="zmax" class="hint">white</label>
-                <input id="zmax" name="zmax" type="number" step="any" value="{{ zmax if zmax is not none else '' }}" class="narrow-number" data-live>
-              </div>
-              <span class="hint">Pixel values.{% if zmin is none or zmax is none %} Until both are set, each tile scales itself.{% endif %}</span>
-              <span class="hint level-problem" id="level-warning" role="alert"{% if zmin is none or zmax is none or zmax > zmin %} hidden{% endif %}>White must be above black: every tile draws flat until it is.</span>
-            {% else %}
-              <span class="hint">{{ 'Each tile from its darkest to its brightest pixel.' if zscale == 'tile' else 'Every tile on one scale: the darkest to the brightest pixel of them all. It reads every image of the strip first (for shots, the whole scan).' }}</span>
-              {% if zscale == "shared" %}<span class="hint mono" id="shared-levels" aria-live="polite">reading every tile…</span>{% endif %}
-            {% endif %}
-          </div>
-          <div class="field">
-            {# The region of interest, kept per camera: every tile shows it,
-               and the z scale is taken over it. #}
-            <div class="row">
-              <span class="hint">ROI</span>
-              <span class="spacer"></span>
-              <span class="hint mono">{% if roi %}{% set r = roi.split(',') %}x {{ r[0] }}–{{ r[2] }}, y {{ r[1] }}–{{ r[3] }}{% else %}whole image{% endif %}</span>
-            </div>
-            <div class="row">
-              <button class="btn sm" type="button" data-roi-open{% if not tiles %} disabled{% endif %}>Draw ROI…</button>
-              <button class="btn sm" type="button" data-roi-clear{% if not roi %} disabled{% endif %}>Whole image</button>
-            </div>
-          </div>
-        </div>
+        </details>
       {% elif columns %}
         {% if tab == "map" %}
         {# The 2-D map's columns: the scalar each cell averages, and the two
            axes. The first entry of each is the default (Y1; the scan's own
            variables), saved as "no pick" so a set that follows the viewer
            to another scan maps that scan's axes. #}
-        <div class="group">
-          <div class="field"><span class="hint">{{ columns | length }} columns, {{ shots }} shots{% if extra_scans %}; the map draws {{ main_label }} alone{% endif %}</span></div>
-          <div class="field">
-            <label for="mapv">Scalar</label>
-            <input id="mapv-filter" name="mapf" value="{{ mapf }}" type="search" autocomplete="off" placeholder="filter columns"
-                   aria-label="Filter the scalar's columns" data-filter-for="mapv">
-            <select id="mapv" name="mapv" size="10" class="picks" data-pick>
-              <option value=""{% if not mapv_saved %} selected{% endif %}>same as Y1{% if map_defaults.mapv %}: {{ ynames[map_defaults.mapv] }}{% endif %}</option>
-              {% for c in columns %}<option value="{{ c }}"{% if c == mapv_saved %} selected{% endif %}>{{ ynames[c] }}</option>{% endfor %}
-            </select>
+        <details class="disc rail-group" open>
+          <summary>Map <span class="hint">· {{ columns | length }} columns, {{ shots }} shots{% if extra_scans %}; the map draws {{ main_label }} alone{% endif %}</span></summary>
+          <div class="dbody">
+            <div class="field">
+              <label for="mapv-pick">Scalar</label>
+              {% set shown = ynames[mapv_saved] if mapv_saved else "same as Y1" ~ (": " ~ ynames[map_defaults.mapv] if map_defaults.mapv else "") %}
+              {% call picker("mapv", "scalar", shown, "mapf", mapf, "filter columns") %}
+                <option value=""{% if not mapv_saved %} selected{% endif %}>same as Y1{% if map_defaults.mapv %}: {{ ynames[map_defaults.mapv] }}{% endif %}</option>
+                {% for c in columns %}<option value="{{ c }}"{% if c == mapv_saved %} selected{% endif %}>{{ ynames[c] }}</option>{% endfor %}
+              {% endcall %}
+            </div>
+            {% for key, label, saved in (("mapx", "X axis", mapx_saved), ("mapy", "Y axis", mapy_saved)) %}
+            <div class="field">
+              <label for="{{ key }}">{{ label }}</label>
+              <select id="{{ key }}" name="{{ key }}" data-submit-on-change>
+                <option value=""{% if not saved %} selected{% endif %}>{% if map_defaults[key] %}scan variable: {{ xnames[map_defaults[key]] }}{% else %}scan variable: none (pick one){% endif %}</option>
+                {% for c in columns %}<option value="{{ c }}"{% if c == saved %} selected{% endif %}>{{ xnames[c] }}</option>{% endfor %}
+              </select>
+            </div>
+            {% endfor %}
           </div>
-          {% for key, label, saved in (("mapx", "X axis", mapx_saved), ("mapy", "Y axis", mapy_saved)) %}
-          <div class="field">
-            <label for="{{ key }}">{{ label }}</label>
-            <select id="{{ key }}" name="{{ key }}" data-submit-on-change>
-              <option value=""{% if not saved %} selected{% endif %}>{% if map_defaults[key] %}scan variable: {{ xnames[map_defaults[key]] }}{% else %}scan variable: none (pick one){% endif %}</option>
-              {% for c in columns %}<option value="{{ c }}"{% if c == saved %} selected{% endif %}>{{ xnames[c] }}</option>{% endfor %}
-            </select>
-          </div>
-          {% endfor %}
-        </div>
+        </details>
         {% else %}
         {# The scans on the XY plot: the main one (the steppers and the day
            above act on it; the map and the Images page show it alone) and
            a chip per other scan, from any day. Several are drawn a trace
            per scan (one Y list, at most max_overlay scans) or merged into
            one dataset (LabVIEW's "merge s files"). #}
-        <div class="group" id="scans-group">
+        <details class="disc rail-group" id="scans-group"{% if extra_scans %} open{% endif %}>
+          <summary>Scans <span class="hint">· {{ scan_total }}</span></summary>
+          <div class="dbody">
           <h4>Scans</h4>
-          <div class="fchip"><span class="swatch t1" aria-hidden="true"{% if not (extra_scans and scan_view == 'overlay') %} hidden{% endif %}></span><span class="n">{{ main_label }}</span><span class="hint">main</span></div>
-          {% for e in extra_scans %}
-            <div class="fchip">
-              {# Its trace colour: its place among the scans found (the figure's order). #}
-              <span class="swatch t{{ e.trace }}" aria-hidden="true"{% if scan_view != 'overlay' or e.missing or e.trace > max_overlay %} hidden{% endif %}></span>
-              <span class="n">{{ e.label }}</span>
-              {% if e.missing %}<span class="hint level-problem">not on the share</span>{% endif %}
-              <button type="button" class="x" data-scan-remove="{{ e.text }}" aria-label="remove {{ e.label }}">✕</button>
-            </div>
-          {% endfor %}
-          <div><button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer" data-max-overlay="{{ max_overlay }}">Add scan…</button></div>
-          {% if extra_scans %}
-            <div class="field">
-              <div class="row">
-                <span class="hint">Scans drawn</span>
-                <span class="spacer"></span>
-                <div class="seg" role="group" aria-label="Several scans: a trace per scan, or merged">
-                  <button type="button" data-toggle-for="multi" data-value="overlay" aria-pressed="{{ 'true' if scan_view == 'overlay' else 'false' }}">overlay</button>
-                  <button type="button" data-toggle-for="multi" data-value="merged" aria-pressed="{{ 'true' if scan_view == 'merged' else 'false' }}">merged</button>
-                </div>
+              <div class="fchip"><span class="swatch t1" aria-hidden="true"{% if not (extra_scans and scan_view == 'overlay') %} hidden{% endif %}></span><span class="n">{{ main_label }}</span><span class="hint">main</span></div>
+            {% for e in extra_scans %}
+              <div class="fchip">
+                {# Its trace colour: its place among the scans found (the figure's order). #}
+                <span class="swatch t{{ e.trace }}" aria-hidden="true"{% if scan_view != 'overlay' or e.missing or e.trace > max_overlay %} hidden{% endif %}></span>
+                <span class="n">{{ e.label }}</span>
+                {% if e.missing %}<span class="hint level-problem">not on the share</span>{% endif %}
+                <button type="button" class="x" data-scan-remove="{{ e.text }}" aria-label="remove {{ e.label }}">✕</button>
               </div>
-              {% if scan_view == "overlay" %}
-                {% if ycount > 1 %}
+            {% endfor %}
+            <div><button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer" data-max-overlay="{{ max_overlay }}">Add scan…</button></div>
+            {% if extra_scans %}
+              <div class="field">
                 <div class="row">
-                  <span class="hint">Overlay draws</span>
+                  <span class="hint">Scans drawn</span>
                   <span class="spacer"></span>
-                  <div class="seg" role="group" aria-label="The Y list the overlay draws">
-                    {% for n in range(1, ycount + 1) %}<button type="button" data-toggle-for="oy" data-value="{{ n }}" aria-pressed="{{ 'true' if overlay_y == n else 'false' }}">Y{{ '' if n == 1 else n }}</button>{% endfor %}
+                  <div class="seg" role="group" aria-label="Several scans: a trace per scan, or merged">
+                    <button type="button" data-toggle-for="multi" data-value="overlay" aria-pressed="{{ 'true' if scan_view == 'overlay' else 'false' }}">overlay</button>
+                    <button type="button" data-toggle-for="multi" data-value="merged" aria-pressed="{{ 'true' if scan_view == 'merged' else 'false' }}">merged</button>
                   </div>
                 </div>
+                {% if scan_view == "overlay" %}
+                  {% if ycount > 1 %}
+                  <div class="row">
+                    <span class="hint">Overlay draws</span>
+                    <span class="spacer"></span>
+                    <div class="seg" role="group" aria-label="The Y list the overlay draws">
+                      {% for n in range(1, ycount + 1) %}<button type="button" data-toggle-for="oy" data-value="{{ n }}" aria-pressed="{{ 'true' if overlay_y == n else 'false' }}">Y{{ '' if n == 1 else n }}</button>{% endfor %}
+                    </div>
+                  </div>
+                  {% endif %}
+                  <span class="hint">A trace per scan, one Y; each scan fitted and binned on its own.{% if scan_total > max_overlay %} <span class="level-problem">The overlay draws at most {{ max_overlay }} scans: remove some, or merge.</span>{% endif %}</span>
+                {% else %}
+                  <span class="hint">Every scan's shots as one dataset: the fits use them all, and bins are by X (Bin # restarts in every scan). A shot filter can name <span class="mono">scan</span>.</span>
                 {% endif %}
-                <span class="hint">A trace per scan, one Y; each scan fitted and binned on its own.{% if scan_total > max_overlay %} <span class="level-problem">The overlay draws at most {{ max_overlay }} scans: remove some, or merge.</span>{% endif %}</span>
-              {% else %}
-                <span class="hint">Every scan's shots as one dataset: the fits use them all, and bins are by X (Bin # restarts in every scan). A shot filter can name <span class="mono">scan</span>.</span>
-              {% endif %}
-            </div>
-          {% endif %}
-        </div>
-        <div class="group">
-          <div class="field"><span class="hint">{{ columns | length }} columns{% if scans_text %} over {{ scan_total }} scans{% else %}, {{ shots }} shots{% endif %}</span></div>
-          {# One list per axis, each with its own substring filter (LabVIEW's
-             par listboxes). The filter rebuilds the list and rides the URL;
-             a click, or Enter, picks — arrow keys only move through the list;
-             a double-click copies the row's text into the filter. #}
-          <div class="field">
-            <div class="row">
-              <label for="x">X</label>
-              <span class="spacer"></span>
-              {# GEECSplotter's "use aliases", per axis. #}
-              <div class="seg" role="group" aria-label="X column names">
-                <button type="button" data-toggle-for="xalias" data-value="false" aria-pressed="{{ 'false' if xalias else 'true' }}">name</button>
-                <button type="button" data-toggle-for="xalias" data-value="true" aria-pressed="{{ 'true' if xalias else 'false' }}">alias</button>
               </div>
-            </div>
-            <div class="row">
-              {# GEECSplotter's "autofill par1": X is the scan variable named in
-                 the scan's ini, for every scan opened. #}
-              <span class="hint">X = scan variable</span>
-              <span class="spacer"></span>
-              <div class="seg" role="group" aria-label="X follows the scan variable">
-                <button type="button" data-toggle-for="xauto" data-value="true" aria-pressed="{{ 'true' if xauto else 'false' }}">auto</button>
-                <button type="button" data-toggle-for="xauto" data-value="false" aria-pressed="{{ 'false' if xauto else 'true' }}">off</button>
-              </div>
-            </div>
-            <input id="x-filter" name="xf" value="{{ xf }}" type="search" autocomplete="off" placeholder="filter X columns"
-                   aria-label="Filter X columns" data-filter-for="x">
-            <select id="x" name="x" size="10" class="picks" data-pick>
-              <option value=""{% if not x %} selected{% endif %}>shot #</option>
-              {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ xnames[c] }}{{ cov(c) }}</option>{% endfor %}
-            </select>
+            {% endif %}
           </div>
-          <div class="field">
-            <div class="row">
-              <span class="hint">Y plots</span>
-              <span class="spacer"></span>
-              <div class="seg" role="group" aria-label="How many Y plots">
-                {% for n in ycounts %}<button type="button" data-toggle-for="ycount" data-value="{{ n }}" aria-pressed="{{ 'true' if ycount == n else 'false' }}">{{ n }}</button>{% endfor %}
+        </details>
+        {# One picker per axis, each with its own substring filter (LabVIEW's
+           par listboxes): typing filters, a click or Enter picks, a
+           double-click copies a row into the filter. #}
+        <details class="disc rail-group" open>
+          <summary>Axes <span class="hint">· {{ columns | length }} columns{% if scans_text %} over {{ scan_total }} scans{% else %}, {{ shots }} shots{% endif %}</span></summary>
+          <div class="dbody">
+            <div class="field">
+              <div class="row axis-row">
+                <label for="x-pick">X</label>
+                <span class="spacer"></span>
+                {# GEECSplotter's "autofill par1": X is the scan variable named
+                   in the scan's ini, for every scan opened. #}
+                <div class="seg" role="group" aria-label="X follows the scan variable" title="X = the scan variable of every scan opened">
+                  <button type="button" data-toggle-for="xauto" data-value="true" aria-pressed="{{ 'true' if xauto else 'false' }}">auto</button>
+                  <button type="button" data-toggle-for="xauto" data-value="false" aria-pressed="{{ 'false' if xauto else 'true' }}">off</button>
+                </div>
+                <div class="seg" role="group" aria-label="X column names">
+                  <button type="button" data-toggle-for="xalias" data-value="false" aria-pressed="{{ 'false' if xalias else 'true' }}">name</button>
+                  <button type="button" data-toggle-for="xalias" data-value="true" aria-pressed="{{ 'true' if xalias else 'false' }}">alias</button>
+                </div>
               </div>
+              {% call picker("x", "X", xnames[x] if x else "shot #", "xf", xf) %}
+                <option value=""{% if not x %} selected{% endif %}>shot #</option>
+                {% for c in columns %}<option value="{{ c }}"{% if c == x %} selected{% endif %}>{{ xnames[c] }}{{ cov(c) }}</option>{% endfor %}
+              {% endcall %}
             </div>
+            {{ y_field("y", "Y", y, ynames, yalias, yf, 1, yfit, yorder) }}
+            {# GEECSplotter's Y2 and Y3: as many Y rows as the toolbar's "Y
+               plots" says, each on its own axis in its own colour. #}
+            {% if ycount >= 2 %}{{ y_field("y2", "Y2", y2, y2names, y2alias, y2f, 2, y2fit, y2order, kept=y2_kept) }}{% endif %}
+            {% if ycount >= 3 %}{{ y_field("y3", "Y3", y3, y3names, y3alias, y3f, 3, y3fit, y3order, kept=y3_kept) }}{% endif %}
           </div>
-          {{ y_field("y", "Y", y, ynames, yalias, yf, 1, yfit, yorder) }}
-          {# GEECSplotter's Y2 and Y3: as many Y lists as the count says, each
-             on its own axis in its own colour (the swatch is that colour). #}
-          {% if ycount >= 2 %}{{ y_field("y2", "Y2", y2, y2names, y2alias, y2f, 2, y2fit, y2order, kept=y2_kept) }}{% endif %}
-          {% if ycount >= 3 %}{{ y_field("y3", "Y3", y3, y3names, y3alias, y3f, 3, y3fit, y3order, kept=y3_kept) }}{% endif %}
-        </div>
+        </details>
         {% endif %}
         {# The shot filters: keep only the shots inside (or outside) bounds;
            conditions AND within a group, groups OR. A chip turns its group
            on or off, or removes it; the drawer edits them all. #}
-        <div class="group">
-          <h4>Shot filters</h4>
-          {% for g in filter_groups %}
-            <div class="fchip">
-              <input type="checkbox" data-filter-group="{{ loop.index0 }}" aria-label="use {{ g.name }}"{% if g.enabled %} checked{% endif %}>
-              <span class="n">{{ g.name }}</span>
-              <span class="hint">{{ g.conditions }} cond</span>
-              <button type="button" class="x" data-filter-remove="{{ loop.index0 }}" aria-label="remove {{ g.name }}">✕</button>
-            </div>
-          {% else %}
-            <div class="note">none: every shot is kept</div>
-          {% endfor %}
-          <div class="count" id="passcount"></div>
-          <div><button class="btn sm" type="button" id="filters-open">Edit filters…</button></div>
-        </div>
+        <details class="disc rail-group"{% if filter_groups %} open{% endif %}>
+          <summary>Shot filters <span class="hint">· {{ filter_groups | length if filter_groups else 'none' }}</span></summary>
+          <div class="dbody">
+            {% for g in filter_groups %}
+              <div class="fchip">
+                <input type="checkbox" data-filter-group="{{ loop.index0 }}" aria-label="use {{ g.name }}"{% if g.enabled %} checked{% endif %}>
+                <span class="n">{{ g.name }}</span>
+                <span class="hint">{{ g.conditions }} cond</span>
+                <button type="button" class="x" data-filter-remove="{{ loop.index0 }}" aria-label="remove {{ g.name }}">✕</button>
+              </div>
+            {% else %}
+              <div class="note">none: every shot is kept</div>
+            {% endfor %}
+            <div class="count" id="passcount"></div>
+            <div><button class="btn sm" type="button" id="filters-open">Edit filters…</button></div>
+          </div>
+        </details>
       {% endif %}
     </form>
-    {# GEECSplotter's saved settings: one file per set. Switching sets is a
-       plain GET (nothing is saved) that opens the scan the set last had, or
-       keeps the open one (here_*) for a set that has none; Save as posts the
-       main form's controls to a new name. #}
-    <form method="get" action="{{ root }}/{{ 'images' if page == 'images' else '' }}" id="sets" class="group">
-      {% if day and scan %}<input type="hidden" name="here_day" value="{{ day }}">
-      <input type="hidden" name="here_scan" value="{{ scan }}">{% endif %}
-      <div class="field">
-        <label for="set">Settings set</label>
-        <select id="set" name="set" data-switch-set>
-          {% for s in sets %}<option value="{{ s }}"{% if s == set %} selected{% endif %}>{{ s }}</option>{% endfor %}
-          {% if set not in sets %}<option value="{{ set }}" selected>{{ set }}</option>{% endif %}
-        </select>
-        {# The set saves itself, so a first-time user who looks here for a
-           "load" sees why there is only one entry. #}
-        <span class="hint">Every pick, and each scan opened here, saves into your own set; opening a set reopens its last scan.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
-        <span class="hint" id="you" hidden>You: <b id="you-name"></b>. A change made under another set copies it into yours, replacing what yours held. <a href="{{ root }}/{{ 'images' if page == 'images' else '' }}{% if day and scan %}?day={{ day }}&amp;scan={{ scan }}{% endif %}" id="you-change">Change</a></span>
-        {# No name known yet (a shared link opened first): asked before the
-           first change, which would otherwise have nowhere to go. #}
-        <div class="field" id="who" hidden>
-          <label for="who-name">Your name</label>
-          <input id="who-name" autocomplete="name" aria-describedby="who-hint who-err">
-          <span class="err" id="who-err" role="alert"></span>
-          <span class="hint" id="who-hint">Needed before a change saves: it saves into your own set, never into the one shown. Enter to go on.</span>
-        </div>
-        <span class="hint mono settings-folder" title="{{ settings_folder }}">{{ settings_folder }}{% if settings_origin == 'local' %} (local: the shared user data folder is not reachable){% endif %}</span>
-      </div>
-      <div class="field">
-        <label for="save-as">Save as</label>
-        {# A refused name is the kit's field validation: aria-invalid on the
-           box shows the .err that follows it. Store problems (the share is
-           down, a broken file) stay in the state block below. #}
-        {# The saved names are offered as you type or click, so replacing a
-           set needs no typing; plotter.js asks before it replaces one. #}
-        <input id="save-as" name="save_as" form="pick" autocomplete="off" list="saved-sets" placeholder="a new name, or pick one to replace"
-               value="{{ save_as }}"{% if name_error %} autofocus aria-invalid="true" aria-describedby="save-as-err"{% endif %}>
-        <datalist id="saved-sets">{% for s in sets %}<option value="{{ s }}">{% endfor %}</datalist>
-        <span class="err" id="save-as-err" role="alert">{{ name_error or '' }}</span>
-        <div class="row">
-          <button class="btn" type="submit" form="pick" formaction="{{ root }}/save-as" id="save-as-go">Save</button>
-        </div>
+    {# Who saves (the viewer's own set), asked before a first change on a
+       shared link, and a store problem: these stay in view. #}
+    <div class="group rail-who">
+      <span class="hint" id="you" hidden>You: <b id="you-name"></b>. A change made under another set copies it into yours, replacing what yours held. <a href="{{ root }}/{{ 'images' if page == 'images' else '' }}{% if day and scan %}?day={{ day }}&amp;scan={{ scan }}{% endif %}" id="you-change">Change</a></span>
+      {# No name known yet (a shared link opened first): asked before the
+         first change, which would otherwise have nowhere to go. #}
+      <div class="field" id="who" hidden>
+        <label for="who-name">Your name</label>
+        <input id="who-name" autocomplete="name" aria-describedby="who-hint who-err">
+        <span class="err" id="who-err" role="alert"></span>
+        <span class="hint" id="who-hint">Needed before a change saves: it saves into your own set, never into the one shown. Enter to go on.</span>
       </div>
       {% if settings_error %}
         <div class="state" data-state="error" role="alert">
@@ -436,7 +382,7 @@
           <div class="m">{{ settings_error }}</div>
         </div>
       {% endif %}
-    </form>
+    </div>
     {# Rung 3: the one question before a saved set is replaced. Focus lands
        on "Keep it", never on the button that replaces. #}
     <dialog id="replace-set" aria-labelledby="replace-set-title">
@@ -468,12 +414,27 @@
       </nav>
     {% endif %}
     {% if columns and page == "plot" %}
-      {# GEECSplotter's XY graphs, and the 2-D map. #}
-      <div class="row view-switch">
+      {# The toolbar: every switch that changes the plot, beside it.
+         GEECSplotter's XY graphs or the 2-D map; on the XY plot, per shot
+         or binned (and how bins are made), how many Y plots, the display. #}
+      <div class="row plot-toolbar" role="toolbar" aria-label="Plot">
         <div class="seg" role="group" aria-label="View">
           <button type="button" data-toggle-for="tab" data-value="xy" aria-pressed="{{ 'true' if tab == 'xy' else 'false' }}">XY plot</button>
           <button type="button" data-toggle-for="tab" data-value="map" aria-pressed="{{ 'true' if tab == 'map' else 'false' }}">2-D map</button>
         </div>
+        {% if tab == "xy" %}
+        <div class="seg" role="group" aria-label="Per shot or binned">
+          <button type="button" data-toggle-for="view" data-value="shot" aria-pressed="{{ 'true' if view == 'shot' else 'false' }}">per shot</button>
+          <button type="button" data-toggle-for="view" data-value="bin" aria-pressed="{{ 'true' if view == 'bin' else 'false' }}">binned</button>
+        </div>
+        <button class="btn sm ghost" type="button" id="bins-open" title="how shots are grouped into bins">&#9881; bins</button>
+        <span class="hint">Y plots</span>
+        <div class="seg" role="group" aria-label="How many Y plots">
+          {% for n in ycounts %}<button type="button" data-toggle-for="ycount" data-value="{{ n }}" aria-pressed="{{ 'true' if ycount == n else 'false' }}">{{ n }}</button>{% endfor %}
+        </div>
+        <span class="spacer"></span>
+        <button class="btn sm" type="button" id="display-open">Display…</button>
+        {% endif %}
       </div>
     {% endif %}
     {% if error %}
@@ -627,12 +588,6 @@
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}{% if scans_text %} + {{ scan_total - 1 }} more{% endif %}</span>
           <span class="dim">{{ caption }}</span>
-          <div class="seg" role="group" aria-label="Per shot or binned">
-            <button type="button" data-toggle-for="view" data-value="shot" aria-pressed="{{ 'true' if view == 'shot' else 'false' }}">per shot</button>
-            <button type="button" data-toggle-for="view" data-value="bin" aria-pressed="{{ 'true' if view == 'bin' else 'false' }}">binned</button>
-          </div>
-          <button class="btn sm ghost" type="button" id="bins-open" title="how shots are grouped into bins">⚙ bins</button>
-          <button class="btn sm" type="button" id="display-open">Display…</button>
         </header>
         <div class="body">
           <div class="state" data-state="loading" id="plot-state">
@@ -654,6 +609,93 @@
     {% endif %}
   </main>
 </div>
+{% endif %}
+
+{# Rung 2: the settings changed now and then — the settings set and Save
+   as, and on the Images page the colour map and the z scale. Each control
+   names the form it saves through. #}
+{% if not ask_name %}
+<aside class="drawer" id="settings-drawer" role="dialog" aria-modal="false" aria-labelledby="settings-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="settings-title">Settings</span>
+    <button class="btn sm" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    {# GEECSplotter's saved settings: one file per set. Switching sets is a
+       plain GET (nothing is saved) that opens the scan the set last had, or
+       keeps the open one (here_*) for a set that has none; Save as posts the
+       main form's controls to a new name. #}
+    <form method="get" action="{{ root }}/{{ 'images' if page == 'images' else '' }}" id="sets" class="group">
+      {% if day and scan %}<input type="hidden" name="here_day" value="{{ day }}">
+      <input type="hidden" name="here_scan" value="{{ scan }}">{% endif %}
+      <div class="field">
+        <label for="set">Settings set</label>
+        <select id="set" name="set" data-switch-set>
+          {% for s in sets %}<option value="{{ s }}"{% if s == set %} selected{% endif %}>{{ s }}</option>{% endfor %}
+          {% if set not in sets %}<option value="{{ set }}" selected>{{ set }}</option>{% endif %}
+        </select>
+        {# The set saves itself, so a first-time user who looks here for a
+           "load" sees why there is only one entry. #}
+        <span class="hint">Every pick, and each scan opened here, saves into your own set; opening a set reopens its last scan.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
+        <span class="hint mono settings-folder" title="{{ settings_folder }}">{{ settings_folder }}{% if settings_origin == 'local' %} (local: the shared user data folder is not reachable){% endif %}</span>
+      </div>
+      <div class="field">
+        <label for="save-as">Save as</label>
+        {# A refused name is the kit's field validation: aria-invalid on the
+           box shows the .err that follows it. Store problems (the share is
+           down, a broken file) stay in the state block below. #}
+        {# The saved names are offered as you type or click, so replacing a
+           set needs no typing; plotter.js asks before it replaces one. #}
+        <input id="save-as" name="save_as" form="pick" autocomplete="off" list="saved-sets" placeholder="a new name, or pick one to replace"
+               value="{{ save_as }}"{% if name_error %} autofocus aria-invalid="true" aria-describedby="save-as-err"{% endif %}>
+        <datalist id="saved-sets">{% for s in sets %}<option value="{{ s }}">{% endfor %}</datalist>
+        <span class="err" id="save-as-err" role="alert">{{ name_error or '' }}</span>
+        <div class="row">
+          <button class="btn" type="submit" form="pick" formaction="{{ root }}/save-as" id="save-as-go">Save</button>
+        </div>
+      </div>
+    </form>
+    {% if tab == "images" and (devices or device_kept) %}
+    <div class="group">
+      <div class="field">
+        <label for="cmap">Colour map</label>
+        <select id="cmap" name="cmap" form="pick" data-live>
+          {% for c in cmaps %}<option value="{{ c }}"{% if c == cmap %} selected{% endif %}>{{ c }}</option>{% endfor %}
+          {% if cmap not in cmaps %}<option value="{{ cmap }}" selected>{{ cmap }} (not in this version)</option>{% endif %}
+        </select>
+      </div>
+      <div class="field">
+        {# GEECSplotter's z scale (LabVIEW's autoscale): each tile from its
+           own darkest to brightest pixel; every tile on one scale, the
+           darkest to the brightest pixel of all ("shared"); or black and
+           white typed in. #}
+        <div class="row">
+          <span class="hint">Z scale</span>
+          <span class="spacer"></span>
+          <div class="seg" role="group" aria-label="Z scale">
+            <button type="button" data-toggle-for="zscale" data-value="tile" aria-pressed="{{ 'true' if zscale == 'tile' else 'false' }}">each tile</button>
+            <button type="button" data-toggle-for="zscale" data-value="shared" aria-pressed="{{ 'true' if zscale == 'shared' else 'false' }}">shared</button>
+            <button type="button" data-toggle-for="zscale" data-value="fixed" aria-pressed="{{ 'true' if zscale == 'fixed' else 'false' }}">fixed</button>
+          </div>
+        </div>
+        {% if zscale == "fixed" %}
+          <div class="row levels">
+            <label for="zmin" class="hint">black</label>
+            <input id="zmin" name="zmin" form="pick" type="number" step="any" value="{{ zmin if zmin is not none else '' }}" class="narrow-number" data-live>
+            <label for="zmax" class="hint">white</label>
+            <input id="zmax" name="zmax" form="pick" type="number" step="any" value="{{ zmax if zmax is not none else '' }}" class="narrow-number" data-live>
+          </div>
+          <span class="hint">Pixel values.{% if zmin is none or zmax is none %} Until both are set, each tile scales itself.{% endif %}</span>
+          <span class="hint level-problem" id="level-warning" role="alert"{% if zmin is none or zmax is none or zmax > zmin %} hidden{% endif %}>White must be above black: every tile draws flat until it is.</span>
+        {% else %}
+          <span class="hint">{{ 'Each tile from its darkest to its brightest pixel.' if zscale == 'tile' else 'Every tile on one scale: the darkest to the brightest pixel of them all. It reads every image of the strip first (for shots, the whole scan).' }}</span>
+          {% if zscale == "shared" %}<span class="hint mono" id="shared-levels" aria-live="polite">reading every tile…</span>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</aside>
 {% endif %}
 
 {% if columns and tab != "images" %}

@@ -203,6 +203,22 @@
             <span class="hint">strict acquisition only</span>
           </div>
         </div>
+        <div class="row">
+          <div class="field">
+            <label for="k-combo">One-line picker</label>
+            <button id="k-combo" type="button" class="combo" popovertarget="k-combo-pop"><span class="val">U_BCaveICT Charge pC</span></button>
+            <div popover id="k-combo-pop" class="combo-pop">
+              <input type="search" placeholder="filter columns" aria-label="Filter columns" data-combo-filter>
+              <select size="6" aria-label="Columns">
+                <option>U_BCaveICT Charge pC</option>
+                <option>U_HP_Daq:Jet pressure</option>
+                <option>U_Hexapod:ypos</option>
+                <option>U_S4H:Current</option>
+              </select>
+            </div>
+            <span class="hint">Click, or type, to open; Esc or a click outside closes it.</span>
+          </div>
+        </div>
         <p class="dim">Validation is one attribute on the control:
           <code>aria-invalid="true"</code> colours it and shows the <code>.err</code> slot
           that follows it. The hint stays — it carries the unit. The words carry the

@@ -53,6 +53,14 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   and what Add does — never its own selection code (three copies existed
   for a day; #1128). Pinned in `tests/test_kit_picker.py`, which runs the
   real `kit.js` under node; specimen on `kit.html`.
+- **One one-line picker.** `.combo` (a button showing the pick) and
+  `.combo-pop` (its `[popover]`: a filter box marked
+  `data-combo-filter` over a list) are every single-pick list that
+  would otherwise be a tall list box in a rail. The platform's popover
+  opens and closes it (`popovertarget`, Esc, a click outside) with
+  kit.js absent; kit.js places it under its button and opens it when the
+  button is typed into. Specimen on `kit.html`; first surface, the
+  portal's Plot pages (2026-11-03).
 - **`theme-boot.js` is the one definition** of which themes and densities
   exist and what the defaults are. It loads in `<head>`, NOT deferred, so
   the palette and density are stamped before first paint. `theme.js` reads

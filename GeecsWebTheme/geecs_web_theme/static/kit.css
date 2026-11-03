@@ -273,6 +273,31 @@ body.kit{
 .kit .btn.danger{color:var(--crit);background:var(--crit-soft);border-color:var(--crit-soft)}
 .kit .btn.danger:hover{filter:brightness(.97)}
 .kit .btn.sm{height:26px;font-size:12px;padding:0 10px}
+
+/* A one-line picker: the current pick on a button that opens a popover —
+   the platform's [popover], so Esc and a click outside close it with or
+   without kit.js — holding a filter box over the list. kit.js places it
+   under its button and opens it when the button is typed into. The list
+   lives in the popover, so a rail of pickers never scrolls inside itself. */
+.kit .combo{
+  display:flex;align-items:center;gap:6px;width:100%;min-width:0;
+  font:inherit;font-size:13px;text-align:left;
+  height:var(--row-h);padding:0 10px;
+  border:var(--bw) solid var(--rule);border-radius:var(--r);
+  background:var(--surface);color:var(--ink);cursor:pointer;
+}
+.kit .combo:hover{background:var(--surface-2)}
+.kit .combo > .val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kit .combo::after{content:"\25BE";color:var(--muted);font-size:10px}
+.kit .combo-pop{
+  inset:auto;margin:0;padding:8px;
+  width:min(30rem,92vw);max-height:min(70vh,34rem);overflow:auto;
+  display:none;flex-direction:column;gap:6px;
+  border:var(--bw) solid var(--rule);border-radius:var(--r);
+  background:var(--surface);color:var(--ink);box-shadow:var(--shadow);
+}
+.kit .combo-pop:popover-open{display:flex}
+.kit .combo-pop select{width:100%;height:auto}
 .kit .btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
 .kit .btn.ghost:hover{background:var(--surface-2);color:var(--ink)}
 
