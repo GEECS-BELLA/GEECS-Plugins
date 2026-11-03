@@ -37,7 +37,7 @@ from geecs_data_utils.tiled_catalog import RunDetail
 
 from geecs_portal.plotter import figures, images, maps, multi, scans
 from geecs_portal.plotter.routes import Context, read_form
-from geecs_portal.plotter.routes.images import strip_code, strip_tiles
+from geecs_portal.plotter.routes.images import strip_axis, strip_code, strip_tiles
 from geecs_portal.plotter.settings import (
     CHOICES,
     DEFAULT_SET,
@@ -414,6 +414,7 @@ def _page(
         "device_kept": "",
         "device_problem": None,
         "tiles": [],
+        "strip_x": "",
         "trace": "",
         "strip_code": "",
     }
@@ -611,8 +612,15 @@ def _fill_images(
     day, scan = page["day"], page["scan"]
     try:
         page["tiles"] = strip_tiles(
-            run, frame, page["strip"], day=day, scan=scan, device=device
+            run,
+            frame,
+            page["strip"],
+            day=day,
+            scan=scan,
+            device=device,
+            alias=settings.x_alias,
         )
+        page["strip_x"] = strip_axis(run, frame, settings.x_alias)[1]
     except HTTPException as missing:
         page["device_problem"] = missing.detail
         return

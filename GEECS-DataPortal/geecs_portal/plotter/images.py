@@ -147,12 +147,14 @@ def _number(value: object, missing: str) -> str:
     return str(value)
 
 
-def _value(values: Optional[pd.Series], rows: tuple[int, ...]) -> str:
-    """The scan variable over *rows* (its median), for the caption."""
+def _value(values: Optional[pd.Series], rows: tuple[int, ...], name: str) -> str:
+    """``"name = v"``: the scan variable over *rows* (its median); ``""`` without one."""
     if values is None:
         return ""
     picked = values.iloc[[r - 1 for r in rows]].dropna()
-    return f" · {picked.median():.4g}" if len(picked) else ""
+    if not len(picked):
+        return ""
+    return f"{name} = {picked.median():.4g}" if name else f"{picked.median():.4g}"
 
 
 def tiles(
@@ -160,8 +162,13 @@ def tiles(
     strip: str,
     scan_values: Optional[pd.Series] = None,
     shot_numbers: Optional[pd.Series] = None,
+    scan_name: str = "",
 ) -> list[Tile]:
     """The strip's tiles, in order.
+
+    A bin's caption is its scan variable's value, ``"Jet position = 17.5 ·
+    5 shots"`` (``"bin 2 · 5 shots"`` without one); a shot's is ``"shot 3 ·
+    Jet position = 17.5"``.
 
     Parameters
     ----------
@@ -173,6 +180,8 @@ def tiles(
         The scan variable per row, shown in each caption.
     shot_numbers : pandas.Series, optional
         The shot number per row (the s-file's), for the shot captions.
+    scan_name : str, optional
+        The scan variable's name as shown (its alias), before its value.
 
     Returns
     -------
@@ -187,19 +196,16 @@ def tiles(
             in_bin = (
                 "" if bin_numbers is None else _number(bin_numbers.iloc[row - 1], "")
             )
-            caption = f"{label}{_value(scan_values, (row,))}"
+            value = _value(scan_values, (row,), scan_name)
+            caption = f"{label} · {value}" if value else label
             out.append(Tile(row, (row,), caption, in_bin))
         return out
-    return [
-        Tile(
-            index,
-            rows,
-            f"bin {_number(label, 'none')} · {len(rows)} shot{'s' if len(rows) != 1 else ''}"
-            f"{_value(scan_values, rows)}",
-            _number(label, ""),
-        )
-        for index, (label, rows) in enumerate(bins(frame))
-    ]
+    out = []
+    for index, (label, rows) in enumerate(bins(frame)):
+        count = f"{len(rows)} shot{'s' if len(rows) != 1 else ''}"
+        where = _value(scan_values, rows, scan_name) or f"bin {_number(label, 'none')}"
+        out.append(Tile(index, rows, f"{where} · {count}", _number(label, "")))
+    return out
 
 
 def tile_array(

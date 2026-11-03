@@ -78,14 +78,29 @@ def tile_url(day: date, scan: int, device: str, strip: str, index: int) -> str:
     return f"api/images/tile.png?{urlencode({**query, 'strip': strip, 'index': index})}"
 
 
+def strip_axis(run, frame, alias: bool = True) -> tuple[str, str]:
+    """The strip's X: the scan variable's column and its name as shown."""
+    x = scans.default_x(run, scans.columns(frame))
+    return x, scans.display_name(x, alias) if x else ""
+
+
 def strip_tiles(
-    run, frame, strip: str, *, day: date, scan: int, device: str
+    run,
+    frame,
+    strip: str,
+    *,
+    day: date,
+    scan: int,
+    device: str,
+    alias: bool = True,
 ) -> list[TileModel]:
     """The strip's tiles with their URLs; captions carry the scan variable."""
-    x = scans.default_x(run, scans.columns(frame))
+    x, name = strip_axis(run, frame, alias)
     values = scans.plot_series(frame, [x])[x] if x else None
     try:
-        found = images.tiles(frame, strip, values, scans.shot_axis(frame))
+        found = images.tiles(
+            frame, strip, values, scans.shot_axis(frame), scan_name=name
+        )
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
     return [

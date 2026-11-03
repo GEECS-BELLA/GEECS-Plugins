@@ -495,7 +495,7 @@
       <article class="panel">
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          <span class="dim">{{ device or device_kept }}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'shots' }}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}</span>
+          <span class="dim">{{ device or device_kept }}{% if tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'shots' }}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}</span>
         </header>
         <div class="body">
           {% if device_problem %}

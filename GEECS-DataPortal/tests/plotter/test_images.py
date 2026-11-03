@@ -44,13 +44,17 @@ class TestTiles:
     def test_captions_carry_the_count_and_the_scan_variable(self, share: Path) -> None:
         frame, _ = _opened(share)
         values = frame["U_Jet Position"]
-        bins = images.tiles(frame, "bins", values)
+        bins = images.tiles(frame, "bins", values, scan_name="Jet")
         assert [(t.index, t.rows, t.caption) for t in bins] == [
-            (0, (1, 2), "bin 1 · 2 shots · 1"),
-            (1, (3, 4), "bin 2 · 2 shots · 2"),
+            (0, (1, 2), "Jet = 1 · 2 shots"),
+            (1, (3, 4), "Jet = 2 · 2 shots"),
         ]
+        # Without a scan variable the bin is named by its number.
+        assert images.tiles(frame, "bins")[1].caption == "bin 2 · 2 shots"
         shots = images.tiles(frame, "shots", shot_numbers=scans.shot_axis(frame))
         assert [t.caption for t in shots] == ["shot 1", "shot 2", "shot 3", "shot 4"]
+        named = images.tiles(frame, "shots", values, scans.shot_axis(frame), "Jet")
+        assert named[2].caption == "shot 3 · Jet = 2"
         assert [t.rows for t in shots] == [(1,), (2,), (3,), (4,)]
 
 
@@ -205,7 +209,8 @@ class TestPage:
         page = post(client, scan=1, page="images", device=CAM)
         assert 'id="strip" class="strip grid"' in page
         assert page.count('class="tile"') == 2
-        assert "bin 2 · 2 shots · 2" in page
+        assert "U_Jet Position = 2 · 2 shots" in page
+        assert f"{CAM} vs U_Jet Position · 2 bins" in page  # the strip's title
         assert "api/images/tile.png?day=2026-10-02" in page
         assert "data-figure-url" not in page  # no XY plot on this tab
 
