@@ -79,7 +79,11 @@ geecs_panels/
   while a page has the plots open (`events?plots=1`). The history (centroid,
   mean, max) is kept in the service, sampled on STAT's frame counter.
 - **Saturation is judged on the raw frame** (STAT0, before background and
-  ROI) against the pixel format's full scale (`camera.saturation`).
+  ROI) against the IOC's `FullScale` record (`camera.OPTIONAL_FIELDS`: read
+  when served, never reported missing), else the pixel format's full scale
+  (`camera.saturation`). The camera IOCs shift every camera of 12 bits
+  or fewer onto 0-4095, so a shifted Blackfly reads Mono16 but tops out at
+  4095: the format alone would never call it saturated.
 - **The stream URL is rehosted to the CA address** (`ca.with_ca_host`): the
   IOC names itself by hostname, which a laptop cannot resolve.
 - **Writes are allow-listed** (`camera.WRITABLE`): crosshairs (OVER1:1/2)

@@ -35,6 +35,7 @@ from geecs_panels.camera import (
     ACQUISITION_FIELDS,
     IMAGE_PLUGIN,
     IMAGE_SIZE_FIELDS,
+    OPTIONAL_FIELDS,
     LOCK_FIELDS,
     PLOT_FIELDS,
     PROCESSING_FIELDS,
@@ -217,7 +218,12 @@ class CameraFeed:
         """Suffixes never connected once the grace period has passed."""
         if self._started is None or self.clock() - self._started < CONNECT_GRACE_S:
             return []
-        return [s for s, ok in self.connected.items() if not ok and s not in self._seen]
+        optional = set(OPTIONAL_FIELDS.values())
+        return [
+            s
+            for s, ok in self.connected.items()
+            if not ok and s not in self._seen and s not in optional
+        ]
 
     def snapshot(self, stale_after: float) -> dict[str, object]:
         """The page's view: every reading with its state, the image's age, what is missing."""
@@ -279,7 +285,12 @@ class CameraFeed:
         fmt = next(r for r in readings if r["key"] == "pixel_format")
         if raw["state"] != "fresh":
             return saturation(None, None)
-        return saturation(fmt["value"], raw["value"])
+        # Only while its channel is connected: a value cached from before an
+        # IOC restart onto a config without the record must not keep
+        # overriding the format's full scale.
+        suffix = OPTIONAL_FIELDS["full_scale"]
+        full = self.values.get(suffix) if self.connected.get(suffix) else None
+        return saturation(fmt["value"], raw["value"], full)
 
     def crosshairs(self) -> list[dict[str, object]]:
         """Each crosshair's stored state (``None`` fields: not read yet)."""

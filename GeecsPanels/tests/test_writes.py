@@ -292,6 +292,51 @@ def test_a_stale_raw_max_is_not_called_saturated_or_ok() -> None:
     assert feed.snapshot(3.0)["saturation"]["state"] == "saturated"
 
 
+@pytest.mark.parametrize(
+    "fmt,raw,full,state",
+    [
+        ("Mono16", 4095, 4095, "saturated"),  # a Blackfly shifted onto 12 bits
+        ("Mono16", 4095, None, "ok"),  # the same frame judged by format alone
+        ("Mono10", 4092, 4095, "saturated"),  # Mono10 shifted left 2 tops at 4092
+        ("Mono10", 1023, 4095, "ok"),  # by format alone this would be saturated
+        ("Mono12", 4095, 0, "saturated"),  # a non-positive FullScale: by format
+        ("BayerRG8", 200, 255, "ok"),  # FullScale makes an unlisted format known
+    ],
+)
+def test_saturation_follows_the_iocs_full_scale(fmt, raw, full, state) -> None:
+    from geecs_panels.camera import saturation
+
+    assert saturation(fmt, raw, full)["state"] == state
+
+
+def test_the_feed_judges_saturation_against_full_scale() -> None:
+    cameras = RecordingCameras()
+    feed = cameras.feed(CAM)
+    feed.update("STAT0:ComputeStatistics", 1)
+    feed.update("cam1:PixelFormat_RBV", "Mono16")
+    feed.update("FullScale", 4095)
+    feed.update("STAT0:MaxValue_RBV", 4095)
+    feed.update(counter_suffix("STAT0"), 1)
+    feed.update(counter_suffix("STAT0"), 2)
+    sat = feed.snapshot(3.0)["saturation"]
+    assert sat["state"] == "saturated" and sat["full_scale"] == 4095
+
+
+def test_a_disconnected_full_scale_falls_back_to_the_format() -> None:
+    """An IOC restarted without FullScale: the cached 4095 no longer applies."""
+    cameras = RecordingCameras()
+    feed = cameras.feed(CAM)
+    feed.update("STAT0:ComputeStatistics", 1)
+    feed.update("cam1:PixelFormat_RBV", "Mono16")
+    feed.update("FullScale", 4095)
+    feed.update("FullScale", None)  # the channel disconnects and never returns
+    feed.update("STAT0:MaxValue_RBV", 5000)
+    feed.update(counter_suffix("STAT0"), 1)
+    feed.update(counter_suffix("STAT0"), 2)
+    sat = feed.snapshot(3.0)["saturation"]
+    assert sat["state"] == "ok" and sat["full_scale"] == 65535
+
+
 def test_a_transform_change_stops_background_subtraction_first() -> None:
     """The held background was grabbed in the old orientation."""
     cameras = RecordingCameras()
