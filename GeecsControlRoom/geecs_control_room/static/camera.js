@@ -18,6 +18,7 @@
   const KIT = JSON.parse($("kit-state").textContent);
   const value = (role) => { const f = P.frame(role); return f ? f.value : undefined; };
   const MAX_FPS = 10, HOLD_MS = 2000, GRAB_PX = 9, EDGE_PX = 6;
+  const FRAME_TIMEOUT_MS = 5000; // a frame request past this is abandoned: the loop never waits on a stalled connection
   const storeKey = `geecs-control-room:${P.name}:display`;
 
   const viewport = $("viewport"), canvas = $("image"), ctx = canvas.getContext("2d");
@@ -161,6 +162,7 @@
       return {
         move(ix, iy) { h.x = Math.floor(ix); h.y = Math.floor(iy); draw(); },
         end() { h.dragging = false; h.until = performance.now() + HOLD_MS; W.write([[`crosshair${x.n}_x`, h.x], [`crosshair${x.n}_y`, h.y]]); },
+        cancel() { delete held.xh[x.n]; draw(); },
       };
     }
     const handle = roiHandleAt(cx, cy);
@@ -170,6 +172,7 @@
     return {
       move(ix, iy) { Object.assign(h, R.dragRoi(start, handle, ix, iy, iw, ih)); draw(); },
       end() { h.dragging = false; h.until = performance.now() + HOLD_MS; W.write(["minx", "miny", "sizex", "sizey"].filter((k) => h[k] !== start[k]).map((k) => [`roi_${k}`, h[k]])); },
+      cancel() { held.roi = null; draw(); },
     };
   }
 
@@ -194,7 +197,7 @@
     draw();
   });
   const endDrag = (ev) => {
-    if (edit) { edit.end(); edit = null; }
+    if (edit) { (R.gestureEnds(ev.type) === "commit" ? edit.end : edit.cancel)(); edit = null; } // a cancelled gesture writes nothing
     if (drag && ev.type === "pointerup" && Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4 && performance.now() - drag.t < 400) {
       const [ix, iy] = toImage(drag.cx, drag.cy).map(Math.floor);
       clearTimeout(clickTimer);
@@ -243,9 +246,11 @@
       await visible();
       const t0 = performance.now();
       try {
-        const r = await fetch(box.dataset.frameUrl, { cache: "no-store" });
-        if (!r.ok) { let d = `answered ${r.status}`; try { d = (await r.json()).detail || d; } catch (_) { /* not JSON */ } throw new Error(d); }
-        const tag = r.headers.get("X-Frame-Tag"), blob = await r.blob();
+        const [tag, blob] = await R.within(FRAME_TIMEOUT_MS, async (signal) => {
+          const r = await fetch(box.dataset.frameUrl, { cache: "no-store", signal });
+          if (!r.ok) { let d = `answered ${r.status}`; try { d = (await r.json()).detail || d; } catch (_) { /* not JSON */ } throw new Error(d); }
+          return [r.headers.get("X-Frame-Tag"), await r.blob()];
+        });
         $("image-error").hidden = true; // a good answer ends a transport error, new frame or not (a decode failure says so again)
         if (tag === null || tag !== lastTag) { lastTag = tag; waiting = blob; drawLatest(); }
       } catch (e) {
@@ -253,11 +258,14 @@
         $("image-error").hidden = false;
         await sleep(1000);
       }
-      while (shown.length && shown[0] < performance.now() - 2000) shown.shift();
-      $("fps").textContent = `${(shown.length / 2).toFixed(1)} new frames/s`;
       await sleep(Math.max(0, 1000 / MAX_FPS - (performance.now() - t0)));
     }
   }
+  // the rate ages on its own clock, so a request still waiting reads as frames stopping, not as the last rate
+  setInterval(() => {
+    while (shown.length && shown[0] < performance.now() - 2000) shown.shift();
+    $("fps").textContent = `${(shown.length / 2).toFixed(1)} new frames/s`;
+  }, 500);
 
   // ---- the readings, the image chip, the device's errors: the module's words, Hare's values
   let queued = false;

@@ -172,6 +172,20 @@
   };
   const valid = (values, n) => (typeof n === "number" && n >= 0 ? (values || []).slice(0, n) : values || []);
 
+  // A pointer gesture commits its edit only when it completes: a cancelled one
+  // (the browser or OS took the pointer) discards the preview and writes nothing.
+  const gestureEnds = (eventType) => (eventType === "pointerup" ? "commit" : "discard");
+
+  // work(signal) under a deadline covering the whole exchange, the body's read
+  // included: past ms the request is aborted and the promise rejects "timed out",
+  // so a stalled connection to this service never holds a loop open.
+  const within = (ms, work) => {
+    const ctl = new AbortController();
+    let timer;
+    const deadline = new Promise((_, reject) => { timer = setTimeout(() => { ctl.abort(); reject(new Error("timed out")); }, ms); });
+    return Promise.race([work(ctl.signal), deadline]).finally(() => clearTimeout(timer));
+  };
+
   // A whole number typed into a field, or null for an empty or non-numeric one (which writes nothing).
   function whole(raw) {
     const s = String(raw).trim(), n = Number(s);
@@ -182,5 +196,5 @@
     return s === "" || !Number.isFinite(n) ? null : n;
   }
 
-  Object.assign(rules, { MAPS, levels, lut, autoLevels, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, single, valid, whole, number });
+  Object.assign(rules, { MAPS, levels, lut, autoLevels, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, single, valid, whole, number, gestureEnds, within });
 })(typeof module === "object" ? module.exports : (window.GeecsCameraRules = {}));

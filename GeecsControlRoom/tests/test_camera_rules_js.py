@@ -35,6 +35,13 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ),  # fmt: skip
     # the JPEG stretched over MJPG1's size when the shapes agree
     ("size: unread is the JPEG's", "imageSize", [640, 480, None, None], [640, 480]),
+    ("gesture: a completed pointer commits", "gestureEnds", ["pointerup"], "commit"),
+    (
+        "gesture: a cancelled pointer discards",
+        "gestureEnds",
+        ["pointercancel"],
+        "discard",
+    ),
     (
         "size: a scaled JPEG takes the IOC's size",
         "imageSize",
@@ -229,3 +236,23 @@ const R = require(process.argv[1]);
 def test_one_write_list_at_a_time_for_the_page() -> None:
     got = run("camera_rules.js", _SINGLE)
     assert got == {"busy": True, "second": None, "done": "drag roi", "third": "after", "sent": ["drag roi", "after"], "idle": True}  # fmt: skip
+
+
+_WITHIN = """
+const R = require(process.argv[1]);
+(async () => {
+  let aborted = false;
+  const stalled = R.within(40, (signal) => new Promise(() => { signal.addEventListener("abort", () => { aborted = true; }); }));
+  const slow = await stalled.then(() => "answered", (e) => e.message);
+  const quick = await R.within(1000, async () => "answered");
+  // the deadline covers the body: a response whose body never arrives still times out
+  const body = await R.within(40, async () => { await new Promise(() => {}); return "body"; }).then(() => "read", (e) => e.message);
+  console.log(JSON.stringify({ slow, aborted, quick, body }));
+})();
+"""
+
+
+@needs_node
+def test_a_stalled_request_times_out_and_is_aborted() -> None:
+    got = run("camera_rules.js", _WITHIN)
+    assert got == {"slow": "timed out", "aborted": True, "quick": "answered", "body": "timed out"}  # fmt: skip

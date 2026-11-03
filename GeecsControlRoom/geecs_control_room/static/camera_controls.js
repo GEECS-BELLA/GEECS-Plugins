@@ -132,16 +132,20 @@
     lines($("plot-hist"), histOff ? [] : [{ values: hist, colour: "--trace-3" }], { x: (i) => lo + (i + 0.5) * step, log: $("hist-log").checked, empty: histOff || "no histogram" });
   }
 
+  const ARRAYS_TIMEOUT_MS = 2000; // past this the request is abandoned and the held arrays are said to be old
   let reading = false;
   async function poll() {
     if (reading || !plots.open || document.hidden) return;
     reading = true;
     try {
-      const r = await fetch(document.getElementById("camera").dataset.arraysUrl, { cache: "no-store" });
-      const body = await r.json();
+      const [r, body] = await R.within(ARRAYS_TIMEOUT_MS, async (signal) => {
+        const r = await fetch(document.getElementById("camera").dataset.arraysUrl, { cache: "no-store", signal });
+        return [r, await r.json()];
+      });
       latest = r.ok ? body : { arrays: (latest || {}).arrays, error: body.detail || `answered ${r.status}` };
-    } catch (_) { latest = { arrays: (latest || {}).arrays, error: "the Control Room did not answer" }; }
-    reading = false;
+    } catch (e) {
+      latest = { arrays: (latest || {}).arrays, error: e && e.message === "timed out" ? "the Control Room did not answer in time: arrays held" : "the Control Room did not answer" };
+    } finally { reading = false; }
     render();
     V.redraw();
   }
