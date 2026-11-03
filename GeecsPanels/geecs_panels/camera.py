@@ -64,10 +64,6 @@ READINGS: tuple[Reading, ...] = (
     # Seconds on the wire; the page shows milliseconds (camera.js SCALE).
     Reading("exposure", "exposure", "cam1:AcquireTime_RBV", "ms"),
     Reading("pixel_format", "pixel format", "cam1:PixelFormat_RBV", as_string=True),
-    # The IOC's own full scale (geecs-epics families/cameras/full_scale.db): a
-    # driver shift puts every camera of 12 bits or fewer on 0-4095, whatever
-    # PixelFormat says. Absent on an older IOC: FULL_SCALE by format instead.
-    Reading("full_scale", "full scale", "FullScale"),
     Reading(
         "cx", "centroid x", "STAT:CentroidX_RBV", "px", "STAT", "STAT:ComputeCentroid"
     ),
@@ -134,6 +130,12 @@ ROI_FIELDS = {
 #: as 960 x 1200) — so the page stretches the JPEG to this size, and every
 #: position (crosshairs, ROI, cursor) stays in image pixels.
 IMAGE_SIZE_FIELDS = {"width": "MJPG1:ArraySize0_RBV", "height": "MJPG1:ArraySize1_RBV"}
+#: PVs read when the IOC serves them, never reported missing when it does not.
+#: ``full_scale``: the IOC's own full scale (geecs-epics
+#: ``families/cameras/full_scale.db``): a driver shift puts every camera of 12
+#: bits or fewer on 0-4095, whatever PixelFormat says. An IOC without it (an
+#: older deploy, a non-GEECS chain) is judged by FULL_SCALE instead.
+OPTIONAL_FIELDS = {"full_scale": "FullScale"}
 
 #: Processing state the panel shows and edits: the background (PROC1) and
 #: the transform (TRANS1, which has no readback record: the output record
@@ -410,6 +412,7 @@ def monitored_suffixes() -> list[str]:
         list(ROI_FIELDS.values()),
         list(PROCESSING_FIELDS.values()),
         list(IMAGE_SIZE_FIELDS.values()),
+        list(OPTIONAL_FIELDS.values()),
         list(PLOT_FIELDS.values()),
         list(LOCK_FIELDS.values()),
         list(ACQUISITION_FIELDS.values()),

@@ -115,6 +115,18 @@ def test_never_connected_pvs_are_named_after_the_grace_period() -> None:
     assert feed.missing() and all(s.startswith("STAT0:") for s in feed.missing())
 
 
+def test_an_ioc_without_full_scale_is_not_reported_missing() -> None:
+    """FullScale is optional: an older camera IOC lacks it and is judged by format."""
+    clock = Clock()
+    feed, _, _ = _feed(clock)
+    assert "FullScale" in feed.connected  # it is subscribed
+    for suffix in feed.connected:
+        if suffix != "FullScale":
+            feed.update(suffix, 1)
+    clock.now += CONNECT_GRACE_S + 0.1
+    assert feed.missing() == []
+
+
 def test_close_drops_every_subscription() -> None:
     feed, subscribed, closed = _feed(Clock())
     feed.close()

@@ -190,7 +190,7 @@ The LabVIEW GUI's everyday set, in areaDetector terms:
 | Analysis ROI, drawn as a box | `ROI1:MinX/MinY/SizeX/SizeY` | changes stats only, never scan data |
 | Background: grab, on/off | `PROC1:SaveBackground`, `PROC1:EnableBackground` | grab with the beam blocked; lost on IOC restart (runbook) |
 | Flip / rotate 90° | `TRANS1:Type` | display + stats only |
-| Saturation warning | `STAT0:MaxValue_RBV` ≥ the pixel format's full scale | chip + optional sound. `STAT0` is a new raw-chain stats plugin (fed from the driver, statistics only): `STAT` sees background-subtracted, ROI-cropped data and would miss saturation |
+| Saturation warning | `STAT0:MaxValue_RBV` at or above 99% of the IOC's `FullScale` (else the pixel format's full scale; a shifted Mono10 camera tops out at 4092, so never test `≥ FullScale`) | chip + optional sound. `STAT0` is a new raw-chain stats plugin (fed from the driver, statistics only): `STAT` sees background-subtracted, ROI-cropped data and would miss saturation |
 | Exposure, gain, frame rate, trigger mode, acquire | `cam1:` | **guarded** (§6) |
 | Camera (driver) ROI | `cam1:MinX/MinY/SizeX/SizeY` | **guarded**, and a `<dialog>`: it changes what scans save |
 
