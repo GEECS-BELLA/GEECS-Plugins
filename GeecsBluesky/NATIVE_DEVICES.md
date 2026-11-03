@@ -113,7 +113,8 @@ with GEECS logics:
   first prepare, the HDF plugin capturing in Stream mode for the run. The
   order matters: ophyd-async runs trigger logic → data logic (capture
   starts) → acquire logic, so the trigger logic's first `prepare_edge`
-  **stops** a free-running camera and sets trigger mode *before* the
+  **stops** the camera (free-running, or resting in trigger mode as an IOC
+  that arms it at boot leaves it) and sets trigger mode *before* the
   capture starts (no live-view frame reaches the stack), and the acquire
   logic restarts it after (on its readback, not the put);
   `unstage` restores the driver's pre-run state (live view keeps working

@@ -243,9 +243,11 @@ class NativeTriggerLogic(DetectorTriggerLogic):
                 )
             )
             if self.session.restore[1] == OnOff.ON:
-                logger.warning(
-                    "%s: already in trigger mode before the run (a previous run "
-                    "did not restore it?) — unstage will leave it in trigger mode",
+                # The usual resting state: a camera IOC may arm its trigger at
+                # boot so live view runs at the shot rate (geecs-epics'
+                # cameras do). Not a sign of an unrestored run.
+                logger.debug(
+                    "%s: in trigger mode before the run; unstage returns it there",
                     d.name,
                 )
         await d.acquire.set(False)
