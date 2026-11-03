@@ -116,6 +116,27 @@ alone.
 | Doubled edge (ringing, a slow edge through the threshold) | the count runs at twice the rate every device sees and the audit flags every acquisition; the fix is at the input (level, termination). Checked at the bench before anything depends on it |
 | It counts the wrong edge | the witness must see the edges the synchronous devices see: here, the gated output. A witness on an ungated output counts shots in STANDBY that no device took, and the audit flags every one. A facility whose devices hang off several gates needs a witness per gate, or a recorded gate state; out of scope, but the schema carries a trigger-domain name so it has room |
 
+**Generality: the witness is a contract; the MCC is one implementation.**
+A witness is anything that publishes, for one trigger domain, a hardware
+count of the edges, a stamp per count on a disciplined clock, and an epoch
+that changes whenever the count restarts. The join reads those three and
+the domain's name, nothing else, so no code names the MCC:
+
+| Implementation | Where it fits |
+|---|---|
+| a counter input on a DAQ IOC (the MCC here; any measComp or similar device elsewhere) | a facility with a tee and a spare counter |
+| an EPICS counter record on hardware already in the chain: a PLC counter, a scaler, a delay generator with a readable trigger count | no new hardware |
+| a timing system's event receiver (an MRF EVR) with its event counter and timestamp | a facility that has one; the stamp is then at the hardware moment and the audit is nearly redundant |
+| the worker's own fire stamp, strict mode only: one fire, one shot | no hardware at all; no gated runs and no fire confirmation |
+| none | the *unwitnessed* fallback: devices clustered against each other, every row flagged |
+
+A chain with different hardware at different points, or several gates, is
+several trigger domains: one witness per domain, each device's registry
+entry names its domain, and the join assigns within a domain. Domains are
+related only through a declared relation (the same source behind a fixed
+delay), otherwise not at all and the row says so. This facility has one
+domain.
+
 **Why not something else.** The DG645 has no edge-stamped counter readback
 and is LabVIEW-owned until it is ported last. A camera as witness, today's
 gated shot clock (`plans/gated.py:86-123`), misses shots. NI DAQs have no
