@@ -421,13 +421,15 @@
         }
       });
       button.addEventListener("keydown", function (e) {
-        var typed = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+        // A character starts filtering; Space stays the button's own press.
+        var typed = e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey;
         if (!typed && e.key !== "ArrowDown") return;
         e.preventDefault();
         if (!pop.matches(":popover-open")) pop.showPopover();
         var filter = pop.querySelector("[data-combo-filter]");
         if (typed && filter) {
-          filter.value = e.key;
+          // Added to what the box already holds (a kept filter), never replacing it.
+          filter.value += e.key;
           filter.focus();
           filter.dispatchEvent(new Event("input", { bubbles: true }));
         } else {
