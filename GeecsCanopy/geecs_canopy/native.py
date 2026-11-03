@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-from geecs_core.pv_naming import pv_name
+from geecs_core.pv_naming import native_device_prefix
 from geecs_schemas import (
     NATIVE_DEVICES_FILENAME,
     PANEL_DEVICES_FILENAME,
@@ -120,7 +120,7 @@ class NativeSource:
                 f"{name}: {NATIVE_DEVICES_FILENAME} names family {template!r}, "
                 f"{PANEL_DEVICES_FILENAME} {panel.family!r} (one family per device)"
             )
-        derived = pv_name(self.experiment, name) + ":"
+        derived = native_device_prefix(self.experiment, name)
         if (
             entry is not None
             and panel is not None

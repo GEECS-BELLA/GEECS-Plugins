@@ -1,8 +1,9 @@
 # Web Services
 
-Three pages in a browser cover the day-to-day work at the beamline: run a
-scan, look at what it recorded, and write down what happened. Nothing is
-installed on an operator machine. Each is a service on the worker host,
+Four pages in a browser cover the day-to-day work at the beamline: watch
+and set the devices, run a scan, look at what it recorded, and write down
+what happened. Nothing is
+installed on an operator machine. Each is a service on a fleet host,
 on its own port, so each gets its own bookmark:
 `http://<worker-host>:<port>/`. The host and the units behind each
 service are on the [fleet map](../platform/fleet_map.md).
@@ -41,9 +42,20 @@ Every page's header carries a **Docs** link back to its page here.
 
     [:octicons-arrow-right-24: Logbook](logbook.md)
 
+-   :material-monitor-dashboard:{ .lg .middle } **Control Room** · port 8700
+
+    ---
+
+    Watch and set the devices. The experiment's home (what is running,
+    what is not live or in alarm, the baseline), the device screens, action
+    buttons, and presets to save, compare and restore.
+
+    [:octicons-arrow-right-24: Control Room](control_room.md)
+
 </div>
 
 The ports are the reference deployment's defaults; a site can move them.
-The three services talk to each other only through links: the portal's
+The services talk to each other only through links (the Control Room's
+launcher links to the other three): the portal's
 run page links to that scan in the logbook, and the portal's Plot tab can
 send a figure into the scan's log entry.

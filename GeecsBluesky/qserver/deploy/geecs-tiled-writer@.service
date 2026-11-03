@@ -1,0 +1,33 @@
+# GEECS Tiled writer, per-experiment instance — systemd unit TEMPLATE: the
+# consumer of geecs-qserver@<Instance>'s spool (the shared state directory).
+#
+# One instance per experiment: `systemctl enable --now <unit>@<Instance>`.
+# Render with deploy/render_units.sh (or bootstrap_host.sh --experiment);
+# @PLACEHOLDER@ holes are filled at render time. Runtime values come from
+# site.env and THEN the instance file @EXPERIMENTS_DIR@/<Instance>.env, which
+# overrides it (the experiment, ports, CA addressing — keys in
+# deploy/experiments.env.example). Per-instance state lives under
+# /var/lib/geecs-experiments/<Instance>/. The non-templated unit of the same
+# name is the main experiment's and stays as it is.
+
+[Unit]
+Description=GEECS Tiled writer (experiment instance %i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
+ExecStart=@POETRY@ run geecs-tiled-writer
+StateDirectory=geecs-experiments/%i/engine
+Environment=GEECS_TILED_WRITER_STATE=/var/lib/geecs-experiments/%i/engine
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=geecs-tiled-writer@%i
+
+[Install]
+WantedBy=multi-user.target

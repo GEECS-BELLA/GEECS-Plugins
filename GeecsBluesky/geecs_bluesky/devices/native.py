@@ -188,8 +188,9 @@ class NativeTriggerLogic(DetectorTriggerLogic):
     """External edges (Line0/Line1) or the software command; the camera is programmed once per run.
 
     ``prepare_edge`` runs before the data logic starts the HDF capture, so
-    this is where a free-running camera is stopped and put in trigger mode:
-    no frame of its live view can reach the stack.
+    this is where the camera (free-running, or resting in trigger mode) is
+    stopped and put in trigger mode: no frame of its live view can reach
+    the stack.
     """
 
     def __init__(
@@ -231,9 +232,10 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         await take_run_lock(self.run_lock, self.session)
         await self._refuse_a_source_the_camera_lacks()
         if self.session.restore is None:
-            # Captured once and kept until a restore succeeds: a run that
-            # ended without a completed unstage (a killed worker, a halt, a
-            # failed restore) must not make the armed state the "pre-run" one.
+            # Captured once and kept until a restore succeeds: a run in this
+            # worker that ended without a completed unstage (a halt, a failed
+            # restore) must not make the armed state the "pre-run" one. A
+            # killed worker's session is gone; take_run_lock names that case.
             self.session.restore = tuple(
                 await asyncio.gather(
                     d.acquire.get_value(),
@@ -243,9 +245,11 @@ class NativeTriggerLogic(DetectorTriggerLogic):
                 )
             )
             if self.session.restore[1] == OnOff.ON:
-                logger.warning(
-                    "%s: already in trigger mode before the run (a previous run "
-                    "did not restore it?) — unstage will leave it in trigger mode",
+                # The usual resting state: a camera IOC may arm its trigger at
+                # boot so live view runs at the shot rate (geecs-epics'
+                # cameras do). Not a sign of an unrestored run.
+                logger.debug(
+                    "%s: in trigger mode before the run; unstage returns it there",
                     d.name,
                 )
         await d.acquire.set(False)
@@ -320,7 +324,22 @@ async def take_run_lock(run_lock: RunLockIO, session: _Session) -> None:
 
     Waited for, not trusted: a refused CA put can complete as success
     (#868), and a run must not go on believing the camera is protected.
+
+    A lock already set that this session did not take means a run in
+    another process never released the camera (a killed or restarted
+    worker). The run takes it over, but says so, naming the previous owner:
+    the camera's state saved next is the one that run left, not the
+    operator's. (This session's own lock, kept by a failed restore, is not
+    that case: ``session.restore`` still holds the true pre-run state.)
     """
+    if not session.locked and await run_lock.lock.get_value():
+        logger.warning(
+            "%s: the run lock was already held (owner %r) — a previous run did "
+            "not release the camera; the state it left becomes this run's "
+            "pre-run state",
+            run_lock.name,
+            await run_lock.owner.get_value(),
+        )
     await run_lock.owner.set(run_owner())
     await run_lock.lock.set(True)
     session.locked = True

@@ -25,7 +25,7 @@ from typing import Annotated, Literal, Optional, Union
 
 import yaml
 from geecs_core.configs_repo import scanner_configs_base
-from geecs_core.pv_naming import pv_name
+from geecs_core.pv_naming import native_device_prefix
 from geecs_schemas import NATIVE_DEVICES_FILENAME, EpicsMotor, NativeDevices
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
@@ -87,7 +87,7 @@ def load_devices(experiment: str, path: Path | None) -> list[Device]:
         Device(
             name=name,
             kind=entry.kind,
-            prefix=pv_name(experiment, name) + ":",
+            prefix=native_device_prefix(experiment, name),
             axes=tuple(entry.axes) if isinstance(entry, EpicsMotor) else (),
         )
         for name, entry in registry.devices.items()

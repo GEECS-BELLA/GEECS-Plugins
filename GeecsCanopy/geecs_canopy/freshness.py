@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE
+from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE, ioc_heartbeat_pv
 from geecs_schemas import Role
 
 from geecs_canopy.hare import Wire
@@ -28,10 +28,8 @@ from geecs_canopy.native import Resolved
 _NOT_ANSWERING, _UDF = frozenset({1, 9, 10}), 17
 
 
-# The same rule is geecs_core.pv_naming.ioc_heartbeat_pv on feat/web-estate: use it once both meet.
-def heartbeat_pv(ioc: str) -> str:
-    """An IOC's devIocStats heartbeat, ``<IOC_NAME upper-cased>:HEARTBEAT`` (geecs-epics' iocAdminSoft)."""
-    return f"{ioc.strip().upper()}:HEARTBEAT"
+#: An IOC's devIocStats heartbeat: GEECS-Core's rule, the one the archiver keeps.
+heartbeat_pv = ioc_heartbeat_pv
 
 
 def is_number(value: Any) -> bool:

@@ -216,3 +216,5 @@ config builder applies (`variabletype='choice'` + `choices='image'` is an image;
 `audit_subscribed_variables()` is a pure function over plain dicts (no DB —
 unit-tested in `test_audit.py`); DB access is lazy.
 **Read-only: it never DELETEs or modifies** — `--sql` only prints.
+
+**Experiment instances.** One gateway per experiment, each on its own CA server port given to that process alone (`EPICS_CA_SERVER_PORT` from `GEECS_CA_SERVER_PORT` in `geecs-ca-gateway@.service`) — the gateway has no port option and the code is unchanged.

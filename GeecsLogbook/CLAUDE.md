@@ -541,3 +541,5 @@ the top of the configs checkout).
 
 `create_app` takes the experiment explicitly — this package carries no
 facility default, per the "facility values have one home" invariant.
+
+**Experiment instances.** One logbook per experiment instance (`geecs-logbook@<Instance>`, its own port and notes store under `/var/lib/geecs-experiments/<Instance>/logbook`); the experiment name, never the instance name, keys the scan days.

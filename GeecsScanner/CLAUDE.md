@@ -226,3 +226,5 @@ Lists accept numeric comma/tab/space/newline values, preserving repeats. There
 is no axis-count ceiling or evaluator. Presets seed the form; no preset is
 automatically selected. Optimize retains its existing required-device and
 Set to best controls.
+
+**Experiment instances.** A scanner serves one experiment; a second experiment gets its own `geecs-scanner@<Instance>` on its slot's port, reaching its own manager through `QS_CLIENT_*_ADDR`, never a picker in this one.

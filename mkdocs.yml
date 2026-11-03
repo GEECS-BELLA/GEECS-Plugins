@@ -50,6 +50,7 @@ nav:
       - GEECS Scanner: web_services/scanner.md
       - Data Portal: web_services/data_portal.md
       - Logbook: web_services/logbook.md
+      - Control Room: web_services/control_room.md
 
   # Purpose-grouped tabs. Each group opens on its section-index landing
   # page (navigation.indexes) and holds one section per package, so the
@@ -95,6 +96,8 @@ nav:
           - Scanner Configs Overview: geecs_schemas/schemas_overview.md
           - Running a Scan: geecs_schemas/running_a_scan.md
           - Schema Reference: geecs_schemas/schema_reference.md
+      - GEECS module (Canopy):
+          - Authoring screens and policy: geecs_canopy/authoring.md
 
   # Agentic Tooling is intentionally last — the AI-agent surfaces, not core
   # suite. Two strands with distinct audiences (the landing page explains):

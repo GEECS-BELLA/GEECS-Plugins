@@ -2,7 +2,7 @@
   "schema_version": 1,
   "template": "ad_camera_chain",
   "kind": "aravis_camera",
-  "description": "The areaDetector camera chain every camera IOC runs (geecs-epics runbook, 'Display and analysis chain'): cam1, STAT, STAT0, ROI1, PROC1, TRANS1, OVER1, MJPG1, HDF1 and the run lock.",
+  "description": "The areaDetector camera chain every camera IOC runs (geecs-epics runbook, 'Display and analysis chain'): cam1, STAT, STAT0, ROI1, PROC1, TRANS1, OVER1, PROC2 (the 8-bit scaling in front of MJPG1, display only), MJPG1, HDF1, the run lock and FullScale (the count a saturated pixel reads, after the driver shift).",
   "roles": [
     {"name": "state", "suffix": "cam1:DetectorState_RBV", "type": "enum", "label": "detector"},
     {"name": "rate", "suffix": "cam1:ArrayRate_RBV", "type": "readback", "label": "frame rate", "units": "Hz"},
@@ -16,6 +16,7 @@
     {"name": "mean", "suffix": "STAT:MeanValue_RBV", "type": "readback", "label": "mean", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
     {"name": "total", "suffix": "STAT:Total_RBV", "type": "readback", "label": "total", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
     {"name": "raw_max", "suffix": "STAT0:MaxValue_RBV", "type": "readback", "label": "raw max", "fresh_by": "stat0_counter", "computed_by": "raw_compute_statistics"},
+    {"name": "full_scale", "suffix": "FullScale", "type": "readback", "label": "full scale", "level": "expert", "read": "once"},
     {"name": "compute_centroid", "suffix": "STAT:ComputeCentroid", "type": "bit", "label": "centroid computed", "level": "expert"},
     {"name": "compute_statistics", "suffix": "STAT:ComputeStatistics", "type": "bit", "label": "statistics computed", "level": "expert"},
     {"name": "raw_compute_statistics", "suffix": "STAT0:ComputeStatistics", "type": "bit", "label": "raw statistics computed", "level": "expert"},

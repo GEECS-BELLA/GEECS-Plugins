@@ -235,7 +235,8 @@ if [ "$NET_UP" -eq 1 ]; then
     # with bluesky-queueserver is at hand; otherwise fall back to port
     # liveness and say readiness is unknown. The address is config.ini's
     # [qserver] control_addr override when set (the same precedence as
-    # geecs_bluesky.qs_client), else tcp://<host>:60615.
+    # geecs_bluesky.qs_client's config.ini read), else tcp://<host>:60615 —
+    # the main manager; experiment instances are not probed here yet.
     QS_HOST="${WORKER_HOST:-$LAB_HOST}"
     QS_ADDR="$(ini_get qserver control_addr)"
     QS_ADDR="${QS_ADDR:-tcp://$QS_HOST:60615}"
@@ -567,7 +568,12 @@ for scope in "" "--user"; do
         label="$u"; [ -n "$scope" ] && label="$u (user unit)"
         [ "$pid" != "0" ] && SEEN="$SEEN$pid "
         SEEN_UNITS="$SEEN_UNITS$u "
-        emit "$(role_for_unit "$u")" "$label" "systemd" "$active" "$pid" "$wd" ""
+        # An experiment instance unit (<unit>@<Instance>.service) is its own
+        # row: the instance name rides on the role, so the main experiment
+        # and each instance never read as "2 processes for this role".
+        role="$(role_for_unit "$u")"
+        case "$u" in *@?*.service) inst="${u#*@}"; role="$role @${inst%.service}" ;; esac
+        emit "$role" "$label" "systemd" "$active" "$pid" "$wd" ""
     done
 done
 # 2) whoever owns each fleet port, if not already listed via its unit

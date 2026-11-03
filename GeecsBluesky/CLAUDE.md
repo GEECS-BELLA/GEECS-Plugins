@@ -261,7 +261,7 @@ qserver/                    # the worker: launcher, startup profile, permissions
   same children under its catalog name (`ALine_e_beam_angle_offset_x`) — a
   bad entry is ERROR-logged and skipped, never fatal to environment open.
   Each entry of the native device registry (`native_devices=`, below) is a
-  noun at the derived prefix `pv_name(experiment, device) + ":"`, by kind:
+  noun at the derived prefix `native_device_prefix(experiment, device)` (`geecs_core.pv_naming`, the one home), by kind:
   an `aravis_camera` a `NativeCamera` with a POSIX `PluginPathProvider`
   through `data_paths.native_ioc_save_path`, an `epics_motor` a
   `NativeMotor` whose axes bind by `settable_attribute` (the rule a
@@ -1021,3 +1021,5 @@ with no dependency edge between them.
   package; the edge is one-way, pinned by `.importlinter` and
   `tests/test_dependency_direction.py`), the portal, the logbook or the
   gateway's code.
+
+**Experiment instances.** Every per-instance value the worker and the queue client read (`QS_REDIS_PREFIX`, `QS_EXISTING_PLANS_DEVICES`, `QS_CLIENT_*_ADDR`) defaults to the main experiment's behaviour when unset, so a non-templated unit never changes when an instance is added.

@@ -73,6 +73,8 @@ class Loaded:
     rows: list[list[Bound]] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
     status: int = 200
+    #: Why the problems may all be one thing (the module's roster is incomplete); drawn first.
+    cause: str = ""
 
     @property
     def columns(self) -> int:
@@ -210,8 +212,8 @@ def router(settings: Settings) -> APIRouter:
         loaded = load(settings, name, names)
         if (
             error and loaded.status == 422
-        ):  # a DB device may be refused for want of the roster
-            loaded.problems.append(f"the module's roster is incomplete ({error}): a DB device cannot be bound")  # fmt: skip
+        ):  # a DB device may be refused for want of the roster: say so before the widgets
+            loaded.cause = f"the module's roster is incomplete ({error}): a DB device cannot be bound"  # fmt: skip
         context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE}
         templates = request.app.state.templates
         return templates.TemplateResponse(
