@@ -277,9 +277,10 @@ class CameraFeed:
         """The saturation check, on a FRESH raw max only (a stale one says unknown)."""
         raw = next(r for r in readings if r["key"] == "raw_max")
         fmt = next(r for r in readings if r["key"] == "pixel_format")
+        full = next(r for r in readings if r["key"] == "full_scale")
         if raw["state"] != "fresh":
             return saturation(None, None)
-        return saturation(fmt["value"], raw["value"])
+        return saturation(fmt["value"], raw["value"], full["value"])
 
     def crosshairs(self) -> list[dict[str, object]]:
         """Each crosshair's stored state (``None`` fields: not read yet)."""

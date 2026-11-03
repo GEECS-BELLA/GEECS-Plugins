@@ -64,6 +64,10 @@ READINGS: tuple[Reading, ...] = (
     # Seconds on the wire; the page shows milliseconds (camera.js SCALE).
     Reading("exposure", "exposure", "cam1:AcquireTime_RBV", "ms"),
     Reading("pixel_format", "pixel format", "cam1:PixelFormat_RBV", as_string=True),
+    # The IOC's own full scale (geecs-epics families/cameras/full_scale.db): a
+    # driver shift puts every camera of 12 bits or fewer on 0-4095, whatever
+    # PixelFormat says. Absent on an older IOC: FULL_SCALE by format instead.
+    Reading("full_scale", "full scale", "FullScale"),
     Reading(
         "cx", "centroid x", "STAT:CentroidX_RBV", "px", "STAT", "STAT:ComputeCentroid"
     ),
@@ -152,21 +156,34 @@ TRANSFORMS = (
     "Rot270Mirror",
 )
 
-#: Each pixel format's full scale, as the driver's array carries it. A
-#: Blackfly's "Mono16" is 12 bits LEFT-aligned (multiples of 16, top 65520):
-#: the 99% threshold below catches it at the same full scale as true 16-bit.
+#: Each pixel format's full scale, as the driver's array carries it, for an
+#: IOC that publishes no ``FullScale`` record. A Blackfly's unshifted "Mono16"
+#: is 12 bits LEFT-aligned (multiples of 16, top 65520): the 99% threshold
+#: below catches it at the same full scale as true 16-bit.
 FULL_SCALE = {"Mono8": 255, "Mono10": 1023, "Mono12": 4095, "Mono16": 65535}
 #: Saturated at or above this fraction of full scale.
 SATURATION_FRACTION = 0.99
 
 
-def saturation(pixel_format: object, raw_max: object) -> dict[str, object]:
-    """Whether the raw frame's maximum (STAT0) is at the pixel format's top.
+def saturation(
+    pixel_format: object, raw_max: object, full_scale: object = None
+) -> dict[str, object]:
+    """Whether the raw frame's maximum (STAT0) is at the frame's top.
 
-    ``state`` is ``saturated``, ``ok``, or ``unknown`` (a format not in
-    :data:`FULL_SCALE`, or no reading yet); ``fraction`` is max / full scale.
+    The top is the IOC's ``FullScale`` record when it gives a positive number
+    (a driver shift makes PixelFormat misleading: a Blackfly shifted onto 12
+    bits still reads Mono16), else the pixel format's :data:`FULL_SCALE`.
+    ``state`` is ``saturated``, ``ok``, or ``unknown`` (neither known, or no
+    reading yet); ``fraction`` is max / full scale.
     """
-    full = FULL_SCALE.get(str(pixel_format)) if pixel_format is not None else None
+    if (
+        isinstance(full_scale, (int, float))
+        and not isinstance(full_scale, bool)
+        and full_scale > 0
+    ):
+        full = full_scale
+    else:
+        full = FULL_SCALE.get(str(pixel_format)) if pixel_format is not None else None
     if full is None or not isinstance(raw_max, (int, float)):
         return {"state": "unknown", "fraction": None, "full_scale": full}
     fraction = float(raw_max) / full
