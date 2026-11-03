@@ -68,3 +68,14 @@ def test_a_hit_on_the_edge_or_corner_is_found() -> None:
     image[0, 0] = image[2, 5] = 1000.0
     out = remove_hits(image, "hot")
     assert out[0, 0] == 10.0 and out[2, 5] == 10.0
+
+
+@pytest.mark.parametrize(("sigma", "offset"), [(0.5, 0.0), (0.6, 0.1), (0.8, 0.0)])
+def test_a_sharp_focal_spot_is_not_taken_for_a_hit(sigma: float, offset: float) -> None:
+    """A spot of about 1-2 px FWHM keeps its peak: the optics light its neighbours."""
+    y, x = np.indices((41, 41))
+    rng = np.random.default_rng(1)
+    r2 = (y - 20 - offset) ** 2 + (x - 20 - offset) ** 2
+    image = 10 + 1000 * np.exp(-r2 / (2 * sigma**2)) + rng.normal(0, 1, (41, 41))
+    out = remove_hits(image, "hot")
+    np.testing.assert_array_equal(out, image)

@@ -31,6 +31,7 @@ from datetime import date
 from pathlib import Path
 from typing import Callable, Literal, Optional
 
+from geecs_data_utils.data.image_prep import HIT_FILTERS
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "tab": ("xy", "map", "images"),
     "image_strip": ("bins", "shots", "pick"),
     "image_pick": ("first", "ymax"),
-    "image_hits": ("none", "median3", "median5", "hot"),
+    "image_hits": HIT_FILTERS,
     "image_layout": ("grid", "row"),
     "image_zscale": ("tile", "shared", "fixed"),
     "xy_view": ("shot", "bin"),

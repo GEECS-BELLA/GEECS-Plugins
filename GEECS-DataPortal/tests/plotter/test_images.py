@@ -466,6 +466,23 @@ def test_a_bin_read_as_a_decimal_is_captioned_whole(share: Path) -> None:
     ]
 
 
+def test_a_value_two_bins_share_names_the_bins() -> None:
+    """A scan back over its start: the two 17.5 bins read apart, the rest stay bare."""
+    frame = pd.DataFrame({"Bin #": [1, 1, 2, 2, 3, 3]})
+    values = pd.Series([17.5, 17.5, 20.0, 20.0, 17.5, 17.5])
+    assert [t.caption for t in images.tiles(frame, "bins", values)] == [
+        "17.5 · bin 1 · 2 shots",
+        "20 · 2 shots",
+        "17.5 · bin 3 · 2 shots",
+    ]
+
+
+def test_every_hit_filter_has_a_label_on_the_rail() -> None:
+    from geecs_data_utils.data.image_prep import HIT_FILTERS
+
+    assert set(images.HIT_LABELS) == set(HIT_FILTERS)
+
+
 def test_fixed_levels_with_white_below_black_say_so(
     client: TestClient, camera: Path
 ) -> None:

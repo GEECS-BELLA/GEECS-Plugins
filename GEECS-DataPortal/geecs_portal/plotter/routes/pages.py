@@ -406,6 +406,7 @@ def _page(
         "strip": _choice(settings, "image_strip"),
         "pick": _choice(settings, "image_pick"),
         "hits": _choice(settings, "image_hits"),
+        "hit_labels": images.HIT_LABELS,
         "centre": settings.image_centre,
         "layout": _choice(settings, "image_layout"),
         "cols": settings.image_columns,
@@ -622,6 +623,7 @@ def _fill_images(
     day, scan = page["day"], page["scan"]
     prep = ImagePrep(hits=page["hits"], centre=settings.image_centre)
     pick_by = page.get("y", "") if page["pick"] == "ymax" else ""
+    x, page["strip_x"] = strip_axis(run, frame, settings.x_alias)
     try:
         page["tiles"] = strip_tiles(
             run,
@@ -630,11 +632,10 @@ def _fill_images(
             day=day,
             scan=scan,
             device=device,
-            alias=settings.x_alias,
+            x=x,
             pick_by=pick_by,
             prep=prep,
         )
-        page["strip_x"] = strip_axis(run, frame, settings.x_alias)[1]
     except HTTPException as missing:
         page["device_problem"] = missing.detail
         return

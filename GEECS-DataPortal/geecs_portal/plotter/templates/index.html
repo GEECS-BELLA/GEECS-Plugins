@@ -221,7 +221,7 @@
                 <label for="hits" class="hint">X-ray hits</label>
                 <span class="spacer"></span>
                 <select id="hits" name="hits" data-submit-on-change>
-                  {% for value, text in (("none", "keep"), ("hot", "remove hot pixels"), ("median3", "median 3×3"), ("median5", "median 5×5")) %}
+                  {% for value, text in hit_labels.items() %}
                   <option value="{{ value }}"{% if hits == value %} selected{% endif %}>{{ text }}</option>
                   {% endfor %}
                 </select>

@@ -31,6 +31,13 @@ HIT_FILTERS: tuple[str, ...] = ("none", "median3", "median5", "hot")
 #: hot-pixel filter to replace it, in robust standard deviations of the noise.
 HOT_SIGMAS = 5.0
 
+#: The most a hit's brightest neighbour may stand above the local
+#: background, as a share of the hit's own height above it. Real light is
+#: spread by the optics: even a focal spot of 0.5 px sigma puts 13% of its
+#: peak on the next pixel, while an X-ray hit leaves its neighbours at the
+#: background.
+HOT_NEIGHBOUR_SHARE = 0.05
+
 
 def remove_hits(image: np.ndarray, method: str) -> np.ndarray:
     """*image* with X-ray hits removed; the same array for ``"none"``.
@@ -44,9 +51,11 @@ def remove_hits(image: np.ndarray, method: str) -> np.ndarray:
         neighbourhood's median (blurs a little, removes clusters up to
         about the kernel's half size). ``"hot"`` replaces only single-pixel
         hits — a pixel above its brightest neighbour by more than
-        ``HOT_SIGMAS`` robust standard deviations of the noise and by more
-        than twice what its neighbours differ from each other — with its 3×3 median,
-        leaving the rest of the image (a sharp beam peak too) untouched.
+        ``HOT_SIGMAS`` robust standard deviations of the noise, whose
+        brightest neighbour is itself barely above the local background
+        (``HOT_NEIGHBOUR_SHARE`` of the pixel's height, plus the noise) —
+        with its 3×3 median, leaving the rest of the image untouched: a
+        beam's peak, however sharp, lights its neighbours too.
 
     Returns
     -------
@@ -62,12 +71,13 @@ def remove_hits(image: np.ndarray, method: str) -> np.ndarray:
         return image
     if method not in HIT_FILTERS:
         raise ValueError(f"unknown hit filter {method!r}: one of {HIT_FILTERS}")
-    from scipy.ndimage import maximum_filter, median_filter, minimum_filter
+    from scipy.ndimage import maximum_filter, median_filter
 
     data = np.asarray(image, dtype=float)
     if method in ("median3", "median5"):
         return median_filter(data, size=int(method[-1]), mode="reflect")
     smooth = median_filter(data, size=3, mode="reflect")
+    background = median_filter(data, size=5, mode="reflect")
     residual = data - smooth
     noise = 1.4826 * float(np.median(np.abs(residual - np.median(residual))))
     ring = np.ones((3, 3), dtype=bool)
@@ -75,12 +85,12 @@ def remove_hits(image: np.ndarray, method: str) -> np.ndarray:
     # "mirror", not "reflect": reflect copies an edge pixel into its own
     # neighbourhood, so a hit on the edge would hide behind itself.
     brightest = maximum_filter(data, footprint=ring, mode="mirror")
-    darkest = minimum_filter(data, footprint=ring, mode="mirror")
-    excess = data - brightest
-    # A hit stands above its brightest neighbour by more than the noise
-    # and by twice what its neighbours differ from each other: a beam's
-    # peak has steep neighbours, a hit on the background flat ones.
-    hot = (excess > HOT_SIGMAS * noise) & (excess > 2.0 * (brightest - darkest))
+    height = data - background
+    # A hit stands far above its brightest neighbour, and that neighbour
+    # is at the background: no optics puts all of a beam into one pixel.
+    hot = (data - brightest > HOT_SIGMAS * noise) & (
+        brightest - background < HOT_NEIGHBOUR_SHARE * height + 3.0 * noise
+    )
     return np.where(hot, smooth, data)
 
 

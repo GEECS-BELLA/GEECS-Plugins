@@ -136,16 +136,19 @@ def strip_tiles(
     day: date,
     scan: int,
     device: str,
-    alias: bool = True,
+    x: Optional[str] = None,
     pick_by: str = "",
     prep: ImagePrep = ImagePrep(),
 ) -> list[TileModel]:
     """The strip's tiles with their URLs; captions carry the scan variable's value.
 
-    *pick_by* is the column whose highest value picks each bin's one shot
-    (``pick``; ``""``: its first shot).
+    *x* is the scan variable's column when the caller has it already
+    (:func:`strip_axis`); ``None`` looks it up. *pick_by* is the column
+    whose highest value picks each bin's one shot (``pick``; ``""``: its
+    first shot).
     """
-    x, _ = strip_axis(run, frame, alias)
+    if x is None:
+        x = strip_axis(run, frame)[0]
     values = scans.plot_series(frame, [x])[x] if x else None
     by = (
         scans.plot_series(frame, [pick_by])[pick_by]

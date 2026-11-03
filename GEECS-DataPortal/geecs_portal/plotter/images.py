@@ -25,9 +25,20 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from geecs_data_utils.data.binning import bin_rows
-from geecs_data_utils.data.image_prep import ImagePrep
+from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import window_levels
+
+#: The X-ray-hit filters as the rail names them, in its order; one per
+#: ``image_prep.HIT_FILTERS`` (the import-time check keeps the two in step).
+HIT_LABELS = {
+    "none": "keep",
+    "hot": "remove hot pixels",
+    "median3": "median 3×3",
+    "median5": "median 5×5",
+}
+if set(HIT_LABELS) != set(HIT_FILTERS):  # pragma: no cover - a developer's slip
+    raise RuntimeError("every image_prep.HIT_FILTERS entry needs a HIT_LABELS label")
 
 #: The colour maps offered (matplotlib names), "gray" first, the default:
 #: the perceptual ones, then the classic false-colour tables.
@@ -185,7 +196,8 @@ def tiles(
     """The strip's tiles, in order.
 
     A bin's caption is its scan variable's value, ``"17.5 · 5 shots"``
-    (``"bin 2 · 5 shots"`` without one); a shot's is ``"shot 3 · 17.5"``;
+    (``"bin 2 · 5 shots"`` without one, ``"17.5 · bin 2 · 5 shots"`` when
+    another bin has the same value); a shot's is ``"shot 3 · 17.5"``;
     a bin's one shot (``"pick"``) is ``"17.5 · shot 12"``. The variable's
     name is the strip's title, said once.
 
@@ -226,9 +238,15 @@ def tiles(
             caption = f"{label} · {value}" if value else label
             out.append(Tile(row, (row,), caption, in_bin))
         return out
+    found = list(bins(frame))
+    wheres = [_value(scan_values, rows) for _, rows in found]
+    # A value two bins share (a scan back over its start, or medians alike
+    # to 4 figures) names the bin too, so no two tiles read the same.
+    shared = {w for w in wheres if w and wheres.count(w) > 1}
     out = []
-    for index, (label, rows) in enumerate(bins(frame)):
-        where = _value(scan_values, rows) or f"bin {_number(label, 'none')}"
+    for index, ((label, rows), value) in enumerate(zip(found, wheres)):
+        number = f"bin {_number(label, 'none')}"
+        where = (f"{value} · {number}" if value in shared else value) or number
         if strip == "pick":
             row = pick_row(rows, pick_by)
             caption = f"{where} · {shot_label(row)}"
