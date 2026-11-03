@@ -64,6 +64,12 @@ module does not list for that device) or `wrong kind` (the role exists but
 does not fit the widget, a setpoint bound to a read-only value, say). Both
 are screen-file problems to report, not device faults.
 
+A screen that cannot be drawn at all names its problems instead, and when
+they share one cause, that cause comes first: the module has not read the
+GEECS DB (its login refused, say), so no DB device on the screen can bind.
+Fix the cause, not the screen; the page draws on its own once the module's
+next DB read succeeds, within a minute.
+
 A value changing on screen is never evidence that it is live; only the
 word is.
 

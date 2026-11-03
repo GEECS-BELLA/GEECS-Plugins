@@ -10,6 +10,7 @@
 {% set s = loaded.screen %}
 {% set RO_PV = "A bare PV is read only: bind the device and its variable to write it." %}
 {% set WRITES = ("setpoint", "toggle", "flipper", "button") %}
+{% set FOLD_AT = 3 %}{# more problems than this fold behind the cause (kit rung 0) #}
 {% block title %}{{ s.title if s else name }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">{% endblock %}
 {% block header %}
@@ -25,7 +26,12 @@
 <div class="shell solo"><main class="pane">
   <div class="state" data-state="error">
     <div class="t">Screen {{ name }} cannot be drawn</div>
-    {% for p in loaded.problems %}<div class="m mono">{{ p }}</div>{% endfor %}
+    {% if loaded.cause %}<div class="m">{{ loaded.cause }}</div>{% endif %}
+    {% if loaded.problems | length > FOLD_AT %}
+    <details class="disc"><summary>{{ loaded.problems | length }} bindings refused</summary><div class="dbody">
+      {% for p in loaded.problems %}<div class="m mono">{{ p }}</div>{% endfor %}
+    </div></details>
+    {% else %}{% for p in loaded.problems %}<div class="m mono">{{ p }}</div>{% endfor %}{% endif %}
   </div>
 </main></div>
 {% else %}
