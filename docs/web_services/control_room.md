@@ -67,8 +67,10 @@ are screen-file problems to report, not device faults.
 A screen that cannot be drawn at all names its problems instead, and when
 they share one cause, that cause comes first: the module has not read the
 GEECS DB (its login refused, say), so no DB device on the screen can bind.
-Fix the cause, not the screen; the page draws on its own once the module's
-next DB read succeeds, within a minute.
+Fix the cause, not the screen. The error page asks the server again every
+30 s on its own (no script runs on it), so it draws once the module's next
+DB read succeeds, within a minute or two; a missing screen file does not
+retry.
 
 A value changing on screen is never evidence that it is live; only the
 word is.

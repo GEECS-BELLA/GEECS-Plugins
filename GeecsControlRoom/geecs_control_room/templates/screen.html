@@ -11,8 +11,10 @@
 {% set RO_PV = "A bare PV is read only: bind the device and its variable to write it." %}
 {% set WRITES = ("setpoint", "toggle", "flipper", "button") %}
 {% set FOLD_AT = 3 %}{# more problems than this fold behind the cause (kit rung 0) #}
+{% set RETRY_S = 30 %}{# an undrawable screen (not a missing one) asks again: no script runs on it #}
 {% block title %}{{ s.title if s else name }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">
+{%- if not loaded.screen and loaded.status != 404 %}<meta http-equiv="refresh" content="{{ RETRY_S }}">{% endif %}{% endblock %}
 {% block header %}
 <label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>
 <span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
@@ -27,6 +29,7 @@
   <div class="state" data-state="error">
     <div class="t">Screen {{ name }} cannot be drawn</div>
     {% if loaded.cause %}<div class="m">{{ loaded.cause }}</div>{% endif %}
+    {% if loaded.status != 404 %}<div class="m">This page asks again every {{ RETRY_S }} s.</div>{% endif %}
     {% if loaded.problems | length > FOLD_AT %}
     <details class="disc"><summary>{{ loaded.problems | length }} bindings refused</summary><div class="dbody">
       {% for p in loaded.problems %}<div class="m mono">{{ p }}</div>{% endfor %}

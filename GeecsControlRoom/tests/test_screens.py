@@ -223,3 +223,11 @@ def test_many_refused_bindings_fold_behind_the_cause(settings: Settings) -> None
         r = c.get("/screens/sim_bench")
     assert r.status_code == 422 and "<summary>5 bindings refused</summary>" in r.text
     assert r.text.count("no device &#39;U_PLC&#39;") == 5
+
+
+def test_an_undrawable_screen_asks_again_and_a_missing_one_does_not(settings: Settings) -> None:  # fmt: skip
+    _screens(settings, _ROSTER_SCREEN)
+    with TestClient(create_app(settings, _roster([]))) as c:
+        refused, missing = c.get("/screens/sim_bench"), c.get("/screens/nope")
+    assert refused.status_code == 422 and 'http-equiv="refresh" content="30"' in refused.text  # fmt: skip
+    assert missing.status_code == 404 and "http-equiv" not in missing.text
