@@ -327,6 +327,8 @@
     // Enter takes the one match left (the kit picker's rule); otherwise it
     // stays in the box instead of submitting the form.
     filter.addEventListener("keydown", (event) => {
+      // The down arrow goes from the filter box into its list.
+      if (event.key === "ArrowDown") { event.preventDefault(); select.focus(); return; }
       if (event.key !== "Enter") return;
       event.preventDefault();
       const left = matches().filter((o) => o.value !== "");

@@ -15,6 +15,9 @@
  *   GeecsKit.picker(opts)             a multi-select .picklist in a drawer:
  *                                     search, click / shift-click, select
  *                                     all shown, clear, one Add for the lot
+ *   <button class="combo" popovertarget="p">  a one-line picker: placed
+ *                                     under its button, its filter box
+ *                                     focused, opened by typing into it
  *
  * Why a drawer needs script at all, when rungs 0 and 3 do not: the browser
  * gives us <details> and <dialog> outright, but there is no element for "a
@@ -391,9 +394,64 @@
     });
   }
 
+  /* ---- the one-line picker (.combo and its [popover]) -------------- */
+
+  // The platform opens and closes it (popovertarget, Esc, a click outside).
+  // This places it under its button (above it, near the window's foot),
+  // focuses its filter box ([data-combo-filter]) or its list as it opens,
+  // and opens it when the button is typed into: the key starts the filter,
+  // the down arrow goes to the list.
+  function wireCombos() {
+    var buttons = document.querySelectorAll(".combo[popovertarget]");
+    Array.prototype.forEach.call(buttons, function (button) {
+      var pop = document.getElementById(button.getAttribute("popovertarget"));
+      if (!pop || !pop.showPopover) return;
+      pop.addEventListener("toggle", function (e) {
+        if (e.newState !== "open") return;
+        var r = button.getBoundingClientRect();
+        pop.style.position = "fixed";
+        pop.style.minWidth = r.width + "px";
+        pop.style.left = Math.max(4, Math.min(r.left, window.innerWidth - pop.offsetWidth - 4)) + "px";
+        var below = r.bottom + 4;
+        pop.style.top = (below + pop.offsetHeight > window.innerHeight
+          ? Math.max(4, r.top - pop.offsetHeight - 4) : below) + "px";
+        if (!pop.contains(document.activeElement)) {
+          var first = pop.querySelector("[data-combo-filter]") || pop.querySelector("select,input,button");
+          if (first) first.focus();
+        }
+      });
+      button.addEventListener("keydown", function (e) {
+        // A character starts filtering; Space stays the button's own press.
+        var typed = e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey;
+        if (!typed && e.key !== "ArrowDown") return;
+        e.preventDefault();
+        if (!pop.matches(":popover-open")) pop.showPopover();
+        var filter = pop.querySelector("[data-combo-filter]");
+        if (typed && filter) {
+          // Added to what the box already holds (a kept filter), never replacing it.
+          filter.value += e.key;
+          filter.focus();
+          filter.dispatchEvent(new Event("input", { bubbles: true }));
+        } else {
+          var list = pop.querySelector("select");
+          if (list) list.focus();
+        }
+      });
+    });
+  }
+
+  // A drawer the server rendered open (a refused form inside it, say)
+  // is taken over as if opened here, so Close, Esc and the scrim work.
+  function adoptOpenDrawer() {
+    var el = document.querySelector('.drawer[data-open="true"]');
+    if (el) showDrawer(el, null);
+  }
+
   function init() {
     buildDensityPickers();
     wire();
+    wireCombos();
+    adoptOpenDrawer();
   }
 
   if (document.readyState === "loading") {

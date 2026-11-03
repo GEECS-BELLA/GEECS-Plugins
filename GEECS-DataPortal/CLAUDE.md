@@ -663,6 +663,19 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   for `_REFUSAL_SECONDS` only, so a passing failure is never made
   permanent. The big view's colour bar is `tile.png?bar=true` (matplotlib's
   object API, the same levels).
+- **The rail is about a screen, with nothing scrolling inside it** (the
+  author, 2026-11-03: "scrolling down the left hand pane gets you stuck
+  scrolling in listboxes"). Every pick list (X, Y1–Y3, the map's
+  scalar, the camera) is a one-line picker, the kit's `.combo`: the
+  current pick on a button whose popover holds the filter box over the
+  list, opened by a click or by typing. The groups (Scan, Strip or Map,
+  Scans, Axes, Shot filters) fold away (`details.disc`); each Y row
+  carries its Fit menu and alias toggle; the switches that change the
+  plot (XY | 2-D map, per shot | binned, ⚙ bins, Y plots 1|2|3,
+  Display…) are a toolbar over the plot; the settings set, Save as, the
+  colour map and the z scale are in the Settings drawer (rung 2), whose
+  controls name the page form (`form="pick"`). The viewer's name and a
+  store problem stay in the rail, where they must be seen.
 - **The theme and kit are imported** (`geecs_web_theme.web`); every
   colour is a token. `GeecsWebTheme/tests/test_no_literal_colours.py`
   walks the plotter's template, CSS and scripts.

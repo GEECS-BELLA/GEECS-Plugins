@@ -34,8 +34,8 @@
 .kit .fit table { width: auto; min-width: 220px; }
 .kit .fit-error { color: var(--crit); margin: 4px 0; }
 
-/* The XY plot, 2-D map and image strip switch above the pane. */
-.kit .view-switch { margin-bottom: var(--pad); }
+/* The toolbar over the plot: every switch that changes it. */
+.kit .plot-toolbar { margin-bottom: var(--pad); gap: 8px; flex-wrap: wrap; align-items: center; }
 
 /* The image controls' small number boxes (tiles across, the levels). */
 .kit .narrow-number { width: 5em; }
@@ -87,3 +87,12 @@
 .kit .strip .tile[hidden] { display: none; }
 /* The way back to the day's list of scans, above the tabs. */
 .kit .back-to-day { margin-bottom: 6px; }
+
+/* The rail: folding groups of one-line pickers, about a screen tall. */
+.kit .rail-group { margin-bottom: 6px; }
+.kit .rail-group > .dbody { display: flex; flex-direction: column; gap: var(--gap); }
+.kit .axis-row { gap: 6px; flex-wrap: wrap; align-items: center; }
+.kit .axis-row .fit-menu { flex: 1 1 7em; min-width: 0; }
+.kit .scan-row { gap: 6px; flex-wrap: nowrap; }
+.kit .scan-row .field { flex: 1 1 auto; min-width: 0; }
+.kit .scan-row .scan-field { flex: 0 1 5.5em; }

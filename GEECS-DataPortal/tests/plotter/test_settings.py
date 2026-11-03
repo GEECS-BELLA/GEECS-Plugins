@@ -408,6 +408,13 @@ def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> 
     assert 'value="jet/scan"' in response.text
     assert 'aria-invalid="true" aria-describedby="save-as-err"' in response.text
     assert "spaces" in response.text  # the message says what a name may hold
+    # The box lives in the Settings drawer: it opens, so the error is seen.
+    assert (
+        'id="settings-drawer" role="dialog" aria-modal="false" aria-labelledby="settings-title" aria-hidden="false" data-open="true"'
+        in response.text
+    )
+    closed = 'aria-labelledby="settings-title" aria-hidden="true" data-open="false"'
+    assert closed in client.get("/?set=default").text  # otherwise it stays shut
 
 
 def test_the_set_list_says_how_to_add_one(client: TestClient) -> None:
