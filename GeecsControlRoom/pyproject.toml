@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-control-room"
-version = "0.1.0"
+version = "0.2.0"
 description = "The operator surfaces over Canopy: the Control Room home and the screens renderer (a control GUI is a screen file drawn by one renderer)"
 authors = ["GEECS-BELLA"]
 readme = "README.md"
