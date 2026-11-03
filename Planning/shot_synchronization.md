@@ -242,23 +242,49 @@ need: required for 5 Hz under exposure scans, not for 1 Hz.
 
 **Conditions for 5 Hz**, all measurable at the bench: calibrated offsets
 for every LabVIEW device; the witness poll at 10 ms; hardware stamps on
-cameras whose exposure is scanned; Windows clock spread measured under
-20 ms.
+cameras whose exposure is scanned; LabVIEW stamps by worker receipt, or
+their hosts' clock swing measured under 20 ms over a day (the first host:
+10 to 16 ms behind the box, a few ms of swing in ten minutes, section 4.5).
 
 ### 4.5 Clocks
 
+Measured 2026-11-03, read-only, from chrony's logs on the Linux hosts and
+a passive capture of one Windows host's NTP queries at the services box
+(the numbers' home: `geecs-epics:docs/runbooks/timing.md`):
+
+| Pair | Mean | SD | Worst | Record |
+|---|---|---|---|---|
+| each of two camera servers vs the services box | -7 and -14 us | 33 and 43 us | within 0.18 ms | 9.4 h steady state |
+| camera server vs camera server, through the box | +7 us | 43 us | 0.25 ms | 9.4 h |
+| each Linux host vs campus NTP | 0 us | 6 to 13 us | within 0.09 ms | 9.4 h |
+| one LabVIEW host (W32Time) vs the services box | 10 to 13 ms behind | wanders 2 ms in minutes, reversing | 16 ms | 10 min; a day's record running |
+
 - **Linux IOC hosts**, the witness host included: chrony on campus NTP,
   set by the fleet's Ansible base role
-  (`geecs-epics:docs/runbooks/ansible.md`). The services box carries the
-  camera servers as cross-check sources; the first readings put them a few
-  tenths of a millisecond apart. A requirement handed to that lane: slew
-  only after boot, never step during a run.
-- **Windows device hosts**: W32Time through the domain against the same
-  campus NTP (maintainer). Domain-hierarchy time is typically tens to
-  hundreds of milliseconds unless tuned; unmeasured here. Fine at 1 Hz if
-  so, unproven at 5 Hz. The tracker measures it for free, every LabVIEW
-  acquisition against the witness, and flags a step; tightening W32Time is
-  a facility value on the facility's side.
+  (`geecs-epics:docs/runbooks/ansible.md`); every IOC host also carries the
+  services box as a cross-check source, so the pairwise offsets above are
+  logged continuously. Drift under 4 us per hour; no step; the only
+  excursions above 0.2 ms (up to 1.4 ms) sat in the minutes after a chrony
+  start, which is the requirement handed to that lane: slew only after
+  boot, never step during a run. The Linux side spends about a thousandth
+  of the 1 Hz budget and a hundredth of the 5 Hz budget: stamp placement,
+  not clock sync, is what can spend it (section 4.4).
+- **Windows device hosts**: W32Time through the domain. It was built to
+  keep Kerberos within five minutes and corrects the clock rate in coarse
+  steps at each poll, so a host wanders and oscillates by milliseconds to
+  tens of milliseconds depending on its crystal and poll interval; the
+  maintainer's earlier tuning attempts found large offsets and periodic
+  oscillations that differed per computer. The design does not depend on
+  these clocks, in three layers: in scan mode the announce stamp, on the
+  worker's clock, anchors each acquisition and the LabVIEW clock is never
+  consulted (section 4.6); outside scan mode the worker's receipt stamp is
+  a Windows-free alternative to `acq_timestamp`, inside the budget at 1 Hz
+  and the one to use at 5 Hz; a slow wander moves the tracked offset, a
+  step raises *clock-step*. Nothing is tuned: the migration retires these
+  clocks a host at a time, and if a LabVIEW device's own stamp is ever
+  needed at 5 Hz the answer is a real NTP client on that host (Meinberg's
+  ntpd port holds about a millisecond on a LAN), a facility change on the
+  facility's side.
 
 ### 4.6 Rows
 
