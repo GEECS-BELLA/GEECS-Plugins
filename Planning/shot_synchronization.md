@@ -55,6 +55,7 @@ gaps flagged, no retake needed.**
 | **asynchronous device** | no edge; its value at shot time is its last sample before the shot: motors, supplies, a camera in free-run |
 | **stamp kind** | where a device's timestamp was taken: *host-receipt* (the IOC host's clock when the complete acquisition arrived), *device-clock* (the camera's own tick counter), *ptp* (the camera's clock disciplined by PTP), *poll* (the witness) |
 | **counter** | a per-acquisition integer: *hardware* (the camera's frame id), *driver* (the IOC's count of complete acquisitions), *announced* (the scan's shot number echoed back by a LabVIEW device) |
+| **announcement** | the scan-mode shot message Master Control, and now the worker, multicasts before each shot: the software "fire" a LabVIEW device needs before it will take its next acquisition (`docs/acquisition/scan_mode.md`). Distinct from the edge: the box fires the edge after it |
 
 Class is a property of the **configuration**, not the device type: the
 IOC's trigger-mode readback says which, and it is recorded with each
@@ -133,7 +134,8 @@ or missing edges on the real pulse.
 | `witness_epoch`, `witness_count` | the shot assigned |
 | `witness_stamp` | that shot's witness stamp |
 | `residual` | `device_stamp − offset − witness_stamp` after assignment |
-| `flags` | empty, or any of *missing*, *extra*, *audit-mismatch*, *clock-step*, *counter-reset*, *witness-stamp-shared*, *unwitnessed*, *stale* (asynchronous) |
+| `announce_stamp` | scan-mode LabVIEW devices only: the worker's clock when it announced the shot this acquisition answers (§4.6) |
+| `flags` | empty, or any of *missing*, *not-armed* (a LabVIEW device that was awaiting an announcement when the edge came), *extra*, *audit-mismatch*, *clock-step*, *counter-reset*, *witness-stamp-shared*, *unwitnessed*, *stale* (asynchronous) |
 
 Stored where it is produced: event columns in the device's stream for
 scalars; for frames, the stack's per-frame attributes, which already carry
@@ -250,13 +252,42 @@ cameras whose exposure is scanned; Windows clock spread measured under
   whose synchronous device missed; that is a new row with its own shot,
   plan policy, default off. "No retakes" in the policy means the join must
   not depend on them, not that a plan is forbidden one.
-- **LabVIEW scan mode** keeps announcing each shot's path until the last
-  LabVIEW device migrates. The "shot number" a LabVIEW device pushes on the
-  wire is that announced number echoed, reset at each scan (maintainer), so
-  for LabVIEW devices the audit is *announced shot* against *assigned
-  shot*. A disagreement means the device stamped a late frame with a stale
-  announcement, the retake confusion of today, and both are flagged. This
-  audit cannot see a missed trigger on its own; the time assignment does.
+- **LabVIEW scan mode** is what Master Control did and what the worker's
+  scan-mode profiles still do (`docs/acquisition/scan_mode.md`): a scan
+  puts every LabVIEW device into scan mode, where its acquisition loop
+  runs only when a new shot number arrives. On each announcement the
+  device enters its acquire state, takes **one** acquisition (the next
+  hardware edge, or the next frame if it free-runs), saves it under the
+  announced number, and goes back to waiting for the next announcement.
+  Outside scan mode the same device acquires every edge. Consequences:
+  - An edge that arrives while a device is still awaiting its announcement
+    is **not acquired**. The witness still counts it. For a LabVIEW device
+    in scan mode, "every shot recorded" means every announced shot, and a
+    witness shot it has no acquisition for is flagged *not-armed* when the
+    announcement came after the edge, *missing* otherwise. The two are
+    told apart by the announce stamp, so a structural gap is never read as
+    a drop.
+  - The wire "shot number" is the announced number echoed, reset at each
+    scan (maintainer). With the announce stamp recorded, the audit for a
+    scan-mode device is exact rather than a delta rule: the acquisition
+    that answers announcement k must sit on the **first witness edge after
+    the announce stamp plus the device's arming latency**. The join
+    computes that shot from the witness stream and compares it with the
+    time-assigned one; a disagreement means the device stamped a later
+    edge than the announcement intended, the retake confusion of today,
+    and both are flagged. Announcements may lag edges, never lead them
+    twice: two acquisitions for one announcement is a duplicate, flagged.
+  - A free-running camera in scan mode acquires its **next frame after
+    the announcement**, not an edge. Its residual against the witness is
+    spread over one frame period. Nearest-time assignment still holds
+    while the frame period is under half the shot period; otherwise the
+    acquisition is flagged and the row says so. The adapter records this
+    class from the device's own trigger setting.
+  - The **arming latency**, announcement to acquire state, is a per-device
+    number that bounds how soon after the announcement the box may fire.
+    Today's strict loop announces, then fires, and at 1 Hz the margin is
+    wide; at 5 Hz it is a budget item, measured by the passive logger
+    during ordinary scans (§8).
 
 ## 5. Device by device
 
@@ -307,8 +338,11 @@ GEECS-Core already parses the wire shot number beside the values
 (`GEECS-Core/geecs_core/transport/tcp_subscriber.py:389-394`,
 `client/geecs_device.py:74`). The adapter turns each device push into one
 evidence record: `acq_timestamp` as a *host-receipt* stamp, the shot number
-as an *announced* counter, class from the device's roster entry. One
-module, no new wire protocol, deleted with the last LabVIEW device. The
+as an *announced* counter, class from the device's own trigger setting,
+and, in a scan-mode run, the worker's announce stamp for that number
+(§4.6). It knows the regime: in scan mode one acquisition per
+announcement, otherwise one per edge. One module, no new wire protocol,
+deleted with the last LabVIEW device. The
 LabVIEW-only strict path (baseline, retake, rewind) is **not touched**
 until then and is then deleted whole.
 
@@ -326,7 +360,7 @@ Two shapes, with their failure modes:
 | | **W1: witness as join key only** (plans unchanged) | **W2: witness-clocked acquisition** (recommended) |
 |---|---|---|
 | How a plan knows a shot happened | each device's own signal, as today (`acq_timestamp` advancing; `NumCaptured` advancing) | the witness count advances |
-| Strict fire | fire, wait for every device, retake on a miss | fire, see the count advance within a bounded wait (period + largest offset + margin, the constants in `plans/gated.py:78-80`), then wait the same bound for each synchronous device; a device that produces nothing gets NaN and *missing*; no retake, no rewind |
+| Strict fire | announce to the LabVIEW devices, fire, wait for every device, retake on a miss | announce as today, fire, see the count advance within a bounded wait (period + largest offset + margin, the constants in `plans/gated.py:78-80`), then wait the same bound for each synchronous device; a device that produces nothing gets NaN and *missing* (or *not-armed*, §4.6); no retake, no rewind |
 | Gated batch | the shot clock is a camera (`plans/gated.py:86-123`) and the sampler counts its stamp advances (`devices/sampler.py:132`): a shot the clock camera misses is a row that never exists | every witness tick is a row |
 | Fire confirmation | none; the native shot-control note lists it as missing | the fire is confirmed by the witness; a fire the witness never sees is reported as not fired, and the plan stops rather than fire again |
 | Mixed native and LabVIEW runs | still refused: the strict retake needs a native rewind (`plans/registry.py:402-437`) | allowed: no path needs a rewind |
@@ -385,6 +419,8 @@ the maintainer's hand-off and go as the gate.
    devices' push stream and the witness; per device, the residual
    distribution, the gap statistics and how the wire shot number behaves
    between scans. This measures Windows clock quality at the same time.
+   Left running through ordinary scans, with the worker's announce stamps,
+   it also gives each device's arming latency (§4.6).
 3. **Native cameras**, once the camera servers' IOCs are deployed (another
    lane owns that): `ArrayCounter` and the EpicsTS pair against the
    witness, and a read-only listing of the auto-generated GenICam records
@@ -407,8 +443,10 @@ whether W2's live wait is adequate.
 4. **Camera features.** After the deploy, a read-only listing of each
    bench camera's generated records settles PTP and timestamp-latch
    support; or your knowledge of the Blackfly and ace models.
-5. **The LabVIEW wire shot number between scans**: the passive logger
-   answers it; nothing to decide unless it behaves unexpectedly.
+5. **The LabVIEW wire shot number outside scan mode**: in scan mode it is
+   the announced number (settled, §4.6); what it counts while a device
+   free-runs between scans the passive logger answers. Nothing to decide
+   unless it behaves unexpectedly.
 6. **Offset updates**: by recorded calibration only (recommended, for
    reproducible runs), or continuously from the tracker.
 7. **Shot columns**: `Shotnumber` stays the row index with a new witness
