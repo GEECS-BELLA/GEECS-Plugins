@@ -41,8 +41,8 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   still renders a plausible neutral chip — it survives review *and* the
   browser, which is why the pin runs both directions.
 - **`kit.js` is optional.** Every rule works with scripts off; the script
-  adds only the drawer, the dialog helper, the density control and the
-  drawer picker. Do not make a *styled* component depend on it.
+  adds only the drawer, the dialog helper, the density control, the
+  drawer picker and the toast. Do not make a *styled* component depend on it.
 - **One drawer picker.** `GeecsKit.picker(opts)` is every "Add …" drawer
   that adds several things to a list — the scanner's devices and scan-log
   variables, the logbook's lookup columns: search, click to toggle,
@@ -53,6 +53,14 @@ keyboard), so it sets the vocabulary rather than inheriting a compromise.
   and what Add does — never its own selection code (three copies existed
   for a day; #1128). Pinned in `tests/test_kit_picker.py`, which runs the
   real `kit.js` under node; specimen on `kit.html`.
+- **One one-line picker.** `.combo` (a button showing the pick) and
+  `.combo-pop` (its `[popover]`: a filter box marked
+  `data-combo-filter` over a list) are every single-pick list that
+  would otherwise be a tall list box in a rail. The platform's popover
+  opens and closes it (`popovertarget`, Esc, a click outside) with
+  kit.js absent; kit.js places it under its button and opens it when the
+  button is typed into. Specimen on `kit.html`; first surface, the
+  portal's Plot pages (2026-11-03).
 - **`theme-boot.js` is the one definition** of which themes and densities
   exist and what the defaults are. It loads in `<head>`, NOT deferred, so
   the palette and density are stamped before first paint. `theme.js` reads
@@ -70,17 +78,19 @@ the theme without being on the kit.
 | GeecsLogbook | yes | yes | yes (0.10.0) |
 | GeecsScanner (web console, its branch) | yes | yes | yes |
 | GeecsPanels (prototype) | yes | yes | yes |
-| GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) — one exception: its `/static` and `/theme` mounts use `RevalidatingStaticFiles` (#1128), so a deploy is not hidden behind a cached asset. That is not the glue adoption below; the middleware copy and `root` processor stay until then |
+| GEECS-DataPortal | yes | yes (2026-10-28, every page at once; its own rules in `static/portal.css`) | yes (the middleware copy and its `root` processor removed in the same change) |
 | ScanAnalysis config editor (`/configs`) | yes | no | no |
 
-**Portal onto the kit is deliberately LAST** — after the Qt console's
-deletion (done 2026-09-14) and once HTU is quiet — because it is the kit's acceptance test: the
-run page uses plots, tabs and toasts, which the kit does not have yet,
-so that adoption will grow the kit rather than just consume it. Take the
-portal's glue copy (`_ForwardedPrefixMiddleware`, its own `root`
-context processor) out in the same change. The config editor follows the
-portal (it is a router inside it); it never gets a kit pass of its own.
-Do not start either early to "tidy up".
+**The portal went onto the kit on 2026-10-28**, ahead of the owner's
+ruling that it go LAST, once HTU is quiet, as the kit's acceptance test:
+the author overrode it to fold GeecsPlotter into the portal (deleted
+2026-10-29, its pages now the portal's `/plot`; the overrides are listed
+in the portal's `CLAUDE.md` for the maintainer to confirm at the
+promotion to `master`). The adoption still grew the kit as that ruling
+intended: `.tabs` and `.toast` (`GeecsKit.toast`) came from the portal's
+run page, each with a specimen on `kit.html`. The config editor follows
+the portal (it is a router inside it); it never gets a kit pass of its
+own. Do not start it early to "tidy up".
 
 ## The FastAPI glue and the template guards
 

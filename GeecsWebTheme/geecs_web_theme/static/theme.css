@@ -20,7 +20,7 @@
  *
  * Contrast: every muted/paper, accent/paper and on-accent/accent pair is
  * held at >= 4.5:1 (WCAG AA for body text) by tests/test_contrast.py.
- * --trace-1..4 are plot marks on the plot ground and are exempt.
+ * --trace-1..8 are plot marks on the plot ground and are exempt.
  */
 :root{
   --paper:#f7f4f4;
@@ -47,6 +47,10 @@
   --trace-2:#1f5f9e;
   --trace-3:#2b7a55;
   --trace-4:#8a5a12;
+  --trace-5:#6b3fa0;
+  --trace-6:#0e7c86;
+  --trace-7:#c2185b;
+  --trace-8:#4e6b10;
   --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
   color-scheme:light;
   --ff-ui:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -112,6 +116,10 @@
   --trace-2:#1f5f9e;
   --trace-3:#2b7a55;
   --trace-4:#8a5a12;
+  --trace-5:#6b3fa0;
+  --trace-6:#0e7c86;
+  --trace-7:#c2185b;
+  --trace-8:#4e6b10;
   --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
   color-scheme:light;
 }
@@ -140,6 +148,10 @@
   --trace-2:#6fa8dc;
   --trace-3:#61b98c;
   --trace-4:#d9a94e;
+  --trace-5:#b39ddb;
+  --trace-6:#4dd0e1;
+  --trace-7:#f48fb1;
+  --trace-8:#c5e17a;
   --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
   color-scheme:dark;
 }
@@ -170,6 +182,10 @@
   --trace-2:#b31f1f;
   --trace-3:#1f5f9e;
   --trace-4:#8a5a12;
+  --trace-5:#6b3fa0;
+  --trace-6:#0e7c86;
+  --trace-7:#c2185b;
+  --trace-8:#4e6b10;
   --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
   color-scheme:light;
 }
@@ -198,6 +214,10 @@
   --trace-2:#ff5a5a;
   --trace-3:#6fa8dc;
   --trace-4:#d9a94e;
+  --trace-5:#b39ddb;
+  --trace-6:#4dd0e1;
+  --trace-7:#f48fb1;
+  --trace-8:#c5e17a;
   --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
   color-scheme:dark;
 }
@@ -228,6 +248,10 @@
   --trace-2:#a0217a;
   --trace-3:#2b7a55;
   --trace-4:#a8560a;
+  --trace-5:#6b3fa0;
+  --trace-6:#0e7c86;
+  --trace-7:#1f5f9e;
+  --trace-8:#4e6b10;
   --shadow:0 1px 2px rgba(17,24,33,.06), 0 4px 14px rgba(17,24,33,.05);
   color-scheme:light;
 }
@@ -256,6 +280,10 @@
   --trace-2:#f062c0;
   --trace-3:#61b98c;
   --trace-4:#d9954e;
+  --trace-5:#b39ddb;
+  --trace-6:#4dd0e1;
+  --trace-7:#6fa8dc;
+  --trace-8:#c5e17a;
   --shadow:0 1px 2px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.35);
   color-scheme:dark;
 }

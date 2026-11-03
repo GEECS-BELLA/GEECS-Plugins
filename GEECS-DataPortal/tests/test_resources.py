@@ -15,7 +15,8 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from geecs_portal import resources
+from geecs_data_utils.io import shot_images
+
 from geecs_portal.app import create_app
 
 from test_app import _LV, TEST_DAY, FakeCatalog, _detail
@@ -164,164 +165,12 @@ def _gallery_client(scan_folder):
     return TestClient(create_app(catalog))
 
 
-class TestResourcesLayer:
-    def test_image_devices_lists_devices_not_machinery(self, scan_folder):
-        assert resources.image_devices(scan_folder) == [
-            "UC_StackCam",
-            "UC_TestCam",
-            "U_HasoLift",
-            "U_HasoWFS",
-            "U_ICT",
-            "U_MagSpec",
-            "U_Scope",
-            "cam",
-        ]
-
-    def test_native_shot_renders_png(self, scan_folder):
-        result = resources.load_shot_image(scan_folder, "UC_TestCam", 1)
-        assert result.kind == "native"
-        assert result.png.startswith(b"\x89PNG")
-
-    def test_stack_shot_renders_png(self, scan_folder):
-        result = resources.load_shot_image(scan_folder, "UC_StackCam", 2)
-        assert result.kind == "stack"
-        assert result.png.startswith(b"\x89PNG")
-        # No-timestamp ordinal fallback: shot 2 = frame index 1, pinned by
-        # the identity marker (an off-by-one here must fail).
-        rendered = np.asarray(Image.open(io.BytesIO(result.png)))
-        row, col = np.unravel_index(np.argmax(rendered), rendered.shape)
-        assert (row, col) == (0, 1)
-
-    def test_stack_timestamp_join_skips_leading_extra_frame(self, scan_folder):
-        """FORMAT.md caveat (a): a pre-scan frame in the stack must not
-        shift the join — acq T+2 is frame index 2, not shot−1 = 1."""
-        result = resources.load_shot_image(
-            scan_folder, "UC_StackCam", 2, acq_timestamp=_LV + 2.0
-        )
-        assert result.kind == "stack"
-        rendered = np.asarray(Image.open(io.BytesIO(result.png)))
-        row, col = np.unravel_index(np.argmax(rendered), rendered.shape)
-        assert (row, col) == (0, 2)  # frame identity, not just PNG magic
-
-    def test_stack_timestamp_no_match_is_missing(self, scan_folder):
-        result = resources.load_shot_image(
-            scan_folder, "UC_StackCam", 2, acq_timestamp=_LV + 9.0
-        )
-        assert result.kind == "missing"
-        assert "no stack frame" in result.reason
-
-    def test_vendor_device_reports_path_not_pixels(self, scan_folder):
-        result = resources.load_shot_image(scan_folder, "U_HasoWFS", 1)
-        assert result.kind == "vendor"
-        assert result.png is None
-        assert "U_HasoWFS" in str(result.path)
-
-    def test_missing_shot_and_unknown_device_touch_nothing(self, scan_folder):
-        root = scan_folder.parent.parent
-        before = _tree_snapshot(root)
-        assert resources.load_shot_image(scan_folder, "UC_TestCam", 99).kind == (
-            "missing"
-        )
-        assert resources.load_shot_image(scan_folder, "nope", 1).kind == "missing"
-        assert resources.load_shot_image(scan_folder, "../escape", 1).kind == (
-            "missing"
-        )
-        assert _tree_snapshot(root) == before  # tree untouched
-
-    def test_device_kind_probe(self, scan_folder):
-        assert resources.device_kind(scan_folder, "UC_StackCam")[0] == "stack"
-        assert resources.device_kind(scan_folder, "UC_TestCam")[0] == "native"
-        assert resources.device_kind(scan_folder, "U_HasoWFS")[0] == "vendor"
-        # .has-only folder: not in infer_device_ext's accepted set, must
-        # still land on the Tier C card, never "missing png"
-        assert resources.device_kind(scan_folder, "U_HasoLift")[0] == "vendor"
-
-    def test_has_only_device_gets_vendor_card_not_missing(self, scan_folder):
-        result = resources.load_shot_image(scan_folder, "U_HasoLift", 1)
-        assert result.kind == "vendor"
-
-    def test_non_canonical_layout_degrades_never_raises(self, tmp_path):
-        # A scan folder that exists but fails ScanPaths' canonical-layout
-        # validation (dev/scratch runs): a vendor device must still get
-        # its Tier C card (the probe needs no ScanPaths), and a native
-        # device must degrade to the missing/layout card, never raise.
-        folder = tmp_path / "scratch" / "ScanX"
-        haso = folder / "U_HasoWFS"
-        haso.mkdir(parents=True)
-        (haso / f"U_HasoWFS_{_LV + 1.0:.3f}.himg").write_bytes(b"proprietary")
-        cam = folder / "cam"
-        cam.mkdir()
-        (cam / f"cam_{_LV + 1.0:.3f}.png").write_bytes(b"png")
-        assert resources.device_kind(folder, "U_HasoWFS")[0] == "vendor"
-        assert resources.load_shot_image(folder, "U_HasoWFS", 1).kind == "vendor"
-        native = resources.load_shot_image(folder, "cam", 1, acq_timestamp=_LV + 1.0)
-        assert native.kind == "missing"
-        assert "layout" in native.reason
-
-    def test_non_image_native_format_is_unrenderable_not_vendor(self, scan_folder):
-        # .tdms/.dat are native GEECS formats, not vendor-SDK-locked —
-        # the tier probe and the loader must both say so honestly.
-        assert resources.device_kind(scan_folder, "U_Scope")[0] == "unrenderable"
-        result = resources.load_shot_image(scan_folder, "U_Scope", 1)
-        assert result.kind == "unrenderable"
-        assert "no renderer" in result.reason
-
-    def test_timestamp_named_file_joined_by_acq_timestamp(self, scan_folder):
-        result = resources.load_shot_image(
-            scan_folder, "cam", 1, acq_timestamp=_LV + 2.0
-        )
-        assert result.kind == "native"
-        # exact canonical-key file, and pixel identity (shot 2's marker)
-        assert result.path.name == f"cam_{_LV + 2.0:.3f}.png"
-        rendered = np.asarray(Image.open(io.BytesIO(result.png)))
-        row, col = np.unravel_index(np.argmax(rendered), rendered.shape)
-        assert (row, col) == (0, 2)
-
-    def test_timestamp_named_file_ordinal_fallback(self, scan_folder):
-        result = resources.load_shot_image(scan_folder, "cam", 3)
-        assert result.kind == "native"
-        assert result.path.name == f"cam_{_LV + 3.0:.3f}.png"
-        # Listing-order join: an SMB blip can shift it, so the result
-        # must never be long-cached by the browser.
-        assert result.cacheable is False
-
-    def test_timestamp_joined_file_is_cacheable(self, scan_folder):
-        result = resources.load_shot_image(
-            scan_folder, "cam", 1, acq_timestamp=_LV + 2.0
-        )
-        assert result.cacheable is True
-
-    def test_missing_shot_never_serves_a_neighbour(self, scan_folder):
-        """A 0.4 s-away neighbour exists; the exact-key join must refuse
-        (millisecond canonicalisation is not a tolerance window)."""
-        result = resources.load_shot_image(
-            scan_folder, "cam", 1, acq_timestamp=_LV + 2.4
-        )
-        assert result.kind == "missing"
-
-    def test_flat_image_renders_black_not_crash(self):
-        png = resources.to_display_png(np.zeros((4, 4)))
-        assert png.startswith(b"\x89PNG")
-
-
 class TestGalleryRoutes:
     def test_run_page_lists_devices(self, scan_folder):
         response = _gallery_client(scan_folder).get("/run/uid-002")
         assert "UC_TestCam" in response.text
         assert "U_HasoWFS" in response.text
         assert "analysis_status" not in response.text
-
-    def test_selected_device_embeds_image(self, scan_folder):
-        response = _gallery_client(scan_folder).get(
-            "/run/uid-002?device=UC_TestCam&shot=2"
-        )
-        assert "image.png?device=UC_TestCam&amp;shot=2" in response.text
-
-    def test_vendor_device_shows_path_card(self, scan_folder):
-        response = _gallery_client(scan_folder).get("/run/uid-002?device=U_HasoWFS")
-        assert "vendor-SDK format" in response.text
-        assert "U_HasoWFS" in response.text
-        assert "image.png?device=U_HasoWFS" not in response.text
 
     def test_image_endpoint_joins_timestamp_files_via_event_row(self, scan_folder):
         # The frame carries cam-acq_timestamp LabVIEW doubles; shot=2 must
@@ -392,67 +241,10 @@ class TestArrayStacks:
     """A device whose shots are traces, not pixels.
 
     The gateway serves images and arrays through one file plugin, so the
-    portal must decide per device which it has — and a lineout drawn as
-    pixels is a two-pixel-wide strip, not a refusal, which is why the
-    classification is pinned rather than left to the renderer to notice.
+    portal must decide per device which it has (the classification and the
+    trace reader are pinned in Data-Utils' ``test_shot_images.py``); these
+    are the routes over them.
     """
-
-    def test_a_device_s_stack_says_whether_its_shots_are_pixels(self, scan_folder):
-        kinds = {
-            device: resources.stack_content(resources.device_kind(scan_folder, device))
-            for device in ("UC_StackCam", "U_ICT", "U_MagSpec", "UC_TestCam")
-        }
-        assert kinds == {
-            "UC_StackCam": "image",
-            "U_ICT": "waveform",
-            "U_MagSpec": "lineout",
-            # No stack at all: a per-shot-file device stays on the path
-            # it has always taken.
-            "UC_TestCam": "image",
-        }
-
-    def test_an_unreadable_stack_degrades_to_the_image_path(self, scan_folder):
-        """A damaged stack must fall back to today's rendering, not to nothing."""
-        (scan_folder / "U_ICT" / "U_ICT.h5").write_bytes(b"not hdf5")
-        probe = resources.device_kind(scan_folder, "U_ICT")
-        assert resources.stack_content(probe) == "image"
-
-    def test_a_waveform_shot_reads_as_volts_against_a_time_axis(self, scan_folder):
-        """Ordinal fallback: shot 2 is frame index 1, pinned by the identity marker."""
-        trace = resources.load_shot_trace(scan_folder, "U_ICT", 2)
-        assert (trace.kind, trace.content) == ("stack", "waveform")
-        np.testing.assert_allclose(
-            trace.result.data[:, 0], [-1e-9, 1.5e-9, 4e-9, 6.5e-9], rtol=0, atol=1e-21
-        )
-        np.testing.assert_array_equal(trace.result.data[:, 1], [1.0, 1.0, 2.0, 1.0])
-        assert trace.result.x_units == "s"
-
-    def test_the_timestamp_join_is_the_image_path_s_join(self, scan_folder):
-        """Frame 2 by its stamp, not by its ordinal — the leading extra must not shift it."""
-        trace = resources.load_shot_trace(
-            scan_folder, "U_ICT", 1, acq_timestamp=_LV + 2.0
-        )
-        assert trace.result.data[0, 1] == 2.0  # the identity marker of frame index 2
-
-    def test_a_shot_the_device_missed_is_refused(self, scan_folder):
-        trace = resources.load_shot_trace(
-            scan_folder, "U_ICT", 1, acq_timestamp=_LV + 9.0
-        )
-        assert trace.kind == "missing" and "no stack frame" in trace.reason
-
-    def test_a_lineout_reaches_the_portal_at_its_true_length(self, scan_folder):
-        """The padding must not survive the read — it is what makes shots look alike."""
-        lengths = {
-            shot: resources.load_shot_trace(
-                scan_folder, "U_MagSpec", shot
-            ).result.data.shape[0]
-            for shot in (1, 2, 3)
-        }
-        assert lengths == {1: 2, 2: 3, 3: 2}
-
-    def test_an_image_device_has_no_trace(self, scan_folder):
-        trace = resources.load_shot_trace(scan_folder, "UC_StackCam", 1)
-        assert trace.kind == "missing" and trace.result is None
 
     def test_the_trace_endpoint_serves_a_figure_and_stays_read_only(self, scan_folder):
         client = _gallery_client(scan_folder)
@@ -525,18 +317,6 @@ class TestArrayStacks:
         }
         assert codes == {1: 200, 2: 404, 3: 200}
 
-    def test_the_images_tab_draws_a_line_for_a_trace_device(self, scan_folder):
-        client = _gallery_client(scan_folder)
-        page = client.get("/run/uid-002", params={"device": "U_ICT", "tab": "images"})
-        assert 'id="shottrace"' in page.text
-        assert 'id="shotimg"' not in page.text
-        assert "const IS_TRACE = true" in page.text
-        camera = client.get(
-            "/run/uid-002", params={"device": "UC_StackCam", "tab": "images"}
-        )
-        assert 'id="shotimg"' in camera.text and 'id="shottrace"' not in camera.text
-        assert "const IS_TRACE = false" in camera.text
-
     def test_unresolvable_folder_hides_gallery(self, monkeypatch):
         from geecs_data_utils import scan_paths as scan_paths_mod
 
@@ -547,9 +327,6 @@ class TestArrayStacks:
         client = TestClient(create_app(catalog))
         response = client.get("/run/uid-002")
         assert response.status_code == 200
-        # The Images tab exists but offers no device links.
-        assert "No image device folders resolvable" in response.text
-        assert "?device=" not in response.text.replace("&amp;device=", "")
         assert client.get("/run/uid-002/image.png?device=x&shot=1").status_code == 404
 
     def test_api_run_lists_devices_and_device_probes_tiers(self, scan_folder):
@@ -631,41 +408,11 @@ class TestShotBounds:
         assert response.status_code == 404
         assert "beyond" in response.json()["detail"]
 
-    def test_next_link_stops_at_last_event_row(self, scan_folder):
-        client = _gallery_client(scan_folder)
-        at_last = client.get("/run/uid-002?device=UC_TestCam&shot=3")
-        assert "next &rarr;" not in at_last.text
-        mid_run = client.get("/run/uid-002?device=UC_TestCam&shot=2")
-        assert "next &rarr;" in mid_run.text
-
-    def test_shot_param_is_clamped_to_event_rows(self, scan_folder):
-        response = _gallery_client(scan_folder).get(
-            "/run/uid-002?device=UC_TestCam&shot=99"
-        )
-        assert 'name="shot" value="3"' in response.text
-
 
 class TestStickyState:
     """Navigating one control must never silently reset another — the
-    plot selection survives shot stepping and device picks, and vice
-    versa (every link goes through the one sticky-query helper)."""
-
-    def test_device_links_keep_the_plot_selection(self, scan_folder):
-        response = _gallery_client(scan_folder).get(
-            "/run/uid-002?y=cam-MaxCounts&device=UC_TestCam&shot=2"
-        )
-        # device links keep the plot selection
-        device_link = next(
-            line for line in response.text.splitlines() if "device=UC_StackCam" in line
-        )
-        assert "y=cam-MaxCounts" in device_link
-        # shot prev/next links keep the plot selection
-        nav_lines = [
-            line
-            for line in response.text.splitlines()
-            if "shot=1" in line or "shot=3" in line
-        ]
-        assert nav_lines and all("y=cam-MaxCounts" in line for line in nav_lines)
+    day list's filter survives run round-trips (every link goes through
+    the one sticky-query helper)."""
 
     def test_day_navigation_keeps_the_filter(self):
         catalog = FakeCatalog()
@@ -765,8 +512,48 @@ class TestBinImages:
             (1, 2, [1, 2]),
             (2, 1, [3]),
         ]
-        assert "compute_bin_key" in payload["code"]
+        assert "bin_rows(pf.frame, cfg, mask=mask)" in payload["code"]
         assert response.headers["cache-control"] == "no-cache"  # s-file mutable
+
+    @pytest.mark.parametrize("filtered", [False, True])
+    def test_the_snippet_reproduces_the_listing(
+        self, scan_folder, monkeypatch, filtered
+    ):
+        # Bins 1, 2, 2 at min_count 2: unfiltered, bin 1 is dropped by
+        # min_count; filtered, shot 1 fails the filter. Both leave [2, 3].
+        from geecs_data_utils.tiled_catalog import TiledScanCatalog
+
+        client = self._client(scan_folder, bins=(1, 2, 2))
+        monkeypatch.setattr(
+            TiledScanCatalog, "from_config", lambda: client.app.state.portal.catalog
+        )
+        params = {
+            "device": "cam",
+            "filters": self._FILTERS if filtered else "",
+            "bincfg": '{"min_count": 2}',
+        }
+        payload = client.get("/api/run/uid-002/bin-images", params=params).json()
+        scope = {}
+        exec(payload["code"], scope)
+        assert [shots for _, shots in scope["members"]] == [
+            b["shots"] for b in payload["bins"]
+        ]
+        assert [b["shots"] for b in payload["bins"]] == [[2, 3]]
+        assert scope["pixels"] is not None
+
+    def test_the_snippet_runs_on_an_empty_listing(self, scan_folder, monkeypatch):
+        from geecs_data_utils.tiled_catalog import TiledScanCatalog
+
+        client = self._client(scan_folder)
+        monkeypatch.setattr(
+            TiledScanCatalog, "from_config", lambda: client.app.state.portal.catalog
+        )
+        params = {"device": "cam", "bincfg": '{"min_count": 5}'}
+        payload = client.get("/api/run/uid-002/bin-images", params=params).json()
+        assert payload["bins"] == []
+        scope = {}
+        exec(payload["code"], scope)
+        assert scope["members"] == [] and scope["pixels"] is None
 
     def test_bin_average_is_the_nanmean_of_member_shots(self, scan_folder):
         client = self._client(scan_folder)
@@ -957,7 +744,7 @@ class TestBinImagesReviewPins:
         odd.mkdir()
         with h5py.File(odd / f"U_OddH5_{_LV + 1.0:.3f}.h5", "w") as handle:
             handle.create_dataset("image", data=np.zeros((2, 3, 4, 5), dtype="u2"))
-        result = resources.load_shot_image(scan_folder, "U_OddH5", 1)
+        result = shot_images.load_shot_image(scan_folder, "U_OddH5", 1)
         assert result.kind == "missing"
         assert "render failed" in result.reason
         client = TestBinImages()._client(scan_folder)
@@ -1126,17 +913,21 @@ class TestProcessingSelector:
         raw = client.get("/run/uid-002/image.png", params={"device": "cam", "shot": 1})
         assert "immutable" in raw.headers["cache-control"]  # raw path unchanged
 
-    def test_selector_rendered_only_with_configs(
+    def test_the_choices_are_the_loadable_recipes_only(
         self, scan_folder, configs_tree, analysis_extra
     ):
-        with_configs = self._client(scan_folder, configs_tree).get(
-            "/run/uid-002", params={"device": "cam", "tab": "images"}
-        )
-        assert "procsel" in with_configs.text
-        assert "UC_Crop" in with_configs.text
+        """The device route's ``processing_options``: what the Images page's
+        big view offers on a shot."""
+        device = "/api/run/uid-002/device?device=cam"
+        names = {
+            "names": self._client(scan_folder, configs_tree)
+            .get(device)
+            .json()["processing_options"]
+        }
+        assert "UC_Crop" in names["names"]
         # Discoverable-but-unloadable legacy config: dropped from the
-        # selector (a log line, not a broken image)…
-        assert "UC_Legacy" not in with_configs.text
+        # choices (a log line, not a broken image)…
+        assert "UC_Legacy" not in names["names"]
         # …while a hand-edited URL still gets the honest refusal.
         forced = self._client(scan_folder, configs_tree).get(
             "/run/uid-002/image.png",
@@ -1144,18 +935,10 @@ class TestProcessingSelector:
         )
         assert forced.status_code == 400
         assert "Invalid diagnostic" in forced.json()["detail"]
-        # A bookmarked link naming the dropped diagnostic renders it as
-        # a selected "(unavailable)" option — picking raw then fires a
-        # real change event instead of silently showing "raw".
-        bookmarked = self._client(scan_folder, configs_tree).get(
-            "/run/uid-002",
-            params={"device": "cam", "tab": "images", "processing": "UC_Legacy"},
+        # No configured tree: no choice offered.
+        assert (
+            _gallery_client(scan_folder).get(device).json()["processing_options"] == []
         )
-        assert "UC_Legacy (unavailable)" in bookmarked.text
-        without = _gallery_client(scan_folder).get(
-            "/run/uid-002", params={"device": "cam", "tab": "images"}
-        )
-        assert "procsel" not in without.text
 
     def test_processing_error_ladder(self, scan_folder, configs_tree, analysis_extra):
         client = self._client(scan_folder, configs_tree)
@@ -1201,52 +984,6 @@ class TestProcessingSelector:
 
 class TestImageDisplay:
     """cmap + percentile-window display state on the image endpoints."""
-
-    def test_cmap_renders_rgb_via_matplotlib(self):
-        import matplotlib as mpl
-
-        arr = np.zeros((4, 4), dtype=np.uint16)
-        arr[1, 2] = 1000
-        decoded = np.array(
-            Image.open(io.BytesIO(resources.to_display_png(arr, cmap="viridis")))
-        )
-        assert decoded.shape == (4, 4, 3)
-        expected_top = (np.array(mpl.colormaps["viridis"](1.0)[:3]) * 255).astype(
-            np.uint8
-        )
-        np.testing.assert_array_equal(decoded[1, 2], expected_top)
-
-    def test_unknown_cmap_degrades_to_grayscale(self):
-        arr = np.zeros((4, 4), dtype=np.uint16)
-        arr[0, 0] = 10
-        decoded = np.array(
-            Image.open(io.BytesIO(resources.to_display_png(arr, cmap="not-a-map")))
-        )
-        assert decoded.ndim == 2  # grayscale, not a failure
-
-    def test_window_override_changes_saturation(self):
-        gradient = np.arange(100, dtype=np.float32).reshape(10, 10)
-        default = np.array(Image.open(io.BytesIO(resources.to_display_png(gradient))))
-        squeezed = np.array(
-            Image.open(io.BytesIO(resources.to_display_png(gradient, plo=0, phi=50)))
-        )
-        # Halving the top percentile saturates the whole upper half.
-        assert (squeezed == 255).sum() > (default == 255).sum()
-
-    def test_one_sided_window_override_applies(self):
-        """The popup stores defaults as key-absent, so {"phi": 50} alone
-        is the COMMON payload — it must apply (742 review HIGH: the
-        pair-wise float() silently discarded one-sided overrides)."""
-        gradient = np.arange(100, dtype=np.float32).reshape(10, 10)
-        one_sided = resources.to_display_png(gradient, phi=50)
-        assert one_sided != resources.to_display_png(gradient)
-        assert one_sided == resources.to_display_png(gradient, plo=1, phi=50)
-
-    def test_inverted_window_degrades_to_default(self):
-        gradient = np.arange(100, dtype=np.float32).reshape(10, 10)
-        assert resources.to_display_png(
-            gradient, plo=90, phi=10
-        ) == resources.to_display_png(gradient)
 
     def test_endpoint_display_ladder_and_cmap(self, scan_folder):
         client = _gallery_client(scan_folder)

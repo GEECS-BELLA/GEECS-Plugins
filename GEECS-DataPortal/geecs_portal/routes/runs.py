@@ -8,7 +8,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from geecs_portal import analysis_runs, resources
+from geecs_data_utils.io import shot_images
+
+from geecs_portal import analysis_runs
 from geecs_portal.state import PortalState, get_state
 
 router = APIRouter()
@@ -67,7 +69,7 @@ def run_analysis_list(
     """
     portal.analysis_available()
     detail, folder, analysis_folder, tag = portal.analysis_context(uid, day)
-    devices = set(resources.image_devices(folder))
+    devices = set(shot_images.image_devices(folder))
     try:
         present = {p.name for p in folder.iterdir() if p.is_dir()}
     except OSError:

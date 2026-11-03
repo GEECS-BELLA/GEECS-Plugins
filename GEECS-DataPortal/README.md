@@ -10,8 +10,11 @@ poetry install
 poetry run geecs-data-portal --experiment Undulator   # serves on :8200
 ```
 
-Requires the `[tiled]` section of `~/.config/geecs_python_api/config.ini`
-(the same file every GEECS-Plugins package reads).  Design and developer
+Reads the data share's scan folders, found through
+`~/.config/geecs_python_api/config.ini` (the same file every
+GEECS-Plugins package reads). `--tiled` lists the Tiled catalog's runs
+beside them, from that file's `[tiled]` section; the lab service runs
+with it.  Design and developer
 rules: `CLAUDE.md` here.
 
 ## Two-dimensional scans

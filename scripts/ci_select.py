@@ -140,6 +140,14 @@ IGNORED_FILES = frozenset(
 # rots. test_every_guarded_surface_selects_the_theme_leg pins the result
 # against the guard's own surface list.
 THEME_GUARDED_SUFFIXES = (".html", ".css", ".js")
+# The Python figure builders the guard's token check reads (its
+# _TOKEN_SOURCES): no web suffix, so they are named one by one.
+THEME_GUARDED_FILES = frozenset(
+    {
+        "GEECS-DataPortal/geecs_portal/figures.py",
+        "GEECS-DataPortal/geecs_portal/plotter/figures.py",
+    }
+)
 
 
 def discover_graph() -> dict[str, set[str]]:
@@ -238,7 +246,7 @@ def classify(  # noqa: C901
             if not path.endswith(ROOT_TESTED_SUFFIXES):
                 continue
 
-        if path.endswith(THEME_GUARDED_SUFFIXES):
+        if path.endswith(THEME_GUARDED_SUFFIXES) or path in THEME_GUARDED_FILES:
             legs.add("GeecsWebTheme")
             reasons.append(f"{path}: web asset — theme guard leg")
 

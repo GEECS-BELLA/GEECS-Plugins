@@ -196,6 +196,65 @@ def compute_bin_key(
     return labels, f"{src} (binned)"
 
 
+def bin_rows(
+    frame: "pd.DataFrame",
+    cfg: Optional[BinningConfig] = None,
+    mask: "Optional[Sequence[bool]]" = None,
+) -> "list[tuple[object, tuple[int, ...]]]":
+    """Each bin's label and its rows, by position in the WHOLE table.
+
+    :func:`compute_bin_key`'s labels over the rows *mask* keeps, rows with
+    no label (an empty ``Bin #``) a bin of their own (last), ``min_count``
+    applied to the rows per bin. This is the binning before
+    :func:`bin_frame`'s row policy (its ``dropna`` over the measured
+    columns), so a bin whose measurements are all missing is still here.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The scan's WHOLE per-shot table, one row per shot, in shot order:
+        a returned position is a row of it, and the shot loaders
+        (``io.shot_images.load_row_array``) read that row's image. Pass a
+        filter as *mask*, never a filtered frame, whose positions would
+        name other shots.
+    cfg : BinningConfig, optional
+        The binning; the default bins by ``Bin #``.
+    mask : sequence of bool, optional
+        The rows to bin (a filter's pass mask), aligned with *frame*'s
+        rows; ``None`` bins every row.
+
+    Returns
+    -------
+    list of (object, tuple of int)
+        Per bin, its label (NaN for the unlabelled rows) and its 1-based
+        row positions in *frame*.
+
+    Raises
+    ------
+    KeyError
+        When ``cfg.bin_col`` is absent.
+    """
+    import numpy as np
+    import pandas as pd
+
+    cfg = cfg or BinningConfig()
+    positions = np.arange(1, len(frame) + 1)
+    kept = frame
+    if mask is not None:
+        keep = np.asarray(mask, dtype=bool)
+        if keep.shape != (len(frame),):
+            raise ValueError(f"mask has {keep.size} values for {len(frame)} rows")
+        kept, positions = frame.iloc[keep], positions[keep]
+    labels, _ = compute_bin_key(kept, cfg)
+    return [
+        (label, tuple(int(r) for r in group))
+        for label, group in pd.Series(positions).groupby(
+            np.asarray(labels), dropna=False, sort=True
+        )
+        if cfg.min_count <= 1 or len(group) >= cfg.min_count
+    ]
+
+
 def _select_value_cols(frame: "pd.DataFrame", cfg: BinningConfig) -> "list[str]":
     import numpy as np
 

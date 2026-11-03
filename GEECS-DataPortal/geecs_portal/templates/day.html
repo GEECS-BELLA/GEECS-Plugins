@@ -1,41 +1,66 @@
 {% extends "base.html" %}
 {% block title %}{{ day.isoformat() }} — GEECS Data Portal{% endblock %}
 {% block content %}
-<div class="nav">
-  <a href="{{ root }}/day/{{ prev_day }}?{{ qs() }}">&larr; {{ prev_day }}</a>
+<div class="row">
+  <a class="btn sm" href="{{ root }}/day/{{ prev_day }}?{{ qs() }}">&larr; {{ prev_day }}</a>
   <h1>{{ day.isoformat() }}</h1>
-  <a href="{{ root }}/day/{{ next_day }}?{{ qs() }}">{{ next_day }} &rarr;</a>
+  <a class="btn sm" href="{{ root }}/day/{{ next_day }}?{{ qs() }}">{{ next_day }} &rarr;</a>
 </div>
-<form class="nav" method="get" action="{{ root }}/go">
-  <input type="date" name="day" value="{{ day.isoformat() }}">
-  <input type="text" name="experiment" value="{{ experiment }}" placeholder="experiment">
-  {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
-  <button type="submit">Go</button>
-</form>
-<form class="nav" method="get" action="{{ root }}/day/{{ day.isoformat() }}">
-  <input type="hidden" name="experiment" value="{{ experiment }}">
-  <input type="text" name="filter" value="{{ filter }}" placeholder="filter — scan number, mode, status, description, save set">
-  <button type="submit">Filter</button>
-  {% if filter %}<a href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}">clear</a>{% endif %}
-</form>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-{% if rows %}
-<table>
-  <tr><th>Scan</th><th>Time</th><th>Mode</th><th>Description</th><th>Shots</th><th>Status</th></tr>
-  {% for run, time_text in rows %}
-  <tr>
-    <td><a href="{{ root }}/run/{{ run.uid }}?{{ qs(day=day.isoformat()) }}">
-      {{- scan_label(run) -}}
-    </a></td>
-    <td class="mono">{{ time_text }}</td>
-    <td>{{ run.mode }}</td>
-    <td>{{ run.description }}</td>
-    <td class="mono">{{ run.shots if run.shots is not none else "" }}</td>
-    <td class="mono">{{ run.exit_status or "" }}</td>
-  </tr>
-  {% endfor %}
-</table>
-{% elif not error %}
-<p class="dim">{% if filter %}No scans match the filter.{% else %}No scans recorded for this day.{% endif %}</p>
+<div class="row">
+  <form class="row" method="get" action="{{ root }}/go">
+    <div class="field">
+      <label for="go-day">Day</label>
+      <input id="go-day" type="date" name="day" value="{{ day.isoformat() }}">
+    </div>
+    <div class="field">
+      <label for="go-experiment">Experiment</label>
+      <input id="go-experiment" type="text" name="experiment" value="{{ experiment }}" placeholder="experiment">
+    </div>
+    {% if filter %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
+    <button class="btn" type="submit">Go</button>
+  </form>
+  <span class="spacer"></span>
+  <form class="row" method="get" action="{{ root }}/day/{{ day.isoformat() }}">
+    <input type="hidden" name="experiment" value="{{ experiment }}">
+    <div class="field day-filter">
+      <label for="day-filter">Filter</label>
+      <input id="day-filter" type="search" name="filter" value="{{ filter }}" placeholder="scan number, mode, status, description, save set">
+    </div>
+    <button class="btn" type="submit">Filter</button>
+    {% if filter %}<a class="btn ghost" href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}">clear</a>{% endif %}
+  </form>
+</div>
+{% if error %}
+<div class="state" data-state="error"><div class="t">The scans could not be listed</div><div class="m mono">{{ error }}</div></div>
+{% elif rows %}
+<div class="panel">
+  <div class="tscroll">
+  <table>
+    <thead><tr><th>Scan</th><th>Time</th><th>Mode</th><th>Description</th><th class="num">Shots</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for run, time_text in rows %}
+    <tr>
+      <td class="id">
+        {%- if plot_page and run.scan_number is not none -%}
+        {# GEECSplotter opens a scan on its plot; the Plot page's tabs
+           reach the scan's Overview, Grid, Images and Analysis. #}
+        <a href="{{ root }}/plot/?day={{ day.isoformat() }}&amp;scan={{ run.scan_number }}">{{ scan_label(run) }}</a>
+        {%- else -%}
+        <a href="{{ root }}/run/{{ run.uid }}?{{ qs(day=day.isoformat()) }}">{{ scan_label(run) }}</a>
+        {%- endif -%}
+      </td>
+      <td class="mono">{{ time_text }}</td>
+      <td>{{ run.mode }}</td>
+      <td>{{ run.description }}</td>
+      <td class="num">{{ run.shots if run.shots is not none else "" }}</td>
+      <td><span class="chip" data-state="{{ run.exit_status | run_state }}">{{ run.exit_status or "unknown" }}</span></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% else %}
+<div class="state" data-state="empty"><div class="t">{% if filter %}No scans match the filter.{% else %}No scans recorded for this day.{% endif %}</div></div>
 {% endif %}
 {% endblock %}

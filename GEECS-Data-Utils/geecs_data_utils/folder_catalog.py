@@ -31,10 +31,11 @@ import copy
 import logging
 import os
 import threading
+import time
 from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from geecs_data_utils.data.sfile import sfile_column, sfile_head_for_scan
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
@@ -47,9 +48,10 @@ from geecs_data_utils.scan_info import (
     scan_folder_name,
 )
 from geecs_data_utils.scan_log_loader import first_log_timestamp
-from geecs_data_utils.scan_paths import daily_scan_folder
+from geecs_data_utils.scan_paths import current_paths_config, daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
+    CatalogUnreachable,
     RunDetail,
     RunSummary,
     ScanCatalog,
@@ -284,9 +286,37 @@ class FolderScanCatalog:
         # Copies: a consumer mutating its start_doc must not edit the cache.
         return copy.deepcopy(hit)
 
+    def _data_root(self) -> Optional[Path]:
+        """The data root: the constructor's, else ``config.ini``'s.
+
+        Through :func:`~geecs_data_utils.scan_paths.current_paths_config`,
+        which looks again for a root that was missing when the process
+        started, so the catalog recovers when the share comes back.
+        """
+        if self._base_path is not None:
+            return self._base_path
+        config = current_paths_config()
+        return Path(config.base_path) if config is not None else None
+
     def _scans_dir(self, experiment: str, day: date) -> Optional[Path]:
-        folder = daily_scan_folder(experiment, base_path=self._base_path, day=day)
-        return folder if folder is not None and folder.is_dir() else None
+        """The day's ``scans/`` folder; ``None`` when the day has none.
+
+        Raises
+        ------
+        OSError
+            The data root itself is unreachable (an unmounted share, or none
+            configured): that is an outage, never an empty day.
+        """
+        root = self._data_root()
+        folder = daily_scan_folder(experiment, base_path=root, day=day)
+        if folder is not None and folder.is_dir():
+            return folder
+        if root is None or not root.is_dir():
+            raise OSError(
+                f"the data root {str(root) if root else '(none in config.ini [Paths])'} "
+                "is unreachable: is the data share mounted?"
+            )
+        return None
 
     def probe(self) -> CatalogStatus:
         """Report whether the data root is reachable; never raises.
@@ -296,11 +326,7 @@ class FolderScanCatalog:
         CatalogStatus
             ``ok`` when the base path is a readable directory.
         """
-        from geecs_data_utils.scan_paths import ScanPaths
-
-        base = self._base_path
-        if base is None and ScanPaths.paths_config is not None:
-            base = Path(ScanPaths.paths_config.base_path)
+        base = self._data_root()
         try:
             if base is not None and base.is_dir():
                 return CatalogStatus(ok=True, label=f"folders: {base}")
@@ -328,6 +354,11 @@ class FolderScanCatalog:
         -------
         list of RunSummary
             One row per ``ScanNNN`` folder; empty when the day has none.
+
+        Raises
+        ------
+        OSError
+            The data root is unreachable (see :meth:`_scans_dir`).
         """
         scans_dir = self._scans_dir(experiment, day)
         if scans_dir is None:
@@ -373,7 +404,10 @@ class FolderScanCatalog:
         if parts is None:
             raise KeyError(f"not a folder run uid: {uid!r}")
         experiment, day, number = parts
-        scans_dir = self._scans_dir(experiment, day)
+        try:
+            scans_dir = self._scans_dir(experiment, day)
+        except OSError:  # the root unreachable is still "no folder" here
+            scans_dir = None
         scan_dir: Optional[Path] = None
         if scans_dir is not None:
             scan_dir = scans_dir / scan_folder_name(number)
@@ -397,17 +431,76 @@ class FolderScanCatalog:
 class MergedScanCatalog:
     """A primary catalog with the day's uncaptured scan folders appended.
 
+    A primary that cannot be reached (:class:`CatalogUnreachable`, or any
+    ``ConnectionError``/``TimeoutError``) is not asked again for
+    ``retry_after`` seconds: an unreachable Tiled costs a connect timeout
+    and its retries (about a minute) on every call otherwise, and a page
+    that lists a day would wait that long each time. Meanwhile listings
+    come from the folders alone and a primary uid's ``load_run`` raises the
+    remembered error at once (an outage, as the protocol says). A primary
+    that answers but fails one query (one day's malformed run) is not
+    skipped: that error stays with its call.
+
     Parameters
     ----------
     primary : ScanCatalog
         The run catalog (Tiled).
     folders : FolderScanCatalog
         The scan folders.
+    retry_after : float, default 300
+        Seconds a failed primary is skipped before it is tried again.
+    clock : callable, optional
+        Monotonic seconds; ``time.monotonic`` by default (tests inject one).
     """
 
-    def __init__(self, primary: ScanCatalog, folders: FolderScanCatalog):
+    def __init__(
+        self,
+        primary: ScanCatalog,
+        folders: FolderScanCatalog,
+        *,
+        retry_after: float = 300.0,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self._primary = primary
         self._folders = folders
+        self._retry_after = retry_after
+        self._clock = clock
+        # When the primary was last found unreachable, and how; cleared by
+        # its next success.
+        self._primary_failure: Optional[tuple[float, Exception]] = None
+
+    def _skipping(self) -> Optional[Exception]:
+        """The remembered unreachable-primary error while its window lasts."""
+        failure = self._primary_failure
+        if failure is not None and self._clock() - failure[0] < self._retry_after:
+            return failure[1]
+        return None
+
+    def _unreachable(self, exc: Exception) -> bool:
+        """Remember *exc* if it says the primary cannot be reached at all."""
+        if isinstance(exc, (CatalogUnreachable, ConnectionError, TimeoutError)):
+            self._primary_failure = (self._clock(), exc)
+            return True
+        self._primary_failure = None  # it answered, if only with an error
+        return False
+
+    def _primary_listing(
+        self, experiment: str, day: date
+    ) -> tuple[list[RunSummary], Optional[Exception], bool]:
+        """The primary's runs, or ``([], error, fresh)``.
+
+        ``fresh`` is false while a remembered failure skips the primary.
+        """
+        skipped = self._skipping()
+        if skipped is not None:
+            return [], skipped, False
+        try:
+            runs = self._primary.list_runs(experiment, day)
+        except Exception as exc:  # noqa: BLE001 — primary catalog fails over
+            self._unreachable(exc)
+            return [], exc, True
+        self._primary_failure = None
+        return runs, None, True
 
     def probe(self) -> CatalogStatus:
         """Delegate to the primary — the folders are the fallback, not the state.
@@ -424,7 +517,8 @@ class MergedScanCatalog:
 
         The primary answers first, and its scan numbers are skipped in the
         folder listing unread.  Each side degrades to the other: a primary
-        outage lists the folders alone, a share error (``OSError`` — an SMB
+        outage lists the folders alone (and the primary is skipped for
+        ``retry_after`` seconds), a share error (``OSError`` — an SMB
         blip, a permissions glitch) lists the primary alone, both logged.
         Only when both fail does the primary's error propagate, keeping the
         front-end's outage report for a day that truly has no answer.
@@ -441,13 +535,7 @@ class MergedScanCatalog:
         list of RunSummary
             The merged listing.
         """
-        try:
-            primary_runs = self._primary.list_runs(experiment, day)
-        except Exception as exc:  # noqa: BLE001 — primary catalog fails over
-            primary_error: Optional[Exception] = exc
-            primary_runs = []
-        else:
-            primary_error = None
+        primary_runs, primary_error, fresh = self._primary_listing(experiment, day)
         claimed = frozenset(
             run.scan_number for run in primary_runs if run.scan_number is not None
         )
@@ -464,10 +552,19 @@ class MergedScanCatalog:
         if primary_error is not None:
             if not folder_runs:
                 raise primary_error
-            logger.warning(
-                "primary catalog unavailable — listing scan folders only",
-                exc_info=primary_error,
-            )
+            if fresh:
+                logger.warning(
+                    "primary catalog unavailable — listing scan folders only%s",
+                    f" (not asked again for {self._retry_after:.0f} s)"
+                    if self._primary_failure is not None
+                    else "",
+                    exc_info=primary_error,
+                )
+            else:
+                logger.info(
+                    "primary catalog skipped after a recent failure — "
+                    "listing scan folders only"
+                )
         merged = primary_runs + folder_runs
         merged.sort(key=lambda s: s.start_time, reverse=True)
         return merged
@@ -487,4 +584,13 @@ class MergedScanCatalog:
         """
         if uid.startswith(FOLDER_UID_PREFIX):
             return self._folders.load_run(uid)
-        return self._primary.load_run(uid)
+        skipped = self._skipping()
+        if skipped is not None:
+            raise skipped
+        try:
+            detail = self._primary.load_run(uid)
+        except Exception as exc:
+            self._unreachable(exc)
+            raise
+        self._primary_failure = None
+        return detail

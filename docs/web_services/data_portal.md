@@ -29,30 +29,36 @@ number, mode, shot count, status, start time) and how to move:
 - **‹ scan / scan ›** and the scan dropdown step through the day.
 - **log ↗** opens this scan's entry in the [logbook](logbook.md), when
   the portal knows where the logbook is.
-- **Filters** hold conditions on the scalar columns (AND inside a group,
-  groups OR together), edited with **edit filters…**. They apply to the
-  plots, the grid maps and the images, and they follow you from scan to
-  scan and day to day, as do the columns you picked.
-
-Everything you choose (tab, columns, filters, bins, the selected cell or
-shot) is in the page's URL, so a link you copy opens the same view.
+The open tab is in the page's URL, so a link you copy opens the same tab.
+The Plot and Images tabs keep your choices in your settings set instead.
 
 ## The tabs
 
 - **Overview** — the scan's metadata and settings as recorded.
-- **Plot** — any scalar against the shot number or another scalar, per
-  shot or **binned** by the scan variable. **show the code** gives the
-  notebook cell that reproduces the figure from Python. The toolbar's
-  **send to scan log** posts the figure into this scan's logbook entry.
-- **Grid** — for a two-variable scan, a map of any scalar over the two
-  scan axes, with the average (mean or median) and the error (standard
-  error of the mean, or others) chosen separately. Click a cell for its
-  readbacks, sample count and member shots, or open that cell's images.
-  It also has **show the code** and **send to scan log**.
-- **Images** — one device's shots, one at a time or averaged per bin. A
-  camera shows its image; a spectrometer or scope shows its trace as an
-  interactive plot. The **processing** selector runs a saved recipe's
-  processing on the shown image as a preview, without writing anything.
+- **Plot** — its own page, GEECSplotter's: up to three scalars against
+  the shot number or another scalar, per shot or **binned**, with shot
+  filters, fits and display settings, all kept in your named settings
+  set. The page gives the notebook cell that reproduces the figure from
+  Python, and its toolbar can copy the plot or **send** it into this
+  scan's logbook entry. Scans from another experiment than the portal's
+  own have no Plot tab.
+
+  Its **2-D map** view (the switch above the plot) maps any scalar over
+  two scan variables: each cell shows the scalar's average (mean or
+  median) and, beside it, its error (standard error of the mean, or
+  others), chosen separately. X starts as the scan variable; pick the
+  Y axis in the rail. Click a cell for its readbacks, sample count and
+  member shots, or open that cell's images on the Images tab.
+- **Images** — its own page beside Plot, reading the same settings set:
+  one camera's strip of tiles, one per bin (its shots' average) or one
+  per shot, with the colour map, levels and region of interest you
+  chose. Click a tile to see it full size underneath, and step with
+  ‹ ›. On a single shot, the **processing** choice runs a saved recipe's
+  processing as a preview, without writing anything. A spectrometer or
+  scope has no strip: it shows one shot's trace at a time, as an
+  interactive plot. A 2-D map cell's **View this cell's images** opens
+  this page on that cell's bin. The strip shows every shot: the Plot
+  page's shot filters narrow its plots and map, not the strip.
 - **Analysis** — shown when the portal has an analysis configuration.
   See below.
 
@@ -68,7 +74,7 @@ scan (its device has data in the scan); the rest are folded away.
    figures behind a stepper, other files as links. They are saved under
    the day's `analysis/ScanNNN/` folder, and the scalars the recipe
    computes are added to the scan's `analysis/sNNN.txt`, so they show up
-   as new columns on the Plot and Grid tabs.
+   as new columns on the Plot page.
 3. Re-running replaces those outputs; the raw data is never touched.
 
 A missing scan folder is reported, never created.

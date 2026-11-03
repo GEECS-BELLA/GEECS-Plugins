@@ -44,6 +44,7 @@
         <a href="#tables">Tables</a>
         <a href="#live">Live controls</a>
         <a href="#states">Pane states</a>
+        <a href="#tabs">Tabs and toast</a>
         <a href="#overlays">Overlay ladder</a>
       </nav>
     </div>
@@ -202,6 +203,22 @@
             <span class="hint">strict acquisition only</span>
           </div>
         </div>
+        <div class="row">
+          <div class="field">
+            <label for="k-combo">One-line picker</label>
+            <button id="k-combo" type="button" class="combo" popovertarget="k-combo-pop"><span class="val">U_BCaveICT Charge pC</span></button>
+            <div popover id="k-combo-pop" class="combo-pop">
+              <input type="search" placeholder="filter columns" aria-label="Filter columns" data-combo-filter>
+              <select size="6" aria-label="Columns">
+                <option>U_BCaveICT Charge pC</option>
+                <option>U_HP_Daq:Jet pressure</option>
+                <option>U_Hexapod:ypos</option>
+                <option>U_S4H:Current</option>
+              </select>
+            </div>
+            <span class="hint">Click, or type, to open; Esc or a click outside closes it.</span>
+          </div>
+        </div>
         <p class="dim">Validation is one attribute on the control:
           <code>aria-invalid="true"</code> colours it and shows the <code>.err</code> slot
           that follows it. The hint stays — it carries the unit. The words carry the
@@ -339,6 +356,30 @@
         <span class="spacer"></span>
         <button class="btn sm" type="button">Take over&hellip;</button>
       </div>
+    </section>
+
+    <section id="tabs" class="group">
+      <h2>Tabs and toast</h2>
+      <p class="dim">Tabs are views of the one object on screen; the selected tab is
+        <code>aria-selected="true"</code> and every other panel is <code>[hidden]</code>.
+        A toast is one line that something happened, gone on its own &mdash; never a
+        question, never the only record of a failure.</p>
+      <div class="panel"><div class="body">
+        <div class="tabs" role="tablist" aria-label="Scan views">
+          <button type="button" role="tab" id="k-tab-plot" aria-controls="k-panel-plot" aria-selected="true">Plot</button>
+          <button type="button" role="tab" id="k-tab-images" aria-controls="k-panel-images" aria-selected="false">Images</button>
+        </div>
+        <div role="tabpanel" id="k-panel-plot" aria-labelledby="k-tab-plot">
+          <p class="dim">Charge against the scan variable, per shot.</p>
+        </div>
+        <div role="tabpanel" id="k-panel-images" aria-labelledby="k-tab-images" hidden>
+          <p class="dim">One camera's shots as a strip.</p>
+        </div>
+        <div class="row">
+          <button class="btn" type="button" id="k-toast-open">Copy plot</button>
+          <span class="dim"><code>GeecsKit.toast("copied to clipboard")</code></span>
+        </div>
+      </div></div>
     </section>
 
     <section id="overlays" class="group">
@@ -506,6 +547,17 @@
   // The picker specimen: the rows and what Add does are all a surface writes.
   window.addEventListener("DOMContentLoaded", function () {
     var $ = function (id) { return document.getElementById(id); };
+    // The tabs specimen: a surface flips aria-selected and [hidden], nothing else.
+    document.querySelectorAll('#tabs [role="tab"]').forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        document.querySelectorAll('#tabs [role="tab"]').forEach(function (t) {
+          var on = t === tab;
+          t.setAttribute("aria-selected", on ? "true" : "false");
+          $(t.getAttribute("aria-controls")).hidden = !on;
+        });
+      });
+    });
+    $("k-toast-open").addEventListener("click", function () { window.GeecsKit.toast("copied to clipboard"); });
     var inTable = { U_Hexapod: true };
     var all = ["UC_TC_Phosphor", "UC_ALineEBeam3", "U_ICT", "U_ChicaneSpec", "UC_HASO", "U_Hexapod", "U_S1H", "U_S1V"];
     window.GeecsKit.picker({

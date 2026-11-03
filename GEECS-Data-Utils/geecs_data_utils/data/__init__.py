@@ -18,6 +18,12 @@ from geecs_data_utils.data.binning import (
     bin_frame,
     compute_bin_key,
 )
+from geecs_data_utils.data.curve_fit import (
+    CurveFit,
+    FitModel,
+    FitParameter,
+    fit_curve,
+)
 from geecs_data_utils.data.row_filters import (
     FilterCondition,
     FilterGroup,
@@ -25,6 +31,7 @@ from geecs_data_utils.data.row_filters import (
     apply_filters,
     filter_mask,
 )
+from geecs_data_utils.data.scan_merge import merge_scan_frames
 from geecs_data_utils.data.sfile import read_sfile, sfile_path_for_scan
 from geecs_data_utils.data.columns import (
     ColumnMatchMode,
@@ -41,11 +48,16 @@ __all__ = [
     "BinningConfig",
     "bin_frame",
     "compute_bin_key",
+    "CurveFit",
+    "FitModel",
+    "FitParameter",
+    "fit_curve",
     "FilterCondition",
     "FilterGroup",
     "RowFilters",
     "apply_filters",
     "filter_mask",
+    "merge_scan_frames",
     "read_sfile",
     "sfile_path_for_scan",
     "apply_row_filters",

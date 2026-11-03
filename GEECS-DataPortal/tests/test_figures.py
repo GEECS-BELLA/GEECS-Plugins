@@ -28,7 +28,7 @@ class TestShotsFigure:
     def test_traces_wire_to_stacked_axes_in_order(self):
         fig = _fig_dict(shots_figure(SERIES, ["a", "b", "c", "d"]))
         assert [t["yaxis"] for t in fig["data"]] == ["y", "y2", "y3", "y4"]
-        assert [t["marker"]["color"] for t in fig["data"]] == list(TRACE_COLORS)
+        assert [t["marker"]["color"] for t in fig["data"]] == list(TRACE_COLORS[:4])
         assert all(t["mode"] == "markers" for t in fig["data"])
 
     def test_axis_ladder_matches_the_page(self):
@@ -40,14 +40,20 @@ class TestShotsFigure:
         assert layout["yaxis2"]["side"] == "right"
         assert layout["yaxis2"]["title"]["text"] == "b"
         assert layout["yaxis2"]["overlaying"] == "y"
-        # Axes 3-4: free + autoshift, ticks only (no rotated title —
-        # Plotly does not shift a free-anchored axis's title, #725).
-        for name, side in (("yaxis3", "left"), ("yaxis4", "right")):
+        # Axes 3-4: free + autoshift, titled in their trace colour (the
+        # vendored plotly.js moves a free axis's title with it; #725's
+        # ticks-only workaround is retired), shifted away from the plot.
+        for name, side, col, colour in (
+            ("yaxis3", "left", "c", TRACE_COLORS[2]),
+            ("yaxis4", "right", "d", TRACE_COLORS[3]),
+        ):
             assert layout[name]["anchor"] == "free"
             assert layout[name]["autoshift"] is True
             assert layout[name]["side"] == side
-            assert "title" not in layout[name]
+            assert layout[name]["title"]["text"] == col
+            assert layout[name]["title"]["font"]["color"] == colour
             assert layout[name]["gridcolor"] == "rgba(0,0,0,0)"
+        assert layout["yaxis3"]["shift"] < 0 < layout["yaxis4"]["shift"]
 
     def test_single_trace_hides_the_legend(self):
         assert _fig_dict(shots_figure(SERIES, ["a"]))["layout"]["showlegend"] is False
@@ -250,7 +256,18 @@ class TestPalette:
     def test_palette_is_the_committed_contract(self):
         # The template injects this tuple so rail chips match traces;
         # changing it is a deliberate cosmetic release, not drift.
-        assert TRACE_COLORS == ("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8")
+        # Eight since the Plot page's overlay (a colour per scan); the
+        # first four are the original contract.
+        assert TRACE_COLORS == (
+            "#4cc2b4",
+            "#d6a860",
+            "#6f9fd8",
+            "#c47ab8",
+            "#9fc95a",
+            "#e07b6a",
+            "#b3a1e0",
+            "#e3d06b",
+        )
         # Pin what a figure actually SERVES, not a constant: a hand-rebuilt
         # base layout once dropped the legend placement and x-axis
         # automargin while a constant-based pin stayed green.

@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from geecs_portal import resources
+from geecs_data_utils.io import shot_images
 from geecs_portal.app import create_app
 from geecs_portal.cache import CachingScanCatalog, ShotDataCache
 
@@ -82,7 +82,7 @@ class TestShotDataCache:
         cache = ShotDataCache()
         key = ("uid-002", "UC_StackCam")
         stack = scan_folder / "UC_StackCam" / "UC_StackCam.h5"
-        first = resources.load_shot_image(
+        first = shot_images.load_shot_image(
             scan_folder,
             "UC_StackCam",
             2,
@@ -92,7 +92,7 @@ class TestShotDataCache:
         )
         assert first.kind == "stack"
         stack.unlink()  # the proof: a hit never touches the share
-        again = resources.load_shot_image(
+        again = shot_images.load_shot_image(
             scan_folder,
             "UC_StackCam",
             2,
@@ -103,7 +103,7 @@ class TestShotDataCache:
         assert again.kind == "stack"
         assert again.png == first.png
         # exact-key refusal still enforced from memory
-        miss = resources.load_shot_image(
+        miss = shot_images.load_shot_image(
             scan_folder,
             "UC_StackCam",
             2,
@@ -116,7 +116,7 @@ class TestShotDataCache:
     def test_native_timestamp_shot_cached_ordinal_never(self, scan_folder):  # noqa: F811
         cache = ShotDataCache()
         key = ("uid-002", "cam")
-        joined = resources.load_shot_image(
+        joined = shot_images.load_shot_image(
             scan_folder,
             "cam",
             2,
@@ -127,14 +127,14 @@ class TestShotDataCache:
         assert joined.kind == "native"
         assert cache.native_shot(key, 2) is not None
         # ordinal (listing-order) resolution must never enter the cache
-        ordinal = resources.load_shot_image(
+        ordinal = shot_images.load_shot_image(
             scan_folder, "cam", 3, data_cache=cache, cache_key=key
         )
         assert ordinal.kind == "native"
         assert cache.native_shot(key, 3) is None
         # and the cached shot serves after the file disappears
         (scan_folder / "cam" / f"cam_{_LV + 2.0:.3f}.png").unlink()
-        again = resources.load_shot_image(
+        again = shot_images.load_shot_image(
             scan_folder,
             "cam",
             2,
@@ -149,7 +149,7 @@ class TestShotDataCache:
         key = ("uid-002", "cam")
 
         def _load(shot: int) -> None:
-            resources.load_shot_image(
+            shot_images.load_shot_image(
                 scan_folder,
                 "cam",
                 shot,
@@ -201,7 +201,7 @@ class TestShotDataCache:
             del handle.attrs["finalized"]
         cache = ShotDataCache()
         key = ("uid-002", "UC_StackCam")
-        result = resources.load_shot_image(
+        result = shot_images.load_shot_image(
             scan_folder,
             "UC_StackCam",
             2,
@@ -244,7 +244,7 @@ class TestShotDataCache:
         key = ("uid-002", "UC_StackCam")
 
         def load(cache):
-            return resources.load_shot_image(
+            return shot_images.load_shot_image(
                 folder,
                 "UC_StackCam",
                 2,
@@ -266,7 +266,7 @@ class TestShotDataCache:
     def test_oversize_stack_serves_from_disk_uncached(self, scan_folder):  # noqa: F811
         cache = ShotDataCache(budget_bytes=8)  # cap far below the stack
         key = ("uid-002", "UC_StackCam")
-        result = resources.load_shot_image(
+        result = shot_images.load_shot_image(
             scan_folder,
             "UC_StackCam",
             2,
@@ -296,7 +296,7 @@ class TestShotDataCache:
         key = ("uid-002", "cam")
 
         def _load(shot: int) -> None:
-            resources.load_shot_image(
+            shot_images.load_shot_image(
                 scan_folder,
                 "cam",
                 shot,
