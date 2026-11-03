@@ -44,6 +44,10 @@ MAX_FIT_ORDER = 10
 #: The most image tiles across.
 MAX_IMAGE_COLUMNS = 20
 
+#: The most scans the overlay draws (the main one with its extras): one
+#: colour each, ``--trace-1..8``. The merged view takes any number.
+MAX_OVERLAY_SCANS = 8
+
 #: The choices of the tab and image controls, as stored.
 CHOICES: dict[str, tuple[str, ...]] = {
     "tab": ("xy", "map", "images"),
@@ -51,6 +55,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "image_layout": ("grid", "row"),
     "image_zscale": ("tile", "shared", "fixed"),
     "xy_view": ("shot", "bin"),
+    "scan_view": ("overlay", "merged"),
 }
 
 #: A fit name as stored: GEECSplotter's Fit menu (``figures.FITS``) or one
@@ -100,6 +105,15 @@ class NameRefused(SettingsError):
     """A Save-as name that cannot be used: the name is the thing to fix."""
 
 
+class ScanRef(BaseModel):
+    """One scan beside the main one: its day and number."""
+
+    model_config = ConfigDict(frozen=True)
+
+    day: date
+    scan: int = Field(ge=1)
+
+
 class PlotterSettings(BaseModel):
     """Every control on the page; each field has its default."""
 
@@ -143,6 +157,16 @@ class PlotterSettings(BaseModel):
     #: the plotter) goes back to it, as LabVIEW reopens its last file.
     day: Optional[date] = None
     scan: Optional[int] = None
+    #: The scans plotted beside the main one (``day``/``scan``, which the
+    #: steppers, the day picker and the Images page act on), from any days.
+    #: The XY plot draws them all: each its own trace (``overlay``, one Y,
+    #: at most ``MAX_OVERLAY_SCANS`` with the main one) or pooled into one
+    #: frame (``merged``, LabVIEW's "merge s files"). The 2-D map and the
+    #: Images page stay on the main scan.
+    extra_scans: list[ScanRef] = Field(default_factory=list)
+    scan_view: str = "overlay"
+    #: Which Y list the overlay draws (1-3); the others keep their picks.
+    overlay_y: int = Field(default=1, ge=1, le=MAX_Y_LISTS)
     #: The view shown: the XY plot, the 2-D map or the image strip.
     tab: str = "xy"
     #: The image strip: its camera (``None``: the scan's first), the device
@@ -435,6 +459,9 @@ FORM_FIELDS = {
     "mapy": "map_y",
     "mapf": "map_filter",
     "mapcfg": "map_config",
+    "scans": "extra_scans",
+    "multi": "scan_view",
+    "oy": "overlay_y",
 }
 
 #: The JSON-text fields and the portal parser each must pass.
@@ -455,6 +482,7 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
     "y2_fit_order": (0, MAX_FIT_ORDER),
     "y3_fit_order": (0, MAX_FIT_ORDER),
     "image_columns": (1, MAX_IMAGE_COLUMNS),
+    "overlay_y": (1, MAX_Y_LISTS),
 }
 
 #: The fixed z-scale values: any finite number, or empty for none.
@@ -486,6 +514,36 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
                 rois[device] = roi
             changes["image_rois"] = rois
     return settings.model_copy(update=changes)
+
+
+def scan_refs(text: str) -> list[ScanRef]:
+    """``"2026-10-26:6,2026-10-27:3"`` as scans, in order, each once.
+
+    The form's (and the figure route's) spelling of ``extra_scans``;
+    ``""`` is none.
+
+    Raises
+    ------
+    SettingsError
+        An entry that is not ``YYYY-MM-DD:N`` with N a scan number.
+    """
+    refs: list[ScanRef] = []
+    for entry in filter(None, (e.strip() for e in text.split(","))):
+        day, _, number = entry.partition(":")
+        try:
+            ref = ScanRef(day=date.fromisoformat(day), scan=int(number))
+        except (ValueError, ValidationError):
+            raise SettingsError(
+                f"{entry!r} is not a day and a scan (YYYY-MM-DD:N)"
+            ) from None
+        if ref not in refs:
+            refs.append(ref)
+    return refs
+
+
+def scan_refs_text(refs: list[ScanRef]) -> str:
+    """The form's spelling of *refs* (:func:`scan_refs` reads it back)."""
+    return ",".join(f"{r.day.isoformat()}:{r.scan}" for r in refs)
 
 
 def roi_value(text: str) -> Optional[list[int]]:
@@ -521,6 +579,8 @@ def _form_value(field: str, key: str, value: str) -> object:
             return value == "true"
         if key == "day":
             return date.fromisoformat(value)
+        if key == "extra_scans":
+            return scan_refs(value)
         if key in _INTEGERS:
             low, high = _INTEGERS[key]
             number = int(value)

@@ -65,7 +65,8 @@ window.PlotTools = (function () {
   }
   function countUrl(filters) {
     const url = new URL("api/filter-count", form.action);
-    url.search = new URLSearchParams({ day: data.day, scan: data.scan, filters }).toString();
+    // The XY plot's extra scans (data-scans) count with it; the map has none.
+    url.search = new URLSearchParams({ day: data.day, scan: data.scan, filters, scans: data.scans || "" }).toString();
     return url;
   }
   function draftCount() {

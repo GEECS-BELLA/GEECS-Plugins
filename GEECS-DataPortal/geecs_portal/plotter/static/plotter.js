@@ -173,6 +173,87 @@
     else control.addEventListener("change", () => form.requestSubmit());
   }
 
+  // The XY plot's other scans: a chip's × drops its scan, and Add scan…
+  // (the kit's drawer picker) lists a day's scans and adds the ticked
+  // ones; either saves the list into the set and reloads.
+  const scansField = form && form.elements.scans;
+  const scanList = () => (scansField.value ? scansField.value.split(",").filter(Boolean) : []);
+  const saveScans = (list) => { scansField.value = list.join(","); form.requestSubmit(); };
+  for (const button of document.querySelectorAll("[data-scan-remove]")) {
+    button.addEventListener("click", () => saveScans(scanList().filter((s) => s !== button.dataset.scanRemove)));
+  }
+  const scansOpen = document.getElementById("scans-open");
+  // kit.js loads after this script, so the picker is built on first click.
+  let scansPicker = null;
+  scansOpen?.addEventListener("click", () => {
+    if (!window.GeecsKit) return;
+    scansPicker = scansPicker || scanPicker();
+    scansPicker();
+  });
+  // The drawer's picker; the function it returns opens it on the day shown.
+  function scanPicker() {
+    const dayBox = document.getElementById("scans-day");
+    const hint = document.getElementById("scans-hint");
+    const main = `${form.elements.day.value}:${Number(form.elements.scan.value)}`;
+    const overlay = form.elements.multi.value === "overlay";
+    const MAX_OVERLAY = Number(scansOpen.dataset.maxOverlay) || 8;  // settings.MAX_OVERLAY_SCANS
+    let listed = { day: "", scans: [], error: "" };
+    const key = (n) => `${listed.day}:${n}`;
+    const name = (n) => `Scan ${String(n).padStart(3, "0")}`;
+    const picker = window.GeecsKit.picker({
+      drawer: document.getElementById("scans-drawer"),
+      search: document.getElementById("scans-q"),
+      list: document.getElementById("scans-list"),
+      add: document.getElementById("scans-add"),
+      all: document.getElementById("scans-all"),
+      none: document.getElementById("scans-none"),
+      noun: ["scan", "scans"],
+      maxShown: 200,
+      // The overlay draws at most eight scans, the main one included.
+      room: () => (overlay ? MAX_OVERLAY - 1 - scanList().length : Infinity),
+      shownOnly: () => true,
+      rows: (query) => {
+        const needle = query.trim().toLowerCase();
+        const have = new Set(scanList());
+        return listed.scans
+          .filter((s) => !needle || name(s.scan).toLowerCase().includes(needle)
+            || String(s.scan) === needle || (s.description || "").toLowerCase().includes(needle))
+          .map((s) => {
+            const here = key(s.scan) === main ? "the main scan" : have.has(key(s.scan)) ? "plotted" : "";
+            const shots = s.shots === null ? "" : `${s.shots} shots`;
+            return { name: name(s.scan), pickable: !here, sub: [here, s.description, shots].filter(Boolean).join(" · ") };
+          });
+      },
+      onRender: (info) => {
+        hint.textContent = listed.error ? `No scans listed: ${listed.error}`
+          : !listed.day ? "pick a day"
+          : !listed.scans.length ? `no scans on ${listed.day}`
+          : `${info.matches} of ${listed.scans.length} scans on ${listed.day}`
+            + (info.full ? ` · the overlay draws at most ${MAX_OVERLAY} scans (merge for more)` : "");
+      },
+      onAdd: (names) => saveScans([...scanList(), ...names.map((n) => key(Number(n.replace(/\D/g, ""))))]),
+    });
+    const load = () => {
+      const day = dayBox.value;
+      if (!day) { listed = { day: "", scans: [], error: "" }; picker.open(); return; }
+      listed = { day, scans: [], error: "" };
+      picker.open();
+      hint.textContent = "listing…";
+      const url = new URL("api/day", form.action);
+      url.search = new URLSearchParams({ day }).toString();
+      fetch(url)
+        .then((r) => r.json().then((b) => (r.ok ? b : Promise.reject(new Error(b.detail || r.statusText)))))
+        // A new day starts the picks afresh (open() clears them): a row is
+        // named by its number alone, so a pick kept across days would add
+        // that number on the new day, not the scan ticked.
+        // An answer for a day no longer in the box is dropped.
+        .then((body) => { if (day !== dayBox.value) return; listed = { day, scans: body.scans, error: "" }; picker.open(); })
+        .catch((error) => { if (day !== dayBox.value) return; listed = { day, scans: [], error: error.message }; picker.open(); });
+    };
+    dayBox.addEventListener("change", load);
+    return () => { picker.open(); if (listed.day !== dayBox.value) load(); };
+  }
+
   // Switching settings sets opens the other set; nothing is saved.
   for (const choice of document.querySelectorAll("[data-switch-set]")) {
     choice.addEventListener("change", () => choice.form.submit());
@@ -478,7 +559,9 @@
     box.replaceChildren(...fits.map((fit) => {
       const block = element("section", "fit");
       const head = element("div", "row fit-head");
-      head.append(element("span", `swatch t${fit.slot}`), element("strong", "", `Y${fit.slot === 1 ? "" : fit.slot} ${fit.label} fit`));
+      // The overlay's fits are one per scan, each in its scan's colour.
+      const whose = fit.scan ? ` · ${fit.scan}` : "";
+      head.append(element("span", `swatch t${fit.trace || fit.slot}`), element("strong", "", `Y${fit.slot === 1 ? "" : fit.slot} ${fit.label} fit${whose}`));
       if (fit.formula) head.append(element("span", "dim mono", fit.formula));
       block.append(head);
       if (fit.error) {

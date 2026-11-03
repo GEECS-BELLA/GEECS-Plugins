@@ -363,3 +363,130 @@ def binned_figure(
     apply_display(layout, display, x_is_date=False, y_is_date=False)
     fig.update_layout(layout)
     return fig
+
+
+def _overlay_layout(
+    palette: Palette,
+    display: Optional[Mapping],
+    x_title: str,
+    y_title: str,
+) -> dict:
+    """The overlay's layout: one Y axis, the scans named in a legend row."""
+    layout = base_layout(palette)
+    layout["xaxis"]["title"] = {"text": x_title}
+    layout["yaxis"]["title"] = {"text": y_title}
+    layout["showlegend"] = True
+    layout["legend"] = {"orientation": "h", "x": 0, "y": 1.02, "yanchor": "bottom"}
+    apply_display(layout, display, x_is_date=False, y_is_date=False)
+    return layout
+
+
+def overlay_figure(
+    groups: Sequence[tuple[str, Mapping[str, Sequence], Sequence]],
+    y: str,
+    *,
+    x: Optional[str] = None,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    fits: Sequence[Optional[CurveFit]] = (),
+    display: Optional[Mapping] = None,
+    palette: Palette = NOTEBOOK_PALETTE,
+) -> go.Figure:
+    """Several scans' shots on one plot: one Y, a trace and a colour per scan.
+
+    Parameters
+    ----------
+    groups : Sequence[tuple[str, Mapping, Sequence]]
+        ``(legend name, column → values, shot numbers)`` per scan, in
+        colour order (``plotter.multi.overlay_groups``).
+    y : str
+        The one Y column drawn.
+    x, x_label, display, palette
+        As :func:`shots_figure`; X absent is the shot number (each scan's
+        own).
+    y_label : str, optional
+        The Y title, when not the column name.
+    fits : Sequence[CurveFit or None], optional
+        One per scan, drawn dashed in its scan's colour.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        Exactly what the page draws in the overlay, up to palette.
+    """
+    fig = go.Figure(layout={"template": pio.templates["none"]})
+    for i, (label, series, shot) in enumerate(groups):
+        colour = trace_color(None, i, palette)
+        fig.add_scatter(
+            x=_x_values(series, y, x, shot),
+            y=list(series[y]),
+            mode="markers",
+            name=label,
+            legendgroup=label,
+            marker={"color": colour, "size": marker_size(display)},
+        )
+        fit = fits[i] if i < len(fits) else None
+        if fit is not None and fit.ok:
+            curve_x, curve_y = fit.curve(FIT_POINTS)
+            fig.add_scatter(
+                x=curve_x.tolist(),
+                y=curve_y.tolist(),
+                mode="lines",
+                name=f"{label}: {FITS.get(fit.model, fit.model)} fit",
+                legendgroup=label,
+                showlegend=False,
+                line={"color": colour, "dash": "dash", "width": 2},
+                hoverinfo="skip",
+            )
+    x_title = (x_label or x) if x else "shot #"
+    fig.update_layout(_overlay_layout(palette, display, x_title, y_label or y))
+    return fig
+
+
+def overlay_binned_figure(
+    groups: Sequence[tuple[str, Sequence, Mapping[str, Mapping], Optional[Sequence]]],
+    y: str,
+    *,
+    bin_col: str = "Bin #",
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
+    display: Optional[Mapping] = None,
+    palette: Palette = NOTEBOOK_PALETTE,
+) -> go.Figure:
+    """Several scans binned, each on its own: a centre-and-errors trace per scan.
+
+    Parameters
+    ----------
+    groups : Sequence[tuple]
+        ``(legend name, bin labels, {y: centre and errors}, X positions or
+        None)`` per scan, in colour order (``plotter.multi.overlay_bins``).
+    y : str
+        The one Y column drawn.
+    bin_col : str, optional
+        The X title when the bins are placed by their labels.
+    x_label : str, optional
+        The X title when they are placed by an X column.
+    y_label, display, palette
+        As :func:`overlay_figure`.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        Exactly what the page draws in the binned overlay, up to palette.
+    """
+    fig = go.Figure(layout={"template": pio.templates["none"]})
+    placed = False
+    for i, (label, bins, series, x_values) in enumerate(groups):
+        placed = placed or x_values is not None
+        add_binned_trace(
+            fig,
+            list(x_values) if x_values is not None else list(bins),
+            series.get(y),
+            name=label,
+            colour=trace_color(None, i, palette),
+            display=display,
+            yaxis="y",
+        )
+    x_title = (x_label or bin_col) if placed else bin_col
+    fig.update_layout(_overlay_layout(palette, display, x_title, y_label or y))
+    return fig

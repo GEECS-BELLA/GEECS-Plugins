@@ -14,6 +14,13 @@
 .kit .swatch.t1 { background: var(--trace-1); }
 .kit .swatch.t2 { background: var(--trace-2); }
 .kit .swatch.t3 { background: var(--trace-3); }
+/* The overlay colours each scan: up to eight, the Scans group's chips. */
+.kit .swatch.t4 { background: var(--trace-4); }
+.kit .swatch.t5 { background: var(--trace-5); }
+.kit .swatch.t6 { background: var(--trace-6); }
+.kit .swatch.t7 { background: var(--trace-7); }
+.kit .swatch.t8 { background: var(--trace-8); }
+.kit .swatch[hidden] { display: none; }
 
 /* The Fit menu above each Y list, and the fits' numbers under the plot. */
 .kit .fit-row { gap: 6px; margin-top: 4px; flex-wrap: wrap; }

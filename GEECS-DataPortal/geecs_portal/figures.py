@@ -46,8 +46,18 @@ from geecs_data_utils.tiled_schema import shot_axis_for_frame
 
 
 #: The notebook trace palette; on a page the traces come from the theme's
-#: ``--trace-1..4`` instead (:data:`THEMED_PALETTE`).
-TRACE_COLORS: tuple[str, ...] = ("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8")
+#: ``--trace-1..8`` instead (:data:`THEMED_PALETTE`). Eight, for the Plot
+#: page's overlay of up to eight scans.
+TRACE_COLORS: tuple[str, ...] = (
+    "#4cc2b4",
+    "#d6a860",
+    "#6f9fd8",
+    "#c47ab8",
+    "#9fc95a",
+    "#e07b6a",
+    "#b3a1e0",
+    "#e3d06b",
+)
 
 
 @dataclass(frozen=True)
@@ -83,14 +93,24 @@ NOTEBOOK_PALETTE = Palette(
 
 #: What the page asks for. plotly.py validates every colour property at
 #: figure-build time and rejects a ``$tok:`` string outright, so this
-#: palette is *placeholder hex* — nine near-black values no theme uses —
+#: palette is *placeholder hex* — near-black values no theme uses —
 #: and :func:`page_figure` swaps them for ``$tok:--name`` sentinels in
 #: the serialized JSON. The browser resolves those against the live
 #: tokens. A user display colour that happened to equal a placeholder
-#: would be re-themed; ``#010101``–``#010109`` are not colours anyone
+#: would be re-themed; ``#010101``–``#01010d`` are not colours anyone
 #: picks.
 THEMED_PALETTE = Palette(
-    trace=("#010101", "#010102", "#010103", "#010104"),
+    # Traces 5-8 came later (the overlay's eight scans): 0a-0d.
+    trace=(
+        "#010101",
+        "#010102",
+        "#010103",
+        "#010104",
+        "#01010a",
+        "#01010b",
+        "#01010c",
+        "#01010d",
+    ),
     grid="#010105",
     grid_soft="#010106",
     font="#010107",
@@ -109,6 +129,10 @@ SENTINELS: dict[str, str] = {
     "#010107": "$tok:--ink",
     "#010108": "$tok:--surface",
     "#010109": "$tok:--paper",
+    "#01010a": "$tok:--trace-5",
+    "#01010b": "$tok:--trace-6",
+    "#01010c": "$tok:--trace-7",
+    "#01010d": "$tok:--trace-8",
 }
 
 

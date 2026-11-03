@@ -28,7 +28,7 @@ class TestShotsFigure:
     def test_traces_wire_to_stacked_axes_in_order(self):
         fig = _fig_dict(shots_figure(SERIES, ["a", "b", "c", "d"]))
         assert [t["yaxis"] for t in fig["data"]] == ["y", "y2", "y3", "y4"]
-        assert [t["marker"]["color"] for t in fig["data"]] == list(TRACE_COLORS)
+        assert [t["marker"]["color"] for t in fig["data"]] == list(TRACE_COLORS[:4])
         assert all(t["mode"] == "markers" for t in fig["data"])
 
     def test_axis_ladder_matches_the_page(self):
@@ -256,7 +256,18 @@ class TestPalette:
     def test_palette_is_the_committed_contract(self):
         # The template injects this tuple so rail chips match traces;
         # changing it is a deliberate cosmetic release, not drift.
-        assert TRACE_COLORS == ("#4cc2b4", "#d6a860", "#6f9fd8", "#c47ab8")
+        # Eight since the Plot page's overlay (a colour per scan); the
+        # first four are the original contract.
+        assert TRACE_COLORS == (
+            "#4cc2b4",
+            "#d6a860",
+            "#6f9fd8",
+            "#c47ab8",
+            "#9fc95a",
+            "#e07b6a",
+            "#b3a1e0",
+            "#e3d06b",
+        )
         # Pin what a figure actually SERVES, not a constant: a hand-rebuilt
         # base layout once dropped the legend placement and x-axis
         # automargin while a constant-based pin stayed green.
