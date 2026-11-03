@@ -360,6 +360,36 @@ def test_a_camera_resting_in_trigger_mode_runs_quietly_and_is_returned_armed(
     assert _run(RE, lambda: cam.driver.trigger_mode.get_value()) == OnOff.ON
 
 
+def test_a_lock_left_by_another_worker_is_taken_over_with_a_warning(
+    RE: RunEngine, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A killed worker leaves RUN:Lock set; the next worker's run names the old owner."""
+    cam, _ = _camera(RE, tmp_path)
+    set_mock_value(cam.run_lock.lock, True)
+    set_mock_value(cam.run_lock.owner, "oldhost:4242 @09:15")
+    _frames_on_software_trigger(cam)
+    with caplog.at_level("WARNING", logger="geecs_bluesky.devices.native"):
+        _run(RE, lambda: cam.stage())
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    warnings = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1 and "oldhost:4242" in warnings[0]
+    assert _run(RE, lambda: cam.run_lock.owner.get_value()) != "oldhost:4242 @09:15"
+
+
+def test_a_lock_kept_by_this_workers_failed_restore_is_not_a_warning(
+    RE: RunEngine, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The same session's own lock (a failed restore kept it) is not another worker's leftover."""
+    cam, _ = _camera(RE, tmp_path)
+    _frames_on_software_trigger(cam)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    cam._session.programmed = False  # a new run, the lock still this session's
+    with caplog.at_level("WARNING", logger="geecs_bluesky.devices.native"):
+        _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
 @pytest.mark.parametrize(
     "info",
     [UNBOUNDED_TRIGGER_INFO, gated_trigger_info(5)],
