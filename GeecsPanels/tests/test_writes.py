@@ -322,6 +322,21 @@ def test_the_feed_judges_saturation_against_full_scale() -> None:
     assert sat["state"] == "saturated" and sat["full_scale"] == 4095
 
 
+def test_a_disconnected_full_scale_falls_back_to_the_format() -> None:
+    """An IOC restarted without FullScale: the cached 4095 no longer applies."""
+    cameras = RecordingCameras()
+    feed = cameras.feed(CAM)
+    feed.update("STAT0:ComputeStatistics", 1)
+    feed.update("cam1:PixelFormat_RBV", "Mono16")
+    feed.update("FullScale", 4095)
+    feed.update("FullScale", None)  # the channel disconnects and never returns
+    feed.update("STAT0:MaxValue_RBV", 5000)
+    feed.update(counter_suffix("STAT0"), 1)
+    feed.update(counter_suffix("STAT0"), 2)
+    sat = feed.snapshot(3.0)["saturation"]
+    assert sat["state"] == "ok" and sat["full_scale"] == 65535
+
+
 def test_a_transform_change_stops_background_subtraction_first() -> None:
     """The held background was grabbed in the old orientation."""
     cameras = RecordingCameras()

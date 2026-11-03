@@ -285,7 +285,11 @@ class CameraFeed:
         fmt = next(r for r in readings if r["key"] == "pixel_format")
         if raw["state"] != "fresh":
             return saturation(None, None)
-        full = self.values.get(OPTIONAL_FIELDS["full_scale"])
+        # Only while its channel is connected: a value cached from before an
+        # IOC restart onto a config without the record must not keep
+        # overriding the format's full scale.
+        suffix = OPTIONAL_FIELDS["full_scale"]
+        full = self.values.get(suffix) if self.connected.get(suffix) else None
         return saturation(fmt["value"], raw["value"], full)
 
     def crosshairs(self) -> list[dict[str, object]]:
