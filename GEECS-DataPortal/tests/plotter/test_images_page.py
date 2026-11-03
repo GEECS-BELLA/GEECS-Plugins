@@ -53,6 +53,17 @@ def test_the_images_page_is_the_strip_and_the_big_view(
     assert 'data-value="map"' not in page  # the Plot page's switch is not here
 
 
+def test_the_strip_can_be_copied_or_saved_as_one_picture(
+    client: TestClient, camera: Path
+) -> None:
+    page = post(client, scan=1, page="images", device=CAM)
+    assert "data-strip-copy" in page and "data-strip-save" in page
+    assert "strip_export.js" in page
+    # The picture's title line and file name name the scan and the camera.
+    assert 'data-title="Scan001 · ' in page
+    assert 'data-filename="Scan001_' in page and f"_{CAM}_bins" in page
+
+
 def test_the_plot_page_has_no_image_view_and_an_old_images_set_opens_xy(
     client: TestClient, camera: Path, settings_dir: Path
 ) -> None:

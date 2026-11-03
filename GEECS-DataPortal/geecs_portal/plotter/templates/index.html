@@ -489,7 +489,13 @@
       <article class="panel">
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          <span class="dim">{{ device or device_kept }}{% if tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if hits != 'none' or centre is not none %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}</span>
+          {% set strip_line %}{{ device or device_kept }}{% if tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if hits != 'none' or centre is not none %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}{% endset %}
+          <span class="dim">{{ strip_line }}</span>
+          {% if tiles and not device_problem and not trace %}
+            {# The strip as one PNG (strip_export.js): copied, or saved to disk. #}
+            <button class="btn sm ghost" type="button" data-strip-copy title="Copy the grid of images to the clipboard as one picture">Copy grid</button>
+            <button class="btn sm ghost" type="button" data-strip-save title="Save the grid of images as a PNG">Save grid</button>
+          {% endif %}
         </header>
         <div class="body">
           {% if device_problem %}
@@ -507,6 +513,8 @@
                (colour map, levels) to every tile's URL. #}
             {# Tiles across: the same rule plotter.js applies when the box changes. #}
             <div id="strip" class="strip {{ layout }}" data-zscale="{{ zscale }}" data-roi="{{ roi }}"
+                 data-title="Scan{{ '%03d' % scan }} · {{ day }} · {{ strip_line | trim }}"
+                 data-filename="Scan{{ '%03d' % scan }}_{{ day }}_{{ device }}_{{ strip }}"
                  data-device="{{ device }}" data-levels-url="{{ root }}/{{ levels_url }}"
                  data-full-url="{{ root }}/{{ tiles[0].url if tiles else '' }}"
                  style="{% if layout == 'row' %}grid-auto-columns: calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% else %}grid-template-columns: repeat({{ cols }}, minmax(0, 1fr)){% endif %}">
@@ -924,7 +932,8 @@
 <script src="{{ root }}/static/plot_tools.js" defer></script>
 <script src="{{ root }}/static/plotter.js" defer></script>
 {% if tab == "map" %}<script src="{{ root }}/static/map.js" defer></script>{% endif %}
-{% if tab == "images" %}<script src="{{ root }}/static/images.js" defer></script>{% endif %}
+{% if tab == "images" %}<script src="{{ root }}/static/images.js" defer></script>
+<script src="{{ root }}/static/strip_export.js" defer></script>{% endif %}
 <script src="{{ root }}/theme/theme.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 </body>
