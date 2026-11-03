@@ -210,3 +210,24 @@ def test_a_db_the_module_has_not_read_is_named_when_a_db_device_is_refused(setti
         r.status_code == 422
         and "has not read the GEECS DB: GEECS DB unavailable" in r.text
     )
+    # the cause leads; the widget's own line follows it
+    assert r.text.index("roster is incomplete") < r.text.index(
+        "no device &#39;U_PLC&#39;"
+    )
+
+
+def test_many_refused_bindings_fold_behind_the_cause(settings: Settings) -> None:
+    widgets = ", ".join(f"{{kind: toggle, bind: {{device: U_PLC, role: DO.Ch{i}}}}}" for i in range(5))  # fmt: skip
+    _screens(settings, f"title: T\ngroups: [{{title: G, at: [1, 1], widgets: [{widgets}]}}]\n")  # fmt: skip
+    with TestClient(create_app(settings, _roster([]))) as c:
+        r = c.get("/screens/sim_bench")
+    assert r.status_code == 422 and "<summary>5 bindings refused</summary>" in r.text
+    assert r.text.count("no device &#39;U_PLC&#39;") == 5
+
+
+def test_an_undrawable_screen_asks_again_and_a_missing_one_does_not(settings: Settings) -> None:  # fmt: skip
+    _screens(settings, _ROSTER_SCREEN)
+    with TestClient(create_app(settings, _roster([]))) as c:
+        refused, missing = c.get("/screens/sim_bench"), c.get("/screens/nope")
+    assert refused.status_code == 422 and 'http-equiv="refresh" content="30"' in refused.text  # fmt: skip
+    assert missing.status_code == 404 and "http-equiv" not in missing.text
