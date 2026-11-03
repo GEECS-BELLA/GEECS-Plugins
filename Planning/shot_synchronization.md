@@ -230,15 +230,23 @@ the camera's own clock (`NDArrayTimeStamp`) marks the exposure in camera
 ticks; with PTP enabled on the camera it is wall-clock time; without PTP, a
 latch of the camera's timestamp against host time gives the offset and
 drift of its tick clock (GigE Vision's timestamp control registers; aravis
-reads the tick frequency at connect, and ADAravis prints it). ADAravis
-carries no PTP code: enabling PTP is a GenICam feature of the camera,
-exposed as a record by the auto-generated template where the camera has
-it. Whether the bench cameras have it is unverified (open question 4): the
-one camera checked so far, a Basler acA1280-60gm, reports no IEEE 1588;
-Basler's PTP documentation says ace Classic cameras change tick duration
-when PTP is enabled, which implies support on at least some of that family
-(https://docs.baslerweb.com/precision-time-protocol). Slice 6, gated on
-need: required for 5 Hz under exposure scans, not for 1 Hz.
+reads the tick frequency at connect, and ADAravis prints it). Checked
+2026-11-03 against each camera's own feature list, read-only: the six
+native cameras on the two camera servers (four Point Grey Blackfly
+BFLY-PGE, 09S2M and 13S2M; a Basler acA1600-20gm; a Basler acA2500-20gm)
+all have `GevTimestampTickFrequency`, `GevTimestampControlLatch`,
+`GevTimestampValue` and `ChunkTimestamp`; only the acA2500-20gm supports
+IEEE 1588 (`GevSupportedIEEE1588` true, PTP off). The third camera
+server's cameras are not read yet, and `arv-tool features` does not list
+every feature: query a feature by name. **Decision (maintainer,
+2026-11-03): skip PTP here.** Two stamp tiers at this facility:
+*device-clock*, the camera's ticks fitted to host time by the latch (a
+command written to the camera every few seconds, no setting changed) and
+an offset-and-drift fit; and *host-receipt* as the fallback. *ptp* stays
+a named kind in the contract for a facility whose cameras and switches
+have it, unbuilt here. ADAravis already publishes the camera clock per
+frame (section 5.1), so the latch and the fit are the whole of slice 6,
+gated on need: required for 5 Hz under exposure scans, not for 1 Hz.
 
 **Conditions for 5 Hz**, all measurable at the bench: calibrated offsets
 for every LabVIEW device; the witness poll at 10 ms; hardware stamps on
@@ -351,7 +359,9 @@ master:
 | unused | `arv_buffer_get_frame_id` (the GigE Vision block id, a hardware frame counter the client cannot reset; aravis 0.8.0, the image's aravis is 0.8) and `arv_buffer_get_system_timestamp` (host time at the first packet, earlier than `epicsTS`) | an upstream contribution later: a `FrameID` attribute would tell a wire drop (a block-id gap) from a missed trigger (none); not needed for v1 |
 
 ADAravis has no chunk-data parsing, so a chunk frame counter would also be
-a driver change. v1 changes nothing in the camera IOC.
+a driver change; `ChunkTimestamp`, which all six cameras offer, is not
+needed, since the frame leader already carries the same clock. v1 changes
+nothing in the camera IOC.
 
 ### 5.2 PicoScope (GEECS-BELLA/ioc-picoscope)
 
@@ -438,7 +448,7 @@ to reconcile.
 | S3 | GeecsBluesky | the witness device (count, stamp, epoch); evidence columns for native cameras (`ArrayCounter`, the EpicsTS pair) and the scope; the LabVIEW adapter (§5.4); a passive probe in the `capture/probes` style that logs devices and witness with no scan | ~300 / ~350 | the probe runs read-only |
 | S4 | GeecsBluesky | the witness-clocked acquisition mode (§6), if ruled in; the refusals of `refuse_native_run` lifted for that mode only | ~250 / ~300 | the sim bench, then a laser-off run |
 | S5 | ioc-picoscope | the stamp at the trigger (§5.2) | ~15 / the fake | one capture on the bench scope |
-| S6 | geecs-epics, GeecsBluesky | hardware stamps where the cameras allow: PTP on the camera links, or the timestamp latch and drift fit; stamp kind *ptp* / *device-clock* | depends on the cameras | the camera servers' links |
+| S6 | geecs-epics, GeecsBluesky | the *device-clock* tier: a periodic latch of each camera's timestamp against host time (the auto-generated `GevTimestampControlLatch` and `GevTimestampValue` records) and the offset-and-drift fit in the join; PTP unbuilt (section 4.4) | ~40 records and a sequence / ~120 fit and tests | the latch is a command to the camera, no setting changed |
 | S7 | GeecsBluesky, GEECS-Data-Utils | deletion at migration end (§10) | negative | — |
 
 **Tests.** The join is pure arithmetic and gets a synthetic witness and
@@ -487,9 +497,9 @@ whether W2's live wait is adequate.
 3. **Input compatibility.** The 1808X counter input's threshold and
    minimum pulse width against the DG645 output's level and width, before
    the tee is cabled.
-4. **Camera features.** After the deploy, a read-only listing of each
-   bench camera's generated records settles PTP and timestamp-latch
-   support; or your knowledge of the Blackfly and ace models.
+4. **Camera features.** Decided 2026-11-03: PTP skipped, the
+   *device-clock* tier is the latch and the fit (section 4.4). Left: the
+   third camera server's cameras, read the same way.
 5. **The LabVIEW wire shot number outside scan mode**: in scan mode it is
    the announced number (settled, §4.6); what it counts while a device
    free-runs between scans the passive logger answers. Nothing to decide
