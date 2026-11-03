@@ -440,10 +440,18 @@
     });
   }
 
+  // A drawer the server rendered open (a refused form inside it, say)
+  // is taken over as if opened here, so Close, Esc and the scrim work.
+  function adoptOpenDrawer() {
+    var el = document.querySelector('.drawer[data-open="true"]');
+    if (el) showDrawer(el, null);
+  }
+
   function init() {
     buildDensityPickers();
     wire();
     wireCombos();
+    adoptOpenDrawer();
   }
 
   if (document.readyState === "loading") {
