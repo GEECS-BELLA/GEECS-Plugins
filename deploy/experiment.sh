@@ -335,9 +335,10 @@ up)
         echo "  geecs-qserver-ready@$INSTANCE: ${state:-unknown}$([ "$state" = active ] || echo " — see: journalctl -u geecs-qserver-ready@$INSTANCE -u geecs-qserver@$INSTANCE")"
     fi
 
-    # Hook (not built): the status page's config generator, deploy/gatus_config.py,
-    # is called here (and at the end of `down`) once it exists, so the
-    # instance appears on (and leaves) the page with its units.
+    # The status page (Gatus) is not generated here: an instance's rows are
+    # entries in geecs-epics' Ansible inventory (the services box's host_vars;
+    # its docs/runbooks/ansible.md, "Monitoring"), added when the instance
+    # stays up.
     say "instance '$INSTANCE' — experiment '$EXPT'"
     f="$INSTANCE_FILE"
     echo "  CA gateway   $(env_value "$f" EPICS_CAS_INTF_ADDR_LIST):$(env_value "$f" GEECS_CA_SERVER_PORT)   (clients add this host:port to their CA address list)"
