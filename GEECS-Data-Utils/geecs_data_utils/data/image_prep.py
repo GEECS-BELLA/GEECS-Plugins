@@ -55,7 +55,12 @@ def remove_hits(image: np.ndarray, method: str) -> np.ndarray:
         brightest neighbour is itself barely above the local background
         (``HOT_NEIGHBOUR_SHARE`` of the pixel's height, plus the noise) —
         with its 3×3 median, leaving the rest of the image untouched: a
-        beam's peak, however sharp, lights its neighbours too.
+        beam's peak, however sharp, lights its neighbours too. The price:
+        a hit on the bright part of a narrow beam, whose neighbours the
+        beam lights by more than ``HOT_NEIGHBOUR_SHARE`` of the hit's
+        height, is left in (within one 3×3 neighbourhood it looks like a
+        sharp spot on a halo), as is a hit spread over two pixels — the
+        medians take both.
 
     Returns
     -------

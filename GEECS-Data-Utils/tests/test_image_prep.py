@@ -79,3 +79,19 @@ def test_a_sharp_focal_spot_is_not_taken_for_a_hit(sigma: float, offset: float) 
     image = 10 + 1000 * np.exp(-r2 / (2 * sigma**2)) + rng.normal(0, 1, (41, 41))
     out = remove_hits(image, "hot")
     np.testing.assert_array_equal(out, image)
+
+
+def test_hits_on_a_broad_beam_are_removed_and_only_they_change() -> None:
+    """A hit on a gentle beam's peak or flank goes; the beam is left alone."""
+    y, x = np.indices((41, 41))
+    rng = np.random.default_rng(2)
+    beam = 10 + 100 * np.exp(-((y - 20) ** 2 + (x - 20) ** 2) / (2 * 3.0**2))
+    image = beam + rng.normal(0, 1, (41, 41))
+    hit = image.copy()
+    spots = [(20, 20), (20, 26), (17, 20), (5, 5), (0, 0)]
+    for spot in spots:
+        hit[spot] += 500
+    out = remove_hits(hit, "hot")
+    for spot in spots:
+        assert abs(out[spot] - image[spot]) < 10
+    assert int((out != hit).sum()) == len(spots)
