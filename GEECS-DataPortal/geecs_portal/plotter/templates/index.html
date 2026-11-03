@@ -167,6 +167,7 @@
           <input type="hidden" name="tab" value="{{ plot_view }}">
           <input type="hidden" name="page" value="{{ page }}">
           <input type="hidden" name="strip" value="{{ strip }}">
+          <input type="hidden" name="pick" value="{{ pick }}">
           <input type="hidden" name="layout" value="{{ layout }}">
           <input type="hidden" name="zscale" value="{{ zscale }}">
           <div class="row">
@@ -195,11 +196,43 @@
               <div class="row">
                 <span class="hint">Tiles</span>
                 <span class="spacer"></span>
-                <div class="seg" role="group" aria-label="One tile per bin or per shot">
-                  <button type="button" data-toggle-for="strip" data-value="bins" aria-pressed="{{ 'true' if strip == 'bins' else 'false' }}">bin averages</button>
-                  <button type="button" data-toggle-for="strip" data-value="shots" aria-pressed="{{ 'true' if strip == 'shots' else 'false' }}">shots</button>
+                <div class="seg" role="group" aria-label="One tile per bin, per shot, or one shot per bin">
+                  <button type="button" data-toggle-for="strip" data-value="bins" aria-pressed="{{ 'true' if strip == 'bins' else 'false' }}" title="Each bin's shots averaged">bin avg</button>
+                  <button type="button" data-toggle-for="strip" data-value="pick" aria-pressed="{{ 'true' if strip == 'pick' else 'false' }}" title="One shot from each bin">1 per bin</button>
+                  <button type="button" data-toggle-for="strip" data-value="shots" aria-pressed="{{ 'true' if strip == 'shots' else 'false' }}" title="Every shot">shots</button>
                 </div>
               </div>
+              {% if strip == "pick" %}
+              <div class="row">
+                <span class="hint">Which shot</span>
+                <span class="spacer"></span>
+                <div class="seg" role="group" aria-label="Which shot of each bin">
+                  <button type="button" data-toggle-for="pick" data-value="first" aria-pressed="{{ 'true' if pick == 'first' else 'false' }}">first</button>
+                  <button type="button" data-toggle-for="pick" data-value="ymax" aria-pressed="{{ 'true' if pick == 'ymax' else 'false' }}" title="The shot with the highest {{ ynames[y] if y and ynames else 'Y1' }}">highest Y1</button>
+                </div>
+              </div>
+              {% endif %}
+            </div>
+            <div class="field">
+              {# Each shot is cleaned before it is drawn or averaged: X-ray hits
+                 out first, then centred on its beam (the centre of mass above
+                 the threshold). A bin averages its centred shots. #}
+              <div class="row">
+                <label for="hits" class="hint">X-ray hits</label>
+                <span class="spacer"></span>
+                <select id="hits" name="hits" data-submit-on-change>
+                  {% for value, text in (("none", "keep"), ("hot", "remove hot pixels"), ("median3", "median 3×3"), ("median5", "median 5×5")) %}
+                  <option value="{{ value }}"{% if hits == value %} selected{% endif %}>{{ text }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="row">
+                <label for="centre" class="hint" title="Shift each image so the centre of mass of the pixels above this threshold is in the middle">Centre on beam</label>
+                <span class="spacer"></span>
+                <input id="centre" name="centre" type="text" inputmode="decimal" class="narrow-number" placeholder="off"
+                       value="{{ centre if centre is not none else '' }}" data-submit-on-change aria-describedby="centre-hint">
+              </div>
+              <span class="hint" id="centre-hint">Threshold: 1 or more is counts, below 1 a fraction of the peak (0.5 = half max). Empty is off.</span>
             </div>
             <div class="field">
               <div class="row">
@@ -456,7 +489,7 @@
       <article class="panel">
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          <span class="dim">{{ device or device_kept }}{% if tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'shots' }}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}</span>
+          <span class="dim">{{ device or device_kept }}{% if tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if hits != 'none' or centre is not none %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}</span>
         </header>
         <div class="body">
           {% if device_problem %}

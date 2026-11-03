@@ -32,12 +32,18 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
+from geecs_data_utils.data.image_prep import ImagePrep
 from geecs_data_utils.data.scan_merge import SCAN_COLUMN
 from geecs_data_utils.tiled_catalog import RunDetail
 
 from geecs_portal.plotter import figures, images, maps, multi, scans
 from geecs_portal.plotter.routes import Context, read_form
-from geecs_portal.plotter.routes.images import strip_axis, strip_code, strip_tiles
+from geecs_portal.plotter.routes.images import (
+    prep_query,
+    strip_axis,
+    strip_code,
+    strip_tiles,
+)
 from geecs_portal.plotter.settings import (
     CHOICES,
     DEFAULT_SET,
@@ -398,6 +404,9 @@ def _page(
         # this one lacks shows this copy's default.
         "devf": settings.image_device_filter,
         "strip": _choice(settings, "image_strip"),
+        "pick": _choice(settings, "image_pick"),
+        "hits": _choice(settings, "image_hits"),
+        "centre": settings.image_centre,
         "layout": _choice(settings, "image_layout"),
         "cols": settings.image_columns,
         "max_cols": MAX_IMAGE_COLUMNS,
@@ -459,8 +468,6 @@ def _fill(
     them have it.
     """
     frame = scans.load_frame(run)
-    if page["tab"] == "images":
-        _fill_images(page, run, frame, settings, experiment)
     picks = scans.columns(frame)
     if extras and page["tab"] == "xy":
         frames = {"main": frame, **{(d, n): f for d, n, f in extras}}
@@ -525,6 +532,9 @@ def _fill(
         page["caption"] += f", {page['scan_total']} scans ({page['scan_view']})"
     if page["tab"] == "map":
         _fill_map(page, run, picks, settings)
+    if page["tab"] == "images":
+        # After the picks: a strip of one shot per bin may pick by Y1.
+        _fill_images(page, run, frame, settings, experiment)
 
 
 def _extra_runs(ctx: Context, page: dict) -> list[tuple[date, int, pd.DataFrame]]:
@@ -610,6 +620,8 @@ def _fill_images(
         )
         return
     day, scan = page["day"], page["scan"]
+    prep = ImagePrep(hits=page["hits"], centre=settings.image_centre)
+    pick_by = page.get("y", "") if page["pick"] == "ymax" else ""
     try:
         page["tiles"] = strip_tiles(
             run,
@@ -619,12 +631,16 @@ def _fill_images(
             scan=scan,
             device=device,
             alias=settings.x_alias,
+            pick_by=pick_by,
+            prep=prep,
         )
         page["strip_x"] = strip_axis(run, frame, settings.x_alias)[1]
     except HTTPException as missing:
         page["device_problem"] = missing.detail
         return
-    page["strip_code"] = strip_code(day, scan, device, page["strip"], experiment)
+    page["strip_code"] = strip_code(
+        day, scan, device, page["strip"], experiment, pick_by, prep
+    )
     roi = settings.image_rois.get(device)
     page["roi"] = ",".join(str(v) for v in roi) if roi else ""
     page["display_query"] = display_query(page)
@@ -635,6 +651,13 @@ def _fill_images(
             "device": device,
             "strip": page["strip"],
             "roi": page["roi"],
+            # One shot per bin: the shots picked, each its own tile.
+            **(
+                {"rows": ",".join(str(t.rows[0]) for t in page["tiles"])}
+                if page["strip"] == "pick"
+                else {}
+            ),
+            **prep_query(prep),
         }
     )
 

@@ -40,9 +40,9 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Optional, Protocol, Sequence
+from typing import TYPE_CHECKING, Callable, NamedTuple, Optional, Protocol, Sequence
 
 import numpy as np
 
@@ -601,6 +601,7 @@ def average_rows(
     frame: Optional[pd.DataFrame],
     device: str,
     rows: Sequence[int],
+    prepare: Optional[Callable[[np.ndarray], np.ndarray]] = None,
     **load: object,
 ) -> ShotArray:
     """*device*'s pixels over *rows*: one row's image, or their average.
@@ -616,6 +617,10 @@ def average_rows(
         As :func:`load_row_array`.
     rows : sequence of int
         1-based rows, e.g. a bin's (``data.binning.bin_rows``).
+    prepare : callable, optional
+        Applied to each row's image before the average (e.g.
+        ``data.image_prep.ImagePrep.apply``: hits out, centred on the
+        beam), so each shot is cleaned and centred on its own.
     **load
         Passed to :func:`load_row_array` (``file_frame``, ``data_cache``,
         ``cache_key``).
@@ -637,6 +642,8 @@ def average_rows(
                 return found
             last = found
             continue
+        if prepare is not None:
+            found = replace(found, array=prepare(found.array))
         arrays.append(found)
     if not arrays:
         return ShotArray(kind="missing", path=last.path, reason=last.reason)

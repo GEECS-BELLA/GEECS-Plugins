@@ -29,7 +29,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Callable, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -51,7 +51,9 @@ MAX_OVERLAY_SCANS = 8
 #: The choices of the tab and image controls, as stored.
 CHOICES: dict[str, tuple[str, ...]] = {
     "tab": ("xy", "map", "images"),
-    "image_strip": ("bins", "shots"),
+    "image_strip": ("bins", "shots", "pick"),
+    "image_pick": ("first", "ymax"),
+    "image_hits": ("none", "median3", "median5", "hot"),
     "image_layout": ("grid", "row"),
     "image_zscale": ("tile", "shared", "fixed"),
     "xy_view": ("shot", "bin"),
@@ -175,6 +177,15 @@ class PlotterSettings(BaseModel):
     image_device: Optional[str] = None
     image_device_filter: str = ""
     image_strip: str = "bins"
+    #: One shot per bin (``image_strip`` ``"pick"``): its first, or the
+    #: one with the highest Y1.
+    image_pick: str = "first"
+    #: The clean-ups each shot gets before it is drawn or averaged
+    #: (``geecs_data_utils.data.image_prep``): the X-ray-hit filter, and
+    #: the centring threshold (``None``: not centred; 1 or more is
+    #: counts, below 1 a fraction of the peak).
+    image_hits: str = "none"
+    image_centre: Optional[float] = Field(default=None, gt=0)
     image_layout: str = "grid"
     image_columns: int = Field(default=5, ge=1, le=MAX_IMAGE_COLUMNS)
     #: A matplotlib name; one this copy does not know draws greyscale.
@@ -444,6 +455,9 @@ FORM_FIELDS = {
     "device": "image_device",
     "devf": "image_device_filter",
     "strip": "image_strip",
+    "pick": "image_pick",
+    "hits": "image_hits",
+    "centre": "image_centre",
     "layout": "image_layout",
     "cols": "image_columns",
     "cmap": "image_cmap",
@@ -577,10 +591,8 @@ def _form_value(field: str, key: str, value: str) -> object:
             if value not in ("true", "false"):
                 raise ValueError("must be true or false")
             return value == "true"
-        if key == "day":
-            return date.fromisoformat(value)
-        if key == "extra_scans":
-            return scan_refs(value)
+        if key in _PARSERS:
+            return _PARSERS[key](value)
         if key in _INTEGERS:
             low, high = _INTEGERS[key]
             number = int(value)
@@ -594,6 +606,26 @@ def _form_value(field: str, key: str, value: str) -> object:
         return _text_value(key, value)
     except ValueError as exc:
         raise SettingsError(f"{field}={value!r}: {exc}") from None
+
+
+def _centre_value(value: str) -> Optional[float]:
+    """The centring threshold: ``None`` (off) for ``""``, else a number above 0."""
+    if not value:
+        return None
+    number = float(value)
+    if not (math.isfinite(number) and number > 0):
+        raise ValueError(
+            "must be a number above 0 (counts, or below 1 a fraction of the peak)"
+        )
+    return number
+
+
+#: The fields with a parser of their own.
+_PARSERS: dict[str, Callable[[str], object]] = {
+    "day": date.fromisoformat,
+    "extra_scans": scan_refs,
+    "image_centre": _centre_value,
+}
 
 
 def _text_value(key: str, value: str) -> object:

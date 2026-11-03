@@ -13,7 +13,8 @@
   if (!view) return;
   const $ = (id) => document.getElementById(id);
   const d = view.dataset;
-  const mode = d.mode;  // "bins", "shots" or "trace"
+  const mode = d.mode;  // "bins", "shots", "pick" (one shot per bin) or "trace"
+  const single = mode === "shots" || mode === "pick";  // each tile one shot
   const tools = window.PlotTools || { config: () => ({ responsive: true }), themed: (v) => v };
   const tiles = Array.from(document.querySelectorAll("#strip .tile"));
   const total = mode === "trace" ? Number(d.shots) || 0 : tiles.length;
@@ -41,7 +42,7 @@
   // ---- the processing preview (a shot's pixels, ephemeral, write-free) ----
   // The choices are the device route's: recipes, for a device that renders.
   const processing = $("big-processing");
-  if (portal && mode === "shots") {
+  if (portal && single) {
     const query = new URLSearchParams({ device: d.device, day: d.day });
     fetch(`${d.portalRoot}/api/run/${encodeURIComponent(d.uid)}/device?${query}`)
       .then((r) => (r.ok ? r.json() : { processing_options: [] }))
@@ -77,7 +78,7 @@
     const tile = tiles[i];
     const image = $("big-image");
     const thumb = tile.querySelector("img");
-    const processed = mode === "shots" && portal && processing.value;
+    const processed = single && portal && processing.value;
     // The tile's picture, drawn with a colour bar beside it.
     const own = thumb.getAttribute("src") || "";
     const src = processed ? shotUrl(tile.dataset.index) : own && `${own}&bar=true`;
