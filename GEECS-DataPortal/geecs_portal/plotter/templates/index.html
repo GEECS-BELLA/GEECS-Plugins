@@ -301,7 +301,6 @@
         <details class="disc rail-group" id="scans-group"{% if extra_scans %} open{% endif %}>
           <summary>Scans <span class="hint">· {{ scan_total }}</span></summary>
           <div class="dbody">
-          <h4>Scans</h4>
               <div class="fchip"><span class="swatch t1" aria-hidden="true"{% if not (extra_scans and scan_view == 'overlay') %} hidden{% endif %}></span><span class="n">{{ main_label }}</span><span class="hint">main</span></div>
             {% for e in extra_scans %}
               <div class="fchip">
@@ -656,7 +655,8 @@
    as, and on the Images page the colour map and the z scale. Each control
    names the form it saves through. #}
 {% if not ask_name %}
-<aside class="drawer" id="settings-drawer" role="dialog" aria-modal="false" aria-labelledby="settings-title" aria-hidden="true" data-open="false">
+{# A refused Save-as name reopens the drawer, so its error and the focused box are seen. #}
+<aside class="drawer" id="settings-drawer" role="dialog" aria-modal="false" aria-labelledby="settings-title" aria-hidden="{{ 'false' if name_error else 'true' }}" data-open="{{ 'true' if name_error else 'false' }}">
   <header>
     <span class="eyebrow" id="settings-title">Settings</span>
     <button class="btn sm" type="button" data-drawer-close>Close</button>
