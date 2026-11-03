@@ -11,6 +11,7 @@ import io
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -44,21 +45,51 @@ class TestTiles:
     def test_captions_carry_the_count_and_the_scan_variable(self, share: Path) -> None:
         frame, _ = _opened(share)
         values = frame["U_Jet Position"]
-        bins = images.tiles(frame, "bins", values, scan_name="Jet")
+        bins = images.tiles(frame, "bins", values)
+        # The value alone: the strip's title names the variable once.
         assert [(t.index, t.rows, t.caption) for t in bins] == [
-            (0, (1, 2), "Jet = 1 · 2 shots"),
-            (1, (3, 4), "Jet = 2 · 2 shots"),
+            (0, (1, 2), "1 · 2 shots"),
+            (1, (3, 4), "2 · 2 shots"),
         ]
         # Without a scan variable the bin is named by its number.
         assert images.tiles(frame, "bins")[1].caption == "bin 2 · 2 shots"
         shots = images.tiles(frame, "shots", shot_numbers=scans.shot_axis(frame))
         assert [t.caption for t in shots] == ["shot 1", "shot 2", "shot 3", "shot 4"]
-        named = images.tiles(frame, "shots", values, scans.shot_axis(frame), "Jet")
-        assert named[2].caption == "shot 3 · Jet = 2"
+        named = images.tiles(frame, "shots", values, scans.shot_axis(frame))
+        assert named[2].caption == "shot 3 · 2"
         assert [t.rows for t in shots] == [(1,), (2,), (3,), (4,)]
+
+    def test_one_shot_per_bin_is_its_first_or_its_highest_y(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        values, numbers = frame["U_Jet Position"], scans.shot_axis(frame)
+        first = images.tiles(frame, "pick", values, numbers)
+        assert [(t.index, t.rows, t.caption, t.bin) for t in first] == [
+            (1, (1,), "1 · shot 1", "1"),
+            (3, (3,), "2 · shot 3", "2"),
+        ]
+        # Highest charge: 12 over 10 in bin 1; bin 2's NaN is skipped.
+        top = images.tiles(
+            frame, "pick", values, numbers, pick_by=frame["U_ICT charge"]
+        )
+        assert [t.rows for t in top] == [(2,), (4,)]
+        assert images.pick_row((1, 2), pd.Series([float("nan")] * 2)) == 1
 
 
 class TestPixels:
+    def test_a_hit_filter_cleans_each_shot_and_keys_the_store(
+        self, share: Path, camera: Path
+    ) -> None:
+        from geecs_data_utils.data.image_prep import ImagePrep
+
+        frame, folder = _opened(share)
+        raw = images.kept_tile_array(folder, frame, CAM, (1, 2))
+        clean = images.kept_tile_array(
+            folder, frame, CAM, (1, 2), ImagePrep(hits="hot")
+        )
+        assert raw[0, 0] == pytest.approx(1000.0)  # the bright corner, averaged
+        assert clean[0, 0] == pytest.approx(15.0)  # gone from each shot
+        assert clean[2, 3] == pytest.approx(15.0)
+
     def test_a_bin_is_its_shots_average(self, share: Path, camera: Path) -> None:
         frame, folder = _opened(share)
         tile = images.tile_array(folder, frame, CAM, (1, 2))
@@ -209,7 +240,7 @@ class TestPage:
         page = post(client, scan=1, page="images", device=CAM)
         assert 'id="strip" class="strip grid"' in page
         assert page.count('class="tile"') == 2
-        assert "U_Jet Position = 2 · 2 shots" in page
+        assert ">2 · 2 shots<" in page and "U_Jet Position = " not in page
         assert f"{CAM} vs U_Jet Position · 2 bins" in page  # the strip's title
         assert "api/images/tile.png?day=2026-10-02" in page
         assert "data-figure-url" not in page  # no XY plot on this tab
@@ -311,6 +342,48 @@ class TestRoiAndZScale:
         assert drawn.shape == (1, 2, 3)
         assert set(drawn.ravel().tolist()) <= {127, 128}
 
+    def test_a_tile_and_the_levels_take_the_clean_ups(
+        self, client: TestClient, camera: Path
+    ) -> None:
+        params = {**SCAN, "device": CAM, "strip": "shots", "index": 2}
+        levels = client.get(
+            "/api/images/levels", params={**params, "rows": "1,2", "hits": "hot"}
+        ).json()
+        # The bright corner is a hit: gone, the strip runs 10 to 20.
+        assert (levels["zmin"], levels["zmax"], levels["tiles"]) == (10.0, 20.0, 2)
+        centred = {**params, "hits": "hot", "centre": 0.5}
+        assert client.get("/api/images/tile.png", params=centred).status_code == 200
+        for bad in ({"hits": "gauss"}, {"centre": -1}, {"rows": "1,x"}):
+            route = "levels" if "rows" in bad else "tile.png"
+            response = client.get(f"/api/images/{route}", params={**params, **bad})
+            assert response.status_code == 422, bad
+
+    def test_the_page_carries_the_pick_and_the_clean_ups(
+        self, client: TestClient, camera: Path
+    ) -> None:
+        page = post(
+            client,
+            scan=1,
+            page="images",
+            device=CAM,
+            strip="pick",
+            pick="ymax",
+            y="U_ICT charge",
+            hits="median3",
+            centre="0.5",
+        )
+        assert page.count('class="tile"') == 2
+        assert "2 · shot 4" in page and "1 · shot 2" in page
+        assert "strip=shots&amp;index=4&amp;hits=median3&amp;centre=0.5" in page
+        assert "rows=2%2C4" in page  # the shared scale reads the shots shown
+        assert "2 bins, one shot each · hits removed, centred" in page
+
+    def test_the_centre_threshold_is_above_zero_or_off(self) -> None:
+        assert merged(PlotterSettings(), {"centre": "200"}).image_centre == 200.0
+        assert merged(PlotterSettings(), {"centre": ""}).image_centre is None
+        with pytest.raises(SettingsError, match="centre"):
+            merged(PlotterSettings(), {"centre": "0"})
+
     @pytest.mark.parametrize("roi", ["1,2,3", "3,0,1,2", "-1,0,2,2", "a,b,c,d"])
     def test_a_bad_roi_is_a_422(
         self, client: TestClient, camera: Path, roi: str
@@ -391,6 +464,23 @@ def test_a_bin_read_as_a_decimal_is_captioned_whole(share: Path) -> None:
         "bin 1 · 2 shots",
         "bin 2 · 2 shots",
     ]
+
+
+def test_a_value_two_bins_share_names_the_bins() -> None:
+    """A scan back over its start: the two 17.5 bins read apart, the rest stay bare."""
+    frame = pd.DataFrame({"Bin #": [1, 1, 2, 2, 3, 3]})
+    values = pd.Series([17.5, 17.5, 20.0, 20.0, 17.5, 17.5])
+    assert [t.caption for t in images.tiles(frame, "bins", values)] == [
+        "17.5 · bin 1 · 2 shots",
+        "20 · 2 shots",
+        "17.5 · bin 3 · 2 shots",
+    ]
+
+
+def test_every_hit_filter_has_a_label_on_the_rail() -> None:
+    from geecs_data_utils.data.image_prep import HIT_FILTERS
+
+    assert set(images.HIT_LABELS) == set(HIT_FILTERS)
 
 
 def test_fixed_levels_with_white_below_black_say_so(

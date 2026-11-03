@@ -25,8 +25,20 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from geecs_data_utils.data.binning import bin_rows
+from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import window_levels
+
+#: The X-ray-hit filters as the rail names them, in its order; one per
+#: ``image_prep.HIT_FILTERS`` (the import-time check keeps the two in step).
+HIT_LABELS = {
+    "none": "keep",
+    "hot": "remove hot pixels",
+    "median3": "median 3×3",
+    "median5": "median 5×5",
+}
+if set(HIT_LABELS) != set(HIT_FILTERS):  # pragma: no cover - a developer's slip
+    raise RuntimeError("every image_prep.HIT_FILTERS entry needs a HIT_LABELS label")
 
 #: The colour maps offered (matplotlib names), "gray" first, the default:
 #: the perceptual ones, then the classic false-colour tables.
@@ -147,14 +159,31 @@ def _number(value: object, missing: str) -> str:
     return str(value)
 
 
-def _value(values: Optional[pd.Series], rows: tuple[int, ...], name: str) -> str:
-    """``"name = v"``: the scan variable over *rows* (its median); ``""`` without one."""
+def _value(values: Optional[pd.Series], rows: tuple[int, ...]) -> str:
+    """The scan variable over *rows* (its median), as shown; ``""`` without one.
+
+    The value alone: the strip's title names the variable once.
+    """
     if values is None:
         return ""
     picked = values.iloc[[r - 1 for r in rows]].dropna()
     if not len(picked):
         return ""
-    return f"{name} = {picked.median():.4g}" if name else f"{picked.median():.4g}"
+    return f"{picked.median():.4g}"
+
+
+def pick_row(rows: tuple[int, ...], by: Optional[pd.Series] = None) -> int:
+    """The one shot shown for a bin: its first, or its highest *by*.
+
+    *by* is a column per s-file row (the plot's Y1); its missing values
+    are skipped, and a bin with none of them shows its first shot.
+    """
+    if by is None:
+        return rows[0]
+    values = by.iloc[[r - 1 for r in rows]].to_numpy(dtype=float, na_value=np.nan)
+    if not np.isfinite(values).any():
+        return rows[0]
+    return rows[int(np.nanargmax(values))]
 
 
 def tiles(
@@ -162,56 +191,84 @@ def tiles(
     strip: str,
     scan_values: Optional[pd.Series] = None,
     shot_numbers: Optional[pd.Series] = None,
-    scan_name: str = "",
+    pick_by: Optional[pd.Series] = None,
 ) -> list[Tile]:
     """The strip's tiles, in order.
 
-    A bin's caption is its scan variable's value, ``"Jet position = 17.5 ·
-    5 shots"`` (``"bin 2 · 5 shots"`` without one); a shot's is ``"shot 3 ·
-    Jet position = 17.5"``.
+    A bin's caption is its scan variable's value, ``"17.5 · 5 shots"``
+    (``"bin 2 · 5 shots"`` without one, ``"17.5 · bin 2 · 5 shots"`` when
+    another bin has the same value); a shot's is ``"shot 3 · 17.5"``;
+    a bin's one shot (``"pick"``) is ``"17.5 · shot 12"``. The variable's
+    name is the strip's title, said once.
 
     Parameters
     ----------
     frame : pandas.DataFrame
         The scan's s-file, one row per shot.
-    strip : {"bins", "shots"}
-        One tile per bin, or one per shot.
+    strip : {"bins", "shots", "pick"}
+        One tile per bin (its average), one per shot, or one shot per bin
+        (``pick``: its first, or its highest *pick_by*); a picked tile's
+        ``index`` is its shot's row, as a shot tile's is.
     scan_values : pandas.Series, optional
         The scan variable per row, shown in each caption.
     shot_numbers : pandas.Series, optional
         The shot number per row (the s-file's), for the shot captions.
-    scan_name : str, optional
-        The scan variable's name as shown (its alias), before its value.
+    pick_by : pandas.Series, optional
+        For ``pick``: the column whose highest value picks each bin's
+        shot (the plot's Y1); ``None`` picks the first shot.
 
     Returns
     -------
     list of Tile
     """
+
+    def shot_label(row: int) -> str:
+        shot = row if shot_numbers is None else shot_numbers.iloc[row - 1]
+        return f"shot {_number(shot, f'? (row {row})')}"
+
     if strip == "shots":
         out = []
         bin_numbers = frame.get("Bin #")
         for row in range(1, len(frame) + 1):
-            shot = row if shot_numbers is None else shot_numbers.iloc[row - 1]
-            label = f"shot {_number(shot, f'? (row {row})')}"
+            label = shot_label(row)
             in_bin = (
                 "" if bin_numbers is None else _number(bin_numbers.iloc[row - 1], "")
             )
-            value = _value(scan_values, (row,), scan_name)
+            value = _value(scan_values, (row,))
             caption = f"{label} · {value}" if value else label
             out.append(Tile(row, (row,), caption, in_bin))
         return out
+    found = list(bins(frame))
+    wheres = [_value(scan_values, rows) for _, rows in found]
+    # A value two bins share (a scan back over its start, or medians alike
+    # to 4 figures) names the bin too, so no two tiles read the same.
+    shared = {w for w in wheres if w and wheres.count(w) > 1}
     out = []
-    for index, (label, rows) in enumerate(bins(frame)):
+    for index, ((label, rows), value) in enumerate(zip(found, wheres)):
+        number = f"bin {_number(label, 'none')}"
+        where = (f"{value} · {number}" if value in shared else value) or number
+        if strip == "pick":
+            row = pick_row(rows, pick_by)
+            caption = f"{where} · {shot_label(row)}"
+            out.append(Tile(row, (row,), caption, _number(label, "")))
+            continue
         count = f"{len(rows)} shot{'s' if len(rows) != 1 else ''}"
-        where = _value(scan_values, rows, scan_name) or f"bin {_number(label, 'none')}"
         out.append(Tile(index, rows, f"{where} · {count}", _number(label, "")))
     return out
 
 
 def tile_array(
-    folder: Path, frame: pd.DataFrame, device: str, rows: tuple[int, ...]
+    folder: Path,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    prep: ImagePrep = ImagePrep(),
 ) -> np.ndarray:
     """The tile's pixels: one shot's image, or its shots' average.
+
+    *prep* cleans each shot before the average
+    (``geecs_data_utils.data.image_prep``: X-ray hits out, then centred
+    on its beam), so a bin's average is of centred shots.
 
     ``geecs_data_utils.io.shot_images.average_rows``: shots the device
     missed, or whose file is missing or unreadable, are left out of the
@@ -222,7 +279,9 @@ def tile_array(
     NoImage
         No shot of the tile has an image; the reason why.
     """
-    found = shot_images.average_rows(folder, frame, device, rows)
+    found = shot_images.average_rows(
+        folder, frame, device, rows, prepare=prep.apply if prep.active else None
+    )
     if found.array is None:
         raise NoImage(found.reason or found.kind)
     return found.array
@@ -234,7 +293,11 @@ _kept_lock = threading.Lock()
 
 
 def kept_tile_array(
-    folder: Path, frame: pd.DataFrame, device: str, rows: tuple[int, ...]
+    folder: Path,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    prep: ImagePrep = ImagePrep(),
 ) -> np.ndarray:
     """:func:`tile_array`, remembered until the camera's folder changes.
 
@@ -253,8 +316,8 @@ def kept_tile_array(
     try:
         stamp = (folder / device).stat().st_mtime_ns
     except OSError:
-        return tile_array(folder, frame, device, rows)
-    key = (str(folder), device, rows, len(frame), stamp)
+        return tile_array(folder, frame, device, rows, prep)
+    key = (str(folder), device, rows, len(frame), stamp, prep)
     now = time.monotonic()
     with _kept_lock:
         kept = _kept.get(key)
@@ -268,7 +331,7 @@ def kept_tile_array(
     if kept is not None:
         return kept
     try:
-        pixels = tile_array(folder, frame, device, rows)
+        pixels = tile_array(folder, frame, device, rows, prep)
     except NoImage as why:
         _keep(key, (str(why), now))
         raise
@@ -319,6 +382,7 @@ def shared_levels(
     device: str,
     tiles: list[Tile],
     roi: Optional[Roi] = None,
+    prep: ImagePrep = ImagePrep(),
 ) -> tuple[float, float, int]:
     """One black and one white for every tile: the darkest and brightest pixel.
 
@@ -341,7 +405,7 @@ def shared_levels(
 
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
-            pixels = crop(kept_tile_array(folder, frame, device, tile.rows), roi)
+            pixels = crop(kept_tile_array(folder, frame, device, tile.rows, prep), roi)
         except NoImage:
             return None
         return window_levels(pixels, 0.0, 100.0)  # its darkest and brightest

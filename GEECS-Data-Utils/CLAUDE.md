@@ -27,6 +27,15 @@ geecs_data_utils/
                                #   `scan` / `day`, the union of columns (NaN where
                                #   a scan lacks one), each shot keeping its own
                                #   number — so `Bin #` means nothing across scans
+  data/image_prep.py           # ImagePrep: one camera image's clean-ups, before
+                               #   it is drawn or averaged — X-ray hits out
+                               #   (remove_hits: median 3×3/5×5, or "hot": only a
+                               #   pixel far above neighbours that sit at the
+                               #   background, so a sharp focal spot survives),
+                               #   then beam_centre (centre of mass above a
+                               #   threshold: counts at 1 or more, else a fraction
+                               #   of the peak) and centre_on (whole-pixel shift,
+                               #   the median shifted in)
   analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
@@ -99,7 +108,9 @@ geecs_data_utils/
                                #   row of the WHOLE table → its file) and
                                #   average_rows (rows → one average; a
                                #   bin's rows from data.binning.bin_rows,
-                               #   a filter as its mask; the portal's
+                               #   a filter as its mask; prepare= cleans
+                               #   each shot first, e.g. ImagePrep.apply;
+                               #   the portal's
                                #   bin-image route still has its own loop);
                                #   a "stack" may hold
                                #   traces: stack_content says which, and
