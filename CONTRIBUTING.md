@@ -3,17 +3,18 @@
 This is the monorepo for BELLA beamline data acquisition, analysis, and
 logging tooling. Each top-level directory is an independent Python package
 with its own `pyproject.toml`, managed by **Poetry**. This page is the
-human-facing contract; the same rules (plus deep architectural context)
-live in the root and per-package `CLAUDE.md` files, which are the canonical
-instructions for AI-assisted development — if you work with Claude/Codex,
-those files are loaded automatically, and repo-checked skills under
-`.claude/skills/` (e.g. `/land`, `/check`, `/triage`, `/scan-audit`,
-`/env-doctor`, `/get-started`, `/lab-status`, `/fleet-status`,
-`/package-tidy`)
-encode the recurring workflows. The rules on this page are the team's
-working norms for every GEECS-BELLA repo: the private repos (geecs-epics,
-the `ioc-*` repos) point here instead of restating them and state only
-what differs there. New to the repo entirely? Start with
+human-facing contract and the one home of the team's working norms
+(review, PRs, GitHub conduct, what to delete) for every GEECS-BELLA repo:
+the private repos (geecs-epics, the `ioc-*` repos) point here rather than
+restating them, and state only what differs there (geecs-epics#124 makes
+it so). The root and per-package `CLAUDE.md` files hold each repo's own
+rules and the deep architectural context; they are the canonical
+instructions for AI-assisted development, loaded automatically when you
+work with Claude/Codex, and the root `CLAUDE.md` imports this page so the
+norms load with them. Repo-checked skills under `.claude/skills/` (e.g.
+`/land`, `/check`, `/triage`, `/scan-audit`, `/env-doctor`,
+`/get-started`, `/lab-status`, `/fleet-status`, `/package-tidy`) encode
+the recurring workflows. New to the repo entirely? Start with
 [Getting started](docs/tutorials/getting_started.md) (published on the
 docs site), or launch Claude Code from the repo root and type
 `/get-started`.
@@ -199,18 +200,17 @@ layout; delete-when-executed is the whole discipline):
    record — and each finding is dispositioned — fixed (and confirmed by
    the reviewer), or waived with a stated reason — before merge. The
    reviewer brief lives in `.claude/skills/land/SKILL.md`.
-5. **A gating command's own exit code is the gate.** Never put a pipe on
-   the left of `&&`, and never read a pass/fail result off a truncated
-   tail: `cmd > file 2>&1; rc=$?; tail file; [ $rc -eq 0 ] && next`.
-   (#737 merged past a red check because `tail` returned 0; #842 pushed
-   a failing test the same way.)
+5. **A gating command's own exit code is the gate.** A pipe reports only
+   its last command's status, so never gate on `cmd | tail && next`:
+   use `cmd > file 2>&1; rc=$?; tail file; [ $rc -eq 0 ] && next`, or
+   `set -o pipefail` as `scripts/check.sh` does. (#737 merged past a red
+   check because `tail` returned 0; #842 pushed a failing test the same
+   way.)
 6. **A modernization removes the old implementation in the same PR** —
    superseded models, re-export shims, frozen GUIs, one-shot converters
    after their run — and the body reports adds against deletes per
    concern. Ask first only when the old surface has a live external
-   consumer; otherwise delete. (Ruled on #803: the audience is future
-   contributors, and a lingering old path costs every reader more than
-   the deletion costs the author.)
+   consumer; otherwise delete. (The owner's rule on #803, 2026-09-08.)
 
 ## Committing
 
@@ -259,17 +259,21 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
   `192.168.6.x` addresses are accepted practice.
 - **Legacy configs are disposable.** The configs repo's legacy YAML never
   constrains the code: when a config kind is regenerated in its new-schema
-  form, the deployed catalog is regenerated and committed there, and the
-  legacy readers in this repo (converters, resolver fallbacks, dialect
-  tests) are deleted in a normal PR. #779 was a config problem wearing an
+  form, the deployed catalog is regenerated and committed there — directly
+  to the configs repo's main branch, the one place agents commit without
+  a PR (the owner's rule, 2026-09-03) — and the legacy readers in this
+  repo (converters, resolver fallbacks, dialect tests) are deleted in a
+  normal PR. #779 was a config problem wearing an
   engine problem's clothes: a legacy `scan_devices.yaml` pair opted every
   axis out of the readback-confirming motor path that already existed.
 - **A fact found wrong is fixed in its home, in the same session.** The
   correction is a PR to the file that owns the fact, with the reason in
   the PR body — never a note in agent memory, a side file or a workaround.
-  The 2026-10-30 move of the worker-side services off the central lab
-  server stayed wrong in four public files for a week because the
-  correction lived only in memory and one private runbook.
+  The 2026-10-30 move of the worker-side services to the services box
+  has been wrong in four public files since then (the fleet map, the
+  gateway's `CLAUDE.md` and `DEPLOYMENT.md`, `deploy/site.env.example`;
+  corrected in a companion PR) because the correction lived only in
+  memory and one private runbook.
 - **Contract files travel with behavior**: gateway-visible changes update
   `GeecsCAGateway/PV_CONTRACT.md` + its pinned test in the same PR;
   event-data changes update `GeecsBluesky/EVENT_SCHEMA.md`.
