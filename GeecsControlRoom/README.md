@@ -55,7 +55,9 @@ peaks at ≈ 36 MB of memory per camera (21 MB int32 + 11 MB uint16 + 4 MB gzip)
   through unchanged**: the body is gzip framed by this server and the
   browser's `fetch` decodes it. A front door that drops the header but keeps
   the gzip body, or compresses the body a second time, hands the page bytes
-  that do not match the frame's size, and the page says `geometry disagrees`.
+  that do not match the frame's size: the server answered 200, and the page
+  says `the frame is <n> bytes for <w>×<h>` (not the server's `geometry
+  disagrees`, which is a camera-ROI change).
   The body is already compressed: exclude `application/octet-stream` from the
   proxy's own compression.
 - **A camera-family change rebuilds Canopy's image at deploy**: the module's

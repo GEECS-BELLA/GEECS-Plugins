@@ -71,11 +71,13 @@ bridge never reads it, the Control Room's `frame.raw` route reads it by
 this role name, and the Control Room's `/arrays` serves `on_request` roles
 **of type `array`** only, so `never` keeps a 10 MB frame out of it (no new
 role type: a `frame` type with `on_request` would land it there). The three
-scalars are `on_request`, never `monitor`: the module judges only
-`monitor` roles, so none of the four is judged, subscribed on Hare or
-archived, the device's state does not depend on `ARR` (an `ARR` with
-callbacks off cannot make a live camera stale), and Hare's subscriptions
-per camera are unchanged. `tests/test_family_file.py` pins the read modes
+scalars are `on_request`, never `monitor`: the module judges and
+subscribes only `monitor` roles, so none of the four is judged or
+subscribed on Hare, the device's state does not depend on `ARR` (an `ARR`
+with callbacks off cannot make a live camera stale), and Hare's
+subscriptions per camera are unchanged. None sets `archive` either; read
+mode does not decide archiving (the archiver keeps `archive: true` roles),
+so the flag is what keeps them out. `tests/test_family_file.py` pins the read modes
 and that none of the four is archived; the Control Room's contract test
 pins `verdict: null` on them. A family change reaches Canopy only through its image's copy of this
 package, so it rebuilds Canopy's image at deploy.

@@ -218,10 +218,11 @@ assumed` means the camera did not report one.
 **Rate.** Raw refreshes at most twice a second, and every viewer of a
 camera shares the one frame the server read, so opening more raw views does
 not load the camera. The chip at the right of the header reads `new
-frames/s`: how many frames the camera produced over the last two seconds,
-so a camera triggered at 1 Hz reads `1.0` (sometimes `1.5`, as frames fall
-either side of the window), and a stopped camera reads `0.0` even though the
-page keeps asking. Raw is for the lab network; a full-size frame is a few
+frames/s`: how many new frames the page received over the last two
+seconds. It is not the camera's rate: the page asks twice a second, so it
+reads at most `2.0`, whatever the camera runs at. A camera triggered at 1 Hz
+reads `1.0` (sometimes `1.5`, as frames fall either side of the window), and
+a stopped camera reads `0.0` even though the page keeps asking. Raw is for the lab network; a full-size frame is a few
 megabytes.
 
 **Levels.** In Raw the black and white inputs, the cursor readout and the

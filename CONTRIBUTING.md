@@ -154,8 +154,8 @@ layout; delete-when-executed is the whole discipline):
   levels, the rules with rows), the raw roles and why `read: never` /
   `on_request` to `GEECS-Schemas/CLAUDE.md`, the bandwidth, gzip and image
   rebuild notes to `GeecsControlRoom/README.md` § Deploy, and the operator's
-  view to `docs/web_services/control_room.md` § "Raw view". The rulings and
-  the red team's dispositions are in the promotion PR's body; the hardware
+  view to `docs/web_services/control_room.md` § "Raw view". The brief's
+  § Status (the red team's dispositions) is in #1271's body; the hardware
   proof is owed after the deploy.
 
 ## Every PR that changes a package

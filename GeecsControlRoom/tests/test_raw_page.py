@@ -21,7 +21,7 @@ import httpx
 import numpy as np
 
 from tests._node import needs_node, run
-from tests.test_images import RAW_URL, Env
+from tests.test_images import RAW_URL, Env, _raw
 
 WIDTH = HEIGHT = 600
 FLOOR, SPREAD = 56, 3
@@ -45,36 +45,22 @@ def _camera(full_scale: float | None = 4095.0) -> Env:
     return env
 
 
-async def _wire(c: httpx.AsyncClient, **headers: str) -> tuple[httpx.Response, bytes]:
-    """The response and its body as sent, before httpx undoes the encoding."""
-    async with c.stream("GET", RAW_URL, headers=headers) as r:
-        return r, b"".join([chunk async for chunk in r.aiter_raw()])
-
-
-async def test_the_route_serves_the_camera_frame_to_the_contract() -> None:
+async def test_the_floor_frame_arrives_exactly_then_304_until_the_camera_moves() -> (
+    None
+):
+    # the headers, framing and cast are test_images.py's; this pins the sequence a poller sees on this frame
     env = _camera()
     async with env.client() as c:
-        r, wire = await _wire(c)
-        h = r.headers
-        assert (
-            r.status_code == 200 and wire[:2] == b"\x1f\x8b"
-        )  # gzip framing, never bare zlib
-        assert h["content-type"] == "application/octet-stream" and h["content-encoding"] == "gzip"  # fmt: skip
-        assert (
-            h["content-length"] == str(len(wire)) and h["cache-control"] == "no-store"
-        )
-        assert h["etag"] == h["x-frame-tag"] == '"1"'
-        assert (h["x-frame-width"], h["x-frame-height"], h["x-frame-full-scale"]) == ("600", "600", "4095")  # fmt: skip
+        r, wire = await _raw(c)
+        assert r.status_code == 200 and r.headers["etag"] == '"1"'
         body = gzip.decompress(wire)
         assert (
             body == floor_frame().astype("<u2").tobytes()
         )  # uint16 LE row-major, exact
-        # the camera has not moved: 304, nothing new, the same tag
-        same = await c.get(RAW_URL, headers={"If-None-Match": h["etag"]})
-        assert (same.status_code, same.content, same.headers["etag"], same.headers["x-frame-tag"]) == (304, b"", '"1"', '"1"')  # fmt: skip
-        # a new frame: the old tag no longer matches
+        same = await c.get(RAW_URL, headers={"If-None-Match": '"1"'})
+        assert (same.status_code, same.content, same.headers["x-frame-tag"]) == (304, b"", '"1"')  # fmt: skip
         env.ca.counters, env.clock[0] = [2.0], env.clock[0] + 1.0
-        new = await c.get(RAW_URL, headers={"If-None-Match": h["etag"]})
+        new = await c.get(RAW_URL, headers={"If-None-Match": '"1"'})
     assert new.status_code == 200 and new.headers["etag"] == '"2"' and new.content == body  # fmt: skip
 
 
