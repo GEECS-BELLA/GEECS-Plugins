@@ -3,14 +3,18 @@
 This is the monorepo for BELLA beamline data acquisition, analysis, and
 logging tooling. Each top-level directory is an independent Python package
 with its own `pyproject.toml`, managed by **Poetry**. This page is the
-human-facing contract; the same rules (plus deep architectural context)
-live in the root and per-package `CLAUDE.md` files, which are the canonical
-instructions for AI-assisted development — if you work with Claude/Codex,
-those files are loaded automatically, and repo-checked skills under
-`.claude/skills/` (e.g. `/land`, `/check`, `/triage`, `/scan-audit`,
-`/env-doctor`, `/get-started`, `/lab-status`, `/fleet-status`,
-`/package-tidy`)
-encode the recurring workflows. New to the repo entirely? Start with
+human-facing contract and the one home of the team's working norms
+(review, PRs, GitHub conduct, what to delete) for every GEECS-BELLA repo:
+the private repos (geecs-epics, the `ioc-*` repos) point here rather than
+restating them, and state only what differs there (geecs-epics#124 makes
+it so). The root and per-package `CLAUDE.md` files hold each repo's own
+rules and the deep architectural context; they are the canonical
+instructions for AI-assisted development, loaded automatically when you
+work with Claude/Codex, and the root `CLAUDE.md` imports this page so the
+norms load with them. Repo-checked skills under `.claude/skills/` (e.g.
+`/land`, `/check`, `/triage`, `/scan-audit`, `/env-doctor`,
+`/get-started`, `/lab-status`, `/fleet-status`, `/package-tidy`) encode
+the recurring workflows. New to the repo entirely? Start with
 [Getting started](docs/tutorials/getting_started.md) (published on the
 docs site), or launch Claude Code from the repo root and type
 `/get-started`.
@@ -33,6 +37,19 @@ docs site), or launch Claude Code from the repo root and type
   pre-commit's 4.7 s. pre-commit stays the reference — CI and
   `scripts/commit.sh` run it — so a hook that behaves differently under
   prek is a prek bug, not a config change.
+
+- The private facility repo's map (`geecs-epics/docs/index.md`: which page
+  owns which host, device or incident fact) can load into your sessions
+  here. Project-scoped: an untracked `CLAUDE.local.md` beside this file
+  with the line `@../geecs-epics/docs/index.md` (the path to your clone;
+  a worktree under `.claude/worktrees/` has its own file, so there use an
+  absolute path); Claude Code asks once per checkout, in an interactive
+  session, and loads nothing until approved — a headless session cannot approve it, and a
+  missing target is silent (observed, not documented). Machine-wide
+  instead: the same line in `~/.claude/CLAUDE.md` loads with no prompt in
+  every session on the machine, this public repo's included, so remember
+  what it carries (desktop Cowork sessions skip user-scope imports outside
+  their working directory). Either way, verify once with `/context all`.
 
 ## Branch topology (post-M6: one mainline)
 
@@ -207,6 +224,17 @@ layout; delete-when-executed is the whole discipline):
    record — and each finding is dispositioned — fixed (and confirmed by
    the reviewer), or waived with a stated reason — before merge. The
    reviewer brief lives in `.claude/skills/land/SKILL.md`.
+5. **A gating command's own exit code is the gate.** A pipe reports only
+   its last command's status, so never gate on `cmd | tail && next`:
+   use `cmd > file 2>&1; rc=$?; tail file; [ $rc -eq 0 ] && next`, or
+   `set -o pipefail` as `scripts/check.sh` does. (#737 merged past a red
+   check because `tail` returned 0; #842 pushed a failing test the same
+   way.)
+6. **A modernization removes the old implementation in the same PR** —
+   superseded models, re-export shims, frozen GUIs, one-shot converters
+   after their run — and the body reports adds against deletes per
+   concern. Ask first only when the old surface has a live external
+   consumer; otherwise delete. (The owner's rule on #803, 2026-09-08.)
 
 ## Committing
 
@@ -223,6 +251,22 @@ the precise statement).
 Style: NumPy docstrings, type hints on public functions, Pydantic v2
 (`model_validate`/`model_dump`, never `.dict()`/`.parse_obj()`).
 
+## GitHub conduct
+
+- **No session links, no "generated with" footers.** This repo is public:
+  PR bodies, comments, review dispositions and commit messages carry no
+  `claude.ai` session URLs and no generated-with line; a review report is
+  pasted in full, never linked. A plain `Co-Authored-By:` trailer is fine.
+- **No unprompted follow-up issues.** An issue is filed for a defect, a
+  blocker, or something the maintainer named as owed. Nice-to-haves and
+  reviewer "gaps" go in the PR body with a one-line "reopen on need":
+  open issues cost the maintainer attention whether or not they matter.
+- **An arc's decisions live on its tracking issue.** The issue body is the
+  current plan; at the end of each slice one concise comment records what
+  was planned, what review changed, what the lab found, what changed in
+  the plan and why, the facts the next slice needs, and the dead ends.
+  geecs-epics#16 is the model; #1084 carries the first such record here.
+
 ## Rules with incident history (do not relearn these live)
 
 - **Analysis code never creates `scans/ScanNNN/` folders.** Only the
@@ -237,6 +281,23 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 - **This repo is public.** No lab account names, hostnames, or user home
   paths in committed files (generic placeholders instead); internal
   `192.168.6.x` addresses are accepted practice.
+- **Legacy configs are disposable.** The configs repo's legacy YAML never
+  constrains the code: when a config kind is regenerated in its new-schema
+  form, the deployed catalog is regenerated and committed there — directly
+  to the configs repo's main branch, the one place agents commit without
+  a PR (the owner's rule, 2026-09-03) — and the legacy readers in this
+  repo (converters, resolver fallbacks, dialect tests) are deleted in a
+  normal PR. #779 was a config problem wearing an
+  engine problem's clothes: a legacy `scan_devices.yaml` pair opted every
+  axis out of the readback-confirming motor path that already existed.
+- **A fact found wrong is fixed in its home, in the same session.** The
+  correction is a PR to the file that owns the fact, with the reason in
+  the PR body — never a note in agent memory, a side file or a workaround.
+  The 2026-10-30 move of the worker-side services to the services box
+  has been wrong in four public files since then (the fleet map, the
+  gateway's `CLAUDE.md` and `DEPLOYMENT.md`, `deploy/site.env.example`;
+  corrected in a companion PR) because the correction lived only in
+  memory and one private runbook.
 - **Contract files travel with behavior**: gateway-visible changes update
   `GeecsCAGateway/PV_CONTRACT.md` + its pinned test in the same PR;
   event-data changes update `GeecsBluesky/EVENT_SCHEMA.md`.

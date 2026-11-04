@@ -80,7 +80,7 @@ kill switch's deny list covers framework servers only.  So:
 # profile.yml (base)
 mcp_servers:
   geecs:
-    url: http://192.168.6.14:8100/mcp
+    url: http://192.168.6.22:8100/mcp
     transport: http
     permissions:
       # The write verbs are on allow AND (below) on deny: deny wins at every

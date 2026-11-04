@@ -367,7 +367,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <circle class="st st-exploratory" cx="690" cy="700" r="4"/><text class="t-sub" x="698" y="704">exploratory</text>
   <text class="t-sub" x="900" y="704">Click any block for what it does, how it works, status and next steps.</text>
 </svg>
-<figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the current interim deployment: the CA gateway, Tiled, the GEECS DB and all worker-side services share one central server until the dedicated services box arrives.</figcaption>
+<figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the deployment since 2026-10-30: the CA gateway and the GEECS DB on the central server, Tiled and every worker-side service on the services box.</figcaption>
 </figure>
 
 <div class="grid">
@@ -403,7 +403,8 @@ svg.has-sel .step:not(.on){opacity:.25}
   <h2>What runs where today</h2>
   <p class="sub" style="margin:0 0 12px">A sketch. The <a href="../../platform/fleet_map/">Fleet Map</a> is the authoritative table of hosts, ports, health checks and runbooks, and the place drift is reconciled.</p>
   <div class="hosts">
-    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>CA gateway, Tiled, GEECS DB. Interim home of the worker-side services too: queueserver, GEECS-MCP HTTP, Data Portal.</p></div>
+    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>CA gateway and GEECS DB. Tiled and the worker-side services ran here too until 2026-10-30.</p></div>
+    <div class="host"><div class="h">Services box</div><div class="ip">192.168.6.22 · Ubuntu 24.04 · systemd</div><p>Tiled and the worker-side services since 2026-10-30: queueserver, Tiled writer, scanner, GEECS-MCP HTTP, Data Portal, logbook, Archiver Appliance. Canopy and the Control Room were set up here after the move.</p></div>
     <div class="host"><div class="h">Camera servers</div><div class="ip">Windows · NSSM service</div><p>One PVA image gateway per host, beside the LabVIEW camera devices. It serves the live frames and writes the scan's HDF5 stacks. Images never transit the central server.</p></div>
     <div class="host"><div class="h">Device hosts</div><div class="ip">Windows · LabVIEW</div><p>GEECS devices as always. Nothing installed for this stack; the gateway speaks their existing UDP/TCP protocol.</p></div>
     <div class="host"><div class="h">Data share</div><div class="ip">NAS · SMB</div><p>The scan folder tree. Written by the engine, the PVA gateways and LabVIEW; read by everyone else.</p></div>
@@ -562,12 +563,11 @@ const INFO = {
    "Two acquisition modes: free-run time sync, where the first sync device paces and every other device fills its row with a derived shot id; and strict shot control (arm, confirm quiescent, fire, await all). Both emit the same versioned event schema.",
    "Devices are ophyd-async objects over the CA gateway. Redis holds the queue; a doc-stream proxy on port 5568 republishes documents to any panel."
   ],
-  "now": "The DAQ since the legacy scanner was retired on 2026-08-20. Runs as `geecs-qserver` under systemd on the interim host with a readiness oneshot that asserts the plan list after every start.",
+  "now": "The DAQ since the legacy scanner was retired on 2026-08-20. Runs as `geecs-qserver` under systemd on the services box (since 2026-10-30) with a readiness oneshot that asserts the plan list after every start.",
   "next": [
    "Named operator-shaped plans (noscan, 1D, optimize) as schemas that UIs can render, all still executing the one shared prologue.",
    "Requested rep-rate throttling: strict shots slower than the external rate, free-run every-Nth subsampling.",
-   "Not yet exercised live: hard pause, pause during optimize mode, a live failed-move policy trigger.",
-   "Move to the dedicated services box."
+   "Not yet exercised live: hard pause, pause during optimize mode, a live failed-move policy trigger."
   ],
   "vision": "One engine for everything that acquires: operator scans, agent scans and optimization loops, with `shot_id` the universal join key so later event-builder or flyer designs are a mechanical migration.",
   "meta": [
@@ -583,11 +583,11 @@ const INFO = {
   "status": "hardening",
   "does": "Every run's start document, per-shot events and stop document, searchable over HTTP. This is where 'what did scan 12 record' is answered without opening files.",
   "how": [
-   "The RunEngine spools each run's documents to a per-run file on the worker; the geecs-tiled-writer service registers the run in the catalog on the central server (port 8000, web UI at /ui) at its close, off the engine thread.",
+   "The RunEngine spools each run's documents to a per-run file on the worker; the geecs-tiled-writer service registers the run in the catalog on the services box (port 8000, web UI at /ui) at its close, off the engine thread.",
    "One read seam, `ScanCatalog` in GEECS-Data-Utils, serves the Data Portal and GEECS-MCP; column semantics live in one schema module so no consumer reinterprets a name.",
    "The s-file is written from the run's own rows at its close (no Tiled round trip), which keeps the file-based analysis path fed."
   ],
-  "now": "Deployed as a systemd `tiled` service. Scalars and metadata are solid; referenced files are not yet served through it.",
+  "now": "Deployed as a systemd `tiled` service on the services box (since 2026-10-30). Scalars and metadata are solid; referenced files are not yet served through it.",
   "next": [
    "StreamResource migration so Tiled can serve the frame stacks and other referenced assets, not only scalars. First step: pin what the deployed Tiled and TiledWriter actually support.",
    "Decide whether ScanAnalysis grows a Tiled reader or keeps reading exported s-files long-term.",

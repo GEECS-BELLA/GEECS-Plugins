@@ -4,7 +4,7 @@ The caproto **Channel Access soft-IOC** that mirrors GEECS devices as EPICS
 PVs (readback + `:SP` setpoints), built on the GEECS access library
 **GEECS-Core** (`geecs_core`: UDP/TCP transport, experiment DB, PV naming,
 exceptions — extracted from this package 2026-08-20). Every EPICS-ecosystem consumer — GeecsBluesky's ophyd-async
-devices, Phoebus displays, the planned Archiver Appliance — talks to GEECS
+devices, Phoebus displays, the Archiver Appliance — talks to GEECS
 through these PVs instead of growing its own bespoke bridge.
 
 ```

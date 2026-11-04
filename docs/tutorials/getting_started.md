@@ -102,7 +102,7 @@ expt = Undulator
 rep_rate_hz = 1
 
 [tiled]
-uri = http://192.168.6.14:8000
+uri = http://192.168.6.22:8000
 api_key = <ask the Tiled admin>
 
 [epics]
@@ -112,10 +112,10 @@ ca_addr_list = 192.168.6.14
 addr_list = 192.168.6.100 192.168.7.161 192.168.8.197
 
 [qserver]
-host = 192.168.6.14
+host = 192.168.6.22
 
 [archiver]
-url = http://192.168.6.14:17665
+url = http://192.168.6.22:17665
 ```
 
 (The lab addresses above are the HTU reference deployment's; the

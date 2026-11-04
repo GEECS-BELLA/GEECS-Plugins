@@ -374,7 +374,7 @@ def test_rendered_config_ini_carries_the_archiver_section(tmp_path: Path) -> Non
     r = _run(tmp_path, REDIS_ENABLED)
     assert r.returncode == 0, r.stderr
     assert "[archiver]" in r.stdout
-    assert "url = http://192.168.6.14:17665" in r.stdout
+    assert "url = http://192.168.6.22:17665" in r.stdout
 
 
 def test_service_account_outside_the_docker_group_is_not_ready(tmp_path: Path) -> None:
@@ -515,7 +515,7 @@ def test_existing_config_without_archiver_gets_the_section_appended(
     _existing_config(tmp_path, "[tiled]\nuri = http://x:8000\napi_key = secret\n")
     r = _run(tmp_path, REDIS_ENABLED, "--only", "archiver")
     assert r.returncode == 0, r.stderr
-    assert "would append [archiver] url = http://192.168.6.14:17665" in r.stdout
+    assert "would append [archiver] url = http://192.168.6.22:17665" in r.stdout
 
 
 def test_existing_archiver_section_is_left_alone(tmp_path: Path) -> None:
@@ -533,9 +533,9 @@ def test_rendered_config_ini_carries_the_mcp_service_urls(tmp_path: Path) -> Non
     assert r.returncode == 0, r.stderr
     assert "[mcp]" in r.stdout
     for line in (
-        "scanner_url = http://192.168.6.14:8300",
-        "portal_url = http://192.168.6.14:8200",
-        "logbook_url = http://192.168.6.14:8400",
+        "scanner_url = http://192.168.6.22:8300",
+        "portal_url = http://192.168.6.22:8200",
+        "logbook_url = http://192.168.6.22:8400",
     ):
         assert line in r.stdout, line
 
@@ -556,7 +556,7 @@ def test_a_pre_rebuild_mcp_section_is_not_edited_but_the_keys_are_named(
     assert r.returncode == 0, r.stderr
     assert "would append [mcp]" not in r.stdout
     assert "lacks scanner_url portal_url logbook_url" in r.stdout
-    assert "scanner_url = http://192.168.6.14:8300" in r.stdout
+    assert "scanner_url = http://192.168.6.22:8300" in r.stdout
     assert cfg.read_text() == "[mcp]\nclient_identity = geecs-mcp\n"
 
 
@@ -569,7 +569,7 @@ def test_a_partial_mcp_section_names_only_the_missing_keys(tmp_path: Path) -> No
     r = _run(tmp_path, REDIS_ENABLED, "--only", "mcp")
     assert r.returncode == 0, r.stderr
     assert "lacks portal_url logbook_url" in r.stdout
-    assert "portal_url = http://192.168.6.14:8200" in r.stdout
+    assert "portal_url = http://192.168.6.22:8200" in r.stdout
 
 
 def test_an_mcp_header_with_a_comment_is_not_duplicated(tmp_path: Path) -> None:

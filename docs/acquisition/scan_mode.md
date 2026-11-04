@@ -169,6 +169,23 @@ Seen on the Undulator, accepted for now:
   values again before the run begins (a DG645 switches trigger source
   twice). Unlisted devices whose host lost both `ScanStart`s are named in
   the worker's log.
+- **A silent device usually never heard `ScanStart`.** In a packet-capture
+  soak (Undulator idle, 2026-10-14, captured on two device hosts) every
+  `ScanStart` that reached a captured host was acknowledged by all of its
+  devices, and every captured miss was a `ScanStart` that never arrived at
+  the host — whole hosts at once, never one device while its host-mates
+  answered; misses spanned more hosts than the two captured. Loss followed
+  silence on the group: 0 of 52 entries after gaps of 5–60 s missed and
+  3 of 8 after 300 s; 3 of 12 cycles at 300 s gaps; 0 of 16 at 300 s gaps
+  with an `Empty` sent to the group every 60 s between cycles (123 of 124
+  group datagrams reached both hosts). `Empty` and the multicast `ScanEnd`
+  were lost the same way, at both hosts and at different times, with zero
+  receive errors and zero capture drops on the hosts: the loss is in the
+  network, downstream of the sender, and its cause is open. The worker
+  recovers as described above — `ScanEnd` to the devices that entered,
+  then one fresh `ScanStart`, never a second `ScanStart` into an open
+  scan. The idle `Empty` keepalive is measured, not built: the worker
+  sends `Empty` only in the `Empty, Empty, ScanStart` entry sequence.
 - **A software single shot sets the pace.** With the box on `Single shot`
   (laser off) the next shot follows once the essential devices have
   answered, after the plan's own work and any `shot_period`. A slower
