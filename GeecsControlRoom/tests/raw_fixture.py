@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import array
 import random
+import sys
 import zlib
 from dataclasses import dataclass, field
 
@@ -38,9 +39,7 @@ def dark_frame(
 
 def gzipped(data: array.array) -> bytes:
     """The body as the contract frames it: gzip (wbits=31), level 1, little-endian bytes."""
-    if (
-        array.array("H", [1]).tobytes() != b"\x01\x00"
-    ):  # pragma: no cover - big-endian hosts
+    if sys.byteorder == "big":  # the contract is little-endian on every host
         data = array.array("H", data)
         data.byteswap()
     z = zlib.compressobj(1, wbits=31)
@@ -54,14 +53,12 @@ class RawFixture:
     width: int = WIDTH
     height: int = HEIGHT
     tag: int = 12345
-    full_scale: int | None = (
-        4095  # None: the header omitted (the page assumes 4095 and says so)
-    )
+    #: None: the header omitted (the page assumes 4095 and says so)
+    full_scale: int | None = 4095
     fail: str | None = None  # a 503's words
     data: array.array = field(default_factory=dark_frame)
-    requests: list[str | None] = field(
-        default_factory=list
-    )  # each request's If-None-Match
+    #: each request's If-None-Match
+    requests: list[str | None] = field(default_factory=list)
 
     def router(self) -> APIRouter:
         """``GET /api/devices/{name}/frame.raw`` over this fixture."""

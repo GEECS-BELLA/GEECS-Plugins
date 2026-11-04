@@ -90,9 +90,12 @@
   }
 
   // A raw frame, decoded: transformed as TRANS1 would (an unknown transform drawn as read, the overlays hidden).
+  // The frame is held as read, so a transform read (or changed) after it redraws it without a new frame.
+  let rawSrc = null, applied = null;
   function takeRaw(f) {
     const t = R.transformOf(P.frame("transform"), P.meta("transform"));
     const out = (t.known && R.transformFrame(f.data, f.width, f.height, t.name)) || { data: f.data, width: f.width, height: f.height };
+    rawSrc = f; applied = t.word || t.name;
     overlays = t.known;
     $("raw-note").textContent = t.word;
     if (f.full !== rawFull || f.assumed !== rawAssumed) { rawFull = full = f.full; rawAssumed = f.assumed; showLevels(); }
@@ -342,6 +345,7 @@
     rawIn.disabled = !toggle.enabled && !raw; rawIn.title = toggle.why;
     const bad = R.alarms(P.view());
     $("alarms").textContent = bad.length ? `in error: ${bad.join(", ")}` : "";
+    if (raw && rawSrc) { const t = R.transformOf(P.frame("transform"), P.meta("transform")); if ((t.word || t.name) !== applied) takeRaw(rawSrc); }
     sized();
     draw();
     hooks.forEach((f) => f());
@@ -361,7 +365,7 @@
   rawIn.addEventListener("change", () => {
     save(); // the leaving mode's levels kept
     raw = rawIn.checked; full = raw ? rawFull : 255; overlays = true;
-    lum = null; lastTag = null; rawTag = shownTag = null; waiting = null; shown.length = 0;
+    lum = rawSrc = null; lastTag = null; rawTag = shownTag = null; waiting = null; shown.length = 0;
     $("raw-note").textContent = "";
     $("image-error").hidden = true;
     showLevels(); refresh();
