@@ -16,7 +16,7 @@ package is the GEECS-shaped recipe around it.
 
 | | |
 |---|---|
-| `geecs_archiver/archive_set.py` | **The rule.** From the GEECS DB, with the gateway's own queries: monitored readbacks, `:SP` setpoints, each device's `connected`, the derived channels. Never timestamps, images or path strings. Then the experiment's overlay |
+| `geecs_archiver/archive_set.py` | **The rule.** From the GEECS DB, with the gateway's own queries: the readback of every served variable (monitored or settable), `:SP` setpoints, each device's `connected`, the derived channels. Never timestamps, images or path strings. Then the experiment's overlay |
 | `geecs_archiver/native.py` | **The registry pass.** A migrated device is disabled in the DB, so its history comes from here: every device in `native_devices.yaml` and every non-DB device in `panel_devices.yaml`, archived by its family file's `archive` roles (or the kind's rule), the device's own opt-ins/opt-outs, the kind's liveness record and its IOC's devIocStats heartbeat. No DB needed. Every PV carries its source, `db` or `registry` |
 | `geecs_archiver/mgmt_client.py` | A typed client of the appliance's management API |
 | `geecs_archiver/onboard.py` | Idempotent reconciliation: archive / resume / retune / pause (never delete; `--yes` guards a mass pause), then verify every new PV is *archived and connected*; the appliance's never-connected list is the drift alarm, read on every run |

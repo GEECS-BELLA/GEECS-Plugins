@@ -75,10 +75,13 @@ def test_monitored_readbacks_and_settable_setpoints_with_normalized_names():
     assert "undulator:uc_cam3:centroidx" in out
 
 
-def test_settable_but_unmonitored_gives_only_the_setpoint():
+def test_settable_but_unmonitored_gives_the_readback_and_the_setpoint():
+    # The gateway subscribes every served variable, so the readback follows a
+    # change made outside the gateway (a LabVIEW GUI) that :SP never sees.
     out = pvs()
+    assert "undulator:uc_cam3:exposure" in out
     assert "undulator:uc_cam3:exposure:SP" in out
-    assert "undulator:uc_cam3:exposure" not in out
+    assert "undulator:uc_cam3:save" in out
     assert "undulator:uc_cam3:save:SP" in out
 
 
@@ -147,7 +150,7 @@ def test_gateway_status_pvs_ride_include_status():
 
 
 def test_the_fixture_set_is_the_rule_plus_the_two_gateway_pvs():
-    """Pinned: adding the gateway's status PVs changed nothing else."""
+    """Pinned: the whole derived set for the fixture DB."""
     assert pvs() == [
         "undulator:cagateway:devices_connected",
         "undulator:cagateway:heartbeat",
@@ -157,7 +160,9 @@ def test_the_fixture_set_is_the_rule_plus_the_two_gateway_pvs():
         "undulator:u_s1h:voltage",
         "undulator:uc_cam3:centroidx",
         "undulator:uc_cam3:connected",
+        "undulator:uc_cam3:exposure",
         "undulator:uc_cam3:exposure:SP",
+        "undulator:uc_cam3:save",
         "undulator:uc_cam3:save:SP",
     ]
 

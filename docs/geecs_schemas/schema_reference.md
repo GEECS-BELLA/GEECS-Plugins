@@ -580,7 +580,7 @@ Example:
 
 ```yaml
 schema_version: 1
-# the archive set is derived from the DB (monitored readbacks, :SP, connected,
+# the archive set is derived from the DB (served readbacks, :SP, connected,
 # derived channels); this file lists the exceptions
 exclude:
   - "undulator:uc_*:image_size*"

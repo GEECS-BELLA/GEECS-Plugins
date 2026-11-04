@@ -1,8 +1,8 @@
 """ArchivePolicy — the per-experiment curation overlay for the Archiver Appliance.
 
 The archive set itself is *derived*: ``geecs-archiver onboard`` enumerates the
-experiment's monitored (``get='yes'``) readbacks, the settable variables'
-``:SP`` setpoints, every device's ``connected`` status PV and the gateway's
+readback of every variable the CA gateway serves (monitored ``get='yes'``
+and settable alike), the settable variables' ``:SP`` setpoints, every device's ``connected`` status PV and the gateway's
 derived channels from the GEECS database, exactly as the CA gateway serves
 them.  This document is the small, optional, committed set of *exceptions*:
 PV globs to leave out, PVs to add, sampling for the few PVs that need a rate

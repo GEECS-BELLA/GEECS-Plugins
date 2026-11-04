@@ -332,8 +332,11 @@ The rule, in `geecs_archiver/archive_set.py`, from the same two batched
 GEECS-Core queries the gateway uses (`GeecsDb.get_experiment_devices`,
 `get_experiment_device_variables`) and `geecs_core.pv_naming`:
 
-- **Include** the readback PVs of every enabled device's `get='yes'`
-  variables; every device's `connected` status PV (state changes only;
+- **Include** the readback PVs of every enabled device's served
+  variables — `get='yes'` and settable alike (widened 2026-11-04: a
+  settable's `:SP` sees only gateway writes, so a change made in a
+  LabVIEW GUI was in no archived PV; the gateway already subscribed the
+  readback); every device's `connected` status PV (state changes only;
   the uptime history we have never had); derived channels declared in
   the experiment's `gateway/derived_channels.yaml` (the gateway's own
   overlay file, read at its conventional path — one declaration, two
