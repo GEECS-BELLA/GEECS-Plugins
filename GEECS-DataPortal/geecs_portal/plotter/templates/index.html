@@ -758,7 +758,8 @@
 {% endif %}
 
 {% if columns and tab != "images" %}
-<datalist id="filter-columns">{% for c in columns %}<option value="{{ c }}">{% endfor %}</datalist>
+{# The shot filters' column menu (plot_tools.js): each column with its shown name. #}
+<datalist id="filter-columns">{% for c in columns %}<option value="{{ c }}" label="{{ ynames[c] if ynames else c }}">{% endfor %}</datalist>
 
 {# Rung 2: Add scan…, the kit's drawer picker (GeecsKit.picker): a day,
    its scans (number, description, shots), the ticked ones added. #}
@@ -794,17 +795,25 @@
   <div class="body">
     {# How shot filters work (rung 0: native details, no script). #}
     <details class="disc filter-help">
-      <summary>How shot filters work</summary>
+      <summary>How shot filters work (with examples)</summary>
       <div class="dbody hint">
-        <p>A <b>condition</b> keeps a shot when one column's value is <b>within</b> (or <b>outside</b>) low to high:
-          type or pick the column, then the two numbers.</p>
-        <p>A <b>group</b> keeps a shot only if <b>all</b> its conditions hold (AND). With several groups, a shot
-          is kept if <b>any</b> group keeps it (OR).</p>
-        <p>Example: charge 10 to 50 <i>and</i> jet position 0 to 3 is one group with two conditions
-          (+ AND condition). To also keep a second window, add another group (+ OR group).</p>
+        <p>Each line reads as a sentence: keep shots where <b>[column]</b> is <b>between</b> (or <b>not between</b>)
+          <b>[low]</b> and <b>[high]</b>. Pick the column from its menu (click it and start typing to jump);
+          type plain numbers in the two boxes — never <code>&lt;</code>, <code>&gt;</code> or <code>=</code>.
+          Leave a box empty for no limit on that side. Both ends are included.</p>
+        <p><b>Examples</b></p>
+        <ul>
+          <li>Charge between 10 and 50: <i>U_ICT charge</i> · between · <code>10</code> and <code>50</code>.</li>
+          <li>Charge above 10 (no upper limit): <i>U_ICT charge</i> · between · <code>10</code> and <i>(empty)</i>.</li>
+          <li>Jet position below 3: <i>jet position</i> · between · <i>(empty)</i> and <code>3</code>.</li>
+          <li>Leave out a bad window, 2 to 3: <i>jet position</i> · not between · <code>2</code> and <code>3</code>.</li>
+        </ul>
+        <p>A <b>group</b> keeps a shot only if <b>all</b> its lines hold (AND): charge 10 to 50 <i>and</i> jet
+          below 3 is one group with two lines (+ AND condition). With several groups a shot is kept if <b>any</b>
+          group keeps it (OR): add + OR group for a second, alternative window.</p>
         <p>The count under the groups says how many shots would pass before you <b>Apply</b>. In the rail, a
           group's tick turns it off without deleting it; ✕ deletes it. "Rows with NaN" says whether a missing
-          value passes or fails a condition.</p>
+          value passes or fails a line.</p>
         <p>Filters narrow the Plot page's plots and its 2-D map; the Images strip always shows every shot.</p>
       </div>
     </details>
