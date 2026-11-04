@@ -14,7 +14,7 @@
     inferno: [[0, 0, 0, 4], [0.25, 87, 16, 110], [0.5, 188, 55, 84], [0.75, 249, 142, 9], [1, 252, 255, 164]],
     jet: [[0, 0, 0, 128], [0.125, 0, 0, 255], [0.375, 0, 255, 255], [0.625, 255, 255, 0], [0.875, 255, 0, 0], [1, 128, 0, 0]],
   };
-  // The scale bends t in 0..1 after the levels; it stretches the 8-bit stream, it adds no range.
+  // The scale bends t in 0..1 after the levels; it stretches the values shown, it adds no range.
   const SCALES = { linear: (t) => t, sqrt: (t) => Math.sqrt(t), log: (t) => Math.log1p(1000 * t) / Math.log1p(1000) };
 
   function mapColour(points, t) {
@@ -33,39 +33,121 @@
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo;
   }
 
-  // The levels as applied: black in 0..254, white above it.
-  function levels(blackRaw, whiteRaw) {
-    const black = clampLevel(blackRaw, 0, 254);
-    return { black, white: Math.max(black + 1, clampLevel(whiteRaw, 1, 255)) };
+  // The levels as applied, in counts of the mode's full scale (255 for the JPEG): black below it, white above black.
+  function levels(blackRaw, whiteRaw, full = 255) {
+    const black = clampLevel(blackRaw, 0, full - 1);
+    return { black, white: Math.max(black + 1, clampLevel(whiteRaw, 1, full)) };
   }
 
-  // grey level 0..255 → [r, g, b] x 256, through the levels, the scale, then the map.
-  function lut(cmap, scale, blackRaw, whiteRaw) {
+  // value 0..full → [r, g, b] x (full + 1), through the levels, the scale, then the map.
+  function lut(cmap, scale, blackRaw, whiteRaw, full = 255) {
     const points = MAPS[cmap] || MAPS.grey, bend = SCALES[scale] || SCALES.linear;
-    const { black, white } = levels(blackRaw, whiteRaw);
+    const { black, white } = levels(blackRaw, whiteRaw, full);
     const out = [];
-    for (let v = 0; v < 256; v++) {
+    for (let v = 0; v <= full; v++) {
       const t = bend(Math.min(1, Math.max(0, (v - black) / (white - black))));
       out.push(...mapColour(points, t).map(Math.round));
     }
     return out;
   }
 
-  // Auto levels from a 256-bin histogram of the frame's grey levels: the 0.1 % and 99.9 % points.
-  function autoLevels(hist) {
+  // The frame's values counted in full + 1 bins; a value above the full scale lands in the top bin.
+  function histogram(values, full) {
+    const hist = new Array(full + 1).fill(0);
+    for (let i = 0; i < values.length; i++) { const v = values[i]; hist[v > full ? full : v]++; }
+    return hist;
+  }
+
+  // Auto levels from a full + 1 bin histogram (0..full): the 0.1 % and 99.9 % points.
+  function autoLevels(hist, full = hist.length - 1) {
     const n = hist.reduce((a, b) => a + b, 0);
-    let acc = 0, black = 0, white = 255;
-    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > n * 0.001) { black = v; break; } }
+    let acc = 0, black = 0, white = full;
+    for (let v = 0; v <= full; v++) { acc += hist[v]; if (acc > n * 0.001) { black = v; break; } }
     acc = 0;
-    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= n * 0.999) { white = v; break; } }
-    return { black, white: white <= black ? Math.min(255, black + 1) : white };
+    for (let v = 0; v <= full; v++) { acc += hist[v]; if (acc >= n * 0.999) { white = v; break; } }
+    return { black, white: white <= black ? Math.min(full, black + 1) : white };
+  }
+
+  // ---- levels per mode, stored as fractions of the mode's full scale: a stored 8-bit white never
+  // saturates the raw view, a 12-bit black never zeroes the JPEG. `stored` is the page's display record.
+  function storedLevels(stored, mode, full) {
+    const f = stored && stored.levels && stored.levels[mode];
+    if (f && Number.isFinite(f.black) && Number.isFinite(f.white)) return levels(f.black * full, f.white * full, full);
+    // before levels were per mode: the JPEG's own black and white, in counts of 255
+    if (mode === "mjpeg" && stored && stored.black !== undefined) return levels(stored.black, stored.white ?? 255, 255);
+    return { black: 0, white: full };
+  }
+  function storeLevels(stored, mode, black, white, full) {
+    const l = levels(black, white, full), was = (stored && stored.levels) || {};
+    return { ...was, [mode]: { black: l.black / full, white: l.white / full } };
+  }
+
+  // ---- the raw frame (/api/devices/<name>/frame.raw, Planning/raw_frames.md's contract)
+  const ASSUMED_FULL = 4095;
+  // What a poll's answer means: 200 a frame, 304 nothing new (never an error), anything else the error.
+  const rawAnswer = (status) => (status === 200 ? "frame" : status === 304 ? "same" : "error");
+
+  // The body (uint16 LE, row-major, height rows of width, gzip undone by fetch) and its headers, by name.
+  function decodeRaw(buffer, h) {
+    const w = Number(h.width), ht = Number(h.height), fs = Number(h.fullScale);
+    if (!(Number.isInteger(w) && w > 0 && Number.isInteger(ht) && ht > 0)) return { ok: false, why: "the frame came without its geometry" };
+    if (buffer.byteLength !== w * ht * 2) return { ok: false, why: `the frame is ${buffer.byteLength} bytes for ${w}×${ht}` };
+    const assumed = !(h.fullScale !== null && h.fullScale !== undefined && Number.isInteger(fs) && fs > 0 && fs <= 65535);
+    return { ok: true, data: new Uint16Array(buffer), width: w, height: ht, full: assumed ? ASSUMED_FULL : fs, assumed, tag: h.tag ?? null };
+  }
+
+  // TRANS1:Type → where the driver's pixel (x, y) of a w×h frame lands, as ADCore's NDPluginTransform
+  // writes a mono frame (transformNDArray): Rot90 is clockwise, Mirror flips left-right.
+  const TRANSFORMS = {
+    None: (x, y) => [x, y],
+    Rot90: (x, y, w, h) => [h - 1 - y, x],
+    Rot180: (x, y, w, h) => [w - 1 - x, h - 1 - y],
+    Rot270: (x, y, w) => [y, w - 1 - x],
+    Mirror: (x, y, w) => [w - 1 - x, y],
+    Rot90Mirror: (x, y) => [y, x],
+    Rot180Mirror: (x, y, w, h) => [x, h - 1 - y],
+    Rot270Mirror: (x, y, w, h) => [h - 1 - y, w - 1 - x],
+  };
+  const SWAPS = new Set(["Rot90", "Rot270", "Rot90Mirror", "Rot270Mirror"]);
+  // The transform role's name from Hare's value: an enum's label, a string as is; null when unread.
+  function transformName(frame, meta) {
+    const v = frame ? frame.value : undefined;
+    if (typeof v === "string") return v;
+    return typeof v === "number" && meta && meta.enumChoices && meta.enumChoices[v] !== undefined ? meta.enumChoices[v] : null;
+  }
+  // The frame as TRANS1 would hand it on (the MJPEG's, the crosshairs' and the ROI's geometry); null for an unknown name.
+  function transformFrame(name, data, w, h) {
+    const at = Object.prototype.hasOwnProperty.call(TRANSFORMS, name) ? TRANSFORMS[name] : null;
+    if (!at) return null;
+    if (name === "None") return { data, width: w, height: h };
+    const ow = SWAPS.has(name) ? h : w, oh = SWAPS.has(name) ? w : h;
+    const idx = (p) => p[1] * ow + p[0];
+    // the mapping is affine, so out index = o0 + x·dx + y·dy
+    const o0 = idx(at(0, 0, w, h)), dx = idx(at(1, 0, w, h)) - o0, dy = idx(at(0, 1, w, h)) - o0;
+    const out = new data.constructor(data.length);
+    for (let y = 0, i = 0; y < h; y++) for (let x = 0, o = o0 + y * dy; x < w; x++, i++, o += dx) out[o] = data[i];
+    return { data: out, width: ow, height: oh };
+  }
+
+  // The page's words for the mode: the source note, the hint, the value word, and whether
+  // MJPG1's image_counter chip means anything (in raw mode it does not, and is hidden).
+  const HINTS = {
+    mjpeg: "The 8-bit stream, stretched in this browser: nothing is written to the camera.",
+    raw: "The camera's 16-bit frame, levels applied in this browser; nothing is written to the camera. Raw is the driver's frame: no background subtracted, rotate / flip applied here.",
+  };
+  function modeWords(raw, s = {}) {
+    if (!raw) return { note: "", hint: HINTS.mjpeg, value: "level", counterChip: true, overlays: true };
+    const full = s.assumed ? `${ASSUMED_FULL} · full scale assumed` : s.full ? `full scale ${s.full}` : "";
+    const known = s.transform !== undefined && Object.prototype.hasOwnProperty.call(TRANSFORMS, s.transform);
+    const how = !known ? "rotate / flip unknown: the driver's frame as is, overlays hidden" : s.transform === "None" ? "" : `${s.transform} applied`;
+    return { note: [how, full].filter(Boolean).join(" · "), hint: HINTS.raw, value: "counts", counterChip: false, overlays: known };
   }
 
   // The image in image pixels (MJPG1's ArraySize): the IOC's size when it agrees with
   // the JPEG's shape (ffmpegServer scales a large frame by ONE factor, each side
-  // rounded), else the JPEG's own. The JPEG is stretched over it.
-  function imageSize(fw, fh, trueW, trueH) {
-    if (!trueW || !trueH) return [fw, fh];
+  // rounded), else the JPEG's own. The JPEG is stretched over it. A raw frame is its true size.
+  function imageSize(fw, fh, trueW, trueH, raw = false) {
+    if (raw || !trueW || !trueH) return [fw, fh];
     const ok = (s) => s <= 1 + 1e-9 && Math.abs(trueW * s - fw) <= 1.5 && Math.abs(trueH * s - fh) <= 1.5;
     return ok(fw / trueW) || ok(fh / trueH) ? [trueW, trueH] : [fw, fh];
   }
@@ -196,5 +278,5 @@
     return s === "" || !Number.isFinite(n) ? null : n;
   }
 
-  Object.assign(rules, { MAPS, levels, lut, autoLevels, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, single, valid, whole, number, gestureEnds, within });
+  Object.assign(rules, { MAPS, levels, lut, histogram, autoLevels, storedLevels, storeLevels, ASSUMED_FULL, rawAnswer, decodeRaw, transformName, transformFrame, modeWords, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, single, valid, whole, number, gestureEnds, within });
 })(typeof module === "object" ? module.exports : (window.GeecsCameraRules = {}));

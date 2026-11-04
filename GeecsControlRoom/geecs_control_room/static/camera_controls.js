@@ -39,7 +39,7 @@
     const roiOk = (role) => R.control(P.view(), P.entry(role), V.busy()).enabled;
     $("cam-roi-apply").disabled = !roiOk("min_x");
     $("cam-roi-full").disabled = !roiOk("min_x") || !(V.value("max_x") > 0);
-    $("roi-full").disabled = !roiOk("roi_minx");
+    $("roi-full").disabled = !roiOk("roi_minx") || !V.frameSize()[0]; // no full frame while the geometry is unknown
   }
   V.hooks.push(fill);
 
