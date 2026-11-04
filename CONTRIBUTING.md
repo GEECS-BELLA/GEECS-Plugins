@@ -40,6 +40,12 @@ one mainline:
   master-targeted PR. (Bulk integration merges whose constituent PRs
   were each already reviewed do not get a fresh adversarial re-review —
   say so in the PR body.)
+- **The one bot exception:** Renovate (`renovate.json`) merges its own
+  GitHub Actions and pre-commit hook-pin PRs (ruff excepted) into
+  `master` once every check is green, without a review comment — a
+  category the maintainer approved on 2026-11-03. Runtime dependencies,
+  lock files and container images are never automerged; they are his
+  merge like any other PR.
 - `dev` is **retired** — frozen at the cutover, kept only so pre-cutover
   PRs based on it don't auto-close. Do not target it or branch from it.
 - The final legacy-scanner state (GEECS-Scanner-GUI, GEECS-PythonAPI) is
