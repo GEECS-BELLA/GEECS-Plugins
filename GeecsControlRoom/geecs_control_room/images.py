@@ -223,8 +223,13 @@ class Images:
         return jpeg, f"{zlib.crc32(jpeg):08x}"
 
     async def arrays(self, module: ModuleClient, name: str) -> dict[str, Any]:
-        """Every ``read: on_request`` role's array by role name, and the PVs read."""
-        pvs = {r: e["pv"] for r, e in (await self.roles(module, name)).items() if e.get("read") == "on_request"}  # fmt: skip
+        """Every ``read: on_request`` role of type ``array`` by role name, and the PVs read.
+
+        An on-request scalar (a raw frame's geometry and counter, read with the
+        frame) is not an array of the page's; the raw frame itself is ``read:
+        never`` and served by its own route, never as JSON.
+        """
+        pvs = {r: e["pv"] for r, e in (await self.roles(module, name)).items() if e.get("read") == "on_request" and e.get("type") == "array"}  # fmt: skip
         if not pvs:
             raise Unavailable(404, f"the module names no on-request array for {name}")
         key = (name, tuple(sorted(pvs.items())))

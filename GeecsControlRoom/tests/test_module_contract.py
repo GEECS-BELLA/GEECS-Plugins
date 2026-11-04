@@ -277,8 +277,14 @@ async def test_the_camera_page_reads_the_image_and_arrays_at_the_pvs_the_module_
         ("host", image),
     ]
     arrays = (await room.client.get("/api/devices/Cam1/arrays")).json()
-    asked = {r: e["pv"] for r, e in roles.items() if e["read"] == "on_request"}
+    asked = {r: e["pv"] for r, e in roles.items() if e["read"] == "on_request" and e["type"] == "array"}  # fmt: skip
     assert arrays["pvs"] == asked and set(asked) == {"profile_x", "profile_y", "cursor_profile_x", "cursor_profile_y", "histogram"}  # fmt: skip
+    # the raw frame's source: the module names it (read never) and its on-request scalars, none judged, none in /arrays
+    assert (
+        roles["raw_frame"]["read"] == "never" and roles["raw_frame"]["verdict"] is None
+    )
+    assert {roles[r]["read"] for r in ("raw_width", "raw_height", "raw_counter")} == {"on_request"}  # fmt: skip
+    assert all(roles[r]["verdict"] is None for r in ("raw_width", "raw_height", "raw_counter"))  # fmt: skip
     page = await room.client.get("/device/camera/Cam1")
     assert 'id="camera"' in page.text and "/api/devices/Cam1/frame.jpg" in page.text
     assert (
