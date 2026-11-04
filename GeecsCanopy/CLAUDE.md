@@ -64,7 +64,7 @@ deploy/
 
 - **From Canopy outward.** Raccoon's shapes, Hare's protocol and Squirrel's
   model are Canopy's. Where they lack something, the gap is an upstream
-  candidate in the decision page (§7.4), never a bend of this package
+  candidate, never a bend of this package
   toward the parked bridge's catalog. Canopy is the host process, never a
   dependency: type against local Protocols and import Canopy lazily, so the
   package installs and tests without it.
@@ -110,9 +110,9 @@ deploy/
   `geecs-canopy` command — never by importing `gateway.py` itself; their writes take
   the same gates but the run lock (a DB device has none), their hazards
   come from the policy's `hazards`, and a setpoint without DB `min`/`max`
-  is refused (rule 11). One switch, `GEECS_CANOPY_DB`, turns the DB off for
+  is refused. One switch, `GEECS_CANOPY_DB`, turns the DB off for
   the directory and the module alike.
-- **Routes and gates import no Canopy name** (condition (b)): `app.py`
+- **Routes and gates import no Canopy name**: `app.py`
   alone does, through `canopy_surface.NAMES`; a new Canopy name goes into
   that list in the same change. Every route needs Canopy read access only;
   the module's own policy decides writes. Every write, a push-2 restore's
@@ -132,14 +132,14 @@ deploy/
   writes are allow-listed with context, not-permitted (403) before
   invalid (422); setpoint refusal lives in the IOC (`DRVL`/`DRVH`, and
   `HIHI`/`LOLO` at the ceiling ± one step with INVALID severity and IVOA),
-  so the module's own gate fails closed on unread limits, bounds or
-  severities; a write that disturbs a cycle in progress (a DG645 delay
+  so the module's own gate fails closed on unread limits or
+  bounds (severity refusal is the IOC's); a write that disturbs a cycle in progress (a DG645 delay
   aborts the delay cycle on every output of the box) is a hazard role,
   behind the confirm.
 - **The pin is a fleet constant.** `pin.py` is the one record of the image
   digest and commit, bumped only in a reviewed PR after a rehearsal on the
   sim (DEPLOYMENT.md). The startup self-test and `canopy_surface.py`
-  (every Canopy-internal import, condition (d)) read it; never `latest`.
+  (every Canopy-internal import) read it; never `latest`.
 - **Facility values have one home.** Non-secret values are `site.env` keys
   (`GEECS_CANOPY_BIND`, `_PORT`, `_ROOT_PATH`, `_DB`, plus the shared
   `GEECS_EXPERIMENT`, `GEECS_CONFIGS_ROOT`, EPICS and `TZ`); secrets are in

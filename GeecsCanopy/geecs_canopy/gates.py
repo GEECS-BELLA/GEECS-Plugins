@@ -1,10 +1,10 @@
 """The put path, a function so a push-2 restore runs Squirrel's saved rows through it one by one.
 
 Checks in order, each a distinct outcome and one ``JournalEntry``: the
-operator policy (default deny); the device's allow list (Appendix A rule 8);
-the hazard confirm (rule 18: the family role's, or the policy's
-``hazards``); the run lock, failing closed (rule 6); the
-bounds gate before Hare, failing closed on unread limits (rule 11); then
+operator policy (default deny); the device's allow list;
+the hazard confirm (the family role's, or the policy's
+``hazards``); the run lock, failing closed; the
+bounds gate before Hare, failing closed on unread limits; then
 Hare's put with ``wait`` and a per-role timeout, and the value the record
 took (an ``ao`` clamps beyond DRVH silently). A DB device's put waits for
 the GEECS set to converge, as a move does. An ``attempted`` row is

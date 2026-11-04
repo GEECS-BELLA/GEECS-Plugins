@@ -49,7 +49,7 @@ async def test_devices_come_from_the_documents_and_the_families(env):
     }
 
 
-async def test_a_changing_value_with_a_still_counter_is_stale(env):  # rule 1
+async def test_a_changing_value_with_a_still_counter_is_stale(env):
     mean, counter = await pv(env, "Cam1", "mean"), await pv(env, "Cam1", "stat_counter")
     flag = await pv(env, "Cam1", "compute_statistics")
     env.hare.on_frame({mean: live(1.0), counter: live(5), flag: live(1)})
@@ -75,13 +75,13 @@ async def test_no_evidence_yet_is_unknown_not_live(env):
     assert (await roles(env, "Cam1"))[1][("mean", None)]["verdict"] == "unknown"
 
 
-async def test_a_value_whose_compute_flag_is_off_reads_off(env):  # rule 1
+async def test_a_value_whose_compute_flag_is_off_reads_off(env):
     flag = await pv(env, "Cam1", "compute_centroid")
     env.hare.on_frame({await pv(env, "Cam1", "cx"): live(3.0), flag: live(0)})
     assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "off"
 
 
-async def test_a_computed_value_whose_flag_is_unavailable_is_unknown(env):  # rule 1
+async def test_a_computed_value_whose_flag_is_unavailable_is_unknown(env):
     cx, flag = await pv(env, "Cam1", "cx"), await pv(env, "Cam1", "compute_centroid")
     counter = await pv(env, "Cam1", "stat_counter")
     env.hare.on_frame({cx: live(3.0), counter: live(1), flag: live(0)})
@@ -92,7 +92,7 @@ async def test_a_computed_value_whose_flag_is_unavailable_is_unknown(env):  # ru
     assert (await roles(env, "Cam1"))[1][("cx", None)]["verdict"] == "error"
 
 
-async def test_disconnected_is_unreachable_and_a_fault_outranks_it(env):  # rule 9
+async def test_disconnected_is_unreachable_and_a_fault_outranks_it(env):
     current, fault = await pv(env, "ps1", "current"), await pv(env, "ps1", "fault")
     env.hare.on_frame({current: {"value": None, "connected": False}})
     body, by_role = await roles(env, "ps1")
@@ -121,7 +121,7 @@ async def test_a_never_processed_record_is_unknown_not_error(env):
     assert by_role[("current", None)]["verdict"] == "live"
 
 
-async def test_nan_travels_as_null(env):  # rule 10
+async def test_nan_travels_as_null(env):
     voltage = await pv(env, "ps1", "voltage")
     env.hare.on_frame({voltage: live(math.nan)})
     assert (await roles(env, "ps1"))[1][("voltage", None)]["value"] is None
@@ -134,13 +134,13 @@ async def test_without_a_policy_every_put_is_denied(env):
     assert env.hare.puts == []
 
 
-async def test_a_role_outside_the_allow_list_is_denied_before_hare(env):  # rule 8
+async def test_a_role_outside_the_allow_list_is_denied_before_hare(env):
     response = await put(env, "ps1", role="output_sp", value=1, confirm=True)
     assert (response.status_code, response.json()["code"]) == (403, "not_allowed")
     assert env.hare.puts == []
 
 
-async def test_a_hazard_role_needs_the_confirm(env):  # rule 18
+async def test_a_hazard_role_needs_the_confirm(env):
     denied = await put(env, "Mot1", role="homf", axis="m1", value=1)
     assert (denied.status_code, denied.json()["code"]) == (428, "confirm_required")
     assert (
@@ -148,7 +148,7 @@ async def test_a_hazard_role_needs_the_confirm(env):  # rule 18
     ).status_code == 200
 
 
-async def test_a_held_or_unreadable_run_lock_denies(env):  # rule 6
+async def test_a_held_or_unreadable_run_lock_denies(env):
     lock = await pv(env, "Cam1", "lock")
     unread = await put(env, "Cam1", role="exposure", value=0.1)
     assert (unread.status_code, unread.json()["code"]) == (423, "run_lock_unreadable")
@@ -160,7 +160,7 @@ async def test_a_held_or_unreadable_run_lock_denies(env):  # rule 6
     assert (await put(env, "Cam1", role="exposure", value=0.1)).status_code == 200
 
 
-async def test_the_bounds_gate_refuses_before_hare_and_fails_closed(env):  # rule 11
+async def test_the_bounds_gate_refuses_before_hare_and_fails_closed(env):
     sp = await pv(env, "ps1", "current_sp")
     env.hare.meta[sp] = {"controlLow": 0.0, "controlHigh": 10.0}
     beyond = await put(env, "ps1", role="current_sp", value=11.0)
@@ -202,7 +202,7 @@ async def test_a_hare_refusal_keeps_hares_status_and_code(env):
 
 async def test_a_clamped_write_reports_the_value_the_record_took(
     env,
-):  # rule 11: the clamp is silent
+):  # the clamp is silent
     sp = await pv(env, "ps1", "current_sp")
     env.hare.meta[sp] = {"controlLow": 0.0, "controlHigh": 10.0}
     env.hare.clamp[sp] = 4.0

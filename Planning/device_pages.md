@@ -74,7 +74,7 @@ deleted** when they are proven: one operator surface, no bench tool.
 6. **GeecsPanels deletion PR** (separate, under the kill rule): the package,
    its unit template, its row in root `CLAUDE.md`, `.importlinter`,
    `scripts/check.sh`, `scripts/ci_select.py`, the theme's template walk, the
-   docs page, the CHANGELOG list; `Planning/device_panels.md` goes with it.
+   docs page, the CHANGELOG list.
    Opened on this branch but merged only after the maintainer's look.
 7. **Docs + promotion body.** `GeecsControlRoom/CLAUDE.md` gains the device
    pages and the image/array rule in one paragraph; `operator_surfaces.md` §6

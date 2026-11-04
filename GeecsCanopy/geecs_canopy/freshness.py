@@ -37,7 +37,7 @@ def is_number(value: Any) -> bool:
 
 
 def json_safe(value: Any) -> Any:
-    """Turn NaN and infinities into ``None``, inside lists too (rule 10): JSON has no NaN."""
+    """Turn NaN and infinities into ``None``, inside lists too: JSON has no NaN."""
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, list):
@@ -102,7 +102,7 @@ def judge(
 
 
 def device_state(verdicts: list[str], faulted: bool, heartbeat: str | None) -> str:
-    """The device's one word: a tripped fault first (rule 9), then the worst evidence."""
+    """The device's one word: a tripped fault first, then the worst evidence."""
     if faulted:
         return "error"
     if heartbeat == "unreachable" or (verdicts and set(verdicts) == {"unreachable"}):
@@ -113,7 +113,7 @@ def device_state(verdicts: list[str], faulted: bool, heartbeat: str | None) -> s
         if word in verdicts:
             return word
     if "unreachable" in verdicts or "unknown" in verdicts:
-        return "unknown"  # a dropped field is not a stale device (rule 9)
+        return "unknown"  # a dropped field is not a stale device
     return "stale" if "stale" in verdicts else "live"
 
 

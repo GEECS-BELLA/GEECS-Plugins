@@ -2,7 +2,7 @@
 
 Every page extends ``base.html``, which carries what a page needs to reach
 Canopy from the browser: Hare's WebSocket URL and the display's read key,
-set here from the settings (condition (a): a read key, never a write key;
+set here from the settings (a read key, never a write key;
 every write goes through the module's put route).
 """
 

@@ -8,7 +8,7 @@ tooling. Each subdirectory is an independent Python package with its own
 
 | Package | Description |
 |---|---|
-| `GEECS-Analysis/` | Replacement pure analysis core under development: coordinate-aware steps and numpy-free specs; consumers migrate on the analysis integration branch |
+| `GEECS-Analysis/` | The pure analysis core: coordinate-aware steps and numpy-free specs; every consumer (ScanAnalysis, the portal, the optimizer) runs recipes through it |
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisRecipe` v3 document — the analysis core's native shape: input, ordered steps, a measure, the per-frame `figure`, the summary kinds — the `HimgJob` document for the `.himg` data-management jobs, `AnalysisGroup`, and `load_analysis_document` reading a top-level `kind` as a job, else a recipe; the v2 `AnalysisDiagnostic` was deleted in #1039) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
