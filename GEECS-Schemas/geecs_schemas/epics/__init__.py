@@ -14,16 +14,20 @@ only — the PV prefix is derived from the experiment and device name
 are the kind's own, and hosts and paths are facility values with a home of
 their own.  An absent file means the experiment has no native devices.
 
-Two kinds so far: ``aravis_camera`` (an areaDetector camera, a detector of
-the scan) and ``epics_motor`` (one or more EPICS motor records, scan axes).
+Three kinds so far: ``aravis_camera`` (an areaDetector camera, a detector
+of the scan), ``epics_motor`` (one or more EPICS motor records, scan axes)
+and ``setpoint_device`` (a supply's plain records: settables confirmed on
+their readbacks, extra readbacks, status bits).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Annotated, Literal, Optional, Union
 
 from pydantic import (
     Field,
+    PositiveFloat,
     SerializerFunctionWrapHandler,
     ValidationInfo,
     field_validator,
@@ -109,6 +113,29 @@ class AravisCamera(_NativeEntry):
     )
 
 
+def _record_names(
+    what: str, names: Iterable[str], seen: dict[str, str], *, same: str = "record"
+) -> None:
+    """Refuse a name that is no record name, or one that normalises like another.
+
+    *seen* maps each normalised name already taken to its spelling: the
+    worker binds every name to an attribute by the GEECS normalization
+    (lowercase, punctuation runs → ``'_'``), so two that normalise alike
+    would be one attribute.
+    """
+    for name in names:
+        if not name or name != name.strip() or any(c.isspace() for c in name):
+            raise ValueError(
+                f"{what} {name!r} is not a record name (no blanks, no whitespace)"
+            )
+        key = "".join(c.lower() if c.isalnum() else "_" for c in name)
+        if key in seen:
+            raise ValueError(
+                f"{seen[key]!r} and {name!r} are the same {same} after normalization"
+            )
+        seen[key] = name
+
+
 class EpicsMotor(_NativeEntry):
     """A positioner: one device, one EPICS motor record per axis.
 
@@ -137,32 +164,92 @@ class EpicsMotor(_NativeEntry):
     @field_validator("axes")
     @classmethod
     def _axes_are_distinct_names(cls, axes: list[str]) -> list[str]:
-        seen: dict[str, str] = {}
-        for axis in axes:
-            if not axis or axis != axis.strip() or any(c.isspace() for c in axis):
-                raise ValueError(
-                    f"axis {axis!r} is not a record name (no blanks, no whitespace)"
-                )
-            # The worker binds each axis to an attribute by the GEECS
-            # normalization (lowercase, punctuation runs → '_'): two axes
-            # that normalise alike would be one attribute.
-            key = "".join(c.lower() if c.isalnum() else "_" for c in axis)
-            if key in seen:
-                raise ValueError(
-                    f"axes {seen[key]!r} and {axis!r} are the same axis after "
-                    "normalization"
-                )
-            seen[key] = axis
+        _record_names("axis", axes, {}, same="axis")
         return axes
 
 
+class SetpointSettable(SchemaModel):
+    """One settable of a setpoint device: how close its readback must come, and how soon."""
+
+    tolerance: PositiveFloat = Field(
+        description=(
+            "How close the readback must come to the requested value for the "
+            "set to be done, in the record's units (e.g. 0.005 for 5 mA on a "
+            "supply in A). The one device fact a plain 'ao' record cannot hold."
+        )
+    )
+    timeout: PositiveFloat = Field(
+        10.0,
+        description=(
+            "Seconds the set waits for the readback to arrive within the "
+            "tolerance after the write, before it fails. Size it for the "
+            "slowest ramp plus the readback's scan period."
+        ),
+    )
+
+
+class SetpointDevice(_NativeEntry):
+    """A setpoint device: a supply's plain records (``NATIVE_DEVICES.md`` §8).
+
+    The entry names the records under the device's prefix
+    (``<experiment>:<device>:<record>``), since the worker has no DB rows to
+    enumerate them: each settable is its readback record, written at its
+    setpoint record (``<record>:SP``, or the family's setpoint role for that
+    readback) and confirmed on the readback within its tolerance; readbacks
+    are extra row columns; status bits are two-state records that fail a
+    set when they read 1. Limits and units live in the records
+    (``DRVH``/``DRVL``, ``EGU``), the one home for device facts.
+    """
+
+    kind: Literal["setpoint_device"] = Field(
+        description=(
+            "Device kind: 'setpoint_device' (a supply's plain records: "
+            "setpoint, readback, status bits)."
+        )
+    )
+    settables: dict[str, SetpointSettable] = Field(
+        min_length=1,
+        description=(
+            "The settables, by readback record name under the device's prefix "
+            "(e.g. {'current': {tolerance: 0.005}} for "
+            "'<experiment>:<device>:current', written at 'current:SP'). Each "
+            "is a scan axis 'Device:record' and an action's set target."
+        ),
+    )
+    readbacks: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Further numeric readback records, read into each row beside the "
+            "settables' own (e.g. ['voltage'])."
+        ),
+    )
+    status: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Status bits, two-state records that read 1 when tripped (e.g. "
+            "['fault', 'interlock']): a set is refused while one reads 1 and "
+            "fails if one rises while it waits."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _names_are_distinct_records(self) -> "SetpointDevice":
+        seen: dict[str, str] = {}
+        _record_names("settable", self.settables, seen)
+        _record_names("readback", self.readbacks, seen)
+        _record_names("status bit", self.status, seen)
+        return self
+
+
 #: Every native device kind, discriminated by ``kind`` (a new kind is one more member).
-NativeDevice = Annotated[Union[AravisCamera, EpicsMotor], Field(discriminator="kind")]
+NativeDevice = Annotated[
+    Union[AravisCamera, EpicsMotor, SetpointDevice], Field(discriminator="kind")
+]
 
 #: The kinds that are detectors of the scan — they acquire per shot (a
 #: stack, a stamp) and take the detector rules (``save_images``, the run
-#: shapes a native camera is refused in).  A positioner is a settable: never
-#: in this set.
+#: shapes a native camera is refused in).  A positioner and a setpoint
+#: device are settables: never in this set.
 DETECTOR_KINDS: frozenset[str] = frozenset({"aravis_camera"})
 
 

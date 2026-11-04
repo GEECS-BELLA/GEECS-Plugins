@@ -49,7 +49,7 @@ Level = Literal["operator", "expert"]
 ReadMode = Literal["monitor", "on_request", "once", "never"]
 
 #: The registry kind a family serves: ``geecs_schemas.epics``' built kinds,
-#: and the two ``GeecsBluesky/NATIVE_DEVICES.md`` §10 proposes.
+#: and the one ``GeecsBluesky/NATIVE_DEVICES.md`` §10 still proposes.
 FamilyKind = Literal[
     "aravis_camera", "epics_motor", "setpoint_device", "array_detector"
 ]
@@ -59,7 +59,11 @@ FamilyKind = Literal[
 #: reader (GeecsCanopy and the archiver's registry pass), so no two pick
 #: different families.
 REGISTRY_KIND_FAMILIES: Mapping[str, str] = MappingProxyType(
-    {"aravis_camera": "ad_camera_chain", "epics_motor": "motor_record"}
+    {
+        "aravis_camera": "ad_camera_chain",
+        "epics_motor": "motor_record",
+        "setpoint_device": "easydriver",
+    }
 )
 
 #: A template's name: the family file's stem.
@@ -377,6 +381,19 @@ class FamilyFile(VersionedSchemaModel):
             if role.name == name:
                 return role
         raise KeyError(f"family {self.template!r} has no role {name!r}")
+
+    def setpoint_for(self, readback: str) -> Optional[str]:
+        """The record a write to the readback record *readback* goes to; ``None`` if no role says.
+
+        The setpoint role whose ``readback`` is the role reading
+        *readback* (the Easy-Driver's ``current:SP`` beside ``current``, the
+        FAST-PS's ``current_ramp:SP``).
+        """
+        names = {r.name for r in self.roles if r.suffix == readback}
+        for role in self.roles:
+            if role.type == "setpoint" and role.readback in names:
+                return role.write_suffix
+        return None
 
     def role_names(self) -> list[str]:
         """Every role's name, in the page's order."""

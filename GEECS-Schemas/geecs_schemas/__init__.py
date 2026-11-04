@@ -56,6 +56,8 @@ from geecs_schemas.epics import (
     EpicsMotor,
     NativeDevice,
     NativeDevices,
+    SetpointDevice,
+    SetpointSettable,
 )
 from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
@@ -196,6 +198,8 @@ __all__ = [
     "NativeDevice",
     "AravisCamera",
     "EpicsMotor",
+    "SetpointDevice",
+    "SetpointSettable",
     "DETECTOR_KINDS",
     "NATIVE_DEVICES_FILENAME",
     # epics.family / epics.panel_devices (the web estate's device data)

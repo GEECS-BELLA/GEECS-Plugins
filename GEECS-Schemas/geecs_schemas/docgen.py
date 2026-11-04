@@ -244,6 +244,11 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # A supply: each settable is its readback record, written at <record>:SP
+  # and confirmed on the readback within its tolerance.
+  U_ExampleSupply: {kind: setpoint_device,
+                    settables: {current: {tolerance: 0.005, timeout: 10}},
+                    readbacks: [voltage], status: [fault, interlock]}
   # An entry may name its family ('template', one of its kind's); absent,
   # the kind's default. Older readers refuse the key.
 """,

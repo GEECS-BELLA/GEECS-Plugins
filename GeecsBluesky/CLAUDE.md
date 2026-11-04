@@ -80,6 +80,8 @@ geecs_bluesky/
                             #   IOC) as a strict detector; NATIVE_DEVICES.md is its design
   devices/native_motor.py   # NativeMotor — a positioner's EPICS motor records (one stock
                             #   ophyd-async Motor per axis) as Movable children of one noun
+  devices/native_setpoint.py # NativeSetpointDevice — a supply's plain records: each settable
+                            #   a confirm-on-readback Movable child (NativeSetpoint)
   devices/hdf_plugin.py     # the file plugin's worker side: GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts,
                             #   GeecsHdfDataLogic (the stock logic; the stream's geometry read
@@ -208,6 +210,28 @@ qserver/                    # the worker: launcher, startup profile, permissions
   `connected_status`: the liveness gate does not judge it yet (the
   design's grown gate is a later slice, with the scanner's settables
   list and the archive pass).
+- **`NativeSetpointDevice`** (`devices/native_setpoint.py`,
+  `NATIVE_DEVICES.md` §8) — a supply served by plain records (the
+  registry's `setpoint_device`, the CAEN Easy-Driver pattern): one noun per
+  device, one `NativeSetpoint` per registry settable as a Movable child
+  (`U_VS1H.current`, readback `<experiment>:<device>:current`, written at
+  `current:SP` or the family's setpoint role for it —
+  `FamilyFile.setpoint_for`, the FAST-PS's `current_ramp:SP`), found like a
+  `CaMotor` child (an action step's `variable: Current` included: lookups
+  are case-folded).  **Never done on a put ok**: StreamDevice completes the
+  put when the supply accepts the command, so the set waits for the
+  readback within the registry tolerance and times out in
+  `GeecsConfirmTimeoutError`'s words.  Refused **before the put**
+  (`GeecsSetpointRefusedError`, `written=False`, pinned by tests asserting
+  no put): a value outside the `:SP` record's `DRVL`/`DRVH` (an `ao` clamps
+  and writes), a status bit at 1, a readback INVALID; failed at once after
+  the put when `:SP` goes INVALID (the IOC's `HIHI`/`LOLO` refusal, a
+  `#NAK`), and while waiting when a bit rises or the readback goes INVALID.
+  The put goes through `GatewaySetpointPut` (#868).  Read as a device it is
+  a per-row scalar device (each settable's readback and the listed
+  readbacks) with the `.scalars` view and a telemetry candidate; the run's
+  liveness gate judges it, as a detector, by its readbacks' `.SEVR`
+  (INVALID or unreadable = down).  No `stop()`, no user offset yet.
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
   `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — OFF is the only quiet
   state, STANDBY is the machine's idle and passes edges), replaying each
@@ -265,11 +289,12 @@ qserver/                    # the worker: launcher, startup profile, permissions
   an `aravis_camera` a `NativeCamera` with a POSIX `PluginPathProvider`
   through `data_paths.native_ioc_save_path`, an `epics_motor` a
   `NativeMotor` whose axes bind by `settable_attribute` (the rule a
-  `Device:axis` reference expands by);
+  `Device:axis` reference expands by), a `setpoint_device` a
+  `NativeSetpointDevice` whose settables and readbacks bind the same way;
   **one owner per device**: a registry name whose `safe_name` is also a DB
   roster device's (enabled, built or not) refuses to open, naming both.
   `telemetry()` is the background-telemetry candidate set (a native
-  positioner is one — its axes' readbacks; never a native camera: no
+  positioner or setpoint device is one — its readbacks; never a native camera: no
   scalars, and a read would wait for a shot).
 - The scalar devices and children keep their contracts: `CaMotor` (readback
   convergence within the DB tolerance, no `stop()` — GEECS has no universal
