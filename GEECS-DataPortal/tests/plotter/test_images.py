@@ -515,10 +515,25 @@ def test_bars_follow_the_z_scale_and_can_be_turned_off(
 ) -> None:
     each = post(client, scan=1, page="images", device=CAM, zscale="tile")
     assert "cbar=true" in each and 'data-cbar="true"' in each
-    assert 'id="strip-bar"' in each
+    assert "strip-bar-cell" in each
     fixed = post(
         client, scan=1, page="images", device=CAM, zscale="fixed", zmin=0, zmax=50
     )
     assert "cbar=true" not in fixed  # one bar for the grid instead
     off = post(client, scan=1, page="images", device=CAM, zscale="tile", cbar="false")
     assert "cbar=true" not in off and 'data-cbar="false"' in off
+
+
+def test_the_grid_colour_bar_stands_upright_on_request(client: TestClient) -> None:
+    query = {"zmin": 0, "zmax": 10}
+    lying = Image.open(
+        io.BytesIO(client.get("/api/images/colourbar.png", params=query).content)
+    )
+    upright = Image.open(
+        io.BytesIO(
+            client.get(
+                "/api/images/colourbar.png", params={**query, "vertical": "true"}
+            ).content
+        )
+    )
+    assert lying.width > lying.height and upright.height > upright.width

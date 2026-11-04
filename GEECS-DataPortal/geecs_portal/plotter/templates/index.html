@@ -512,10 +512,6 @@
                loads when it scrolls into view; plotter.js adds the display
                (colour map, levels) to every tile's URL. #}
             {# Tiles across: the same rule plotter.js applies when the box changes. #}
-            {# The grid's one colour bar (a shared or fixed z scale); plotter.js
-               draws it once the levels are known. #}
-            <img id="strip-bar" class="strip-bar" alt="colour bar" hidden
-                 data-bar="{{ root }}/api/images/colourbar.png">
             <div id="strip" class="strip {{ layout }}" data-zscale="{{ zscale }}" data-roi="{{ roi }}"
                  data-cbar="{{ 'true' if cbar else 'false' }}"
                  data-title="Scan{{ '%03d' % scan }} · {{ day }} · {{ strip_line | trim }}"
@@ -530,6 +526,12 @@
                   <figcaption class="hint">{{ t.caption }}</figcaption>
                 </figure>
               {% endfor %}
+              {# The grid's one colour bar (a shared or fixed z scale): upright,
+                 in the cell after the last tile, as tall as a tile's picture.
+                 plotter.js draws it once the levels are known. #}
+              <figure class="strip-bar-cell" hidden>
+                <img id="strip-bar" alt="colour bar" data-bar="{{ root }}/api/images/colourbar.png">
+              </figure>
             </div>
             {{ big_view(strip) }}
             <details class="disc">

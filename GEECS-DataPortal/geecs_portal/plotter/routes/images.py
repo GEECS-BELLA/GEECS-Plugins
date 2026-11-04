@@ -287,11 +287,13 @@ def _with_colour_bar(pixels, cmap: str, levels: Optional[tuple[float, float]]) -
     return figure_png(fig, tight=True)
 
 
-def grid_bar_png(cmap: str, zmin: float, zmax: float, length: int) -> bytes:
+def grid_bar_png(
+    cmap: str, zmin: float, zmax: float, length: int, vertical: bool = False
+) -> bytes:
     """The grid's one colour bar, *zmin* to *zmax*; a 422 unless zmax is above zmin."""
     if not (math.isfinite(zmin) and math.isfinite(zmax)) or zmax <= zmin:
         raise HTTPException(status_code=422, detail="zmax must be above zmin")
-    return colour_bar_png(cmap, (zmin, zmax), length=length)
+    return colour_bar_png(cmap, (zmin, zmax), length=length, vertical=vertical)
 
 
 def register(router: APIRouter, ctx: Context) -> None:
@@ -416,6 +418,10 @@ def register(router: APIRouter, ctx: Context) -> None:
         length: int = Query(
             default=480, ge=64, le=4000, description="the ramp, pixels"
         ),
+        vertical: bool = Query(
+            default=False, description="upright, values at its right"
+        ),
     ) -> Response:
         """The strip's one colour bar on a shared or fixed z scale: *zmin* to *zmax*."""
-        return Response(grid_bar_png(cmap, zmin, zmax, length), media_type="image/png")
+        png = grid_bar_png(cmap, zmin, zmax, length, vertical)
+        return Response(png, media_type="image/png")

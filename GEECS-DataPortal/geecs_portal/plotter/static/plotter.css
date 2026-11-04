@@ -43,9 +43,11 @@
 
 /* The image strip, as a grid or one scrolling row; the tiles across are
    the element's own style (the template, and plotter.js on a change). */
-/* The grid's one colour bar (a shared or fixed z scale), above the tiles. */
-.kit .strip-bar { display: block; width: min(30rem, 100%); height: auto; margin: 0 auto; }
-.kit .strip-bar[hidden] { display: none; }
+/* The grid's one colour bar (a shared or fixed z scale): upright in the
+   cell after the last tile, its height the tiles' picture height (plotter.js). */
+.kit .strip-bar-cell { margin: 0; min-width: 0; }
+.kit .strip-bar-cell[hidden] { display: none; }
+.kit .strip-bar-cell img { display: block; width: auto; max-width: 100%; height: auto; }
 .kit .strip { display: grid; gap: var(--gap); align-items: start; }
 .kit .strip.row { grid-auto-flow: column; overflow-x: auto; padding-bottom: var(--gap); }
 .kit .tile { margin: 0; min-width: 0; }

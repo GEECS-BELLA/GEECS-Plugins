@@ -2,8 +2,8 @@
 // Save downloads it as a PNG. It is drawn from the tiles' own pictures
 // (their ROI, levels and colour map as shown) at their full resolution,
 // laid out as the strip is (its tiles across), each with its caption (and
-// its colour bar, drawn into it), under the panel's title line and the
-// grid's one colour bar when it has one. White background and dark text whatever the
+// its colour bar, drawn into it), under the panel's title line; the
+// grid's one colour bar, when it has one, in the cell after the last tile. White background and dark text whatever the
 // page's theme, so it pastes cleanly into slides and the logbook.
 "use strict";
 
@@ -48,7 +48,7 @@
     // The grid's one colour bar (a shared or fixed z scale), when shown.
     const shownBar = document.getElementById("strip-bar");
     let bar = null;
-    if (shownBar && !shownBar.hidden && shownBar.getAttribute("src")) {
+    if (shownBar && !shownBar.closest(".strip-bar-cell").hidden && shownBar.getAttribute("src")) {
       bar = new Image();
       bar.src = shownBar.getAttribute("src");
       try { await bar.decode(); } catch (_) { bar = null; }
@@ -56,7 +56,8 @@
     const loaded = images.filter(Boolean);
     if (!loaded.length) throw new Error("no tile has a picture");
     const cols = across(tiles);
-    const rows = Math.ceil(tiles.length / cols);
+    const cells = tiles.length + (bar ? 1 : 0);  // the grid's bar: a cell of its own
+    const rows = Math.ceil(cells / cols);
     let cellW = Math.max(...loaded.map((i) => i.naturalWidth));
     let cellH = Math.max(...loaded.map((i) => i.naturalHeight));
     const gap0 = Math.max(4, Math.round(cellW * 0.03));
@@ -69,10 +70,7 @@
     const titleH = Math.round(font * 2.2);
     const canvas = document.createElement("canvas");
     canvas.width = gap + cols * (cellW + gap);
-    // The bar at half the grid's width (its own shape kept), under the title.
-    const barW = bar ? Math.min(canvas.width - 2 * gap, Math.max(bar.naturalWidth, canvas.width / 2)) : 0;
-    const barH = bar ? Math.round(bar.naturalHeight * (barW / bar.naturalWidth)) + gap : 0;
-    const top = titleH + barH;
+    const top = titleH;
     canvas.height = top + rows * (cellH + captionH + gap) + gap;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#fff";
@@ -81,7 +79,13 @@
     ctx.textBaseline = "middle";
     ctx.font = `600 ${font}${FONT}`;
     ctx.fillText(strip.dataset.title || "", gap, titleH / 2, canvas.width - 2 * gap);
-    if (bar) ctx.drawImage(bar, (canvas.width - barW) / 2, titleH, barW, barH - gap);
+    if (bar) {
+      // In the cell after the last tile, as tall as a tile's picture, as on the page.
+      const x = gap + (tiles.length % cols) * (cellW + gap);
+      const y = top + Math.floor(tiles.length / cols) * (cellH + captionH + gap);
+      const f = Math.min(cellW / bar.naturalWidth, cellH / bar.naturalHeight);
+      ctx.drawImage(bar, x, y + (cellH - bar.naturalHeight * f) / 2, bar.naturalWidth * f, bar.naturalHeight * f);
+    }
     ctx.font = `${font}${FONT}`;
     ctx.textAlign = "center";
     tiles.forEach((tile, k) => {

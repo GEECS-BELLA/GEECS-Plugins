@@ -163,7 +163,7 @@ def colour_bar_image(
     # Upright beside a picture, the text scales with it (a tile is drawn
     # small, so it must stay readable shrunk); lying under a grid it is
     # shown near its own size.
-    font_px = max(10, length // 9) if vertical else max(10, min(28, length // 30))
+    font_px = max(10, length // 6) if vertical else max(10, min(28, length // 30))
     font = ImageFont.load_default(size=font_px)
     ramp = np.linspace(0.0, 1.0, length, dtype=np.float32)
     lo, hi = levels
@@ -198,11 +198,15 @@ def colour_bar_image(
 
 
 def colour_bar_png(
-    cmap: Optional[str], levels: tuple[float, float], *, length: int = 480
+    cmap: Optional[str],
+    levels: tuple[float, float],
+    *,
+    length: int = 480,
+    vertical: bool = False,
 ) -> bytes:
-    """:func:`colour_bar_image`, horizontal, as PNG bytes (one bar for a grid)."""
+    """:func:`colour_bar_image` as PNG bytes (one bar for a grid of pictures)."""
     buffer = io.BytesIO()
-    colour_bar_image(cmap, levels, length=length, vertical=False).save(
+    colour_bar_image(cmap, levels, length=length, vertical=vertical).save(
         buffer, format="PNG"
     )
     return buffer.getvalue()

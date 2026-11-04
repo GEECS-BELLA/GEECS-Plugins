@@ -362,18 +362,29 @@
       }
       return query;
     };
-    // On one scale (shared or fixed) the grid has one colour bar instead.
+    // On one scale (shared or fixed) the grid has one colour bar instead:
+    // upright, in the cell after the last tile, as tall as a tile's picture.
     const gridBar = document.getElementById("strip-bar");
+    const barCell = gridBar && gridBar.closest(".strip-bar-cell");
+    const fitGridBar = () => {
+      const shown = tiles.find((img) => img.offsetHeight > 0 && !img.closest(".tile").hidden);
+      if (gridBar && shown) gridBar.style.height = `${shown.offsetHeight}px`;
+    };
     const drawGridBar = (query) => {
       if (!gridBar) return;
       const lo = Number(query.get("zmin"));
       const hi = Number(query.get("zmax"));
       const one = strip.dataset.cbar === "true" && query.has("zmin") && hi > lo;
-      gridBar.hidden = !one;
+      barCell.hidden = !one;
       if (!one) { gridBar.removeAttribute("src"); return; }
-      const bar = new URLSearchParams({ cmap: query.get("cmap"), zmin: query.get("zmin"), zmax: query.get("zmax") });
+      const bar = new URLSearchParams({ cmap: query.get("cmap"), zmin: query.get("zmin"), zmax: query.get("zmax"), vertical: "true" });
       gridBar.src = `${gridBar.dataset.bar}?${bar}`;
+      fitGridBar();
     };
+    if (gridBar) {
+      for (const img of tiles) img.addEventListener("load", fitGridBar);
+      window.addEventListener("resize", fitGridBar);
+    }
     const drawTiles = () => {
       const query = display();
       for (const img of tiles) {
