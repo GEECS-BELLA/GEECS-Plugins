@@ -4,7 +4,7 @@
   The frame is pulled one at a time from this server's frame proxy
   (/api/devices/<name>/frame.jpg: the JPEG the IOC's MJPEG server holds, at
   the URL the module names for role `image`), or with Raw on, the driver's
-  16-bit frame (/api/devices/<name>/frame.raw, Planning/raw_frames.md) at
+  16-bit frame (/api/devices/<name>/frame.raw, before TRANS1 and PROC1) at
   2 Hz, rotated / flipped here by role `transform`; colour map, levels and
   scale are this viewer's own, per mode. Crosshairs, the analysis ROI and the acquisition
   controls are family roles, each written through the module's put route

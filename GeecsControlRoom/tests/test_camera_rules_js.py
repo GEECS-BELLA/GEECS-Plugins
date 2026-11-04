@@ -37,7 +37,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
         [[0] * 50 + [9] + [0] * 205],
         {"black": 50, "white": 51},
     ),  # fmt: skip
-    # levels at the raw frame's full scale (Planning/raw_frames.md)
+    # levels at the raw frame's full scale (X-Frame-Full-Scale)
     (
         "levels: counts of a 12-bit full scale",
         "levels",
