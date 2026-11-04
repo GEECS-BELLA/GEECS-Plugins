@@ -46,14 +46,45 @@ build commands, the headless-screenshot workflow for GUI pages, and
 notebook hygiene constraints. Read it whenever you touch anything under
 `docs/`.
 
+## Where a fact goes
+
+Each fact has one home. Before writing one down, find its row. A fact
+found wrong is corrected in its home by a PR, in the same session
+(`CONTRIBUTING.md` § "Rules with incident history").
+
+| What | Home |
+|---|---|
+| A rule for this repo's code or workflow | this file (cross-package) or the owning package's `CLAUDE.md` |
+| A working norm: review, PRs, GitHub conduct, what to delete | `CONTRIBUTING.md`, the one copy for every GEECS-BELLA repo, imported below |
+| A general GEECS, EPICS or Bluesky fact: DB semantics, PV naming, the data layout, the scan-mode protocol | the owning package's `CLAUDE.md`, its contract file, or `docs/` |
+| A facility fact: the current value of a host, address or account, a device's behaviour at a site, a site runbook, an incident on a host | the private `geecs-epics` repo: its `CLAUDE.md` is the entry point and its `docs/index.md` maps each fact to its page. This repo keeps the reference deployment's picture and examples (`docs/platform/fleet_map.md`, `deploy/site.env.example`; § "Facility values have one home") and the incidents behind its own rules (`CONTRIBUTING.md` § "Rules with incident history"), and corrects them when the fleet moves |
+| A facility value a program reads | `config.ini` or `site.env` (same section) |
+| The derivation of a rule, the "why" | the PR body and git history; the invariant itself in the docstring (`CONTRIBUTING.md` § "Planning/") |
+| The state of an arc: what moved, what is owed, which PR is open | the arc's tracking issue (`CONTRIBUTING.md` § "GitHub conduct") — not a doc, not agent memory |
+
+Agent memory holds pointers and the "why" behind a correction, never the
+only copy of a fact. The admission test for writing a fact anywhere: a
+second session would need it **and** it will still be true in a month;
+otherwise it is state and belongs on the issue.
+
+How a session here loads the private repo's map, and how to verify what
+loaded: `CONTRIBUTING.md` § "Setup".
+
+The working norms, imported so every session loads them:
+
+@CONTRIBUTING.md
+
 ## Agent & Worktree Policy
 
 `CLAUDE.md` files are the canonical agent/developer instructions for this
 repository. `AGENTS.md` exists only as a Codex compatibility shim that points
 Codex to the root and package-level `CLAUDE.md` files. Do not duplicate policy
 between `AGENTS.md` and `CLAUDE.md`; update the relevant `CLAUDE.md` instead.
-`CONTRIBUTING.md` is the human-facing distillation of the same contract —
-keep the three in sync when the rules change.
+`CONTRIBUTING.md` holds the working norms (review, PRs, GitHub conduct,
+what to delete) for every GEECS-BELLA repo and is imported into this file
+(§ "Where a fact goes"), so a session loads one copy; this file keeps to
+this repo's rules and pointers, and a norm is edited there, never
+restated here.
 
 Recurring workflows are encoded as repo-checked skills under
 `.claude/skills/<name>/SKILL.md`: `/land` (the PR ritual), `/check`
@@ -118,14 +149,6 @@ bare form is what Poetry's PEP 621 extras emit — and there a consumer
 activating the extra resolved the name to **PyPI** (`geecs-data-utils` is
 a live PyPI name). The hook keeps the one form verified in both
 experiments.
-
-`geecs-plugins-bluesky` (a sibling directory of this checkout) is **no longer
-a worktree** — it has been promoted to its own standalone clone with an
-independent `.git`, sharing only the `GEECS-BELLA/GEECS-Plugins` origin. Treat
-it as a separate clone, not a linked worktree of this checkout: changes flow
-between the two only through git (push/pull/PR), and each has its own local
-Claude context (sessions and memory are keyed by directory path). It keeps its
-own nested worktrees under `.claude/worktrees/`.
 
 ## Python & Tooling
 
