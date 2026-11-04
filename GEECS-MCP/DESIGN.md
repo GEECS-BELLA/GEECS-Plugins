@@ -21,7 +21,7 @@ columns.
 - Logbook posts go to the **scans** book; every submission and every
   entry carries the identity string `agent, admin supervision (<operator>)`.
 - No campaign envelope, budget or token.
-- Deployed as the existing `geecs-mcp` systemd unit on the gateway box,
+- Deployed as the existing `geecs-mcp` systemd unit on the services box,
   replacing the nohup 0.9.0 process.
 
 The two PMQ alignment campaigns (2026-10-08, 2026-10-15) ran this loop

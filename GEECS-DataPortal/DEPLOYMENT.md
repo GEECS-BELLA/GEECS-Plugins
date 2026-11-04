@@ -2,7 +2,7 @@
 
 One service, one host: the portal runs on the worker host — the fleet
 map (`docs/platform/fleet_map.md`) is the authority on which machine
-that is at any given time. On the interim box it happens to share a
+that is at any given time. On the services box it happens to share a
 machine with Tiled and GEECS-MCP, so the ports read `:8000` Tiled,
 `:8100` MCP, **`:8200` portal** — but only the portal's own port is
 load-bearing; nothing below assumes Tiled is local. Anyone on the lab

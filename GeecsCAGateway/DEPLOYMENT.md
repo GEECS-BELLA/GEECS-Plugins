@@ -158,40 +158,35 @@ there is no CA-level auth.
 
 ## 2. Current dev deployment — and its risks
 
-The gateway currently runs on the lab server **192.168.6.14**, alongside:
+The gateway runs on the central lab server **192.168.6.14**, alongside
+the GEECS MySQL database (which the gateway itself reads at startup).
+Tiled and the worker-side services ran there too until 2026-10-30, when
+they moved to the services box, **192.168.6.22**
+(`docs/platform/fleet_map.md`).
 
-- the GEECS MySQL database (which the gateway itself reads at startup),
-- the Tiled server (`http://192.168.6.14:8000`) and its metadata database.
-
-This is fine for the pilot; name it for what it is — a stack of load-bearing
-services on one box. Plainly:
+This is fine for the pilot; name it for what it is — the two services every
+scan needs, on one box. Plainly:
 
 - **Single point of failure.** One host outage takes down device PVs (Bluesky
-  scans, Phoebus displays), the experiment DB, *and* Tiled data access at once.
-  Nothing else in the lab restores any of them automatically.
-- **Resource contention.** MySQL, Tiled ingestion, and the gateway's asyncio
-  loop share CPU/RAM/disk I/O. The gateway is light (~100 updates/s), but a
-  heavy Tiled write burst or a runaway query degrades everything together.
-- **Upgrade coupling.** An OS upgrade or reboot for any one service (e.g. the
-  22.04 migration) is downtime for all of them, and Python/library upgrades on
-  a shared host risk cross-breaking environments. Keep each service in its own
+  scans, Phoebus displays) *and* the experiment DB at once — and with the DB,
+  every device-configuration read the gateway and the scanner make. Nothing
+  else in the lab restores either of them automatically. (The services box
+  is the worker family's and Tiled's single point of failure; the two boxes
+  fail independently, which the move bought.)
+- **Resource contention.** MySQL and the gateway's asyncio loop share
+  CPU/RAM/disk I/O. The gateway is light (~100 updates/s), but a runaway
+  query degrades both together. Tiled's write bursts left with the move.
+- **Upgrade coupling.** An OS upgrade or reboot for either service (e.g. the
+  22.04 migration) is downtime for both, and Python/library upgrades on a
+  shared host risk cross-breaking environments. Keep each service in its own
   venv/poetry env at minimum.
-- **Storage growth.** Tiled's data and metadata grow with every scan; MySQL
-  grows slowly; logs grow steadily. Unmonitored, the shared disk filling up is
-  the most likely way this box fails.
-
-Storage placement rules:
-
-- **Large scan/image files belong on the NetApp** (the data share) — Tiled
-  should *reference* assets on NetApp, not ingest bulk image data onto the
-  server's local disk.
-- **The Tiled metadata database stays on proper local/server storage with
-  backups.** Do **not** move a live database onto NetApp — SQLite (and DB
-  engines generally) over SMB/NFS is a corruption lottery (locking semantics,
-  cache coherence). Local disk + scheduled backup dumps is the right split:
-  metadata local, assets on NetApp.
-- The gateway itself is stateless (everything rebuilds from the DB at startup)
-  — it needs no storage beyond logs.
+- **Storage growth.** MySQL grows slowly; logs grow steadily. The gateway
+  itself is stateless (everything rebuilds from the DB at startup) — it needs
+  no storage beyond logs. Tiled's growth with every scan is the services
+  box's concern: its catalog and metadata database live on that host's local
+  disk, never on the data share (SQLite over SMB/NFS is a corruption
+  lottery), and the scan tables and stacks it serves stay on the share —
+  `GeecsBluesky/TILED_SETUP.md` has the layout.
 
 ---
 
@@ -304,22 +299,22 @@ queue client (`geecs_bluesky.qs_client`).
 ### Tiled — reading scan data back
 
 Every Bluesky scan's documents (start/stop metadata plus the per-shot
-scalar event table) land in the Tiled catalog on the same host,
-`http://192.168.6.14:8000`. Client needs: `pip install "tiled[client]"`
+scalar event table) land in the Tiled catalog on the services box,
+`http://192.168.6.22:8000`. Client needs: `pip install "tiled[client]"`
 and the API key — ask the gateway operator; the key is deliberately not in
 this public repo.
 
 ```ini
 # ~/.config/geecs_python_api/config.ini — the scanner reads this same section
 [tiled]
-uri = http://192.168.6.14:8000
+uri = http://192.168.6.22:8000
 api_key = <ask>
 ```
 
 ```python
 from tiled.client import from_uri
 
-c = from_uri("http://192.168.6.14:8000", api_key="<key>")
+c = from_uri("http://192.168.6.22:8000", api_key="<key>")
 run = c.values().last()        # most recent scan
 run.metadata["start"]          # scan number, device list, mode, applied defaults…
 from geecs_data_utils.tiled_catalog import read_primary_scalars
@@ -333,7 +328,7 @@ their dimensions — a two-camera run took the worker host down, #834.
 `read_primary_scalars` reads the `internal` table part only, which is how
 the repo's own readers get the per-shot table.)
 
-A generic web catalog browser is served at `http://192.168.6.14:8000/ui`
+A generic web catalog browser is served at `http://192.168.6.22:8000/ui`
 (first visit: `/ui?api_key=<key>` — the server moves the key into a cookie
 and strips the URL). `GeecsBluesky/TILED_SETUP.md` is the canonical Tiled
 reference — the client recipe as well as server-side state and upgrade
