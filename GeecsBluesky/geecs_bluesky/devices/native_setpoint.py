@@ -1,37 +1,23 @@
 """NativeSetpointDevice — a supply served by plain EPICS records (geecs-epics) as settable children.
 
-The third native device kind (``NATIVE_DEVICES.md`` §8; the registry's
-``setpoint_device``), the CAEN Easy-Driver pattern: each settable is a
-readback record ``<prefix><record>`` written at its setpoint record
-(``<record>:SP``, or the family's setpoint role for that readback), under
-``<experiment>:<device>:``.  For StreamDevice, put-completion means the
-device **accepted** the command, not that it converged — the opposite of
-the gateway, whose ``:SP`` put rides GEECS's blocking set — so a set is
-never done on a "put ok":
+The third native kind (``NATIVE_DEVICES.md`` §8, the registry's
+``setpoint_device``, the CAEN Easy-Driver pattern): each settable is a
+readback record written at its setpoint record (``<record>:SP``, or the
+family's setpoint role for it) under ``<experiment>:<device>:``.  For
+StreamDevice, put-completion means the supply **accepted** the command,
+not that it converged, so a set is never done on a "put ok": it is
+refused before the put (nothing written) for a value outside ``DRVL``/
+``DRVH`` (an ``ao`` would clamp and write), a status bit at 1 or an
+INVALID readback; it fails at once when the setpoint record goes INVALID
+on the write (the IOC's ``HIHI``/``LOLO`` refusal, a ``#NAK``) and while
+waiting when a bit rises or the readback goes INVALID; it is done when the
+readback is within tolerance, and times out in
+``GeecsConfirmTimeoutError``'s words (``CaConfirmSettable``'s topology).
 
-* **before the put** it is refused, nothing written, when the value lies
-  outside the setpoint record's ``DRVL``/``DRVH`` (an ``ao`` would clamp
-  and write), when a status bit reads 1, or when the readback is INVALID
-  (the device not answering);
-* **after the put** it fails at once when the setpoint record went
-  INVALID (the IOC's ``HIHI``/``LOLO`` refusal, a ``#NAK`` from the
-  supply), and while waiting when a status bit rises or the readback goes
-  INVALID;
-* it is **done** when the readback is within the registry's tolerance
-  (:func:`~geecs_bluesky.devices.ca.motor.within_tolerance`), and fails on
-  the registry's timeout with ``GeecsConfirmTimeoutError``'s words —
-  ``CaConfirmSettable``'s topology, set X and confirm on Y, over two IOC
-  records.
-
-:class:`NativeSetpoint` is one settable (the Movable child an ``mv``, a
-sweep axis and an action's ``set`` step find); :class:`NativeSetpointDevice`
-is the parent noun, readable as one per-row scalar device (the settables'
-readbacks and the listed readbacks).
-
-Not here yet (the design's later slices): the liveness gate grown by the
-run's movers (shared with the positioner), enum settables, a soft user
-offset for a pseudo over native settables, the scanner's settables list
-and the panel.
+:class:`NativeSetpoint` is one settable (the Movable child ``mv``, a sweep
+axis and an action's ``set`` step find); :class:`NativeSetpointDevice` is
+the noun, a per-row scalar device.  Not here yet: the gate grown by the
+movers, enum settables, a user offset for pseudos, the scanner's list.
 """
 
 from __future__ import annotations
