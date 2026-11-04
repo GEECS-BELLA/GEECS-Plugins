@@ -8,6 +8,7 @@ installs; these tests pin that it accepts exactly the swap and nothing more.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -64,3 +65,21 @@ def test_a_lock_without_torch_stops_before_relocking(tmp_path, monkeypatch, caps
     monkeypatch.chdir(tmp_path)
     assert ci_cpu_torch.main() == 1
     assert "expected one locked torch" in capsys.readouterr().out
+
+
+def test_a_stale_lock_fails_before_relocking(tmp_path, monkeypatch, capsys):
+    """The re-lock rewrites the content-hash, so staleness is checked first."""
+    (tmp_path / "poetry.lock").write_text(
+        '[[package]]\nname = "torch"\nversion = "2.10.0"\n'
+    )
+    monkeypatch.chdir(tmp_path)
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 1)
+
+    monkeypatch.setattr(ci_cpu_torch.subprocess, "run", fake_run)
+    assert ci_cpu_torch.main() == 1
+    assert [c[2:] for c in calls] == [["check", "--lock"]]
+    assert "stale" in capsys.readouterr().out

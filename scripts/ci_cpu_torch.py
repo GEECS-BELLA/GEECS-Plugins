@@ -10,11 +10,15 @@ index instead. The committed lock is never written back: the lab's
 installs keep the normal CUDA-capable torch, and developers'
 ``scripts/check.sh`` runs use whatever their own environment has.
 
-The re-lock is guarded. Poetry keeps every other locked version, and the
-script fails unless the result is the committed lock with exactly this
-change: torch at ``<version>+cpu`` from the CPU index, and the CUDA
-closure (``nvidia-*``, ``triton``, ``cuda-*``) gone. Anything else moving
-would mean CI tests an environment the lab does not install.
+The re-lock is guarded twice. First the committed lock must be current
+(``poetry check --lock``): the re-lock rewrites the content-hash, so
+without this check a stale lock that the lab's ``poetry install`` refuses
+would pass here. Then no package's locked version or source may move
+except the swap itself: torch at ``<version>+cpu`` from the CPU index,
+and the CUDA closure (``nvidia-*``, ``triton``, ``cuda-*``) gone. In the
+working copy torch also becomes a required main dependency, so its
+closure loses its ``extra == "optimize"`` markers; the leg installs that
+extra anyway, so the installed set is the same.
 
 Usage: ``python ../scripts/ci_cpu_torch.py`` from the package directory.
 """
@@ -72,6 +76,11 @@ def main() -> int:
     ((torch_version, _),) = versions
 
     poetry = ["poetry", "--no-interaction"]
+    if subprocess.run([*poetry, "check", "--lock"]).returncode != 0:
+        print(
+            "ci_cpu_torch: poetry.lock is stale against pyproject.toml; re-lock and commit it"
+        )
+        return 1
     subprocess.run(
         [*poetry, "source", "add", "--priority=explicit", SOURCE_NAME, CPU_INDEX],
         check=True,
