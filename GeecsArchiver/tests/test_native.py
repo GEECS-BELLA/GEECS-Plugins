@@ -31,7 +31,6 @@ CAMERA_PVS = sorted(
         "undulator:uc_visaebeam6:cam1:PixelFormat_RBV",
         "undulator:uc_visaebeam6:RUN:Lock",
         "undulator:uc_visaebeam6:cam1:AcquirePeriod_RBV",
-        "undulator:uc_visaebeam6:cam1:FrameRate_RBV",
         "undulator:uc_visaebeam6:cam1:Gain_RBV",
         "undulator:uc_visaebeam6:cam1:TriggerMode_RBV",
         "undulator:uc_visaebeam6:cam1:TriggerSource_RBV",

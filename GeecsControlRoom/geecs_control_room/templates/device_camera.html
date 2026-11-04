@@ -84,7 +84,7 @@
 
   <div class="pane">
     <div class="grid tight readings">
-      {% for role in ("state", "rate", "frame_rate", "pixel_format", "cx", "cy", "sx", "sy", "max", "mean", "total", "raw_max", "capture", "lock", "owner") %}
+      {% for role in ("state", "rate", "pixel_format", "cx", "cy", "sx", "sy", "max", "mean", "total", "raw_max", "capture", "lock", "owner") %}
       <div class="live" data-role="{{ role }}"><span class="k">{{ labels.get(role, role) }}{% if units.get(role) %} <small>{{ units[role] }}</small>{% endif %}</span><span class="v">—</span>
         <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></span></div>
       {% endfor %}
