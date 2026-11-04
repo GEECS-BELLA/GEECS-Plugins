@@ -138,8 +138,19 @@ layout; delete-when-executed is the whole discipline):
    the PR template — either live results or an explicit "owed:" note.
    Code-complete and hardware-verified are different states here, and PRs
    are expected to say which they are.
-4. **Adversarial review before merge** — this one applies to *all* PRs,
-   including tooling/docs-only ones that change no package. A review by
+4. **Review before merge, sized to the risk** — every PR gets one,
+   tooling/docs-only ones included; how deep depends on what it touches:
+   - **Adversarial review** for code touching scan execution, devices,
+     writes or contracts (PV/event/HTTP/schema contracts, gates).
+   - **One correctness-only round** for docs, screenshots, `Planning/`-only
+     changes and the constituents of a personal branch (`users/<name>`).
+   - **Bulk promotions** (an integration or personal branch → `master`)
+     still follow `/land` — scope check, test counts, the hardware
+     section — and **state the exception** in the body: which rounds were
+     skipped because the constituent PRs were each reviewed, with a
+     pointer to each one's review record.
+
+   The adversarial review is a review by
    someone (or, for AI-assisted work, a fresh-context agent) who did not
    write the diff, covering three lenses: correctness (concrete failure
    scenarios), redundancy (does this already exist somewhere in the

@@ -77,10 +77,13 @@ carries the mechanics.
    verification** section: either the live results or an explicit
    "OWED: <what to verify, expected numbers>" so the code-complete vs
    hardware-verified distinction is never implicit.
-7. **Adversarial review** (runs during the CI wait; see the section
-   below — exception: a bulk integration merge whose constituent PRs
-   were each already reviewed skips the re-review and says so in the PR
-   body, per CONTRIBUTING § "Branch topology"): spawn a fresh-context
+7. **Review** (runs during the CI wait; see the section below). The
+   tier is CONTRIBUTING step 4's: adversarial for code touching scan
+   execution, devices, writes or contracts; one correctness-only round
+   for docs, screenshots, `Planning/`-only changes and personal-branch
+   constituents; a bulk promotion whose constituent PRs were each
+   reviewed skips the re-review and says so in the PR body, with a
+   pointer to each review record. Spawn a fresh-context
    reviewer subagent on the PR's diff,
    post its report as a PR comment **either way** — a "no surviving
    findings" report is itself the audit record distinguishing
