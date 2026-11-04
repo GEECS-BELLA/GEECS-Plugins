@@ -24,6 +24,15 @@ docs site), or launch Claude Code from the repo root and type
 - Some packages need extras for their full test suite:
   `GeecsBluesky` → `poetry install --extras "ca tiled"`.
 - Install pre-commit hooks once: `poetry run pre-commit install`.
+  Optional, faster: [prek](https://github.com/j178/prek), a drop-in
+  reimplementation that reads the same `.pre-commit-config.yaml`
+  (with uv: `uvx prek run --all-files`, or `uv tool install prek`
+  then `prek install` in place of the line above). Trialled 2026-11-03 with prek 0.5.10: every hook passes unchanged,
+  the local ones (`scrub-lock-paths`, `poetry-lock-no-worktree-paths`,
+  `import-contracts`) included; a warm all-files run took 3.8 s against
+  pre-commit's 4.7 s. pre-commit stays the reference — CI and
+  `scripts/commit.sh` run it — so a hook that behaves differently under
+  prek is a prek bug, not a config change.
 
 ## Branch topology (post-M6: one mainline)
 
