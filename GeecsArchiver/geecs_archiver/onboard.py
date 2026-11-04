@@ -32,6 +32,7 @@ class OnboardPlan:
     to_pause: list[str] = field(default_factory=list)
     pending: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
+    paused: list[str] = field(default_factory=list)
 
     @property
     def is_noop(self) -> bool:
@@ -45,7 +46,8 @@ class OnboardPlan:
         return (
             f"archive {len(self.to_archive)}, resume {len(self.to_resume)}, "
             f"retune {len(self.to_retune)}, pause {len(self.to_pause)}, "
-            f"pending {len(self.pending)}, unchanged {len(self.unchanged)}"
+            f"pending {len(self.pending)}, unchanged {len(self.unchanged)}, "
+            f"paused {len(self.paused)}"
         )
 
 
@@ -71,6 +73,13 @@ def plan_onboarding(
     prefix : str
         The experiment's PV prefix (``"undulator:"``) — the only namespace
         this tool pauses in.
+
+    Notes
+    -----
+    A wanted PV that is paused is resumed; an unwanted one already paused
+    is counted under ``paused`` and left alone, so a converged appliance
+    plans no pauses.  A PV with no status row is left alone either way:
+    the planner never pauses what it could not see.
     """
     status_by_pv = {s.pv: s for s in statuses}
     archived = set(archived_pvs)
@@ -102,13 +111,28 @@ def plan_onboarding(
                 plan.unchanged.append(pv)
         else:
             plan.pending.append(pv)
+    _plan_strays(plan, desired, status_by_pv, archived, prefix)
+    return plan
+
+
+def _plan_strays(
+    plan: OnboardPlan,
+    desired: Mapping[str, Sampling],
+    status_by_pv: Mapping[str, PVStatus],
+    archived: Iterable[str],
+    prefix: str,
+) -> None:
+    """Pause what the rule no longer wants under *prefix*; count what is already paused."""
     for pv in sorted(archived):
         if not pv.lower().startswith(prefix.lower()) or pv in desired:
             continue
         status = status_by_pv.get(pv)
-        if status is None or not status.paused:
+        if status is None or status.unknown:
+            continue  # no status to act on: leave it, as for a desired PV
+        if status.paused:
+            plan.paused.append(pv)
+        else:
             plan.to_pause.append(pv)
-    return plan
 
 
 @dataclass
