@@ -37,9 +37,10 @@ docs site), or launch Claude Code from the repo root and type
 - The private facility repo's map (`geecs-epics/docs/index.md`: which page
   owns which host, device or incident fact) can load into your sessions
   here. Project-scoped: an untracked `CLAUDE.local.md` beside this file
-  with the line `@../geecs-epics/docs/index.md` (the path to your clone);
-  Claude Code asks once per clone, in an interactive session, and loads
-  nothing until approved — a headless session cannot approve it, and a
+  with the line `@../geecs-epics/docs/index.md` (the path to your clone;
+  a worktree under `.claude/worktrees/` has its own file, so there use an
+  absolute path); Claude Code asks once per checkout, in an interactive
+  session, and loads nothing until approved — a headless session cannot approve it, and a
   missing target is silent (observed, not documented). Machine-wide
   instead: the same line in `~/.claude/CLAUDE.md` loads with no prompt in
   every session on the machine, this public repo's included, so remember
