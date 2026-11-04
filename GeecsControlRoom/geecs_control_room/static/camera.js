@@ -8,7 +8,10 @@
 // pauses while the tab is hidden, and a frame whose X-Frame-Tag is unchanged
 // is not decoded again. Coordinates: image pixels are MJPG1's (roles width and
 // height; the JPEG is stretched over them); view pixels are CSS pixels in the
-// viewport. The rules are camera_rules.js's (tested under node).
+// viewport. Raw mode (the toggle) polls frame.raw at 2 Hz instead: ARR's 16-bit
+// frame, the driver's, transformed here as TRANS1 would (role `transform`) so
+// every overlay keeps MJPEG mode's coordinates; a 304 is "no new frame". The
+// rules are camera_rules.js's (tested under node).
 (function () {
   "use strict";
   const P = window.GeecsDevicePage, R = window.GeecsCameraRules, S = window.GeecsScreenRules;
@@ -19,29 +22,45 @@
   const value = (role) => { const f = P.frame(role); return f ? f.value : undefined; };
   const MAX_FPS = 10, HOLD_MS = 2000, GRAB_PX = 9, EDGE_PX = 6;
   const FRAME_TIMEOUT_MS = 5000; // a frame request past this is abandoned: the loop never waits on a stalled connection
+  const RAW_HZ = 2, RAW_TIMEOUT_MS = 5000;
   const storeKey = `geecs-control-room:${P.name}:display`;
 
   const viewport = $("viewport"), canvas = $("image"), ctx = canvas.getContext("2d");
   const frame = document.createElement("canvas"), fctx = frame.getContext("2d", { willReadFrequently: true });
   const cmapSel = $("cmap"), scaleSel = $("scale"), blackIn = $("level-lo"), whiteIn = $("level-hi"), autoLive = $("auto-live");
+  const rawIn = $("raw");
   let lut = [], lum = null, fw = 0, fh = 0, iw = 0, ih = 0;
+  // the mode: raw or the JPEG; its full scale (255, or the raw frame's) and the levels each mode keeps, as fractions
+  let raw = false, full = 255, rawFull = R.RAW_FULL_ASSUMED, rawAssumed = true, overlays = true, saved = null;
+  const kept = { jpeg: null, raw: null };
   let view = { scale: 1, ox: 0, oy: 0, moved: false }, vw = 0, vh = 0;
 
   // ---- this viewer's display, remembered per camera
-  const buildLut = () => { lut = R.lut(cmapSel.value, scaleSel.value, blackIn.value, whiteIn.value); };
+  const mode = () => (raw ? "raw" : "jpeg");
+  const buildLut = () => { lut = R.lut(cmapSel.value, scaleSel.value, blackIn.value, whiteIn.value, full); };
   function save() {
-    try { localStorage.setItem(storeKey, JSON.stringify({ cmap: cmapSel.value, scale: scaleSel.value, black: blackIn.value, white: whiteIn.value, auto: autoLive.checked })); } catch (_) { /* no storage */ }
+    kept[mode()] = R.levelsToStore(blackIn.value, whiteIn.value, full);
+    try { localStorage.setItem(storeKey, JSON.stringify({ cmap: cmapSel.value, scale: scaleSel.value, levels: kept, auto: autoLive.checked })); } catch (_) { /* no storage */ }
   }
   try {
-    const s = JSON.parse(localStorage.getItem(storeKey) || "null");
-    if (s) { if (R.MAPS[s.cmap]) cmapSel.value = s.cmap; scaleSel.value = s.scale || "linear"; blackIn.value = s.black ?? 0; whiteIn.value = s.white ?? 255; autoLive.checked = !!s.auto; }
+    saved = JSON.parse(localStorage.getItem(storeKey) || "null");
+    if (saved) { if (R.MAPS[saved.cmap]) cmapSel.value = saved.cmap; scaleSel.value = saved.scale || "linear"; autoLive.checked = !!saved.auto; }
   } catch (_) { /* nothing remembered */ }
+  kept.jpeg = R.storedLevels(saved, "jpeg"); kept.raw = R.storedLevels(saved, "raw");
+  // the inputs in counts of the mode's full scale, from the mode's kept fractions; the words follow the mode
+  function showLevels() {
+    const l = R.levelsFromStore(kept[mode()], full), words = R.modeWords(raw, full, rawAssumed);
+    blackIn.max = full - 1; whiteIn.max = full; blackIn.value = l.black; whiteIn.value = l.white;
+    $("levels-hint").textContent = words.hint;
+    $("levels-scale").textContent = words.scale;
+    $("image-state").hidden = !words.chip;
+    buildLut();
+  }
+  showLevels();
 
   function autoLevels() {
     if (!lum) return;
-    const hist = new Array(256).fill(0);
-    for (let i = 0; i < lum.length; i++) hist[lum[i]]++;
-    const l = R.autoLevels(hist);
+    const l = R.autoLevels(R.histogram(lum, full), full);
     blackIn.value = l.black; whiteIn.value = l.white;
     buildLut();
   }
@@ -50,7 +69,7 @@
     if (!lum) return;
     const img = fctx.createImageData(fw, fh), px = img.data;
     for (let i = 0, j = 0; i < lum.length; i++, j += 4) {
-      const k = 3 * lum[i];
+      const k = 3 * (lum[i] > full ? full : lum[i]); // a raw value above the full scale is drawn as the top
       px[j] = lut[k]; px[j + 1] = lut[k + 1]; px[j + 2] = lut[k + 2]; px[j + 3] = 255;
     }
     fctx.putImageData(img, 0, 0);
@@ -58,6 +77,7 @@
   }
 
   function takeFrame(bitmap) {
+    if (raw) { bitmap.close(); return; } // a JPEG decoded after the toggle: not this mode's
     if (bitmap.width !== fw || bitmap.height !== fh) { fw = frame.width = bitmap.width; fh = frame.height = bitmap.height; }
     fctx.drawImage(bitmap, 0, 0);
     bitmap.close();
@@ -69,9 +89,23 @@
     recolour();
   }
 
-  // The image's size from the module's roles (MJPG1 ArraySize), checked against the JPEG's shape.
+  // A raw frame, decoded: transformed as TRANS1 would (an unknown transform drawn as read, the overlays hidden).
+  function takeRaw(f) {
+    const t = R.transformOf(P.frame("transform"), P.meta("transform"));
+    const out = (t.known && R.transformFrame(f.data, f.width, f.height, t.name)) || { data: f.data, width: f.width, height: f.height };
+    overlays = t.known;
+    $("raw-note").textContent = t.word;
+    if (f.full !== rawFull || f.assumed !== rawAssumed) { rawFull = full = f.full; rawAssumed = f.assumed; showLevels(); }
+    if (out.width !== fw || out.height !== fh) { fw = frame.width = out.width; fh = frame.height = out.height; }
+    lum = out.data;
+    if (autoLive.checked) autoLevels();
+    sized();
+    recolour();
+  }
+
+  // The image's size: in raw mode the frame's own (no stretching); else the module's roles (MJPG1 ArraySize), checked against the JPEG's shape.
   function sized() {
-    const [nw, nh] = R.imageSize(fw, fh, value("width"), value("height"));
+    const [nw, nh] = raw ? [fw, fh] : R.imageSize(fw, fh, value("width"), value("height"));
     if (nw !== iw || nh !== ih) { iw = nw; ih = nh; if (!view.moved) fit(); }
   }
 
@@ -89,7 +123,7 @@
     ctx.imageSmoothingEnabled = view.scale * dpr < 1; // magnified: square pixels
     ctx.drawImage(frame, 0, 0, iw, ih);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    for (const layer of layers) layer(ctx);
+    if (overlays) for (const layer of layers) layer(ctx); // hidden over a raw frame whose transform is unknown
     $("zoom-level").textContent = Math.round(view.scale * 100) + "%";
   }
   function resize() {
@@ -155,7 +189,7 @@
   const CURSORS = { n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize", nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize" };
 
   function grab(cx, cy) {
-    if (!fw) return null;
+    if (!fw || !overlays) return null;
     const x = crosshairAt(cx, cy);
     if (x) {
       const h = held.xh[x.n] = { x: x.x, y: x.y, dragging: true, until: 0 };
@@ -198,7 +232,7 @@
   });
   const endDrag = (ev) => {
     if (edit) { (R.gestureEnds(ev.type) === "commit" ? edit.end : edit.cancel)(); edit = null; } // a cancelled gesture writes nothing
-    if (drag && ev.type === "pointerup" && Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4 && performance.now() - drag.t < 400) {
+    if (drag && overlays && ev.type === "pointerup" && Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4 && performance.now() - drag.t < 400) {
       const [ix, iy] = toImage(drag.cx, drag.cy).map(Math.floor);
       clearTimeout(clickTimer);
       clickTimer = setTimeout(() => clicks.forEach((f) => f(ix, iy)), 500);
@@ -219,7 +253,7 @@
     const [ix, iy] = toImage(cx, cy).map(Math.floor);
     if (ix < 0 || iy < 0 || ix >= iw || iy >= ih) { $("cursor").textContent = ""; return; }
     const jx = Math.min(fw - 1, Math.floor((ix * fw) / iw)), jy = Math.min(fh - 1, Math.floor((iy * fh) / ih));
-    $("cursor").textContent = `x ${ix}  y ${iy}  level ${lum[jy * fw + jx]}`;
+    $("cursor").textContent = `x ${ix}  y ${iy}  ${raw ? "counts" : "level"} ${lum[jy * fw + jx]}`;
   }
 
   // ---- the frame loop: one request in flight, latest wins, paused while hidden
@@ -234,32 +268,56 @@
     if (drawing) return;
     drawing = true;
     try {
-      while (waiting) { const blob = waiting; waiting = null; takeFrame(await createImageBitmap(blob)); $("image-error").hidden = true; shown.push(performance.now()); }
+      while (waiting) { const blob = waiting; waiting = null; takeFrame(await createImageBitmap(blob)); if (raw) break; $("image-error").hidden = true; shown.push(performance.now()); }
     } catch (e) {
       $("image-error-text").textContent = "the frame could not be decoded: " + (e.message || e);
       $("image-error").hidden = false;
       lastTag = null;
     } finally { drawing = false; }
   }
-  async function loop() {
-    for (;;) {
-      await visible();
-      const t0 = performance.now();
-      try {
-        const [tag, blob] = await R.within(FRAME_TIMEOUT_MS, async (signal) => {
-          const r = await fetch(box.dataset.frameUrl, { cache: "no-store", signal });
-          if (!r.ok) { let d = `answered ${r.status}`; try { d = (await r.json()).detail || d; } catch (_) { /* not JSON */ } throw new Error(d); }
-          return [r.headers.get("X-Frame-Tag"), await r.blob()];
-        });
-        $("image-error").hidden = true; // a good answer ends a transport error, new frame or not (a decode failure says so again)
-        if (tag === null || tag !== lastTag) { lastTag = tag; waiting = blob; drawLatest(); }
-      } catch (e) {
-        $("image-error-text").textContent = String(e.message || e);
-        $("image-error").hidden = false;
-        await sleep(1000);
-      }
-      await sleep(Math.max(0, 1000 / MAX_FPS - (performance.now() - t0)));
+  async function jpegStep() {
+    const t0 = performance.now();
+    try {
+      const [tag, blob] = await R.within(FRAME_TIMEOUT_MS, async (signal) => {
+        const r = await fetch(box.dataset.frameUrl, { cache: "no-store", signal });
+        if (!r.ok) { let d = `answered ${r.status}`; try { d = (await r.json()).detail || d; } catch (_) { /* not JSON */ } throw new Error(d); }
+        return [r.headers.get("X-Frame-Tag"), await r.blob()];
+      });
+      if (raw) return; // toggled while this request ran: not this mode's
+      $("image-error").hidden = true; // a good answer ends a transport error, new frame or not (a decode failure says so again)
+      if (tag === null || tag !== lastTag) { lastTag = tag; waiting = blob; drawLatest(); }
+    } catch (e) {
+      if (raw) return;
+      $("image-error-text").textContent = String(e.message || e);
+      $("image-error").hidden = false;
+      await sleep(1000);
     }
+    await sleep(Math.max(0, 1000 / MAX_FPS - (performance.now() - t0)));
+  }
+  // raw: one request in flight at 2 Hz, If-None-Match the last frame's ETag; a 304 is no new frame, never an error
+  let rawTag = null, shownTag = null;
+  async function rawStep() {
+    const t0 = performance.now();
+    try {
+      const got = await R.within(RAW_TIMEOUT_MS, (signal) => R.fetchRaw(fetch, box.dataset.rawUrl, rawTag, signal));
+      if (!raw) return;
+      $("image-error").hidden = true;
+      if (got.fresh) {
+        rawTag = got.frame.etag;
+        if (got.frame.tag !== shownTag) { shownTag = got.frame.tag; shown.push(performance.now()); } // the rate: tags advancing
+        takeRaw(got.frame);
+      }
+    } catch (e) {
+      if (!raw) return;
+      $("image-error-text").textContent = String(e.message || e);
+      $("image-error").hidden = false;
+      rawTag = null;
+      await sleep(1000);
+    }
+    await sleep(Math.max(0, 1000 / RAW_HZ - (performance.now() - t0)));
+  }
+  async function loop() {
+    for (;;) { await visible(); await (raw ? rawStep() : jpegStep()); }
   }
   // the rate ages on its own clock, so a request still waiting reads as frames stopping, not as the last rate
   setInterval(() => {
@@ -280,6 +338,8 @@
     const chip = R.imageChip(P.entry("image_counter") ? P.word("image_counter") : "unknown");
     $("image-state").textContent = chip.text;
     $("image-state").dataset.state = KIT[chip.word] || "unknown";
+    const toggle = R.rawToggle(P.entry("raw_frame"));
+    rawIn.disabled = !toggle.enabled && !raw; rawIn.title = toggle.why;
     const bad = R.alarms(P.view());
     $("alarms").textContent = bad.length ? `in error: ${bad.join(", ")}` : "";
     sized();
@@ -294,8 +354,18 @@
   for (const el of [cmapSel, scaleSel, blackIn, whiteIn]) el.addEventListener("change", () => { buildLut(); recolour(); save(); });
   autoLive.addEventListener("change", save);
   $("auto-once").addEventListener("click", () => { autoLevels(); recolour(); save(); });
-  $("reset-levels").addEventListener("click", () => { blackIn.value = 0; whiteIn.value = 255; scaleSel.value = "linear"; autoLive.checked = false; buildLut(); recolour(); save(); });
+  $("reset-levels").addEventListener("click", () => { blackIn.value = 0; whiteIn.value = full; scaleSel.value = "linear"; autoLive.checked = false; buildLut(); recolour(); save(); });
   $("roi-show").addEventListener("change", draw);
+  // the toggle: the other mode's levels and words, the view kept (both modes draw the post-transform geometry);
+  // the frame on screen stays until the new mode's first frame replaces it
+  rawIn.addEventListener("change", () => {
+    save(); // the leaving mode's levels kept
+    raw = rawIn.checked; full = raw ? rawFull : 255; overlays = true;
+    lum = null; lastTag = null; rawTag = shownTag = null; waiting = null; shown.length = 0;
+    $("raw-note").textContent = "";
+    $("image-error").hidden = true;
+    showLevels(); refresh();
+  });
 
   // ---- writes: POST /api/devices/<name>/put {role, value, operator[, confirm]}, each sent once; a list stops at its first refusal
   const OP_KEY = "geecs-control-room-operator", opInput = $("operator");

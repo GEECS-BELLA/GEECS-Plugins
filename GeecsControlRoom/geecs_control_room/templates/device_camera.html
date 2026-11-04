@@ -9,7 +9,9 @@
   with the operator's name, sent once; a run-locked role is refused by the
   module while a run holds the camera (its outcome says so). The lineouts
   and histogram are the on-request arrays (/api/devices/<name>/arrays), read
-  only while the plots are open. Every word is the module's verdict.
+  only while the plots are open. Every word is the module's verdict. The Raw
+  toggle polls /api/devices/<name>/frame.raw instead: the driver's 16-bit
+  frame (ARR), transformed in the browser as TRANS1 would.
 #}{% extends "device.html" %}
 {% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
 {% block header %}{% if device %}<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>{% endif %}{{ super() }}{% endblock %}
@@ -19,7 +21,7 @@
 {% block kind_component %}
 {% set labels, units = {}, {} %}{% for r in device.roles %}{% set _ = labels.update({r.role: r.label or r.role}) %}{% endfor %}
 {% for _axis, rows in tables %}{% for r in rows %}{% set _ = units.update({r.name: r.units}) %}{% endfor %}{% endfor %}
-<div class="camera" id="camera" data-frame-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.jpg" data-arrays-url="{{ root }}/api/devices/{{ name | urlencode }}/arrays">
+<div class="camera" id="camera" data-frame-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.jpg" data-raw-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.raw" data-arrays-url="{{ root }}/api/devices/{{ name | urlencode }}/arrays">
   <aside class="rail">
     <section class="group">
       <h4>Camera</h4>
@@ -53,13 +55,14 @@
       <div class="row">
         <div class="field levels"><label for="level-lo">Black</label><input id="level-lo" type="number" min="0" max="254" value="0"></div>
         <div class="field levels"><label for="level-hi">White</label><input id="level-hi" type="number" min="1" max="255" value="255"></div>
+        <span class="dim mono" id="levels-scale"></span>
       </div>
       <div class="row">
         <button class="btn sm" type="button" id="auto-once">Auto levels</button>
         <label class="dim"><input type="checkbox" id="auto-live"> every frame</label>
         <button class="btn sm ghost" type="button" id="reset-levels">Reset</button>
       </div>
-      <div class="hint dim">The 8-bit stream, stretched in this browser: nothing is written to the camera.</div>
+      <div class="hint dim" id="levels-hint">The 8-bit stream, stretched in this browser: nothing is written to the camera.</div>
     </section>
 
     <section class="group">
@@ -94,6 +97,8 @@
     <article class="panel image">
       <header>
         <span class="eyebrow">image</span>
+        <label class="dim raw-toggle"><input type="checkbox" id="raw" disabled> Raw</label>
+        <span class="mono dim" id="raw-note"></span>
         <span class="mono dim" id="cursor"></span>
         <span class="mono dim" id="zoom-level"></span>
         <button class="btn sm ghost" type="button" id="zoom-fit">Fit</button>

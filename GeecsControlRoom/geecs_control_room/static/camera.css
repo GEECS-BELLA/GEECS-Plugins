@@ -29,3 +29,8 @@
 .kit .operator{display:inline-flex;align-items:center;gap:6px;font-size:12px}
 .kit .device[data-kind="camera"]{max-width:none}
 .kit #hazard-dialog-text{white-space:pre-line}
+/* Raw mode: the toggle in the image's header, the full scale beside the levels, the transform's word. */
+.kit .camera .raw-toggle{display:inline-flex;align-items:center;gap:4px;font-size:12px}
+.kit .camera #levels-scale{font-size:11px;align-self:flex-end;padding-bottom:6px}
+.kit .camera #raw-note{font-size:11px;color:var(--warn)}
+.kit .camera #raw-note:empty,.kit .camera #levels-scale:empty{display:none}
