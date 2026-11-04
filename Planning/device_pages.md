@@ -1,7 +1,7 @@
 # Device pages — the brief (integration branch `feat/device-pages`)
 
 Scaffolding per `Planning/README.md`: the promotion PR to `master` deletes this
-file (and `Planning/device_panels.md`, which it supersedes) after moving
+file after moving
 anything load-bearing into the owning `CLAUDE.md` files. The coordinator runs
 the slices in order, one PR each into this branch, with the `/land` ritual, and
 merges a lane PR after its review is dispositioned (maintainer's rule for
@@ -74,7 +74,7 @@ deleted** when they are proven: one operator surface, no bench tool.
 6. **GeecsPanels deletion PR** (separate, under the kill rule): the package,
    its unit template, its row in root `CLAUDE.md`, `.importlinter`,
    `scripts/check.sh`, `scripts/ci_select.py`, the theme's template walk, the
-   docs page, the CHANGELOG list; `Planning/device_panels.md` goes with it.
+   docs page, the CHANGELOG list.
    Opened on this branch but merged only after the maintainer's look.
 7. **Docs + promotion body.** `GeecsControlRoom/CLAUDE.md` gains the device
    pages and the image/array rule in one paragraph; `operator_surfaces.md` §6

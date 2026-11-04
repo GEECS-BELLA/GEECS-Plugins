@@ -1,6 +1,6 @@
 """What the module needs from Hare, as a Protocol: ``app.py`` implements it once over Canopy's gateway.
 
-Nothing else imports a Canopy name (condition (b)), so a sidecar could
+Nothing else imports a Canopy name, so a sidecar could
 implement it over Hare's REST and WebSocket wire instead.
 """
 

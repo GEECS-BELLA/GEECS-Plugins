@@ -616,7 +616,7 @@ def test_live_view_restarts_only_after_the_stack_is_closed(
     _run(RE, unstage_while_capture_open)
 
 
-# ---- the run lock (geecs-epics run_lock.db + access.acf; device_panels.md §6) ----
+# ---- the run lock (geecs-epics run_lock.db + access.acf) ----
 
 
 def _lock_log(cam: NativeCamera, log: list[str]) -> None:

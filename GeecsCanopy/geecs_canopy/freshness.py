@@ -1,10 +1,9 @@
 """Freshness, judged continuously from the module's internal Hare subscription.
 
 Verdicts claim no more than the evidence (``Planning/operator_surfaces.md``
-§3) and keep Appendix A of ``Planning/epics_estate.md``: the producing
-counter's advance is freshness, a changing value never is, a ``Compute*``
-flag off reads ``off`` (rule 1); disconnected is not stale, a known fault
-outranks a dropped field (rule 9); NaN travels as null (rule 10). ``tsNs``
+§3): the producing counter's advance is freshness, a changing value never
+is, a ``Compute*`` flag off reads ``off``; disconnected is not stale, a
+known fault outranks a dropped field; NaN travels as null. ``tsNs``
 is never read: a quiet live record looks old by it.
 """
 
@@ -38,7 +37,7 @@ def is_number(value: Any) -> bool:
 
 
 def json_safe(value: Any) -> Any:
-    """Turn NaN and infinities into ``None``, inside lists too (rule 10): JSON has no NaN."""
+    """Turn NaN and infinities into ``None``, inside lists too: JSON has no NaN."""
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, list):
@@ -103,7 +102,7 @@ def judge(
 
 
 def device_state(verdicts: list[str], faulted: bool, heartbeat: str | None) -> str:
-    """The device's one word: a tripped fault first (rule 9), then the worst evidence."""
+    """The device's one word: a tripped fault first, then the worst evidence."""
     if faulted:
         return "error"
     if heartbeat == "unreachable" or (verdicts and set(verdicts) == {"unreachable"}):
@@ -114,7 +113,7 @@ def device_state(verdicts: list[str], faulted: bool, heartbeat: str | None) -> s
         if word in verdicts:
             return word
     if "unreachable" in verdicts or "unknown" in verdicts:
-        return "unknown"  # a dropped field is not a stale device (rule 9)
+        return "unknown"  # a dropped field is not a stale device
     return "stale" if "stale" in verdicts else "live"
 
 
