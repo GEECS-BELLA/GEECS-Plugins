@@ -93,14 +93,19 @@
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     const c = canvas.getContext("2d");
     c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
-    const pad = { l: 44, r: 6, t: 6, b: 16 }, ys = [], xs = [];
+    const pad = { l: 44, r: 6, t: 6, b: 16 };
     const y = (v) => (opts.log ? Math.log10(v) : v), ok = (v) => v !== null && Number.isFinite(v) && !(opts.log && v <= 0);
-    for (const s of series) s.values.forEach((v, i) => { if (ok(v)) { ys.push(y(v)); xs.push(opts.x(i)); } });
+    // the ranges as running extremes, never Math.min(...array): a 16-bit raw histogram has 65 536 bins,
+    // past the argument count some engines allow a spread
+    let n = 0, y0 = Infinity, y1 = -Infinity, x0 = Infinity, x1 = -Infinity;
+    for (const s of series) s.values.forEach((v, i) => {
+      if (!ok(v)) return;
+      const Y = y(v), X = opts.x(i); n++;
+      if (Y < y0) y0 = Y; if (Y > y1) y1 = Y; if (X < x0) x0 = X; if (X > x1) x1 = X;
+    });
     c.font = "10px " + (token("--ff-mono") || "monospace"); c.fillStyle = token("--muted");
-    if (!ys.length) { c.fillText(opts.empty, pad.l, h / 2); return; }
-    let y0 = Math.min(...ys), y1 = Math.max(...ys);
+    if (!n) { c.fillText(opts.empty, pad.l, h / 2); return; }
     if (y1 === y0) { y0 -= 1; y1 += 1; }
-    const x0 = Math.min(...xs), x1 = Math.max(...xs);
     const px = (x) => pad.l + ((x - x0) / (x1 - x0 || 1)) * (w - pad.l - pad.r), py = (v) => h - pad.b - ((v - y0) / (y1 - y0)) * (h - pad.t - pad.b);
     c.strokeStyle = token("--rule-soft"); c.lineWidth = 1;
     c.strokeRect(pad.l + 0.5, pad.t + 0.5, w - pad.l - pad.r - 1, h - pad.t - pad.b - 1);
