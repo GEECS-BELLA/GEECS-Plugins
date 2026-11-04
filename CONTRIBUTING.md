@@ -34,6 +34,18 @@ docs site), or launch Claude Code from the repo root and type
   `scripts/commit.sh` run it — so a hook that behaves differently under
   prek is a prek bug, not a config change.
 
+- The private facility repo's map (`geecs-epics/docs/index.md`: which page
+  owns which host, device or incident fact) can load into your sessions
+  here. Project-scoped: an untracked `CLAUDE.local.md` beside this file
+  with the line `@../geecs-epics/docs/index.md` (the path to your clone);
+  Claude Code asks once per clone, in an interactive session, and loads
+  nothing until approved — a headless session cannot approve it, and a
+  missing target is silent (observed, not documented). Machine-wide
+  instead: the same line in `~/.claude/CLAUDE.md` loads with no prompt in
+  every session on the machine, this public repo's included, so remember
+  what it carries (desktop Cowork sessions skip user-scope imports outside
+  their working directory). Either way, verify once with `/context all`.
+
 ## Branch topology (post-M6: one mainline)
 
 This section is the **single canonical copy** of the branch layout — the

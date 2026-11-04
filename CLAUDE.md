@@ -57,8 +57,9 @@ found wrong is corrected in its home by a PR, in the same session
 | A rule for this repo's code or workflow | this file (cross-package) or the owning package's `CLAUDE.md` |
 | A working norm: review, PRs, GitHub conduct, what to delete | `CONTRIBUTING.md`, the one copy for every GEECS-BELLA repo, imported below |
 | A general GEECS, EPICS or Bluesky fact: DB semantics, PV naming, the data layout, the scan-mode protocol | the owning package's `CLAUDE.md`, its contract file, or `docs/` |
-| A facility fact: a host, an address, an account, a device's behaviour at a site, an incident and its cause, a site runbook | the private `geecs-epics` repo, whose `docs/index.md` maps each fact to its page — never this public repo (§ "Facility values have one home") |
+| A facility fact: the current value of a host, address or account, a device's behaviour at a site, a site runbook, an incident on a host | the private `geecs-epics` repo: its `CLAUDE.md` is the entry point and its `docs/index.md` maps each fact to its page. This repo keeps the reference deployment's picture and examples (`docs/platform/fleet_map.md`, `deploy/site.env.example`; § "Facility values have one home") and the incidents behind its own rules (`CONTRIBUTING.md` § "Rules with incident history"), and corrects them when the fleet moves |
 | A facility value a program reads | `config.ini` or `site.env` (same section) |
+| The derivation of a rule, the "why" | the PR body and git history; the invariant itself in the docstring (`CONTRIBUTING.md` § "Planning/") |
 | The state of an arc: what moved, what is owed, which PR is open | the arc's tracking issue (`CONTRIBUTING.md` § "GitHub conduct") — not a doc, not agent memory |
 
 Agent memory holds pointers and the "why" behind a correction, never the
@@ -66,13 +67,8 @@ only copy of a fact. The admission test for writing a fact anywhere: a
 second session would need it **and** it will still be true in a month;
 otherwise it is state and belongs on the issue.
 
-To see the private repo's map from a session in this repo, add one line
-to your user-scope `~/.claude/CLAUDE.md`:
-`@<path to your clone>/geecs-epics/docs/index.md`. A user-scope import
-loads in every session with no prompt. An import from a project-level
-`CLAUDE.local.md` needs a one-time approval in an interactive session and
-silently does nothing in a headless one; a missing target is silent in
-both. Check once with `/context`.
+How a session here loads the private repo's map, and how to verify what
+loaded: `CONTRIBUTING.md` § "Setup".
 
 The working norms, imported so every session loads them:
 
