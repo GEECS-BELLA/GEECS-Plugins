@@ -202,6 +202,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             native_image_save_wrapper,
             resolve_background_telemetry,
             resolve_native_image_save,
+            run_witness,
         )
         from geecs_bluesky.optimization.driver import XoptDriver
         from geecs_bluesky.optimization.measurements import compile_measurements
@@ -324,6 +325,9 @@ def optimize_plan(  # noqa: C901, PLR0915
             shot_period=shot_period,
             native_image_save=native_files,
             background_telemetry=snapshot is not None,
+        )
+        witness, metadata["witness"] = run_witness(
+            namespace, acquisition="strict", shot_control=sc
         )
         metadata["geecs"] = {
             **metadata.get("geecs", {}),
@@ -545,8 +549,17 @@ def optimize_plan(  # noqa: C901, PLR0915
                 source.open()
                 yield from _on_thread(pool, source.wait_connected, 5.0)
             yield from liveness_gate(
-                sc, [*detectors, *movables.values(), *non_essential]
+                sc,
+                [
+                    *detectors,
+                    *movables.values(),
+                    *non_essential,
+                    *([witness] if witness else []),
+                ],
             )
+            if witness is not None:
+                # Waited on with every shot, as in the strict verbs.
+                detectors.append(witness)
             if snapshot is not None:
                 # One more device of every row, last — after the scalar
                 # pre-reads above (nothing to read before its probe).

@@ -14,10 +14,11 @@ only — the PV prefix is derived from the experiment and device name
 are the kind's own, and hosts and paths are facility values with a home of
 their own.  An absent file means the experiment has no native devices.
 
-Three kinds so far: ``aravis_camera`` (an areaDetector camera, a detector
-of the scan), ``epics_motor`` (one or more EPICS motor records, scan axes)
-and ``setpoint_device`` (a supply's plain records: settables confirmed on
-their readbacks, extra readbacks, status bits).
+Four kinds so far: ``aravis_camera`` (an areaDetector camera, a detector
+of the scan), ``epics_motor`` (one or more EPICS motor records, scan axes),
+``setpoint_device`` (a supply's plain records: settables confirmed on
+their readbacks, extra readbacks, status bits) and ``witness`` (a hardware
+count of one trigger domain's edges, which confirms every strict fire).
 """
 
 from __future__ import annotations
@@ -316,9 +317,64 @@ class SetpointDevice(_NativeEntry):
         }
 
 
+class Witness(_NativeEntry):
+    """A trigger domain's witness: a hardware count of its edges, the count's stamp, an epoch.
+
+    The worker waits on it in every strict shot: the fire is confirmed when
+    the count (``<prefix><counter>Counts``) advances, and each row records
+    the count, the count record's own timestamp and the epoch
+    (``<prefix>WitnessEpoch``, a string that changes whenever the count
+    restarts). At most one witness per domain. Names only, as every entry:
+    the records are the family's.
+    """
+
+    kind: Literal["witness"] = Field(
+        description="Device kind: 'witness' (a counter of a trigger domain's edges)."
+    )
+    counter: str = Field(
+        "Counter1",
+        pattern=r"^[A-Za-z][A-Za-z0-9_]*$",
+        description=(
+            "The counter record's name stem under the device's prefix: the "
+            "count is '<counter>Counts'. It must be the family's count record."
+        ),
+    )
+    domain: str = Field(
+        "main",
+        pattern=r"^[a-z][a-z0-9_]*$",
+        description=(
+            "The trigger domain it counts (a plain word): the edges every "
+            "synchronous device of that domain sees. One witness per domain."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _the_familys_counter(self, info: ValidationInfo) -> "Witness":
+        family = families_from(info).get(self.family_template)
+        if family is None:  # an unknown template is _NativeEntry's refusal
+            return self
+        role = next((r for r in family.roles if r.name == "count"), None)
+        if role is not None and role.suffix != self.count_record:
+            raise ValueError(
+                f"counter {self.counter!r}: family {family.template!r} counts at "
+                f"{role.suffix!r}, not {self.count_record!r}"
+            )
+        return self
+
+    @property
+    def count_record(self) -> str:
+        """The count record under the device's prefix (``Counter1Counts``)."""
+        return f"{self.counter}Counts"
+
+
+#: The epoch record under a witness's prefix: a string that changes when the count restarts.
+WITNESS_EPOCH_RECORD = "WitnessEpoch"
+
+
 #: Every native device kind, discriminated by ``kind`` (a new kind is one more member).
 NativeDevice = Annotated[
-    Union[AravisCamera, EpicsMotor, SetpointDevice], Field(discriminator="kind")
+    Union[AravisCamera, EpicsMotor, SetpointDevice, Witness],
+    Field(discriminator="kind"),
 ]
 
 #: The kinds that are detectors of the scan — they acquire per shot (a
@@ -356,4 +412,13 @@ class NativeDevices(VersionedSchemaModel):
         blank = [name for name in devices if not name.strip()]
         if blank:
             raise ValueError("a native device name must not be blank")
+        domains: dict[str, str] = {}
+        for name, entry in devices.items():
+            if isinstance(entry, Witness):
+                if entry.domain in domains:
+                    raise ValueError(
+                        f"witnesses {domains[entry.domain]!r} and {name!r} both "
+                        f"count domain {entry.domain!r}: one witness per domain"
+                    )
+                domains[entry.domain] = name
         return devices

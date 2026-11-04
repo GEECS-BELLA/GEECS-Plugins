@@ -63,7 +63,9 @@ from geecs_bluesky.devices.hdf_plugin import file_plugin_hosts as _hosts_from_co
 from geecs_bluesky.devices.native import NativeCamera, NativeTriggerSource
 from geecs_bluesky.devices.native_motor import NativeMotor
 from geecs_bluesky.devices.native_setpoint import NativeSetpointDevice
+from geecs_bluesky.devices.witness import Witness
 from geecs_schemas import AravisCamera, EpicsMotor, SetpointDevice, load_families
+from geecs_schemas import Witness as WitnessEntry
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
@@ -422,6 +424,7 @@ class GeecsNamespace:
             str(k): float(v) for k, v in (drain_offsets or {}).items()
         }
         self._devices: dict[str, Any] = {}
+        self._witnesses: dict[str, Witness] = {}  # trigger domain → its witness
         self._by_geecs_name: dict[str, Any] = {}
         self._attrs: dict[str, dict[str, str]] = {}  # ns name → {lower var → attr}
         skipped: list[str] = []
@@ -628,6 +631,18 @@ class GeecsNamespace:
                 # Confirmed on its readback: a catalog ``kind: motor``
                 # opt-in is redundant, never unhonoured.
                 self._bound_motors.add(f"{device}:{record}".lower())
+        elif isinstance(entry, WitnessEntry):
+            twin = self._witnesses.get(entry.domain)
+            if twin is not None:
+                raise GeecsConfigurationError(
+                    f"device namespace: witnesses {twin._geecs_device_name!r} and "
+                    f"{device!r} both count domain {entry.domain!r} — one witness "
+                    "per domain"
+                )
+            dev = Witness(
+                device, prefix, counter=entry.counter, domain=entry.domain, name=name
+            )
+            self._witnesses[entry.domain] = dev
         elif isinstance(entry, AravisCamera):
             if self._path_provider is None:
                 raise GeecsConfigurationError(
@@ -1033,15 +1048,20 @@ class GeecsNamespace:
         for dev in self._devices.values():
             if isinstance(dev, GeecsDetector):
                 objects.extend(dev._scalar_signals())
-            elif isinstance(dev, (CaPseudoPositioner, NativeCamera)):
+            elif isinstance(dev, (CaPseudoPositioner, NativeCamera, Witness)):
                 # a pseudo derives from components the baseline already
-                # carries; a native camera has no scalars and reads only per shot
+                # carries; a native camera has no scalars and reads only per
+                # shot; a witness is read by the strict shot alone
                 continue
             else:
                 # a scalar-only device, or a native positioner (its axes'
                 # readbacks: a read costs no shot)
                 objects.append(dev)
         return objects
+
+    def witness(self, domain: str = "main") -> Witness | None:
+        """The witness of trigger *domain* (the registry's ``witness`` entry), or ``None``."""
+        return self._witnesses.get(domain)
 
     # ----------------------------------------------------------------- export
     def export_into(self, namespace: dict[str, Any]) -> list[str]:

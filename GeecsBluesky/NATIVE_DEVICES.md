@@ -956,6 +956,7 @@ discriminated by `kind`; `NativeDevices.devices` is unchanged; docgen follows.
 | epics_motor | axes | a noun with one stock `Motor` per axis |
 | setpoint_device | settables (tolerance, timeout), readbacks, status | one confirm-on-readback Movable per settable |
 | array_detector | `trigger_source`, scalars | the camera's path over the alias records |
+| `witness` (built) | `counter` (default `Counter1`), `domain` (default `main`) | `Witness`: waited on in every strict shot, its count, stamp and epoch in each row; one per domain (`EVENT_SCHEMA.md`) |
 
 **One owner** is unchanged: `GeecsNamespace._add_native_devices` compares
 `safe_name`s against the roster for every kind. Added: an axis or

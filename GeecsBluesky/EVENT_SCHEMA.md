@@ -31,6 +31,7 @@ adds:
 | `background_telemetry` | the bound plan | Whether the run read the background telemetry into its rows: the preset's value, else the experiment default; `False` also when the namespace carries no telemetry set at all (a run whose every candidate is its own device still says `True`, with nothing dropped and no extra column) |
 | `background_dropped` | the bound plan (`background_wrapper`) | GEECS device names the background probe dropped for this run — no answer within its budget (a PV the gateway does not serve, a failed connect or describe); absent when the run read no background |
 | `background_probe_error` | the bound plan (`background_wrapper`) | Present only when the probe itself failed (an unexpected error, logged at ERROR — never a member's failure, which is its own drop): `Type: message`, and the run opened with no background columns |
+| `witness` | the bound plan (`registry.run_witness`) | The run's witness: `null` when the namespace has none (no witness in `native_devices.yaml`); else `{device, domain, read}` — `read: true` when every strict shot waited on it and each `primary` row carries `witness_count`, `witness_stamp` and `witness_epoch`; `read: false` plus a `reason` in a gated run (not read yet) and under a box-less profile (nothing fired for it to count). `optimize` records it as the strict verbs do |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
 | `geecs` | the client (`md`) | Provenance only: `{preset, submission, operator, scan_log_variables}` — never a worker instruction; `ScanInfoCallback` copies `scan_log_variables` (the web scanner's shared list) into the ini's `[Scan Log]` section as a record |
@@ -89,6 +90,10 @@ trigger state (`shot_control-state`) when it is read.
 | `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`) or always, for a native setpoint device's settable (`NativeSetpoint`), and the scan motor's column |
 | `bin_number` | The scan step the row belongs to, from 1 (the GEECS `per_step`; every row of a `count` is bin 1) — the s-file's `Bin #` |
 | `announced_shot` | Scan mode only (`use_scan_mode`): the run-wide shot number announced for the row's shot, from 1 — every fire increments it, refires included, so a partial row keeps its number and the retake takes the next; a number is never re-sent. The join key for a device's shot-numbered files (`ScanNNN_<device>_SSS.<ext>`): the s-file's row index is not it — the s-file's `Announced Shot` |
+
+| `witness_count` | A strict run with a witness (`witness.read`): the witness's hardware count after the row's fire — the shot is `(witness_epoch, witness_count)`, never the count alone. The fire is confirmed when the count advances; a fire it never sees fails the step (`GeecsWitnessNoFireError`) and is never re-fired. A jump of more than one (a stall, a doubled edge) is recorded as is, with a WARNING naming the shot |
+| `witness_stamp` | The count record's own CA timestamp (Unix seconds) — the IOC's clock at the poll that saw the edge, never the worker's read time |
+| `witness_epoch` | The witness's epoch string: it changes whenever the count restarts (an IOC restart); a change mid-run is recorded, with a WARNING naming the shot |
 
 A device listed as `X.scalars` (the scalars-only view every namespace
 device carries; `save_images: false` in a preset) contributes the same
@@ -228,6 +233,8 @@ Every device carries `_column_headers` — event data-key → the GEECS
 start document's `geecs_scalar_headers`, which the s-file callback
 (`callbacks/sfile.py`, from the run's own rows at the stop document) and the
 offline re-export (`geecs_data_utils.write_scalar_files_from_tiled`) read.
+The witness's columns are headed `<device> count`, `<device> stamp` and
+`<device> epoch`.
 Both take their rows from `primary` when it has events and from `shots`
 otherwise, and both run the same join, so a re-export checks the live path
 rather than re-implementing it.

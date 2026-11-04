@@ -663,7 +663,7 @@ The experiment's devices served by native EPICS IOCs, by GEECS device name.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `devices` | `dict[str, AravisCamera \| EpicsMotor \| SetpointDevice]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
+| `devices` | `dict[str, AravisCamera \| EpicsMotor \| SetpointDevice \| Witness]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
 
 Example:
 
@@ -682,6 +682,9 @@ devices:
   U_ExampleSupply: {kind: setpoint_device,
                     settables: {current: {tolerance: 0.005, timeout: 10}},
                     readbacks: [voltage], status: [fault, interlock]}
+  # A witness: the hardware count of one trigger domain's edges (Counter1Counts),
+  # which confirms every strict fire; at most one per domain.
+  daqtest1: {kind: witness, counter: Counter1, domain: main}
   # An entry may name its family ('template', one of its kind's); absent,
   # the kind's default. Older readers refuse the key.
 ```
@@ -727,6 +730,17 @@ One settable of a setpoint device: how close its readback must come, and how soo
 | `tolerance` | `float` | yes | — | How close the readback must come to the requested value for the set to be done, in the record's units (e.g. 0.005 for 5 mA on a supply in A). The one device fact a plain 'ao' record cannot hold. |
 | `timeout` | `float` | no | 10.0 | Seconds the set waits for the readback to arrive within the tolerance after the write, before it fails. Size it for the slowest ramp plus the readback's scan period. |
 
+### Witness
+
+A trigger domain's witness: a hardware count of its edges, the count's stamp, an epoch.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'witness'` | yes | — | Device kind: 'witness' (a counter of a trigger domain's edges). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
+| `counter` | `str` | no | 'Counter1' | The counter record's name stem under the device's prefix: the count is '<counter>Counts'. It must be the family's count record. |
+| `domain` | `str` | no | 'main' | The trigger domain it counts (a plain word): the edges every synchronous device of that domain sees. One witness per domain. |
+
 ## `family_file`
 
 ### FamilyFile
@@ -737,7 +751,7 @@ The records of one IOC record template, by role: what every device of the family
 |---|---|---|---|---|
 | `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `template` | `str` | yes | — | The record template's name (the file's stem), e.g. 'motor_record'. |
-| `kind` | `'aravis_camera' \| 'epics_motor' \| 'setpoint_device' \| 'array_detector'` | yes | — | The native-device kind whose devices instantiate the template. |
+| `kind` | `'aravis_camera' \| 'epics_motor' \| 'setpoint_device' \| 'array_detector' \| 'witness'` | yes | — | The native-device kind whose devices instantiate the template. |
 | `description` | `str` | yes | — | One line: what the template is and where it comes from. |
 | `per_axis` | `bool` | no | False | The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names. |
 | `roles` | `list[Role]` | yes | — | The template's records, by role, in the page's order. |

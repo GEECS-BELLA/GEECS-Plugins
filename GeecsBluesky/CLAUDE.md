@@ -82,6 +82,8 @@ geecs_bluesky/
                             #   ophyd-async Motor per axis) as Movable children of one noun
   devices/native_setpoint.py # NativeSetpointDevice — a supply's plain records: each settable
                             #   a confirm-on-readback Movable child (NativeSetpoint)
+  devices/witness.py        # Witness — a trigger domain's hardware edge count (the registry's
+                            #   witness): confirms every strict fire, the shot in every row
   devices/hdf_plugin.py     # the file plugin's worker side: GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts,
                             #   GeecsHdfDataLogic (the stock logic; the stream's geometry read
@@ -232,6 +234,21 @@ qserver/                    # the worker: launcher, startup profile, permissions
   readbacks) with the `.scalars` view and a telemetry candidate; the run's
   liveness gate judges it, as a detector, by its readbacks' `.SEVR`
   (INVALID or unreadable = down).  No `stop()`, no user offset yet.
+- **`Witness`** (`devices/witness.py`) — the registry's `witness`: a
+  hardware count of one trigger domain's edges (a counter input on the
+  gated trigger output), `<prefix><counter>Counts`, and the epoch
+  `<prefix>WitnessEpoch` (a string that changes when the count restarts).
+  The namespace builds one per domain (two in one domain refuse to open,
+  naming both); a strict run uses the `main` domain's.  Triggerable and
+  readable, never a telemetry candidate: `trigger()` takes the count
+  baseline **synchronously** (the detector's rule, pinned by a mock race
+  test), the plan's `note_fired()` starts the bound once the fire is out,
+  and the status completes when the count advances.  Each row reads
+  `witness_count`, `witness_stamp` (the count record's own CA timestamp,
+  never the read time) and `witness_epoch`; a jump of more than one and an
+  epoch change mid-run are recorded with one WARNING each, never failed.
+  The liveness gate judges it by its count record (unreadable within 5 s =
+  down).
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
   `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — OFF is the only quiet
   state, STANDBY is the machine's idle and passes edges), replaying each
@@ -290,7 +307,8 @@ qserver/                    # the worker: launcher, startup profile, permissions
   through `data_paths.native_ioc_save_path`, an `epics_motor` a
   `NativeMotor` whose axes bind by `settable_attribute` (the rule a
   `Device:axis` reference expands by), a `setpoint_device` a
-  `NativeSetpointDevice` whose settables and readbacks bind the same way;
+  `NativeSetpointDevice` whose settables and readbacks bind the same way, a
+  `witness` a `Witness` (`namespace.witness(domain)`);
   **one owner per device**: a registry name whose `safe_name` is also a DB
   roster device's (enabled, built or not) refuses to open, naming both.
   `telemetry()` is the background-telemetry candidate set (a native
@@ -379,6 +397,19 @@ wait(group)                                 # every detector saw its stamp
 create / read / save
 ```
 
+**The witness** (`registry.run_witness`): when the namespace has one,
+every strict run (`count`, `sweep`, `optimize`) adds it to the detectors,
+one place, like the background; it is triggered and waited on in the same
+fire step.  Its bound is one trigger period plus the drain margin
+(`gated.TRIGGER_PERIOD_S + DRAIN_MARGIN_S`, from the fire; its own poll
+lag sits inside the margin).  A count that does not advance fails the step
+with `GeecsWitnessNoFireError` ("the witness saw no fire"), raised by
+`fire_and_await_shot` after every group settled and **before** any miss is
+returned, so the retake loop never sees it: a fire the witness never saw is
+never re-fired.  Not read in a gated run (not yet) or under a box-less
+profile (nothing fired for it to count); the start document's `witness`
+says which (`null` without one, `EVENT_SCHEMA.md`).
+
 A no-frame wait (`FailedStatus` caused by `GeecsTriggerTimeoutError`)
 re-fires the whole event up to `max_refires` times; a device whose
 `CONNECTED` PV reads Disconnected raises `GeecsDeviceDownError` instead.
@@ -396,7 +427,8 @@ listed detector and every non-essential device, through the one verdict
 rule in `devices/ca/liveness.py` (`read_disconnected`, fail-open — only
 the exact `Disconnected` string counts; a native camera is judged by its
 IOC's own `AsynIO.CNCT` instead — `devices/native.down_native_cameras`,
-connected if needed and read within 5 s, where unreadable means down).  A dead device refuses the run
+connected if needed and read within 5 s, where unreadable means down; the
+run's witness the same way, by its count record).  A dead device refuses the run
 with `GeecsDeviceDownError` naming every dead one, before the box is
 driven and before `open_run` claims a scan number — so nothing is
 claimed and no folder exists.  The rule against reading quiescence in a
