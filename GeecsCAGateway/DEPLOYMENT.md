@@ -158,10 +158,10 @@ there is no CA-level auth.
 
 ## 2. Current dev deployment — and its risks
 
-The gateway currently runs on the lab server **192.168.6.14**, alongside:
-
-- the GEECS MySQL database (which the gateway itself reads at startup),
-- the Tiled server (`http://192.168.6.14:8000`) and its metadata database.
+The gateway runs on the central lab server **192.168.6.14**, alongside
+the GEECS MySQL database (which the gateway itself reads at startup).
+Tiled and the worker-side services ran there too until 2026-10-30, when
+they moved to the services box (`docs/platform/fleet_map.md`).
 
 This is fine for the pilot; name it for what it is — a stack of load-bearing
 services on one box. Plainly:
