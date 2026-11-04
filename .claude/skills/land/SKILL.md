@@ -4,9 +4,10 @@ description: >
   Land a change as a PR the GEECS-Plugins way: branch off the right base,
   scope check, release bump only when deploying/tagging, tests run the way
   CI runs them,
-  commit.sh, PR body with the hardware-verification section, adversarial
-  review by a fresh-context subagent (correctness + redundancy +
-  placement) with dispositioned findings, CI watch — then hand
+  commit.sh, PR body with the hardware-verification section, review by a
+  fresh-context subagent at the risk's tier (adversarial: correctness +
+  redundancy + placement; or one correctness round) with dispositioned
+  findings, CI watch — then hand
   master-targeted merges to the maintainer (personal-branch PRs merge
   directly).
   Use when the user says "land this", "open a PR",
@@ -76,20 +77,22 @@ carries the mechanics.
    anything touching scan execution or devices — a **hardware
    verification** section: either the live results or an explicit
    "OWED: <what to verify, expected numbers>" so the code-complete vs
-   hardware-verified distinction is never implicit.
+   hardware-verified distinction is never implicit — and the template's
+   **Overrides of maintainer rulings** section, "None" stated explicitly.
 7. **Review** (runs during the CI wait; see the section below). The
    tier is CONTRIBUTING step 4's: adversarial for code touching scan
-   execution, devices, writes or contracts; one correctness-only round
-   for docs, screenshots, `Planning/`-only changes and personal-branch
-   constituents; a bulk promotion whose constituent PRs were each
-   reviewed skips the re-review and says so in the PR body, with a
-   pointer to each review record. Spawn a fresh-context
+   execution, devices, writes or contracts (on any base) and by default;
+   one correctness-only round (the brief's first lens alone) for docs,
+   screenshots, `Planning/`-only changes and personal-branch
+   constituents that touch none of those. Spawn a fresh-context
    reviewer subagent on the PR's diff,
    post its report as a PR comment **either way** — a "no surviving
    findings" report is itself the audit record distinguishing
    "reviewed, clean" from "review skipped" — and disposition every
    finding — fix it, or waive it with a stated reason — before merging.
-   No PR merges with an undispositioned finding.
+   No PR merges with an undispositioned finding. The one skip: a bulk
+   promotion whose constituent PRs were each reviewed spawns no reviewer
+   and says so in the PR body, with a pointer to each review record.
 8. **Merge**: wait for CI (`gh pr checks <n> --watch`). If the base is
    `master`, STOP here and hand the merge to the maintainer (rule above)
    — report the PR as ready-to-merge; after they merge, delete the
@@ -108,7 +111,7 @@ carries the mechanics.
    For a `users/<name>`-based parent you control the timing, so merging
    the parent first works too; otherwise re-file (precedent: #538 → #539).
 
-## The adversarial review step
+## The review step (adversarial, or its first lens alone)
 
 The author must not be the only reader of a diff before it lands. The
 reviewer is a **separate subagent with fresh context**: give it the PR

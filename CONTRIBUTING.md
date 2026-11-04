@@ -35,11 +35,11 @@ one mainline:
 - **`master` is the mainline and the default target for every PR** —
   engine, console, gateways, schemas, analysis, docs, tooling.
 - **Merges into `master` are ALWAYS performed by the human maintainer.**
-  Agents prepare the PR — branch, commit, adversarial review, CI watch —
+  Agents prepare the PR — branch, commit, review (step 4's tier), CI watch —
   and then hand the merge to the maintainer; they never click merge on a
   master-targeted PR. (Bulk integration merges whose constituent PRs
-  were each already reviewed do not get a fresh adversarial re-review —
-  say so in the PR body.)
+  were each already reviewed do not get a fresh re-review — say so in
+  the PR body, per § "Every PR that changes a package" step 4.)
 - `dev` is **retired** — frozen at the cutover, kept only so pre-cutover
   PRs based on it don't auto-close. Do not target it or branch from it.
 - The final legacy-scanner state (GEECS-Scanner-GUI, GEECS-PythonAPI) is
@@ -141,16 +141,23 @@ layout; delete-when-executed is the whole discipline):
 4. **Review before merge, sized to the risk** — every PR gets one,
    tooling/docs-only ones included; how deep depends on what it touches:
    - **Adversarial review** for code touching scan execution, devices,
-     writes or contracts (PV/event/HTTP/schema contracts, gates).
+     writes or contracts (PV/event/HTTP/schema contracts, gates) —
+     wherever the PR is based, a personal branch included: this tier wins
+     whenever a diff matches it.
    - **One correctness-only round** for docs, screenshots, `Planning/`-only
-     changes and the constituents of a personal branch (`users/<name>`).
+     changes, and personal-branch (`users/<name>`) constituents that
+     touch none of the areas above.
+   - **Everything else** (analysis code, web surfaces, `scripts/`, CI and
+     hooks): adversarial — the default when no lighter tier fits.
    - **Bulk promotions** (an integration or personal branch → `master`)
      still follow `/land` — scope check, test counts, the hardware
      section — and **state the exception** in the body: which rounds were
      skipped because the constituent PRs were each reviewed, with a
      pointer to each one's review record.
 
-   The adversarial review is a review by
+   Either tier's report is posted on the PR and every finding
+   dispositioned, as below; a correctness round is the reviewer brief's
+   first lens alone. The adversarial review is a review by
    someone (or, for AI-assisted work, a fresh-context agent) who did not
    write the diff, covering three lenses: correctness (concrete failure
    scenarios), redundancy (does this already exist somewhere in the

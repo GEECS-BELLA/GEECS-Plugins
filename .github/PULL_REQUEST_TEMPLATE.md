@@ -23,7 +23,7 @@
      set): what the ruling was, what this does instead, and why. "None" if
      none — say it explicitly, so silence never reads as "none". -->
 
-None.
+<!-- None — or: the ruling / what this PR does instead / why -->
 
 ## Tests
 
