@@ -10,7 +10,10 @@ those files are loaded automatically, and repo-checked skills under
 `.claude/skills/` (e.g. `/land`, `/check`, `/triage`, `/scan-audit`,
 `/env-doctor`, `/get-started`, `/lab-status`, `/fleet-status`,
 `/package-tidy`)
-encode the recurring workflows. New to the repo entirely? Start with
+encode the recurring workflows. The rules on this page are the team's
+working norms for every GEECS-BELLA repo: the private repos (geecs-epics,
+the `ioc-*` repos) point here instead of restating them and state only
+what differs there. New to the repo entirely? Start with
 [Getting started](docs/tutorials/getting_started.md) (published on the
 docs site), or launch Claude Code from the repo root and type
 `/get-started`.
@@ -196,6 +199,18 @@ layout; delete-when-executed is the whole discipline):
    record — and each finding is dispositioned — fixed (and confirmed by
    the reviewer), or waived with a stated reason — before merge. The
    reviewer brief lives in `.claude/skills/land/SKILL.md`.
+5. **A gating command's own exit code is the gate.** Never put a pipe on
+   the left of `&&`, and never read a pass/fail result off a truncated
+   tail: `cmd > file 2>&1; rc=$?; tail file; [ $rc -eq 0 ] && next`.
+   (#737 merged past a red check because `tail` returned 0; #842 pushed
+   a failing test the same way.)
+6. **A modernization removes the old implementation in the same PR** —
+   superseded models, re-export shims, frozen GUIs, one-shot converters
+   after their run — and the body reports adds against deletes per
+   concern. Ask first only when the old surface has a live external
+   consumer; otherwise delete. (Ruled on #803: the audience is future
+   contributors, and a lingering old path costs every reader more than
+   the deletion costs the author.)
 
 ## Committing
 
@@ -212,6 +227,22 @@ the precise statement).
 Style: NumPy docstrings, type hints on public functions, Pydantic v2
 (`model_validate`/`model_dump`, never `.dict()`/`.parse_obj()`).
 
+## GitHub conduct
+
+- **No session links, no "generated with" footers.** This repo is public:
+  PR bodies, comments, review dispositions and commit messages carry no
+  `claude.ai` session URLs and no generated-with line; a review report is
+  pasted in full, never linked. A plain `Co-Authored-By:` trailer is fine.
+- **No unprompted follow-up issues.** An issue is filed for a defect, a
+  blocker, or something the maintainer named as owed. Nice-to-haves and
+  reviewer "gaps" go in the PR body with a one-line "reopen on need":
+  open issues cost the maintainer attention whether or not they matter.
+- **An arc's decisions live on its tracking issue.** The issue body is the
+  current plan; at the end of each slice one concise comment records what
+  was planned, what review changed, what the lab found, what changed in
+  the plan and why, the facts the next slice needs, and the dead ends.
+  geecs-epics#16 is the model; #1084 carries the first such record here.
+
 ## Rules with incident history (do not relearn these live)
 
 - **Analysis code never creates `scans/ScanNNN/` folders.** Only the
@@ -226,6 +257,19 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 - **This repo is public.** No lab account names, hostnames, or user home
   paths in committed files (generic placeholders instead); internal
   `192.168.6.x` addresses are accepted practice.
+- **Legacy configs are disposable.** The configs repo's legacy YAML never
+  constrains the code: when a config kind is regenerated in its new-schema
+  form, the deployed catalog is regenerated and committed there, and the
+  legacy readers in this repo (converters, resolver fallbacks, dialect
+  tests) are deleted in a normal PR. #779 was a config problem wearing an
+  engine problem's clothes: a legacy `scan_devices.yaml` pair opted every
+  axis out of the readback-confirming motor path that already existed.
+- **A fact found wrong is fixed in its home, in the same session.** The
+  correction is a PR to the file that owns the fact, with the reason in
+  the PR body — never a note in agent memory, a side file or a workaround.
+  The 2026-10-30 move of the worker-side services off the central lab
+  server stayed wrong in four public files for a week because the
+  correction lived only in memory and one private runbook.
 - **Contract files travel with behavior**: gateway-visible changes update
   `GeecsCAGateway/PV_CONTRACT.md` + its pinned test in the same PR;
   event-data changes update `GeecsBluesky/EVENT_SCHEMA.md`.
