@@ -1,0 +1,76 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Weekly dependency updates, grouped per category. Only GitHub Actions and pre-commit hook pins automerge, and only on green CI; runtime dependencies and container images open PRs for the maintainer.",
+  "extends": ["config:recommended", ":dependencyDashboard", ":semanticCommitsDisabled"],
+  "timezone": "UTC",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 0,
+  "rebaseWhen": "conflicted",
+  "enabledManagers": ["poetry", "github-actions", "pre-commit", "dockerfile", "docker-compose", "custom.regex"],
+  "pre-commit": { "enabled": true },
+  "docker-compose": { "managerFilePatterns": ["/(^|/)compose\\.ya?ml\\.in$/"] },
+  "ignorePaths": ["extras/**", "**/node_modules/**"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"],
+    "groupName": "poetry lock file maintenance",
+    "automerge": false
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Canopy image digest pin: pin.py and canopy_surface.py must move together (a digest bump needs a rehearsal on the sim first, so it is tracked, never automerged).",
+      "managerFilePatterns": ["/^GeecsCanopy/geecs_canopy/(pin|canopy_surface)\\.py$/"],
+      "matchStrings": ["\"(?<depName>ghcr\\.io/slaclab/canopy)@(?<currentDigest>sha256:[0-9a-f]{64})\""],
+      "datasourceTemplate": "docker",
+      "currentValueTemplate": "latest",
+      "autoReplaceStringTemplate": "\"{{{depName}}}@{{{newDigest}}}\""
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Runtime and dev Python dependencies: one PR per week across the lock files, never automerged.",
+      "matchManagers": ["poetry"],
+      "groupName": "python dependencies",
+      "automerge": false
+    },
+    {
+      "description": "Majors of Python dependencies get their own PR so a breaking change is reviewed alone.",
+      "matchManagers": ["poetry"],
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions: grouped, automerged only when every required check is green.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false
+    },
+    {
+      "description": "pre-commit hook pins (ruff, pydocstyle, pre-commit-hooks): grouped, automerged only when CI is green; a formatter bump that rewrites code fails the pre-commit workflow and stays open.",
+      "matchManagers": ["pre-commit"],
+      "groupName": "pre-commit hooks",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false
+    },
+    {
+      "description": "Container images (the Canopy digest, the Archiver Appliance, Canopy's Postgres and Redis): tracked, never automerged; upgrades follow each runbook's rehearsal.",
+      "matchManagers": ["dockerfile", "docker-compose", "custom.regex"],
+      "groupName": "container images",
+      "automerge": false
+    },
+    {
+      "description": "Postgres and Redis majors are data migrations, not bumps: one PR each, flagged.",
+      "matchManagers": ["docker-compose"],
+      "matchPackageNames": ["postgres", "redis"],
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "labels": ["data-migration"]
+    }
+  ]
+}
