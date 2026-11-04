@@ -11,6 +11,10 @@ W = {"role": "exposure", "writable": True, "locked": True}
 AX = {"min": 10, "size": 20, "bin": 2, "reverse": False}
 RAX = {"min": 10, "size": 20, "bin": 2, "reverse": True}
 V0 = {"scale": 2, "ox": 10, "oy": 20, "moved": True}
+RAW_HINT = (
+    "The camera's 16-bit frame, levels applied in this browser; nothing is written to the camera."
+    " Raw is the driver's frame: no background subtracted, rotate / flip applied here."
+)
 
 ROWS: list[tuple[str, str, list[Any], Any]] = [
     # levels and the colour map
@@ -33,6 +37,188 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
         [[0] * 50 + [9] + [0] * 205],
         {"black": 50, "white": 51},
     ),  # fmt: skip
+    # levels at the raw frame's full scale (Planning/raw_frames.md)
+    (
+        "levels: counts of a 12-bit full scale",
+        "levels",
+        ["56", "4000", 4095],
+        {"black": 56, "white": 4000},
+    ),
+    (
+        "levels: past the full scale is clamped",
+        "levels",
+        [5000, 9999, 4095],
+        {"black": 4094, "white": 4095},
+    ),
+    (
+        "histogram: full + 1 bins, above the scale in the top bin",
+        "histogram",
+        [[0, 1, 1, 3, 9], 3],
+        [1, 2, 0, 2],
+    ),
+    (
+        "auto levels at 4095: a lone hot pixel is past the 99.9 % point",
+        "autoLevels",
+        [[0] * 53 + [1428] * 7 + [0] * 3940 + [1] + [0] * 95, 4095],
+        {"black": 53, "white": 59},
+    ),
+    (
+        "auto levels at 4095: the two ends",
+        "autoLevels",
+        [[0] * 56 + [500] + [0] * 3943 + [500] + [0] * 95, 4095],
+        {"black": 56, "white": 4000},
+    ),
+    # levels per mode, stored as fractions of the mode's full scale
+    (
+        "store: fractions of the mode's scale",
+        "storeLevels",
+        [{}, "raw", 56, 4095, 4095],
+        {"raw": {"black": 56 / 4095, "white": 1}},
+    ),
+    (
+        "store: the other mode's kept",
+        "storeLevels",
+        [{"levels": {"mjpeg": {"black": 0, "white": 1}}}, "raw", 0, 4095, 4095],
+        {"mjpeg": {"black": 0, "white": 1}, "raw": {"black": 0, "white": 1}},
+    ),
+    (
+        "stored: an 8-bit white of 255 is the raw full scale, not 255",
+        "storedLevels",
+        [{"levels": {"raw": {"black": 0, "white": 1}}}, "raw", 4095],
+        {"black": 0, "white": 4095},
+    ),
+    (
+        "stored: a 12-bit black of 56 read at 255",
+        "storedLevels",
+        [
+            {"levels": {"mjpeg": {"black": 56 / 4095, "white": 4000 / 4095}}},
+            "mjpeg",
+            255,
+        ],
+        {"black": 3, "white": 249},
+    ),
+    (
+        "stored: nothing for the mode is 0 to full scale",
+        "storedLevels",
+        [{"levels": {"mjpeg": {"black": 0.5, "white": 1}}}, "raw", 4095],
+        {"black": 0, "white": 4095},
+    ),
+    (
+        "stored: the JPEG's levels from before modes",
+        "storedLevels",
+        [{"black": "10", "white": "200"}, "mjpeg", 255],
+        {"black": 10, "white": 200},
+    ),
+    (
+        "stored: the JPEG's old levels never reach raw",
+        "storedLevels",
+        [{"black": "10", "white": "200"}, "raw", 4095],
+        {"black": 0, "white": 4095},
+    ),
+    # the raw poll's answers: a 304 is nothing new, never an error
+    ("raw answer: 200 is a frame", "rawAnswer", [200], "frame"),
+    ("raw answer: 304 is nothing new", "rawAnswer", [304], "same"),
+    ("raw answer: 503 is the error", "rawAnswer", [503], "error"),
+    ("raw answer: 404 is the error", "rawAnswer", [404], "error"),
+    # the transform role's value → TRANS1's mapping, on a 3×2 frame [[0, 1, 2], [3, 4, 5]]
+    *[
+        (
+            f"transform: {name}",
+            "transformFrame",
+            [name, [0, 1, 2, 3, 4, 5], 3, 2],
+            {"data": data, "width": w, "height": h},
+        )
+        for name, data, w, h in [
+            ("None", [0, 1, 2, 3, 4, 5], 3, 2),
+            ("Rot90", [3, 0, 4, 1, 5, 2], 2, 3),
+            ("Rot180", [5, 4, 3, 2, 1, 0], 3, 2),
+            ("Rot270", [2, 5, 1, 4, 0, 3], 2, 3),
+            ("Mirror", [2, 1, 0, 5, 4, 3], 3, 2),
+            ("Rot90Mirror", [0, 3, 1, 4, 2, 5], 2, 3),
+            ("Rot180Mirror", [3, 4, 5, 0, 1, 2], 3, 2),
+            ("Rot270Mirror", [5, 2, 4, 1, 3, 0], 2, 3),
+        ]
+    ],
+    (
+        "transform: an unknown name is none",
+        "transformFrame",
+        ["Rot45", [0, 1], 2, 1],
+        None,
+    ),
+    (
+        "transform: a prototype name is none",
+        "transformFrame",
+        ["toString", [0, 1], 2, 1],
+        None,
+    ),
+    (
+        "transform name: the enum's label",
+        "transformName",
+        [{"value": 1}, {"enumChoices": ["None", "Rot90"]}],
+        "Rot90",
+    ),
+    ("transform name: unread is null", "transformName", [None, {}], None),
+    (
+        "transform name: an index without labels is null",
+        "transformName",
+        [{"value": 1}, {}],
+        None,
+    ),
+    # the toggle's words
+    (
+        "mode words: MJPEG",
+        "modeWords",
+        [False],
+        {
+            "note": "",
+            "hint": "The 8-bit stream, stretched in this browser: nothing is written to the camera.",
+            "value": "level",
+            "counterChip": True,
+            "overlays": True,
+        },
+    ),
+    (
+        "mode words: raw, untransformed, full scale read",
+        "modeWords",
+        [True, {"transform": "None", "full": 4095, "assumed": False}],
+        {
+            "note": "full scale 4095",
+            "hint": RAW_HINT,
+            "value": "counts",
+            "counterChip": False,
+            "overlays": True,
+        },
+    ),
+    (
+        "mode words: raw, full scale assumed",
+        "modeWords",
+        [True, {"transform": "Rot90", "full": 4095, "assumed": True}],
+        {
+            "note": "Rot90 applied · 4095 · full scale assumed",
+            "hint": RAW_HINT,
+            "value": "counts",
+            "counterChip": False,
+            "overlays": True,
+        },
+    ),
+    (
+        "mode words: raw, transform unknown hides the overlays",
+        "modeWords",
+        [True, {"transform": None, "full": 4095, "assumed": False}],
+        {
+            "note": "rotate / flip unknown: the driver's frame as is, overlays hidden · full scale 4095",
+            "hint": RAW_HINT,
+            "value": "counts",
+            "counterChip": False,
+            "overlays": False,
+        },
+    ),
+    (
+        "size: a raw frame is its served size",
+        "imageSize",
+        [1600, 1200, 2592, 2048, True],
+        [1600, 1200],
+    ),
     # the JPEG stretched over MJPG1's size when the shapes agree
     ("size: unread is the JPEG's", "imageSize", [640, 480, None, None], [640, 480]),
     ("gesture: a completed pointer commits", "gestureEnds", ["pointerup"], "commit"),
@@ -256,3 +442,67 @@ const R = require(process.argv[1]);
 def test_a_stalled_request_times_out_and_is_aborted() -> None:
     got = run("camera_rules.js", _WITHIN)
     assert got == {"slow": "timed out", "aborted": True, "quick": "answered", "body": "timed out"}  # fmt: skip
+
+
+@needs_node
+def test_the_lut_at_a_12_bit_full_scale() -> None:
+    grey, log = call_all("camera_rules.js", [("lut", ["grey", "linear", 0, 4095, 4095]), ("lut", ["inferno", "log", 56, 4000, 4095])])  # fmt: skip
+    assert len(grey) == 4096 * 3 and grey[:3] == [0, 0, 0] and grey[2048 * 3] == 128 and grey[-3:] == [255, 255, 255]  # fmt: skip
+    assert len(log) == 4096 * 3 and log[56 * 3 : 57 * 3] == [0, 0, 4] and log[4000 * 3 : 4001 * 3] == [252, 255, 164]  # fmt: skip
+    # the log scale lifts the floor: 3 counts above black is already past 7 % of the map
+    assert log[59 * 3] > log[56 * 3] + 10
+
+
+_DECODE = """
+const R = require(process.argv[1]);
+const px = new Uint16Array([0, 1, 40000, 4095, 56, 65535]);
+const ok = R.decodeRaw(px.buffer, { width: "3", height: "2", fullScale: null, tag: '"7"' });
+const short = R.decodeRaw(px.buffer.slice(2), { width: "3", height: "2", fullScale: "4095" });
+const bare = R.decodeRaw(px.buffer, { width: null, height: "2" });
+const read = R.decodeRaw(px.buffer, { width: "2", height: "3", fullScale: "65535" });
+console.log(JSON.stringify({
+  ok: [ok.ok, ok.width, ok.height, ok.full, ok.assumed, ok.tag, ok.data.constructor.name, Array.from(ok.data)],
+  read: [read.full, read.assumed, read.data[2 * 2 + 1]],
+  short, bare,
+}));
+"""
+
+
+@needs_node
+def test_the_decode_of_a_frame_and_its_refusals() -> None:
+    got = run("camera_rules.js", _DECODE)
+    assert got["ok"] == [True, 3, 2, 4095, True, '"7"', "Uint16Array", [0, 1, 40000, 4095, 56, 65535]]  # fmt: skip
+    assert got["read"] == [65535, False, 65535]
+    assert got["short"] == {"ok": False, "why": "the frame is 10 bytes for 3×2"}
+    assert got["bare"] == {"ok": False, "why": "the frame came without its geometry"}
+
+
+_ROUND_TRIP = """
+const R = require(process.argv[1]);
+// stored in one mode at its scale, read back in each mode at each scale
+const s = { levels: R.storeLevels({ levels: R.storeLevels({}, "mjpeg", 3, 255, 255) }, "raw", 56, 4000, 4095) };
+console.log(JSON.stringify({
+  mjpeg: R.storedLevels(s, "mjpeg", 255),
+  raw: R.storedLevels(s, "raw", 4095),
+  raw16: R.storedLevels(s, "raw", 65535),
+}));
+"""
+
+
+@needs_node
+def test_levels_round_trip_as_fractions_between_the_scales() -> None:
+    got = run("camera_rules.js", _ROUND_TRIP)
+    assert got == {"mjpeg": {"black": 3, "white": 255}, "raw": {"black": 56, "white": 4000}, "raw16": {"black": 896, "white": 64015}}  # fmt: skip
+
+
+_TRANSFORM_TYPED = """
+const R = require(process.argv[1]);
+// a typed frame stays typed, and a value above 32767 survives the move
+const t = R.transformFrame("Rot90", new Uint16Array([0, 40000, 2, 3, 4, 65535]), 3, 2);
+console.log(JSON.stringify([t.data.constructor.name, Array.from(t.data), t.width, t.height]));
+"""
+
+
+@needs_node
+def test_a_typed_frame_transforms_as_typed() -> None:
+    assert run("camera_rules.js", _TRANSFORM_TYPED) == ["Uint16Array", [3, 0, 4, 40000, 65535, 2], 2, 3]  # fmt: skip

@@ -3,8 +3,10 @@
   camera's component in `kind_component`, every role's table folded below.
   The frame is pulled one at a time from this server's frame proxy
   (/api/devices/<name>/frame.jpg: the JPEG the IOC's MJPEG server holds, at
-  the URL the module names for role `image`); colour map, levels and scale
-  are this viewer's own. Crosshairs, the analysis ROI and the acquisition
+  the URL the module names for role `image`), or with Raw on, the driver's
+  16-bit frame (/api/devices/<name>/frame.raw, Planning/raw_frames.md) at
+  2 Hz, rotated / flipped here by role `transform`; colour map, levels and
+  scale are this viewer's own, per mode. Crosshairs, the analysis ROI and the acquisition
   controls are family roles, each written through the module's put route
   with the operator's name, sent once; a run-locked role is refused by the
   module while a run holds the camera (its outcome says so). The lineouts
@@ -19,7 +21,7 @@
 {% block kind_component %}
 {% set labels, units = {}, {} %}{% for r in device.roles %}{% set _ = labels.update({r.role: r.label or r.role}) %}{% endfor %}
 {% for _axis, rows in tables %}{% for r in rows %}{% set _ = units.update({r.name: r.units}) %}{% endfor %}{% endfor %}
-<div class="camera" id="camera" data-frame-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.jpg" data-arrays-url="{{ root }}/api/devices/{{ name | urlencode }}/arrays">
+<div class="camera" id="camera" data-frame-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.jpg" data-raw-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.raw" data-arrays-url="{{ root }}/api/devices/{{ name | urlencode }}/arrays">
   <aside class="rail">
     <section class="group">
       <h4>Camera</h4>
@@ -59,7 +61,7 @@
         <label class="dim"><input type="checkbox" id="auto-live"> every frame</label>
         <button class="btn sm ghost" type="button" id="reset-levels">Reset</button>
       </div>
-      <div class="hint dim">The 8-bit stream, stretched in this browser: nothing is written to the camera.</div>
+      <div class="hint dim" id="levels-hint">The 8-bit stream, stretched in this browser: nothing is written to the camera.</div>
     </section>
 
     <section class="group">
@@ -94,6 +96,8 @@
     <article class="panel image">
       <header>
         <span class="eyebrow">image</span>
+        <label class="dim raw-toggle" title="the camera's 16-bit frame instead of the 8-bit stream, at most 2 frames/s"><input type="checkbox" id="raw-mode"> Raw</label>
+        <span class="mono dim" id="raw-note"></span>
         <span class="mono dim" id="cursor"></span>
         <span class="mono dim" id="zoom-level"></span>
         <button class="btn sm ghost" type="button" id="zoom-fit">Fit</button>

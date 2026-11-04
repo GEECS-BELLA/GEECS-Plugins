@@ -40,7 +40,9 @@ geecs_control_room/
   static/camera.js, camera_controls.js, camera_rules.js, camera.css   the camera page (device_camera.html):
                     the viewer (frame loop, zoom/pan, colour map, levels), crosshairs and analysis ROI
                     drawn and dragged, the acquisition controls and camera ROI (a dialog first), the
-                    lineouts and histogram; device.js's GeecsDevicePage gives it the roles, values, words
+                    lineouts and histogram; the Raw toggle (frame.raw at 2 Hz, rotated / flipped by role
+                    `transform` as TRANS1 would, levels per mode as fractions of the full scale);
+                    device.js's GeecsDevicePage gives it the roles, values, words
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
                     dropped, a timeout, back-off to 10 s, at most 8 requests at once
   templates/        base.html (every page's shell), screen.html (EVERY screen), device.html (every
@@ -151,7 +153,9 @@ deploy/
 fake CA and a fake fetch (no CA library, no IOC). The page scripts run under node (skipped without it; no
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
-`test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness). A rule a
+`test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
+`test_raw_page.py` drives the raw decode path against `tests/raw_fixture.py`, a test-only `frame.raw` route to the
+contract (never mounted by the app). A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script
 keeps the DOM work only.
 
