@@ -247,6 +247,12 @@ def test_the_installed_families_load_by_template() -> None:
     }
     assert families["motor_record"].per_axis
     assert families["ad_camera_chain"].kind == "aravis_camera"
+    camera = families["ad_camera_chain"]
+    # the raw frame's source is never read by the bridge (its own route reads it); its geometry
+    # and counter travel with it on request: none is monitored, judged or archived
+    assert camera.role("raw_frame").read_mode == "never" and camera.role("raw_frame").type == "array"  # fmt: skip
+    assert {camera.role(r).read_mode for r in ("raw_width", "raw_height", "raw_counter")} == {"on_request"}  # fmt: skip
+    assert not any(camera.role(r).archive for r in ("raw_frame", "raw_width", "raw_height", "raw_counter"))  # fmt: skip
 
 
 def test_the_installed_families_mark_their_hazards() -> None:

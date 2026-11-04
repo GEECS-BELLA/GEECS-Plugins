@@ -13,14 +13,38 @@ from geecs_control_room.module_client import ModuleClient
 
 IMAGE_PV = "bench:cam:MJPG1:JPG_URL_RBV"
 ROLES = [
-    {"role": "image", "pv": IMAGE_PV, "read": "once"},
+    {"role": "image", "pv": IMAGE_PV, "read": "once", "type": "image"},
     {
         "role": "profile_x",
         "pv": "bench:cam:STAT:ProfileAverageX_RBV",
         "read": "on_request",
+        "type": "array",
     },
-    {"role": "histogram", "pv": "bench:cam:STAT:Histogram_RBV", "read": "on_request"},
-    {"role": "exposure", "pv": "bench:cam:cam1:AcquireTime_RBV", "read": "monitor"},
+    {
+        "role": "histogram",
+        "pv": "bench:cam:STAT:Histogram_RBV",
+        "read": "on_request",
+        "type": "array",
+    },  # fmt: skip
+    {
+        "role": "exposure",
+        "pv": "bench:cam:cam1:AcquireTime_RBV",
+        "read": "monitor",
+        "type": "setpoint",
+    },  # fmt: skip
+    # the raw frame's source: never JSON, and its on-request scalars are not arrays of the page's
+    {
+        "role": "raw_frame",
+        "pv": "bench:cam:ARR:ArrayData",
+        "read": "never",
+        "type": "array",
+    },  # fmt: skip
+    {
+        "role": "raw_width",
+        "pv": "bench:cam:ARR:ArraySize0_RBV",
+        "read": "on_request",
+        "type": "readback",
+    },  # fmt: skip
 ]
 
 
@@ -150,6 +174,9 @@ async def test_the_arrays_are_the_on_request_roles_by_name_finite_only() -> None
     async with env.client() as c:
         body = (await c.get("/api/devices/Cam/arrays")).json()
     assert body["arrays"] == {"profile_x": [1.0, None], "histogram": [3.0, None, 4.0]}
+    assert (
+        "raw_frame" not in body["pvs"] and "raw_width" not in body["pvs"]
+    )  # never JSON; a scalar is no array
     assert body["pvs"]["profile_x"] == "bench:cam:STAT:ProfileAverageX_RBV"
     assert env.ca.calls == [("arrays", ("bench:cam:STAT:ProfileAverageX_RBV", "bench:cam:STAT:Histogram_RBV"))]  # fmt: skip
 
