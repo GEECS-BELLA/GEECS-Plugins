@@ -12,15 +12,24 @@ name: unit-tests
 # every branch push produced two identical full runs (a `push` run and a
 # `pull_request` run at the same SHA), doubling the runner minutes for
 # nothing.
+#
+# `schedule` adds one exhaustive run a week (Monday 06:00 UTC) on master
+# with no ci_select narrowing, so a leg no PR or merge has touched for
+# weeks still meets this week's dependency versions and runner image.
 on:
   push:
     branches: [master]
   pull_request:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 # A new push to the same branch makes the previous run's result irrelevant.
 # Superseded runs used to finish anyway, holding runners for ~10 minutes.
 concurrency:
-  group: unit-tests-${{ github.ref }}
+  # The weekly run gets a group of its own: sharing master's would let a
+  # merge's push run, queued behind it, displace it from the pending slot.
+  group: unit-tests-${{ github.event_name == 'schedule' && 'weekly' || github.ref }}
   # Never cancel a master run: that exhaustive run is the backstop the
   # PR-side narrowing depends on, and two merges in quick succession would
   # otherwise cancel the first one's full matrix.
@@ -49,7 +58,7 @@ jobs:
           # here; deliberately NOT re-fetching it shallow, which would
           # truncate history and break merge-base. If the ref is somehow
           # missing, fall back to the full matrix rather than guess.
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
             ./scripts/ci_select.py --all --github --explain
           elif git rev-parse --verify -q "origin/${{ github.base_ref }}" >/dev/null; then
             ./scripts/ci_select.py \
