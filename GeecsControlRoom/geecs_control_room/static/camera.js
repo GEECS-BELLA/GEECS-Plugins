@@ -60,7 +60,8 @@
 
   function autoLevels() {
     if (!lum) return;
-    const l = R.autoLevels(R.histogram(lum, full), full);
+    // raw: the held frame's histogram (counted once per frame in takeRaw); MJPEG: the JPEG's, counted here
+    const l = R.autoLevels(raw && rawHist ? rawHist.values : R.histogram(lum, full), full);
     blackIn.value = l.black; whiteIn.value = l.white;
     buildLut();
   }
@@ -89,7 +90,8 @@
   }
 
   // The driver's frame, rotated / flipped as TRANS1 would (an unknown transform: as is, the overlays hidden).
-  let heldRaw = null;
+  // rawHist: the drawn raw frame's histogram, full + 1 bins of its transformed values (the plot's and auto-levels')
+  let heldRaw = null, rawHist = null;
   function takeRaw(f) {
     heldRaw = f;
     const name = transformNow();
@@ -98,6 +100,7 @@
     if (f.full !== full) { full = f.full; showLevels(); }
     if (t.width !== fw || t.height !== fh) { fw = frame.width = t.width; fh = frame.height = t.height; }
     lum = t.data;
+    rawHist = { values: R.histogram(lum, full), full };
     if (autoLive.checked) autoLevels();
     sized();
     recolour();
@@ -313,7 +316,7 @@
 
   // ---- the raw loop: 2 Hz, If-None-Match the held ETag; a 304 is "nothing new", never the error branch
   const RAW_PERIOD_MS = 500, RAW_TIMEOUT_MS = 5000;
-  let etag = null, lastRawTag = null;
+  let etag = null, lastRawEtag = null;
   async function rawLoop() {
     for (;;) {
       while (!raw) await untilToggle();
@@ -335,7 +338,12 @@
         if (got) {
           etag = got[0];
           const f = got[1];
-          if (f.tag === null || f.tag !== lastRawTag) { lastRawTag = f.tag; takeRaw(f); shown.push(performance.now()); }
+          // deduped on the representation: the same tag with a full scale newly read is drawn again at that scale
+          if (R.rawIsNew(etag, lastRawEtag, f.tag)) {
+            const moved = f.tag === null || !heldRaw || f.tag !== heldRaw.tag;
+            lastRawEtag = etag; takeRaw(f);
+            if (moved) shown.push(performance.now()); // the rate counts new frames, not a scale landing
+          }
         }
       } catch (e) {
         if (g !== gen) continue;
@@ -360,7 +368,7 @@
     raw = rawIn.checked;
     gen++;
     // nothing of the other mode is drawn again: its lum goes, its last picture stays until this mode's first frame
-    lum = null; waiting = null; heldRaw = null; lastTag = null; etag = null; lastRawTag = null; shown.length = 0;
+    lum = null; waiting = null; heldRaw = null; rawHist = null; lastTag = null; etag = null; lastRawEtag = null; shown.length = 0;
     rawState = { ...rawState, transform: transformNow() };
     full = raw ? rawState.full || R.ASSUMED_FULL : 255;
     showLevels();
@@ -368,6 +376,7 @@
     draw();
     $("image-error").hidden = true;
     toggled.splice(0).forEach((r) => r());
+    modes.forEach((f) => f()); // the plots drawn from this mode's histogram now, not at their next poll
   });
   // the rate ages on its own clock, so a request still waiting reads as frames stopping, not as the last rate
   setInterval(() => {
@@ -398,7 +407,7 @@
     draw();
     hooks.forEach((f) => f());
   }
-  const hooks = [];
+  const hooks = [], modes = [];
   P.on(() => { if (!queued) { queued = true; requestAnimationFrame(refresh); } });
 
   // ---- wiring; what camera_controls.js uses
@@ -461,7 +470,7 @@
     if (ok === null) say("unknown", "unsent · another write is in flight");
     return ok;
   };
-  const W = window.GeecsCameraView = { write: writeOrSay, busy: write.busy, hazardsOf, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => (overlaysOn() ? [iw, ih] : [0, 0]) }; // an unknown transform's geometry is not the ROI's
+  const W = window.GeecsCameraView = { write: writeOrSay, busy: write.busy, hazardsOf, value, hooks, modes, clicks, layers, toView, redraw: draw, rawHistogram: () => (raw && heldRaw && rawHist ? rawHist : null), frameSize: () => (overlaysOn() ? [iw, ih] : [0, 0]) }; // an unknown transform's geometry is not the ROI's
   resize();
   sayMode();
   loop();

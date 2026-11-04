@@ -18,7 +18,8 @@ through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
 - ``GET /api/devices/{name}/frame.raw``: the driver's frame at role
   ``raw_frame`` (``ARR:ArrayData``), uint16 little-endian row-major, gzip
   framed, its geometry and ``raw_counter`` tag in headers, ``304`` on a
-  matching ``If-None-Match`` (weak, a list or ``*`` match too). One
+  matching ``If-None-Match`` (weak, a list or ``*`` match too); the
+  ``ETag`` is the counter and, once read, the full scale. One
   read in flight per device, held ``RAW_HOLD_S``; the counter is probed first
   so an unmoved camera costs one scalar read, never an array read.
 
@@ -398,6 +399,20 @@ def _matches(if_none_match: Optional[str], etag: str) -> bool:
     return "*" in tags or etag in tags
 
 
+def _etag(raw: RawFrame) -> str:
+    """The representation's validator: the counter, and the full scale once known (``"7"``, then ``"7;4095"``).
+
+    The full scale is part of what a 200 says, so a scale landing after the
+    first frame changes the ``ETag`` and the next conditional ask is a 200
+    carrying it (the held body, no second array read), never a 304 that hides it.
+    """
+    return (
+        f'"{raw.tag}"'
+        if raw.full_scale is None
+        else f'"{raw.tag};{_number(raw.full_scale)}"'
+    )
+
+
 def _number(value: float) -> str:
     """A header's number: ``4095``, never ``4095.0``."""
     return str(int(value)) if float(value).is_integer() else repr(value)
@@ -442,8 +457,12 @@ def router(images: Images) -> APIRouter:
             raw = await images.raw(request.app.state.module, name)
         except Unavailable as exc:
             return refused(exc)
-        etag = f'"{raw.tag}"'
-        headers = {"Cache-Control": "no-store", "ETag": etag, "X-Frame-Tag": etag}
+        etag = _etag(raw)
+        headers = {
+            "Cache-Control": "no-store",
+            "ETag": etag,
+            "X-Frame-Tag": f'"{raw.tag}"',
+        }
         if _matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers=headers)
         headers |= {"Content-Encoding": "gzip", "X-Frame-Width": str(raw.width), "X-Frame-Height": str(raw.height)}  # fmt: skip

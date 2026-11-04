@@ -227,7 +227,9 @@ megabytes.
 
 **Levels.** In Raw the black and white inputs, the cursor readout and the
 histogram are in counts of the camera's full scale (0–4095 for a 12-bit
-camera), not 0–255. Each view keeps its own levels: what you set in Raw
+camera), not 0–255. The histogram plot in Raw is the whole raw frame's,
+counted in your browser, so it ignores the IOC's histogram setting and
+range; the MJPEG view plots the IOC's histogram as before. Each view keeps its own levels: what you set in Raw
 does not change the MJPEG view's, and the other way round. **Auto levels**
 puts black and white at the 0.1 and 99.9 percentiles of the frame, and with
 **every frame** ticked it does that on each new frame.

@@ -379,6 +379,58 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("not computed: off", "notComputed", [0, "profiles"], "profiles not computed"),
     ("not computed: on", "notComputed", [1, "histogram"], None),
     ("not computed: unread is not off", "notComputed", [None, "histogram"], None),
+    # the histogram plot: Raw's own frame histogram, else STAT's (bin i centred on lo + (i + 0.5) * step)
+    (
+        "histogram plot: raw is the frame's, 0..full, STAT's off word ignored",
+        "histogramPlot",
+        [{"values": [1, 2, 0, 2], "full": 3}, [9, 9], 0, 10, 20],
+        {"values": [1, 2, 0, 2], "lo": -0.5, "step": 1, "empty": False},
+    ),  # fmt: skip
+    (
+        "histogram plot: no raw is STAT's over hist_min..hist_max",
+        "histogramPlot",
+        [None, [5, 6, 7, 8], 1, 100, 300],
+        {"values": [5, 6, 7, 8], "lo": 100, "step": 50, "empty": False},
+    ),  # fmt: skip
+    (
+        "histogram plot: STAT's not computed is drawn as nothing, and said",
+        "histogramPlot",
+        [None, [5, 6], 0, 0, 2],
+        {"values": [], "lo": 0, "step": 1, "empty": "histogram not computed"},
+    ),  # fmt: skip
+    (
+        "histogram plot: STAT's range unread is its own length from 0",
+        "histogramPlot",
+        [None, [5, 6, 7], None, None, None],
+        {"values": [5, 6, 7], "lo": 0, "step": 1, "empty": False},
+    ),  # fmt: skip
+    (
+        "histogram plot: nothing read is empty",
+        "histogramPlot",
+        [None, None, None, None, None],
+        {"values": [], "lo": 0, "step": 0, "empty": False},
+    ),  # fmt: skip
+    # the raw loop draws a new representation: the counter, or the full scale landing under the same counter
+    (
+        "raw is new: the same ETag is not",
+        "rawIsNew",
+        ['"7;4095"', '"7;4095"', '"7"'],
+        False,
+    ),  # fmt: skip
+    (
+        "raw is new: the scale landing is",
+        "rawIsNew",
+        ['"7;4095"', '"7"', '"7"'],
+        True,
+    ),  # fmt: skip
+    (
+        "raw is new: the counter moving is",
+        "rawIsNew",
+        ['"8;4095"', '"7;4095"', '"8"'],
+        True,
+    ),  # fmt: skip
+    ("raw is new: no tag is always", "rawIsNew", ['"7"', '"7"', None], True),
+    ("raw is new: no ETag is always", "rawIsNew", [None, None, '"7"'], True),
     ("valid: the waveform's length", "valid", [[1, 2, 3, 4], 2], [1, 2]),
     ("valid: unread length keeps all", "valid", [[1, 2], None], [1, 2]),
     ("whole: a typed number, rounded", "whole", [" 12.6 "], 13),

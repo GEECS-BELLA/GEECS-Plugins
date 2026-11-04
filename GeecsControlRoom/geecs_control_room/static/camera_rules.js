@@ -240,6 +240,18 @@
   const hazards = (pairs, entries) => pairs.map(([role]) => role).filter((role) => !!entries[role] && entries[role].confirm === "hazard");
   // A plot whose STAT computation is off (its flag read 0) is not drawn: STAT keeps the last array it computed.
   const notComputed = (on, what) => (on === 0 ? `${what} not computed` : null);
+  // The histogram plot's series: Raw's own histogram of the frame drawn (counts 0..full, bin i centred on i;
+  // STAT's histogram_on is not Raw's), else STAT's histogram over hist_min..hist_max, nothing while not computed.
+  // lo is bin 0's low edge, step a bin's width: bin i is centred on lo + (i + 0.5) * step; empty is the word
+  // said for a series not drawn (false: drawn).
+  function histogramPlot(rawHist, iocHist, histogramOn, histMin, histMax) {
+    if (rawHist) return { values: rawHist.values, lo: -0.5, step: 1, empty: false };
+    const hist = iocHist || [], off = notComputed(histogramOn, "histogram"), lo = histMin || 0;
+    return { values: off ? [] : hist, lo, step: ((histMax || hist.length) - lo) / (hist.length || 1), empty: off || false };
+  }
+  // A raw answer is drawn when its ETag (the representation: the counter and the full scale) is not the one
+  // drawn last; an answer with no tag or no ETag is always drawn.
+  const rawIsNew = (etag, lastEtag, tag) => tag === null || etag === null || etag !== lastEtag;
   // One write list at a time for the whole page (the rail and the image's edits): a call while one runs
   // is refused (resolves null) without starting; busy() says whether one runs.
   const single = (run) => {
@@ -278,5 +290,5 @@
     return s === "" || !Number.isFinite(n) ? null : n;
   }
 
-  Object.assign(rules, { MAPS, levels, lut, histogram, autoLevels, storedLevels, storeLevels, ASSUMED_FULL, rawAnswer, decodeRaw, transformName, transformFrame, modeWords, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, single, valid, whole, number, gestureEnds, within });
+  Object.assign(rules, { MAPS, levels, lut, histogram, autoLevels, storedLevels, storeLevels, ASSUMED_FULL, rawAnswer, decodeRaw, transformName, transformFrame, modeWords, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, histogramPlot, rawIsNew, single, valid, whole, number, gestureEnds, within });
 })(typeof module === "object" ? module.exports : (window.GeecsCameraRules = {}));

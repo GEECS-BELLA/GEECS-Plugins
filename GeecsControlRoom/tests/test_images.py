@@ -356,7 +356,8 @@ async def test_the_raw_frame_headers() -> None:
         r, _ = await _raw(c)
     h = r.headers
     assert h["content-type"] == "application/octet-stream" and h["content-encoding"] == "gzip"  # fmt: skip
-    assert h["cache-control"] == "no-store" and h["etag"] == h["x-frame-tag"] == '"7"'
+    assert h["cache-control"] == "no-store" and h["x-frame-tag"] == '"7"'
+    assert h["etag"] == '"7;4095"'  # the representation: the counter and the full scale
     assert h["x-frame-full-scale"] == "4095" and "x-frame-transform" not in h
     assert env.ca.kinds() == ["counter", "frame", "counter", "scale"]
     assert ("frame", RAW) in env.ca.calls  # the frame and its geometry in one batch
@@ -382,13 +383,20 @@ async def test_a_slow_full_scale_never_holds_the_frame() -> None:
     env = Env()
     env.ca.scale_gate = asyncio.Event()  # FullScale silent: its read would time out
     async with env.client() as c:
-        r = await asyncio.wait_for(_raw(c), 1.0)
-        assert r[0].status_code == 200 and "x-frame-full-scale" not in r[0].headers
+        first, wire = await asyncio.wait_for(_raw(c), 1.0)
+        assert first.status_code == 200 and "x-frame-full-scale" not in first.headers
+        assert first.headers["etag"] == '"7"'  # the scale unknown: the counter alone
         env.ca.scale_gate.set()
         await asyncio.sleep(0.01)
         env.clock[0] += RAW_HOLD_S
-        held, _ = await _raw(c)  # the camera has not moved; the full scale has landed
-    assert held.headers["x-frame-full-scale"] == "4095" and env.ca.kinds().count("frame") == 1  # fmt: skip
+        # the camera has not moved; the full scale has landed: the page's conditional ask is a 200 carrying it
+        held, body = await _raw(c, **{"If-None-Match": first.headers["etag"]})
+        assert held.status_code == 200 and held.headers["x-frame-full-scale"] == "4095"
+        assert held.headers["x-frame-tag"] == first.headers["x-frame-tag"] and body == wire  # fmt: skip
+        assert held.headers["etag"] == '"7;4095"'
+        env.clock[0] += RAW_HOLD_S
+        same, _ = await _raw(c, **{"If-None-Match": held.headers["etag"]})
+    assert same.status_code == 304 and env.ca.kinds().count("frame") == 1
 
 
 async def test_an_unmoved_counter_serves_the_held_frame_without_an_array_read() -> None:  # fmt: skip
@@ -406,7 +414,7 @@ async def test_an_unmoved_counter_serves_the_held_frame_without_an_array_read() 
         env.clock[0] += RAW_HOLD_S
         moved, _ = await _raw(c)  # the counter advanced: one array read
     assert env.ca.kinds()[5:] == ["counter", "frame", "counter"]
-    assert moved.headers["etag"] == '"8"'
+    assert moved.headers["etag"] == '"8;4095"'
 
 
 async def test_a_counter_moving_mid_batch_reads_once_more_tagged_by_the_second_counter() -> None:  # fmt: skip
@@ -415,7 +423,7 @@ async def test_a_counter_moving_mid_batch_reads_once_more_tagged_by_the_second_c
     async with env.client() as c:
         r, _ = await _raw(c)
     assert env.ca.kinds() == ["counter", "frame", "counter", "frame", "scale"]
-    assert r.status_code == 200 and r.headers["etag"] == '"8"'
+    assert r.status_code == 200 and r.headers["x-frame-tag"] == '"8"'
 
 
 async def test_a_matching_if_none_match_is_a_304_with_the_same_tag() -> None:
@@ -426,7 +434,7 @@ async def test_a_matching_if_none_match_is_a_304_with_the_same_tag() -> None:
         for asked in (etag, f"W/{etag}", f'"1", {etag}', "*"):
             same, body = await _raw(c, **{"If-None-Match": asked})
             assert same.status_code == 304 and body == b""
-            assert same.headers["etag"] == same.headers["x-frame-tag"] == etag
+            assert (same.headers["etag"], same.headers["x-frame-tag"]) == (etag, '"7"')
         other, body = await _raw(c, **{"If-None-Match": '"6"'})
     assert other.status_code == 200 and gzip.decompress(body)
 

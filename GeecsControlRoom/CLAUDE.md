@@ -27,7 +27,7 @@ geecs_control_room/
                     names, rehosted to the IOC's CA address, one fetch in flight, shared) and arrays
                     (/api/devices/{name}/arrays: the `on_request` roles of type `array`, at most every 0.5 s, shared)
                     and the raw frame (/api/devices/{name}/frame.raw: role `raw_frame`, uint16 LE row-major,
-                    gzip framed, geometry + `raw_counter` tag in headers, ETag/304; `raw_counter` probed first so
+                    gzip framed, geometry + `raw_counter` tag in headers, ETag (counter + full scale)/304; `raw_counter` probed first so
                     an unmoved camera costs one scalar read; one read in flight, held RAW_HOLD_S; 503 words
                     for an unreadable counter or frame and a geometry disagreement; the contract is
                     § "The raw frame" below), over CA (aioca), read only; the module's route cached ROUTE_TTL_S
@@ -167,13 +167,20 @@ page's rules under node):
   (read in the frame's batch), `X-Frame-Full-Scale` (role `full_scale`,
   read once per device in the background, never in the frame's way;
   omitted while unreadable, and the page then assumes 4095 and says "full
-  scale assumed"), and `X-Frame-Tag` = `ETag` = the quoted decimal
-  `raw_counter` (a strong validator). No transform header.
+  scale assumed"), `X-Frame-Tag` = the quoted decimal `raw_counter` (the
+  page shows it), and `ETag` = the representation (a strong validator):
+  `"<counter>"` while the full scale is unread, `"<counter>;<full scale>"`
+  once read (`"7;4095"`). No transform header.
 - **304** on an `If-None-Match` naming the held `ETag` (weak, a list or `*`
-  too): no body, the same `ETag` and `X-Frame-Tag`. The page treats 304 as
-  "nothing new", never as an error (`rawAnswer`), and drops its held `ETag`
-  on a toggle, so the first raw ask after one is never a 304 with nothing
-  drawn.
+  too): no body, the same `ETag` and `X-Frame-Tag`. A full scale landing
+  after the first frame changes the `ETag`, so the page's next conditional
+  ask is a 200 with the held body and the new `X-Frame-Full-Scale` (no
+  second array read), never a 304 that leaves "full scale assumed" up. The
+  page treats 304 as "nothing new", never as an error (`rawAnswer`), draws
+  an answer whose `ETag` differs from the one drawn last (`rawIsNew`: the
+  same tag at a new scale is drawn again; `new frames/s` counts tags
+  only), and drops its held `ETag` on a toggle, so the first raw ask after
+  one is never a 304 with nothing drawn.
 - **404** when the module names no `raw_frame` (or `raw_width`,
   `raw_height`, `raw_counter`) role: the PV is never derived. **503** with
   words: `the frame counter (<pv>) could not be read`, `the raw frame (<pv>)
@@ -194,7 +201,11 @@ page's rules under node):
 - **The page**: Raw off by default and never remembered; on, a 2 Hz poll
   with `If-None-Match`; the body is a `Uint16Array` (every platform the
   page runs on is little-endian); the histogram has `full scale + 1` bins,
-  auto-levels take its 0.1/99.9 percent points, the LUT has `full scale +
+  counted once per frame; auto-levels take its 0.1/99.9 percent points and
+  the histogram plot draws it (`histogramPlot`: Raw's own histogram over
+  0..full scale, STAT's `histogram_on` not consulted; MJPEG mode, and Raw
+  before its first frame, draw STAT's over `hist_min`..`hist_max`; the
+  Raw toggle redraws the plot at once), the LUT has `full scale +
   1` entries over the same maps and scales, and the black/white inputs and
   the cursor read counts. **Levels are per mode**, stored as fractions of
   the mode's full scale (255, or `X-Frame-Full-Scale`), so a white of 255
@@ -213,7 +224,8 @@ page's rules under node):
   the eight names (TRANS1's mapping of a W×H frame's (x, y): Rot90
   (H-1-y, x), Rot180 (W-1-x, H-1-y), Rot270 (y, W-1-x), Mirror (W-1-x, y),
   Rot90Mirror (y, x), Rot180Mirror (x, H-1-y), Rot270Mirror (H-1-y,
-  W-1-x)), `decodeRaw`, `rawAnswer`, `modeWords`, `imageSize` in raw.
+  W-1-x)), `decodeRaw`, `rawAnswer`, `rawIsNew`, `histogramPlot`,
+  `modeWords`, `imageSize` in raw.
   `camera.js` keeps the DOM work only.
 
 Deploy (bandwidth, the CA array size, the front door's gzip, the Canopy

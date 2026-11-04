@@ -5,9 +5,9 @@ dark floor of ~56 ± 3 counts with one hot pixel at 4000, as int32. The route
 (images.py) casts, gzip-frames and tags it; the bytes are checked on the wire,
 then httpx undoes the gzip framing as a browser's ``fetch`` does, and the body
 and headers go through ``rawAnswer``, ``decodeRaw``, ``transformFrame``,
-``histogram`` and ``autoLevels`` under node, as camera.js calls them. The
-server and the page are pinned against each other, never against a second
-copy of the contract.
+``histogram``, ``autoLevels`` and ``histogramPlot`` under node, as camera.js
+and camera_controls.js call them. The server and the page are pinned against
+each other, never against a second copy of the contract.
 """
 
 from __future__ import annotations
@@ -52,16 +52,16 @@ async def test_the_floor_frame_arrives_exactly_then_304_until_the_camera_moves()
     env = _camera()
     async with env.client() as c:
         r, wire = await _raw(c)
-        assert r.status_code == 200 and r.headers["etag"] == '"1"'
+        assert r.status_code == 200 and r.headers["etag"] == '"1;4095"'
         body = gzip.decompress(wire)
         assert (
             body == floor_frame().astype("<u2").tobytes()
         )  # uint16 LE row-major, exact
-        same = await c.get(RAW_URL, headers={"If-None-Match": '"1"'})
+        same = await c.get(RAW_URL, headers={"If-None-Match": '"1;4095"'})
         assert (same.status_code, same.content, same.headers["x-frame-tag"]) == (304, b"", '"1"')  # fmt: skip
         env.ca.counters, env.clock[0] = [2.0], env.clock[0] + 1.0
-        new = await c.get(RAW_URL, headers={"If-None-Match": '"1"'})
-    assert new.status_code == 200 and new.headers["etag"] == '"2"' and new.content == body  # fmt: skip
+        new = await c.get(RAW_URL, headers={"If-None-Match": '"1;4095"'})
+    assert new.status_code == 200 and new.headers["etag"] == '"2;4095"' and new.content == body  # fmt: skip
 
 
 _PAGE = """
@@ -76,9 +76,11 @@ const out = answers.map((a) => {
   if (!f.ok) return { what, why: f.why };
   const t = R.transformFrame(a.transform, f.data, f.width, f.height);
   const hist = R.histogram(t.data, f.full), l = R.autoLevels(hist, f.full);
+  // the plot's consumer as camera_controls.js calls it in Raw mode: STAT's histogram off and a range of its own
+  const p = R.histogramPlot({ values: hist, full: f.full }, [7, 7], 0, 100, 200);
   let hot = -1, max = 0;
   for (let i = 0; i < t.data.length; i++) if (t.data[i] > max) { max = t.data[i]; hot = i; }
-  return { what, width: t.width, height: t.height, full: f.full, assumed: f.assumed, tag: f.tag, bins: hist.length, levels: l, hot: [hot % t.width, Math.floor(hot / t.width), max], first: Array.from(f.data.slice(0, 8)) };
+  return { what, width: t.width, height: t.height, full: f.full, assumed: f.assumed, tag: f.tag, bins: hist.length, levels: l, plot: { bins: p.values.length, hot: p.values[4000], centre: p.lo + (4000 + 0.5) * p.step, empty: p.empty }, hot: [hot % t.width, Math.floor(hot / t.width), max], first: Array.from(f.data.slice(0, 8)) };
 });
 console.log(JSON.stringify(out));
 """
@@ -125,6 +127,8 @@ async def test_the_page_decodes_the_frame_the_route_serves() -> None:
         plain["first"] == floor_frame()[:8].tolist()
     )  # the pixels the camera sent, decoded exactly
     assert plain["hot"] == [x, y, v] and plain["tag"] == '"1"' and not plain["assumed"]
+    # the plotted series is the frame's own: full + 1 bins, the hot pixel alone in its bin, centred on its counts
+    assert plain["plot"] == {"bins": 4096, "hot": 1, "centre": v, "empty": False}
     # auto levels sit on the floor's noise, the hot pixel past the 99.9 % point
     assert FLOOR - 5 <= plain["levels"]["black"] < FLOOR < plain["levels"]["white"] <= FLOOR + 5  # fmt: skip
     # TRANS1's Rot90 (clockwise): the driver's (x, y) lands at (h - 1 - y, x)
