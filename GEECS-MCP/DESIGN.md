@@ -24,9 +24,12 @@ columns.
 - Deployed as the existing `geecs-mcp` systemd unit on the gateway box,
   replacing the nohup 0.9.0 process.
 
-The two PMQ alignment campaigns (2026-10-08, 2026-10-15) ran this loop
-by hand against the same three HTTP APIs; this server packages that
-practice as tools and nothing more. The approach page shared with the
+The two PMQ alignment campaigns ran this loop by hand against the same
+three HTTP APIs before the redesign: 2026-10-08, the PMQ triplet aligned
+to the pulsed wire (PMQ1 and PMQ3 within about 1 µm); 2026-10-15, PMQ2
+centred within a few µm; about ten scans per pass (source: the campaign's
+own report pages, 2026-10). This server packages that practice as tools
+and nothing more. The approach page shared with the
 OSPREY team (the "approach page" below) lives with the htu-assistant
 deployment, not in this repo.
 

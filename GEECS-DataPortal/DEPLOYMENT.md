@@ -136,14 +136,25 @@ shows the current `Memory:` line against the cap.
 **Unresponsive but `active (running)`.** If pages time out while the
 unit reports running, check whether the portal is pinned at its memory
 line: `systemctl status geecs-data-portal` (`Memory:` at `high:` with
-`available: 0B`) and
-`cat /sys/fs/cgroup/system.slice/geecs-data-portal.service/memory.swap.current`.
-A plain `systemctl restart` then sits in the stop timeout, because the
-process cannot page itself back in to shut down cleanly; skip it with
+`available: 0B`),
+`cat /sys/fs/cgroup/system.slice/geecs-data-portal.service/memory.{current,swap.current}`
+and `ps -o stat,wchan:30 -p <MainPID>` — all read-only. A `D` state in
+`mem_cgroup_handle_over_high` is the wedge: the process sits at HIGH with
+the rest of itself in swap, MAX is never reached, so nothing kills it and
+`Restart=` never fires. A plain `systemctl restart` then sits in the stop
+timeout (`TimeoutStopSec`), because the process cannot page itself back
+in to shut down cleanly; skip it with
 `sudo systemctl kill -s KILL geecs-data-portal` and the pending restart
-proceeds. On a host whose unit predates `MemorySwapMax=0`,
+proceeds (a healthy portal answers `/` with a 307 to `/day/<today>`). On a
+host whose unit predates `MemorySwapMax=0`,
 `sudo systemctl set-property geecs-data-portal MemorySwapMax=0` applies
-it without a re-render.
+it without a re-render. Every wedge so far was an Analysis-tab run of a
+large stack in this process; the runs now stream and release their memory
+and the ceiling and swap settings above were changed for it (#1004,
+#1056, #1059). Before calling residual memory a leak, compare the
+cgroup's `memory.stat` `anon` against `file`: `file` is the reclaimable
+page cache of the stacks read. (Observed 2026-09-25, live incident;
+recurred 2026-09-29 and 2026-10-07.)
 
 Verify:
 
@@ -209,6 +220,50 @@ sudo systemctl restart geecs-data-portal
 (Drop `--extras analysis` only on a deployment that deliberately runs
 without the processing selector.)
 
+## Testing a branch beside the deployed instance
+
+A UI change (a confirmation step, a progress badge) is clicked in a
+browser against real scans before it merges, without touching the
+deployed unit: a second portal on another port runs the branch's sources
+against the same Tiled catalog and share and a copy of the configs tree.
+About five minutes, no deploy (proven 2026-09-29, PR #1028).
+
+1. Sources: `rsync -a --delete --exclude __pycache__` each changed
+   package's *source directory* (`GEECS-DataPortal/geecs_portal`,
+   `GEECS-Data-Utils/geecs_data_utils`, `ScanAnalysis/scan_analysis`, …)
+   from the branch to `/tmp/<name>/pr/<Package>/<package>/` on the host —
+   a few MB, seconds. (`--info=progress2` is not in macOS's stock rsync;
+   plain `-a`.)
+2. Configs: `/etc/geecs/site.env` cannot be `source`d (its
+   `GEECS_PORTAL_EXTRA_ARGS` line is unquoted and multi-word), so grep the
+   keys — `ROOT=$(grep '^GEECS_CONFIGS_ROOT=' /etc/geecs/site.env | cut -d= -f2- | tr -d '"')`
+   — then `cp -r "$ROOT/scan_analysis_configs" /tmp/<name>/configs/` and
+   drop any new recipe into the copy. Read `GEECS_TILED_URI`,
+   `GEECS_DATA_ROOT` and `TZ` the same way and export them.
+3. Interpreter: the deployed env's python (`poetry env info -p` from
+   `<root>/portal-checkout/GEECS-DataPortal`; poetry is not on a
+   non-login ssh `PATH`, so call it by its full path).
+4. Launch from a **neutral cwd** (`cd /tmp/<name>`):
+   `PYTHONPATH=<the pr directories, the portal's first> <python> -m
+   geecs_portal --host 0.0.0.0 --port 8201 --experiment <Experiment>
+   --processing-configs /tmp/<name>/configs/scan_analysis_configs
+   --config-editor --logbook-url <the deployed logbook>`. `python -m`
+   puts the cwd first on `sys.path`: launched from the checkout, the
+   deployed `geecs_portal` shadows the branch's (health OK, new keys
+   missing) — `python -c "import geecs_portal; print(geecs_portal.__file__)"`
+   from the same cwd tells.
+5. Keep the ssh session open for the instance's life (`nohup` and
+   `setsid` did not survive the session closing); stop it with
+   `pkill -f "[p]ort 8201"` (the bracket keeps the pattern from matching
+   the shell running it).
+6. Check from a client: `curl http://<host>:8201/health`,
+   `/api/run/jump/<day>?prefer=<scan>` for the run uid, then the browser
+   on `/run/<uid>?tab=analysis`. The deployed `:8200` unit is untouched
+   throughout.
+
+A file copied from the share with `cp -R` gets a fresh mtime: a copied
+`.himg` looks young to the compaction age guard for a minute.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
@@ -218,6 +273,7 @@ without the processing selector.)
 | Slow day listings | measure `list_runs` against the catalog first — the fix is a portal-side cache, not a schema change |
 | Unit crash-loops at start | `status` shows **217/USER** — the installed unit is a pre-profile file (or a copy from an old staging run) with the generic `User=`; the clone it came from predates the templated units — pull it forward, re-render with `deploy/render_units.sh`, reinstall (site profile page). Wrong absolute Poetry path in `ExecStart` (`status` shows 203/EXEC); env installed by a different account than `User=` (empty venv — reinstall as the service account); or port 8200 already taken. A down Tiled does **not** exit the service — that shows up as the `/health` row above |
 | Plot tab: **Copy plot to clipboard downloads a PNG instead** | The portal is served over plain `http://`, and every browser gates clipboard *image* writes on a secure context, so `navigator.clipboard` does not exist on the page — the button says so in its tooltip and its note, and degrades to the 2× download. No page-side workaround exists (the legacy `execCommand` copy carries text only). To get a real bitmap copy, reach the portal from a secure origin — see **Clipboard copy and the secure-context rule** below |
+| Pages time out or refuse while the unit is `active (running)` | the process is wedged at its memory ceiling — **Unresponsive but `active (running)`** under the systemd unit above: read the cgroup counters, then `systemctl kill -s KILL` (a plain restart hangs in the stop timeout) |
 | Evening scans 404 (or resolve oddly) while daytime scans work | host timezone differs from the scanner hosts' — daily folders are named by the scanner's local date. `site.env` sets `TZ`; keep it matching the lab's zone |
 
 The fleet-map page (`docs/platform/fleet_map.md`) carries the
