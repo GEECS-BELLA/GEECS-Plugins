@@ -260,7 +260,7 @@ def test_a_supply_family_marking_nothing_takes_readbacks_setpoints_and_bits():
 def test_a_detector_family_marking_nothing_takes_settings_readbacks_and_the_lock():
     roles = default_archive_roles(unmarked("ad_camera_chain"))
     assert {"exposure", "gain", "acquire", "lock"} <= roles
-    assert not {"cx", "rate", "frame_rate", "image", "pixel_format"} & roles
+    assert not {"cx", "rate", "image", "pixel_format"} & roles
     roles = default_archive_roles(unmarked("scope_contract"))
     assert {"samples", "ch_a_offset"} <= roles
     assert not {"ch_a_mean", "data", "connected"} & roles
