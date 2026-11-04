@@ -42,20 +42,9 @@ back into this table.
     stated exceptions), all at `master` on that date. Also running: the
     GEECS DB and Tiled (not repo clones) and the PVA image gateways (0.4.4
     on the 9 deployed camera servers of an 11-host DB roster — see the PVA
-    row). Amended **2026-11-04** for the services box: on 2026-10-30 the
-    worker-side services (the queueserver and its readiness unit, the
-    Tiled writer, the scanner, GEECS-MCP, the Data Portal, the logbook,
-    the Archiver Appliance), Tiled itself, Canopy and the Control Room
-    moved to the dedicated services box at 192.168.6.22 (Ubuntu 24.04,
-    racked on the central server's subnet 2026-11-02); the central
-    server keeps the CA gateway and the GEECS DB. A second experiment
-    instance (PulsedWire: its own CA gateway, queueserver, Tiled writer,
-    scanner and logbook, as `<unit>@PulsedWire`) runs beside them. The
-    host cells below were re-observed from the box's unit list that day;
-    the box's operating notes and the rollback to the central server are
-    the private geecs-epics repo's services-box runbook. When a
-    service moves, deploys, or a new one lands, update this page in the
-    same PR; `scripts/fleet_status.sh` is how you check it still matches.
+    row). When a service moves, deploys, or a new one lands, update this
+    page in the same PR; `scripts/fleet_status.sh` is how you check it
+    still matches.
     The [Data Flow Map](../sites/data_flow/index.html) carries a per-block
     status and next-steps panel; when an arc lands or a status changes,
     update its `INFO` entry in the same PR. Amended **2026-10-02** for the
@@ -63,7 +52,19 @@ back into this table.
     a new unit on the interim host, upstream's container, port 17665; the
     bootstrap gained the `archiver` service and a Docker prerequisite check.
     Its first production start is that PR's hardware step — the row below
-    is the intended picture until `/fleet-status` confirms it.
+    is the intended picture until `/fleet-status` confirms it. Amended
+    **2026-11-03** for the services box: on 2026-10-30 the worker-side
+    services (the queueserver and its readiness unit, the Tiled writer,
+    the scanner, GEECS-MCP, the Data Portal, the logbook, the Archiver
+    Appliance) and Tiled itself moved from the central server to the
+    dedicated services box at 192.168.6.22 (Ubuntu 24.04, racked on the
+    central server's subnet 2026-11-02); the central server keeps the CA
+    gateway and the GEECS DB. Canopy, the Control Room and a second
+    experiment instance (PulsedWire: its own CA gateway, queueserver,
+    Tiled writer, scanner and logbook, as `<unit>@PulsedWire`) were set
+    up on the box after the move; none of them ever ran on the central
+    server. The host cells below were re-observed on 2026-11-03 from the
+    box's unit list.
 
 ## The picture
 
@@ -158,9 +159,10 @@ connections.
 
 The services box took the worker-side services over on 2026-10-30 and
 Tiled followed; the CA gateway stayed on the central server, and the
-GEECS DB is LabVIEW infrastructure and stays where GEECS puts it. The
-way back to the central server is the private geecs-epics repo's
-services-box runbook.
+GEECS DB is LabVIEW infrastructure and stays where GEECS puts it. Canopy
+and the Control Room were set up on the box afterwards. The way back to
+the central server is the private geecs-epics repo's services-box
+runbook; it lapses once the central server's disabled units are removed.
 
 ## The services
 
@@ -317,9 +319,7 @@ The migration *is* the bootstrap: a `site.env` for the new host, the
 bootstrap run there, the root steps, then the clients pointed at it.
 Nothing about the old box migrates but its recipe, and the old box keeps
 running until the new one passes `/fleet-status` — that is what makes
-every step reversible. Two shapes — whether the gateway and Tiled
-follow is decided at the migration (the planned-additions paragraph
-under [The picture](#the-picture)):
+every step reversible. Two shapes, by what follows the worker family:
 
 - **Only the worker family moves** (queueserver, MCP, portal, logbook);
   the CA gateway, Tiled and the DB stay on the gateway's box. Bring the
