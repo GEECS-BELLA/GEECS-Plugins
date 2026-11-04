@@ -694,7 +694,12 @@ addition, "a simulated shot counter that can fire edges is a great proxy
 for bench experiments without strict timing systems", applies to the
 simulator alone: the witness sim is also the sim's edge source, pressing
 the fake camera (a software press, since the fake cannot line-trigger) and
-counting the press. On the bench the 1808X is a passive witness only, a
+counting the press. That edge-source role is not in Stop 1 of the arc
+(GEECS-Plugins #1278): there the `NativeCamera` still presses itself and
+the witness sim only counts the box fake's accepted fires (geecs-epics
+`sim/witness_sim.py`); the press moves to the witness sim when the
+frame-drop and mixed-camera work needs it. On the bench the 1808X is a
+passive witness only, a
 counter input on a tee of the box's gated output, never an edge source
 for any device (maintainer, 2026-11-04: "I wouldn't wire an MCC to real
 cameras").
