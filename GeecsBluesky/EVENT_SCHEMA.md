@@ -85,8 +85,8 @@ trigger state (`shot_control-state`) when it is read.
 | `<det>-acq_timestamp` | The shot stamp: the join key for that detector's files and for cross-device alignment after the drain offset |
 | `<det>` | A plugin-backed camera's frames: an external `STREAM:` key — the row's frame is the stream datum's index into `ScanNNN/<device>/<device>.h5` (`/entry/data/data`); `<det>-<variable>` for a second image variable. Absent from a partial row (see below) |
 | `<det>-nonscalar_save_path` | The directory the detector's native files landed in this run — present only when the detector saved natively (`geecs_data_utils.tiled_schema.COMPANION_SUFFIXES` names the suffix) |
-| `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`) |
-| `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`), and the scan motor's column |
+| `<device>-<variable>` | A scalar-only device's subscribed readbacks (`CaSnapshotReadable`); a native setpoint device's listed `readbacks` (`NativeSetpointDevice`) |
+| `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`) or always, for a native setpoint device's settable (`NativeSetpoint`), and the scan motor's column |
 | `bin_number` | The scan step the row belongs to, from 1 (the GEECS `per_step`; every row of a `count` is bin 1) — the s-file's `Bin #` |
 | `announced_shot` | Scan mode only (`use_scan_mode`): the run-wide shot number announced for the row's shot, from 1 — every fire increments it, refires included, so a partial row keeps its number and the retake takes the next; a number is never re-sent. The join key for a device's shot-numbered files (`ScanNNN_<device>_SSS.<ext>`): the s-file's row index is not it — the s-file's `Announced Shot` |
 

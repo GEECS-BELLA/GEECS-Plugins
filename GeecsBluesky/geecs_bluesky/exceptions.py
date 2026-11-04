@@ -31,6 +31,7 @@ __all__ = [
     "GeecsMotorStoppedShortError",
     "GeecsMotorTimeoutError",
     "GeecsConfirmTimeoutError",
+    "GeecsSetpointRefusedError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
     "GeecsFrameCountReadError",
@@ -206,6 +207,41 @@ class GeecsConfirmTimeoutError(GeecsError):
         super().__init__(
             f"{device_name}/{variable}: confirming variable {confirm_variable} "
             f"reads {current!r}, did not match {target!r} within {timeout:.1f}s"
+        )
+
+
+class GeecsSetpointRefusedError(GeecsError):
+    """A native setpoint device's set was refused, or failed before its readback arrived.
+
+    Raised by :class:`~geecs_bluesky.devices.native_setpoint.NativeSetpoint`
+    (``NATIVE_DEVICES.md`` §8).  ``written`` says whether the put was made:
+    ``False`` for the refusals before it (a value outside the setpoint
+    record's ``DRVL``/``DRVH`` — the record would clamp it and write — a
+    status bit already tripped, a readback INVALID); ``True`` when the
+    setpoint record went INVALID on the write (the IOC's ``HIHI``/``LOLO``
+    refusal or the supply's ``#NAK``), or a status bit rose or the readback
+    went INVALID while the set waited.  Do not auto-retry — each needs the
+    operator.
+    """
+
+    def __init__(
+        self,
+        device_name: str,
+        variable: str,
+        target: float,
+        reason: str,
+        *,
+        written: bool,
+    ) -> None:
+        self.device_name = device_name
+        self.variable = variable
+        self.target = target
+        self.reason = reason
+        self.written = written
+        outcome = "the write was made" if written else "nothing was written"
+        super().__init__(
+            f"{device_name}/{variable}: set to {target:g} refused — {reason} "
+            f"({outcome})"
         )
 
 

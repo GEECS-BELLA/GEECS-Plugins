@@ -52,10 +52,13 @@ from geecs_schemas.derived_channels import (
 from geecs_schemas.epics import (
     DETECTOR_KINDS,
     NATIVE_DEVICES_FILENAME,
+    SETPOINT_SUFFIX,
     AravisCamera,
     EpicsMotor,
     NativeDevice,
     NativeDevices,
+    SetpointDevice,
+    SetpointSettable,
 )
 from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
@@ -196,8 +199,11 @@ __all__ = [
     "NativeDevice",
     "AravisCamera",
     "EpicsMotor",
+    "SetpointDevice",
+    "SetpointSettable",
     "DETECTOR_KINDS",
     "NATIVE_DEVICES_FILENAME",
+    "SETPOINT_SUFFIX",
     # epics.family / epics.panel_devices (the web estate's device data)
     "FamilyFile",
     "FamilyAction",

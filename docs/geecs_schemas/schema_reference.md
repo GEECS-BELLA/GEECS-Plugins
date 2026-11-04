@@ -663,7 +663,7 @@ The experiment's devices served by native EPICS IOCs, by GEECS device name.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `1` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `devices` | `dict[str, AravisCamera \| EpicsMotor]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
+| `devices` | `dict[str, AravisCamera \| EpicsMotor \| SetpointDevice]` | no | empty | GEECS device name (e.g. 'UC_ExampleCam') → its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB. |
 
 Example:
 
@@ -677,6 +677,11 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # A supply: each settable is its readback record, written at <record>:SP
+  # and confirmed on the readback within its tolerance.
+  U_ExampleSupply: {kind: setpoint_device,
+                    settables: {current: {tolerance: 0.005, timeout: 10}},
+                    readbacks: [voltage], status: [fault, interlock]}
   # An entry may name its family ('template', one of its kind's); absent,
   # the kind's default. Older readers refuse the key.
 ```
@@ -700,6 +705,27 @@ A positioner: one device, one EPICS motor record per axis.
 | `kind` | `'epics_motor'` | yes | — | Device kind: 'epics_motor' (EPICS motor records, one per axis). |
 | `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
 | `axes` | `list[str]` | yes | — | The axes, as the motor record names under the device's prefix (e.g. ['x', 'y', 'z'] for '<experiment>:<device>:x' …). Each is a scan axis 'Device:axis'. The record owns the axis's limits, units and deadband. |
+
+### SetpointDevice
+
+A setpoint device: a supply's plain records (``NATIVE_DEVICES.md`` §8).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'setpoint_device'` | yes | — | Device kind: 'setpoint_device' (a supply's plain records: setpoint, readback, status bits). |
+| `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
+| `settables` | `dict[str, SetpointSettable]` | yes | — | The settables, by readback record name under the device's prefix (e.g. {'current': {tolerance: 0.005}} for '<experiment>:<device>:current', written at 'current:SP'). Each is a scan axis 'Device:record' and an action's set target. |
+| `readbacks` | `list[str]` | no | empty | Further numeric readback records, read into each row beside the settables' own (e.g. ['voltage']). |
+| `status` | `list[str]` | no | empty | Status bits, two-state records that read 1 when tripped (e.g. ['fault', 'interlock']): a set is refused while one reads 1 and fails if one rises while it waits. |
+
+### SetpointSettable
+
+One settable of a setpoint device: how close its readback must come, and how soon.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `tolerance` | `float` | yes | — | How close the readback must come to the requested value for the set to be done, in the record's units (e.g. 0.005 for 5 mA on a supply in A). The one device fact a plain 'ao' record cannot hold. |
+| `timeout` | `float` | no | 10.0 | Seconds the set waits for the readback to arrive within the tolerance after the write, before it fails. Size it for the slowest ramp plus the readback's scan period. |
 
 ## `family_file`
 

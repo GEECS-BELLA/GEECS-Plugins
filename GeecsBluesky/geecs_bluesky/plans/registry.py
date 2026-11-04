@@ -30,6 +30,10 @@ from geecs_bluesky.devices.native import (
     refuse_native_cameras,
     down_native_cameras,
 )
+from geecs_bluesky.devices.native_setpoint import (
+    down_native_setpoint_devices,
+    native_setpoint_devices,
+)
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.native_scope import NOT_GATED, NOT_NON_ESSENTIAL, NOT_SCAN_MODE
@@ -174,7 +178,9 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
 
     A native camera is judged by its IOC instead
     (:func:`~geecs_bluesky.devices.native.down_native_cameras`: unreadable =
-    down).  Runs before the bracket's first move and before
+    down), and a native setpoint device by its readbacks' severity
+    (:func:`~geecs_bluesky.devices.native_setpoint.down_native_setpoint_devices`:
+    INVALID or unreadable = down).  Runs before the bracket's first move and before
     ``open_run``: nothing is driven and nothing is claimed for a run this
     refuses.
 
@@ -183,9 +189,11 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     GeecsDeviceDownError
         Naming every device reported down.
     """
-    # A native camera is judged by its IOC, not by the gateway's rule.
-    natives = native_cameras(devices)
+    # A native camera or setpoint device is judged by its IOC, not by the
+    # gateway's rule.
+    natives = [*native_cameras(devices), *native_setpoint_devices(devices)]
     native_down = yield from down_native_cameras(natives)
+    native_down += yield from down_native_setpoint_devices(natives)
     signals: dict[str, Any] = dict(getattr(shot_control, "liveness_signals", {}))
     for obj in devices:
         if owner_of(obj) in natives:
@@ -201,8 +209,9 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     if down:
         names = ", ".join(down)
         raise GeecsDeviceDownError(
-            f"{names} DISCONNECTED (the gateway's CONNECTED, or a native "
-            "camera's IOC not answering) — the run was refused before the "
+            f"{names} DISCONNECTED (the gateway's CONNECTED, a native "
+            "camera's IOC not answering, or a native setpoint device's readback "
+            "INVALID) — the run was refused before the "
             "trigger box was driven (nothing claimed, no scan folder). Check "
             "the device(s), then resubmit.",
             device_name=down[0],
