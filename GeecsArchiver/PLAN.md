@@ -479,7 +479,9 @@ here so it is a decision rather than a drift.
 **Phase 4 — onboarding at scale.** A curated dozen → a real lab week
 (disk growth, engine CPU, retrieval latency) → the full set. The
 maintainer's existing `get='yes'` curation in the GEECS DB remains the
-primary lever for *what* is archived; the overlay is for exceptions.
+primary lever for which *monitored* readbacks are archived; a settable's
+readback and `:SP` are archived whatever `get='yes'` says (2026-11-04), so
+for those the overlay's `exclude` globs are the lever.
 
 **Phase 5 — consumers.** Phoebus (the settings line joins the Phoebus
 recipe in `docs/geecs_gateway/`); a retrieval helper in this package → pandas
