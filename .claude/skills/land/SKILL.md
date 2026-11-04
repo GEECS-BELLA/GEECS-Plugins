@@ -120,7 +120,8 @@ rationale, summaries, or the PR body's framing beyond what any outside
 reviewer would see. Its job is to refute the change, not to appreciate
 it.
 
-The reviewer brief (pass verbatim, plus the PR/diff reference):
+The reviewer brief (pass verbatim, plus the PR/diff reference; for a
+correctness round, lens 1 alone):
 
 > Review this diff adversarially through three lenses, using the whole
 > repository as context (root and package `CLAUDE.md` files, the
