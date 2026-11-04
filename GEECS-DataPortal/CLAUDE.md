@@ -899,9 +899,14 @@ changes (a shared z scale read late, a new colour map) through a
 processing preview instead (`image.png?processing=`, the whole frame on
 its own levels; the choices are `/api/run/{uid}/device`'s
 `processing_options`). A bin has no processing (the author's choice:
-it always matches its tile). The strip shows every shot: the shot
-filters narrow the Plot page's plots and map, not the strip, and a map
-cell's link says so. A device whose stack holds traces
+it always matches its tile). The shot filters apply here too (the
+author, 2026-11-03, reversing the strip-shows-every-shot rule): the
+rail shows the same Shot filters group, and a strip keeps only the
+passing shots (`images.shot_rows` → `keep`; a bin averages or picks
+from its passing shots and drops out with none, a bin tile's index is
+its place among the bins left). A bin tile's URL and the levels route
+carry the set's filter JSON (`filters=`), so every route resolves a
+tile's rows alike; a shot or picked tile names its row and needs none. A device whose stack holds traces
 (`images.trace_kind`) has no strip and draws one shot's trace from the
 portal's `/api/run/{uid}/trace`. Tiles carry their bin label
 (`images.Tile.bin`), which is how a 2-D map cell opens on its bin. The

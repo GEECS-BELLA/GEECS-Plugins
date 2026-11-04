@@ -25,6 +25,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 from geecs_data_utils.data.binning import bin_rows
+from geecs_data_utils.data.row_filters import RowFilters, filter_mask
 from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import window_levels
@@ -152,6 +153,45 @@ def bins(frame: pd.DataFrame) -> list[tuple[object, tuple[int, ...]]]:
         raise NoImage("this scan has no Bin # column") from None
 
 
+def shot_rows(frame: pd.DataFrame, filters: str) -> Optional[frozenset[int]]:
+    """The rows (from 1) the page's shot filters keep; ``None`` when none is on.
+
+    *filters* is the set's ``shot_filters`` JSON (``RowFilters``), the
+    same the Plot page draws with, so both pages keep the same shots.
+
+    Raises
+    ------
+    NoImage
+        Filters this scan cannot apply (a column it does not have), or
+        not filters at all.
+    """
+    if not filters:
+        return None
+    try:
+        parsed = RowFilters.model_validate_json(filters)
+        if not parsed.active_groups():
+            return None
+        mask = filter_mask(frame, parsed).to_numpy(dtype=bool)
+    except ValueError as why:  # pydantic's ValidationError is one too
+        raise NoImage(f"the shot filters cannot be applied here: {why}") from None
+    return frozenset(int(i) + 1 for i in np.flatnonzero(mask))
+
+
+def kept_bins(
+    frame: pd.DataFrame, keep: Optional[frozenset[int]] = None
+) -> list[tuple[object, tuple[int, ...]]]:
+    """:func:`bins` with only the rows *keep* holds; a bin left empty goes."""
+    found = bins(frame)
+    if keep is None:
+        return found
+    out = []
+    for label, rows in found:
+        kept = tuple(r for r in rows if r in keep)
+        if kept:
+            out.append((label, kept))
+    return out
+
+
 def _number(value: object, missing: str) -> str:
     """A label or shot number as shown: 1.0 as 1, NaN as *missing*."""
     if isinstance(value, float):
@@ -195,8 +235,9 @@ def tiles(
     scan_values: Optional[pd.Series] = None,
     shot_numbers: Optional[pd.Series] = None,
     pick_by: Optional[pd.Series] = None,
+    keep: Optional[frozenset[int]] = None,
 ) -> list[Tile]:
-    """The strip's tiles, in order.
+    """The strip's tiles, in order (only the shots *keep* holds, when given).
 
     A bin's caption is its scan variable's value, ``"17.5 · 5 shots"``
     (``"bin 2 · 5 shots"`` without one, ``"17.5 · bin 2 · 5 shots"`` when
@@ -219,6 +260,11 @@ def tiles(
     pick_by : pandas.Series, optional
         For ``pick``: the column whose highest value picks each bin's
         shot (the plot's Y1); ``None`` picks the first shot.
+    keep : frozenset of int, optional
+        The rows the shot filters keep (:func:`shot_rows`): a bin averages
+        (or picks from) only those, a bin with none goes, and a shots
+        strip shows only those. A bin tile's ``index`` is its place among
+        the bins left.
 
     Returns
     -------
@@ -233,6 +279,8 @@ def tiles(
         out = []
         bin_numbers = frame.get("Bin #")
         for row in range(1, len(frame) + 1):
+            if keep is not None and row not in keep:
+                continue
             label = shot_label(row)
             in_bin = (
                 "" if bin_numbers is None else _number(bin_numbers.iloc[row - 1], "")
@@ -241,7 +289,7 @@ def tiles(
             caption = f"{label} · {value}" if value else label
             out.append(Tile(row, (row,), caption, in_bin))
         return out
-    found = list(bins(frame))
+    found = kept_bins(frame, keep)
     wheres = [_value(scan_values, rows) for _, rows in found]
     # A value two bins share (a scan back over its start, or medians alike
     # to 4 figures) names the bin too, so no two tiles read the same.

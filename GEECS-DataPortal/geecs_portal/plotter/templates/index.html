@@ -407,9 +407,12 @@
           </div>
         </details>
         {% endif %}
+      {% endif %}
+      {% if columns %}
         {# The shot filters: keep only the shots inside (or outside) bounds;
            conditions AND within a group, groups OR. A chip turns its group
-           on or off, or removes it; the drawer edits them all. #}
+           on or off, or removes it; the drawer edits them all. Both pages
+           keep the same shots: the plots and map here, the strips on Images. #}
         <details class="disc rail-group"{% if filter_groups %} open{% endif %}>
           <summary>Shot filters <span class="hint">· {{ filter_groups | length if filter_groups else 'none' }}</span></summary>
           <div class="dbody">
@@ -423,7 +426,7 @@
             {% else %}
               <div class="note">none: every shot is kept</div>
             {% endfor %}
-            <div class="count" id="passcount"></div>
+            <div class="count" id="passcount">{{ filter_pass if tab == "images" else "" }}</div>
             <div><button class="btn sm" type="button" id="filters-open">Edit filters…</button></div>
           </div>
         </details>
@@ -668,7 +671,7 @@
                 <div id="map-values" class="row map-values" aria-live="polite"></div>
                 <details class="disc"><summary>Member shots passing the filters</summary><div id="map-members" class="dbody mono"></div></details>
                 <div class="row"><a class="btn sm" id="map-images" href="#">View this cell's images</a>
-                  <span class="hint">every shot of its bin: the shot filters narrow the map, not the image strip</span></div>
+                  <span class="hint">its bin's shots that pass the shot filters, as the map counts them</span></div>
               </div>
               <p class="hint" id="map-notes"></p>
               <details class="disc">
@@ -757,7 +760,9 @@
 </aside>
 {% endif %}
 
-{% if columns and tab != "images" %}
+{# The column list and the drawers the rail opens (the shot filters on
+   both pages; the others the Plot page's). #}
+{% if columns %}
 {# The shot filters' column menu (plot_tools.js): each column with its shown name. #}
 <datalist id="filter-columns">{% for c in columns %}<option value="{{ c }}" label="{{ ynames[c] if ynames else c }}">{% endfor %}</datalist>
 
@@ -814,7 +819,8 @@
         <p>The count under the groups says how many shots would pass before you <b>Apply</b>. In the rail, a
           group's tick turns it off without deleting it; ✕ deletes it. "Rows with NaN" says whether a missing
           value passes or fails a line.</p>
-        <p>Filters narrow the Plot page's plots and its 2-D map; the Images strip always shows every shot.</p>
+        <p>Both pages keep the same shots: the Plot page's plots and 2-D map, and the Images strips (a bin
+          averages only its passing shots; a bin with none drops out).</p>
       </div>
     </details>
     <div id="fgroups" class="group"></div>

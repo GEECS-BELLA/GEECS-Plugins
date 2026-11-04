@@ -431,6 +431,7 @@ def _page(
         "cams": [],
         "max_cameras": MAX_CAMERAS,
         "strip_x": "",
+        "filter_pass": "",
         "trace": "",
         "strip_code": "",
     }
@@ -611,6 +612,13 @@ def _fill_images(
         _camera_row(page, run, frame, settings, folder, devices, look, place, x, alone)
         for place, look in enumerate(looks, 1)
     ]
+    # The shot filters keep the same shots here as on the Plot page.
+    try:
+        keep = images.shot_rows(frame, settings.shot_filters)
+    except images.NoImage:
+        keep = None  # each row says why it has no tiles
+    if keep is not None:
+        page["filter_pass"] = f"{len(keep)} / {len(frame)} shots pass"
     first = cams[0]
     page.update(
         device=first["device"],
@@ -725,6 +733,7 @@ def _camera_row(
             x=x,
             pick_by=row["pick_by"],
             prep=prep,
+            filters=settings.shot_filters,
         )
     except HTTPException as missing:
         row["problem"] = missing.detail
@@ -744,6 +753,8 @@ def _camera_row(
                 else {}
             ),
             **prep_query(prep),
+            # Bins and shots: the strip is the shots the shot filters keep.
+            **({"filters": settings.shot_filters} if settings.shot_filters else {}),
         }
     )
     return row

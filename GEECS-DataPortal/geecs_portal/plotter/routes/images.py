@@ -91,13 +91,18 @@ def tile_url(
     strip: str,
     index: int,
     prep: ImagePrep = ImagePrep(),
+    filters: str = "",
 ) -> str:
     """A tile's PNG URL, relative to the app root; the page adds the display.
 
-    A bin's one shot (``pick``) is a shot tile: its index is its row.
+    A bin's one shot (``pick``) is a shot tile: its index is its row. A
+    bin carries the shot filters (*filters*, the set's JSON): its index is
+    its place among the bins they leave, and it averages only their shots.
     """
     query = {"day": day.isoformat(), "scan": scan, "device": device}
     query.update(strip="shots" if strip == "pick" else strip, index=index)
+    if strip == "bins" and filters:
+        query["filters"] = filters
     return f"api/images/tile.png?{urlencode({**query, **prep_query(prep)})}"
 
 
@@ -139,8 +144,12 @@ def strip_tiles(
     x: Optional[str] = None,
     pick_by: str = "",
     prep: ImagePrep = ImagePrep(),
+    filters: str = "",
 ) -> list[TileModel]:
     """The strip's tiles with their URLs; captions carry the scan variable's value.
+
+    Only the shots the shot filters keep (*filters*, the set's JSON; a 422
+    when they cannot apply here).
 
     *x* is the scan variable's column when the caller has it already
     (:func:`strip_axis`); ``None`` looks it up. *pick_by* is the column
@@ -155,8 +164,11 @@ def strip_tiles(
         if strip == "pick" and pick_by in frame.columns
         else None
     )
+    keep = keep_rows(frame, filters)
     try:
-        found = images.tiles(frame, strip, values, scans.shot_axis(frame), pick_by=by)
+        found = images.tiles(
+            frame, strip, values, scans.shot_axis(frame), pick_by=by, keep=keep
+        )
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
     return [
@@ -165,7 +177,7 @@ def strip_tiles(
             rows=list(t.rows),
             caption=t.caption,
             bin=t.bin,
-            url=tile_url(day, scan, device, strip, t.index, prep),
+            url=tile_url(day, scan, device, strip, t.index, prep, filters),
         )
         for t in found
     ]
@@ -200,8 +212,20 @@ def strip_code(
     )
 
 
-def tile_rows(frame, strip: str, index: int) -> tuple[int, ...]:
+def keep_rows(frame, filters: str) -> Optional[frozenset[int]]:
+    """The rows the shot filters keep (``images.shot_rows``); a 422 when they cannot apply."""
+    try:
+        return images.shot_rows(frame, filters)
+    except images.NoImage as why:
+        raise HTTPException(status_code=422, detail=str(why)) from None
+
+
+def tile_rows(
+    frame, strip: str, index: int, keep: Optional[frozenset[int]] = None
+) -> tuple[int, ...]:
     """The rows a tile shows: the shot's row, or the bin's (by position).
+
+    A bin's position is among the bins the shot filters (*keep*) leave.
 
     Raises
     ------
@@ -211,7 +235,7 @@ def tile_rows(frame, strip: str, index: int) -> tuple[int, ...]:
     if strip in ("shots", "pick"):
         return (index,)
     try:
-        found = images.bins(frame)
+        found = images.kept_bins(frame, keep)
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
     if not 0 <= index < len(found):
@@ -350,17 +374,20 @@ def register(router: APIRouter, ctx: Context) -> None:
         centre: Optional[float] = Query(
             default=None, description="centre on the beam: the threshold"
         ),
+        filters: str = Query(default="", description="the shot filters (JSON)"),
     ) -> JSONResponse:
         """One black and white for the whole strip (the "shared" z scale).
 
         Reads every tile of the strip: its darkest and its brightest pixel.
-        A strip of one shot per bin names its rows (``rows``).
+        A strip of one shot per bin names its rows (``rows``); otherwise
+        the strip is the shots the shot filters (``filters``) keep.
         """
         run, frame, folder = opened(day, scan)
         picture_device(folder, device)
         prep = parse_prep(hits, centre)
+        keep = None if rows else keep_rows(frame, filters)
         try:
-            found = parse_rows(rows) if rows else images.tiles(frame, strip)
+            found = parse_rows(rows) if rows else images.tiles(frame, strip, keep=keep)
             zmin, zmax, count = images.shared_levels(
                 folder, frame, device, found, parse_roi(roi), prep
             )
@@ -392,6 +419,9 @@ def register(router: APIRouter, ctx: Context) -> None:
         centre: Optional[float] = Query(
             default=None, description="centre on the beam: the threshold"
         ),
+        filters: str = Query(
+            default="", description="the shot filters (JSON): a bin's shots"
+        ),
     ) -> Response:
         """One tile's PNG: the shot's image, or the bin's average, in its ROI.
 
@@ -402,7 +432,8 @@ def register(router: APIRouter, ctx: Context) -> None:
         """
         _, frame, folder = opened(day, scan)
         picture_device(folder, device)
-        rows = tile_rows(frame, strip, index)
+        keep = keep_rows(frame, filters) if strip == "bins" else None
+        rows = tile_rows(frame, strip, index, keep)
         levels = (zmin, zmax) if zmin is not None and zmax is not None else None
         prep = parse_prep(hits, centre)
         png = tile_png(

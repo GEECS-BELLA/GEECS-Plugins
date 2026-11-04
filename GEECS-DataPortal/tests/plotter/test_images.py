@@ -552,3 +552,60 @@ def test_a_new_set_draws_white_blue_yellow_on_one_shared_scale(
     page = post(client, scan=1, page="images", device=CAM)
     assert 'data-zscale="shared"' in page
     assert '<option value="white_blue_yellow" selected>' in page
+
+
+def _charge_filter(low: float, high: str = "inf") -> str:
+    return (
+        '{"groups":[{"conditions":[{"column":"U_ICT charge","low":%s,"high":"%s"}]}],'
+        '"nan_policy":"exclude"}' % (low, high)
+    )
+
+
+class TestShotFilters:
+    """The Plot page's shot filters keep the same shots on the Images page."""
+
+    def test_a_bin_keeps_only_its_passing_shots(self, share: Path) -> None:
+        frame, _ = _opened(share)  # charge 10, 12, NaN, 30 in bins 1, 1, 2, 2
+        keep = images.shot_rows(frame, _charge_filter(11))
+        assert keep == {2, 4}
+        assert [t.rows for t in images.tiles(frame, "bins", keep=keep)] == [(2,), (4,)]
+        assert [t.index for t in images.tiles(frame, "shots", keep=keep)] == [2, 4]
+
+    def test_a_bin_with_no_passing_shot_drops_out(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        keep = images.shot_rows(frame, _charge_filter(20))
+        found = images.tiles(frame, "bins", keep=keep)
+        assert [(t.index, t.rows, t.bin) for t in found] == [(0, (4,), "2")]
+
+    def test_no_active_filter_keeps_every_shot(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        assert images.shot_rows(frame, "") is None
+        assert images.shot_rows(frame, '{"groups":[],"nan_policy":"exclude"}') is None
+
+    def test_a_filter_on_a_missing_column_says_so(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        bad = '{"groups":[{"conditions":[{"column":"nope","low":0,"high":1}]}]}'
+        with pytest.raises(images.NoImage, match="nope"):
+            images.shot_rows(frame, bad)
+
+    def test_the_page_and_its_routes_keep_the_filtered_shots(
+        self, client: TestClient, camera: Path
+    ) -> None:
+        filters = _charge_filter(20)
+        page = post(client, scan=1, page="images", device=CAM, filters=filters)
+        assert page.count('class="tile"') == 1  # bin 1 has no shot above 20
+        assert "1 / 4 shots pass" in page
+        assert "Edit filters" in page and 'id="filters-drawer"' in page
+        # The one tile is bin 2's, at index 0 among the bins left: its route
+        # averages shot 4 alone (its picture is shot 4's).
+        query = {"day": DAY, "scan": 1, "device": CAM, "strip": "bins", "index": 0}
+        alone = client.get("/api/images/tile.png", params={**query, "filters": filters})
+        shot4 = client.get(
+            "/api/images/tile.png", params={**query, "strip": "shots", "index": 4}
+        )
+        assert alone.status_code == 200 and alone.content == shot4.content
+        levels = client.get(
+            "/api/images/levels",
+            params={"day": DAY, "scan": 1, "device": CAM, "filters": filters},
+        ).json()
+        assert levels["tiles"] == 1
