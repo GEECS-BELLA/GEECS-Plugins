@@ -116,8 +116,10 @@ Tiled, MySQL and the queueserver). Above HIGH systemd throttles and
 reclaims the portal; at MAX it kills it and `Restart=on-failure` brings
 it back — so a runaway portal evicts itself before the kernel picks a
 victim, and the victim is the portal rather than Tiled (#834). The unit
-also sets `MemorySwapMax=0`: without it the portal is pushed into swap
-above HIGH instead of reaching MAX, and hangs rather than restarting.
+also sets `MemorySwapMax=0`: without it the portal throttled above HIGH
+is pushed into swap as well and takes the host's swap with it; it does
+not make a runaway reach MAX — a process throttled at HIGH stalls there
+with swap off too (**Unresponsive but `active (running)`** below).
 Portal analysis runs execute in this process. Since ScanAnalysis 1.38.0
 (#1003) a run streams — it holds one running frame per product, not
 every processed frame, so a 3600-shot 600×600 camera run needs a few
@@ -139,9 +141,11 @@ line: `systemctl status geecs-data-portal` (`Memory:` at `high:` with
 `available: 0B`),
 `cat /sys/fs/cgroup/system.slice/geecs-data-portal.service/memory.{current,swap.current}`
 and `ps -o stat,wchan:30 -p <MainPID>` — all read-only. A `D` state in
-`mem_cgroup_handle_over_high` is the wedge: the process sits at HIGH with
-the rest of itself in swap, MAX is never reached, so nothing kills it and
-`Restart=` never fires. A plain `systemctl restart` then sits in the stop
+`mem_cgroup_handle_over_high` is the wedge: the process is throttled at
+HIGH and never reaches MAX, so nothing kills it and `Restart=` never
+fires — with swap on, the excess goes into swap as well (2026-09-25:
+3 GB resident plus the host's whole swap); with swap off it stalls at
+HIGH just the same (2026-09-29, 2026-10-07). A plain `systemctl restart` then sits in the stop
 timeout (`TimeoutStopSec`), because the process cannot page itself back
 in to shut down cleanly; skip it with
 `sudo systemctl kill -s KILL geecs-data-portal` and the pending restart
@@ -238,8 +242,12 @@ About five minutes, no deploy (proven 2026-09-29, PR #1028).
    `GEECS_PORTAL_EXTRA_ARGS` line is unquoted and multi-word), so grep the
    keys — `ROOT=$(grep '^GEECS_CONFIGS_ROOT=' /etc/geecs/site.env | cut -d= -f2- | tr -d '"')`
    — then `cp -r "$ROOT/scan_analysis_configs" /tmp/<name>/configs/` and
-   drop any new recipe into the copy. Read `GEECS_TILED_URI`,
-   `GEECS_DATA_ROOT` and `TZ` the same way and export them.
+   drop any new recipe into the copy. The Tiled URI and the data root
+   are not read from the environment: the bootstrap renders them into the
+   service account's `~/.config/geecs_python_api/config.ini` and the
+   portal reads that file, so run the instance as that account, or with
+   `HOME` set to its home as the unit does (`Environment=HOME=`). Read
+   `TZ` from `site.env` the same way and export it.
 3. Interpreter: the deployed env's python (`poetry env info -p` from
    `<root>/portal-checkout/GEECS-DataPortal`; poetry is not on a
    non-login ssh `PATH`, so call it by its full path).

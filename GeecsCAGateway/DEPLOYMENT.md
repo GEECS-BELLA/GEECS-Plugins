@@ -587,14 +587,16 @@ when the DB row changed; the startup line `built N/M device spec(s)`
 Rule out a spelling before chasing connectivity. The variable name in a
 scan-variable target must match the device type's DB spelling, and
 families differ by a character: an ESP301 axis is `Position.Axis 1` (a
-space), an Aerotech axis `Position.Axis1` (no space). The worker's
-`NotConnectedError` names the PV it looked for (`position_axis1` against a
-served `position_axis_1`); read that name in the traceback first.
+space), an Aerotech axis `Position.Axis1` (no space). The scanner's
+submit preflight now refuses a reference the worker's device tree lacks,
+naming it with "check the spelling"
+(`geecs_bluesky.qs_client.submit_preflight`); the original symptom — a
+`NotConnectedError` on `position_axis1` against the served
+`position_axis_1` — predates that check. (Both causes observed
+2026-09-02, live incident, one masking the other.)
 
-A device with no `get='yes'` rows is still served, but only its settable
-variables (readback + `:SP`, §1); its read-only status variables are
-absent by design, not missing. (Both causes observed 2026-09-02, live
-incident, one masking the other.)
+A device with no `get='yes'` rows serves its settable variables only —
+§1, *Experiment selection and `subscribed_only` semantics*.
 
 ### Readbacks frozen while `:SP` writes work
 

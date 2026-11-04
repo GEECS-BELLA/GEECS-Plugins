@@ -203,10 +203,12 @@ rendered from it, never edited by hand.
     `/lab-status` skill point here rather than retelling it.
 
 !!! warning "Never read a whole run on the services box"
-    An ad-hoc `read_primary_dataframe(run)` on an image run, run over ssh
-    on the services host, materialised the whole primary stream into
-    pandas — image columns included, and the outer product of two camera
-    stacks of different shapes — to 14 GB on what was then a 16 GB host:
+    An ad-hoc `run["primary"].read().to_dataframe()` on an image run's
+    Tiled composite node (then wrapped as a `read_primary_dataframe`
+    helper, since removed), run over ssh on the services host,
+    materialised the whole primary stream into pandas — image columns
+    included, and the outer product of two camera stacks of different
+    shapes — to 14 GB on what was then a 16 GB host:
     the kernel OOM-killed the probe, then the portal, and Tiled stopped
     answering until the probe was killed (2026-09-11, live incident). The
     host runs Tiled, the portal and the queueserver, and an exploratory

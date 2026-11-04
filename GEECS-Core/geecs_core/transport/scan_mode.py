@@ -39,24 +39,11 @@ sent to the client IP **at the device's own command-port number**, twice
 replies, deduplicated.  A device that never acknowledges never entered scan
 mode — observed live: its start values stay unapplied and every fire fails
 — so a caller waits for every device it needs before firing.
-
 A missed acknowledgement is a lost datagram, not a device ignoring the
-command.  In a two-host packet-capture soak (Undulator idle; 25 LabVIEW
-devices on two Windows hosts behind the acquisition switches) every
-``ScanStart`` that reached a host's NIC was acknowledged by all of its
-devices, and every miss was a ``ScanStart`` that never arrived — whole
-hosts at once, never one device while its host-mates answered.  Loss
-followed silence on the group: 0 of 52 entries after gaps of 5–60 s
-missed and 3 of 8 after 300 s; 3 of 12 cycles at 300 s gaps; and 0 of 16
-at 300 s gaps with an ``Empty`` sent to the group every 60 s between
-cycles (123 of 124 group datagrams reached both hosts).  ``Empty`` and the
-multicast ``ScanEnd`` were lost the same way, at both hosts and at
-different times, with zero receive errors and zero capture drops on the
-hosts: the loss is in the network, downstream of the sender; every failing
-path crossed a second routing switch, and the network-side cause is open.
-Hence a sender re-sends ``ScanStart`` to the silent devices (a repeated
-``ScanStart`` is acknowledged; test stand 2026-10-13) or keeps the group
-warm with an ``Empty`` every ~60 s while idle (measured 2026-10-14).
+command: in a packet-capture soak every ``ScanStart`` that reached a
+captured host was acknowledged by all of its devices (the figures and
+the worker's recovery — ``ScanEnd`` to the devices that entered, then one
+fresh ``ScanStart`` — are in ``docs/acquisition/scan_mode.md``).
 
 **The path channel** (TCP): after ``ScanStart`` every device connects to
 the client IP on port :data:`SCAN_MODE_TCP_PORT` (a framework constant) and
