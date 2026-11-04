@@ -175,3 +175,22 @@ def test_pvstatus_parses_the_appliance_booleans_and_states():
         ).sampling_method
         == "SCAN"
     )
+
+
+def test_status_batches_are_bounded_by_encoded_length() -> None:
+    """Long names split into more, shorter batches; no batch exceeds the bound."""
+    from geecs_archiver.mgmt_client import (
+        STATUS_BATCH,
+        STATUS_QUERY_MAX,
+        _status_batches,
+    )
+
+    long_names = [f"experiment:{'device' * 12}:{i}:field:SP" for i in range(250)]
+    batches = list(_status_batches(long_names))
+    assert [pv for b in batches for pv in b] == long_names
+    for b in batches:
+        assert len(b) <= STATUS_BATCH
+        encoded = sum(len(pv) + 2 * pv.count(":") + 3 for pv in b)
+        assert encoded <= STATUS_QUERY_MAX
+    short = [f"x:{i}" for i in range(250)]
+    assert [len(b) for b in _status_batches(short)] == [100, 100, 50]
