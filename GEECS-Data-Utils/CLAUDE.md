@@ -121,6 +121,12 @@ geecs_data_utils/
                                #   through a percentile window, optional
                                #   matplotlib colour map (lazy import; no
                                #   matplotlib = greyscale)
+                               #   + colour_tables.py: GEECSplotter's
+                               #   LabVIEW tables (enhance_low,
+                               #   white_blue_yellow, from "image color
+                               #   table presets.vi"), registered with
+                               #   matplotlib by safe_cmap so every
+                               #   by-name lookup finds them
   himg_cli.py                  # geecs-himg convert | verify | compact | restore: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
 ```

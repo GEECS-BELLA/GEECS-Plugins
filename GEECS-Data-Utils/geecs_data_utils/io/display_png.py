@@ -51,7 +51,10 @@ def window_percentiles(plo, phi) -> tuple[float, float]:
 
 
 def safe_cmap(cmap: Optional[str]) -> Optional[str]:
-    """A known matplotlib colour-map name, else ``None`` (greyscale).
+    """A known colour-map name, else ``None`` (greyscale).
+
+    Known: matplotlib's maps and :mod:`colour_tables`' (GEECSplotter's
+    LabVIEW tables, registered with matplotlib here).
 
     matplotlib is imported only here, and only for a named map; without
     matplotlib installed every name degrades to greyscale.
@@ -72,6 +75,9 @@ def safe_cmap(cmap: Optional[str]) -> Optional[str]:
         import matplotlib as mpl
     except ImportError:
         return None
+    from geecs_data_utils.io import colour_tables
+
+    colour_tables.register()  # GEECSplotter's LabVIEW tables, by name
     return str(cmap) if str(cmap) in mpl.colormaps else None
 
 

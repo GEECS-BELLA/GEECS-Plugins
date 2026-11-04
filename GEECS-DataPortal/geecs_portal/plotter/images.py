@@ -41,9 +41,12 @@ if set(HIT_LABELS) != set(HIT_FILTERS):  # pragma: no cover - a developer's slip
     raise RuntimeError("every image_prep.HIT_FILTERS entry needs a HIT_LABELS label")
 
 #: The colour maps offered (matplotlib names), "gray" first, the default:
-#: the perceptual ones, then the classic false-colour tables.
+#: GEECSplotter's LabVIEW tables (``io.colour_tables``), the perceptual
+#: ones, then the classic false-colour tables.
 CMAPS = (
     "gray",
+    "enhance_low",
+    "white_blue_yellow",
     "viridis",
     "magma",
     "inferno",

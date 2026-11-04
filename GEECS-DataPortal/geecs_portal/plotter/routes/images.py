@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
-from geecs_data_utils.io.display_png import to_display_png
+from geecs_data_utils.io.display_png import safe_cmap, to_display_png
 from pydantic import BaseModel
 
 from geecs_portal.plotter import images, scans
@@ -257,7 +257,6 @@ def _with_colour_bar(pixels, cmap: str, levels: Optional[tuple[float, float]]) -
     map draws greyscale, as the tile does.
     """
     import numpy as np
-    from matplotlib import colormaps
     from matplotlib.figure import Figure
 
     from geecs_portal.resources import figure_png
@@ -274,7 +273,7 @@ def _with_colour_bar(pixels, cmap: str, levels: Optional[tuple[float, float]]) -
     ax = fig.add_subplot()
     shown = ax.imshow(
         data,
-        cmap=cmap if cmap in colormaps else "gray",
+        cmap=safe_cmap(cmap) or "gray",
         vmin=lo,
         vmax=hi,
         interpolation="nearest",
