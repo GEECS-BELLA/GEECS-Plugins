@@ -26,7 +26,7 @@ columns.
 
 The two PMQ alignment campaigns (2026-10-08, 2026-10-15) ran this loop
 by hand against the same three HTTP APIs before the redesign; the results
-are in the logbook's scans book (2026-10-15, Scan046, entry
+for 2026-10-15 are in the logbook's scans book (Scan046, entry
 `/entry/37454df6ea02`). This server packages that practice as tools and
 nothing more. The approach page shared with the
 OSPREY team (the "approach page" below) lives with the htu-assistant
