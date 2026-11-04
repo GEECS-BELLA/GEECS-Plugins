@@ -14,8 +14,10 @@ name: unit-tests
 # nothing.
 #
 # `schedule` adds one exhaustive run a week (Monday 06:00 UTC) on master
-# with no ci_select narrowing, so a leg no PR or merge has touched for
-# weeks still meets this week's dependency versions and runner image.
+# with no ci_select narrowing. The locks pin the Python dependencies, so
+# what it catches is drift outside them: the ubuntu-24.04 runner image, the
+# unpinned `pip install poetry`, setup-python's 3.11 patch release — on legs
+# no PR or merge has selected for weeks.
 on:
   push:
     branches: [master]
