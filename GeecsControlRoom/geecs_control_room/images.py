@@ -11,8 +11,8 @@ through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
   device, a frame reused for everyone within ``FRAME_EVERY_S``; the
   ``X-Frame-Tag`` names the bytes, so a page never decodes the same frame
   twice (a frozen camera's frame is not "new").
-- ``GET /api/devices/{name}/arrays``: every ``read: on_request`` role of the
-  device (lineouts, histogram) by role name, read at most every
+- ``GET /api/devices/{name}/arrays``: every ``read: on_request`` role of type
+  ``array`` (lineouts, histogram) by role name, read at most every
   ``ARRAYS_EVERY_S`` and shared by every viewer. The page polls it only
   while its plots are open.
 

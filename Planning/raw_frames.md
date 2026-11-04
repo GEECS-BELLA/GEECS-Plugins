@@ -68,8 +68,11 @@ runbook's "Display and analysis chain"). Consequences the page must honour:
   pinned by rows; a frame whose transform is not one of the eight is drawn
   untransformed with the overlays hidden and a word.
 - `ArrayData` is unsigned 16-bit (`USHORT`); aioca returns it as int32. The
-  server casts with a bit-exact reinterpretation to **uint16**; it never
-  clamps. The cameras' data is 0–4095; the contract does not assume it.
+  server casts with `astype(np.uint16)` — exact for every USHORT value;
+  never `view()` (a reinterpretation of int32 doubles the element count),
+  never a clamp. The cameras' data is 0–4095; the contract does not assume
+  it. **Mono frames only**: `ArraySize0` is the width; a colour pixel format
+  (`ArraySize0` = 3) is out of scope and fails closed on the geometry check.
 
 ## What changes
 
@@ -87,7 +90,11 @@ module's `_judged` is `read_mode == "monitor"`, so the device's state does not
 depend on `ARR` (an `ARR` with callbacks off cannot make a live camera read
 stale), and Hare's subscription count per camera is unchanged. Pinned by the
 family test, the Control Room contract test, and `images.arrays()`, which now
-serves `on_request` roles **of type `array`** alone (slice 0). A family change
+serves `on_request` roles **of type `array`** alone (slice 0). The one other
+family with on-request scalars is `scope_contract` (`arr_channels`,
+`arr_samples`, beside its `data` trace): nothing reads them through `/arrays`
+today, and the scope page's own route reads them with the traces (noted in
+`Planning/device_pages.md`). A family change
 rebuilds Canopy's image at deploy (the module's roles come from the image's
 copy of the schemas).
 
@@ -254,6 +261,8 @@ lane started; its findings and their dispositions:
 | 5 | Should-fix: the page's stored levels and `levels()` are 8-bit; a stored white of 255 saturates raw | Levels per mode as fractions of the mode's full scale; `levels`/`autoLevels` take the scale |
 | 6 | Should-fix: the sim cannot prove the goal (8-bit frames, no snow, no hot pixel) | Said in R2 and § Proof: sim = plumbing; the claims rest on fixture rows and the hardware proof |
 | 7 | Nits: the 8-bit hint text; `ETag` beside the custom header; a front-door proxy may re-encode gzip | All three in the contract, the page section and R3 |
+
+The slice-0 code review (fresh context, on the PR) added: the `/arrays` narrowing also drops `scope_contract`'s two on-request scalars (no consumer today; the scope route reads them — noted here and in `device_pages.md`); `astype`, never `view`, for the cast; mono frames only; three stale docstrings fixed.
 
 Verdict before fixes: "not yet; land a slice 0 first". Slice 0 is this
 commit; R1 and R2 start after it.
