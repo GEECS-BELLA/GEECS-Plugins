@@ -76,6 +76,12 @@
                   <button type="button" data-toggle-for="cbar{{ c.sfx }}" data-value="true" aria-pressed="{{ 'true' if c.cbar else 'false' }}">bar</button>
                   <button type="button" data-toggle-for="cbar{{ c.sfx }}" data-value="false" aria-pressed="{{ 'false' if c.cbar else 'true' }}">no bar</button>
                 </div>
+                {% if bg %}
+                <div class="seg" role="group" aria-label="Background subtraction" title="Take the background scan's average (this camera's) off every shot">
+                  <button type="button" data-toggle-for="bgsub{{ c.sfx }}" data-value="true" aria-pressed="{{ 'true' if c.bgsub else 'false' }}">bg</button>
+                  <button type="button" data-toggle-for="bgsub{{ c.sfx }}" data-value="false" aria-pressed="{{ 'false' if c.bgsub else 'true' }}">no bg</button>
+                </div>
+                {% endif %}
                 {# The region of interest, kept per camera: every tile shows it,
                    and the z scale is taken over it. #}
                 <button class="btn sm" type="button" data-roi-open="{{ k }}"{% if not c.tiles %} disabled{% endif %}
@@ -240,7 +246,14 @@
           <input type="hidden" name="layout" value="{{ layout }}">
           <input type="hidden" name="zscale" value="{{ zscale }}">
           <input type="hidden" name="cbar" value="{{ 'true' if cbar else 'false' }}">
+          {% if tab == "images" %}
+          {# The background scan (YYYY-MM-DD:N; the Strip group's day and scan
+             boxes write it) and the first camera's on/off for it. #}
+          <input type="hidden" name="bg" value="{{ bg }}">
+          {% if cams %}<input type="hidden" name="bgsub" value="{{ 'true' if cams[0].bgsub else 'false' }}">{% endif %}
+          {% endif %}
           {% for c in cams[1:] %}
+          <input type="hidden" name="bgsub{{ c.sfx }}" value="{{ 'true' if c.bgsub else 'false' }}">
           <input type="hidden" name="zscale{{ c.sfx }}" value="{{ c.zscale }}">
           <input type="hidden" name="cbar{{ c.sfx }}" value="{{ 'true' if c.cbar else 'false' }}">
           {% endfor %}
@@ -294,6 +307,21 @@
                 <span class="spacer"></span>
                 <input id="cols" name="cols" type="number" min="1" max="{{ max_cols }}" value="{{ cols }}" class="narrow-number" data-live>
               </div>
+            </div>
+            <div class="field">
+              {# The background scan: each camera's average over all its shots
+                 there comes off each of its shots (before the clean-ups). Any
+                 day; a camera row's "bg" toggle leaves it off that camera. #}
+              <div class="row">
+                <span class="hint">Background scan</span>
+                <span class="spacer"></span>
+                {% if bg %}<button class="btn sm ghost" type="button" data-bg-clear title="No background">none</button>{% endif %}
+              </div>
+              <div class="row">
+                <input type="date" aria-label="Background scan's day" value="{{ bg_day or day or '' }}" data-bg-day>
+                <input type="number" min="1" class="narrow-number" aria-label="Background scan number" placeholder="scan" value="{{ bg_scan or '' }}" data-bg-scan>
+              </div>
+              <span class="hint">{% if bg %}Scan{{ '%03d' % bg_scan }} ({{ bg_day }}): each camera's average over its shots there is taken off every shot.{% else %}Off. Type a scan number (and its day) to take its average off every shot.{% endif %}</span>
             </div>
           </div>
         </details>
@@ -528,7 +556,7 @@
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
           {% set n_tiles = (shown_tiles[0].tiles | length) if shown_tiles else 0 %}
-          {% set strip_line %}{% if many %}{{ cams | length }} cameras{% else %}{{ device or device_kept }}{% endif %}{% if shown_tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if shown_tiles %} · {{ n_tiles }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if not many and (hits != 'none' or centre is not none) %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}{% endset %}
+          {% set strip_line %}{% if many %}{{ cams | length }} cameras{% else %}{{ device or device_kept }}{% endif %}{% if shown_tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if shown_tiles %} · {{ n_tiles }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if not many and (hits != 'none' or centre is not none) %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}{% if bg and shown_tiles and (cams | selectattr('bg') | list) %} · minus background Scan{{ '%03d' % bg_scan }}{% endif %}{% endset %}
           <span class="dim">{{ strip_line }}</span>
           {% if shown_tiles %}
             {# The rows as one PNG (strip_export.js): copied, or saved to disk. #}

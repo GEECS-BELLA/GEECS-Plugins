@@ -95,3 +95,14 @@ def test_hits_on_a_broad_beam_are_removed_and_only_they_change() -> None:
     for spot in spots:
         assert abs(out[spot] - image[spot]) < 10
     assert int((out != hit).sum()) == len(spots)
+
+
+def test_a_background_is_taken_off_pixel_by_pixel() -> None:
+    from geecs_data_utils.data.image_prep import subtract_background
+
+    image = np.array([[10, 20], [30, 40]], dtype=np.uint16)
+    back = np.array([[1.0, 2.0], [3.0, 50.0]])
+    out = subtract_background(image, back)
+    np.testing.assert_allclose(out, [[9, 18], [27, -10]])  # floats: may go below 0
+    with pytest.raises(ValueError, match="background"):
+        subtract_background(image, np.zeros((3, 2)))

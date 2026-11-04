@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from geecs_portal.plotter import images, scans
 from geecs_portal.plotter.routes import Context
 from geecs_portal.plotter.routes.api import NO_CACHE
-from geecs_portal.plotter.settings import SettingsError, roi_value
+from geecs_portal.plotter.settings import SettingsError, roi_value, scan_refs
 
 Strip = Literal["bins", "shots", "pick"]
 
@@ -92,6 +92,7 @@ def tile_url(
     index: int,
     prep: ImagePrep = ImagePrep(),
     filters: str = "",
+    bg: str = "",
 ) -> str:
     """A tile's PNG URL, relative to the app root; the page adds the display.
 
@@ -103,6 +104,8 @@ def tile_url(
     query.update(strip="shots" if strip == "pick" else strip, index=index)
     if strip == "bins" and filters:
         query["filters"] = filters
+    if bg:
+        query["bg"] = bg  # the background scan (YYYY-MM-DD:N) taken off each shot
     return f"api/images/tile.png?{urlencode({**query, **prep_query(prep)})}"
 
 
@@ -145,6 +148,7 @@ def strip_tiles(
     pick_by: str = "",
     prep: ImagePrep = ImagePrep(),
     filters: str = "",
+    bg: str = "",
 ) -> list[TileModel]:
     """The strip's tiles with their URLs; captions carry the scan variable's value.
 
@@ -177,7 +181,7 @@ def strip_tiles(
             rows=list(t.rows),
             caption=t.caption,
             bin=t.bin,
-            url=tile_url(day, scan, device, strip, t.index, prep, filters),
+            url=tile_url(day, scan, device, strip, t.index, prep, filters, bg),
         )
         for t in found
     ]
@@ -254,6 +258,7 @@ def tile_png(
     bar: bool = False,
     prep: ImagePrep = ImagePrep(),
     cbar: bool = False,
+    background: Optional[images.Background] = None,
 ) -> bytes:
     """The tile's pixels, in its ROI, drawn as a PNG; a 404 naming why not.
 
@@ -264,7 +269,7 @@ def tile_png(
     """
     try:
         pixels = images.crop(
-            images.kept_tile_array(folder, frame, device, rows, prep), roi
+            images.kept_tile_array(folder, frame, device, rows, prep, background), roi
         )
         if bar:
             return _with_colour_bar(pixels, cmap, levels)
@@ -318,6 +323,26 @@ def grid_bar_png(
     if not (math.isfinite(zmin) and math.isfinite(zmax)) or zmax <= zmin:
         raise HTTPException(status_code=422, detail="zmax must be above zmin")
     return colour_bar_png(cmap, (zmin, zmax), length=length, vertical=vertical)
+
+
+def open_background(ctx: Context, bg: str) -> Optional[images.Background]:
+    """The ``bg`` parameter's scan (``YYYY-MM-DD:N``), opened; ``None`` for none.
+
+    Raises
+    ------
+    HTTPException
+        422 when *bg* is not one day and scan; 404 when there is no such scan.
+    """
+    if not bg:
+        return None
+    try:
+        (ref,) = scan_refs(bg)
+    except (SettingsError, ValueError) as bad:
+        raise HTTPException(status_code=422, detail=f"bg={bg!r}: {bad}") from None
+    run = ctx.run(ref.day, ref.scan)  # a 404 naming the scan when it is not there
+    return images.Background(
+        scans.scan_folder(run), scans.load_frame(run), f"Scan{ref.scan:03d} ({ref.day})"
+    )
 
 
 def register(router: APIRouter, ctx: Context) -> None:
@@ -375,6 +400,7 @@ def register(router: APIRouter, ctx: Context) -> None:
             default=None, description="centre on the beam: the threshold"
         ),
         filters: str = Query(default="", description="the shot filters (JSON)"),
+        bg: str = Query(default="", description="a background scan, YYYY-MM-DD:N"),
     ) -> JSONResponse:
         """One black and white for the whole strip (the "shared" z scale).
 
@@ -389,7 +415,13 @@ def register(router: APIRouter, ctx: Context) -> None:
         try:
             found = parse_rows(rows) if rows else images.tiles(frame, strip, keep=keep)
             zmin, zmax, count = images.shared_levels(
-                folder, frame, device, found, parse_roi(roi), prep
+                folder,
+                frame,
+                device,
+                found,
+                parse_roi(roi),
+                prep,
+                open_background(ctx, bg),
             )
         except images.NoImage as why:
             raise HTTPException(status_code=404, detail=str(why)) from None
@@ -422,6 +454,10 @@ def register(router: APIRouter, ctx: Context) -> None:
         filters: str = Query(
             default="", description="the shot filters (JSON): a bin's shots"
         ),
+        bg: str = Query(
+            default="",
+            description="a background scan, YYYY-MM-DD:N: its average off each shot",
+        ),
     ) -> Response:
         """One tile's PNG: the shot's image, or the bin's average, in its ROI.
 
@@ -437,7 +473,17 @@ def register(router: APIRouter, ctx: Context) -> None:
         levels = (zmin, zmax) if zmin is not None and zmax is not None else None
         prep = parse_prep(hits, centre)
         png = tile_png(
-            folder, frame, device, rows, parse_roi(roi), cmap, levels, bar, prep, cbar
+            folder,
+            frame,
+            device,
+            rows,
+            parse_roi(roi),
+            cmap,
+            levels,
+            bar,
+            prep,
+            cbar,
+            open_background(ctx, bg),
         )
         return Response(png, media_type="image/png", headers=NO_CACHE)
 

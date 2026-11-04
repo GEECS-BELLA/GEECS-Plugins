@@ -141,6 +141,7 @@ class ImageCamera(BaseModel):
     hits: str = "none"
     centre: Optional[float] = Field(default=None, gt=0)
     cbar: bool = True
+    bgsub: bool = True
 
 
 class PlotterSettings(BaseModel):
@@ -232,6 +233,12 @@ class PlotterSettings(BaseModel):
     #: Colour bars on the Images strip: one per tile while each tile scales
     #: itself, one for the grid on a shared or fixed z scale.
     image_cbar: bool = True
+    #: The background scan (any day): each camera's average over all its
+    #: shots there comes off each of its shots before the clean-ups; a
+    #: camera takes it unless its ``bgsub`` (the first's ``image_bgsub``)
+    #: is off. ``None``: no background.
+    image_bg: Optional[ScanRef] = None
+    image_bgsub: bool = True
     #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
     #: (x right, y down, the end excluded); a camera not here is whole.
     image_rois: dict[str, list[int]] = Field(default_factory=dict)
@@ -502,6 +509,8 @@ FORM_FIELDS = {
     "zmin": "image_zmin",
     "zmax": "image_zmax",
     "cbar": "image_cbar",
+    "bg": "image_bg",
+    "bgsub": "image_bgsub",
     "view": "xy_view",
     "filters": "shot_filters",
     "bincfg": "bin_config",
@@ -524,7 +533,15 @@ _JSON_FIELDS = {
     "map_config": "parse_gridcfg",
 }
 
-_BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias", "image_cbar")
+_BOOLEANS = (
+    "x_alias",
+    "y_alias",
+    "x_auto",
+    "y2_alias",
+    "y3_alias",
+    "image_cbar",
+    "image_bgsub",
+)
 
 #: The whole-number fields and their bounds (``None``: no upper bound).
 _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
@@ -571,7 +588,7 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
 #: A stacked camera's field: the first camera's form name, ``@`` and its
 #: place (2 for the second): ``cmap@2``, ``roi@3``.
 _CAMERA_FIELD = re.compile(
-    rf"(device|cmap|zscale|zmin|zmax|hits|centre|cbar|roi)@([2-{MAX_CAMERAS}])"
+    rf"(device|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|roi)@([2-{MAX_CAMERAS}])"
 )
 
 
@@ -714,11 +731,20 @@ def _centre_value(value: str) -> Optional[float]:
     return number
 
 
+def _bg_value(text: str) -> Optional[ScanRef]:
+    """The background scan, ``YYYY-MM-DD:N``; ``None`` (no background) for ``""``."""
+    refs = scan_refs(text)
+    if len(refs) > 1:
+        raise ValueError("one background scan, not several")
+    return refs[0] if refs else None
+
+
 #: The fields with a parser of their own.
 _PARSERS: dict[str, Callable[[str], object]] = {
     "day": date.fromisoformat,
     "extra_scans": scan_refs,
     "image_centre": _centre_value,
+    "image_bg": _bg_value,
 }
 
 

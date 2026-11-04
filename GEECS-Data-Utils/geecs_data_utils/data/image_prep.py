@@ -1,6 +1,7 @@
 """Clean-ups applied to one camera image before it is shown or averaged.
 
-Three steps, each pure numpy/scipy on a 2-D array:
+Three steps, each pure numpy/scipy on a 2-D array (after
+:func:`subtract_background`, when there is a background to take off):
 
 * :func:`remove_hits` — X-ray hits (single bright pixels or small clusters
   from stray radiation on the sensor): a median filter, or a gentler
@@ -37,6 +38,26 @@ HOT_SIGMAS = 5.0
 #: peak on the next pixel, while an X-ray hit leaves its neighbours at the
 #: background.
 HOT_NEIGHBOUR_SHARE = 0.05
+
+
+def subtract_background(image: np.ndarray, background: np.ndarray) -> np.ndarray:
+    """*image* less *background* (e.g. a background scan's average), as floats.
+
+    Raises
+    ------
+    ValueError
+        The two are not the same size (a background from another camera
+        or another region).
+    """
+    data = np.asarray(image, dtype=float)
+    back = np.asarray(background, dtype=float)
+    if data.shape != back.shape:
+        raise ValueError(
+            f"the background is {back.shape[1] if back.ndim > 1 else back.size}×"
+            f"{back.shape[0]} but the image is "
+            f"{data.shape[1] if data.ndim > 1 else data.size}×{data.shape[0]}"
+        )
+    return data - back
 
 
 def remove_hits(image: np.ndarray, method: str) -> np.ndarray:

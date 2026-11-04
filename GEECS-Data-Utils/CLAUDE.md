@@ -27,7 +27,9 @@ geecs_data_utils/
                                #   `scan` / `day`, the union of columns (NaN where
                                #   a scan lacks one), each shot keeping its own
                                #   number — so `Bin #` means nothing across scans
-  data/image_prep.py           # ImagePrep: one camera image's clean-ups, before
+  data/image_prep.py           # subtract_background (image less a background
+                               #   average, same size or a ValueError);
+                               #   ImagePrep: one camera image's clean-ups, before
                                #   it is drawn or averaged — X-ray hits out
                                #   (remove_hits: median 3×3/5×5, or "hot": only a
                                #   pixel far above neighbours that sit at the

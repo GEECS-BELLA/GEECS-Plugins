@@ -432,6 +432,9 @@ def _page(
         "max_cameras": MAX_CAMERAS,
         "strip_x": "",
         "filter_pass": "",
+        "bg": scan_refs_text([settings.image_bg]) if settings.image_bg else "",
+        "bg_day": settings.image_bg.day if settings.image_bg else None,
+        "bg_scan": settings.image_bg.scan if settings.image_bg else None,
         "trace": "",
         "strip_code": "",
     }
@@ -654,6 +657,7 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
         hits=_choice(settings, "image_hits"),
         centre=settings.image_centre,
         cbar=settings.image_cbar,
+        bgsub=settings.image_bgsub,
     )
 
 
@@ -700,6 +704,12 @@ def _camera_row(
         "tiles": [],
         "roi": ",".join(str(v) for v in roi) if roi else "",
         "pick_by": page.get("y", "") if page["pick"] == "ymax" else "",
+        # The background scan this row takes off each shot ("": none).
+        "bg": (
+            scan_refs_text([settings.image_bg])
+            if settings.image_bg and look.bgsub
+            else ""
+        ),
         "display_query": "",
         "levels_url": "",
     }
@@ -734,6 +744,7 @@ def _camera_row(
             pick_by=row["pick_by"],
             prep=prep,
             filters=settings.shot_filters,
+            bg=row["bg"],
         )
     except HTTPException as missing:
         row["problem"] = missing.detail
@@ -755,6 +766,7 @@ def _camera_row(
             **prep_query(prep),
             # Bins and shots: the strip is the shots the shot filters keep.
             **({"filters": settings.shot_filters} if settings.shot_filters else {}),
+            **({"bg": row["bg"]} if row["bg"] else {}),
         }
     )
     return row

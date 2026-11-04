@@ -157,6 +157,26 @@
   const scanBox = document.querySelector("[data-auto-open]");
   if (scanBox) stepper(scanBox, () => Boolean(form.elements.day.value));
 
+  // The background scan (the Images page): its day and number write the
+  // form's bg field (YYYY-MM-DD:N) and reload; "none" clears it.
+  const bgField = form && form.elements.bg;
+  const bgDay = document.querySelector("[data-bg-day]");
+  const bgScan = document.querySelector("[data-bg-scan]");
+  if (bgField && bgDay && bgScan) {
+    const saveBg = () => {
+      const scan = Number(bgScan.value);
+      if (!bgDay.value || !Number.isInteger(scan) || scan < 1) return;
+      bgField.value = `${bgDay.value}:${scan}`;
+      form.requestSubmit();
+    };
+    bgScan.addEventListener("change", saveBg);
+    bgDay.addEventListener("change", saveBg);
+    document.querySelector("[data-bg-clear]")?.addEventListener("click", () => {
+      bgField.value = "";
+      form.requestSubmit();
+    });
+  }
+
   // The two-way toggles (name | alias, X = scan variable): set the hidden
   // field and resubmit; the filters ride along in the form.
   for (const button of document.querySelectorAll("[data-toggle-for]")) {

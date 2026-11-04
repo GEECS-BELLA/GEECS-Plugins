@@ -18,7 +18,7 @@ import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 from geecs_data_utils.data.binning import bin_rows
 from geecs_data_utils.data.row_filters import RowFilters, filter_mask
-from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
+from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep, subtract_background
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import window_levels
 
@@ -308,18 +308,50 @@ def tiles(
     return out
 
 
+@dataclass(frozen=True)
+class Background:
+    """A background scan: each camera's average over all its shots there.
+
+    Identified by its folder (the cache keys on it); the s-file rides
+    along to name the shots.
+    """
+
+    folder: Path
+    frame: pd.DataFrame = field(compare=False, hash=False, repr=False)
+    label: str = field(default="", compare=False)
+
+
+def background_array(background: Background, device: str) -> np.ndarray:
+    """*device*'s average over every shot of the background scan (remembered).
+
+    Raises
+    ------
+    NoImage
+        The background scan has no image of *device*.
+    """
+    rows = tuple(range(1, len(background.frame) + 1))
+    try:
+        return kept_tile_array(background.folder, background.frame, device, rows)
+    except NoImage as why:
+        raise NoImage(
+            f"no background: {background.label or 'the background scan'} {why}"
+        ) from None
+
+
 def tile_array(
     folder: Path,
     frame: pd.DataFrame,
     device: str,
     rows: tuple[int, ...],
     prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
 ) -> np.ndarray:
     """The tile's pixels: one shot's image, or its shots' average.
 
-    *prep* cleans each shot before the average
+    *background* comes off each shot first (the camera's average over the
+    background scan, :func:`background_array`), then *prep* cleans it
     (``geecs_data_utils.data.image_prep``: X-ray hits out, then centred
-    on its beam), so a bin's average is of centred shots.
+    on its beam), so a bin's average is of subtracted, centred shots.
 
     ``geecs_data_utils.io.shot_images.average_rows``: shots the device
     missed, or whose file is missing or unreadable, are left out of the
@@ -330,8 +362,22 @@ def tile_array(
     NoImage
         No shot of the tile has an image; the reason why.
     """
+    back = background_array(background, device) if background is not None else None
+
+    def prepare(image: np.ndarray) -> np.ndarray:
+        if back is not None:
+            try:
+                image = subtract_background(image, back)
+            except ValueError as why:
+                raise NoImage(str(why)) from None
+        return prep.apply(image)
+
     found = shot_images.average_rows(
-        folder, frame, device, rows, prepare=prep.apply if prep.active else None
+        folder,
+        frame,
+        device,
+        rows,
+        prepare=prepare if (prep.active or back is not None) else None,
     )
     if found.array is None:
         raise NoImage(found.reason or found.kind)
@@ -349,6 +395,7 @@ def kept_tile_array(
     device: str,
     rows: tuple[int, ...],
     prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
 ) -> np.ndarray:
     """:func:`tile_array`, remembered until the camera's folder changes.
 
@@ -367,8 +414,8 @@ def kept_tile_array(
     try:
         stamp = (folder / device).stat().st_mtime_ns
     except OSError:
-        return tile_array(folder, frame, device, rows, prep)
-    key = (str(folder), device, rows, len(frame), stamp, prep)
+        return tile_array(folder, frame, device, rows, prep, background)
+    key = (str(folder), device, rows, len(frame), stamp, prep, background)
     now = time.monotonic()
     with _kept_lock:
         kept = _kept.get(key)
@@ -382,7 +429,7 @@ def kept_tile_array(
     if kept is not None:
         return kept
     try:
-        pixels = tile_array(folder, frame, device, rows, prep)
+        pixels = tile_array(folder, frame, device, rows, prep, background)
     except NoImage as why:
         _keep(key, (str(why), now))
         raise
@@ -434,6 +481,7 @@ def shared_levels(
     tiles: list[Tile],
     roi: Optional[Roi] = None,
     prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
 ) -> tuple[float, float, int]:
     """One black and one white for every tile: the darkest and brightest pixel.
 
@@ -456,7 +504,9 @@ def shared_levels(
 
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
-            pixels = crop(kept_tile_array(folder, frame, device, tile.rows, prep), roi)
+            pixels = crop(
+                kept_tile_array(folder, frame, device, tile.rows, prep, background), roi
+            )
         except NoImage:
             return None
         return window_levels(pixels, 0.0, 100.0)  # its darkest and brightest

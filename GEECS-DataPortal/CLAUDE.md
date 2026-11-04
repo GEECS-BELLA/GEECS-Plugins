@@ -906,7 +906,18 @@ passing shots (`images.shot_rows` → `keep`; a bin averages or picks
 from its passing shots and drops out with none, a bin tile's index is
 its place among the bins left). A bin tile's URL and the levels route
 carry the set's filter JSON (`filters=`), so every route resolves a
-tile's rows alike; a shot or picked tile names its row and needs none. A device whose stack holds traces
+tile's rows alike; a shot or picked tile names its row and needs none.
+
+**Background subtraction** (the author, 2026-11-03): the rail's
+Background scan (`image_bg`, a `ScanRef`, any day) names a scan whose
+average each camera takes off each of its shots, first (before the
+X-ray-hit filter, the centring and the ROI). The background is that
+camera's tile over every shot of the background scan
+(`images.background_array`, through `kept_tile_array`, so it is read
+once); `images.Background` keys the cache on the scan's folder. Tile
+and levels URLs carry `bg=YYYY-MM-DD:N`; a camera row's bg / no bg
+toggle (`image_bgsub`, `ImageCamera.bgsub`) leaves it off that camera.
+The big view's processing preview (a recipe's) does not subtract it. A device whose stack holds traces
 (`images.trace_kind`) has no strip and draws one shot's trace from the
 portal's `/api/run/{uid}/trace`. Tiles carry their bin label
 (`images.Tile.bin`), which is how a 2-D map cell opens on its bin. The
