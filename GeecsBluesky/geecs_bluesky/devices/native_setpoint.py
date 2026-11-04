@@ -241,21 +241,58 @@ class NativeSetpoint(StandardReadable):
                 "or the supply refused it",
                 written=True,
             )
+        await self._confirm(target)
+
+    async def _poll_once(self, target: float) -> float:
+        """One confirmation read: the bits, the readback's severity, its value."""
+        raised = await self._raised_bits()
+        if raised:
+            raise self._refused(
+                target,
+                f"status bit(s) {', '.join(raised)} rose while waiting for "
+                "the readback",
+                written=True,
+            )
+        invalid = await self._readback_invalid()
+        if invalid is not None:
+            raise self._refused(target, invalid, written=True)
+        return float(await self.readback.get_value(cached=False))
+
+    async def _confirm(self, target: float) -> None:
+        """Wait for the readback within tolerance, every read inside one deadline.
+
+        Each poll is bounded by the time left, so a slow or stalled CA read
+        cannot carry the set past its timeout, and a value that arrives
+        after the deadline is not accepted.
+        """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._timeout
+        current: float | str = "nothing (no read completed)"
+
+        def expired() -> GeecsConfirmTimeoutError:
+            return GeecsConfirmTimeoutError(
+                self._geecs_device_name,
+                self._variable,
+                self._readback_pv,
+                target=target,
+                current=current,
+                timeout=self._timeout,
+            )
+
         while True:
-            raised = await self._raised_bits()
-            if raised:
-                raise self._refused(
-                    target,
-                    f"status bit(s) {', '.join(raised)} rose while waiting for "
-                    "the readback",
-                    written=True,
-                )
-            invalid = await self._readback_invalid()
-            if invalid is not None:
-                raise self._refused(target, invalid, written=True)
-            current = float(await self.readback.get_value(cached=False))
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise expired()
+            try:
+                current = await asyncio.wait_for(self._poll_once(target), remaining)
+            except TimeoutError:
+                # Ours once the deadline has passed; otherwise the read's own
+                # CA timeout, which is not a confirmation timeout.
+                if loop.time() >= deadline:
+                    raise expired() from None
+                raise
+            if loop.time() > deadline:
+                raise expired()
             if within_tolerance(current, target, self._tolerance):
                 logger.debug(
                     "%s: confirmed %s = %r (target=%r, tol=%.4g)",
@@ -266,16 +303,7 @@ class NativeSetpoint(StandardReadable):
                     self._tolerance,
                 )
                 return
-            if loop.time() > deadline:
-                raise GeecsConfirmTimeoutError(
-                    self._geecs_device_name,
-                    self._variable,
-                    self._readback_pv,
-                    target=target,
-                    current=current,
-                    timeout=self._timeout,
-                )
-            await asyncio.sleep(POLL_INTERVAL_S)
+            await asyncio.sleep(min(POLL_INTERVAL_S, max(0.0, deadline - loop.time())))
 
 
 class NativeSetpointDevice(StandardReadable):

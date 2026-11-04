@@ -108,6 +108,12 @@ def test_a_setpoint_device_is_not_a_detector_kind() -> None:
         ({"settables": {"current": {}}}, "tolerance"),  # required
         ({"settables": {"current": {"tolerance": 0}}}, "greater than 0"),
         ({"settables": {"current": {"tolerance": 0.1, "timeout": -1}}}, "greater"),
+        ({"settables": {"current": {"tolerance": float("inf")}}}, "finite"),
+        ({"settables": {"current": {"tolerance": float("nan")}}}, "finite"),
+        (
+            {"settables": {"current": {"tolerance": 0.1, "timeout": float("inf")}}},
+            "finite",
+        ),
         ({"settables": {"current": {"tolerance": 0.1, "units": "A"}}}, "extra"),
         ({"settables": {"output current": {"tolerance": 0.1}}}, "record name"),
         ({"readbacks": ["Current"]}, "same record"),  # a settable's readback again

@@ -312,6 +312,43 @@ def test_a_readback_that_never_arrives_times_out_in_the_confirm_words(RE) -> Non
     assert "reads 0.5, did not match 2.0 within 1.0s" in message
 
 
+def test_a_readback_arriving_after_the_deadline_times_out(RE) -> None:
+    """A slow read is bounded by the set's timeout; its late in-tolerance value is refused."""
+    supply = _supply(RE)
+    current = supply.current
+    current._timeout = 0.05
+    real = current.readback.get_value
+
+    async def slow(cached=None):
+        await asyncio.sleep(0.2)
+        set_mock_value(current.readback, 2.0)  # on target, but too late
+        return await real(cached=cached)
+
+    current.readback.get_value = slow  # type: ignore[method-assign]
+    loop_time = asyncio.run_coroutine_threadsafe(_now(), RE._loop).result
+    started = loop_time()
+    with pytest.raises(GeecsConfirmTimeoutError, match="within 0.1s"):
+        _run(RE, lambda: current.set(2.0))
+    assert loop_time() - started < 0.15
+
+
+def test_a_read_that_never_returns_times_out_in_the_confirm_words(RE) -> None:
+    supply = _supply(RE)
+    current = supply.current
+    current._timeout = 0.05
+
+    async def stalled(cached=None):
+        await asyncio.Event().wait()
+
+    current.readback.get_value = stalled  # type: ignore[method-assign]
+    with pytest.raises(GeecsConfirmTimeoutError, match="no read completed"):
+        _run(RE, lambda: current.set(2.0))
+
+
+async def _now() -> float:
+    return asyncio.get_running_loop().time()
+
+
 def test_the_set_reads_the_records_not_the_monitor_cache(RE) -> None:
     supply = _supply(RE)
     current = supply.current

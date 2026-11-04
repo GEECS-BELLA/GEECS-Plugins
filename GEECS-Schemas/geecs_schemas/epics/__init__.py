@@ -186,15 +186,19 @@ class EpicsMotor(_NativeEntry):
 class SetpointSettable(SchemaModel):
     """One settable of a setpoint device: how close its readback must come, and how soon."""
 
+    # Finite: an infinite tolerance confirms any readback, an infinite
+    # timeout removes the deadline (PositiveFloat alone admits +inf).
     tolerance: PositiveFloat = Field(
+        allow_inf_nan=False,
         description=(
             "How close the readback must come to the requested value for the "
             "set to be done, in the record's units (e.g. 0.005 for 5 mA on a "
             "supply in A). The one device fact a plain 'ao' record cannot hold."
-        )
+        ),
     )
     timeout: PositiveFloat = Field(
         10.0,
+        allow_inf_nan=False,
         description=(
             "Seconds the set waits for the readback to arrive within the "
             "tolerance after the write, before it fails. Size it for the "
