@@ -68,6 +68,7 @@ between is lost to it.
 | **asynchronous device** | no edge; its value at shot time is its last sample before the shot: motors, supplies, a camera in free-run |
 | **stamp kind** | where a device's timestamp was taken: *host-receipt* (the IOC host's clock when the complete acquisition arrived), *device-clock* (the camera's own tick counter), *ptp* (the camera's clock disciplined by PTP), *poll* (the witness) |
 | **counter** | a per-acquisition integer: *hardware* (the camera's frame id), *driver* (the IOC's count of complete acquisitions), *announced* (the scan's shot number echoed back by a LabVIEW device) |
+| **fire permit** | a readback that says whether a useful shot can be taken now, with a count of its changes to ready; a strict plan configured with one fires only on a fresh change to ready (§6.1). Another facility's mode; its source is a facility value |
 | **announcement** | the scan-mode shot message Master Control, and now the worker, multicasts before each shot: the software "fire" a LabVIEW device needs before it will take its next acquisition (`docs/acquisition/scan_mode.md`). Distinct from the edge: the box fires the edge after it |
 
 Class is a property of the **configuration**, not the device type: the
@@ -218,7 +219,7 @@ Derived from failure modes, not preference:
   the budget (§4.4). The stored offset changes only by a recorded
   calibration, which with a witness is the median residual over the last
   N shots of any run, written as `shot_offsets.yaml` is written today
-  (`GEECS-Schemas/geecs_schemas/shot_offsets.py`). Open question 9 asks
+  (`GEECS-Schemas/geecs_schemas/shot_offsets.py`). Open question 10 asks
   whether that stays deliberate or becomes continuous; the recommendation
   is deliberate.
 
@@ -399,7 +400,7 @@ only as an audit gap, milliseconds wide at 1 Hz. The scope contract's
 ### 5.3 The witness instance (geecs-epics)
 
 The 1808X instance beside the shot-control box, on the nearest Linux IOC
-host's USB (open question 5): stock measComp records, `PollSleepMS` pinned
+host's USB (open question 6): stock measComp records, `PollSleepMS` pinned
 to 10 at boot, a bench IOC until the counter is proven on the tee, then a
 lab IOC. Its registry entry is a new kind, *shot witness*, naming the
 trigger domain it counts. Decision 13 asks for a simulator: a witness fake
@@ -517,6 +518,47 @@ from the stored evidence alone.
 announce stamp, the frame index, the edge time and the flags (§4.2), so a
 witness join can be run offline later over Phase A data.
 
+**The fire permit: a mode to retain** (another facility's lead, via the
+maintainer, 2026-11-03). At that facility a small service reads the
+machine and reports *ready* or *not ready*, meaning only whether a useful
+shot can be taken now, and the scanner fires a shot when the report
+changes from not ready to ready, waiting ten or twenty seconds if that is
+what it takes. The design keeps it as a contract and places it at one
+seam:
+
+- **Contract.** A *fire permit* is a readable with two fields: the level
+  (ready or not) and a count of its changes to ready. Its source is a
+  facility value in the registry: an EPICS binary record, a GEECS device
+  variable through the gateway, or a thin client of a text service such
+  as that facility's, each counting the transitions itself. Nothing in the
+  plan names the source.
+- **Seam.** The wait sits between arming and the fire, inside
+  `fire_and_await_shot` (`plans/strict.py:154-243`): every device has
+  baselined and the LabVIEW devices are announced and armed, then the plan
+  waits for the permit, then fires, and the device timeouts start at the
+  fire as they do today. So a ready window shorter than the arming latency
+  is still usable, and a twenty-second wait costs no device its timeout.
+- **Edge, latched, consumed.** The plan fires on a change to ready that
+  happened since the last fire, read from the count, and only while the
+  level is still ready at the moment of firing. Latching the count means a
+  change that arrives while the plan is busy closing the previous row is
+  not lost; consuming it at the fire means a level that simply stays
+  ready does not fire the next step by itself. A facility whose readiness
+  is a level, not an event, configures the permit as such.
+- **Waiting.** No timeout by default, since the wait is the facility's
+  normal; the plan reports the wait in progress and the run stays
+  pausable. An optional timeout flags the step *no-permit* and pauses the
+  run for the operator rather than aborting it.
+- **What a long wait does to synchronization.** Nothing to the pick: fires
+  seconds apart make the edge unambiguous. Hardware-triggered devices sit
+  armed through the wait, as they did under Master Control. A
+  free-running camera in scan mode takes its next frame right after the
+  announcement, seconds before the shot, so under a permit it is treated
+  as asynchronous for the run and its frame flagged *stale* when it
+  precedes the fire by more than a frame period, the §4.3 rule. In Phase B
+  the witness counts fires however spaced; gated runs and the permit are
+  unrelated, since a gated run takes every edge.
+
 ### 6.2 Phase B: who clocks a run
 
 Two shapes, with their failure modes. Phase A is compatible with either;
@@ -551,6 +593,7 @@ to reconcile.
 |---|---|---|---|---|
 | A1 | GEECS-Schemas | the per-native `frame_index` and `edge_time` row columns and the flags *extra*, *missing*, *edge-mismatch*; a nominal drain in `shot_offsets.py` for a camera without a measured offset | ~40 / ~40 | — |
 | A2 | GeecsBluesky | Phase A (§6.1): continuous acquisition through the run, the capture window, the pick by edge time, the flag instead of the raise, the plugin-camera refusal dropped | ~120 / ~150 | none; the sim bench, then a laser-off hybrid strict scan |
+| A4 | GeecsBluesky, GEECS-Schemas | the fire permit (§6.1): the permit readable and its registry kind, the wait inside `fire_and_await_shot`, the *no-permit* and *stale* flags; a fake permit for the tests | ~60 / ~80 | none; a fake permit on the sim bench |
 | A3 | GEECS-Data-Utils | the offline reproduction of the pick and the edge check from the stored columns (`shot_join.py` grows) | ~60 / ~80 | — |
 | S0 (Phase B) | geecs-epics | the witness instance (`/add-device` of the DAQ family) beside the shot-control box; `PollSleepMS` pinned; the bench proof: the tee'd edges counted, the poll-lag spread, no doubles; the witness fake on the sim bench | ~80 config / the check script | the tee and the USB run (maintainer); one write, the poll period |
 | S1 (Phase B) | GEECS-Schemas | the evidence record (§4.2) and a per-device sync entry (class, stamp kind, counter kind, offset, budget, trigger domain), extending `shot_offsets.py`; the witness registry kind | ~150 / ~150 | — |
@@ -583,7 +626,7 @@ the maintainer's hand-off and go as the gate.
    LabVIEW devices: every row's edge times within half a period, the
    extra frames flagged, the pick reproduced offline.
 1. **Witness alone (Phase B).** The tee into a counter input, the input level checked
-   against the box's output before cabling (open question 6). Monitor the
+   against the box's output before cabling (open question 7). Monitor the
    count and its stamp for an hour of ordinary running: rate against the
    rep rate, doubles, the spread of successive stamp deltas (the poll lag).
    The one write, the poll period, waits for the go.
@@ -616,29 +659,32 @@ Phase A:
    the measured value per camera where `shot_offsets.yaml` has one.
 3. **Extra frames.** They stay in the stack, flagged, with the row
    referencing by index (recommended), or are pruned at run end.
+4. **The fire permit's defaults.** Fire on a latched change to ready,
+   consumed at the fire, no timeout (recommended: the other facility's
+   behaviour as described), or fire on the level.
 
 Phase B, held:
 
-4. **W2.** Build the witness-clocked mode (§6.2), or stop at the join (W1)?
-5. **Witness placement.** A small Linux IOC host beside the shot-control
+5. **W2.** Build the witness-clocked mode (§6.2), or stop at the join (W1)?
+6. **Witness placement.** A small Linux IOC host beside the shot-control
    box, or a USB run to the nearest existing host; and the poll period at
    10 ms.
-6. **Input compatibility.** The 1808X counter input's threshold and
+7. **Input compatibility.** The 1808X counter input's threshold and
    minimum pulse width against the DG645 output's level and width, before
    the tee is cabled.
-7. **Camera features.** Decided 2026-11-03: PTP skipped, the
+8. **Camera features.** Decided 2026-11-03: PTP skipped, the
    *device-clock* tier is the latch and the fit (section 4.4). Left: the
    third camera server's cameras, read the same way.
-8. **The LabVIEW wire shot number outside scan mode**: in scan mode it is
+9. **The LabVIEW wire shot number outside scan mode**: in scan mode it is
    the announced number (settled, §4.6); what it counts while a device
    free-runs between scans the passive logger answers. Nothing to decide
    unless it behaves unexpectedly.
-9. **Offset updates**: by recorded calibration only (recommended, for
+10. **Offset updates**: by recorded calibration only (recommended, for
    reproducible runs), or continuously from the tracker.
-10. **Shot columns**: `Shotnumber` stays the row index with a new witness
+11. **Shot columns**: `Shotnumber` stays the row index with a new witness
    column (recommended, the `announced_shot` precedent), or becomes the
    witness count.
-11. **5 Hz**: which of §4.4's conditions to pursue first once 1 Hz runs
+12. **5 Hz**: which of §4.4's conditions to pursue first once 1 Hz runs
    under the witness.
 
 ## 10. What this deletes at the end
