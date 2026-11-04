@@ -97,7 +97,7 @@
       "platformAutomerge": false
     },
     {
-      "description": "pre-commit hook pins (ruff, pydocstyle, pre-commit-hooks): grouped, automerged only when CI is green; a formatter bump that rewrites code fails the pre-commit workflow and stays open.",
+      "description": "pre-commit hook pins (pydocstyle, pre-commit-hooks; ruff has its own rule below): grouped, automerged only when CI is green.",
       "matchManagers": [
         "pre-commit"
       ],
