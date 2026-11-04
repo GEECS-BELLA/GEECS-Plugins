@@ -32,6 +32,7 @@
   let view = { scale: 1, ox: 0, oy: 0, moved: false }, vw = 0, vh = 0;
   // raw: the mode (MJPEG by default, never remembered); gen: bumped on every toggle, so an answer of the other mode is dropped
   let raw = false, gen = 0, rawState = { transform: null }; // the drawn raw frame's transform and full scale (none before the first)
+  rawIn.checked = false; // a browser may restore the box on reload; the page starts in MJPEG, so the box says so
   const mode = () => (raw ? "raw" : "mjpeg");
   const transformNow = () => R.transformName(P.frame("transform"), P.meta("transform"));
   const words = () => R.modeWords(raw, rawState);
@@ -460,7 +461,7 @@
     if (ok === null) say("unknown", "unsent · another write is in flight");
     return ok;
   };
-  const W = window.GeecsCameraView = { write: writeOrSay, busy: write.busy, hazardsOf, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => [iw, ih] };
+  const W = window.GeecsCameraView = { write: writeOrSay, busy: write.busy, hazardsOf, value, hooks, clicks, layers, toView, redraw: draw, frameSize: () => (overlaysOn() ? [iw, ih] : [0, 0]) }; // an unknown transform's geometry is not the ROI's
   resize();
   sayMode();
   loop();
