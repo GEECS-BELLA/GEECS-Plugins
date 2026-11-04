@@ -43,6 +43,7 @@ from geecs_portal.plotter.routes.images import (
     strip_axis,
     strip_code,
     strip_tiles,
+    trace_code,
 )
 from geecs_portal.plotter.settings import (
     CHOICES,
@@ -610,9 +611,8 @@ def _fill_images(
     page["devices"] = devices
     looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
     x, page["strip_x"] = strip_axis(run, frame, settings.x_alias)
-    alone = len(looks) == 1
     page["cams"] = cams = [
-        _camera_row(page, run, frame, settings, folder, devices, look, place, x, alone)
+        _camera_row(page, run, frame, settings, folder, devices, look, place, x)
         for place, look in enumerate(looks, 1)
     ]
     # The shot filters keep the same shots here as on the Plot page.
@@ -642,7 +642,17 @@ def _fill_images(
         display_query=first["display_query"],
         levels_url=first["levels_url"],
     )
-    if first["tiles"]:
+    if first["tiles"] and first["trace"]:
+        page["strip_code"] = trace_code(
+            page["day"],
+            page["scan"],
+            first["device"],
+            page["strip"],
+            experiment,
+            first["channel"],
+            first["pick_by"],
+        )
+    elif first["tiles"]:
         prep = ImagePrep(hits=first["hits"], centre=first["centre"])
         page["strip_code"] = strip_code(
             page["day"],
@@ -667,6 +677,7 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
         centre=settings.image_centre,
         cbar=settings.image_cbar,
         bgsub=settings.image_bgsub,
+        channel=settings.image_channel,
     )
 
 
@@ -690,15 +701,16 @@ def _camera_row(
     look: ImageCamera,
     place: int,
     x: Optional[str],
-    alone: bool,
 ) -> dict:
     """One camera's row: its look, its problem or its tiles and URLs.
 
     A saved camera this scan has no folder for is kept (``kept``) so the
     next pick does not erase it. With none saved the row asks for one:
     probing every folder for a camera costs tens of seconds cold over the
-    share. A trace device draws one shot at a time, so it is shown only
-    as the one camera.
+    share. A device that records traces (a scope) is a row of trace tiles
+    (``trace``: what it records; ``channels``: the scope's), on the same
+    bins; a camera's clean-ups, background, ROI and colour map do not
+    apply to it.
     """
     device = look.device or ""
     roi = settings.image_rois.get(device) if device else None
@@ -710,6 +722,7 @@ def _camera_row(
         "kept": "",
         "problem": None,
         "trace": "",
+        "channels": [],
         "tiles": [],
         "roi": ",".join(str(v) for v in roi) if roi else "",
         "pick_by": page.get("y", "") if page["pick"] == "ymax" else "",
@@ -729,18 +742,24 @@ def _camera_row(
     elif not device:
         row["problem"] = "pick a camera from the list"
     elif not images.is_image_device(folder, device, devices):
-        trace = images.trace_kind(folder, device, devices)
-        if trace and alone:
-            row["trace"] = trace  # the big view draws one shot's trace at a time
-        elif trace:
-            row["problem"] = f"{device} records {trace}s: open it as the only camera"
+        probe = images.trace_device(folder, device, devices)
+        if probe.kind:
+            # Traces: none of a camera's clean-ups, background or ROI.
+            row.update(
+                trace=probe.content,
+                channels=list(probe.channels),
+                bg="",
+                roi="",
+                cbar=False,
+            )
         else:
             row["problem"] = (
                 f"{device} has no pictures (a vendor format or a file the page cannot draw)"
             )
-    if row["problem"] or row["trace"]:
+    if row["problem"]:
         return row
-    prep = ImagePrep(hits=row["hits"], centre=row["centre"])
+    trace = bool(row["trace"])
+    prep = ImagePrep() if trace else ImagePrep(hits=row["hits"], centre=row["centre"])
     try:
         row["tiles"] = strip_tiles(
             run,
@@ -754,6 +773,7 @@ def _camera_row(
             prep=prep,
             filters=settings.shot_filters,
             bg=row["bg"],
+            channel=row["channel"] if trace else None,
         )
     except HTTPException as missing:
         row["problem"] = missing.detail
@@ -776,6 +796,7 @@ def _camera_row(
             # Bins and shots: the strip is the shots the shot filters keep.
             **({"filters": settings.shot_filters} if settings.shot_filters else {}),
             **({"bg": row["bg"]} if row["bg"] else {}),
+            **({"channel": row["channel"]} if trace else {}),
         }
     )
     return row

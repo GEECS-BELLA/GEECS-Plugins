@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from geecs_portal.plotter import images
@@ -82,18 +81,6 @@ def test_without_a_set_the_images_page_asks_the_name_and_comes_back(
 ) -> None:
     page = client.get("/images", params=SCAN).text
     assert 'id="ask-name"' in page and 'action="/images"' in page
-
-
-def test_a_trace_device_gets_the_big_view_one_shot_at_a_time(
-    client: TestClient, camera: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        images, "trace_kind", lambda folder, device, devices=None: "waveform"
-    )
-    page = post(client, scan=1, page="images", device="U_Haso")
-    assert 'data-mode="trace"' in page and 'id="big-trace"' in page
-    assert 'id="strip"' not in page
-    assert "waveforms, one shot at a time" in page
 
 
 def test_a_vendor_device_says_so(client: TestClient, camera: Path) -> None:

@@ -119,6 +119,16 @@ geecs_data_utils/
                                #   load_shot_trace reads one as x-vs-y;
                                #   moved from the portal so every viewer
                                #   resolves a shot alike
+                               #   + shot_traces.py: a trace device row by
+                               #   row — trace_device (array stack, or
+                               #   per-shot NI-HWS scope files: the LeCroy
+                               #   .dat, read as tek_scope_hdf5, channels
+                               #   named from the file), load_row_trace (a
+                               #   missed row is refused, never a
+                               #   neighbour's), average_traces (sample by
+                               #   sample on ONE shared x axis, else None —
+                               #   never resampled); native_shot_file in
+                               #   shot_images is the file lookup both share
                                #   + display_png.py: frame → 8-bit PNG
                                #   through a percentile window, optional
                                #   matplotlib colour map (lazy import; no

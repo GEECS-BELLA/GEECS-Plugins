@@ -3,8 +3,9 @@
 // row's tile moves the big view to that camera). It is the tile's own picture (its ROI, levels and
 // colour map, following the tile as they change); with a recipe picked, a
 // shot is the portal's processing preview instead (image.png, the whole
-// frame on its own levels). A trace device has no strip and draws one
-// shot's trace (the portal's trace route). The selection is the browser tab's
+// frame on its own levels). A trace row's tile (a scope's shot, or its
+// bin's mean) is drawn as a plot that zooms, from the strip's trace route
+// (api/images/trace, the tile's own rows). The selection is the browser tab's
 // (sessionStorage, per scan, device and strip), never the set's; a 2-D map
 // cell opens the page on its bin (?bin=).
 "use strict";
@@ -14,7 +15,7 @@
   if (!view) return;
   const $ = (id) => document.getElementById(id);
   const d = view.dataset;
-  const mode = d.mode;  // "bins", "shots", "pick" (one shot per bin) or "trace"
+  const mode = d.mode;  // "bins", "shots" or "pick" (one shot per bin)
   const single = mode === "shots" || mode === "pick";  // each tile one shot
   const tools = window.PlotTools || { config: () => ({ responsive: true }), themed: (v) => v };
   const strips = Array.from(document.querySelectorAll(".strip[data-cam]"));
@@ -23,7 +24,8 @@
   let strip = strips.find((s) => s.dataset.cam === kept0(ROW_KEY)) || strips[0] || null;
   let tiles = strip ? Array.from(strip.querySelectorAll(".tile")) : [];
   const device = () => (strip ? strip.dataset.device : d.device);
-  const total = () => (mode === "trace" ? Number(d.shots) || 0 : tiles.length);
+  const total = () => tiles.length;
+  const traceRow = () => Boolean(strip && strip.dataset.kind === "trace");
   function kept0(key) { try { return sessionStorage.getItem(key) || ""; } catch (_) { return ""; } }
   const note = $("big-note");
   const caption = $("big-caption");
@@ -37,7 +39,7 @@
   // ---- where to start: the map's bin, else this tab's last pick ----
   function start() {
     const wanted = new URLSearchParams(location.search).get("bin");
-    if (wanted !== null && mode !== "trace") {
+    if (wanted !== null) {
       const i = tiles.findIndex((t) => t.dataset.bin === wanted);
       if (i >= 0) return i;
     }
@@ -52,7 +54,7 @@
   const processing = $("big-processing");
   const offered = new Map();  // device -> its recipe names
   function offerProcessing() {
-    if (!(portal && single)) return;
+    if (!(portal && single) || traceRow()) return;  // a recipe draws a camera's shot
     const name = device();
     const fill = (names) => {
       if (device() !== name) return;
@@ -94,6 +96,9 @@
   function picture(i) {
     const tile = tiles[i];
     const image = $("big-image");
+    image.hidden = traceRow();
+    $("big-trace").hidden = !traceRow();
+    if (traceRow()) { trace(i); return; }
     const thumb = tile.querySelector("img");
     const processed = single && portal && processing.value;
     // The tile's picture, drawn with a colour bar beside it.
@@ -113,29 +118,33 @@
     image.onerror = async () => { if (current === i) note.textContent = await why(src); };
     image.src = src;
   }
-  function trace(shot) {
+  let shownFigure = null;  // the trace figure drawn, re-themed on a theme change
+  function drawFigure(figure) {
+    shownFigure = figure;
+    const fig = tools.themed(JSON.parse(JSON.stringify(figure)));
+    Plotly.react($("big-trace"), fig.data, fig.layout, tools.config());
+  }
+  function trace(i) {
+    // The tile's own URL (its rows, channel and filters), as a figure.
     const host = $("big-trace");
-    const query = new URLSearchParams({ device: device(), shot: String(shot), day: d.day });
-    host.dataset.caption = `${device()} · shot ${shot}`;
-    note.textContent = "";
-    fetch(`${d.portalRoot}/api/run/${encodeURIComponent(d.uid)}/trace?${query}`)
+    const own = tiles[i].querySelector("img").dataset.tile || "";
+    const url = own.replace("/api/images/tile.png?", "/api/images/trace?");
+    host.dataset.caption = `${device()} · ${tiles[i].dataset.caption}`;
+    note.textContent = "Loading the trace…";
+    fetch(url)
       .then((r) => r.json().then((body) => ({ r, body })))
       .then(({ r, body }) => {
-        if (current !== shot - 1) return;
-        if (!r.ok) { Plotly.purge(host); note.textContent = String(body.detail || r.statusText); return; }
-        const fig = tools.themed(JSON.parse(JSON.stringify(body.figure)));
-        Plotly.react(host, fig.data, fig.layout, tools.config());
+        if (current !== i || !traceRow()) return;
+        if (!r.ok) { shownFigure = null; Plotly.purge(host); note.textContent = String(body.detail || r.statusText); return; }
+        note.textContent = mode === "bins" && body.shots > 1
+          ? "The bin's mean, sample by sample: drag to zoom, double-click to reset." : "Drag to zoom, double-click to reset.";
+        drawFigure(body.figure);
       })
       .catch((error) => { note.textContent = String(error); });
   }
   function show(i) {
     current = Math.max(0, Math.min(total() - 1, i));
     keep(key(), String(current));
-    if (mode === "trace") {
-      caption.textContent = `shot ${current + 1} of ${total()}`;
-      trace(current + 1);
-      return;
-    }
     for (const s of strips) {
       for (const t of s.querySelectorAll(".tile")) t.toggleAttribute("aria-current", t === tiles[current]);
     }
@@ -164,12 +173,13 @@
   // a new colour map, levels or ROI): follow it.
   if (typeof MutationObserver !== "undefined") {
     const observer = new MutationObserver((changes) => {
-      if (changes.some((c) => c.target === tiles[current]?.querySelector("img"))) picture(current);
+      // (a trace's figure does not change with its tile's y range)
+      if (!traceRow() && changes.some((c) => c.target === tiles[current]?.querySelector("img"))) picture(current);
     });
     for (const img of document.querySelectorAll(".strip .tile img")) observer.observe(img, { attributes: true, attributeFilter: ["src"] });
   }
   for (const button of document.querySelectorAll("[data-big-step]"))
     button.addEventListener("click", () => show(current + Number(button.dataset.bigStep)));
-  window.addEventListener("geecs:theme", () => { if (mode === "trace") show(current); });
+  window.addEventListener("geecs:theme", () => { if (traceRow() && shownFigure) drawFigure(shownFigure); });
   show(current);
 })();

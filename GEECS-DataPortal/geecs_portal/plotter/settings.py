@@ -52,6 +52,9 @@ MAX_OVERLAY_SCANS = 8
 #: Cameras stacked on the Images page, the first included.
 MAX_CAMERAS = 8
 
+#: The highest scope channel a row may name (from 0).
+MAX_CHANNEL = 15
+
 #: The choices of the tab and image controls, as stored.
 CHOICES: dict[str, tuple[str, ...]] = {
     "tab": ("xy", "map", "images"),
@@ -142,6 +145,8 @@ class ImageCamera(BaseModel):
     centre: Optional[float] = Field(default=None, gt=0)
     cbar: bool = True
     bgsub: bool = True
+    #: A scope's channel (from 0), when the device records traces.
+    channel: int = Field(default=0, ge=0)
 
 
 class PlotterSettings(BaseModel):
@@ -239,6 +244,9 @@ class PlotterSettings(BaseModel):
     #: is off. ``None``: no background.
     image_bg: Optional[ScanRef] = None
     image_bgsub: bool = True
+    #: The first row's scope channel (from 0), when its device records
+    #: traces (a scope's files hold several); a camera ignores it.
+    image_channel: int = Field(default=0, ge=0)
     #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
     #: (x right, y down, the end excluded); a camera not here is whole.
     image_rois: dict[str, list[int]] = Field(default_factory=dict)
@@ -511,6 +519,7 @@ FORM_FIELDS = {
     "cbar": "image_cbar",
     "bg": "image_bg",
     "bgsub": "image_bgsub",
+    "channel": "image_channel",
     "view": "xy_view",
     "filters": "shot_filters",
     "bincfg": "bin_config",
@@ -552,6 +561,7 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
     "y3_fit_order": (0, MAX_FIT_ORDER),
     "image_columns": (1, MAX_IMAGE_COLUMNS),
     "overlay_y": (1, MAX_Y_LISTS),
+    "image_channel": (0, MAX_CHANNEL),
 }
 
 #: The fixed z-scale values: any finite number, or empty for none.
@@ -588,7 +598,7 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
 #: A stacked camera's field: the first camera's form name, ``@`` and its
 #: place (2 for the second): ``cmap@2``, ``roi@3``.
 _CAMERA_FIELD = re.compile(
-    rf"(device|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|roi)@([2-{MAX_CAMERAS}])"
+    rf"(device|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|channel|roi)@([2-{MAX_CAMERAS}])"
 )
 
 

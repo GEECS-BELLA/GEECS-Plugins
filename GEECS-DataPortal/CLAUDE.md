@@ -815,10 +815,11 @@ Two rules for anyone extending this:
   `wave_x0`/`wave_dx`; `read_1d_data` owns both facts and hands back the
   trace at its true length. A second copy of that arithmetic here is how
   the two drift.
-- **Per-bin averaging is not offered for traces.** Each shot carries its
-  own axis, so averaging across shots is the consumer's job (the arc's
-  ruling: resampling belongs to whoever averages): a trace device shows
-  one shot at a time whatever the per-shot/binned switch says.
+- **Nothing resamples a trace.** Each shot carries its own axis; on the
+  scan page's trace route a trace device shows one shot at a time. The
+  Images strip's bin tile (below) is the one average, and it is only
+  sample by sample over shots that share one x axis
+  (`geecs_data_utils.io.shot_traces.average_traces`), refused otherwise.
 
 ## The 2-D map (the Plot page's view; the Grid tab until 2026-10-29)
 
@@ -889,7 +890,24 @@ the place (`cmap@2`, `roi@3`, `settings.camera_field`), parsed in
 `dropcam` add and remove. ROIs stay per device in `image_rois`. Each row
 is one `.strip[data-cam]` (`id="strip"`, then `strip@2`, ...); a row on
 one scale keeps its bar in an end column every stacked row reserves, so
-the columns line up. A trace device shows only as the one camera.
+the columns line up.
+
+**Trace rows** (the author, 2026-11-03): a device that records traces
+(`images.trace_device` → `geecs_data_utils.io.shot_traces.trace_device`:
+an array stack, or per-shot NI-HWS scope files — the LeCroy's `.dat`) is
+a row like a camera's, alone or stacked, over the same tiles. A tile is a
+small server PNG (`routes.images.trace_png`, matplotlib's object API, so
+Copy/Save grid keep working); a bin's tile is its shots' mean **sample by
+sample, only when they share one x axis** (`shot_traces.average_traces`:
+same length, same x values; a bin whose axes differ has no tile and says
+why — nothing is resampled). The row's z scale is its y range (each tile,
+shared over every tile through the same `levels` route, or typed in); its
+channel is `image_channel` / `ImageCamera.channel` (`channel@N`), one per
+row — stack the scope again for another channel. A camera's colour map,
+clean-ups, background, colour bar and ROI do not apply and are not shown.
+`tile.png` and `levels` answer for either kind (the device decides);
+`/plot/api/images/trace` is a trace tile as a figure, which the big view
+draws so it zooms.
 `plotter/static/images.js` draws the **big view**: the tile
 clicked (or stepped to with ‹ › along its camera's row; a click on another
 row moves it to that camera) at full size: the tile's own picture
@@ -917,9 +935,9 @@ camera's tile over every shot of the background scan
 once); `images.Background` keys the cache on the scan's folder. Tile
 and levels URLs carry `bg=YYYY-MM-DD:N`; a camera row's bg / no bg
 toggle (`image_bgsub`, `ImageCamera.bgsub`) leaves it off that camera.
-The big view's processing preview (a recipe's) does not subtract it. A device whose stack holds traces
-(`images.trace_kind`) has no strip and draws one shot's trace from the
-portal's `/api/run/{uid}/trace`. Tiles carry their bin label
+The big view's processing preview (a recipe's) does not subtract it. A
+trace row's tile opens in the big view as its figure
+(`/plot/api/images/trace`), with no processing choice. Tiles carry their bin label
 (`images.Tile.bin`), which is how a 2-D map cell opens on its bin. The
 selection is the browser tab's (`sessionStorage`), never the set's. Like
 the Plot page, it opens the portal's own experiment only (the author:
