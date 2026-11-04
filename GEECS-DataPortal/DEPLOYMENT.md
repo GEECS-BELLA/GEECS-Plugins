@@ -241,7 +241,9 @@ About five minutes, no deploy (proven 2026-09-29, PR #1028).
 2. Configs: `/etc/geecs/site.env` cannot be `source`d (its
    `GEECS_PORTAL_EXTRA_ARGS` line is unquoted and multi-word), so grep the
    keys — `ROOT=$(grep '^GEECS_CONFIGS_ROOT=' /etc/geecs/site.env | cut -d= -f2- | tr -d '"')`
-   — then `cp -r "$ROOT/scan_analysis_configs" /tmp/<name>/configs/` and
+   — then `mkdir -p /tmp/<name>/configs && cp -r "$ROOT/scan_analysis_configs" /tmp/<name>/configs/`
+   (the directory first: on a fresh `/tmp/<name>`, `cp -r` would otherwise
+   make `configs` the copy itself and step 4's path would not exist) and
    drop any new recipe into the copy. The Tiled URI and the data root
    are not read from the environment: the bootstrap renders them into the
    service account's `~/.config/geecs_python_api/config.ini` and the
