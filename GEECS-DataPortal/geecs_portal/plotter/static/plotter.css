@@ -44,7 +44,7 @@
 /* The image strip, as a grid or one scrolling row; the tiles across are
    the element's own style (the template, and plotter.js on a change). */
 /* The Images page's camera rows: each its toolbar over its tiles. */
-.kit .strips { display: flex; flex-direction: column; gap: var(--gap); --bar-col: 3.5rem; }
+.kit .strips { display: flex; flex-direction: column; gap: var(--gap); }
 /* Stacked rows: the bar fits the end column every row keeps. */
 .kit .strips.many .strip-bar-cell img { max-width: 100%; object-fit: contain; object-position: left center; }
 .kit .strips.many .cam + .cam { border-top: var(--bw) solid var(--rule); padding-top: var(--gap); }
@@ -110,3 +110,10 @@
 .kit .scan-row { gap: 6px; flex-wrap: nowrap; }
 .kit .scan-row .field { flex: 1 1 auto; min-width: 0; }
 .kit .scan-row .scan-field { flex: 0 1 5.5em; }
+
+/* The picker popover's "How to filter" (a native details under the list). */
+.kit .combo-help { margin-top: 4px; font-size: 0.85em; }
+.kit .combo-help summary { cursor: pointer; color: var(--accent); }
+.kit .combo-help ul { margin: 4px 0 0; padding-left: 1.1em; max-width: 22rem; }
+.kit .combo-help li + li { margin-top: 2px; }
+.kit .filter-help .dbody p { margin: 0 0 6px; }

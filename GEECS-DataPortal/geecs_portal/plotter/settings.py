@@ -134,8 +134,8 @@ class ImageCamera(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     device: Optional[str] = None
-    cmap: str = "gray"
-    zscale: str = "tile"
+    cmap: str = "white_blue_yellow"
+    zscale: str = "shared"
     zmin: Optional[float] = None
     zmax: Optional[float] = None
     hits: str = "none"
@@ -215,16 +215,18 @@ class PlotterSettings(BaseModel):
     image_centre: Optional[float] = Field(default=None, gt=0)
     image_layout: str = "grid"
     image_columns: int = Field(default=5, ge=1, le=MAX_IMAGE_COLUMNS)
-    #: A matplotlib name; one this copy does not know draws greyscale.
-    image_cmap: str = "gray"
+    #: A colour-map name (``images.CMAPS``: GEECSplotter's LabVIEW tables
+    #: and matplotlib's); one this copy does not know draws greyscale. The
+    #: default is the LabVIEW "white blue yellow" table (the author's).
+    image_cmap: str = "white_blue_yellow"
     #: The z scale, LabVIEW's autoscale: each tile from its own darkest to
     #: its brightest pixel ("tile"), every tile on one scale from the
     #: darkest to the brightest pixel of all of them ("shared"), or the
     #: black and white values below ("fixed"). No percentile window: a
     #: laser mode is a small spot, and any top-percentile white saturates
     #: it. (Sets saved with ``image_plo``/``image_phi`` keep them as
-    #: unused extras.)
-    image_zscale: str = "tile"
+    #: unused extras.) Shared by default, so tiles compare (the author's).
+    image_zscale: str = "shared"
     image_zmin: Optional[float] = None
     image_zmax: Optional[float] = None
     #: Colour bars on the Images strip: one per tile while each tile scales

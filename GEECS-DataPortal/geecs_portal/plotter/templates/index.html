@@ -16,6 +16,18 @@
               {% if filter_name %}<input id="{{ key }}-filter" name="{{ filter_name }}" value="{{ filter_text }}" type="search" autocomplete="off"{% if form_id %} form="{{ form_id }}"{% endif %} placeholder="{{ placeholder or 'filter ' ~ label ~ ' columns' }}"
                      aria-label="Filter {{ label }}" data-filter-for="{{ key }}" data-combo-filter>{% endif %}
               <select id="{{ key }}" name="{{ key }}" size="12" class="picks" data-pick aria-label="{{ label }}"{% if form_id %} form="{{ form_id }}"{% endif %}>{{ caller() }}</select>
+              {% if filter_name %}
+              {# How the filter box works (rung 0: native details, no script). #}
+              <details class="combo-help">
+                <summary>How to filter</summary>
+                <ul class="hint">
+                  <li>Type part of a name: the list keeps only the entries containing it, capitals or not (the alias or the raw name).</li>
+                  <li><kbd>Enter</kbd> picks the one entry left. <kbd>↓</kbd> moves into the list; a click or <kbd>Enter</kbd> there picks.</li>
+                  <li>Double-click an entry to copy its name into the box.</li>
+                  <li>The filter is saved with your set: clear the box to see everything again.</li>
+                </ul>
+              </details>
+              {% endif %}
             </div>
 {%- endmacro %}
 {# One camera's toolbar on the Images page: its camera, colour map, z scale
@@ -780,6 +792,22 @@
     <button class="btn sm" type="button" data-drawer-close>Close</button>
   </header>
   <div class="body">
+    {# How shot filters work (rung 0: native details, no script). #}
+    <details class="disc filter-help">
+      <summary>How shot filters work</summary>
+      <div class="dbody hint">
+        <p>A <b>condition</b> keeps a shot when one column's value is <b>within</b> (or <b>outside</b>) low to high:
+          type or pick the column, then the two numbers.</p>
+        <p>A <b>group</b> keeps a shot only if <b>all</b> its conditions hold (AND). With several groups, a shot
+          is kept if <b>any</b> group keeps it (OR).</p>
+        <p>Example: charge 10 to 50 <i>and</i> jet position 0 to 3 is one group with two conditions
+          (+ AND condition). To also keep a second window, add another group (+ OR group).</p>
+        <p>The count under the groups says how many shots would pass before you <b>Apply</b>. In the rail, a
+          group's tick turns it off without deleting it; ✕ deletes it. "Rows with NaN" says whether a missing
+          value passes or fails a condition.</p>
+        <p>Filters narrow the Plot page's plots and its 2-D map; the Images strip always shows every shot.</p>
+      </div>
+    </details>
     <div id="fgroups" class="group"></div>
     <div><button class="btn sm" type="button" id="filters-add-group">+ OR group</button></div>
     <div class="setrow">

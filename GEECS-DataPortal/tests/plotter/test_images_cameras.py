@@ -90,7 +90,12 @@ def test_two_cameras_are_two_rows_on_the_same_tiles(
     client: TestClient, two_cameras: Path
 ) -> None:
     post(client, scan=1, page="images", device=CAM, addcam="1")
-    page = post(client, scan=1, page="images", **{"device@2": CAM2, "cmap@2": "magma"})
+    page = post(
+        client,
+        scan=1,
+        page="images",
+        **{"device@2": CAM2, "cmap@2": "magma", "zscale@2": "tile"},
+    )
     assert 'id="strip" class="strip row"' in page  # several cameras: one row each
     assert 'id="strip@2" class="strip row"' in page
     assert f'data-device="{CAM2}"' in page and "cmap=magma" in page

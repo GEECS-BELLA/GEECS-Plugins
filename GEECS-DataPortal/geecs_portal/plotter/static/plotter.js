@@ -349,6 +349,8 @@
     const value = (name) => (form.elements[name] ? form.elements[name].value : "");
     // A camera's form field: the first camera's name, "@" and its place.
     const fieldOf = (name, cam) => (cam === 1 ? name : `${name}@${cam}`);
+    // The end column every stacked camera row keeps for its colour bar.
+    const BAR_COLUMN = "3.5rem";
     const rows = new Map(stripEls.map((strip) => [Number(strip.dataset.cam), stripRow(strip)]));
 
     function stripRow(strip) {
@@ -442,7 +444,7 @@
           // Stacked cameras all keep the same end column, bar or not, so
           // their tiles line up bin by bin.
           const many = Boolean(strip.closest(".strips.many"));
-          const bar = many ? " var(--bar-col)" : barCell && !barCell.hidden ? " auto" : "";
+          const bar = many ? ` ${BAR_COLUMN}` : barCell && !barCell.hidden ? " auto" : "";
           strip.style.gridAutoColumns = "";
           strip.style.gridTemplateColumns = `repeat(${shown.size}, minmax(0, 1fr))${bar}`;
         } else {

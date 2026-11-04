@@ -257,6 +257,7 @@ class TestPage:
             layout="row",
             cols=3,
             cmap="magma",
+            zscale="tile",  # each tile scales itself: its URL is on the page
         )
         assert "grid-auto-columns: calc((100% - 2 * var(--gap)) / 3)" in page
         assert page.count('class="tile"') == 4
@@ -537,3 +538,17 @@ def test_the_grid_colour_bar_stands_upright_on_request(client: TestClient) -> No
         )
     )
     assert lying.width > lying.height and upright.height > upright.width
+
+
+def test_a_new_set_draws_white_blue_yellow_on_one_shared_scale(
+    client: TestClient, camera: Path
+) -> None:
+    """The author's defaults: GEECSplotter's table, every tile on one scale."""
+    settings = PlotterSettings()
+    assert (settings.image_cmap, settings.image_zscale) == (
+        "white_blue_yellow",
+        "shared",
+    )
+    page = post(client, scan=1, page="images", device=CAM)
+    assert 'data-zscale="shared"' in page
+    assert '<option value="white_blue_yellow" selected>' in page
