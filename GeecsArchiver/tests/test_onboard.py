@@ -66,6 +66,7 @@ def test_plan_buckets():
     ]  # never another experiment's PV, never an already-paused or desired one
     assert plan.pending == ["undulator:a:pending"]
     assert plan.unchanged == ["undulator:a:included", "undulator:a:kept"]
+    assert plan.paused == ["undulator:a:alreadypaused"]
     assert not plan.is_noop
     assert "archive 1" in plan.summary()
 
@@ -78,6 +79,40 @@ def test_plan_is_noop_when_in_step():
         prefix="undulator:",
     )
     assert plan.is_noop and plan.unchanged == ["undulator:a:b"]
+
+
+def test_converged_plan_pauses_nothing_and_counts_the_paused():
+    """Unwanted and already paused: no-op; wanted and paused: resume."""
+    plan = plan_onboarding(
+        {"undulator:a:kept": S1, "undulator:a:back": S1},
+        statuses=[
+            st("undulator:a:kept"),
+            st("undulator:a:back", "Paused", False),
+            st("undulator:cam:exposure:SP", "Paused", False),
+            st("undulator:cam:triggerdelay:SP", "Paused", False),
+        ],
+        archived_pvs=[
+            "undulator:a:kept",
+            "undulator:a:back",
+            "undulator:cam:exposure:SP",
+            "undulator:cam:triggerdelay:SP",
+        ],
+        prefix="undulator:",
+    )
+    assert plan.to_pause == []
+    assert plan.to_resume == ["undulator:a:back"]
+    assert plan.paused == ["undulator:cam:exposure:SP", "undulator:cam:triggerdelay:SP"]
+    assert "pause 0," in plan.summary() and "paused 2" in plan.summary()
+
+
+def test_unwanted_pv_without_status_row_is_never_paused():
+    plan = plan_onboarding(
+        {},
+        statuses=[st("undulator:a:gone", "Not being archived", None, None, None)],
+        archived_pvs=["undulator:a:gone", "undulator:a:norow"],
+        prefix="undulator:",
+    )
+    assert plan.is_noop
 
 
 def test_known_pv_without_status_row_is_left_alone():

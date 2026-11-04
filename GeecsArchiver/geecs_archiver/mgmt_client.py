@@ -14,7 +14,8 @@ from typing import Any
 
 import httpx
 
-#: ``getPVStatus`` takes the PVs as repeated query parameters; keep URLs sane.
+#: ``getPVStatus`` takes the PVs as ONE comma-separated ``pv`` parameter (a
+#: repeated ``pv`` is read as its first value only); keep URLs sane.
 STATUS_BATCH = 100
 
 
@@ -149,11 +150,21 @@ class MgmtClient:
         return [str(pv) for pv in self._get("/getAllPVs", {"limit": -1})]
 
     def get_pv_status(self, pvs: Sequence[str]) -> list[PVStatus]:
-        """``getPVStatus`` for *pvs*, in batches."""
+        """``getPVStatus`` for *pvs*, in batches; one row per PV asked for.
+
+        The appliance reads the ``pv`` parameter as a comma-separated list; a
+        repeated ``pv`` parameter silently answers for the first PV only, so
+        a short answer is an error, never a partial picture.
+        """
         out: list[PVStatus] = []
         for start in range(0, len(pvs), STATUS_BATCH):
-            batch = pvs[start : start + STATUS_BATCH]
-            rows = self._get("/getPVStatus", [("pv", pv) for pv in batch])
+            batch = list(pvs[start : start + STATUS_BATCH])
+            rows = self._get("/getPVStatus", {"pv": ",".join(batch)})
+            if len(rows) != len(batch):
+                raise MgmtError(
+                    f"GET /getPVStatus: asked for {len(batch)} PVs, "
+                    f"the appliance answered {len(rows)}"
+                )
             out.extend(PVStatus.from_bpl(row) for row in rows)
         return out
 
