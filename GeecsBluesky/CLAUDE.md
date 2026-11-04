@@ -216,7 +216,7 @@ qserver/                    # the worker: launcher, startup profile, permissions
   device, one `NativeSetpoint` per registry settable as a Movable child
   (`U_VS1H.current`, readback `<experiment>:<device>:current`, written at
   `current:SP` or the family's setpoint role for it —
-  `FamilyFile.setpoint_for`, the FAST-PS's `current_ramp:SP`), found like a
+  `SetpointDevice.setpoint_records`, the FAST-PS's `current_ramp:SP`), found like a
   `CaMotor` child (an action step's `variable: Current` included: lookups
   are case-folded).  **Never done on a put ok**: StreamDevice completes the
   put when the supply accepts the command, so the set waits for the

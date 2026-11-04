@@ -801,9 +801,12 @@ INVALID-readback judgement; proven on `eztest1-sim`. Not yet: the gate
 grown by the movers (§7's, shared), enum settables, the scanner's settables
 list (§10, L), the panel, a pseudo over native settables.
 Found when built: a settable's setpoint record is not always `<record>:SP`
-(the FAST-PS writes `current_ramp:SP` beside `current`), so the binding
-asks the device's family for the setpoint role whose readback is the
-settable (`FamilyFile.setpoint_for`) and falls back to `<record>:SP`; the
+(the FAST-PS writes `current_ramp:SP` beside `current`), so the one rule
+is the schema's `SetpointDevice.setpoint_records` (the family's setpoint
+role for the readback, else `<record>:SP`), which the scanner's list, the
+panel and the archiver can call too; the entry is validated against its
+family (a status bit must be one of its fault bits; a record the family
+names as something else is refused; a record it omits is allowed); the
 drive limits are read as the `:SP` record's `DRVH`/`DRVL` fields (what
 `DBR_CTRL` serves for an `ao`), and `DRVH` <= `DRVL` means no limits, the
 record's own rule; a tripped status bit or an INVALID readback refuses the

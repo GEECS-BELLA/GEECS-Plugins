@@ -28,14 +28,16 @@ import math
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-import bluesky.plan_stubs as bps
 from bluesky.protocols import Location
 from ophyd_async.core import AsyncStatus, DeviceVector, SignalR, StandardReadable
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
+from geecs_schemas import SETPOINT_SUFFIX
+
 from geecs_bluesky.devices.ca._pv import CA_TRANSPORT_PREFIX
 from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
 from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut
+from geecs_bluesky.devices.ca.liveness import down_natives
 from geecs_bluesky.devices.ca.motor import within_tolerance
 from geecs_bluesky.devices.ca.settable import log_failed_set
 from geecs_bluesky.exceptions import (
@@ -57,11 +59,6 @@ POLL_INTERVAL_S = 0.2
 
 #: Seconds the liveness gate allows a setpoint device to connect and answer.
 LIVENESS_TIMEOUT_S = 5.0
-
-
-def setpoint_record(record: str) -> str:
-    """The setpoint record beside readback *record* by the gateway contract: ``<record>:SP``."""
-    return f"{record}:SP"
 
 
 def _ca(pv: str) -> str:
@@ -106,7 +103,7 @@ class NativeSetpoint(StandardReadable):
         status: Iterable[str] = (),
         name: str = "",
     ) -> None:
-        setpoint = setpoint or setpoint_record(record)
+        setpoint = setpoint or record + SETPOINT_SUFFIX
         self._geecs_device_name = device
         self._variable = record
         self._tolerance = float(tolerance)
@@ -297,8 +294,8 @@ class NativeSetpointDevice(StandardReadable):
         :func:`~geecs_bluesky.utils.settable_attribute` of its record (the
         rule a ``Device:Variable`` reference expands by).
     setpoints :
-        Readback record → its setpoint record, where it is not
-        ``<record>:SP`` (the family's setpoint role).
+        Readback record → its setpoint record
+        (``SetpointDevice.setpoint_records``); absent, ``<record>:SP``.
     readbacks :
         Further readback records, columns of the row.
     status :
@@ -410,34 +407,16 @@ def down_native_setpoint_devices(devices: Iterable[Any]):
 
     §10's per-kind rule: a StreamDevice readback whose device stops
     answering goes INVALID (TIMEOUT/COMM), so any readback at INVALID reads
-    down; a connect or read that fails means the IOC is down.  Concurrent,
-    bounded by ``LIVENESS_TIMEOUT_S``.
+    down; a connect or read that fails means the IOC is down
+    (:func:`~geecs_bluesky.devices.ca.liveness.down_natives`), bounded by
+    ``LIVENESS_TIMEOUT_S``.
 
     Returns
     -------
     list of str
         The GEECS names of the devices judged down.
     """
-    found = native_setpoint_devices(devices)
-    if not found:
-        return []
-
-    async def judge() -> list[bool | BaseException]:
-        return await asyncio.gather(*(_down(d) for d in found), return_exceptions=True)
-
-    (task,) = yield from bps.wait_for([judge])
-    down: list[str] = []
-    for device, verdict in zip(found, task.result()):
-        if isinstance(verdict, BaseException):
-            logger.warning(
-                "liveness: %s IOC did not answer (%s: %s) — down",
-                device._geecs_device_name,
-                type(verdict).__name__,
-                " ".join(str(verdict).split()),
-            )
-        if verdict is not False:
-            down.append(device._geecs_device_name)
-    return down
+    return (yield from down_natives(native_setpoint_devices(devices), _down))
 
 
 __all__ = [
@@ -445,5 +424,4 @@ __all__ = [
     "NativeSetpointDevice",
     "down_native_setpoint_devices",
     "native_setpoint_devices",
-    "setpoint_record",
 ]

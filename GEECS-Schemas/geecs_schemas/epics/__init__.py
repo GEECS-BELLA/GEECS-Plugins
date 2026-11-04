@@ -22,6 +22,7 @@ their readbacks, extra readbacks, status bits).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import Annotated, Literal, Optional, Union
 
@@ -38,6 +39,7 @@ from pydantic import (
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
+    FamilyFile,
     TemplateName,
     families_from,
 )
@@ -113,6 +115,20 @@ class AravisCamera(_NativeEntry):
     )
 
 
+def _normalised(name: str) -> str:
+    """The GEECS normalization a name binds by: runs outside ``[A-Za-z0-9_]`` → ``'_'``, stripped, lowercase.
+
+    A copy of ``geecs_core.pv_naming.normalize_component`` (this package
+    sits below GEECS-Core); ``tests/test_native_devices.py`` pins the two
+    to agree where GEECS-Core is importable.
+    """
+    return re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_").lower()
+
+
+#: The setpoint record beside a readback by the gateway contract (``current`` → ``current:SP``).
+SETPOINT_SUFFIX = ":SP"
+
+
 def _record_names(
     what: str, names: Iterable[str], seen: dict[str, str], *, same: str = "record"
 ) -> None:
@@ -120,15 +136,14 @@ def _record_names(
 
     *seen* maps each normalised name already taken to its spelling: the
     worker binds every name to an attribute by the GEECS normalization
-    (lowercase, punctuation runs → ``'_'``), so two that normalise alike
-    would be one attribute.
+    (:func:`_normalised`), so two that normalise alike would be one attribute.
     """
     for name in names:
         if not name or name != name.strip() or any(c.isspace() for c in name):
             raise ValueError(
                 f"{what} {name!r} is not a record name (no blanks, no whitespace)"
             )
-        key = "".join(c.lower() if c.isalnum() else "_" for c in name)
+        key = _normalised(name)
         if key in seen:
             raise ValueError(
                 f"{seen[key]!r} and {name!r} are the same {same} after normalization"
@@ -233,12 +248,68 @@ class SetpointDevice(_NativeEntry):
     )
 
     @model_validator(mode="after")
-    def _names_are_distinct_records(self) -> "SetpointDevice":
+    def _names_are_distinct_records(self, info: ValidationInfo) -> "SetpointDevice":
         seen: dict[str, str] = {}
         _record_names("settable", self.settables, seen)
         _record_names("readback", self.readbacks, seen)
         _record_names("status bit", self.status, seen)
+        for record in self.settables:
+            if record.endswith(SETPOINT_SUFFIX):
+                raise ValueError(
+                    f"settable {record!r} is a setpoint record: name its "
+                    f"readback ({record[: -len(SETPOINT_SUFFIX)]!r})"
+                )
+        family = families_from(info).get(self.family_template)
+        if family is not None:  # an unknown template is _NativeEntry's refusal
+            self._check_against(family)
+        written = set(self.setpoint_records(family).values())
+        clash = sorted(written & {*self.readbacks, *self.status})
+        if clash:
+            raise ValueError(f"{clash} are setpoint records of this device's settables")
         return self
+
+    def _check_against(self, family: FamilyFile) -> None:
+        """Refuse a record the family knows as something else, and a status bit it lacks.
+
+        A family lists every bit its template has but may omit a readback
+        or a setpoint (the Easy-Driver's ``slewrate``, ``temperature``): a
+        record the family does not name is the template's own business.
+        """
+        by_suffix = {r.suffix: r for r in family.roles}
+        for record in self.settables:
+            role = by_suffix.get(record)
+            if role is not None and family.setpoint_for(record) is None:
+                raise ValueError(
+                    f"settable {record!r}: family {family.template!r} has it as a "
+                    f"{role.type} with no setpoint role"
+                )
+        for record in self.readbacks:
+            role = by_suffix.get(record)
+            if role is not None and role.type != "readback":
+                raise ValueError(
+                    f"readback {record!r}: family {family.template!r} has it as a "
+                    f"{role.type}, not a readback"
+                )
+        faults = sorted(r.suffix for r in family.roles if r.type == "bit" and r.fault)
+        for record in self.status:
+            if record not in faults:
+                raise ValueError(
+                    f"status bit {record!r} is not a fault bit of family "
+                    f"{family.template!r} ({', '.join(faults) or 'none'})"
+                )
+
+    def setpoint_records(self, family: Optional[FamilyFile]) -> dict[str, str]:
+        """Each settable's setpoint record: the family's setpoint role for it, else ``<record>:SP``.
+
+        The one rule every reader writes or archives by (the worker, and
+        later the scanner's list, the panel and the archiver); *family* is
+        the device's (``load_families()[entry.family_template]``).
+        """
+        return {
+            record: (family.setpoint_for(record) if family is not None else None)
+            or record + SETPOINT_SUFFIX
+            for record in self.settables
+        }
 
 
 #: Every native device kind, discriminated by ``kind`` (a new kind is one more member).

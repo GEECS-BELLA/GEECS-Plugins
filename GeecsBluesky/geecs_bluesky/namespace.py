@@ -339,22 +339,13 @@ _HOSTS_FROM_CONFIG = object()
 def _setpoint_device(
     device: str, prefix: str, entry: SetpointDevice, name: str
 ) -> NativeSetpointDevice:
-    """A ``setpoint_device`` entry's noun; each settable written where its family says.
-
-    A settable's setpoint record is its family's setpoint role for that
-    readback (the FAST-PS's ``current_ramp:SP``), else ``<record>:SP``.
-    """
+    """A ``setpoint_device`` entry's noun, each settable written where the schema's one rule says."""
     family = load_families().get(entry.family_template)
-    setpoints = {
-        record: suffix
-        for record in entry.settables
-        if family is not None and (suffix := family.setpoint_for(record)) is not None
-    }
     return NativeSetpointDevice(
         device,
         prefix,
         entry.settables,
-        setpoints=setpoints,
+        setpoints=entry.setpoint_records(family),
         readbacks=entry.readbacks,
         status=entry.status,
         name=name,
