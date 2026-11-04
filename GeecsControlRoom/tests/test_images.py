@@ -85,6 +85,7 @@ class FakeCa:
         self.raw: tuple[np.ndarray, int, int] = (np.arange(12, dtype=np.int32), 4, 3)
         self.counters: list[float] = [7.0]
         self.full_scale: float | None = 4095.0
+        self.scale_gate: asyncio.Event | None = None
 
     async def text(self, pv: str) -> str:
         self.calls.append(("text", pv))
@@ -108,6 +109,8 @@ class FakeCa:
             if self.counter_fails:
                 raise TimeoutError("no answer from the IOC")
             return self.counters.pop(0) if len(self.counters) > 1 else self.counters[0]
+        if self.scale_gate:
+            await self.scale_gate.wait()
         if self.full_scale is None:
             raise TimeoutError("no answer from the IOC")
         return self.full_scale
@@ -355,7 +358,7 @@ async def test_the_raw_frame_headers() -> None:
     assert h["content-type"] == "application/octet-stream" and h["content-encoding"] == "gzip"  # fmt: skip
     assert h["cache-control"] == "no-store" and h["etag"] == h["x-frame-tag"] == '"7"'
     assert h["x-frame-full-scale"] == "4095" and "x-frame-transform" not in h
-    assert env.ca.kinds() == ["counter", "frame", "scale", "counter"]
+    assert env.ca.kinds() == ["counter", "frame", "counter", "scale"]
     assert ("frame", RAW) in env.ca.calls  # the frame and its geometry in one batch
 
 
@@ -375,13 +378,26 @@ async def test_an_unreadable_full_scale_is_omitted_and_asked_again_after_the_ttl
     assert r.headers["x-frame-full-scale"] == "4095" and env.ca.kinds().count("scale") == 2  # fmt: skip
 
 
+async def test_a_slow_full_scale_never_holds_the_frame() -> None:
+    env = Env()
+    env.ca.scale_gate = asyncio.Event()  # FullScale silent: its read would time out
+    async with env.client() as c:
+        r = await asyncio.wait_for(_raw(c), 1.0)
+        assert r[0].status_code == 200 and "x-frame-full-scale" not in r[0].headers
+        env.ca.scale_gate.set()
+        await asyncio.sleep(0.01)
+        env.clock[0] += RAW_HOLD_S
+        held, _ = await _raw(c)  # the camera has not moved; the full scale has landed
+    assert held.headers["x-frame-full-scale"] == "4095" and env.ca.kinds().count("frame") == 1  # fmt: skip
+
+
 async def test_an_unmoved_counter_serves_the_held_frame_without_an_array_read() -> None:  # fmt: skip
     env = Env()
     async with env.client() as c:
         first, wire = await _raw(c)
         env.clock[0] += RAW_HOLD_S / 2
         await _raw(c)  # inside the hold: no read at all
-        assert env.ca.kinds() == ["counter", "frame", "scale", "counter"]
+        assert env.ca.kinds() == ["counter", "frame", "counter", "scale"]
         env.clock[0] += RAW_HOLD_S
         again, same = await _raw(c)  # the probe: one scalar read, the held frame
         assert env.ca.kinds()[4:] == ["counter"] and same == wire
@@ -398,7 +414,7 @@ async def test_a_counter_moving_mid_batch_reads_once_more_tagged_by_the_second_c
     env.ca.counters = [7.0, 8.0]
     async with env.client() as c:
         r, _ = await _raw(c)
-    assert env.ca.kinds() == ["counter", "frame", "scale", "counter", "frame"]
+    assert env.ca.kinds() == ["counter", "frame", "counter", "frame", "scale"]
     assert r.status_code == 200 and r.headers["etag"] == '"8"'
 
 
@@ -466,7 +482,12 @@ async def test_viewers_share_one_raw_read_in_flight() -> None:
         env.ca.gate.set()
         answers = [await t for t in pending]
     assert {r.status_code for r, _ in answers} == {200} and len({w for _, w in answers}) == 1  # fmt: skip
-    assert env.ca.kinds() == ["counter", "frame", "scale", "counter"]
+    assert sorted(env.ca.kinds()) == [
+        "counter",
+        "counter",
+        "frame",
+        "scale",
+    ]  # one read for all twenty
 
 
 async def test_values_above_32767_survive_the_cast_exactly() -> None:

@@ -38,7 +38,7 @@ import math
 import time
 import zlib
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Generic, Optional, Protocol, TypeVar
 from urllib.parse import urlsplit, urlunsplit
 
@@ -187,9 +187,8 @@ class RawFrame:
 
 def _cast(data: np.ndarray) -> np.ndarray:
     """The ``USHORT`` values as uint16 little-endian: ``astype``, exact for 0–65535; never ``view``, never a clamp."""
-    return np.asarray(data).astype(
-        np.dtype("<u2")
-    )  # "<u2" is np.uint16, little-endian on any host
+    # "<u2" is np.uint16, little-endian on any host
+    return np.asarray(data).astype(np.dtype("<u2"))
 
 
 def _gzip(frame: np.ndarray) -> bytes:
@@ -216,6 +215,7 @@ class Images:
         self._raws: dict[tuple[str, tuple[str, ...]], Shared[RawFrame]] = {}
         self._held: dict[tuple[str, tuple[str, ...]], RawFrame] = {}
         self._scales: dict[tuple[str, str], tuple[Optional[float], float]] = {}
+        self._scale_reads: dict[tuple[str, str], asyncio.Task[None]] = {}
 
     async def roles(self, module: ModuleClient, name: str) -> dict[str, dict[str, Any]]:  # fmt: skip
         """The device's roles by name as the module's device route gave them (at most ``ROUTE_TTL_S`` old).
@@ -310,7 +310,7 @@ class Images:
             raise Unavailable(404, f"the module names no raw_frame role for {name}")
         missing = [r for r in ("raw_width", "raw_height", "raw_counter") if r not in roles]  # fmt: skip
         if missing:
-            raise Unavailable(404, f"the module names no {', '.join(missing)} role for {name}")  # fmt: skip
+            raise Unavailable(404, f"the module names no {', '.join(missing)} role{'s' * (len(missing) > 1)} for {name}")  # fmt: skip
         pvs = tuple(roles[r]["pv"] for r in ("raw_frame", "raw_width", "raw_height", "raw_counter"))  # fmt: skip
         scale = roles.get("full_scale", {}).get("pv")
         key = (name, pvs + ((scale,) if scale else ()))
@@ -323,9 +323,7 @@ class Images:
         try:
             return str(int(await self._ca.scalar(pv)))
         except Exception as exc:  # any CA failure (or a NaN): said, never a 500
-            raise Unavailable(
-                503, f"the frame counter ({pv}) could not be read"
-            ) from exc
+            raise Unavailable(503, f"the frame counter ({pv}) could not be read") from exc  # fmt: skip
 
     async def _batch(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
         try:
@@ -335,44 +333,61 @@ class Images:
 
     async def _read_raw(self, key: tuple[str, tuple[str, ...]], pvs: tuple[str, ...], scale: Optional[str]) -> RawFrame:  # fmt: skip
         frame_pv, width_pv, height_pv, counter_pv = pvs
+        name = key[0]
         tag = await self._counter(counter_pv)
+        self._ask_full_scale(name, scale)  # beside the frame, never in its way
         held = self._held.get(key)
         if held is not None and held.tag == tag:
-            return held  # the camera has not moved: one scalar read, no array read
-        (data, width, height), full_scale = await asyncio.gather(
-            self._batch(frame_pv, width_pv, height_pv), self._full_scale(key[0], scale)
-        )
+            # the camera has not moved: one scalar read, no array read
+            full_scale = self._full_scale(name, scale)
+            if full_scale != held.full_scale:
+                held = self._held[key] = replace(held, full_scale=full_scale)
+            return held
+        data, width, height = await self._batch(frame_pv, width_pv, height_pv)
         after = await self._counter(counter_pv)
-        if (
-            after != tag
-        ):  # a frame landed mid-batch: read once more, tagged by the second counter
+        if after != tag:
+            # a frame landed mid-batch: read once more, tagged by the second counter
             tag = after
             del data
             data, width, height = await self._batch(frame_pv, width_pv, height_pv)
         n = int(np.size(data))
-        if (
-            n == 0 or n != width * height
-        ):  # mono only: a colour frame (ArraySize0 = 3) fails here too
+        if n == 0 or n != width * height:
+            # mono only: a colour frame (ArraySize0 = 3) fails here too
             raise Unavailable(503, f"geometry disagrees: {n} values for {width}×{height}")  # fmt: skip
         frame = await asyncio.to_thread(_cast, data)
         del data  # the int32 array (21 MB for a 2592×2048 frame) goes as soon as the cast is done
         body = await asyncio.to_thread(_gzip, frame)
         del frame
-        raw = self._held[key] = RawFrame(body, width, height, tag, full_scale)
+        raw = self._held[key] = RawFrame(body, width, height, tag, self._full_scale(name, scale))  # fmt: skip
         return raw
 
-    async def _full_scale(self, name: str, pv: Optional[str]) -> Optional[float]:
-        """The device's full scale, read once; an unreadable one is ``None``, asked again after ``ROUTE_TTL_S``."""
-        if pv is None:
-            return None
+    def _full_scale(self, name: str, pv: Optional[str]) -> Optional[float]:
+        """The device's full scale as last read; ``None`` (the header omitted) while unread or unreadable."""
+        return self._scales.get((name, pv), (None, 0.0))[0] if pv else None
+
+    def _ask_full_scale(self, name: str, pv: Optional[str]) -> None:
+        """Read the full scale in the background unless known (read once) or asked within ``ROUTE_TTL_S``.
+
+        Never awaited by a frame: an unreadable ``FullScale`` would otherwise
+        hold every viewer's frame for the CA timeout. A healthy read (a
+        scalar, milliseconds) lands while the frame is read and cast.
+        """
+        if pv is None or (name, pv) in self._scale_reads:
+            return
         held = self._scales.get((name, pv))
         if held is not None and (held[0] is not None or self._clock() - held[1] < ROUTE_TTL_S):  # fmt: skip
-            return held[0]
-        # any CA failure is an unreadable full scale: the header is omitted and the page assumes 4095
-        (read,) = await asyncio.gather(self._ca.scalar(pv), return_exceptions=True)
-        value = read if isinstance(read, float) and math.isfinite(read) and read > 0 else None  # fmt: skip
-        self._scales[(name, pv)] = (value, self._clock())
-        return value
+            return
+        task = asyncio.get_running_loop().create_task(self._read_full_scale(name, pv))
+        self._scale_reads[(name, pv)] = task
+
+    async def _read_full_scale(self, name: str, pv: str) -> None:
+        try:
+            # any CA failure is an unreadable full scale: the header is omitted and the page assumes 4095
+            (read,) = await asyncio.gather(self._ca.scalar(pv), return_exceptions=True)
+            value = read if isinstance(read, float) and math.isfinite(read) and read > 0 else None  # fmt: skip
+            self._scales[(name, pv)] = (value, self._clock())
+        finally:
+            self._scale_reads.pop((name, pv), None)
 
 
 def _matches(if_none_match: Optional[str], etag: str) -> bool:
