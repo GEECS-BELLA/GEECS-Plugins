@@ -82,7 +82,7 @@
     return { ...was, [mode]: { black: l.black / full, white: l.white / full } };
   }
 
-  // ---- the raw frame (/api/devices/<name>/frame.raw, Planning/raw_frames.md's contract)
+  // ---- the raw frame (/api/devices/<name>/frame.raw: uint16 LE row-major, geometry, full scale and tag in headers)
   const ASSUMED_FULL = 4095;
   // What a poll's answer means: 200 a frame, 304 nothing new (never an error), anything else the error.
   const rawAnswer = (status) => (status === 200 ? "frame" : status === 304 ? "same" : "error");

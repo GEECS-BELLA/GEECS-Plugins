@@ -31,7 +31,41 @@ that carries write:
     sudo install -m 0644 <staging>/geecs-control-room.service /etc/systemd/system/
     sudo systemctl daemon-reload && sudo systemctl enable --now geecs-control-room
 
-CA addressing is `site.env`'s `EPICS_CA_*`. `EPICS_CA_MAX_ARRAY_BYTES` need
+CA addressing is `site.env`'s `EPICS_CA_*`.
+
+### Raw frames
+
+The camera page's Raw view reads the driver's frame over CA on this host and
+relays it to the browser (`GET /api/devices/{name}/frame.raw`, gzip framed).
+What it costs, measured 2026-11-03:
+
+| Camera | Frame | Read over CA | On the wire, gzip level 1 |
+|---|---|---|---|
+| a 2592×2048 camera | 10.6 MB as 16-bit (21 MB as the int32 aioca delivers) | ~0.2 s | ≈ 3.8 MB per frame, ~0.1 s to compress |
+| a Blackfly, 600×600 ROI | 0.72 MB | 20 ms | 0.2 MB |
+
+A raw view polls at 2 Hz and the frame is read **once per camera**, shared by
+every viewer (held 0.5 s; an unmoved camera costs one scalar read of
+`ARR:ArrayCounter_RBV`, never an array read). Budget for twenty camera views:
+~0.2 Gbit/s if all are MJPEG, ~1.3 Gbit/s if every one went raw at once, inside
+the ~5 Gbit/s the services box's link keeps free for analysis reads. A read
+peaks at ≈ 36 MB of memory per camera (21 MB int32 + 11 MB uint16 + 4 MB gzip).
+
+- **A proxy in front of the Control Room must pass `Content-Encoding: gzip`
+  through unchanged**: the body is gzip framed by this server and the
+  browser's `fetch` decodes it. A front door that drops the header but keeps
+  the gzip body, or compresses the body a second time, hands the page bytes
+  that do not match the frame's size, and the page says `geometry disagrees`.
+  The body is already compressed: exclude `application/octet-stream` from the
+  proxy's own compression.
+- **A camera-family change rebuilds Canopy's image at deploy**: the module's
+  roles (the raw view's `raw_frame`, `raw_width`, `raw_height`,
+  `raw_counter`) come from the image's copy of GEECS-Schemas, so
+  `dc build` and a `geecs-canopy` restart (`GeecsCanopy/DEPLOYMENT.md`) come
+  before the Control Room's restart; until then the raw view answers 404
+  (the module names no `raw_frame` role).
+
+`EPICS_CA_MAX_ARRAY_BYTES` need
 not be set for the raw frame (`/api/devices/{name}/frame.raw`, a 2592×2048
 frame is 21 MB as CA delivers it): the client library aioca loads
 (epicscorelibs' libca, EPICS 7) sizes its buffers itself while

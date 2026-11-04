@@ -30,7 +30,7 @@ geecs_control_room/
                     gzip framed, geometry + `raw_counter` tag in headers, ETag/304; `raw_counter` probed first so
                     an unmoved camera costs one scalar read; one read in flight, held RAW_HOLD_S; 503 words
                     for an unreadable counter or frame and a geometry disagreement; the contract is
-                    Planning/raw_frames.md), over CA (aioca), read only; the module's route cached ROUTE_TTL_S
+                    § "The raw frame" below), over CA (aioca), read only; the module's route cached ROUTE_TTL_S
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
                     slowly), fills the device pickers, the presets region (save dialog, diff drawer,
@@ -123,6 +123,22 @@ deploy/
   could not give reads "unknown", never "none". A row's cause is the module's evidence (heartbeat word,
   roles by verdict). The launcher is `<experiment>/home.yaml` (GEECS-Schemas
   `HomeLayout`); its link URLs are settings, never the file's.
+- **The raw frame is the driver's frame; the page transforms it.** The
+  camera family's `raw_frame` role is `ARR:ArrayData` (`NDStdArrays`,
+  `USHORT`) on `CAM1.CAM`, the driver's own port: before `TRANS1`, before
+  background subtraction (`PROC1`). The MJPEG stream, the crosshair store
+  (`OVER1`) and the analysis ROI (`ROI1`) are after `TRANS1`, so in Raw the
+  page applies the `transform` role's value (read from Hare like every
+  value, never a header) to the decoded frame before drawing, and every
+  overlay coordinate stays MJPEG mode's. A transform that is not one of
+  `TRANS1:Type`'s eight is drawn untransformed with the overlays hidden and
+  said. "Raw" means exactly that, and the page says so. Mono frames only.
+  A Blackfly's embedded pixels (FlyCapture `FRAME_INFO`) are the camera's
+  to turn off, never masked in the page. Never a second `ARR` after
+  `TRANS1`, never a write; at most 2 Hz per camera, shared, for the lab
+  network (no binned preview). Hare does not carry images; if it does
+  later, the frame's *source* moves and the rendering stays. The rest is
+  § "The raw frame" below.
 - **The GEECS device name is the one identity key.** A binding names a
   device and a family role (and an axis), never a PV a second time; a bare
   PV is for a DB-served device only.
@@ -134,6 +150,74 @@ deploy/
   colour (this package's templates and static files are in
   `GeecsWebTheme/tests/test_no_literal_colours.py`'s `_SURFACES`); status
   is a dot and a word.
+
+## The raw frame
+
+`GET /api/devices/{name}/frame.raw` (`images.py`) and the page's Raw mode
+(`camera.js`, `camera_rules.js`) are one contract, pinned end to end by
+`tests/test_raw_page.py` (the route over the fake CA, its bytes through the
+page's rules under node):
+
+- **200**: uint16 little-endian, row-major, `raw_height` rows of
+  `raw_width`; `Content-Type: application/octet-stream`,
+  `Content-Encoding: gzip` from `zlib.compressobj(1, wbits=31)` (gzip
+  framing, which `fetch` decodes; bare `zlib.compress` is zlib framing and
+  a browser will not); `Content-Length` the compressed length;
+  `Cache-Control: no-store`. Headers `X-Frame-Width`, `X-Frame-Height`
+  (read in the frame's batch), `X-Frame-Full-Scale` (role `full_scale`,
+  read once per device in the background, never in the frame's way;
+  omitted while unreadable, and the page then assumes 4095 and says "full
+  scale assumed"), and `X-Frame-Tag` = `ETag` = the quoted decimal
+  `raw_counter` (a strong validator). No transform header.
+- **304** on an `If-None-Match` naming the held `ETag` (weak, a list or `*`
+  too): no body, the same `ETag` and `X-Frame-Tag`. The page treats 304 as
+  "nothing new", never as an error (`rawAnswer`), and drops its held `ETag`
+  on a toggle, so the first raw ask after one is never a 304 with nothing
+  drawn.
+- **404** when the module names no `raw_frame` (or `raw_width`,
+  `raw_height`, `raw_counter`) role: the PV is never derived. **503** with
+  words: `the frame counter (<pv>) could not be read`, `the raw frame (<pv>)
+  could not be read: <why>`, `geometry disagrees: <n> values for <w>×<h>`
+  (the batch is not atomic across a camera-ROI change, so the length is
+  checked against the geometry before compressing; a colour frame and an
+  empty one fail here too). Never a frame that does not match its headers.
+- **Reads**: one in flight per device, the result held `RAW_HOLD_S` (0.5 s)
+  and shared. `raw_counter` alone first; equal to the held tag, the held
+  frame is served (a 2 Hz poller on a 1 Hz camera costs one scalar read
+  per 0.5 s); else the frame, `raw_width` and `raw_height` in one batch,
+  then the counter again — on a mismatch the batch is read once more and
+  tagged by the second counter. The cast is `astype("<u2")`, exact for
+  every `USHORT` value (aioca delivers int32): never `view()` (it doubles
+  the element count), never a clamp. The cast and the gzip run in
+  `asyncio.to_thread`; the int32 array is dropped once cast (≈ 36 MB peak
+  per read of a 2592×2048 frame).
+- **The page**: Raw off by default and never remembered; on, a 2 Hz poll
+  with `If-None-Match`; the body is a `Uint16Array` (every platform the
+  page runs on is little-endian); the histogram has `full scale + 1` bins,
+  auto-levels take its 0.1/99.9 percent points, the LUT has `full scale +
+  1` entries over the same maps and scales, and the black/white inputs and
+  the cursor read counts. **Levels are per mode**, stored as fractions of
+  the mode's full scale (255, or `X-Frame-Full-Scale`), so a white of 255
+  from MJPEG never saturates Raw and a 12-bit black never zeroes the JPEG;
+  `levels`, `lut` and `autoLevels` take the full scale. The colour map,
+  scale and auto flag are shared. Raw's chip is `new frames/s` from tags
+  advancing; the `image_counter` chip is hidden. Under auto-levels a lone
+  hot pixel clips to the same white as the noise's top 0.1 percent, under
+  any scale (the white level clips, not the scale); a white at full scale
+  singles it out. The operator page documents this; the maintainer has not
+  ruled on changing the rule, so it stays as it is until they do.
+- **Rules with rows**: every rule Raw adds is a pure function in
+  `camera_rules.js` with a row in `test_camera_rules_js.py` — the
+  histogram at a scale, the percentile levels on it, the LUT at 4096,
+  stored levels per mode, `transformName` and `transformFrame` for each of
+  the eight names (TRANS1's mapping of a W×H frame's (x, y): Rot90
+  (H-1-y, x), Rot180 (W-1-x, H-1-y), Rot270 (y, W-1-x), Mirror (W-1-x, y),
+  Rot90Mirror (y, x), Rot180Mirror (x, H-1-y), Rot270Mirror (H-1-y,
+  W-1-x)), `decodeRaw`, `rawAnswer`, `modeWords`, `imageSize` in raw.
+  `camera.js` keeps the DOM work only.
+
+Deploy (bandwidth, the CA array size, the front door's gzip, the Canopy
+image rebuild): `README.md` § Deploy.
 
 ## Settings
 
@@ -161,8 +245,9 @@ the counter probe and the mid-batch retry. The page scripts run under node (skip
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
 `test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
-`test_raw_page.py` drives the raw decode path against `tests/raw_fixture.py`, a test-only `frame.raw` route to the
-contract (never mounted by the app). A rule a
+`test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
+by `frame.raw` over `test_images.py`'s fake CA (as int32, as aioca delivers it), its bytes checked on the
+wire, then decoded, transformed and levelled by `camera_rules.js` under node. A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script
 keeps the DOM work only.
 

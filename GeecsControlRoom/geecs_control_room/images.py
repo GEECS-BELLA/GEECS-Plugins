@@ -18,7 +18,7 @@ through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
 - ``GET /api/devices/{name}/frame.raw``: the driver's frame at role
   ``raw_frame`` (``ARR:ArrayData``), uint16 little-endian row-major, gzip
   framed, its geometry and ``raw_counter`` tag in headers, ``304`` on a
-  matching ``If-None-Match`` (``Planning/raw_frames.md``, the contract). One
+  matching ``If-None-Match`` (weak, a list or ``*`` match too). One
   read in flight per device, held ``RAW_HOLD_S``; the counter is probed first
   so an unmoved camera costs one scalar read, never an array read.
 
