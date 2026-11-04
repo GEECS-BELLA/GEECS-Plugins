@@ -299,7 +299,7 @@ def test_list_no_db_derives_the_registry_offline(tmp_path, monkeypatch, capsys):
     assert "undulator:adtest_cam1:cam1:Gain_RBV" in captured.out
     assert "ADTEST-CAM1:HEARTBEAT" in captured.out
     assert "registry" in captured.out.splitlines()[0]
-    assert "db 0, registry 15 (DB not read" in captured.err
+    assert "db 0, registry 14 (DB not read" in captured.err
 
 
 def test_list_json_carries_the_source(tmp_path, monkeypatch, capsys):

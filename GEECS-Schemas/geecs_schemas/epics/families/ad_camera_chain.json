@@ -76,7 +76,6 @@
     {"name": "owner", "suffix": "RUN:Owner", "type": "readback", "label": "run lock owner", "text": "string"},
     {"name": "capture", "suffix": "HDF1:Capture_RBV", "type": "enum", "label": "file capture"},
     {"name": "period", "suffix": "cam1:AcquirePeriod_RBV", "type": "setpoint", "label": "acquire period", "writable": true, "write": "cam1:AcquirePeriod", "units": "s", "limits": [0, 3600], "locked": true, "archive": true, "autosaved": true},
-    {"name": "frame_rate", "suffix": "cam1:FrameRate_RBV", "type": "readback", "label": "camera frame rate", "units": "Hz", "archive": true},
     {"name": "gain", "suffix": "cam1:Gain_RBV", "type": "setpoint", "label": "gain", "writable": true, "write": "cam1:Gain", "limits": [0, 100], "locked": true, "archive": true},
     {"name": "trigger_mode", "suffix": "cam1:TriggerMode_RBV", "type": "enum", "label": "trigger mode", "writable": true, "write": "cam1:TriggerMode", "choices": ["Off", "On"], "locked": true, "archive": true},
     {"name": "trigger_source", "suffix": "cam1:TriggerSource_RBV", "type": "enum", "label": "trigger source", "archive": true},
