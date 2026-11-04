@@ -25,8 +25,12 @@ geecs_control_room/
                     device resolved by one module read (denied / stale panes, never blank)
   images.py         a camera's frame (/api/devices/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
                     names, rehosted to the IOC's CA address, one fetch in flight, shared) and arrays
-                    (/api/devices/{name}/arrays: the `on_request` roles of type `array`, at most every 0.5 s, shared),
-                    over CA (aioca), read only; the module's route cached ROUTE_TTL_S
+                    (/api/devices/{name}/arrays: the `on_request` roles of type `array`, at most every 0.5 s, shared)
+                    and the raw frame (/api/devices/{name}/frame.raw: role `raw_frame`, uint16 LE row-major,
+                    gzip framed, geometry + `raw_counter` tag in headers, ETag/304; `raw_counter` probed first so
+                    an unmoved camera costs one scalar read; one read in flight, held RAW_HOLD_S; 503 words
+                    for an unreadable counter or frame and a geometry disagreement; the contract is
+                    Planning/raw_frames.md), over CA (aioca), read only; the module's route cached ROUTE_TTL_S
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
                     slowly), fills the device pickers, the presets region (save dialog, diff drawer,
@@ -147,8 +151,11 @@ deploy/
 ## Testing
 
 `poetry run pytest tests -q`: the module is stubbed with httpx's
-`MockTransport`; `test_images.py` drives the frame and arrays routes over a
-fake CA and a fake fetch (no CA library, no IOC). The page scripts run under node (skipped without it; no
+`MockTransport`; `test_images.py` drives the frame, raw frame and arrays
+routes over a fake CA and a fake fetch (no CA library, no IOC): the raw
+frame's bytes are checked on the wire (`aiter_raw`, then `gzip.decompress`),
+since httpx would decode the gzip itself, and the fake CA's `counters` script
+the counter probe and the mid-batch retry. The page scripts run under node (skipped without it; no
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
 `test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness). A rule a

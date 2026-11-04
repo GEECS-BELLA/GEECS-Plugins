@@ -285,6 +285,11 @@ async def test_the_camera_page_reads_the_image_and_arrays_at_the_pvs_the_module_
     )
     assert {roles[r]["read"] for r in ("raw_width", "raw_height", "raw_counter")} == {"on_request"}  # fmt: skip
     assert all(roles[r]["verdict"] is None for r in ("raw_width", "raw_height", "raw_counter"))  # fmt: skip
+    raw = await room.client.get(
+        "/api/devices/Cam1/frame.raw"
+    )  # read at the PVs the module names
+    assert raw.status_code == 200 and ("frame", tuple(roles[r]["pv"] for r in ("raw_frame", "raw_width", "raw_height"))) in room.ca.calls  # fmt: skip
+    assert {("scalar", roles["raw_counter"]["pv"]), ("scalar", roles["full_scale"]["pv"])} <= set(room.ca.calls)  # fmt: skip
     page = await room.client.get("/device/camera/Cam1")
     assert 'id="camera"' in page.text and "/api/devices/Cam1/frame.jpg" in page.text
     assert (
