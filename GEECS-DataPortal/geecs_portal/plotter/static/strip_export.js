@@ -1,8 +1,9 @@
 // The Images page's strip as one picture: Copy puts it on the clipboard,
 // Save downloads it as a PNG. It is drawn from the tiles' own pictures
 // (their ROI, levels and colour map as shown) at their full resolution,
-// laid out as the strip is (its tiles across), each with its caption, under
-// the panel's title line. White background and dark text whatever the
+// laid out as the strip is (its tiles across), each with its caption (and
+// its colour bar, drawn into it), under the panel's title line and the
+// grid's one colour bar when it has one. White background and dark text whatever the
 // page's theme, so it pastes cleanly into slides and the logbook.
 "use strict";
 
@@ -44,6 +45,14 @@
     if (tiles.some((t) => !t.querySelector("img").getAttribute("src")))
       throw new Error("the strip's levels are still being read");
     const images = await pictures(tiles);
+    // The grid's one colour bar (a shared or fixed z scale), when shown.
+    const shownBar = document.getElementById("strip-bar");
+    let bar = null;
+    if (shownBar && !shownBar.hidden && shownBar.getAttribute("src")) {
+      bar = new Image();
+      bar.src = shownBar.getAttribute("src");
+      try { await bar.decode(); } catch (_) { bar = null; }
+    }
     const loaded = images.filter(Boolean);
     if (!loaded.length) throw new Error("no tile has a picture");
     const cols = across(tiles);
@@ -60,7 +69,11 @@
     const titleH = Math.round(font * 2.2);
     const canvas = document.createElement("canvas");
     canvas.width = gap + cols * (cellW + gap);
-    canvas.height = titleH + rows * (cellH + captionH + gap) + gap;
+    // The bar at half the grid's width (its own shape kept), under the title.
+    const barW = bar ? Math.min(canvas.width - 2 * gap, Math.max(bar.naturalWidth, canvas.width / 2)) : 0;
+    const barH = bar ? Math.round(bar.naturalHeight * (barW / bar.naturalWidth)) + gap : 0;
+    const top = titleH + barH;
+    canvas.height = top + rows * (cellH + captionH + gap) + gap;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -68,11 +81,12 @@
     ctx.textBaseline = "middle";
     ctx.font = `600 ${font}${FONT}`;
     ctx.fillText(strip.dataset.title || "", gap, titleH / 2, canvas.width - 2 * gap);
+    if (bar) ctx.drawImage(bar, (canvas.width - barW) / 2, titleH, barW, barH - gap);
     ctx.font = `${font}${FONT}`;
     ctx.textAlign = "center";
     tiles.forEach((tile, k) => {
       const x = gap + (k % cols) * (cellW + gap);
-      const y = titleH + Math.floor(k / cols) * (cellH + captionH + gap);
+      const y = top + Math.floor(k / cols) * (cellH + captionH + gap);
       const image = images[k];
       if (image) {
         // Fit the cell, keeping the picture's shape.

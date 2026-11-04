@@ -170,6 +170,7 @@
           <input type="hidden" name="pick" value="{{ pick }}">
           <input type="hidden" name="layout" value="{{ layout }}">
           <input type="hidden" name="zscale" value="{{ zscale }}">
+          <input type="hidden" name="cbar" value="{{ 'true' if cbar else 'false' }}">
           <div class="row">
             <button class="btn primary sm" type="submit">Open</button>
             <span class="spacer"></span>
@@ -511,7 +512,12 @@
                loads when it scrolls into view; plotter.js adds the display
                (colour map, levels) to every tile's URL. #}
             {# Tiles across: the same rule plotter.js applies when the box changes. #}
+            {# The grid's one colour bar (a shared or fixed z scale); plotter.js
+               draws it once the levels are known. #}
+            <img id="strip-bar" class="strip-bar" alt="colour bar" hidden
+                 data-bar="{{ root }}/api/images/colourbar.png">
             <div id="strip" class="strip {{ layout }}" data-zscale="{{ zscale }}" data-roi="{{ roi }}"
+                 data-cbar="{{ 'true' if cbar else 'false' }}"
                  data-title="Scan{{ '%03d' % scan }} · {{ day }} · {{ strip_line | trim }}"
                  data-filename="Scan{{ '%03d' % scan }}_{{ day }}_{{ device }}_{{ strip }}"
                  data-device="{{ device }}" data-levels-url="{{ root }}/{{ levels_url }}"
@@ -732,6 +738,19 @@
           <span class="hint">{{ 'Each tile from its darkest to its brightest pixel.' if zscale == 'tile' else 'Every tile on one scale: the darkest to the brightest pixel of them all. It reads every image of the strip first (for shots, the whole scan).' }}</span>
           {% if zscale == "shared" %}<span class="hint mono" id="shared-levels" aria-live="polite">reading every tile…</span>{% endif %}
         {% endif %}
+      </div>
+      <div class="field">
+        {# One bar per tile while each tile scales itself; one for the grid on
+           a shared or fixed scale. Drawn into the pictures, so Copy grid and
+           Save grid carry them. #}
+        <div class="row">
+          <span class="hint">Colour bar</span>
+          <span class="spacer"></span>
+          <div class="seg" role="group" aria-label="Colour bars">
+            <button type="button" data-toggle-for="cbar" data-value="true" aria-pressed="{{ 'true' if cbar else 'false' }}">on</button>
+            <button type="button" data-toggle-for="cbar" data-value="false" aria-pressed="{{ 'false' if cbar else 'true' }}">off</button>
+          </div>
+        </div>
       </div>
     </div>
     {% endif %}

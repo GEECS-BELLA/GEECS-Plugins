@@ -357,14 +357,30 @@
       if (levels && levels.every((v) => v !== "")) {
         query.set("zmin", levels[0]);
         query.set("zmax", levels[1]);
+      } else if (strip.dataset.cbar === "true") {
+        query.set("cbar", "true");  // a tile scaling itself carries its own bar
       }
       return query;
     };
+    // On one scale (shared or fixed) the grid has one colour bar instead.
+    const gridBar = document.getElementById("strip-bar");
+    const drawGridBar = (query) => {
+      if (!gridBar) return;
+      const lo = Number(query.get("zmin"));
+      const hi = Number(query.get("zmax"));
+      const one = strip.dataset.cbar === "true" && query.has("zmin") && hi > lo;
+      gridBar.hidden = !one;
+      if (!one) { gridBar.removeAttribute("src"); return; }
+      const bar = new URLSearchParams({ cmap: query.get("cmap"), zmin: query.get("zmin"), zmax: query.get("zmax") });
+      gridBar.src = `${gridBar.dataset.bar}?${bar}`;
+    };
     const drawTiles = () => {
+      const query = display();
       for (const img of tiles) {
         img.closest(".tile").classList.remove("missing");
-        img.src = `${img.dataset.tile}&${display()}`;
+        img.src = `${img.dataset.tile}&${query}`;
       }
+      drawGridBar(query);
     };
     // The shared z scale reads every tile first (the server's
     // /api/images/levels), then draws them all on that one scale.
@@ -388,6 +404,7 @@
         });
     };
     if (zscale === "shared") readShared();
+    else drawGridBar(display());  // a fixed scale's bar, from the page's levels
 
     // Tiles across, as the template writes it: equal columns in a grid; in
     // one row, that many tiles spread evenly over the whole scan (the

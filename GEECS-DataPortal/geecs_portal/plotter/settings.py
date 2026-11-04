@@ -201,6 +201,9 @@ class PlotterSettings(BaseModel):
     image_zscale: str = "tile"
     image_zmin: Optional[float] = None
     image_zmax: Optional[float] = None
+    #: Colour bars on the Images strip: one per tile while each tile scales
+    #: itself, one for the grid on a shared or fixed z scale.
+    image_cbar: bool = True
     #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
     #: (x right, y down, the end excluded); a camera not here is whole.
     image_rois: dict[str, list[int]] = Field(default_factory=dict)
@@ -465,6 +468,7 @@ FORM_FIELDS = {
     "zscale": "image_zscale",
     "zmin": "image_zmin",
     "zmax": "image_zmax",
+    "cbar": "image_cbar",
     "view": "xy_view",
     "filters": "shot_filters",
     "bincfg": "bin_config",
@@ -487,7 +491,7 @@ _JSON_FIELDS = {
     "map_config": "parse_gridcfg",
 }
 
-_BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias")
+_BOOLEANS = ("x_alias", "y_alias", "x_auto", "y2_alias", "y3_alias", "image_cbar")
 
 #: The whole-number fields and their bounds (``None``: no upper bound).
 _INTEGERS: dict[str, tuple[int, Optional[int]]] = {

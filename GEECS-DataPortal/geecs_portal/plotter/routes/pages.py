@@ -414,6 +414,7 @@ def _page(
         "cmap": settings.image_cmap,
         "cmaps": images.CMAPS,
         "zscale": _choice(settings, "image_zscale"),
+        "cbar": settings.image_cbar,
         "zmin": settings.image_zmin,
         "zmax": settings.image_zmax,
         "roi": "",
@@ -668,11 +669,15 @@ def display_query(page: dict) -> str:
 
     The colour map, the ROI and, on a fixed z scale with both values set,
     the black and white; a shared z scale's values come from
-    ``/api/images/levels`` in the browser.
+    ``/api/images/levels`` in the browser. A tile that scales itself
+    carries its own colour bar (``cbar``) when bars are on; on one scale
+    the grid has one bar instead (``api/images/colourbar.png``).
     """
     query = {"cmap": page["cmap"]}
     if page["roi"]:
         query["roi"] = page["roi"]
     if page["zscale"] == "fixed" and None not in (page["zmin"], page["zmax"]):
         query.update(zmin=page["zmin"], zmax=page["zmax"])
+    elif page["cbar"]:
+        query["cbar"] = "true"  # a tile scaling itself carries its own bar
     return urlencode(query)

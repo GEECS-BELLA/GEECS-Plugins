@@ -80,7 +80,8 @@
     const thumb = tile.querySelector("img");
     const processed = single && portal && processing.value;
     // The tile's picture, drawn with a colour bar beside it.
-    const own = thumb.getAttribute("src") || "";
+    // (without the tile's slim bar: the big view draws its own, with axes)
+    const own = (thumb.getAttribute("src") || "").replace(/&cbar=true/, "");
     const src = processed ? shotUrl(tile.dataset.index) : own && `${own}&bar=true`;
     if (!src) {
       // A shared z scale: the strip's levels are still being read; the

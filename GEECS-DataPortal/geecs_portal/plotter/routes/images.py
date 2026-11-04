@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
-from geecs_data_utils.io.display_png import safe_cmap, to_display_png
+from geecs_data_utils.io.display_png import colour_bar_png, safe_cmap, to_display_png
 from pydantic import BaseModel
 
 from geecs_portal.plotter import images, scans
@@ -229,11 +229,14 @@ def tile_png(
     levels: Optional[tuple[float, float]],
     bar: bool = False,
     prep: ImagePrep = ImagePrep(),
+    cbar: bool = False,
 ) -> bytes:
     """The tile's pixels, in its ROI, drawn as a PNG; a 404 naming why not.
 
     With *bar*, a figure with a colour bar beside the picture (the big
-    view): the same colour map and levels, so its values read off.
+    view): the same colour map and levels, so its values read off. With
+    *cbar*, the tile itself with a slim labelled bar at its right (a strip
+    whose tiles each scale themselves).
     """
     try:
         pixels = images.crop(
@@ -242,7 +245,9 @@ def tile_png(
         if bar:
             return _with_colour_bar(pixels, cmap, levels)
         # Without levels, the tile's own darkest to brightest pixel.
-        return to_display_png(pixels, cmap=cmap, plo=0.0, phi=100.0, levels=levels)
+        return to_display_png(
+            pixels, cmap=cmap, plo=0.0, phi=100.0, levels=levels, colour_bar=cbar
+        )
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
     except (TypeError, ValueError) as exc:  # an array no PNG can hold
@@ -280,6 +285,13 @@ def _with_colour_bar(pixels, cmap: str, levels: Optional[tuple[float, float]]) -
     )
     fig.colorbar(shown, ax=ax, fraction=0.046, pad=0.03)
     return figure_png(fig, tight=True)
+
+
+def grid_bar_png(cmap: str, zmin: float, zmax: float, length: int) -> bytes:
+    """The grid's one colour bar, *zmin* to *zmax*; a 422 unless zmax is above zmin."""
+    if not (math.isfinite(zmin) and math.isfinite(zmax)) or zmax <= zmin:
+        raise HTTPException(status_code=422, detail="zmax must be above zmin")
+    return colour_bar_png(cmap, (zmin, zmax), length=length)
 
 
 def register(router: APIRouter, ctx: Context) -> None:
@@ -371,6 +383,9 @@ def register(router: APIRouter, ctx: Context) -> None:
         bar: bool = Query(
             default=False, description="with a colour bar (the big view)"
         ),
+        cbar: bool = Query(
+            default=False, description="a slim labelled colour bar at the tile's right"
+        ),
         hits: str = Query(default="none", description="the X-ray-hit filter"),
         centre: Optional[float] = Query(
             default=None, description="centre on the beam: the threshold"
@@ -389,6 +404,18 @@ def register(router: APIRouter, ctx: Context) -> None:
         levels = (zmin, zmax) if zmin is not None and zmax is not None else None
         prep = parse_prep(hits, centre)
         png = tile_png(
-            folder, frame, device, rows, parse_roi(roi), cmap, levels, bar, prep
+            folder, frame, device, rows, parse_roi(roi), cmap, levels, bar, prep, cbar
         )
         return Response(png, media_type="image/png", headers=NO_CACHE)
+
+    @router.get("/api/images/colourbar.png")
+    def api_colour_bar(
+        zmin: float,
+        zmax: float,
+        cmap: str = Query(default="gray", description="a colour map"),
+        length: int = Query(
+            default=480, ge=64, le=4000, description="the ramp, pixels"
+        ),
+    ) -> Response:
+        """The strip's one colour bar on a shared or fixed z scale: *zmin* to *zmax*."""
+        return Response(grid_bar_png(cmap, zmin, zmax, length), media_type="image/png")

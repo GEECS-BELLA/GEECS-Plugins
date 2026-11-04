@@ -492,3 +492,33 @@ def test_fixed_levels_with_white_below_black_say_so(
     assert 'id="level-warning" role="alert">' in page  # shown
     fine = post(client, scan=1, page="images", device=CAM, zmin=10, zmax=50)
     assert 'id="level-warning" role="alert" hidden>' in fine
+
+
+def test_a_tile_can_carry_its_own_colour_bar(client: TestClient, camera: Path) -> None:
+    query = {"day": DAY, "scan": 1, "device": CAM, "strip": "shots", "index": 1}
+    plain = client.get("/api/images/tile.png", params=query)
+    barred = client.get("/api/images/tile.png", params={**query, "cbar": "true"})
+    assert plain.status_code == barred.status_code == 200
+    width = Image.open(io.BytesIO(plain.content)).width
+    assert Image.open(io.BytesIO(barred.content)).width > width
+
+
+def test_the_grid_colour_bar_route(client: TestClient) -> None:
+    ok = client.get("/api/images/colourbar.png", params={"zmin": 0, "zmax": 10})
+    assert ok.status_code == 200 and ok.headers["content-type"] == "image/png"
+    flat = client.get("/api/images/colourbar.png", params={"zmin": 5, "zmax": 5})
+    assert flat.status_code == 422
+
+
+def test_bars_follow_the_z_scale_and_can_be_turned_off(
+    client: TestClient, camera: Path
+) -> None:
+    each = post(client, scan=1, page="images", device=CAM, zscale="tile")
+    assert "cbar=true" in each and 'data-cbar="true"' in each
+    assert 'id="strip-bar"' in each
+    fixed = post(
+        client, scan=1, page="images", device=CAM, zscale="fixed", zmin=0, zmax=50
+    )
+    assert "cbar=true" not in fixed  # one bar for the grid instead
+    off = post(client, scan=1, page="images", device=CAM, zscale="tile", cbar="false")
+    assert "cbar=true" not in off and 'data-cbar="false"' in off

@@ -46,3 +46,30 @@ def test_registering_twice_is_harmless() -> None:
     colour_tables.register()
     colour_tables.register()
     assert safe_cmap("enhance_low") == "enhance_low"
+
+
+def test_a_picture_with_its_colour_bar_is_wider_and_keeps_its_pixels() -> None:
+    from geecs_data_utils.io.display_png import to_display_png
+
+    y, x = np.indices((60, 80))
+    image = (x + y).astype(float)
+    plain = np.asarray(Image.open(io.BytesIO(to_display_png(image, plo=0, phi=100))))
+    barred = np.asarray(
+        Image.open(io.BytesIO(to_display_png(image, plo=0, phi=100, colour_bar=True)))
+    )
+    assert plain.shape == (60, 80)
+    assert barred.shape[1] > 80 and barred.shape[0] >= 60
+    top = (barred.shape[0] - 60) // 2
+    np.testing.assert_array_equal(barred[top : top + 60, :80, 0], plain)
+
+
+def test_the_grid_bar_runs_low_to_high_left_to_right() -> None:
+    from geecs_data_utils.io.display_png import colour_bar_png
+
+    bar = np.asarray(
+        Image.open(io.BytesIO(colour_bar_png("gray", (0.0, 10.0), length=200)))
+    )
+    row = bar[2, :, 0].astype(int)  # across the ramp, white margins each side
+    ramp = row[np.argmin(row) :][:200]
+    assert ramp[0] == 0 and ramp[-1] == 255
+    assert np.all(np.diff(ramp) >= 0)
