@@ -43,6 +43,7 @@ from pydantic import ValidationError
 
 from urllib.parse import quote
 
+from geecs_control_room.device_pages import kind_of
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.screens import KIT_STATE, through
 from geecs_control_room.settings import Settings
@@ -114,6 +115,9 @@ def sort_devices(
         detail = details.get(name)
         roles = (detail or {}).get("roles", [])
         row = {"name": name, "family": device.get("family"), "state": state}
+        row["kind"] = kind_of(
+            device.get("family")
+        )  # its device page; None: a DB device
         row |= {"kit": KIT_STATE.get(state, "unknown"), "ioc": iocs.get(name)}
         row["last"] = last.get(name)
         if state != "live":
@@ -293,6 +297,9 @@ class Entry:
     href: Optional[str] = None
     reason: str = ""
     families: list[str] = field(default_factory=list)
+    kind: Optional[str] = (
+        None  # a device page's kind word: its picks open /device/<kind>/<name>
+    )
 
 
 @dataclass
@@ -327,7 +334,13 @@ def launcher(settings: Settings) -> Launcher:
     for page in layout.device_pages:
         unknown = [f for f in page.families if f not in installed]
         why = f"no family {', '.join(unknown)} installed" if unknown else ""
-        pages.append(Entry(page.title, None if unknown else "", why, page.families))
+        kinds = {kind_of(f) for f in page.families} - {None}
+        kind = (
+            kinds.pop() if len(kinds) == 1 else None
+        )  # families of two kinds: no one page
+        pages.append(
+            Entry(page.title, None if unknown else "", why, page.families, kind)
+        )
     links = [
         Entry(
             _LINK_TITLES.get(word, word),

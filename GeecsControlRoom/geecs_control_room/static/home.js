@@ -11,7 +11,8 @@
   const POLL_MS = 2000, MAX_POINTS = 600;
   const root = document.body.dataset.root || "";
   const $ = (id) => document.getElementById(id);
-  const deviceHref = (name) => `${root}/api/devices/${encodeURIComponent(name)}`;
+  // a device's page when its kind is known (server-side, from its family); else the module's raw answer
+  const deviceHref = (name, kind) => (kind ? `${root}/device/${kind}/` : `${root}/api/devices/`) + encodeURIComponent(name);
 
   function cell(text) {
     const td = document.createElement("td");
@@ -41,7 +42,7 @@
     pane.querySelector(".m").textContent = v.note;
     panel.querySelector("tbody").replaceChildren(...v.rows.map((d) => {
       const tr = document.createElement("tr"), name = cell(""), link = document.createElement("a");
-      link.href = deviceHref(d.name);
+      link.href = deviceHref(d.name, d.kind);
       link.textContent = d.name;
       name.className = "id";
       name.replaceChildren(link);
@@ -73,7 +74,7 @@
   }
   document.addEventListener("change", (ev) => {
     const select = ev.target.closest("select[data-families]");
-    if (select && select.value) window.location.href = deviceHref(select.value);
+    if (select && select.value) window.location.href = deviceHref(select.value, select.dataset.kind);
   });
 
   let points = [], scan = null;

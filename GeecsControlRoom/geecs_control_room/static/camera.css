@@ -1,0 +1,31 @@
+/* The camera page (device_camera.html): the rail of controls beside the
+   readings, the image and the plots. Tokens only (GeecsWebTheme's guard). */
+.kit .camera{display:grid;grid-template-columns:270px minmax(0,1fr);gap:var(--gap);padding:var(--pad)}
+@media (max-width:900px){.kit .camera{grid-template-columns:minmax(0,1fr)}}
+.kit .camera .rail{position:static;max-height:none}
+.kit .camera .rail .hint{font-size:11.5px}
+.kit .camera .field.coord,.kit .camera .field.levels{min-width:0;width:84px}
+.kit .camera .pane{display:flex;flex-direction:column;gap:var(--gap);min-width:0}
+.kit .camera .readings{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+.kit .camera .readings .live .v{font-size:15px}
+.kit .camera .readings .ws{font-size:10.5px;color:var(--muted)}
+.kit .camera .out{font-size:11px;font-family:var(--ff-mono);min-height:1em;color:var(--muted)}
+.kit .camera .out[data-state="ok"]{color:var(--ok)}
+.kit .camera .out[data-state="degraded"]{color:var(--warn)}
+.kit .camera .out[data-state="failed"]{color:var(--crit)}
+.kit .camera #alarms{color:var(--crit);font-size:11.5px}
+.kit .camera #alarms:empty{display:none}
+/* The image fills most of the window's height; the canvas is sized to it in device pixels (camera.js). */
+.kit .viewport{position:relative;height:min(68vh,calc(100vh - 300px));min-height:360px;background:var(--surface-2);border-radius:var(--r);overflow:hidden;touch-action:none;cursor:crosshair}
+.kit .viewport canvas{display:block;width:100%;height:100%;cursor:inherit}
+.kit .viewport.panning{cursor:grabbing}
+.kit .plots .dbody{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;padding-top:6px}
+.kit .plot canvas{display:block;width:100%;height:120px}
+.kit .plot-head{display:flex;gap:10px;align-items:baseline;font-size:11px}
+.kit .plot-head .eyebrow{margin-right:auto}
+.kit .plot-head .key::before{content:"";display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;background:currentColor}
+.kit .plot-head .key.t1{color:var(--trace-1)}
+.kit .plot-head .key.t2{color:var(--trace-2)}
+.kit .operator{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.kit .device[data-kind="camera"]{max-width:none}
+.kit #hazard-dialog-text{white-space:pre-line}

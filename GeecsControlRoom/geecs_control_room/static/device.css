@@ -1,0 +1,13 @@
+/* The device pages: the picker, the header, the role tables. Tokens only
+   (GeecsWebTheme's literal-colour guard walks this file). */
+.kit .device{display:flex;flex-direction:column;gap:var(--gap);padding:var(--pad);max-width:var(--shell-max);margin:0 auto;width:100%}
+.kit .device .picker .row{align-items:flex-end}
+.kit .device .picker select{min-width:16rem}
+.kit .device header .name{font-size:15px;font-weight:600}
+.kit .device .body>.eyebrow{display:block;margin:10px 0 4px}
+.kit .device table.roles td{font-size:12px;white-space:nowrap}
+.kit .device table.roles td.v{font-family:var(--ff-mono);font-variant-numeric:tabular-nums}
+.kit .device table.roles td.u,.kit .device table.roles td.pv{color:var(--muted);font-size:11px}
+.kit .device table.roles td.ws{color:var(--muted)}
+.kit .device details.disc{margin-top:6px}
+.kit .hare{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
