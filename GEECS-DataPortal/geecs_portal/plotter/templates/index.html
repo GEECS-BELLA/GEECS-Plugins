@@ -107,7 +107,7 @@
                 <button class="btn sm ghost" type="submit" form="pick" name="dropcam" value="{{ k }}" aria-label="Remove this camera" title="Remove this camera">✕</button>{% endif %}
               </div>
               {% if c.zscale == "fixed" %}<span class="hint level-problem" id="level-warning{{ c.sfx }}" role="alert"{% if c.zmin is none or c.zmax is none or c.zmax > c.zmin %} hidden{% endif %}>{{ 'Y high must be above y low: each tile draws its own range until it is.' if c.trace else 'White must be above black: every tile draws flat until it is.' }}</span>{% endif %}
-              {% if c.zscale == "shared" and c.tiles %}<span class="hint mono" data-shared-for="{{ k }}" aria-live="polite">reading every tile…</span>{% endif %}
+              {% if c.zscale == "shared" and c.tiles %}<span class="hint mono" data-shared-for="{{ k }}" aria-live="polite">reading the tiles shown…</span>{% endif %}
 {%- endmacro %}
 {# One Y row: its colour, its Fit menu and alias toggle on one line, its
    picker under them. #}

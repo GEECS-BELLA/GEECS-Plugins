@@ -424,19 +424,29 @@
         }
         drawGridBar(query);
       };
-      // The shared z scale reads every tile first (the server's
-      // /api/images/levels), then draws them all on that one scale.
+      // The shared z scale reads the tiles shown first (the server's
+      // /api/images/levels; a row spread over the scan names its few, so a
+      // hidden tile is never read for it), then draws them on that scale.
       const sharedNote = document.querySelector(`[data-shared-for="${cam}"]`);
+      const figures = tiles.map((img) => img.closest(".tile"));
+      // The shown tiles' indices, "" when every tile is shown.
+      const shownKey = () => {
+        const shown = figures.filter((f) => !f.hidden);
+        return shown.length === figures.length ? "" : shown.map((f) => f.dataset.index).join(",");
+      };
+      let readFor = null;  // the shownKey the shared scale was read for
       const readShared = () => {
         const url = new URL(strip.dataset.levelsUrl, location.href);
-        if (sharedNote) sharedNote.textContent = "reading every tile…";
+        readFor = shownKey();
+        if (readFor) url.searchParams.set("shown", readFor);
+        if (sharedNote) sharedNote.textContent = "reading the tiles shown…";
         return fetch(url)
           .then((response) => response.json().then((body) => ({ response, body })))
           .then(({ response, body }) => {
             if (!response.ok) throw new Error(String(body.detail || response.statusText));
             shared = [body.zmin, body.zmax];
             if (sharedNote) sharedNote.textContent =
-              `shared scale ${body.zmin.toPrecision(4)} to ${body.zmax.toPrecision(4)}, over ${body.tiles} tiles`;
+              `shared scale ${body.zmin.toPrecision(4)} to ${body.zmax.toPrecision(4)}, over the ${body.tiles} tiles shown`;
             drawTiles();
           })
           .catch((error) => {
@@ -445,8 +455,6 @@
             drawTiles();  // each tile its own window, rather than nothing
           });
       };
-      if (zscale === "shared") readShared();
-      else drawGridBar(display());  // a fixed scale's bar, from the page's levels
 
       // Tiles across, as the template writes it: equal columns in a grid; in
       // one row, that many tiles spread evenly over the whole scan (the
@@ -456,7 +464,6 @@
       // of its own after the tiles, never a tile's width.
       function across(n) {
         if (strip.classList.contains("row")) {
-          const figures = tiles.map((img) => img.closest(".tile"));
           const total = figures.length;
           const shown = new Set(total <= n ? figures.keys()
             : Array.from({ length: n }, (_, i) => Math.round((i * (total - 1)) / Math.max(n - 1, 1))));
@@ -471,8 +478,12 @@
           strip.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
         }
         fitGridBar();
+        // Other tiles shown: the shared scale is read again over them.
+        if (zscale === "shared" && readFor !== null && shownKey() !== readFor) readShared();
       }
       across(Number(value("cols")) || 1);
+      if (zscale === "shared") readShared();  // over the tiles just laid out
+      else drawGridBar(display());  // a fixed scale's bar, from the page's levels
       for (const img of tiles) {
         img.addEventListener("error", () => {
           const tile = img.closest(".tile");

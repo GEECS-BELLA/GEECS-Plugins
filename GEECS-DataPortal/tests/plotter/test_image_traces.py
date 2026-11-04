@@ -191,3 +191,12 @@ def test_reading_traces_leaves_the_share_untouched(
         p.relative_to(share) for p in share.rglob("*") if EXPERIMENT in str(p)
     )
     assert after == before
+
+
+def test_the_shared_y_range_is_over_the_tiles_shown(
+    client: TestClient, scope: Path
+) -> None:
+    params = {"day": DAY, "scan": 1, "device": SCOPE, "strip": "shots", "channel": 1}
+    body = client.get("/api/images/levels", params={**params, "shown": "1,2"}).json()
+    # Shots 1 and 2 alone: the ramp up to 5 × 2.
+    assert (body["zmin"], body["zmax"], body["tiles"]) == (0.0, 10.0, 2)

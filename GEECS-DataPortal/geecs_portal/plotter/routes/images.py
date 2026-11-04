@@ -134,6 +134,28 @@ def parse_rows(text: str) -> list[images.Tile]:
         ) from None
 
 
+def shown_tiles(found: list[images.Tile], shown: str) -> list[images.Tile]:
+    """The tiles whose ``index`` the ``shown`` parameter lists (``""``: all).
+
+    The page's one-row layout shows a few tiles spread over the scan; the
+    shared scale is taken over those only (the author, 2026-11-03).
+
+    Raises
+    ------
+    HTTPException
+        422 when ``shown`` is not whole numbers.
+    """
+    if not shown:
+        return found
+    try:
+        wanted = {int(v) for v in shown.split(",")}
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail=f"shown={shown!r}: whole numbers"
+        ) from None
+    return [t for t in found if t.index in wanted]
+
+
 def parse_prep(hits: str, centre: Optional[float]) -> ImagePrep:
     """The ``hits`` and ``centre`` parameters; a bad one is a 422 naming it."""
     if hits not in HIT_FILTERS:
@@ -543,13 +565,19 @@ def register(router: APIRouter, ctx: Context) -> None:
         filters: str = Query(default="", description="the shot filters (JSON)"),
         bg: str = Query(default="", description="a background scan, YYYY-MM-DD:N"),
         channel: int = Query(default=0, ge=0, description="a scope's channel"),
+        shown: str = Query(
+            default="",
+            description="the tiles on screen, their indices comma-separated; empty is all",
+        ),
     ) -> JSONResponse:
-        """One black and white for the whole strip (the "shared" z scale).
+        """One black and white over the tiles shown (the "shared" z scale).
 
-        Reads every tile of the strip: its darkest and its brightest pixel
-        (a trace device: its lowest and highest sample, the y range).
-        A strip of one shot per bin names its rows (``rows``); otherwise
-        the strip is the shots the shot filters (``filters``) keep.
+        Reads each of them: its darkest and its brightest pixel (a trace
+        device: its lowest and highest sample, the y range). A strip of one
+        shot per bin names its rows (``rows``); otherwise the strip is the
+        shots the shot filters (``filters``) keep. ``shown`` narrows it to
+        the tiles on screen (one row spread over the scan shows a few), so a
+        hidden tile is never read for the scale.
         """
         run, frame, folder = opened(day, scan)
         traces = picture_device(folder, device)
@@ -557,6 +585,7 @@ def register(router: APIRouter, ctx: Context) -> None:
         keep = None if rows else keep_rows(frame, filters)
         try:
             found = parse_rows(rows) if rows else images.tiles(frame, strip, keep=keep)
+            found = shown_tiles(found, shown)
             if traces:
                 # A trace row's shared y range: its lowest to highest sample.
                 lo, hi, count = images.trace_levels(

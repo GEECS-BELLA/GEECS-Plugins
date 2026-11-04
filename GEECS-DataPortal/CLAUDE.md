@@ -650,9 +650,12 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   `/plot/api/images/tile.png`; tiles across, the colour map and the levels
   redraw in place and save as typed; device, tiles and layout reload. The
   **z scale** (`image_zscale`) is LabVIEW's autoscale: each tile from its
-  own darkest to brightest pixel, one scale shared by every tile
-  (`images.shared_levels` via `/plot/api/images/levels`, which reads EVERY
-  tile first — the author's ruling, and the page says so), or black and
+  own darkest to brightest pixel, one scale shared by the tiles shown
+  (`images.shared_levels` via `/plot/api/images/levels`, which reads them
+  first and the page says so; `shown=` names a one-row strip's few spread
+  over the scan, so hidden tiles are never read for it — the author,
+  2026-11-03, replacing "every tile of the scan"; a hidden tile stepped to
+  in the big view may clip; changing tiles across reads it again), or black and
   white typed in ("fixed"). There is **no percentile window**: a laser
   mode is a small spot and a percentile white saturates it (the author,
   2026-10-28). The **ROI** is kept per camera (`image_rois`, `[x0, y0,

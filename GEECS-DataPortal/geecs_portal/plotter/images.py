@@ -608,7 +608,7 @@ def trace_levels(
     """One y range for every trace tile: the lowest and highest sample of them all.
 
     The trace row's "shared" scale, as :func:`shared_levels` is a camera's:
-    every tile is read first, a few at a time.
+    every tile given (the page's shown ones) is read first, a few at a time.
 
     Returns
     -------
@@ -665,12 +665,13 @@ def shared_levels(
     prep: ImagePrep = ImagePrep(),
     background: Optional[Background] = None,
 ) -> tuple[float, float, int]:
-    """One black and one white for every tile: the darkest and brightest pixel.
+    """One black and one white for *tiles*: the darkest and brightest pixel.
 
-    Over each tile's ROI; the brightest tile sets white, so no tile
-    saturates. This reads EVERY tile of the strip, the whole scan for a
-    strip of shots (the author's ruling: the scale must be consistent
-    across all of them), a few at a time; the page says so while it runs.
+    Over each tile's ROI; the brightest tile sets white, so none of them
+    saturates. Reads every tile given, a few at a time: the page gives the
+    tiles it shows (the author, 2026-11-03: a row spread over the scan
+    reads its few, not the whole scan; a hidden tile stepped to in the big
+    view may clip), and every tile of a grid; it says so while it runs.
 
     Returns
     -------
