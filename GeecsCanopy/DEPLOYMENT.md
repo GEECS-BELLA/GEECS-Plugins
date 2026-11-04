@@ -63,7 +63,7 @@ Every other key is minted into Postgres, printed once:
 dc exec -T api python scripts/create_key.py "<app>" -r        # add -w only for a service key
 ```
 
-**Rule (condition (a)): no operator or front-end key ever carries Canopy
+**Rule: no operator or front-end key ever carries Canopy
 `write`.** A key's `write` is key-wide: it reaches Hare's `PUT` and
 Squirrel's restore directly, around every guard of the GEECS module. Write
 keys are service keys only (the module itself, an ops script), never on a
@@ -140,7 +140,7 @@ and that no page key reaches Hare's or Squirrel's own write routes. **A DB
 device has no run lock**: a scan driving a LabVIEW device through the
 gateway does not stop a module write to it (section 4).
 Binding the operator to a person needs a key per operator or the front
-door's user header (an upstream candidate, §7.4 of the decision page).
+door's user header (an upstream candidate).
 Operator and page keys are `read` only (section 3): the module authorizes
 its own writes and reaches Hare in-process, so a person never needs
 Canopy `write`.

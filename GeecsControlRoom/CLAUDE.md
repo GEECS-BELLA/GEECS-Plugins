@@ -63,7 +63,7 @@ deploy/
   names (never derived here); CA addressing is the standard `EPICS_CA_*`
   environment from `site.env`, never `config.ini` or GEECS-Core. No write
   ever leaves this process but through the module's put route.
-- **Read keys only (condition (a), `Planning/geecs_canopy.md` §7.6).** The
+- **Read keys only (no operator key carries Canopy `write`).** The
   page carries the display's read key (on `<body>`, for Hare's socket);
   a write key never reaches this process. Every write is
   `POST /geecs/v1/devices/{name}/put` with the operator's name, sent once:

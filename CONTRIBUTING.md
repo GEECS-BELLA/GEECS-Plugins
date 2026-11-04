@@ -24,6 +24,15 @@ docs site), or launch Claude Code from the repo root and type
 - Some packages need extras for their full test suite:
   `GeecsBluesky` → `poetry install --extras "ca tiled"`.
 - Install pre-commit hooks once: `poetry run pre-commit install`.
+  Optional, faster: [prek](https://github.com/j178/prek), a drop-in
+  reimplementation that reads the same `.pre-commit-config.yaml`
+  (with uv: `uvx prek run --all-files`, or `uv tool install prek`
+  then `prek install` in place of the line above). Trialled 2026-11-03 with prek 0.5.10: every hook passes unchanged,
+  the local ones (`scrub-lock-paths`, `poetry-lock-no-worktree-paths`,
+  `import-contracts`) included; a warm all-files run took 3.8 s against
+  pre-commit's 4.7 s. pre-commit stays the reference — CI and
+  `scripts/commit.sh` run it — so a hook that behaves differently under
+  prek is a prek bug, not a config change.
 
 ## Branch topology (post-M6: one mainline)
 
@@ -40,6 +49,12 @@ one mainline:
   master-targeted PR. (Bulk integration merges whose constituent PRs
   were each already reviewed do not get a fresh re-review — say so in
   the PR body, per § "Every PR that changes a package" step 4.)
+- **The one bot exception:** Renovate (`renovate.json`) merges its own
+  GitHub Actions and pre-commit hook-pin PRs (ruff excepted) into
+  `master` once every check is green, without a review comment — a
+  category the maintainer approved on 2026-11-03. Runtime dependencies,
+  lock files and container images are never automerged; they are his
+  merge like any other PR.
 - `dev` is **retired** — frozen at the cutover, kept only so pre-cutover
   PRs based on it don't auto-close. Do not target it or branch from it.
 - The final legacy-scanner state (GEECS-Scanner-GUI, GEECS-PythonAPI) is
@@ -117,6 +132,20 @@ layout; delete-when-executed is the whole discipline):
   empty directories, so pruning everything would take the discipline with
   it. CHANGELOG citations were left dangling on purpose: like the dead
   branch names, they are historical record, not instruction.
+- **2026-11-03**, consolidation day — five of seven files deleted:
+  analysis_refactor.md (its own condition met: the old analysis cores
+  went with ImageAnalysis in #1039), geecs_canopy.md (Canopy adopted,
+  pushes 1–3 on master and deployed), epics_estate.md (the web estate
+  it planned was superseded by Canopy; tag `web-estate-final`),
+  device_panels.md (superseded by `device_pages.md`) and
+  geecs_plotter.md (the arc moved into GEECS-DataPortal). The rules
+  other files cited by section number (the bridge's Appendix A, the
+  Canopy adoption conditions, the run lock, the recipe vocabulary) were
+  inlined into `GeecsCanopy/CLAUDE.md`, `GeecsControlRoom/CLAUDE.md`,
+  `GEECS-Analysis/CLAUDE.md` and the docstrings that keep them; the open
+  items were listed in the PR body rather than filed. Kept:
+  `operator_surfaces.md` (§11 decisions open) and `device_pages.md` (arc
+  continues).
 
 ## Every PR that changes a package
 

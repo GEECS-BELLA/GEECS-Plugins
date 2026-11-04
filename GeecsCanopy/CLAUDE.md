@@ -3,8 +3,11 @@
 SLAC's Canopy runs here as the display backend, unpatched, in an image
 derived from upstream's by digest. This package holds what is GEECS's: the
 deploy recipe, the Raccoon directory adapter and the in-process device
-module at `/geecs` (push 1). The decision and its conditions (a)–(f)
-are `Planning/geecs_canopy.md` §7; `DEPLOYMENT.md` is the runbook.
+module at `/geecs` (push 1). The adoption conditions that still bind are
+stated where they apply below (no operator key carries Canopy `write`;
+Squirrel stores and compares but never executes an operator's restore; every
+Canopy-internal import listed in `canopy_surface.py`, checked at startup; the
+image pinned by digest); `DEPLOYMENT.md` is the runbook.
 
 ## Layout
 
@@ -61,7 +64,7 @@ deploy/
 
 - **From Canopy outward.** Raccoon's shapes, Hare's protocol and Squirrel's
   model are Canopy's. Where they lack something, the gap is an upstream
-  candidate in the decision page (§7.4), never a bend of this package
+  candidate, never a bend of this package
   toward the parked bridge's catalog. Canopy is the host process, never a
   dependency: type against local Protocols and import Canopy lazily, so the
   package installs and tests without it.
@@ -107,9 +110,9 @@ deploy/
   `geecs-canopy` command — never by importing `gateway.py` itself; their writes take
   the same gates but the run lock (a DB device has none), their hazards
   come from the policy's `hazards`, and a setpoint without DB `min`/`max`
-  is refused (rule 11). One switch, `GEECS_CANOPY_DB`, turns the DB off for
+  is refused. One switch, `GEECS_CANOPY_DB`, turns the DB off for
   the directory and the module alike.
-- **Routes and gates import no Canopy name** (condition (b)): `app.py`
+- **Routes and gates import no Canopy name**: `app.py`
   alone does, through `canopy_surface.NAMES`; a new Canopy name goes into
   that list in the same change. Every route needs Canopy read access only;
   the module's own policy decides writes. Every write, a push-2 restore's
@@ -119,13 +122,24 @@ deploy/
   sequence is an action plan (GEECS-Schemas' `ActionPlanLibrary`, the file
   the worker reads; one step library, two executors), run by `actions.py`
   from a screen button: never by Bluesky, never scripted in a screen.
-  Verdicts follow `Planning/operator_surfaces.md` §3 and Appendix A of
-  `Planning/epics_estate.md` (rules 1, 6, 8, 9, 10, 11, 18), each pinned by
-  a test in `tests/test_module.py`.
+  Verdicts follow `Planning/operator_surfaces.md` §3 and these rules, each
+  pinned by a test in `tests/test_module.py`: freshness is the producing
+  plugin's counter advancing (`ArrayCounter_RBV`), never a value changing,
+  and a value whose `Compute*` flag is off reads `off`; disconnected is not
+  stale (a dropped field reads `None`, the state `unknown`) and a known fault
+  outranks a dropped field; NaN travels as `null`; an unreadable run lock
+  refuses acquisition writes and a locked camera's refusal names the run;
+  writes are allow-listed with context, not-permitted (403) before
+  invalid (422); setpoint refusal lives in the IOC (`DRVL`/`DRVH`, and
+  `HIHI`/`LOLO` at the ceiling ± one step with INVALID severity and IVOA),
+  so the module's own gate fails closed on unread limits or
+  bounds (severity refusal is the IOC's); a write that disturbs a cycle in progress (a DG645 delay
+  aborts the delay cycle on every output of the box) is a hazard role,
+  behind the confirm.
 - **The pin is a fleet constant.** `pin.py` is the one record of the image
   digest and commit, bumped only in a reviewed PR after a rehearsal on the
   sim (DEPLOYMENT.md). The startup self-test and `canopy_surface.py`
-  (every Canopy-internal import, condition (d)) read it; never `latest`.
+  (every Canopy-internal import) read it; never `latest`.
 - **Facility values have one home.** Non-secret values are `site.env` keys
   (`GEECS_CANOPY_BIND`, `_PORT`, `_ROOT_PATH`, `_DB`, plus the shared
   `GEECS_EXPERIMENT`, `GEECS_CONFIGS_ROOT`, EPICS and `TZ`); secrets are in

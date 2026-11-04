@@ -3,7 +3,7 @@
 Device panels: a browser GUI per native-device kind, starting with the
 areaDetector camera. A **prototype** for looking at the cameras, trying
 things out and asking for features. Where it is deployed in the end is an
-open question (`Planning/device_panels.md`).
+open question; GeecsControlRoom's device pages are its successor.
 
 - `/` lists the experiment's native devices (`native_devices.yaml` in the
   configs repository), grouped by kind.

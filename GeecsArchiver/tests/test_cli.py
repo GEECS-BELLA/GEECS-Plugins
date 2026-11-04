@@ -43,9 +43,13 @@ class Appliance:
         if path.endswith("/getAllPVs"):
             return httpx.Response(200, json=sorted(self.archived))
         if path.endswith("/getPVStatus"):
+            # As the real appliance: one comma-separated ``pv``; a repeated
+            # ``pv`` parameter is read as its first value only.
             rows = []
-            for pv in request.url.params.get_list("pv"):
-                if pv in self.archived:
+            for pv in request.url.params.get("pv", "").split(","):
+                if pv in self.paused:
+                    rows.append({"pvName": pv, "status": "Paused"})
+                elif pv in self.archived:
                     rows.append(
                         {
                             "pvName": pv,
@@ -196,6 +200,19 @@ def test_mass_pause_needs_yes(appliance, capsys):
         cli.main(["onboard", "--experiment", "Undulator", "--wait", "0", "--yes"]) == 0
     )
     assert len(appliance.paused) == cli.PAUSE_GUARD + 2
+
+
+def test_converged_appliance_plans_no_pause(appliance, capsys):
+    """2026-11-03: after a mass pause, the next dry run still planned every pause again."""
+    appliance.archived |= {f"undulator:stray:{i}" for i in range(cli.PAUSE_GUARD + 1)}
+    assert (
+        cli.main(["onboard", "--experiment", "Undulator", "--wait", "0", "--yes"]) == 0
+    )
+    capsys.readouterr()
+    assert cli.main(["onboard", "--experiment", "Undulator", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "pause 0," in out and f"paused {cli.PAUSE_GUARD + 2}" in out
+    assert "- pause" not in out
 
 
 def test_status_and_export(appliance, capsys, tmp_path):

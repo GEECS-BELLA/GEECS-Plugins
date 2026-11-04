@@ -25,6 +25,8 @@ class FakeAppliance:
             assert request.url.params["limit"] == "-1"
             return httpx.Response(200, json=["undulator:a:b", "undulator:c:d"])
         if path.endswith("/getPVStatus"):
+            # As the real appliance: one comma-separated ``pv``; a repeated
+            # ``pv`` parameter is read as its first value only.
             return httpx.Response(
                 200,
                 json=[
@@ -35,7 +37,7 @@ class FakeAppliance:
                         "samplingPeriod": "1.0",
                         "appliance": "appliance0",
                     }
-                    for pv in request.url.params.get_list("pv")
+                    for pv in request.url.params.get("pv", "").split(",")
                 ],
             )
         if path.endswith("/archivePV"):
@@ -93,6 +95,23 @@ def test_status_is_batched_and_parsed(client, fake):
         for s in statuses
     )
     assert sum(1 for c in fake.calls if c.url.path.endswith("/getPVStatus")) == 3
+    first = fake.calls[-3]
+    assert first.url.params.get_list("pv") == [",".join(pvs[:100])]
+
+
+def test_short_status_answer_is_an_error():
+    """An appliance answering for fewer PVs than asked never yields a partial picture."""
+
+    def handler(request):
+        return httpx.Response(
+            200, json=[{"pvName": "undulator:a:b", "status": "Paused"}]
+        )
+
+    with MgmtClient(
+        "http://appliance:17665", transport=httpx.MockTransport(handler)
+    ) as c:
+        with pytest.raises(MgmtError, match="asked for 2 PVs"):
+            c.get_pv_status(["undulator:a:b", "undulator:c:d"])
 
 
 def test_archive_request_is_bulk_json(client, fake):
@@ -156,3 +175,22 @@ def test_pvstatus_parses_the_appliance_booleans_and_states():
         ).sampling_method
         == "SCAN"
     )
+
+
+def test_status_batches_are_bounded_by_encoded_length() -> None:
+    """Long names split into more, shorter batches; no batch exceeds the bound."""
+    from geecs_archiver.mgmt_client import (
+        STATUS_BATCH,
+        STATUS_QUERY_MAX,
+        _status_batches,
+    )
+
+    long_names = [f"experiment:{'device' * 12}:{i}:field:SP" for i in range(250)]
+    batches = list(_status_batches(long_names))
+    assert [pv for b in batches for pv in b] == long_names
+    for b in batches:
+        assert len(b) <= STATUS_BATCH
+        encoded = sum(len(pv) + 2 * pv.count(":") + 3 for pv in b)
+        assert encoded <= STATUS_QUERY_MAX
+    short = [f"x:{i}" for i in range(250)]
+    assert [len(b) for b in _status_batches(short)] == [100, 100, 50]

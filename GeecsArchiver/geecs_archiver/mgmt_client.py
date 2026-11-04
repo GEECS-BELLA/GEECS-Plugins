@@ -8,14 +8,36 @@ exception type.  Pass an ``httpx`` transport to test against a fake.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
-#: ``getPVStatus`` takes the PVs as repeated query parameters; keep URLs sane.
+#: ``getPVStatus`` takes the PVs as ONE comma-separated ``pv`` parameter (a
+#: repeated ``pv`` is read as its first value only), so a batch is bounded by
+#: the URL: the appliance's Tomcat answers HTTP 400 past about 8 KB of request
+#: line (measured: 188 PVs in an 8072-character URL passed, 189 in 8119 did
+#: not). A batch is at most STATUS_BATCH PVs AND at most STATUS_QUERY_MAX
+#: characters of percent-encoded ``pv`` value, well under that limit.
 STATUS_BATCH = 100
+STATUS_QUERY_MAX = 4000
+
+
+def _status_batches(pvs: Sequence[str]) -> Iterator[list[str]]:
+    """Split *pvs* into ``getPVStatus`` batches bounded by count and encoded length."""
+    batch: list[str] = []
+    size = 0
+    for pv in pvs:
+        # httpx percent-encodes ':' and ',' (3 characters each); count both.
+        cost = len(pv) + 2 * pv.count(":") + 3
+        if batch and (len(batch) >= STATUS_BATCH or size + cost > STATUS_QUERY_MAX):
+            yield batch
+            batch, size = [], 0
+        batch.append(pv)
+        size += cost
+    if batch:
+        yield batch
 
 
 class MgmtError(RuntimeError):
@@ -149,11 +171,20 @@ class MgmtClient:
         return [str(pv) for pv in self._get("/getAllPVs", {"limit": -1})]
 
     def get_pv_status(self, pvs: Sequence[str]) -> list[PVStatus]:
-        """``getPVStatus`` for *pvs*, in batches."""
+        """``getPVStatus`` for *pvs*, in batches; one row per PV asked for.
+
+        The appliance reads the ``pv`` parameter as a comma-separated list; a
+        repeated ``pv`` parameter silently answers for the first PV only, so
+        a short answer is an error, never a partial picture.
+        """
         out: list[PVStatus] = []
-        for start in range(0, len(pvs), STATUS_BATCH):
-            batch = pvs[start : start + STATUS_BATCH]
-            rows = self._get("/getPVStatus", [("pv", pv) for pv in batch])
+        for batch in _status_batches(pvs):
+            rows = self._get("/getPVStatus", {"pv": ",".join(batch)})
+            if len(rows) != len(batch):
+                raise MgmtError(
+                    f"GET /getPVStatus: asked for {len(batch)} PVs, "
+                    f"the appliance answered {len(rows)}"
+                )
             out.extend(PVStatus.from_bpl(row) for row in rows)
         return out
 

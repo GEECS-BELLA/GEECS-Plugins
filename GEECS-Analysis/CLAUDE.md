@@ -1,7 +1,8 @@
 # GEECS-Analysis
 
-The replacement analysis core, developed on `codex/analysis-refactor`.
-Read `../Planning/analysis_refactor.md` for scope, acceptance gates and migration.
+The analysis core: every per-shot recipe (steps, measure, figure, summaries)
+runs through it; the legacy ImageAnalysis package and the scan-analyzer
+wrappers around it were deleted 2026-10-16 (tag `legacy-analysis-final`).
 The optimizer uses this core directly for camera recipes; portal image
 processing, unsaved-document rendering and ScanAnalysis' scan runs all
 compile and run v3 recipes through it.
@@ -255,6 +256,9 @@ open-ended and validated by preview rendering, with RenderError at the layout
 boundary. Deep-copy kwargs before passing to matplotlib; normalization objects
 can be mutated by rendering. Preserve geometry rather than accepting arbitrary
 extent overrides. New overlay families must carry data, never render callbacks.
+Recipes never name arbitrary matplotlib calls or carry Python: the fixed
+kwarg groups (`imshow`, `plot`, `colorbar`, ...) and the named overlay kinds are
+the vocabulary, so the editor can list and the preview can validate them.
 
 `render.image_grid` draws image measurements with per-panel coordinates and a
 single palette/colorbar. It accepts titles and a positive column count. Palette

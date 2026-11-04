@@ -1,7 +1,7 @@
-"""The module's routes, mounted at ``/geecs``; no Canopy import (condition (b)).
+"""The module's routes, mounted at ``/geecs``; no Canopy import.
 
 Every route, the put and an action run included, needs Canopy read access
-only (condition (a)): an operator's key never carries Canopy ``write``; the
+only: an operator's key never carries Canopy ``write``; the
 module authorizes its own writes by the operator policy, step by step. Errors are Canopy's
 ``{"code", "detail"}`` envelope.
 """
