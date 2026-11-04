@@ -153,22 +153,56 @@ def bins(frame: pd.DataFrame) -> list[tuple[object, tuple[int, ...]]]:
         raise NoImage("this scan has no Bin # column") from None
 
 
+def _parsed_filters(filters: str) -> RowFilters:
+    try:
+        return RowFilters.model_validate_json(filters)
+    except ValueError as why:  # pydantic's ValidationError is one
+        raise NoImage(f"the shot filters cannot be read: {why}") from None
+
+
+def missing_filter_columns(frame: pd.DataFrame, filters: str) -> list[str]:
+    """The columns the active shot filters name that *frame* lacks, in order.
+
+    The Plot page filters several scans merged (``scan``, ``day``, columns
+    only some have); the Images page shows one scan, and leaves those
+    conditions out (:func:`shot_rows`) rather than show nothing.
+    """
+    if not filters:
+        return []
+    missing: list[str] = []
+    for group in _parsed_filters(filters).active_groups():
+        for c in group.conditions:
+            if c.column not in frame.columns and c.column not in missing:
+                missing.append(c.column)
+    return missing
+
+
 def shot_rows(frame: pd.DataFrame, filters: str) -> Optional[frozenset[int]]:
     """The rows (from 1) the page's shot filters keep; ``None`` when none is on.
 
     *filters* is the set's ``shot_filters`` JSON (``RowFilters``), the
-    same the Plot page draws with, so both pages keep the same shots.
+    same the Plot page draws with, so both pages keep the same shots. A
+    condition on a column this scan lacks (:func:`missing_filter_columns`)
+    is left out; a group left with none is off.
 
     Raises
     ------
     NoImage
-        Filters this scan cannot apply (a column it does not have), or
-        not filters at all.
+        Filters that cannot be read, or applied (a date column).
     """
     if not filters:
         return None
+    parsed = _parsed_filters(filters)
+    groups = [
+        g.model_copy(
+            update={
+                "conditions": [c for c in g.conditions if c.column in frame.columns]
+            }
+        )
+        for g in parsed.groups
+    ]
+    parsed = parsed.model_copy(update={"groups": groups})
     try:
-        parsed = RowFilters.model_validate_json(filters)
         if not parsed.active_groups():
             return None
         mask = filter_mask(frame, parsed).to_numpy(dtype=bool)
@@ -321,6 +355,20 @@ class Background:
     label: str = field(default="", compare=False)
 
 
+def _background_stamp(background: Optional[Background], device: str) -> object:
+    """What makes a cached tile stale with its background (folder time, rows).
+
+    A background scan still being written changes both.
+    """
+    if background is None:
+        return None
+    try:
+        stamp = (background.folder / device).stat().st_mtime_ns
+    except OSError:
+        stamp = None
+    return (stamp, len(background.frame))
+
+
 def background_array(background: Background, device: str) -> np.ndarray:
     """*device*'s average over every shot of the background scan (remembered).
 
@@ -415,7 +463,16 @@ def kept_tile_array(
         stamp = (folder / device).stat().st_mtime_ns
     except OSError:
         return tile_array(folder, frame, device, rows, prep, background)
-    key = (str(folder), device, rows, len(frame), stamp, prep, background)
+    key = (
+        str(folder),
+        device,
+        rows,
+        len(frame),
+        stamp,
+        prep,
+        background,
+        _background_stamp(background, device),
+    )
     now = time.monotonic()
     with _kept_lock:
         kept = _kept.get(key)

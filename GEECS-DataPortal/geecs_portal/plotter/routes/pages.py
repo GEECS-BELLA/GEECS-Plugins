@@ -622,6 +622,15 @@ def _fill_images(
         keep = None  # each row says why it has no tiles
     if keep is not None:
         page["filter_pass"] = f"{len(keep)} / {len(frame)} shots pass"
+    try:
+        missing = images.missing_filter_columns(frame, settings.shot_filters)
+    except images.NoImage:
+        missing = []
+    if missing:
+        # The Plot page may filter merged scans; here, one scan.
+        page["filter_pass"] = (
+            page["filter_pass"] + " · " if page["filter_pass"] else ""
+        ) + f"not in this scan, so left out: {', '.join(missing)}"
     first = cams[0]
     page.update(
         device=first["device"],

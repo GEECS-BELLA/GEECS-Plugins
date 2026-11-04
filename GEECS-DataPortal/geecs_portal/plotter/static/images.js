@@ -149,6 +149,10 @@
     strip = next;
     tiles = Array.from(strip.querySelectorAll(".tile"));
     keep(ROW_KEY, strip.dataset.cam);
+    // A recipe is one camera's: never draw another camera's shot through
+    // it. The new camera's own list (offerProcessing) may pick one again.
+    processing.value = "";
+    $("big-processing-box").hidden = true;
     offerProcessing();
   }
 

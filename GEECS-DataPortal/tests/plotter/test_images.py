@@ -582,11 +582,24 @@ class TestShotFilters:
         assert images.shot_rows(frame, "") is None
         assert images.shot_rows(frame, '{"groups":[],"nan_policy":"exclude"}') is None
 
-    def test_a_filter_on_a_missing_column_says_so(self, share: Path) -> None:
+    def test_a_condition_on_a_column_this_scan_lacks_is_left_out(
+        self, share: Path
+    ) -> None:
+        """The Plot page may filter merged scans (``scan``, ``day``); one scan here."""
         frame, _ = _opened(share)
-        bad = '{"groups":[{"conditions":[{"column":"nope","low":0,"high":1}]}]}'
-        with pytest.raises(images.NoImage, match="nope"):
-            images.shot_rows(frame, bad)
+        only = '{"groups":[{"conditions":[{"column":"scan","low":0,"high":1}]}]}'
+        assert images.shot_rows(frame, only) is None  # its group is left with none
+        assert images.missing_filter_columns(frame, only) == ["scan"]
+        mixed = (
+            '{"groups":[{"conditions":[{"column":"scan","low":0,"high":1},'
+            '{"column":"U_ICT charge","low":20,"high":"inf"}]}]}'
+        )
+        assert images.shot_rows(frame, mixed) == {4}
+
+    def test_filters_that_cannot_be_read_say_so(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        with pytest.raises(images.NoImage, match="cannot be read"):
+            images.shot_rows(frame, "{not json")
 
     def test_the_page_and_its_routes_keep_the_filtered_shots(
         self, client: TestClient, camera: Path
