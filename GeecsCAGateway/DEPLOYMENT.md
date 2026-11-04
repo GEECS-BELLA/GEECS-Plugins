@@ -562,3 +562,58 @@ not in the value deadband**, which must stay 0.0 (suppressing real
 sub-tolerance motion from live monitors was a shipped production bug). The full
 plan, including the `DBE_LOG`-gated-by-DB-tolerance option, is in `DESIGN.md`
 → "Honest gaps / next steps" → *Archive-rate control*.
+
+## 6. Troubleshooting
+
+Two failures seen live, each with a check that tells it from a device that
+is simply off (§4 step 2).
+
+### A device has no PVs
+
+The served set is enumerated **once, at startup**:
+`GatewayConfig.from_geecs_experiment` reads the DB when the process starts
+and never again. A device added to the experiment, or enabled, after that
+has no PVs — a name search times out and a client shows it not connected —
+until the gateway restarts (`systemctl restart geecs-ca-gateway` or the
+`cagateway:restart` PV, §5). Compare `[experiment:]cagateway:uptime` with
+when the DB row changed; the startup line `built N/M device spec(s)`
+(§5 log expectations) counts what the running process enumerated.
+
+Rule out a spelling before chasing connectivity. The variable name in a
+scan-variable target must match the device type's DB spelling, and
+families differ by a character: an ESP301 axis is `Position.Axis 1` (a
+space), an Aerotech axis `Position.Axis1` (no space). The scanner's
+submit preflight now refuses a reference the worker's device tree lacks,
+naming it with "check the spelling"
+(`geecs_bluesky.qs_client.submit_preflight`); the original symptom — a
+`NotConnectedError` on `position_axis1` against the served
+`position_axis_1` — predates that check. (Both causes observed
+2026-09-02, live incident, one masking the other.)
+
+A device with no `get='yes'` rows serves its settable variables only —
+§1, *Experiment selection and `subscribed_only` semantics*.
+
+### Readbacks frozen while `:SP` writes work
+
+Symptom: a device's readbacks stop updating while `:SP` writes still work
+and the hardware moves, with no alarm. Diagnosis: monitor the readback
+(`caproto-monitor` / `camonitor`) while wiggling `:SP` — `:SP` events
+arrive and the readback stays silent across a real excursion ⇒ the
+gateway's GEECS TCP subscription to that device app is half-open (the
+device app restarted without a FIN; the usual cause on a gateway up for
+weeks). A quiet readback alone is not the tell: GEECS pushes on change, so
+a static value produces no events; and `[experiment:]cagateway:heartbeat`
+ticking proves CA delivery to the client works.
+
+Since 0.20.0 (#611) TCP keepalive resets the dead peer within about a
+minute and the ordinary drop path takes over (INVALID readbacks,
+`:connected` MAJOR, supervised reconnect). If it does not heal, restart
+the gateway — `caproto-put [experiment:]cagateway:restart Restart`
+rebuilds every subscription at the cost of a few seconds of CA disconnect
+fleet-wide; monitors reconnect on their own. A `:SP` that still shows the
+old value does not rule this out: after a put through the gateway the
+device itself read the new value while both the readback and its `:SP`
+PV showed the old one for minutes, so verify the device's state with a
+direct GEECS read, never the gateway alone. (Observed 2026-08-17, live
+incident, cleared by the restart the same day; the `:SP` nuance on the
+test stand, 2026-10-14.)

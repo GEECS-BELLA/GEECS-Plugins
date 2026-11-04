@@ -64,14 +64,15 @@ ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --proc
 # MemoryMax=4G` writes a persistent drop-in (`systemctl revert` removes).
 MemoryHigh=@PORTAL_MEMORY_HIGH@
 MemoryMax=@PORTAL_MEMORY_MAX@
-# No swap for the portal. Without this, MemoryMax= never fires: above
-# HIGH the kernel pushes the portal's pages to swap instead, and on
-# 2026-09-25 one whole-scan analysis grew to ~19 GB (3 GB resident +
-# the host's entire 16 GB of swap) and sat unresponsive for hours,
-# still "active (running)", while even `systemctl restart` hung in the
-# stop timeout below. With swap off, a runaway climbs from HIGH to MAX
-# and is killed there, and Restart= brings it back in seconds. Not a
-# site value: it is the policy that makes MemoryMax= mean anything.
+# No swap for the portal. With swap on, a process above HIGH has its
+# pages pushed to swap: on 2026-09-25 one whole-scan analysis grew to
+# ~19 GB (3 GB resident + the host's entire 16 GB of swap) and sat
+# unresponsive for hours, still "active (running)", while even
+# `systemctl restart` hung in the stop timeout below. Swap off keeps
+# the host's swap out of it; it does not make a runaway reach MAX (the
+# 2026-09-29 and 2026-10-07 recurrences stalled at HIGH with swap off —
+# DEPLOYMENT.md, "Unresponsive but active (running)"). Not a site
+# value: it is policy.
 MemorySwapMax=0
 Restart=on-failure
 RestartSec=10
