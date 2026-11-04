@@ -43,6 +43,15 @@
 
 /* The image strip, as a grid or one scrolling row; the tiles across are
    the element's own style (the template, and plotter.js on a change). */
+/* The Images page's camera rows: each its toolbar over its tiles. */
+.kit .strips { display: flex; flex-direction: column; gap: var(--gap); --bar-col: 3.5rem; }
+/* Stacked rows: the bar fits the end column every row keeps. */
+.kit .strips.many .strip-bar-cell img { max-width: 100%; object-fit: contain; object-position: left center; }
+.kit .strips.many .cam + .cam { border-top: var(--bw) solid var(--rule); padding-top: var(--gap); }
+.kit .cam { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kit .cam-bar { flex-wrap: wrap; gap: 6px; align-items: center; }
+.kit .cam-bar .cam-pick { width: min(16rem, 100%); }
+.kit .cam-bar .cam-pick .combo { width: 100%; }
 /* The grid's one colour bar (a shared or fixed z scale): upright in the
    cell after the last tile, its height the tiles' picture height (plotter.js). */
 .kit .strip-bar-cell { margin: 0; min-width: 0; }

@@ -43,9 +43,14 @@ const els = {
   "big-image": node(), "big-trace": node(), "big-note": node(), "big-caption": node(),
   "big-processing": node(), "big-processing-box": node({hidden: true}),
 };
+// One camera row (a trace device has none), its tiles inside it.
+const strip = node({dataset: {cam: "1", device: "UC_Cam"}});
+strip.querySelectorAll = (sel) => (sel === ".tile" ? tiles : []);
 const document = {
   getElementById: (id) => els[id],
-  querySelectorAll: (sel) => sel === "#strip .tile" ? tiles : [],
+  querySelector: () => null,
+  querySelectorAll: (sel) => (sel === ".strip[data-cam]" ? (MODE === "trace" ? [] : [strip])
+    : sel === ".strip .tile img" ? tiles.map((t) => t.img) : []),
 };
 const location = {search: SEARCH};
 const sessionStorage = new Map([["store", 1]]);

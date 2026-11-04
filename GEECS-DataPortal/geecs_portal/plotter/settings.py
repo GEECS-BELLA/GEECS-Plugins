@@ -49,6 +49,9 @@ MAX_IMAGE_COLUMNS = 20
 #: colour each, ``--trace-1..8``. The merged view takes any number.
 MAX_OVERLAY_SCANS = 8
 
+#: Cameras stacked on the Images page, the first included.
+MAX_CAMERAS = 8
+
 #: The choices of the tab and image controls, as stored.
 CHOICES: dict[str, tuple[str, ...]] = {
     "tab": ("xy", "map", "images"),
@@ -115,6 +118,29 @@ class ScanRef(BaseModel):
 
     day: date
     scan: int = Field(ge=1)
+
+
+class ImageCamera(BaseModel):
+    """A camera stacked under the first on the Images page, and its look.
+
+    The first camera's are ``PlotterSettings``' own ``image_*`` fields (a
+    set saved before cameras stacked opens unchanged); each further one
+    keeps the same choices here, under the same names without ``image_``.
+    Its region of interest is ``image_rois[device]``, as the first's is;
+    the tiles (per bin, per shot, one per bin), tiles across and the shot
+    filters are the page's, so the rows line up bin by bin.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    device: Optional[str] = None
+    cmap: str = "gray"
+    zscale: str = "tile"
+    zmin: Optional[float] = None
+    zmax: Optional[float] = None
+    hits: str = "none"
+    centre: Optional[float] = Field(default=None, gt=0)
+    cbar: bool = True
 
 
 class PlotterSettings(BaseModel):
@@ -207,6 +233,11 @@ class PlotterSettings(BaseModel):
     #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
     #: (x right, y down, the end excluded); a camera not here is whole.
     image_rois: dict[str, list[int]] = Field(default_factory=dict)
+    #: The cameras stacked under the first (``image_device``), each one row
+    #: of tiles with its own look; at most ``MAX_CAMERAS`` in all.
+    image_more: list[ImageCamera] = Field(
+        default_factory=list, max_length=MAX_CAMERAS - 1
+    )
     #: The XY plot per shot or binned (each bin's centre and error bars).
     xy_view: str = "shot"
     #: The plot's shot filters, the bin settings and the plot cosmetics,
@@ -522,17 +553,73 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
         for field, key in FORM_FIELDS.items()
         if field in form and not (key in ("day", "scan") and not form[field])
     }
+    rois = dict(settings.image_rois)
     if "roi" in form:
-        device = changes.get("image_device") or settings.image_device
-        if device:
-            rois = dict(settings.image_rois)
-            roi = roi_value(form["roi"])
-            if roi is None:
-                rois.pop(device, None)
-            else:
-                rois[device] = roi
-            changes["image_rois"] = rois
+        _set_roi(
+            rois, changes.get("image_device") or settings.image_device, form["roi"]
+        )
+    more = _more_cameras(settings.image_more, form, rois)
+    if more != settings.image_more:
+        changes["image_more"] = more
+    if rois != settings.image_rois:
+        changes["image_rois"] = rois
     return settings.model_copy(update=changes)
+
+
+#: A stacked camera's field: the first camera's form name, ``@`` and its
+#: place (2 for the second): ``cmap@2``, ``roi@3``.
+_CAMERA_FIELD = re.compile(
+    rf"(device|cmap|zscale|zmin|zmax|hits|centre|cbar|roi)@([2-{MAX_CAMERAS}])"
+)
+
+
+def camera_field(name: str, place: int) -> str:
+    """The form name of camera *place*'s *name* (the first camera's own)."""
+    return name if place == 1 else f"{name}@{place}"
+
+
+def _set_roi(rois: dict[str, list[int]], device: Optional[str], text: str) -> None:
+    """Save *text* (``roi_value``) as *device*'s region; ``""`` clears it."""
+    if not device:
+        return
+    roi = roi_value(text)
+    if roi is None:
+        rois.pop(device, None)
+    else:
+        rois[device] = roi
+
+
+def _more_cameras(
+    cameras: list[ImageCamera], form: dict[str, str], rois: dict[str, list[int]]
+) -> list[ImageCamera]:
+    """The stacked cameras after *form*: its fields, then ``addcam``/``dropcam``.
+
+    Each field is checked as the first camera's is (``cmap@2`` as
+    ``cmap``); one naming a camera not there is ignored (a page from
+    before a drop). ``addcam`` stacks a camera under the rest; ``dropcam``
+    (its place) takes one away.
+    """
+    more = list(cameras)
+    # Regions last: a region is its camera's, whose device may change here.
+    for name, value in sorted(
+        form.items(), key=lambda item: item[0].startswith("roi@")
+    ):
+        match = _CAMERA_FIELD.fullmatch(name)
+        if not match or int(match.group(2)) - 2 >= len(more):
+            continue
+        field, index = match.group(1), int(match.group(2)) - 2
+        if field == "roi":
+            _set_roi(rois, more[index].device, value)
+            continue
+        key = FORM_FIELDS[field]
+        update = {key.removeprefix("image_"): _form_value(name, key, value)}
+        more[index] = more[index].model_copy(update=update)
+    if form.get("addcam") and len(more) < MAX_CAMERAS - 1:
+        more.append(ImageCamera())
+    drop = form.get("dropcam", "")
+    if drop.isdigit() and 0 <= int(drop) - 2 < len(more):
+        del more[int(drop) - 2]
+    return more
 
 
 def scan_refs(text: str) -> list[ScanRef]:

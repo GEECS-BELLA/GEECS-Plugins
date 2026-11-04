@@ -873,9 +873,26 @@ pages: the page form's `page` field says which one a save reopens
 (`pages._opened`), and its `tab` field carries the Plot page's view (XY
 plot or 2-D map), so a save here never moves the Plot page; a set an
 older copy saved on its strip (`tab="images"`) opens the XY plot.
-The rail is the strip's (camera, bins or shots, layout, colour map, z
-scale, ROI). `plotter/static/images.js` draws the **big view**: the tile
-clicked (or stepped to with ‹ ›) at full size: the tile's own picture
+The rail holds what every camera shares (per bin / per shot / one per
+bin, layout, tiles across); each camera's row has its own toolbar
+(camera, colour map, z scale and levels, X-ray-hit filter, centring,
+colour bar, ROI).
+
+**Stacked cameras** (the author, 2026-11-03): `+ Add camera` stacks up
+to `MAX_CAMERAS` rows, one line each, over the same tiles, so a bin
+reads down the page. The first camera is the set's flat `image_*`
+fields (an older set opens unchanged); the others are
+`PlotterSettings.image_more` (`ImageCamera`: the same choices without
+the prefix), their form fields the first camera's names with `@` and
+the place (`cmap@2`, `roi@3`, `settings.camera_field`), parsed in
+`settings._more_cameras` by the first camera's rules; `addcam` /
+`dropcam` add and remove. ROIs stay per device in `image_rois`. Each row
+is one `.strip[data-cam]` (`id="strip"`, then `strip@2`, ...); a row on
+one scale keeps its bar in an end column every stacked row reserves, so
+the columns line up. A trace device shows only as the one camera.
+`plotter/static/images.js` draws the **big view**: the tile
+clicked (or stepped to with ‹ › along its camera's row; a click on another
+row moves it to that camera) at full size: the tile's own picture
 (its ROI, levels and colour map), redrawn whenever the tile's picture
 changes (a shared z scale read late, a new colour map) through a
 `MutationObserver`. With a recipe picked, a shot is the portal's
