@@ -31,5 +31,17 @@ that carries write:
     sudo install -m 0644 <staging>/geecs-control-room.service /etc/systemd/system/
     sudo systemctl daemon-reload && sudo systemctl enable --now geecs-control-room
 
+CA addressing is `site.env`'s `EPICS_CA_*`. `EPICS_CA_MAX_ARRAY_BYTES` need
+not be set for the raw frame (`/api/devices/{name}/frame.raw`, a 2592×2048
+frame is 21 MB as CA delivers it): the client library aioca loads
+(epicscorelibs' libca, EPICS 7) sizes its buffers itself while
+`EPICS_CA_AUTO_ARRAY_BYTES` is unset or `YES`, its default. Measured on a
+local soft IOC (5 308 416 `USHORT` values, read as int32): unset, the read
+succeeds; with `EPICS_CA_AUTO_ARRAY_BYTES=NO` and no `MAX_ARRAY_BYTES` it
+times out (libca drops the payload). So the unit must not set
+`EPICS_CA_AUTO_ARRAY_BYTES=NO`; if a site does, it must also set
+`EPICS_CA_MAX_ARRAY_BYTES` above the largest frame × 4 bytes (≥ 21.3 MB for a
+2592×2048 camera). The IOC side's limit is the IOC's (geecs-epics).
+
 Check: `GET /healthz` → `{"status": "ok"}`. The home and the screens read the
 configs share per request; Canopy's containers do not (restart `geecs-canopy`).
