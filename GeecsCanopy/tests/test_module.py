@@ -1,4 +1,4 @@
-"""The device module: each test pins one rule (Appendix A of Planning/epics_estate.md, the brief's gates)."""
+"""The device module: each test pins one rule of the module's gates and verdicts (GeecsCanopy/CLAUDE.md)."""
 
 import asyncio
 import math

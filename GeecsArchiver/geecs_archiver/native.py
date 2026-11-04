@@ -9,7 +9,7 @@ worker's registry, :class:`~geecs_schemas.NativeDevices`) and
 It never needs the DB: given the DB roster it also refuses doubled
 ownership, without it it says it did not check.
 
-Per device (``NATIVE_DEVICES.md`` §10, ``Planning/epics_estate.md`` §2.5):
+Per device (``NATIVE_DEVICES.md`` §10):
 
 * the device's **family**: a registry device's ``family_template`` (its
   ``template``, else the kind's :data:`~geecs_schemas.REGISTRY_KIND_FAMILIES`

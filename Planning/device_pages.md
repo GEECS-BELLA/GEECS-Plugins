@@ -1,7 +1,7 @@
 # Device pages — the brief (integration branch `feat/device-pages`)
 
 Scaffolding per `Planning/README.md`: the promotion PR to `master` deletes this
-file (and `Planning/device_panels.md`, which it supersedes) after moving
+file after moving
 anything load-bearing into the owning `CLAUDE.md` files. The coordinator runs
 the slices in order, one PR each into this branch, with the `/land` ritual, and
 merges a lane PR after its review is dispositioned (maintainer's rule for

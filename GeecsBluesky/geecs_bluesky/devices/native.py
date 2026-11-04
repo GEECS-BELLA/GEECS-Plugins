@@ -142,8 +142,7 @@ class RunLockIO(Device):
     """The IOC's run lock: ``RUN:Lock`` and ``RUN:Owner``.
 
     While ``lock`` is set, the IOC's access security refuses acquisition
-    writes from anyone but the scan worker (geecs-epics ``access.acf``;
-    ``Planning/device_panels.md`` §6).
+    writes from anyone but the scan worker (geecs-epics ``access.acf``).
     """
 
     def __init__(self, prefix: str, name: str = "") -> None:

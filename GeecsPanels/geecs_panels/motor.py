@@ -9,9 +9,8 @@ for a stage: the position readback with its setpoint beside it, absolute
 and relative moves, stop, the soft limits and the limit switches, the
 homing state, the velocity — each with its alarm colour.
 
-**Writes move things.** The design note (`Planning/device_panels.md` §1)
-sends a moving kind's writes through the scanner's ``POST /api/move``,
-serialized with scans; that route needs the scanner to know native axes
+**Writes move things.** A moving kind's writes belong behind the scanner's
+``POST /api/move``, serialized with scans; that route needs the scanner to know native axes
 (``NATIVE_DEVICES.md`` §10, slice L), which it does not yet. Until then
 the prototype writes the record directly behind this allow-list: a target
 is checked against the record's soft limits here first (the record

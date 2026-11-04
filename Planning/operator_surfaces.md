@@ -3,7 +3,7 @@
 Status: design note, 2026-10-26, **provisional until built**. Written from
 the maintainer's screenshots and notes of the LabVIEW GEECS GUIs (HTU
 Control Center, Master Control, the diagnostics camera GUI) and the
-GeecsCanopy exercise (`Planning/geecs_canopy.md`). It names the operator
+GeecsCanopy exercise (adopted 2026-10-26; GeecsCanopy/CLAUDE.md). It names the operator
 surfaces, maps each to its owner in the new estate, and proposes the first
 slice. The front end is designed from Canopy outward and from these
 surfaces; nothing from the parked geecs-web arc carries weight here.
@@ -212,7 +212,7 @@ maintainer clicking it.
 | Device-type knowledge (roles, hazards, freshness counters, power-on flags) | family files, package data in GEECS-Schemas |
 | An experiment's screens, home layout, presets' groups, label-to-device mappings | the configs repo, `<Experiment>/screens/`, `home.yaml` |
 | The renderer, the home, the device pages, the inspector | one new package in GEECS-Plugins, served behind the front door |
-| Live PVs, writes, snapshots, directory, archive reads | Canopy with the GEECS module (`Planning/geecs_canopy.md`) |
+| Live PVs, writes, snapshots, directory, archive reads | Canopy with the GEECS module (GeecsCanopy) |
 | Screenshots and notes of the LabVIEW GUIs (lab device names) | the configs repo or the maintainer's notes, never this public repo |
 
 ## 9. Migration of the suite

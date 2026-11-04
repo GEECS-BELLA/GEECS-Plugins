@@ -38,8 +38,7 @@ layout in GEECS-Analysis; add a step or measure in GEECS-Analysis alone.
 ## EPICS device data (the web estate)
 
 `epics/` holds the native-device registry (`NativeDevices`, in
-`__init__.py`) and the web estate's device data (`Planning/epics_estate.md`
-§2.2). `epics/family.py`: `FamilyFile`, one per IOC record template, its
+`__init__.py`) and the web estate's device data. `epics/family.py`: `FamilyFile`, one per IOC record template, its
 records by role (`REGISTRY_KIND_FAMILIES`: a registry kind's default
 family, for the bridge and the archiver alike); the files are **package data**,
 `epics/families/<template>.json`, read by `load_families()` — JSON so the

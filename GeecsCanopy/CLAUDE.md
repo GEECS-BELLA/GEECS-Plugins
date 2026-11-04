@@ -3,8 +3,11 @@
 SLAC's Canopy runs here as the display backend, unpatched, in an image
 derived from upstream's by digest. This package holds what is GEECS's: the
 deploy recipe, the Raccoon directory adapter and the in-process device
-module at `/geecs` (push 1). The decision and its conditions (a)–(f)
-are `Planning/geecs_canopy.md` §7; `DEPLOYMENT.md` is the runbook.
+module at `/geecs` (push 1). The adoption conditions that still bind are
+stated where they apply below (no operator key carries Canopy `write`;
+Squirrel stores and compares but never executes an operator's restore; every
+Canopy-internal import listed in `canopy_surface.py`, checked at startup; the
+image pinned by digest); `DEPLOYMENT.md` is the runbook.
 
 ## Layout
 
@@ -119,9 +122,20 @@ deploy/
   sequence is an action plan (GEECS-Schemas' `ActionPlanLibrary`, the file
   the worker reads; one step library, two executors), run by `actions.py`
   from a screen button: never by Bluesky, never scripted in a screen.
-  Verdicts follow `Planning/operator_surfaces.md` §3 and Appendix A of
-  `Planning/epics_estate.md` (rules 1, 6, 8, 9, 10, 11, 18), each pinned by
-  a test in `tests/test_module.py`.
+  Verdicts follow `Planning/operator_surfaces.md` §3 and these rules, each
+  pinned by a test in `tests/test_module.py`: freshness is the producing
+  plugin's counter advancing (`ArrayCounter_RBV`), never a value changing,
+  and a value whose `Compute*` flag is off reads `off`; disconnected is not
+  stale (a dropped field reads `None`, the state `unknown`) and a known fault
+  outranks a dropped field; NaN travels as `null`; an unreadable run lock
+  refuses acquisition writes and a locked camera's refusal names the run;
+  writes are allow-listed with context, not-permitted (403) before
+  invalid (422); setpoint refusal lives in the IOC (`DRVL`/`DRVH`, and
+  `HIHI`/`LOLO` at the ceiling ± one step with INVALID severity and IVOA),
+  so the module's own gate fails closed on unread limits, bounds or
+  severities; a write that disturbs a cycle in progress (a DG645 delay
+  aborts the delay cycle on every output of the box) is a hazard role,
+  behind the confirm.
 - **The pin is a fleet constant.** `pin.py` is the one record of the image
   digest and commit, bumped only in a reviewed PR after a rehearsal on the
   sim (DEPLOYMENT.md). The startup self-test and `canopy_surface.py`

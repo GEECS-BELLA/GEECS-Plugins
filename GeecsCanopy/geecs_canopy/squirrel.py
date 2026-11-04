@@ -17,7 +17,7 @@ and more than ``REMOVE_GUARD`` removals need ``--yes``.
 Squirrel's model, as its REST has it: addresses are immutable (a changed
 readback is a delete and a create) and a deleted PV takes its saved values
 out of every snapshot with it, so a retired role's history goes with the
-row (an upstream candidate, Planning/geecs_canopy.md §7.4). The write key
+row (a soft retire upstream would keep it). The write key
 reaches this process alone (condition (a)): read from the environment,
 never printed.
 """

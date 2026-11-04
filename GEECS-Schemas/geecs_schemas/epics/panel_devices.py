@@ -12,7 +12,7 @@ have (``omit``), the roles that need a hazard confirm on it alone
 serving it (``ioc``, whose devIocStats heartbeat the archiver keeps).
 
 Read by GeecsCanopy, and by the archiver's registry pass for the device's
-archived roles, prefix, axes and IOC (``Planning/epics_estate.md`` §2.5).
+archived roles, prefix, axes and IOC.
 The scan worker never reads it, so a device
 listed here may still be owned by the GEECS DB (a bench device on a bench
 prefix): ``native_devices.yaml`` stays what the worker binds, and a device

@@ -117,6 +117,20 @@ layout; delete-when-executed is the whole discipline):
   empty directories, so pruning everything would take the discipline with
   it. CHANGELOG citations were left dangling on purpose: like the dead
   branch names, they are historical record, not instruction.
+- **2026-11-03**, consolidation day — five of seven files deleted:
+  analysis_refactor.md (its own condition met: the old analysis cores
+  went with ImageAnalysis in #1039), geecs_canopy.md (Canopy adopted,
+  pushes 1–3 on master and deployed), epics_estate.md (the web estate
+  it planned was superseded by Canopy; tag `web-estate-final`),
+  device_panels.md (superseded by `device_pages.md`) and
+  geecs_plotter.md (the arc moved into GEECS-DataPortal). The rules
+  other files cited by section number (the bridge's Appendix A, the
+  Canopy adoption conditions, the run lock, the recipe vocabulary) were
+  inlined into `GeecsCanopy/CLAUDE.md`, `GeecsControlRoom/CLAUDE.md`,
+  `GEECS-Analysis/CLAUDE.md` and the docstrings that keep them; the open
+  items were listed in the PR body rather than filed. Kept:
+  `operator_surfaces.md` (§11 decisions open) and `device_pages.md` (arc
+  continues).
 
 ## Every PR that changes a package
 

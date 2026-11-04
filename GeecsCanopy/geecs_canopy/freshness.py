@@ -1,10 +1,9 @@
 """Freshness, judged continuously from the module's internal Hare subscription.
 
 Verdicts claim no more than the evidence (``Planning/operator_surfaces.md``
-§3) and keep Appendix A of ``Planning/epics_estate.md``: the producing
-counter's advance is freshness, a changing value never is, a ``Compute*``
-flag off reads ``off`` (rule 1); disconnected is not stale, a known fault
-outranks a dropped field (rule 9); NaN travels as null (rule 10). ``tsNs``
+§3): the producing counter's advance is freshness, a changing value never
+is, a ``Compute*`` flag off reads ``off``; disconnected is not stale, a
+known fault outranks a dropped field; NaN travels as null. ``tsNs``
 is never read: a quiet live record looks old by it.
 """
 
