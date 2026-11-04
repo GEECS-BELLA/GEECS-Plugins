@@ -37,6 +37,7 @@ from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     GeecsDeviceDownError,
+    GeecsFrameCountReadError,
     GeecsTriggerTimeoutError,
 )
 from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
@@ -659,12 +660,53 @@ def test_a_free_running_plugin_camera_fails_the_shot_by_name(
     with pytest.raises(GeecsConfigurationError) as info:
         RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
     text = str(info.value)
-    assert "UC_B (6 frames)" in text and "trigger mode" in text
+    assert "UC_B (6 frames)" in text and "put it in trigger mode" in text
     assert "UC_A" not in text
     assert box.fires == 1  # no retake: another shot cannot help
     assert col.primary_events() == []
     assert col.docs["stop"][-1]["exit_status"] == "fail"
     assert "UC_B (6 frames)" in col.docs["stop"][-1]["reason"]
+
+
+def test_an_unreadable_frame_count_is_named_not_an_index_error(
+    RE: RunEngine,
+    box: FakeBox,
+    shot_control: ShotControl,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed count read before the row fails the run naming the camera."""
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
+
+    async def unreadable() -> int:
+        raise TimeoutError("NumCaptured_RBV")
+
+    monkeypatch.setattr(a, "frames_since_last_datum", unreadable)
+    with pytest.raises(GeecsFrameCountReadError) as info:
+        RE(bp.count([a], num=1, per_shot=geecs_per_shot(shot_control)))
+    assert info.value.device_name == "UC_A"
+    assert "frame count unreadable before the row" in str(info.value)
+
+
+def test_a_native_camera_runs_a_strict_count_past_the_frame_check(
+    RE: RunEngine, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """A NativeCamera is plugin-backed but not a GeecsDetector: the check leaves it alone.
+
+    It arms its own trigger mode, so a free-running native camera is not
+    this check's case; reading a count it has no method for failed every
+    strict scan with one.
+    """
+    pytest.importorskip("aioca")
+    from tests.test_native_camera import _camera, _frames_on_software_trigger
+
+    cam, _ = _camera(RE, tmp_path)
+    presses = _frames_on_software_trigger(cam)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bp.count([cam], num=2, per_shot=geecs_per_shot(shot_control)))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert len(presses) == 2 and len(col.primary_events()) == 2
 
 
 def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(

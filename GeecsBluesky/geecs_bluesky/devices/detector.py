@@ -1111,7 +1111,7 @@ class GeecsDetector(StandardDetector):
             *(sdp.collections_written_signal.get_value() for sdp in providers)
         )
         return max(
-            int(count) - int(getattr(sdp, "last_emitted", ctx.collections_written))
+            int(count) - int(sdp.last_emitted)
             for sdp, count in zip(providers, counts, strict=True)
         )
 

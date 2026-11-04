@@ -24,6 +24,7 @@ baseline and before the shot exists, like the fire.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Sequence
@@ -38,11 +39,12 @@ from ophyd_async.core import StandardDetector
 
 from geecs_bluesky.devices.ca._view import ScalarsView, geecs_device_name
 from geecs_bluesky.devices.ca.liveness import read_disconnected
-from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO
+from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO, GeecsDetector
 from geecs_bluesky.devices.scan_mode import ANNOUNCE
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     GeecsDeviceDownError,
+    GeecsFrameCountReadError,
     GeecsTriggerTimeoutError,
     failure_cause_text,
 )
@@ -104,7 +106,7 @@ def plugin_reasons(devices: Sequence[Any]):
 
 
 def refuse_free_running_cameras(devices: Sequence[Any]):
-    """Plan: fail a complete shot on which a plugin camera wrote more than one frame.
+    """Plan: fail a complete shot on which a gateway plugin camera holds more than one frame.
 
     Strict records one frame per camera per shot.  A camera that is not in
     trigger mode free-runs, and its plugin counts every frame it pushes, so
@@ -112,30 +114,45 @@ def refuse_free_running_cameras(devices: Sequence[Any]):
     bluesky would then refuse the row with a datum-width error that names
     neither the device nor the cause.  Checked before the row is recorded,
     so the failure (the scan-end message) names each such camera and the
-    frames it wrote.
+    frames it holds.  Only a :class:`GeecsDetector` is checked: a
+    ``NativeCamera`` puts itself in trigger mode at its first prepare.
+    The counts are read in one gather; a read that fails is named.
 
     Raises
     ------
     GeecsConfigurationError
-        Naming every camera that wrote more than one frame for the shot.
+        Naming every camera that holds more than one frame for the shot.
+    GeecsFrameCountReadError
+        A camera's frame count could not be read.
     """
+    cameras = [d for d in devices if isinstance(d, GeecsDetector) and d.plugin_backed]
+    if not cameras:
+        return
+    counts: list[int | BaseException] = []
+
+    async def read_counts() -> None:
+        counts.extend(
+            await asyncio.gather(
+                *(cam.frames_since_last_datum() for cam in cameras),
+                return_exceptions=True,
+            )
+        )
+
+    yield from bps.wait_for([read_counts])
     extra: list[str] = []
-    for obj in devices:
-        if not getattr(obj, "plugin_backed", False):
-            continue
-        found: list[int] = []
-
-        async def count(obj: Any = obj, found: list[int] = found) -> None:
-            found.append(await obj.frames_since_last_datum())
-
-        yield from bps.wait_for([count])
-        if found[0] > 1:
-            extra.append(f"{geecs_name(obj)} ({found[0]} frames)")
+    for cam, count in zip(cameras, counts or [None] * len(cameras), strict=True):
+        if not isinstance(count, int):
+            label = geecs_name(cam)
+            raise GeecsFrameCountReadError(
+                label, f"{label}: frame count unreadable before the row: {count!r}"
+            )
+        if count > 1:
+            extra.append(f"{geecs_name(cam)} ({count} frames)")
     if extra:
         raise GeecsConfigurationError(
-            f"more than one frame for one shot from {', '.join(extra)} — "
-            "not waiting for the trigger (free-running?): put the camera in "
-            "trigger mode"
+            f"more than one frame for one shot from {', '.join(extra)} — the "
+            "camera is not waiting for the trigger (free-running?): put it in "
+            "trigger mode (or the shot was replayed after an immediate pause)"
         )
 
 
