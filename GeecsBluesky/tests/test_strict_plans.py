@@ -35,6 +35,7 @@ from geecs_bluesky.devices.ca import CaMotor
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
 from geecs_bluesky.exceptions import (
+    GeecsConfigurationError,
     GeecsDeviceDownError,
     GeecsTriggerTimeoutError,
 )
@@ -65,6 +66,8 @@ class FakeBox:
         self.puts: list[tuple[str, str, str]] = []
         self.drop: set[tuple[str, int]] = set()
         self.counts: dict[str, int] = {}  # plugin-backed cameras' frame counts
+        # Frames a free-running camera's plugin counts per fire beyond the shot's.
+        self.extra: dict[str, int] = {}
 
     def __call__(self, device: str, variable: str):
         box = self
@@ -84,7 +87,11 @@ class FakeBox:
                             continue
                         hdf = getattr(cam, "hdf", None)
                         if hdf is not None:  # a plugin-backed camera counts first
-                            box.counts[cam.name] = box.counts.get(cam.name, 0) + 1
+                            box.counts[cam.name] = (
+                                box.counts.get(cam.name, 0)
+                                + 1
+                                + box.extra.get(cam.name, 0)
+                            )
                             set_mock_value(hdf.num_captured, box.counts[cam.name])
                         set_mock_value(cam.acq_timestamp, box.stamp)
 
@@ -632,6 +639,32 @@ def test_a_plugin_that_never_answers_does_not_hang_the_miss_path(
     assert "no frame from UC_A (partial rows kept; known camera frame-drop" in str(
         info.value
     )
+
+
+def test_a_free_running_plugin_camera_fails_the_shot_by_name(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
+) -> None:
+    """GEECS-Plugins#1276: a camera not in trigger mode is named, not a datum-width error.
+
+    Its plugin counts every frame the camera pushes, so by the row it holds
+    several where the triggered camera holds one; bluesky refused that row
+    with "Received `indices` ... of a different width".  The run fails
+    before the row is recorded, naming the camera and its frame count.
+    """
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path, shot_timeout=0.3)
+    box.extra = {"uc_b": 5}
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(GeecsConfigurationError) as info:
+        RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
+    text = str(info.value)
+    assert "UC_B (6 frames)" in text and "trigger mode" in text
+    assert "UC_A" not in text
+    assert box.fires == 1  # no retake: another shot cannot help
+    assert col.primary_events() == []
+    assert col.docs["stop"][-1]["exit_status"] == "fail"
+    assert "UC_B (6 frames)" in col.docs["stop"][-1]["reason"]
 
 
 def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(

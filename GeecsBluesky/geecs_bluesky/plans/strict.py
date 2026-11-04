@@ -41,6 +41,7 @@ from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO
 from geecs_bluesky.devices.scan_mode import ANNOUNCE
 from geecs_bluesky.exceptions import (
+    GeecsConfigurationError,
     GeecsDeviceDownError,
     GeecsTriggerTimeoutError,
     failure_cause_text,
@@ -100,6 +101,42 @@ def plugin_reasons(devices: Sequence[Any]):
         yield from bps.wait_for([collect])
         reasons.append("; ".join(found))
     return reasons
+
+
+def refuse_free_running_cameras(devices: Sequence[Any]):
+    """Plan: fail a complete shot on which a plugin camera wrote more than one frame.
+
+    Strict records one frame per camera per shot.  A camera that is not in
+    trigger mode free-runs, and its plugin counts every frame it pushes, so
+    by the row it holds several where every triggered camera holds one;
+    bluesky would then refuse the row with a datum-width error that names
+    neither the device nor the cause.  Checked before the row is recorded,
+    so the failure (the scan-end message) names each such camera and the
+    frames it wrote.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        Naming every camera that wrote more than one frame for the shot.
+    """
+    extra: list[str] = []
+    for obj in devices:
+        if not getattr(obj, "plugin_backed", False):
+            continue
+        found: list[int] = []
+
+        async def count(obj: Any = obj, found: list[int] = found) -> None:
+            found.append(await obj.frames_since_last_datum())
+
+        yield from bps.wait_for([count])
+        if found[0] > 1:
+            extra.append(f"{geecs_name(obj)} ({found[0]} frames)")
+    if extra:
+        raise GeecsConfigurationError(
+            f"more than one frame for one shot from {', '.join(extra)} — "
+            "not waiting for the trigger (free-running?): put the camera in "
+            "trigger mode"
+        )
 
 
 def _device_named(devices: Sequence[Any], device_name: str) -> Any | None:
@@ -409,6 +446,8 @@ def geecs_take_reading(  # noqa: C901, PLR0915
                     ]
                     if guards:
                         yield from bps.wait_for(guards)
+                else:
+                    yield from refuse_free_running_cameras(devices)
                 ret = yield from record_row()
                 if not missed:
                     return ret
