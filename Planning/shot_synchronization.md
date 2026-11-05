@@ -980,6 +980,32 @@ is the case this protects: it is a gap in time, and counter assignment
 would shift every later frame. LabVIEW scan-mode devices add the announce
 check of §4.6 against `announce_stamp`.
 
+#### Found building W3a (2026-11-05)
+
+- **A clock step of 0.5 to 1.5 periods is invisible to the audit**: every
+  frame moves one shot together, counter deltas still match, and the W5
+  attribute reads one behind, which the lag rule accepts. A run-wide shift
+  raises *attribute-lag-systematic*; a mid-run step needs the residual
+  tracker (§4.3), which is not in W3a, and so does the *clock-step* flag
+  (an expected-fail test holds its place). §4.3's "caught by the audit"
+  holds for steps of 1.5 periods and more.
+- **W3c's start document** carries, per stream, `sync_class`
+  (synchronous / asynchronous) and `stale_after`, so a reader can rebuild
+  the helper's inputs; and `required` names that resolve to the streams'
+  device names (matched case- and separator-blind; an unresolved name is
+  one run-level flag, never a flag on every row).
+- **Unwitnessed assignment cannot tell a late record from the next
+  row's early one by stamps alone.** A strict loop phase-locks to its
+  slowest required device (fire *k*+1 waits for record *k*, so the edge
+  sits one drain before the next fire), while host skew can stamp a
+  record a few ms before its own fire. W3a assigns by (fire *k* − 30 ms,
+  fire *k*+1] and settles the overlap from the run's phase, flagging
+  *interval-ambiguous* where there is no evidence; one case stays
+  unflagged, a missed first row of an early-phase stretch. **W3c removes
+  the heuristic**: the plan records each row's pre-fire baseline per
+  required device (step 2), and a record is row *k*'s only if it is newer
+  than baseline *k*.
+
 #### The shared reader helper
 
 `geecs_data_utils.shot_table`, beside `shot_join.py`: given a run (Tiled
