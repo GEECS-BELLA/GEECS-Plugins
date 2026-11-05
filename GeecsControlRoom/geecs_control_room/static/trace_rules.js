@@ -104,23 +104,27 @@
 
   // ---- drawing and the cursor
   // At most two points per pixel column inside [x0, x1] (each column's min and max, in order); NaN breaks the line (null).
-  function decimate(axis, values, x0, x1, columns) {
+  // On a log scale (`log`) a column's extrema are over its positive samples only, and a column with none is a gap:
+  // the signed extrema of a bipolar trace would otherwise all be dropped by the drawing, leaving nothing.
+  function decimate(axis, values, x0, x1, columns, log = false) {
     const pts = [];
-    let col = -1, lo = null, hi = null, gap = false;
+    let col = -1, lo = null, hi = null, skipped = false;
+    const gap = () => { if (pts.length && pts[pts.length - 1] !== null) pts.push(null); };
     const flush = () => {
-      if (lo === null) return;
+      if (lo === null) { if (skipped) gap(); skipped = false; return; }
       const [a, b] = lo[2] <= hi[2] ? [lo, hi] : [hi, lo];
       pts.push([a[0], a[1]]);
       if (b[2] !== a[2]) pts.push([b[0], b[1]]); // one sample both min and max: drawn once
       lo = hi = null;
+      skipped = false;
     };
     for (let i = 0; i < axis.length; i++) {
       const x = axis[i], v = values[i];
       if (x < x0 || x > x1) continue;
-      if (!Number.isFinite(v)) { flush(); if (!gap) pts.push(null); gap = true; continue; }
-      gap = false;
+      if (!Number.isFinite(v)) { flush(); if (!pts.length || pts[pts.length - 1] !== null) pts.push(null); continue; }
       const c = Math.min(columns - 1, Math.floor(((x - x0) / (x1 - x0 || 1)) * columns));
       if (c !== col) { flush(); col = c; }
+      if (log && v <= 0) { skipped = true; continue; }
       if (lo === null || v < lo[1]) lo = [x, v, i];
       if (hi === null || v > hi[1]) hi = [x, v, i];
     }

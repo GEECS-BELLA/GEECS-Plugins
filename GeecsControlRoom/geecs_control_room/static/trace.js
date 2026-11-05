@@ -108,7 +108,7 @@
       if (s.off) return;
       c.strokeStyle = token(COLOURS[i % COLOURS.length]); c.lineWidth = 1.25; c.beginPath();
       let pen = false;
-      for (const p of R.decimate(shown.axis, s.values, x0, x1, Math.round(pw))) {
+      for (const p of R.decimate(shown.axis, s.values, x0, x1, Math.round(pw), log)) {
         if (p === null || (log && p[1] <= 0)) { pen = false; continue; }
         if (pen) c.lineTo(px(p[0]), py(p[1])); else c.moveTo(px(p[0]), py(p[1]));
         pen = true;

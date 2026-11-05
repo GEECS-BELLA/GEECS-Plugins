@@ -103,6 +103,14 @@ const many = f32([...Array(100).keys()].map((i) => (i === 50 ? null : i % 10)));
 const pts = R.decimate(f32([...Array(100).keys()]), many, 0, 99, 10);
 out.dec = { n: pts.length, gaps: pts.filter((p) => p === null).length, first: pts.slice(0, 2) };
 out.decWindow = R.decimate(axis, f32([1, 2, 3, 4]), 1, 2, 100);
+// log: each column's extrema over its positive samples only, as the render loop draws them (a segment between two
+// drawn points in a row); a compressed bipolar trace must still draw (the review's reproduction)
+const ramp = f32([...Array(1000).keys()]), bip = f32([...Array(1000).keys()].map((i) => [-1, 1, 2, 3, 4, 5, 6, 7, 8, 9][i % 10]));
+const drawn = (pts) => { let moves = 0, lines = 0, pen = false; for (const p of pts) { if (p === null || p[1] <= 0) { pen = false; continue; } if (pen) lines++; else moves++; pen = true; } return { moves, lines }; };
+const logPts = R.decimate(ramp, bip, 0, 999, 100, true);
+out.log = { ...drawn(logPts), positive: logPts.every((p) => p === null || p[1] > 0), lowest: Math.min(...logPts.filter(Boolean).map((p) => p[1])) };
+out.logGap = R.decimate(f32([0, 1, 2, 3]), f32([1, -1, -2, 3]), 0, 3, 4, true); // a column with no positive sample: a gap
+out.linear = R.decimate(ramp, bip, 0, 999, 100).slice(0, 2); // linear keeps the signed extrema, unchanged
 console.log(JSON.stringify(out));
 """
 
@@ -138,3 +146,7 @@ async def test_the_page_decodes_the_trace_the_route_serves() -> None:
     assert got["y"] == [0.9, 3.1] and got["ylog"] == [10, 1000] and got["ynone"] is None
     assert got["dec"]["gaps"] == 1 and got["dec"]["n"] <= 2 * 10 + 1 and got["dec"]["first"] == [[0, 0], [9, 9]]  # fmt: skip
     assert got["decWindow"] == [[1, 2], [2, 3]]
+    # log: 100 columns of [-1, 1..9] draw as one connected line over the positive extrema (1 and 9), never 100 lone moves
+    assert got["log"] == {"moves": 1, "lines": 199, "positive": True, "lowest": 1}
+    assert got["logGap"] == [[0, 1], None, [3, 3]]
+    assert got["linear"] == [[0, -1], [9, 9]]
