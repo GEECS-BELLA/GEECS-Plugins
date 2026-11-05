@@ -124,6 +124,23 @@ with GEECS logics:
   Strict calls `prepare` **every shot** (`strict.py`), so the trigger and
   acquire logics make every prepare after the run's first a no-op: no
   `Acquire` put, the event count ignored.
+- **The stream path** (the device side is built; no plan uses it yet —
+  `refuse_native_run` still refuses a non-essential native at bind): an
+  **unbounded** prepare (`number_of_events == 0`, `UNBOUNDED_TRIGGER_INFO`)
+  arms the camera exactly as a strict run's first prepare does — the run
+  lock, the source check and the trigger readbacks included — and the
+  camera is then a datum-only stream, like a plugin camera's: `kickoff`,
+  `complete` (immediate: nothing waits on the count), `describe_collect`
+  and `collect_asset_docs` for the frames written so far. The datums cover
+  exactly the frames the writer wrote, contiguously from frame 0: a
+  dropped frame is absent from the stream, never a placeholder, and the
+  stamp join assigns frames to rows offline. `kickoff` re-baselines on the
+  frames already written (a frame between the prepare and the kickoff
+  would make the stock kickoff raise; its datum covers it anyway).
+  `trigger()` on a stream is refused; a `Software`-source camera is pressed
+  at the fire by `NativeCamera.press()` (refused on a hardware line, and
+  before the camera is acquiring). A **bounded** fly prepare (a gated
+  batch) stays refused before the camera is touched.
 - **The run lock** (geecs-epics `run_lock.db` + `access.acf`): the run owns the camera from the
   **first** step of the first `prepare_edge` — before the source check and
   the snapshot — until the camera is restored. `RunLockIO` sets

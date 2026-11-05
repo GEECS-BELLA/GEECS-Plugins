@@ -183,8 +183,10 @@ qserver/                    # the worker: launcher, startup profile, permissions
   nothing to restore — releases it; meanwhile the IOC refuses acquisition
   writes from anyone but the worker (`NATIVE_DEVICES.md` §3).  **One
   frame per row**: its own miss fails the step (no rewind), and it is
-  never rewindable, so a pause never replays a shot.  Strict only: fly
-  prepares are refused.  Built by the namespace from the native device
+  never rewindable, so a pause never replays a shot.  An unbounded prepare
+  makes it a datum-only stream (its datums the frames written, from 0; a
+  `Software` source pressed by `press()` at the fire), armed and guarded as
+  a strict run; a bounded fly prepare (a gated batch) is refused.  Built by the namespace from the native device
   registry (below).  The IOCs themselves (instances, decisions, hardware
   runbooks) live in the private repo `GEECS-BELLA/geecs-epics`, whose
   `CLAUDE.md` is the entry point.
