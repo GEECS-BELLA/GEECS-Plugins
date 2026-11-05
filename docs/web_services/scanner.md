@@ -81,7 +81,9 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
 
 1. Pick a preset in **New scan**, or compose a scan and pick a trigger
    profile.
-2. Press **Start**. The page first runs the pre-submit **preflight**.
+2. Press **Start**. With **confirm title** ticked beside it (the default,
+   remembered per browser) Start first asks for the scan title, prefilled
+   from the description; then the page runs the pre-submit **preflight**.
    Refusals (an unknown name, a variable no device serves, a worker that
    is not ready) come back as text and nothing is queued. Warnings come
    back as *questions* — stale cameras, a trigger that looks off — in a

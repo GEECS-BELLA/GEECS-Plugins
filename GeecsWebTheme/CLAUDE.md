@@ -110,7 +110,7 @@ yes it is a route, whatever it looks like.
 | 0 | `details.disc` | The detail belongs to one row and the reader is still scanning. Native `<details>` — keyboard, no-JS and find-in-page all work. Tracking open state in JS means you are on the wrong rung. |
 | 1 | `.inspector` | The user steps through many items and compares them. The selection belongs in the URL; if the link cannot carry it, it is not finished. |
 | 2 | `.drawer` | A focused sub-task on the object already on screen. Never opens another drawer, never holds a destructive confirm, must survive `Esc` without losing typing. |
-| 3 | `<dialog>` | A question that must be answered before anything else proceeds. Real `showModal()` — that is where the focus trap, `Esc` and the inert background come from. One question, at most two buttons, no scrolling, no form. Focus never lands on the destructive button. |
+| 3 | `<dialog>` | A question that must be answered before anything else proceeds. Real `showModal()` — that is where the focus trap, `Esc` and the inert background come from. One question, at most two buttons, no scrolling, no form — except that a confirmation may hold the one input it confirms (the scanner's scan title before Start). Focus never lands on the destructive button. |
 | 4 | a route | Long enough that someone will link to it, reload it, or return tomorrow. Needs no CSS, which is the point. |
 
 ## Containers, by role

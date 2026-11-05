@@ -728,7 +728,30 @@
 
   /* --------------------------------------------------------- submission */
 
+  // #1280: Start asks for the scan title (the form's description) first,
+  // unless the checkbox beside it is off; the choice is per browser.
+  var TITLE_KEY = "geecs.scanner.confirm-title";
+  try { var keep = window.localStorage.getItem(TITLE_KEY); if (keep !== null) $("confirm-title").checked = keep === "1"; } catch (e) { /* private window */ }
+  $("confirm-title").addEventListener("change", function () {
+    try { window.localStorage.setItem(TITLE_KEY, $("confirm-title").checked ? "1" : "0"); } catch (e) { /* ignore */ }
+  });
   $("btn-start").addEventListener("click", function () {
+    if (!$("confirm-title").checked) { startScan(); return; }
+    $("title-box").value = $("desc").value;
+    window.GeecsKit.confirm($("dlg-title")).open();
+  });
+  $("title-box").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); $("do-title").click(); }
+  });
+  // An empty title proceeds: the description is optional everywhere else.
+  $("do-title").addEventListener("click", function () {
+    window.GeecsKit.confirm($("dlg-title")).close();
+    $("desc").value = $("title-box").value.trim();
+    if ($("btn-start").disabled) { showError("Not started: " + ($("btn-start").title || "Start is unavailable")); return; }
+    startScan();
+  });
+
+  function startScan() {
     var preset = buildPreset();
     S.pendingPreset = preset;
     $("btn-start").disabled = true;
@@ -737,7 +760,7 @@
       if (out.questions.length) { openAck(out.questions); return; }
       submit(preset, [], false);
     }).catch(function (e) { showError("Preflight failed: " + e.message + detailOf(e)); updateStartGate(); });
-  });
+  }
 
   function detailOf(e) {
     var p = e.payload || {};
