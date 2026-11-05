@@ -71,12 +71,15 @@ class ProvenancedFrame:
         return [c for c, s in self.provenance.items() if s == source]
 
 
-def _event_shot_key(frame: "pd.DataFrame") -> "pd.Series":
-    """The event table's 1-based shot key, synthesized when absent.
+def _event_shot_key(frame: "pd.DataFrame", run_rows: bool = False) -> "pd.Series":
+    """The event table's 1-based shot key.
 
-    ``scan_event_index`` is guaranteed by the event schema; the fallback
-    mirrors ``tiled_export``'s own ``Shotnumber = 1..N`` synthesis so a
-    schema-less injected frame still joins positionally.
+    ``scan_event_index`` when the rows carry it (the retired funnel's).
+    A Tiled run's rows (*run_rows*: ``RunDetail.row_stream`` set) are the
+    shot table's, whose shot is the row's position + 1 — what
+    ``shot_table.frame_for`` takes and ``tiled_export`` writes as
+    ``Shotnumber``, over the same rows.  Any other frame (a schema-less
+    injected one) joins positionally, with a warning.
     """
     import pandas as pd
 
@@ -84,9 +87,10 @@ def _event_shot_key(frame: "pd.DataFrame") -> "pd.Series":
 
     if SHOT_INDEX_COLUMN in frame.columns:
         return frame[SHOT_INDEX_COLUMN].astype("Int64")
-    logger.warning(
-        "event frame lacks %s — joining on positional 1..N", SHOT_INDEX_COLUMN
-    )
+    if not run_rows:
+        logger.warning(
+            "event frame lacks %s — joining on positional 1..N", SHOT_INDEX_COLUMN
+        )
     return pd.Series(range(1, len(frame) + 1), index=frame.index, dtype="Int64")
 
 
@@ -170,7 +174,7 @@ def scan_frame(  # noqa: C901, PLR0912
 
     left = event.copy()
     right = sfile_frame.copy()
-    left["_shot_key"] = _event_shot_key(event)
+    left["_shot_key"] = _event_shot_key(event, bool(getattr(detail, "row_stream", "")))
     shot_col = (
         f"Shotnumber{_SFILE_COLLISION_SUFFIX}"
         if "Shotnumber" in renames

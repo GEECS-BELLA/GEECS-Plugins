@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from geecs_data_utils.tiled_schema import device_acq_timestamp_column
 
 from geecs_portal import resources
 from geecs_portal.routes.common import _acq_timestamp, _file_shot, _image_folder
@@ -66,6 +67,8 @@ def _line_trace(diag, detail, folder, device: str, shot: int):
     else:
         rows = pd.DataFrame(index=[0])
     rows["Shotnumber"] = shot
+    if acq is not None and device_acq_timestamp_column(list(rows), diag.device) is None:
+        rows[f"{diag.device} acq_timestamp"] = acq  # a shot-table record's stamp
     source = prepare_source(replace(scan_recipe(diag), folder=device), folder, rows)
     reference = source.references.get(shot)
     if reference is None:
