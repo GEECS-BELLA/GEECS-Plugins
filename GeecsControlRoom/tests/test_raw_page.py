@@ -1,8 +1,8 @@
 """The page's raw decode path end to end: the server's ``frame.raw`` route over the fake CA, then camera_rules.js.
 
 The frame is fake-CA data, as aioca delivers ``ARR:ArrayData``: a 600×600
-dark floor of ~56 ± 3 counts with one hot pixel at 4000, as int32. The route
-(images.py) casts, gzip-frames and tags it; the bytes are checked on the wire,
+dark floor of ~56 ± 3 counts with one hot pixel at 4000, as int16 (``DBR_SHORT``).
+The route (images.py) casts, gzip-frames and tags it; the bytes are checked on the wire,
 then httpx undoes the gzip framing as a browser's ``fetch`` does, and the body
 and headers go through ``rawAnswer``, ``decodeRaw``, ``transformFrame``,
 ``histogram``, ``autoLevels`` and ``histogramPlot`` under node, as camera.js
@@ -29,9 +29,9 @@ HOT = (412, 233, 4000)  # x, y, counts
 
 
 def floor_frame(width: int = WIDTH, height: int = HEIGHT, seed: int = 7) -> np.ndarray:
-    """The dark floor with noise and one hot pixel, as aioca delivers ``ARR:ArrayData`` (int32, flat)."""
+    """The dark floor with noise and one hot pixel, as aioca delivers ``ARR:ArrayData`` asked as ``DBR_SHORT`` (int16, flat)."""
     rng = np.random.default_rng(seed)
-    px = np.clip(np.rint(rng.normal(FLOOR, SPREAD / 2, width * height)), 0, 4095).astype(np.int32)  # fmt: skip
+    px = np.clip(np.rint(rng.normal(FLOOR, SPREAD / 2, width * height)), 0, 4095).astype(np.int16)  # fmt: skip
     x, y, v = HOT
     px[y * width + x] = v
     return px
@@ -50,13 +50,17 @@ async def test_the_floor_frame_arrives_exactly_then_304_until_the_camera_moves()
 ):
     # the headers, framing and cast are test_images.py's; this pins the sequence a poller sees on this frame
     env = _camera()
+    sent = floor_frame().view(np.uint16).copy()
+    sent[0] = (
+        40000  # a count past 32767 (a 16-bit camera's): DBR_SHORT delivers it as -25536
+    )
+    env.ca.raw = (sent.view(np.int16), WIDTH, HEIGHT)
     async with env.client() as c:
         r, wire = await _raw(c)
         assert r.status_code == 200 and r.headers["etag"] == '"1;4095"'
         body = gzip.decompress(wire)
-        assert (
-            body == floor_frame().astype("<u2").tobytes()
-        )  # uint16 LE row-major, exact
+        assert body == sent.astype("<u2").tobytes()  # uint16 LE row-major, exact
+        assert np.frombuffer(body, dtype="<u2")[0] == 40000
         same = await c.get(RAW_URL, headers={"If-None-Match": '"1;4095"'})
         assert (same.status_code, same.content, same.headers["x-frame-tag"]) == (304, b"", '"1"')  # fmt: skip
         env.ca.counters, env.clock[0] = [2.0], env.clock[0] + 1.0

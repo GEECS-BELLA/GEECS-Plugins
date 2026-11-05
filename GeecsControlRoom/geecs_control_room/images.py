@@ -7,10 +7,14 @@ through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
   holds. Its URL is the string at the PV the module's device route names
   for role ``image`` (``read: once``), read as a char string, its host
   replaced with the address CA reached the IOC at (lab DNS names the IOC
-  host; a client off it cannot resolve that). One fetch in flight per
-  device, a frame reused for everyone within ``FRAME_EVERY_S``; the
-  ``X-Frame-Tag`` names the bytes, so a page never decodes the same frame
-  twice (a frozen camera's frame is not "new").
+  host; a client off it cannot resolve that). Held on role
+  ``image_counter`` (MJPG1's ``ArrayCounter_RBV``) as the raw frame is on
+  its counter: probed at most every ``FRAME_EVERY_S``, an unmoved counter
+  serves the held JPEG without a fetch for up to ``JPEG_REUSE_S``; ``ETag``
+  the counter and the bytes' checksum, ``304`` on a matching
+  ``If-None-Match``; one fetch in flight per device, shared. An unreadable
+  counter (or no such role) fetches as before, with no ``ETag``. The ``X-Frame-Tag`` names the bytes, so a page never decodes the
+  same frame twice (a frozen camera's frame is not "new").
 - ``GET /api/devices/{name}/arrays``: every ``read: on_request`` role of type
   ``array`` (lineouts, histogram) by role name, read at most every
   ``ARRAYS_EVERY_S`` and shared by every viewer. The page polls it only
@@ -54,6 +58,9 @@ from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 ROUTE_TTL_S = 10.0
 #: The floor between two fetches of one camera's frame, however many viewers poll (10 fps).
 FRAME_EVERY_S = 0.1
+#: The longest a JPEG is reused under an unchanged counter: should a counter ever be posted before its JPEG,
+#: the stale frame lasts this long, never until the next trigger.
+JPEG_REUSE_S = 1.0
 #: The plots' arrays are read at most this often per device.
 ARRAYS_EVERY_S = 0.5
 #: A raw frame is held and shared this long (at most 2 Hz per camera, however many viewers poll).
@@ -92,7 +99,7 @@ class Ca(Protocol):
         ...
 
     async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
-        """The frame's values as CA delivers them (int32 for ``USHORT``) and its geometry, in one batch."""
+        """The frame's values as 16-bit integers (int16 as CA delivers ``DBR_SHORT``) and its geometry, in one batch."""
         ...
 
 
@@ -125,10 +132,19 @@ class AiocaCa:
         return float(await aioca.caget(pv, timeout=CA_TIMEOUT_S))
 
     async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
-        """The frame (count 0: the IOC's current length) and its geometry, one ``caget``."""
+        """The frame (count 0: the IOC's current length) as ``DBR_SHORT`` and its geometry, read together.
+
+        A ``USHORT`` waveform's native CA type is ``DBR_LONG`` (int32, twice
+        the bytes on the wire); asked as ``DBR_SHORT`` the IOC sends each value's
+        16 bits unchanged, so a count above 32767 arrives negative and
+        :func:`_cast` restores it.
+        """
         import aioca
 
-        data, w, h = await aioca.caget([frame, width, height], timeout=CA_TIMEOUT_S)
+        data, (w, h) = await asyncio.gather(
+            aioca.caget(frame, datatype=np.int16, timeout=CA_TIMEOUT_S),
+            aioca.caget([width, height], timeout=CA_TIMEOUT_S),
+        )
         return np.asarray(data), int(w), int(h)
 
 
@@ -176,6 +192,19 @@ class Shared(Generic[T]):
 
 
 @dataclass(frozen=True)
+class Jpeg:
+    """One JPEG as served: its bytes, their checksum (``X-Frame-Tag``) and the ``image_counter`` read before its fetch.
+
+    ``counter`` is ``None`` when the counter could not be read (or the module
+    names none): the JPEG is served without an ``ETag`` and never held.
+    """
+
+    body: bytes
+    tag: str
+    counter: Optional[str]
+
+
+@dataclass(frozen=True)
 class RawFrame:
     """One raw frame as served: the gzip body, its geometry, its tag (``raw_counter``) and the full scale."""
 
@@ -187,9 +216,13 @@ class RawFrame:
 
 
 def _cast(data: np.ndarray) -> np.ndarray:
-    """The ``USHORT`` values as uint16 little-endian: ``astype``, exact for 0–65535; never ``view``, never a clamp."""
-    # "<u2" is np.uint16, little-endian on any host
-    return np.asarray(data).astype(np.dtype("<u2"))
+    """The ``USHORT`` values, read as int16, as uint16 little-endian: a ``view`` of the same 16 bits, exact, never a clamp.
+
+    The earlier "``astype``, never ``view``" rule was for the int32 delivery
+    (a view there doubles the element count); the read is 16-bit now, so the
+    view replaces it. No copy on a little-endian host; a big-endian one swaps.
+    """
+    return np.asarray(data).view(np.uint16).astype(np.dtype("<u2"), copy=False)
 
 
 def _gzip(frame: np.ndarray) -> bytes:
@@ -210,7 +243,9 @@ class Images:
         self._ca, self._fetch, self._clock = ca, fetch, clock
         self._routes: dict[str, Shared[dict[str, dict[str, Any]]]] = {}
         self._good: dict[str, dict[str, dict[str, Any]]] = {}
-        self._frames: dict[tuple[str, str], Shared[tuple[bytes, str]]] = {}
+        self._frames: dict[tuple[str, str, Optional[str]], Shared[Jpeg]] = {}
+        self._jpegs: dict[tuple[str, str, Optional[str]], tuple[Jpeg, float]] = {}
+        self._counters_down: dict[str, float] = {}
         self._urls: dict[str, str] = {}
         self._arrays: dict[tuple[str, tuple[str, ...]], Shared[dict[str, Any]]] = {}
         self._raws: dict[tuple[str, tuple[str, ...]], Shared[RawFrame]] = {}
@@ -256,18 +291,52 @@ class Images:
         self._good[name] = roles
         return roles
 
-    async def frame(self, module: ModuleClient, name: str) -> tuple[bytes, str]:
-        """The latest JPEG and its tag (the bytes' checksum)."""
-        role = (await self.roles(module, name)).get("image")
+    async def frame(self, module: ModuleClient, name: str) -> Jpeg:
+        """The latest JPEG, held on ``image_counter``, shared by every viewer within ``FRAME_EVERY_S``."""
+        roles = await self.roles(module, name)
+        role = roles.get("image")
         if role is None:
             raise Unavailable(404, f"the module names no image role for {name}")
-        pv = role["pv"]
-        source = self._frames.get((name, pv))
+        pv, counter_pv = role["pv"], roles.get("image_counter", {}).get("pv")
+        key = (name, pv, counter_pv)
+        source = self._frames.get(key)
         if source is None:
-            source = self._frames[(name, pv)] = Shared(lambda: self._read_frame(pv), FRAME_EVERY_S, self._clock)  # fmt: skip
+            source = self._frames[key] = Shared(lambda: self._read_frame(key), FRAME_EVERY_S, self._clock)  # fmt: skip
         return await source.get()
 
-    async def _read_frame(self, pv: str) -> tuple[bytes, str]:
+    async def _image_counter(self, pv: Optional[str]) -> Optional[str]:
+        """MJPG1's counter, or ``None`` (no role, any CA failure, a NaN): the JPEG is then fetched untagged.
+
+        An unreadable counter is not asked again for ``ROUTE_TTL_S``: a silent
+        one would otherwise hold every frame for the CA timeout.
+        """
+        if pv is None or self._clock() - self._counters_down.get(pv, -math.inf) < ROUTE_TTL_S:  # fmt: skip
+            return None
+        # any CA failure is an unread counter, never a failed image
+        (read,) = await asyncio.gather(self._ca.scalar(pv), return_exceptions=True)
+        if isinstance(read, (int, float)) and math.isfinite(read):
+            self._counters_down.pop(pv, None)
+            return str(int(read))
+        self._counters_down[pv] = self._clock()
+        return None
+
+    async def _read_frame(self, key: tuple[str, str, Optional[str]]) -> Jpeg:
+        asked = self._clock()
+        counter = await self._image_counter(key[2])
+        held = self._jpegs.get(key)
+        if counter is not None and held is not None and held[0].counter == counter and asked - held[1] < JPEG_REUSE_S:  # fmt: skip
+            return held[0]  # the plugin has not moved: one scalar read, no fetch
+        # tagged with the counter read BEFORE the fetch: the JPEG is at least that new (the plugin
+        # stores its JPEG, then posts the counter), so a later counter change always fetches again
+        body = await self._fetch_jpeg(key[1])
+        jpeg = Jpeg(body, f"{zlib.crc32(body):08x}", counter)
+        if counter is None:
+            self._jpegs.pop(key, None)
+        else:
+            self._jpegs[key] = (jpeg, asked)
+        return jpeg
+
+    async def _fetch_jpeg(self, pv: str) -> bytes:
         url = self._urls.get(pv)
         if url is None:
             try:
@@ -279,7 +348,7 @@ class Images:
         except Exception as exc:
             self._urls.pop(pv, None)  # read the URL again: the IOC may have restarted
             raise Unavailable(503, f"no frame from the IOC: {exc}") from exc
-        return jpeg, f"{zlib.crc32(jpeg):08x}"
+        return jpeg
 
     async def arrays(self, module: ModuleClient, name: str) -> dict[str, Any]:
         """Every ``read: on_request`` role of type ``array`` by role name, and the PVs read.
@@ -351,12 +420,14 @@ class Images:
             tag = after
             del data
             data, width, height = await self._batch(frame_pv, width_pv, height_pv)
+        if data.dtype.kind not in "iu" or data.dtype.itemsize != 2:
+            raise Unavailable(503, f"the raw frame arrived as {data.dtype}, not 16-bit")  # fmt: skip
         n = int(np.size(data))
         if n == 0 or n != width * height:
             # mono only: a colour frame (ArraySize0 = 3) fails here too
             raise Unavailable(503, f"geometry disagrees: {n} values for {width}×{height}")  # fmt: skip
         frame = await asyncio.to_thread(_cast, data)
-        del data  # the int32 array (21 MB for a 2592×2048 frame) goes as soon as the cast is done
+        del data  # the cast is a view of it: both go once compressed (10.6 MB for a 2592×2048 frame)
         body = await asyncio.to_thread(_gzip, frame)
         del frame
         raw = self._held[key] = RawFrame(body, width, height, tag, self._full_scale(name, scale))  # fmt: skip
@@ -418,6 +489,21 @@ def _number(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else repr(value)
 
 
+def _jpeg_response(jpeg: Jpeg, if_none_match: Optional[str]) -> Response:
+    """The JPEG, or ``304`` when ``If-None-Match`` names its ``ETag`` (none while the counter is unread).
+
+    The ``ETag`` is the counter and the bytes' checksum (``"3;0a1b2c3d"``):
+    a fetch at ``JPEG_REUSE_S`` under the same counter that brings other
+    bytes is a 200, never a 304 that hides them.
+    """
+    headers = {"Cache-Control": "no-store", "X-Frame-Tag": jpeg.tag}
+    if jpeg.counter is not None:
+        headers["ETag"] = f'"{jpeg.counter};{jpeg.tag}"'
+        if _matches(if_none_match, headers["ETag"]):
+            return Response(status_code=304, headers=headers)
+    return Response(jpeg.body, media_type="image/jpeg", headers=headers)
+
+
 class HttpFetch:
     """One shared HTTP client for every camera's frames."""
 
@@ -445,11 +531,10 @@ def router(images: Images) -> APIRouter:
     @r.get("/api/devices/{name}/frame.jpg")
     async def frame(request: Request, name: str) -> Response:
         try:
-            jpeg, tag = await images.frame(request.app.state.module, name)
+            jpeg = await images.frame(request.app.state.module, name)
         except Unavailable as exc:
             return refused(exc)
-        headers = {"Cache-Control": "no-store", "X-Frame-Tag": tag}
-        return Response(jpeg, media_type="image/jpeg", headers=headers)
+        return _jpeg_response(jpeg, request.headers.get("if-none-match"))
 
     @r.get("/api/devices/{name}/frame.raw")
     async def frame_raw(request: Request, name: str) -> Response:

@@ -24,7 +24,8 @@ geecs_control_room/
                     devices of the kind, /api/device/{kind} their roster states), /device/{kind}/{name} the
                     device resolved by one module read (denied / stale panes, never blank)
   images.py         a camera's frame (/api/devices/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
-                    names, rehosted to the IOC's CA address, one fetch in flight, shared) and arrays
+                    names, rehosted to the IOC's CA address, one fetch in flight, shared, held on role
+                    `image_counter` with ETag/304; § "The JPEG" below) and arrays
                     (/api/devices/{name}/arrays: the `on_request` roles of type `array`, at most every 0.5 s, shared)
                     and the raw frame (/api/devices/{name}/frame.raw: role `raw_frame`, uint16 LE row-major,
                     gzip framed, geometry + `raw_counter` tag in headers, ETag (counter + full scale)/304; `raw_counter` probed first so
@@ -193,11 +194,19 @@ page's rules under node):
   frame is served (a 2 Hz poller on a 1 Hz camera costs one scalar read
   per 0.5 s); else the frame, `raw_width` and `raw_height` in one batch,
   then the counter again — on a mismatch the batch is read once more and
-  tagged by the second counter. The cast is `astype("<u2")`, exact for
-  every `USHORT` value (aioca delivers int32): never `view()` (it doubles
-  the element count), never a clamp. The cast and the gzip run in
-  `asyncio.to_thread`; the int32 array is dropped once cast (≈ 36 MB peak
-  per read of a 2592×2048 frame).
+  tagged by the second counter. The frame is asked as `DBR_SHORT`
+  (`datatype=np.int16`; a `USHORT` waveform's native CA type is
+  `DBR_LONG`, int32, twice the bytes on the wire) and its sizes natively;
+  a count above 32767 arrives negative and the cast, a `view` as uint16
+  (little-endian), restores it exactly: never a clamp. This replaces the
+  earlier "`astype`, never `view`" rule, which was for the int32 delivery
+  (a view of int32 doubles the element count); a frame that arrives other
+  than 16-bit is a 503 (`the raw frame arrived as <dtype>, not 16-bit`):
+  a guard on this client's read, not a check of the IOC's `FTVL` (the IOC
+  converts any `FTVL` to `DBR_SHORT`; every camera family's `ArrayData` is
+  `USHORT`).
+  The cast and the gzip run in `asyncio.to_thread` (≈ 15 MB peak per
+  read of a 2592×2048 frame).
 - **The page**: Raw off by default and never remembered; on, a 2 Hz poll
   with `If-None-Match`; the body is a `Uint16Array` (every platform the
   page runs on is little-endian); the histogram has `full scale + 1` bins,
@@ -225,8 +234,46 @@ page's rules under node):
   (H-1-y, x), Rot180 (W-1-x, H-1-y), Rot270 (y, W-1-x), Mirror (W-1-x, y),
   Rot90Mirror (y, x), Rot180Mirror (x, H-1-y), Rot270Mirror (H-1-y,
   W-1-x)), `decodeRaw`, `rawAnswer`, `rawIsNew`, `histogramPlot`,
-  `modeWords`, `imageSize` in raw.
+  `modeWords`, `imageSize` in raw; for the JPEG, `jpegIsNew` and
+  `ifNoneMatch` (both loops).
   `camera.js` keeps the DOM work only.
+
+## The JPEG
+
+`GET /api/devices/{name}/frame.jpg` is held on role `image_counter`
+(MJPG1's `ArrayCounter_RBV`) the way `frame.raw` is held on `raw_counter`:
+
+- **Reads**: one in flight per device, shared, at most every
+  `FRAME_EVERY_S` (0.1 s, the floor on the counter probe). The counter
+  first; equal to the held JPEG's and the JPEG younger than `JPEG_REUSE_S`
+  (1 s, timed from the request), the held bytes are served with no
+  upstream fetch (a 10 Hz poller on a 1 Hz camera costs ten scalar reads
+  and one fetch per second, not ten fetches); else the JPEG is fetched,
+  **tagged by the counter read before the fetch** (the plugin stores its
+  JPEG, then posts the counter, so the JPEG is at least that new and a
+  later counter change always fetches again; no second probe, no
+  refetch). These are GeecsPanels' `FrameSource` rules (`feed.py`), ported:
+  the dependency graph keeps the two packages apart.
+- **The reuse cap is the safety net**: should a counter ever be posted
+  before its JPEG, the stale frame lasts `JPEG_REUSE_S`, never until the
+  next trigger. A stopped camera therefore costs one fetch per second.
+- **Headers**: `X-Frame-Tag` = the bytes' CRC-32 (unchanged: the page
+  decodes new bytes only); `ETag` = the counter and the CRC
+  (`"3;0a1b2c3d"`), so a capped fetch that brings other bytes under the
+  same counter is a 200, never a 304 that hides them; **304** on a matching
+  `If-None-Match` (`_matches`, as the raw route), no body, the same `ETag`
+  and `X-Frame-Tag`.
+- **No counter, no hold**: the module names no `image_counter`, or the
+  probe fails (any CA failure, a NaN): the JPEG is fetched every floor as
+  before the hold, served without an `ETag`, and never held. An unreadable
+  counter is not asked again for `ROUTE_TTL_S` (a silent one would hold
+  every frame for the CA timeout) and never fails the image.
+- **The page**: the MJPEG loop asks with `If-None-Match` the last answer's
+  `ETag` (`ifNoneMatch`), treats a 304 as "nothing new" (`rawAnswer`),
+  decodes an answer whose `X-Frame-Tag` differs from the one drawn
+  (`jpegIsNew`; `new frames/s` counts these only), and drops its held
+  `ETag` on an error, a decode failure and a toggle, so the next ask after
+  one is never a 304 with nothing drawn.
 
 Deploy (bandwidth, the CA array size, the front door's gzip, the Canopy
 image rebuild): `README.md` § Deploy.
@@ -258,7 +305,7 @@ npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
 `test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
 `test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
-by `frame.raw` over `test_images.py`'s fake CA (as int32, as aioca delivers it), its bytes checked on the
+by `frame.raw` over `test_images.py`'s fake CA (as int16, as aioca delivers it asked `DBR_SHORT`), its bytes checked on the
 wire, then decoded, transformed and levelled by `camera_rules.js` under node. A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script
 keeps the DOM work only.

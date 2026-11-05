@@ -10,10 +10,11 @@ import httpx
 import numpy as np
 import pytest
 
-from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, RAW_HOLD_S, ROUTE_TTL_S, Images, router, with_ca_host  # fmt: skip
+from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, JPEG_REUSE_S, RAW_HOLD_S, ROUTE_TTL_S, AiocaCa, Images, router, with_ca_host  # fmt: skip
 from geecs_control_room.module_client import ModuleClient
 
 IMAGE_PV = "bench:cam:MJPG1:JPG_URL_RBV"
+IMAGE_COUNTER = "bench:cam:MJPG1:ArrayCounter_RBV"
 ROLES = [
     {"role": "image", "pv": IMAGE_PV, "read": "once", "type": "image"},
     {
@@ -65,6 +66,12 @@ ROLES = [
         "read": "once",
         "type": "readback",
     },  # fmt: skip
+    {
+        "role": "image_counter",
+        "pv": IMAGE_COUNTER,
+        "read": "monitor",
+        "type": "counter",
+    },  # fmt: skip
 ]
 RAW = ("bench:cam:ARR:ArrayData", "bench:cam:ARR:ArraySize0_RBV", "bench:cam:ARR:ArraySize1_RBV")  # fmt: skip
 COUNTER, FULL_SCALE = "bench:cam:ARR:ArrayCounter_RBV", "bench:cam:FullScale"
@@ -73,17 +80,22 @@ COUNTER, FULL_SCALE = "bench:cam:ARR:ArrayCounter_RBV", "bench:cam:FullScale"
 class FakeCa:
     """The reads, recorded; ``fail`` makes the arrays read raise, ``frame_fails`` / ``counter_fails`` theirs.
 
-    The raw frame: ``raw`` is what CA delivers (int32 values, width, height),
+    The raw frame: ``raw`` is what CA delivers asked as ``DBR_SHORT`` (int16
+    values, a count above 32767 negative; width, height),
     ``counters`` the successive ``ArrayCounter_RBV`` reads (the last repeats),
     ``full_scale`` the ``FullScale`` read (``None``: unreadable).
+    The JPEG: ``image_counters`` the successive ``MJPG1:ArrayCounter_RBV``
+    reads (the last repeats), ``image_counter_fails`` makes them raise.
     """
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, Any]] = []
         self.fail = self.frame_fails = self.counter_fails = False
         self.gate: asyncio.Event | None = None
-        self.raw: tuple[np.ndarray, int, int] = (np.arange(12, dtype=np.int32), 4, 3)
+        self.raw: tuple[np.ndarray, int, int] = (np.arange(12, dtype=np.int16), 4, 3)
         self.counters: list[float] = [7.0]
+        self.image_counters: list[float] = [3.0]
+        self.image_counter_fails = False
         self.full_scale: float | None = 4095.0
         self.scale_gate: asyncio.Event | None = None
 
@@ -105,6 +117,10 @@ class FakeCa:
 
     async def scalar(self, pv: str) -> float:
         self.calls.append(("scalar", pv))
+        if "MJPG1:" in pv:  # the JPEG's counter, the module's or this file's
+            if self.image_counter_fails:
+                raise TimeoutError("no answer from the IOC")
+            return self.image_counters.pop(0) if len(self.image_counters) > 1 else self.image_counters[0]  # fmt: skip
         if pv.endswith("ArrayCounter_RBV"):
             if self.counter_fails:
                 raise TimeoutError("no answer from the IOC")
@@ -124,14 +140,18 @@ class FakeCa:
         return self.raw
 
     def kinds(self) -> list[str]:
-        """The reads by kind, the full scale's apart: ``counter`` / ``frame`` / ``scale``."""
-        return ["scale" if a == FULL_SCALE else "counter" if a == COUNTER else k for k, a in self.calls]  # fmt: skip
+        """The reads by kind, the full scale's apart: ``counter`` / ``frame`` / ``scale`` / ``image_counter``."""
+        names = {FULL_SCALE: "scale", COUNTER: "counter", IMAGE_COUNTER: "image_counter"}  # fmt: skip
+        return [names.get(a, k) if isinstance(a, str) else k for k, a in self.calls]
 
 
 class Env:
     def __init__(self, roles: list[dict[str, Any]] | None = ROLES, status: int = 200) -> None:  # fmt: skip
         self.ca, self.urls, self.reads, self.clock = FakeCa(), [], 0, [0.0]
         self.fetch_fails, self.gate = False, None
+        self.body: bytes | None = (
+            None  # set: every fetch returns these bytes (else each fetch's own)
+        )
         self.status, self.roles = status, roles
 
         def answer(request: httpx.Request) -> httpx.Response:
@@ -151,7 +171,7 @@ class Env:
             await self.gate.wait()
         if self.fetch_fails:
             raise httpx.ConnectError("refused")
-        return b"\xff\xd8jpeg" + str(len(self.urls)).encode()
+        return self.body if self.body is not None else b"\xff\xd8jpeg" + str(len(self.urls)).encode()  # fmt: skip
 
     def client(self) -> httpx.AsyncClient:
         from fastapi import FastAPI
@@ -173,8 +193,11 @@ async def test_the_frame_is_the_jpeg_at_the_url_the_module_names() -> None:
         r = await c.get("/api/devices/Cam/frame.jpg")
     assert r.status_code == 200 and r.content.startswith(b"\xff\xd8")
     assert r.headers["content-type"] == "image/jpeg" and r.headers["cache-control"] == "no-store"  # fmt: skip
-    assert r.headers["x-frame-tag"]
-    assert env.ca.calls == [("text", IMAGE_PV), ("host", IMAGE_PV)]
+    tag = r.headers["x-frame-tag"]  # the bytes' checksum
+    assert (
+        tag and r.headers["etag"] == f'"3;{tag}"'
+    )  # the counter read before the fetch, and the bytes
+    assert env.ca.calls == [("scalar", IMAGE_COUNTER), ("text", IMAGE_PV), ("host", IMAGE_PV)]  # fmt: skip
     assert env.urls == ["http://10.0.0.5:8081/CAM1.MJPG.jpg"]
 
 
@@ -191,6 +214,7 @@ async def test_viewers_share_one_fetch_in_flight_and_one_frame_within_the_floor(
         await c.get("/api/devices/Cam/frame.jpg")
         assert len(env.urls) == 1  # inside the floor: the held frame
         env.clock[0] += FRAME_EVERY_S
+        env.ca.image_counters = [4.0]  # the plugin moved
         again = await c.get("/api/devices/Cam/frame.jpg")
     assert len(env.urls) == 2 and again.headers["x-frame-tag"] not in tags
     assert env.reads == 1  # the module's route, read once for all of it
@@ -204,7 +228,113 @@ async def test_a_failed_fetch_is_a_503_with_words_and_the_url_is_read_again() ->
         assert r.status_code == 503 and "no frame from the IOC" in r.json()["detail"]
         env.fetch_fails = False
         assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 200
-    assert [k for k, _ in env.ca.calls] == ["text", "host", "text", "host"]
+    assert [k for k, _ in env.ca.calls if k != "scalar"] == ["text", "host", "text", "host"]  # fmt: skip
+
+
+JPG_URL = "/api/devices/Cam/frame.jpg"
+#: Past the floor (a float sum of 0.1 steps can land a hair inside it).
+STEP = FRAME_EVERY_S * 1.01
+
+
+async def test_an_unmoved_image_counter_serves_the_held_jpeg_without_a_fetch() -> None:
+    env = Env()
+    async with env.client() as c:
+        first = await c.get(JPG_URL)
+        for _ in range(
+            9
+        ):  # a 10 Hz poller on a camera that has not moved, inside JPEG_REUSE_S
+            env.clock[0] += STEP
+            r = await c.get(JPG_URL)
+            assert (r.status_code, r.content) == (200, first.content)
+            assert (r.headers["etag"], r.headers["x-frame-tag"]) == (first.headers["etag"], first.headers["x-frame-tag"])  # fmt: skip
+        assert len(env.urls) == 1  # one upstream fetch for ten requests
+        assert env.ca.kinds() == ["image_counter", "text", "host"] + ["image_counter"] * 9  # fmt: skip
+        env.clock[0] += FRAME_EVERY_S / 2
+        await c.get(JPG_URL)  # inside the floor: not even a probe
+        assert len(env.ca.calls) == 12
+        env.ca.image_counters = [4.0]
+        env.clock[0] += STEP
+        moved = await c.get(JPG_URL)
+    assert len(env.urls) == 2 and moved.headers["etag"].startswith('"4;')
+    assert moved.headers["x-frame-tag"] != first.headers["x-frame-tag"]
+
+
+async def test_an_unmoved_counter_is_trusted_for_jpeg_reuse_s_then_fetched_again() -> None:  # fmt: skip
+    env = Env()
+    env.body = b"\xff\xd8the same frame"
+    async with env.client() as c:
+        first = await c.get(JPG_URL)
+        env.clock[0] += JPEG_REUSE_S
+        same = await c.get(JPG_URL, headers={"If-None-Match": first.headers["etag"]})
+        assert (
+            len(env.urls) == 2 and same.status_code == 304
+        )  # fetched again, the same bytes: nothing new
+        env.body = b"\xff\xd8the frame its counter announced"  # a counter posted before its JPEG
+        env.clock[0] += JPEG_REUSE_S
+        fixed = await c.get(JPG_URL, headers={"If-None-Match": first.headers["etag"]})
+    # the same counter, other bytes: a 200 carrying them, never a 304 that hides them
+    assert len(env.urls) == 3 and fixed.status_code == 200 and fixed.content == env.body
+    assert fixed.headers["etag"].startswith('"3;') and fixed.headers["etag"] != first.headers["etag"]  # fmt: skip
+
+
+async def test_a_matching_if_none_match_on_the_jpeg_is_a_304_with_its_tags() -> None:
+    env = Env()
+    async with env.client() as c:
+        first = await c.get(JPG_URL)
+        etag = first.headers["etag"]
+        for asked in (etag, f"W/{etag}", f'"1", {etag}', "*"):
+            env.clock[0] += STEP
+            same = await c.get(JPG_URL, headers={"If-None-Match": asked})
+            assert (same.status_code, same.content) == (304, b"")
+            assert (same.headers["etag"], same.headers["x-frame-tag"]) == (etag, first.headers["x-frame-tag"])  # fmt: skip
+        other = await c.get(
+            JPG_URL, headers={"If-None-Match": '"3"'}
+        )  # the counter alone is not the ETag
+    assert other.status_code == 200 and other.content == first.content
+    assert len(env.urls) == 1
+
+
+async def test_the_jpeg_is_tagged_by_the_counter_read_before_its_fetch() -> None:
+    env = Env()
+    env.ca.image_counters = [3.0, 4.0]  # a frame lands while the first JPEG is fetched
+    async with env.client() as c:
+        first = await c.get(JPG_URL)
+        env.clock[0] += STEP
+        second = await c.get(JPG_URL)
+    # at least as new as counter 3; counter 4 is not that JPEG's, so the next probe fetches again
+    assert first.headers["etag"].startswith('"3;') and second.headers["etag"].startswith('"4;')  # fmt: skip
+    assert len(env.urls) == 2 and env.ca.kinds().count("image_counter") == 2
+
+
+@pytest.mark.parametrize("why", ["unreadable", "unnamed"])
+async def test_without_a_counter_the_jpeg_is_fetched_as_before_and_untagged(why) -> None:  # fmt: skip
+    env = Env([r for r in ROLES if r["role"] != "image_counter"] if why == "unnamed" else ROLES)  # fmt: skip
+    env.ca.image_counter_fails = why == "unreadable"
+    async with env.client() as c:
+        answers = []
+        for _ in range(3):
+            answers.append(await c.get(JPG_URL, headers={"If-None-Match": "*"}))
+            env.clock[0] += STEP
+    assert [r.status_code for r in answers] == [
+        200
+    ] * 3  # the image never fails on its counter
+    assert all("etag" not in r.headers and r.headers["x-frame-tag"] for r in answers)
+    assert len(env.urls) == 3  # one fetch per floor, as before the hold
+    # an unreadable counter is asked once per ROUTE_TTL_S, never on every frame (a silent one costs the CA timeout)
+    assert env.ca.kinds().count("image_counter") == (1 if why == "unreadable" else 0)
+
+
+async def test_an_unreadable_counter_is_asked_again_after_the_ttl_and_the_hold_resumes() -> None:  # fmt: skip
+    env = Env()
+    env.ca.image_counter_fails = True
+    async with env.client() as c:
+        assert "etag" not in (await c.get(JPG_URL)).headers
+        env.ca.image_counter_fails = False
+        env.clock[0] += STEP
+        assert "etag" not in (await c.get(JPG_URL)).headers  # inside the TTL: not asked
+        env.clock[0] += ROUTE_TTL_S
+        back = await c.get(JPG_URL)
+    assert back.headers["etag"].startswith('"3;') and env.ca.kinds().count("image_counter") == 2  # fmt: skip
 
 
 @pytest.mark.parametrize(
@@ -338,7 +468,7 @@ async def _raw(c: httpx.AsyncClient, **headers: str) -> tuple[httpx.Response, by
 @pytest.mark.parametrize("width, height", [(2592, 2048), (600, 600)])
 async def test_the_raw_frame_is_uint16_little_endian_row_major_gzip_framed(width, height) -> None:  # fmt: skip
     env = Env()
-    frame = np.random.default_rng(1).integers(0, 4096, size=width * height, dtype=np.int32)  # fmt: skip
+    frame = np.random.default_rng(1).integers(0, 4096, size=width * height, dtype=np.int16)  # fmt: skip
     env.ca.raw = (frame, width, height)
     async with env.client() as c:
         r, wire = await _raw(c)
@@ -462,6 +592,7 @@ async def test_no_raw_frame_role_is_a_404_and_nothing_is_read(gone) -> None:
             "geometry disagrees: 36 values for 3×4",
         ),  # an RGB frame: ArraySize0 = 3
         ("empty", "geometry disagrees: 0 values for 0×0"),
+        ("wide", "the raw frame arrived as int32, not 16-bit"),
     ],
 )
 async def test_a_silent_source_is_a_503_with_words(fault, words) -> None:
@@ -471,11 +602,15 @@ async def test_a_silent_source_is_a_503_with_words(fault, words) -> None:
     elif fault == "frame":
         env.ca.frame_fails = True
     elif fault == "geometry":  # a camera-ROI change between the array and its sizes
-        env.ca.raw = (np.arange(12, dtype=np.int32), 4, 4)
+        env.ca.raw = (np.arange(12, dtype=np.int16), 4, 4)
     elif fault == "colour":
-        env.ca.raw = (np.arange(36, dtype=np.int32), 3, 4)
+        env.ca.raw = (np.arange(36, dtype=np.int16), 3, 4)
+    elif (
+        fault == "wide"
+    ):  # the native DBR_LONG read: twice the bytes, never viewed as 16-bit
+        env.ca.raw = (np.arange(12, dtype=np.int32), 4, 3)
     else:
-        env.ca.raw = (np.zeros(0, dtype=np.int32), 0, 0)
+        env.ca.raw = (np.zeros(0, dtype=np.int16), 0, 0)
     async with env.client() as c:
         r = await c.get(RAW_URL)
     assert r.status_code == 503 and r.json()["detail"] == words
@@ -500,8 +635,27 @@ async def test_viewers_share_one_raw_read_in_flight() -> None:
 
 async def test_values_above_32767_survive_the_cast_exactly() -> None:
     env = Env()
-    values = np.array([0, 1, 4095, 32767, 32768, 40000, 65534, 65535], dtype=np.int32)
-    env.ca.raw = (values, 4, 2)
+    values = np.array([0, 1, 4095, 32767, 32768, 40000, 65534, 65535], dtype=np.uint16)
+    sent = values.view(np.int16)  # as DBR_SHORT delivers them: 32768 arrives as -32768
+    assert sent.tolist()[4:] == [-32768, -25536, -2, -1]
+    env.ca.raw = (sent, 4, 2)
     async with env.client() as c:
         _, wire = await _raw(c)
     assert np.frombuffer(gzip.decompress(wire), dtype="<u2").tolist() == values.tolist()  # fmt: skip
+
+
+async def test_the_real_ca_asks_for_the_frame_as_16_bit(monkeypatch) -> None:
+    """``AiocaCa.frame`` asks ``DBR_SHORT`` for the frame alone (half the native ``DBR_LONG``'s bytes), its sizes as they are."""
+    aioca = pytest.importorskip("aioca")
+    asked: list[tuple[Any, Any]] = []
+
+    async def caget(pv: Any, datatype: Any = None, timeout: Any = None) -> Any:
+        asked.append((pv, datatype))
+        if isinstance(pv, list):
+            return [600, 2]
+        return np.arange(1200, dtype=np.int32 if datatype is None else datatype)
+
+    monkeypatch.setattr(aioca, "caget", caget)
+    data, width, height = await AiocaCa().frame(*RAW)
+    assert sorted(asked, key=str) == sorted([(RAW[0], np.int16), (list(RAW[1:]), None)], key=str)  # fmt: skip
+    assert data.dtype == np.int16 and (width, height) == (600, 2)

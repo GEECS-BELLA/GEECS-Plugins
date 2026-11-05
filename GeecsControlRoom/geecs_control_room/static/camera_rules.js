@@ -84,7 +84,7 @@
 
   // ---- the raw frame (/api/devices/<name>/frame.raw: uint16 LE row-major, geometry, full scale and tag in headers)
   const ASSUMED_FULL = 4095;
-  // What a poll's answer means: 200 a frame, 304 nothing new (never an error), anything else the error.
+  // What a poll's answer means, raw or JPEG: 200 a frame, 304 nothing new (never an error), anything else the error.
   const rawAnswer = (status) => (status === 200 ? "frame" : status === 304 ? "same" : "error");
 
   // The body (uint16 LE, row-major, height rows of width, gzip undone by fetch) and its headers, by name.
@@ -252,6 +252,10 @@
   // A raw answer is drawn when its ETag (the representation: the counter and the full scale) is not the one
   // drawn last; an answer with no tag or no ETag is always drawn.
   const rawIsNew = (etag, lastEtag, tag) => tag === null || etag === null || etag !== lastEtag;
+  // A JPEG answer is decoded when its X-Frame-Tag (the bytes' checksum) is not the one drawn last; no tag, always.
+  const jpegIsNew = (tag, lastTag) => tag === null || tag !== lastTag;
+  // A poll's conditional headers: If-None-Match the held ETag, none while nothing is held.
+  const ifNoneMatch = (etag) => (etag ? { "If-None-Match": etag } : {});
   // One write list at a time for the whole page (the rail and the image's edits): a call while one runs
   // is refused (resolves null) without starting; busy() says whether one runs.
   const single = (run) => {
@@ -290,5 +294,5 @@
     return s === "" || !Number.isFinite(n) ? null : n;
   }
 
-  Object.assign(rules, { MAPS, levels, lut, histogram, autoLevels, storedLevels, storeLevels, ASSUMED_FULL, rawAnswer, decodeRaw, transformName, transformFrame, modeWords, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, histogramPlot, rawIsNew, single, valid, whole, number, gestureEnds, within });
+  Object.assign(rules, { MAPS, levels, lut, histogram, autoLevels, storedLevels, storeLevels, ASSUMED_FULL, rawAnswer, decodeRaw, transformName, transformFrame, modeWords, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, histogramPlot, rawIsNew, jpegIsNew, ifNoneMatch, single, valid, whole, number, gestureEnds, within });
 })(typeof module === "object" ? module.exports : (window.GeecsCameraRules = {}));

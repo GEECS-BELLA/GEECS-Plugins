@@ -5,7 +5,8 @@
 // device.js), the values Hare's, every write the module's put route.
 //
 // Frames are PULLED one at a time (never more than one in flight); the loop
-// pauses while the tab is hidden, and a frame whose X-Frame-Tag is unchanged
+// pauses while the tab is hidden, asks with If-None-Match the held ETag (MJPG1's
+// counter: a 304 is nothing new), and a frame whose X-Frame-Tag is unchanged
 // is not decoded again. Coordinates: image pixels are MJPG1's (roles width and
 // height; the JPEG is stretched over them); view pixels are CSS pixels in the
 // viewport. With Raw on, the driver's 16-bit frame (frame.raw) is polled at
@@ -264,7 +265,8 @@
 
   // ---- the frame loop: one request in flight, latest wins, paused while hidden
   const shown = [];
-  let lastTag = null, waiting = null, drawing = false;
+  // lastTag: the drawn JPEG's X-Frame-Tag; jpegEtag: the last answer's ETag (none while the counter is unread)
+  let lastTag = null, jpegEtag = null, waiting = null, drawing = false;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const visible = () => new Promise((r) => {
     if (!document.hidden) return r();
@@ -284,7 +286,7 @@
     } catch (e) {
       $("image-error-text").textContent = "the frame could not be decoded: " + (e.message || e);
       $("image-error").hidden = false;
-      lastTag = null;
+      lastTag = null; jpegEtag = null; // the next ask fetches the bytes again, never a 304 with nothing drawn
     } finally { drawing = false; }
   }
   // the two loops wait out the other mode; a toggle wakes them
@@ -297,16 +299,23 @@
       await visible();
       const t0 = performance.now(), g = gen;
       try {
-        const [tag, blob] = await R.within(FRAME_TIMEOUT_MS, async (signal) => {
-          const r = await fetch(box.dataset.frameUrl, { cache: "no-store", signal });
-          if (!r.ok) { let d = `answered ${r.status}`; try { d = (await r.json()).detail || d; } catch (_) { /* not JSON */ } throw new Error(d); }
-          return [r.headers.get("X-Frame-Tag"), await r.blob()];
+        const got = await R.within(FRAME_TIMEOUT_MS, async (signal) => {
+          const r = await fetch(box.dataset.frameUrl, { cache: "no-store", headers: R.ifNoneMatch(jpegEtag), signal });
+          const answer = R.rawAnswer(r.status);
+          if (answer === "same") return null;
+          if (answer === "error") { let d = `answered ${r.status}`; try { d = (await r.json()).detail || d; } catch (_) { /* not JSON */ } throw new Error(d); }
+          return [r.headers.get("ETag"), r.headers.get("X-Frame-Tag"), await r.blob()];
         });
         if (g !== gen) continue; // toggled while asking
         $("image-error").hidden = true; // a good answer ends a transport error, new frame or not (a decode failure says so again)
-        if (tag === null || tag !== lastTag) { lastTag = tag; waiting = blob; drawLatest(); }
+        if (got) {
+          const [e, tag, blob] = got;
+          jpegEtag = e;
+          if (R.jpegIsNew(tag, lastTag)) { lastTag = tag; waiting = blob; drawLatest(); }
+        }
       } catch (e) {
         if (g !== gen) continue;
+        jpegEtag = null; // the next ask is a full one
         failed(e);
         await sleep(1000);
       }
@@ -324,7 +333,7 @@
       const t0 = performance.now(), g = gen;
       try {
         const got = await R.within(RAW_TIMEOUT_MS, async (signal) => {
-          const r = await fetch(box.dataset.rawUrl, { cache: "no-store", headers: etag ? { "If-None-Match": etag } : {}, signal });
+          const r = await fetch(box.dataset.rawUrl, { cache: "no-store", headers: R.ifNoneMatch(etag), signal });
           const answer = R.rawAnswer(r.status);
           if (answer === "same") return null;
           if (answer === "error") { let d = `answered ${r.status}`; try { d = (await r.json()).detail || d; } catch (_) { /* not JSON */ } throw new Error(d); }
@@ -368,7 +377,7 @@
     raw = rawIn.checked;
     gen++;
     // nothing of the other mode is drawn again: its lum goes, its last picture stays until this mode's first frame
-    lum = null; waiting = null; heldRaw = null; rawHist = null; lastTag = null; etag = null; lastRawEtag = null; shown.length = 0;
+    lum = null; waiting = null; heldRaw = null; rawHist = null; lastTag = null; jpegEtag = null; etag = null; lastRawEtag = null; shown.length = 0;
     rawState = { ...rawState, transform: transformNow() };
     full = raw ? rawState.full || R.ASSUMED_FULL : 255;
     showLevels();
