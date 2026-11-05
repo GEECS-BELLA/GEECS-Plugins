@@ -139,7 +139,7 @@ alone.
 | Poll lag | measured on the bench (W0, 2026-11-04): with `PollSleepMS` at 10 the poll cycle is about 21 ms, not 10 (about 11 ms of each poll is USB reads); successive stamp deltas have an sd of 9.4 ms, with an occasional update about 40 ms late. At the default 50 ms the cycle is about 61 ms, sd 28 ms. Assignment needs the lag under a quarter period minus the offset spread: met at 1 Hz, and at 5 Hz with the *witness-stamp-shared* flag for the rare stall |
 | Several edges in one poll (an IOC or USB stall) | one update, count +k, one stamp: those k shots share a stamp and are flagged *witness-stamp-shared*; their acquisitions are assigned by counter order inside the group when the devices' counters agree, else flagged |
 | IOC restart | the count restarts at 0 under a new epoch; nothing joins across epochs |
-| Witness down during a run | rows continue, clocked by the devices against each other (today's nearest-time clustering), every row flagged *unwitnessed*; the run is not aborted |
+| Witness down during a run | rows continue, every row flagged *unwitnessed*, the run not aborted. Strict: one row per fire, records assigned to the interval (fire *k*, fire *k*+1] (§6.6). Gated, and a witness restart mid-batch: the rows of the gap are written from the devices clustered against each other (today's nearest-time clustering) |
 | Doubled edge (ringing, a slow edge through the threshold) | the count runs at twice the rate every device sees and the audit flags every acquisition; the fix is at the input (level, termination). Checked at the bench before anything depends on it |
 | It counts the wrong edge | the witness must see the edges the synchronous devices see: here, the gated output. A witness on an ungated output counts shots in STANDBY that no device took, and the audit flags every one. A facility whose devices hang off several gates needs a witness per gate, or a recorded gate state; out of scope, but the schema carries a trigger-domain name so it has room |
 
@@ -155,7 +155,7 @@ the domain's name, nothing else, so no code names the MCC:
 | an EPICS counter record on hardware already in the chain: a PLC counter, a scaler, a delay generator with a readable trigger count | no new hardware |
 | a timing system's event receiver (an MRF EVR) with its event counter and timestamp | a facility that has one; the stamp is then at the hardware moment and the audit is nearly redundant |
 | the worker's own fire stamp, strict mode only: one fire, one shot | no hardware at all; no gated runs and no fire confirmation |
-| none | the *unwitnessed* fallback: devices clustered against each other, every row flagged |
+| none | the *unwitnessed* fallback, every row flagged: strict by fire interval, gated by the devices clustered against each other (§6.6) |
 
 A chain with different hardware at different points, or several gates, is
 several trigger domains: one witness per domain, each device's registry
@@ -681,7 +681,8 @@ Kept short, because two facts found on the way still hold the model up.
 ### 6.6 The arc (W3): design
 
 Draft 2026-11-04 (coordinator), revised after an adversarial review the
-same day (3 blockers, 12 should-fixes, all accepted; the record is on
+same day (two rounds: 3 blockers and 12 should-fixes, then 4 partly fixed and 3
+new should-fixes, all accepted and applied; the record is on
 GEECS-Plugins #1278). For the maintainer's rulings (the list at the end).
 No code until ruled. Cites are against `feat/shot-sync`; paths under
 `GeecsBluesky/` are relative to `geecs_bluesky/`.
@@ -780,10 +781,15 @@ Per shot slot (the loop of `geecs_per_step`, `plans/strict.py:505-546`):
    advanced is the fire reported as not fired and the step stopped (§6.1
    step 2, tightened); a witness that stayed put while devices advanced
    is `witness_late` (a poll or USB stall), never a stop.
-7. Write the row: `create`, read the shot-table readers, `save`. Nothing
-   in `create` … `save` waits, so a pause cannot leave the bundle open
-   across a resume except by an immediate pause inside that short span,
-   where the bundle is dropped and rewritten after resume.
+7. Write the row: `create`, read the shot-table readers, then compare
+   `pause_count` once more before `save`. If it changed, an immediate
+   pause or a suspension landed inside the bundle; a non-rewindable run
+   does not drop it (`bundler.rewind()` runs only with a non-empty message
+   cache, `bluesky run_engine.py:1046-1048`), and the interrupted `read`
+   returned `None`, which `record_row` skips (`plans/strict.py:362-365`).
+   So `drop`, then `create` and read again, and `save`. Never `save` a
+   bundle a pause cut into: it is a silently short row or a descriptor
+   mismatch that ends the run.
 8. `collect` every device stream, each collect a contingency (a
    non-required device's failing collect is logged once and its stream
    left to gap; it never ends the run). A plugin stream is declared
@@ -820,23 +826,38 @@ assign LabVIEW devices by announce interval as today.
 #### The batch policy (gated)
 
 Rows are the witness's **counts**, not its monitor updates: per batch,
-read the count at SCAN and again after OFF and the drain
-(`plans/gated.py:269-289`, `:320-334`), and write one row per integer
-count in between. A +k update or a coalesced monitor still yields k rows;
+take the baseline count while the box is still OFF, **before** the SCAN
+put (an edge between the put and a later read would lose its row), and
+read it again after OFF and a drain of at least the witness's poll lag
+plus a stall margin (about 100 ms on top of today's drain,
+`plans/gated.py:320-334`); write one row per integer count in between. A +k update or a coalesced monitor still yields k rows;
 rows whose counts shared one stamp are flagged *witness-stamp-shared*.
 Rows are written per progress slice (1 s, `:295-309`) for the counts seen
 so far, and the rest after OFF, so the live view keeps up. Each row's
 conditions are read when the row is written, flagged with their age.
 
-The step needs N complete shots, judged after the batch per required
-device by the join's rule (an acquisition assigned to the shot); a short
-batch fires the remainder, as `done += kept` does today (`:394-413`).
+The step needs N complete shots. In the plan that is a **count
+estimate**, as in strict: per required device, its acquisitions this
+batch (`frames_this_batch` for a camera, stamp advances for a LabVIEW
+device) against the witness's shots, today's `min(shots, frames)`. Camera
+frames have no stamps the plan can read before finalize (datum-only
+streams, §6.3), so the join's verdict comes at stop and disagreements are
+*complete-mismatch*. A short batch fires the remainder, as `done += kept`
+does today (`:394-413`), but nothing is truncated: every frame stays in
+its stream and every count keeps its row.
 
 Gated requires a witness (ruling 4). **Witness staleness** is checked in
 the progress slice: a count frozen for more than two periods while the
-box is in SCAN takes the existing pause path (`pause_count`, OFF,
-`settle`); the rows of the gap are rebuilt from the count delta when the
-witness returns. No suspender: stock suspenders need ophyd signals
+box is in SCAN **ends the batch**: box OFF, drain, collect, no truncation
+(today's `settle`, `truncate_to` and `abandon_step` are rewinds, deleted
+here, `plans/gated.py:337-367`). It does not pause the RunEngine. The
+gap's rows: a stall (same epoch) is rebuilt from the count delta when the
+witness reads again; a restart (new epoch, the count from 0; §4.1,
+nothing joins across epochs) gets the gap's rows written unwitnessed
+from the devices clustered against each other, every one flagged. No
+batch leaves an acquisition without a row. The step then fires its
+remainder; two batches in a row ended by a frozen witness pause the run
+for the operator (ruling 4), the pattern of ruling 3. No suspender: stock suspenders need ophyd signals
 (`bluesky suspenders.py:72`), CA disconnect detection takes about 30 s,
 and a USB stall never disconnects. This deletes `shot_clock`
 (`plans/gated.py:86`), the sampler's tick and settle logic
@@ -881,9 +902,15 @@ layout; three callers:
   differ from the s-file while records are late; the s-file wins.
 - **Optimize**, which reads `primary` in the plan today for detector
   stamps and measurement keys (`plans/optimize.py:107-128`,
-  `optimization/measurements.py:71-120`): it gets an in-plan join over the
-  stream records it has collected at the end of each bin, through the
-  same function.
+  `optimization/measurements.py:71-120`). Scalar objectives (LabVIEW
+  devices, event streams) get an in-plan join over the records collected
+  at the end of each bin, through the same function. Camera objectives
+  cannot: plugin and native streams are datum-only and their stamps exist
+  only after finalize (§6.3). They keep today's source, the live PVA
+  frames matched by stamp (`measurements.py`), which needs a per-shot
+  camera stamp in the plan: a companion `StampStream` on the plugin
+  camera's gateway `acq_timestamp`, and the NTNDArray `timeStamp` /
+  `uniqueId` for a native. Both are in W3c+e, and sized there.
 
 **Assignment, the §4.3 rule unchanged: time assigns, counters audit.**
 Witnessed: each record to the nearest witness shot after its
@@ -955,7 +982,7 @@ Old presets are regenerated, not aliased (the configs rule).
 |---|---|---|---|
 | W3a | `shot_table` helper over both layouts; `shot_clock_column` for non-device clocks and the one epoch conversion; interval assignment unwitnessed; the audit's re-anchor, *complete-mismatch*, *witness-stale*; synthetic tests per flag | no | ~300 / ~350 |
 | W3b | readers onto the helper (table above) | **the s-file path is rewired**: gated on byte-identical s-files over recorded strict and gated runs (J0's corpus) | ~250 / ~200 |
-| W3c + W3e, one slice | the shot-table layout and the on-demand policy (streams for every per-shot device, `required`, refire budget, the interruption guard, lazy declares, per-shot contingent collects, start-document keys); the native stream path (collection-capable data logic, the press at the fire, the lifted refusals, the camera fake's skip-a-frame control in geecs-epics); optimize's in-plan join; the configuration consumers | **yes** | ~800 / ~800 |
+| W3c + W3e, one slice | the shot-table layout and the on-demand policy (streams for every per-shot device, `required`, refire budget, the interruption guard before the wait's verdict and before `save`, lazy declares, per-shot contingent collects, start-document keys); the native stream path (collection-capable data logic, the press at the fire, the lifted refusals, the camera fake's skip-a-frame control in geecs-epics); optimize's in-plan join and its camera stamps (a companion `StampStream` per plugin camera, the NTNDArray stamp per native); the configuration consumers | **yes** | ~900 / ~900 |
 | W3d | the batch policy on witness counts; the staleness check; deletes the shot clock, the sampler's clock, `shots` and its readers | **yes** | ~250 / ~300, net negative |
 | W3f | the deletions of §10's first list, `EVENT_SCHEMA.md`, the CLAUDE.md files | — | net negative |
 
@@ -975,9 +1002,12 @@ promoted.
 3. **A step that exhausts its refires is flagged and the scan continues;
    two such steps in a row pause the run.** (Refines open question 2: one
    dead required device would otherwise burn every step's budget.)
-4. **Gated needs a witness**; a frozen witness pauses the batch through
-   the existing pause path and its rows are rebuilt from the count, never
-   ending the run. Strict keeps the unwitnessed fallback.
+4. **Gated needs a witness.** A frozen witness ends the batch (no
+   RunEngine pause, no truncation), the gap gets its rows (from the count
+   after a stall; unwitnessed and flagged after a restart), and the step
+   fires its remainder; two such batches in a row pause the run. It never
+   ends the run. Strict keeps the unwitnessed fallback, by fire
+   interval.
 5. **Readers accept both layouts** through the helper (open question 4).
 6. **Presets regenerated with `required`**, no `essential` alias; the
    queue emptied at the deploy.
@@ -1002,7 +1032,7 @@ the other facility needs it.
 | J0 | GEECS-Data-Utils | a live-join prototype replayed over existing gated runs: responsiveness per shot, and today's s-files reproduced from the streams; the seed of `shot_join.py`'s growth, or thrown away | ~200, prototype | — |
 | W1 | geecs-epics | **deferred** (maintainer, 2026-11-04): the permanent witness instance, renamed and on its final host, once the setup works for us: the counter records, the 10 ms poll at boot, the epoch PV from devIocStats. Until then the arc runs on the bench instance `daqtest1` on camserv2, both test platforms | ~80 config | the USB run (open question 8) |
 | W2 | GeecsBluesky, GEECS-Schemas | a *witness* registry kind, **record-only** (coordinator, 2026-11-04): read with each row, never waited on, never refusing or ending a run; rows gain `witness_count`, `witness_stamp` and `witness_epoch`. Fire confirmation is an audit: a count step other than +1, an epoch change, or a down witness is a warning and a flag, and the run continues (a witness down at the start runs with `read: false`). Additive only, and worth it for LabVIEW-only scans: fire confirmation after the fact, and an audit of today's joins. The first build waited on the witness and was reworked after its review (a pause could abort the run; a CA drop or USB stall ended it) | ~150 / ~150 | the sim bench with the witness sim, then a laser-off scan |
-| W3, the arc | GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils, GEECS-DataPortal, ScanAnalysis | the live join as a callback; every per-shot device a stream; `required` and the completeness budget; the two firing policies over one shape; the LabVIEW adapter (§5.4); the readers onto the join through the shared helper; the deletions of §10's first list. Design section §6.6, drafted and reviewed 2026-11-04, for ruling; slices W3a to W3f | ~1,600 / ~1,650 (§6.6) | the sim bench; then laser-off runs |
+| W3, the arc | GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils, GEECS-DataPortal, ScanAnalysis | the live join as a callback; every per-shot device a stream; `required` and the completeness budget; the two firing policies over one shape; the LabVIEW adapter (§5.4); the readers onto the join through the shared helper; the deletions of §10's first list. Design section §6.6, drafted and reviewed 2026-11-04, for ruling; slices W3a to W3f | ~1,700 / ~1,750 (§6.6) | the sim bench; then laser-off runs |
 | W5 | geecs-epics | the witness count as an `EPICS_PV` NDAttribute in the camera family's shared attribute file, and the scope family's | one line per family / the fake | none: a config change, redeployed per IOC |
 | A5 | GeecsBluesky, GEECS-Schemas | the fire permit (§6.4): the permit readable and its registry kind, the wait inside the fire step, the *no-permit* and *stale* flags; a fake permit for the tests | ~60 / ~80 | none; a fake permit on the sim bench |
 | later | ioc-picoscope; geecs-epics and GeecsBluesky | the scope stamp at the trigger (§5.2); the *device-clock* tier (§4.4) when 5 Hz under exposure scans is wanted | ~15 / the fake; ~40 records and a sequence / ~120 | one capture; the latch is a command to the camera, no setting changed |
