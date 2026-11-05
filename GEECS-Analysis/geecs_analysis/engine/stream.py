@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import deque
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
@@ -249,7 +249,7 @@ def run_units(
     failures are outcomes, exactly as in the serial loop. Each worker runs
     its BLAS and OpenMP libraries on one thread, unless this process's
     environment names a count, so ``workers`` is the run's parallelism; this
-    process's own libraries are untouched.
+    process's environment is restored after each submission.
     """
     from geecs_data_utils.frames import ShotMeta
 
@@ -442,12 +442,13 @@ def _run_pooled(
     pending: deque = deque()
     window = 2 * workers
     try:
-        for index, group in enumerate(groups):
+        for group in groups:
             group = _checked(group, average_before_analysis)
             local = {n: metadata[n] for n in group.shots if n in metadata}
-            # A spawn-context pool starts one worker inside each of its first
-            # ``workers`` submits; only those hold the workers' environment.
-            with _one_compute_thread() if index < workers else nullcontext():
+            # A spawn-context pool starts its workers inside submit, on any
+            # submit that finds no idle worker, so every submit holds the
+            # environment the workers inherit.
+            with _one_compute_thread():
                 pending.append(executor.submit(_worker_run, group, local))
             if len(pending) >= window:
                 yield pending.popleft().result()
