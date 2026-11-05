@@ -1335,14 +1335,25 @@ columns:
 
 ### ScalarColumn
 
-One new s-file column: a name, a formula, and the columns it reads.
+One new s-file column: a formula, or condition rules, over existing columns.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `name` | `str` | yes | — | The new column's name in the s-file, units included if you like, e.g. 'UC_TopView x (mm)'. It must not be one of the scanner's own columns: a job never overwrites raw data. |
-| `expr` | `str` | yes | — | The formula, e.g. 'x * 0.0244' or 'a * b / c'. Numbers, the symbols in inputs, + - * / ** %, and the functions abs, sqrt, exp, log, log10, sin, cos, tan, arcsin, arccos, arctan, arctan2, hypot, minimum, maximum (and pi, e). |
-| `inputs` | `dict[str, str]` | no | empty | Symbol → existing s-file column, e.g. {x: 'UC_TopView centroid_x'}. A column made earlier in this job may be used by its name. |
+| `inputs` | `dict[str, str]` | no | empty | The columns this column reads, each under a short symbol: symbol → existing s-file column, e.g. {x: 'UC_TopView centroid_x'}. Both kinds use them: a formula's expr and a condition's rules name the symbols. A column made earlier in this job may be used by its name. |
+| `expr` | `str (optional)` | no | None | The formula, e.g. 'x * 0.0244' or 'a * b / c'. Numbers, the symbols in inputs, + - * / ** %, comparisons (1 where true, 0 where false), and/or/not, and the functions abs, sqrt, exp, log, log10, sin, cos, tan, arcsin, arccos, arctan, arctan2, hypot, minimum, maximum (and pi, e). For a column of kind formula; a condition has cases instead. |
+| `cases` | `list[ScalarCase] (optional)` | no | None | For a column of kind condition: rules checked in order, each with a label, e.g. when '4.0 <= x <= 6.5' → 'Al foil'. The first rule that holds wins; a shot missing an input is unknown. The Images page lists the scan's label at the top. |
+| `otherwise` | `str (optional)` | no | None | With cases: the label for a shot no rule matches (stored as the number after the last case). Defaults to 'other'. |
 | `description` | `str (optional)` | no | None | Free-text note. |
+
+### ScalarCase
+
+One rule of a condition column: when it holds, the shot gets its label.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `when` | `str` | yes | — | The rule, over the symbols in inputs: comparisons < <= > >= == !=, ranges like '4.0 <= x <= 6.5', and/or/not, e.g. 'x > 10 and y < 2'. Rules are checked top to bottom; the first one that holds wins. |
+| `label` | `str` | yes | — | What it means, as pages show it, e.g. 'Al foil in beam'. The s-file stores the case's number (0 for the first case, 1 for the next, ...). |
 
 ### ScalarJobRuntime
 

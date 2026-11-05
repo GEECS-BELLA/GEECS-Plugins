@@ -129,6 +129,11 @@
 .ce-form .field[data-path$=".inputs"] .kv .row input.k { width: 4rem; }
 .ce-form .field[data-path$=".inputs"] .kv .row input.v { min-width: 0; }
 .ce-main .ce-readonly-note { color: var(--muted); font-size: 12px; line-height: 1.4; margin: 0.2rem 0 0.6rem; }
+.ce-main .ce-help { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 0.2rem 0 0.6rem; }
+.ce-main .ce-help summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+.ce-main .ce-help p { margin: 0.35rem 0; }
+.ce-main .ce-help code, .ce-main .ce-help-example { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.ce-main .ce-help-example { background: var(--surface-2); border: 1px solid var(--rule); border-radius: 4px; padding: 0.35rem 0.5rem; margin: 0.25rem 0; white-space: pre; overflow-x: auto; font-size: 11.5px; color: var(--ink); }
 .ce-main .ce-readonly-note code { font-family: ui-monospace, Menlo, Consolas, monospace; }
 /* the scalar-columns form's column picker: which scan's s-file the input boxes list */
 .ce-main .ce-cols { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; font-size: 12px; margin: 0.2rem 0 0.4rem; }
@@ -160,3 +165,9 @@
 .ce-summaries .card { border: 1px solid var(--rule); border-radius: 4px; padding: 0.3rem; background: var(--surface-2); }
 .ce-summaries .card .msg { margin-top: 0.2rem; }
 .ce-preview-head input[type=number] { width: 3.5rem; }
+
+/* x-choice: a kind switch (formula | condition) over the fields each kind owns */
+.ce-form .ce-choice-buttons { display: inline-flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+.ce-form .ce-choice-buttons button { border: 0; border-radius: 0; background: transparent; padding: 0.2rem 0.7rem; color: var(--muted); cursor: pointer; }
+.ce-form .ce-choice-buttons button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.ce-form .ce-choice .ce-choice-buttons { justify-self: start; }

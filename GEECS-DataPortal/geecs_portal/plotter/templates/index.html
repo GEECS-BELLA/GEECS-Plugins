@@ -585,6 +585,24 @@
           {# One row per camera: its toolbar, then its tiles (or why there are
              none). Each tile loads when it scrolls into view; plotter.js adds
              the row's display (colour map, levels) to every tile's URL. #}
+          {# The scan's conditions: each condition column of a scalar-columns
+             job (its rules and labels in the config editor), the label the
+             scan's shots carry, or "mixed" with the split. #}
+          {% if conditions %}
+            <div class="conditions" id="conditions" aria-label="Scan conditions">
+              <ul>
+                {% for c in conditions %}
+                  <li><span class="dim">{{ c.column }}:</span> <b>{{ c.label }}</b>{% if c.mixed %} <span class="chip" data-state="degraded" title="The shots of this scan do not all carry one label: the condition changed during the scan">changed mid-scan</span>{% endif %}{% if c.detail %} <span class="dim">({{ c.detail }})</span>{% endif %}</li>
+                {% endfor %}
+              </ul>
+              <details class="conditions-help">
+                <summary title="Where these come from">?</summary>
+                <p>Each line is a <b>condition column</b> of a scalar-columns job: rules over the scan's s-file columns (say, a stage position between two values), each with a label, checked in order for every shot — the first rule that holds wins.</p>
+                <p>The line shows the label the scan's shots carry. If they do not all agree, it says <b>mixed</b>, flags it, and gives the split; <i>unknown</i> counts shots missing an input.</p>
+                <p>Make or edit one in the config editor (<b>new condition</b>), then run it from the scan's Analysis tab or <b>Analyze this day…</b>. The s-file stores each rule's number (0, 1, …), so a shot filter can use the column too.</p>
+              </details>
+            </div>
+          {% endif %}
           <div id="strips" class="strips{{ ' many' if many }}"
                data-title="Scan{{ '%03d' % scan }} · {{ day }} · {{ strip_line | trim }}"
                data-filename="Scan{{ '%03d' % scan }}_{{ day }}_{{ (cams | map(attribute='device') | select | join('+')) or 'images' }}_{{ strip }}">

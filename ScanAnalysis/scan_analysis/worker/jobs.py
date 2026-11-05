@@ -297,7 +297,8 @@ class Worker:
         for path in sorted(set(index.values()), key=str):
             try:
                 group = load_analysis_group(path, config_dir=self.config_dir)
-            except Exception as exc:  # noqa: BLE001 — one bad group must not hide the rest
+            # one bad group must not hide the rest (the portal's catalog rule)
+            except (ValueError, KeyError, OSError) as exc:
                 logger.info("group %s not loadable: %s", path, exc)
                 continue
             out.append(
@@ -382,7 +383,8 @@ class Worker:
                     priority, tag, analyzer, base_directory=self.base_directory
                 )
             # run_task records its own failures; a seam might raise instead
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
+                logger.exception("task Scan%03d %s raised", tag.number, record.analyzer)
                 state, record.error = "failed", f"{type(exc).__name__}: {exc}"
             record.seconds = round(time.monotonic() - began, 1)
             record.state = state or "skipped"

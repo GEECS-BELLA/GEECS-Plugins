@@ -44,6 +44,11 @@ geecs_data_utils/
                                #   ScanAnalysis's suite, #682)
   shot_files.py                # completed-scan shot rows → native Path / stack ShotRef
   scalar_files.py              # shared s-file lock/merge and generated-scalar writes
+  scan_conditions.py           # a scalar job's condition labels: the
+                               #   analysis/ScanNNN/ScanNNN_<job>_labels.json
+                               #   file (write: atomic, never mkdir; read:
+                               #   tolerant) and scan_conditions(frame, labels)
+                               #   → ScanCondition (one label / mixed / unknown)
   type_defs.py                 # ScanTag, ScanMode, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management

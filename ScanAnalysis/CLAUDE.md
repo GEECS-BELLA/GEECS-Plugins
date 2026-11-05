@@ -322,10 +322,18 @@ like a recipe's scalars — sidecar, then the locked s-file merge, a refused
 merge a failed run. A name that is one of the scanner's own columns
 (`ScanDataScanNNN.txt`'s header) is refused before anything is written,
 and an input column the s-file lacks makes the run `no_data`, naming the
-closest columns it has. Default `scan.priority` 1000, so in a group it runs
+closest columns it has. A shot missing any of a column's inputs is NaN
+("unknown"), for a comparison too. Comparisons and `and`/`or`/`not` run
+element-wise (the tree is rewritten onto numpy's logical functions, a
+chain `a <= x <= b` into its pairs). A **condition** column (`cases`)
+stores the number of the first rule that holds (`otherwise` the next
+number) and its labels go to `analysis/ScanNNN/ScanNNN_<id>_labels.json`
+beside the sidecar (`geecs_data_utils.scan_conditions`, the one format),
+which the portal's Images page reads. Default `scan.priority` 1000, so in a group it runs
 after the recipes whose columns it reads. The editor gives it its own form
-(`/api/schema/scalar`, saved as an analyzer) and a **new scalar columns**
-button; no preview. Its input boxes offer a scan's s-file columns
+(`/api/schema/scalar`, saved as an analyzer), **new scalar columns** and
+**new condition** buttons and a "How scalar columns work" help panel
+(`scalarHelp` in `editor.js`, open on a new job); no preview. Its input boxes offer a scan's s-file columns
 (a `<datalist>`) through the router's `columns=` host hook
 (`POST /api/columns {params}` → `{columns}`; 404 without the hook,
 `/api/list` carries `columns: bool`): in the portal's drawer the scan is

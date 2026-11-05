@@ -14,7 +14,9 @@ import pandas as pd
 from geecs_data_utils import tiled_schema
 from geecs_data_utils.data.sfile import column_alias
 from geecs_data_utils.folder_catalog import FolderScanCatalog, folder_uid
+from geecs_data_utils.scan_conditions import read_condition_labels, scan_conditions
 from geecs_data_utils.scan_frame import scan_frame
+from geecs_data_utils.scan_info import analysis_folder_for
 from geecs_data_utils.scan_paths import current_paths_config
 from geecs_data_utils.tiled_catalog import RunDetail, RunSummary
 
@@ -89,6 +91,27 @@ def scan_folder(run: RunDetail) -> Path:
 def load_frame(run: RunDetail) -> pd.DataFrame:
     """The scan's per-shot table: its s-file, one row per shot."""
     return scan_frame(scan_folder=scan_folder(run)).frame
+
+
+def conditions(run: RunDetail, frame: pd.DataFrame) -> list[dict]:
+    """The scan's condition columns: each one's label over the scan's shots.
+
+    The labels are the scalar-columns jobs' own, read from the scan's
+    analysis folder (``geecs_data_utils.scan_conditions``); a scan no
+    condition job has run on has none. Read-only.
+    """
+    labels = read_condition_labels(analysis_folder_for(scan_folder(run)))
+    return [
+        {
+            "column": c.column,
+            "label": c.label,
+            "mixed": c.mixed,
+            "detail": c.detail,
+            "counts": c.counts,
+            "unknown": c.unknown,
+        }
+        for c in scan_conditions(frame, labels)
+    ]
 
 
 def columns(frame: pd.DataFrame) -> list[str]:

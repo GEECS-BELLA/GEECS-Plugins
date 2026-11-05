@@ -433,6 +433,7 @@ def _page(
         "max_cameras": MAX_CAMERAS,
         "strip_x": "",
         "filter_pass": "",
+        "conditions": [],
         "bg": scan_refs_text([settings.image_bg]) if settings.image_bg else "",
         "bg_day": settings.image_bg.day if settings.image_bg else None,
         "bg_scan": settings.image_bg.scan if settings.image_bg else None,
@@ -609,6 +610,7 @@ def _fill_images(
     folder = scans.scan_folder(run)
     devices = images.devices(folder)
     page["devices"] = devices
+    page["conditions"] = scans.conditions(run, frame)
     looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
     x, page["strip_x"] = strip_axis(run, frame, settings.x_alias)
     page["cams"] = cams = [

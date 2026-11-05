@@ -127,3 +127,65 @@ def test_a_constant_formula_fills_every_shot():
     table = pd.DataFrame({"Shotnumber": [1, 2]})
     out = ScalarColumnsAnalyzer(job({"name": "k", "expr": "2 * pi"})).compute(table)
     np.testing.assert_allclose(out["k"], [2 * np.pi] * 2)
+
+
+def compute(*columns, **data):
+    table = pd.DataFrame(
+        {"Shotnumber": range(1, len(next(iter(data.values()))) + 1), **data}
+    )
+    return ScalarColumnsAnalyzer(job(*columns)).compute(table)
+
+
+def test_comparisons_and_logic_are_element_wise():
+    out = compute(
+        {"name": "in", "expr": "4 <= x <= 6", "inputs": {"x": "X"}},
+        {
+            "name": "both",
+            "expr": "x > 1 and not y == 0",
+            "inputs": {"x": "X", "y": "Y"},
+        },
+        {"name": "any", "expr": "x > 5 or y > 5", "inputs": {"x": "X", "y": "Y"}},
+        X=[3.0, 4.0, 6.0, 7.0, np.nan],
+        Y=[0.0, 1.0, 9.0, 0.0, 1.0],
+    )
+    np.testing.assert_array_equal(out["in"], [0, 1, 1, 0, np.nan])
+    np.testing.assert_array_equal(out["both"], [0, 1, 1, 0, np.nan])
+    # a missing input is unknown, even where the other side would decide it
+    np.testing.assert_array_equal(out["any"], [0, 0, 1, 1, np.nan])
+
+
+TARGET = {
+    "name": "target",
+    "inputs": {"x": "Stage"},
+    "cases": [
+        {"when": "4 <= x <= 6", "label": "Al foil"},
+        {"when": "5 <= x <= 12", "label": "Cu foil"},
+    ],
+    "otherwise": "nothing",
+}
+
+
+def test_cases_take_the_first_rule_that_holds():
+    out = compute(TARGET, Stage=[5.0, 8.0, 20.0, np.nan, "bad"])
+    # 5 matches both rules: the first wins
+    np.testing.assert_array_equal(out["target"], [0, 1, 2, np.nan, np.nan])
+
+
+def test_a_condition_writes_its_labels_beside_the_sidecar(tmp_path, monkeypatch):
+    from geecs_data_utils.scan_conditions import read_condition_labels
+
+    scan, sfile = build_scan(tmp_path)
+    cond = {**TARGET, "inputs": {"x": "A"}}
+    run(monkeypatch, tmp_path, job(MM, cond))
+    np.testing.assert_array_equal(pd.read_csv(sfile, sep="\t")["target"], [2, 2, 2, 0])
+    analysis = sfile.parent / "Scan012"
+    assert (analysis / "Scan012_Derived_labels.json").is_file()
+    assert read_condition_labels(analysis) == {
+        "target": ["Al foil", "Cu foil", "nothing"]
+    }
+
+
+def test_a_job_without_conditions_writes_no_labels(tmp_path, monkeypatch):
+    _, sfile = build_scan(tmp_path)
+    run(monkeypatch, tmp_path, job(MM))
+    assert not list((sfile.parent / "Scan012").glob("*_labels.json"))

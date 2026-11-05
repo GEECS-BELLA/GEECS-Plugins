@@ -16,6 +16,7 @@ from geecs_schemas.analysis.himg import HimgJob, HimgJobKind, HimgJobRuntime
 from geecs_schemas.analysis.group import AnalysisGroup, AnalyzerRef
 from geecs_schemas.analysis.scalar import (
     SCALAR_FUNCTIONS,
+    ScalarCase,
     ScalarColumn,
     ScalarJob,
     ScalarJobRuntime,
@@ -65,6 +66,7 @@ __all__ = [
     "RecipeInput",
     "RecipeRuntime",
     "SCALAR_FUNCTIONS",
+    "ScalarCase",
     "ScalarColumn",
     "ScalarJob",
     "ScalarJobRuntime",

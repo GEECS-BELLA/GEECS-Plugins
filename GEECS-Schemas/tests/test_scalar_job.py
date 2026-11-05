@@ -58,6 +58,9 @@ def test_host_facing_names():
         "-x % 3",
         "arctan2(x, 2) + abs(x)",
         "hypot(x, x)",
+        "x > 1",
+        "4.0 <= x <= 6.5",
+        "x > 1 and not x == 3 or x != 2",
     ],
 )
 def test_accepted_formulas(expr):
@@ -71,7 +74,8 @@ def test_accepted_formulas(expr):
         ("__import__('os')", "only whitelisted"),
         ("y * 2", "unknown name 'y'"),
         ("x *", "syntax|invalid"),
-        ("x > 1", "disallowed"),
+        ("x in (1, 2)", "disallowed|not a number"),
+        ("x is 1", "disallowed"),
         ("'a'", "not a number"),
     ],
 )
@@ -102,3 +106,64 @@ def test_the_canonical_form_round_trips():
     job = ScalarJob.model_validate(JOB)
     written = canonical_document(job)
     assert load_analysis_document(written) == job
+
+
+CONDITION = {
+    "name": "target in beam",
+    "inputs": {"x": "Stage"},
+    "cases": [
+        {"when": "4.0 <= x <= 6.5", "label": "Al foil"},
+        {"when": "10 <= x <= 12", "label": "Cu foil"},
+    ],
+    "otherwise": "nothing",
+}
+
+
+def condition(**over):
+    return {**JOB, "columns": [{**CONDITION, **over}]}
+
+
+def test_a_condition_column_numbers_its_labels():
+    col = load_analysis_document(condition()).columns[0]
+    assert col.is_condition
+    assert col.labels == ["Al foil", "Cu foil", "nothing"]
+    unnamed = load_analysis_document(condition(otherwise=None)).columns[0]
+    assert unnamed.labels[-1] == "other"
+    assert not load_analysis_document(JOB).columns[0].is_condition
+
+
+@pytest.mark.parametrize(
+    ("over", "why"),
+    [
+        ({"expr": "x"}, "both a formula"),
+        ({"cases": None}, "is empty"),
+        ({"cases": []}, "at least 1"),
+        ({"cases": [{"when": "y > 1", "label": "A"}]}, "case 1 when.*unknown name"),
+        ({"cases": [{"when": "x >", "label": "A"}]}, "case 1 when"),
+    ],
+)
+def test_condition_refusals(over, why):
+    with pytest.raises(ValidationError, match=why):
+        load_analysis_document(condition(**over))
+
+
+def test_otherwise_needs_cases():
+    with pytest.raises(ValidationError, match="otherwise needs cases"):
+        load_analysis_document(column(otherwise="x"))
+
+
+def test_a_condition_round_trips():
+    job = ScalarJob.model_validate(condition())
+    assert load_analysis_document(canonical_document(job)) == job
+
+
+def test_the_form_hint_names_real_fields():
+    """The editor's formula | condition switch (x-choice) owns real fields."""
+    from geecs_schemas.analysis import ScalarColumn
+
+    schema = ScalarJob.model_json_schema()["$defs"]["ScalarColumn"]
+    options = schema["x-choice"]["options"]
+    owned = [k for o in options for k in o["keys"]]
+    assert set(owned) <= set(ScalarColumn.model_fields)
+    assert [o["title"] for o in options] == ["formula", "condition"]
+    assert len(owned) == len(set(owned))

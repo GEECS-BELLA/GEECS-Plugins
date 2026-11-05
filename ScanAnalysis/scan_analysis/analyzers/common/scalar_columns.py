@@ -19,7 +19,16 @@ Refusals, each before anything is written:
 
 Non-numeric cells read as NaN, and so does a result that is not finite
 (a division by zero, the log of a negative): a bad shot is a blank cell,
-never a failed run.
+never a failed run.  A shot missing any of a column's inputs is NaN too —
+for a comparison or a condition that means "unknown", never "false".
+
+A **condition** column (``cases``) stores the number of the first rule
+that holds (``otherwise`` the number after the last); its labels are
+written beside the sidecar (``geecs_data_utils.scan_conditions``), which is
+where the portal's Images page reads them.  Comparisons and ``and`` /
+``or`` / ``not`` are evaluated element-wise: the expression's tree is
+rewritten so Python's short-circuit operators become numpy's logical ones
+and a chain ``a <= x <= b`` becomes ``(a <= x) & (x <= b)``.
 
 Honours the ``ScanAnalyzer`` contract the task queue, the portal and MCP
 call: ``run_analysis(scan_tag)`` returns one label saying what was added.
@@ -28,16 +37,19 @@ Nothing here creates a directory under ``scans/``.
 
 from __future__ import annotations
 
+import ast
 import difflib
 import logging
+from functools import reduce
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
+from geecs_data_utils.scan_conditions import labels_path, write_condition_labels
 from geecs_schemas.analysis import ScalarJob
-from geecs_schemas.analysis.scalar import scalar_whitelist
-from geecs_schemas.restricted_expr import CompiledExpression, compile_expression
+from geecs_schemas.analysis.scalar import ScalarColumn, scalar_whitelist
+from geecs_schemas.restricted_expr import compile_expression
 
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 
@@ -70,6 +82,93 @@ _WHITELIST = scalar_whitelist(
 )
 
 
+def _logical(op: Callable) -> Callable:
+    def apply(*values):
+        return reduce(op, [np.asarray(v, dtype=bool) for v in values])
+
+    return apply
+
+
+#: The helpers the rewritten tree calls (names no input symbol can take:
+#: symbols are identifiers, and these start with an underscore pair).
+_HELPERS = {
+    "__and": _logical(np.logical_and),
+    "__or": _logical(np.logical_or),
+    "__not": lambda value: np.logical_not(np.asarray(value, dtype=bool)),
+}
+
+
+class _ElementWise(ast.NodeTransformer):
+    """``and``/``or``/``not`` and comparison chains → numpy's element-wise forms."""
+
+    @staticmethod
+    def _call(name: str, args: list[ast.expr]) -> ast.Call:
+        return ast.Call(func=ast.Name(id=name, ctx=ast.Load()), args=args, keywords=[])
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> ast.AST:
+        self.generic_visit(node)
+        name = "__and" if isinstance(node.op, ast.And) else "__or"
+        return self._call(name, list(node.values))
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> ast.AST:
+        self.generic_visit(node)
+        if isinstance(node.op, ast.Not):
+            return self._call("__not", [node.operand])
+        return node
+
+    def visit_Compare(self, node: ast.Compare) -> ast.AST:
+        self.generic_visit(node)
+        if len(node.ops) == 1:
+            return node
+        lefts = [node.left, *node.comparators[:-1]]
+        pairs = [
+            ast.Compare(left=left, ops=[op], comparators=[right])
+            for left, op, right in zip(lefts, node.ops, node.comparators)
+        ]
+        return self._call("__and", pairs)
+
+
+def _element_wise(source: str, symbols: set[str]) -> Callable[[Mapping], np.ndarray]:
+    """Validate *source* against the whitelist, then compile it element-wise."""
+    compile_expression(source, symbols, _WHITELIST)  # the refusals are the schema's
+    tree = ast.parse(source, mode="eval")
+    tree = ast.fix_missing_locations(_ElementWise().visit(tree))
+    code = compile(tree, "<scalar-column>", "eval")
+    base = {
+        "__builtins__": {},
+        **_WHITELIST.functions,
+        **_WHITELIST.constants,
+        **_HELPERS,
+    }
+
+    def evaluate(values: Mapping) -> np.ndarray:
+        return np.asarray(eval(code, {**base, **values}), dtype=float)
+
+    return evaluate
+
+
+def _column_function(column: ScalarColumn) -> Callable[[Mapping], np.ndarray]:
+    """One column's values from its inputs: the formula, or the case number."""
+    symbols = set(column.inputs)
+    if column.cases is None:
+        return _element_wise(str(column.expr), symbols)
+    rules = [_element_wise(case.when, symbols) for case in column.cases]
+
+    def cases(values: Mapping) -> np.ndarray:
+        n = len(next(iter(values.values()))) if values else 1
+        codes = np.full(n, float(len(rules)))  # otherwise
+        decided = np.zeros(n, dtype=bool)
+        for number, rule in enumerate(rules):
+            with np.errstate(invalid="ignore"):
+                holds = np.broadcast_to(rule(values) > 0, (n,))
+            hit = holds & ~decided
+            codes[hit] = number
+            decided |= hit
+        return codes
+
+    return cases
+
+
 def _close_names(name: str, columns: list[str]) -> str:
     """A hint for a missing column: the s-file's nearest names, if any."""
     near = difflib.get_close_matches(name, columns, n=3, cutoff=0.6)
@@ -88,10 +187,7 @@ class ScalarColumnsAnalyzer(ScanAnalyzer):
     def __init__(self, job: ScalarJob, **kwargs):
         super().__init__(device_name=job.device, **kwargs)
         self.job = job
-        self._compiled: list[CompiledExpression] = [
-            compile_expression(column.expr, set(column.inputs), _WHITELIST)
-            for column in job.columns
-        ]
+        self._compiled = [_column_function(column) for column in job.columns]
 
     def _raw_columns(self) -> set[str]:
         """The scanner's own column names (header of ``ScanDataScanNNN.txt``)."""
@@ -145,9 +241,12 @@ class ScalarColumnsAnalyzer(ScanAnalyzer):
                         table[source], errors="coerce"
                     ).to_numpy(dtype=float)
             with np.errstate(all="ignore"):
-                result = np.asarray(compiled.evaluate(values), dtype=float)
+                result = np.asarray(compiled(values), dtype=float)
             result = np.broadcast_to(result, (n,)).copy()
             result[~np.isfinite(result)] = np.nan
+            for given in values.values():
+                # a missing input is unknown, never "false" or "otherwise"
+                result[~np.isfinite(np.broadcast_to(given, (n,)))] = np.nan
             made[column.name] = result
         out = pd.DataFrame({KEY: table[KEY].to_numpy()})
         for name, values in made.items():
@@ -171,6 +270,7 @@ class ScalarColumnsAnalyzer(ScanAnalyzer):
                 f"could not write {self.auxiliary_file_path} (locked or unreadable); "
                 "nothing was changed — run again"
             )
+        self._write_labels()
         names = [c.name for c in self.job.columns]
         counts = {
             name: int(np.isfinite(updates[name].to_numpy(dtype=float)).sum())
@@ -185,6 +285,18 @@ class ScalarColumnsAnalyzer(ScanAnalyzer):
             else "the s-file"
         )
         return [f"wrote {len(names)} column(s) to {target}: {detail}"]
+
+    def _write_labels(self) -> Optional[Path]:
+        """The condition columns' labels, beside the sidecar (none: no file)."""
+        conditions = {c.name: c.labels for c in self.job.columns if c.is_condition}
+        sidecar = self.scalar_sidecar_path()
+        if not conditions or sidecar is None:
+            return None
+        scan_name = sidecar.name.split("_", 1)[0]
+        job_id = getattr(self, "id", None) or self.job.device
+        return write_condition_labels(
+            labels_path(sidecar.parent, scan_name, job_id), job_id, conditions
+        )
 
     def cleanup(self) -> None:
         """Nothing is held between scans."""

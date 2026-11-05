@@ -122,3 +122,13 @@
 .kit #filters-drawer .frow { flex-wrap: wrap; }
 .kit #filters-drawer .frow select.col { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
 .kit #filters-drawer .frow input.val { width: 8rem; }
+
+/* The Images page's scan conditions: one line per condition column, a
+   "?" that unfolds where they come from. */
+.conditions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap); margin: 0 0 var(--gap); }
+.conditions ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; flex: 1; }
+.conditions-help { font-size: 12px; max-width: 34rem; }
+.conditions-help summary { cursor: pointer; list-style: none; width: 1.4em; height: 1.4em; line-height: 1.4em; text-align: center; border-radius: 50%; border: 1px solid var(--rule); color: var(--muted); }
+.conditions-help summary::-webkit-details-marker { display: none; }
+.conditions-help[open] { flex-basis: 100%; }
+.conditions-help p { margin: 0.35rem 0; color: var(--muted); }
