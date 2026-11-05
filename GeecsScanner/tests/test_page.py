@@ -691,3 +691,7 @@ def test_start_confirms_the_scan_title_behind_a_checkbox(client: TestClient) -> 
     confirm = confirm[: confirm.index("  });")]
     assert '$("desc").value = $("title-box").value' in confirm
     assert "startScan();" in confirm
+    assert '$("btn-start").disabled' in confirm
+    start = script[script.index('$("btn-start").addEventListener("click"') :]
+    start = start[: start.index("  });")]
+    assert 'if (!$("confirm-title").checked) { startScan(); return; }' in start
