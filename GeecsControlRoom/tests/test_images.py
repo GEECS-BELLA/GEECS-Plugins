@@ -146,14 +146,16 @@ class FakeCa:
             raise TimeoutError("no answer from the IOC")
         return self.raw
 
-    async def floats(self, pvs: list[str]) -> list[np.ndarray]:
-        self.calls.append(("floats", tuple(pvs)))
+    async def floats(self, pvs: list[str], count: int | None = None) -> list[np.ndarray]:  # fmt: skip
+        self.calls.append(
+            ("floats", tuple(pvs)) if count is None else ("head", tuple(pvs))
+        )
         if self.gate:
             await self.gate.wait()
         missing = [pv for pv in pvs if pv not in self.floats_by]
         if missing:
             raise TimeoutError(f"no answer from {missing[0]}")
-        return [self.floats_by[pv] for pv in pvs]
+        return [self.floats_by[pv][:count] for pv in pvs]
 
     def kinds(self) -> list[str]:
         """The reads by kind, the full scale's apart: ``counter`` / ``frame`` / ``scale`` / ``image_counter``."""

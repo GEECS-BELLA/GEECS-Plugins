@@ -146,4 +146,4 @@
 </dialog>
 {% endblock %}
 {% block role_tables %}<details class="disc roles-all"><summary>Every role · {{ device.roles | length }}</summary>{{ super() }}</details>{% endblock %}
-{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/camera.js" defer></script><script src="{{ root }}/static/camera_controls.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/camera.js" defer></script><script src="{{ root }}/static/camera_controls.js" defer></script>{% endif %}{% endblock %}

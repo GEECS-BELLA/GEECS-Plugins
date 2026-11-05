@@ -4,9 +4,11 @@ geecs-epics has no scope simulator, so the trace page is developed against
 this: every role of ``scope_contract.json`` at ``<prefix><suffix>`` (and
 its write record), a capture of ``[channels, samples]`` float32, channels
 fastest, at 1 Hz while acquiring, its time axis, the per-channel
-statistics. Channel C is present and disabled (its row NaN), channel D
-absent (``D:Present_RBV`` 0), so the page's "off" series and hidden group
-show. A write to ``X`` lands on ``X_RBV``. Bench only: never a production
+statistics. The model has three channels (``D:Present_RBV`` 0, so the
+array is ``[3, samples]``, as the contract has every channel the model has);
+channel C is disabled (its row NaN), so the page's "off" series and hidden
+group show. The counters post as the IOC's do: the driver's ``count``
+first, the ``ARR`` capture, then the plugin's own ``arr_counter``. A write to ``X`` lands on ``X_RBV``. Bench only: never a production
 device, never installed, served on 127.0.0.1.
 
     EPICS_CAS_SERVER_PORT=5094 EPICS_CA_SERVER_PORT=5094 \
@@ -28,7 +30,7 @@ from caproto import ChannelChar, ChannelData, ChannelDouble, ChannelEnum, Channe
 from caproto.asyncio.server import start_server
 
 FAMILY = Path(__file__).resolve().parents[2] / "GEECS-Schemas/geecs_schemas/epics/families/scope_contract.json"  # fmt: skip
-CHANNELS, SAMPLES = 4, 2000
+CHANNELS, SAMPLES = 3, 2000  # the channels the model has (A, B, C)
 #: Enum choices the IOC's records carry (the page reads them from the PV, never a list of its own).
 ENUMS = {
     "acquire": ["Done", "Acquire"], "image_mode": ["Single", "Multiple", "Continuous"],
@@ -106,7 +108,7 @@ def pvdb(prefix: str) -> tuple[dict[str, ChannelData], dict[str, ChannelData]]:
         start = START.get(name)
         if name.startswith("ch_"):
             ch = "abcd".index(name[3])
-            start = {"present": int(ch < 3), "enable": int(ch < 2), "range": 6, "coupling": 1, "offset": 0.0, "overrange": 0}.get(name.split("_", 2)[-1], start)  # fmt: skip
+            start = {"present": int(ch < CHANNELS), "enable": int(ch < 2), "range": 6, "coupling": 1, "offset": 0.0, "overrange": 0}.get(name.split("_", 2)[-1], start)  # fmt: skip
         if role["type"] == "array":
             n = CHANNELS * SAMPLES if name == "data" else SAMPLES
             ch_ = ChannelDouble(value=np.zeros(n, dtype=np.float32).tolist(), max_length=n, units=role.get("units") or "")  # fmt: skip
@@ -138,7 +140,7 @@ async def capture(by_role: dict[str, ChannelData]) -> None:
             np.zeros(SAMPLES), np.zeros(SAMPLES),
         ]  # fmt: skip
         rows = []
-        for c, shape in enumerate(shapes):
+        for c, shape in enumerate(shapes[:CHANNELS]):
             on = by_role[f"ch_{'abcd'[c]}_enable"].value in ("On", 1) and by_role[f"ch_{'abcd'[c]}_present"].value in ("Yes", 1)  # fmt: skip
             row = (shape + rng.normal(0, 0.01, SAMPLES)).astype(np.float32) if on else np.full(SAMPLES, np.nan, np.float32)  # fmt: skip
             rows.append(row)
@@ -146,11 +148,13 @@ async def capture(by_role: dict[str, ChannelData]) -> None:
                 ch = "abcd"[c]
                 for k, v in (("total", row.sum()), ("mean", row.mean()), ("min", row.min()), ("max", row.max()), ("sigma", row.std())):  # fmt: skip
                     await by_role[f"ch_{ch}_{k}"].write(float(v))
+        await by_role["count"].write(
+            n
+        )  # the driver's counter, before the plugin publishes
         await by_role["time_axis"].write(t.astype(np.float32).tolist())
-        await by_role["data"].write(
-            np.stack(rows, axis=1).ravel().tolist()
-        )  # [channels, samples], channels fastest
-        await by_role["count"].write(n)
+        # [channels, samples], channels fastest; then the plugin's own counter
+        await by_role["data"].write(np.stack(rows, axis=1).ravel().tolist())
+        await by_role["arr_counter"].write(n)
         await by_role["arr_uid"].write(float(n))
 
 

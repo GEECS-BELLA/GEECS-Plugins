@@ -27,6 +27,11 @@ through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
   read in flight per device, held ``RAW_HOLD_S``; the counter is probed first
   so an unmoved camera costs one scalar read, never an array read.
 
+The CA transport (:class:`Ca`), :class:`Shared`, :class:`Unavailable`, the
+module-route cache (:meth:`Images.roles`, :meth:`Images.family`), the gzip
+framing and the ``If-None-Match`` match are shared with the trace route
+(``traces.py``).
+
 PV names come from the module's device route only, never derived here; the
 route's answer is reused for ``ROUTE_TTL_S``, one read in flight per device,
 and the last good answer is served while the module is silent. CA addressing is the standard
@@ -98,8 +103,8 @@ class Ca(Protocol):
         """``pv`` read as one number (a counter, the full scale)."""
         ...
 
-    async def floats(self, pvs: list[str]) -> list[np.ndarray]:
-        """Each of ``pvs`` as float32 (``DBR_FLOAT``), in order: a trace and its axis."""
+    async def floats(self, pvs: list[str], count: Optional[int] = None) -> list[np.ndarray]:  # fmt: skip
+        """Each of ``pvs`` as float32 (``DBR_FLOAT``), in order (its first ``count`` values only, when given): a trace and its axis."""
         ...
 
     async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
@@ -135,11 +140,11 @@ class AiocaCa:
 
         return float(await aioca.caget(pv, timeout=CA_TIMEOUT_S))
 
-    async def floats(self, pvs: list[str]) -> list[np.ndarray]:
+    async def floats(self, pvs: list[str], count: Optional[int] = None) -> list[np.ndarray]:  # fmt: skip
         """Each of ``pvs`` asked as ``DBR_FLOAT`` (count 0: the IOC's current length)."""
         import aioca
 
-        values = await aioca.caget(pvs, datatype=np.float32, timeout=CA_TIMEOUT_S)
+        values = await aioca.caget(pvs, datatype=np.float32, count=count or 0, timeout=CA_TIMEOUT_S)  # fmt: skip
         return [np.asarray(v, dtype=np.float32) for v in values]
 
     async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
@@ -236,7 +241,7 @@ def _cast(data: np.ndarray) -> np.ndarray:
     return np.asarray(data).view(np.uint16).astype(np.dtype("<u2"), copy=False)
 
 
-def _gzip(frame: np.ndarray) -> bytes:
+def gzip_frame(frame: np.ndarray) -> bytes:
     """Gzip framing at level 1 (``wbits=31``): what a browser's ``Content-Encoding: gzip`` decodes."""
     z = zlib.compressobj(1, zlib.DEFLATED, 31)
     return z.compress(frame) + z.flush()
@@ -449,7 +454,7 @@ class Images:
             raise Unavailable(503, f"geometry disagrees: {n} values for {width}×{height}")  # fmt: skip
         frame = await asyncio.to_thread(_cast, data)
         del data  # the cast is a view of it: both go once compressed (10.6 MB for a 2592×2048 frame)
-        body = await asyncio.to_thread(_gzip, frame)
+        body = await asyncio.to_thread(gzip_frame, frame)
         del frame
         raw = self._held[key] = RawFrame(body, width, height, tag, self._full_scale(name, scale))  # fmt: skip
         return raw
@@ -483,7 +488,7 @@ class Images:
             self._scale_reads.pop((name, pv), None)
 
 
-def _matches(if_none_match: Optional[str], etag: str) -> bool:
+def etag_matches(if_none_match: Optional[str], etag: str) -> bool:
     """Whether ``If-None-Match`` names ``etag`` (weak comparison, a list, or ``*``), RFC 9110 § 13.1.2."""
     if not if_none_match:
         return False
@@ -520,7 +525,7 @@ def _jpeg_response(jpeg: Jpeg, if_none_match: Optional[str]) -> Response:
     headers = {"Cache-Control": "no-store", "X-Frame-Tag": jpeg.tag}
     if jpeg.counter is not None:
         headers["ETag"] = f'"{jpeg.counter};{jpeg.tag}"'
-        if _matches(if_none_match, headers["ETag"]):
+        if etag_matches(if_none_match, headers["ETag"]):
             return Response(status_code=304, headers=headers)
     return Response(jpeg.body, media_type="image/jpeg", headers=headers)
 
@@ -569,7 +574,7 @@ def router(images: Images) -> APIRouter:
             "ETag": etag,
             "X-Frame-Tag": f'"{raw.tag}"',
         }
-        if _matches(request.headers.get("if-none-match"), etag):
+        if etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers=headers)
         headers |= {"Content-Encoding": "gzip", "X-Frame-Width": str(raw.width), "X-Frame-Height": str(raw.height)}  # fmt: skip
         if raw.full_scale is not None:

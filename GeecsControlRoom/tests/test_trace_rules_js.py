@@ -53,7 +53,8 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("present: the device names no present role", "presentRole", [CH, CH], None),
     ("hidden: while present reads 0", "hidden", [{"value": 0}], True),
     ("hidden: present, or unknown, shows it", "hidden", [None], False),
-    ("rate: tags in the span", "rate", [[1000, 4000, 5500], 6000], {"seen": [1000, 4000, 5500], "text": "0.6 new/s"}),
+    ("rate: first to last of the span's tags", "rate", [[0, 1000, 2000, 3000, 4000, 5000, 5900], 6000], {"seen": [1000, 2000, 3000, 4000, 5000, 5900], "text": "1.0 new/s"}),
+    ("rate: one tag is no rate yet", "rate", [[4000], 6000], {"seen": [4000], "text": "1 new in 5 s"}),
     ("rate: none recent", "rate", [[0], 9000], {"seen": [], "text": "no new captures"}),
     # reused from camera_rules.js, never copied
     ("control: on the module's word", "control", [VIEW, {"role": "ch_a_range", "writable": True}, False], {"enabled": True, "why": ""}),
@@ -82,12 +83,16 @@ out.decoded = { ok: t.ok, channels: t.channels, samples: t.samples, tag: t.tag, 
 out.short = R.decodeTrace(new ArrayBuffer(12), a.headers);
 out.unshaped = R.decodeTrace(new ArrayBuffer(12), { channels: null, samples: "3" });
 // the viewer's average: last n of one shape, the finite values only
-const cap = (vals) => ({ channels: 1, samples: vals.length, axis: f32([0, 1, 2]), series: [{ values: f32(vals), off: false }] });
+let tag = 0;
+const cap = (vals, axis = [0, 1, 2], t = String(++tag)) => ({ channels: 1, samples: vals.length, axis: f32(axis), tag: t, series: [{ values: f32(vals), off: false }] });
 let held = R.keep([], cap([1, 2, null]), 2);
 held = R.keep(held, cap([3, 4, null]), 2);
 held = R.keep(held, cap([5, 6, 9]), 2);
 out.avg = { n: held.length, values: plain(R.averaged(held).series[0].values) };
-out.reshaped = R.keep(held, { channels: 2, samples: 3 }, 5).length;
+out.again = R.keep(held, { ...held[1] }, 5).length; // the same tag asked again: not counted twice
+out.untagged = R.keep(held, { ...held[1], tag: null }, 5).length;
+out.reshaped = R.keep(held, { channels: 2, samples: 3, axis: f32([0, 1, 2]), tag: "x" }, 5).length;
+out.moved = R.keep(held, cap([1, 1, 1], [0, 2, 4]), 5).length; // a new interval: the axis moved, start over
 // y range: finite in the window, off channels out, log positive only
 const axis = f32([0, 1, 2, 3]), s = [{ values: f32([1, null, 3, 100]), off: false }, { values: f32([null, null, null, null]), off: true }];
 out.y = R.yRange(axis, s, 0, 2, false);
@@ -125,7 +130,11 @@ async def test_the_page_decodes_the_trace_the_route_serves() -> None:
     assert got["short"] == {"ok": False, "why": "shape disagrees: 12 bytes for 4×5"}
     assert got["unshaped"] == {"ok": False, "why": "the trace came without its shape"}
     # the last two captures, the finite values only; a new shape starts over
-    assert got["avg"] == {"n": 2, "values": [4, 5, 9]} and got["reshaped"] == 1
+    assert (
+        got["avg"] == {"n": 2, "values": [4, 5, 9]}
+        and got["reshaped"] == got["moved"] == 1
+    )
+    assert (got["again"], got["untagged"]) == (2, 3)
     assert got["y"] == [0.9, 3.1] and got["ylog"] == [10, 1000] and got["ynone"] is None
     assert got["dec"]["gaps"] == 1 and got["dec"]["n"] <= 2 * 10 + 1 and got["dec"]["first"] == [[0, 0], [9, 9]]  # fmt: skip
     assert got["decWindow"] == [[1, 2], [2, 3]]

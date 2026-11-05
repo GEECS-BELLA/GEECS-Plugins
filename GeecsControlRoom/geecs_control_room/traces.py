@@ -22,8 +22,10 @@ one scalar read). Else the y array (asked ``DBR_FLOAT``: float32 on the
 wire, half a ``DOUBLE`` waveform's bytes) and its channel count in one
 batch, then the counter again; on a mismatch the batch is read once more
 and tagged by the second counter. The axis is read with the first trace
-and again only when its length is not the trace's or it is older than
-``AXIS_EVERY_S``, never per capture. No write ever leaves this module.
+and again only when its length is not the trace's, its first two values
+moved (a probe of eight bytes per new capture: a new interval or
+pre-trigger moves them) or it is older than ``AXIS_EVERY_S``, never whole
+per capture. No write ever leaves this module.
 """
 
 from __future__ import annotations
@@ -38,9 +40,15 @@ from typing import Any, Optional
 import numpy as np
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
-from geecs_schemas import load_families
+from geecs_schemas import FamilyFile, Role, load_families
 
-from geecs_control_room.images import Images, Shared, Unavailable, _gzip, _matches
+from geecs_control_room.images import (
+    Images,
+    Shared,
+    Unavailable,
+    gzip_frame,
+    etag_matches,
+)
 from geecs_control_room.module_client import ModuleClient
 
 #: A trace is held and shared this long (at most 2 Hz per device, however many viewers poll).
@@ -69,6 +77,17 @@ class TracePvs:
     channels: Optional[str]
 
 
+def trace_roles(family: Optional[FamilyFile]) -> Optional[tuple[Role, Role]]:
+    """The family's trace: its first axis role (``axis_of``, in the family's order) and the array it names; ``None`` without one.
+
+    The one reading of the rule, for this route and the page's template alike.
+    """
+    axis = next((r for r in family.roles if r.axis_of), None) if family else None
+    return (
+        (axis, family.role(axis.axis_of)) if family and axis and axis.axis_of else None
+    )
+
+
 def trace_pvs(family_name: Optional[str], roles: dict[str, dict[str, Any]], name: str) -> TracePvs:  # fmt: skip
     """The trace's PVs: the family says which roles, the module's device route names their PVs.
 
@@ -78,11 +97,10 @@ def trace_pvs(family_name: Optional[str], roles: dict[str, dict[str, Any]], name
         404 when the family names no trace (no ``axis_of``) or no counter for
         it (``fresh_by``), or the module names none of a role's PVs.
     """
-    family = load_families().get(family_name or "")
-    axis = next((r for r in family.roles if r.axis_of), None) if family else None
-    if family is None or axis is None or axis.axis_of is None:
+    pair = trace_roles(load_families().get(family_name or ""))
+    if pair is None:
         raise Unavailable(404, f"the family of {name} names no trace (no role is an axis_of)")  # fmt: skip
-    y = family.role(axis.axis_of)
+    axis, y = pair
     if y.fresh_by is None:
         raise Unavailable(404, f"the family names no counter for {y.name} (fresh_by)")
     wanted = [y.name, axis.name, y.fresh_by] + ([y.channels_by] if y.channels_by else [])  # fmt: skip
@@ -128,15 +146,23 @@ class Traces:
                 return y, 1
             (y,), channels = await asyncio.gather(self._ca.floats([pvs.y]), self._ca.scalar(pvs.channels))  # fmt: skip
             return y, int(channels)
-        except (
-            Exception
-        ) as exc:  # any CA failure (a NaN channel count too): said, never a 500
+        # any CA failure (a NaN channel count too): said, never a 500
+        except Exception as exc:
             raise Unavailable(503, f"the trace ({pvs.y}) could not be read: {exc}") from exc  # fmt: skip
 
     async def _axis(self, pv: str, samples: int) -> np.ndarray:
+        """The axis, held while its length is the trace's, its first two values unchanged and it is younger than ``AXIS_EVERY_S``.
+
+        The probe (two values, eight bytes) catches a timebase change of the
+        same length: a scope's axis is ``(i - pre) * interval``, so a new
+        interval or pre-trigger moves its first two values.
+        """
         held = self._axes.get(pv)
         if held is not None and held[0].size == samples and self._clock() - held[1] < AXIS_EVERY_S:  # fmt: skip
-            return held[0]
+            # an unread probe (any CA failure) reads the whole axis, which says why if it fails too
+            (probe,) = await asyncio.gather(self._ca.floats([pv], count=2), return_exceptions=True)  # fmt: skip
+            if isinstance(probe, list) and np.array_equal(probe[0][:2], held[0][:2], equal_nan=True):  # fmt: skip
+                return held[0]
         asked = self._clock()
         try:
             (axis,) = await self._ca.floats([pv])
@@ -171,7 +197,7 @@ class Traces:
 
 def _pack(axis: np.ndarray, y: np.ndarray) -> bytes:
     """The axis then the y array, float32 little-endian, gzip framed."""
-    return _gzip(np.concatenate([np.ravel(axis), np.ravel(y)]).astype("<f4", copy=False))  # fmt: skip
+    return gzip_frame(np.concatenate([np.ravel(axis), np.ravel(y)]).astype("<f4", copy=False))  # fmt: skip
 
 
 def router(traces: Traces) -> APIRouter:
@@ -186,7 +212,7 @@ def router(traces: Traces) -> APIRouter:
             return JSONResponse({"code": "unavailable", "detail": exc.detail}, status_code=exc.status)  # fmt: skip
         etag = f'"{t.tag}"'
         headers = {"Cache-Control": "no-store", "ETag": etag, "X-Trace-Tag": etag}
-        if _matches(request.headers.get("if-none-match"), etag):
+        if etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers=headers)
         headers |= {"Content-Encoding": "gzip", "X-Trace-Channels": str(t.channels), "X-Trace-Samples": str(t.samples)}  # fmt: skip
         return Response(t.body, media_type="application/octet-stream", headers=headers)  # fmt: skip

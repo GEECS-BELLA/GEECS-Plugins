@@ -26,8 +26,7 @@
 {% block kind_component %}
 {% set labels, units = {}, {} %}{% for r in device.roles %}{% set _ = labels.update({r.role: r.label or r.role}) %}{% endfor %}
 {% for _axis, rows in tables %}{% for r in rows %}{% set _ = units.update({r.name: r.units}) %}{% endfor %}{% endfor %}
-{% set ax = family.roles | selectattr("axis_of") | first %}
-{% set y = family.role(ax.axis_of) if ax else none %}
+{% set ax, y = trace if trace else (none, none) %}{# traces.trace_roles: the one reading of the axis rule #}
 <div class="camera trace" id="trace" data-trace-url="{{ root }}/api/devices/{{ name | urlencode }}/trace"
   {% if y %}data-counter="{{ y.fresh_by or '' }}" data-y-label="{{ labels.get(y.name, y.label) }}" data-y-units="{{ y.units or '' }}" data-x-label="{{ labels.get(ax.name, ax.label) }}" data-x-units="{{ ax.units or '' }}"{% endif %}>
   <aside class="rail">

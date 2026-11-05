@@ -24,9 +24,13 @@
     return { ok: true, channels, samples, axis, series, tag: h.tag ?? null };
   }
 
-  // This viewer's average: the last n captures of one shape (a new shape starts over).
+  // This viewer's average: the last n captures of one shape and one axis (a new shape or a moved axis, a
+  // new interval or pre-trigger, starts over). A capture already held (the same tag, asked again after an
+  // error or a hidden tab) is not counted twice; an untagged one always is.
+  const sameAxis = (a, b) => a.length === b.length && a[0] === b[0] && a[1] === b[1] && a[a.length - 1] === b[b.length - 1];
   function keep(held, trace, n) {
-    const same = held.filter((t) => t.channels === trace.channels && t.samples === trace.samples);
+    if (trace.tag !== null && held.length && held[held.length - 1].tag === trace.tag) return held;
+    const same = held.filter((t) => t.channels === trace.channels && t.samples === trace.samples && sameAxis(t.axis, trace.axis));
     return [...same, trace].slice(-Math.max(1, n));
   }
   // The mean of the held captures, sample by sample, over the finite values only (NaN where none is).
@@ -150,10 +154,13 @@
   }
   // A group (or a reading) is hidden only while its present role reads 0: unknown keeps it shown.
   const hidden = (frame) => !!frame && frame.value === 0;
-  // The rate chip: captures per second from the tags seen in the last `spanMs`.
+  // The rate chip: captures per second over the new tags seen in the last `spanMs`, first to last (never a count
+  // over the whole span, which a 1 Hz source reads as 1.0 or 1.2 by where the span falls).
   function rate(seen, now, spanMs = 5000) {
-    const recent = seen.filter((t) => now - t <= spanMs);
-    return { seen: recent, text: recent.length ? `${(recent.length / (spanMs / 1000)).toFixed(1)} new/s` : "no new captures" };
+    const recent = seen.filter((t) => now - t <= spanMs), n = recent.length;
+    const dt = n > 1 ? (recent[n - 1] - recent[0]) / 1000 : 0;
+    const text = n > 1 && dt > 0 ? `${((n - 1) / dt).toFixed(1)} new/s` : n ? `1 new in ${spanMs / 1000} s` : "no new captures";
+    return { seen: recent, text };
   }
 
   Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, yRange, ticks, logTicks, si, tickLabel, axisTitle, decimate, nearest, windowFromDrag, seriesName, presentRole, hidden, rate, fmt: C.fmt, control: C.control, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });

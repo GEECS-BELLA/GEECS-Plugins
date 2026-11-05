@@ -408,8 +408,9 @@ def test_a_rail_role_sits_in_one_group() -> None:
 def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
     scope = load_families()["scope_contract"]
     assert scope.role("time_axis").axis_of == "data"
-    # [channels, samples] by arr_channels, held on the driver's counter
-    assert (scope.role("data").channels_by, scope.role("data").fresh_by) == ("arr_channels", "count")  # fmt: skip
+    # [channels, samples] by arr_channels, held on the ARR plugin's own counter (it publishes after the driver's)
+    assert (scope.role("data").channels_by, scope.role("data").fresh_by) == ("arr_channels", "arr_counter")  # fmt: skip
+    assert scope.role("arr_counter").suffix == "ARR:ArrayCounter_RBV"
     assert [g.title for g in scope.panel.rail] == [
         "Acquisition", "Trigger", "Channel A", "Channel B", "Channel C", "Channel D",
     ]  # fmt: skip

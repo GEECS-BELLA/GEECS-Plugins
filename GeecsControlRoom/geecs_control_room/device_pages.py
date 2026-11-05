@@ -29,6 +29,7 @@ from pydantic import ValidationError
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.screens import KIT_STATE, registry
 from geecs_control_room.settings import Settings
+from geecs_control_room.traces import trace_roles
 
 
 @dataclass(frozen=True)
@@ -144,7 +145,7 @@ async def resolve(module: ModuleClient, kind: str, name: str) -> tuple[int, dict
         return 422, {"pane": ("denied", f"{name} is not a native device", f"Its family {body['family']!r} is no installed family file (a GEECS DB device type): a screen draws it.")}  # fmt: skip
     if (word := _WORD.get(family.kind)) != kind:
         return 422, {"pane": ("denied", f"Wrong kind: {family.template} is a {word}", ""), "other": word}  # fmt: skip
-    return 200, {"pane": None, "device": body, "family": family, "tables": tables(body, family)}  # fmt: skip
+    return 200, {"pane": None, "device": body, "family": family, "tables": tables(body, family), "trace": trace_roles(family)}  # fmt: skip
 
 
 def router(settings: Settings) -> APIRouter:

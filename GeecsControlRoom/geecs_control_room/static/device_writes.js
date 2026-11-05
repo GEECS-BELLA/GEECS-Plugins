@@ -3,17 +3,19 @@
 // never retried. The operator is the header's name (remembered in this browser);
 // a list naming a hazard role (the module's confirm: "hazard") is asked once,
 // behind the page's hazard dialog, before any of it is sent; one list at a time
-// for the page, and a list stops at its first refusal. The camera page's own copy
-// (camera.js) moves onto this one with the camera rail's tidy.
-// window.GeecsDeviceWrites.make(...) → { write(pairs, confirmed), busy() }.
+// for the page, and a list stops at its first refusal. The camera page and the
+// trace page both write through it.
+// window.GeecsDeviceWrites.make(page, changed, refused) → { write(pairs, confirmed), busy(), hazardsOf(pairs) }.
 (function () {
   "use strict";
   const C = window.GeecsCameraRules, S = window.GeecsScreenRules;
   const OP_KEY = "geecs-control-room-operator";
   const $ = (id) => document.getElementById(id);
 
-  // page: GeecsDevicePage; changed(): the controls redrawn (disabled while a list runs, enabled after)
-  function make(page, changed) {
+  // page: GeecsDevicePage; changed(): the controls redrawn (disabled while a list runs, enabled after);
+  // refused(): after a list stops at a refusal (the camera drops its held image edits)
+  // `confirmed`: the caller's own dialog, naming these writes and their hazards, was answered (the camera ROI's).
+  function make(page, changed, refused = () => {}) {
     const opInput = $("operator"), out = $("write-out"), dialog = $("hazard-dialog");
     try { opInput.value = localStorage.getItem(OP_KEY) || ""; } catch (_) { /* no storage */ }
     opInput.addEventListener("change", () => { try { localStorage.setItem(OP_KEY, opInput.value.trim()); } catch (_) { /* no storage */ } });
@@ -47,7 +49,7 @@
           } catch (_) { a = { outcome: "unknown", code: "no_answer", detail: "read the device and the journal before repeating it" }; }
           const word = a.outcome || "unknown";
           say(word, `${role} ← ${v} · ${word}${a.code ? " · " + a.code : ""}`, a.detail);
-          if (word !== "accepted") return false;
+          if (word !== "accepted") { refused(); return false; }
         }
         return true;
       } finally { setTimeout(changed); } // after single() has let go
@@ -57,7 +59,7 @@
       if (ok === null) say("unknown", "unsent · another write is in flight");
       return ok;
     };
-    return { write, busy: run.busy };
+    return { write, busy: run.busy, hazardsOf };
   }
   window.GeecsDeviceWrites = { make };
 })();

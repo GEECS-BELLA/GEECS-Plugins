@@ -13,11 +13,11 @@ from geecs_control_room.traces import AXIS_EVERY_S, TRACE_HOLD_S, Traces, router
 from tests.test_images import Env
 
 P = "bench:scope:"
-DATA, AXIS, COUNT, CHANNELS = P + "ARR:ArrayData", P + "TimeAxis_RBV", P + "ArrayCounter_RBV", P + "ARR:ArraySize0_RBV"  # fmt: skip
+DATA, AXIS, COUNT, CHANNELS = P + "ARR:ArrayData", P + "TimeAxis_RBV", P + "ARR:ArrayCounter_RBV", P + "ARR:ArraySize0_RBV"  # fmt: skip
 ROLES = [
     {"role": "data", "pv": DATA, "read": "on_request", "type": "array"},
     {"role": "time_axis", "pv": AXIS, "read": "on_request", "type": "array"},
-    {"role": "count", "pv": COUNT, "read": "monitor", "type": "counter"},
+    {"role": "arr_counter", "pv": COUNT, "read": "monitor", "type": "counter"},
     {"role": "arr_channels", "pv": CHANNELS, "read": "on_request", "type": "readback"},
 ]  # fmt: skip
 URL = "/api/devices/Cam/trace"
@@ -93,8 +93,22 @@ async def test_an_unmoved_counter_costs_one_scalar_read_and_a_304() -> None:
         env.ca.counters, env.clock[0] = [8.0], env.clock[0] + STEP
         new = await c.get(URL, headers={"If-None-Match": first.headers["etag"]})
     assert new.status_code == 200 and new.headers["etag"] == '"8"'
-    # a new capture of the same length: the axis is not read again
-    assert ("floats", (AXIS,)) not in reads(env)[1:]
+    # a new capture of the same length and timebase: the axis' first two values probed, the axis not read again
+    assert ("head", (AXIS,)) in reads(env) and ("floats", (AXIS,)) not in reads(env)
+
+
+async def test_a_new_timebase_of_the_same_length_reads_the_axis_again() -> None:
+    env = scope()
+    async with client(env) as c:
+        first = await c.get(URL)
+        env.ca.floats_by[AXIS] = (
+            np.arange(5, dtype=np.float32) * 2e-6
+        )  # the interval doubled, five samples still
+        env.ca.counters, env.clock[0] = [8.0], env.clock[0] + STEP
+        r = await c.get(URL)
+    assert ("floats", (AXIS,)) in reads(env)[5:]  # past the first trace's reads
+    axis = np.frombuffer(r.content, dtype="<f4")[:5]
+    assert np.allclose(axis, np.arange(5) * 2e-6) and r.content != first.content
 
 
 async def test_the_axis_is_read_again_when_its_length_changes_or_it_is_old() -> None:
@@ -135,8 +149,8 @@ async def test_one_read_serves_every_viewer_within_the_hold() -> None:
     "roles, family, words",
     [
         (ROLES, "ad_camera_chain", "names no trace"),
-        (ROLES[:2] + ROLES[3:], "scope_contract", "the module names no count role for Cam"),
-        (ROLES[:1], "scope_contract", "no time_axis, count, arr_channels roles"),
+        (ROLES[:2] + ROLES[3:], "scope_contract", "the module names no arr_counter role for Cam"),
+        (ROLES[:1], "scope_contract", "no time_axis, arr_counter, arr_channels roles"),
     ],
 )  # fmt: skip
 async def test_a_trace_the_family_or_the_module_does_not_name_is_a_404(roles, family, words) -> None:  # fmt: skip

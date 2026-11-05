@@ -326,11 +326,12 @@ on its IOC image.
 one family kind per word), `device_trace.html` (rail and readings from the
 family's `panel`, each rail role drawn by its type), `trace.js` /
 `trace_rules.js` (one series per channel, SI ticks, cursor, linear/log, the
-viewer's drag window and average), `device_writes.js` (the write path, the
-trace page's; the camera keeps its copy until its rail's tidy), and
+viewer's drag window and average), `device_writes.js` (the write path, now
+the camera's and the trace page's), and
 `GET /api/devices/{name}/trace` (`traces.py`: float32 axis then y, gzip,
-held on the y array's `fresh_by`; `GeecsControlRoom/CLAUDE.md` § "The
-trace"). The bench scope `picotest1` is registered in the configs repo's
+held on the y array's `fresh_by`, the scope's `ARR:ArrayCounter_RBV`
+(role `arr_counter`, added in review: the driver's `count` posts before
+`ARR` publishes); `GeecsControlRoom/CLAUDE.md` § "The trace"). The bench scope `picotest1` is registered in the configs repo's
 `panel_devices.yaml` with its bench prefix.
 
 **Proof.** On a loopback caproto soft IOC serving the scope contract
