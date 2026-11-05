@@ -161,8 +161,15 @@ def test_processing_imports_only_the_data_value_model():
                 names = [alias.name for alias in node.names]
             elif isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]
+            # The pool alone may touch the environment its workers inherit.
+            allowed = {"os"} if path == root / "engine" / "stream.py" else set()
             for name in names:
-                assert name not in {"pathlib", "os", "io", "matplotlib.pyplot"}, path
+                assert name in allowed or name not in {
+                    "pathlib",
+                    "os",
+                    "io",
+                    "matplotlib.pyplot",
+                }, path
                 if name.startswith("geecs_data_utils"):
                     # The value models only (frames, and the tables a
                     # measure binds); never a reader.
