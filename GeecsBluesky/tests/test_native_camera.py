@@ -483,6 +483,26 @@ def test_a_frame_before_the_kickoff_stays_in_the_stream(
     ]
 
 
+def test_a_frame_during_the_kickoff_does_not_fail_it(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Edges arriving while the kickoff reads the count: every read sees one more frame."""
+    cam, _ = _camera(RE, tmp_path, source=NativeTriggerSource.LINE1)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    sig, reads = cam.hdf.num_captured, []
+    stock_get = sig.get_value
+
+    async def advancing(*args, **kwargs):
+        reads.append(1)
+        set_mock_value(sig, len(reads))
+        return await stock_get(*args, **kwargs)
+
+    monkeypatch.setattr(sig, "get_value", advancing)
+    _run(RE, lambda: cam.kickoff())
+    assert reads  # the kickoff read a count that moved under it
+
+
 async def _collect(cam: NativeCamera) -> list:
     return [doc async for doc in cam.collect_asset_docs()]
 
@@ -491,8 +511,14 @@ def test_a_press_outside_trigger_presses_once(RE: RunEngine, tmp_path: Path) -> 
     cam, _ = _camera(RE, tmp_path)
     presses = _frames_on_software_trigger(cam)
     _run(RE, lambda: cam.stage())
-    with pytest.raises(GeecsConfigurationError, match="before the camera is armed"):
+    with pytest.raises(GeecsConfigurationError, match="needs an unbounded prepare"):
         _run(RE, lambda: cam.press())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    with pytest.raises(GeecsConfigurationError, match="presses inside trigger"):
+        _run(RE, lambda: cam.press())  # a frame outside any row
+    assert presses == []
+    _run(RE, lambda: cam.unstage())
+    _run(RE, lambda: cam.stage())
     _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
     assert presses == []  # arming presses nothing
     _run(RE, lambda: cam.press())

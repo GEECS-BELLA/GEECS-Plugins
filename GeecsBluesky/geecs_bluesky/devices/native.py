@@ -33,6 +33,7 @@ import logging
 import math
 import os
 import socket
+import sys
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -640,10 +641,6 @@ class NativeCamera(StandardDetector):
                 f"{self._geecs_device_name} is a native EPICS camera: strict scans "
                 "or an unbounded stream only for now (no gated batch)"
             )
-        if value.number_of_events == 0:
-            # The stream path presses through press(), never a pending trigger.
-            self._session.fire_pending = False
-            self._session.missed = False
         try:
             async with self._session.guard:  # whole, so an unstage waits for it
                 await super().prepare(value)
@@ -666,8 +663,9 @@ class NativeCamera(StandardDetector):
         """Press ``TriggerSoftware`` once, outside ``trigger()``: the fire of a stream run.
 
         Refused on a hardware-source camera (its shot is the timing system's
-        edge; a press would be a stray frame) and before the camera is
-        armed and acquiring (the press would be lost).
+        edge; a press would be a stray frame) and unless the camera is
+        prepared as a stream: unprepared the press is lost, and on a strict
+        camera it writes a frame outside any row and shifts every later one.
         """
         if self._source != NativeTriggerSource.SOFTWARE:
             raise GeecsConfigurationError(
@@ -675,10 +673,10 @@ class NativeCamera(StandardDetector):
                 f"{self._source.name.lower()} ({self._source.value!r}) — only a "
                 "Software-source native camera is pressed"
             )
-        if not self._session.acquiring:
+        if not self._streams():
             raise GeecsConfigurationError(
-                f"{self._geecs_device_name}: pressed before the camera is armed "
-                "(prepare first) — the press would be lost"
+                f"{self._geecs_device_name}: press() needs an unbounded prepare "
+                "(the stream path); a strict shot presses inside trigger()"
             )
         await self.driver.trigger_software.trigger()
 
@@ -714,10 +712,13 @@ class NativeCamera(StandardDetector):
     async def kickoff(self) -> None:
         """Start the stream; only after an unbounded prepare.
 
-        Re-baselined on the frames already written: one landing between the
-        prepare (which starts the camera) and the kickoff — an edge while
-        the box idles — would make the stock kickoff raise ("only prepared
-        up to …"), and the stream's datums cover it anyway (from frame 0).
+        A frame landing after the prepare (which starts the camera) — an
+        edge while the box idles, before or during the kickoff — would make
+        the stock kickoff raise ("only prepared up to …"); the stream's
+        datums cover it anyway (from frame 0).  So the prepare context's
+        baseline is set past any count the stock check can read: no second
+        read has to agree with a first.  Nothing else reads that baseline
+        on a stream (``trigger()`` is refused; the next prepare rebuilds it).
         """
         ctx = self._prepare_ctx
         if ctx is None or not self._streams():
@@ -725,9 +726,7 @@ class NativeCamera(StandardDetector):
                 f"{self._geecs_device_name} is a native EPICS camera: kickoff needs "
                 "an unbounded prepare (the stream path)"
             )
-        ctx.collections_written = (
-            await self.get_index() * ctx.trigger_info.collections_per_event
-        )
+        ctx.collections_written = sys.maxsize
         await super().kickoff()
 
     async def discard_uncollected(self) -> None:
