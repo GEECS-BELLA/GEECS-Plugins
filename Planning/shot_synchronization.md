@@ -555,7 +555,7 @@ purpose.
   (frame stamp minus count stamp 3 to 29 ms, against a ~21 ms poll cycle);
   with the witness IOC stopped, frames keep the **last** count at severity
   0, unflagged, and the IOC's restart zeroes the count. So the attribute
-  is an audit, not an ID: the ID is `ArrayCounter` plus a per-run offset
+  is an audit, not an ID, and so is `ArrayCounter`: the stamp assigns
   (§6.6, the join). Owed: a camera booted while the witness is
   unreachable. The scope's
   NDArrays (`geecs-epics:docs/scope-contract.md`) take the same attribute.
@@ -680,161 +680,229 @@ Kept short, because two facts found on the way still hold the model up.
 
 ### 6.6 The arc (W3): design
 
-Draft 2026-11-04 (coordinator), for adversarial review and the
-maintainer's rulings (the list at the end). No code until ruled. Cites
-are against `feat/shot-sync` at 0ee1eb24d; paths under `GeecsBluesky/`
-are relative to `geecs_bluesky/`.
+Draft 2026-11-04 (coordinator), revised after an adversarial review the
+same day (3 blockers, 12 should-fixes, all accepted; the record is on
+GEECS-Plugins #1278). For the maintainer's rulings (the list at the end).
+No code until ruled. Cites are against `feat/shot-sync`; paths under
+`GeecsBluesky/` are relative to `geecs_bluesky/`.
 
 #### What exists to build on
 
-More of the model is already in the code than the earlier sections say:
-
-- **Per-device streams exist.** `non_essential_wrapper`
-  (`plans/gated.py:504-695`) stages, prepares, kicks off and declares a
-  stream per device at `open_run`, and completes and collects each into
-  `<name>_stream` before `close_run`, each its own contingency. Plugin
-  cameras get stream datums there (`:596`, `:617`); a device without a
-  plugin gets one event per stamp advance through `StampStream`
-  (`devices/sampler.py:463`). Those are the frame streams and the
-  LabVIEW adapter of §5.4, built and tested
-  (`tests/test_non_essential_streams.py`).
+- **Per-device streams exist, for gateway devices.** `non_essential_wrapper`
+  (`plans/gated.py:504-695`) stages, prepares unbounded and kicks off a
+  stream per device at `open_run`, and completes, declares and collects
+  each into `<name>_stream` before `close_run`, each a contingency. Plugin
+  cameras give a datum-only stream, declared at close because their
+  geometry settles only at the first fresh frame (`:540-546`, `:592-604`);
+  a device without a plugin gives one event per stamp advance through
+  `StampStream` (`devices/sampler.py:463-560`), stamp and scalars only.
+  Natives are not on this path (below).
 - **The s-file already joins streams.** `SFileCallback`
   (`callbacks/sfile.py:58-93`) joins datum-only stacks and the
-  non-essential event streams onto the rows by offset-corrected stamp
-  through `shot_join`; it is written once, at stop.
+  non-essential event streams onto the rows by offset-corrected stamp,
+  once, at stop, after finalize. A crash leaves no s-file, as today.
 - **Partial rows already exist.** A strict miss saves the row with the
   missing device's columns NaN, then fires again
-  (`plans/strict.py:397-447`); so the s-file has always counted every
-  fire, and `Shotnumber` is the row index (`tiled_export.py:156`).
+  (`plans/strict.py:397-447`); the s-file has always counted every fire,
+  and `Shotnumber` is the row index (`tiled_export.py:156`).
 
-So the arc is mostly a generalization, the non-essential path made the
-only path, plus a new rule for when a row is complete.
+So the arc generalizes the gateway stream path to every per-shot device,
+builds the native stream path that does not exist yet, and adds a rule for
+when a row is complete.
 
 #### Documents
 
 - **Start document.** `layout: "shot-table/1"` (absent on every earlier
   run; readers branch on it, open question 4). `per_shot_streams`: every
-  device stream, by name. `required`: the device names whose acquisition
-  makes a shot complete. `shot_clock_column`: `witness_stamp`, or
-  `fire_stamp` when the run is unwitnessed; written for strict too, so a
-  join never guesses its clock (today strict falls back to the first
-  detector stamp it finds, `shot_join.py:252-311`, and once frames leave
-  `primary` that is a background device's stale stamp). The
-  `non_essential` key goes; readers that gate event streams on it
+  device stream, by name. `required`: the devices whose acquisition makes
+  a shot complete. `shot_clock_column`: `witness_stamp`, or `fire_stamp`
+  when unwitnessed; written for strict too. Two changes this needs in
+  `shot_join.shot_clock_column` (`shot_join.py:252-311`), both W3a: it
+  accepts only `-acq_timestamp` columns today and returns none for a row
+  without them; and `witness_stamp` is Unix seconds (CA,
+  `devices/witness.py:131`) where every device stamp is in the LabVIEW
+  epoch (`scan_stack.py:57`), 2,082,844,800 s apart. One conversion, in
+  one place, and every stamp column's epoch stated in `EVENT_SCHEMA.md`.
+  The `non_essential` key goes; the readers that gate event streams on it
   (`callbacks/_base.py:270-275`, `tiled_export.py:405-418`) read
   `per_shot_streams` instead, or every moved device is silently dropped.
-- **`primary`, the shot table.** One event per fire, refires included.
-  Columns:
-  - `shot_index` (1, 2, …; the s-file's `Shotnumber`, open question 13);
-  - `witness_epoch`, `witness_count`, `witness_stamp` (W2, unchanged);
-  - `fire_stamp`, the worker's time at the fire (the unwitnessed shot ID);
-  - `bin_number`, the motors, `announced_shot` (scan mode);
-  - the conditions: background telemetry, read per row as today;
-  - `attempt` (0 for the first fire of a shot slot, 1… for refires);
-  - flags: `complete` (bool), `missing` (the required devices that did
-    not report, comma-joined), `unwitnessed` (bool).
-  No device scalars, no frame datums.
-- **`<device>_stream`, one per per-shot device**, a camera, a scope, a
-  triggered LabVIEW scalar device alike. One event (and, for a camera,
-  one datum) per acquisition the device actually made, with its stamp and
-  whatever per-acquisition counters it publishes (`announced` for a
-  LabVIEW device; `NumCaptured` / `UniqueId` for a native; the W5
-  `witness_count` attribute once deployed). No placeholders: every frame
-  written has its datum, so the stock consolidator is right by
-  construction (§6.5).
+- **`primary`, the shot table.** One event per fire, refires included:
+  `shot_index`; `witness_epoch`, `witness_count`, `witness_stamp` (W2);
+  `fire_stamp`, the worker's time at the SINGLESHOT put; `announce_stamp`,
+  the worker's time at the scan-mode announce (§4.2, §4.6), absent outside
+  scan mode; `bin_number`, the motors, `announced_shot`; the conditions
+  (background telemetry, read per row as today); `attempt`; flags
+  `complete`, `missing` (the required devices that did not report),
+  `unwitnessed`, `witness_late`, `interrupted`. No device scalars, no
+  frame datums.
+- **`<device>_stream`, one per per-shot device.** One event or datum per
+  acquisition the device actually made, with its stamp and the
+  per-acquisition counters it publishes: `NumCaptured` / `UniqueId` and
+  the W5 `witness_count` attribute for a native (in the HDF5, per frame).
+  No placeholders, so the stock consolidator is right by construction
+  (§6.5). A LabVIEW device publishes no per-acquisition counter: the
+  gateway serves no wire shot number (GEECS-Core's `include_shot` is
+  client-side), so v1 has none, and the announced-number check of §4.6
+  runs on `announce_stamp` against the witness alone. Serving the wire
+  number is a GeecsCAGateway change, not in W3.
 
 #### The on-demand policy (strict)
 
-Per run: every per-shot device is staged, prepared unbounded and kicked
-off at `open_run`, the non-essential path's sequence; a native camera is
-armed on its line for the run (trigger mode on, continuous acquire),
-which the box's quiescent ARMED state makes safe (§6.5, open question 5).
+Per run: every per-shot device's stream is opened at `open_run` (the
+gateway path above; the native path below). The box's ARMED state is
+quiescent (`run_bracket` arms before `open_run`; §6.5), so nothing edges
+a line-triggered device between fires (open question 5).
 
 Per shot slot (the loop of `geecs_per_step`, `plans/strict.py:505-546`):
 
-1. `checkpoint`; throttle to `shot_period` (`:307-318`).
-2. Read each required device's **progress counter**: `NumCaptured` for a
+1. `checkpoint`; throttle to `shot_period` (`:307-318`). Read
+   `ShotControl.pause_count`.
+2. Read each required device's progress counter: `NumCaptured` for a
    plugin or native camera, the `acq_timestamp` monitor for a LabVIEW
-   device (`devices/detector.py:252-277`), and the witness count.
-3. Fire: announce if scan mode, then SINGLESHOT; record `fire_stamp`.
-4. Wait, bounded by the shot timeout (3 s today, `detector.py:81`), for
-   every required counter to advance; and, if a witness is read, apply
-   §6.1 step 2 (only a connected witness that saw no edge stops the
-   step).
-5. Write the row: `create`, read the shot-table readers, `save`, with
-   `complete` and `missing` from step 4.
-6. `collect` every device stream: everything new since the last collect,
-   late or stray records included. Collect per shot, not per step, so the
-   live join and the live views see each shot within a period.
-7. If the slot is incomplete and the step's refire budget allows, fire
-   again (a new row, `attempt` + 1); otherwise move on, flagged (open
-   question 2).
+   device (`devices/detector.py:252-277`, the persistent monitor, so a
+   value arriving between this read and the fire is not lost), and the
+   witness count. A native on a hardware line races its baseline read
+   against the fire (`NATIVE_DEVICES.md:144-152`); the read happens
+   before the fire message, in ARMED, so no edge can be in flight.
+3. Fire: announce if scan mode (`announce_stamp`), then SINGLESHOT
+   (`fire_stamp`); press any software-triggered native.
+4. Wait, bounded by the shot timeout (3 s, `detector.py:81`), for every
+   required counter to advance by at least one.
+5. **Interruption guard.** If `pause_count` changed since step 1, a pause
+   or a suspension cut into the slot: the wait's return is not evidence
+   (an interrupted message resumes with `None`, `bluesky
+   run_engine.py:1727-1748`, and a non-rewindable run replays nothing).
+   Re-read every counter after the resume; a counter that has advanced
+   counts; the row is flagged `interrupted`. The same guard the gated
+   loop and the detector's `abandoned` flag apply today
+   (`plans/gated.py:300-309`).
+6. Witness: only when **neither** the witness **nor** any per-shot device
+   advanced is the fire reported as not fired and the step stopped (§6.1
+   step 2, tightened); a witness that stayed put while devices advanced
+   is `witness_late` (a poll or USB stall), never a stop.
+7. Write the row: `create`, read the shot-table readers, `save`. Nothing
+   in `create` … `save` waits, so a pause cannot leave the bundle open
+   across a resume except by an immediate pause inside that short span,
+   where the bundle is dropped and rewritten after resume.
+8. `collect` every device stream, each collect a contingency (a
+   non-required device's failing collect is logged once and its stream
+   left to gap; it never ends the run). A plugin stream is declared
+   lazily at the first collect that has a frame.
+9. If the slot is incomplete and the step's refire budget allows, fire
+   again (a new row, `attempt` + 1); otherwise move on, flagged.
 
-Non-required devices are never waited on, never read in the row, and
-never refire anything. A device going quiet costs nothing but its gap.
+Non-required devices are never waited on and never refire anything.
 
 **Live completeness is an estimate; the join is the record.** Step 4 says
 "every required counter advanced", not "every required device has an
 acquisition assigned to this shot": a late frame from the previous shot
-would satisfy it. The row's `complete` is the plan's decision to stop
-refiring; the s-file's per-device validity comes from the join, and the
-audit flags any shot where the two disagree (*complete-mismatch*). The
-plan never reads the join.
+satisfies it. `complete` is the plan's decision to stop refiring; the
+s-file's per-device validity comes from the join, and the audit flags a
+shot where the two disagree (*complete-mismatch*).
 
 **Device down.** Today a missed device whose gateway `CONNECTED` reads
-down ends the run (`plans/strict.py:52`, `:234-241`). Under `required`: a
-required device confirmed down pauses the run with the reason (decision
-2); a non-required one is logged once and its stream left to gap.
+down ends the run (`plans/strict.py:52`, `:234-241`). Under `required`, a
+required device confirmed down pauses the run with the reason (ruling 2);
+a non-required one is logged once.
 
-**Pause.** The whole run is non-rewindable (`rewindable_wrapper(plan,
-False)`), so a pause takes effect at the next checkpoint, the shot
-boundary, and resume continues at the next slot: no replay, no rewind,
-nothing to reconcile. `discard_uncollected`, `_rewind_plugins` and the
-not-rewindable stand-in go (§10).
+**Pause.** The run is non-rewindable. A deferred pause lands at the next
+checkpoint, the slot boundary, and resumes at the next slot with no replay.
+An immediate pause or a suspension can land anywhere; step 5's guard is
+what makes that safe, not the non-rewindable flag. `discard_uncollected`,
+`_rewind_plugins` and the not-rewindable stand-in go (§10).
+
+**Box-less scan-mode profiles** (`devices/shot_control.py:264-271`): no
+box, so nothing makes the line quiet between announcements and the
+witness counts whatever train flows. These runs keep the native
+refusal, run unwitnessed with the announcement as the slot clock, and
+assign LabVIEW devices by announce interval as today.
 
 #### The batch policy (gated)
 
-Rows are the witness's ticks: a monitor on `Counts` emits one shot-table
-row per advance between the batch's `SCAN` and `OFF`
-(`plans/gated.py:269-289`), stamped by the count's own stamp, with the
-conditions read softly at that moment. The device streams are collected
-each progress slice (1 s, `:295-309`). The step needs N complete shots
-(by the same counter rule, evaluated at the batch's end per required
-device: a shot is complete when the device's counter advanced past it
-within the drain window); a short batch fires the remainder, as
-`done += kept` does today (`:394-413`).
+Rows are the witness's **counts**, not its monitor updates: per batch,
+read the count at SCAN and again after OFF and the drain
+(`plans/gated.py:269-289`, `:320-334`), and write one row per integer
+count in between. A +k update or a coalesced monitor still yields k rows;
+rows whose counts shared one stamp are flagged *witness-stamp-shared*.
+Rows are written per progress slice (1 s, `:295-309`) for the counts seen
+so far, and the rest after OFF, so the live view keeps up. Each row's
+conditions are read when the row is written, flagged with their age.
 
-Gated requires a witness (decision 4): without one there is nothing to
-clock rows by except a camera, which is the clock §10 deletes. A witness
-that drops mid-batch suspends the run (a Bluesky suspender on the
-witness's connection) and the batch resumes after it returns; it never
-ends a run. This deletes `shot_clock` (`plans/gated.py:86`), the
-sampler's tick and settle logic (`devices/sampler.py:132-440`) and the
-`shots` stream.
+The step needs N complete shots, judged after the batch per required
+device by the join's rule (an acquisition assigned to the shot); a short
+batch fires the remainder, as `done += kept` does today (`:394-413`).
+
+Gated requires a witness (ruling 4). **Witness staleness** is checked in
+the progress slice: a count frozen for more than two periods while the
+box is in SCAN takes the existing pause path (`pause_count`, OFF,
+`settle`); the rows of the gap are rebuilt from the count delta when the
+witness returns. No suspender: stock suspenders need ophyd signals
+(`bluesky suspenders.py:72`), CA disconnect detection takes about 30 s,
+and a USB stall never disconnects. This deletes `shot_clock`
+(`plans/gated.py:86`), the sampler's tick and settle logic
+(`devices/sampler.py:132-440`) and the `shots` stream, and with them the
+readers of `shots` (below).
+
+#### Natives: a stream path to build
+
+Natives are legal strict essentials today and are not on the stream path:
+`_StampDataLogic` implements only `prepare_single`, and ophyd-async 0.19.3
+refuses an unbounded prepare ("Multiple collections not supported",
+`_detector.py:490-495`); kickoff and fly modes are refused
+(`devices/native.py:631-674`); a software-source native is pressed only
+inside `trigger()` (`:663-666`). So:
+
+- The native stream is datum-only, like a plugin stream; its per-frame
+  stamps and counters exist in the HDF5 after finalize. The offline join
+  assigns natives; the live views show native frames by their live PVA
+  monitor, not by the join.
+- Completeness in the plan reads `NumCaptured` live, as today.
+- The plan presses software-source natives at the fire (step 3); on the
+  sim bench this is the only edge source a native has until the witness
+  sim takes the press over (§7, Simulator).
+- **Ordering:** W3c moves every per-shot device to a stream, so the native
+  stream path (W3e) lands with it or before it, or native strict runs
+  break.
+- What goes from `refuse_native_run` (`plans/registry.py:522-557`) and
+  its client-side twin (`qs_client/presets.py:243-249`): beside a gateway
+  plugin camera, gated, non-required, and box-gated scan mode. What stays:
+  box-less scan mode, the cabling check at prepare (the trigger-mode
+  readback, §5.5) and the run lock.
 
 #### The join
 
 One function, `geecs_data_utils.shot_join` grown, over a run in either
 layout; three callers:
 
-- **The s-file**, written once at stop as today, from the full join.
-  The live join never writes it, so live and offline cannot diverge by
-  construction (decision 1).
-- **A live join callback** for the live views only: it holds each row
-  open for the window (witness stamp + the largest stored offset +
-  margin, about 1.5 s per J0) and then assigns what has arrived.
-- **The shared reader helper** (below).
+- **The s-file**, written once at stop as today, from the full join. The
+  live join never writes it (ruling 1).
+- **A live join callback** for the live views only, windowed (witness
+  stamp + the largest stored offset + margin, about 1.5 s per J0). It may
+  differ from the s-file while records are late; the s-file wins.
+- **Optimize**, which reads `primary` in the plan today for detector
+  stamps and measurement keys (`plans/optimize.py:107-128`,
+  `optimization/measurements.py:71-120`): it gets an in-plan join over the
+  stream records it has collected at the end of each bin, through the
+  same function.
 
-Assignment and audit are §4.3: by offset-corrected stamp against
-`shot_clock_column`, with the per-frame counters as the audit. The W5
-attribute is **not** a shot ID on its own (bench, 2026-11-04, below): a
-native frame's shot is its `ArrayCounter` plus one offset per run,
-anchored on the frames whose attribute and stamp agree, and the attribute
-checks every frame against that (a frame whose attribute is one behind is
-the 1.7 % lag, not a miss; a run of frames whose attribute stops
-advancing is the witness gone, flagged *witness-stale*); one record per shot, gaps NaN, extras flagged; the
-audit compares counter deltas with shot deltas. LabVIEW devices in scan
-mode add the announce check of §4.6.
+**Assignment, the §4.3 rule unchanged: time assigns, counters audit.**
+Witnessed: each record to the nearest witness shot after its
+offset-corrected stamp, globally nearest-pair-first. Unwitnessed:
+`fire_stamp` leads the edge by up to a period (SINGLESHOT fires on the
+next external edge, `detector.py:77-81`), so a record is assigned to the
+**interval** (fire *k*, fire *k*+1], not the nearest fire.
+
+**The audit, never assignment.** For a native, between consecutive
+assigned frames the `ArrayCounter` delta must equal the shot delta, and
+the W5 attribute must equal the shot's count or lag it by one (the
+measured 1.7 %). A mismatch is flagged and **re-anchors the audit there**;
+nothing is filed by counter. An attribute that stops advancing while the
+witness count does is *witness-stale* at the camera (the bench showed
+frames carry the last count, unflagged, while the witness IOC is down).
+The ADAravis drop of a buffer with missing packets (`ADAravis.cpp:255-256`)
+is the case this protects: it is a gap in time, and counter assignment
+would shift every later frame. LabVIEW scan-mode devices add the announce
+check of §4.6 against `announce_stamp`.
 
 #### The shared reader helper
 
@@ -842,78 +910,79 @@ mode add the announce check of §4.6.
 node or document buffer), return the shot table with, per device, the
 assigned record index (or a gap) and the device's scalars; and
 `frame_for(run, device, shot)` returning the stack and frame index, or
-none. It serves both layouts: an old-layout strict run is row *k* =
-frame *k* by construction; an old gated run joins its `shots` rows as the
-s-file does today. Every reader of the census moves onto it:
+none. Both layouts: an old strict run is row *k* = frame *k* by
+construction; an old gated run joins its `shots` rows as the s-file does.
 
 | Reader | Today | Size |
 |---|---|---|
-| callback base, s-file, stack check (`callbacks/_base.py`, `sfile.py`, `stack_check.py`) | rows = `primary` or `shots`; event streams gated on `non_essential`; strict stamp check by datum position (`stack_check.py:128-134`) | ~60–100 |
+| callback base, s-file, stack check (`callbacks/_base.py`, `sfile.py`, `stack_check.py`) | rows = `primary` or `shots`; event streams gated on `non_essential`; strict stamp check by datum position (`stack_check.py:128-134`), count-only otherwise | ~60–100 |
 | offline export (`tiled_export.py:79-157`, `:321-480`) | the same gates offline | ~25–40 |
 | `TiledScanCatalog.load_run`, `scan_frame` (`tiled_catalog.py:445-509`, `scan_frame.py:74-215`) | `primary` only: a gated run has `data=None` | ~20–40 |
-| portal Images, traces, previews (`routes/common.py:137-180`, `images.py`, `config_editor.py:55-95`, `pages.py:166-180`) | `detail.data[...].iloc[shot-1]`, row = shot; on a gated run it falls back to the shot-th frame **silently** | ~60–100 |
-| optimize (`plans/optimize.py:107-128`, `optimization/measurements.py:71-120`) | buffers `primary` events for detector stamps and measurement keys; an in-plan reader | ~30–60 |
+| portal Images, traces, previews (`routes/common.py:137-180`, `images.py`, `config_editor.py:55-95`, `pages.py:166-180`) | `detail.data[...].iloc[shot-1]`; on a gated run it falls back to the shot-th frame **silently** | ~60–100 |
+| optimize | above | ~30–60 |
+| native files, the stack check's native-saver line (`GEECS-Data-Utils/geecs_data_utils/native_files.py`) | read gated `shots` rows, which W3d deletes | ~15–30 |
 
-The portal's silent fallback is a live bug on gated runs today, not only
-a cost of the arc: the helper slice fixes it before any layout changes.
-Readers that need nothing: ScanAnalysis and everything else on the s-file
-(it keeps `Shotnumber` and `<Device> acq_timestamp`), the progress
-stream (one `primary` event per fire, as now), the Parquet writer (one
-file per stream already). Test exposure: ~70 literal `"primary"` sites in
-GeecsBluesky's tests, ~25 elsewhere.
-
-#### Natives
-
-With frames in their own streams, the reasons in `refuse_native_run`
-(`plans/registry.py:522-557`) go: beside a gateway plugin camera, in
-gated runs, as non-required (no orphan frame can shift a stack nothing
-indexes by row), and in scan mode (a native acquires every edge, the box
-fires one edge per announcement, the join assigns). What stays: the
-cabling rule as a prepare-time check (the trigger-mode readback,
-§5.5) and the run lock. `NativeCamera.kickoff` and the fly-mode refusal
-(`devices/native.py:631-674`) are lifted into the stream path.
+The portal's silent fallback is a live bug on gated runs today: the
+helper slice fixes it before any layout changes. Readers that need
+nothing: ScanAnalysis and the rest of the s-file consumers (they key on
+`Shotnumber` and `<Device> acq_timestamp`, `shot_files.py:404-420`), the
+progress stream (one `primary` event per fire), the Parquet writer.
+Tests: about 55 literal `"primary"` sites in GeecsBluesky's tests, 14
+elsewhere.
 
 #### Configuration
 
-`required` replaces `essential` in presets and the registry: a preset
-device is per-shot (a stream) or a condition (read in the row), and a
-per-shot device is required or not. The client split
-(`qs_client/presets.py:227-262`) becomes "required" vs the rest; the
-plan kwarg `non_essential=` becomes `required=` with the inverted
-meaning, defaulting to every per-shot device, so an unannotated preset
-behaves as today's all-essential one. Old presets are regenerated, not
-aliased (the configs rule for legacy configs).
+`required` replaces `essential`: a preset device is per-shot (a stream)
+or a condition (read in the row), and a per-shot device is required or
+not. `required=` replaces the plan kwarg `non_essential=`, defaulting to
+every per-shot device, so an unannotated preset behaves as today's
+all-essential one. Consumers, all in W3c:
+
+- `GEECS-Schemas/geecs_schemas/preset.py:86` (the `essential` field);
+- `qs_client/presets.py:227-262` (the split), `qs_client/submit_preflight.py:334-371`;
+- `GeecsScanner`: `static/scanner.js:470-501` (the checkbox),
+  `service/demo.py`;
+- the docs: `running_a_scan.md`, `schema_reference.md`, `scanner.md`,
+  `scan_mode.md`;
+- queued items persisted with `non_essential=` fail at bind: the queue is
+  emptied or its items rewritten at the deploy, said in the deploy note.
+
+Old presets are regenerated, not aliased (the configs rule).
 
 #### Slices
 
 | Slice | Content | Changes runs? | Size (code / tests) |
 |---|---|---|---|
-| W3a | `shot_table` helper over both layouts; the join's shot-ID path and the *complete-mismatch* flag; synthetic tests per flag | no | ~250 / ~300 |
-| W3b | readers onto the helper (table above), on today's runs; fixes the portal's gated fallback | no (reads only) | ~250 / ~200 |
-| W3c | the shot-table layout and the on-demand policy: device streams for every per-shot device, `required`, refire budget, non-rewindable run, start-document keys; strict and optimize | **yes** | ~400 / ~400 |
-| W3d | the batch policy on witness rows; the suspender; deletes the shot clock, the sampler's clock and `shots` | **yes** | ~200 / ~250, net negative |
-| W3e | natives: arming for the run, lifted refusals, the camera fake's skip-a-frame control (geecs-epics) | **yes** | ~150 / ~150 |
+| W3a | `shot_table` helper over both layouts; `shot_clock_column` for non-device clocks and the one epoch conversion; interval assignment unwitnessed; the audit's re-anchor, *complete-mismatch*, *witness-stale*; synthetic tests per flag | no | ~300 / ~350 |
+| W3b | readers onto the helper (table above) | **the s-file path is rewired**: gated on byte-identical s-files over recorded strict and gated runs (J0's corpus) | ~250 / ~200 |
+| W3c + W3e, one slice | the shot-table layout and the on-demand policy (streams for every per-shot device, `required`, refire budget, the interruption guard, lazy declares, per-shot contingent collects, start-document keys); the native stream path (collection-capable data logic, the press at the fire, the lifted refusals, the camera fake's skip-a-frame control in geecs-epics); optimize's in-plan join; the configuration consumers | **yes** | ~800 / ~800 |
+| W3d | the batch policy on witness counts; the staleness check; deletes the shot clock, the sampler's clock, `shots` and its readers | **yes** | ~250 / ~300, net negative |
 | W3f | the deletions of §10's first list, `EVENT_SCHEMA.md`, the CLAUDE.md files | — | net negative |
 
-W3a and W3b land first and change nothing a run writes, so they can go to
-master on their own. W3c onward is the contract change, proven on the sim
-bench (the witness sim, the camera fake skipping a frame, a required and
-a non-required device each going quiet) and then a laser-off run on the
-bench, before the feature branch is promoted.
+W3a and W3b change no run's layout and can go to master on their own
+(W3b behind its byte-identical gate). W3c+e onward is the contract
+change, proven on the sim bench (the witness sim, the camera fake skipping
+a frame, a required and a non-required device each going quiet, a pause
+inside a slot) and then a laser-off run, before the feature branch is
+promoted.
 
 #### Rulings wanted (recommendation first)
 
 1. **The s-file from the full join at stop; the live join for display
    only.** Or a live-written s-file, which needs a proof that both agree.
 2. **A required device confirmed down pauses the run** with the reason,
-   for the operator to fix or end. Or ends the run, as today.
+   for the operator to fix or end. Or ends it, as today.
 3. **A step that exhausts its refires is flagged and the scan continues;
-   two such steps in a row pause the run.** (Refines open question 2:
-   one dead required device would otherwise burn every step's budget.)
-4. **Gated needs a witness**; a witness drop mid-batch suspends, never
-   ends. Strict keeps the unwitnessed fallback.
+   two such steps in a row pause the run.** (Refines open question 2: one
+   dead required device would otherwise burn every step's budget.)
+4. **Gated needs a witness**; a frozen witness pauses the batch through
+   the existing pause path and its rows are rebuilt from the count, never
+   ending the run. Strict keeps the unwitnessed fallback.
 5. **Readers accept both layouts** through the helper (open question 4).
-6. **Presets regenerated with `required`**, no `essential` alias.
+6. **Presets regenerated with `required`**, no `essential` alias; the
+   queue emptied at the deploy.
+7. **No LabVIEW wire shot number in v1**: the announce check runs on
+   `announce_stamp`; serving the number through the gateway is later.
 
 ## 7. Where the changes land, and slices
 
@@ -933,7 +1002,7 @@ the other facility needs it.
 | J0 | GEECS-Data-Utils | a live-join prototype replayed over existing gated runs: responsiveness per shot, and today's s-files reproduced from the streams; the seed of `shot_join.py`'s growth, or thrown away | ~200, prototype | — |
 | W1 | geecs-epics | **deferred** (maintainer, 2026-11-04): the permanent witness instance, renamed and on its final host, once the setup works for us: the counter records, the 10 ms poll at boot, the epoch PV from devIocStats. Until then the arc runs on the bench instance `daqtest1` on camserv2, both test platforms | ~80 config | the USB run (open question 8) |
 | W2 | GeecsBluesky, GEECS-Schemas | a *witness* registry kind, **record-only** (coordinator, 2026-11-04): read with each row, never waited on, never refusing or ending a run; rows gain `witness_count`, `witness_stamp` and `witness_epoch`. Fire confirmation is an audit: a count step other than +1, an epoch change, or a down witness is a warning and a flag, and the run continues (a witness down at the start runs with `read: false`). Additive only, and worth it for LabVIEW-only scans: fire confirmation after the fact, and an audit of today's joins. The first build waited on the witness and was reworked after its review (a pause could abort the run; a CA drop or USB stall ended it) | ~150 / ~150 | the sim bench with the witness sim, then a laser-off scan |
-| W3, the arc | GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils, GEECS-DataPortal, ScanAnalysis | the live join as a callback; every per-shot device a stream; `required` and the completeness budget; the two firing policies over one shape; the LabVIEW adapter (§5.4); the readers onto the join through the shared helper; the deletions of §10's first list. Design section §6.6, drafted 2026-11-04, under review; slices W3a to W3f | ~1,450 / ~1,500 (§6.6) | the sim bench; then laser-off runs |
+| W3, the arc | GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils, GEECS-DataPortal, ScanAnalysis | the live join as a callback; every per-shot device a stream; `required` and the completeness budget; the two firing policies over one shape; the LabVIEW adapter (§5.4); the readers onto the join through the shared helper; the deletions of §10's first list. Design section §6.6, drafted and reviewed 2026-11-04, for ruling; slices W3a to W3f | ~1,600 / ~1,650 (§6.6) | the sim bench; then laser-off runs |
 | W5 | geecs-epics | the witness count as an `EPICS_PV` NDAttribute in the camera family's shared attribute file, and the scope family's | one line per family / the fake | none: a config change, redeployed per IOC |
 | A5 | GeecsBluesky, GEECS-Schemas | the fire permit (§6.4): the permit readable and its registry kind, the wait inside the fire step, the *no-permit* and *stale* flags; a fake permit for the tests | ~60 / ~80 | none; a fake permit on the sim bench |
 | later | ioc-picoscope; geecs-epics and GeecsBluesky | the scope stamp at the trigger (§5.2); the *device-clock* tier (§4.4) when 5 Hz under exposure scans is wanted | ~15 / the fake; ~40 records and a sequence / ~120 | one capture; the latch is a command to the camera, no setting changed |
@@ -968,9 +1037,12 @@ witness outage, one test per flag, each proven to bite. The policies run
 on the sim bench against the trigger-box fake, the witness sim and the
 camera fake made to skip a frame: a required device's miss refires, a
 non-required one's leaves a gap, and the run continues through both. The
-adapter is tested against GEECS-Core's fake scan-mode device. Live and
-offline joins of the same run must be identical, and J0 must reproduce
-today's s-files from existing gated runs.
+adapter is tested against GEECS-Core's fake scan-mode device. The offline
+join is the record: the s-file it writes from a run's documents must be
+the same whether built at stop or later from Tiled, and W3b's readers
+must reproduce today's s-files byte for byte over recorded strict and
+gated runs (J0's corpus). The live join is display-only and may differ
+while records are late (§6.6).
 
 ## 8. Bench
 
