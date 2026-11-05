@@ -229,6 +229,7 @@
           <span class="dim note" id="presets-note"></span>
           <select id="preset" class="preset-load" aria-label="Load a preset"><option value="" disabled selected>Loading presets…</option></select>
           <button class="btn" type="button" data-drawer-open="drw-preset" id="btn-save-preset" disabled>Save as preset…</button>
+          <label class="dim note" title="Ask for the scan title (the description) before each Start; remembered in this browser"><input type="checkbox" id="confirm-title" checked> confirm title</label>
           <button class="btn primary" type="button" id="btn-start" disabled>Start</button>
         </div>
       </footer>
@@ -429,6 +430,14 @@
     <p id="dlg-set-best-text"></p>
     <p>This queues a move. Check its result in the queue; the recorded targets remain visible if the move fails.</p>
     <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-set-best">Queue move</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-title" aria-labelledby="dlg-title-h">
+  <div class="body">
+    <h4 id="dlg-title-h">Scan title</h4>
+    <div class="field"><label for="title-box">description</label><input id="title-box" placeholder="what this scan is for" autofocus></div>
+    <div class="row end"><button class="btn" type="button" data-dialog-close>Cancel</button><button class="btn primary" type="button" id="do-title">Confirm</button></div>
   </div>
 </dialog>
 
