@@ -698,14 +698,15 @@ def test_start_confirms_the_scan_title_behind_a_checkbox(client: TestClient) -> 
 
 
 def test_queue_sections_and_add_to_queue_beside_start(client: TestClient) -> None:
-    """#1281: Ongoing / Queue / History; Add to Queue appends and skips the title dialog."""
+    """#1281: Ongoing / Waiting / History, each a fold; Add to Queue appends and skips the title dialog."""
     html = client.get("/").text
     queue = html[html.index('id="queue"') :]
     queue = queue[: queue.index("</section>")]
     spots = [queue.index(f'id="{i}"') for i in ("q-run", "q-wait", "q-done")]
     assert spots == sorted(spots)
-    for word in ("Ongoing", "Queue", "History"):
-        assert f'<span class="eyebrow">{word}</span>' in queue, word
+    for word in ("Ongoing", "Waiting", "History"):
+        assert f">{word}</summary>" in queue, word
+    assert queue.count('<details class="fold" open>') == 3
     footer = html[html.index('id="submit"') : html.index('id="queue"')]
     assert footer.index('id="btn-append"') < footer.index('id="btn-start"')
     script = (_PKG / "static" / "scanner.js").read_text()

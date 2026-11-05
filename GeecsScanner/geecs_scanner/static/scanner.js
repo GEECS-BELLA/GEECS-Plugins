@@ -221,10 +221,14 @@
     var tr = document.createElement("tr");
     if (selected) tr.setAttribute("aria-selected", "true");
     tr.appendChild(td(chip(r.state, r.word)));
-    tr.appendChild(td((r.position ? "#" + r.position + " " : "") + r.summary, "id"));
-    tr.appendChild(td(r.user));
-    var detail = (r.scan_numbers && r.scan_numbers.length ? "Scan " + r.scan_numbers.map(function (n) { return String(n).padStart(3, "0"); }).join(", ") + (r.detail ? " · " : "") : "") + (r.detail || "");
-    tr.appendChild(td(detail, "dim"));
+    // The anchor column: the scan number (the running one's from progress,
+    // the manager's history has not got it yet), else the waiting position.
+    var nums = r.scan_numbers && r.scan_numbers.length ? r.scan_numbers
+      : selected && S.progress && S.progress.scan_number ? [S.progress.scan_number] : [];
+    tr.appendChild(td(nums.length ? "Scan " + nums.map(function (n) { return String(n).padStart(3, "0"); }).join(", ") : r.position ? "#" + r.position : "", "id"));
+    tr.appendChild(td(r.summary, "sum"));
+    tr.appendChild(td(r.user, "dim"));
+    tr.appendChild(td(r.detail || "", "dim"));
     return tr;
   }
 
@@ -234,12 +238,14 @@
     section("q-run", q.running ? [q.running] : [], "Nothing running.", false);
     section("q-wait", q.waiting, "Nothing waiting.", true);
     section("q-done", q.finished, "Nothing finished today.", false);
+    $("q-wait-h").textContent = "Waiting · " + q.waiting.length;
+    $("q-done-h").textContent = "History · " + q.finished.length;
     $("q-summary").textContent = q.summary;
     renderProgress();
     $("dlg-clear-n").textContent = q.waiting.length + " waiting item" + (q.waiting.length === 1 ? "" : "s");
     if (q.running) {
       $("now-plan").textContent = q.running.summary;
-      $("now-by").textContent = q.running.user ? "submitted as " + q.running.user : "";
+      $("now-by").textContent = q.running.user ? "submitted by " + q.running.user : "";
       $("dlg-stop-scan").textContent = S.progress && S.progress.scan_number ? "Scan " + String(S.progress.scan_number).padStart(3, "0") : "the running scan";
     } else {
       $("now-plan").textContent = q.finished.length ? "Idle. Last: " + q.finished[0].summary : "Idle.";

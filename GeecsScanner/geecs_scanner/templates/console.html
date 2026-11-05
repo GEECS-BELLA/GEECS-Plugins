@@ -46,7 +46,7 @@
     <div>
       <h4>Scanner</h4>
       <nav class="picklist">
-        <a href="#now" aria-current="page">Now</a>
+        <a href="#now" aria-current="page">Current</a>
         <a href="#submit">New scan</a>
         <a href="#queue">Queue</a>
         <a href="#devices">Devices</a>
@@ -71,7 +71,7 @@
     {# ============================ NOW ============================ #}
     <section id="now" class="panel" aria-labelledby="now-h">
       <header>
-        <span class="eyebrow" id="now-h">now</span>
+        <span class="eyebrow" id="now-h">current</span>
         <span class="chip lg" data-state="unknown" id="now-chip">connecting</span>
       </header>
       <div class="body">
@@ -243,15 +243,18 @@
         <span class="dim note" id="q-summary">—</span>
       </header>
       <div class="body">
-        <div class="group"><span class="eyebrow">Ongoing</span>
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-run-h">Ongoing</summary>
           <table><tbody id="q-run"><tr><td class="dim">Waiting for the manager.</td></tr></tbody></table>
-        </div>
-        <div class="group"><span class="eyebrow">Queue</span>
+        </details>
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-wait-h">Waiting</summary>
           <table><tbody id="q-wait"></tbody></table>
-        </div>
-        <div class="group"><span class="eyebrow">History</span>
+        </details>
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-done-h">History</summary>
           <div class="tscroll"><table><tbody id="q-done"></tbody></table></div>
-        </div>
+        </details>
       </div>
       <footer>
         <div class="row">

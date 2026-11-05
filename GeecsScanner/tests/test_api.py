@@ -111,6 +111,17 @@ def test_submit_invalid_document_is_400(client: TestClient) -> None:
     assert r.json()["error"]["errors"]
 
 
+def test_a_row_names_the_operator_else_the_identity(
+    client: TestClient, preset_doc: dict
+) -> None:
+    """The user column is who pressed Start; without one, the process identity."""
+    r = client.post(
+        "/api/submit", json={"preset": preset_doc, "acknowledged": ["gateway_liveness"]}
+    )
+    assert r.status_code == 200, r.text
+    assert client.get("/api/queue").json()["running"]["user"] == "geecs-scanner test"
+
+
 def test_submit_then_run_pause_resume_stop(
     client: TestClient, preset_doc: dict, manager: DemoQueueClient
 ) -> None:
@@ -128,9 +139,7 @@ def test_submit_then_run_pause_resume_stop(
     assert body["submitted_as"] == "geecs-scanner test"
 
     q = client.get("/api/queue").json()
-    assert (
-        q["running"]["plan"] == "sweep" and q["running"]["user"] == "geecs-scanner test"
-    )
+    assert q["running"]["plan"] == "sweep" and q["running"]["user"] == "sam"
     assert q["running"]["state"] == "running" and q["summary"].startswith("Running")
     assert client.get("/api/status").json()["re_state"] == "running"
 

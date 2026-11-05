@@ -951,12 +951,24 @@ def _row(
         word=word,
         plan=summary.plan,
         summary=summary.text,
-        user=str(item.get("user") or ""),
+        user=_operator(item),
         detail=summary.description,
         item_uid=item.get("item_uid"),
         position=position,
         planned_shots=summary.planned_shots,
     )
+
+
+def _operator(item: dict) -> str:
+    """Who pressed Start: ``md["geecs"]["operator"]`` when recorded, else the manager's user.
+
+    The manager's ``user`` is this process's identity, the same on every
+    row; the operator the page or GEECS-MCP sent is the name worth a column.
+    """
+    kwargs = item.get("kwargs") if isinstance(item.get("kwargs"), dict) else {}
+    md = kwargs.get("md") if isinstance(kwargs.get("md"), dict) else {}
+    geecs = md.get("geecs") if isinstance(md.get("geecs"), dict) else {}
+    return str(geecs.get("operator") or item.get("user") or "")
 
 
 def _history_row(item: dict) -> QueueRow:
