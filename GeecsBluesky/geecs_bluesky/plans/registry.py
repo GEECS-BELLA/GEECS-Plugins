@@ -18,6 +18,7 @@ from typing import Any
 import bluesky.plan_stubs as bps
 import bluesky.plans as bp
 import bluesky.preprocessors as bpp
+from bluesky.protocols import Triggerable
 from bluesky.utils import Msg
 from geecs_schemas.trigger_profile import TriggerState
 
@@ -219,7 +220,14 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
         )
 
 
-def run_witness(settables: Any, *, acquisition: str, shot_control: Any):
+#: The witness record's note when no reader waits for the shot (the row is read
+#: right after the fire's put, before the next edge reaches the counter).
+UNWAITED_NOTE = "no triggered device: the row may record the previous shot's count"
+
+
+def run_witness(
+    settables: Any, *, acquisition: str, shot_control: Any, readers: Sequence[Any] = ()
+):
     """Plan: the witness this run records, and its start-document record (``witness``).
 
     The namespace's ``main``-domain witness, read with every strict row and
@@ -227,7 +235,10 @@ def run_witness(settables: Any, *, acquisition: str, shot_control: Any):
     ``None`` with a ``reason`` when it has one but this run does not read
     it: none for ``main``, a gated run (not yet), a box-less profile
     (nothing fired for it to count) or a witness that does not answer
-    within 5 s (``down``: WARNING-logged, the run proceeds).
+    within 5 s (``down``: WARNING-logged, the run proceeds).  With no
+    triggered device among *readers*, nothing waits for the shot, so a row
+    can read the count before the edge: WARNING-logged and noted
+    (:data:`UNWAITED_NOTE`), still read.
     """
     finder = getattr(settables, "witnesses", None)
     witnesses = finder() if callable(finder) else {}
@@ -251,7 +262,11 @@ def run_witness(settables: Any, *, acquisition: str, shot_control: Any):
         reason = "down"
     if reason is not None:
         return None, {**record, "reason": reason}
-    return witness, {**record, "read": True}
+    record["read"] = True
+    if not any(isinstance(d, Triggerable) for d in readers):
+        logger.warning("%s: %s", witness._geecs_device_name, UNWAITED_NOTE)
+        record["note"] = UNWAITED_NOTE
+    return witness, record
 
 
 def refuse_listed_witness(devices: Sequence[Any]) -> None:
@@ -651,7 +666,10 @@ def strict_plan(  # noqa: C901, PLR0915
         snapshot = background_snapshot(settables, mock=mock) if background else None
         md["background_telemetry"] = snapshot is not None
         witness, md["witness"] = yield from run_witness(
-            settables, acquisition=acquisition, shot_control=shot_control
+            settables,
+            acquisition=acquisition,
+            shot_control=shot_control,
+            readers=detectors,
         )
         if shot_period is not None:
             md["shot_period"] = shot_period

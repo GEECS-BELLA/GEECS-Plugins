@@ -404,7 +404,10 @@ per preset; not Triggerable, so `geecs_take_reading` never triggers or
 waits on it — and `witness_wrapper` logs its summary before `close_run`.
 Listed as a device in a preset it is refused at bind (it is recorded
 already).  At the start it is probed (5 s): a down witness is a WARNING and
-`read: false, reason: down`, never a refusal.  Not read in a gated run (not
+`read: false, reason: down`, never a refusal.  A run with no triggered
+device has nothing that waits for the shot, so its rows can read the
+count before the edge lands: a WARNING at the start and a `note` in the
+record (still read, never waited on).  Not read in a gated run (not
 yet) or under a box-less profile (nothing fired for it to count); the
 start document's `witness` says which (`null` without one,
 `EVENT_SCHEMA.md`).

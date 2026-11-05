@@ -330,7 +330,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             background_telemetry=snapshot is not None,
         )
         witness, metadata["witness"] = yield from run_witness(
-            namespace, acquisition="strict", shot_control=sc
+            namespace, acquisition="strict", shot_control=sc, readers=detectors
         )
         if witness is not None:  # read with every row, never waited on;
             detectors.append(witness)  # the stage resets a pre-read's audit

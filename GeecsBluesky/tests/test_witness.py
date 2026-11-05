@@ -328,6 +328,31 @@ def test_gated_and_box_less_runs_do_not_read_the_witness(witness) -> None:
     assert found is None and "box-less" in record["reason"]
 
 
+@pytest.mark.parametrize("triggered", [False, True])
+def test_a_run_with_no_triggered_device_is_noted_and_warned(
+    RE, box, profiles, witness, caplog, triggered
+) -> None:
+    """Nothing waits for the shot without a triggered device: a row may read it early."""
+    from geecs_bluesky.devices.ca import CaSnapshotReadable
+    from geecs_bluesky.plans.registry import UNWAITED_NOTE
+
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    readers = [gauge, _camera(RE, box, "UC_Cam")] if triggered else [gauge]
+    with caplog.at_level(logging.WARNING):
+        col = _run(RE, _plans(profiles, witness)["count"], readers, 2)
+    record = col.docs["start"][0]["witness"]
+    assert record["read"] is True and box.fires == 2
+    if triggered:
+        assert "note" not in record
+        assert not _warnings(caplog, "no triggered device")
+    else:
+        assert record["note"] == UNWAITED_NOTE
+        assert len(_warnings(caplog, "no triggered device")) == 1
+
+
 # --------------------------------------------------------------- namespace
 def test_the_namespace_builds_the_witness_from_its_family(tmp_path, caplog) -> None:
     from geecs_schemas import NativeDevices
