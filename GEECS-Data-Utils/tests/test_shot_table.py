@@ -11,6 +11,7 @@ from geecs_data_utils.shot_join import (
     FrameColumns,
     join_frames_to_shots,
     row_windows,
+    clock_stamps,
     shot_clock_column,
     to_labview_epoch,
 )
@@ -178,7 +179,18 @@ def test_a_clock_step_inside_the_window_moves_nothing() -> None:
         START, rows, [_device("cam", stamps, cam.counter, cam.witness_count)]
     )
     assert table.record_for_shot["cam"] == tuple(range(8))
-    assert all(flags == () for flags in table.flags)
+
+
+@pytest.mark.xfail(reason="residual tracker, later slice", strict=True)
+def test_a_clock_step_is_flagged_where_it_appears() -> None:
+    """§4.3: equal counters with a jump in residual is *clock-step*."""
+    rows = _rows()
+    cam = _cam(rows)
+    stamps = cam.records.stamps + np.where(np.arange(8) >= 4, 0.3, 0.0)
+    table = shot_table(
+        START, rows, [_device("cam", stamps, cam.counter, cam.witness_count)]
+    )
+    assert _flagged(table, "clock-step:cam") == [5]
 
 
 def test_shots_sharing_a_witness_stamp_take_records_in_counter_order() -> None:
@@ -354,3 +366,132 @@ def test_old_gated_reproduces_the_s_file_join() -> None:
     pd.testing.assert_frame_equal(
         table.rows, join_frame_columns(start, rows, [frames.records])
     )
+
+
+# ------------------------------------------------------------ review round 1
+def test_clock_stamps_reads_frames_and_document_rows_in_one_epoch() -> None:
+    frame = pd.DataFrame({"witness_stamp": [1.0], "uc_a-acq_timestamp": [2.0]})
+    assert clock_stamps(frame, "witness_stamp")[0] == 1.0 + LV
+    assert (
+        clock_stamps([{"uc_a-acq_timestamp": 2.0}, {}], "uc_a-acq_timestamp")[0] == 2.0
+    )
+    assert np.isnan(clock_stamps([{}], "fire_stamp")[0])
+
+
+@pytest.mark.parametrize(
+    "lead, skew", [(0.0005, -0.002), (0.003, -0.005), (0.0005, 0.002)]
+)
+def test_an_interval_keeps_a_record_stamped_just_before_its_fire(lead, skew) -> None:
+    """A small lead and a few ms of skew either way: the record stays with its fire."""
+    rows = _rows(6, lead=lead).drop(columns=["witness_count", "witness_stamp"])
+    start = {**START, "shot_clock_column": "fire_stamp"}
+    stamps = T0 + LV + np.arange(6.0) + skew
+    table = shot_table(start, rows, [_device("cam", np.delete(stamps, 2))])
+    assert table.record_for_shot["cam"] == (0, 1, None, 2, 3, 4)
+    assert table.extras["cam"] == ()
+
+
+def test_a_free_running_device_is_sampled_at_the_fire_on_loose_rows() -> None:
+    rows = _rows()
+    rows.loc[3:5, ["witness_count", "witness_stamp"]] = np.nan
+    rows["unwitnessed"] = [k in (3, 4, 5) for k in range(8)]
+    gauge = _device(
+        "gauge",
+        T0 + LV + np.arange(8) - 0.2,
+        value=np.arange(8.0),
+        sync_class=ASYNCHRONOUS,
+    )
+    table = shot_table(START, rows, [gauge])
+    # fire = stamp - 0.3: the sample 0.2 s before the edge is not yet there
+    assert table.record_for_shot["gauge"] == (0, 1, 2, 2, 3, 4, 6, 7)
+    assert table.ages["gauge"][3] == pytest.approx(
+        0.93, abs=1e-6
+    )  # (fire + m) − the last sample
+
+
+def test_a_stale_required_free_running_record_does_not_complete_a_row() -> None:
+    rows = _rows(6)
+    start = {**START, "clock": "soft-tick", "required": ["gauge"]}
+    gauge = _device(
+        "gauge",
+        T0 + LV + np.array([-0.5, 0.5]),
+        value=[1.0, 2.0],
+        sync_class=ASYNCHRONOUS,
+    )
+    table = shot_table(start, rows, [gauge])
+    assert _flagged(table, "stale:gauge") == [4, 5, 6]
+    assert _flagged(table, "complete-mismatch") == [4, 5, 6]
+
+
+def test_required_matches_ignoring_case_and_flags_an_unknown_name_once() -> None:
+    rows = _rows()
+    start = {**START, "required": ["UC-Cam", "u_gone"]}
+    cam = _cam(rows)
+    named = DeviceRecords("uc_cam_stream", FrameColumns("uc_cam", cam.records.stamps))
+    table = shot_table(start, rows, [named])
+    assert table.device_flags == {"u_gone": ("required-unresolved",)}
+    assert all(flags == () for flags in table.flags)
+
+
+def _stalled(
+    drop: tuple[int, ...] = (), counter=None
+) -> tuple[pd.DataFrame, DeviceRecords]:
+    """Shots 4 and 5 coalesced into one +2 update stamped at shot 5's poll."""
+    truth = _rows()
+    rows = truth.copy()
+    rows.loc[3, "witness_stamp"] = rows["witness_stamp"][4]
+    cam = _cam(truth, drop=drop)
+    counter = cam.counter if counter is None else np.asarray(counter, dtype=float)
+    return rows, _device("cam", cam.records.stamps, counter, cam.witness_count)
+
+
+def test_a_stalled_group_is_filled_when_its_counters_account_for_every_row() -> None:
+    rows, cam = _stalled()
+    table = shot_table(START, rows, [cam])
+    assert table.record_for_shot["cam"] == tuple(range(8))
+    assert _flagged(table, "witness-stamp-shared") == [4, 5]
+    assert table.extras["cam"] == ()
+
+
+@pytest.mark.parametrize(
+    "drop, counter",
+    [((3,), None), ((), [1, 2, 3, 4, 6, 7, 8, 9])],
+    ids=["one-record-short", "counters-skip"],
+)
+def test_a_stalled_group_that_does_not_add_up_is_left_unresolved(drop, counter) -> None:
+    rows, cam = _stalled(drop, counter)
+    table = shot_table(START, rows, [cam])
+    assert table.record_for_shot["cam"][3:5] == (None, None)
+    assert _flagged(table, "witness-stamp-shared-unresolved:cam") == [4, 5]
+    assert _flagged(table, "missing:cam") == []
+    assert set(table.extras["cam"]) == ({3} if drop else {3, 4})
+
+
+def test_a_run_filed_one_shot_late_is_attribute_lag_systematic() -> None:
+    rows = _rows(30)
+    cam = _cam(rows)
+    late = _device("cam", cam.records.stamps + 1.0, cam.counter, cam.witness_count)
+    assert shot_table(START, rows, [late]).device_flags == {
+        "cam": ("attribute-lag-systematic",)
+    }
+    attr = cam.witness_count - np.isin(np.arange(30), [3, 17]).astype(float)
+    ontime = _device("cam", cam.records.stamps, cam.counter, attr)
+    assert shot_table(START, rows, [ontime]).device_flags == {}
+
+
+def test_old_layout_rows_match_the_s_file_join_exactly() -> None:
+    """Positional stacks add no columns; rows without a clock get nothing joined."""
+    rows = _old_rows(3).drop(columns=["uc_cam-meancounts"])
+    stack = DeviceRecords(
+        "primary",
+        FrameColumns("uc_cam", np.full(3, np.nan), {"uc_cam-frame_recv_x": np.ones(3)}),
+    )
+    table = shot_table({"detectors": ["uc_cam"]}, rows, [stack])
+    pd.testing.assert_frame_equal(table.rows, join_frame_columns({}, rows, []))
+    bare = pd.DataFrame({"bin_number": [1, 1, 1]}, index=[5, 6, 7])
+    side = _device("uc_haso", T0 + LV + np.arange(3.0), value=[1.0, 2.0, 3.0])
+    table = shot_table({}, bare, [side])
+    pd.testing.assert_frame_equal(
+        table.rows, join_frame_columns({}, bare, [side.records])
+    )
+    assert frame_for(table, "uc_haso", 1) is None

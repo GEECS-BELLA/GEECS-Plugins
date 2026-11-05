@@ -420,7 +420,9 @@ this package and must never depend on GeecsBluesky or a GUI package).
   and the witness attribute only audit. Plain inputs, no I/O; the
   Tiled and document-buffer adapters come with the readers (W3b).
   `shot_join.to_labview_epoch` is the one Unix → LabVIEW conversion of a
-  row clock.
+  row clock, and `shot_join.clock_stamps(rows, column)` the stamps every
+  `shot_clock_column` caller should time against (W3b moves
+  `join_frame_columns` and the stack check onto it).
 - **`tiled_export`** — the legacy scalar files of a Bluesky run, live
   (`write_scalar_files` from the documents, what the worker calls) or
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s

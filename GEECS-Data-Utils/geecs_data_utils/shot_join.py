@@ -345,6 +345,26 @@ def to_labview_epoch(column: str | None, values: Any) -> np.ndarray:
     return array
 
 
+def clock_stamps(rows: Any, column: str) -> np.ndarray:
+    """The rows' clock *column* as float seconds in the LabVIEW epoch.
+
+    What every caller of :func:`shot_clock_column` should time against:
+    the column's values through :func:`to_labview_epoch`, so a shot-table
+    run's Unix ``witness_stamp`` / ``fire_stamp`` meets device stamps in
+    one epoch.  *rows* is a DataFrame or a mapping of columns, or a
+    sequence of row mappings (a document buffer); a row without the column
+    reads ``NaN``.  W3b routes ``tiled_export.join_frame_columns`` (its
+    ``rows[clock].to_numpy``) and GeecsBluesky's ``callbacks/stack_check``
+    (``_shot_stamps``) through here; until then they read device clocks
+    only, which need no conversion.
+    """
+    if isinstance(rows, Mapping) or hasattr(rows, "columns"):
+        values: Any = rows[column]
+    else:
+        values = [row.get(column, np.nan) for row in rows]
+    return to_labview_epoch(column, values)
+
+
 def clock_device(column: str) -> str:
     """The object name behind a stamp *column* (``uc_a-acq_timestamp`` → ``uc_a``)."""
     if column.endswith(ACQ_TIMESTAMP_SUFFIX):
@@ -618,6 +638,7 @@ __all__ = [
     "FrameColumns",
     "ShotJoin",
     "clock_device",
+    "clock_stamps",
     "frame_columns_from_attributes",
     "frame_columns_from_events",
     "join_frames_to_shots",

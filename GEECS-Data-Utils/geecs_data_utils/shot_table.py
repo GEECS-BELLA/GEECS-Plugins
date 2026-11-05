@@ -19,10 +19,14 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   ============================  ==============================================
   witnessed, synchronous        nearest offset-corrected stamp, globally
                                 nearest pair first (the s-file's join)
-  unwitnessed / witness late    the interval (fire *k*, fire *k*+1]
-  stamp-shared (count +k)       the group's records in counter order
-  asynchronous (free-running)   last record at or before the row's clock,
-                                its age kept, *stale* past a limit
+  unwitnessed / witness late    the interval (fire *k* − m, fire *k*+1 − m],
+                                *m* the stamp budget
+  stamp-shared (count +k)       the group's records in counter order when
+                                there is one per row and the counters are
+                                consecutive, else unresolved (never guessed)
+  asynchronous (free-running)   last record at or before the row's clock
+                                (fire + *m* on a loose row), its age kept,
+                                *stale* past a limit
   ============================  ==============================================
 
   A soft-tick (fly-mode) run's ticks fill the witness columns; its pressed
@@ -31,9 +35,10 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
 Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
 ``witness-stale``, ``unwitnessed``, ``witness-stamp-shared``,
-``complete-mismatch``.  A stream with a W5 attribute that is NaN for the
-whole run gets the run-level ``no-attribute-audit``.  The audit never moves
-a record.
+``witness-stamp-shared-unresolved``, ``complete-mismatch``.  Run-level
+device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
+W5 attribute NaN all run), ``attribute-lag-systematic``,
+``required-unresolved``.  The audit never moves a record.
 """
 
 from __future__ import annotations
@@ -48,11 +53,12 @@ import pandas as pd
 from geecs_data_utils.shot_join import (
     DEFAULT_SHOT_PERIOD_S,
     FrameColumns,
+    _squash,
     clock_device,
+    clock_stamps,
     join_frames_to_shots,
     row_windows,
     shot_clock_column,
-    to_labview_epoch,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,6 +68,21 @@ LAYOUT_KEY, SHOT_TABLE_LAYOUT = "layout", "shot-table/1"
 #: The start-document ``clock`` of a fly-mode run.
 SOFT_TICK = "soft-tick"
 SYNCHRONOUS, ASYNCHRONOUS = "synchronous", "asynchronous"
+
+#: How far before its fire an unwitnessed record may be stamped, seconds:
+#: a LabVIEW host's clock runs up to 16 ms off the box (§4.5) and a stored
+#: drain offset dithers by up to ~10 ms across hosts (§4.4), so 30 ms.
+#: It opens each fire interval early, and a record stamped within it of
+#: the *next* fire goes to that fire: fine while the fire's lead on its
+#: edge stays under a period minus this.
+STAMP_BUDGET_S = 0.03
+
+#: A run whose audited records sit one shot behind the witness attribute
+#: this often is flagged ``attribute-lag-systematic``: the measured poll
+#: lag puts 1.7 % there (§6.2), a period-wrong offset nearly all of them.
+SYSTEMATIC_LAG_SHARE = 0.2
+#: ...over at least this many audited records.
+SYSTEMATIC_LAG_MIN_FRAMES = 10
 
 
 @dataclass(frozen=True)
@@ -125,7 +146,7 @@ class ShotTable:
     ages :
         Asynchronous device → per-row age of its record, seconds.
     device_flags :
-        Device → run-level flags (``no-attribute-audit``).
+        Device (or unresolved ``required`` name) → run-level flags.
     """
 
     rows: pd.DataFrame
@@ -157,13 +178,17 @@ def shot_table(
     *,
     row_stream: str = "primary",
     drain_offsets: Mapping[str, float] | None = None,
+    stamp_budget: float = STAMP_BUDGET_S,
 ) -> ShotTable:
     """Assign every device's records to the run's rows, and flag them.
 
     Parameters
     ----------
     start :
-        The run's start document.
+        The run's start document.  A shot-table run's ``required`` names
+        devices by object name, matched ignoring case and separators; a
+        name no :class:`DeviceRecords` resolves gets the device-level flag
+        ``required-unresolved`` once and is left out of completeness.
     rows :
         The row stream (``primary``; an old gated run's ``shots``).
     devices :
@@ -172,12 +197,21 @@ def shot_table(
         The stream *rows* came from (old layout: positional sources).
     drain_offsets :
         Object name → drain offset, seconds, for the clock and the devices.
+    stamp_budget :
+        How far before its fire an unwitnessed record may be stamped,
+        seconds (:data:`STAMP_BUDGET_S`).
+
+    Notes
+    -----
+    In the old layout the rows come back exactly as the s-file's
+    ``tiled_export.join_frame_columns`` returns them: positional sources
+    add no columns, and nothing is joined onto rows without a clock.
     """
-    rows = rows.reset_index(drop=True)
     new = start.get(LAYOUT_KEY) == SHOT_TABLE_LAYOUT
     offsets = dict(drain_offsets or {})
-    clock = _RowClock.of(start, rows, offsets, new)
+    clock = _RowClock.of(start, rows, offsets, new, float(stamp_budget))
     record_for: dict[str, tuple[int | None, ...]] = {}
+    fresh: dict[str, tuple[bool, ...]] = {}
     extras: dict[str, tuple[int, ...]] = {}
     ages: dict[str, np.ndarray] = {}
     device_flags: dict[str, tuple[str, ...]] = {}
@@ -187,30 +221,38 @@ def shot_table(
         records = np.asarray(source.records.stamps, dtype=float) - float(
             offsets.get(name, 0.0)
         )
-        if source.sync_class == ASYNCHRONOUS and (new or source.stream != row_stream):
-            assigned, ages[name] = _last_before(clock.stamps, records)
-            limit = source.stale_after or 2.0 * clock.period
-            for k in np.flatnonzero(ages[name] > limit):
+        positional = not new and source.stream == row_stream
+        if source.sync_class == ASYNCHRONOUS and not positional:
+            assigned, ages[name] = _last_before(clock.sample_at, records)
+            stale = ages[name] > (source.stale_after or 2.0 * clock.period)
+            for k in np.flatnonzero(stale):
                 clock.flags[k].append(f"stale:{name}")
-        else:
-            assigned = clock.assign(
-                source, records, positional=not new and source.stream == row_stream
+            fresh[name] = tuple(
+                a is not None and not s for a, s in zip(assigned, stale)
             )
+        else:
+            assigned = clock.assign(source, records, positional=positional)
             claimed = set(assigned)
             extras[name] = tuple(i for i in range(len(records)) if i not in claimed)
-            run_flag = clock.audit(
+            run_flags = clock.audit(
                 source, assigned, attribute=start.get("clock") != SOFT_TICK
             )
-            if run_flag:
-                device_flags[name] = (run_flag,)
+            if run_flags:
+                device_flags[name] = run_flags
+            fresh[name] = tuple(a is not None for a in assigned)
         record_for[name] = tuple(assigned)
-        for key, values in source.records.columns.items():
-            if key not in rows.columns and key not in joined:
-                joined[key] = _gathered(values, assigned)
-    if new and "complete" in rows:
-        _flag_complete_mismatch(start, rows, record_for, clock.flags)
+        if new or (not positional and clock.column is not None and len(rows)):
+            for key, values in source.records.columns.items():
+                if key not in rows.columns and key not in joined:
+                    joined[key] = _gathered(values, assigned)
+    if new:
+        required = _resolve_required(start, list(fresh), device_flags)
+        if "complete" in rows:
+            _flag_complete_mismatch(rows, required, fresh, clock.flags)
     return ShotTable(
-        rows=pd.concat([rows, pd.DataFrame(joined, index=rows.index)], axis=1),
+        rows=pd.concat([rows, pd.DataFrame(joined, index=rows.index)], axis=1)
+        if joined
+        else rows,
         clock=clock.column,
         record_for_shot=record_for,
         streams={source.device: source.stream for source in devices},
@@ -233,15 +275,16 @@ class _RowClock:
     counts: np.ndarray | None  # None: no audit (old layout, no witness column)
     epochs: np.ndarray | None
     period: float
+    budget: float
     flags: list[list[str]]
 
     @classmethod
-    def of(cls, start, rows, offsets, new: bool) -> "_RowClock":
+    def of(cls, start, rows, offsets, new: bool, budget: float) -> "_RowClock":
         n = len(rows)
         column = shot_clock_column(start, list(rows.columns))
         stamps = np.full(n, np.nan)
         if column:
-            stamps = to_labview_epoch(column, rows[column]) - float(
+            stamps = clock_stamps(rows, column) - float(
                 offsets.get(clock_device(column), 0.0)
             )
         loose, shared = np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
@@ -262,59 +305,93 @@ class _RowClock:
             stamps=stamps,
             loose=loose,
             shared=shared,
-            fires=to_labview_epoch("fire_stamp", rows["fire_stamp"])
-            if has
-            else np.full(n, np.nan),
+            fires=clock_stamps(rows, "fire_stamp") if has else np.full(n, np.nan),
             counts=_column(rows, "witness_count") if new else None,
             epochs=rows["witness_epoch"].to_numpy()
             if new and "witness_epoch" in rows
             else None,
             period=float(start.get("shot_period") or DEFAULT_SHOT_PERIOD_S),
+            budget=budget,
             flags=flags,
         )
+
+    @property
+    def sample_at(self) -> np.ndarray:
+        """Where a free-running device is sampled: the clock, or fire + budget on a loose row."""
+        late_fire = self.fires + self.budget
+        return np.where(self.loose & np.isfinite(late_fire), late_fire, self.stamps)
 
     def assign(
         self, source: DeviceRecords, records: np.ndarray, *, positional: bool
     ) -> list[int | None]:
-        """A synchronous device's record per row; flags its gaps *missing*."""
+        """A synchronous device's record per row; flags its gaps."""
         n = self.stamps.size
+        unresolved: set[int] = set()
         if positional:
             assigned: list[int | None] = [
                 k if k < records.size else None for k in range(n)
             ]
         else:
             join = join_frames_to_shots(
-                np.where(self.loose, np.nan, self.stamps),
+                np.where(self.loose | self.shared, np.nan, self.stamps),
                 records,
                 windows=row_windows(self.stamps, self.period),
             )
             assigned = list(join.frame_for_shot)
-            _assign_intervals(assigned, self.fires, self.loose, records, self.period)
-            _order_shared(assigned, self.stamps, self.shared, source.counter)
+            _assign_intervals(assigned, self.fires, self.loose, records, self)
+            unresolved = _assign_shared(assigned, records, source.counter, self)
         for k in range(n):
-            self.flags[k] += [f"missing:{source.device}"] * (assigned[k] is None)
+            if k in unresolved:
+                self.flags[k].append(f"witness-stamp-shared-unresolved:{source.device}")
+            elif assigned[k] is None:
+                self.flags[k].append(f"missing:{source.device}")
         return assigned
 
-    def audit(self, source: DeviceRecords, assigned, *, attribute: bool) -> str | None:
+    def audit(
+        self, source: DeviceRecords, assigned, *, attribute: bool
+    ) -> tuple[str, ...]:
         """The counter audit, then (not on a soft tick) the attribute audit."""
         if self.counts is None:
-            return None
+            return ()
         name = source.device
         _audit(name, source, assigned, self.counts, self.epochs, self.loose, self.flags)
         if not attribute:
-            return None
+            return ()
         return _attribute_audit(
             name, source, assigned, self.counts, self.loose, self.flags
         )
 
 
-def _flag_complete_mismatch(start, rows, record_for, flags: list[list[str]]) -> None:
-    """Flag rows whose ``complete`` disagrees with the join for the required devices."""
-    required = [str(d) for d in start.get("required") or ()]
+def _resolve_required(
+    start: Mapping[str, Any],
+    devices: Sequence[str],
+    device_flags: dict[str, tuple[str, ...]],
+) -> list[str]:
+    """``required`` as device names, matched ignoring case and separators."""
+    by_key = {_squash(device): device for device in devices}
+    resolved = []
+    for name in start.get("required") or ():
+        device = by_key.get(_squash(str(name)))
+        if device is None:
+            logger.warning("required device %r has no records; not counted", name)
+            device_flags[str(name)] = ("required-unresolved",)
+        else:
+            resolved.append(device)
+    return resolved
+
+
+def _flag_complete_mismatch(
+    rows: pd.DataFrame,
+    required: Sequence[str],
+    fresh: Mapping[str, tuple[bool, ...]],
+    flags: list[list[str]],
+) -> None:
+    """Flag rows whose ``complete`` disagrees with the join for the required devices.
+
+    A free-running device fills a row only with a record that is not stale.
+    """
     for k, complete in enumerate(rows["complete"].fillna(False).astype(bool)):
-        filled = all(
-            record_for.get(d, (None,) * len(rows))[k] is not None for d in required
-        )
+        filled = all(fresh[device][k] for device in required)
         flags[k] += ["complete-mismatch"] * (filled != complete)
 
 
@@ -363,22 +440,23 @@ def _assign_intervals(
     fires: np.ndarray,
     loose: np.ndarray,
     records: np.ndarray,
-    period: float,
+    clock: _RowClock,
 ) -> None:
-    """Give each unwitnessed row the first unclaimed record in (fire k, fire k+1].
+    """Give each unwitnessed row the first unclaimed record in (fire k − m, fire k+1 − m].
 
     SINGLESHOT fires on the next external edge, so a fire leads its edge by
-    up to a period and the nearest fire is the wrong rule.  The last row's
-    interval closes a period after its fire.
+    up to a period and the nearest fire is the wrong rule.  The interval
+    opens the stamp budget *m* before the fire, so a record stamped a few
+    ms early (host skew, offset error) behind a small lead stays with its
+    own fire.  The last row's interval closes a period after its fire.
     """
     claimed = {i for i in assigned if i is not None}
     for k in np.flatnonzero(loose):
-        low = fires[k]
+        low = fires[k] - clock.budget
+        following = fires[k + 1] if k + 1 < fires.size else np.nan
         high = (
-            fires[k + 1]
-            if k + 1 < fires.size and np.isfinite(fires[k + 1])
-            else low + period
-        )
+            following if np.isfinite(following) else fires[k] + clock.period
+        ) - clock.budget
         inside = np.flatnonzero((records > low) & (records <= high))
         free = [
             int(i)
@@ -390,26 +468,38 @@ def _assign_intervals(
             claimed.add(free[0])
 
 
-def _order_shared(
+def _assign_shared(
     assigned: list[int | None],
-    stamps: np.ndarray,
-    shared: np.ndarray,
+    records: np.ndarray,
     counter: np.ndarray | None,
-) -> None:
-    """Within each group of rows sharing one witness stamp, file records in counter order.
+    clock: _RowClock,
+) -> set[int]:
+    """File each group of rows sharing one witness stamp, or leave it unresolved.
 
-    Time cannot order shots that share a stamp; the device's counter (or
-    its stream order) can.  The rows the join filled stay filled.
+    A +k update stamps k edges at the poll after the last one, so the
+    group's records lie up to k − 1 periods before the stamp.  Time cannot
+    order them, and nothing is guessed (§4.3): the group is filled in
+    counter order only when it found exactly one record per row and their
+    counters are consecutive.  Otherwise its rows stay empty for this
+    device and are returned; the records are left unclaimed (extras).
     """
-    for stamp in np.unique(stamps[shared]):
-        group = [
-            k
-            for k in np.flatnonzero(shared & (stamps == stamp))
-            if assigned[k] is not None
-        ]
-        key = (lambda i: (counter[i], i)) if counter is not None else (lambda i: i)
-        for k, index in zip(group, sorted((assigned[k] for k in group), key=key)):
-            assigned[k] = index
+    claimed = {i for i in assigned if i is not None}
+    unresolved: set[int] = set()
+    half = clock.period / 2.0
+    for stamp in np.unique(clock.stamps[clock.shared]):
+        group = list(np.flatnonzero(clock.shared & (clock.stamps == stamp)))
+        low = stamp - (len(group) - 1) * clock.period - half
+        inside = np.flatnonzero((records > low) & (records <= stamp + half))
+        found = [int(i) for i in inside if int(i) not in claimed]
+        ordered = sorted(found, key=lambda i: counter[i]) if counter is not None else []
+        steps = np.diff([counter[i] for i in ordered]) if ordered else np.array([])
+        if len(ordered) == len(group) and np.all(steps == 1):
+            for k, index in zip(group, ordered):
+                assigned[k] = index
+                claimed.add(index)
+        else:
+            unresolved.update(int(k) for k in group)
+    return unresolved
 
 
 def _audit(
@@ -454,22 +544,28 @@ def _attribute_audit(
     counts: np.ndarray,
     loose: np.ndarray,
     flags: list[list[str]],
-) -> str | None:
+) -> tuple[str, ...]:
     """The W5 attribute against the row's count: equal, or one behind.
 
     An attribute that stopped advancing while the count did is
-    *witness-stale*; any other disagreement is *audit-mismatch*.  An
-    attribute NaN on every record returns ``no-attribute-audit``.
+    *witness-stale*; any other disagreement is *audit-mismatch*.  Returns
+    the run-level flags: ``no-attribute-audit`` (NaN on every record), or
+    ``attribute-lag-systematic`` when more than
+    :data:`SYSTEMATIC_LAG_SHARE` of at least
+    :data:`SYSTEMATIC_LAG_MIN_FRAMES` audited records are one behind — the
+    signature of every record filed one shot late (an offset wrong by a
+    period), which the per-record rule accepts.
     """
     if source.witness_count is None:
-        return None
+        return ()
     attribute = np.asarray(source.witness_count, dtype=float)
     if attribute.size and not np.isfinite(attribute).any():
         logger.warning(
             "%s: the witness attribute is NaN all run; no attribute audit", name
         )
-        return "no-attribute-audit"
+        return ("no-attribute-audit",)
     previous: tuple[float, float] | None = None
+    audited = lagged = 0
     for k, i in enumerate(assigned):
         if (
             i is None
@@ -477,6 +573,8 @@ def _attribute_audit(
             or not (np.isfinite(attribute[i]) and np.isfinite(counts[k]))
         ):
             continue
+        audited += 1
+        lagged += counts[k] - attribute[i] == 1.0
         if counts[k] - attribute[i] not in (0.0, 1.0):
             frozen = (
                 previous is not None
@@ -487,7 +585,15 @@ def _attribute_audit(
             if flag not in flags[k]:
                 flags[k].append(flag)
         previous = (attribute[i], counts[k])
-    return None
+    if audited >= SYSTEMATIC_LAG_MIN_FRAMES and lagged > SYSTEMATIC_LAG_SHARE * audited:
+        logger.warning(
+            "%s: %d of %d records one shot behind the witness; offset suspect",
+            name,
+            lagged,
+            audited,
+        )
+        return ("attribute-lag-systematic",)
+    return ()
 
 
 __all__ = [
@@ -495,7 +601,10 @@ __all__ = [
     "LAYOUT_KEY",
     "SHOT_TABLE_LAYOUT",
     "SOFT_TICK",
+    "STAMP_BUDGET_S",
     "SYNCHRONOUS",
+    "SYSTEMATIC_LAG_MIN_FRAMES",
+    "SYSTEMATIC_LAG_SHARE",
     "DeviceRecords",
     "ShotTable",
     "frame_for",
