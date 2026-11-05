@@ -416,8 +416,9 @@ only as an audit gap, milliseconds wide at 1 Hz. The scope contract's
 
 The 1808X instance beside the shot-control box, on the nearest Linux IOC
 host's USB (open question 8): stock measComp records, `PollSleepMS` pinned
-to 10 at boot, a bench IOC until the counter is proven on the tee (§8,
-item 0), then a lab IOC (§7, W1). Its registry entry is a new kind,
+to 10 at boot, a bench IOC (`daqtest1` on camserv2) for the whole arc. Both stay test
+kit: the permanent instance, its name and its host wait until the setup
+works for us (maintainer, 2026-11-04; §7, W1). Its registry entry is a new kind,
 *witness*, naming the trigger domain it counts. Decision 13 asks for a
 simulator: the witness sim of §7, whose count advances on the sim bench's
 trigger-box fire, so the on-demand policy (§6.1) runs end to end against
@@ -674,9 +675,12 @@ Kept short, because two facts found on the way still hold the model up.
 ## 7. Where the changes land, and slices
 
 Order (maintainer, 2026-11-04): W0 and J0 in parallel, then W1 and W2,
-then the arc. W5 goes early (coordinator, 2026-11-04, on the maintainer's
+then the arc. W1 waits (maintainer, 2026-11-04): `daqtest1` and camserv2
+are test platforms, and nothing is stamped production until the setup
+works for us; the permanent witness then gets its final name and place.
+W5 goes early (coordinator, 2026-11-04, on the maintainer's
 deferral): on the native VISA cameras, which are outside current data
-taking, after the counter input's voltage check and before W1, so the
+taking, after the counter input's voltage check, so the
 per-frame shot ID is measured before the arc relies on it. A5 whenever
 the other facility needs it.
 
@@ -684,7 +688,7 @@ the other facility needs it.
 |---|---|---|---|---|
 | W0 | geecs-epics (bench) | the witness bench (§8, item 0): the gated output tee'd into a counter input of the bench DAQ instance, `PollSleepMS` at 10 ms, one laser-off LabVIEW-only strict scan; counts against fires, doubled edges, the poll lag | the check script | the tee, the maintainer's hands; one write, the poll period, on the maintainer's go |
 | J0 | GEECS-Data-Utils | a live-join prototype replayed over existing gated runs: responsiveness per shot, and today's s-files reproduced from the streams; the seed of `shot_join.py`'s growth, or thrown away | ~200, prototype | — |
-| W1 | geecs-epics | the bench DAQ instance promoted to a witness instance (`/add-device` of the DAQ family): the counter records, the 10 ms poll at boot, the epoch PV from devIocStats | ~80 config | the USB run (open question 8) |
+| W1 | geecs-epics | **deferred** (maintainer, 2026-11-04): the permanent witness instance, renamed and on its final host, once the setup works for us: the counter records, the 10 ms poll at boot, the epoch PV from devIocStats. Until then the arc runs on the bench instance `daqtest1` on camserv2, both test platforms | ~80 config | the USB run (open question 8) |
 | W2 | GeecsBluesky, GEECS-Schemas | a *witness* registry kind, **record-only** (coordinator, 2026-11-04): read with each row, never waited on, never refusing or ending a run; rows gain `witness_count`, `witness_stamp` and `witness_epoch`. Fire confirmation is an audit: a count step other than +1, an epoch change, or a down witness is a warning and a flag, and the run continues (a witness down at the start runs with `read: false`). Additive only, and worth it for LabVIEW-only scans: fire confirmation after the fact, and an audit of today's joins. The first build waited on the witness and was reworked after its review (a pause could abort the run; a CA drop or USB stall ended it) | ~150 / ~150 | the sim bench with the witness sim, then a laser-off scan |
 | W3, the arc | GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils, GEECS-DataPortal, ScanAnalysis | the live join as a callback; every per-shot device a stream; `required` and the completeness budget; the two firing policies over one shape; the LabVIEW adapter (§5.4); the readers onto the join through the shared helper; the deletions of §10's first list. **Gets its own design section in this note and an adversarial review before any code** | sized by its design section | the sim bench; then laser-off runs |
 | W5 | geecs-epics | the witness count as an `EPICS_PV` NDAttribute in the camera family's shared attribute file, and the scope family's | one line per family / the fake | none: a config change, redeployed per IOC |
