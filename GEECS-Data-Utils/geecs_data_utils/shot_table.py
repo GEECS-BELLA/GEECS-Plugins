@@ -19,8 +19,9 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   ============================  ==============================================
   witnessed, synchronous        nearest offset-corrected stamp, globally
                                 nearest pair first (the s-file's join)
-  unwitnessed / witness late    the interval (fire *k* − m, fire *k*+1 − m],
-                                *m* the stamp budget
+  unwitnessed / witness late    the interval (fire *k* − m, fire *k*+1],
+                                *m* the stamp budget; the overlap by the
+                                run's phase, else *interval-ambiguous*
   stamp-shared (count +k)       the group's records in counter order when
                                 there is one per row and the counters are
                                 consecutive, else unresolved (never guessed)
@@ -35,7 +36,8 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
 Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
 ``witness-stale``, ``unwitnessed``, ``witness-stamp-shared``,
-``witness-stamp-shared-unresolved``, ``complete-mismatch``.  Run-level
+``witness-stamp-shared-unresolved``, ``interval-ambiguous``,
+``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 W5 attribute NaN all run), ``attribute-lag-systematic``,
 ``required-unresolved``.  The audit never moves a record.
@@ -72,9 +74,8 @@ SYNCHRONOUS, ASYNCHRONOUS = "synchronous", "asynchronous"
 #: How far before its fire an unwitnessed record may be stamped, seconds:
 #: a LabVIEW host's clock runs up to 16 ms off the box (§4.5) and a stored
 #: drain offset dithers by up to ~10 ms across hosts (§4.4), so 30 ms.
-#: It opens each fire interval early, and a record stamped within it of
-#: the *next* fire goes to that fire: fine while the fire's lead on its
-#: edge stays under a period minus this.
+#: It opens each fire interval early; a record within it of the *next*
+#: fire is in the overlap of two intervals (:func:`_assign_intervals`).
 STAMP_BUDGET_S = 0.03
 
 #: A run whose audited records sit one shot behind the witness attribute
@@ -327,6 +328,7 @@ class _RowClock:
         """A synchronous device's record per row; flags its gaps."""
         n = self.stamps.size
         unresolved: set[int] = set()
+        ambiguous: set[int] = set()
         if positional:
             assigned: list[int | None] = [
                 k if k < records.size else None for k in range(n)
@@ -338,11 +340,13 @@ class _RowClock:
                 windows=row_windows(self.stamps, self.period),
             )
             assigned = list(join.frame_for_shot)
-            _assign_intervals(assigned, self.fires, self.loose, records, self)
+            ambiguous = _assign_intervals(assigned, records, self)
             unresolved = _assign_shared(assigned, records, source.counter, self)
         for k in range(n):
             if k in unresolved:
                 self.flags[k].append(f"witness-stamp-shared-unresolved:{source.device}")
+            elif k in ambiguous:
+                self.flags[k].append(f"interval-ambiguous:{source.device}")
             elif assigned[k] is None:
                 self.flags[k].append(f"missing:{source.device}")
         return assigned
@@ -436,36 +440,59 @@ def _last_before(
 
 
 def _assign_intervals(
-    assigned: list[int | None],
-    fires: np.ndarray,
-    loose: np.ndarray,
-    records: np.ndarray,
-    clock: _RowClock,
-) -> None:
-    """Give each unwitnessed row the first unclaimed record in (fire k − m, fire k+1 − m].
+    assigned: list[int | None], records: np.ndarray, clock: _RowClock
+) -> set[int]:
+    """File unwitnessed rows by fire interval (fire k − m, fire k+1]; return the ambiguous rows.
 
-    SINGLESHOT fires on the next external edge, so a fire leads its edge by
-    up to a period and the nearest fire is the wrong rule.  The interval
-    opens the stamp budget *m* before the fire, so a record stamped a few
-    ms early (host skew, offset error) behind a small lead stays with its
-    own fire.  The last row's interval closes a period after its fire.
+    SINGLESHOT fires on the next external edge, so a fire leads its edge
+    by up to a period and the nearest fire is the wrong rule.  Rows go in
+    fire order, each taking its earliest free record; the low end opens
+    the stamp budget *m* early, for a record stamped a few ms before its
+    fire.  A record in the overlap (fire k+1 − m, fire k+1] is either row
+    *k*'s late record (a phase-locked loop: fire k+1 waits for the slowest
+    required device, so the edge sits a drain before it) or row *k*+1's
+    early one with row *k* missed.  It goes to row *k* only when row *k*
+    has nothing earlier and the run's records so far sit late (or none has
+    been filed yet); when they sit early, row *k* missed and the record
+    waits for row *k*+1.  With no evidence after a row already missed,
+    nothing is guessed: rows *k* and *k*+1 are left empty and returned
+    (*interval-ambiguous*), and their records stay extras.  The last row's
+    interval closes a period after its fire.  The robust rule is W3c's:
+    the plan records each row's pre-fire baseline per required device, and
+    a record is row *k*'s only if it is newer than baseline *k*.
     """
     claimed = {i for i in assigned if i is not None}
-    for k in np.flatnonzero(loose):
-        low = fires[k] - clock.budget
-        following = fires[k + 1] if k + 1 < fires.size else np.nan
-        high = (
-            following if np.isfinite(following) else fires[k] + clock.period
-        ) - clock.budget
+    fires, n = clock.fires, clock.fires.size
+
+    def end(k: int) -> float:
+        following = fires[k + 1] if k + 1 < n else np.nan
+        return following if np.isfinite(following) else fires[k] + clock.period
+
+    ambiguous: set[int] = set()
+    phase, missed = "", False  # where this run's records sit: "early" / "late"
+    for k in np.flatnonzero(clock.loose & np.isfinite(fires)):
+        if k in ambiguous:
+            continue
+        low, high = fires[k] - clock.budget, end(k)
         inside = np.flatnonzero((records > low) & (records <= high))
-        free = [
-            int(i)
-            for i in inside[np.argsort(records[inside], kind="stable")]
-            if i not in claimed
-        ]
-        if free:
+        free = sorted(
+            (int(i) for i in inside if int(i) not in claimed), key=lambda i: records[i]
+        )
+        late = bool(free) and records[free[0]] > high - clock.budget
+        if not free or (late and phase == "early"):
+            missed = True  # (early run, overlap record: row k+1's)
+        elif late and not phase and missed:
+            pair = [int(k)] + [int(k) + 1] * bool(k + 1 < n and clock.loose[k + 1])
+            ambiguous.update(pair)
+            claimed.update(
+                int(i)
+                for i in np.flatnonzero((records > low) & (records <= end(pair[-1])))
+            )
+        else:
             assigned[k] = free[0]
             claimed.add(free[0])
+            phase = "late" if late else "early"
+    return ambiguous
 
 
 def _assign_shared(

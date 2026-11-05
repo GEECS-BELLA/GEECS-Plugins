@@ -495,3 +495,43 @@ def test_old_layout_rows_match_the_s_file_join_exactly() -> None:
         table.rows, join_frame_columns({}, bare, [side.records])
     )
     assert frame_for(table, "uc_haso", 1) is None
+
+
+# ------------------------------------------------------------ review round 2
+FIRE_CLOCK = {**START, "shot_clock_column": "fire_stamp"}
+
+
+@pytest.mark.parametrize("drop", [(), (2,)], ids=["every-row", "a-miss"])
+def test_a_phase_locked_loop_keeps_each_record_on_its_own_fire(drop) -> None:
+    """Fire k+1 waits for the slowest device: the edge sits 25 ms (< m) before it."""
+    rows = _rows(6, lead=0.975).drop(columns=["witness_count", "witness_stamp"])
+    stamps = np.delete(T0 + LV + np.arange(6.0), drop)
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", stamps)])
+    expected = tuple(range(6)) if not drop else (0, 1, None, 2, 3, 4)
+    assert table.record_for_shot["cam"] == expected
+    assert table.extras["cam"] == ()
+
+
+def test_an_overlap_record_after_a_filled_row_goes_to_the_next_row() -> None:
+    rows = _rows(6, lead=0.0).drop(columns=["witness_count", "witness_stamp"])
+    stamps = T0 + LV + np.arange(6.0) + 0.002
+    stamps[3] -= 0.012  # 10 ms before its own fire, inside row 2's overlap
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", stamps)])
+    assert table.record_for_shot["cam"] == tuple(range(6))
+
+
+def test_an_overlap_record_after_a_missed_row_with_no_evidence_is_ambiguous() -> None:
+    """A witness outage that opens on a miss: whose is the record before fire 5?
+
+    Nothing in the outage tells a late record from the next row's early one,
+    so every overlap after the miss stays ambiguous (W3c's baselines decide).
+    """
+    rows = _rows(8, lead=0.975)
+    rows.loc[3:, ["witness_count", "witness_stamp"]] = np.nan
+    rows["unwitnessed"] = np.arange(8) >= 3
+    stamps = np.delete(T0 + LV + np.arange(8.0), 3)
+    table = shot_table(START, rows, [_device("cam", stamps)])
+    assert table.record_for_shot["cam"] == (0, 1, 2) + (None,) * 5
+    assert _flagged(table, "interval-ambiguous:cam") == [5, 6, 7, 8]
+    assert _flagged(table, "missing:cam") == [4]
+    assert table.extras["cam"] == (3, 4, 5, 6)
