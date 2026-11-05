@@ -383,7 +383,13 @@ A no-frame wait (`FailedStatus` caused by `GeecsTriggerTimeoutError`)
 re-fires the whole event up to `max_refires` times; a device whose
 `CONNECTED` PV reads Disconnected raises `GeecsDeviceDownError` instead.
 Any other failed status (a refused fire) re-raises untouched — a refire
-must never issue an extra physical shot.  Strict holds 1 Hz on a count
+must never issue an extra physical shot.  A complete shot on which a
+gateway plugin camera (a `GeecsDetector`; a `NativeCamera` arms its own
+trigger mode) holds more than one frame past its last datum fails the
+run before the row, naming the camera and its count
+(`refuse_free_running_cameras`): a camera not in trigger mode free-runs,
+and bluesky would otherwise refuse the row with an unnamed datum-width
+error; no refire, another shot cannot help.  Strict holds 1 Hz on a count
 and every other edge on a moving scan: the fire put (~200 ms) plus the
 move overruns the ~550 ms between stamp arrival and the next edge.  The
 plan layer recovers it, not `take_reading`; the gated batch is the
