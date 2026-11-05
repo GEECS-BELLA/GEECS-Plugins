@@ -137,6 +137,8 @@ class ImageCamera(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     device: Optional[str] = None
+    #: The camera picker's filter text, as the first camera's ``image_device_filter``.
+    device_filter: str = ""
     cmap: str = "white_blue_yellow"
     zscale: str = "shared"
     zmin: Optional[float] = None
@@ -598,7 +600,7 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
 #: A stacked camera's field: the first camera's form name, ``@`` and its
 #: place (2 for the second): ``cmap@2``, ``roi@3``.
 _CAMERA_FIELD = re.compile(
-    rf"(device|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|channel|roi)@([2-{MAX_CAMERAS}])"
+    rf"(device|devf|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|channel|roi)@([2-{MAX_CAMERAS}])"
 )
 
 

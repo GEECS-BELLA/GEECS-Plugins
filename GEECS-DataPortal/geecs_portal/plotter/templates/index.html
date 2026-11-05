@@ -40,7 +40,7 @@
               <div class="row cam-bar" data-cam="{{ k }}">
                 {% set shown = (c.kept ~ " (not in this scan)") if c.kept else c.device or "pick a camera" %}
                 <span class="cam-pick">
-                {% call picker("device" ~ c.sfx, "camera", shown, "devf" if k == 1 else "", devf if k == 1 else "", "filter devices", "pick") %}
+                {% call picker("device" ~ c.sfx, "camera", shown, "devf" ~ c.sfx, c.device_filter, "filter devices", "pick") %}
                   {% if c.kept %}<option value="{{ c.kept }}" selected>{{ c.kept }} (not in this scan)</option>{% endif %}
                   {% for d in devices %}<option value="{{ d }}"{% if d == c.device %} selected{% endif %}>{{ d }}</option>{% endfor %}
                 {% endcall %}

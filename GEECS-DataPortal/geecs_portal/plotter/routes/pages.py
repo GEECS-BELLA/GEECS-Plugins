@@ -671,6 +671,7 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
     """The first camera's look: the set's own ``image_*`` fields."""
     return ImageCamera(
         device=settings.image_device,
+        device_filter=settings.image_device_filter,
         cmap=settings.image_cmap,
         zscale=_choice(settings, "image_zscale"),
         zmin=settings.image_zmin,
