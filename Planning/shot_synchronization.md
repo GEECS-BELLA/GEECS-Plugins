@@ -1,6 +1,7 @@
 # Shot synchronization — one shot identity for every device
 
-Status: **design, ruled in direction, for review.** Nothing here is
+Status: **design, ruled** (direction 2026-11-04; the arc's design §6.6
+ruled the same day: gated frozen, fly mode added). Nothing here is
 built. The maintainer ruled on 2026-11-04 (through the hybrid-scan design
 session) that the model of §6 is the preferred direction: a shot table
 clocked by the witness, every per-shot device in its own stream, a join
@@ -822,13 +823,25 @@ An immediate pause or a suspension can land anywhere; step 5's guard is
 what makes that safe, not the non-rewindable flag. `discard_uncollected`,
 `_rewind_plugins` and the not-rewindable stand-in go (§10).
 
-**Box-less scan-mode profiles** (`devices/shot_control.py:264-271`): no
-box, so nothing makes the line quiet between announcements and the
-witness counts whatever train flows. These runs keep the native
-refusal, run unwitnessed with the announcement as the slot clock, and
-assign LabVIEW devices by announce interval as today.
+**Scan mode is a LabVIEW-only regime** (maintainer, 2026-11-04: "scan
+mode is its own beast entirely that really only makes sense for LabVIEW
+devices"). W3 keeps it as it is: the announce, the scan-mode profiles,
+box-gated or box-less (`devices/shot_control.py:264-271`), and the
+refusal of every native in a scan-mode run. Its rows take the shot-table
+layout like any strict run's, and the join adds §4.6's announce check;
+nothing about scan mode is generalized to natives, and a box-less
+profile runs unwitnessed with the announcement as the slot clock, as
+today.
 
-#### The batch policy (gated)
+#### The batch policy (gated): set aside
+
+**Ruled 2026-11-04 (maintainer): W3 does not rework gated.** "Let's not
+stress gated; it might die." Gated stays as it is today (the camera shot
+clock, the sampler, the `shots` stream), frozen, and may be retired once
+fly mode (below) and on-demand cover its uses. It takes the renamed
+`required=` argument (ruling 6) and nothing else changes. The rest of this
+subsection is the design if gated is ever reworked, not a slice.
+
 
 Rows are the witness's **counts**, not its monitor updates: per batch,
 take the baseline count while the box is still OFF, **before** the SCAN
@@ -869,6 +882,34 @@ and a USB stall never disconnects. This deletes `shot_clock`
 (`devices/sampler.py:132-440`) and the `shots` stream, and with them the
 readers of `shots` (below).
 
+#### Fly mode: a software tick, no timing in the loop
+
+Ruled 2026-11-04 (maintainer): "we do need a way to do simple fly scans
+with no timing in the loop", using the simulated-trigger idea. A third
+policy beside on-demand, small, after W3c+e (it needs the device streams
+and the native stream path):
+
+- **The clock is a soft-tick witness**: a timer in the worker that
+  implements the witness contract (§4.1: a count, a stamp per count, an
+  epoch, here the run's uid) at a set rate, default 1 Hz. No box, no
+  hardware counter. `shot_clock_column` is its stamp; every row says
+  `clock: soft-tick`, so no reader mistakes it for a counted shot.
+- **Rows are its ticks**: one shot-table row per tick, with the motors and
+  conditions as on-demand rows have them. A step holds for N ticks (or a
+  duration); a continuous motor move is the same with the motor read per
+  row.
+- **Devices**: a native on a *Software* trigger source is pressed at each
+  tick, so it acquires on the row's clock (the witness sim's press, run
+  for real); every other device free-runs into its stream. The join
+  assigns pressed devices by stamp to their tick, and samples free-running
+  ones by §4.3's last-before rule with the age recorded, *stale* past a
+  limit. Nothing claims a free-running device saw a shot.
+- **`required`** means a record of the device within the tick's window;
+  a step short of N complete rows holds for more ticks up to its budget,
+  then flags, as ruling 3. Nothing fires, so nothing refires.
+- **Refusals**: none for natives (no box, no cabling rule to break);
+  LabVIEW scan mode is refused (it needs announcements and a box).
+
 #### Natives: a stream path to build
 
 Natives are legal strict essentials today and are not on the stream path:
@@ -891,9 +932,9 @@ inside `trigger()` (`:663-666`). So:
   break.
 - What goes from `refuse_native_run` (`plans/registry.py:522-557`) and
   its client-side twin (`qs_client/presets.py:243-249`): beside a gateway
-  plugin camera, gated, non-required, and box-gated scan mode. What stays:
-  box-less scan mode, the cabling check at prepare (the trigger-mode
-  readback, §5.5) and the run lock.
+  plugin camera and non-required. What stays: scan mode, every profile
+  (LabVIEW-only, above); gated, while it is frozen; the cabling check at
+  prepare (the trigger-mode readback, §5.5) and the run lock.
 
 #### The join
 
@@ -991,7 +1032,8 @@ Old presets are regenerated, not aliased (the configs rule).
 | W3a | `shot_table` helper over both layouts; `shot_clock_column` for non-device clocks and the one epoch conversion; interval assignment unwitnessed; the audit's re-anchor, *complete-mismatch*, *witness-stale*; synthetic tests per flag | no | ~300 / ~350 |
 | W3b | readers onto the helper (table above) | **the s-file path is rewired**: gated on byte-identical s-files over recorded strict and gated runs (J0's corpus) | ~250 / ~200 |
 | W3c + W3e, one slice | the shot-table layout and the on-demand policy (streams for every per-shot device, `required`, refire budget, the interruption guard before the wait's verdict and before `save`, lazy declares, per-shot contingent collects, start-document keys); the native stream path (collection-capable data logic, the press at the fire, the lifted refusals, the camera fake's skip-a-frame control in geecs-epics); optimize's in-plan join and its camera stamps (a companion `StampStream` per plugin camera, the NTNDArray stamp per native); the configuration consumers | **yes** | ~900 / ~900 |
-| W3d | the batch policy on witness counts; the staleness check; deletes the shot clock, the sampler's clock, `shots` and its readers | **yes** | ~250 / ~300, net negative |
+| W3d | **set aside** (ruled 2026-11-04): gated frozen as today | — | — |
+| W3g | fly mode: the soft-tick witness, the press of software-source natives per tick, last-before sampling of free-running devices, `clock: soft-tick` rows; after W3c+e | **yes** (a new mode) | ~200 / ~250 |
 | W3f | the deletions of §10's first list, `EVENT_SCHEMA.md`, the CLAUDE.md files | — | net negative |
 
 W3a and W3b change no run's layout and can go to master on their own
@@ -1001,22 +1043,21 @@ a frame, a required and a non-required device each going quiet, a pause
 inside a slot) and then a laser-off run, before the feature branch is
 promoted.
 
-#### Rulings wanted (recommendation first)
+#### Ruled (maintainer, 2026-11-04)
 
-1. **The s-file from the full join at stop; the live join for display
-   only.** Or a live-written s-file, which needs a proof that both agree.
-2. **A required device confirmed down pauses the run** with the reason,
-   for the operator to fix or end. Or ends it, as today.
+1. **The s-file from the full join at stop**; the live join drives the
+   displays only.
+2. **A required device confirmed down pauses the run** with the reason.
 3. **A step that exhausts its refires is flagged and the scan continues;
-   two such steps in a row pause the run.** (Refines open question 2: one
-   dead required device would otherwise burn every step's budget.)
-4. **Gated needs a witness.** A frozen witness ends the batch (no
-   RunEngine pause, no truncation), the gap gets its rows (from the count
-   after a stall; unwitnessed and flagged after a restart), and the step
-   fires its remainder; two such batches in a row pause the run. It never
-   ends the run. Strict keeps the unwitnessed fallback, by fire
-   interval.
-5. **Readers accept both layouts** through the helper (open question 4).
+   two such steps in a row pause the run.** (Settles open question 2.)
+4. **Gated is not reworked**: frozen as today, perhaps retired later.
+   Simple fly scans with no timing in the loop get their own mode, the
+   soft-tick witness (above, W3g). Strict keeps the unwitnessed fallback,
+   by fire interval.
+5. **Readers accept both layouts** through the helper, for now, since
+   this is a contract change; once the new layout has proven itself, a
+   one-time conversion of old runs is acceptable (maintainer). Settles
+   open question 4.
 6. **Presets regenerated with `required`**, no `essential` alias; the
    queue emptied at the deploy.
 7. **No LabVIEW wire shot number in v1**: the announce check runs on
@@ -1040,7 +1081,7 @@ the other facility needs it.
 | J0 | GEECS-Data-Utils | a live-join prototype replayed over existing gated runs: responsiveness per shot, and today's s-files reproduced from the streams; the seed of `shot_join.py`'s growth, or thrown away | ~200, prototype | — |
 | W1 | geecs-epics | **deferred** (maintainer, 2026-11-04): the permanent witness instance, renamed and on its final host, once the setup works for us: the counter records, the 10 ms poll at boot, the epoch PV from devIocStats. Until then the arc runs on the bench instance `daqtest1` on camserv2, both test platforms | ~80 config | the USB run (open question 8) |
 | W2 | GeecsBluesky, GEECS-Schemas | a *witness* registry kind, **record-only** (coordinator, 2026-11-04): read with each row, never waited on, never refusing or ending a run; rows gain `witness_count`, `witness_stamp` and `witness_epoch`. Fire confirmation is an audit: a count step other than +1, an epoch change, or a down witness is a warning and a flag, and the run continues (a witness down at the start runs with `read: false`). Additive only, and worth it for LabVIEW-only scans: fire confirmation after the fact, and an audit of today's joins. The first build waited on the witness and was reworked after its review (a pause could abort the run; a CA drop or USB stall ended it) | ~150 / ~150 | the sim bench with the witness sim, then a laser-off scan |
-| W3, the arc | GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils, GEECS-DataPortal, ScanAnalysis | the live join as a callback; every per-shot device a stream; `required` and the completeness budget; the two firing policies over one shape; the LabVIEW adapter (§5.4); the readers onto the join through the shared helper; the deletions of §10's first list. Design section §6.6, drafted and reviewed 2026-11-04, for ruling; slices W3a to W3f | ~1,700 / ~1,750 (§6.6) | the sim bench; then laser-off runs |
+| W3, the arc | GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils, GEECS-DataPortal, ScanAnalysis | the live join as a callback; every per-shot device a stream; `required` and the completeness budget; the on-demand policy and fly mode over one shape (gated frozen); scan mode kept LabVIEW-only; the readers onto the join through the shared helper; the deletions of §10's first list. Design section §6.6, drafted, reviewed and ruled 2026-11-04; slices W3a, W3b, W3c+e, W3g, W3f | ~1,650 / ~1,700 (§6.6) | the sim bench; then laser-off runs |
 | W5 | geecs-epics | the witness count as an `EPICS_PV` NDAttribute in the camera family's shared attribute file, and the scope family's | one line per family / the fake | none: a config change, redeployed per IOC |
 | A5 | GeecsBluesky, GEECS-Schemas | the fire permit (§6.4): the permit readable and its registry kind, the wait inside the fire step, the *no-permit* and *stale* flags; a fake permit for the tests | ~60 / ~80 | none; a fake permit on the sim bench |
 | later | ioc-picoscope; geecs-epics and GeecsBluesky | the scope stamp at the trigger (§5.2); the *device-clock* tier (§4.4) when 5 Hz under exposure scans is wanted | ~15 / the fake; ~40 records and a sequence / ~120 | one capture; the latch is a command to the camera, no setting changed |
@@ -1188,13 +1229,15 @@ The arc (§7, W3) deletes, under the model:
   `:397-447`), replaced by the completeness budget of §6.1;
 - frame datums in `primary`, and the partial row's "no frames" rule
   (`EVENT_SCHEMA.md` "Partial rows");
-- gated's separate `shots` stream, the camera shot clock
-  (`plans/gated.py:86-123`) and the sampler's stamp-advance clock with its
-  settle and NaN logic (`devices/sampler.py`);
+- *not in the arc* (gated frozen, §6.6, ruled 2026-11-04): gated's
+  separate `shots` stream, the camera shot clock (`plans/gated.py:86-123`)
+  and the sampler's stamp-advance clock with its settle and NaN logic
+  (`devices/sampler.py`); they go when gated is retired;
 - the essential / non-essential split, replaced by `required`;
-- most of `refuse_native_run`'s reasons (`plans/registry.py:411-447`):
-  beside a gateway plugin camera, in gated runs, as a non-essential; the
-  scan-mode refusal is decided in the arc's design section.
+- most of `refuse_native_run`'s reasons (`plans/registry.py:522-557`):
+  beside a gateway plugin camera and as non-required. The scan-mode
+  refusal stays (scan mode is LabVIEW-only, §6.6); the gated refusal
+  stays while gated is frozen.
 
 When the last LabVIEW device has migrated:
 
