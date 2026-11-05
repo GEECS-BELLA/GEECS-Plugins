@@ -228,7 +228,9 @@
     tr.appendChild(td(nums.length ? "Scan " + nums.map(function (n) { return String(n).padStart(3, "0"); }).join(", ") : r.position ? "#" + r.position : "", "id"));
     tr.appendChild(td(r.summary, "sum"));
     tr.appendChild(td(r.user, "dim"));
-    tr.appendChild(td(r.detail || "", "dim"));
+    // The detail column says only what the summary does not already: the exit
+    // message of a finished item. The description is quoted in the summary.
+    tr.appendChild(td(r.detail && r.summary.indexOf(r.detail) === -1 ? r.detail : "", "dim"));
     return tr;
   }
 
