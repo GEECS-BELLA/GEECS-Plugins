@@ -119,8 +119,12 @@ Border, fill, radius and shadow each say *separate object*; spending all
 four on every block is why dense screens go flat.
 
 - `.panel` — a thing with an identity and its own state (a device, a scan, a
-  queue): border, header, shadow.
+  queue): border, header, shadow. Its header's eyebrow is the **title**,
+  one step up from the eyebrows inside (the UI face, heavier, ink), so the
+  card and a section in it never wear the same label.
 - `.group` — controls belonging to the panel around them. **No edges.**
+  `details.fold` is a group that closes: the eyebrow is its `<summary>`,
+  open in the markup, no script tracking the state.
 - `.well` — recessed fill, no border: output the reader did not write (a log
   tail, YAML, a repro snippet).
 
