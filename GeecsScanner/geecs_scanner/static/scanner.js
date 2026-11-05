@@ -231,12 +231,9 @@
   function renderQueue() {
     var q = S.queue;
     if (!q) return;
-    var body = $("qbody");
-    body.textContent = "";
-    if (q.running) body.appendChild(row(q.running, true));
-    q.waiting.forEach(function (r) { body.appendChild(row(r)); });
-    q.finished.forEach(function (r) { body.appendChild(row(r)); });
-    if (!body.children.length) body.appendChild(td("Nothing queued, nothing finished today.", "dim"));
+    section("q-run", q.running ? [q.running] : [], "Nothing running.", false);
+    section("q-wait", q.waiting, "Nothing waiting.", true);
+    section("q-done", q.finished, "Nothing finished today.", false);
     $("q-summary").textContent = q.summary;
     renderProgress();
     $("dlg-clear-n").textContent = q.waiting.length + " waiting item" + (q.waiting.length === 1 ? "" : "s");
@@ -264,6 +261,30 @@
       recent.appendChild(a);
     });
   }
+
+  // #1281: Ongoing / Queue / History; a waiting row carries its Remove button.
+  function section(id, rows, empty, removable) {
+    var body = $(id);
+    body.textContent = "";
+    rows.forEach(function (r) {
+      var tr = row(r, id === "q-run");
+      if (removable) {
+        var b = document.createElement("button");
+        b.className = "btn danger sm"; b.type = "button"; b.textContent = "Remove"; b.dataset.uid = r.item_uid || "";
+        tr.appendChild(td(b));
+      }
+      body.appendChild(tr);
+    });
+    if (!rows.length) { var tr = document.createElement("tr"); tr.appendChild(td(empty, "dim")); body.appendChild(tr); }
+  }
+  $("q-wait").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-uid]");
+    if (!b) return;
+    b.disabled = true;
+    api("/api/queue/" + encodeURIComponent(b.dataset.uid), { method: "DELETE" })
+      .catch(function (err) { showError("Not removed: " + err.message); })
+      .then(refreshQueue);
+  });
 
   function refreshQueue() {
     return api("/api/queue").then(function (q) { S.queue = q; renderQueue(); })
@@ -608,9 +629,11 @@
     var busy = !st || !st.connected || st.re_state === "paused";
     var btn = $("btn-start");
     btn.disabled = busy || !valid || !S.formable;
+    $("btn-append").disabled = btn.disabled;
     $("btn-save-preset").disabled = !valid || !S.formable;
     btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is paused — resume or stop it first" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
     $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
+    $("btn-append").title = btn.title || "Append to the end of the queue; no title dialog";
   }
 
   function buildPreset() {
@@ -750,11 +773,15 @@
     if ($("btn-start").disabled) { showError("Not started: " + ($("btn-start").title || "Start is unavailable")); return; }
     startScan();
   });
+  // #1281: the same preflight and acknowledgement as Start, never the title dialog.
+  $("btn-append").addEventListener("click", function () { startScan(true); });
 
-  function startScan() {
+  function startScan(append) {
     var preset = buildPreset();
     S.pendingPreset = preset;
+    S.pendingAppend = append;
     $("btn-start").disabled = true;
+    $("btn-append").disabled = true;
     post("/api/preflight", preset).then(function (out) {
       if (out.refusal) { showError("Refused: " + out.refusal); updateStartGate(); return; }
       if (out.questions.length) { openAck(out.questions); return; }
@@ -802,12 +829,13 @@
 
   function submit(preset, acknowledged, clearPending) {
     S.pendingAckDone = acknowledged;
-    post("/api/submit", { preset: preset, acknowledged: acknowledged, operator: operator(), clear_pending: clearPending })
+    post("/api/submit", { preset: preset, acknowledged: acknowledged, operator: operator(), clear_pending: clearPending, append: !!S.pendingAppend })
       .then(function (out) {
         $("verb-note").textContent = "Queued: " + out.summary + (out.planned_shots ? " (" + out.planned_shots + " shots)" : "");
         refreshQueue();
       })
       .catch(function (e) {
+        if (e.status === 409 && e.payload.pending_items && S.pendingAppend) { showError("Not added: " + e.message); return; }
         if (e.status === 409 && e.payload.pending_items) {
           var items = e.payload.pending_items;
           $("dlg-pending-text").textContent = "Waiting now: " + items.map(function (i) { return i.summary; }).join("; ") + ". Replace it with this scan?";

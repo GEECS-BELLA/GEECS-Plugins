@@ -58,9 +58,13 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   **gated** (the trigger box in SCAN, cameras count a batch). Press
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
   The current form can be saved back as a preset (**Save as preset…**).
-- **Queue** — the running item, what waits behind it, and recent history;
-  **Clear** empties what waits. The page refuses a second waiting item
-  unless you say so.
+- **Queue** — three sections: **Ongoing** (the running item), **Queue**
+  (what waits, in execution order, each with **Remove**) and **History**;
+  **Clear** empties what waits. **Add to Queue** beside Start appends the
+  scan to the end (the same preflight, no title dialog); Start replaces a
+  waiting item after you say so. While the queue is stopped with items
+  waiting (a failed scan returns to its front), Add to Queue refuses
+  until you remove or clear them.
 - **Devices · move** — every numeric settable variable of the experiment,
   straight from the GEECS database, behind a type-ahead: type any fragment
   of the device, the variable or its alias to narrow the list. Pick one and

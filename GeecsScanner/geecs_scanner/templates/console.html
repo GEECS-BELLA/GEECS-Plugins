@@ -230,6 +230,7 @@
           <select id="preset" class="preset-load" aria-label="Load a preset"><option value="" disabled selected>Loading presets…</option></select>
           <button class="btn" type="button" data-drawer-open="drw-preset" id="btn-save-preset" disabled>Save as preset…</button>
           <label class="dim note" title="Ask for the scan title (the description) before each Start; remembered in this browser"><input type="checkbox" id="confirm-title" checked> confirm title</label>
+          <button class="btn" type="button" id="btn-append" disabled title="Append to the end of the queue; no title dialog">Add to Queue</button>
           <button class="btn primary" type="button" id="btn-start" disabled>Start</button>
         </div>
       </footer>
@@ -241,15 +242,20 @@
         <span class="eyebrow" id="q-h">queue</span>
         <span class="dim note" id="q-summary">—</span>
       </header>
-      <div class="tscroll sticky">
-        <table>
-          <thead><tr><th>state</th><th>item</th><th>by</th><th>detail</th></tr></thead>
-          <tbody id="qbody"><tr><td class="dim" colspan="4">Waiting for the manager.</td></tr></tbody>
-        </table>
+      <div class="body">
+        <div class="group"><span class="eyebrow">Ongoing</span>
+          <table><tbody id="q-run"><tr><td class="dim">Waiting for the manager.</td></tr></tbody></table>
+        </div>
+        <div class="group"><span class="eyebrow">Queue</span>
+          <table><tbody id="q-wait"></tbody></table>
+        </div>
+        <div class="group"><span class="eyebrow">History</span>
+          <div class="tscroll"><table><tbody id="q-done"></tbody></table></div>
+        </div>
       </div>
       <footer>
         <div class="row">
-          <span class="dim note">The manager runs one item behind the running one; a new submission replaces the waiting item after you say so.</span>
+          <span class="dim note">Add to Queue appends behind a started queue; Start replaces a waiting item after you say so. In a stopped queue with items waiting, Add to Queue refuses until they are removed or cleared.</span>
           <span class="spacer"></span>
           <button class="btn danger sm" type="button" data-dialog-open="dlg-clear" id="btn-clear" disabled>Clear queue…</button>
         </div>

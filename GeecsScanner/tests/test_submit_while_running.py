@@ -99,3 +99,30 @@ def test_submit_while_a_plan_runs_is_queued_behind_it() -> None:
     assert [i["item_uid"] for i in api.items] == ["uid-1"]
     assert api.removed == []
     assert web.get("/api/status").json()["items_in_queue"] == 1
+
+
+class _StoppedManagerAPI(_BusyManagerAPI):
+    """A stopped queue: a failed item waits at its front, nothing runs."""
+
+    def status(self) -> dict:
+        return {**super().status(), "re_state": "idle", "manager_state": "idle"}
+
+    def queue_get(self) -> dict:
+        return {"items": list(self.items), "running_item": {}}
+
+
+def test_add_to_queue_in_a_stopped_queue_is_refused_not_appended() -> None:
+    """#1281: an append would restart the queue and re-run the failed item first."""
+    api = _StoppedManagerAPI()
+    api.items = [{"item_uid": "failed", "name": "count", "args": [[], 1]}]
+    service = _service_over(api)
+    web = TestClient(create_app(service))
+    body = {
+        "preset": service.preset("jet_pressure_sweep"),
+        "acknowledged": ["gateway_liveness"],
+        "append": True,
+    }
+    r = web.post("/api/submit", json=body)
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["pending_items"][0]["item_uid"] == "failed"
+    assert [i["item_uid"] for i in api.items] == ["failed"]

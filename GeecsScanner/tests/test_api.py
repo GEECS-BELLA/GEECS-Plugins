@@ -310,3 +310,30 @@ def test_a_gated_native_camera_is_refused_for_the_true_reason(
     assert r.json()["error"]["message"] == expected
     queue = client.get("/api/queue").json()
     assert queue["running"] is None and queue["waiting"] == []
+
+
+def test_append_queues_in_order_and_remove_drops_only_a_waiting_item(
+    client: TestClient, service
+) -> None:
+    """#1281: Add to Queue appends behind a started queue; Remove takes one waiting item."""
+    ack = ["gateway_liveness"]
+    first, second = service.preset("eb_align_1hz"), service.preset("background_dark")
+    for doc, append in ((first, False), (second, False), (first, True)):
+        body = {"preset": doc, "acknowledged": ack, "append": append}
+        assert client.post("/api/submit", json=body).status_code == 200
+    q = client.get("/api/queue").json()
+    assert [w["position"] for w in q["waiting"]] == [1, 2]
+    assert q["waiting"][0]["summary"].startswith("background")
+    assert not q["waiting"][1]["summary"].startswith("background")
+    # an unacknowledged question still refuses an append
+    r = client.post("/api/submit", json={"preset": first, "append": True})
+    assert r.status_code == 409 and "needs_acknowledgement" in r.json()["error"]
+    r = client.delete(f"/api/queue/{q['waiting'][0]['item_uid']}")
+    assert r.status_code == 200 and r.json()["ok"] is True
+    after = client.get("/api/queue").json()
+    assert [w["item_uid"] for w in after["waiting"]] == [q["waiting"][1]["item_uid"]]
+    r = client.delete(f"/api/queue/{q['running']['item_uid']}")
+    assert r.status_code == 409 and r.json()["error"]["kind"] == "policy_refusal"
+    assert client.get("/api/queue").json()["running"] == q["running"]
+    r = client.delete("/api/queue/no-such-uid")
+    assert r.status_code == 404 and r.json()["error"]["kind"] == "not_found"
