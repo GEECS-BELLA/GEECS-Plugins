@@ -5,6 +5,36 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.15.0] - 2026-11-04
+
+### Added
+
+- **Add to Queue** beside Start appends a scan behind the running one. The
+  queue panel is Ongoing / Waiting / History, each section a fold carrying
+  its count; every waiting row has a Remove; every row is anchored on its
+  scan number (or waiting position) and names the operator who pressed
+  Start (#1281, #1285).
+- Start confirms the scan title in a dialog, prefilled from the description
+  and toggled by a checkbox beside the button (#1280, #1283).
+- `DELETE /api/queue/{uid}` removes one waiting item; `POST /api/submit`
+  takes `append` (#1285).
+- A shared scan-log list, stamped into every scan's ScanInfo; its pickers
+  are the kit's drawer picker, and static files revalidate so a deploy is
+  never hidden behind a cached asset (#1125, #1128).
+- A second experiment runs as `geecs-scanner@<Instance>` on its own port
+  against its own manager (#1225, #1235).
+
+### Changed
+
+- The rail's "Now" is "Current" (#1285).
+- A native camera's refused run shape is named at preset expansion, in the
+  worker's words (#1122).
+
+### Deploy
+
+- Pull the queueserver checkout and restart `geecs-scanner`. A running scan
+  continues; the page reconnects to the event stream by itself.
+
 ## [0.14.7] - 2026-10-22
 
 ### Changed

@@ -4,6 +4,32 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.7.0] - 2026-11-04
+
+### Added
+
+- A panel's (and a drawer's) header eyebrow is its **title**: the UI face,
+  heavier, ink, one step above the eyebrows inside, so a card and a section
+  in it never wear the same label (#1285).
+- `details.fold`, a group that closes: native `<details>` with the eyebrow
+  as its summary and a caret, no box, no script (#1285).
+- `GeecsKit.picker`, the one drawer picker every "Add …" drawer uses
+  (search, click and shift-click, Select all shown / Clear, one Add);
+  `.picklist .sub` for a row's quiet note; `RevalidatingStaticFiles`, so
+  `/static` and `/theme` answers revalidate after a deploy (#1128).
+
+### Changed
+
+- Adopted by the device panels, the Control Room and the device pages
+  (#1131–#1137, #1143, #1196, #1249). The scanner's confirm-title dialog
+  settled that a rung-3 confirmation may hold the one input it confirms
+  (#1283).
+
+### Deploy
+
+- No process of its own: each surface serves it from its checkout, so the
+  surfaces' restarts carry it.
+
 ## [0.6.1] - 2026-09-13
 
 ### Changed
