@@ -126,7 +126,7 @@ url = http://<host>:17665
 
 ```bash
 geecs-archiver list --experiment Undulator              # what the rule wants (database only)
-geecs-archiver onboard --experiment Undulator --dry-run # the plan: archive / resume / retune / pause
+geecs-archiver onboard --experiment Undulator --dry-run # the plan: archive / resume / retune / pause / abort
 geecs-archiver onboard --experiment Undulator           # apply, then wait for the new PVs to connect
 ```
 
@@ -144,7 +144,10 @@ one run needs `--yes` (a half-empty device table must not pause the
 experiment silently). A PV someone archived by hand from the appliance's UI
 is paused on the next run unless it is listed in the policy's `include` —
 the rule plus the committed policy is the configuration of record, so put
-the exception there, not in the appliance.
+the exception there, not in the appliance. A request the rule stops wanting that
+never connected (a device retired before its IOC answered) has no data to
+keep, so it is **aborted** instead (`abortArchivingPV`), under the same
+guard; the next run requests it again if it returns to the set.
 
 **The drift alarm.** A requested PV the gateway does not serve never answers
 on CA, so the appliance cannot complete its archive request: it stays in the
@@ -212,7 +215,7 @@ change. Rerunning when nothing changed is a no-op.
 | Symptom | Meaning |
 |---|---|
 | `onboard` exits 1 with `! never connected` PVs | The rule derives a PV the gateway does not serve (the appliance's never-connected list). Compare with the gateway's log at startup; the served-set rule changed on one side |
-| `onboard` exits 2, "refusing to pause N PVs" | The derived set shrank by more than the guard — usually a database maintenance state. Check `geecs-archiver list`; rerun with `--yes` only if the shrink is real |
+| `onboard` exits 2, "refusing to pause or abort N PVs" | The derived set shrank by more than the guard — usually a database maintenance state. Check `geecs-archiver list`; rerun with `--yes` only if the shrink is real |
 | `onboard`/`list` exits 2, "the configs repository's … folder cannot be found" | The configs share is unmounted or the path is wrong — never read as "no native devices". Check `config.ini [Paths] scanner_config_root_path` (or `GEECS_PLUGINS_CONFIGS` / `GEECS_SCANNER_CONFIG_DIR`) and the mount |
 | `onboard` exits 3 | The appliance did not answer (`geecs-archiver status`; the unit's journal) |
 | Engine log: `Cannot determine DBR type for pv …localsavingpath` | A `path` (char-array) PV reached the appliance. The rule excludes them; something submitted it by hand — pause it |

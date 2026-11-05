@@ -53,6 +53,10 @@ class FakeAppliance:
             return httpx.Response(
                 200, json={"status": "ok", "pvName": request.url.params["pv"]}
             )
+        if path.endswith("/abortArchivingPV"):
+            return httpx.Response(
+                200, json={"status": "ok", "aborted": request.url.params["pv"]}
+            )
         if path.endswith("/changeArchivalParameters"):
             return httpx.Response(200, json=dict(request.url.params))
         if path.endswith("/boom"):
@@ -132,6 +136,10 @@ def test_pause_and_retune_pass_the_appliance_parameter_names(client):
         "samplingperiod": "10",
         "samplingmethod": "MONITOR",
     }
+
+
+def test_abort_passes_the_pv_to_abort_archiving_pv(client):
+    assert client.abort("undulator:a:b")["aborted"] == "undulator:a:b"
 
 
 def test_http_failures_become_mgmt_error(fake):
