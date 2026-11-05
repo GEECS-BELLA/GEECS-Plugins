@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import deque
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping
 
@@ -42,6 +42,7 @@ _COMPUTE_THREAD_VARS = (
     "MKL_NUM_THREADS",
     "NUMEXPR_NUM_THREADS",
     "VECLIB_MAXIMUM_THREADS",
+    "OPENCV_FOR_THREADS_NUM",
 )
 _ENVIRON_LOCK = threading.Lock()
 
@@ -441,12 +442,12 @@ def _run_pooled(
     pending: deque = deque()
     window = 2 * workers
     try:
-        for group in groups:
+        for index, group in enumerate(groups):
             group = _checked(group, average_before_analysis)
             local = {n: metadata[n] for n in group.shots if n in metadata}
-            # A spawn-context pool starts its workers inside submit, so the
-            # environment each one inherits is the one held here.
-            with _one_compute_thread():
+            # A spawn-context pool starts one worker inside each of its first
+            # ``workers`` submits; only those hold the workers' environment.
+            with _one_compute_thread() if index < workers else nullcontext():
                 pending.append(executor.submit(_worker_run, group, local))
             if len(pending) >= window:
                 yield pending.popleft().result()
