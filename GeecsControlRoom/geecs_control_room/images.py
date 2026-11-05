@@ -10,10 +10,10 @@ through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
   host; a client off it cannot resolve that). Held on role
   ``image_counter`` (MJPG1's ``ArrayCounter_RBV``) as the raw frame is on
   its counter: probed at most every ``FRAME_EVERY_S``, an unmoved counter
-  serves the held JPEG without a fetch; ``ETag`` the quoted counter, ``304``
-  on a matching ``If-None-Match``; one fetch in flight per device, shared.
-  An unreadable counter (or no such role) fetches as before, with no
-  ``ETag``. The ``X-Frame-Tag`` names the bytes, so a page never decodes the
+  serves the held JPEG without a fetch for up to ``JPEG_REUSE_S``; ``ETag``
+  the counter and the bytes' checksum, ``304`` on a matching
+  ``If-None-Match``; one fetch in flight per device, shared. An unreadable
+  counter (or no such role) fetches as before, with no ``ETag``. The ``X-Frame-Tag`` names the bytes, so a page never decodes the
   same frame twice (a frozen camera's frame is not "new").
 - ``GET /api/devices/{name}/arrays``: every ``read: on_request`` role of type
   ``array`` (lineouts, histogram) by role name, read at most every
@@ -58,6 +58,9 @@ from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 ROUTE_TTL_S = 10.0
 #: The floor between two fetches of one camera's frame, however many viewers poll (10 fps).
 FRAME_EVERY_S = 0.1
+#: The longest a JPEG is reused under an unchanged counter: should a counter ever be posted before its JPEG,
+#: the stale frame lasts this long, never until the next trigger.
+JPEG_REUSE_S = 1.0
 #: The plots' arrays are read at most this often per device.
 ARRAYS_EVERY_S = 0.5
 #: A raw frame is held and shared this long (at most 2 Hz per camera, however many viewers poll).
@@ -190,7 +193,7 @@ class Shared(Generic[T]):
 
 @dataclass(frozen=True)
 class Jpeg:
-    """One JPEG as served: its bytes, their checksum (``X-Frame-Tag``) and the ``image_counter`` it is held on.
+    """One JPEG as served: its bytes, their checksum (``X-Frame-Tag``) and the ``image_counter`` read before its fetch.
 
     ``counter`` is ``None`` when the counter could not be read (or the module
     names none): the JPEG is served without an ``ETag`` and never held.
@@ -241,7 +244,8 @@ class Images:
         self._routes: dict[str, Shared[dict[str, dict[str, Any]]]] = {}
         self._good: dict[str, dict[str, dict[str, Any]]] = {}
         self._frames: dict[tuple[str, str, Optional[str]], Shared[Jpeg]] = {}
-        self._jpegs: dict[tuple[str, str, Optional[str]], Jpeg] = {}
+        self._jpegs: dict[tuple[str, str, Optional[str]], tuple[Jpeg, float]] = {}
+        self._counters_down: dict[str, float] = {}
         self._urls: dict[str, str] = {}
         self._arrays: dict[tuple[str, tuple[str, ...]], Shared[dict[str, Any]]] = {}
         self._raws: dict[tuple[str, tuple[str, ...]], Shared[RawFrame]] = {}
@@ -301,33 +305,35 @@ class Images:
         return await source.get()
 
     async def _image_counter(self, pv: Optional[str]) -> Optional[str]:
-        """MJPG1's counter, or ``None`` (no role, any CA failure, a NaN): the JPEG is then fetched untagged."""
-        if pv is None:
+        """MJPG1's counter, or ``None`` (no role, any CA failure, a NaN): the JPEG is then fetched untagged.
+
+        An unreadable counter is not asked again for ``ROUTE_TTL_S``: a silent
+        one would otherwise hold every frame for the CA timeout.
+        """
+        if pv is None or self._clock() - self._counters_down.get(pv, -math.inf) < ROUTE_TTL_S:  # fmt: skip
             return None
         # any CA failure is an unread counter, never a failed image
         (read,) = await asyncio.gather(self._ca.scalar(pv), return_exceptions=True)
-        return str(int(read)) if isinstance(read, (int, float)) and math.isfinite(read) else None  # fmt: skip
+        if isinstance(read, (int, float)) and math.isfinite(read):
+            self._counters_down.pop(pv, None)
+            return str(int(read))
+        self._counters_down[pv] = self._clock()
+        return None
 
     async def _read_frame(self, key: tuple[str, str, Optional[str]]) -> Jpeg:
-        _, pv, counter_pv = key
-        counter = await self._image_counter(counter_pv)
+        asked = self._clock()
+        counter = await self._image_counter(key[2])
         held = self._jpegs.get(key)
-        if counter is not None and held is not None and held.counter == counter:
-            return held  # the plugin has not moved: one scalar read, no fetch
-        body = await self._fetch_jpeg(pv)
-        if counter is not None:
-            after = await self._image_counter(counter_pv)
-            if after is None:
-                counter = None  # unreadable now: served, but untagged and not held
-            elif after != counter:
-                # a frame landed mid-fetch: fetch once more, tagged by the second counter
-                counter = after
-                body = await self._fetch_jpeg(pv)
+        if counter is not None and held is not None and held[0].counter == counter and asked - held[1] < JPEG_REUSE_S:  # fmt: skip
+            return held[0]  # the plugin has not moved: one scalar read, no fetch
+        # tagged with the counter read BEFORE the fetch: the JPEG is at least that new (the plugin
+        # stores its JPEG, then posts the counter), so a later counter change always fetches again
+        body = await self._fetch_jpeg(key[1])
         jpeg = Jpeg(body, f"{zlib.crc32(body):08x}", counter)
         if counter is None:
             self._jpegs.pop(key, None)
         else:
-            self._jpegs[key] = jpeg
+            self._jpegs[key] = (jpeg, asked)
         return jpeg
 
     async def _fetch_jpeg(self, pv: str) -> bytes:
@@ -484,10 +490,15 @@ def _number(value: float) -> str:
 
 
 def _jpeg_response(jpeg: Jpeg, if_none_match: Optional[str]) -> Response:
-    """The JPEG, or ``304`` when ``If-None-Match`` names its ``ETag`` (the counter; none while unread)."""
+    """The JPEG, or ``304`` when ``If-None-Match`` names its ``ETag`` (none while the counter is unread).
+
+    The ``ETag`` is the counter and the bytes' checksum (``"3;0a1b2c3d"``):
+    a fetch at ``JPEG_REUSE_S`` under the same counter that brings other
+    bytes is a 200, never a 304 that hides them.
+    """
     headers = {"Cache-Control": "no-store", "X-Frame-Tag": jpeg.tag}
     if jpeg.counter is not None:
-        headers["ETag"] = f'"{jpeg.counter}"'
+        headers["ETag"] = f'"{jpeg.counter};{jpeg.tag}"'
         if _matches(if_none_match, headers["ETag"]):
             return Response(status_code=304, headers=headers)
     return Response(jpeg.body, media_type="image/jpeg", headers=headers)

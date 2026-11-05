@@ -51,7 +51,7 @@ every viewer (held 0.5 s; an unmoved camera costs one scalar read of
 the ~5 Gbit/s the services box's link keeps free for analysis reads. The
 MJPEG view's JPEG is held the same way on MJPG1's `ArrayCounter_RBV`: a 1 Hz
 camera's JPEG is fetched from the IOC once per second however many viewers
-poll it at 10 Hz (before the hold, up to ten times a second: 7.5 measured with one viewer). A read
+poll it at 10 Hz (before the hold, up to ten times a second: 7.5 measured with one viewer), and a stopped camera's once per second (the reuse cap). A read
 peaks at ≈ 15 MB of memory per camera (10.6 MB int16, viewed as uint16 without a
 copy, + 4 MB gzip; 36 MB while the frame was read as int32).
 

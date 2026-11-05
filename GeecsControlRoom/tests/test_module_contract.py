@@ -279,7 +279,6 @@ async def test_the_camera_page_reads_the_image_and_arrays_at_the_pvs_the_module_
         ("scalar", counter),
         ("text", image),
         ("host", image),
-        ("scalar", counter),
     ]
     assert counter.endswith("MJPG1:ArrayCounter_RBV") and frame.headers["etag"]
     arrays = (await room.client.get("/api/devices/Cam1/arrays")).json()

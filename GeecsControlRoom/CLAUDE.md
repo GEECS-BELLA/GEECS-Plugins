@@ -201,7 +201,10 @@ page's rules under node):
   (little-endian), restores it exactly: never a clamp. This replaces the
   earlier "`astype`, never `view`" rule, which was for the int32 delivery
   (a view of int32 doubles the element count); a frame that arrives other
-  than 16-bit is a 503 (`the raw frame arrived as <dtype>, not 16-bit`).
+  than 16-bit is a 503 (`the raw frame arrived as <dtype>, not 16-bit`):
+  a guard on this client's read, not a check of the IOC's `FTVL` (the IOC
+  converts any `FTVL` to `DBR_SHORT`; every camera family's `ArrayData` is
+  `USHORT`).
   The cast and the gzip run in `asyncio.to_thread` (≈ 15 MB peak per
   read of a 2592×2048 frame).
 - **The page**: Raw off by default and never remembered; on, a 2 Hz poll
@@ -242,19 +245,29 @@ page's rules under node):
 
 - **Reads**: one in flight per device, shared, at most every
   `FRAME_EVERY_S` (0.1 s, the floor on the counter probe). The counter
-  first; equal to the held JPEG's, the held bytes are served with no
+  first; equal to the held JPEG's and the JPEG younger than `JPEG_REUSE_S`
+  (1 s, timed from the request), the held bytes are served with no
   upstream fetch (a 10 Hz poller on a 1 Hz camera costs ten scalar reads
-  and one fetch per second, not ten fetches); else the JPEG is fetched and
-  the counter read again — moved, the JPEG is fetched once more and tagged
-  by the second counter.
+  and one fetch per second, not ten fetches); else the JPEG is fetched,
+  **tagged by the counter read before the fetch** (the plugin stores its
+  JPEG, then posts the counter, so the JPEG is at least that new and a
+  later counter change always fetches again; no second probe, no
+  refetch). These are GeecsPanels' `FrameSource` rules (`feed.py`), ported:
+  the dependency graph keeps the two packages apart.
+- **The reuse cap is the safety net**: should a counter ever be posted
+  before its JPEG, the stale frame lasts `JPEG_REUSE_S`, never until the
+  next trigger. A stopped camera therefore costs one fetch per second.
 - **Headers**: `X-Frame-Tag` = the bytes' CRC-32 (unchanged: the page
-  decodes new bytes only); `ETag` = the quoted counter (`"3"`); **304** on a
-  matching `If-None-Match` (`_matches`, as the raw route), no body, the
-  same `ETag` and `X-Frame-Tag`.
+  decodes new bytes only); `ETag` = the counter and the CRC
+  (`"3;0a1b2c3d"`), so a capped fetch that brings other bytes under the
+  same counter is a 200, never a 304 that hides them; **304** on a matching
+  `If-None-Match` (`_matches`, as the raw route), no body, the same `ETag`
+  and `X-Frame-Tag`.
 - **No counter, no hold**: the module names no `image_counter`, or the
-  probe fails (any CA failure, either probe): the JPEG is fetched every
-  floor as before the hold, served without an `ETag`, and never held. An
-  unreadable counter never fails the image.
+  probe fails (any CA failure, a NaN): the JPEG is fetched every floor as
+  before the hold, served without an `ETag`, and never held. An unreadable
+  counter is not asked again for `ROUTE_TTL_S` (a silent one would hold
+  every frame for the CA timeout) and never fails the image.
 - **The page**: the MJPEG loop asks with `If-None-Match` the last answer's
   `ETag` (`ifNoneMatch`), treats a 304 as "nothing new" (`rawAnswer`),
   decodes an answer whose `X-Frame-Tag` differs from the one drawn

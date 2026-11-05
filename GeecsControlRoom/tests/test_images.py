@@ -10,7 +10,7 @@ import httpx
 import numpy as np
 import pytest
 
-from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, RAW_HOLD_S, ROUTE_TTL_S, AiocaCa, Images, router, with_ca_host  # fmt: skip
+from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, JPEG_REUSE_S, RAW_HOLD_S, ROUTE_TTL_S, AiocaCa, Images, router, with_ca_host  # fmt: skip
 from geecs_control_room.module_client import ModuleClient
 
 IMAGE_PV = "bench:cam:MJPG1:JPG_URL_RBV"
@@ -149,6 +149,9 @@ class Env:
     def __init__(self, roles: list[dict[str, Any]] | None = ROLES, status: int = 200) -> None:  # fmt: skip
         self.ca, self.urls, self.reads, self.clock = FakeCa(), [], 0, [0.0]
         self.fetch_fails, self.gate = False, None
+        self.body: bytes | None = (
+            None  # set: every fetch returns these bytes (else each fetch's own)
+        )
         self.status, self.roles = status, roles
 
         def answer(request: httpx.Request) -> httpx.Response:
@@ -168,7 +171,7 @@ class Env:
             await self.gate.wait()
         if self.fetch_fails:
             raise httpx.ConnectError("refused")
-        return b"\xff\xd8jpeg" + str(len(self.urls)).encode()
+        return self.body if self.body is not None else b"\xff\xd8jpeg" + str(len(self.urls)).encode()  # fmt: skip
 
     def client(self) -> httpx.AsyncClient:
         from fastapi import FastAPI
@@ -190,11 +193,11 @@ async def test_the_frame_is_the_jpeg_at_the_url_the_module_names() -> None:
         r = await c.get("/api/devices/Cam/frame.jpg")
     assert r.status_code == 200 and r.content.startswith(b"\xff\xd8")
     assert r.headers["content-type"] == "image/jpeg" and r.headers["cache-control"] == "no-store"  # fmt: skip
+    tag = r.headers["x-frame-tag"]  # the bytes' checksum
     assert (
-        r.headers["x-frame-tag"] and r.headers["etag"] == '"3"'
-    )  # the bytes' checksum; the counter
-    # the counter, the URL, the fetch, the counter again (a frame landing mid-fetch is fetched once more)
-    assert env.ca.calls == [("scalar", IMAGE_COUNTER), ("text", IMAGE_PV), ("host", IMAGE_PV), ("scalar", IMAGE_COUNTER)]  # fmt: skip
+        tag and r.headers["etag"] == f'"3;{tag}"'
+    )  # the counter read before the fetch, and the bytes
+    assert env.ca.calls == [("scalar", IMAGE_COUNTER), ("text", IMAGE_PV), ("host", IMAGE_PV)]  # fmt: skip
     assert env.urls == ["http://10.0.0.5:8081/CAM1.MJPG.jpg"]
 
 
@@ -237,21 +240,41 @@ async def test_an_unmoved_image_counter_serves_the_held_jpeg_without_a_fetch() -
     env = Env()
     async with env.client() as c:
         first = await c.get(JPG_URL)
-        for _ in range(9):  # a 10 Hz poller on a camera that has not moved
+        for _ in range(
+            9
+        ):  # a 10 Hz poller on a camera that has not moved, inside JPEG_REUSE_S
             env.clock[0] += STEP
             r = await c.get(JPG_URL)
             assert (r.status_code, r.content) == (200, first.content)
-            assert (r.headers["etag"], r.headers["x-frame-tag"]) == ('"3"', first.headers["x-frame-tag"])  # fmt: skip
+            assert (r.headers["etag"], r.headers["x-frame-tag"]) == (first.headers["etag"], first.headers["x-frame-tag"])  # fmt: skip
         assert len(env.urls) == 1  # one upstream fetch for ten requests
-        assert env.ca.kinds() == ["image_counter", "text", "host", "image_counter"] + ["image_counter"] * 9  # fmt: skip
+        assert env.ca.kinds() == ["image_counter", "text", "host"] + ["image_counter"] * 9  # fmt: skip
         env.clock[0] += FRAME_EVERY_S / 2
         await c.get(JPG_URL)  # inside the floor: not even a probe
-        assert len(env.ca.calls) == 13
+        assert len(env.ca.calls) == 12
         env.ca.image_counters = [4.0]
         env.clock[0] += STEP
         moved = await c.get(JPG_URL)
-    assert len(env.urls) == 2 and moved.headers["etag"] == '"4"'
+    assert len(env.urls) == 2 and moved.headers["etag"].startswith('"4;')
     assert moved.headers["x-frame-tag"] != first.headers["x-frame-tag"]
+
+
+async def test_an_unmoved_counter_is_trusted_for_jpeg_reuse_s_then_fetched_again() -> None:  # fmt: skip
+    env = Env()
+    env.body = b"\xff\xd8the same frame"
+    async with env.client() as c:
+        first = await c.get(JPG_URL)
+        env.clock[0] += JPEG_REUSE_S
+        same = await c.get(JPG_URL, headers={"If-None-Match": first.headers["etag"]})
+        assert (
+            len(env.urls) == 2 and same.status_code == 304
+        )  # fetched again, the same bytes: nothing new
+        env.body = b"\xff\xd8the frame its counter announced"  # a counter posted before its JPEG
+        env.clock[0] += JPEG_REUSE_S
+        fixed = await c.get(JPG_URL, headers={"If-None-Match": first.headers["etag"]})
+    # the same counter, other bytes: a 200 carrying them, never a 304 that hides them
+    assert len(env.urls) == 3 and fixed.status_code == 200 and fixed.content == env.body
+    assert fixed.headers["etag"].startswith('"3;') and fixed.headers["etag"] != first.headers["etag"]  # fmt: skip
 
 
 async def test_a_matching_if_none_match_on_the_jpeg_is_a_304_with_its_tags() -> None:
@@ -264,18 +287,23 @@ async def test_a_matching_if_none_match_on_the_jpeg_is_a_304_with_its_tags() -> 
             same = await c.get(JPG_URL, headers={"If-None-Match": asked})
             assert (same.status_code, same.content) == (304, b"")
             assert (same.headers["etag"], same.headers["x-frame-tag"]) == (etag, first.headers["x-frame-tag"])  # fmt: skip
-        other = await c.get(JPG_URL, headers={"If-None-Match": '"2"'})
+        other = await c.get(
+            JPG_URL, headers={"If-None-Match": '"3"'}
+        )  # the counter alone is not the ETag
     assert other.status_code == 200 and other.content == first.content
     assert len(env.urls) == 1
 
 
-async def test_a_counter_moving_mid_fetch_fetches_once_more_tagged_by_the_second() -> None:  # fmt: skip
+async def test_the_jpeg_is_tagged_by_the_counter_read_before_its_fetch() -> None:
     env = Env()
-    env.ca.image_counters = [3.0, 4.0]
+    env.ca.image_counters = [3.0, 4.0]  # a frame lands while the first JPEG is fetched
     async with env.client() as c:
-        r = await c.get(JPG_URL)
-    assert len(env.urls) == 2 and r.headers["etag"] == '"4"'
-    assert r.content == b"\xff\xd8jpeg2"  # the second fetch's bytes
+        first = await c.get(JPG_URL)
+        env.clock[0] += STEP
+        second = await c.get(JPG_URL)
+    # at least as new as counter 3; counter 4 is not that JPEG's, so the next probe fetches again
+    assert first.headers["etag"].startswith('"3;') and second.headers["etag"].startswith('"4;')  # fmt: skip
+    assert len(env.urls) == 2 and env.ca.kinds().count("image_counter") == 2
 
 
 @pytest.mark.parametrize("why", ["unreadable", "unnamed"])
@@ -292,6 +320,21 @@ async def test_without_a_counter_the_jpeg_is_fetched_as_before_and_untagged(why)
     ] * 3  # the image never fails on its counter
     assert all("etag" not in r.headers and r.headers["x-frame-tag"] for r in answers)
     assert len(env.urls) == 3  # one fetch per floor, as before the hold
+    # an unreadable counter is asked once per ROUTE_TTL_S, never on every frame (a silent one costs the CA timeout)
+    assert env.ca.kinds().count("image_counter") == (1 if why == "unreadable" else 0)
+
+
+async def test_an_unreadable_counter_is_asked_again_after_the_ttl_and_the_hold_resumes() -> None:  # fmt: skip
+    env = Env()
+    env.ca.image_counter_fails = True
+    async with env.client() as c:
+        assert "etag" not in (await c.get(JPG_URL)).headers
+        env.ca.image_counter_fails = False
+        env.clock[0] += STEP
+        assert "etag" not in (await c.get(JPG_URL)).headers  # inside the TTL: not asked
+        env.clock[0] += ROUTE_TTL_S
+        back = await c.get(JPG_URL)
+    assert back.headers["etag"].startswith('"3;') and env.ca.kinds().count("image_counter") == 2  # fmt: skip
 
 
 @pytest.mark.parametrize(
