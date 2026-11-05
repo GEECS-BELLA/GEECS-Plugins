@@ -418,18 +418,20 @@ this package and must never depend on GeecsBluesky or a GUI package).
   everything else through `shot_join`); a `shot-table/1` run is timed on
   `witness_stamp` (or `fire_stamp` intervals when unwitnessed), counters
   and the witness attribute only audit. Plain inputs, no I/O; the
-  Tiled and document-buffer adapters come with the readers (W3b).
+  adapters are the readers' (`tiled_export.read_device_records` for a
+  Tiled run, GeecsBluesky's callback buffer for the live one), and
+  `per_shot_event_streams(start)` is the one event-stream gate
+  (`per_shot_streams`, or an older run's `non_essential`).
   `shot_join.to_labview_epoch` is the one Unix → LabVIEW conversion of a
   row clock, and `shot_join.clock_stamps(rows, column)` the stamps every
-  `shot_clock_column` caller should time against (W3b moves
-  `join_frame_columns` and the stack check onto it).
+  `shot_clock_column` caller times against.
 - **`tiled_export`** — the legacy scalar files of a Bluesky run, live
   (`write_scalar_files` from the documents, what the worker calls) or
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s
   events when it has them and the per-shot `shots` events otherwise (a
-  gated run), and `join_frame_columns` appends every datum-only stream's
-  per-frame columns (and every non-essential event stream's, named by the
-  start document's `non_essential`) before `geecs_scalar_headers` renames and orders them
+  gated run), and `join_frame_columns` appends, through `shot_table`,
+  every datum-only stream's per-frame columns (and every per-shot event
+  stream's, `per_shot_event_streams`) before `geecs_scalar_headers` renames and orders them
   — one projection for both shapes of run.  `read_frame_columns` reads a
   stream's 1-D attribute arrays **by name** and never the frame stack
   itself (the #834/#836 lesson).

@@ -54,11 +54,13 @@ import pandas as pd
 
 from geecs_data_utils.shot_join import (
     DEFAULT_SHOT_PERIOD_S,
+    NON_ESSENTIAL_STREAM_SUFFIX,
     FrameColumns,
     _squash,
     clock_device,
     clock_stamps,
     join_frames_to_shots,
+    non_essential_stream,
     row_windows,
     shot_clock_column,
 )
@@ -158,6 +160,24 @@ class ShotTable:
     extras: Mapping[str, tuple[int, ...]]
     ages: Mapping[str, np.ndarray]
     device_flags: Mapping[str, tuple[str, ...]]
+
+
+def per_shot_event_streams(start: Mapping[str, Any]) -> dict[str, str]:
+    """Stream → object name of every per-shot device stream *start* names.
+
+    A shot-table run names its streams (``per_shot_streams``,
+    ``<device>_stream``); an older run names its non-essential devices
+    (``non_essential``).  Both are read, so a reader gating event streams
+    on either never drops a device's stream.
+    """
+    streams = {
+        non_essential_stream(str(name)): str(name)
+        for name in start.get("non_essential") or ()
+    }
+    suffix = NON_ESSENTIAL_STREAM_SUFFIX
+    for stream in map(str, start.get("per_shot_streams") or ()):
+        streams.setdefault(stream, stream.removesuffix(suffix))
+    return streams
 
 
 def frame_for(table: ShotTable, device: str, shot: int) -> tuple[str, int] | None:
@@ -635,5 +655,6 @@ __all__ = [
     "DeviceRecords",
     "ShotTable",
     "frame_for",
+    "per_shot_event_streams",
     "shot_table",
 ]

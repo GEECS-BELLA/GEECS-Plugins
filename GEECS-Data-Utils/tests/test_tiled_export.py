@@ -776,3 +776,67 @@ def test_a_wide_frame_is_built_in_one_allocation() -> None:
         3,
         4,
     ]
+
+
+# ------------------------------------------- shot-table layout (W3b readers)
+def test_per_shot_event_streams_reads_both_layouts() -> None:
+    """``per_shot_streams`` (stream names) and ``non_essential`` (device names) both count."""
+    from geecs_data_utils.shot_table import per_shot_event_streams
+
+    assert per_shot_event_streams(
+        {"non_essential": ["u_a"], "per_shot_streams": ["u_b_stream", "u_a_stream"]}
+    ) == {"u_a_stream": "u_a", "u_b_stream": "u_b"}
+    assert per_shot_event_streams({}) == {}
+
+
+def test_the_offline_re_export_reads_a_shot_table_run() -> None:
+    """A device named only in ``per_shot_streams`` joins on the Unix witness clock."""
+    import numpy as np
+
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+    from geecs_data_utils.tiled_export import read_device_records, read_run_rows
+
+    rows = pd.DataFrame(
+        {
+            "shot_index": [1, 2, 3],
+            "bin_number": [1, 1, 1],
+            "witness_count": [7, 8, 9],
+            "witness_stamp": [100.0, 101.0, 102.0],  # Unix, CA record time
+        }
+    )
+    events = pd.DataFrame(
+        {
+            "u_slow-acq_timestamp": [
+                100.002 + LABVIEW_EPOCH_OFFSET,
+                102.0 + LABVIEW_EPOCH_OFFSET,
+            ],
+            "u_slow-current": [1.0, 3.0],
+        }
+    )
+    start = {
+        **_slow_start(),
+        "non_essential": [],
+        "layout": "shot-table/1",
+        "per_shot_streams": ["u_slow_stream"],
+        "shot_clock_column": "witness_stamp",
+    }
+
+    class _Run:
+        metadata = {"start": start}
+        _streams = {
+            "primary": _FakeStream({"internal": _FakePart(rows, "table")}),
+            "u_slow_stream": _FakeStream({"internal": _FakePart(events, "table")}),
+        }
+
+        def __iter__(self):
+            return iter(self._streams)
+
+        def __getitem__(self, key):
+            return self._streams[key]
+
+    table, stream = read_run_rows(_Run())
+    (source,) = read_device_records(_Run(), stream)
+    assert (source.stream, source.device) == ("u_slow_stream", "u_slow")
+    df = build_legacy_scalar_dataframe(start, table, [source])
+    current = df["U_Slow Current"].to_numpy()
+    assert current[0] == 1.0 and np.isnan(current[1]) and current[2] == 3.0

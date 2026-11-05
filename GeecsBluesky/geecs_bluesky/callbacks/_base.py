@@ -9,14 +9,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from geecs_data_utils.shot_join import (
-    SHOTS_STREAM,
-    non_essential_stream,
-    numeric_data_keys,
-)
+from geecs_data_utils.shot_join import SHOTS_STREAM, numeric_data_keys
+from geecs_data_utils.shot_table import per_shot_event_streams
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from geecs_data_utils.shot_join import FrameColumns
+    from geecs_data_utils.shot_table import DeviceRecords
 
 logger = logging.getLogger(__name__)
 
@@ -159,8 +156,9 @@ class _RunStreams:
         Object name → its ``drain_offset`` config value, seconds (read from
         the streams' descriptor configuration).
     event_streams :
-        Stream name → object name, for every non-essential stream the start
-        document names (``<name>_stream``).  The ones that carry events are
+        Stream name → object name, for every per-shot device stream the
+        start document names (``per_shot_streams``, or an older run's
+        ``non_essential``: ``<name>_stream``).  The ones that carry events are
         a triggered device without a file plugin, one event per stamp it
         published (GeecsBluesky's ``StampStream``): buffered like the rows
         and joined onto them by stamp.
@@ -203,8 +201,8 @@ class _RunStreams:
         """The stacks whose stream carried no event rows — the ones to join."""
         return [s for s in self.stacks.values() if not self.rows.get(s.stream)]
 
-    def event_stream_columns(self) -> list["FrameColumns"]:
-        """Every non-essential event stream as join columns (in memory, no I/O).
+    def event_stream_records(self) -> list["DeviceRecords"]:
+        """Every per-shot event stream as the shot table's records (in memory, no I/O).
 
         A stream that is a plugin camera's (it references a stack) is left
         to :meth:`datum_only_stacks`; the rest — a triggered device without
@@ -214,6 +212,7 @@ class _RunStreams:
             ACQ_TIMESTAMP_SUFFIX,
             frame_columns_from_events,
         )
+        from geecs_data_utils.shot_table import DeviceRecords
 
         stacked = {s.stream for s in self.stacks.values()}
         out = []
@@ -225,7 +224,7 @@ class _RunStreams:
                 obj, self.stream_rows(stream), keys=keys
             )
             if columns is not None:
-                out.append(columns)
+                out.append(DeviceRecords(stream=stream, records=columns))
         return out
 
 
@@ -268,10 +267,7 @@ class _StreamCallback(_RunCallback):
             }
             self._owners.pop(stale, None)
         self._runs[str(start["uid"])] = _RunStreams(
-            event_streams={
-                non_essential_stream(str(name)): str(name)
-                for name in start.get("non_essential") or ()
-            }
+            event_streams=per_shot_event_streams(start)
         )
 
     def on_descriptor(self, doc: Document) -> None:

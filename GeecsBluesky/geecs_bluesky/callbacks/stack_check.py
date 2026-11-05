@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from geecs_data_utils.shot_join import SHOTS_STREAM
+from geecs_data_utils.shot_table import LAYOUT_KEY, SHOT_TABLE_LAYOUT
 
 from geecs_bluesky.callbacks._base import (
     Document,
@@ -54,6 +55,11 @@ class StackCheckCallback(_StreamCallback):
       ``shots`` rows — the sampler ticked once per shot and the batch
       trimmed every stack to the quota, so *every* row must own exactly one
       frame within the join window and no frame may be orphaned;
+    - a **shot-table** run's device stream (``layout: "shot-table/1"``):
+      the count, plus the stack's stamps joined to the ``primary`` rows by
+      the shot table — a record no row claims, or one the join flags (an
+      audit mismatch, an ambiguous interval), is a WARNING; a row without
+      a frame is reported, not warned (a refired row is one);
     - any other datum-only stream (a non-essential ``<name>_stream``): the
       count alone — a non-essential camera's frame for shot *k* may land
       during *k+1* and an orphan there is normal, not a defect.
@@ -94,6 +100,11 @@ class StackCheckCallback(_StreamCallback):
     ) -> None:
         """Check every stack against its documents, off the RunEngine's thread."""
         gated = str(start.get("acquisition") or "") == "gated"
+        table_rows = (
+            run.stream_rows("primary")
+            if start.get(LAYOUT_KEY) == SHOT_TABLE_LAYOUT
+            else []
+        )
         owners = self._owners.get(str(start.get("uid") or ""), {})
         for stack in run.stacks.values():
             stream_rows = run.rows_by_seq(stack.stream)
@@ -124,7 +135,7 @@ class StackCheckCallback(_StreamCallback):
             if column is not None and owners.get(column) != owner:
                 column = None  # the device published no stamp of its own
             expected: list[float] | None = None
-            shots: _ShotStamps | None = None
+            shots: _ShotStamps | _TableStamps | None = None
             if stream_rows and column:
                 seqs = sorted({n for r in stack.seq_nums for n in r})
                 expected = [
@@ -132,6 +143,10 @@ class StackCheckCallback(_StreamCallback):
                     for n in seqs
                     if n in stream_rows and column in stream_rows[n]
                 ]
+            elif table_rows and stack.stream != "primary":
+                shots = _TableStamps(
+                    dict(start), table_rows, stack.stream, dict(run.drain_offsets)
+                )
             elif gated and stack.stream == "primary":
                 # The gated batch's own stacks: the shots rows ARE the frames'
                 # rows, one per shot, so the stamps can be checked after all.
@@ -279,7 +294,7 @@ class StackCheckCallback(_StreamCallback):
         data_key: str,
         path: Path,
         expected: list[float] | None,
-        shots: "_ShotStamps | None",
+        shots: "_ShotStamps | _TableStamps | None",
         width: int,
         finalize_timeout: float,
     ) -> None:
@@ -392,6 +407,52 @@ class _ShotStamps:
         )
 
 
+@dataclass(frozen=True)
+class _TableStamps:
+    """A shot-table run's ``primary`` rows a device stream's stack is joined to."""
+
+    start: Mapping[str, Any]
+    rows: Sequence[Mapping[str, Any]]
+    stream: str
+    drain_offsets: Mapping[str, float]
+
+    def verdict(
+        self, data_key: str, path: Path, frames: "np.ndarray"
+    ) -> tuple[str, bool]:
+        """``(message, warning)`` for the stack's frames through the shot table."""
+        import pandas as pd
+        from geecs_data_utils.shot_join import FrameColumns
+        from geecs_data_utils.shot_table import DeviceRecords, frame_for, shot_table
+
+        source = DeviceRecords(self.stream, FrameColumns(data_key, frames))
+        # One device at a time: the run's ``required`` (completeness) is the
+        # s-file's question, and the others would read as unresolved here.
+        table = shot_table(
+            {key: v for key, v in self.start.items() if key != "required"},
+            pd.DataFrame(list(self.rows)),
+            [source],
+            drain_offsets=self.drain_offsets,
+        )
+        rows = len(self.rows)
+        matched = sum(
+            frame_for(table, data_key, shot) is not None for shot in range(1, rows + 1)
+        )
+        extras = len(table.extras.get(data_key, ()))
+        flagged = sum(
+            any(
+                flag.endswith(f":{data_key}") and not flag.startswith("missing:")
+                for flag in row
+            )
+            for row in table.flags
+        )
+        message = (
+            f"{data_key}: {matched} of {len(frames)} frame(s) in {path.name} "
+            f"assigned to a shot-table row — {extras} extra(s), {flagged} row(s) "
+            f"flagged, {rows - matched} row(s) with no frame"
+        )
+        return message, bool(extras or flagged)
+
+
 def _shot_stamps(
     start: Mapping[str, Any], run: _RunStreams, data_key: str
 ) -> "_ShotStamps | None":
@@ -399,6 +460,7 @@ def _shot_stamps(
     from geecs_data_utils.shot_join import (
         DEFAULT_SHOT_PERIOD_S,
         clock_device,
+        clock_stamps,
         row_windows,
         shot_clock_column,
     )
@@ -409,7 +471,7 @@ def _shot_stamps(
     clock = shot_clock_column(start, list(rows[0]))
     if clock is None:
         return None
-    stamps = [float(row.get(clock, float("nan"))) for row in rows]
+    stamps = [float(stamp) for stamp in clock_stamps(rows, clock)]
     period = float(start.get("shot_period") or DEFAULT_SHOT_PERIOD_S)
     return _ShotStamps(
         stamps=stamps,

@@ -679,8 +679,10 @@ The rows are `primary`'s events when it has them and the sampler's
 `shots` events otherwise, and every **datum-only** stream's per-frame
 columns — and every non-essential **event** stream's events (a device
 without a plugin, one "frame" per stamp) — are joined onto them by
-offset-corrected stamp.  The join itself is `geecs_data_utils.shot_join`,
-shared with the offline re-export so the two cannot drift, and fed
+offset-corrected stamp.  The join itself is `geecs_data_utils.shot_table`
+(over `shot_join`; the clock through `shot_join.clock_stamps`, so a Unix
+witness clock meets LabVIEW device stamps), shared with the offline
+re-export so the two cannot drift, and fed
 **one** drain-offsets map (from the streams' descriptor configuration)
 that covers both sides of every comparison.  One row per essential shot:
 a camera's per-frame scalars and its own stamp come from its stack under
@@ -691,8 +693,11 @@ Frames past what a stream's datums referenced are not s-file data.  Such
 a run's s-file is written on a thread (a stack may only be read once the
 plugin finalizes it, which happens at `unstage`, after the stop
 document); a run with no datum-only stream is still written
-synchronously.  `StackCheckCallback` checks a non-essential stream by
-count and a *gated* stack by count **and** stamps — one frame per `shots`
+synchronously.  An event stream counts as per-shot when the start document names it in
+`per_shot_streams` (the shot-table layout) or its device in `non_essential`.
+`StackCheckCallback` checks a non-essential stream by
+count, a shot-table run's device stream by count and through the shot
+table (an extra or a flagged record warns), and a *gated* stack by count **and** stamps — one frame per `shots`
 row, none orphaned — and a non-essential native saver's files against its
 stream's **events** (not the rows; events without a file and file stamps
 without an event counted apart, files after the last event — saved

@@ -19,7 +19,7 @@ from geecs_bluesky.callbacks._base import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from geecs_data_utils.shot_join import FrameColumns
+    from geecs_data_utils.shot_table import DeviceRecords
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +36,10 @@ class SFileCallback(_StreamCallback):
     :func:`geecs_data_utils.build_legacy_scalar_dataframe`.
 
     Every **datum-only** stream of the run — a gated run's cameras, a
-    non-essential camera in either mode — has its per-frame columns joined
-    onto those rows by offset-corrected stamp
-    (:mod:`geecs_data_utils.shot_join`): one
+    non-essential camera in either mode, a shot-table run's device
+    streams — has its per-frame columns joined onto those rows by
+    offset-corrected stamp through the shot table
+    (:mod:`geecs_data_utils.shot_table`): one
     s-file row per essential shot, a camera's per-frame scalars spelled as
     a strict row spells them, and a frame with no shot inside the window
     left where it is (in the stack and in Tiled, out of the s-file).
@@ -69,7 +70,7 @@ class SFileCallback(_StreamCallback):
                 stop.get("exit_status"),
             )
             return
-        events = run.event_stream_columns()
+        events = run.event_stream_records()
         stacks = run.datum_only_stacks()
         if not stacks:
             self._write(start, rows, events, run.drain_offsets)
@@ -99,7 +100,7 @@ class SFileCallback(_StreamCallback):
         stacks: list[_Stack],
         drain_offsets: Mapping[str, float],
         finalize_timeout: float,
-        events: "Sequence[FrameColumns]" = (),
+        events: "Sequence[DeviceRecords]" = (),
     ) -> None:
         from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
         from geecs_data_utils.io.scan_stack import (
@@ -107,6 +108,7 @@ class SFileCallback(_StreamCallback):
             stack_scalar_variables,
         )
         from geecs_data_utils.shot_join import frame_columns_from_attributes
+        from geecs_data_utils.shot_table import DeviceRecords
 
         # One window for every stack, not one each: a gated run with three
         # cameras whose plugin never finalizes must not hold its s-file for
@@ -154,14 +156,14 @@ class SFileCallback(_StreamCallback):
                     stack.width,
                 )
                 columns = columns.truncated(stack.width)
-            frames.append(columns)
+            frames.append(DeviceRecords(stream=stack.stream, records=columns))
         self._write(start, rows, [*frames, *events], drain_offsets)
 
     @staticmethod
     def _write(
         start: Mapping[str, Any],
         rows: list[dict[str, Any]],
-        frames: "Sequence[FrameColumns]",
+        frames: "Sequence[DeviceRecords]",
         drain_offsets: Mapping[str, float],
     ) -> None:
         import pandas as pd

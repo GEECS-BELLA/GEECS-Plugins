@@ -353,10 +353,9 @@ def clock_stamps(rows: Any, column: str) -> np.ndarray:
     run's Unix ``witness_stamp`` / ``fire_stamp`` meets device stamps in
     one epoch.  *rows* is a DataFrame or a mapping of columns, or a
     sequence of row mappings (a document buffer); a row without the column
-    reads ``NaN``.  W3b routes ``tiled_export.join_frame_columns`` (its
-    ``rows[clock].to_numpy``) and GeecsBluesky's ``callbacks/stack_check``
-    (``_shot_stamps``) through here; until then they read device clocks
-    only, which need no conversion.
+    reads ``NaN``.  The s-file's join (``shot_table``, under
+    ``tiled_export.join_frame_columns``) and GeecsBluesky's
+    ``callbacks/stack_check`` (``_shot_stamps``) read their clocks here.
     """
     if isinstance(rows, Mapping) or hasattr(rows, "columns"):
         values: Any = rows[column]

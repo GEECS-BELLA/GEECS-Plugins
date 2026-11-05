@@ -26,8 +26,9 @@ events; a *non-essential* device streams into its own ``<name>_stream``
 whichever mode the run used — a plugin camera's frames, or one event per
 stamp a triggered device without a plugin published.  Either way the
 per-frame columns are joined onto the rows by offset-corrected stamp
-(:mod:`geecs_data_utils.shot_join`): one s-file row per essential shot,
-orphan frames left in the stack.
+through the shot table (:mod:`geecs_data_utils.shot_table`, which also
+reads a shot-table run, ``layout: "shot-table/1"``): one s-file row per
+row of the run, orphan frames left in the stack.
 
 This module is a **consumer** of scan folders: it writes into an
 already-claimed ``scans/ScanNNN/`` folder but never creates one (the
@@ -41,24 +42,27 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-import numpy as np
 import pandas as pd
 
 from geecs_data_utils.shot_join import (
-    DEFAULT_SHOT_PERIOD_S,
     SHOTS_STREAM,
     FrameColumns,
-    clock_device,
-    join_frames_to_shots,
     non_essential_stream,
-    row_windows,
-    shot_clock_column,
+)
+from geecs_data_utils.shot_table import (
+    DeviceRecords,
+    per_shot_event_streams,
+    shot_table,
 )
 from geecs_data_utils.data.sfile import scan_data_txt_path_for
 from geecs_data_utils.tiled_catalog import read_tiled_config
 from geecs_data_utils.tiled_schema import ANNOUNCED_SHOT_COLUMN, SFILE_ANNOUNCED_SHOT
 
 logger = logging.getLogger(__name__)
+
+#: A per-shot source: a device's records with their stream, or its bare
+#: columns (joined by stamp, as a ``<name>_stream`` is).
+Source = DeviceRecords | FrameColumns
 
 # Derived companion columns (event-schema v1) normally kept out of the legacy
 # scalar file.  Emission is driven entirely by ``geecs_scalar_headers`` (any
@@ -79,7 +83,7 @@ _COMPANION_SUFFIXES = (
 def build_legacy_scalar_dataframe(
     start_doc: dict[str, Any],
     primary_df: pd.DataFrame,
-    frames: Sequence[FrameColumns] = (),
+    frames: Sequence[Source] = (),
     *,
     drain_offsets: Mapping[str, float] | None = None,
 ) -> pd.DataFrame:
@@ -99,9 +103,10 @@ def build_legacy_scalar_dataframe(
         (``<ophyd>-<safe_var>``, companion columns, ``bin_number``, …): a
         strict run's ``primary`` events, a gated run's ``shots`` events.
     frames:
-        Per-frame columns of each datum-only stream source (a gated run's
-        cameras, a non-essential camera), joined onto the rows by
-        offset-corrected stamp.  A column a row already carries is never
+        Each per-shot source outside the rows (a gated run's cameras, a
+        non-essential camera or event stream, a shot-table run's device
+        streams), joined onto the rows by the shot table
+        (:func:`join_frame_columns`).  A column a row already carries is never
         overwritten — a strict run's essential camera is read per shot, and
         the event row is the authority.
     drain_offsets:
@@ -158,7 +163,7 @@ def build_legacy_scalar_dataframe(
 
 
 def _warn_unnamed_frame_columns(
-    frames: Sequence[FrameColumns], headers: Mapping[str, str]
+    frames: Sequence[Source], headers: Mapping[str, str]
 ) -> None:
     """Warn about a joined column no ``geecs_scalar_headers`` key claims.
 
@@ -171,7 +176,7 @@ def _warn_unnamed_frame_columns(
     own ``frame_recv_timestamp`` is never an s-file column and is not a
     drift signal.
     """
-    for source in frames:
+    for source in (_records(frame).records for frame in frames):
         unnamed = [
             key
             for key in source.columns
@@ -195,28 +200,30 @@ def _warn_unnamed_frame_columns(
 def join_frame_columns(
     start_doc: dict[str, Any],
     rows: pd.DataFrame,
-    frames: Sequence[FrameColumns],
+    frames: Sequence[Source],
     *,
     drain_offsets: Mapping[str, float] | None = None,
 ) -> pd.DataFrame:
-    """Add each frame source's per-frame columns to *rows*, joined by stamp.
+    """Add each source's per-record columns to *rows*, through the shot table.
 
-    One row per shot, always: a frame with no row inside the join window is
-    an orphan and is dropped here (it stays in the stack and in Tiled —
-    Sam, 2026-09-12), and a row with no
-    frame from a source gets ``NaN`` in that source's columns.  Orphans and
-    duplicates are logged per source; for a gated run's *essential* cameras
-    both are zero by construction (the batch trims to the quota), so a
-    non-zero count there is worth the warning it gets.
+    One row per shot, always: a record no row claims is an extra and is
+    dropped here (it stays in its stream and in Tiled — Sam, 2026-09-12),
+    and a row with no record from a source gets ``NaN`` in that source's
+    columns (:func:`geecs_data_utils.shot_table.shot_table`, either
+    layout).  Extras and gaps are logged per source; for a gated run's
+    *essential* cameras both are zero by construction (the batch trims to
+    the quota), so a non-zero count there is worth the warning it gets.
 
     Parameters
     ----------
     start_doc:
-        The run's start document (``shot_clock``, ``detectors``, ``shot_period``).
+        The run's start document (``shot_clock``, ``detectors``,
+        ``shot_period``; ``layout`` for a shot-table run).
     rows:
         The run's row stream (one row per shot).
     frames:
-        The datum-only stream sources to join.
+        The sources to join; every one is joined by stamp, never by
+        position (the row stream's own stacks are not passed here).
     drain_offsets:
         Object name → its ``drain_offset``, seconds, for the clock device
         and every source alike.
@@ -224,64 +231,46 @@ def join_frame_columns(
     Returns
     -------
     pandas.DataFrame
-        A copy of *rows* with the joined columns appended.
+        *rows* with the joined columns appended.
     """
     if not len(rows) or not len(frames):
         return rows
-    clock = shot_clock_column(start_doc, list(rows.columns))
-    if clock is None:
+    devices = [_records(source) for source in frames]
+    table = shot_table(
+        start_doc, rows, devices, row_stream="", drain_offsets=drain_offsets
+    )
+    if table.clock is None:
         logger.warning(
             "run %s has no stamp column in its rows; %d frame stream(s) not joined",
             start_doc.get("uid"),
             len(frames),
         )
         return rows
-    offsets = dict(drain_offsets or {})
-    shot_stamps = rows[clock].to_numpy(dtype=float)
-    period = float(start_doc.get("shot_period") or DEFAULT_SHOT_PERIOD_S)
-    windows = row_windows(shot_stamps, period)
-    clock_offset = float(offsets.get(clock_device(clock), 0.0))
-    out = rows.copy()
-    for source in frames:
-        join = join_frames_to_shots(
-            shot_stamps,
-            source.stamps,
-            windows=windows,
-            shot_offset=clock_offset,
-            frame_offset=float(offsets.get(source.object_name, 0.0)),
-        )
-        if join.orphans or join.contested or join.matched != len(rows):
+    for source in devices:
+        assigned = table.record_for_shot[source.device]
+        matched = sum(index is not None for index in assigned)
+        extras = len(table.extras.get(source.device, ()))
+        if extras or matched != len(rows):
             logger.warning(
-                "%s: %d of %d frame(s) joined to %d row(s) on %s (windows "
-                "±%.3f-%.3f s, drain %+.3f s vs the clock's %+.3f s) — %d orphan(s) "
-                "left out of the s-file, %d duplicate(s) dropped",
-                source.object_name,
-                join.matched,
-                len(source),
+                "%s: %d of %d frame(s) joined to %d row(s) on %s — %d orphan(s) "
+                "left out of the s-file",
+                source.device,
+                matched,
+                len(source.records),
                 len(rows),
-                clock,
-                float(windows.min()) if windows.size else 0.0,
-                float(windows.max()) if windows.size else 0.0,
-                float(offsets.get(source.object_name, 0.0)),
-                clock_offset,
-                len(join.orphans),
-                len(join.contested),
+                table.clock,
+                extras,
             )
-        for key, values in source.columns.items():
-            if key in out.columns:
-                continue  # the event row is the authority for its own column
-            out[key] = _gathered(values, join.frame_for_shot)
-    return out
+    return table.rows
 
 
-def _gathered(values: Any, indices: Sequence[int | None]) -> np.ndarray:
-    """*values* gathered at *indices*, ``NaN`` where a row has no frame."""
-    array = np.asarray(values, dtype=float)
-    out = np.full(len(indices), np.nan, dtype=float)
-    for row, index in enumerate(indices):
-        if index is not None and 0 <= index < array.size:
-            out[row] = array[index]
-    return out
+def _records(source: Source) -> DeviceRecords:
+    """*source* as :class:`DeviceRecords`; bare columns stream as ``<name>_stream``."""
+    if isinstance(source, DeviceRecords):
+        return source
+    return DeviceRecords(
+        stream=non_essential_stream(source.object_name), records=source
+    )
 
 
 def _resolve_output_paths(start_doc: dict[str, Any]) -> Optional[tuple[Path, Path]]:
@@ -352,14 +341,21 @@ def read_run_rows(run: Any) -> tuple[pd.DataFrame, str]:
 
 
 def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
-    """Per-frame columns of every stream of a recorded run except the rows'.
+    """The columns of :func:`read_device_records`, without their streams."""
+    return [source.records for source in read_device_records(run, row_stream)]
+
+
+def read_device_records(run: Any, row_stream: str) -> list[DeviceRecords]:
+    """Every per-shot source of a recorded run except the rows' own, with its stream.
+
+    The Tiled adapter of :func:`geecs_data_utils.shot_table.shot_table`.
 
     A stream other than the one the rows came from carries no per-shot row
     of its own: a gated run's ``primary`` and every non-essential device's
     ``<name>_stream``.  A non-essential device **without** a file plugin
     records an event per stamp it published instead of frames; its
-    stream's table (named from the start document's ``non_essential``) is
-    read as join columns by :func:`_event_stream_columns`.  Otherwise
+    stream's table (named by the start document's ``per_shot_streams``, or
+    an older run's ``non_essential``) is read as join columns by :func:`_event_stream_columns`.  Otherwise
     its per-frame attribute columns are 1-D arrays named ``<device>-hdf-<variable>-<suffix>``
     (``io.scan_stack.parse_attribute_name``), read **by name** — the frame
     stack itself, the only multi-dimensional part, is never touched, and a
@@ -392,7 +388,7 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
 
     Returns
     -------
-    list of FrameColumns
+    list of DeviceRecords
         One entry per device, in stream then device order.
     """
     from geecs_data_utils.io.scan_stack import (
@@ -402,11 +398,8 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
     from geecs_data_utils.shot_join import frame_columns_from_attributes
 
     start = dict((getattr(run, "metadata", None) or {}).get("start") or {})
-    event_streams = {
-        non_essential_stream(str(name)): str(name)
-        for name in start.get("non_essential") or ()
-    }
-    out: list[FrameColumns] = []
+    event_streams = per_shot_event_streams(start)
+    out: list[DeviceRecords] = []
     for stream in sorted(run):
         if stream == row_stream:
             continue
@@ -414,7 +407,7 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
         if stream in event_streams:
             columns = _event_stream_columns(event_streams[stream], node)
             if columns is not None:
-                out.append(columns)
+                out.append(DeviceRecords(stream=stream, records=columns))
                 continue
         contents = node.get_contents()
         per_device: dict[str, dict[str, Any]] = {}
@@ -442,7 +435,7 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
                     referenced,
                 )
                 columns = columns.truncated(referenced)
-            out.append(columns)
+            out.append(DeviceRecords(stream=stream, records=columns))
     return out
 
 
@@ -556,7 +549,7 @@ def _fetch_run(uid: str, tiled_uri: str, tiled_api_key: Optional[str]):
     return (
         start_doc,
         rows,
-        read_frame_columns(run, row_stream),
+        read_device_records(run, row_stream),
         read_drain_offsets(run),
     )
 
@@ -564,7 +557,7 @@ def _fetch_run(uid: str, tiled_uri: str, tiled_api_key: Optional[str]):
 def write_scalar_files(
     start_doc: dict[str, Any],
     primary_df: pd.DataFrame,
-    frames: Sequence[FrameColumns] = (),
+    frames: Sequence[Source] = (),
     *,
     drain_offsets: Mapping[str, float] | None = None,
 ) -> Optional[tuple[Path, Path]]:
@@ -580,8 +573,8 @@ def write_scalar_files(
         ophyd-named columns): a strict run's ``primary`` events, a gated
         run's ``shots`` events.
     frames:
-        Per-frame columns of the run's datum-only stream sources, joined
-        onto the rows by stamp (:func:`join_frame_columns`).
+        The run's per-shot sources outside the rows, joined onto them
+        (:func:`join_frame_columns`).
     drain_offsets:
         Object name → its ``drain_offset``, seconds (:func:`join_frame_columns`).
 
