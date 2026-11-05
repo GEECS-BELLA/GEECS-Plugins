@@ -838,7 +838,9 @@
         if (e.status === 409 && e.payload.pending_items && S.pendingAppend) { showError("Not added: " + e.message); return; }
         if (e.status === 409 && e.payload.pending_items) {
           var items = e.payload.pending_items;
-          $("dlg-pending-text").textContent = "Waiting now: " + items.map(function (i) { return i.summary; }).join("; ") + ". Replace it with this scan?";
+          var many = items.length > 1;
+          $("dlg-pending-title").textContent = many ? items.length + " items are already waiting" : "An item is already waiting";
+          $("dlg-pending-text").textContent = "Waiting now: " + items.map(function (i) { return i.summary; }).join("; ") + (many ? ". Clear all " + items.length + " waiting items and queue this scan?" : ". Replace it with this scan?");
           window.GeecsKit.confirm($("dlg-pending")).open();
           return;
         }

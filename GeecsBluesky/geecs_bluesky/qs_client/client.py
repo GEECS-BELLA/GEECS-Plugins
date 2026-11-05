@@ -691,8 +691,10 @@ class ZmqQueueClient:
         try:
             queue = api.queue_get()
             pending = list(queue.get("items") or [])
-            # Behind a started queue nothing failed sits at the front, so an
-            # append cannot re-run one; a stopped queue keeps the refusal.
+            # Behind a started queue nothing failed sits at the front; a
+            # stopped queue keeps the refusal.  The state is a second request,
+            # so a plan failing in between leaves the same window the busy
+            # start below has.
             appending = (
                 append
                 and bool(pending)

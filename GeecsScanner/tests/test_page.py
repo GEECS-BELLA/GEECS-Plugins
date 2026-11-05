@@ -717,3 +717,5 @@ def test_queue_sections_and_add_to_queue_beside_start(client: TestClient) -> Non
         '"/api/queue/" + encodeURIComponent(b.dataset.uid), { method: "DELETE" }'
         in script
     )
+    # Replace clears every waiting item, so the prompt counts them (#1285 review M1)
+    assert '". Clear all " + items.length + " waiting items' in script
