@@ -136,7 +136,7 @@ alone.
 
 | Case | Behaviour |
 |---|---|
-| Poll lag | bounded by the poll period, pinned at 10 ms at boot. Assignment needs it under a quarter period minus the offset spread: trivially met at 1 Hz and 5 Hz |
+| Poll lag | measured on the bench (W0, 2026-11-04): with `PollSleepMS` at 10 the poll cycle is about 21 ms, not 10 (about 11 ms of each poll is USB reads); successive stamp deltas have an sd of 9.4 ms, with an occasional update about 40 ms late. At the default 50 ms the cycle is about 61 ms, sd 28 ms. Assignment needs the lag under a quarter period minus the offset spread: met at 1 Hz, and at 5 Hz with the *witness-stamp-shared* flag for the rare stall |
 | Several edges in one poll (an IOC or USB stall) | one update, count +k, one stamp: those k shots share a stamp and are flagged *witness-stamp-shared*; their acquisitions are assigned by counter order inside the group when the devices' counters agree, else flagged |
 | IOC restart | the count restarts at 0 under a new epoch; nothing joins across epochs |
 | Witness down during a run | rows continue, clocked by the devices against each other (today's nearest-time clustering), every row flagged *unwitnessed*; the run is not aborted |
@@ -508,10 +508,16 @@ before the change keep the old shape (open question 4).
 
 1. Announce to the LabVIEW devices if the profile does; wait for the
    permit if one is configured (§6.4); fire once.
-2. See the witness count advance within a bounded wait (period + largest
-   offset + margin, the constants in `plans/gated.py:78-80`). A fire the
-   witness never sees is reported as not fired, and the plan stops rather
-   than fire again; unwitnessed, the fire stamp is the shot.
+2. See the witness count advance within a bounded wait (period + margin
+   from the end of the fire; a camera's drain offset says nothing about
+   the counter). Only a **connected** witness that saw no edge stops the
+   step: the fire is reported as not fired, and the plan does not fire
+   again. A witness that is unreadable, or late through a poll or USB
+   stall, does not stop anything: the row closes on the devices' own
+   signals, flagged *unwitnessed*, and the fire stamp is the shot. A pause
+   never fails the wait: the wait is per shot, rebuilt after a resume, and
+   never inherits a stale waiter (the W2 review's false abort, 2026-11-04).
+   This is the arc's rule (W3). In W2 the witness only records (§7).
 3. Within the same bound, see each required device's counter or stamp
    advance. Close the row: the shot ID, the witness stamp, the setpoints,
    the conditions, the flags. A required device that produced nothing
@@ -668,14 +674,18 @@ Kept short, because two facts found on the way still hold the model up.
 ## 7. Where the changes land, and slices
 
 Order (maintainer, 2026-11-04): W0 and J0 in parallel, then W1 and W2,
-then the arc, with W5 beside it. A5 whenever the other facility needs it.
+then the arc. W5 goes early (coordinator, 2026-11-04, on the maintainer's
+deferral): on the native VISA cameras, which are outside current data
+taking, after the counter input's voltage check and before W1, so the
+per-frame shot ID is measured before the arc relies on it. A5 whenever
+the other facility needs it.
 
 | Slice | Repo | Content | Size (code / tests) | Hardware |
 |---|---|---|---|---|
 | W0 | geecs-epics (bench) | the witness bench (§8, item 0): the gated output tee'd into a counter input of the bench DAQ instance, `PollSleepMS` at 10 ms, one laser-off LabVIEW-only strict scan; counts against fires, doubled edges, the poll lag | the check script | the tee, the maintainer's hands; one write, the poll period, on the maintainer's go |
 | J0 | GEECS-Data-Utils | a live-join prototype replayed over existing gated runs: responsiveness per shot, and today's s-files reproduced from the streams; the seed of `shot_join.py`'s growth, or thrown away | ~200, prototype | — |
 | W1 | geecs-epics | the bench DAQ instance promoted to a witness instance (`/add-device` of the DAQ family): the counter records, the 10 ms poll at boot, the epoch PV from devIocStats | ~80 config | the USB run (open question 8) |
-| W2 | GeecsBluesky, GEECS-Schemas | a *witness* registry kind, waited on per shot (the fire confirmed when `Counts` advances); rows gain `witness_count`, `witness_stamp` and `witness_epoch`. Additive only, and worth it for LabVIEW-only scans: fire confirmation, and an audit of today's joins | ~150 / ~150 | the sim bench with the witness sim, then a laser-off scan |
+| W2 | GeecsBluesky, GEECS-Schemas | a *witness* registry kind, **record-only** (coordinator, 2026-11-04): read with each row, never waited on, never refusing or ending a run; rows gain `witness_count`, `witness_stamp` and `witness_epoch`. Fire confirmation is an audit: a count step other than +1, an epoch change, or a down witness is a warning and a flag, and the run continues (a witness down at the start runs with `read: false`). Additive only, and worth it for LabVIEW-only scans: fire confirmation after the fact, and an audit of today's joins. The first build waited on the witness and was reworked after its review (a pause could abort the run; a CA drop or USB stall ended it) | ~150 / ~150 | the sim bench with the witness sim, then a laser-off scan |
 | W3, the arc | GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils, GEECS-DataPortal, ScanAnalysis | the live join as a callback; every per-shot device a stream; `required` and the completeness budget; the two firing policies over one shape; the LabVIEW adapter (§5.4); the readers onto the join through the shared helper; the deletions of §10's first list. **Gets its own design section in this note and an adversarial review before any code** | sized by its design section | the sim bench; then laser-off runs |
 | W5 | geecs-epics | the witness count as an `EPICS_PV` NDAttribute in the camera family's shared attribute file, and the scope family's | one line per family / the fake | none: a config change, redeployed per IOC |
 | A5 | GeecsBluesky, GEECS-Schemas | the fire permit (§6.4): the permit readable and its registry kind, the wait inside the fire step, the *no-permit* and *stale* flags; a fake permit for the tests | ~60 / ~80 | none; a fake permit on the sim bench |
@@ -728,7 +738,12 @@ the maintainer's hand-off and go as the gate.
    cable; `PollSleepMS` to 10 ms, the one write, on the go. Then one
    laser-off LabVIEW-only strict scan: the count against the fires, no
    doubled edges, and the poll lag from the spread of successive stamp
-   deltas.
+   deltas. **Partly done 2026-11-04**: counter 0 on a tee of the box's
+   common trigger output; no doubled edges (every update +1; 1,182 counts
+   in 1,192 s of a production scan); the poll lag in §4.1. Owed: the
+   laser-off scan, and a scope check of the input's peak against the
+   counter input's maximum (the box drives 4 V into 50 Ω, possibly about
+   twice that into the high-impedance input). The check gates W5.
 1. **Witness alone.** Monitor the count and its stamp for an hour of
    ordinary running: rate against the rep rate, doubles, the poll-lag
    spread.
@@ -758,10 +773,10 @@ place of "essential"; the simulator as the development path.
 
 Open:
 
-1. **The witness dies mid-run.** Flag *unwitnessed* and continue on the
-   devices' own signals (recommended: the run is not lost, and the join
-   still runs), or stop. Strict waits on the witness, so the choice
-   decides what a live run does at that moment.
+1. **The witness dies mid-run.** Ruled 2026-11-04 (coordinator, on the
+   maintainer's deferral): flag *unwitnessed* and continue. In W2 the
+   witness only records; in the arc only a connected witness that saw no
+   edge stops a step (§6.1, step 2).
 2. **A step that runs out of refires.** Flag the step and continue the
    scan (recommended), or end the scan.
 3. **A live per-row flag for non-required devices.** Whether the live
