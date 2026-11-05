@@ -626,74 +626,24 @@ def _run_shots(run: Any, start: dict, rows: Any, stream: str) -> Optional[RunSho
 
 
 def _stamp_records(run: Any, start: dict, row_stream: str) -> list:
-    """One stamp-only ``DeviceRecords`` per device outside the rows, in its own stream.
+    """One stamps-only ``DeviceRecords`` per device outside the rows, in its own stream.
 
-    ``tiled_export.read_frame_columns``'s sources, reading of a stack's
-    attributes only its frame stamps; an event stream (named by
-    ``non_essential`` or ``per_shot_streams``) is one table read.
+    The one Tiled read behind a frame lookup.  Counters come only from bare
+    stream parts no plan publishes yet, so a portal frame lookup has none
+    until W3c (``tiled_export.read_device_records``).
     """
-    from geecs_data_utils.io.scan_stack import (
-        LABVIEW_EPOCH_OFFSET,
-        parse_attribute_name,
-    )
-    from geecs_data_utils.shot_join import (
-        FRAME_STAMP_SUFFIX,
-        frame_columns_from_attributes,
-        non_essential_stream,
-    )
-    from geecs_data_utils.shot_table import DeviceRecords
-    from geecs_data_utils.tiled_export import _event_stream_columns, _referenced_frames
+    from geecs_data_utils.tiled_export import read_device_records
 
-    events = {
-        non_essential_stream(str(n)): str(n) for n in start.get("non_essential") or ()
-    }
-    for name in start.get("per_shot_streams") or ():
-        events[str(name)] = str(name).removesuffix("_stream")
-    out = []
-    for stream in sorted(run):
-        node = run[stream] if stream != row_stream else None
-        columns = (
-            None
-            if node is None or stream not in events
-            else (_event_stream_columns(events[stream], node))
-        )
-        if columns is not None:
-            out.append(DeviceRecords(stream=stream, records=columns))
-            continue
-        contents = {} if node is None else node.get_contents()
-        for part in contents:
-            parsed = parse_attribute_name(str(part))
-            if parsed is None or parsed[2] not in (FRAME_STAMP_SUFFIX, "acq_timestamp"):
-                continue
-            columns = frame_columns_from_attributes(
-                parsed[0],
-                {part: node.base[part].read()},
-                labview_epoch_offset=LABVIEW_EPOCH_OFFSET,
-            )
-            referenced = _referenced_frames(contents, parsed[0])
-            if columns is not None and 0 <= referenced < len(columns):
-                columns = columns.truncated(referenced)
-            if columns is not None:
-                out.append(DeviceRecords(stream=stream, records=columns))
-    return out
+    return read_device_records(run, row_stream, stamps_only=True)
 
 
 def _joined_rows(run: Any, start: dict, shots: RunShots, stream: str) -> Any:
-    """*shots*' rows with every device's scalars joined (``read_frame_columns``), as its table assigned."""
-    from geecs_data_utils.shot_table import DeviceRecords, shot_table
-    from geecs_data_utils.tiled_export import read_drain_offsets, read_frame_columns
+    """*shots*' rows with every device's scalars joined, read on first use."""
+    from geecs_data_utils.shot_table import shot_table
+    from geecs_data_utils.tiled_export import read_device_records, read_drain_offsets
 
     try:
-        devices = [
-            DeviceRecords(
-                stream=shots.records[
-                    tiled_schema.normalize_token(c.object_name)
-                ].stream,
-                records=c,
-            )
-            for c in read_frame_columns(run, stream)
-            if shots.covers(c.object_name)
-        ]
+        devices = read_device_records(run, stream)
         offsets = read_drain_offsets(run)
         table = shot_table(
             start, shots.rows, devices, row_stream=stream, drain_offsets=offsets
