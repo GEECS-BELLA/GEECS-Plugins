@@ -664,8 +664,10 @@ class NativeCamera(StandardDetector):
 
         Refused on a hardware-source camera (its shot is the timing system's
         edge; a press would be a stray frame) and unless the camera is
-        prepared as a stream: unprepared the press is lost, and on a strict
-        camera it writes a frame outside any row and shifts every later one.
+        prepared as a stream and acquiring: before the Acquire readback (mid
+        prepare, a failed prepare, after unstage) the press is lost or lands
+        on the live view, and on a strict camera it writes a frame outside any
+        row and shifts every later one.
         """
         if self._source != NativeTriggerSource.SOFTWARE:
             raise GeecsConfigurationError(
@@ -677,6 +679,11 @@ class NativeCamera(StandardDetector):
             raise GeecsConfigurationError(
                 f"{self._geecs_device_name}: press() needs an unbounded prepare "
                 "(the stream path); a strict shot presses inside trigger()"
+            )
+        if not self._session.acquiring:
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name}: press() before the camera is "
+                "acquiring would be lost"
             )
         await self.driver.trigger_software.trigger()
 

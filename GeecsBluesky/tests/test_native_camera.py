@@ -523,6 +523,10 @@ def test_a_press_outside_trigger_presses_once(RE: RunEngine, tmp_path: Path) -> 
     assert presses == []  # arming presses nothing
     _run(RE, lambda: cam.press())
     assert presses == [1]
+    _run(RE, lambda: cam.unstage())
+    with pytest.raises(GeecsConfigurationError, match="would be lost"):
+        _run(RE, lambda: cam.press())  # onto the restored live view
+    assert presses == [1]
 
 
 @pytest.mark.parametrize(

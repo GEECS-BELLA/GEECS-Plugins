@@ -913,9 +913,10 @@ and the native stream path):
 #### Natives: a stream path to build
 
 Natives are legal strict essentials today and are not on the stream path:
-`_StampDataLogic` implements only `prepare_single`, and ophyd-async 0.19.3
-refuses an unbounded prepare ("Multiple collections not supported",
-`_detector.py:490-495`); kickoff and fly modes are refused
+`_StampDataLogic` implements only `prepare_single` (harmless: ophyd-async
+0.19.3 refuses only `number_of_collections > 1`, `_detector.py:491`, and an
+unbounded prepare is one collection of zero events; found building W3c
+PR-1, 2026-11-05); kickoff and fly modes are refused
 (`devices/native.py:631-674`); a software-source native is pressed only
 inside `trigger()` (`:663-666`). So:
 
