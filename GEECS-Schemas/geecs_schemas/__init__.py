@@ -18,6 +18,7 @@ from geecs_schemas.analysis import (
     AnalysisRecipe,
     AnalyzerRef,
     HimgJob,
+    ScalarJob,
 )
 from geecs_schemas.action_plan import (
     ACTION_LIBRARY_FILENAME,
@@ -252,6 +253,7 @@ __all__ = [
     "AnalysisRecipe",
     "AnalyzerRef",
     "HimgJob",
+    "ScalarJob",
     # shot_offsets
     "ShotOffsets",
     "DeviceOffset",
@@ -307,5 +309,6 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "analysis_recipe": AnalysisRecipe,
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,
+    "scalar_job": ScalarJob,
     "log_entry": LogEntry,
 }

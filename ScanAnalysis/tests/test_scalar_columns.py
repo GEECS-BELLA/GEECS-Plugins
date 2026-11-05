@@ -1,0 +1,129 @@
+"""The ``scalar_columns`` job: formulas over s-file columns, merged back into the s-file."""
+
+from __future__ import annotations
+
+from functools import partial
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+from geecs_data_utils import ScanPaths, ScanTag
+from geecs_schemas.analysis import ScalarJob
+
+from scan_analysis import base
+from scan_analysis.analyzers.common.scalar_columns import ScalarColumnsAnalyzer
+from scan_analysis.base import DataUnavailableWarning
+from scan_analysis.config.diagnostic_factory import create_scan_analyzer
+
+TAG = ScanTag(year=2026, month=3, day=10, number=12, experiment="Test")
+
+
+def job(*columns) -> ScalarJob:
+    return ScalarJob.model_validate(
+        {"kind": "scalar_columns", "columns": list(columns)}
+    )
+
+
+MM = {"name": "Cam x (mm)", "expr": "x * 0.5", "inputs": {"x": "Cam centroid x"}}
+RATIO = {"name": "ratio", "expr": "a * b / c", "inputs": {"a": "A", "b": "B", "c": "C"}}
+
+
+def build_scan(base_dir: Path) -> tuple[Path, Path]:
+    """A completed noscan with its raw ScanData table and its s-file."""
+    scan = ScanPaths.get_scan_folder_path(tag=TAG, base_directory=base_dir)
+    scan.mkdir(parents=True)  # fixture acquisition
+    (scan / "ScanInfoScan012.ini").write_text(
+        '[Scan Info]\nScan No = "12"\nScan Parameter = "noscan"\n'
+    )
+    rows = pd.DataFrame(
+        {
+            "Shotnumber": [1, 2, 3, 4],
+            "Bin #": [1, 1, 1, 1],
+            "A": [1.0, 2.0, 3.0, 4.0],
+            "B": [2.0, 2.0, 2.0, 2.0],
+            "C": [1.0, 0.0, 4.0, 8.0],
+        }
+    )
+    rows.to_csv(scan / "ScanDataScan012.txt", sep="\t", index=False)
+    analysis = scan.parent.parent / "analysis"
+    analysis.mkdir()
+    sfile = analysis / "s12.txt"
+    rows.assign(**{"Cam centroid x": [10, 20, "nan", 40]}).to_csv(
+        sfile, sep="\t", index=False
+    )
+    return scan, sfile
+
+
+def run(monkeypatch, base_dir: Path, doc: ScalarJob):
+    monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=base_dir))
+    analyzer = create_scan_analyzer(doc, id="Derived")
+    try:
+        return analyzer.run_analysis(TAG)
+    finally:
+        analyzer.cleanup()
+
+
+def test_the_factory_routes_the_job_to_its_runner():
+    analyzer = create_scan_analyzer(job(MM), id="Derived")
+    assert isinstance(analyzer, ScalarColumnsAnalyzer)
+    assert analyzer.id == "Derived"
+    assert analyzer.priority == 1000
+
+
+def test_columns_are_computed_and_merged_into_the_sfile(tmp_path, monkeypatch):
+    scan, sfile = build_scan(tmp_path)
+    before = set(p.relative_to(tmp_path) for p in scan.rglob("*"))
+    labels = run(monkeypatch, tmp_path, job(MM, RATIO))
+    out = pd.read_csv(sfile, sep="\t")
+    np.testing.assert_allclose(out["Cam x (mm)"], [5, 10, np.nan, 20])
+    # 2*2/0 is not finite: a blank cell, never a failed run
+    np.testing.assert_allclose(out["ratio"], [2, np.nan, 1.5, 1])
+    assert list(out["A"]) == [1, 2, 3, 4]  # every other column kept
+    assert "wrote 2 column(s) to s12.txt" in labels[0]
+    assert "'ratio' (3 of 4 shots)" in labels[0]
+    # nothing new in the scans tree; the sidecar lives under analysis/
+    assert set(p.relative_to(tmp_path) for p in scan.rglob("*")) == before
+    assert list((sfile.parent / "Scan012").glob("*Derived*"))
+
+
+def test_a_later_column_reads_an_earlier_one(tmp_path, monkeypatch):
+    _, sfile = build_scan(tmp_path)
+    twice = {"name": "twice", "expr": "m * 2", "inputs": {"m": "Cam x (mm)"}}
+    run(monkeypatch, tmp_path, job(MM, twice))
+    np.testing.assert_allclose(
+        pd.read_csv(sfile, sep="\t")["twice"], [10, 20, np.nan, 40]
+    )
+
+
+def test_rerunning_replaces_its_own_columns(tmp_path, monkeypatch):
+    _, sfile = build_scan(tmp_path)
+    run(monkeypatch, tmp_path, job(MM))
+    run(monkeypatch, tmp_path, job({**MM, "expr": "x * 2"}))
+    out = pd.read_csv(sfile, sep="\t")
+    assert list(out.columns).count("Cam x (mm)") == 1
+    assert out["Cam x (mm)"].iloc[0] == 20
+
+
+def test_a_missing_input_is_no_data_with_a_hint(tmp_path, monkeypatch):
+    _, sfile = build_scan(tmp_path)
+    before = sfile.read_bytes()
+    typo = {"name": "y", "expr": "x", "inputs": {"x": "Cam centroid  x"}}
+    with pytest.raises(DataUnavailableWarning, match="did you mean 'Cam centroid x'"):
+        run(monkeypatch, tmp_path, job(MM, typo))
+    assert sfile.read_bytes() == before  # nothing written
+
+
+def test_a_scanner_column_is_never_overwritten(tmp_path, monkeypatch):
+    _, sfile = build_scan(tmp_path)
+    before = sfile.read_bytes()
+    clash = {"name": "A", "expr": "a * 2", "inputs": {"a": "A"}}
+    with pytest.raises(ValueError, match="scanner's own columns"):
+        run(monkeypatch, tmp_path, job(clash))
+    assert sfile.read_bytes() == before
+
+
+def test_a_constant_formula_fills_every_shot():
+    table = pd.DataFrame({"Shotnumber": [1, 2]})
+    out = ScalarColumnsAnalyzer(job({"name": "k", "expr": "2 * pi"})).compute(table)
+    np.testing.assert_allclose(out["k"], [2 * np.pi] * 2)

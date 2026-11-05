@@ -463,6 +463,29 @@ class TestListing:
         assert all(a["job"] is None and a["files"] == [] for a in body["analyzers"])
         assert body["running"] is None
 
+    def test_a_scalar_job_applies_to_every_scan(self, scan_folder, configs_tree):
+        """It reads the s-file, not a device folder: never collapsed as inapplicable."""
+        pytest.importorskip("scan_analysis")
+        yaml = pytest.importorskip("yaml")
+        (configs_tree / "analyzers" / "HTU" / "Derived.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "kind": "scalar_columns",
+                    "columns": [{"name": "k", "expr": "2 * a", "inputs": {"a": "A"}}],
+                }
+            )
+        )
+        client = _client(scan_folder, configs_tree)
+        derived = next(
+            a
+            for a in client.get("/api/run/uid-002/analysis").json()["analyzers"]
+            if a["id"] == "Derived"
+        )
+        assert derived["applicable"] is True
+        assert derived["destructive"] is False
+        catalog = client.get("/api/analysis/catalog").json()["analyzers"]
+        assert next(a for a in catalog if a["id"] == "Derived")["kind"] == "scalar"
+
     def test_files_on_disk_survive_without_a_record(self, scan_folder, configs_tree):
         """A page loaded after a portal restart still lists earlier outputs."""
         pytest.importorskip("scan_analysis")

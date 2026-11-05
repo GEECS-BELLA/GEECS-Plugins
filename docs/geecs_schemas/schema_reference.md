@@ -1304,6 +1304,54 @@ How the job runs among a group's analyses.
 |---|---|---|---|---|
 | `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
 
+## `scalar_job`
+
+### ScalarJob
+
+New s-file columns computed from existing ones, shot by shot.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this job file. Leave at 1 — tools update this automatically when the file format changes. |
+| `kind` | `'scalar_columns'` | yes | — | scalar_columns: compute new s-file columns from existing ones. |
+| `columns` | `list[ScalarColumn]` | yes | — | The new columns, evaluated in this order. |
+| `output_name` | `str (optional)` | no | None | Label the portal's Analysis tab lists the job under. Defaults to the file name. |
+| `description` | `str (optional)` | no | None | Free-text note about this job. |
+| `scan` | `ScalarJobRuntime` | no | ScalarJobRuntime(priority=1000) | How the job runs among a group's analyses. |
+
+Example:
+
+```yaml
+schema_version: 1
+kind: scalar_columns             # new s-file columns from existing ones
+columns:
+  - name: UC_TopView x (mm)      # the new column; never a scanner column
+    expr: x * 0.0244             # numbers, + - * / ** %, sqrt, log, ...
+    inputs: {x: UC_TopView centroid_x}
+  - name: charge ratio
+    expr: a * b / c
+    inputs: {a: U_BCaveICT charge, b: U_ICT2 charge, c: U_ICT3 charge}
+```
+
+### ScalarColumn
+
+One new s-file column: a name, a formula, and the columns it reads.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | The new column's name in the s-file, units included if you like, e.g. 'UC_TopView x (mm)'. It must not be one of the scanner's own columns: a job never overwrites raw data. |
+| `expr` | `str` | yes | — | The formula, e.g. 'x * 0.0244' or 'a * b / c'. Numbers, the symbols in inputs, + - * / ** %, and the functions abs, sqrt, exp, log, log10, sin, cos, tan, arcsin, arccos, arctan, arctan2, hypot, minimum, maximum (and pi, e). |
+| `inputs` | `dict[str, str]` | no | empty | Symbol → existing s-file column, e.g. {x: 'UC_TopView centroid_x'}. A column made earlier in this job may be used by its name. |
+| `description` | `str (optional)` | no | None | Free-text note. |
+
+### ScalarJobRuntime
+
+How the job runs among a group's analyses.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `priority` | `int` | no | 1000 | Run order within a group: lower runs first. The default, 1000, runs after the recipes whose columns a formula may read. |
+
 ## `log_entry`
 
 ### LogEntry

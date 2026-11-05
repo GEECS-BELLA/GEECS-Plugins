@@ -12,8 +12,11 @@ API (under the mount)::
     GET  /api/list                  analyzers + groups (validity, summary), namespaces, git pending
     GET  /api/schema/{kind}         JSON Schema for kind = analyzer (the recipe, its
                                     steps/measure bound to the core's registry) | group
+                                    | scalar (the scalar-columns job's form)
     GET  /api/{kind}s/{id}          one document: raw, etag, yaml, validity
     POST /api/validate/{kind}       {document} -> {ok, errors, canonical, yaml}
+    POST /api/columns               {params} -> {columns}: a scan's s-file column
+                                    names (404 unless the host passes columns=)
     PUT  /api/{kind}s/{ns}/{id}     {document, etag|null} -> saved {etag, yaml, created}; 409 / 422
     DELETE /api/{kind}s/{id}?etag=  -> 204; 409
     POST /api/preview               {document, params} -> image/png (host-provided; 404 without)
@@ -61,6 +64,12 @@ PreviewFn = Callable[[Mapping[str, Any], Mapping[str, Any]], bytes]
 #: at ``index``.
 SummaryPreviewFn = Callable[[Mapping[str, Any], Mapping[str, Any], int], bytes]
 
+#: ``columns(params) -> [column name]``: the s-file column names of the
+#: scan *params* name (the host's own keys — the portal's ``uid``/``day``,
+#: or ``day`` + ``scan``), the scalar-columns form's input picker.  Same
+#: error ladder as a preview: ``LookupError`` 404, ``ValueError`` 400.
+ColumnsFn = Callable[[Mapping[str, Any]], list[str]]
+
 _KINDS = {"analyzer", "group"}
 
 
@@ -80,6 +89,7 @@ def create_editor_router(  # noqa: C901, PLR0915
     preview: Optional[PreviewFn] = None,
     summary_preview: Optional[SummaryPreviewFn] = None,
     summary_shots_max: int = 8,
+    columns: Optional[ColumnsFn] = None,
     read_only: bool = False,
     theme_url: str = "/theme",
 ) -> APIRouter:
@@ -99,6 +109,10 @@ def create_editor_router(  # noqa: C901, PLR0915
     summary_shots_max : int, default 8
         The most shots the host reads for one summary preview; the page
         bounds its shots control by it (``/api/list`` carries it).
+    columns : callable, optional
+        Host-provided s-file column names of a scan, for the scalar-columns
+        form's input picker; without it ``POST /api/columns`` is 404 and the
+        form has no picker (``/api/list`` says which).
     read_only : bool, default False
         Serve the browser and validation but refuse writes (405).
     theme_url : str, default "/theme"
@@ -156,6 +170,7 @@ def create_editor_router(  # noqa: C901, PLR0915
                 "preview": preview is not None,
                 "summary_preview": summary_preview is not None,
                 "summary_shots_max": summary_shots_max,
+                "columns": columns is not None,
                 "read_only": read_only,
             },
             headers={"Cache-Control": "no-cache"},
@@ -163,7 +178,9 @@ def create_editor_router(  # noqa: C901, PLR0915
 
     @router.get("/api/schema/{kind}")
     def schema(kind: str) -> JSONResponse:
-        return JSONResponse(store.schema(_kind(kind)))
+        # "scalar" is a form, not a URL kind: a scalar-columns job is an
+        # analyzer document (read and saved under /api/analyzers/...)
+        return JSONResponse(store.schema("scalar" if kind == "scalar" else _kind(kind)))
 
     @router.get("/api/{plural}/{doc_id}")
     def read(plural: str, doc_id: str) -> JSONResponse:
@@ -265,5 +282,20 @@ def create_editor_router(  # noqa: C901, PLR0915
         return _render_preview(
             body, lambda document, params: summary_preview(document, params, index)
         )
+
+    @router.post("/api/columns")
+    def columns_endpoint(body: dict = Body(...)) -> JSONResponse:
+        if columns is None:
+            raise HTTPException(status_code=404, detail="no column list on this host")
+        params = body.get("params") or {}
+        if not isinstance(params, dict):
+            raise HTTPException(status_code=422, detail="body.params must be a mapping")
+        try:
+            names = columns(params)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse({"columns": names}, headers={"Cache-Control": "no-store"})
 
     return router

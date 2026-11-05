@@ -40,6 +40,7 @@ from geecs_schemas.analysis import (
     AnalysisGroup,
     AnalysisRecipe,
     HimgJob,
+    ScalarJob,
     canonical_document,
     load_analysis_document,
 )
@@ -364,10 +365,12 @@ class ConfigStore:
 
     @staticmethod
     def _summary(doc: BaseModel) -> dict[str, Any]:
-        if isinstance(doc, (AnalysisRecipe, HimgJob)):
+        if isinstance(doc, (AnalysisRecipe, HimgJob, ScalarJob)):
             # what runs: the recipe's measure, or the job
             if isinstance(doc, AnalysisRecipe):
                 document, runs = "recipe", doc.measure.kind
+            elif isinstance(doc, ScalarJob):
+                document, runs = "scalar", doc.kind
             else:
                 document, runs = "job", doc.kind
             return {
@@ -559,14 +562,18 @@ class ConfigStore:
     # ---------------------------------------------------------------- schemas
 
     @staticmethod
-    def schema(kind: DocumentKind) -> dict[str, Any]:
+    def schema(kind: DocumentKind | Literal["scalar"]) -> dict[str, Any]:
         """The JSON Schema the editor renders its form from.
 
         For a recipe it is the document's schema with ``steps`` and
         ``measure`` bound to the analysis core's registry
         (:func:`geecs_analysis.recipe.recipe_schema`), so the form lists the
-        step vocabulary and types each step's parameters.
+        step vocabulary and types each step's parameters.  ``"scalar"`` is
+        the scalar-columns job's form (an analyzer document of its own
+        shape, :class:`~geecs_schemas.analysis.ScalarJob`).
         """
         if kind == "analyzer":
             return recipe_schema()
+        if kind == "scalar":
+            return ScalarJob.model_json_schema()
         return _MODELS[kind].model_json_schema()

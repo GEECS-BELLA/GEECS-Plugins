@@ -379,6 +379,17 @@ device: U_HasoLift               # the HASO device folder under scans/ScanNNN/
 output_name: HasoLift_compact    # the portal lists the job under this label
 scan: {priority: 6}
 """,
+    "scalar_job": """\
+schema_version: 1
+kind: scalar_columns             # new s-file columns from existing ones
+columns:
+  - name: UC_TopView x (mm)      # the new column; never a scanner column
+    expr: x * 0.0244             # numbers, + - * / ** %, sqrt, log, ...
+    inputs: {x: UC_TopView centroid_x}
+  - name: charge ratio
+    expr: a * b / c
+    inputs: {a: U_BCaveICT charge, b: U_ICT2 charge, c: U_ICT3 charge}
+""",
     "log_entry": """\
 schema_version: 1
 entry_id: 7f3a9c2b1d04
