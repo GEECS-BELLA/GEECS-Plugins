@@ -80,8 +80,12 @@ STREAM_META_KEY = "stream_meta"
 #: A device's own per-frame counter, by its dataset name, first found wins:
 #: areaDetector's ``NDArrayUniqueId`` in a stock stack.
 COUNTER_KEYS = ("NDArrayUniqueId", "UniqueId", "ArrayCounter")
-#: The W5 attribute: the witness count recorded on each frame.
-WITNESS_ATTRIBUTE_KEY = "witness_count"
+#: The W5 attribute: the witness count recorded on each frame, the camera
+#: family's NDAttribute (``/entry/instrument/NDAttributes/WitnessCount``,
+#: int32; NaN on a camera booted without the witness).  No alias: nothing
+#: in this repo writes a per-frame ``witness_count`` (that name is the
+#: ``primary`` row's column, ``devices/witness.py``).
+WITNESS_ATTRIBUTE_KEY = "WitnessCount"
 
 #: How far before its fire an unwitnessed record may be stamped, seconds:
 #: a LabVIEW host's clock runs up to 16 ms off the box (§4.5) and a stored

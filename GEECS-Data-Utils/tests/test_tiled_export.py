@@ -945,3 +945,23 @@ def test_read_device_records_reads_stream_meta_and_stamps_only() -> None:
     (lean,) = read_device_records(run, "primary", stamps_only=True)
     assert set(lean.records.columns) == {"u_slow-acq_timestamp", "u_slow-UniqueId"}
     assert list(lean.counter) == [41.0]
+
+
+def test_device_records_reads_the_w5_attribute_by_its_hdf5_name() -> None:
+    """``WitnessCount`` (W5) and ``NDArrayUniqueId`` from a stack's datasets."""
+    import numpy as np
+
+    from geecs_data_utils.shot_join import FrameColumns
+    from geecs_data_utils.shot_table import device_records
+
+    records = FrameColumns("uc_cam", np.array([1.0, 2.0]))
+    source = device_records(
+        "uc_cam_stream",
+        records,
+        {},
+        {"WitnessCount": np.array([7, 8], dtype=np.int32), "NDArrayUniqueId": [3, 4]},
+    )
+    assert list(source.witness_count) == [7.0, 8.0] and list(source.counter) == [
+        3.0,
+        4.0,
+    ]
