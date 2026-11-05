@@ -223,11 +223,17 @@ class RunShots:
         not here; their row is their frame), stamps only.
     rows : DataFrame
         The rows the table was built from.
+    running : bool
+        Built while the run was running: an unwitnessed newest row's fire
+        interval is still open (it closes at the next fire, a period after
+        its own), so the next shot's record could fill it; it reads a gap
+        until the next row exists.
     """
 
     table: Any
     records: dict
     rows: Any = field(default=None, repr=False, compare=False)
+    running: bool = False
 
     def covers(self, device: str) -> bool:
         """Whether *device* (object or folder name) is one of the joined devices."""
@@ -237,6 +243,9 @@ class RunShots:
         """The stamp (LabVIEW epoch) of *device*'s record for 1-based *shot*, or ``None`` (a gap)."""
         from geecs_data_utils.shot_table import frame_for
 
+        flags = self.table.flags
+        if self.running and shot == len(flags) and "unwitnessed" in flags[-1]:
+            return None  # its interval is open: the next shot's frame may sit in it
         source = self.records.get(tiled_schema.normalize_token(device))
         hit = None if source is None else frame_for(self.table, source.device, shot)
         if hit is None:
@@ -403,9 +412,7 @@ class TiledScanCatalog:
         self._api_key = api_key
         self._client: Any = None
         self._clock = time.monotonic
-        self._shots: OrderedDict[str, tuple[float, bool, Optional[RunShots]]] = (
-            OrderedDict()
-        )
+        self._shots: OrderedDict[str, tuple] = OrderedDict()
         self._shots_lock = threading.Lock()
         self._building: dict[str, threading.Lock] = {}
 
@@ -567,7 +574,7 @@ class TiledScanCatalog:
                 detail = replace(
                     detail,
                     data=shots.table.rows,
-                    scalar_source=functools.cache(joined),
+                    scalar_source=_once(joined),
                 )
         return detail
 
@@ -577,22 +584,26 @@ class TiledScanCatalog:
         """*uid*'s :class:`RunShots`, one build at a time per run.
 
         Kept for good once a finished run's build succeeds; a running run's
-        (or a failed build, as ``None``) for :data:`_SHOTS_TTL_S`, so a
-        running run's rows lag the catalog by up to that long.
+        (or a failed build, as ``None``) for :data:`_SHOTS_TTL_S`, unless the
+        run has finished since or its rows changed: then it is rebuilt.
         """
         with self._shots_lock:
             lock = self._building.setdefault(uid, threading.Lock())
         with lock:
             with self._shots_lock:
                 hit = self._shots.get(uid)
-            if hit is not None and (hit[1] or self._clock() - hit[0] < _SHOTS_TTL_S):
-                return hit[2]
-            shots = _run_shots(run, start, rows, stream)
+            if hit is not None:
+                built_at, forever, cached, as_built = hit
+                young = self._clock() - built_at < _SHOTS_TTL_S
+                if forever or (young and as_built == (complete, len(rows))):
+                    return cached
+            shots = _run_shots(run, start, rows, stream, complete)
             with self._shots_lock:
                 self._shots[uid] = (
                     self._clock(),
                     complete and shots is not None,
                     shots,
+                    (complete, len(rows)),
                 )
                 self._shots.move_to_end(uid)
                 while len(self._shots) > _SHOTS_CACHE_RUNS:
@@ -600,7 +611,22 @@ class TiledScanCatalog:
             return shots
 
 
-def _run_shots(run: Any, start: dict, rows: Any, stream: str) -> Optional[RunShots]:
+def _once(build: Callable[[], Any]) -> Callable[[], Any]:
+    """*build*, called at most once; concurrent first callers wait for it."""
+    lock, done = threading.Lock(), []
+
+    def call() -> Any:
+        with lock:
+            if not done:
+                done.append(build())
+            return done[0]
+
+    return call
+
+
+def _run_shots(
+    run: Any, start: dict, rows: Any, stream: str, complete: bool = True
+) -> Optional[RunShots]:
     """A Tiled run's :class:`RunShots` from its devices' stamps, or ``None`` (logged).
 
     Its devices are every stream but the rows' (:func:`_stamp_records`), with
@@ -622,6 +648,7 @@ def _run_shots(run: Any, start: dict, rows: Any, stream: str) -> Optional[RunSho
         table=table,
         records={tiled_schema.normalize_token(d.device): d for d in devices},
         rows=rows,
+        running=not complete,
     )
 
 

@@ -191,3 +191,48 @@ def test_a_failed_build_is_kept_as_no_table_for_the_ttl() -> None:
     now[0] = 31.0
     load(run, catalog)
     assert run.reads.count(stamp) == 2
+
+
+def test_a_table_built_while_running_is_rebuilt_once_the_run_finishes() -> None:
+    run = gated_run()
+    run.metadata["stop"] = {}
+    catalog = TiledScanCatalog(uri="http://fake:8000")
+    assert len(load(run, catalog).data) == 3
+    shots = pd.DataFrame(
+        {"bin_number": [1] * 4, "u_clock-acq_timestamp": [LV + k for k in (1, 2, 3, 4)]}
+    )
+    run["shots"] = _Stream(run, {"internal": shots})
+    run.metadata["stop"] = {"exit_status": "success", "num_events": {"shots": 4}}
+    assert len(load(run, catalog).data) == 4
+
+
+def test_a_running_runs_open_newest_interval_reads_a_gap() -> None:
+    """Unwitnessed: shot 4's frame lands in shot 3's interval before row 4 exists."""
+    fires = [UNIX + 1, UNIX + 2, UNIX + 3]
+    primary = pd.DataFrame({"fire_stamp": fires})
+    start = {"uid": "u", "layout": "shot-table/1", "shot_clock_column": "fire_stamp"}
+    stream = camera("uc_cam", [LV + 1.05, LV + 2.05, LV + 3.95], [1, 2, 4])
+    run = _Run(
+        start, {"primary": {"internal": primary}, "uc_cam_stream": stream}, stop={}
+    )
+    shots = load(run).shots()
+    assert shots.stamp_for("uc_cam", 2) == LV + 2.05
+    assert shots.stamp_for("uc_cam", 3) is None  # running: its interval is open
+    run.metadata["stop"] = {"exit_status": "success"}
+    assert load(run).shots().stamp_for("uc_cam", 3) == LV + 3.95  # finished: as before
+
+
+def test_concurrent_first_scalars_calls_read_once(monkeypatch) -> None:
+    import threading
+    import time
+
+    read = _Part.read
+    monkeypatch.setattr(_Part, "read", lambda part: (time.sleep(0.05), read(part))[1])
+    run = gated_run()
+    detail = load(run)
+    threads = [threading.Thread(target=detail.scalars) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert run.reads.count("uc_gatedcam-hdf-image-meancounts") == 1
