@@ -193,11 +193,16 @@ page's rules under node):
   frame is served (a 2 Hz poller on a 1 Hz camera costs one scalar read
   per 0.5 s); else the frame, `raw_width` and `raw_height` in one batch,
   then the counter again — on a mismatch the batch is read once more and
-  tagged by the second counter. The cast is `astype("<u2")`, exact for
-  every `USHORT` value (aioca delivers int32): never `view()` (it doubles
-  the element count), never a clamp. The cast and the gzip run in
-  `asyncio.to_thread`; the int32 array is dropped once cast (≈ 36 MB peak
-  per read of a 2592×2048 frame).
+  tagged by the second counter. The frame is asked as `DBR_SHORT`
+  (`datatype=np.int16`; a `USHORT` waveform's native CA type is
+  `DBR_LONG`, int32, twice the bytes on the wire) and its sizes natively;
+  a count above 32767 arrives negative and the cast, a `view` as uint16
+  (little-endian), restores it exactly: never a clamp. This replaces the
+  earlier "`astype`, never `view`" rule, which was for the int32 delivery
+  (a view of int32 doubles the element count); a frame that arrives other
+  than 16-bit is a 503 (`the raw frame arrived as <dtype>, not 16-bit`).
+  The cast and the gzip run in `asyncio.to_thread` (≈ 15 MB peak per
+  read of a 2592×2048 frame).
 - **The page**: Raw off by default and never remembered; on, a 2 Hz poll
   with `If-None-Match`; the body is a `Uint16Array` (every platform the
   page runs on is little-endian); the histogram has `full scale + 1` bins,
@@ -258,7 +263,7 @@ npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
 `test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
 `test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
-by `frame.raw` over `test_images.py`'s fake CA (as int32, as aioca delivers it), its bytes checked on the
+by `frame.raw` over `test_images.py`'s fake CA (as int16, as aioca delivers it asked `DBR_SHORT`), its bytes checked on the
 wire, then decoded, transformed and levelled by `camera_rules.js` under node. A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script
 keeps the DOM work only.

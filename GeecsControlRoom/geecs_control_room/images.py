@@ -92,7 +92,7 @@ class Ca(Protocol):
         ...
 
     async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
-        """The frame's values as CA delivers them (int32 for ``USHORT``) and its geometry, in one batch."""
+        """The frame's values as 16-bit integers (int16 as CA delivers ``DBR_SHORT``) and its geometry, in one batch."""
         ...
 
 
@@ -125,10 +125,19 @@ class AiocaCa:
         return float(await aioca.caget(pv, timeout=CA_TIMEOUT_S))
 
     async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
-        """The frame (count 0: the IOC's current length) and its geometry, one ``caget``."""
+        """The frame (count 0: the IOC's current length) as ``DBR_SHORT`` and its geometry, read together.
+
+        A ``USHORT`` waveform's native CA type is ``DBR_LONG`` (int32, twice
+        the bytes on the wire); asked as ``DBR_SHORT`` the IOC sends each value's
+        16 bits unchanged, so a count above 32767 arrives negative and
+        :func:`_cast` restores it.
+        """
         import aioca
 
-        data, w, h = await aioca.caget([frame, width, height], timeout=CA_TIMEOUT_S)
+        data, (w, h) = await asyncio.gather(
+            aioca.caget(frame, datatype=np.int16, timeout=CA_TIMEOUT_S),
+            aioca.caget([width, height], timeout=CA_TIMEOUT_S),
+        )
         return np.asarray(data), int(w), int(h)
 
 
@@ -187,9 +196,13 @@ class RawFrame:
 
 
 def _cast(data: np.ndarray) -> np.ndarray:
-    """The ``USHORT`` values as uint16 little-endian: ``astype``, exact for 0–65535; never ``view``, never a clamp."""
-    # "<u2" is np.uint16, little-endian on any host
-    return np.asarray(data).astype(np.dtype("<u2"))
+    """The ``USHORT`` values, read as int16, as uint16 little-endian: a ``view`` of the same 16 bits, exact, never a clamp.
+
+    The earlier "``astype``, never ``view``" rule was for the int32 delivery
+    (a view there doubles the element count); the read is 16-bit now, so the
+    view replaces it. No copy on a little-endian host; a big-endian one swaps.
+    """
+    return np.asarray(data).view(np.uint16).astype(np.dtype("<u2"), copy=False)
 
 
 def _gzip(frame: np.ndarray) -> bytes:
@@ -351,12 +364,14 @@ class Images:
             tag = after
             del data
             data, width, height = await self._batch(frame_pv, width_pv, height_pv)
+        if data.dtype.kind not in "iu" or data.dtype.itemsize != 2:
+            raise Unavailable(503, f"the raw frame arrived as {data.dtype}, not 16-bit")  # fmt: skip
         n = int(np.size(data))
         if n == 0 or n != width * height:
             # mono only: a colour frame (ArraySize0 = 3) fails here too
             raise Unavailable(503, f"geometry disagrees: {n} values for {width}×{height}")  # fmt: skip
         frame = await asyncio.to_thread(_cast, data)
-        del data  # the int32 array (21 MB for a 2592×2048 frame) goes as soon as the cast is done
+        del data  # the cast is a view of it: both go once compressed (10.6 MB for a 2592×2048 frame)
         body = await asyncio.to_thread(_gzip, frame)
         del frame
         raw = self._held[key] = RawFrame(body, width, height, tag, self._full_scale(name, scale))  # fmt: skip

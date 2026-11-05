@@ -10,7 +10,7 @@ import httpx
 import numpy as np
 import pytest
 
-from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, RAW_HOLD_S, ROUTE_TTL_S, Images, router, with_ca_host  # fmt: skip
+from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, RAW_HOLD_S, ROUTE_TTL_S, AiocaCa, Images, router, with_ca_host  # fmt: skip
 from geecs_control_room.module_client import ModuleClient
 
 IMAGE_PV = "bench:cam:MJPG1:JPG_URL_RBV"
@@ -73,7 +73,8 @@ COUNTER, FULL_SCALE = "bench:cam:ARR:ArrayCounter_RBV", "bench:cam:FullScale"
 class FakeCa:
     """The reads, recorded; ``fail`` makes the arrays read raise, ``frame_fails`` / ``counter_fails`` theirs.
 
-    The raw frame: ``raw`` is what CA delivers (int32 values, width, height),
+    The raw frame: ``raw`` is what CA delivers asked as ``DBR_SHORT`` (int16
+    values, a count above 32767 negative; width, height),
     ``counters`` the successive ``ArrayCounter_RBV`` reads (the last repeats),
     ``full_scale`` the ``FullScale`` read (``None``: unreadable).
     """
@@ -82,7 +83,7 @@ class FakeCa:
         self.calls: list[tuple[str, Any]] = []
         self.fail = self.frame_fails = self.counter_fails = False
         self.gate: asyncio.Event | None = None
-        self.raw: tuple[np.ndarray, int, int] = (np.arange(12, dtype=np.int32), 4, 3)
+        self.raw: tuple[np.ndarray, int, int] = (np.arange(12, dtype=np.int16), 4, 3)
         self.counters: list[float] = [7.0]
         self.full_scale: float | None = 4095.0
         self.scale_gate: asyncio.Event | None = None
@@ -338,7 +339,7 @@ async def _raw(c: httpx.AsyncClient, **headers: str) -> tuple[httpx.Response, by
 @pytest.mark.parametrize("width, height", [(2592, 2048), (600, 600)])
 async def test_the_raw_frame_is_uint16_little_endian_row_major_gzip_framed(width, height) -> None:  # fmt: skip
     env = Env()
-    frame = np.random.default_rng(1).integers(0, 4096, size=width * height, dtype=np.int32)  # fmt: skip
+    frame = np.random.default_rng(1).integers(0, 4096, size=width * height, dtype=np.int16)  # fmt: skip
     env.ca.raw = (frame, width, height)
     async with env.client() as c:
         r, wire = await _raw(c)
@@ -462,6 +463,7 @@ async def test_no_raw_frame_role_is_a_404_and_nothing_is_read(gone) -> None:
             "geometry disagrees: 36 values for 3×4",
         ),  # an RGB frame: ArraySize0 = 3
         ("empty", "geometry disagrees: 0 values for 0×0"),
+        ("wide", "the raw frame arrived as int32, not 16-bit"),
     ],
 )
 async def test_a_silent_source_is_a_503_with_words(fault, words) -> None:
@@ -471,11 +473,15 @@ async def test_a_silent_source_is_a_503_with_words(fault, words) -> None:
     elif fault == "frame":
         env.ca.frame_fails = True
     elif fault == "geometry":  # a camera-ROI change between the array and its sizes
-        env.ca.raw = (np.arange(12, dtype=np.int32), 4, 4)
+        env.ca.raw = (np.arange(12, dtype=np.int16), 4, 4)
     elif fault == "colour":
-        env.ca.raw = (np.arange(36, dtype=np.int32), 3, 4)
+        env.ca.raw = (np.arange(36, dtype=np.int16), 3, 4)
+    elif (
+        fault == "wide"
+    ):  # the native DBR_LONG read: twice the bytes, never viewed as 16-bit
+        env.ca.raw = (np.arange(12, dtype=np.int32), 4, 3)
     else:
-        env.ca.raw = (np.zeros(0, dtype=np.int32), 0, 0)
+        env.ca.raw = (np.zeros(0, dtype=np.int16), 0, 0)
     async with env.client() as c:
         r = await c.get(RAW_URL)
     assert r.status_code == 503 and r.json()["detail"] == words
@@ -500,8 +506,27 @@ async def test_viewers_share_one_raw_read_in_flight() -> None:
 
 async def test_values_above_32767_survive_the_cast_exactly() -> None:
     env = Env()
-    values = np.array([0, 1, 4095, 32767, 32768, 40000, 65534, 65535], dtype=np.int32)
-    env.ca.raw = (values, 4, 2)
+    values = np.array([0, 1, 4095, 32767, 32768, 40000, 65534, 65535], dtype=np.uint16)
+    sent = values.view(np.int16)  # as DBR_SHORT delivers them: 32768 arrives as -32768
+    assert sent.tolist()[4:] == [-32768, -25536, -2, -1]
+    env.ca.raw = (sent, 4, 2)
     async with env.client() as c:
         _, wire = await _raw(c)
     assert np.frombuffer(gzip.decompress(wire), dtype="<u2").tolist() == values.tolist()  # fmt: skip
+
+
+async def test_the_real_ca_asks_for_the_frame_as_16_bit(monkeypatch) -> None:
+    """``AiocaCa.frame`` asks ``DBR_SHORT`` for the frame alone (half the native ``DBR_LONG``'s bytes), its sizes as they are."""
+    aioca = pytest.importorskip("aioca")
+    asked: list[tuple[Any, Any]] = []
+
+    async def caget(pv: Any, datatype: Any = None, timeout: Any = None) -> Any:
+        asked.append((pv, datatype))
+        if isinstance(pv, list):
+            return [600, 2]
+        return np.arange(1200, dtype=np.int32 if datatype is None else datatype)
+
+    monkeypatch.setattr(aioca, "caget", caget)
+    data, width, height = await AiocaCa().frame(*RAW)
+    assert sorted(asked, key=str) == sorted([(RAW[0], np.int16), (list(RAW[1:]), None)], key=str)  # fmt: skip
+    assert data.dtype == np.int16 and (width, height) == (600, 2)
