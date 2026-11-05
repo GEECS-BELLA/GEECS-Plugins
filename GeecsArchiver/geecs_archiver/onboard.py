@@ -86,7 +86,9 @@ def plan_onboarding(
     never_connected : iterable of str
         ``getNeverConnectedPVs`` names: requests still in the appliance's
         workflow.  One under *prefix* the rule no longer wants is aborted;
-        a wanted one stays pending, the appliance's to finish.
+        a wanted one stays pending, the appliance's to finish.  A name is
+        wanted when it or its ``.VAL`` form is desired: the appliance may
+        list a ``.VAL`` request under its base name.
 
     Notes
     -----
@@ -129,7 +131,9 @@ def plan_onboarding(
     plan.to_abort = sorted(
         pv
         for pv in set(never_connected) - archived
-        if pv.lower().startswith(prefix.lower()) and pv not in desired
+        if pv.lower().startswith(prefix.lower())
+        and pv not in desired
+        and f"{pv}.VAL" not in desired  # a .VAL request listed under its base name
     )
     return plan
 

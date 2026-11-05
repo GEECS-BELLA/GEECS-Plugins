@@ -165,6 +165,19 @@ def test_a_converged_appliance_plans_no_aborts():
     assert plan.is_noop and plan.to_abort == []
 
 
+def test_a_wanted_val_request_listed_under_its_base_name_is_not_aborted():
+    """The appliance may strip a request's ``.VAL``; the base name is still wanted."""
+    plan = plan_onboarding(
+        {"undulator:m:x.VAL": S1},
+        statuses=[st("undulator:m:x.VAL", "Initial sampling", None, None, None)],
+        archived_pvs=[],
+        prefix="undulator:",
+        never_connected=["undulator:m:x", "undulator:m:gone"],
+    )
+    assert plan.to_abort == ["undulator:m:gone"]
+    assert plan.pending == ["undulator:m:x.VAL"]
+
+
 class FakeClient:
     """The appliance as the planner sees it: 'ghost' PVs never connect (they sit on the never-connected list)."""
 

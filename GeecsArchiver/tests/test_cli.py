@@ -148,11 +148,13 @@ def test_onboard_applies_and_verifies(appliance, capsys):
 
 
 def test_onboard_no_pause_keeps_strays(appliance):
+    appliance.never_connected.append("undulator:cam:gone")
     assert (
         cli.main(["onboard", "--experiment", "Undulator", "--no-pause", "--wait", "0"])
         == 0
     )
-    assert appliance.paused == []
+    assert appliance.paused == [] and appliance.aborted == []
+    assert "undulator:cam:gone" in appliance.never_connected  # the request is kept
 
 
 def test_onboard_reports_a_stuck_request_on_every_run(appliance, monkeypatch, capsys):
