@@ -13,6 +13,7 @@ same numbers — as the serial loop.
 from __future__ import annotations
 
 import logging
+import threading
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -32,6 +33,18 @@ if TYPE_CHECKING:
 #: would copy mid-lock; a spawned worker starts clean and rebuilds the step
 #: registry by importing it.
 START_METHOD = "spawn"
+
+#: The thread-count variables of the common BLAS and OpenMP builds, each
+#: read once, when its library loads in the worker.
+_COMPUTE_THREAD_VARS = (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "OPENCV_FOR_THREADS_NUM",
+)
+_ENVIRON_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -233,7 +246,10 @@ def run_units(
     ``workers`` groups in flight. Log records the workers emit are handed
     to the loggers of this process (at this process's root level or above).
     Closing the iterator early shuts the pool down; a worker's per-unit
-    failures are outcomes, exactly as in the serial loop.
+    failures are outcomes, exactly as in the serial loop. Each worker runs
+    its BLAS and OpenMP libraries on one thread, unless this process's
+    environment names a count, so ``workers`` is the run's parallelism; this
+    process's environment is restored after each submission.
     """
     from geecs_data_utils.frames import ShotMeta
 
@@ -322,7 +338,7 @@ def _exit_with_parent() -> None:
     def watch() -> None:
         wait([parent.sentinel])
         # The default SIGTERM action ends the process at once, as os._exit
-        # would (the core imports no os): no queue flush, no atexit.
+        # would: no queue flush, no atexit.
         signal.raise_signal(signal.SIGTERM)
 
     threading.Thread(target=watch, name="exit-with-parent", daemon=True).start()
@@ -378,6 +394,21 @@ def _worker_run(group: ShotGroup, metadata: Mapping[int, ShotMeta]) -> UnitResul
     )
 
 
+@contextmanager
+def _one_compute_thread() -> Iterator[None]:
+    """Set each unset compute-thread variable to 1 while a worker spawns."""
+    import os
+
+    with _ENVIRON_LOCK:
+        unset = [name for name in _COMPUTE_THREAD_VARS if name not in os.environ]
+        os.environ.update(dict.fromkeys(unset, "1"))
+        try:
+            yield
+        finally:
+            for name in unset:
+                os.environ.pop(name, None)
+
+
 def _run_pooled(
     recipe: CompiledRecipe,
     groups: Iterable[ShotGroup],
@@ -414,7 +445,11 @@ def _run_pooled(
         for group in groups:
             group = _checked(group, average_before_analysis)
             local = {n: metadata[n] for n in group.shots if n in metadata}
-            pending.append(executor.submit(_worker_run, group, local))
+            # A spawn-context pool starts its workers inside submit, on any
+            # submit that finds no idle worker, so every submit holds the
+            # environment the workers inherit.
+            with _one_compute_thread():
+                pending.append(executor.submit(_worker_run, group, local))
             if len(pending) >= window:
                 yield pending.popleft().result()
         while pending:
