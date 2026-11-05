@@ -22,7 +22,7 @@ from geecs_web_theme.web import (
     mount_theme,
 )
 
-from geecs_control_room import device_pages, home, images, screens
+from geecs_control_room import device_pages, home, images, screens, traces
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
 
@@ -73,6 +73,7 @@ def create_app(
     app.include_router(home.router(settings, scanner))
     app.include_router(home.preset_router(settings))
     app.include_router(images.router(camera))
+    app.include_router(traces.router(traces.Traces(camera)))
     app.include_router(device_pages.router(settings))
 
     @app.get("/healthz")

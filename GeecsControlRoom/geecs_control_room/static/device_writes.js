@@ -1,0 +1,63 @@
+// A device page's writes, DOM only: POST /api/devices/<name>/put {role, value,
+// operator[, confirm]}, each sent once, the module's outcome word and code shown,
+// never retried. The operator is the header's name (remembered in this browser);
+// a list naming a hazard role (the module's confirm: "hazard") is asked once,
+// behind the page's hazard dialog, before any of it is sent; one list at a time
+// for the page, and a list stops at its first refusal. The camera page's own copy
+// (camera.js) moves onto this one with the camera rail's tidy.
+// window.GeecsDeviceWrites.make(...) → { write(pairs, confirmed), busy() }.
+(function () {
+  "use strict";
+  const C = window.GeecsCameraRules, S = window.GeecsScreenRules;
+  const OP_KEY = "geecs-control-room-operator";
+  const $ = (id) => document.getElementById(id);
+
+  // page: GeecsDevicePage; changed(): the controls redrawn (disabled while a list runs, enabled after)
+  function make(page, changed) {
+    const opInput = $("operator"), out = $("write-out"), dialog = $("hazard-dialog");
+    try { opInput.value = localStorage.getItem(OP_KEY) || ""; } catch (_) { /* no storage */ }
+    opInput.addEventListener("change", () => { try { localStorage.setItem(OP_KEY, opInput.value.trim()); } catch (_) { /* no storage */ } });
+    const say = (word, text, detail) => { out.dataset.state = S.outcomeState(word); out.textContent = text; out.title = detail || ""; };
+    const hazardsOf = (pairs) => C.hazards(pairs, Object.fromEntries(pairs.map(([role]) => [role, page.entry(role)])));
+    function ask(pairs, roles) {
+      $("hazard-dialog-text").textContent = pairs.map(([role, v]) => `${page.name} · ${role} ← ${v}`).join("\n");
+      $("hazard-dialog-roles").textContent = `Hazard: ${roles.join(", ")}.`;
+      return new Promise((done) => {
+        dialog.onclick = (ev) => { if (ev.target.value) { dialog.close(); done(ev.target.value === "write"); } };
+        dialog.onclose = () => done(false); // however it closed: not confirmed; a button's answer came first
+        dialog.showModal();
+      });
+    }
+    const run = C.single(async (pairs, confirmed = false) => {
+      const operator = opInput.value.trim();
+      if (!operator) { opInput.focus(); say("unknown", "unsent · name yourself in the header first"); return false; }
+      changed();
+      try {
+        const marked = hazardsOf(pairs);
+        if (marked.length && !confirmed && !(await ask(pairs, marked))) { say("unknown", "unsent · not confirmed"); return false; }
+        const confirm = confirmed || marked.length > 0;
+        for (const [role, v] of pairs) {
+          say("sending", `${role} ← ${v} · sending`);
+          let a;
+          try {
+            const body = { role, value: v, operator };
+            if (confirm) body.confirm = true;
+            const r = await fetch(`${page.root}/api/devices/${encodeURIComponent(page.name)}/put`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+            a = await r.json();
+          } catch (_) { a = { outcome: "unknown", code: "no_answer", detail: "read the device and the journal before repeating it" }; }
+          const word = a.outcome || "unknown";
+          say(word, `${role} ← ${v} · ${word}${a.code ? " · " + a.code : ""}`, a.detail);
+          if (word !== "accepted") return false;
+        }
+        return true;
+      } finally { setTimeout(changed); } // after single() has let go
+    });
+    const write = async (pairs, confirmed = false) => {
+      const ok = await run(pairs, confirmed);
+      if (ok === null) say("unknown", "unsent · another write is in flight");
+      return ok;
+    };
+    return { write, busy: run.busy };
+  }
+  window.GeecsDeviceWrites = { make };
+})();

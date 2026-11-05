@@ -42,7 +42,7 @@ class Kind:
 #: The URL's kind word → the family kind → the page. A new family of a kind needs no code.
 KINDS = {
     "camera": Kind("aravis_camera", "device_camera.html"),
-    "scope": Kind("array_detector", "device.html"),
+    "trace": Kind("array_detector", "device_trace.html"),
     "motor": Kind("epics_motor", "device.html"),
     "supply": Kind("setpoint_device", "device.html"),
 }

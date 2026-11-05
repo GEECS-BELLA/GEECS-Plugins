@@ -98,6 +98,10 @@ class Ca(Protocol):
         """``pv`` read as one number (a counter, the full scale)."""
         ...
 
+    async def floats(self, pvs: list[str]) -> list[np.ndarray]:
+        """Each of ``pvs`` as float32 (``DBR_FLOAT``), in order: a trace and its axis."""
+        ...
+
     async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
         """The frame's values as 16-bit integers (int16 as CA delivers ``DBR_SHORT``) and its geometry, in one batch."""
         ...
@@ -130,6 +134,13 @@ class AiocaCa:
         import aioca
 
         return float(await aioca.caget(pv, timeout=CA_TIMEOUT_S))
+
+    async def floats(self, pvs: list[str]) -> list[np.ndarray]:
+        """Each of ``pvs`` asked as ``DBR_FLOAT`` (count 0: the IOC's current length)."""
+        import aioca
+
+        values = await aioca.caget(pvs, datatype=np.float32, timeout=CA_TIMEOUT_S)
+        return [np.asarray(v, dtype=np.float32) for v in values]
 
     async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
         """The frame (count 0: the IOC's current length) as ``DBR_SHORT`` and its geometry, read together.
@@ -243,6 +254,7 @@ class Images:
         self._ca, self._fetch, self._clock = ca, fetch, clock
         self._routes: dict[str, Shared[dict[str, dict[str, Any]]]] = {}
         self._good: dict[str, dict[str, dict[str, Any]]] = {}
+        self._family: dict[str, Optional[str]] = {}
         self._frames: dict[tuple[str, str, Optional[str]], Shared[Jpeg]] = {}
         self._jpegs: dict[tuple[str, str, Optional[str]], tuple[Jpeg, float]] = {}
         self._counters_down: dict[str, float] = {}
@@ -288,8 +300,17 @@ class Images:
                 self._good.pop(name, None)
             raise Unavailable(503, f"the module answered {status} for {name}")
         roles = {r["role"]: r for r in body.get("roles") or [] if r.get("pv") and not r.get("axis")}  # fmt: skip
-        self._good[name] = roles
+        self._good[name], self._family[name] = roles, body.get("family")
         return roles
+
+    @property
+    def ca(self) -> Ca:
+        """The CA transport, shared with the trace route."""
+        return self._ca
+
+    def family(self, name: str) -> Optional[str]:
+        """The device's family as the module's device route last named it (after :meth:`roles`)."""
+        return self._family.get(name)
 
     async def frame(self, module: ModuleClient, name: str) -> Jpeg:
         """The latest JPEG, held on ``image_counter``, shared by every viewer within ``FRAME_EVERY_S``."""
