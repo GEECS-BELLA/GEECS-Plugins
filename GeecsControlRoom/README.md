@@ -48,7 +48,10 @@ A raw view polls at 2 Hz and the frame is read **once per camera**, shared by
 every viewer (held 0.5 s; an unmoved camera costs one scalar read of
 `ARR:ArrayCounter_RBV`, never an array read). Budget for twenty camera views:
 ~0.2 Gbit/s if all are MJPEG, ~1.3 Gbit/s if every one went raw at once, inside
-the ~5 Gbit/s the services box's link keeps free for analysis reads. A read
+the ~5 Gbit/s the services box's link keeps free for analysis reads. The
+MJPEG view's JPEG is held the same way on MJPG1's `ArrayCounter_RBV`: a 1 Hz
+camera's JPEG is fetched from the IOC once per second however many viewers
+poll it at 10 Hz (before the hold, up to ten times a second: 7.5 measured with one viewer). A read
 peaks at ≈ 15 MB of memory per camera (10.6 MB int16, viewed as uint16 without a
 copy, + 4 MB gzip; 36 MB while the frame was read as int32).
 

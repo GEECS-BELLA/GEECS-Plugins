@@ -7,10 +7,14 @@ through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
   holds. Its URL is the string at the PV the module's device route names
   for role ``image`` (``read: once``), read as a char string, its host
   replaced with the address CA reached the IOC at (lab DNS names the IOC
-  host; a client off it cannot resolve that). One fetch in flight per
-  device, a frame reused for everyone within ``FRAME_EVERY_S``; the
-  ``X-Frame-Tag`` names the bytes, so a page never decodes the same frame
-  twice (a frozen camera's frame is not "new").
+  host; a client off it cannot resolve that). Held on role
+  ``image_counter`` (MJPG1's ``ArrayCounter_RBV``) as the raw frame is on
+  its counter: probed at most every ``FRAME_EVERY_S``, an unmoved counter
+  serves the held JPEG without a fetch; ``ETag`` the quoted counter, ``304``
+  on a matching ``If-None-Match``; one fetch in flight per device, shared.
+  An unreadable counter (or no such role) fetches as before, with no
+  ``ETag``. The ``X-Frame-Tag`` names the bytes, so a page never decodes the
+  same frame twice (a frozen camera's frame is not "new").
 - ``GET /api/devices/{name}/arrays``: every ``read: on_request`` role of type
   ``array`` (lineouts, histogram) by role name, read at most every
   ``ARRAYS_EVERY_S`` and shared by every viewer. The page polls it only
@@ -185,6 +189,19 @@ class Shared(Generic[T]):
 
 
 @dataclass(frozen=True)
+class Jpeg:
+    """One JPEG as served: its bytes, their checksum (``X-Frame-Tag``) and the ``image_counter`` it is held on.
+
+    ``counter`` is ``None`` when the counter could not be read (or the module
+    names none): the JPEG is served without an ``ETag`` and never held.
+    """
+
+    body: bytes
+    tag: str
+    counter: Optional[str]
+
+
+@dataclass(frozen=True)
 class RawFrame:
     """One raw frame as served: the gzip body, its geometry, its tag (``raw_counter``) and the full scale."""
 
@@ -223,7 +240,8 @@ class Images:
         self._ca, self._fetch, self._clock = ca, fetch, clock
         self._routes: dict[str, Shared[dict[str, dict[str, Any]]]] = {}
         self._good: dict[str, dict[str, dict[str, Any]]] = {}
-        self._frames: dict[tuple[str, str], Shared[tuple[bytes, str]]] = {}
+        self._frames: dict[tuple[str, str, Optional[str]], Shared[Jpeg]] = {}
+        self._jpegs: dict[tuple[str, str, Optional[str]], Jpeg] = {}
         self._urls: dict[str, str] = {}
         self._arrays: dict[tuple[str, tuple[str, ...]], Shared[dict[str, Any]]] = {}
         self._raws: dict[tuple[str, tuple[str, ...]], Shared[RawFrame]] = {}
@@ -269,18 +287,50 @@ class Images:
         self._good[name] = roles
         return roles
 
-    async def frame(self, module: ModuleClient, name: str) -> tuple[bytes, str]:
-        """The latest JPEG and its tag (the bytes' checksum)."""
-        role = (await self.roles(module, name)).get("image")
+    async def frame(self, module: ModuleClient, name: str) -> Jpeg:
+        """The latest JPEG, held on ``image_counter``, shared by every viewer within ``FRAME_EVERY_S``."""
+        roles = await self.roles(module, name)
+        role = roles.get("image")
         if role is None:
             raise Unavailable(404, f"the module names no image role for {name}")
-        pv = role["pv"]
-        source = self._frames.get((name, pv))
+        pv, counter_pv = role["pv"], roles.get("image_counter", {}).get("pv")
+        key = (name, pv, counter_pv)
+        source = self._frames.get(key)
         if source is None:
-            source = self._frames[(name, pv)] = Shared(lambda: self._read_frame(pv), FRAME_EVERY_S, self._clock)  # fmt: skip
+            source = self._frames[key] = Shared(lambda: self._read_frame(key), FRAME_EVERY_S, self._clock)  # fmt: skip
         return await source.get()
 
-    async def _read_frame(self, pv: str) -> tuple[bytes, str]:
+    async def _image_counter(self, pv: Optional[str]) -> Optional[str]:
+        """MJPG1's counter, or ``None`` (no role, any CA failure, a NaN): the JPEG is then fetched untagged."""
+        if pv is None:
+            return None
+        # any CA failure is an unread counter, never a failed image
+        (read,) = await asyncio.gather(self._ca.scalar(pv), return_exceptions=True)
+        return str(int(read)) if isinstance(read, (int, float)) and math.isfinite(read) else None  # fmt: skip
+
+    async def _read_frame(self, key: tuple[str, str, Optional[str]]) -> Jpeg:
+        _, pv, counter_pv = key
+        counter = await self._image_counter(counter_pv)
+        held = self._jpegs.get(key)
+        if counter is not None and held is not None and held.counter == counter:
+            return held  # the plugin has not moved: one scalar read, no fetch
+        body = await self._fetch_jpeg(pv)
+        if counter is not None:
+            after = await self._image_counter(counter_pv)
+            if after is None:
+                counter = None  # unreadable now: served, but untagged and not held
+            elif after != counter:
+                # a frame landed mid-fetch: fetch once more, tagged by the second counter
+                counter = after
+                body = await self._fetch_jpeg(pv)
+        jpeg = Jpeg(body, f"{zlib.crc32(body):08x}", counter)
+        if counter is None:
+            self._jpegs.pop(key, None)
+        else:
+            self._jpegs[key] = jpeg
+        return jpeg
+
+    async def _fetch_jpeg(self, pv: str) -> bytes:
         url = self._urls.get(pv)
         if url is None:
             try:
@@ -292,7 +342,7 @@ class Images:
         except Exception as exc:
             self._urls.pop(pv, None)  # read the URL again: the IOC may have restarted
             raise Unavailable(503, f"no frame from the IOC: {exc}") from exc
-        return jpeg, f"{zlib.crc32(jpeg):08x}"
+        return jpeg
 
     async def arrays(self, module: ModuleClient, name: str) -> dict[str, Any]:
         """Every ``read: on_request`` role of type ``array`` by role name, and the PVs read.
@@ -433,6 +483,16 @@ def _number(value: float) -> str:
     return str(int(value)) if float(value).is_integer() else repr(value)
 
 
+def _jpeg_response(jpeg: Jpeg, if_none_match: Optional[str]) -> Response:
+    """The JPEG, or ``304`` when ``If-None-Match`` names its ``ETag`` (the counter; none while unread)."""
+    headers = {"Cache-Control": "no-store", "X-Frame-Tag": jpeg.tag}
+    if jpeg.counter is not None:
+        headers["ETag"] = f'"{jpeg.counter}"'
+        if _matches(if_none_match, headers["ETag"]):
+            return Response(status_code=304, headers=headers)
+    return Response(jpeg.body, media_type="image/jpeg", headers=headers)
+
+
 class HttpFetch:
     """One shared HTTP client for every camera's frames."""
 
@@ -460,11 +520,10 @@ def router(images: Images) -> APIRouter:
     @r.get("/api/devices/{name}/frame.jpg")
     async def frame(request: Request, name: str) -> Response:
         try:
-            jpeg, tag = await images.frame(request.app.state.module, name)
+            jpeg = await images.frame(request.app.state.module, name)
         except Unavailable as exc:
             return refused(exc)
-        headers = {"Cache-Control": "no-store", "X-Frame-Tag": tag}
-        return Response(jpeg, media_type="image/jpeg", headers=headers)
+        return _jpeg_response(jpeg, request.headers.get("if-none-match"))
 
     @r.get("/api/devices/{name}/frame.raw")
     async def frame_raw(request: Request, name: str) -> Response:

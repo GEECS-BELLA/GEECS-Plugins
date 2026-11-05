@@ -431,6 +431,15 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ),  # fmt: skip
     ("raw is new: no tag is always", "rawIsNew", ['"7"', '"7"', None], True),
     ("raw is new: no ETag is always", "rawIsNew", [None, None, '"7"'], True),
+    # the MJPEG loop decodes new bytes only (frames/s counts these); a 304 never reaches it
+    ("jpeg is new: the same tag is not", "jpegIsNew", ["0a1b2c3d", "0a1b2c3d"], False),
+    ("jpeg is new: a new tag is", "jpegIsNew", ["0a1b2c3d", "ffffffff"], True),
+    ("jpeg is new: the first is", "jpegIsNew", ["0a1b2c3d", None], True),
+    ("jpeg is new: no tag is always", "jpegIsNew", [None, None], True),
+    ("jpeg answer: 304 is nothing new", "rawAnswer", [304], "same"),
+    # both loops ask conditionally once an ETag is held
+    ("if-none-match: the held ETag", "ifNoneMatch", ['"3"'], {"If-None-Match": '"3"'}),
+    ("if-none-match: none held, none sent", "ifNoneMatch", [None], {}),
     ("valid: the waveform's length", "valid", [[1, 2, 3, 4], 2], [1, 2]),
     ("valid: unread length keeps all", "valid", [[1, 2], None], [1, 2]),
     ("whole: a typed number, rounded", "whole", [" 12.6 "], 13),

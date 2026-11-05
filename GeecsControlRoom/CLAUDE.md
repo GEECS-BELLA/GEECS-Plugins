@@ -24,7 +24,8 @@ geecs_control_room/
                     devices of the kind, /api/device/{kind} their roster states), /device/{kind}/{name} the
                     device resolved by one module read (denied / stale panes, never blank)
   images.py         a camera's frame (/api/devices/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
-                    names, rehosted to the IOC's CA address, one fetch in flight, shared) and arrays
+                    names, rehosted to the IOC's CA address, one fetch in flight, shared, held on role
+                    `image_counter` with ETag/304; § "The JPEG" below) and arrays
                     (/api/devices/{name}/arrays: the `on_request` roles of type `array`, at most every 0.5 s, shared)
                     and the raw frame (/api/devices/{name}/frame.raw: role `raw_frame`, uint16 LE row-major,
                     gzip framed, geometry + `raw_counter` tag in headers, ETag (counter + full scale)/304; `raw_counter` probed first so
@@ -230,8 +231,36 @@ page's rules under node):
   (H-1-y, x), Rot180 (W-1-x, H-1-y), Rot270 (y, W-1-x), Mirror (W-1-x, y),
   Rot90Mirror (y, x), Rot180Mirror (x, H-1-y), Rot270Mirror (H-1-y,
   W-1-x)), `decodeRaw`, `rawAnswer`, `rawIsNew`, `histogramPlot`,
-  `modeWords`, `imageSize` in raw.
+  `modeWords`, `imageSize` in raw; for the JPEG, `jpegIsNew` and
+  `ifNoneMatch` (both loops).
   `camera.js` keeps the DOM work only.
+
+## The JPEG
+
+`GET /api/devices/{name}/frame.jpg` is held on role `image_counter`
+(MJPG1's `ArrayCounter_RBV`) the way `frame.raw` is held on `raw_counter`:
+
+- **Reads**: one in flight per device, shared, at most every
+  `FRAME_EVERY_S` (0.1 s, the floor on the counter probe). The counter
+  first; equal to the held JPEG's, the held bytes are served with no
+  upstream fetch (a 10 Hz poller on a 1 Hz camera costs ten scalar reads
+  and one fetch per second, not ten fetches); else the JPEG is fetched and
+  the counter read again — moved, the JPEG is fetched once more and tagged
+  by the second counter.
+- **Headers**: `X-Frame-Tag` = the bytes' CRC-32 (unchanged: the page
+  decodes new bytes only); `ETag` = the quoted counter (`"3"`); **304** on a
+  matching `If-None-Match` (`_matches`, as the raw route), no body, the
+  same `ETag` and `X-Frame-Tag`.
+- **No counter, no hold**: the module names no `image_counter`, or the
+  probe fails (any CA failure, either probe): the JPEG is fetched every
+  floor as before the hold, served without an `ETag`, and never held. An
+  unreadable counter never fails the image.
+- **The page**: the MJPEG loop asks with `If-None-Match` the last answer's
+  `ETag` (`ifNoneMatch`), treats a 304 as "nothing new" (`rawAnswer`),
+  decodes an answer whose `X-Frame-Tag` differs from the one drawn
+  (`jpegIsNew`; `new frames/s` counts these only), and drops its held
+  `ETag` on an error, a decode failure and a toggle, so the next ask after
+  one is never a 304 with nothing drawn.
 
 Deploy (bandwidth, the CA array size, the front door's gzip, the Canopy
 image rebuild): `README.md` § Deploy.

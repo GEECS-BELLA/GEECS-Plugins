@@ -14,6 +14,7 @@ from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, RAW_HOLD_S,
 from geecs_control_room.module_client import ModuleClient
 
 IMAGE_PV = "bench:cam:MJPG1:JPG_URL_RBV"
+IMAGE_COUNTER = "bench:cam:MJPG1:ArrayCounter_RBV"
 ROLES = [
     {"role": "image", "pv": IMAGE_PV, "read": "once", "type": "image"},
     {
@@ -65,6 +66,12 @@ ROLES = [
         "read": "once",
         "type": "readback",
     },  # fmt: skip
+    {
+        "role": "image_counter",
+        "pv": IMAGE_COUNTER,
+        "read": "monitor",
+        "type": "counter",
+    },  # fmt: skip
 ]
 RAW = ("bench:cam:ARR:ArrayData", "bench:cam:ARR:ArraySize0_RBV", "bench:cam:ARR:ArraySize1_RBV")  # fmt: skip
 COUNTER, FULL_SCALE = "bench:cam:ARR:ArrayCounter_RBV", "bench:cam:FullScale"
@@ -77,6 +84,8 @@ class FakeCa:
     values, a count above 32767 negative; width, height),
     ``counters`` the successive ``ArrayCounter_RBV`` reads (the last repeats),
     ``full_scale`` the ``FullScale`` read (``None``: unreadable).
+    The JPEG: ``image_counters`` the successive ``MJPG1:ArrayCounter_RBV``
+    reads (the last repeats), ``image_counter_fails`` makes them raise.
     """
 
     def __init__(self) -> None:
@@ -85,6 +94,8 @@ class FakeCa:
         self.gate: asyncio.Event | None = None
         self.raw: tuple[np.ndarray, int, int] = (np.arange(12, dtype=np.int16), 4, 3)
         self.counters: list[float] = [7.0]
+        self.image_counters: list[float] = [3.0]
+        self.image_counter_fails = False
         self.full_scale: float | None = 4095.0
         self.scale_gate: asyncio.Event | None = None
 
@@ -106,6 +117,10 @@ class FakeCa:
 
     async def scalar(self, pv: str) -> float:
         self.calls.append(("scalar", pv))
+        if "MJPG1:" in pv:  # the JPEG's counter, the module's or this file's
+            if self.image_counter_fails:
+                raise TimeoutError("no answer from the IOC")
+            return self.image_counters.pop(0) if len(self.image_counters) > 1 else self.image_counters[0]  # fmt: skip
         if pv.endswith("ArrayCounter_RBV"):
             if self.counter_fails:
                 raise TimeoutError("no answer from the IOC")
@@ -125,8 +140,9 @@ class FakeCa:
         return self.raw
 
     def kinds(self) -> list[str]:
-        """The reads by kind, the full scale's apart: ``counter`` / ``frame`` / ``scale``."""
-        return ["scale" if a == FULL_SCALE else "counter" if a == COUNTER else k for k, a in self.calls]  # fmt: skip
+        """The reads by kind, the full scale's apart: ``counter`` / ``frame`` / ``scale`` / ``image_counter``."""
+        names = {FULL_SCALE: "scale", COUNTER: "counter", IMAGE_COUNTER: "image_counter"}  # fmt: skip
+        return [names.get(a, k) if isinstance(a, str) else k for k, a in self.calls]
 
 
 class Env:
@@ -174,8 +190,11 @@ async def test_the_frame_is_the_jpeg_at_the_url_the_module_names() -> None:
         r = await c.get("/api/devices/Cam/frame.jpg")
     assert r.status_code == 200 and r.content.startswith(b"\xff\xd8")
     assert r.headers["content-type"] == "image/jpeg" and r.headers["cache-control"] == "no-store"  # fmt: skip
-    assert r.headers["x-frame-tag"]
-    assert env.ca.calls == [("text", IMAGE_PV), ("host", IMAGE_PV)]
+    assert (
+        r.headers["x-frame-tag"] and r.headers["etag"] == '"3"'
+    )  # the bytes' checksum; the counter
+    # the counter, the URL, the fetch, the counter again (a frame landing mid-fetch is fetched once more)
+    assert env.ca.calls == [("scalar", IMAGE_COUNTER), ("text", IMAGE_PV), ("host", IMAGE_PV), ("scalar", IMAGE_COUNTER)]  # fmt: skip
     assert env.urls == ["http://10.0.0.5:8081/CAM1.MJPG.jpg"]
 
 
@@ -192,6 +211,7 @@ async def test_viewers_share_one_fetch_in_flight_and_one_frame_within_the_floor(
         await c.get("/api/devices/Cam/frame.jpg")
         assert len(env.urls) == 1  # inside the floor: the held frame
         env.clock[0] += FRAME_EVERY_S
+        env.ca.image_counters = [4.0]  # the plugin moved
         again = await c.get("/api/devices/Cam/frame.jpg")
     assert len(env.urls) == 2 and again.headers["x-frame-tag"] not in tags
     assert env.reads == 1  # the module's route, read once for all of it
@@ -205,7 +225,73 @@ async def test_a_failed_fetch_is_a_503_with_words_and_the_url_is_read_again() ->
         assert r.status_code == 503 and "no frame from the IOC" in r.json()["detail"]
         env.fetch_fails = False
         assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 200
-    assert [k for k, _ in env.ca.calls] == ["text", "host", "text", "host"]
+    assert [k for k, _ in env.ca.calls if k != "scalar"] == ["text", "host", "text", "host"]  # fmt: skip
+
+
+JPG_URL = "/api/devices/Cam/frame.jpg"
+#: Past the floor (a float sum of 0.1 steps can land a hair inside it).
+STEP = FRAME_EVERY_S * 1.01
+
+
+async def test_an_unmoved_image_counter_serves_the_held_jpeg_without_a_fetch() -> None:
+    env = Env()
+    async with env.client() as c:
+        first = await c.get(JPG_URL)
+        for _ in range(9):  # a 10 Hz poller on a camera that has not moved
+            env.clock[0] += STEP
+            r = await c.get(JPG_URL)
+            assert (r.status_code, r.content) == (200, first.content)
+            assert (r.headers["etag"], r.headers["x-frame-tag"]) == ('"3"', first.headers["x-frame-tag"])  # fmt: skip
+        assert len(env.urls) == 1  # one upstream fetch for ten requests
+        assert env.ca.kinds() == ["image_counter", "text", "host", "image_counter"] + ["image_counter"] * 9  # fmt: skip
+        env.clock[0] += FRAME_EVERY_S / 2
+        await c.get(JPG_URL)  # inside the floor: not even a probe
+        assert len(env.ca.calls) == 13
+        env.ca.image_counters = [4.0]
+        env.clock[0] += STEP
+        moved = await c.get(JPG_URL)
+    assert len(env.urls) == 2 and moved.headers["etag"] == '"4"'
+    assert moved.headers["x-frame-tag"] != first.headers["x-frame-tag"]
+
+
+async def test_a_matching_if_none_match_on_the_jpeg_is_a_304_with_its_tags() -> None:
+    env = Env()
+    async with env.client() as c:
+        first = await c.get(JPG_URL)
+        etag = first.headers["etag"]
+        for asked in (etag, f"W/{etag}", f'"1", {etag}', "*"):
+            env.clock[0] += STEP
+            same = await c.get(JPG_URL, headers={"If-None-Match": asked})
+            assert (same.status_code, same.content) == (304, b"")
+            assert (same.headers["etag"], same.headers["x-frame-tag"]) == (etag, first.headers["x-frame-tag"])  # fmt: skip
+        other = await c.get(JPG_URL, headers={"If-None-Match": '"2"'})
+    assert other.status_code == 200 and other.content == first.content
+    assert len(env.urls) == 1
+
+
+async def test_a_counter_moving_mid_fetch_fetches_once_more_tagged_by_the_second() -> None:  # fmt: skip
+    env = Env()
+    env.ca.image_counters = [3.0, 4.0]
+    async with env.client() as c:
+        r = await c.get(JPG_URL)
+    assert len(env.urls) == 2 and r.headers["etag"] == '"4"'
+    assert r.content == b"\xff\xd8jpeg2"  # the second fetch's bytes
+
+
+@pytest.mark.parametrize("why", ["unreadable", "unnamed"])
+async def test_without_a_counter_the_jpeg_is_fetched_as_before_and_untagged(why) -> None:  # fmt: skip
+    env = Env([r for r in ROLES if r["role"] != "image_counter"] if why == "unnamed" else ROLES)  # fmt: skip
+    env.ca.image_counter_fails = why == "unreadable"
+    async with env.client() as c:
+        answers = []
+        for _ in range(3):
+            answers.append(await c.get(JPG_URL, headers={"If-None-Match": "*"}))
+            env.clock[0] += STEP
+    assert [r.status_code for r in answers] == [
+        200
+    ] * 3  # the image never fails on its counter
+    assert all("etag" not in r.headers and r.headers["x-frame-tag"] for r in answers)
+    assert len(env.urls) == 3  # one fetch per floor, as before the hold
 
 
 @pytest.mark.parametrize(
