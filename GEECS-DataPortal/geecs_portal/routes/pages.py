@@ -73,6 +73,8 @@ def day_view(
             "error": error,
             # The plotter opens the portal's own experiment only.
             "plot_page": portal.plot_page and exp == portal.default_experiment,
+            # the batch panel runs the portal's own experiment's scans
+            "batch": portal.worker is not None and exp == portal.default_experiment,
             "qs": lambda **kw: _sticky_query(day_state, **kw),
         },
     )

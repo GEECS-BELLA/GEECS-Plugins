@@ -104,6 +104,22 @@ extending this package.
   server-to-server, and a path-shaped base names the browser's front
   door, not a host this process can dial (it links but cannot send —
   `logbook_send` in the page context and the run JSON).
+- **Batch analysis is the worker's, never the portal's** (the author,
+  2026-11-04). The day page's **Analyze this day…** drawer (only with
+  `--analysis-worker-url`, for the portal's own experiment) runs an
+  analysis group over the day's scans on ScanAnalysis' analysis worker
+  (`scan-analysis-worker`, its own service): the portal forwards
+  `/api/batch/{status,groups,plan,jobs,jobs/{id},jobs/{id}/cancel}` to it
+  over HTTP (`geecs_portal/batch.py`, `routes/batch.py`; it adds only its
+  experiment to a request that names none), imports none of it, and runs
+  no batch in its own process — a day's analysis outlives a portal restart
+  and never sits in this memory-capped process. No worker configured → 404,
+  one that does not answer → 503. `--analysis-worker-autostart`
+  (development) starts one on this host (`python -m scan_analysis.worker`
+  over `--processing-configs`, its own session, left running) when the URL
+  is a loopback address and nothing answers; a deployment runs the worker
+  as its own unit. Tests: `tests/test_batch.py` (a fake worker over an
+  httpx transport).
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
   imports `tiled` directly and never talks to the catalog server except
@@ -349,7 +365,7 @@ denylisted/miswired 400, analyzer failure 400 — never a 500.
 **Analysis runs** (0.16.0): `GET /api/analysis/catalog` (GEECS-MCP
 arc, 2026-10) lists the tree **scan-free** — every loadable diagnostic
 (`id`, `device`, `output_dir`, `destructive`, `kind` ∈
-`recipe|job`) and every loadable group with its resolved
+`recipe|job|scalar`) and every loadable group with its resolved
 `members` in run order (ScanAnalysis's own `discover_groups` +
 `load_analysis_group`, so a file that would fail a run — bad YAML, a
 ref no diagnostic answers to — is dropped with a log line; the group walk
@@ -359,7 +375,8 @@ for an agent or a picker; the portal still runs one diagnostic per job,
 so a group is a plan the caller expands.  `GET /api/run/{uid}/analysis`
 lists every loadable diagnostic in the same `--processing-configs`
 tree with `applicable` (its data device — `scan.device`, else the
-name — has a folder in this scan), its in-memory `job` record
+name — has a folder in this scan; a scalar-columns job, which reads the
+s-file alone, applies to every scan), its in-memory `job` record
 (`queued`/`running`/`done`/`failed`/`no_data`, artifacts, error, the
 run's captured log lines) and `files` (what is on disk under
 `analysis/ScanNNN/<output_name>/`, so a page loaded after a portal
@@ -416,6 +433,10 @@ through another's recipe), on demand via its `preview` button or per
 edit with `auto`; **duplicate as** copies the open recipe for the same
 device with `output_name` set to the new id; a save refreshes the analyzer list.  The editor's own API is documented
 in `ScanAnalysis/CLAUDE.md`.
+The portal also passes the editor its `columns=` hook
+(`_config_editor_columns`): a scan's s-file header, the scalar-columns
+form's input picker — the scan by `uid` (the drawer) or `day` + `scan` in
+the portal's experiment (the full page); one line read, nothing written.
 `GET /run/{uid}/artifact?path=<relative>` serves one produced file —
 the resolved path must stay inside the scan's own analysis folder
 (`analysis_runs.contained_artifact`; symlinks resolved), else 404.

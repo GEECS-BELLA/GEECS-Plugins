@@ -27,15 +27,23 @@ h5py = "^3.8.0"
 fastapi = { version = ">=0.110", optional = true }
 jinja2 = { version = ">=3.1", optional = true }
 geecs-web-theme = { path = "../GeecsWebTheme", develop = true, optional = true }
+# the analysis worker (scan_analysis.worker) — optional: a long-running
+# service that batch-runs analysis groups over scans (the task queue's
+# status records), fastapi above + its server
+uvicorn = { version = ">=0.29", optional = true }
 
 [tool.poetry.extras]
 editor = ["fastapi", "jinja2", "geecs-web-theme"]
+worker = ["fastapi", "uvicorn"]
 
 [tool.poetry.scripts]
 # Check, prepare and self-test a host's WaveKit (HASO) install:
 # config keys, share tree, Wine prefix, the vendor sample, the golden
 # reference (scan_analysis.services.wavekit_doctor).
 geecs-wavekit-doctor = "scan_analysis.services.wavekit_doctor:main"
+# The analysis worker: batch-runs analysis groups over a day's scans,
+# skipping finished tasks unless asked to redo (scan_analysis.worker).
+scan-analysis-worker = "scan_analysis.worker.__main__:main"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.4"

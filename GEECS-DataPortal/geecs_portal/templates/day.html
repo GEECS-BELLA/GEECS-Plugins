@@ -5,6 +5,8 @@
   <a class="btn sm" href="{{ root }}/day/{{ prev_day }}?{{ qs() }}">&larr; {{ prev_day }}</a>
   <h1>{{ day.isoformat() }}</h1>
   <a class="btn sm" href="{{ root }}/day/{{ next_day }}?{{ qs() }}">{{ next_day }} &rarr;</a>
+  {% if batch %}<span class="spacer"></span>
+  <button class="btn" type="button" id="batch-open" onclick="openBatch(this)" title="run an analysis group over this day's scans on the analysis worker; finished ones are skipped unless you ask to redo them">Analyze this day…</button>{% endif %}
 </div>
 <div class="row">
   <form class="row" method="get" action="{{ root }}/go">
@@ -62,5 +64,134 @@
 </div>
 {% else %}
 <div class="state" data-state="empty"><div class="t">{% if filter %}No scans match the filter.{% else %}No scans recorded for this day.{% endif %}</div></div>
+{% endif %}
+{% if batch %}
+<aside class="drawer batchdrawer" id="batchdrawer" role="dialog" aria-modal="false" aria-labelledby="batchtitle" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="batchtitle">analyze {{ day.isoformat() }}</span>
+    <button class="btn sm" type="button" onclick="BATCH_DRAWER.close()">Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="batch-group">Analysis group</label>
+      <select id="batch-group" onchange="batchPlan()"><option value="">loading…</option></select>
+      <div class="dim" id="batch-members"></div></div>
+    <div class="field"><label for="batch-scans">Scans</label>
+      <input id="batch-scans" type="text" placeholder="all — or e.g. 5-12, 20" oninput="batchPlanSoon()"></div>
+    <label class="batch-redo"><input type="checkbox" id="batch-redo" onchange="batchPlan()"> redo scans already analyzed (and failed ones)</label>
+    <div class="row">
+      <button class="btn primary" type="button" id="batch-run" onclick="batchRun()" disabled>Run</button>
+      <span class="dim" id="batch-plan"></span>
+    </div>
+    <p class="err" id="batch-err" hidden></p>
+    <h3>Jobs</h3>
+    <div id="batch-jobs"><div class="dim">none yet</div></div>
+    <p class="dim">The worker is its own service: a job keeps running when this page or the portal closes. Each scan's results are recorded in its <span class="mono">analysis_status/</span> folder, which is how a later run knows what is done.</p>
+  </div>
+</aside>
+<script>
+const BATCH_DAY = {{ day.isoformat() | tojson }};
+const BATCH_ROOT = {{ root | tojson }};
+let BATCH_DRAWER = null, BATCH_GROUPS = [], BATCH_POLL = null, BATCH_PLAN_SEQ = 0;
+const bEsc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+async function batchApi(path, opts) {
+  const r = await fetch(`${BATCH_ROOT}/api/batch${path}`, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { const d = body.detail; throw new Error(typeof d === "string" ? d : JSON.stringify(d || body)); }
+  return body;
+}
+function batchError(msg) { const e = document.getElementById("batch-err"); e.textContent = msg || ""; e.hidden = !msg; }
+// "5-12, 20" -> [5..12, 20]; null for all; throws on anything else
+function batchScans() {
+  const text = document.getElementById("batch-scans").value.trim();
+  if (!text) return null;
+  const out = [];
+  for (const part of text.split(/[ ,]+/).filter(Boolean)) {
+    const m = part.match(/^(\d+)(?:-(\d+))?$/);
+    if (!m) throw new Error(`"${part}" is not a scan number or range`);
+    const lo = Number(m[1]), hi = Number(m[2] || m[1]);
+    for (let n = Math.min(lo, hi); n <= Math.max(lo, hi); n++) out.push(n);
+  }
+  return out;
+}
+function batchBody() {
+  return { day: BATCH_DAY, group: document.getElementById("batch-group").value, scans: batchScans(), redo: document.getElementById("batch-redo").checked };
+}
+async function openBatch(opener) {
+  BATCH_DRAWER = BATCH_DRAWER || GeecsKit.drawer(document.getElementById("batchdrawer"));
+  BATCH_DRAWER.open(opener);
+  if (!BATCH_GROUPS.length) {
+    const sel = document.getElementById("batch-group");
+    try {
+      BATCH_GROUPS = (await batchApi("/groups")).groups;
+      sel.innerHTML = BATCH_GROUPS.length ? BATCH_GROUPS.map((g) => `<option value="${bEsc(g.id)}">${bEsc(g.id)}</option>`).join("") : '<option value="">no groups in the configs tree</option>';
+      batchError("");
+      batchPlan();
+    } catch (e) { sel.innerHTML = '<option value="">—</option>'; batchError(e.message); }
+  }
+  batchRefresh();
+}
+let batchPlanTimer = null;
+function batchPlanSoon() { clearTimeout(batchPlanTimer); batchPlanTimer = setTimeout(batchPlan, 400); }
+async function batchPlan() {
+  const out = document.getElementById("batch-plan"), run = document.getElementById("batch-run");
+  const g = BATCH_GROUPS.find((x) => x.id === document.getElementById("batch-group").value);
+  document.getElementById("batch-members").textContent = g ? (g.members.length ? `runs ${g.members.join(", ")}` : "this group runs nothing") : "";
+  run.disabled = true;
+  let body;
+  try { body = batchBody(); } catch (e) { out.textContent = e.message; return; }
+  if (!body.group) { out.textContent = ""; return; }
+  const seq = ++BATCH_PLAN_SEQ;
+  out.textContent = "counting…";
+  try {
+    const plan = await batchApi("/plan", { method: "POST", body: JSON.stringify(body) });
+    if (seq !== BATCH_PLAN_SEQ) return;
+    const scans = new Set(plan.tasks.map((t) => t.scan)).size;
+    let text = `${plan.total} task${plan.total === 1 ? "" : "s"} to run over ${scans} scan${scans === 1 ? "" : "s"}`;
+    if (plan.already_done) text += ` · ${plan.already_done} already analyzed, skipped`;
+    if (plan.open_scans.length) text += ` · still recording, left out: ${plan.open_scans.join(", ")}`;
+    out.textContent = text;
+    run.disabled = plan.total === 0;
+    batchError("");
+  } catch (e) { if (seq === BATCH_PLAN_SEQ) { out.textContent = ""; batchError(e.message); } }
+}
+async function batchRun() {
+  document.getElementById("batch-run").disabled = true;
+  try {
+    await batchApi("/jobs", { method: "POST", body: JSON.stringify(batchBody()) });
+    batchError("");
+  } catch (e) { batchError(e.message); }
+  batchRefresh();
+}
+async function batchCancel(id) {
+  try { await batchApi(`/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }); } catch (e) { batchError(e.message); }
+  batchRefresh();
+}
+const BATCH_WORD = { queued: "queued", running: "running", done: "ok", cancelled: "degraded", failed: "failed" };
+function batchJobRow(j, detail) {
+  const c = j.counts || {}, finished = (c.done || 0) + (c.no_data || 0) + (c.failed || 0) + (c.skipped || 0);
+  const pct = j.total ? Math.round(100 * finished / j.total) : (j.state === "done" ? 100 : 0);
+  const parts = ["done", "no_data", "failed", "skipped", "cancelled"].filter((k) => c[k]).map((k) => `${c[k]} ${k.replace("_", " ")}`);
+  const now = j.current ? `now: Scan${String(j.current.scan).padStart(3, "0")} ${bEsc(j.current.analyzer)}` : "";
+  const scope = j.scans ? `scans ${j.scans.length}` : "all scans";
+  const failed = detail ? detail.tasks.filter((t) => t.state === "failed") : [];
+  const fails = failed.length ? `<details><summary>${failed.length} failed</summary><ul>${failed.map((t) => `<li><span class="mono">Scan${String(t.scan).padStart(3, "0")} ${bEsc(t.analyzer)}</span> <span class="err">${bEsc(t.error)}</span></li>`).join("")}</ul></details>` : "";
+  const cancel = (j.state === "queued" || j.state === "running") && !j.cancel_requested ? `<button class="btn sm" type="button" onclick="batchCancel('${bEsc(j.id)}')">Cancel</button>` : "";
+  return `<div class="panel batchjob"><div class="head"><span class="mono">${bEsc(j.day)}</span> <span>${bEsc(j.group)}</span> <span class="dim">${scope}${j.redo ? " · redo" : ""}</span>
+    <span class="chip" data-state="${BATCH_WORD[j.state] || "unknown"}">${bEsc(j.cancel_requested && j.state === "running" ? "cancelling" : j.state)}</span><span class="spacer"></span>${cancel}</div>
+    <div class="meter"><div class="track"><span class="fill" style="width:${pct}%"></span></div><div class="lbl"><span>${finished} / ${j.total}</span><span>${bEsc(now)}</span></div></div>
+    <div class="dim">${parts.join(" · ")}${j.error ? ` <span class="err">${bEsc(j.error)}</span>` : ""}</div>${fails}</div>`;
+}
+async function batchRefresh() {
+  clearTimeout(BATCH_POLL);
+  const box = document.getElementById("batch-jobs");
+  let jobs;
+  try { jobs = (await batchApi("/jobs")).jobs; } catch (e) { box.innerHTML = `<div class="err">${bEsc(e.message)}</div>`; return; }
+  if (!jobs.length) { box.innerHTML = '<div class="dim">none yet</div>'; return; }
+  const details = await Promise.all(jobs.map((j) => (j.counts && j.counts.failed) ? batchApi(`/jobs/${encodeURIComponent(j.id)}`).catch(() => null) : null));
+  box.innerHTML = jobs.map((j, i) => batchJobRow(j, details[i])).join("");
+  if (jobs.some((j) => j.state === "queued" || j.state === "running")) BATCH_POLL = setTimeout(batchRefresh, 2000);
+  else batchPlan();
+}
+</script>
 {% endif %}
 {% endblock %}

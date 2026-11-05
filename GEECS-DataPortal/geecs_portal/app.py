@@ -43,7 +43,8 @@ from geecs_data_utils.tiled_catalog import ScanCatalog
 
 from geecs_portal import analysis_runs
 from geecs_portal.cache import ShotDataCache
-from geecs_portal.routes import browse, images, logbook, pages, plot_api, runs
+from geecs_portal.batch import WorkerLink
+from geecs_portal.routes import batch, browse, images, logbook, pages, plot_api, runs
 from geecs_portal.routes.config_editor import mount_config_editor
 from geecs_portal.state import PortalState
 
@@ -76,6 +77,7 @@ def create_app(
     logbook_url: str = "",
     logbook_client: Optional[httpx.Client] = None,
     plotter: Optional[FastAPI] = None,
+    worker: Optional[WorkerLink] = None,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -126,6 +128,10 @@ def create_app(
         ``None`` (the default, and the tests') mounts nothing, and the
         scan page then has no Plot tab. Built by the caller because it
         resolves its settings folder from ``config.ini`` when made.
+    worker : WorkerLink, optional
+        The analysis worker (``scan-analysis-worker``, its own service) the
+        day page's "Analyze this day" panel reaches through
+        ``/api/batch/...``. ``None`` (the default) shows no panel.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)
         at ``/configs`` over the same ``processing_config_dir`` tree, with a
@@ -184,9 +190,10 @@ def create_app(
         ),
         logbook_client=logbook_client,
         plot_page=plotter is not None,
+        worker=worker,
     )
     app.state.portal = portal
-    for family in (plot_api, runs, logbook, browse, pages, images):
+    for family in (plot_api, runs, logbook, browse, pages, images, batch):
         app.include_router(family.router)
 
     if processing_config_dir is not None and not portal.processing_names():
