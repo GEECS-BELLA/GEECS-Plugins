@@ -29,7 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deploy
 
 - The CLI runs from any machine with database access and an `[archiver]`
-  URL; the appliance's unit needs no restart for this release.
+  URL. The appliance's unit and compose file changed in #1219 (the stop
+  timeout), which reaches a host only by re-rendering and reinstalling the
+  unit (`DEPLOYMENT.md`), then `daemon-reload` and a restart of
+  `geecs-archiver` at a quiet moment, if that was not done when #1219 landed.
 
 ## [0.1.2] - 2026-10-02
 

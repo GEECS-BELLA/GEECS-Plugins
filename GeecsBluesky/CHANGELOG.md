@@ -36,9 +36,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - The config.ini EPICS address bootstrap moved to GEECS-Core (#1130); the
-  action-step library moved to GEECS-Schemas with Canopy push 3 (#1214);
-  each PVA gateway seeds its held frame at worker start so the first arm
-  never waits (#1217).
+  action-step library moved to GEECS-Schemas with Canopy push 3 (#1214).
 
 ### Deploy
 

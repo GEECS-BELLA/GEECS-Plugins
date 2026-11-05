@@ -28,8 +28,7 @@ project adheres to semantic versioning.
 
 - The rail's "Now" is "Current" (#1285).
 - A native camera's refused run shape is named at preset expansion, in the
-  worker's words (#1122); a positioner on the `epics_motor` kind is
-  scannable like any settable (#1142).
+  worker's words (#1122).
 
 ### Deploy
 
