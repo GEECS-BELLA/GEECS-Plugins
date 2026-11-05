@@ -72,6 +72,8 @@ class TestOptIn:
         assert 'id="cedrawer"' in page and "openConfigEditor" in page
         # the drawer switches documents and duplicates them without leaving the page
         assert 'id="cediag"' in page and "ceDuplicate" in page
+        # the full editor's links name this scan, so its column picker loads it
+        assert "/configs/?day=" in page and "&amp;scan=2" in page
 
     def test_editor_writes_land_in_the_tree_and_the_selector_sees_them(
         self, scan_folder, configs_tree

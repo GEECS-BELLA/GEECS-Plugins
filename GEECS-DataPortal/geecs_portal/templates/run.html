@@ -75,7 +75,7 @@
           columns into the s-file (existing columns are overwritten); the Plot page picks
           them up on reload.</span>
         <span class="spacer"></span>
-        {% if config_editor %}<a class="btn sm" href="{{ root }}/configs/" target="_blank" title="the full editor: browse, create and edit diagnostics and groups">edit configs ↗</a>{% endif %}
+        {% if config_editor %}<a class="btn sm" href="{{ root }}/configs/{% if run_day and scan_number is not none %}?day={{ run_day }}&amp;scan={{ scan_number }}{% endif %}" target="_blank" title="the full editor: browse, create and edit diagnostics and groups (a scalar-columns form lists this scan's s-file columns)">edit configs ↗</a>{% endif %}
         <button class="btn sm" type="button" onclick="refreshAnalysis(true)">refresh</button>
       </div>
       <div id="analysisList" class="group"><div class="state" data-state="loading"><div class="t">Loading analyzers…</div></div></div>
@@ -110,7 +110,7 @@
       <select class="btn sm" id="cediag" title="switch the recipe under edit; recipes for this scan's devices are listed first"></select></label>
     <span class="row"><input class="btn sm" id="cedup" placeholder="new id" title="copy the open recipe under this id (same namespace, same device); the copy's output_name is set to the new id so the two write distinct columns and folders; Save then writes it (a read-only .himg job cannot be copied here)"><button class="btn sm" type="button" onclick="ceDuplicate()">duplicate as</button></span>
     <label class="dim" title="the preview reads this shot of the recipe's own device">shot <input class="btn sm" type="number" id="ceshot" min="1" value="{{ shot }}"></label>
-    <a class="btn sm" href="{{ root }}/configs/" target="_blank">full editor ↗</a>
+    <a class="btn sm" href="{{ root }}/configs/{% if run_day and scan_number is not none %}?day={{ run_day }}&amp;scan={{ scan_number }}{% endif %}" target="_blank">full editor ↗</a>
     <button class="btn sm" type="button" onclick="closeConfigEditor()">Close</button>
   </header>
   <div class="body"><div id="ceditor"></div></div>
@@ -361,6 +361,13 @@ function renderAnalyzer(a, anyRunning) {
   return `<div class="panel arow" data-row="${escAttr(a.id)}"><div class="head"><span class="id">${esc(a.id)}</span>${device}${danger}${badge}${when}<span class="spacer"></span>${button}</div>${body}</div>`;
 }
 
+// Right after a click the tab looks again quickly (most runs, a scalar
+// job's above all, finish in well under a second), then settles to the
+// steady 1.5 s while a long run lasts.
+const POLL_STEPS = [200, 300, 500, 800];
+let POLL_STEP = POLL_STEPS.length;
+function nextPollDelay() { return POLL_STEP < POLL_STEPS.length ? POLL_STEPS[POLL_STEP++] : 1500; }
+
 let ANALYSIS_LAST = null;  // last-rendered payload — an unchanged poll leaves the DOM alone
 let ANALYSIS_BODY = null;  // the payload itself, so a stepper click re-renders without a fetch
 
@@ -374,7 +381,7 @@ function renderAnalysis(body, force) {
     // Nothing changed: keep polling while active, but do not rebuild
     // the list (every <img> would re-fetch its artifact).
     clearTimeout(ANALYSIS_TIMER);
-    ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), 1500) : null;
+    ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), nextPollDelay()) : null;
     return;
   }
   ANALYSIS_LAST = key;
@@ -393,7 +400,7 @@ function renderAnalysis(body, force) {
   list.innerHTML = html;
   // Poll while anything is active; stop as soon as the run settles.
   clearTimeout(ANALYSIS_TIMER);
-  ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), 1500) : null;
+  ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), nextPollDelay()) : null;
 }
 
 function refreshAnalysis(force) {
@@ -468,6 +475,10 @@ function postAnalysis(id, confirm) {
   if (DAY) p.set("day", DAY);
   if (confirm) p.set("confirm", confirm);
   document.querySelectorAll("#analysisList button.act").forEach(b => { b.disabled = true; });
+  // the click shows at once, before the first look at the job
+  const runButton = document.querySelector(`#analysisList [data-row="${CSS.escape(id)}"] button[onclick^="startAnalysis"]`);
+  if (runButton) { runButton.textContent = "starting…"; runButton.disabled = true; }
+  POLL_STEP = 0;
   fetch(`${ROOT}/api/run/${UID}/analysis?` + p.toString(), { method: "POST" })
     .then(r => r.json().then(body => ({ ok: r.ok, status: r.status, body })))
     .then(({ ok, status, body }) => {

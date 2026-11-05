@@ -442,9 +442,12 @@ the resolved path must stay inside the scan's own analysis folder
 (`analysis_runs.contained_artifact`; symlinks resolved), else 404.
 Build + run + `cleanup()` all happen on the worker thread, so config
 and analyzer failures become `failed` records, never 500s; every run ends
-with `release_memory()` (gc + glibc `malloc_trim`) before its record flips
-to finished, because the allocator otherwise keeps a run's peak resident
-in this long-lived, memory-capped process (2.8 GB after one scope scan);
+with `release_memory()` (gc + glibc `malloc_trim`), because the allocator
+otherwise keeps a run's peak resident in this long-lived, memory-capped
+process (2.8 GB after one scope scan) — **after** its record flips to
+finished (2026-11-05: the whole-process gc took seconds in a portal holding
+image caches, so a 0.1 s scalar job read "running" for ~2 s; the one worker
+thread still releases before any next job starts);
 `run_analysis` returning `None` and `DataUnavailableWarning` map to
 `no_data` (the worklist runner's own mapping).  The factory seam
 (`create_app(analysis_factory=…)`) is how the tests drive the whole
@@ -949,6 +952,14 @@ from its passing shots and drops out with none, a bin tile's index is
 its place among the bins left). A bin tile's URL and the levels route
 carry the set's filter JSON (`filters=`), so every route resolves a
 tile's rows alike; a shot or picked tile names its row and needs none.
+
+**Scan conditions** (the author, 2026-11-05): above the strip, one line
+per condition column of a scalar-columns job (`plotter.scans.conditions`
+over `geecs_data_utils.scan_conditions`: the labels from the scan's own
+analysis folder, the values from the s-file) — the scan's label, or
+*mixed* with a "changed mid-scan" chip and the split, `unknown` counting
+shots with no value; a "?" unfolds where they come from. The same list is
+`/plot/api/conditions?day=&scan=`. Per tile or on other pages: not yet.
 
 **Background subtraction** (the author, 2026-11-03): the rail's
 Background scan (`image_bg`, a `ScanRef`, any day) names a scan whose

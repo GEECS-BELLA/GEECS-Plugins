@@ -315,10 +315,15 @@ class TestRunner:
             runner.shutdown()
 
     @pytest.mark.parametrize("outcome", ["done", "failed"])
-    def test_memory_is_released_before_the_run_reads_finished(
+    def test_memory_is_released_after_every_run_and_before_the_next(
         self, monkeypatch, outcome
     ):
-        """Every run, failed ones too, frees its memory before it reports done."""
+        """Every run, failed ones too, frees its memory once its record is final.
+
+        The record flips first, so the page sees the run done when its work
+        is; the release still happens on the worker thread before any next
+        job starts.
+        """
         runner = analysis_runs.AnalysisRunner()
         states: list[str] = []
         monkeypatch.setattr(
@@ -340,7 +345,11 @@ class TestRunner:
             assert job.state == (
                 analysis_runs.DONE if outcome == "done" else analysis_runs.FAILED
             )
-            assert states == [analysis_runs.RUNNING]
+            final = analysis_runs.DONE if outcome == "done" else analysis_runs.FAILED
+            deadline = time.monotonic() + 5
+            while not states and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert states == [final]  # released once, the record already final
         finally:
             runner.shutdown()
 
