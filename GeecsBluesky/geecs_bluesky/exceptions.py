@@ -35,7 +35,6 @@ __all__ = [
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
     "GeecsFrameCountReadError",
-    "GeecsWitnessNoFireError",
     "GeecsScanModeError",
     "PseudoComponentsDisagreeError",
     "PseudoRestorePendingError",
@@ -295,26 +294,6 @@ class GeecsDeviceDownError(GeecsError):
     def __init__(self, message: str, device_name: str | None = None) -> None:
         self.device_name = device_name
         super().__init__(message)
-
-
-class GeecsWitnessNoFireError(GeecsError):
-    """The witness saw no fire: its count did not advance within the bound after the fire.
-
-    Raised by :func:`~geecs_bluesky.plans.strict.fire_and_await_shot` when
-    the run's :class:`~geecs_bluesky.devices.witness.Witness` reports the
-    shot unseen.  Not a device timeout and never retaken: a fire the
-    witness never saw must never be fired again, so the step fails.
-    ``device_name`` is the witness.
-    """
-
-    def __init__(self, device_name: str, bound: float) -> None:
-        self.device_name = device_name
-        self.bound = bound
-        super().__init__(
-            f"{device_name}: the witness saw no fire — its count did not advance "
-            f"within {bound:.2f}s of the fire; the shot is not re-fired (the box, "
-            "its gate or the witness's input: check before resubmitting)"
-        )
 
 
 class GeecsFrameCountReadError(GeecsError):

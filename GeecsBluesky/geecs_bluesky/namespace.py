@@ -631,18 +631,24 @@ class GeecsNamespace:
                 # Confirmed on its readback: a catalog ``kind: motor``
                 # opt-in is redundant, never unhonoured.
                 self._bound_motors.add(f"{device}:{record}".lower())
-        elif isinstance(entry, WitnessEntry):
-            twin = self._witnesses.get(entry.domain)
-            if twin is not None:
-                raise GeecsConfigurationError(
-                    f"device namespace: witnesses {twin._geecs_device_name!r} and "
-                    f"{device!r} both count domain {entry.domain!r} — one witness "
-                    "per domain"
-                )
+        elif isinstance(entry, WitnessEntry):  # one per domain: the schema's rule
+            count, epoch = entry.records(load_families()[entry.family_template])
             dev = Witness(
-                device, prefix, counter=entry.counter, domain=entry.domain, name=name
+                device,
+                prefix,
+                count_record=count,
+                epoch_record=epoch,
+                domain=entry.domain,
+                name=name,
             )
             self._witnesses[entry.domain] = dev
+            if entry.domain != "main":
+                logger.warning(
+                    "device namespace: witness %s counts domain %r — strict runs "
+                    "record only the 'main' domain's witness",
+                    device,
+                    entry.domain,
+                )
         elif isinstance(entry, AravisCamera):
             if self._path_provider is None:
                 raise GeecsConfigurationError(
@@ -1059,9 +1065,9 @@ class GeecsNamespace:
                 objects.append(dev)
         return objects
 
-    def witness(self, domain: str = "main") -> Witness | None:
-        """The witness of trigger *domain* (the registry's ``witness`` entry), or ``None``."""
-        return self._witnesses.get(domain)
+    def witnesses(self) -> dict[str, Witness]:
+        """The registry's witnesses, by the trigger domain each counts."""
+        return dict(self._witnesses)
 
     # ----------------------------------------------------------------- export
     def export_into(self, namespace: dict[str, Any]) -> list[str]:

@@ -10,6 +10,7 @@ from geecs_schemas import (
     EpicsMotor,
     REGISTRY_KIND_FAMILIES,
     NativeDevices,
+    FamilyFile,
     SetpointDevice,
     load_families,
 )
@@ -277,8 +278,9 @@ def test_a_witness_defaults_its_counter_and_domain_and_round_trips() -> None:
     witness = registry.devices["daqtest1"]
     assert isinstance(witness, Witness)
     assert (witness.counter, witness.domain) == ("Counter1", "main")
-    assert witness.count_record == "Counter1Counts"
     assert witness.family_template == "witness_counter"
+    family = load_families()["witness_counter"]
+    assert witness.records(family) == ("Counter1Counts", "WitnessEpoch")
     assert "witness" not in DETECTOR_KINDS
     assert NativeDevices.model_validate(registry.model_dump(mode="json")) == registry
 
@@ -295,6 +297,16 @@ def test_a_witness_defaults_its_counter_and_domain_and_round_trips() -> None:
 def test_a_bad_witness_is_refused(entry, why) -> None:
     with pytest.raises(ValidationError, match=why):
         NativeDevices.model_validate({"devices": {"daqtest1": entry}})
+
+
+def test_a_witness_family_needs_a_count_and_a_string_epoch() -> None:
+    family = load_families()["witness_counter"].model_dump(mode="json")
+    family["roles"][1].pop("text")  # the epoch read as a number
+    tiny = {"witness_counter": FamilyFile.model_validate(family)}
+    with pytest.raises(ValidationError, match="string 'epoch' role"):
+        NativeDevices.model_validate(
+            {"devices": {"daqtest1": {"kind": "witness"}}}, context={"families": tiny}
+        )
 
 
 def test_two_witnesses_of_one_domain_are_refused_naming_both() -> None:

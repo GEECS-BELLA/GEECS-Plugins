@@ -683,8 +683,8 @@ devices:
                     settables: {current: {tolerance: 0.005, timeout: 10}},
                     readbacks: [voltage], status: [fault, interlock]}
   # A witness: the hardware count of one trigger domain's edges (Counter1Counts),
-  # which confirms every strict fire; at most one per domain.
-  daqtest1: {kind: witness, counter: Counter1, domain: main}
+  # recorded in every strict row; at most one per domain.
+  U_ExampleWitness: {kind: witness, counter: Counter1, domain: main}
   # An entry may name its family ('template', one of its kind's); absent,
   # the kind's default. Older readers refuse the key.
 ```
@@ -739,7 +739,7 @@ A trigger domain's witness: a hardware count of its edges, the count's stamp, an
 | `kind` | `'witness'` | yes | — | Device kind: 'witness' (a counter of a trigger domain's edges). |
 | `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
 | `counter` | `str` | no | 'Counter1' | The counter record's name stem under the device's prefix: the count is '<counter>Counts'. It must be the family's count record. |
-| `domain` | `str` | no | 'main' | The trigger domain it counts (a plain word): the edges every synchronous device of that domain sees. One witness per domain. |
+| `domain` | `str` | no | 'main' | The trigger domain it counts (a plain word): the edges every synchronous device of that domain sees. One witness per domain; strict runs record the 'main' domain's. |
 
 ## `family_file`
 

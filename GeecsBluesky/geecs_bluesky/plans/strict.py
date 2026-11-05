@@ -43,14 +43,8 @@ from geecs_bluesky.devices.scan_mode import ANNOUNCE
 from geecs_bluesky.exceptions import (
     GeecsDeviceDownError,
     GeecsTriggerTimeoutError,
-    GeecsWitnessNoFireError,
     failure_cause_text,
 )
-
-#: The waits' own outcomes, consumed per group and judged after every group
-#: settled: a missed frame (by the devices' ``missed_shot``) and a fire the
-#: witness never saw (by its ``saw_no_fire``).
-_SHOT_OUTCOMES = (GeecsTriggerTimeoutError, GeecsWitnessNoFireError)
 
 logger = logging.getLogger(__name__)
 
@@ -157,22 +151,6 @@ def _log_non_frame_failure(exc: FailedStatus) -> None:
     )
 
 
-def _note_fired(triggerables: Sequence[Any]) -> None:
-    """Tell a witness the fire is out: its bound runs from now."""
-    for obj in triggerables:
-        note = getattr(obj, "note_fired", None)
-        if callable(note):
-            note()
-
-
-def _refuse_an_unseen_fire(triggerables: Sequence[Any]) -> None:
-    """Raise, never return a miss, when a witness saw no fire: it must never be re-fired."""
-    unseen = [obj for obj in triggerables if getattr(obj, "saw_no_fire", False)]
-    if unseen:
-        witness = unseen[0]
-        raise GeecsWitnessNoFireError(geecs_name(witness), witness.effective_bound)
-
-
 def fire_and_await_shot(devices: Sequence[Any], fire: Callable):  # noqa: C901
     """Arm the waiters, fire one shot, await every device; return the ones that missed.
 
@@ -188,10 +166,7 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):  # noqa: C901
     :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead —
     another shot cannot help.  Any other failed status (a refused
     SINGLESHOT put, an unexpected error) propagates untouched: re-firing on
-    it could issue extra physical shots.  A witness that saw no fire raises
-    :exc:`~geecs_bluesky.exceptions.GeecsWitnessNoFireError` once every
-    group has settled, before any miss is returned: the caller's retake
-    loop never sees it as a miss, so a fire nobody saw is never re-fired.
+    it could issue extra physical shots.
 
     The RunEngine delivers a failed status by *throwing* it into the plan
     at the next message, and a second failure landing meanwhile replaces
@@ -231,10 +206,9 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):  # noqa: C901
         # A detector's own no-frame timeout can also be thrown in here (its
         # wait budget started at trigger; a stalled put outlives it): that
         # is not this line's fault class, so it propagates unlabelled.
-        if not isinstance(exc.__cause__, _SHOT_OUTCOMES):
+        if not isinstance(exc.__cause__, GeecsTriggerTimeoutError):
             _log_non_frame_failure(exc)
         raise
-    _note_fired(triggerables)
     fire_done = time.monotonic()
     for group in groups.values():
         for _ in range(2 * len(groups) + 2):
@@ -242,7 +216,7 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):  # noqa: C901
                 yield from bps.wait(group=group)
                 break
             except FailedStatus as exc:
-                if not isinstance(exc.__cause__, _SHOT_OUTCOMES):
+                if not isinstance(exc.__cause__, GeecsTriggerTimeoutError):
                     _log_non_frame_failure(exc)
                     raise
         else:  # pragma: no cover - the RunEngine consumes a group per wait
@@ -254,7 +228,6 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):  # noqa: C901
             (time.monotonic() - fire_done) * 1e3,
             len(triggerables),
         )
-    _refuse_an_unseen_fire(triggerables)
     missed = [obj for obj in triggerables if getattr(obj, "missed_shot", False)]
     for obj in missed:
         device_name = geecs_name(obj)

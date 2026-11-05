@@ -202,7 +202,9 @@ def optimize_plan(  # noqa: C901, PLR0915
             native_image_save_wrapper,
             resolve_background_telemetry,
             resolve_native_image_save,
+            refuse_listed_witness,
             run_witness,
+            witness_wrapper,
         )
         from geecs_bluesky.optimization.driver import XoptDriver
         from geecs_bluesky.optimization.measurements import compile_measurements
@@ -214,6 +216,7 @@ def optimize_plan(  # noqa: C901, PLR0915
         detectors = list(detectors)
         non_essential = list(non_essential or ())
         refuse_native_cameras([*detectors, *non_essential], NOT_OPTIMIZE)
+        refuse_listed_witness([*detectors, *non_essential])
         cfg = resolver.resolve_optimizer_config(optimizer_config)
         iterations = (
             cfg.run.max_iterations if max_iterations is None else max_iterations
@@ -326,9 +329,11 @@ def optimize_plan(  # noqa: C901, PLR0915
             native_image_save=native_files,
             background_telemetry=snapshot is not None,
         )
-        witness, metadata["witness"] = run_witness(
+        witness, metadata["witness"] = yield from run_witness(
             namespace, acquisition="strict", shot_control=sc
         )
+        if witness is not None:  # read with every row, never waited on;
+            detectors.append(witness)  # the stage resets a pre-read's audit
         metadata["geecs"] = {
             **metadata.get("geecs", {}),
             "optimizer_json": cfg.model_dump_json(),
@@ -549,17 +554,8 @@ def optimize_plan(  # noqa: C901, PLR0915
                 source.open()
                 yield from _on_thread(pool, source.wait_connected, 5.0)
             yield from liveness_gate(
-                sc,
-                [
-                    *detectors,
-                    *movables.values(),
-                    *non_essential,
-                    *([witness] if witness else []),
-                ],
+                sc, [*detectors, *movables.values(), *non_essential]
             )
-            if witness is not None:
-                # Waited on with every shot, as in the strict verbs.
-                detectors.append(witness)
             if snapshot is not None:
                 # One more device of every row, last — after the scalar
                 # pre-reads above (nothing to read before its probe).
@@ -568,6 +564,7 @@ def optimize_plan(  # noqa: C901, PLR0915
                 name_failed_status(bpp.finalize_wrapper(inner(), _dump_record())),
                 md=metadata,
             )
+            run = witness_wrapper(run, witness)
             staged = bpp.stage_wrapper(
                 non_essential_wrapper(run, non_essential),
                 [*detectors, *movables.values()],

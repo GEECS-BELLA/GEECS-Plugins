@@ -35,7 +35,7 @@ from geecs_bluesky.devices.native_setpoint import (
     native_setpoint_devices,
 )
 from geecs_bluesky.devices.shot_control import ShotControl
-from geecs_bluesky.devices.witness import Witness, down_witnesses
+from geecs_bluesky.devices.witness import Witness, witness_is_down
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.native_scope import NOT_GATED, NOT_NON_ESSENTIAL, NOT_SCAN_MODE
 from geecs_bluesky.plan_names import (
@@ -49,8 +49,6 @@ from geecs_bluesky.plans.calibration import (
     measure_shot_offsets_plan,
 )
 from geecs_bluesky.plans.gated import (
-    DRAIN_MARGIN_S,
-    TRIGGER_PERIOD_S,
     gated_per_shot,
     gated_per_step,
     non_essential_wrapper,
@@ -181,11 +179,9 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
 
     A native camera is judged by its IOC instead
     (:func:`~geecs_bluesky.devices.native.down_native_cameras`: unreadable =
-    down), a native setpoint device by its readbacks' severity
+    down), and a native setpoint device by its readbacks' severity
     (:func:`~geecs_bluesky.devices.native_setpoint.down_native_setpoint_devices`:
-    INVALID or unreadable = down), and the run's witness by its count record
-    (:func:`~geecs_bluesky.devices.witness.down_witnesses`: unreadable within
-    5 s = down).  Runs before the bracket's first move and before
+    INVALID or unreadable = down).  Runs before the bracket's first move and before
     ``open_run``: nothing is driven and nothing is claimed for a run this
     refuses.
 
@@ -199,10 +195,9 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     natives = [*native_cameras(devices), *native_setpoint_devices(devices)]
     native_down = yield from down_native_cameras(natives)
     native_down += yield from down_native_setpoint_devices(natives)
-    native_down += yield from down_witnesses(devices)
     signals: dict[str, Any] = dict(getattr(shot_control, "liveness_signals", {}))
     for obj in devices:
-        if owner_of(obj) in natives or isinstance(obj, Witness):
+        if owner_of(obj) in natives:
             continue
         signal = getattr(obj, "connected_status", None)
         if signal is None:
@@ -216,43 +211,81 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
         names = ", ".join(down)
         raise GeecsDeviceDownError(
             f"{names} DISCONNECTED (the gateway's CONNECTED, a native "
-            "camera's IOC or the witness not answering, or a native setpoint "
-            "device's readback INVALID) — the run was refused before the "
+            "camera's IOC not answering, or a native setpoint device's readback "
+            "INVALID) — the run was refused before the "
             "trigger box was driven (nothing claimed, no scan folder). Check "
             "the device(s), then resubmit.",
             device_name=down[0],
         )
 
 
-def run_witness(
-    settables: Any, *, acquisition: str, shot_control: Any
-) -> tuple[Witness | None, dict[str, Any] | None]:
-    """The run's witness and its start-document record (``witness``).
+def run_witness(settables: Any, *, acquisition: str, shot_control: Any):
+    """Plan: the witness this run records, and its start-document record (``witness``).
 
-    The namespace's witness of the ``main`` domain (the trigger box's), waited
-    on in every strict shot with its bound set here: one trigger period plus
-    the drain margin from the fire (the gated drain's constants; the
-    witness's own lag, its poll period, sits inside the margin).  ``None``
-    and ``None`` without a witness.  Not read — ``None`` with the record
-    saying why — in a gated run (not yet) and under a box-less profile
-    (nothing is fired for it to count: the announce is the shot).
+    The namespace's ``main``-domain witness, read with every strict row and
+    never waited on.  ``(None, None)`` when the namespace has no witness;
+    ``None`` with a ``reason`` when it has one but this run does not read
+    it: none for ``main``, a gated run (not yet), a box-less profile
+    (nothing fired for it to count) or a witness that does not answer
+    within 5 s (``down``: WARNING-logged, the run proceeds).
     """
-    finder = getattr(settables, "witness", None)
-    witness = finder() if callable(finder) else None
-    if witness is None:
+    finder = getattr(settables, "witnesses", None)
+    witnesses = finder() if callable(finder) else {}
+    if not witnesses:
         return None, None
-    record: dict[str, Any] = {
-        "device": witness._geecs_device_name,
-        "domain": witness.domain,
-        "read": False,
-    }
+    witness = witnesses.get("main")
+    if witness is None:
+        reason = "no witness for domain main"
+        return None, {"device": None, "domain": "main", "read": False, "reason": reason}
+    record = {"device": witness._geecs_device_name, "domain": "main", "read": False}
+    reason = None
     if acquisition == "gated":
-        return None, {**record, "reason": "a gated run does not read the witness yet"}
-    if getattr(shot_control, "boxless", False):
+        reason = "a gated run does not read the witness yet"
+    elif getattr(shot_control, "boxless", False):
         reason = "a box-less profile fires nothing for the witness to count"
+    elif (yield from witness_is_down(witness)):
+        logger.warning(
+            "%s: the witness is down — the run proceeds without it",
+            witness._geecs_device_name,
+        )
+        reason = "down"
+    if reason is not None:
         return None, {**record, "reason": reason}
-    witness.bound = TRIGGER_PERIOD_S + DRAIN_MARGIN_S
     return witness, {**record, "read": True}
+
+
+def refuse_listed_witness(devices: Sequence[Any]) -> None:
+    """Refuse a witness named among a run's devices: every strict row records it already."""
+    listed = [d for d in devices if isinstance(owner_of(d), Witness)]
+    if listed:
+        raise GeecsConfigurationError(
+            f"{', '.join(owner_of(d)._geecs_device_name for d in listed)} is the "
+            "run's witness, recorded in every strict row automatically — drop it "
+            "from the run's devices"
+        )
+
+
+def witness_wrapper(plan: Any, witness: Witness | None) -> Any:
+    """Log the witness's run summary right before ``close_run`` (``scan.log`` still open).
+
+    *plan* unchanged without a witness.
+    """
+    if witness is None:
+        return (yield from plan)
+    closing: list[Msg] = []
+
+    def _proc(msg: Msg) -> tuple[Any, Any]:
+        if msg.command != "close_run" or any(m is msg for m in closing):
+            return None, None
+        closing.append(msg)
+
+        def _summary_then_close():
+            witness.summarize()
+            return (yield msg)
+
+        return _summary_then_close(), None
+
+    return (yield from bpp.plan_mutator(plan, _proc))
 
 
 def _experiment_default(
@@ -576,6 +609,7 @@ def strict_plan(  # noqa: C901, PLR0915
             shot_control=shot_control,
         )
         refuse_free_running_non_essentials(non_essential)
+        refuse_listed_witness([*detectors, *non_essential])
         # Compared by OWNER: ``X.scalars`` essential with ``X`` non-essential
         # is the same camera twice — its one acquire logic would be in fly
         # mode for the stream while the view expects the strict stamp wait.
@@ -616,7 +650,7 @@ def strict_plan(  # noqa: C901, PLR0915
         md["native_image_save"] = native_files
         snapshot = background_snapshot(settables, mock=mock) if background else None
         md["background_telemetry"] = snapshot is not None
-        witness, md["witness"] = run_witness(
+        witness, md["witness"] = yield from run_witness(
             settables, acquisition=acquisition, shot_control=shot_control
         )
         if shot_period is not None:
@@ -665,13 +699,14 @@ def strict_plan(  # noqa: C901, PLR0915
             )
         extras = [d for d in (witness, snapshot) if d is not None]
         if extras:
-            # More detectors of the row, last: the witness waited on with
-            # every strict shot, the background read per shot (sampled at
-            # the tick in a gated batch).
+            # More readers of the row, last, neither triggered nor waited on:
+            # the strict take_reading reads them per shot (the background is
+            # sampled at the tick in a gated batch, which has no witness).
             bound = signature.bind_partial(*args, **kwargs)
             bound.arguments["detectors"] = [*detectors, *extras]
             args, kwargs = bound.args, dict(bound.kwargs)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
+        inner = witness_wrapper(inner, witness)
         if snapshot is not None:
             payload = bound_args.get("sweep")
             movers = (
@@ -698,9 +733,7 @@ def strict_plan(  # noqa: C901, PLR0915
             )
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim.
-        yield from liveness_gate(
-            shot_control, [*detectors, *non_essential, *([witness] if witness else [])]
-        )
+        yield from liveness_gate(shot_control, [*detectors, *non_essential])
         # A failure outside the stock plan's run_wrapper (the bracket's own
         # move, a non-essential prepare) is named here; one inside it is
         # named by the hook, before run_wrapper writes the stop document.

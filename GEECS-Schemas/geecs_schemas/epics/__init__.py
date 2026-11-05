@@ -18,7 +18,7 @@ Four kinds so far: ``aravis_camera`` (an areaDetector camera, a detector
 of the scan), ``epics_motor`` (one or more EPICS motor records, scan axes),
 ``setpoint_device`` (a supply's plain records: settables confirmed on
 their readbacks, extra readbacks, status bits) and ``witness`` (a hardware
-count of one trigger domain's edges, which confirms every strict fire).
+count of one trigger domain's edges, recorded in every strict row).
 """
 
 from __future__ import annotations
@@ -320,12 +320,11 @@ class SetpointDevice(_NativeEntry):
 class Witness(_NativeEntry):
     """A trigger domain's witness: a hardware count of its edges, the count's stamp, an epoch.
 
-    The worker waits on it in every strict shot: the fire is confirmed when
-    the count (``<prefix><counter>Counts``) advances, and each row records
-    the count, the count record's own timestamp and the epoch
-    (``<prefix>WitnessEpoch``, a string that changes whenever the count
-    restarts). At most one witness per domain. Names only, as every entry:
-    the records are the family's.
+    Recorded, never waited on: each strict row reads the count (the
+    family's ``count`` role, ``<counter>Counts``), the count record's own
+    timestamp and the epoch (the family's ``epoch`` role, a string that
+    changes whenever the count restarts). At most one witness per domain.
+    Names only, as every entry: the records are the family's.
     """
 
     kind: Literal["witness"] = Field(
@@ -344,31 +343,34 @@ class Witness(_NativeEntry):
         pattern=r"^[a-z][a-z0-9_]*$",
         description=(
             "The trigger domain it counts (a plain word): the edges every "
-            "synchronous device of that domain sees. One witness per domain."
+            "synchronous device of that domain sees. One witness per domain; "
+            "strict runs record the 'main' domain's."
         ),
     )
 
     @model_validator(mode="after")
-    def _the_familys_counter(self, info: ValidationInfo) -> "Witness":
+    def _the_familys_records(self, info: ValidationInfo) -> "Witness":
         family = families_from(info).get(self.family_template)
         if family is None:  # an unknown template is _NativeEntry's refusal
             return self
-        role = next((r for r in family.roles if r.name == "count"), None)
-        if role is not None and role.suffix != self.count_record:
+        roles = {r.name: r for r in family.roles}
+        count, epoch = roles.get("count"), roles.get("epoch")
+        if count is None or epoch is None or epoch.text != "string":
+            raise ValueError(
+                f"family {family.template!r} needs a 'count' role and a string "
+                "'epoch' role to serve a witness"
+            )
+        if count.suffix != f"{self.counter}Counts":
             raise ValueError(
                 f"counter {self.counter!r}: family {family.template!r} counts at "
-                f"{role.suffix!r}, not {self.count_record!r}"
+                f"{count.suffix!r}, not '{self.counter}Counts'"
             )
         return self
 
-    @property
-    def count_record(self) -> str:
-        """The count record under the device's prefix (``Counter1Counts``)."""
-        return f"{self.counter}Counts"
-
-
-#: The epoch record under a witness's prefix: a string that changes when the count restarts.
-WITNESS_EPOCH_RECORD = "WitnessEpoch"
+    def records(self, family: FamilyFile) -> tuple[str, str]:
+        """The count and epoch records under the device's prefix, from *family* (its own)."""
+        roles = {r.name: r.suffix for r in family.roles}
+        return roles["count"], roles["epoch"]
 
 
 #: Every native device kind, discriminated by ``kind`` (a new kind is one more member).

@@ -5,6 +5,6 @@
   "description": "A trigger domain's witness: a hardware counter input on the gated trigger output (measComp's counter records, geecs-epics' DAQ family) and the epoch that changes when the count restarts.",
   "roles": [
     {"name": "count", "suffix": "Counter1Counts", "type": "readback", "label": "shots counted", "archive": true},
-    {"name": "epoch", "suffix": "WitnessEpoch", "type": "readback", "label": "count epoch", "archive": true}
+    {"name": "epoch", "suffix": "WitnessEpoch", "type": "readback", "label": "count epoch", "text": "string", "archive": true}
   ]
 }

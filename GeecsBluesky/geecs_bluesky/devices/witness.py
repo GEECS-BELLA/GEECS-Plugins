@@ -1,25 +1,26 @@
-"""Witness — a trigger domain's hardware count of its edges, waited on in every strict shot.
+"""Witness — a trigger domain's hardware count of its edges, recorded in every strict row.
 
 The registry's ``witness`` kind: a counter input on the gated trigger
-output (the count ``<prefix><counter>Counts``) and the epoch
-``<prefix>WitnessEpoch``, a string that changes when the count restarts.
-In a strict shot it is one more triggerable: :meth:`Witness.trigger` takes
-the count baseline **synchronously** (the fire is the plan's next message,
-so no edge falls in a blind window, ``GeecsAcquireLogic``'s rule), the
-plan calls :meth:`Witness.note_fired` once the fire is out, and the status
-completes when the count advances — or, ``bound`` seconds after the fire
-with no advance, fails and leaves :attr:`Witness.saw_no_fire` set, which
-the plan turns into :exc:`~geecs_bluesky.exceptions.GeecsWitnessNoFireError`
-(never a refire).  Each row reads ``witness_count``, ``witness_stamp`` (the
-count record's own CA timestamp, never the read time) and
-``witness_epoch``.  A count that jumps by more than one in a shot and an
-epoch that changes mid-run are recorded, one WARNING each.
+output and an epoch string that changes when the count restarts, both
+records named by the device's family (``witness_counter``).  **Record
+only**: never triggered, never waited on, never refusing or ending a run.
+Each row reads, from the staged monitor cache, ``witness_count``,
+``witness_stamp`` (the count record's own CA timestamp, never the read
+time) and ``witness_epoch``; an unreadable witness gives ``NaN`` (and an
+empty epoch) with a WARNING.  The audit compares each row with the
+previous one — a step other than +1, an epoch change — and logs one
+WARNING each, plus one summary line per run (:meth:`Witness.summarize`).
+The read can trail the edge by the IOC's poll (~25 ms); rows are read
+after every detector's frame, so an unchanged count is normally a fire
+the witness did not see, and is flagged, never failed.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import time
 from typing import Any
 
 from bluesky.protocols import Reading
@@ -29,23 +30,18 @@ from ophyd_async.epics.core import epics_signal_r
 
 from geecs_bluesky.devices.ca._pv import CA_TRANSPORT_PREFIX
 from geecs_bluesky.devices.ca.liveness import down_natives
-from geecs_bluesky.exceptions import GeecsWitnessNoFireError
 from geecs_bluesky.utils import is_connected
 
 logger = logging.getLogger(__name__)
 
 #: The row's three columns (the event keys, fixed whatever the device's name).
 COUNT_KEY, STAMP_KEY, EPOCH_KEY = "witness_count", "witness_stamp", "witness_epoch"
-#: The epoch record under the device's prefix.
-EPOCH_RECORD = "WitnessEpoch"
-#: Seconds the fire itself may take before the witness stops waiting for it.
-FIRE_CEILING_S = 10.0
-#: Seconds the liveness gate allows the witness to connect and answer.
-LIVENESS_TIMEOUT_S = 5.0
+#: Seconds the liveness probe and a row's read allow the witness to answer.
+LIVENESS_TIMEOUT_S, READ_TIMEOUT_S = 5.0, 1.0
 
 
 class Witness(Device):
-    """One trigger domain's witness (the registry's ``witness`` entry).
+    """One trigger domain's witness (the registry's ``witness`` entry), read per row.
 
     Parameters
     ----------
@@ -53,8 +49,8 @@ class Witness(Device):
         The GEECS device name (the registry key).
     prefix :
         The device's PV prefix, ``<experiment>:<device>:``.
-    counter :
-        The counter record's name stem (``Counter1`` → ``Counter1Counts``).
+    count_record, epoch_record :
+        The family's ``count`` and ``epoch`` records under the prefix.
     domain :
         The trigger domain it counts.
     name :
@@ -66,134 +62,98 @@ class Witness(Device):
         device: str,
         prefix: str,
         *,
-        counter: str = "Counter1",
+        count_record: str,
+        epoch_record: str,
         domain: str = "main",
         name: str = "",
     ) -> None:
         self._geecs_device_name = device
         self.domain = domain
-        #: Seconds after the fire within which the count must advance: set per
-        #: run by the strict binder (period + margin, the gated drain's
-        #: constants); ``None`` waits up to ``FIRE_CEILING_S``.
-        self.bound: float | None = None
-        #: The last awaited shot was never seen (cleared by the next trigger).
-        self.saw_no_fire = False
-        self.counts = epics_signal_r(
-            int, f"{CA_TRANSPORT_PREFIX}{prefix}{counter}Counts"
-        )
-        self.epoch = epics_signal_r(str, f"{CA_TRANSPORT_PREFIX}{prefix}{EPOCH_RECORD}")
-        self._last: Reading | None = None  # the count's latest monitor update
-        self._epoch: str | None = None
-        self._run_epoch: str | None = None
-        self._baseline: Any = None
-        self._fired: float | None = None
-        self._queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=128)
-        self._shot = 0
-        self._monitoring = False
+        self.counts = epics_signal_r(int, CA_TRANSPORT_PREFIX + prefix + count_record)
+        self.epoch = epics_signal_r(str, CA_TRANSPORT_PREFIX + prefix + epoch_record)
+        self._reset()
         super().__init__(name=name)
 
-    async def connect(self, *args: Any, **kwargs: Any) -> None:
-        """Connect both records, then monitor them."""
-        await super().connect(*args, **kwargs)
-        if not self._monitoring:
-            self.counts.subscribe_reading(self._on_count)
-            self.epoch.subscribe_reading(self._on_epoch)
-            self._monitoring = True
-
-    def _on_count(self, reading: dict[str, Reading]) -> None:
-        self._last = reading[self.counts.name]
-        if self._queue.full():
-            self._queue.get_nowait()  # drop the oldest
-        self._queue.put_nowait(self._last["value"])
-
-    def _on_epoch(self, reading: dict[str, Reading]) -> None:
-        self._epoch = str(reading[self.epoch.name]["value"])
+    def _reset(self) -> None:
+        self._rows = 0
+        self._counted = 0
+        self._previous: tuple[int, str] | None = None
 
     @AsyncStatus.wrap
     async def stage(self) -> None:
-        """Start the run: shots counted from 1, the run's epoch from the monitor."""
-        self._shot = 0
-        self._run_epoch = self._epoch
+        """Monitor both records for the run (row reads hit the cache); a new audit."""
+        self._reset()
+        await asyncio.gather(self.counts.stage(), self.epoch.stage())
 
     @AsyncStatus.wrap
     async def unstage(self) -> None:
-        """Nothing to release: the monitors stay for the next run."""
-
-    def trigger(self) -> AsyncStatus:
-        """Baseline the count NOW, synchronously; the status waits for it to advance."""
-        self._baseline = None if self._last is None else self._last["value"]
-        self._fired = None
-        self.saw_no_fire = False
-        self._shot += 1
-        while not self._queue.empty():
-            self._queue.get_nowait()
-        return AsyncStatus(self._await_advance())
-
-    @property
-    def effective_bound(self) -> float:
-        """The bound the wait applies: :attr:`bound`, else ``FIRE_CEILING_S``."""
-        return FIRE_CEILING_S if self.bound is None else self.bound
-
-    def note_fired(self) -> None:
-        """The plan's fire is out: the bound runs from now (called in the plan, on the loop)."""
-        self._fired = asyncio.get_running_loop().time()
-        if not self._queue.full():
-            self._queue.put_nowait(None)  # wake the waiter to start the bound
-
-    async def _await_advance(self) -> None:
-        loop = asyncio.get_running_loop()
-        start = loop.time()
-        while True:
-            fired = self._fired
-            bound = self.effective_bound
-            deadline = start + FIRE_CEILING_S if fired is None else fired + bound
-            remaining = deadline - loop.time()
-            try:
-                if remaining <= 0:
-                    raise asyncio.TimeoutError
-                value = await asyncio.wait_for(self._queue.get(), timeout=remaining)
-            except asyncio.TimeoutError:
-                self.saw_no_fire = True
-                raise GeecsWitnessNoFireError(self._geecs_device_name, bound) from None
-            if value is not None and value != self._baseline:
-                self._audit(value)
-                return
-
-    def _audit(self, value: Any) -> None:
-        """Record what is odd about this shot's count: one WARNING each, nothing fails."""
-        name = self._geecs_device_name
-        if self._baseline is not None and value - self._baseline > 1:
-            logger.warning(
-                "%s: shot %d: the count advanced by %d (%s → %s) — a stall or a "
-                "doubled edge; recorded",
-                name, self._shot, value - self._baseline, self._baseline, value,
-            )  # fmt: skip
-        if self._epoch != self._run_epoch:
-            logger.warning(
-                "%s: shot %d: the epoch changed mid-run (%s → %s) — the count "
-                "restarted; recorded",
-                name, self._shot, self._run_epoch, self._epoch,
-            )  # fmt: skip
-            self._run_epoch = self._epoch
+        """Release the monitors."""
+        await asyncio.gather(self.counts.unstage(), self.epoch.unstage())
 
     async def read(self) -> dict[str, Reading]:
-        """The row's three columns: the count, its record's stamp, the epoch."""
-        last = self._last or await self.counts.read()
-        if self._last is None:
-            last = last[self.counts.name]
-        stamp = float(last["timestamp"])
-        epoch = self._epoch if self._epoch is not None else await self.epoch.get_value()
-        return {
-            COUNT_KEY: {"value": int(last["value"]), "timestamp": stamp},
-            STAMP_KEY: {"value": stamp, "timestamp": stamp},
-            EPOCH_KEY: {"value": str(epoch), "timestamp": stamp},
-        }
+        """The row's three columns; ``NaN`` and a WARNING when the witness does not answer."""
+        self._rows += 1
+        reads = asyncio.gather(
+            self.counts.read(), self.epoch.get_value(), return_exceptions=True
+        )
+        try:
+            count, epoch = await asyncio.wait_for(reads, READ_TIMEOUT_S)
+        except asyncio.TimeoutError as exc:
+            count = epoch = exc
+        failed = next((r for r in (count, epoch) if isinstance(r, BaseException)), None)
+        if failed is not None:  # a recording device never fails a run
+            logger.warning(
+                "%s: row %d: the witness did not answer (%s: %s) — NaN recorded",
+                self._geecs_device_name, self._rows, type(failed).__name__, failed,
+            )  # fmt: skip
+            return _columns(math.nan, math.nan, "")
+        reading = count[self.counts.name]
+        value, stamp = int(reading["value"]), float(reading["timestamp"])
+        self._audit(value, str(epoch))
+        return _columns(value, stamp, str(epoch))
+
+    def _audit(self, value: int, epoch: str) -> None:
+        """Compare with the previous row: one WARNING per oddity, never a failure."""
+        previous, self._previous = self._previous, (value, epoch)
+        if previous is None:
+            return
+        name, row = self._geecs_device_name, self._rows
+        if epoch != previous[1]:
+            logger.warning(
+                "%s: row %d: the epoch changed (%s → %s) — the count restarted",
+                name, row, previous[1], epoch,
+            )  # fmt: skip
+            return
+        step = value - previous[0]
+        self._counted += max(step, 0)
+        if step == 0:
+            logger.warning(
+                "%s: row %d: the count did not advance (%d) — a fire the "
+                "witness did not see, or a read before its update",
+                name, row, value,
+            )  # fmt: skip
+        elif step != 1:
+            logger.warning(
+                "%s: row %d: the count stepped by %d (%d → %d) — a doubled edge "
+                "or a missed row",
+                name, row, step, previous[0], value,
+            )  # fmt: skip
+
+    def summarize(self) -> None:
+        """One line per run: rows (fires) against what the witness counted between them."""
+        fires = max(self._rows - 1, 0)
+        level = logging.INFO if self._counted == fires else logging.WARNING
+        logger.log(
+            level,
+            "%s: %d fire(s) after the first row, %d counted by the witness",
+            self._geecs_device_name, fires, self._counted,
+        )  # fmt: skip
 
     async def describe(self) -> dict[str, DataKey]:
-        """The three data keys, sourced from the two records."""
+        """The three data keys, sourced from the two records (the count may be ``NaN``)."""
         count, epoch = self.counts.source, self.epoch.source
         return {
-            COUNT_KEY: {"source": count, "dtype": "integer", "shape": []},
+            COUNT_KEY: {"source": count, "dtype": "number", "shape": []},
             STAMP_KEY: {"source": count + ".TIME", "dtype": "number", "shape": []},
             EPOCH_KEY: {"source": epoch, "dtype": "string", "shape": []},
         }
@@ -209,18 +169,25 @@ class Witness(Device):
         }
 
 
+def _columns(count: Any, stamp: float, epoch: str) -> dict[str, Reading]:
+    at = time.time() if math.isnan(stamp) else stamp
+    return {
+        COUNT_KEY: {"value": count, "timestamp": at},
+        STAMP_KEY: {"value": stamp, "timestamp": at},
+        EPOCH_KEY: {"value": epoch, "timestamp": at},
+    }
+
+
 async def _witness_down(witness: Witness) -> bool:
-    """Down iff the count record does not connect and answer within the liveness bound."""
     if not is_connected(witness):
         await witness.connect(timeout=LIVENESS_TIMEOUT_S)
     await asyncio.wait_for(witness.counts.get_value(), LIVENESS_TIMEOUT_S)
     return False
 
 
-def down_witnesses(devices: Any):
-    """Plan: the GEECS names of the witnesses among *devices* that are unreadable (= down)."""
-    found = [d for d in devices if isinstance(d, Witness)]
-    return (yield from down_natives(found, _witness_down))
+def witness_is_down(witness: Witness):
+    """Plan: ``True`` when the witness does not connect and answer within 5 s (WARNING-logged)."""
+    return bool((yield from down_natives([witness], _witness_down)))
 
 
-__all__ = ["COUNT_KEY", "EPOCH_KEY", "STAMP_KEY", "Witness", "down_witnesses"]
+__all__ = ["COUNT_KEY", "EPOCH_KEY", "STAMP_KEY", "Witness", "witness_is_down"]
