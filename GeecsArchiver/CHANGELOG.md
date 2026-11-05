@@ -5,6 +5,32 @@ All notable changes to `geecs-archiver` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-04
+
+### Added
+
+- `onboard` aborts a never-connected request the rule no longer wants (it
+  has no data to keep), under the same `--yes` guard as pauses; the next
+  run requests it again if it returns to the set (#1248, #1282).
+- The readback of every settable variable is archived, so LabVIEW-side
+  changes reach the history (#1279).
+- The registry pass: native IOC devices join the archive set from the
+  configs repo's registry and the family files' archive roles (#1157, #1237).
+- Archive deadband from the DB, applied to DBE_LOG events only (#1114).
+
+### Fixed
+
+- `getPVStatus` asks for every PV, so a converged appliance plans no pauses
+  (#1255).
+- The CA gateway's heartbeat and `devices_connected` are derived (#1083);
+  the camera family drops `frame_rate` (#1254).
+- Tomcat gets 170 s to flush on stop; a clean stop is not a failure (#1219).
+
+### Deploy
+
+- The CLI runs from any machine with database access and an `[archiver]`
+  URL; the appliance's unit needs no restart for this release.
+
 ## [0.1.2] - 2026-10-02
 
 ### Fixed
