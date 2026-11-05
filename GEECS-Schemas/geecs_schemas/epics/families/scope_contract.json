@@ -72,8 +72,19 @@
     {"name": "ch_d_max", "suffix": "STAT_D:MaxValue_RBV", "type": "readback", "label": "D max"},
     {"name": "ch_d_sigma", "suffix": "STAT_D:Sigma_RBV", "type": "readback", "label": "D sigma"},
     {"name": "data", "suffix": "ARR:ArrayData", "type": "array", "label": "capture"},
-    {"name": "time_axis", "suffix": "TimeAxis_RBV", "type": "array", "label": "time axis"},
+    {"name": "time_axis", "suffix": "TimeAxis_RBV", "type": "array", "label": "time axis", "axis_of": "data"},
     {"name": "arr_channels", "suffix": "ARR:ArraySize0_RBV", "type": "readback", "label": "capture channels", "read": "on_request", "level": "expert"},
     {"name": "arr_samples", "suffix": "ARR:ArraySize1_RBV", "type": "readback", "label": "capture samples", "read": "on_request", "level": "expert"}
-  ]
+  ],
+  "panel": {
+    "rail": [
+      {"title": "Acquisition", "roles": ["acquire", "image_mode", "num_images", "interval_ns", "samples", "pre_trigger"]},
+      {"title": "Trigger", "roles": ["trigger_mode", "trigger_source", "trigger_level", "trigger_edge", "auto_ms"]},
+      {"title": "Channel A", "roles": ["ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset"]},
+      {"title": "Channel B", "roles": ["ch_b_enable", "ch_b_range", "ch_b_coupling", "ch_b_offset"]},
+      {"title": "Channel C", "roles": ["ch_c_enable", "ch_c_range", "ch_c_coupling", "ch_c_offset"]},
+      {"title": "Channel D", "roles": ["ch_d_enable", "ch_d_range", "ch_d_coupling", "ch_d_offset"]}
+    ],
+    "readings": ["state", "count", "ch_a_total", "ch_a_mean", "ch_a_sigma", "ch_a_overrange", "ch_b_total", "ch_b_mean", "ch_b_sigma", "ch_b_overrange", "ch_c_total", "ch_c_mean", "ch_c_sigma", "ch_c_overrange", "ch_d_total", "ch_d_mean", "ch_d_sigma", "ch_d_overrange", "last_error"]
+  }
 }

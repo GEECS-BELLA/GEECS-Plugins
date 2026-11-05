@@ -253,6 +253,14 @@ class Role(SchemaModel):
         False,
         description="A bit that reads 1 when tripped: any tripped fault makes the device 'failed'.",
     )
+    axis_of: Optional[RoleName] = Field(
+        None,
+        description=(
+            "On an array: the array role this one is the x axis of (a scope's time "
+            "axis beside its capture, a spectrometer's wavelengths beside its "
+            "spectrum). Both are arrays; an array has one axis at most."
+        ),
+    )
     read: Optional[ReadMode] = Field(
         None,
         description=(
@@ -328,6 +336,43 @@ class FamilyAction(SchemaModel):
     )
 
 
+class PanelGroup(SchemaModel):
+    """One titled group of a device page's control rail: the roles it draws, in order."""
+
+    model_config = _FROZEN
+
+    title: str = Field(min_length=1, description="The group's heading on the rail.")
+    roles: list[RoleName] = Field(
+        min_length=1,
+        description=(
+            "The family roles the group draws, in order; the page picks each "
+            "control by the role's type."
+        ),
+    )
+
+
+class Panel(SchemaModel):
+    """How a device page lays out the family's roles: the control rail and the readings strip.
+
+    Layout only. The page draws each role by its type (an enum a select of
+    the record's own choices, a setpoint a number beside its readback, a
+    bit a checkbox, a command a button, a readback its text), so the model
+    constrains no role type; whether a write is permitted stays the
+    module's.
+    """
+
+    model_config = _FROZEN
+
+    rail: list[PanelGroup] = Field(
+        default_factory=list,
+        description="The rail's control groups, in order; a role sits in one group at most.",
+    )
+    readings: list[RoleName] = Field(
+        default_factory=list,
+        description="The roles of the readings strip, in order, each with its freshness word.",
+    )
+
+
 class FamilyFile(VersionedSchemaModel):
     """The records of one IOC record template, by role: what every device of the family serves.
 
@@ -374,6 +419,13 @@ class FamilyFile(VersionedSchemaModel):
             "Empty: every writable role is its own permission."
         ),
     )
+    panel: Optional[Panel] = Field(
+        None,
+        description=(
+            "How the kind's device page lays the roles out (the rail's groups, the "
+            "readings strip); absent: the page's own default."
+        ),
+    )
 
     def role(self, name: str) -> Role:
         """The role called *name*; ``KeyError`` if the family has none."""
@@ -406,6 +458,9 @@ class FamilyFile(VersionedSchemaModel):
         by_name = {role.name: role for role in self.roles}
         for role in self.roles:
             _check_links(role, by_name)
+        _check_axes(self.roles, by_name)
+        if self.panel is not None:
+            _check_panel(self.panel, by_name)
         for action_name, action in self.actions.items():
             for name in action.roles:
                 if name not in by_name or not by_name[name].writable:
@@ -444,6 +499,41 @@ def _check_links(role: Role, by_name: Mapping[str, Role]) -> None:
                 f"role {role.name!r}: fresh_by names a counter, not "
                 f"{other.type} {target!r}"
             )
+
+
+def _check_axes(roles: list[Role], by_name: Mapping[str, Role]) -> None:
+    """Refuse an axis that is no array, names no array, or is a second axis of one array."""
+    for role in roles:
+        target = role.axis_of
+        if target is None:
+            continue
+        if role.type != "array":
+            raise ValueError(
+                f"role {role.name!r}: only an array is an axis ({role.type})"
+            )
+        other = by_name.get(target)
+        if other is None:
+            raise ValueError(f"role {role.name!r}: axis_of names no role ({target!r})")
+        if other.type != "array" or target == role.name:
+            raise ValueError(
+                f"role {role.name!r}: axis_of names an array other than itself, "
+                f"not {other.type} {target!r}"
+            )
+    _refuse_duplicates(
+        "axes (one per array)", [r.axis_of for r in roles if r.axis_of is not None]
+    )
+
+
+def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
+    """Refuse a panel naming a role the family lacks, or one rail role in two places."""
+    named = [name for group in panel.rail for name in group.roles]
+    unknown = sorted(
+        {name for name in [*named, *panel.readings] if name not in by_name}
+    )
+    if unknown:
+        raise ValueError(f"panel names no role {unknown}")
+    _refuse_duplicates("panel rail roles", named)
+    _refuse_duplicates("panel readings", list(panel.readings))
 
 
 def _refuse_duplicates(what: str, items: list[str]) -> None:
