@@ -21,10 +21,8 @@ A client submits a **plan item**: a name from
 by name (:meth:`QueueClient.submit_plan`), or a saved preset expanded
 into one (:meth:`QueueClient.submit_preset`).  On plan failure the
 manager returns the failed item to the **front** of the queue, so the
-submit verbs surface the queue's front items (``pending_items``) and
-clear them only when told to (``clear_pending=True``).  ``append=True``
-adds behind waiting items only while the queue is started (no failed item
-can sit at its front then); in a stopped queue it refuses the same way.
+submit verbs surface the queue's front items (``pending_items``): cleared on
+``clear_pending=True``, added behind on ``append=True`` in a started queue.
 """
 
 from __future__ import annotations
