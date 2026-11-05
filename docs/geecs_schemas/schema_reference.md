@@ -793,7 +793,8 @@ One record of the template, by what it does for a page.
 | `integer` | `bool` | no | False | A write takes a whole number. |
 | `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
 | `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
-| `axis_of` | `str (optional)` | no | None | On an array: the array role this one is the x axis of (a scope's time axis beside its capture, a spectrometer's wavelengths beside its spectrum). Both are arrays; an array has one axis at most. |
+| `axis_of` | `str (optional)` | no | None | On an array: the array role this one is the x axis of, one value per sample of each of its channels (a scope's time axis beside its capture, a spectrometer's wavelengths beside its spectrum). Both are arrays; an array has one axis at most, and an axis is no array's trace. |
+| `channels_by` | `str (optional)` | no | None | On an array of several channels: the readback that counts them. The array is then [channels, samples], channels fastest (a scope's ARR capture, a disabled channel NaN). Absent: one channel. |
 | `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame). |
 
 ### FamilyAction

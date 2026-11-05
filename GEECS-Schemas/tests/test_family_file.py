@@ -348,6 +348,22 @@ def test_an_array_has_one_axis() -> None:
     _refused(doc, r"axes \(one per array\) must be unique; repeated: \['trace'\]")
 
 
+def test_an_axis_is_no_arrays_trace() -> None:
+    doc = _with_axis(axis_of="trace")
+    role(doc, "trace")["axis_of"] = "x"  # each the other's axis: which is the trace?
+    _refused(doc, "an axis is no array's trace")
+
+
+def test_a_channel_count_is_an_arrays_and_a_readback() -> None:
+    doc = tiny()
+    role(doc, "trace")["channels_by"] = "level"
+    assert FamilyFile.model_validate(doc).role("trace").channels_by == "level"
+    for owner, target in (("trace", "counter"), ("trace", "lvl"), ("level", "level")):
+        doc = tiny()
+        role(doc, owner)["channels_by"] = target
+        _refused(doc, "channels_by is an array's, naming a readback")
+
+
 PANEL = {
     "rail": [
         {"title": "Run", "roles": ["acquire", "level_sp"]},
@@ -375,6 +391,14 @@ def test_a_panel_names_family_roles(where: str) -> None:
     _refused({**tiny(), "panel": panel}, r"panel names no role \['halt'\]")
 
 
+def test_a_reading_is_monitored_and_listed_once() -> None:
+    for reading, match in (("trace", "panel readings \\['trace'\\] are not monitored"),
+                           ("mean", "panel readings must be unique")):  # fmt: skip
+        panel = copy.deepcopy(PANEL)
+        panel["readings"].append(reading)
+        _refused({**tiny(), "panel": panel}, match)
+
+
 def test_a_rail_role_sits_in_one_group() -> None:
     panel = copy.deepcopy(PANEL)
     panel["rail"][1]["roles"].append("acquire")
@@ -384,6 +408,8 @@ def test_a_rail_role_sits_in_one_group() -> None:
 def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
     scope = load_families()["scope_contract"]
     assert scope.role("time_axis").axis_of == "data"
+    # [channels, samples] by arr_channels, held on the driver's counter
+    assert (scope.role("data").channels_by, scope.role("data").fresh_by) == ("arr_channels", "count")  # fmt: skip
     assert [g.title for g in scope.panel.rail] == [
         "Acquisition", "Trigger", "Channel A", "Channel B", "Channel C", "Channel D",
     ]  # fmt: skip
@@ -392,5 +418,6 @@ def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
     ]  # fmt: skip
     assert scope.panel.readings[:2] == ["state", "count"]
     assert scope.panel.readings[-1] == "last_error"
-    # every rail role is a write the module gates; the rail places no read-only role
-    assert all(scope.role(r).writable for g in scope.panel.rail for r in g.roles)
+    # the rail is exactly the family's writable roles: none left off, no read-only one placed
+    railed = [r for g in scope.panel.rail for r in g.roles]
+    assert sorted(railed) == sorted(r.name for r in scope.roles if r.writable)

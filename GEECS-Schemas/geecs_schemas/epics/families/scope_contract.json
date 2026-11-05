@@ -71,14 +71,14 @@
     {"name": "ch_d_min", "suffix": "STAT_D:MinValue_RBV", "type": "readback", "label": "D min"},
     {"name": "ch_d_max", "suffix": "STAT_D:MaxValue_RBV", "type": "readback", "label": "D max"},
     {"name": "ch_d_sigma", "suffix": "STAT_D:Sigma_RBV", "type": "readback", "label": "D sigma"},
-    {"name": "data", "suffix": "ARR:ArrayData", "type": "array", "label": "capture"},
-    {"name": "time_axis", "suffix": "TimeAxis_RBV", "type": "array", "label": "time axis", "axis_of": "data"},
+    {"name": "data", "suffix": "ARR:ArrayData", "type": "array", "label": "capture", "units": "V", "fresh_by": "count", "channels_by": "arr_channels"},
+    {"name": "time_axis", "suffix": "TimeAxis_RBV", "type": "array", "label": "time axis", "units": "s", "axis_of": "data"},
     {"name": "arr_channels", "suffix": "ARR:ArraySize0_RBV", "type": "readback", "label": "capture channels", "read": "on_request", "level": "expert"},
     {"name": "arr_samples", "suffix": "ARR:ArraySize1_RBV", "type": "readback", "label": "capture samples", "read": "on_request", "level": "expert"}
   ],
   "panel": {
     "rail": [
-      {"title": "Acquisition", "roles": ["acquire", "image_mode", "num_images", "interval_ns", "samples", "pre_trigger"]},
+      {"title": "Acquisition", "roles": ["acquire", "image_mode", "num_images", "resolution", "interval_ns", "samples", "pre_trigger"]},
       {"title": "Trigger", "roles": ["trigger_mode", "trigger_source", "trigger_level", "trigger_edge", "auto_ms"]},
       {"title": "Channel A", "roles": ["ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset"]},
       {"title": "Channel B", "roles": ["ch_b_enable", "ch_b_range", "ch_b_coupling", "ch_b_offset"]},

@@ -71,8 +71,9 @@ deleted** when they are proven: one operator surface, no bench tool.
    1-D array over a calibrated axis (a scope's capture over its time axis, a
    spectrometer's spectrum over its wavelengths): the rail and the readings
    strip come from the family's `panel`, the y array is the `axis_of` target
-   of the axis role; the trace polled at 2 Hz, held on the family's counter
-   (not SSE); screenshots.
+   of the axis role (`[channels, samples]` by its `channels_by`); the trace
+   polled at 2 Hz, held on the y array's `fresh_by` counter (not SSE);
+   screenshots.
 5. **Motor and supply pages** from the family files' roles (small; the
    inspector's rich view and the drill-down).
 6. **GeecsPanels deletion PR** (separate, under the kill rule): the package,
@@ -294,21 +295,26 @@ page**, not a scope page: one page for every 1-D array over a calibrated
 axis, bound by data shape, so the PicoScope (family `scope_contract`) and
 the spectrometer (an areaDetector `ADSpecfirm` driver, its family file to
 come) render through one template. What differs per hardware (its controls,
-its readings) is the family file's, never page code. Polled binary at 2 Hz,
-held on the family's `counter` role as `frame.raw` is held on
-`raw_counter`, not SSE. The camera rail's move into a `panel` block is a
+its readings, its array's shape and counter) is the family file's, never
+page code. Polled binary at 2 Hz, held on the y array's `fresh_by` counter
+as `frame.raw` is held on `raw_counter`, not SSE. The camera rail's move into a `panel` block is a
 later tidy, not this slice.
 
-**Two schema additions** (GEECS-Schemas `epics/family.py`, PR 4a):
+**Three schema additions** (GEECS-Schemas `epics/family.py`, PR 4a):
 
 - `Role.axis_of`: an array role names the array it is the x axis of (both
-  arrays, one axis per array, validated on the family file). The scope's
-  `time_axis` is `axis_of: data`.
+  arrays, one axis per array, an axis no array's trace, validated on the
+  family file). The scope's `time_axis` is `axis_of: data`. Beside it,
+  `Role.channels_by`: an array of several channels names the readback that
+  counts them (`[channels, samples]`, channels fastest); the scope's `data`
+  is `channels_by: arr_channels`, `fresh_by: count` (the hold counter).
 - `FamilyFile.panel`: `rail` (titled groups of roles, in order) and
   `readings` (the readings strip). Every named role must exist; a rail role
-  sits in one group. No role type is constrained: the page draws each by its
-  type. The scope's rail: Acquisition, Trigger, Channel A..D; its readings:
-  state, captures, per channel total/mean/sigma/over range, last error.
+  sits in one group; a reading is a monitored role (it carries the module's
+  word). No rail role type is constrained: the page draws each by its type;
+  `level` stays the role table's. The scope's rail (every writable role):
+  Acquisition, Trigger, Channel A..D; its readings: state, captures, per
+  channel total/mean/sigma/over range, last error.
 
 **Then.** PR 4b, the page in GeecsControlRoom (`/device/trace/<name>`,
 `/api/devices/{name}/trace`); PR 4c, the spectrometer's family file, waits
