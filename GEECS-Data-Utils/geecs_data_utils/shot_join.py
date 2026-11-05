@@ -78,6 +78,20 @@ NON_ESSENTIAL_STREAM_SUFFIX = "_stream"
 #: s-file column it is spelled like the strict row's, ``<device> acq_timestamp``.
 FRAME_STAMP_SUFFIX = "frame_acq_timestamp"
 
+#: The non-device clocks a shot-table run's start document may name as its
+#: ``shot_clock_column`` (``Planning/shot_synchronization.md`` §6.6): row
+#: columns of their own, not a device's ``-acq_timestamp``.  A soft-tick
+#: (fly-mode) run writes its ticks into the witness columns.
+NON_DEVICE_CLOCK_COLUMNS = ("witness_stamp", "fire_stamp")
+
+#: The row columns stamped in **Unix** seconds (CA record times and the
+#: worker's clock).  Every other stamp the join reads is in the **LabVIEW**
+#: epoch: a row's ``<device>-acq_timestamp``, an event stream's, and
+#: :attr:`FrameColumns.stamps` (a stack's Unix stamps are shifted on read,
+#: :func:`frame_columns_from_attributes`).  :func:`to_labview_epoch` is the
+#: one place a row clock crosses between the two.
+UNIX_EPOCH_COLUMNS = frozenset({"witness_stamp", "fire_stamp", "announce_stamp"})
+
 #: Row stamps closer together than this are one row's publish race, not two
 #: shots, and are ignored when sizing a window.
 _SAME_SHOT_S = 1e-3
@@ -260,7 +274,9 @@ def shot_clock_column(
     order:
 
     1. ``shot_clock_column``, the column itself — what the plan records
-       from GeecsBluesky 0.85;
+       from GeecsBluesky 0.85; a shot-table run names a non-device clock
+       (:data:`NON_DEVICE_CLOCK_COLUMNS`), in the Unix epoch, so pass the
+       values through :func:`to_labview_epoch`;
     2. ``shot_clock``, the GEECS *device* name, matched to a column by
        device name ignoring case and separators (the runs recorded before
        the plan knew to write the column — the mangling that produced the
@@ -285,10 +301,12 @@ def shot_clock_column(
     str or None
         The column name, or ``None`` when no row column is a stamp.
     """
+    named = start_doc.get("shot_clock_column")
+    if named in NON_DEVICE_CLOCK_COLUMNS and named in columns:
+        return str(named)  # a shot-table run's witness or fire clock
     stamps = [c for c in columns if c.endswith(ACQ_TIMESTAMP_SUFFIX)]
     if not stamps:
         return None
-    named = start_doc.get("shot_clock_column")
     if named:
         if str(named) in stamps:
             return str(named)
@@ -309,6 +327,22 @@ def shot_clock_column(
         if candidate in stamps:
             return candidate
     return stamps[0]
+
+
+def to_labview_epoch(column: str | None, values: Any) -> np.ndarray:
+    """*values* of row column *column* as float seconds in the LabVIEW epoch.
+
+    The one epoch conversion of the join: a :data:`UNIX_EPOCH_COLUMNS`
+    column is shifted by ``io.scan_stack.LABVIEW_EPOCH_OFFSET``
+    (2,082,844,800 s); any other column is already LabVIEW and is only
+    cast.
+    """
+    array = np.asarray(values, dtype=float)
+    if column in UNIX_EPOCH_COLUMNS:
+        from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+
+        return array + float(LABVIEW_EPOCH_OFFSET)
+    return array
 
 
 def clock_device(column: str) -> str:
@@ -577,8 +611,10 @@ __all__ = [
     "ACQ_TIMESTAMP_SUFFIX",
     "DEFAULT_SHOT_PERIOD_S",
     "FRAME_STAMP_SUFFIX",
+    "NON_DEVICE_CLOCK_COLUMNS",
     "NON_ESSENTIAL_STREAM_SUFFIX",
     "SHOTS_STREAM",
+    "UNIX_EPOCH_COLUMNS",
     "FrameColumns",
     "ShotJoin",
     "clock_device",
@@ -589,4 +625,5 @@ __all__ = [
     "numeric_data_keys",
     "row_windows",
     "shot_clock_column",
+    "to_labview_epoch",
 ]

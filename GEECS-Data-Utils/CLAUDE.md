@@ -409,6 +409,18 @@ this package and must never depend on GeecsBluesky or a GUI package).
   millisecond apart defeated.  A frame no row claims is
   an **orphan**: it stays in the stack and in Tiled and is left out of the
   s-file — one s-file row per essential shot, always.
+- **`shot_table`** — the shared reader helper of the shot-synchronization
+  arc (`Planning/shot_synchronization.md` §6.6): `shot_table(start, rows,
+  devices)` assigns each per-shot device's records (`DeviceRecords`) to
+  the rows and flags them; `frame_for(table, device, shot)` gives
+  `(stream, index)` or `None`. Both layouts: an old run (no `layout` key)
+  reproduces today's s-file join (strict `primary` stacks positional,
+  everything else through `shot_join`); a `shot-table/1` run is timed on
+  `witness_stamp` (or `fire_stamp` intervals when unwitnessed), counters
+  and the witness attribute only audit. Plain inputs, no I/O; the
+  Tiled and document-buffer adapters come with the readers (W3b).
+  `shot_join.to_labview_epoch` is the one Unix → LabVIEW conversion of a
+  row clock.
 - **`tiled_export`** — the legacy scalar files of a Bluesky run, live
   (`write_scalar_files` from the documents, what the worker calls) or
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s
