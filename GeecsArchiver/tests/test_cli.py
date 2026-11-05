@@ -37,6 +37,7 @@ class Appliance:
         self.never_connected = []
         self.requests = []
         self.paused = []
+        self.aborted = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:  # noqa: C901, PLR0912
         path = request.url.path
@@ -81,6 +82,10 @@ class Appliance:
             )
         if path.endswith("/pauseArchivingPV"):
             self.paused.append(request.url.params["pv"])
+            return httpx.Response(200, json={"status": "ok"})
+        if path.endswith("/abortArchivingPV"):
+            self.aborted.append(request.url.params["pv"])
+            self.never_connected.remove(request.url.params["pv"])
             return httpx.Response(200, json={"status": "ok"})
         if path.endswith("/getNeverConnectedPVs"):
             return httpx.Response(
@@ -213,6 +218,26 @@ def test_converged_appliance_plans_no_pause(appliance, capsys):
     out = capsys.readouterr().out
     assert "pause 0," in out and f"paused {cli.PAUSE_GUARD + 2}" in out
     assert "- pause" not in out
+
+
+def test_never_connected_strays_are_aborted_under_the_guard(appliance, capsys):
+    """#1248: a retired device's requests are aborted, dry-run first, then with --yes."""
+    gone = [f"undulator:cam:gone{i}" for i in range(cli.PAUSE_GUARD)]
+    appliance.never_connected += gone
+    # with the stray pause, one over the guard: printed, refused without --yes
+    rc = cli.main(["onboard", "--experiment", "Undulator", "--dry-run"])
+    captured = capsys.readouterr()
+    assert rc == cli.EXIT_USAGE and "x abort  undulator:cam:gone0" in captured.out
+    assert "refusing to pause or abort 11" in captured.err
+    assert (
+        cli.main(["onboard", "--experiment", "Undulator", "--wait", "0"])
+        == cli.EXIT_USAGE
+    )
+    assert appliance.aborted == [] and appliance.paused == []
+    assert (
+        cli.main(["onboard", "--experiment", "Undulator", "--wait", "0", "--yes"]) == 0
+    )
+    assert appliance.aborted == gone and appliance.never_connected == []
 
 
 def test_status_and_export(appliance, capsys, tmp_path):

@@ -9,7 +9,10 @@ its archive-request workflow and appears in the appliance's own
 never-connected list (``getNeverConnectedPVs``); :func:`stuck_requests`
 reads that list, on every run, so the drift cannot hide behind a no-op.
 Nothing here deletes data: a PV the rule no longer wants is **paused**, and
-only PVs under the experiment's own prefix are ever touched.
+only PVs under the experiment's own prefix are ever touched.  A request the
+rule no longer wants that never connected has no data to keep and no record
+to pause, so it is **aborted** (``abortArchivingPV``); that is reversible, as
+the next onboard requests the PV again if it returns to the set.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ class OnboardPlan:
     to_resume: list[str] = field(default_factory=list)
     to_retune: list[tuple[str, Sampling]] = field(default_factory=list)
     to_pause: list[str] = field(default_factory=list)
+    to_abort: list[str] = field(default_factory=list)
     pending: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
     paused: list[str] = field(default_factory=list)
@@ -38,7 +42,11 @@ class OnboardPlan:
     def is_noop(self) -> bool:
         """Nothing to send (pending requests are the appliance's to finish, not ours to resend)."""
         return not (
-            self.to_archive or self.to_resume or self.to_retune or self.to_pause
+            self.to_archive
+            or self.to_resume
+            or self.to_retune
+            or self.to_pause
+            or self.to_abort
         )
 
     def summary(self) -> str:
@@ -46,6 +54,7 @@ class OnboardPlan:
         return (
             f"archive {len(self.to_archive)}, resume {len(self.to_resume)}, "
             f"retune {len(self.to_retune)}, pause {len(self.to_pause)}, "
+            f"abort {len(self.to_abort)}, "
             f"pending {len(self.pending)}, unchanged {len(self.unchanged)}, "
             f"paused {len(self.paused)}"
         )
@@ -57,6 +66,7 @@ def plan_onboarding(
     statuses: Iterable[PVStatus],
     archived_pvs: Iterable[str],
     prefix: str,
+    never_connected: Iterable[str] = (),
 ) -> OnboardPlan:
     """Diff the desired set against the appliance's state.
 
@@ -73,6 +83,10 @@ def plan_onboarding(
     prefix : str
         The experiment's PV prefix (``"undulator:"``) — the only namespace
         this tool pauses in.
+    never_connected : iterable of str
+        ``getNeverConnectedPVs`` names: requests still in the appliance's
+        workflow.  One under *prefix* the rule no longer wants is aborted;
+        a wanted one stays pending, the appliance's to finish.
 
     Notes
     -----
@@ -112,6 +126,11 @@ def plan_onboarding(
         else:
             plan.pending.append(pv)
     _plan_strays(plan, desired, status_by_pv, archived, prefix)
+    plan.to_abort = sorted(
+        pv
+        for pv in set(never_connected) - archived
+        if pv.lower().startswith(prefix.lower()) and pv not in desired
+    )
     return plan
 
 
@@ -143,6 +162,7 @@ class ApplyReport:
     resumed: list[str] = field(default_factory=list)
     retuned: list[str] = field(default_factory=list)
     paused: list[str] = field(default_factory=list)
+    aborted: list[str] = field(default_factory=list)
 
     @property
     def rejected(self) -> list[dict[str, object]]:
@@ -170,6 +190,9 @@ def apply(client: MgmtClient, plan: OnboardPlan, *, batch: int = 500) -> ApplyRe
     for pv in plan.to_pause:
         client.pause(pv)
         report.paused.append(pv)
+    for pv in plan.to_abort:
+        client.abort(pv)
+        report.aborted.append(pv)
     return report
 
 

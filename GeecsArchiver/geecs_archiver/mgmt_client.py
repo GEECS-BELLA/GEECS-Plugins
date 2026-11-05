@@ -213,6 +213,10 @@ class MgmtClient:
         """``pauseArchivingPV``: stop sampling; keep the data and the record."""
         return dict(self._get("/pauseArchivingPV", {"pv": pv}))
 
+    def abort(self, pv: str) -> dict[str, Any]:
+        """``abortArchivingPV``: drop a request that never connected (no data exists)."""
+        return dict(self._get("/abortArchivingPV", {"pv": pv}))
+
     def resume(self, pv: str) -> dict[str, Any]:
         """``resumeArchivingPV``."""
         return dict(self._get("/resumeArchivingPV", {"pv": pv}))
