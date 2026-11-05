@@ -556,8 +556,13 @@ purpose.
   with the witness IOC stopped, frames keep the **last** count at severity
   0, unflagged, and the IOC's restart zeroes the count. So the attribute
   is an audit, not an ID, and so is `ArrayCounter`: the stamp assigns
-  (§6.6, the join). Owed: a camera booted while the witness is
-  unreachable. The scope's
+  (§6.6, the join). A camera **booted** while the witness is
+  unreachable (2026-11-04) writes the attribute as null, a float32 NaN
+  dataset in the HDF5, with frames and writes otherwise fine; it stays
+  null after the witness returns, even through a re-put of the attribute
+  file, until the camera IOC is recreated with the witness up. The rule
+  (geecs-epics `docs/devices/gige-camera.md`): start the witness before
+  the cameras. The scope's
   NDArrays (`geecs-epics:docs/scope-contract.md`) take the same attribute.
 - **LabVIEW devices.** By stamp: `acq_timestamp`, or the worker's receipt
   stamp where the Windows clock is not trusted (§4.5), with scan mode's
@@ -926,6 +931,9 @@ measured 1.7 %). A mismatch is flagged and **re-anchors the audit there**;
 nothing is filed by counter. An attribute that stops advancing while the
 witness count does is *witness-stale* at the camera (the bench showed
 frames carry the last count, unflagged, while the witness IOC is down).
+An attribute that is NaN for the whole run is a camera booted without
+the witness: that stream has *no attribute audit*, reported once at
+stop, and its frames are assigned by stamp as always.
 The ADAravis drop of a buffer with missing packets (`ADAravis.cpp:255-256`)
 is the case this protects: it is a gap in time, and counter assignment
 would shift every later frame. LabVIEW scan-mode devices add the announce
