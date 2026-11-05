@@ -257,8 +257,8 @@ make. The "not a native device" pane has no bench device (proved in tests).
 URL role `image` names, read over CA as a char string and rehosted to the
 IOC's CA address; one fetch in flight per device, a frame shared within
 0.1 s; `X-Frame-Tag` the bytes' checksum, so a frozen frame is never "new")
-and `/api/devices/{name}/arrays` (every `on_request` role by name, at most
-every 0.5 s, shared), both read only, the module's device route cached 10 s;
+and `/api/devices/{name}/arrays` (every `on_request` role of type `array` by name, at most
+every 0.5 s, shared; the raw-frames arc narrowed it, so a scope's on-request scalars `arr_channels`/`arr_samples` are the scope route's to read with its traces, as the frame route reads `raw_width`/`raw_height`), both read only, the module's device route cached 10 s;
 404 when the module names no such role (never a derived PV), 503 with words
 when a source is silent. aioca is a runtime dependency; CA addressing is
 `EPICS_CA_*` alone. `device_camera.html` + `camera.js` (viewer, overlay,

@@ -257,7 +257,7 @@ class Role(SchemaModel):
         None,
         description=(
             "How the bridge reads it, when not the type's own: monitored (scalars), "
-            "on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record)."
+            "on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame)."
         ),
     )
 

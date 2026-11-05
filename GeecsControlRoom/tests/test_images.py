@@ -3,34 +3,89 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 from typing import Any
 
 import httpx
+import numpy as np
 import pytest
 
-from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, ROUTE_TTL_S, Images, router, with_ca_host  # fmt: skip
+from geecs_control_room.images import ARRAYS_EVERY_S, FRAME_EVERY_S, RAW_HOLD_S, ROUTE_TTL_S, Images, router, with_ca_host  # fmt: skip
 from geecs_control_room.module_client import ModuleClient
 
 IMAGE_PV = "bench:cam:MJPG1:JPG_URL_RBV"
 ROLES = [
-    {"role": "image", "pv": IMAGE_PV, "read": "once"},
+    {"role": "image", "pv": IMAGE_PV, "read": "once", "type": "image"},
     {
         "role": "profile_x",
         "pv": "bench:cam:STAT:ProfileAverageX_RBV",
         "read": "on_request",
+        "type": "array",
     },
-    {"role": "histogram", "pv": "bench:cam:STAT:Histogram_RBV", "read": "on_request"},
-    {"role": "exposure", "pv": "bench:cam:cam1:AcquireTime_RBV", "read": "monitor"},
+    {
+        "role": "histogram",
+        "pv": "bench:cam:STAT:Histogram_RBV",
+        "read": "on_request",
+        "type": "array",
+    },  # fmt: skip
+    {
+        "role": "exposure",
+        "pv": "bench:cam:cam1:AcquireTime_RBV",
+        "read": "monitor",
+        "type": "setpoint",
+    },  # fmt: skip
+    # the raw frame's source: never JSON, and its on-request scalars are not arrays of the page's
+    {
+        "role": "raw_frame",
+        "pv": "bench:cam:ARR:ArrayData",
+        "read": "never",
+        "type": "array",
+    },  # fmt: skip
+    {
+        "role": "raw_width",
+        "pv": "bench:cam:ARR:ArraySize0_RBV",
+        "read": "on_request",
+        "type": "readback",
+    },  # fmt: skip
+    {
+        "role": "raw_height",
+        "pv": "bench:cam:ARR:ArraySize1_RBV",
+        "read": "on_request",
+        "type": "readback",
+    },  # fmt: skip
+    {
+        "role": "raw_counter",
+        "pv": "bench:cam:ARR:ArrayCounter_RBV",
+        "read": "on_request",
+        "type": "counter",
+    },  # fmt: skip
+    {
+        "role": "full_scale",
+        "pv": "bench:cam:FullScale",
+        "read": "once",
+        "type": "readback",
+    },  # fmt: skip
 ]
+RAW = ("bench:cam:ARR:ArrayData", "bench:cam:ARR:ArraySize0_RBV", "bench:cam:ARR:ArraySize1_RBV")  # fmt: skip
+COUNTER, FULL_SCALE = "bench:cam:ARR:ArrayCounter_RBV", "bench:cam:FullScale"
 
 
 class FakeCa:
-    """The three reads, recorded; ``fail`` makes the next read raise."""
+    """The reads, recorded; ``fail`` makes the arrays read raise, ``frame_fails`` / ``counter_fails`` theirs.
+
+    The raw frame: ``raw`` is what CA delivers (int32 values, width, height),
+    ``counters`` the successive ``ArrayCounter_RBV`` reads (the last repeats),
+    ``full_scale`` the ``FullScale`` read (``None``: unreadable).
+    """
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, Any]] = []
-        self.fail = False
+        self.fail = self.frame_fails = self.counter_fails = False
         self.gate: asyncio.Event | None = None
+        self.raw: tuple[np.ndarray, int, int] = (np.arange(12, dtype=np.int32), 4, 3)
+        self.counters: list[float] = [7.0]
+        self.full_scale: float | None = 4095.0
+        self.scale_gate: asyncio.Event | None = None
 
     async def text(self, pv: str) -> str:
         self.calls.append(("text", pv))
@@ -47,6 +102,30 @@ class FakeCa:
         if self.fail:
             raise TimeoutError("no answer from the IOC")
         return [[1.0, float("nan")], [3.0, float("inf"), 4.0]]
+
+    async def scalar(self, pv: str) -> float:
+        self.calls.append(("scalar", pv))
+        if pv.endswith("ArrayCounter_RBV"):
+            if self.counter_fails:
+                raise TimeoutError("no answer from the IOC")
+            return self.counters.pop(0) if len(self.counters) > 1 else self.counters[0]
+        if self.scale_gate:
+            await self.scale_gate.wait()
+        if self.full_scale is None:
+            raise TimeoutError("no answer from the IOC")
+        return self.full_scale
+
+    async def frame(self, frame: str, width: str, height: str) -> tuple[np.ndarray, int, int]:  # fmt: skip
+        self.calls.append(("frame", (frame, width, height)))
+        if self.gate:
+            await self.gate.wait()
+        if self.frame_fails:
+            raise TimeoutError("no answer from the IOC")
+        return self.raw
+
+    def kinds(self) -> list[str]:
+        """The reads by kind, the full scale's apart: ``counter`` / ``frame`` / ``scale``."""
+        return ["scale" if a == FULL_SCALE else "counter" if a == COUNTER else k for k, a in self.calls]  # fmt: skip
 
 
 class Env:
@@ -150,6 +229,9 @@ async def test_the_arrays_are_the_on_request_roles_by_name_finite_only() -> None
     async with env.client() as c:
         body = (await c.get("/api/devices/Cam/arrays")).json()
     assert body["arrays"] == {"profile_x": [1.0, None], "histogram": [3.0, None, 4.0]}
+    assert (
+        "raw_frame" not in body["pvs"] and "raw_width" not in body["pvs"]
+    )  # never JSON; a scalar is no array
     assert body["pvs"]["profile_x"] == "bench:cam:STAT:ProfileAverageX_RBV"
     assert env.ca.calls == [("arrays", ("bench:cam:STAT:ProfileAverageX_RBV", "bench:cam:STAT:Histogram_RBV"))]  # fmt: skip
 
@@ -242,3 +324,184 @@ async def test_a_refused_key_forgets_the_held_route(refusal) -> None:
         env.status = 0  # then silent: nothing held to serve
         env.clock[0] += ROUTE_TTL_S + 1
         assert (await c.get("/api/devices/Cam/frame.jpg")).status_code == 503
+
+
+RAW_URL = "/api/devices/Cam/frame.raw"
+
+
+async def _raw(c: httpx.AsyncClient, **headers: str) -> tuple[httpx.Response, bytes]:
+    """The response and its body as sent (httpx would decode the gzip): the bytes on the wire."""
+    async with c.stream("GET", RAW_URL, headers=headers) as r:
+        return r, b"".join([chunk async for chunk in r.aiter_raw()])
+
+
+@pytest.mark.parametrize("width, height", [(2592, 2048), (600, 600)])
+async def test_the_raw_frame_is_uint16_little_endian_row_major_gzip_framed(width, height) -> None:  # fmt: skip
+    env = Env()
+    frame = np.random.default_rng(1).integers(0, 4096, size=width * height, dtype=np.int32)  # fmt: skip
+    env.ca.raw = (frame, width, height)
+    async with env.client() as c:
+        r, wire = await _raw(c)
+    assert (
+        r.status_code == 200 and wire[:2] == b"\x1f\x8b"
+    )  # gzip framing, never bare zlib
+    assert int(r.headers["content-length"]) == len(wire)
+    assert gzip.decompress(wire) == frame.astype("<u2").tobytes()
+    assert (r.headers["x-frame-width"], r.headers["x-frame-height"]) == (str(width), str(height))  # fmt: skip
+
+
+async def test_the_raw_frame_headers() -> None:
+    env = Env()
+    async with env.client() as c:
+        r, _ = await _raw(c)
+    h = r.headers
+    assert h["content-type"] == "application/octet-stream" and h["content-encoding"] == "gzip"  # fmt: skip
+    assert h["cache-control"] == "no-store" and h["x-frame-tag"] == '"7"'
+    assert h["etag"] == '"7;4095"'  # the representation: the counter and the full scale
+    assert h["x-frame-full-scale"] == "4095" and "x-frame-transform" not in h
+    assert env.ca.kinds() == ["counter", "frame", "counter", "scale"]
+    assert ("frame", RAW) in env.ca.calls  # the frame and its geometry in one batch
+
+
+async def test_an_unreadable_full_scale_is_omitted_and_asked_again_after_the_ttl() -> None:  # fmt: skip
+    env = Env()
+    env.ca.full_scale = None
+    async with env.client() as c:
+        r, _ = await _raw(c)
+        assert r.status_code == 200 and "x-frame-full-scale" not in r.headers
+        env.ca.counters, env.ca.full_scale = [8.0], 4095.0
+        env.clock[0] += RAW_HOLD_S
+        await _raw(c)  # inside the TTL: not asked again
+        assert env.ca.kinds().count("scale") == 1
+        env.ca.counters = [9.0]
+        env.clock[0] += ROUTE_TTL_S
+        r, _ = await _raw(c)
+    assert r.headers["x-frame-full-scale"] == "4095" and env.ca.kinds().count("scale") == 2  # fmt: skip
+
+
+async def test_a_slow_full_scale_never_holds_the_frame() -> None:
+    env = Env()
+    env.ca.scale_gate = asyncio.Event()  # FullScale silent: its read would time out
+    async with env.client() as c:
+        first, wire = await asyncio.wait_for(_raw(c), 1.0)
+        assert first.status_code == 200 and "x-frame-full-scale" not in first.headers
+        assert first.headers["etag"] == '"7"'  # the scale unknown: the counter alone
+        env.ca.scale_gate.set()
+        await asyncio.sleep(0.01)
+        env.clock[0] += RAW_HOLD_S
+        # the camera has not moved; the full scale has landed: the page's conditional ask is a 200 carrying it
+        held, body = await _raw(c, **{"If-None-Match": first.headers["etag"]})
+        assert held.status_code == 200 and held.headers["x-frame-full-scale"] == "4095"
+        assert held.headers["x-frame-tag"] == first.headers["x-frame-tag"] and body == wire  # fmt: skip
+        assert held.headers["etag"] == '"7;4095"'
+        env.clock[0] += RAW_HOLD_S
+        same, _ = await _raw(c, **{"If-None-Match": held.headers["etag"]})
+    assert same.status_code == 304 and env.ca.kinds().count("frame") == 1
+
+
+async def test_an_unmoved_counter_serves_the_held_frame_without_an_array_read() -> None:  # fmt: skip
+    env = Env()
+    async with env.client() as c:
+        first, wire = await _raw(c)
+        env.clock[0] += RAW_HOLD_S / 2
+        await _raw(c)  # inside the hold: no read at all
+        assert env.ca.kinds() == ["counter", "frame", "counter", "scale"]
+        env.clock[0] += RAW_HOLD_S
+        again, same = await _raw(c)  # the probe: one scalar read, the held frame
+        assert env.ca.kinds()[4:] == ["counter"] and same == wire
+        assert again.headers["etag"] == first.headers["etag"]
+        env.ca.counters = [8.0]
+        env.clock[0] += RAW_HOLD_S
+        moved, _ = await _raw(c)  # the counter advanced: one array read
+    assert env.ca.kinds()[5:] == ["counter", "frame", "counter"]
+    assert moved.headers["etag"] == '"8;4095"'
+
+
+async def test_a_counter_moving_mid_batch_reads_once_more_tagged_by_the_second_counter() -> None:  # fmt: skip
+    env = Env()
+    env.ca.counters = [7.0, 8.0]
+    async with env.client() as c:
+        r, _ = await _raw(c)
+    assert env.ca.kinds() == ["counter", "frame", "counter", "frame", "scale"]
+    assert r.status_code == 200 and r.headers["x-frame-tag"] == '"8"'
+
+
+async def test_a_matching_if_none_match_is_a_304_with_the_same_tag() -> None:
+    env = Env()
+    async with env.client() as c:
+        r, _ = await _raw(c)
+        etag = r.headers["etag"]
+        for asked in (etag, f"W/{etag}", f'"1", {etag}', "*"):
+            same, body = await _raw(c, **{"If-None-Match": asked})
+            assert same.status_code == 304 and body == b""
+            assert (same.headers["etag"], same.headers["x-frame-tag"]) == (etag, '"7"')
+        other, body = await _raw(c, **{"If-None-Match": '"6"'})
+    assert other.status_code == 200 and gzip.decompress(body)
+
+
+@pytest.mark.parametrize("gone", ["raw_frame", "raw_counter"])
+async def test_no_raw_frame_role_is_a_404_and_nothing_is_read(gone) -> None:
+    env = Env([r for r in ROLES if r["role"] != gone])
+    async with env.client() as c:
+        r = await c.get(RAW_URL)
+    assert r.status_code == 404 and f"names no {gone} role" in r.json()["detail"]
+    assert env.ca.calls == []  # never derived
+
+
+@pytest.mark.parametrize(
+    "fault, words",
+    [
+        ("counter", f"the frame counter ({COUNTER}) could not be read"),
+        (
+            "frame",
+            f"the raw frame ({RAW[0]}) could not be read: no answer from the IOC",
+        ),  # fmt: skip
+        ("geometry", "geometry disagrees: 12 values for 4×4"),
+        (
+            "colour",
+            "geometry disagrees: 36 values for 3×4",
+        ),  # an RGB frame: ArraySize0 = 3
+        ("empty", "geometry disagrees: 0 values for 0×0"),
+    ],
+)
+async def test_a_silent_source_is_a_503_with_words(fault, words) -> None:
+    env = Env()
+    if fault == "counter":
+        env.ca.counter_fails = True
+    elif fault == "frame":
+        env.ca.frame_fails = True
+    elif fault == "geometry":  # a camera-ROI change between the array and its sizes
+        env.ca.raw = (np.arange(12, dtype=np.int32), 4, 4)
+    elif fault == "colour":
+        env.ca.raw = (np.arange(36, dtype=np.int32), 3, 4)
+    else:
+        env.ca.raw = (np.zeros(0, dtype=np.int32), 0, 0)
+    async with env.client() as c:
+        r = await c.get(RAW_URL)
+    assert r.status_code == 503 and r.json()["detail"] == words
+
+
+async def test_viewers_share_one_raw_read_in_flight() -> None:
+    env = Env()
+    env.ca.gate = asyncio.Event()
+    async with env.client() as c:
+        pending = [asyncio.create_task(_raw(c)) for _ in range(20)]
+        await asyncio.sleep(0.05)
+        env.ca.gate.set()
+        answers = [await t for t in pending]
+    assert {r.status_code for r, _ in answers} == {200} and len({w for _, w in answers}) == 1  # fmt: skip
+    assert sorted(env.ca.kinds()) == [
+        "counter",
+        "counter",
+        "frame",
+        "scale",
+    ]  # one read for all twenty
+
+
+async def test_values_above_32767_survive_the_cast_exactly() -> None:
+    env = Env()
+    values = np.array([0, 1, 4095, 32767, 32768, 40000, 65534, 65535], dtype=np.int32)
+    env.ca.raw = (values, 4, 2)
+    async with env.client() as c:
+        _, wire = await _raw(c)
+    assert np.frombuffer(gzip.decompress(wire), dtype="<u2").tolist() == values.tolist()  # fmt: skip

@@ -29,3 +29,7 @@
 .kit .operator{display:inline-flex;align-items:center;gap:6px;font-size:12px}
 .kit .device[data-kind="camera"]{max-width:none}
 .kit #hazard-dialog-text{white-space:pre-line}
+/* The Raw toggle and its note (the transform applied, the full scale; an unknown transform warns). */
+.kit .panel.image header .raw-toggle{display:inline-flex;align-items:center;gap:4px;font-size:12px}
+.kit .panel.image header #raw-note:empty{display:none}
+.kit .panel.image header #raw-note[data-state="degraded"]{color:var(--warn)}

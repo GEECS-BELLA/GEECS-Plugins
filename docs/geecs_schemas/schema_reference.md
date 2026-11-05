@@ -792,7 +792,7 @@ One record of the template, by what it does for a page.
 | `integer` | `bool` | no | False | A write takes a whole number. |
 | `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
 | `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
-| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record). |
+| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame). |
 
 ### FamilyAction
 

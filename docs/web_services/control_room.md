@@ -183,6 +183,74 @@ refused (`409 already_running`).
 
 ![An action whose check failed](assets/control_room_07_action_failed.jpg)
 
+## The camera page
+
+A camera's page (`/device/camera/<name>`, from the home's camera picker)
+shows its image with the acquisition controls, crosshairs, the analysis ROI,
+the lineouts and the histogram beside it. By default the image is the IOC's
+MJPEG display stream: 8-bit and JPEG-compressed, good for watching a beam,
+too coarse for a camera's noise (a dark floor flattens to a few grey levels
+and a single bright pixel smears into a block).
+
+### Raw view
+
+![The raw view at 1:1, light theme](assets/control_room_08_camera_raw_light.png)
+
+![The raw view at 1:1, dark theme](assets/control_room_09_camera_raw_dark.png)
+
+Tick **Raw** in the image header to see the camera's own frame instead: its
+12-bit counts, uncompressed, with the colour map, scale and levels applied
+in your browser. Untick it to go back. The page always opens on the MJPEG
+stream; Raw is never remembered.
+
+**What Raw shows.** The frame as the camera driver produced it, before the
+IOC rotates or flips it and before any background is subtracted. "Raw"
+means exactly that: a background you see in the MJPEG view is not removed
+here. The page applies the camera's rotate / flip setting itself, so the
+crosshairs, the analysis ROI and the cursor sit on the same pixels in both
+views, and toggling keeps your zoom. When that setting is one the page does
+not know, it draws the frame as the driver sent it, hides the overlays and
+says `rotate / flip unknown: the driver's frame as is, overlays hidden`.
+The note beside the toggle also names a rotation in use (`Rot90 applied`)
+and the camera's full scale (`full scale 4095`); `4095 · full scale
+assumed` means the camera did not report one.
+
+**Rate.** Raw refreshes at most twice a second, and every viewer of a
+camera shares the one frame the server read, so opening more raw views does
+not load the camera. The chip at the right of the header reads `new
+frames/s`: how many new frames the page received over the last two
+seconds. It is not the camera's rate: the page asks twice a second, so it
+reads at most `2.0`, whatever the camera runs at. A camera triggered at 1 Hz
+reads `1.0` (sometimes `1.5`, as frames fall either side of the window), and
+a stopped camera reads `0.0` even though the page keeps asking. Raw is for the lab network; a full-size frame is a few
+megabytes.
+
+**Levels.** In Raw the black and white inputs, the cursor readout and the
+histogram are in counts of the camera's full scale (0–4095 for a 12-bit
+camera), not 0–255. The histogram plot in Raw is the whole raw frame's,
+counted in your browser, so it ignores the IOC's histogram setting and
+range; the MJPEG view plots the IOC's histogram as before. Each view keeps its own levels: what you set in Raw
+does not change the MJPEG view's, and the other way round. **Auto levels**
+puts black and white at the 0.1 and 99.9 percentiles of the frame, and with
+**every frame** ticked it does that on each new frame.
+
+!!! note "A hot pixel under auto levels"
+    Auto levels puts white at the frame's 99.9th percentile, so the
+    brightest 0.1 percent of the frame is drawn white. On a dark frame with
+    one hot pixel, that 0.1 percent is the noise's top (a few hundred pixels
+    of a 600×600 frame) plus the hot pixel, and they are all the **same
+    white**: the hot pixel does not stand out. Under the log scale the floor
+    is near white too (the screenshots above: the snow is visible, the hot
+    pixel is not distinct); under linear the floor is mid grey, but the hot
+    pixel is still one white point among the noise's. The scale does not
+    change this; the white level does. To single the pixel out, untick
+    **every frame** and set **White** to the full scale (4095): under log
+    the floor stays visible as dark snow and the hot pixel is the one bright
+    point; under linear the floor goes black and the hot pixel is the only
+    lit point. Zoom past 1:1 to see it as a block.
+
+Nothing in Raw writes to the camera.
+
 ## When a write is refused
 
 The code after `denied` or `refused` says why. The ones you will meet:
