@@ -161,7 +161,8 @@ def test_every_row_records_the_witness_and_its_own_stamp(
     assert all(e["time"] > STAMP0 + 1e6 for e in rows)
     start = col.docs["start"][0]
     assert start["witness"] == {"device": "daqtest1", "domain": "main", "read": True}
-    assert _warnings(caplog, "2 fire(s) after the first row, 2 counted")
+    # Row 1 is audited against the stage's baseline: every row is a fire.
+    assert _warnings(caplog, "3 fire(s) since the baseline (count 0), 3 counted")
 
 
 def test_record_only_a_camera_retake_still_happens_and_the_witness_never_steers(
@@ -181,6 +182,8 @@ def test_record_only_a_camera_retake_still_happens_and_the_witness_never_steers(
 @pytest.mark.parametrize(
     "fault, words, row",
     [
+        ("jump", "stepped by 2", 1),  # a doubled first fire, against the baseline
+        ("unseen", "did not advance", 1),  # row 1 reads the count from before
         ("jump", "stepped by 2", 2),
         ("unseen", "did not advance", 2),
         ("new_epoch", "epoch changed", 3),
@@ -197,6 +200,73 @@ def test_an_odd_count_warns_once_naming_the_row_and_the_run_succeeds(
     assert len(found) == 1 and f"row {row}" in found[0]
     assert len(col.primary_events()) == 3 and box.fires == 3
     assert col.docs["stop"][0]["exit_status"] == "success"
+
+
+def test_a_doubled_first_fire_is_counted_in_the_summary(
+    RE, box, profiles, witness, caplog
+) -> None:
+    cam = _camera(RE, box, "UC_Cam")
+    box.jump = {1}
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        _run(RE, _plans(profiles, witness)["count"], [cam], 3)
+    summary = _warnings(caplog, "since the baseline")
+    assert summary == [
+        "daqtest1: 3 fire(s) since the baseline (count 0), 4 counted by the witness"
+    ]
+    assert [r.levelno for r in caplog.records if r.getMessage() in summary] == [
+        logging.WARNING
+    ]
+
+
+def test_a_baseline_unreadable_at_stage_audits_from_row_2(
+    RE, box, profiles, witness, monkeypatch, caplog
+) -> None:
+    real, calls = witness.counts.read, []
+
+    async def first_fails(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:  # the stage's baseline read
+            raise TimeoutError("no answer")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(witness.counts, "read", first_fails)
+    cam = _camera(RE, box, "UC_Cam")
+    box.jump = {1}  # row 1 would step by 2 from a baseline of 0
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        col = _run(RE, _plans(profiles, witness)["count"], [cam], 3)
+    assert [e["data"]["witness_count"] for e in col.primary_events()] == [2, 3, 4]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert _warnings(caplog, "2 fire(s) after the first row, 2 counted")
+
+
+@pytest.mark.parametrize("down", [True, False])
+def test_the_run_start_warnings_reach_scan_log(
+    RE, box, profiles, witness, monkeypatch, tmp_path, down
+) -> None:
+    """Logged at bind, before scan.log opens — and again right after open_run."""
+    from geecs_bluesky.callbacks import ScanLogCallback
+    from geecs_bluesky.devices.ca import CaSnapshotReadable
+
+    if down:
+
+        async def unreadable(*args, **kwargs):
+            raise TimeoutError("no answer")
+
+        monkeypatch.setattr(witness.counts, "get_value", unreadable)
+        readers, words = [_camera(RE, box, "UC_Cam")], "the witness is down"
+    else:
+        gauge = CaSnapshotReadable(
+            "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+        )
+        connect_mock(RE, gauge)
+        readers, words = [gauge], "no triggered device"
+    folder = tmp_path / "Scan001"
+    folder.mkdir()
+    RE.subscribe(ScanLogCallback())
+    md = {"scan_number": 1, "scan_folder": str(folder)}
+    RE(_plans(profiles, witness)["count"](readers, 1, md=md))
+    log = (folder / "scan.log").read_text()
+    assert log.count(words) == 1 and "finished (success)" in log
 
 
 def test_a_down_witness_at_the_start_records_why_and_the_run_proceeds(
@@ -227,7 +297,7 @@ def test_an_unreadable_witness_mid_run_is_nan_and_the_run_continues(
 
     async def flaky(*args, **kwargs):
         calls.append(1)
-        if len(calls) == 2:
+        if len(calls) == 3:  # the stage's baseline read, row 1, row 2
             raise TimeoutError("USB stall")
         return await real(*args, **kwargs)
 
@@ -350,7 +420,8 @@ def test_a_run_with_no_triggered_device_is_noted_and_warned(
         assert not _warnings(caplog, "no triggered device")
     else:
         assert record["note"] == UNWAITED_NOTE
-        assert len(_warnings(caplog, "no triggered device")) == 1
+        # at bind, and once more after open_run (for scan.log)
+        assert len(_warnings(caplog, "no triggered device")) == 2
 
 
 # --------------------------------------------------------------- namespace

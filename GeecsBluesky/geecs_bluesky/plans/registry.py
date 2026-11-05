@@ -255,18 +255,28 @@ def run_witness(
     elif getattr(shot_control, "boxless", False):
         reason = "a box-less profile fires nothing for the witness to count"
     elif (yield from witness_is_down(witness)):
-        logger.warning(
-            "%s: the witness is down — the run proceeds without it",
-            witness._geecs_device_name,
-        )
         reason = "down"
     if reason is not None:
-        return None, {**record, "reason": reason}
+        record = {**record, "reason": reason}
+        _warn_at_start(record)
+        return None, record
     record["read"] = True
     if not any(isinstance(d, Triggerable) for d in readers):
-        logger.warning("%s: %s", witness._geecs_device_name, UNWAITED_NOTE)
         record["note"] = UNWAITED_NOTE
+    _warn_at_start(record)
     return witness, record
+
+
+def _warn_at_start(record: dict[str, Any] | None) -> None:
+    """Log the WARNINGs a witness record carries: a down witness, the record's note."""
+    if not record:
+        return
+    if record.get("reason") == "down":
+        logger.warning(
+            "%s: the witness is down — the run proceeds without it", record["device"]
+        )
+    if record.get("note"):
+        logger.warning("%s: %s", record["device"], record["note"])
 
 
 def refuse_listed_witness(devices: Sequence[Any]) -> None:
@@ -280,19 +290,35 @@ def refuse_listed_witness(devices: Sequence[Any]) -> None:
         )
 
 
-def witness_wrapper(plan: Any, witness: Witness | None) -> Any:
-    """Log the witness's run summary right before ``close_run`` (``scan.log`` still open).
+def witness_wrapper(
+    plan: Any, witness: Witness | None, record: dict[str, Any] | None = None
+) -> Any:
+    """Bracket the run's ``scan.log`` with the witness's lines.
 
-    *plan* unchanged without a witness.
+    Right after ``open_run`` (the start document opens ``scan.log``), the
+    run-start WARNINGs of *record* (:func:`run_witness`'s, logged at bind,
+    before the file exists) once more; right before ``close_run`` the
+    witness's run summary.  *plan* unchanged when there is neither.
     """
-    if witness is None:
+    if witness is None and not record:
         return (yield from plan)
-    closing: list[Msg] = []
+    seen: list[Msg] = []
 
     def _proc(msg: Msg) -> tuple[Any, Any]:
-        if msg.command != "close_run" or any(m is msg for m in closing):
+        if any(m is msg for m in seen):
             return None, None
-        closing.append(msg)
+        if msg.command == "open_run":
+            seen.append(msg)
+
+            def _open_then_warn():
+                uid = yield msg
+                _warn_at_start(record)
+                return uid
+
+            return _open_then_warn(), None
+        if msg.command != "close_run" or witness is None:
+            return None, None
+        seen.append(msg)
 
         def _summary_then_close():
             witness.summarize()
@@ -724,7 +750,7 @@ def strict_plan(  # noqa: C901, PLR0915
             bound.arguments["detectors"] = [*detectors, *extras]
             args, kwargs = bound.args, dict(bound.kwargs)
         inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
-        inner = witness_wrapper(inner, witness)
+        inner = witness_wrapper(inner, witness, md["witness"])
         if snapshot is not None:
             payload = bound_args.get("sweep")
             movers = (

@@ -564,7 +564,7 @@ def optimize_plan(  # noqa: C901, PLR0915
                 name_failed_status(bpp.finalize_wrapper(inner(), _dump_record())),
                 md=metadata,
             )
-            run = witness_wrapper(run, witness)
+            run = witness_wrapper(run, witness, metadata["witness"])
             staged = bpp.stage_wrapper(
                 non_essential_wrapper(run, non_essential),
                 [*detectors, *movables.values()],

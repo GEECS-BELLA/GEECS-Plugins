@@ -8,8 +8,9 @@ Each row reads, from the staged monitor cache, ``witness_count``,
 ``witness_stamp`` (the count record's own CA timestamp, never the read
 time) and ``witness_epoch``; an unreadable witness gives ``NaN`` (and an
 empty epoch) with a WARNING.  The audit compares each row with the
-previous one — a step other than +1, an epoch change — and logs one
-WARNING each, plus one summary line per run (:meth:`Witness.summarize`).
+previous one — row 1 with the baseline the stage reads, when it answers —
+a step other than +1, an epoch change — and logs one WARNING each, plus
+one summary line per run (:meth:`Witness.summarize`).
 The read can trail the edge by the IOC's poll (~25 ms); rows are read
 after every detector's frame, so an unchanged count is normally a fire
 the witness did not see, and is flagged, never failed.
@@ -78,12 +79,31 @@ class Witness(Device):
         self._rows = 0
         self._counted = 0
         self._previous: tuple[int, str] | None = None
+        self._baseline: tuple[int, float, str] | None = None
 
     @AsyncStatus.wrap
     async def stage(self) -> None:
-        """Monitor both records for the run (row reads hit the cache); a new audit."""
+        """Monitor both records for the run; a new audit from the baseline they hold now.
+
+        The baseline (count, stamp, epoch, bounded by the row's read
+        timeout) is what row 1 is audited against, so the first fire is
+        checked like any other; unreadable, row 1 starts the audit instead.
+        """
         self._reset()
         await asyncio.gather(self.counts.stage(), self.epoch.stage())
+        reads = asyncio.gather(
+            self.counts.read(), self.epoch.get_value(), return_exceptions=True
+        )
+        try:
+            count, epoch = await asyncio.wait_for(reads, READ_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            return
+        if isinstance(count, BaseException) or isinstance(epoch, BaseException):
+            return  # a recording device never fails a stage
+        reading = count[self.counts.name]
+        value = int(reading["value"])
+        self._baseline = (value, float(reading["timestamp"]), str(epoch))
+        self._previous = (value, str(epoch))
 
     @AsyncStatus.wrap
     async def unstage(self) -> None:
@@ -140,13 +160,20 @@ class Witness(Device):
             )  # fmt: skip
 
     def summarize(self) -> None:
-        """One line per run: rows (fires) against what the witness counted between them."""
-        fires = max(self._rows - 1, 0)
+        """One line per run: rows (fires) against what the witness counted.
+
+        From the stage's baseline every row is a fire (the first included);
+        without one, the fires after the first row.
+        """
+        if self._baseline is not None:
+            fires, since = self._rows, f"since the baseline (count {self._baseline[0]})"
+        else:
+            fires, since = max(self._rows - 1, 0), "after the first row"
         level = logging.INFO if self._counted == fires else logging.WARNING
         logger.log(
             level,
-            "%s: %d fire(s) after the first row, %d counted by the witness",
-            self._geecs_device_name, fires, self._counted,
+            "%s: %d fire(s) %s, %d counted by the witness",
+            self._geecs_device_name, fires, since, self._counted,
         )  # fmt: skip
 
     async def describe(self) -> dict[str, DataKey]:

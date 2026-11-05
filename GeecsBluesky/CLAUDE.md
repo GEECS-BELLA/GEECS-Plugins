@@ -244,9 +244,10 @@ qserver/                    # the worker: launcher, startup profile, permissions
   cache: each row reads `witness_count`, `witness_stamp` (the count
   record's own CA timestamp, never the read time) and `witness_epoch`
   (`NaN` / `""` and a WARNING when it does not answer).  The audit
-  compares each row with the previous one (a step other than +1, an
-  epoch change: one WARNING each) and logs one summary line before the
-  run's close.  The namespace builds one per domain (the schema refuses
+  compares each row with the previous one, row 1 with the baseline the
+  stage reads from the cache (bounded; unreadable, the audit starts at
+  row 2) — a step other than +1, an epoch change: one WARNING each — and
+  logs one summary line before the run's close.  The namespace builds one per domain (the schema refuses
   two) and WARNs about a witness outside `main`, which strict runs do
   not read.
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
@@ -404,7 +405,9 @@ per preset; not Triggerable, so `geecs_take_reading` never triggers or
 waits on it — and `witness_wrapper` logs its summary before `close_run`.
 Listed as a device in a preset it is refused at bind (it is recorded
 already).  At the start it is probed (5 s): a down witness is a WARNING and
-`read: false, reason: down`, never a refusal.  A run with no triggered
+`read: false, reason: down`, never a refusal.  Both start WARNINGs (this
+and the `note` below) are logged at bind, before `scan.log` exists, so
+`witness_wrapper` repeats them right after `open_run`.  A run with no triggered
 device has nothing that waits for the shot, so its rows can read the
 count before the edge lands: a WARNING at the start and a `note` in the
 record (still read, never waited on).  Not read in a gated run (not
