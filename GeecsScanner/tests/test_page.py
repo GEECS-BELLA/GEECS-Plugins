@@ -714,6 +714,12 @@ def test_queue_sections_and_add_to_queue_beside_start(client: TestClient) -> Non
     handler = handler[: handler.index("\n")]
     assert "startScan(true)" in handler and "dlg-title" not in handler
     assert "append: !!S.pendingAppend" in script
+    # The running row's scan number arrives with the start document, after the
+    # queue refresh: the progress handler redraws that one row.
+    progress = script[script.index('es.addEventListener("progress"') :]
+    progress = progress[: progress.index("});")]
+    assert 'section("q-run", [S.queue.running]' in progress
+    assert 'p.state === "running" || p.state === "paused"' in script
     assert (
         '"/api/queue/" + encodeURIComponent(b.dataset.uid), { method: "DELETE" }'
         in script

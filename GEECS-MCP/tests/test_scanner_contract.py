@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from geecs_mcp import clients, config, guard
+from geecs_mcp.identity import identity_for
 from geecs_mcp.scans import tools
 
 OPERATOR = "Ada Lovelace"
@@ -108,7 +109,8 @@ class TestReads:
         assert finished["item_uid"] == submitted["item_uid"]
         assert len(finished["scan_numbers"]) == 1
         assert finished["run_uids"]
-        assert finished["user"] == "geecs-scanner test"
+        # The row names the operator the submission recorded: the MCP's line.
+        assert finished["user"] == identity_for(OPERATOR)
 
 
 # ---------------------------------------------------------- submit_preset

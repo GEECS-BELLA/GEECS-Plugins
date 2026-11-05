@@ -223,8 +223,9 @@
     tr.appendChild(td(chip(r.state, r.word)));
     // The anchor column: the scan number (the running one's from progress,
     // the manager's history has not got it yet), else the waiting position.
+    var p = S.progress, live = p && (p.state === "running" || p.state === "paused");
     var nums = r.scan_numbers && r.scan_numbers.length ? r.scan_numbers
-      : selected && S.progress && S.progress.scan_number ? [S.progress.scan_number] : [];
+      : selected && live && p.scan_number ? [p.scan_number] : [];
     tr.appendChild(td(nums.length ? "Scan " + nums.map(function (n) { return String(n).padStart(3, "0"); }).join(", ") : r.position ? "#" + r.position : "", "id"));
     tr.appendChild(td(r.summary, "sum"));
     tr.appendChild(td(r.user, "dim"));
@@ -315,11 +316,14 @@
     });
     es.addEventListener("optimization", function (e) { S.optimization = JSON.parse(e.data); renderOptimization(); });
     es.addEventListener("progress", function (ev) {
-      var p = JSON.parse(ev.data);
+      var p = JSON.parse(ev.data), was = S.progress || {};
       var finished = S.progress && S.progress.state !== p.state && (p.state === "done" || p.state === "aborted");
       S.progress = p;
       renderProgress();
       if (finished) refreshQueue();
+      // The Ongoing row's scan number comes from the start document, which
+      // lands after the queue refresh that first showed the item running.
+      else if (S.queue && S.queue.running && (p.scan_number !== was.scan_number || p.state !== was.state)) section("q-run", [S.queue.running], "Nothing running.", false);
     });
     es.addEventListener("console", function (ev) {
       var line = JSON.parse(ev.data);
