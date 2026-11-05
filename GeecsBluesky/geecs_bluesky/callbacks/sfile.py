@@ -124,6 +124,7 @@ class SFileCallback(_StreamCallback):
         frames = []
         for stack in stacks:
             columns = None
+            attributes: dict[str, Any] = {}
             if not finalized[stack.data_key]:
                 logger.warning(
                     "scan %s: %s not finalized within %.0f s (%s) — its per-frame "
@@ -134,9 +135,10 @@ class SFileCallback(_StreamCallback):
                     stack.path,
                 )
             else:
+                attributes = read_stack_attributes(stack.path)
                 columns = frame_columns_from_attributes(
                     stack.data_key,
-                    read_stack_attributes(stack.path),
+                    attributes,
                     variables=stack_scalar_variables(stack.path),
                     labview_epoch_offset=LABVIEW_EPOCH_OFFSET,
                 )
@@ -156,7 +158,9 @@ class SFileCallback(_StreamCallback):
                     stack.width,
                 )
                 columns = columns.truncated(stack.width)
-            frames.append(device_records(stack.stream, columns, start))
+            # The stack's counter and W5 attribute too, as the stack check
+            # reads them: the two must assign a shared-stamp group alike.
+            frames.append(device_records(stack.stream, columns, start, attributes))
         self._write(start, rows, [*frames, *events], drain_offsets)
 
     @staticmethod

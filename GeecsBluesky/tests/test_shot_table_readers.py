@@ -20,10 +20,13 @@ LV = LABVIEW_EPOCH_OFFSET
 WITNESS = [100.0, 101.0, 102.0]  # Unix seconds, the witness IOC's record time
 
 
-def _feed(cb, folder, cam_stamps, *, slow=(0, 2), **start_keys) -> None:
-    """One shot-table run: three rows, ``u_slow`` at rows *slow*, a camera stack.
+def _feed(
+    cb, folder, cam_stamps, *, slow=(0, 2), witness=WITNESS, counter=None, **start_keys
+) -> None:
+    """One shot-table run: rows at *witness*, ``u_slow`` at rows *slow*, a camera stack.
 
-    *start_keys* override the start document (``layout=None`` drops the key).
+    *counter* is the stack's ``NDArrayUniqueId``; *start_keys* override the
+    start document (``layout=None`` drops the key).
     """
     path = folder / "UC_Cam" / "UC_Cam.h5"
     _write_plugin_stack(
@@ -32,6 +35,13 @@ def _feed(cb, folder, cam_stamps, *, slow=(0, 2), **start_keys) -> None:
         scalars={"meancounts": [10.0 * (i + 1) for i in range(len(cam_stamps))]},
         device="uc_cam",
     )
+    if counter is not None:
+        import h5py
+
+        from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP
+
+        with h5py.File(path, "a") as f:
+            f.create_dataset(f"{ATTRIBUTES_GROUP}/NDArrayUniqueId", data=counter)
     cb(
         "start",
         {
@@ -60,7 +70,7 @@ def _feed(cb, folder, cam_stamps, *, slow=(0, 2), **start_keys) -> None:
             "descriptor",
             {"uid": uid, "run_start": "r", "name": name, "data_keys": data_keys},
         )
-    for k, stamp in enumerate(WITNESS):
+    for k, stamp in enumerate(witness):
         row = {"shot_index": k + 1, "bin_number": 1, "witness_count": k + 7}
         row["witness_stamp"] = stamp
         cb("event", {"descriptor": "dp", "seq_num": k + 1, "data": row})
@@ -256,3 +266,26 @@ def test_table_stamps_samples_an_asynchronous_stream_without_extras(tmp_path) ->
         tmp_path, rows, [99.6, 99.9, 100.3, 101.8], stream_meta=meta
     )
     assert not warning and "3 of 4 frame(s)" in message and "0 extra(s)" in message
+
+
+def test_the_s_file_and_the_stack_check_order_a_shared_stamp_alike(tmp_path) -> None:
+    """Rows 2 and 3 share 102: both readers take the stack's counter."""
+    from geecs_bluesky.callbacks import SFileCallback
+
+    folder = tmp_path / "scans" / "Scan009"
+    folder.mkdir(parents=True)
+    keys = {"witness": [100.0, 102.0, 102.0], "counter": [1, 2, 3], "required": []}
+    _feed(SFileCallback(finalize_timeout=2.0), folder, [100.0, 101.0, 102.0], **keys)
+    sfile = pd.read_csv(tmp_path / "analysis" / "s9.txt", sep="\t")
+    assert list(sfile["UC_Cam meancounts"]) == [10.0, 20.0, 30.0]
+
+
+def test_a_stray_frame_beside_an_unresolved_group_still_warns(tmp_path) -> None:
+    """Only the records inside the group's window are held; a stray elsewhere warns."""
+    rows = [
+        {"witness_stamp": s, "witness_count": c}
+        for s, c in ((100.0, 1), (102.0, 2), (102.0, 3))
+    ]
+    message, warning = _table_verdict(tmp_path, rows, [100.0, 101.9, 103.2])
+    assert warning
+    assert "1 extra(s)" in message and "(1 frame(s) held back" in message

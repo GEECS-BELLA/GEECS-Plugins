@@ -46,7 +46,7 @@ W5 attribute NaN all run), ``attribute-lag-systematic``,
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 import numpy as np
@@ -164,6 +164,9 @@ class ShotTable:
         Asynchronous device → per-row age of its record, seconds.
     device_flags :
         Device (or unresolved ``required`` name) → run-level flags.
+    held :
+        Device → the extras inside a ``witness-stamp-shared-unresolved``
+        group's window: records nothing was guessed for, not strays.
     """
 
     rows: pd.DataFrame
@@ -174,6 +177,11 @@ class ShotTable:
     extras: Mapping[str, tuple[int, ...]]
     ages: Mapping[str, np.ndarray]
     device_flags: Mapping[str, tuple[str, ...]]
+    held: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+
+
+#: (stream, value) pairs already warned about, so a bad value warns once.
+_WARNED_SYNC_CLASSES: set[tuple[str, str]] = set()
 
 
 def device_records(
@@ -190,22 +198,34 @@ def device_records(
     datasets, bare names) or from the columns (``<device>-<name>``).
     """
     meta = dict((start.get(STREAM_META_KEY) or {}).get(stream) or {})
-    found = dict(attributes or {})
+    # Case- and separator-blind: event columns are lowercase (``-uniqueid``).
+    found = {_squash(str(k)): v for k, v in (attributes or {}).items()}
+    columns = {_squash(k): v for k, v in records.columns.items()}
 
     def per_frame(key: str) -> np.ndarray | None:
-        values = found.get(key, records.columns.get(f"{records.object_name}-{key}"))
+        values = found.get(_squash(key))
+        if values is None:
+            values = columns.get(_squash(f"{records.object_name}-{key}"))
         if values is None or np.size(values) < len(records):
             return None
         return np.asarray(values, dtype=float)[: len(records)]
 
     counter = next((c for c in map(per_frame, COUNTER_KEYS) if c is not None), None)
     stale = meta.get("stale_after")
+    sync_class = str(meta.get("sync_class") or SYNCHRONOUS)
+    if sync_class not in (SYNCHRONOUS, ASYNCHRONOUS):
+        if (stream, sync_class) not in _WARNED_SYNC_CLASSES:
+            _WARNED_SYNC_CLASSES.add((stream, sync_class))
+            logger.warning(
+                "%s: unknown sync_class %r; read as synchronous", stream, sync_class
+            )
+        sync_class = SYNCHRONOUS
     return DeviceRecords(
         stream=stream,
         records=records,
         counter=counter,
         witness_count=per_frame(WITNESS_ATTRIBUTE_KEY),
-        sync_class=str(meta.get("sync_class") or SYNCHRONOUS),
+        sync_class=sync_class,
         stale_after=None if stale is None else float(stale),
     )
 
@@ -327,6 +347,7 @@ def shot_table(
         streams={source.device: source.stream for source in devices},
         flags=tuple(tuple(f) for f in clock.flags),
         extras=extras,
+        held={name: tuple(sorted(i)) for name, i in clock.held.items()},
         ages=ages,
         device_flags=device_flags,
     )
@@ -346,6 +367,7 @@ class _RowClock:
     period: float
     budget: float
     flags: list[list[str]]
+    held: dict[str, set[int]] = field(default_factory=dict)
 
     @classmethod
     def of(cls, start, rows, offsets, new: bool, budget: float) -> "_RowClock":
@@ -409,7 +431,9 @@ class _RowClock:
             )
             assigned = list(join.frame_for_shot)
             ambiguous = _assign_intervals(assigned, records, self)
-            unresolved = _assign_shared(assigned, records, source.counter, self)
+            unresolved, self.held[source.device] = _assign_shared(
+                assigned, records, source.counter, self
+            )
         for k in range(n):
             if k in unresolved:
                 self.flags[k].append(f"witness-stamp-shared-unresolved:{source.device}")
@@ -568,7 +592,7 @@ def _assign_shared(
     records: np.ndarray,
     counter: np.ndarray | None,
     clock: _RowClock,
-) -> set[int]:
+) -> tuple[set[int], set[int]]:
     """File each group of rows sharing one witness stamp, or leave it unresolved.
 
     A +k update stamps k edges at the poll after the last one, so the
@@ -576,10 +600,12 @@ def _assign_shared(
     order them, and nothing is guessed (§4.3): the group is filled in
     counter order only when it found exactly one record per row and their
     counters are consecutive.  Otherwise its rows stay empty for this
-    device and are returned; the records are left unclaimed (extras).
+    device and are returned, with the records it found: left unclaimed
+    (extras), and held (:attr:`ShotTable.held`).
     """
     claimed = {i for i in assigned if i is not None}
     unresolved: set[int] = set()
+    held: set[int] = set()
     half = clock.period / 2.0
     for stamp in np.unique(clock.stamps[clock.shared]):
         group = list(np.flatnonzero(clock.shared & (clock.stamps == stamp)))
@@ -594,7 +620,8 @@ def _assign_shared(
                 claimed.add(index)
         else:
             unresolved.update(int(k) for k in group)
-    return unresolved
+            held.update(found)
+    return unresolved, held
 
 
 def _audit(

@@ -927,7 +927,7 @@ def test_read_device_records_reads_stream_meta_and_stamps_only() -> None:
         {
             "u_slow-acq_timestamp": [1.0],
             "u_slow-current": [3.0],
-            "u_slow-UniqueId": [41.0],
+            "u_slow-uniqueid": [41.0],  # event columns are lowercase
         }
     )
     start = {
@@ -943,7 +943,7 @@ def test_read_device_records_reads_stream_meta_and_stamps_only() -> None:
     assert (full.sync_class, full.stale_after) == ("asynchronous", 4.0)
     assert list(full.counter) == [41.0] and "u_slow-current" in full.records.columns
     (lean,) = read_device_records(run, "primary", stamps_only=True)
-    assert set(lean.records.columns) == {"u_slow-acq_timestamp", "u_slow-UniqueId"}
+    assert set(lean.records.columns) == {"u_slow-acq_timestamp", "u_slow-uniqueid"}
     assert list(lean.counter) == [41.0]
 
 
@@ -965,3 +965,53 @@ def test_device_records_reads_the_w5_attribute_by_its_hdf5_name() -> None:
         3.0,
         4.0,
     ]
+
+
+def test_a_stampless_device_does_not_cost_the_stamped_one_its_counter() -> None:
+    """One stamped device and one without a stamp: the bare counter is the first's."""
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_device_records
+
+    stream = _FakeStream(
+        {
+            "uc_b-hdf-image-frame_acq_timestamp": _FakePart(
+                np.array([1.0, 2.0]), "array"
+            ),
+            "uc_x-hdf-image-meancounts": _FakePart(np.array([4.0, 5.0]), "array"),
+            "NDArrayUniqueId": _FakePart(np.array([8.0, 9.0]), "array"),
+        }
+    )
+
+    class _Run:
+        metadata = {"start": _slow_start()}
+
+        def __iter__(self):
+            return iter(["primary", "uc_b_stream"])
+
+        def __getitem__(self, key):
+            if key == "primary":
+                return _FakeStream({"internal": _FakePart(_strict_rows(), "table")})
+            return stream
+
+    (source,) = read_device_records(_Run(), "primary")
+    assert source.device == "uc_b" and list(source.counter) == [8.0, 9.0]
+
+
+def test_an_unknown_sync_class_warns_once_and_reads_synchronous(caplog) -> None:
+    """A ``stream_meta`` class W3a does not know: synchronous, said once."""
+    import logging
+
+    import numpy as np
+
+    from geecs_data_utils.shot_join import FrameColumns
+    from geecs_data_utils.shot_table import SYNCHRONOUS, device_records
+
+    start = {"stream_meta": {"odd_stream": {"sync_class": "sometimes"}}}
+    records = FrameColumns("odd", np.array([1.0]))
+    with caplog.at_level(logging.WARNING):
+        classes = {
+            device_records("odd_stream", records, start).sync_class for _ in "ab"
+        }
+    assert classes == {SYNCHRONOUS}
+    assert caplog.text.count("unknown sync_class 'sometimes'") == 1

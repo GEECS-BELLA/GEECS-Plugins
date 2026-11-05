@@ -433,8 +433,9 @@ class _TableStamps:
 
         Rows sharing a witness stamp that the stack's counters cannot order
         (``witness-stamp-shared-unresolved``) are never guessed and never a
-        warning: they and the frames they hold back (at most one per row)
-        are reported apart from the extras.
+        warning: they and the frames they hold back
+        are reported apart from the extras (``ShotTable.held``: only the
+        records inside such a group's window, so a stray elsewhere warns).
         """
         import pandas as pd
         from geecs_data_utils.io.scan_stack import read_stack_attributes
@@ -475,7 +476,7 @@ class _TableStamps:
             for row in own
         )
         extras = len(table.extras.get(data_key, ()))
-        held = min(extras, unresolved)
+        held = len(table.held.get(data_key, ()))
         extras -= held
         message = (
             f"{data_key}: {matched} of {len(frames)} frame(s) in {path.name} "

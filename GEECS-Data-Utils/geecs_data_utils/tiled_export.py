@@ -367,8 +367,10 @@ def read_device_records(
     The Tiled adapter of :func:`geecs_data_utils.shot_table.shot_table`:
     each source's class and staleness from the start document's
     ``stream_meta``, its counter and W5 attribute when the stream carries
-    them (a bare ``NDArrayUniqueId`` / ``witness_count`` part belongs to
-    the stream's one device).  *stamps_only* reads each device's stamps
+    them (a bare ``NDArrayUniqueId`` / ``WitnessCount`` part belongs to
+    the stream's one stamped device).  No plan publishes those parts yet:
+    until W3c does, a Tiled reader has no counters and can disagree with
+    the s-file on a group of rows sharing one witness stamp.  *stamps_only* reads each device's stamps
     and counters and no scalar column (what a frame lookup needs).
 
     A stream other than the one the rows came from carries no per-shot row
@@ -432,6 +434,7 @@ def read_device_records(
                 continue
         contents = node.get_contents()
         per_device, bare = _attribute_parts(node, contents, audit_keys, stamps_only)
+        built: list[FrameColumns] = []
         for device, attributes in sorted(per_device.items()):
             columns = frame_columns_from_attributes(
                 device,
@@ -451,7 +454,11 @@ def read_device_records(
                     referenced,
                 )
                 columns = columns.truncated(referenced)
-            out.append(device_records(stream, columns, start, bare))
+            built.append(columns)
+        # A bare counter part is the stream's one stamped device's; with
+        # more, whose it is would be a guess.
+        bare = bare if len(built) == 1 else {}
+        out += [device_records(stream, columns, start, bare) for columns in built]
     return out
 
 
@@ -461,12 +468,13 @@ def _attribute_parts(
     """``(device → its attribute parts, the bare audit parts)`` of one stream node.
 
     Only 1-D parts named ``<device>-hdf-<variable>-<suffix>`` are read (never
-    the frame stack); *stamps_only* keeps the stamps and audit columns.  A
-    bare counter part is kept only when the stream has one device: whose
-    counter it is would otherwise be a guess.
+    the frame stack); *stamps_only* keeps the stamps and audit columns
+    (matched case- and separator-blind: a plugin suffix is lowercase).
     """
     from geecs_data_utils.io.scan_stack import parse_attribute_name
-    from geecs_data_utils.shot_join import FRAME_STAMP_SUFFIX
+    from geecs_data_utils.shot_join import FRAME_STAMP_SUFFIX, _squash
+
+    keep = {_squash(key) for key in (FRAME_STAMP_SUFFIX, *audit_keys)}
 
     per_device: dict[str, dict[str, Any]] = {}
     bare: dict[str, Any] = {}
@@ -476,20 +484,22 @@ def _attribute_parts(
             if part in audit_keys:
                 bare[part] = node.base[part].read()
             continue  # the frame stack (or a part of another shape)
-        if stamps_only and parsed[2] not in (FRAME_STAMP_SUFFIX, *audit_keys):
+        if stamps_only and _squash(parsed[2]) not in keep:
             continue
         per_device.setdefault(parsed[0], {})[part] = node.base[part].read()
-    return per_device, bare if len(per_device) == 1 else {}
+    return per_device, bare
 
 
 def _stamps_and_counters(columns: FrameColumns, keys: Sequence[str]) -> FrameColumns:
-    """*columns* with only its stamp and its audit columns (``<device>-<key>``)."""
+    """*columns* with only its stamp and its audit columns (``<device>-<key>``, any case)."""
+    from geecs_data_utils.shot_join import _squash
+
     name = columns.object_name
-    kept = {f"{name}-acq_timestamp", *(f"{name}-{key}" for key in keys)}
+    kept = {_squash(f"{name}-{key}") for key in ("acq_timestamp", *keys)}
     return FrameColumns(
         object_name=name,
         stamps=columns.stamps,
-        columns={k: v for k, v in columns.columns.items() if k in kept},
+        columns={k: v for k, v in columns.columns.items() if _squash(k) in kept},
     )
 
 
