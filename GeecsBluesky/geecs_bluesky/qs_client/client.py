@@ -21,8 +21,8 @@ A client submits a **plan item**: a name from
 by name (:meth:`QueueClient.submit_plan`), or a saved preset expanded
 into one (:meth:`QueueClient.submit_preset`).  On plan failure the
 manager returns the failed item to the **front** of the queue, so the
-submit verbs surface the queue's front items (``pending_items``) and
-clear them only when told to (``clear_pending=True``).
+submit verbs surface the queue's front items (``pending_items``): cleared on
+``clear_pending=True``, added behind on ``append=True`` in a started queue.
 """
 
 from __future__ import annotations
@@ -403,12 +403,15 @@ class QueueClient(Protocol):
         args: Sequence[Any] = (),
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        append: bool = False,
     ) -> SubmitResult:
         """Queue the plan *name* with *args* / *kwargs* and start the queue.
 
         Devices are named (``"UC_Amp4_IR_input"``, ``"U_S1H.current"``):
         the manager resolves them against the worker namespace.  *name*
         must be one of :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`.
+        *append* adds behind waiting items while the queue is started; in a
+        stopped queue waiting items still refuse (``pending_items``).
         """
         ...
 
@@ -420,6 +423,7 @@ class QueueClient(Protocol):
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
         resolver: ConfigsRepoResolver | None = None,
+        append: bool = False,
     ) -> SubmitResult:
         """Expand a :class:`geecs_schemas.Preset` and queue it (:func:`~.presets.expand_preset`).
 
@@ -465,6 +469,14 @@ class QueueClient(Protocol):
         The explicit recovery verb for the failed-item-at-front trap —
         deliberately separate from submission (``submit_scan`` never
         clears implicitly; see ``clear_pending``).
+        """
+        ...
+
+    def remove_item(self, uid: str) -> tuple[bool, str]:
+        """Remove one WAITING item by uid; the running item is never removed.
+
+        A uid that is not waiting is refused (``(False, message)``); a
+        manager failure raises, like the reads.
         """
         ...
 
@@ -521,6 +533,7 @@ class StubQueueClient:
         args: Sequence[Any] = (),
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        append: bool = False,
     ) -> SubmitResult:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
@@ -533,6 +546,7 @@ class StubQueueClient:
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
         resolver: ConfigsRepoResolver | None = None,
+        append: bool = False,
     ) -> SubmitResult:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
@@ -560,6 +574,10 @@ class StubQueueClient:
     def running_item(self) -> Optional[dict]:
         """Refuse with the missing-config message."""
         raise RuntimeError(_STUB_MESSAGE)
+
+    def remove_item(self, uid: str) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
 
     def clear_queue(self) -> tuple[bool, str]:
         """Refuse with the missing-config message."""
@@ -651,6 +669,7 @@ class ZmqQueueClient:
         *,
         clear_pending: bool,
         kwargs: Optional[dict] = None,
+        append: bool = False,
     ) -> SubmitResult:
         """Shared add-and-start with the failed-item-at-front guard.
 
@@ -670,7 +689,16 @@ class ZmqQueueClient:
         try:
             queue = api.queue_get()
             pending = list(queue.get("items") or [])
-            if pending and not clear_pending:
+            # Behind a started queue nothing failed sits at the front; a
+            # stopped queue keeps the refusal.  The state is a second request,
+            # so a plan failing in between leaves the same window the busy
+            # start below has.
+            appending = (
+                append
+                and bool(pending)
+                and self.status().manager_state in _QUEUE_STARTED_MANAGER_STATES
+            )
+            if pending and not (clear_pending or appending):
                 return SubmitResult(
                     ok=False,
                     message=(
@@ -680,7 +708,7 @@ class ZmqQueueClient:
                     ),
                     pending_items=pending,
                 )
-            if pending:
+            if pending and not appending:
                 api.queue_clear()
             item = BPlan(plan_name, *args, **(kwargs or {}))
             response = api.item_add(item, user=self._user)
@@ -733,6 +761,7 @@ class ZmqQueueClient:
         args: Sequence[Any] = (),
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        append: bool = False,
     ) -> SubmitResult:
         """Queue one plan item; refuse a name the worker does not register."""
         if name not in GEECS_PLAN_NAMES:
@@ -744,7 +773,11 @@ class ZmqQueueClient:
                 ),
             )
         return self._submit_item(
-            name, list(args), kwargs=dict(kwargs or {}), clear_pending=clear_pending
+            name,
+            list(args),
+            kwargs=dict(kwargs or {}),
+            clear_pending=clear_pending,
+            append=append,
         )
 
     def submit_preset(
@@ -755,6 +788,7 @@ class ZmqQueueClient:
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
         resolver: ConfigsRepoResolver | None = None,
+        append: bool = False,
     ) -> SubmitResult:
         """Expand the preset and queue it; an expansion refusal is the message."""
         from geecs_bluesky.exceptions import GeecsConfigurationError
@@ -765,7 +799,11 @@ class ZmqQueueClient:
         except GeecsConfigurationError as exc:
             return SubmitResult(ok=False, message=str(exc))
         return self.submit_plan(
-            item.name, args=item.args, kwargs=item.kwargs, clear_pending=clear_pending
+            item.name,
+            args=item.args,
+            kwargs=item.kwargs,
+            clear_pending=clear_pending,
+            append=append,
         )
 
     def request_pause(self) -> tuple[bool, str]:
@@ -842,6 +880,18 @@ class ZmqQueueClient:
         """
         raw = self._manager().queue_get().get("running_item") or None
         return dict(raw) if raw else None
+
+    def remove_item(self, uid: str) -> tuple[bool, str]:
+        """Remove one waiting item; a uid not waiting (the running one) is refused.
+
+        A refusal is ``(False, message)``; a manager failure raises.
+        """
+        api = self._manager()
+        waiting = [i.get("item_uid") for i in api.queue_get().get("items") or []]
+        if uid not in waiting:
+            return False, f"{uid} is not waiting in the queue"
+        api.item_remove(uid=uid)
+        return True, "removed"
 
     def clear_queue(self) -> tuple[bool, str]:
         """Remove every queued item (the explicit recovery verb)."""

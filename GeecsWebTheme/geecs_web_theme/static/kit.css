@@ -170,6 +170,13 @@ body.kit{
   border-bottom:var(--bw) solid var(--rule);
 }
 .kit .panel > header .eyebrow{margin-right:auto}
+/* A panel's title outranks the eyebrows inside it: the same uppercase word
+   one step up (the UI face, heavier, ink), so a card's name and its
+   sections' names are never the same label twice. A drawer's header is a
+   title too. */
+.kit .panel > header .eyebrow, .kit .drawer > header .eyebrow{
+  font-family:var(--ff-ui);font-size:12.5px;font-weight:600;letter-spacing:.05em;color:var(--ink);
+}
 .kit .panel > .body{
   padding:var(--pad);
   display:flex;flex-direction:column;gap:var(--gap);
@@ -183,6 +190,18 @@ body.kit{
 /* Related controls that belong to the panel around them. No edges — a
    border here competes with the real one. */
 .kit .group{display:flex;flex-direction:column;gap:8px;min-width:0}
+/* A group that closes. Native <details> with its eyebrow as the summary and
+   a caret, no box: a fold is still the panel's own content, not an object.
+   Open in the markup; the browser keeps the state for the page's life and
+   no script tracks it (the overlay ladder's rung-0 rule). */
+.kit details.fold > summary{
+  display:flex;align-items:center;gap:6px;width:max-content;
+  cursor:pointer;list-style:none;user-select:none;
+}
+.kit details.fold > summary::-webkit-details-marker{display:none}
+.kit details.fold > summary::before{content:"\25BE";color:var(--muted);font-size:10px;line-height:1}
+.kit details.fold:not([open]) > summary::before{content:"\25B8"}
+.kit details.fold[open] > summary{margin-bottom:8px}
 .kit .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;min-width:0}
 .kit .row.end{justify-content:flex-end}
 .kit .spacer{flex:1 1 auto}

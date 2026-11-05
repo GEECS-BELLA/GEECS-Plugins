@@ -221,28 +221,34 @@
     var tr = document.createElement("tr");
     if (selected) tr.setAttribute("aria-selected", "true");
     tr.appendChild(td(chip(r.state, r.word)));
-    tr.appendChild(td((r.position ? "#" + r.position + " " : "") + r.summary, "id"));
-    tr.appendChild(td(r.user));
-    var detail = (r.scan_numbers && r.scan_numbers.length ? "Scan " + r.scan_numbers.map(function (n) { return String(n).padStart(3, "0"); }).join(", ") + (r.detail ? " · " : "") : "") + (r.detail || "");
-    tr.appendChild(td(detail, "dim"));
+    // The anchor column: the scan number (the running one's from progress,
+    // the manager's history has not got it yet), else the waiting position.
+    var p = S.progress, live = p && (p.state === "running" || p.state === "paused");
+    var nums = r.scan_numbers && r.scan_numbers.length ? r.scan_numbers
+      : selected && live && p.scan_number ? [p.scan_number] : [];
+    tr.appendChild(td(nums.length ? "Scan " + nums.map(function (n) { return String(n).padStart(3, "0"); }).join(", ") : r.position ? "#" + r.position : "", "id"));
+    tr.appendChild(td(r.summary, "sum"));
+    tr.appendChild(td(r.user, "dim"));
+    // The detail column says only what the summary does not already: the exit
+    // message of a finished item. The description is quoted in the summary.
+    tr.appendChild(td(r.detail && r.summary.indexOf(r.detail) === -1 ? r.detail : "", "dim"));
     return tr;
   }
 
   function renderQueue() {
     var q = S.queue;
     if (!q) return;
-    var body = $("qbody");
-    body.textContent = "";
-    if (q.running) body.appendChild(row(q.running, true));
-    q.waiting.forEach(function (r) { body.appendChild(row(r)); });
-    q.finished.forEach(function (r) { body.appendChild(row(r)); });
-    if (!body.children.length) body.appendChild(td("Nothing queued, nothing finished today.", "dim"));
+    section("q-run", q.running ? [q.running] : [], "Nothing running.", false);
+    section("q-wait", q.waiting, "Nothing waiting.", true);
+    section("q-done", q.finished, "Nothing finished today.", false);
+    $("q-wait-h").textContent = "Waiting · " + q.waiting.length;
+    $("q-done-h").textContent = "History · " + q.finished.length;
     $("q-summary").textContent = q.summary;
     renderProgress();
     $("dlg-clear-n").textContent = q.waiting.length + " waiting item" + (q.waiting.length === 1 ? "" : "s");
     if (q.running) {
       $("now-plan").textContent = q.running.summary;
-      $("now-by").textContent = q.running.user ? "submitted as " + q.running.user : "";
+      $("now-by").textContent = q.running.user ? "submitted by " + q.running.user : "";
       $("dlg-stop-scan").textContent = S.progress && S.progress.scan_number ? "Scan " + String(S.progress.scan_number).padStart(3, "0") : "the running scan";
     } else {
       $("now-plan").textContent = q.finished.length ? "Idle. Last: " + q.finished[0].summary : "Idle.";
@@ -265,6 +271,30 @@
     });
   }
 
+  // #1281: Ongoing / Queue / History; a waiting row carries its Remove button.
+  function section(id, rows, empty, removable) {
+    var body = $(id);
+    body.textContent = "";
+    rows.forEach(function (r) {
+      var tr = row(r, id === "q-run");
+      if (removable) {
+        var b = document.createElement("button");
+        b.className = "btn danger sm"; b.type = "button"; b.textContent = "Remove"; b.dataset.uid = r.item_uid || "";
+        tr.appendChild(td(b));
+      }
+      body.appendChild(tr);
+    });
+    if (!rows.length) { var tr = document.createElement("tr"); tr.appendChild(td(empty, "dim")); body.appendChild(tr); }
+  }
+  $("q-wait").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-uid]");
+    if (!b) return;
+    b.disabled = true;
+    api("/api/queue/" + encodeURIComponent(b.dataset.uid), { method: "DELETE" })
+      .catch(function (err) { showError("Not removed: " + err.message); })
+      .then(refreshQueue);
+  });
+
   function refreshQueue() {
     return api("/api/queue").then(function (q) { S.queue = q; renderQueue(); })
       .catch(function (e) { $("q-summary").textContent = e.message; });
@@ -286,11 +316,14 @@
     });
     es.addEventListener("optimization", function (e) { S.optimization = JSON.parse(e.data); renderOptimization(); });
     es.addEventListener("progress", function (ev) {
-      var p = JSON.parse(ev.data);
+      var p = JSON.parse(ev.data), was = S.progress || {};
       var finished = S.progress && S.progress.state !== p.state && (p.state === "done" || p.state === "aborted");
       S.progress = p;
       renderProgress();
       if (finished) refreshQueue();
+      // The Ongoing row's scan number comes from the start document, which
+      // lands after the queue refresh that first showed the item running.
+      else if (S.queue && S.queue.running && (p.scan_number !== was.scan_number || p.state !== was.state)) section("q-run", [S.queue.running], "Nothing running.", false);
     });
     es.addEventListener("console", function (ev) {
       var line = JSON.parse(ev.data);
@@ -608,9 +641,11 @@
     var busy = !st || !st.connected || st.re_state === "paused";
     var btn = $("btn-start");
     btn.disabled = busy || !valid || !S.formable;
+    $("btn-append").disabled = btn.disabled;
     $("btn-save-preset").disabled = !valid || !S.formable;
     btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is paused — resume or stop it first" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
     $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
+    $("btn-append").title = btn.title || "Append to the end of the queue; no title dialog";
   }
 
   function buildPreset() {
@@ -750,11 +785,15 @@
     if ($("btn-start").disabled) { showError("Not started: " + ($("btn-start").title || "Start is unavailable")); return; }
     startScan();
   });
+  // #1281: the same preflight and acknowledgement as Start, never the title dialog.
+  $("btn-append").addEventListener("click", function () { startScan(true); });
 
-  function startScan() {
+  function startScan(append) {
     var preset = buildPreset();
     S.pendingPreset = preset;
+    S.pendingAppend = append;
     $("btn-start").disabled = true;
+    $("btn-append").disabled = true;
     post("/api/preflight", preset).then(function (out) {
       if (out.refusal) { showError("Refused: " + out.refusal); updateStartGate(); return; }
       if (out.questions.length) { openAck(out.questions); return; }
@@ -802,15 +841,18 @@
 
   function submit(preset, acknowledged, clearPending) {
     S.pendingAckDone = acknowledged;
-    post("/api/submit", { preset: preset, acknowledged: acknowledged, operator: operator(), clear_pending: clearPending })
+    post("/api/submit", { preset: preset, acknowledged: acknowledged, operator: operator(), clear_pending: clearPending, append: !!S.pendingAppend })
       .then(function (out) {
         $("verb-note").textContent = "Queued: " + out.summary + (out.planned_shots ? " (" + out.planned_shots + " shots)" : "");
         refreshQueue();
       })
       .catch(function (e) {
+        if (e.status === 409 && e.payload.pending_items && S.pendingAppend) { showError("Not added: " + e.message); return; }
         if (e.status === 409 && e.payload.pending_items) {
           var items = e.payload.pending_items;
-          $("dlg-pending-text").textContent = "Waiting now: " + items.map(function (i) { return i.summary; }).join("; ") + ". Replace it with this scan?";
+          var many = items.length > 1;
+          $("dlg-pending-title").textContent = many ? items.length + " items are already waiting" : "An item is already waiting";
+          $("dlg-pending-text").textContent = "Waiting now: " + items.map(function (i) { return i.summary; }).join("; ") + (many ? ". Clear all " + items.length + " waiting items and queue this scan?" : ". Replace it with this scan?");
           window.GeecsKit.confirm($("dlg-pending")).open();
           return;
         }

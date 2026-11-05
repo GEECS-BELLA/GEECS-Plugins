@@ -160,6 +160,10 @@ class SubmitIn(BaseModel):
         default=False,
         description="Remove a failed item sitting at the front of the queue first",
     )
+    append: bool = Field(
+        default=False,
+        description="Add behind the waiting items of a started queue (refused when stopped)",
+    )
 
 
 class SubmitOut(BaseModel):
