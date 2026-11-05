@@ -141,12 +141,12 @@ def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], boo
     import math
 
     frame = detail.data
+    ordinal_ok = getattr(detail, "rows_are_frames", True)
     if frame is None or shot < 1 or shot > len(frame):
-        return (None, False)
+        return (None, not ordinal_ok)  # a gated run with no rows: never ordinal
     shots = detail.shots() if hasattr(detail, "shots") else None
     if shots is not None and shots.covers(device):
         return (shots.stamp_for(device, shot), True)
-    ordinal_ok = getattr(detail, "rows_are_frames", True)
     column = schema_map.device_acq_timestamp_column(
         [str(c) for c in frame.columns], device
     )

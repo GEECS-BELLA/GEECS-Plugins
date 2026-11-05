@@ -79,6 +79,7 @@ class CachingScanCatalog:
         self._clock = clock
         self._lock = threading.Lock()
         self._details: OrderedDict[str, tuple[object, float]] = OrderedDict()
+        self._loading: dict[str, threading.Lock] = {}  # single-flight, per uid
 
     def probe(self):
         """Delegate the liveness probe (never cached)."""
@@ -93,8 +94,31 @@ class CachingScanCatalog:
 
         Raises ``KeyError`` for an unknown uid (the protocol's not-found
         contract — misses are never cached, so a run that appears later
-        loads normally).
+        loads normally).  Concurrent misses for one uid wait for one load.
         """
+        detail = self._cached(uid)
+        if detail is not None:
+            return detail
+        with self._lock:
+            loading = self._loading.setdefault(uid, threading.Lock())
+        with loading:
+            try:
+                detail = self._cached(uid)  # another request just loaded it
+                if detail is None:
+                    now = self._clock()
+                    detail = self._catalog.load_run(uid)
+                    with self._lock:
+                        self._details[uid] = (detail, now)
+                        self._details.move_to_end(uid)
+                        while len(self._details) > _DETAIL_CACHE_RUNS:
+                            self._details.popitem(last=False)
+            finally:
+                with self._lock:  # after the store: a later miss finds the detail
+                    self._loading.pop(uid, None)
+        return detail
+
+    def _cached(self, uid: str):
+        """A fresh cached detail for *uid*, or ``None``."""
         now = self._clock()
         with self._lock:
             hit = self._details.get(uid)
@@ -105,13 +129,7 @@ class CachingScanCatalog:
                     self._details.move_to_end(uid)
                     return detail
                 del self._details[uid]
-        detail = self._catalog.load_run(uid)
-        with self._lock:
-            self._details[uid] = (detail, now)
-            self._details.move_to_end(uid)
-            while len(self._details) > _DETAIL_CACHE_RUNS:
-                self._details.popitem(last=False)
-        return detail
+        return None
 
 
 class ShotDataCache:

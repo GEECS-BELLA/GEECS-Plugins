@@ -21,17 +21,20 @@ UNIX = LV - LABVIEW_EPOCH_OFFSET
 
 
 class _Part:
-    def __init__(self, value):
-        self.value = value
+    def __init__(self, run, name, value):
+        self.run, self.name, self.value = run, name, value
 
     def read(self):
+        self.run.reads.append(self.name)
+        if isinstance(self.value, Exception):
+            raise self.value
         assert isinstance(self.value, pd.DataFrame) or np.ndim(self.value) <= 1
         return self.value
 
 
 class _Stream:
-    def __init__(self, parts: dict):
-        self.base = {name: _Part(value) for name, value in parts.items()}
+    def __init__(self, run, parts: dict):
+        self.base = {name: _Part(run, name, v) for name, v in parts.items()}
         self.metadata: dict = {}
 
     def get_contents(self) -> dict:
@@ -52,9 +55,11 @@ class _Stream:
 class _Run(dict):
     """Stream name → node; counts iterations (the lazy build reads every stream)."""
 
-    def __init__(self, start: dict, streams: dict):
-        super().__init__({k: _Stream(v) for k, v in streams.items()})
-        self.metadata = {"start": start, "stop": {"num_events": {"shots": 3}}}
+    def __init__(self, start: dict, streams: dict, stop=None):
+        self.reads: list[str] = []
+        super().__init__({k: _Stream(self, v) for k, v in streams.items()})
+        stop = {"num_events": {"shots": 3}} if stop is None else stop
+        self.metadata = {"start": start, "stop": stop}
         self.iterated = 0
 
     def __iter__(self):
@@ -100,15 +105,15 @@ def shot_table_run() -> _Run:
     return _Run(start, {"primary": {"internal": primary}, "uc_gatedcam_stream": stream})
 
 
-def load(run: _Run):
-    catalog = TiledScanCatalog(uri="http://fake:8000")
+def load(run: _Run, catalog=None):
+    catalog = catalog or TiledScanCatalog(uri="http://fake:8000")
     catalog._client = {"uid": run}
     return catalog.load_run("uid")
 
 
 def assert_dropped_frame_is_a_gap(detail) -> None:
     assert not detail.rows_are_frames
-    counts = detail.data["uc_gatedcam-meancounts"]
+    counts = detail.scalars()["uc_gatedcam-meancounts"]
     assert counts[0] == 10 and np.isnan(counts[1]) and counts[2] == 30
     shots = detail.shots()
     assert shots.covers("UC_GatedCam")  # the folder's spelling
@@ -157,3 +162,32 @@ def test_scan_frame_keys_a_runs_rows_by_shot_number(tmp_path, caplog) -> None:
     assert "positional" not in caplog.text
     assert list(frame["U_ICT charge"]) == [0.1, 0.2, 0.3]
     assert np.isnan(frame["uc_gatedcam-meancounts"][1])
+
+
+def test_a_gated_open_reads_the_stamps_only_and_a_running_run_reuses_them() -> None:
+    run = gated_run()
+    catalog = TiledScanCatalog(uri="http://fake:8000")
+    run.metadata["stop"] = {}  # running
+    detail = load(run, catalog)
+    assert run.reads == ["internal", "uc_gatedcam-hdf-image-frame_acq_timestamp"]
+    load(run, catalog)  # the 5 s detail re-read: the rows again, the table kept
+    assert run.reads[2:] == ["internal"]
+    detail.scalars()  # the scalars: read on first use
+    assert "uc_gatedcam-hdf-image-meancounts" in run.reads
+
+
+def test_a_failed_build_is_kept_as_no_table_for_the_ttl() -> None:
+    run = gated_run()
+    run["primary"].base[
+        "uc_gatedcam-hdf-image-frame_acq_timestamp"
+    ].value = ConnectionError("timed out")
+    catalog = TiledScanCatalog(uri="http://fake:8000")
+    now = [0.0]
+    catalog._clock = lambda: now[0]
+    assert load(run, catalog).shots() is None
+    load(run, catalog)
+    stamp = "uc_gatedcam-hdf-image-frame_acq_timestamp"
+    assert run.reads.count(stamp) == 1
+    now[0] = 31.0
+    load(run, catalog)
+    assert run.reads.count(stamp) == 2

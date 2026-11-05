@@ -33,6 +33,9 @@ import configparser
 import functools
 import logging
 import math
+import threading
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -41,6 +44,11 @@ from typing import Any, Callable, Optional, Protocol, runtime_checkable
 from geecs_data_utils import tiled_schema
 
 logger = logging.getLogger(__name__)
+
+#: How long a running run's (or a failed) shot-table build is kept, seconds.
+_SHOTS_TTL_S = 30.0
+#: Runs whose shot table is kept.
+_SHOTS_CACHE_RUNS = 64
 
 #: Bounded budget for the connection probe (seconds).
 _PROBE_TIMEOUT_S = 2.5
@@ -158,6 +166,8 @@ class RunDetail:
         The stream the rows came from (``""``: not a Tiled run's).
     shot_source : callable, optional
         Builds the run's :class:`RunShots` (cached); see :meth:`shots`.
+    scalar_source : callable, optional
+        Joins every device's scalars onto the rows (cached); see :meth:`scalars`.
     """
 
     summary: RunSummary
@@ -168,6 +178,9 @@ class RunDetail:
     shot_source: Optional[Callable[[], Optional["RunShots"]]] = field(
         default=None, repr=False, compare=False
     )
+    scalar_source: Optional[Callable[[], Any]] = field(
+        default=None, repr=False, compare=False
+    )
 
     @property
     def rows_are_frames(self) -> bool:
@@ -176,13 +189,23 @@ class RunDetail:
         Otherwise (gated, shot-table) a device's frame for a shot comes only
         from :meth:`shots`, never from its ordinal.
         """
-        return self.row_stream in ("", "primary") and (
-            self.start_doc.get("layout") is None
+        start = self.start_doc
+        return (
+            self.row_stream in ("", "primary")
+            and start.get("layout") is None
+            and start.get("acquisition") != "gated"
         )
 
     def shots(self) -> Optional["RunShots"]:
-        """The run's shot table, built on first use; ``None`` when it has none."""
+        """The run's shot table, built on first use; ``None`` when it has none.
+
+        Never raises: a build that fails is logged and reads ``None``.
+        """
         return None if self.shot_source is None else self.shot_source()
+
+    def scalars(self) -> Any:
+        """:attr:`data` with every device's scalars joined (gated, shot-table), read on first use."""
+        return self.data if self.scalar_source is None else self.scalar_source()
 
 
 @dataclass(frozen=True)
@@ -197,11 +220,14 @@ class RunShots:
         :func:`tiled_schema.normalize_token` of the device → its
         :class:`~geecs_data_utils.shot_table.DeviceRecords`: the devices
         recorded outside the rows (an old strict run's in-row devices are
-        not here; their row is their frame).
+        not here; their row is their frame), stamps only.
+    rows : DataFrame
+        The rows the table was built from.
     """
 
     table: Any
     records: dict
+    rows: Any = field(default=None, repr=False, compare=False)
 
     def covers(self, device: str) -> bool:
         """Whether *device* (object or folder name) is one of the joined devices."""
@@ -376,6 +402,12 @@ class TiledScanCatalog:
         self.uri = uri
         self._api_key = api_key
         self._client: Any = None
+        self._clock = time.monotonic
+        self._shots: OrderedDict[str, tuple[float, bool, Optional[RunShots]]] = (
+            OrderedDict()
+        )
+        self._shots_lock = threading.Lock()
+        self._building: dict[str, threading.Lock] = {}
 
     @classmethod
     def from_config(cls, config_path: Optional[Path] = None) -> "TiledScanCatalog":
@@ -517,8 +549,8 @@ class TiledScanCatalog:
             logger.info("run %s has no event rows", uid)
         else:
             data = rows
-            source = functools.cache(
-                functools.partial(_run_shots, run, start_doc, rows, stream)
+            source = functools.partial(
+                self._shots_for, uid, run, start_doc, rows, stream, bool(stop_doc)
             )
         detail = RunDetail(
             summary=summary_from_metadata(uid, start_doc, stop_doc),
@@ -529,49 +561,147 @@ class TiledScanCatalog:
             shot_source=source,
         )
         if source is not None and not detail.rows_are_frames:
-            shots = source()
+            shots = source()  # stamps only: one read per device
             if shots is not None:
-                detail = replace(detail, data=shots.table.rows)
+                joined = functools.partial(_joined_rows, run, start_doc, shots, stream)
+                detail = replace(
+                    detail,
+                    data=shots.table.rows,
+                    scalar_source=functools.cache(joined),
+                )
         return detail
+
+    def _shots_for(
+        self, uid: str, run: Any, start: dict, rows: Any, stream: str, complete: bool
+    ) -> Optional[RunShots]:
+        """*uid*'s :class:`RunShots`, one build at a time per run.
+
+        Kept for good once a finished run's build succeeds; a running run's
+        (or a failed build, as ``None``) for :data:`_SHOTS_TTL_S`, so a
+        running run's rows lag the catalog by up to that long.
+        """
+        with self._shots_lock:
+            lock = self._building.setdefault(uid, threading.Lock())
+        with lock:
+            with self._shots_lock:
+                hit = self._shots.get(uid)
+            if hit is not None and (hit[1] or self._clock() - hit[0] < _SHOTS_TTL_S):
+                return hit[2]
+            shots = _run_shots(run, start, rows, stream)
+            with self._shots_lock:
+                self._shots[uid] = (
+                    self._clock(),
+                    complete and shots is not None,
+                    shots,
+                )
+                self._shots.move_to_end(uid)
+                while len(self._shots) > _SHOTS_CACHE_RUNS:
+                    self._building.pop(self._shots.popitem(last=False)[0], None)
+            return shots
 
 
 def _run_shots(run: Any, start: dict, rows: Any, stream: str) -> Optional[RunShots]:
-    """A Tiled run's :class:`RunShots`, or ``None`` (logged) when it cannot be read.
+    """A Tiled run's :class:`RunShots` from its devices' stamps, or ``None`` (logged).
 
-    Its devices are every stream but the rows' (``tiled_export.read_frame_columns``),
-    with the run's drain offsets.
+    Its devices are every stream but the rows' (:func:`_stamp_records`), with
+    the run's drain offsets.
     """
+    from geecs_data_utils.shot_table import shot_table
+    from geecs_data_utils.tiled_export import read_drain_offsets
+
+    try:
+        devices = _stamp_records(run, start, stream)
+        offsets = read_drain_offsets(run)
+        table = shot_table(
+            start, rows, devices, row_stream=stream, drain_offsets=offsets
+        )
+    except Exception:  # a run that cannot be joined still loads; its images refuse
+        logger.exception("run %s: no shot table", start.get("uid"))
+        return None
+    return RunShots(
+        table=table,
+        records={tiled_schema.normalize_token(d.device): d for d in devices},
+        rows=rows,
+    )
+
+
+def _stamp_records(run: Any, start: dict, row_stream: str) -> list:
+    """One stamp-only ``DeviceRecords`` per device outside the rows, in its own stream.
+
+    ``tiled_export.read_frame_columns``'s sources, reading of a stack's
+    attributes only its frame stamps; an event stream (named by
+    ``non_essential`` or ``per_shot_streams``) is one table read.
+    """
+    from geecs_data_utils.io.scan_stack import (
+        LABVIEW_EPOCH_OFFSET,
+        parse_attribute_name,
+    )
+    from geecs_data_utils.shot_join import (
+        FRAME_STAMP_SUFFIX,
+        frame_columns_from_attributes,
+        non_essential_stream,
+    )
+    from geecs_data_utils.shot_table import DeviceRecords
+    from geecs_data_utils.tiled_export import _event_stream_columns, _referenced_frames
+
+    events = {
+        non_essential_stream(str(n)): str(n) for n in start.get("non_essential") or ()
+    }
+    for name in start.get("per_shot_streams") or ():
+        events[str(name)] = str(name).removesuffix("_stream")
+    out = []
+    for stream in sorted(run):
+        node = run[stream] if stream != row_stream else None
+        columns = (
+            None
+            if node is None or stream not in events
+            else (_event_stream_columns(events[stream], node))
+        )
+        if columns is not None:
+            out.append(DeviceRecords(stream=stream, records=columns))
+            continue
+        contents = {} if node is None else node.get_contents()
+        for part in contents:
+            parsed = parse_attribute_name(str(part))
+            if parsed is None or parsed[2] not in (FRAME_STAMP_SUFFIX, "acq_timestamp"):
+                continue
+            columns = frame_columns_from_attributes(
+                parsed[0],
+                {part: node.base[part].read()},
+                labview_epoch_offset=LABVIEW_EPOCH_OFFSET,
+            )
+            referenced = _referenced_frames(contents, parsed[0])
+            if columns is not None and 0 <= referenced < len(columns):
+                columns = columns.truncated(referenced)
+            if columns is not None:
+                out.append(DeviceRecords(stream=stream, records=columns))
+    return out
+
+
+def _joined_rows(run: Any, start: dict, shots: RunShots, stream: str) -> Any:
+    """*shots*' rows with every device's scalars joined (``read_frame_columns``), as its table assigned."""
     from geecs_data_utils.shot_table import DeviceRecords, shot_table
     from geecs_data_utils.tiled_export import read_drain_offsets, read_frame_columns
 
     try:
         devices = [
-            DeviceRecords(stream=_stream_of(run, columns.object_name), records=columns)
-            for columns in read_frame_columns(run, stream)
+            DeviceRecords(
+                stream=shots.records[
+                    tiled_schema.normalize_token(c.object_name)
+                ].stream,
+                records=c,
+            )
+            for c in read_frame_columns(run, stream)
+            if shots.covers(c.object_name)
         ]
+        offsets = read_drain_offsets(run)
         table = shot_table(
-            start,
-            rows,
-            devices,
-            row_stream=stream,
-            drain_offsets=read_drain_offsets(run),
+            start, shots.rows, devices, row_stream=stream, drain_offsets=offsets
         )
-    # A run whose streams cannot be joined still loads; a network error is the catalog's.
-    except (AttributeError, LookupError, OSError, RuntimeError, TypeError, ValueError):
-        logger.warning("run %s: no shot table", start.get("uid"), exc_info=True)
-        return None
-    return RunShots(
-        table=table,
-        records={tiled_schema.normalize_token(d.device): d for d in devices},
-    )
-
-
-def _stream_of(run: Any, name: str) -> str:
-    """The stream holding *name*'s records: its own ``<name>_stream``, else ``primary``."""
-    from geecs_data_utils.shot_join import non_essential_stream
-
-    own = non_essential_stream(name)
-    return own if own in run else "primary"
+    except Exception:  # the stamps-only rows still serve
+        logger.exception("run %s: device scalars not joined", start.get("uid"))
+        return shots.table.rows
+    return table.rows
 
 
 def read_primary_scalars(primary: Any) -> Optional[Any]:

@@ -67,8 +67,7 @@ def _line_trace(diag, detail, folder, device: str, shot: int):
     else:
         rows = pd.DataFrame(index=[0])
     rows["Shotnumber"] = shot
-    if acq is not None and device_acq_timestamp_column(list(rows), diag.device) is None:
-        rows[f"{diag.device} acq_timestamp"] = acq  # a shot-table record's stamp
+    _stamp_row(detail, rows, diag.device, acq)
     source = prepare_source(replace(scan_recipe(diag), folder=device), folder, rows)
     reference = source.references.get(shot)
     if reference is None:
@@ -84,6 +83,14 @@ def _line_trace(diag, detail, folder, device: str, shot: int):
         Data1DConfig.model_validate(diag.line_loading.model_dump(mode="json")),
     )
     return trace.data
+
+
+def _stamp_row(detail, rows, device: str, acq) -> None:
+    """Put the stamp Images serves by into *rows*: a shot-table record's wins over a sampled column."""
+    column = device_acq_timestamp_column([str(c) for c in rows.columns], device)
+    shots = detail.shots() if hasattr(detail, "shots") else None
+    if acq is not None and (column is None or (shots and shots.covers(device))):
+        rows[column or f"{device} acq_timestamp"] = acq
 
 
 def _camera_frame(

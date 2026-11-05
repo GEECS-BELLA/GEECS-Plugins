@@ -134,7 +134,10 @@ def scan_frame(  # noqa: C901, PLR0912
     """
     import pandas as pd
 
-    event = None if detail is None else detail.data
+    # Every device's scalars: a gated / shot-table run joins them on first use.
+    event = (
+        None if detail is None else getattr(detail, "scalars", lambda: detail.data)()
+    )
     sfile_frame = None
     resolved_sfile = sfile_path
     if resolved_sfile is None and scan_folder is not None:
