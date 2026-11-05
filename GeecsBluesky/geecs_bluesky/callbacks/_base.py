@@ -201,7 +201,7 @@ class _RunStreams:
         """The stacks whose stream carried no event rows — the ones to join."""
         return [s for s in self.stacks.values() if not self.rows.get(s.stream)]
 
-    def event_stream_records(self) -> list["DeviceRecords"]:
+    def event_stream_records(self, start: Mapping[str, Any]) -> list["DeviceRecords"]:
         """Every per-shot event stream as the shot table's records (in memory, no I/O).
 
         A stream that is a plugin camera's (it references a stack) is left
@@ -212,7 +212,7 @@ class _RunStreams:
             ACQ_TIMESTAMP_SUFFIX,
             frame_columns_from_events,
         )
-        from geecs_data_utils.shot_table import DeviceRecords
+        from geecs_data_utils.shot_table import device_records
 
         stacked = {s.stream for s in self.stacks.values()}
         out = []
@@ -224,7 +224,7 @@ class _RunStreams:
                 obj, self.stream_rows(stream), keys=keys
             )
             if columns is not None:
-                out.append(DeviceRecords(stream=stream, records=columns))
+                out.append(device_records(stream, columns, start))
         return out
 
 

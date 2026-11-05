@@ -20,8 +20,11 @@ LV = LABVIEW_EPOCH_OFFSET
 WITNESS = [100.0, 101.0, 102.0]  # Unix seconds, the witness IOC's record time
 
 
-def _feed(cb, folder, cam_stamps, *, slow=True) -> None:
-    """One shot-table run: three rows, ``u_slow`` misses shot 2, a camera stack."""
+def _feed(cb, folder, cam_stamps, *, slow=(0, 2), **start_keys) -> None:
+    """One shot-table run: three rows, ``u_slow`` at rows *slow*, a camera stack.
+
+    *start_keys* override the start document (``layout=None`` drops the key).
+    """
     path = folder / "UC_Cam" / "UC_Cam.h5"
     _write_plugin_stack(
         path,
@@ -43,7 +46,8 @@ def _feed(cb, folder, cam_stamps, *, slow=True) -> None:
                 "u_slow-current": "U_Slow Current",
                 "uc_cam-meancounts": "UC_Cam meancounts",
             },
-        },
+        }
+        | start_keys,
     )
     keys = {"u_slow-acq_timestamp": {"dtype": "number"}}
     keys["u_slow-current"] = {"dtype": "number"}
@@ -60,8 +64,8 @@ def _feed(cb, folder, cam_stamps, *, slow=True) -> None:
         row = {"shot_index": k + 1, "bin_number": 1, "witness_count": k + 7}
         row["witness_stamp"] = stamp
         cb("event", {"descriptor": "dp", "seq_num": k + 1, "data": row})
-    for seq, k in enumerate((0, 2) if slow else (), start=1):
-        reading = {"u_slow-acq_timestamp": WITNESS[k] + LV + 0.002}
+    for seq, k in enumerate(slow, start=1):
+        reading = {"u_slow-acq_timestamp": k + WITNESS[0] + LV + 0.002}
         reading["u_slow-current"] = float(k + 1)
         cb("event", {"descriptor": "ds", "seq_num": seq, "data": reading})
     cb(
@@ -142,11 +146,113 @@ def test_stack_check_joins_a_shot_table_stack_through_the_helper(
     )
 
 
-def test_a_gated_stack_check_times_a_unix_clock_in_the_labview_epoch() -> None:
-    """``_shot_stamps`` reads its clock through ``shot_join.clock_stamps``."""
+def test_shot_stamps_routes_its_clock_through_clock_stamps() -> None:
+    """Synthetic: no gated run writes a Unix clock; this pins the routing only."""
     from geecs_bluesky.callbacks._base import _RunStreams
     from geecs_bluesky.callbacks.stack_check import _shot_stamps
 
     run = _RunStreams(rows={"shots": [(1, {"witness_stamp": 100.0})]})
     shots = _shot_stamps({"shot_clock_column": "witness_stamp"}, run, "uc_cam")
     assert shots is not None and list(shots.stamps) == [100.0 + LV]
+
+
+def test_an_old_layout_run_naming_per_shot_streams_keeps_the_count_only_check(
+    tmp_path, caplog
+) -> None:
+    """Without ``layout`` a device stream's stack is checked by count, as before."""
+    from geecs_bluesky.callbacks import StackCheckCallback
+
+    caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
+    folder = tmp_path / "scans" / "Scan009"
+    folder.mkdir(parents=True)
+    _feed(StackCheckCallback(finalize_timeout=2.0), folder, WITNESS, layout=None)
+    assert [r.getMessage() for r in caplog.records if "uc_cam:" in r.getMessage()] == [
+        "scan 9: uc_cam: 3 frame(s) in UC_Cam.h5, 3 referenced by the stream's datums"
+    ]
+
+
+def test_an_asynchronous_stream_is_sampled_last_before(tmp_path, caplog) -> None:
+    """``stream_meta`` asynchronous: each row takes the last reading before it, no warning."""
+    from geecs_bluesky.callbacks import SFileCallback
+
+    folder = tmp_path / "scans" / "Scan009"
+    folder.mkdir(parents=True)
+    meta = {"u_slow_stream": {"sync_class": "asynchronous", "stale_after": 5.0}}
+    with caplog.at_level(logging.WARNING):
+        _feed(
+            SFileCallback(finalize_timeout=2.0),
+            folder,
+            WITNESS,
+            slow=(-0.5, 1.2),  # readings at 99.5 and 101.2 (row clocks 100, 101, 102)
+            stream_meta=meta,
+            required=[],
+        )
+    sfile = pd.read_csv(tmp_path / "analysis" / "s9.txt", sep="\t")
+    assert list(sfile["U_Slow Current"]) == [0.5, 0.5, 2.2]
+    assert "u_slow: " not in caplog.text.replace("u_slow: 1 per-frame", "")
+
+
+def _table_verdict(tmp_path, rows, frames, *, counter=None, width=0, **start_keys):
+    """``_TableStamps.verdict`` over a stack at *frames* (Unix) with an optional counter."""
+    import h5py
+
+    from geecs_bluesky.callbacks.stack_check import _TableStamps
+    from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP, TIMESTAMPS_DATASET
+
+    path = tmp_path / f"UC_Cam{len(list(tmp_path.iterdir()))}.h5"
+    with h5py.File(path, "w") as f:
+        f.create_dataset(FRAMES_DATASET, data=np.zeros((len(frames), 2, 2)))
+        f.create_dataset(TIMESTAMPS_DATASET, data=np.asarray(frames, dtype=float))
+        if counter is not None:
+            f.create_dataset(f"{ATTRIBUTES_GROUP}/NDArrayUniqueId", data=counter)
+    start = {"layout": "shot-table/1", "shot_clock_column": "witness_stamp"}
+    offsets = start_keys.pop("drain_offsets", {})
+    checker = _TableStamps(start | start_keys, rows, "uc_cam_stream", offsets, width)
+    return checker.verdict("uc_cam", path, np.asarray(frames, dtype=float) + LV)
+
+
+def test_table_stamps_orders_a_shared_witness_stamp_by_the_stack_counter(
+    tmp_path,
+) -> None:
+    """A +2 update (rows 2 and 3 share 102): the counter resolves it; without one, INFO."""
+    rows = [
+        {"witness_stamp": s, "witness_count": c}
+        for s, c in ((100.0, 1), (102.0, 2), (102.0, 3))
+    ]
+    frames = [100.0, 101.0, 102.0]
+    message, warning = _table_verdict(tmp_path, rows, frames, counter=[1, 2, 3])
+    assert message.startswith("uc_cam: 3 of 3 frame(s)") and not warning
+    message, warning = _table_verdict(tmp_path, rows, frames)
+    assert not warning
+    assert message.endswith(
+        "1 of 3 frame(s) in UC_Cam1.h5 assigned to a shot-table row — 0 extra(s), "
+        "0 row(s) flagged, 2 row(s) with no frame; 2 row(s) share a witness stamp "
+        "the counters cannot order (2 frame(s) held back, not guessed)"
+    )
+
+
+def test_table_stamps_on_a_fire_clock_with_a_drain_offset(tmp_path) -> None:
+    """Unwitnessed: fire intervals after the camera's offset; the datums' width is the end."""
+    rows = [{"fire_stamp": s} for s in WITNESS]
+    frames = [s + 0.5 + 0.6 for s in WITNESS] + [103.9]  # one past the datums
+    keys = {"shot_clock_column": "fire_stamp", "drain_offsets": {"uc_cam": 0.6}}
+    message, warning = _table_verdict(tmp_path, rows, frames, width=3, **keys)
+    assert (message, warning) == (
+        "uc_cam: 3 of 3 frame(s) in UC_Cam0.h5 assigned to a shot-table row — "
+        "0 extra(s), 0 row(s) flagged, 0 row(s) with no frame",
+        False,
+    )
+    _message, warning = _table_verdict(
+        tmp_path, rows, frames, width=3, shot_clock_column="fire_stamp"
+    )
+    assert warning  # without the offset each frame lands in the next interval
+
+
+def test_table_stamps_samples_an_asynchronous_stream_without_extras(tmp_path) -> None:
+    """A free-running camera: last-before per row, its spare frames no warning."""
+    rows = [{"witness_stamp": s} for s in WITNESS]
+    meta = {"uc_cam_stream": {"sync_class": "asynchronous", "stale_after": 2.0}}
+    message, warning = _table_verdict(
+        tmp_path, rows, [99.6, 99.9, 100.3, 101.8], stream_meta=meta
+    )
+    assert not warning and "3 of 4 frame(s)" in message and "0 extra(s)" in message

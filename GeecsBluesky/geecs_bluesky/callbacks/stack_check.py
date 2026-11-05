@@ -56,10 +56,11 @@ class StackCheckCallback(_StreamCallback):
       trimmed every stack to the quota, so *every* row must own exactly one
       frame within the join window and no frame may be orphaned;
     - a **shot-table** run's device stream (``layout: "shot-table/1"``):
-      the count, plus the stack's stamps joined to the ``primary`` rows by
-      the shot table — a record no row claims, or one the join flags (an
-      audit mismatch, an ambiguous interval), is a WARNING; a row without
-      a frame is reported, not warned (a refired row is one);
+      the count, plus the stack's stamps (and its counters) joined to the
+      ``primary`` rows by the shot table — a record no row claims, or one
+      the join flags (an audit mismatch, an ambiguous interval), is a
+      WARNING; a row without a frame, and rows sharing a witness stamp the
+      counters cannot order, are reported, not warned;
     - any other datum-only stream (a non-essential ``<name>_stream``): the
       count alone — a non-essential camera's frame for shot *k* may land
       during *k+1* and an orphan there is normal, not a defect.
@@ -145,7 +146,11 @@ class StackCheckCallback(_StreamCallback):
                 ]
             elif table_rows and stack.stream != "primary":
                 shots = _TableStamps(
-                    dict(start), table_rows, stack.stream, dict(run.drain_offsets)
+                    dict(start),
+                    table_rows,
+                    stack.stream,
+                    dict(run.drain_offsets),
+                    stack.width,
                 )
             elif gated and stack.stream == "primary":
                 # The gated batch's own stacks: the shots rows ARE the frames'
@@ -409,26 +414,46 @@ class _ShotStamps:
 
 @dataclass(frozen=True)
 class _TableStamps:
-    """A shot-table run's ``primary`` rows a device stream's stack is joined to."""
+    """A shot-table run's ``primary`` rows a device stream's stack is joined to.
+
+    *width* is the frames the stream's datums referenced (``0``: all), the
+    s-file's truncation.
+    """
 
     start: Mapping[str, Any]
     rows: Sequence[Mapping[str, Any]]
     stream: str
     drain_offsets: Mapping[str, float]
+    width: int = 0
 
     def verdict(
         self, data_key: str, path: Path, frames: "np.ndarray"
     ) -> tuple[str, bool]:
-        """``(message, warning)`` for the stack's frames through the shot table."""
-        import pandas as pd
-        from geecs_data_utils.shot_join import FrameColumns
-        from geecs_data_utils.shot_table import DeviceRecords, frame_for, shot_table
+        """``(message, warning)`` for the stack's frames through the shot table.
 
-        source = DeviceRecords(self.stream, FrameColumns(data_key, frames))
+        Rows sharing a witness stamp that the stack's counters cannot order
+        (``witness-stamp-shared-unresolved``) are never guessed and never a
+        warning: they and the frames they hold back (at most one per row)
+        are reported apart from the extras.
+        """
+        import pandas as pd
+        from geecs_data_utils.io.scan_stack import read_stack_attributes
+        from geecs_data_utils.shot_join import FrameColumns
+        from geecs_data_utils.shot_table import device_records, frame_for, shot_table
+
+        frames = frames[: self.width] if self.width else frames
+        try:
+            attributes = read_stack_attributes(path)
+        except OSError:
+            attributes = {}
         # One device at a time: the run's ``required`` (completeness) is the
         # s-file's question, and the others would read as unresolved here.
+        start = {key: v for key, v in self.start.items() if key != "required"}
+        source = device_records(
+            self.stream, FrameColumns(data_key, frames), start, attributes
+        )
         table = shot_table(
-            {key: v for key, v in self.start.items() if key != "required"},
+            start,
             pd.DataFrame(list(self.rows)),
             [source],
             drain_offsets=self.drain_offsets,
@@ -437,19 +462,31 @@ class _TableStamps:
         matched = sum(
             frame_for(table, data_key, shot) is not None for shot in range(1, rows + 1)
         )
-        extras = len(table.extras.get(data_key, ()))
+        own = [[f for f in row if f.endswith(f":{data_key}")] for row in table.flags]
+        unresolved = sum(
+            any(f.startswith("witness-stamp-shared-unresolved:") for f in row)
+            for row in own
+        )
         flagged = sum(
             any(
-                flag.endswith(f":{data_key}") and not flag.startswith("missing:")
-                for flag in row
+                not f.startswith(("missing:", "witness-stamp-shared-unresolved:"))
+                for f in row
             )
-            for row in table.flags
+            for row in own
         )
+        extras = len(table.extras.get(data_key, ()))
+        held = min(extras, unresolved)
+        extras -= held
         message = (
             f"{data_key}: {matched} of {len(frames)} frame(s) in {path.name} "
             f"assigned to a shot-table row — {extras} extra(s), {flagged} row(s) "
             f"flagged, {rows - matched} row(s) with no frame"
         )
+        if unresolved:
+            message += (
+                f"; {unresolved} row(s) share a witness stamp the counters cannot "
+                f"order ({held} frame(s) held back, not guessed)"
+            )
         return message, bool(extras or flagged)
 
 

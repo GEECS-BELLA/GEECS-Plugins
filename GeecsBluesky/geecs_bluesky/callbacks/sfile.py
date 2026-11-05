@@ -70,7 +70,7 @@ class SFileCallback(_StreamCallback):
                 stop.get("exit_status"),
             )
             return
-        events = run.event_stream_records()
+        events = run.event_stream_records(start)
         stacks = run.datum_only_stacks()
         if not stacks:
             self._write(start, rows, events, run.drain_offsets)
@@ -108,7 +108,7 @@ class SFileCallback(_StreamCallback):
             stack_scalar_variables,
         )
         from geecs_data_utils.shot_join import frame_columns_from_attributes
-        from geecs_data_utils.shot_table import DeviceRecords
+        from geecs_data_utils.shot_table import device_records
 
         # One window for every stack, not one each: a gated run with three
         # cameras whose plugin never finalizes must not hold its s-file for
@@ -156,7 +156,7 @@ class SFileCallback(_StreamCallback):
                     stack.width,
                 )
                 columns = columns.truncated(stack.width)
-            frames.append(DeviceRecords(stream=stack.stream, records=columns))
+            frames.append(device_records(stack.stream, columns, start))
         self._write(start, rows, [*frames, *events], drain_offsets)
 
     @staticmethod

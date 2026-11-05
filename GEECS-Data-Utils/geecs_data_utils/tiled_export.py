@@ -50,7 +50,11 @@ from geecs_data_utils.shot_join import (
     non_essential_stream,
 )
 from geecs_data_utils.shot_table import (
+    COUNTER_KEYS,
+    LAYOUT_KEY,
+    WITNESS_ATTRIBUTE_KEY,
     DeviceRecords,
+    device_records,
     per_shot_event_streams,
     shot_table,
 )
@@ -235,6 +239,16 @@ def join_frame_columns(
     """
     if not len(rows) or not len(frames):
         return rows
+    if (
+        start_doc.get(LAYOUT_KEY)
+        and not start_doc.get("shot_clock_column")
+        and "fire_stamp" in rows.columns
+    ):
+        logger.warning(
+            "run %s: a shot-table run naming no shot_clock_column; timed on fire_stamp",
+            start_doc.get("uid"),
+        )
+        start_doc = {**start_doc, "shot_clock_column": "fire_stamp"}
     devices = [_records(source) for source in frames]
     table = shot_table(
         start_doc, rows, devices, row_stream="", drain_offsets=drain_offsets
@@ -345,10 +359,17 @@ def read_frame_columns(run: Any, row_stream: str) -> list[FrameColumns]:
     return [source.records for source in read_device_records(run, row_stream)]
 
 
-def read_device_records(run: Any, row_stream: str) -> list[DeviceRecords]:
+def read_device_records(
+    run: Any, row_stream: str, *, stamps_only: bool = False
+) -> list[DeviceRecords]:
     """Every per-shot source of a recorded run except the rows' own, with its stream.
 
-    The Tiled adapter of :func:`geecs_data_utils.shot_table.shot_table`.
+    The Tiled adapter of :func:`geecs_data_utils.shot_table.shot_table`:
+    each source's class and staleness from the start document's
+    ``stream_meta``, its counter and W5 attribute when the stream carries
+    them (a bare ``NDArrayUniqueId`` / ``witness_count`` part belongs to
+    the stream's one device).  *stamps_only* reads each device's stamps
+    and counters and no scalar column (what a frame lookup needs).
 
     A stream other than the one the rows came from carries no per-shot row
     of its own: a gated run's ``primary`` and every non-essential device's
@@ -391,13 +412,11 @@ def read_device_records(run: Any, row_stream: str) -> list[DeviceRecords]:
     list of DeviceRecords
         One entry per device, in stream then device order.
     """
-    from geecs_data_utils.io.scan_stack import (
-        LABVIEW_EPOCH_OFFSET,
-        parse_attribute_name,
-    )
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
     from geecs_data_utils.shot_join import frame_columns_from_attributes
 
     start = dict((getattr(run, "metadata", None) or {}).get("start") or {})
+    audit_keys = (*COUNTER_KEYS, WITNESS_ATTRIBUTE_KEY)
     event_streams = per_shot_event_streams(start)
     out: list[DeviceRecords] = []
     for stream in sorted(run):
@@ -407,15 +426,12 @@ def read_device_records(run: Any, row_stream: str) -> list[DeviceRecords]:
         if stream in event_streams:
             columns = _event_stream_columns(event_streams[stream], node)
             if columns is not None:
-                out.append(DeviceRecords(stream=stream, records=columns))
+                if stamps_only:
+                    columns = _stamps_and_counters(columns, audit_keys)
+                out.append(device_records(stream, columns, start))
                 continue
         contents = node.get_contents()
-        per_device: dict[str, dict[str, Any]] = {}
-        for part in contents:
-            parsed = parse_attribute_name(str(part))
-            if parsed is None:
-                continue  # the frame stack (or a part of another shape)
-            per_device.setdefault(parsed[0], {})[str(part)] = node.base[part].read()
+        per_device, bare = _attribute_parts(node, contents, audit_keys, stamps_only)
         for device, attributes in sorted(per_device.items()):
             columns = frame_columns_from_attributes(
                 device,
@@ -435,8 +451,46 @@ def read_device_records(run: Any, row_stream: str) -> list[DeviceRecords]:
                     referenced,
                 )
                 columns = columns.truncated(referenced)
-            out.append(DeviceRecords(stream=stream, records=columns))
+            out.append(device_records(stream, columns, start, bare))
     return out
+
+
+def _attribute_parts(
+    node: Any, contents: Mapping[str, Any], audit_keys: Sequence[str], stamps_only: bool
+) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
+    """``(device → its attribute parts, the bare audit parts)`` of one stream node.
+
+    Only 1-D parts named ``<device>-hdf-<variable>-<suffix>`` are read (never
+    the frame stack); *stamps_only* keeps the stamps and audit columns.  A
+    bare counter part is kept only when the stream has one device: whose
+    counter it is would otherwise be a guess.
+    """
+    from geecs_data_utils.io.scan_stack import parse_attribute_name
+    from geecs_data_utils.shot_join import FRAME_STAMP_SUFFIX
+
+    per_device: dict[str, dict[str, Any]] = {}
+    bare: dict[str, Any] = {}
+    for part in map(str, contents):
+        parsed = parse_attribute_name(part)
+        if parsed is None:
+            if part in audit_keys:
+                bare[part] = node.base[part].read()
+            continue  # the frame stack (or a part of another shape)
+        if stamps_only and parsed[2] not in (FRAME_STAMP_SUFFIX, *audit_keys):
+            continue
+        per_device.setdefault(parsed[0], {})[part] = node.base[part].read()
+    return per_device, bare if len(per_device) == 1 else {}
+
+
+def _stamps_and_counters(columns: FrameColumns, keys: Sequence[str]) -> FrameColumns:
+    """*columns* with only its stamp and its audit columns (``<device>-<key>``)."""
+    name = columns.object_name
+    kept = {f"{name}-acq_timestamp", *(f"{name}-{key}" for key in keys)}
+    return FrameColumns(
+        object_name=name,
+        stamps=columns.stamps,
+        columns={k: v for k, v in columns.columns.items() if k in kept},
+    )
 
 
 def _event_stream_columns(object_name: str, node: Any) -> FrameColumns | None:

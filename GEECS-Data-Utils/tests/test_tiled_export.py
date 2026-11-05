@@ -787,6 +787,13 @@ def test_per_shot_event_streams_reads_both_layouts() -> None:
         {"non_essential": ["u_a"], "per_shot_streams": ["u_b_stream", "u_a_stream"]}
     ) == {"u_a_stream": "u_a", "u_b_stream": "u_b"}
     assert per_shot_event_streams({}) == {}
+    # a device whose own name ends in the suffix: only one suffix is the stream's
+    assert per_shot_event_streams({"per_shot_streams": ["x_stream_stream"]}) == {
+        "x_stream_stream": "x_stream"
+    }
+    assert per_shot_event_streams({"non_essential": ["x_stream"]}) == {
+        "x_stream_stream": "x_stream"
+    }
 
 
 def test_the_offline_re_export_reads_a_shot_table_run() -> None:
@@ -840,3 +847,101 @@ def test_the_offline_re_export_reads_a_shot_table_run() -> None:
     df = build_legacy_scalar_dataframe(start, table, [source])
     current = df["U_Slow Current"].to_numpy()
     assert current[0] == 1.0 and np.isnan(current[1]) and current[2] == 3.0
+
+
+def test_a_clock_drain_offset_moves_the_rows_before_the_join() -> None:
+    """Old layout: the clock device's own drain offset shifts the rows' stamps.
+
+    Rows at 1001, 1002, … with a 0.3 s clock offset sit at 1000.7, 1001.7;
+    the frame at 1001.45 is row 2's (0.25 s), not row 1's (0.45 s raw).
+    """
+    import numpy as np
+
+    from geecs_data_utils.shot_join import FrameColumns
+
+    frames = [
+        FrameColumns(
+            "u_slow",
+            np.array([1001.45]),
+            {
+                "u_slow-acq_timestamp": np.array([1001.45]),
+                "u_slow-current": np.array([5.0]),
+            },
+        )
+    ]
+    df = build_legacy_scalar_dataframe(
+        _slow_start(), _strict_rows(), frames, drain_offsets={"uc_a": 0.3}
+    )
+    current = df["U_Slow Current"].to_numpy()
+    assert current[1] == 5.0 and np.isnan(np.delete(current, 1)).all()
+
+
+def _shot_table_run(start: dict, events: pd.DataFrame, rows: pd.DataFrame):
+    class _Run:
+        metadata = {"start": start}
+        _streams = {
+            "primary": _FakeStream({"internal": _FakePart(rows, "table")}),
+            "u_slow_stream": _FakeStream({"internal": _FakePart(events, "table")}),
+        }
+
+        def __iter__(self):
+            return iter(self._streams)
+
+        def __getitem__(self, key):
+            return self._streams[key]
+
+    return _Run()
+
+
+def test_a_shot_table_run_without_a_clock_column_falls_back_to_fire_stamp(
+    caplog,
+) -> None:
+    """No ``shot_clock_column``: timed on ``fire_stamp`` with a warning, not dropped."""
+    import logging
+
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET as LV
+    from geecs_data_utils.tiled_export import read_device_records
+
+    rows = pd.DataFrame({"bin_number": [1, 1], "fire_stamp": [100.0, 101.0]})
+    events = pd.DataFrame(
+        {"u_slow-acq_timestamp": [100.4 + LV, 101.4 + LV], "u_slow-current": [1.0, 2.0]}
+    )
+    start = {
+        **_slow_start(),
+        "layout": "shot-table/1",
+        "per_shot_streams": ["u_slow_stream"],
+    }
+    (source,) = read_device_records(_shot_table_run(start, events, rows), "primary")
+    with caplog.at_level(logging.WARNING):
+        df = build_legacy_scalar_dataframe(start, rows, [source])
+    assert list(df["U_Slow Current"]) == [1.0, 2.0]
+    assert "timed on fire_stamp" in caplog.text
+
+
+def test_read_device_records_reads_stream_meta_and_stamps_only() -> None:
+    """``stream_meta`` sets the class; *stamps_only* keeps the stamp and the counter."""
+    from geecs_data_utils.tiled_export import read_device_records
+
+    rows = pd.DataFrame({"bin_number": [1], "witness_stamp": [100.0]})
+    events = pd.DataFrame(
+        {
+            "u_slow-acq_timestamp": [1.0],
+            "u_slow-current": [3.0],
+            "u_slow-UniqueId": [41.0],
+        }
+    )
+    start = {
+        **_slow_start(),
+        "layout": "shot-table/1",
+        "per_shot_streams": ["u_slow_stream"],
+        "stream_meta": {
+            "u_slow_stream": {"sync_class": "asynchronous", "stale_after": 4}
+        },
+    }
+    run = _shot_table_run(start, events, rows)
+    (full,) = read_device_records(run, "primary")
+    assert (full.sync_class, full.stale_after) == ("asynchronous", 4.0)
+    assert list(full.counter) == [41.0] and "u_slow-current" in full.records.columns
+    (lean,) = read_device_records(run, "primary", stamps_only=True)
+    assert set(lean.records.columns) == {"u_slow-acq_timestamp", "u_slow-UniqueId"}
+    assert list(lean.counter) == [41.0]

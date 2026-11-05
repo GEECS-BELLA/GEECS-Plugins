@@ -73,6 +73,16 @@ LAYOUT_KEY, SHOT_TABLE_LAYOUT = "layout", "shot-table/1"
 SOFT_TICK = "soft-tick"
 SYNCHRONOUS, ASYNCHRONOUS = "synchronous", "asynchronous"
 
+#: The start-document key W3c writes per device stream:
+#: ``{<stream>: {"sync_class": ..., "stale_after": <seconds or null>}}``;
+#: absent means synchronous, default staleness.
+STREAM_META_KEY = "stream_meta"
+#: A device's own per-frame counter, by its dataset name, first found wins:
+#: areaDetector's ``NDArrayUniqueId`` in a stock stack.
+COUNTER_KEYS = ("NDArrayUniqueId", "UniqueId", "ArrayCounter")
+#: The W5 attribute: the witness count recorded on each frame.
+WITNESS_ATTRIBUTE_KEY = "witness_count"
+
 #: How far before its fire an unwitnessed record may be stamped, seconds:
 #: a LabVIEW host's clock runs up to 16 ms off the box (§4.5) and a stored
 #: drain offset dithers by up to ~10 ms across hosts (§4.4), so 30 ms.
@@ -160,6 +170,40 @@ class ShotTable:
     extras: Mapping[str, tuple[int, ...]]
     ages: Mapping[str, np.ndarray]
     device_flags: Mapping[str, tuple[str, ...]]
+
+
+def device_records(
+    stream: str,
+    records: FrameColumns,
+    start: Mapping[str, Any],
+    attributes: Mapping[str, Any] | None = None,
+) -> DeviceRecords:
+    """The one adapter core: *records* of *stream* as :class:`DeviceRecords`.
+
+    The class and staleness come from the start document's
+    :data:`STREAM_META_KEY`; the counter (:data:`COUNTER_KEYS`) and the W5
+    attribute (:data:`WITNESS_ATTRIBUTE_KEY`) from *attributes* (a stack's
+    datasets, bare names) or from the columns (``<device>-<name>``).
+    """
+    meta = dict((start.get(STREAM_META_KEY) or {}).get(stream) or {})
+    found = dict(attributes or {})
+
+    def per_frame(key: str) -> np.ndarray | None:
+        values = found.get(key, records.columns.get(f"{records.object_name}-{key}"))
+        if values is None or np.size(values) < len(records):
+            return None
+        return np.asarray(values, dtype=float)[: len(records)]
+
+    counter = next((c for c in map(per_frame, COUNTER_KEYS) if c is not None), None)
+    stale = meta.get("stale_after")
+    return DeviceRecords(
+        stream=stream,
+        records=records,
+        counter=counter,
+        witness_count=per_frame(WITNESS_ATTRIBUTE_KEY),
+        sync_class=str(meta.get("sync_class") or SYNCHRONOUS),
+        stale_after=None if stale is None else float(stale),
+    )
 
 
 def per_shot_event_streams(start: Mapping[str, Any]) -> dict[str, str]:
@@ -645,6 +689,9 @@ def _attribute_audit(
 
 __all__ = [
     "ASYNCHRONOUS",
+    "COUNTER_KEYS",
+    "STREAM_META_KEY",
+    "WITNESS_ATTRIBUTE_KEY",
     "LAYOUT_KEY",
     "SHOT_TABLE_LAYOUT",
     "SOFT_TICK",
@@ -655,6 +702,7 @@ __all__ = [
     "DeviceRecords",
     "ShotTable",
     "frame_for",
+    "device_records",
     "per_shot_event_streams",
     "shot_table",
 ]
