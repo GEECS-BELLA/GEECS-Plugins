@@ -522,6 +522,19 @@ def test_a_tweak_names_a_step_setpoint_and_two_commands_of_its_group(
     _refused(_tweak(tweak={"level_sp": hint}), match)
 
 
+def test_a_tweak_is_one_group_not_one_heading() -> None:
+    """Two groups may share a heading: the tweak's group is the group itself, never its title."""
+    doc = _tweak()
+    doc["panel"]["rail"][0]["roles"].remove("up")
+    doc["panel"]["rail"].append(
+        {"title": "Run", "roles": ["up"]}
+    )  # the setpoint's heading, another group
+    _refused(
+        doc,
+        r"'up' sits in the setpoint's rail group \('Run', group 1\), not 'Run' \(group 3\)",
+    )
+
+
 def test_a_tweaked_setpoint_and_its_roles_are_on_the_rail() -> None:
     doc = _tweak()
     doc["panel"]["rail"][0]["roles"].remove("down")

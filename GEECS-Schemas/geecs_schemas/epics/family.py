@@ -680,8 +680,17 @@ def _short(role: Role) -> bool:
 def _check_tweaks(
     panel: Panel, by_name: Mapping[str, Role], tweaked: list[str]
 ) -> None:
-    """Refuse a tweak whose roles are not a writable setpoint, its step setpoint and two commands, all in the key's rail group and drawn by no other hint."""
-    group_of = {name: group.title for group in panel.rail for name in group.roles}
+    """Refuse a tweak whose roles are not a writable setpoint, its step setpoint and two commands, all in the key's rail group and drawn by no other hint.
+
+    A group is the group itself (its place in the rail), never its title:
+    two groups may share a heading.
+    """
+    group_of = {name: i for i, group in enumerate(panel.rail) for name in group.roles}
+
+    def where(name: str) -> str:
+        i = group_of[name]
+        return f"{panel.rail[i].title!r}, group {i + 1}"
+
     for key, hint in panel.tweak.items():
         wanted = ((key, "setpoint"), (hint.step, "setpoint"),
                   (hint.forward, "command"), (hint.reverse, "command"))  # fmt: skip
@@ -696,7 +705,8 @@ def _check_tweaks(
             if group_of[name] != group_of[key]:
                 raise ValueError(
                     f"panel tweak {key!r}: {name!r} sits in the setpoint's rail "
-                    f"group ({group_of[key]!r}), not {group_of[name]!r}"
+                    f"group ({where(key)}), not {panel.rail[group_of[name]].title!r} "
+                    f"(group {group_of[name] + 1})"
                 )
     _refuse_duplicates("panel tweak roles", tweaked)
     both = sorted(set(tweaked) & set(panel.buttons))
