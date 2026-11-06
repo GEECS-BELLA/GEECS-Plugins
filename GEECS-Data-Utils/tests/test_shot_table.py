@@ -250,6 +250,36 @@ def test_a_fire_nobody_saw_keeps_the_previous_row_its_edge_and_frame() -> None:
     assert not any("unwitnessed" in row for row in shot_table(old, rows, [cam]).flags)
 
 
+def test_a_failed_witness_read_does_not_hide_a_repeated_count() -> None:
+    """Row 4 counted, row 5's witness read failed (NaN, ""), row 6 repeats row 4."""
+    clean = _rows()
+    rows = clean.copy()
+    rows.loc[4, ["witness_count", "witness_stamp"]] = np.nan
+    rows.loc[4, "witness_epoch"] = ""
+    rows.loc[5, ["witness_count", "witness_stamp"]] = rows.loc[
+        3, ["witness_count", "witness_stamp"]
+    ].to_numpy()
+    rows.loc[6:, "witness_count"] -= 1
+    rows.loc[5, "fire_stamp"] = rows["witness_stamp"][3] + 1.7
+    rows.loc[5, "complete"] = False
+    cam = _cam(clean, drop=(5,), attribute=False)
+    table = shot_table(START, rows, [cam])
+    assert table.record_for_shot["cam"][3] == 3  # row 4 keeps its frame
+    assert _flagged(table, "unwitnessed") == [5, 6]
+    assert not any("witness-stamp-shared" in f for row in table.flags for f in row)
+    assert table.held.get("cam", ()) == ()
+
+
+def test_an_equal_count_across_an_epoch_change_is_a_restart_not_a_repeat() -> None:
+    """The witness restarted: row 5's count equals row 4's in a new epoch."""
+    rows = _rows()
+    rows.loc[4:, "witness_epoch"] = "e2"
+    rows.loc[4:, "witness_count"] = rows["witness_count"][3] + np.arange(4.0)
+    table = shot_table(START, rows, [_cam(_rows(), attribute=False)])
+    assert table.record_for_shot["cam"] == tuple(range(8))
+    assert _flagged(table, "unwitnessed") == []
+
+
 @pytest.mark.parametrize("late", [True, False])
 def test_a_dropped_witness_count_times_its_row_by_the_fire(late: bool) -> None:
     """Sim-bench scan 3: the witness missed row 5's edge; the camera took it.

@@ -495,22 +495,31 @@ def _flag_complete_mismatch(
 
 
 def _count_held(rows: pd.DataFrame) -> np.ndarray:
-    """Rows whose ``witness_count`` did not advance over the previous row's.
+    """Rows whose ``witness_count`` did not advance over the last counted row's.
 
     Such a row has no witness edge of its own (a fire nobody saw, a
-    witness that dropped the count): its ``witness_stamp`` is the previous
-    row's edge repeated, so it is timed by its fire, like an unwitnessed
-    row, and the previous row keeps its edge and its record.  A count
+    witness that dropped the count): its ``witness_stamp`` is that row's
+    edge repeated, so it is timed by its fire, like an unwitnessed row,
+    and the counted row keeps its edge and its record.  The comparison is
+    with the last row whose count is finite: a failed witness read in
+    between (``NaN``, epoch ``""``) does not hide the repeat.  A count
     across a ``witness_epoch`` change is a restart, not a repeat.
     """
     counts = _column(rows, "witness_count")
     held = np.zeros(len(rows), dtype=bool)
-    if counts is None or len(rows) < 2:
+    if counts is None:
         return held
-    held[1:] = np.isfinite(counts[1:]) & (counts[1:] == counts[:-1])
-    if "witness_epoch" in rows:
-        epochs = rows["witness_epoch"].to_numpy()
-        held[1:] &= epochs[1:] == epochs[:-1]
+    epochs = (
+        rows["witness_epoch"].to_numpy()
+        if "witness_epoch" in rows
+        else np.full(len(rows), None)
+    )
+    last: tuple[float, Any] | None = None
+    for k, count in enumerate(counts):
+        if not np.isfinite(count):
+            continue  # a failed read: no count to compare, none to carry
+        held[k] = last is not None and last == (count, epochs[k])
+        last = (count, epochs[k])
     return held
 
 
@@ -618,8 +627,12 @@ def _assign_shared(
 ) -> tuple[set[int], set[int]]:
     """File each group of rows sharing one witness stamp, or leave it unresolved.
 
-    A +k update stamps k edges at the poll after the last one, so the
-    group's records lie up to k − 1 periods before the stamp.  Time cannot
+    A strict row reads count and stamp from one CA reading, so it rarely
+    lands here; this is the reader half of per-integer-count rows, the
+    set-aside gated rework (§6.6 "The batch policy (gated): set aside"),
+    where one +k update stamps k rows.  A +k update stamps k edges at the
+    poll after the last one, so the group's records lie up to k − 1
+    periods before the stamp.  Time cannot
     order them, and nothing is guessed (§4.3): the group is filled in
     counter order only when it found exactly one record per row and their
     counters are consecutive.  Otherwise its rows stay empty for this
