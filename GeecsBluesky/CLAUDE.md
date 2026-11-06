@@ -47,7 +47,7 @@ list or no positions.  `run_action` is compiled from
 `geecs_bluesky.actions.steps` (the same walk the scanner previews with).
 
 Every bound scan verb takes, keyword-only, `trigger_profile`,
-`shots_per_step`, `acquisition` (`strict` default, or `gated`),
+`shots_per_step`, `acquisition` (`strict` default, `gated`, or `fly`),
 `required` (`count`, `sweep`, `optimize`; a preset's `required` field
 passed through),
 `shot_period` (the strict rep-rate throttle),
@@ -387,7 +387,7 @@ qserver/                    # the worker: launcher, startup profile, permissions
 
 ## The scan path
 
-### Acquisition: two modes, one keyword
+### Acquisition: three modes, one keyword
 
 `acquisition` (default `strict`) selects the GEECS `per_step` /
 `per_shot` hook that `plans/registry.py::strict_plan` binds into the
@@ -437,6 +437,18 @@ its directory rides in the stream descriptor's configuration
 (`<det>-nonscalar_save_path`), the stream being datum-only.
 Gated keeps its own shape (`required` → its detectors, the others to the
 non-essential stream).  `optimize` runs the same slot and layout (below).
+
+**Fly** (`plans/fly.py`): the same slot and layout clocked by a
+**soft-tick witness** (`SoftTickClock`: count, stamp, epoch = the run
+uid, every `shot_period`, default 1 s; start `clock: "soft-tick"`).  The
+box is **never driven** — no state, no fire, no liveness read — and a
+scan-mode profile is refused.  A Software-source native is pressed at each
+tick (`synchronous`); every other per-shot device free-runs
+(`asynchronous`, sampled last-before by the join).  Complete: a pressed
+device's frame before the next tick; a free-runner's record in
+(t<sub>k−1</sub>, t<sub>k</sub>] (a required free-runner slower than the
+tick holds ticks).  Held ticks, flags and the two-in-a-row pause are the
+strict budget's; the pause reason says the box is not driven in fly mode.
 
 **The witness** (`registry.run_witness`): when the namespace has a
 `main`-domain one, every strict run (`count`, `sweep`, `optimize`) appends

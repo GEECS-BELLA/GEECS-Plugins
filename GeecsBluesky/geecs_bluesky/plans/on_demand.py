@@ -146,22 +146,31 @@ class SlotColumns:
     name = "shot"
     parent = None
 
-    def __init__(self, required: Sequence[str], *, scan_mode: bool) -> None:
+    def __init__(
+        self, required: Sequence[str], *, scan_mode: bool, fly: bool = False
+    ) -> None:
         self._required = list(required)
         self._scan_mode = scan_mode
+        self._fly = fly
         self.shot_index = 0
         self.values: dict[str, Any] = {}
         self.reset(1, {})
 
     def reset(self, attempt: int, baselines: dict[str, float]) -> None:
-        """A new row: its attempt, its baselines, every flag cleared."""
+        """A new row: its attempt, its baselines, every flag cleared.
+
+        A fly row has no fire and no hardware witness: no ``fire_stamp``,
+        ``unwitnessed`` or ``witness_late`` (an ``unwitnessed`` column would
+        make the reader time the row by a fire it does not have).
+        """
+        fired = {} if self._fly else {"fire_stamp": math.nan}
+        witness = {} if self._fly else {"unwitnessed": False, "witness_late": False}
         self.values = {
             "attempt": attempt,
-            "fire_stamp": math.nan,
+            **fired,
             "complete": False,
             "missing": "",
-            "unwitnessed": False,
-            "witness_late": False,
+            **witness,
             "interrupted": False,
             **{f"{n}-baseline": baselines.get(n, math.nan) for n in self._required},
         }
@@ -245,6 +254,11 @@ class OnDemand:
         Extra shots after an incomplete one; the rep-rate throttle,
         seconds; the run's ``ScanModeControl`` under a scan-mode profile.
     """
+
+    #: How an incomplete row's log line ends, and what a pause for exhausted
+    #: rows adds to its reason (:meth:`_missed`).
+    AGAIN = "taking another shot"
+    EXHAUSTED_HINT = ""
 
     def __init__(
         self,
@@ -384,6 +398,13 @@ class OnDemand:
                 down.append(geecs_name(p.owner))
         return down
 
+    def _moved(self, p: _Progress, base: dict[str, Any], now: dict[str, Any]) -> bool:
+        """Whether *p* recorded in this slot: its counter moved from *base* to *now*."""
+        return p.moved(base[p.name], now[p.name])
+
+    def _settled(self, base: dict[str, Any]) -> None:
+        """The slot's counters are judged (a hook: the strict slot keeps nothing)."""
+
     def _pause(self, reason: str):
         logger.error("pausing the run: %s", reason)
         yield from bps.pause()
@@ -393,9 +414,7 @@ class OnDemand:
     ) -> tuple[list[_Progress], bool]:
         """Set the row's flags from the counters: the required devices that missed, and fired."""
         values = self.columns.values
-        moved = {
-            p.name for p in self.progress.values() if p.moved(base[p.name], now[p.name])
-        }
+        moved = {p.name for p in self.progress.values() if self._moved(p, base, now)}
         missing = [p for p in self.required if p.name not in moved]
         values["missing"] = ",".join(p.name for p in missing)
         values["complete"] = not missing
@@ -433,6 +452,7 @@ class OnDemand:
             yield from self._write_row(readers, name)
             yield from self.streams.collect()
             yield from self._report_quiet_optional(base, now)
+            self._settled(base)
             if not fired:
                 yield from self._pause(
                     "the fire was not seen: neither the witness nor any per-shot "
@@ -468,11 +488,11 @@ class OnDemand:
             return _PAUSED
         if n < self.attempts:
             logger.warning(
-                "shot %d of %d incomplete: no record from %s — row kept, taking "
-                "another shot",
+                "shot %d of %d incomplete: no record from %s — row kept, %s",
                 n,
                 self.attempts,
                 described,
+                self.AGAIN,
             )
             return _REFIRE
         self._exhausted += 1
@@ -493,7 +513,7 @@ class OnDemand:
             self._exhausted = 0
             yield from self._pause(
                 f"{EXHAUSTED_PAUSE} shots in a row exhausted their refires (no "
-                f"record from {', '.join(labels)})"
+                f"record from {', '.join(labels)}){self.EXHAUSTED_HINT}"
             )
         return _EXHAUSTED
 
@@ -505,7 +525,7 @@ class OnDemand:
             for p in self.progress.values()
             if id(p) not in required
             and p.name not in self._reported_down
-            and not p.moved(base[p.name], now[p.name])
+            and not self._moved(p, base, now)
         ]
         if not quiet:
             return

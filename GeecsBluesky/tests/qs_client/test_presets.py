@@ -289,6 +289,18 @@ def test_non_essential_scalars_only_streams_its_view() -> None:
     assert item.references[:2] == ["UC_A", "UC_Cam.scalars"]
 
 
+def test_a_fly_preset_keeps_its_mode_and_tick_period() -> None:
+    preset = _preset(
+        plan={
+            "name": "count",
+            "kwargs": {"num": 5, "acquisition": "fly", "shot_period": 0.5},
+        }
+    )
+    item = expand_preset(preset)
+    assert item.kwargs["acquisition"] == "fly"
+    assert item.kwargs["shot_period"] == 0.5
+
+
 def test_bad_acquisition_is_refused() -> None:
     with pytest.raises(GeecsConfigurationError, match="acquisition='sloppy'"):
         expand_preset(

@@ -64,6 +64,7 @@ from geecs_bluesky.plans.scan_mode import (
     scan_mode_preflight,
     scan_parameter_for,
 )
+from geecs_bluesky.plans.fly import BOX_NOT_DRIVEN, DEFAULT_TICK_PERIOD_S, bind_fly
 from geecs_bluesky.plans.on_demand import (
     OnDemand,
     on_demand_per_shot,
@@ -260,6 +261,8 @@ def run_witness(
     reason = None
     if acquisition == "gated":
         reason = "a gated run does not read the witness yet"
+    elif acquisition == "fly":
+        reason = "a fly run is clocked by the soft tick"
     elif getattr(shot_control, "boxless", False):
         reason = "a box-less profile fires nothing for the witness to count"
     elif (yield from witness_is_down(witness)):
@@ -679,6 +682,15 @@ def strict_plan(  # noqa: C901, PLR0915
         profile_key = (
             trigger_profile if trigger_profile is not None else profiles.default
         )
+        fly = acquisition == "fly"
+        if fly and shot_control.use_scan_mode:
+            raise GeecsConfigurationError(
+                f"trigger profile {profile_key!r} runs in GEECS scan mode, which "
+                "needs a box and a per-shot announce: a fly run drives neither "
+                "(use a profile without use_scan_mode, or acquisition='strict')"
+            )
+        if fly and shot_period is None:
+            shot_period = DEFAULT_TICK_PERIOD_S
         bound_args = signature.bind_partial(*args, **kwargs).arguments
         detectors = list(bound_args.get("detectors") or ())
         refuse_native_run(detectors, acquisition=acquisition, shot_control=shot_control)
@@ -708,7 +720,8 @@ def strict_plan(  # noqa: C901, PLR0915
         md = dict(kwargs.pop("md", None) or {})
         # The key the plan resolved (the configs-repo file stem), not the
         # profile's own name field — so the start document replays.
-        md["trigger_profile"] = profile_key
+        # A fly run drives no profile: none is recorded.
+        md["trigger_profile"] = None if fly else profile_key
         md["use_scan_mode"] = shot_control.use_scan_mode
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
@@ -728,6 +741,7 @@ def strict_plan(  # noqa: C901, PLR0915
             readers=detectors,
             waited=True if acquisition == "strict" else None,
         )
+        tick = None
         if shot_period is not None:
             md["shot_period"] = shot_period
         if acquisition == "gated":
@@ -761,6 +775,21 @@ def strict_plan(  # noqa: C901, PLR0915
                         "or use acquisition='strict')"
                     )
                 kwargs[hook] = gated_per_shot(shot_control, quota=int(num))
+        elif fly:
+            if hook == "per_shot" and _has_delay(bound_args.get("delay", 0.0)):
+                raise GeecsConfigurationError(
+                    f"delay={bound_args.get('delay')!r} spaces strict shots: a fly "
+                    "count is spaced by its tick (drop delay; set shot_period)"
+                )
+            streams = DeviceStreams(per_shot, dual_write=True)
+            tick, keys, kwargs[hook] = bind_fly(
+                streams,
+                required,
+                hook=hook,
+                shots_per_step=shots_per_step,
+                period=float(shot_period),
+            )
+            md.update(keys)
         else:
             streams = DeviceStreams(per_shot, dual_write=True)
             run = OnDemand(
@@ -788,8 +817,8 @@ def strict_plan(  # noqa: C901, PLR0915
             if acquisition == "gated"
             else [d for d in detectors if not is_per_shot(d)]
         )
-        extras = [d for d in (witness, snapshot) if d is not None]
-        if acquisition == "strict":
+        extras = [d for d in (witness, tick, snapshot) if d is not None]
+        if acquisition != "gated":
             # The stock key keeps naming every device the run records.
             md["detectors"] = [
                 getattr(d, "name", str(d)) for d in [*detectors, *extras]
@@ -804,6 +833,8 @@ def strict_plan(  # noqa: C901, PLR0915
             inner = non_essential_wrapper(inner, non_essential)
         else:
             inner = streams.wrap(inner)
+        if tick is not None:
+            inner = tick.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
         if snapshot is not None:
             payload = bound_args.get("sweep")
@@ -815,7 +846,7 @@ def strict_plan(  # noqa: C901, PLR0915
             inner = background_wrapper(
                 inner, snapshot, own=[*detectors, *non_essential], movers=movers
             )
-        if acquisition == "strict":
+        if acquisition != "gated":
             # A gated batch is a fly prepare: a plugin-backed camera's native
             # logic is left out of the context and a native-saving essential
             # (no plugin) saves whatever the switch says, so there is nothing
@@ -829,6 +860,11 @@ def strict_plan(  # noqa: C901, PLR0915
                 announce,
                 EnterScanMode(run_devices, scan_parameter_for(stock.__name__)),
             )
+        if fly:
+            # Nothing on the box: no state, no fire, no liveness read.
+            yield from liveness_gate(None, [*detectors, *non_essential])
+            logger.info("%s", BOX_NOT_DRIVEN)
+            return (yield from name_failed_status(inner))
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim.
         yield from liveness_gate(shot_control, [*detectors, *non_essential])
@@ -929,14 +965,17 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
             "        shots, or one gated batch of that size.\n"
         )
     extra += (
-        "    acquisition : {'strict', 'gated'}, optional\n"
+        "    acquisition : {'strict', 'gated', 'fly'}, optional\n"
         "        'strict' (default) fires the box once per row; 'gated' lets it\n"
         "        free-run while the plugin-backed cameras count a batch — the\n"
         "        run is bracketed OFF → STANDBY, frames go to 'primary' as datums\n"
         "        and one 'shots' event per shot carries everything else.  A\n"
         "        device without a file plugin saves its LabVIEW files run-long\n"
         "        (on at the first step, off at unstage); a dropped frame is a\n"
-        "        missing file, never a retake.\n"
+        "        missing file, never a retake.  'fly' never drives the box: a\n"
+        "        software tick every shot_period (default 1 s) is the shot, a\n"
+        "        Software-source native camera is pressed at each tick and\n"
+        "        every other device free-runs; a scan-mode profile is refused.\n"
         "    required : list of devices, optional\n"
         "        The per-shot devices (detectors, their scalars views, native\n"
         "        cameras) whose record makes a shot complete: waited on and\n"
@@ -946,9 +985,9 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "        others stream non-essential.  A device with no stamp is a\n"
         "        condition, read in every row, and cannot be required.\n"
         "    shot_period : float, optional\n"
-        "        Strict only: seconds between fires (a deliberate rep-rate\n"
-        "        throttle); None fires as fast as the shot allows.  A gated\n"
-        "        count refuses a nonzero delay for the same reason.\n"
+        "        Strict: seconds between fires (a deliberate rep-rate\n"
+        "        throttle); None fires as fast as the shot allows.  Fly: the\n"
+        "        tick period.  A gated or fly count refuses a nonzero delay.\n"
         "    native_image_save : bool, optional\n"
         "        Whether the plugin-backed cameras also write their LabVIEW\n"
         "        per-shot files (PNGs) beside the plugin's stack; the experiment\n"

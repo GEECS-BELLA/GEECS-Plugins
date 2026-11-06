@@ -212,18 +212,21 @@ def scan_mode_refusal(item: Any, profile: Any) -> Optional[str]:
     """The worker's scan-mode rule a client can check before submitting, or ``None``.
 
     A trigger profile with ``use_scan_mode`` runs strict only — the worker
-    refuses a gated item under it (``plans/scan_mode.scan_mode_preflight``);
-    this mirrors that one rule so the scanner's report says so before the
-    queue does.  Everything else scan mode checks (the DB endpoint, the
+    refuses a gated item under it (``plans/scan_mode.scan_mode_preflight``)
+    and a fly item (``registry.strict_plan``: no box, no announce); this
+    mirrors that one rule so the scanner's report says so before the queue
+    does.  Everything else scan mode checks (the DB endpoint, the
     boundary rows, the announced address) is the worker's alone.
     """
     if profile is None or not getattr(profile, "use_scan_mode", False):
         return None
-    if item.kwargs.get("acquisition", "strict") != "gated":
+    acquisition = item.kwargs.get("acquisition", "strict")
+    if acquisition not in ("gated", "fly"):
         return None
+    run = "a gated batch" if acquisition == "gated" else "a fly run"
     return (
         f"trigger profile {getattr(profile, 'name', '?')!r} runs in GEECS scan "
-        "mode, which is strict only: a gated batch has no per-shot announce. "
+        f"mode, which is strict only: {run} has no per-shot announce. "
         "Use acquisition='strict', or a profile without use_scan_mode."
     )
 
