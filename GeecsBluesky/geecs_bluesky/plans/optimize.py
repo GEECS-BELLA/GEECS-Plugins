@@ -1,4 +1,15 @@
-"""Native strict optimization: one run, one bin per adaptive iteration."""
+"""Native strict optimization: one run, one bin per adaptive iteration.
+
+The run is a strict shot-table run (``plans/on_demand.py``): ``primary``
+is one row per fire, every per-shot device records into its own stream,
+and the start document says so.  At the end of each bin the objective's
+scalars come from an **in-plan join** — the run's documents so far,
+through the s-file's own :func:`geecs_data_utils.shot_table.shot_table`
+(:class:`_BinJoin`) — over the bin's complete rows.  A camera objective
+reads the live PVA frames matched by stamp (``optimization/live_frames``);
+a plugin camera's stamp reaches the plan through its companion stamp
+stream (``plans/streams.py``).
+"""
 
 from __future__ import annotations
 
@@ -6,8 +17,7 @@ import inspect
 import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
-from collections import deque
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping
 from pathlib import Path
 from time import time
 from typing import TYPE_CHECKING, Any
@@ -23,13 +33,13 @@ from geecs_bluesky.optimization.events import (
     OptimizationRole,
     optimization_column as _column,
 )
+from geecs_bluesky.callbacks._base import _StreamCallback
+from geecs_data_utils.shot_table import shot_table
 from geecs_schemas import TriggerState
 
-from .gated import (
-    non_essential_wrapper,
-    refuse_free_running_non_essentials,
-    run_bracket,
-)
+from .gated import run_bracket
+from .on_demand import OnDemand, _Progress, start_keys
+from .streams import DeviceStreams, is_per_shot
 from .scan_mode import (
     EnterScanMode,
     run_device_names,
@@ -37,7 +47,7 @@ from .scan_mode import (
     scan_mode_preflight,
     scan_parameter_for,
 )
-from .strict import BinCounter, geecs_take_reading, name_failed_status
+from .strict import BinCounter, name_failed_status
 
 if TYPE_CHECKING:
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
@@ -104,28 +114,81 @@ class _MeasurementReadback:
         return {self._key: (await self._readable.describe())[self._key]}
 
 
-class _RunDocuments:
-    """Capture claimed metadata and the actual rows emitted, including replayed shots."""
+class _BinJoin(_StreamCallback):
+    """The in-plan join: the run's documents so far, through the s-file's shot table.
 
-    def __init__(self, shots: int, timestamps: tuple[str, ...]) -> None:
-        self.timestamps = timestamps
+    The s-file's own document buffer (``callbacks/_base.py``), read before
+    the stop document: :meth:`bin_rows` joins every per-shot event stream —
+    and each plugin camera's companion stamp stream, under the camera's
+    name — onto ``primary`` with :func:`~geecs_data_utils.shot_table.shot_table`
+    and returns one bin's complete rows (every row of the bin when none is
+    complete: the measurement's ``min_shots`` decides).
+    """
+
+    def __init__(self, companions: Mapping[str, str]) -> None:
+        super().__init__()
+        self.companions = dict(companions)
         self.folder: Path | None = None
-        self.primary: set[str] = set()
-        self.rows: deque[dict] = deque(
-            maxlen=shots
-        )  # Bluesky event data is a heterogeneous mapping.
+        self._start: dict[str, Any] | None = None
 
-    def __call__(self, name: str, doc: dict) -> None:
-        if name == "start" and doc.get("scan_folder"):
-            self.folder = Path(doc["scan_folder"])
-        elif name == "descriptor" and doc["name"] == "primary":
-            self.primary.add(doc["uid"])
-        elif name == "event" and doc["descriptor"] in self.primary:
-            row = doc["data"]
+    def on_start(self, start: dict[str, Any]) -> None:
+        """Buffer the run; its companions are event streams of their cameras."""
+        super().on_start(start)
+        self._start = start
+        self._runs[str(start["uid"])].event_streams.update(self.companions)
+        if start.get("scan_folder"):
+            self.folder = Path(start["scan_folder"])
+
+    def bin_rows(self, column: str, value: int) -> list[dict[str, Any]]:
+        """The rows of bin *value* (``column``), every device's scalars joined."""
+        import pandas as pd
+
+        start = self._start
+        run = self._runs.get(str(start["uid"])) if start is not None else None
+        rows = run.stream_rows("primary") if run is not None else []
+        if start is None or run is None or not rows:
+            return []
+        table = shot_table(
+            start,
+            pd.DataFrame(rows),
+            run.event_stream_records(start),
+            drain_offsets=run.drain_offsets,
+        )
+        mine = table.rows[table.rows[column] == value]
+        complete = mine[mine["complete"].astype(bool)]
+        # NaN is the join's gap; the measurements skip it.
+        return (complete if len(complete) else mine).to_dict("records")
+
+
+#: Seconds the bin's end waits for the companions' last stamps.
+SETTLE_S = 1.0
+
+
+def _settle(streams: DeviceStreams):
+    """Plan: until each companion recorded a stamp per frame its camera wrote, bounded.
+
+    The camera's frame count and its gateway stamp travel separate paths;
+    a stamp still in flight at the bin's end would cost that shot's frame.
+    """
+    import asyncio
+
+    async def settle() -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + SETTLE_S
+        while loop.time() < deadline:
+            counts = [
+                await _Progress(c.device, True).read_safe() for c in streams.companions
+            ]
             if all(
-                math.isfinite(float(row.get(key, math.nan))) for key in self.timestamps
+                c.pending == 0 and (not n or c.published >= min(n))
+                for c, n in zip(streams.companions, counts, strict=True)
             ):
-                self.rows.append(row)
+                return
+            await asyncio.sleep(0.02)
+
+    if streams.companions:
+        yield from bps.wait_for([settle])
+    yield from streams.collect()
 
 
 def _on_thread(pool, function, *args):
@@ -160,7 +223,7 @@ def optimize_plan(  # noqa: C901, PLR0915
         shots_per_step: int | None = None,
         trigger_profile: str | None = None,
         shot_period: float | None = None,
-        non_essential=None,
+        required=None,
         native_image_save: bool | None = None,
         background_telemetry: bool | None = None,
         md=None,
@@ -170,7 +233,9 @@ def optimize_plan(  # noqa: C901, PLR0915
         Parameters
         ----------
         detectors : list
-            Required devices plus any extra devices to record.
+            The devices to record: every per-shot device (a detector, its
+            ``.scalars`` view) in its own stream, every other one a
+            condition read in each row.
         optimizer_config : str
             OptimizerConfig document ID in the experiment configs.
         max_iterations : int, optional
@@ -181,9 +246,10 @@ def optimize_plan(  # noqa: C901, PLR0915
             Trigger profile; defaults to the experiment's profile.
         shot_period : float, optional
             Minimum time between strict fires, seconds.
-        non_essential : list, optional
-            Triggered devices streamed independently of the objective, each
-            into its own ``<name>_stream`` and joined by stamp.
+        required : list, optional
+            The per-shot devices a shot waits for and refires on (``None``:
+            every one; ``[]``: none).  The objective's devices must be among
+            them.
         native_image_save : bool, optional
             Whether the plugin-backed cameras also write their LabVIEW
             per-shot files; the experiment default when omitted.  The
@@ -196,6 +262,8 @@ def optimize_plan(  # noqa: C901, PLR0915
             Additional run metadata.
         """
         from .registry import (
+            _refuse_twice_listed,
+            resolve_required,
             background_snapshot,
             background_wrapper,
             liveness_gate,
@@ -214,9 +282,12 @@ def optimize_plan(  # noqa: C901, PLR0915
                 "optimize needs a configs resolver and device namespace"
             )
         detectors = list(detectors)
-        non_essential = list(non_essential or ())
-        refuse_native_cameras([*detectors, *non_essential], NOT_OPTIMIZE)
-        refuse_listed_witness([*detectors, *non_essential])
+        refuse_native_cameras(detectors, NOT_OPTIMIZE)
+        refuse_listed_witness(detectors)
+        per_shot = [d for d in detectors if is_per_shot(d)]
+        _refuse_twice_listed(per_shot)
+        required_devices = resolve_required(per_shot, required)
+        conditions = [d for d in detectors if not is_per_shot(d)]
         cfg = resolver.resolve_optimizer_config(optimizer_config)
         iterations = (
             cfg.run.max_iterations if max_iterations is None else max_iterations
@@ -229,7 +300,6 @@ def optimize_plan(  # noqa: C901, PLR0915
             not math.isfinite(shot_period) or shot_period <= 0
         ):
             raise GeecsConfigurationError("shot_period must be finite and positive")
-        refuse_free_running_non_essentials(non_essential)
         catalog = resolver.scan_variable_catalog().variables
         movables = {}
         move_references = {}
@@ -278,7 +348,14 @@ def optimize_plan(  # noqa: C901, PLR0915
             ]
             if not matches:
                 raise GeecsConfigurationError(
-                    f"optimizer requires essential device {device}"
+                    f"optimizer requires the device {device} — list it"
+                )
+            if is_per_shot(owner) and not any(
+                owner_of(d) is owner for d in required_devices
+            ):
+                raise GeecsConfigurationError(
+                    f"optimizer requires {device} required: the objective "
+                    "reads it every shot"
                 )
             if device in compiled.sources and (
                 owner not in detectors or not (owner.native_save or owner.plugin_backed)
@@ -286,11 +363,6 @@ def optimize_plan(  # noqa: C901, PLR0915
                 raise GeecsConfigurationError(
                     f"optimizer requires images saved for {device}"
                 )
-        owners = {id(owner_of(d)) for d in detectors}
-        if any(id(owner_of(d)) in owners for d in non_essential):
-            raise GeecsConfigurationError(
-                "a device cannot be both essential and non-essential"
-            )
         seed_paths = [Path(p).expanduser() for p in cfg.run.seed_dumps]
         config_dir = resolver.optimizer_config_path(optimizer_config).parent
         try:
@@ -303,7 +375,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             raise GeecsConfigurationError(f"optimizer generator: {exc}") from exc
         sc = profiles.resolve(trigger_profile)
         announce = scan_mode if sc.use_scan_mode else None
-        run_devices = run_device_names(detectors, non_essential, sc)
+        run_devices = run_device_names(detectors, [], sc)
         if sc.use_scan_mode:
             scan_mode_preflight(
                 sc, scan_mode, acquisition="strict", run_devices=run_devices
@@ -323,17 +395,29 @@ def optimize_plan(  # noqa: C901, PLR0915
             acquisition="strict",
             trigger_profile=trigger_profile or profiles.default,
             use_scan_mode=sc.use_scan_mode,
-            # the owner's name: the stream is ``<owner>_stream`` (a view's too)
-            non_essential=[owner_of(d).name for d in non_essential],
             shot_period=shot_period,
             native_image_save=native_files,
             background_telemetry=snapshot is not None,
         )
         witness, metadata["witness"] = yield from run_witness(
-            namespace, acquisition="strict", shot_control=sc, readers=detectors
+            namespace,
+            acquisition="strict",
+            shot_control=sc,
+            readers=detectors,
+            waited=True,
         )
-        if witness is not None:  # read with every row, never waited on;
-            detectors.append(witness)  # the stage resets a pre-read's audit
+        # Read with every row and staged (the stage resets a pre-read's
+        # audit), like the background below; never waited on as a device.
+        extras = [] if witness is None else [witness]
+        # A plugin camera the objective reads: its stamp, per shot, in the plan.
+        cameras = [
+            d
+            for d in per_shot
+            if getattr(d, "plugin_backed", False)
+            and any(namespace.resolve(n) is d for n in compiled.sources)
+        ]
+        streams = DeviceStreams(per_shot, dual_write=True, companions=cameras)
+        metadata.update(start_keys(streams, required_devices, witness is not None))
         metadata["geecs"] = {
             **metadata.get("geecs", {}),
             "optimizer_json": cfg.model_dump_json(),
@@ -357,12 +441,7 @@ def optimize_plan(  # noqa: C901, PLR0915
                 "optimizer variables share physical components"
             )
         metadata["optimization_move_targets"] = move_targets
-        timestamps = tuple(
-            owner_of(d).acq_timestamp.name
-            for d in detectors
-            if hasattr(owner_of(d), "acq_timestamp")
-        )
-        records = _RunDocuments(shots, timestamps)
+        records = _BinJoin(streams.companion_streams())
         measurement_signals = []
         record = OptimizationRecord(
             [
@@ -379,7 +458,14 @@ def optimize_plan(  # noqa: C901, PLR0915
             ]
         )
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="geecs-optimize")
-        take = geecs_take_reading(sc, shot_period=shot_period, scan_mode=announce)
+        slot = OnDemand(
+            sc,
+            streams,
+            required_devices,
+            witness=witness,
+            shot_period=shot_period,
+            scan_mode=announce,
+        )
         bins = BinCounter()
         row_extras = [bins] if announce is None else [bins, announce]
 
@@ -409,29 +495,31 @@ def optimize_plan(  # noqa: C901, PLR0915
                         for item in (obj, proposal[name])
                     ]
                 )
-                completed = []
                 for _ in range(shots):
-                    reading = yield from take(
-                        [*detectors, *measurement_signals, *row_extras]
-                    )
-                    completed.append(
-                        {key: value["value"] for key, value in reading.items()}
+                    # A checkpoint per shot: a deferred pause lands between shots.
+                    yield from bps.checkpoint()
+                    yield from slot.take_reading(
+                        [*conditions, *measurement_signals, *row_extras, *extras]
                     )
                 # Commit the acquired bin: calculation and tell must never be replayed.
-                # Changing rewindability clears the acquisition replay buffer.
                 yield Msg("rewindable", None, False)
-                # The callback sees fresh rows even when the RE replays acquisition messages.
-                rows = [r for r in records.rows if r.get(bins.name) == iteration][
-                    -shots:
-                ] or completed
+                yield from _settle(streams)
+                rows = records.bin_rows(bins.name, iteration)
                 frames = yield from _on_thread(pool, compiled.frames_for, rows)
                 result = yield from _on_thread(
                     pool, compiled.evaluate_bin, rows, frames
                 )
-                measured = {
-                    name: sum(float(r[key]) for r in rows) / len(rows)
-                    for name, key in reading_keys.items()
-                }
+                measured = {}
+                for name, key in reading_keys.items():
+                    values = [
+                        float(r[key])
+                        for r in rows
+                        if math.isfinite(float(r.get(key, math.nan)))
+                    ]
+                    # No readback joined (every row missed it): the proposal.
+                    measured[name] = (
+                        sum(values) / len(values) if values else proposal[name]
+                    )
                 driver.tell(measured, result.outputs)
                 best = driver.best or {}
                 physical_best = {}
@@ -553,27 +641,24 @@ def optimize_plan(  # noqa: C901, PLR0915
             for source in compiled.sources.values():
                 source.open()
                 yield from _on_thread(pool, source.wait_connected, 5.0)
-            yield from liveness_gate(
-                sc, [*detectors, *movables.values(), *non_essential]
-            )
+            yield from liveness_gate(sc, [*detectors, *movables.values()])
             if snapshot is not None:
                 # One more device of every row, last — after the scalar
                 # pre-reads above (nothing to read before its probe).
-                detectors.append(snapshot)
+                extras.append(snapshot)
             run = bpp.run_wrapper(
                 name_failed_status(bpp.finalize_wrapper(inner(), _dump_record())),
                 md=metadata,
             )
             run = witness_wrapper(run, witness, metadata["witness"])
             staged = bpp.stage_wrapper(
-                non_essential_wrapper(run, non_essential),
-                [*detectors, *movables.values()],
+                streams.wrap(run), [*conditions, *extras, *movables.values()]
             )
             if snapshot is not None:
                 staged = background_wrapper(
                     staged,
                     snapshot,
-                    own=[*detectors, *non_essential],
+                    own=detectors,
                     movers=list(movables.values()),
                 )
             staged = native_image_save_wrapper(staged, detectors, native_files)

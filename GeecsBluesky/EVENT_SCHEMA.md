@@ -25,15 +25,15 @@ adds:
 | `scan_tag` | `claim_scan` preprocessor | `{year, month, day, number, experiment}` — the `geecs_data_utils.ScanTag` |
 | `geecs_scalar_headers` | `scalar_headers` preprocessor | Event key → legacy `Device Variable` header for every staged device (the s-file and the browser's display names) |
 | `shot_clock` / `shot_clock_column` | the bound plan (gated) | The device whose `acq_timestamp` is the shot id, and the row column carrying it — what the s-file's join keys on |
-| `layout` | the bound plan (strict `count` / `sweep`) | `"shot-table/1"`: `primary` is the shot table and every per-shot device is in its own stream (below). Absent on a gated run, an `optimize` run and every earlier run; readers branch on it (`geecs_data_utils.shot_table`) |
+| `layout` | the bound plan (strict `count` / `sweep` / `optimize`) | `"shot-table/1"`: `primary` is the shot table and every per-shot device is in its own stream (below). Absent on a gated run and every earlier run (an `optimize` run before W3c+e included); readers branch on it (`geecs_data_utils.shot_table`) |
 | `per_shot_streams` | the bound plan (shot-table) | Every per-shot device's stream, `<device>_stream` (ophyd name), in the run's device order |
 | `required` | the bound plan (shot-table) | The per-shot devices (ophyd names) whose record makes a shot complete: waited on and refired for. Every per-shot device unless the request said `required=` (an empty list: none) |
 | `shot_clock_column` | the bound plan (shot-table) | The row clock: `witness_stamp` when the witness is read, else `fire_stamp` (both Unix seconds) |
 | `stream_meta` | the bound plan (shot-table) | `{<stream>: {sync_class, stale_after}}`: every strict device stream is `synchronous` (it acquires on the fire), `stale_after` `null` |
-| `non_essential` | the bound plan (gated, `optimize`) | The devices streamed for the run beside the rows, by owner name (`<name>_stream`, below); a gated run's are the per-shot devices not `required` |
+| `non_essential` | the bound plan (gated; an earlier `optimize`) | The devices streamed for the run beside the rows, by owner name (`<name>_stream`, below); a gated run's are the per-shot devices not `required` |
 | `trigger_profile` | the bound plan | The trigger profile that drove the shots |
 | `use_scan_mode` | the bound plan | Whether the run drove GEECS scan mode — the trigger profile's `use_scan_mode` flag: the devices were told the scan (`ScanStart`) and every shot (its number and save path, before the fire) and released at the close (`ScanEnd`), as under Master Control; each `primary` row then carries `announced_shot` |
-| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated essential or a non-essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (`optimize`), `shots` (gated) or its own `<det>_stream` (a shot-table run's device without a plugin, a non-essential) — a shot-table run's plugin-backed camera in its stream descriptor's configuration instead (`<det>-nonscalar_save_path` under the object `<det>`, a run-long constant: the stream is datum-only). The s-file never carries the column |
+| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated essential or a non-essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (an earlier strict run), `shots` (gated) or its own `<det>_stream` (a shot-table run's device without a plugin, a non-essential) — a shot-table run's plugin-backed camera in its stream descriptor's configuration instead (`<det>-nonscalar_save_path` under the object `<det>`, a run-long constant: the stream is datum-only). The s-file never carries the column |
 | `background_telemetry` | the bound plan | Whether the run read the background telemetry into its rows: the preset's value, else the experiment default; `False` also when the namespace carries no telemetry set at all (a run whose every candidate is its own device still says `True`, with nothing dropped and no extra column) |
 | `background_dropped` | the bound plan (`background_wrapper`) | GEECS device names the background probe dropped for this run — no answer within its budget (a PV the gateway does not serve, a failed connect or describe); absent when the run read no background |
 | `background_probe_error` | the bound plan (`background_wrapper`) | Present only when the probe itself failed (an unexpected error, logged at ERROR — never a member's failure, which is its own drop): `Type: message`, and the run opened with no background columns |
@@ -124,10 +124,10 @@ event column, a `-baseline`) is in the **LabVIEW epoch** (seconds since
 Unix seconds.  `geecs_data_utils.shot_join.to_labview_epoch` is the one
 conversion of a row clock.
 
-## Event stream `primary` (a gated run's frames; `optimize` and earlier strict runs)
+## Event stream `primary` (a gated run's frames; earlier strict runs)
 
-`optimize` writes this layout (no `layout` key); so did every strict run
-before the shot table.
+Every strict run before the shot table wrote this layout (no `layout`
+key), `optimize` included.
 
 | Column | Meaning |
 |---|---|
@@ -218,7 +218,7 @@ s-file.  The same join adds a **non-essential** device's columns
 ## Event stream `<name>_stream` (a shot-table run's per-shot device; a non-essential device)
 
 Every per-shot device of a shot-table run, and a device listed
-`non_essential` (gated, `optimize`), streams for the run into its own
+`non_essential` (gated), streams for the run into its own
 `<ophyd name>_stream` (`geecs_data_utils.shot_join.non_essential_stream`).
 A shot-table run collects every stream once per fire (each collect a
 contingency: a stream that fails to collect gaps, logged once, never
@@ -298,8 +298,13 @@ rather than re-implementing it.
 
 ## Native optimization
 
-`plan_name: optimize` opens one run. `primary` stays one row per strict shot;
-`bin_number` is the one-based adaptive iteration. Start metadata adds
+`plan_name: optimize` opens one run on the shot-table layout: `primary` is
+the shot table as for `count` / `sweep` (one row per fire, refires
+included) and `bin_number` is the one-based adaptive iteration.  A plugin
+camera an objective reads also records its gateway stamp in a companion
+stream, `<name>_stamps_stream`: one event per stamp (`<name>-acq_timestamp`
+and its scalars, like a `StampStream`), not listed in `per_shot_streams`
+(the s-file reads the stack) — the plan's in-plan join reads it. Start metadata adds
 `optimizer_config`, `max_iterations`, `optimization_variables`,
 `optimization_objectives`, `optimization_move_targets`, and the resolved
 `OptimizerConfig` as JSON text under `geecs.optimizer_json` (provenance only).
@@ -326,10 +331,9 @@ and invalidates it after a service-submitted move or action. It does not monitor
 out-of-band gateway writes. Observables-only BAX and multiobjective problems have no single
 best point, so `on_finish: best` restores initial positions instead.
 
-Acquisition is rewindable up to the bin's evaluation boundary. An immediate
-pause during acquisition replays the acquired part of the bin; only the
-latest complete quota feeds evaluation. Evaluation and Xopt tell are not
-replayed. Deferred pause lands at the next iteration checkpoint. Failed
+Acquisition is not rewindable (the strict slot): a pause inside a shot
+costs no refire and the bin resumes at its next shot; the bin's complete
+rows feed evaluation. Evaluation and Xopt tell are not replayed. Deferred pause lands at the next iteration checkpoint. Failed
 measurement rows stay in the Xopt dump with `xopt_error: true` and are excluded
 from model fitting. The dump is written before run close into the folder
 from the emitted start document, including abort cleanup after an in-flight

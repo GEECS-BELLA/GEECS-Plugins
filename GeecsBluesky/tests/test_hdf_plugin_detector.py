@@ -5,8 +5,7 @@ The plugin itself is exercised for real in GeecsPvaGateway's
 here the plugin's PVs are mock signals and the contracts pinned are the
 detector's: the stock lifecycle produces stream documents, the count wait
 precedes the stamp wait and its timeout is the GEECS one, a missed shot
-reads empty, ``discard_uncollected`` rewinds to the last referenced frame,
-and the path provider hands the plugin and Tiled their two paths.
+reads empty, and the path provider hands the plugin and Tiled their two paths.
 """
 
 from __future__ import annotations
@@ -185,41 +184,6 @@ def test_scalars_view_reads_empty_after_a_missed_shot(
 
     reading = _run(RE, lambda: missed())
     assert math.isnan(reading["uc_testcam-meancounts"]["value"])
-
-
-def test_discard_uncollected_rewinds_to_the_last_referenced_frame(
-    RE: RunEngine, tmp_path: Path
-) -> None:
-    """A late frame past the last datum is rewound; a delivered device is untouched."""
-    cam = _camera(RE, tmp_path)
-    rewinds: list[int] = []
-
-    def plugin_rewinds(value, **_) -> None:
-        rewinds.append(value)
-        set_mock_value(cam.hdf.num_captured, value)
-
-    callback_on_mock_put(cam.hdf.rewind, plugin_rewinds)
-    _run(RE, lambda: cam.stage())
-    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
-
-    async def scenario():
-        status = cam.trigger()
-        await asyncio.sleep(0.05)  # the trigger re-baselines the count first
-        set_mock_value(cam.hdf.num_captured, 1)
-        set_mock_value(cam.acq_timestamp, 1001.0)
-        await status
-        _ = [doc async for doc in cam.collect_asset_docs()]  # frame 0 referenced
-        set_mock_value(cam.hdf.num_captured, 2)  # a late frame nobody referenced
-        await cam.discard_uncollected()
-        return await cam.hdf.num_captured.get_value()
-
-    assert _run(RE, lambda: scenario()) == 1
-    assert rewinds == [1]
-    # Outside prepare, and without a plugin, it is a no-op.
-    _run(RE, lambda: cam.unstage())
-    plain = GeecsDetector("UC_Plain", [], name="plain")
-    connect_mock(RE, plain)
-    _run(RE, lambda: plain.discard_uncollected())
 
 
 def test_mask_missed_shot_blanks_by_type() -> None:

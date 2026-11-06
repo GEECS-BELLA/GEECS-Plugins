@@ -11,11 +11,9 @@
   :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfDataLogic` over
   :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`, one per image variable.
 
-A missed shot does not void the row: scalar columns read ``NaN`` and the
-strict plan records the partial row before taking one more shot.
-:meth:`GeecsDetector.trigger` turns a plugin count timeout into the GEECS
-timeout the refire gate understands; :meth:`GeecsDetector.discard_uncollected`
-rewinds late frames before the retake.  In a **gated** batch the device
+In a strict run every per-shot device records into its own stream (the
+plan's on-demand slot waits on its progress counter and refires a missed
+shot; nothing is rewound).  In a **gated** batch the device
 flies (``prepare(number_of_events=N)``, ``kickoff``, ``truncate_to_quota``,
 ``truncate_to``, ``abandon_step``); a device without a plugin flies as a
 native-saving essential.
@@ -1173,8 +1171,8 @@ class GeecsDetector(StandardDetector):
             return
         await self._rewind_plugins(0, "fresh session")
 
-    async def _rewind_plugins(self, keep: int | None, what: str) -> None:
-        """Rewind every plugin to *keep* frames (``None``: each provider's ``last_emitted``)."""
+    async def _rewind_plugins(self, keep: int, what: str) -> None:
+        """Rewind every plugin to *keep* frames."""
         ctx = self._prepare_ctx
         assert ctx is not None
         for provider in ctx.streamable_data_providers:
@@ -1188,7 +1186,7 @@ class GeecsDetector(StandardDetector):
             )
             if io is None:
                 continue
-            target = int(getattr(provider, "last_emitted", 0)) if keep is None else keep
+            target = keep
             written = int(await io.num_captured.get_value())
             if written < target:
                 raise GeecsTriggerTimeoutError(
@@ -1209,18 +1207,3 @@ class GeecsDetector(StandardDetector):
                 target,
                 what,
             )
-
-    async def discard_uncollected(self) -> None:
-        """Rewind every plugin to the last frame a document referenced.
-
-        The late-frame guard: called by the plan on every
-        plugin-backed device of a partial shot, before the retake fires.  A
-        delivered frame no row referenced and a late frame of the missed shot
-        are truncated alike, and one that arrives later is stale to the
-        plugin.  Nothing a row references is reachable, because the retake
-        has not fired yet.  A no-op without a plugin or outside ``prepare``.
-        """
-        ctx = self._prepare_ctx
-        if ctx is None or not self._hdf_ios:
-            return
-        await self._rewind_plugins(None, "last datum")

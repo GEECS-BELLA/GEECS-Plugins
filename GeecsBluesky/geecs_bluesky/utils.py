@@ -58,7 +58,6 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "describe",
         "describe_collect",
         "describe_configuration",
-        "discard_uncollected",
         "events_to_kickoff",
         "fly_native_save",
         "frames_this_batch",

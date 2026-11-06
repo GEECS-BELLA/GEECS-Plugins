@@ -653,7 +653,7 @@ def test_optimize_signature_and_classification(profiles):
         "shots_per_step",
         "trigger_profile",
         "shot_period",
-        "non_essential",
+        "required",
         "native_image_save",
         "background_telemetry",
         "md",

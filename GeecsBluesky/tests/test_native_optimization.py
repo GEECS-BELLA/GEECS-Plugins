@@ -76,9 +76,11 @@ def test_scalar_optimization_records_and_dumps(setup):
     # the gauge is not in the run, the motor is (its owner is left to the row).
     start = docs.docs["start"][0]
     assert start["background_telemetry"] is True and start["background_dropped"] == []
-    # Optimize keeps the old layout until it reads the shot table itself.
-    assert start["non_essential"] == []
-    assert not {"layout", "per_shot_streams", "required", "stream_meta"} & set(start)
+    # The shot-table layout, like a strict count.
+    assert start["layout"] == "shot-table/1" and "non_essential" not in start
+    # The motor has no shot stamp: a condition, read in every row.
+    assert start["per_shot_streams"] == [] and start["required"] == []
+    assert start["shot_clock_column"] == "fire_stamp" and "stream_meta" in start
     rows = docs.primary_events()
     assert len(rows) == 6 and all(e["data"]["gauge-pressure"] == 2.5 for e in rows)
     import json
@@ -91,7 +93,7 @@ def test_scalar_optimization_records_and_dumps(setup):
 
 def test_missing_device_refused_before_claim(setup):
     re, ns, box, plan, cfg, docs, folder = setup
-    with pytest.raises(GeecsConfigurationError, match="essential device"):
+    with pytest.raises(GeecsConfigurationError, match="requires the device"):
         re(plan([], optimizer_config="test"))
     assert box.fires == 0
     assert not (folder / "xopt_dump.yaml").exists()
@@ -181,25 +183,72 @@ def test_relative_pseudo_restores_and_records_absolute_best(setup):
     assert last["best_move:Motor:Current"] == pytest.approx(5.0 + last["best:bump"])
 
 
-@pytest.mark.parametrize("connects", [True, False])
+def _assert_camera_bins(docs, box, asked, fired, plugin):
+    """Two bins of two shots, one refire inside bin 1, frames matched by stamp."""
+    import numpy as np
+
+    assert box.fires == 5  # Four successes plus one partial refire row.
+    # A refire inside bin 1: three rows, the dropped one incomplete; the
+    # objective asked for the two complete shots' camera stamps.
+    rows = [e["data"] for e in docs.primary_events()]
+    assert [(r["bin_number"], r["complete"]) for r in rows] == [
+        (1, True),
+        (1, False),
+        (1, True),
+        (2, True),
+        (2, True),
+    ]
+    assert [len(a) for a in asked] == [2, 2]
+    assert all(s in fired for a in asked for s in a)
+    names = {d["name"] for d in docs.docs["descriptor"]}
+    assert ("camera_stamps_stream" in names) is plugin
+    assert docs.docs["start"][0]["per_shot_streams"] == ["camera_stream"]
+    streams = {d["uid"] for d in docs.docs["descriptor"] if d["name"] == "optimization"}
+    events = [e["data"] for e in docs.docs["event"] if e["descriptor"] in streams]
+    assert [e["n_valid_shots:cam"] for e in events] == [2, 2]
+    assert all(np.isfinite(e["output:cam~2Eimage_total"]) for e in events)
+
+
+@pytest.mark.parametrize(
+    ("connects", "plugin"), [(True, False), (True, True), (False, False)]
+)
 def test_camera_measurement_refire_and_preclaim_connection(
-    setup, monkeypatch, connects
+    setup, monkeypatch, connects, plugin
 ):
+    """A camera objective: its live frames matched by the shots' camera stamps.
+
+    A saver camera's stamp is its own stream's; a plugin camera's stream is
+    datum-only, so its stamp comes from the companion stream.
+    """
     import numpy as np
     import yaml
     from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
     from geecs_bluesky.optimization import measurements
     from geecs_bluesky.plans.optimize import optimize_plan
     from geecs_bluesky.exceptions import GeecsDeviceDownError
-    from tests.test_strict_plans import _camera
+    from tests.test_strict_plans import _camera, _plugin_camera
     from ophyd_async.core import StaticFilenameProvider, StaticPathProvider
 
     re, ns, box, _, cfg, docs, folder = setup
-    box.stamp += LABVIEW_EPOCH_OFFSET
+    # Real-time stamps, so the in-plan join places each record by fire.
+    box.clock = True
+    fired = []
+    advance = box.advance
+
+    def stamped(step=1.0):
+        advance(step)
+        if (camera.name, box.fires) not in box.drop:
+            fired.append(box.stamp - LABVIEW_EPOCH_OFFSET)
+
+    box.advance = stamped
     provider = StaticPathProvider(StaticFilenameProvider("f"), folder / "Camera")
     # Leave scheduler headroom beyond FakeBox's 20 ms fire latency; the dropped
     # frame still exercises timeout/refire deterministically.
-    camera = _camera(re, box, "Camera", provider=provider, shot_timeout=0.5)
+    camera = (
+        _plugin_camera(re, box, "Camera", folder, shot_timeout=0.5)[0]
+        if plugin
+        else _camera(re, box, "Camera", provider=provider, shot_timeout=0.5)
+    )
     box.drop.add((camera.name, 2))
     sc = ShotControl(WRITES, experiment="Test", name="camera_box", setter_factory=box)
     connect_mock(re, sc)
@@ -253,8 +302,7 @@ def test_camera_measurement_refire_and_preclaim_connection(
             types={"Camera": "FROG"},
         ),
     )
-    opened = []
-    closed = []
+    opened, asked, closed = [], [], []
     sources = []
 
     class FakeFrameSource:
@@ -272,10 +320,11 @@ def test_camera_measurement_refire_and_preclaim_connection(
                 raise GeecsDeviceDownError("Camera")
 
         def await_frames(self, stamps, timeout):
-            assert all(1000 < stamp < 1100 for stamp in stamps)
+            # Matched by stamp: only the shots the camera took have a frame.
+            asked.append(list(stamps))
             y, x = np.mgrid[:32, :32]
             frame = 100 * np.exp(-((x - 16) ** 2 + (y - 16) ** 2) / 20)
-            return {stamp: frame for stamp in stamps}
+            return {s: frame for s in stamps if any(abs(s - f) < 1e-6 for f in fired)}
 
     compile_original = measurements.compile_measurements
     monkeypatch.setattr(
@@ -292,14 +341,8 @@ def test_camera_measurement_refire_and_preclaim_connection(
         assert not docs.docs["start"]
         assert box.fires == 0
     else:
-        re(plan([camera], optimizer_config="test"))
-        assert box.fires == 5  # Four successes plus one partial refire row.
-        streams = {
-            d["uid"] for d in docs.docs["descriptor"] if d["name"] == "optimization"
-        }
-        events = [e["data"] for e in docs.docs["event"] if e["descriptor"] in streams]
-        assert [e["n_valid_shots:cam"] for e in events] == [2, 2]
-        assert all(np.isfinite(e["output:cam~2Eimage_total"]) for e in events)
+        re(plan([camera], optimizer_config="test", shot_period=0.15))
+        _assert_camera_bins(docs, box, asked, fired, plugin)
     assert opened == closed == [True]
     assert sources == ["test:camera:frogtrace"]
 
@@ -314,3 +357,56 @@ def test_unarchivable_columns_refused_before_claim(setup, outputs):
         re(plan([ns.resolve("Motor")], optimizer_config="test"))
     assert box.fires == 0
     assert not docs.docs["start"]
+
+
+def test_a_scalar_objective_comes_from_the_in_plan_join(setup):
+    """A per-shot device's scalar is in its own stream; each bin's value is the join's.
+
+    The meter reads the fire's number on every shot, so a bin's mean is
+    known by construction — and ``primary`` carries no meter column at all.
+    """
+    from geecs_bluesky.plans.optimize import optimize_plan
+    from tests.test_strict_plans import _camera
+
+    re, ns, box, _, _, docs, folder = setup
+    box.clock = True
+    meter = _camera(re, box, "Meter")
+    advance = box.advance
+
+    def advance_and_read(step=1.0):
+        advance(step)
+        set_mock_value(meter.meancounts, float(box.fires))
+
+    box.advance = advance_and_read
+    sc = ShotControl(WRITES, experiment="Test", name="meter_box", setter_factory=box)
+    connect_mock(re, sc)
+    cfg = OptimizerConfig(
+        vocs={
+            "variables": {"Motor:Current": [-1, 1]},
+            "objectives": {"meter": "MINIMIZE"},
+        },
+        measurements={"meter": {"signal": "Meter:MeanCounts"}},
+        generator={"name": "random"},
+        run={"max_iterations": 3, "shots_per_step": 2},
+    )
+    resolver = SimpleNamespace(
+        resolve_optimizer_config=lambda name: cfg,
+        scan_variable_catalog=lambda: SimpleNamespace(variables={}),
+        optimizer_config_path=lambda name: folder / "optimizer.yaml",
+    )
+    names = {"Meter": meter, "Meter:MeanCounts": meter.meancounts}
+    namespace = SimpleNamespace(
+        resolve=lambda n: names.get(n) or ns.resolve(n), experiment="Test"
+    )
+    plan = optimize_plan(
+        TriggerProfiles({"test": sc}, default="test"), resolver, namespace
+    )
+    re(plan([meter], optimizer_config="test", shot_period=0.15))
+    start = docs.docs["start"][-1]
+    assert start["per_shot_streams"] == ["meter_stream"]
+    assert start["required"] == ["meter"]
+    assert all("meter-meancounts" not in e["data"] for e in docs.primary_events())
+    stream = {d["uid"] for d in docs.docs["descriptor"] if d["name"] == "optimization"}
+    events = [e["data"] for e in docs.docs["event"] if e["descriptor"] in stream]
+    assert [e["output:meter"] for e in events] == [1.5, 3.5, 5.5]
+    assert [e["n_valid_shots:meter"] for e in events] == [2, 2, 2]

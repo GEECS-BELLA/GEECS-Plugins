@@ -1063,25 +1063,16 @@ def test_shot_period_throttles_strict_fires(
     box: GatedBox,
     profiles: TriggerProfiles,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """#840: one shot per period — the second and third fires wait.
 
     The period exceeds the camera's shot budget on purpose: the wait must
     happen before the detectors are triggered, or the triggered count/stamp
     wait times the shot out during the pause (found on hardware, A8).
-    Pinned twice: a native camera's stamp wait uses its own 0.2 s budget,
-    and a plugin camera's count wait uses ``STRICT_TRIGGER_INFO``'s
-    ``exposure_timeout`` (patched down to 0.2 s here) — the reviewer found
+    Pinned twice: a saver camera's stamp wait and a plugin camera's count
+    wait each use the camera's own 0.2 s shot budget — the reviewer found
     the plugin-only form passing on the pre-A8 code.
     """
-    from geecs_bluesky.plans import strict as strict_module
-
-    monkeypatch.setattr(
-        strict_module,
-        "STRICT_TRIGGER_INFO",
-        strict_module.STRICT_TRIGGER_INFO.model_copy(update={"exposure_timeout": 0.2}),
-    )
     native = _camera(RE, box, "UC_Native", shot_timeout=0.2)
     plugin, _ = _plugin_camera(RE, box, "UC_Cam", tmp_path, shot_timeout=0.2)
     count = bind_plans(profiles)["count"]

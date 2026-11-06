@@ -490,12 +490,17 @@ class StampStream:
     device :
         The non-essential device: a :class:`GeecsDetector` without a file
         plugin, or a detector's ``.scalars`` view (scalars and stamp only,
-        no files).
+        no files) — or a plugin camera's gateway stamp, for a *companion*.
+    name :
+        The stream object's name; the device's own by default.  A plugin
+        camera's **companion** (optimize's per-shot camera stamp, beside the
+        camera's own datum-only stream) takes another, so the two streams
+        never share a name.
     """
 
     parent = None
 
-    def __init__(self, device: Any) -> None:
+    def __init__(self, device: Any, *, name: str | None = None) -> None:
         owner = owner_of(device)
         if not isinstance(owner, GeecsDetector):
             raise TypeError(
@@ -507,7 +512,7 @@ class StampStream:
         # The DEVICE's name: the descriptor's configuration and object_keys
         # are keyed by the collect object's name, and the join looks the
         # drain offset up under the device's (``<name>-drain_offset``).
-        self.name = owner.name
+        self.name = owner.name if name is None else name
         self._stamp: SignalR[float] = owner.acq_timestamp
         self._readers = [(d, r) for _, d, r in _readers_for(device)]
         self._events: list[PartialEvent] = []
@@ -517,6 +522,8 @@ class StampStream:
         self._subscribed = False
         #: Events recorded this run (the close's WARNING when it stays 0).
         self.published = 0
+        #: Stamps queued and not yet recorded (:meth:`settled`).
+        self.pending = 0
 
     @property
     def device(self) -> Any:
@@ -546,7 +553,7 @@ class StampStream:
         async def do() -> None:
             await self._stop()
             self._events = []
-            self.published = 0
+            self.published = self.pending = 0
             self._last = await self._stamp.get_value()
             self._queue = asyncio.Queue()
             self._stamp.subscribe_reading(self._on_stamp)
@@ -571,6 +578,7 @@ class StampStream:
         if value is None or value <= 0 or value == self._last:
             return  # the subscribe echo, the gateway's placeholder, or a repeat
         self._last = value
+        self.pending += 1
         self._queue.put_nowait(float(value))
 
     async def _record(self) -> None:
@@ -583,6 +591,7 @@ class StampStream:
                     read() for _, read in self._readers
                 )
             except Exception as exc:  # noqa: BLE001 - a non-essential never fails
+                self.pending -= 1
                 logger.warning(
                     "%s: stamp %s not recorded (%s: %s)",
                     self.name,
@@ -603,6 +612,7 @@ class StampStream:
                 )
             )
             self.published += 1
+            self.pending -= 1
 
     async def _stop(self) -> None:
         if self._subscribed:

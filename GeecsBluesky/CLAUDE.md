@@ -48,7 +48,8 @@ list or no positions.  `run_action` is compiled from
 
 Every bound scan verb takes, keyword-only, `trigger_profile`,
 `shots_per_step`, `acquisition` (`strict` default, or `gated`),
-`required` (`count` / `sweep`; `optimize` keeps `non_essential`),
+`required` (`count`, `sweep`, `optimize`; a preset's `required` field
+passed through),
 `shot_period` (the strict rep-rate throttle),
 `native_image_save` and `background_telemetry`; all ride in the start
 document (`EVENT_SCHEMA.md`).  Every GEECS-defined registered plan
@@ -99,8 +100,8 @@ geecs_bluesky/
                             #   OnDemand, on_demand_per_shot / _per_step, start_keys
   plans/streams.py          # DeviceStreams: every per-shot device in its own
                             #   <name>_stream (strict per fire; non-essential at close)
-  plans/strict.py           # geecs_take_reading (optimize's shot: the fire between
-                            #   trigger and wait), BinCounter, name_failed_status
+  plans/strict.py           # shared shot helpers: fire_and_await_shot (the calibration's
+                            #   shot), plugin_reasons, BinCounter, name_failed_status
   plans/gated.py            # gated_take_reading, the run bracket, the non-essential
                             #   stream wrapper, shot_clock, native_essentials
   plans/sweep.py            # sweep_plan: the Sweep payload through scan_nd, relative/reset
@@ -435,10 +436,7 @@ dual-write is switched on for the run by its unbounded prepare
 its directory rides in the stream descriptor's configuration
 (`<det>-nonscalar_save_path`), the stream being datum-only.
 Gated keeps its own shape (`required` → its detectors, the others to the
-non-essential stream) and `optimize` keeps the pre-shot-table strict shot
-(`plans/strict.py::geecs_take_reading`: prepare, trigger, fire, wait, the
-row with every detector's columns, `discard_uncollected` before a refire)
-and its `non_essential=` until it reads the shot table itself.
+non-essential stream).  `optimize` runs the same slot and layout (below).
 
 **The witness** (`registry.run_witness`): when the namespace has a
 `main`-domain one, every strict run (`count`, `sweep`, `optimize`) appends
@@ -450,20 +448,16 @@ Listed as a device in a preset it is refused at bind (it is recorded
 already).  At the start it is probed (5 s): a down witness is a WARNING and
 `read: false, reason: down`, never a refusal.  Both start WARNINGs (this
 and the `note` below) are logged at bind, before `scan.log` exists, so
-`witness_wrapper` repeats them right after `open_run`.  An `optimize` run
-with no triggered device has nothing that waits for the shot, so its rows
-can read the count before the edge lands: a WARNING at the start and a
-`note` in the record (a strict count/sweep always waits, so never).  Not read in a gated run (not
+`witness_wrapper` repeats them right after `open_run`.  A strict run
+always waits (on its required devices, else on the witness), so no strict
+row reads the count before the edge.  Not read in a gated run (not
 yet) or under a box-less profile (nothing fired for it to count); the
 start document's `witness` says which (`null` without one,
 `EVENT_SCHEMA.md`).
 
-In `optimize`'s shot a no-frame wait (`FailedStatus` caused by
-`GeecsTriggerTimeoutError`) re-fires the whole event up to `max_refires`
-times; a device whose `CONNECTED` PV reads Disconnected raises
-`GeecsDeviceDownError` instead.  In either shape any other failed status
-(a refused fire) re-raises untouched — a refire must never issue an extra
-physical shot.  Strict holds 1 Hz on a count
+In the slot any failed status of the fire itself (a refused SINGLESHOT
+put) re-raises untouched — a refire must never issue an extra physical
+shot.  Strict holds 1 Hz on a count
 and every other edge on a moving scan: the fire put (~200 ms) plus the
 move overruns the ~550 ms between stamp arrival and the next edge.  The
 plan layer recovers it, not `take_reading`; the gated batch is the
@@ -554,8 +548,7 @@ never a failure).  A plugin-backed camera in a gated run still writes no
 native files (the dual-write is strict-only).  As a **non-essential** such
 a device gets a stream of its own (below).
 
-**Non-essential stream** (gated's per-shot devices not `required`,
-`optimize`'s `non_essential=[…]`; the same `DeviceStreams` a strict run
+**Non-essential stream** (gated's per-shot devices not `required`; the same `DeviceStreams` a strict run
 uses for every per-shot device, collected only at the close): the
 listed devices are staged, prepared unbounded, kicked off right after
 `open_run` and each collected alone into `<name>_stream` before
@@ -614,7 +607,19 @@ metadata.
 ### Optimize
 
 The bound `optimize` plan (`plans/optimize.py`) runs strict acquisition in
-one run, with one bin per iteration.  `OptimizerConfig` lives in
+one run, with one bin per iteration, on the shot-table layout: the same
+`OnDemand` slot and `DeviceStreams` as `count` / `sweep`, `required=` the
+same way (the objective's devices must be required, refused at bind
+otherwise).  At each bin's end the objective's scalars come from an
+**in-plan join** — the run's documents so far through the s-file's
+`geecs_data_utils.shot_table.shot_table` (`_BinJoin`, the callback buffer
+of `callbacks/_base.py`) — over the bin's complete rows.  A camera
+objective keeps the live PVA frames matched by stamp; a plugin camera's
+stream is datum-only, so it gets a **companion** `StampStream` on its
+gateway `acq_timestamp` (`<name>_stamps_stream`, not one of the run's
+`per_shot_streams`), and the bin's end waits (bounded, `SETTLE_S`) for a
+stamp per frame written.  Native cameras stay refused in optimize
+(`NOT_OPTIMIZE`).  `OptimizerConfig` lives in
 GEECS-Schemas and embeds GEST's VOCS; Xopt and GEECS-Analysis load only
 inside the worker's optional optimize path (the `optimize` extra).
 Validation and frame subscriptions precede the scan claim.  Measurements
@@ -1026,8 +1031,7 @@ command) and never imports the gateway (circular).
   the NTNDArray PVs.
 - **A missed shot** keeps its shot-table row (flagged, the device absent
   from its stream for that fire) and the plan fires again — nothing
-  rewinds (`optimize` still rewinds every plugin to its last referenced
-  frame, `GeecsDetector.discard_uncollected`); the incomplete-shot and
+  rewinds; the incomplete-shot and
   flagged-step warnings name each missed plugin's `WriteMessage`
   (`plans/strict.py::plugin_reasons` through the bounded
   `GeecsDetector.plugin_reasons()`, which `prepare`'s failure note and the

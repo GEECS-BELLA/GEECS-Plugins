@@ -23,6 +23,14 @@ fails the run from its close on.  A framed stream is declared only once
 it has a frame (or at the close): the plugin settles its geometry on its
 first fresh frame, and a descriptor composed earlier would carry the held
 frame's shape.  A strict run also collects every stream once per shot.
+
+A plugin camera's stream carries no stamp until its stack is finalized.
+Where a plan needs the camera's per-shot stamp *during* the run
+(optimize's live frames), the camera gets a **companion**: a
+:class:`~geecs_bluesky.devices.sampler.StampStream` on its gateway
+``acq_timestamp``, in ``<name>_stamps_stream`` (:data:`COMPANION_SUFFIX`),
+joined like any stamped stream.  A companion is not one of the run's
+``per_shot_streams``: the s-file and the stack check read the stack.
 """
 
 from __future__ import annotations
@@ -42,6 +50,9 @@ from geecs_bluesky.devices.native import NativeCamera
 from geecs_bluesky.devices.sampler import StampStream
 
 logger = logging.getLogger(__name__)
+
+#: A companion stamp stream's object name: ``<camera name>`` + this.
+COMPANION_SUFFIX = "_stamps"
 
 
 def is_per_shot(obj: Any) -> bool:
@@ -71,10 +82,18 @@ class DeviceStreams:
         decides per camera).  Off for a non-essential stream, as before.
     label :
         The word that opens each log line (``non-essential``), or none.
+    companions :
+        Plugin cameras among *devices* that also record their gateway stamp
+        (module docstring).
     """
 
     def __init__(
-        self, devices: Sequence[Any], *, dual_write: bool = False, label: str = ""
+        self,
+        devices: Sequence[Any],
+        *,
+        dual_write: bool = False,
+        label: str = "",
+        companions: Sequence[Any] = (),
     ) -> None:
         self._who = f"{label} " if label else ""
         self.devices = list(devices)
@@ -95,15 +114,25 @@ class DeviceStreams:
             if isinstance(s.device, GeecsDetector) and s.device.native_save
         ]
         self.framed = framed
-        self.streams: list[Any] = [*framed, *self.stamped]
+        self.companions = [
+            StampStream(d, name=owner_of(d).name + COMPANION_SUFFIX) for d in companions
+        ]
+        self.streams: list[Any] = [*framed, *self.stamped, *self.companions]
         self.dual_write = dual_write
         self._declared: set[int] = set()
         self._failing: set[str] = set()
 
     @property
     def names(self) -> list[str]:
-        """Every stream's name, in the devices' order."""
-        return [non_essential_stream(s.name) for s in self.streams]
+        """Every device stream's name, in the devices' order (companions not)."""
+        return [non_essential_stream(s.name) for s in [*self.framed, *self.stamped]]
+
+    def companion_streams(self) -> dict[str, str]:
+        """Companion stream → the camera's object name (the join's device)."""
+        return {
+            non_essential_stream(c.name): c.name.removesuffix(COMPANION_SUFFIX)
+            for c in self.companions
+        }
 
     def open(self):
         """Plan: prepare, zero, declare the stamp streams, kick everything off."""
@@ -124,7 +153,7 @@ class DeviceStreams:
                     flyer, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
                 )
             yield from bps.wait(group=group)
-        for stream in self.stamped:
+        for stream in [*self.stamped, *self.companions]:
             yield from self._declare(stream)
         yield from bps.kickoff_all(*self.streams, wait=True)
 
@@ -264,4 +293,4 @@ class DeviceStreams:
         return (yield from finalize_wrapper(staged(), self._unstage_all()))
 
 
-__all__ = ["DeviceStreams", "is_per_shot", "stream_name"]
+__all__ = ["COMPANION_SUFFIX", "DeviceStreams", "is_per_shot", "stream_name"]
