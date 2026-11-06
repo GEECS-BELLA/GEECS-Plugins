@@ -282,6 +282,11 @@ binned = sd.bin(config)      # ScanData one-call API — legacy shape,
 binned = sd.binned_scalars   # stateful compat property (same shape)
 ```
 
+`summarize_columns(frame, columns, agg=, err=)` → `{column: ColumnSummary}`
+is the same reduction with every row one bin, each column on its own (a
+row missing one column still counts for the others) — the Data Portal's
+scan scalars.
+
 `BinningConfig` also carries the numeric-binning options (`bin_edges` /
 `bin_width` / `quantile_bins`, `label`, `right`, `origin`); a
 non-numeric bin column always bins by identity. Consumed today only by
@@ -436,7 +441,10 @@ this package and must never depend on GeecsBluesky or a GUI package).
   Control) falls back to the `run_closed_evidence` files —
   `ScanDataScanNNN.txt` or the analysis s-file, opened through
   `data/sfile.py`'s path helpers. Uids are
-  `folder:{experiment}:{YYYY-MM-DD}:{number}`. A **finished** scan's
+  `folder:{experiment}:{YYYY-MM-DD}:{number}`. The start doc also carries
+  the ScanInfo range (`scan_start` / `scan_end` / `scan_step`), which
+  `RunSummary.scan_range` shows beside `scan_variable` (each stepped
+  column's alias, else its name) in the portal's day list. A **finished** scan's
   documents are cached per catalog (bounded LRU by folder), so a
   finished day costs one `os.scandir` and no file opens; unfinished
   scans are re-read each call. The cache is keyed on the finished

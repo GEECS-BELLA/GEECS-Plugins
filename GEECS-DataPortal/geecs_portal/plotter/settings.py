@@ -55,6 +55,12 @@ MAX_CAMERAS = 8
 #: The highest scope channel a row may name (from 0).
 MAX_CHANNEL = 15
 
+#: The Images page's scan-scalar statistic, one for every picked scalar.
+SCALAR_STATS: tuple[str, ...] = ("mean_std", "median_iqr", "mean_stderr")
+
+#: The most scan scalars the Images page lists.
+MAX_SCALARS = 12
+
 #: The choices of the tab and image controls, as stored.
 CHOICES: dict[str, tuple[str, ...]] = {
     "tab": ("xy", "map", "images"),
@@ -63,6 +69,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "image_hits": HIT_FILTERS,
     "image_layout": ("grid", "row"),
     "image_zscale": ("tile", "shared", "fixed"),
+    "image_scalar_stat": SCALAR_STATS,
     "xy_view": ("shot", "bin"),
     "scan_view": ("overlay", "merged"),
 }
@@ -257,6 +264,12 @@ class PlotterSettings(BaseModel):
     image_more: list[ImageCamera] = Field(
         default_factory=list, max_length=MAX_CAMERAS - 1
     )
+    #: The s-file columns the Images page summarizes under the scan's
+    #: conditions (none by default), in the order picked, and the one
+    #: statistic they share (``SCALAR_STATS``); the picker's filter text.
+    image_scalars: list[str] = Field(default_factory=list, max_length=MAX_SCALARS)
+    image_scalar_stat: str = "mean_std"
+    image_scalar_filter: str = ""
     #: The XY plot per shot or binned (each bin's centre and error bars).
     xy_view: str = "shot"
     #: The plot's shot filters, the bin settings and the plot cosmetics,
@@ -522,6 +535,8 @@ FORM_FIELDS = {
     "bg": "image_bg",
     "bgsub": "image_bgsub",
     "channel": "image_channel",
+    "scalstat": "image_scalar_stat",
+    "scalf": "image_scalar_filter",
     "view": "xy_view",
     "filters": "shot_filters",
     "bincfg": "bin_config",
@@ -589,6 +604,9 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
         _set_roi(
             rois, changes.get("image_device") or settings.image_device, form["roi"]
         )
+    scalars = _scalars(settings.image_scalars, form)
+    if scalars != settings.image_scalars:
+        changes["image_scalars"] = scalars
     more = _more_cameras(settings.image_more, form, rois)
     if more != settings.image_more:
         changes["image_more"] = more
@@ -651,6 +669,20 @@ def _more_cameras(
     if drop.isdigit() and 0 <= int(drop) - 2 < len(more):
         del more[int(drop) - 2]
     return more
+
+
+def _scalars(scalars: list[str], form: dict[str, str]) -> list[str]:
+    """The scan scalars after *form*'s ``scaladd`` (one column) and ``scaldrop``."""
+    out = list(scalars)
+    drop = form.get("scaldrop", "")
+    if drop in out:
+        out.remove(drop)
+    add = form.get("scaladd", "").strip()
+    if add and add not in out:
+        if len(out) >= MAX_SCALARS:
+            raise SettingsError(f"at most {MAX_SCALARS} scan scalars")
+        out.append(add)
+    return out
 
 
 def scan_refs(text: str) -> list[ScanRef]:

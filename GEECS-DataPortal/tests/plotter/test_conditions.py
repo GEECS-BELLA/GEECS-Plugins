@@ -60,3 +60,20 @@ def test_the_conditions_route(client: TestClient, share: Path) -> None:
     }
     empty = client.get("/api/conditions", params={"day": "2026-10-02", "scan": 2})
     assert empty.json() == {"conditions": []}
+
+
+def test_the_copied_grid_carries_the_condition_lines(
+    client: TestClient, share: Path, camera: Path
+) -> None:
+    import html
+    import json
+    import re
+
+    label_scan(share, target=[0, 0, 0, 0], door=[0, 0, 1, None])
+    page = post(client, scan=1, page="images", device=CAM)
+    found = re.search(r'data-conditions="([^"]*)"', page)
+    assert found
+    assert json.loads(html.unescape(found.group(1))) == [
+        "target: Al foil",
+        "door: mixed — changed mid-scan (open 2 · shut 1 · unknown 1)",
+    ]

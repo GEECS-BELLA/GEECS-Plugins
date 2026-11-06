@@ -463,9 +463,11 @@ def contained_artifact(analysis_folder: Path, relative: str) -> Optional[Path]:
         root = analysis_folder.resolve()
         candidate = (analysis_folder / relative).resolve()
         candidate.relative_to(root)
+        # a name the file system refuses (too long: a run's text label,
+        # never a file) is no file, not an error
+        return candidate if candidate.is_file() else None
     except (ValueError, OSError):
         return None
-    return candidate if candidate.is_file() else None
 
 
 #: Artifact types the artifact endpoint renders inline (raster only —

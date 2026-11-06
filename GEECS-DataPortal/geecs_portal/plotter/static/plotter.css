@@ -132,3 +132,11 @@
 .conditions-help summary::-webkit-details-marker { display: none; }
 .conditions-help[open] { flex-basis: 100%; }
 .conditions-help p { margin: 0.35rem 0; color: var(--muted); }
+
+/* The Images page's scan scalars: one line under the conditions. */
+.scan-scalars { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1.25rem; margin: 0 0 var(--gap); }
+.scan-scalars ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; }
+
+/* The grid export's "full res" switch: pressed reads like the kit's .seg pick. */
+.kit .btn[data-strip-full][aria-pressed="true"] { color: var(--ink); background: var(--surface-2); font-weight: 600; }
+.conditions + .scan-scalars { margin-top: calc(-0.5 * var(--gap)); }

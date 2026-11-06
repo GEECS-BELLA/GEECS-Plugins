@@ -8,6 +8,7 @@ and z scale. Each is a few calls into :mod:`geecs_portal.plotter.images`.
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import date
 from pathlib import Path
@@ -251,6 +252,30 @@ def strip_code(
         "        print(tile.caption, '—', why)\n"
         "        continue\n"
         "    print(tile.caption, pixels.shape)\n"
+    )
+
+
+def scalars_code(
+    day: date, scan: int, columns: list[str], stat: str, filters: str, experiment: str
+) -> str:
+    """The notebook snippet that rebuilds the scan scalars' numbers."""
+    agg, err, _label = scans.SCALAR_STATS[stat]
+    where = f", experiment={experiment!r}" if experiment else ""
+    keep = (
+        f"keep = images.shot_rows(frame, {filters!r})\n"
+        "rows = frame if keep is None else frame.iloc[sorted(r - 1 for r in keep)]\n"
+        if filters
+        else "rows = frame\n"
+    )
+    return (
+        "from datetime import date\n"
+        "from geecs_data_utils.data.binning import summarize_columns\n"
+        "from geecs_portal.plotter import images, scans\n\n"
+        f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
+        "frame = scans.load_frame(run)\n"
+        f"{keep}"
+        f"for column, s in summarize_columns(rows, {columns!r}, agg={agg!r}, err={err!r}).items():\n"
+        "    print(column, s.center, s.err_low, s.err_high, s.count)\n"
     )
 
 
@@ -505,8 +530,9 @@ def picture_device(folder: Path, device: str) -> bool:
 
 
 def register(router: APIRouter, ctx: Context) -> None:
-    """Add the image routes to *router* (the trace routes too)."""
+    """Add the image routes to *router* (the trace and scalar routes too)."""
     register_traces(router, ctx)
+    register_scalars(router, ctx)
 
     def opened(day: date, scan: int):
         return opened_scan(ctx, day, scan)
@@ -688,6 +714,41 @@ def register(router: APIRouter, ctx: Context) -> None:
         """The strip's one colour bar on a shared or fixed z scale: *zmin* to *zmax*."""
         png = grid_bar_png(cmap, zmin, zmax, length, vertical)
         return Response(png, media_type="image/png")
+
+
+def register_scalars(router: APIRouter, ctx: Context) -> None:
+    """Add the scan scalars' route (the line under the conditions) to *router*."""
+
+    @router.get("/api/images/scalars")
+    def api_scalars(
+        day: date,
+        scan: int,
+        cols: str = Query(description="the s-file columns, as a JSON list"),
+        stat: str = Query(
+            default="mean_std", description="mean_std | median_iqr | mean_stderr"
+        ),
+        filters: str = Query(default="", description="the set's shot filters (JSON)"),
+    ) -> JSONResponse:
+        """The Images page's scan scalars: each column over the shots the strip shows."""
+        try:
+            columns = json.loads(cols)
+            if not (
+                isinstance(columns, list) and all(isinstance(c, str) for c in columns)
+            ):
+                raise ValueError
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="cols: a JSON list of column names"
+            ) from None
+        if stat not in scans.SCALAR_STATS:
+            raise HTTPException(
+                status_code=400, detail=f"stat: one of {', '.join(scans.SCALAR_STATS)}"
+            )
+        _run, frame, _folder = opened_scan(ctx, day, scan)
+        keep = keep_rows(frame, filters)
+        body = scans.scan_scalars(frame, keep, columns, stat)
+        body["code"] = scalars_code(day, scan, columns, stat, filters, ctx.experiment)
+        return JSONResponse(body, headers=NO_CACHE)
 
 
 def register_traces(router: APIRouter, ctx: Context) -> None:

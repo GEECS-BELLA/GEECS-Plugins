@@ -1091,3 +1091,15 @@ class TestCatalog:
     def test_feature_off_is_404(self) -> None:
         client = TestClient(create_app(FakeCatalog()))
         assert client.get("/api/analysis/catalog").status_code == 404
+
+
+def test_a_long_text_label_is_not_a_file(tmp_path):
+    """A scalar job's label naming many columns outruns the file system's
+    name limit; the listing calls it no file rather than failing."""
+    label = "wrote 8 column(s) to s69.txt: " + ", ".join(
+        f"'column {i}' (2 of 2 shots)" for i in range(30)
+    )
+    assert len(label) > 255
+    assert analysis_runs.contained_artifact(tmp_path, label) is None
+    described = analysis_runs.describe_artifact(tmp_path, label, servable=None)
+    assert described["servable"] is False

@@ -57,6 +57,8 @@ def test_the_strip_can_be_copied_or_saved_as_one_picture(
 ) -> None:
     page = post(client, scan=1, page="images", device=CAM)
     assert "data-strip-copy" in page and "data-strip-save" in page
+    # screen size by default; the switch asks for the pictures' own resolution
+    assert 'data-strip-full aria-pressed="false"' in page
     assert "strip_export.js" in page
     # The picture's title line and file name name the scan and the camera.
     assert 'data-title="Scan001 · ' in page

@@ -52,6 +52,7 @@ from geecs_portal.plotter.settings import (
     MAX_FIT_ORDER,
     MAX_IMAGE_COLUMNS,
     MAX_OVERLAY_SCANS,
+    MAX_SCALARS,
     MAX_Y_LISTS,
     NameRefused,
     ImageCamera,
@@ -434,6 +435,14 @@ def _page(
         "strip_x": "",
         "filter_pass": "",
         "conditions": [],
+        "condition_lines": [],
+        "scalar_summary": None,
+        "scalar_line": "",
+        "image_scalars": settings.image_scalars,
+        "scalar_stat": settings.image_scalar_stat,
+        "scalf": settings.image_scalar_filter,
+        "max_scalars": MAX_SCALARS,
+        "scalar_stats": [(k, v[2]) for k, v in scans.SCALAR_STATS.items()],
         "bg": scan_refs_text([settings.image_bg]) if settings.image_bg else "",
         "bg_day": settings.image_bg.day if settings.image_bg else None,
         "bg_scan": settings.image_bg.scan if settings.image_bg else None,
@@ -611,6 +620,13 @@ def _fill_images(
     devices = images.devices(folder)
     page["devices"] = devices
     page["conditions"] = scans.conditions(run, frame)
+    # the same lines as text, for the exported grid's picture (strip_export.js)
+    page["condition_lines"] = [
+        f"{c['column']}: {c['label']}"
+        + (" — changed mid-scan" if c["mixed"] else "")
+        + (f" ({c['detail']})" if c["detail"] else "")
+        for c in page["conditions"]
+    ]
     looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
     x, page["strip_x"] = strip_axis(run, frame, settings.x_alias)
     page["cams"] = cams = [
@@ -624,6 +640,21 @@ def _fill_images(
         keep = None  # each row says why it has no tiles
     if keep is not None:
         page["filter_pass"] = f"{len(keep)} / {len(frame)} shots pass"
+    # The picked scan scalars over the same shots, one statistic for all.
+    if settings.image_scalars:
+        summary = scans.scan_scalars(
+            frame,
+            keep,
+            settings.image_scalars,
+            settings.image_scalar_stat,
+            page.get("ynames"),
+        )
+        page["scalar_summary"] = summary
+        texts = [s["text"] for s in summary["scalars"]]
+        page["scalar_line"] = (
+            "  ·  ".join(texts)
+            + f"   ({summary['label']} over {summary['shots']} shots)"
+        )
     try:
         missing = images.missing_filter_columns(frame, settings.shot_filters)
     except images.NoImage:

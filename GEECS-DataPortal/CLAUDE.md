@@ -109,12 +109,16 @@ extending this package.
   `--analysis-worker-url`, for the portal's own experiment) runs an
   analysis group over the day's scans on ScanAnalysis' analysis worker
   (`scan-analysis-worker`, its own service): the portal forwards
-  `/api/batch/{status,groups,plan,jobs,jobs/{id},jobs/{id}/cancel}` to it
+  `/api/batch/{status,groups,plan,jobs,jobs/{id},jobs/{id}/cancel,watch,watch/stop}` to it
   over HTTP (`geecs_portal/batch.py`, `routes/batch.py`; it adds only its
   experiment to a request that names none), imports none of it, and runs
   no batch in its own process — a day's analysis outlives a portal restart
   and never sits in this memory-capped process. No worker configured → 404,
-  one that does not answer → 503. `--analysis-worker-autostart`
+  one that does not answer → 503. The drawer's **Active analyzers** are
+checkboxes over the group's members (all ticked → `analyzers: null`, the
+whole group), used by Run and by **Watch for new scans** — the worker's
+watch on this day, started and stopped here, shown with its last look and
+its jobs (marked `· watch`). `--analysis-worker-autostart`
   (development) starts one on this host (`python -m scan_analysis.worker`
   over `--processing-configs`, its own session, left running) when the URL
   is a loopback address and nothing answers; a deployment runs the worker
@@ -960,6 +964,19 @@ analysis folder, the values from the s-file) — the scan's label, or
 *mixed* with a "changed mid-scan" chip and the split, `unknown` counting
 shots with no value; a "?" unfolds where they come from. The same list is
 `/plot/api/conditions?day=&scan=`. Per tile or on other pages: not yet.
+Under them, the **scan scalars** (the author, 2026-11-05): the s-file
+columns the viewer picks in the rail's Scalars group (`image_scalars`,
+none by default; `scaladd` / `scaldrop`, at most `MAX_SCALARS`), each
+summarized over the shots the strip shows (the shot filters apply) with
+one statistic for all (`image_scalar_stat`: mean ± std, median
+[quartiles], mean ± std. error) — `plotter.scans.scan_scalars` over
+Data-Utils' `binning.summarize_columns`, so no statistic is written here.
+The copied/saved grid prints the conditions on one line and the scalars
+on the next (`data-conditions`, `data-scalars`); the export draws each
+tile at its on-screen size by default, the `full res` switch (per
+browser) at the pictures' own resolution.
+`/plot/api/images/scalars?day=&scan=&cols=&stat=&filters=` answers the
+same numbers with the snippet that rebuilds them.
 
 **Background subtraction** (the author, 2026-11-03): the rail's
 Background scan (`image_bg`, a `ScanRef`, any day) names a scan whose

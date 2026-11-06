@@ -342,6 +342,39 @@
             </div>
           </div>
         </details>
+        {# The scan scalars: s-file columns summarized over the shots the strip
+           shows, listed under the scan's conditions (and in the copied grid).
+           None by default; one statistic for all. A pick adds one (scaladd),
+           a chip's x removes it (scaldrop); both save into the set. #}
+        <details class="disc rail-group" id="scalars-group"{% if image_scalars %} open{% endif %}>
+          <summary>Scalars <span class="hint">· {{ image_scalars | length if image_scalars else 'none' }}</span></summary>
+          <div class="dbody">
+            {% for c in image_scalars %}
+              <div class="fchip">
+                <span class="n">{{ ynames.get(c, c) }}</span>
+                {% if c not in columns %}<span class="hint level-problem">not in this scan</span>{% endif %}
+                <button type="submit" class="x" name="scaldrop" value="{{ c }}" aria-label="remove {{ c }}">✕</button>
+              </div>
+            {% else %}
+              <div class="note">none: pick a column to show its value under the conditions</div>
+            {% endfor %}
+            {% if image_scalars | length < max_scalars %}
+            <div class="field">
+              {% call picker("scaladd", "scalar", "add a scalar…", "scalf", scalf, "filter columns") %}
+                {% for c in columns %}{% if c not in image_scalars %}<option value="{{ c }}">{{ ynames.get(c, c) }}</option>{% endif %}{% endfor %}
+              {% endcall %}
+            </div>
+            {% endif %}
+            <div class="row">
+              <label class="hint" for="scalstat">Statistic</label>
+              <span class="spacer"></span>
+              <select id="scalstat" name="scalstat" data-submit-on-change title="One statistic for every scalar, over the shots the strip shows (the shot filters apply)">
+                {% for key, label in scalar_stats %}<option value="{{ key }}"{% if key == scalar_stat %} selected{% endif %}>{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <span class="hint">Each value is taken over the shots the strip shows, so the shot filters apply. Names follow Y1's name/alias choice.</span>
+          </div>
+        </details>
       {% elif columns %}
         {% if tab == "map" %}
         {# The 2-D map's columns: the scalar each cell averages, and the two
@@ -579,6 +612,7 @@
             {# The rows as one PNG (strip_export.js): copied, or saved to disk. #}
             <button class="btn sm ghost" type="button" data-strip-copy title="Copy the images to the clipboard as one picture">Copy grid</button>
             <button class="btn sm ghost" type="button" data-strip-save title="Save the images as a PNG">Save grid</button>
+            <button class="btn sm ghost" type="button" data-strip-full aria-pressed="false" title="Copy and Save draw each tile at its size on screen (small files). Press for the pictures' full resolution instead (much larger files); remembered in this browser.">full res</button>
           {% endif %}
         </header>
         <div class="body">
@@ -603,8 +637,18 @@
               </details>
             </div>
           {% endif %}
+          {% if scalar_summary %}
+            <div class="scan-scalars" id="scan-scalars" aria-label="Scan scalars">
+              <ul>
+                {% for v in scalar_summary.scalars %}<li{% if v.missing %} class="dim"{% endif %}>{{ v.text }}</li>{% endfor %}
+              </ul>
+              <span class="dim">{{ scalar_summary.label }} over {{ scalar_summary.shots }} shot{{ '' if scalar_summary.shots == 1 else 's' }}</span>
+            </div>
+          {% endif %}
           <div id="strips" class="strips{{ ' many' if many }}"
                data-title="Scan{{ '%03d' % scan }} · {{ day }} · {{ strip_line | trim }}"
+               data-conditions="{{ condition_lines | tojson | forceescape }}"
+               data-scalars="{{ scalar_line | tojson | forceescape }}"
                data-filename="Scan{{ '%03d' % scan }}_{{ day }}_{{ (cams | map(attribute='device') | select | join('+')) or 'images' }}_{{ strip }}">
             {% for c in cams %}
               <section class="cam" data-cam="{{ c.place }}" aria-label="{{ c.device or 'camera ' ~ c.place }}">
