@@ -73,8 +73,12 @@ def test_preflight_expands_and_asks(client: TestClient, preset_doc: dict) -> Non
         out["plan"]["kwargs"]["sweep"]["trajectory"]["axes"][0]["axis"]
         in out["plan"]["references"]
     )
-    assert out["plan"]["args"][0] == ["UC_ALineEBeam3", "U_ICT.scalars"]
-    assert out["plan"]["kwargs"]["non_essential"] == ["UC_TC_Phosphor"]
+    assert out["plan"]["args"][0] == [
+        "UC_ALineEBeam3",
+        "UC_TC_Phosphor",
+        "U_ICT.scalars",
+    ]
+    assert out["plan"]["kwargs"]["required"] == ["UC_ALineEBeam3", "U_ICT.scalars"]
     assert out["planned_shots"] == 70
     assert "7 steps" in out["summary"] and "strict" in out["summary"]
 

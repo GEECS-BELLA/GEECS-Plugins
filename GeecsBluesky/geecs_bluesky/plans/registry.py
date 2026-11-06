@@ -38,7 +38,7 @@ from geecs_bluesky.devices.native_setpoint import (
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.devices.witness import Witness, witness_is_down
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
-from geecs_bluesky.native_scope import NOT_GATED, NOT_NON_ESSENTIAL, NOT_SCAN_MODE
+from geecs_bluesky.native_scope import NOT_GATED, NOT_SCAN_MODE
 from geecs_bluesky.plan_names import (
     ACQUISITION_MODES,
     GEECS_PLAN_NAMES,
@@ -53,7 +53,6 @@ from geecs_bluesky.plans.gated import (
     gated_per_shot,
     gated_per_step,
     non_essential_wrapper,
-    refuse_free_running_non_essentials,
     run_bracket,
     shot_clock,
 )
@@ -65,12 +64,14 @@ from geecs_bluesky.plans.scan_mode import (
     scan_mode_preflight,
     scan_parameter_for,
 )
-from geecs_bluesky.plans.strict import (
-    geecs_name,
-    geecs_per_shot,
-    geecs_per_step,
-    name_failed_status,
+from geecs_bluesky.plans.on_demand import (
+    OnDemand,
+    on_demand_per_shot,
+    on_demand_per_step,
+    start_keys,
 )
+from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
+from geecs_bluesky.plans.strict import geecs_name, name_failed_status
 from geecs_bluesky.plans.sweep import sweep_movers, sweep_plan
 from geecs_bluesky.utils import safe_name
 
@@ -226,7 +227,12 @@ UNWAITED_NOTE = "no triggered device: the row may record the previous shot's cou
 
 
 def run_witness(
-    settables: Any, *, acquisition: str, shot_control: Any, readers: Sequence[Any] = ()
+    settables: Any,
+    *,
+    acquisition: str,
+    shot_control: Any,
+    readers: Sequence[Any] = (),
+    waited: bool | None = None,
 ):
     """Plan: the witness this run records, and its start-document record (``witness``).
 
@@ -238,7 +244,9 @@ def run_witness(
     within 5 s (``down``: WARNING-logged, the run proceeds).  With no
     triggered device among *readers*, nothing waits for the shot, so a row
     can read the count before the edge: WARNING-logged and noted
-    (:data:`UNWAITED_NOTE`), still read.
+    (:data:`UNWAITED_NOTE`), still read.  *waited* says it outright (a
+    shot-table run always waits: on its required devices, else on the
+    witness itself).
     """
     finder = getattr(settables, "witnesses", None)
     witnesses = finder() if callable(finder) else {}
@@ -261,7 +269,9 @@ def run_witness(
         _warn_at_start(record)
         return None, record
     record["read"] = True
-    if not any(isinstance(d, Triggerable) for d in readers):
+    if waited is None:
+        waited = any(isinstance(d, Triggerable) for d in readers)
+    if not waited:
         record["note"] = UNWAITED_NOTE
     _warn_at_start(record)
     return witness, record
@@ -520,41 +530,69 @@ def native_image_save_wrapper(
 
 
 def refuse_native_run(
-    detectors: Sequence[Any],
-    non_essential: Sequence[Any],
-    *,
-    acquisition: str,
-    shot_control: Any,
+    detectors: Sequence[Any], *, acquisition: str, shot_control: Any
 ) -> None:
     """Refuse a scan verb's run shape a native camera cannot take part in yet.
 
-    Called before anything moves and before the claim (``NATIVE_DEVICES.md``,
-    "Scope of the first build"): a native camera is an essential detector of
-    a strict run under a box-fired profile, with no gateway plugin camera
-    beside it.  The camera's own fly refusals are the backstop, after the
-    claim.
+    Called before anything moves and before the claim: a native camera
+    takes part in a strict run under a box-fired profile, required or not,
+    beside gateway plugin cameras or not (its own stream).  Refused: a
+    gated run (frozen) and a scan-mode profile (LabVIEW-only).  The
+    cabling check and the run lock hold at the camera's prepare.
 
     Raises
     ------
     GeecsConfigurationError
         Naming the native camera(s) and the reason.
     """
-    refuse_native_cameras(non_essential, NOT_NON_ESSENTIAL)
     if acquisition == "gated":
         refuse_native_cameras(detectors, NOT_GATED)
     if shot_control.use_scan_mode:
         refuse_native_cameras(detectors, NOT_SCAN_MODE)
-    plugin = [
-        getattr(d, "name", str(d))
-        for d in [*detectors, *non_essential]
-        if getattr(d, "plugin_backed", False) and not native_cameras([d])
-    ]
-    if plugin:
-        refuse_native_cameras(
-            detectors,
-            f"not beside a gateway plugin camera ({', '.join(plugin)}): a "
-            "refired shot would need the native writer to rewind",
-        )
+
+
+def resolve_required(per_shot: Sequence[Any], required: Any) -> list[Any]:
+    """The listed per-shot devices *required* names (``None``: all of them; ``[]``: none).
+
+    Matched by owner, so ``X`` and ``X.scalars`` name one device.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        A name that is a condition (no shot stamp) or not among the run's
+        devices.
+    """
+    if required is None:
+        return list(per_shot)
+    out: list[Any] = []
+    for entry in required:
+        owner = owner_of(entry)
+        name = getattr(owner, "name", str(entry))
+        listed = next((d for d in per_shot if owner_of(d) is owner), None)
+        if listed is None and not is_per_shot(entry):
+            raise GeecsConfigurationError(
+                f"{name}: required, but it has no shot stamp — a condition, read "
+                "in every row; only a per-shot device (a detector or a native "
+                "camera) can be required"
+            )
+        if listed is None:
+            raise GeecsConfigurationError(
+                f"{name}: required, but not among the run's devices — list it"
+            )
+        if all(listed is not d for d in out):
+            out.append(listed)
+    return out
+
+
+def _refuse_twice_listed(per_shot: Sequence[Any]) -> None:
+    owners: set[int] = set()
+    for d in per_shot:
+        if id(owner_of(d)) in owners:
+            raise GeecsConfigurationError(
+                f"{owner_of(d).name}: listed twice (a device and its scalars "
+                "view are one device, one stream)"
+            )
+        owners.add(id(owner_of(d)))
 
 
 def strict_plan(  # noqa: C901, PLR0915
@@ -614,7 +652,7 @@ def strict_plan(  # noqa: C901, PLR0915
         trigger_profile = kwargs.pop("trigger_profile", None)
         shots_per_step = int(kwargs.pop("shots_per_step", 1))
         acquisition = str(kwargs.pop("acquisition", "strict") or "strict")
-        non_essential = list(kwargs.pop("non_essential", None) or ())
+        required_arg = kwargs.pop("required", None)
         shot_period = kwargs.pop("shot_period", None)
         native_files = resolve_native_image_save(
             kwargs.pop("native_image_save", None), resolver
@@ -643,26 +681,17 @@ def strict_plan(  # noqa: C901, PLR0915
         )
         bound_args = signature.bind_partial(*args, **kwargs).arguments
         detectors = list(bound_args.get("detectors") or ())
-        refuse_native_run(
-            detectors,
-            non_essential,
-            acquisition=acquisition,
-            shot_control=shot_control,
-        )
-        refuse_free_running_non_essentials(non_essential)
-        refuse_listed_witness([*detectors, *non_essential])
-        # Compared by OWNER: ``X.scalars`` essential with ``X`` non-essential
-        # is the same camera twice — its one acquire logic would be in fly
-        # mode for the stream while the view expects the strict stamp wait.
-        owners = {id(owner_of(d)) for d in detectors}
-        both = [d for d in non_essential if id(owner_of(d)) in owners]
-        if both:
-            names = ", ".join(getattr(d, "name", str(d)) for d in both)
-            raise GeecsConfigurationError(
-                f"{names}: listed both as a detector (or its scalars view) and as "
-                "non-essential — a device is waited on every shot or streamed "
-                "for the run, not both"
-            )
+        refuse_native_run(detectors, acquisition=acquisition, shot_control=shot_control)
+        refuse_listed_witness(detectors)
+        per_shot = [d for d in detectors if is_per_shot(d)]
+        _refuse_twice_listed(per_shot)
+        required = resolve_required(per_shot, required_arg)
+        non_essential: list[Any] = []
+        if acquisition == "gated":
+            # Gated keeps its shape: the required devices are its detectors
+            # (and its clock candidates), the others stream non-essential.
+            non_essential = [d for d in per_shot if all(d is not r for r in required)]
+            detectors = [d for d in detectors if all(d is not n for n in non_essential)]
         # Scan mode (#1084): the profile's flag selects it; refuse what it
         # cannot carry before the box is driven, then thread the control
         # through the hook (the announce before every fire, the row's
@@ -683,11 +712,12 @@ def strict_plan(  # noqa: C901, PLR0915
         md["use_scan_mode"] = shot_control.use_scan_mode
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
-        # The OWNER's name: a ``.scalars`` view streams into ``<owner>_stream``,
-        # and the s-file finds the stream by this list.
-        md["non_essential"] = [
-            getattr(owner_of(d), "name", str(d)) for d in non_essential
-        ]
+        if acquisition == "gated":
+            # The OWNER's name: a ``.scalars`` view streams into
+            # ``<owner>_stream``, and the s-file finds the stream by this list.
+            md["non_essential"] = [
+                getattr(owner_of(d), "name", str(d)) for d in non_essential
+            ]
         md["native_image_save"] = native_files
         snapshot = background_snapshot(settables, mock=mock) if background else None
         md["background_telemetry"] = snapshot is not None
@@ -696,6 +726,7 @@ def strict_plan(  # noqa: C901, PLR0915
             acquisition=acquisition,
             shot_control=shot_control,
             readers=detectors,
+            waited=True if acquisition == "strict" else None,
         )
         if shot_period is not None:
             md["shot_period"] = shot_period
@@ -730,26 +761,49 @@ def strict_plan(  # noqa: C901, PLR0915
                         "or use acquisition='strict')"
                     )
                 kwargs[hook] = gated_per_shot(shot_control, quota=int(num))
-        elif hook == "per_step":
-            kwargs[hook] = geecs_per_step(
+        else:
+            streams = DeviceStreams(per_shot, dual_write=True)
+            run = OnDemand(
                 shot_control,
-                shots_per_step=shots_per_step,
+                streams,
+                required,
+                witness=witness,
                 shot_period=shot_period,
                 scan_mode=announce,
             )
-        else:
-            kwargs[hook] = geecs_per_shot(
-                shot_control, shot_period=shot_period, scan_mode=announce
+            md.update(start_keys(streams, required, witnessed=witness is not None))
+            kwargs[hook] = (
+                on_demand_per_step(
+                    run, shots_per_step=shots_per_step, scan_mode=announce
+                )
+                if hook == "per_step"
+                else on_demand_per_shot(run, scan_mode=announce)
             )
+        # The rows' readers: in a strict run the conditions (every per-shot
+        # device is in its own stream), then the witness and the background,
+        # neither triggered nor waited on (the background is sampled at the
+        # tick in a gated batch, which has no witness).
+        rows = (
+            detectors
+            if acquisition == "gated"
+            else [d for d in detectors if not is_per_shot(d)]
+        )
         extras = [d for d in (witness, snapshot) if d is not None]
-        if extras:
-            # More readers of the row, last, neither triggered nor waited on:
-            # the strict take_reading reads them per shot (the background is
-            # sampled at the tick in a gated batch, which has no witness).
+        if acquisition == "strict":
+            # The stock key keeps naming every device the run records.
+            md["detectors"] = [
+                getattr(d, "name", str(d)) for d in [*detectors, *extras]
+            ]
+        listed = list(bound_args.get("detectors") or ())
+        if extras or len(rows) != len(listed):
             bound = signature.bind_partial(*args, **kwargs)
-            bound.arguments["detectors"] = [*detectors, *extras]
+            bound.arguments["detectors"] = [*rows, *extras]
             args, kwargs = bound.args, dict(bound.kwargs)
-        inner = non_essential_wrapper(stock(*args, md=md, **kwargs), non_essential)
+        inner = stock(*args, md=md, **kwargs)
+        if acquisition == "gated":
+            inner = non_essential_wrapper(inner, non_essential)
+        else:
+            inner = streams.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
         if snapshot is not None:
             payload = bound_args.get("sweep")
@@ -816,7 +870,7 @@ def strict_plan(  # noqa: C901, PLR0915
         )
     )
     # Devices, like ``detectors``: the manager resolves names in any argument.
-    parameters.append(Parameter("non_essential", Parameter.KEYWORD_ONLY, default=None))
+    parameters.append(Parameter("required", Parameter.KEYWORD_ONLY, default=None))
     parameters.append(
         Parameter(
             "shot_period",
@@ -883,13 +937,14 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "        device without a file plugin saves its LabVIEW files run-long\n"
         "        (on at the first step, off at unstage); a dropped frame is a\n"
         "        missing file, never a retake.\n"
-        "    non_essential : list of devices, optional\n"
-        "        Triggered devices recorded for the run's duration, each in its\n"
-        "        own '<name>_stream' and joined to the shots by stamp; never\n"
-        "        waited on, never failing the run.  A plugin-backed camera\n"
-        "        streams its frames; a device without a plugin records one\n"
-        "        event per stamp it publishes (its scalars, and its LabVIEW\n"
-        "        files if it saves them).  A device with no stamp is refused.\n"
+        "    required : list of devices, optional\n"
+        "        The per-shot devices (detectors, their scalars views, native\n"
+        "        cameras) whose record makes a shot complete: waited on and\n"
+        "        refired for.  None (default) = every per-shot device; [] =\n"
+        "        none.  Strict: every per-shot device streams into its own\n"
+        "        '<name>_stream' and 'primary' is the shot table; gated: the\n"
+        "        others stream non-essential.  A device with no stamp is a\n"
+        "        condition, read in every row, and cannot be required.\n"
         "    shot_period : float, optional\n"
         "        Strict only: seconds between fires (a deliberate rep-rate\n"
         "        throttle); None fires as fast as the shot allows.  A gated\n"

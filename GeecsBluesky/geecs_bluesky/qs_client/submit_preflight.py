@@ -15,8 +15,8 @@ Checks, in order (the ``PreflightOutcome.check`` vocabulary):
   A closed environment or a missing plan is a hard refusal naming the
   recovery gesture; an unreachable manager, an unanswered plan list or no
   ``[qserver]`` config is *skipped* (fail-open).  Off the same tree: every
-  ``non_essential`` device must be triggered (an ``acq_timestamp`` child),
-  and a gated run needs an essential triggered device.
+  ``non_essential`` device (optimize) must be triggered, and a gated run
+  needs a required triggered device.
 - ``gateway_liveness`` — each preset and trigger-profile device's
   ``CONNECTED`` PV, read once; only the exact ``"Disconnected"`` counts
   as down (fail-open).
@@ -328,20 +328,19 @@ def _check_worker_ready(
 def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
     """The phase-2 device rules over the manager's device tree, or ``None``.
 
-    *known* is the tree flattened to dotted names.  A plugin-backed
-    detector has an ``hdf`` child; a LabVIEW-native camera has ``save``
-    (and ``localsavingpath``) but no ``hdf`` — admitted as a gated
-    essential and as a non-essential in either mode (its own stream, one
-    event per stamp); a
-    triggered device has an ``acq_timestamp`` child; a scalar-only device
-    has neither, and is refused as a non-essential (nothing could place
-    its readings on a shot — the free-running case is deferred).
+    *known* is the tree flattened to dotted names.  A triggered device has
+    an ``acq_timestamp`` child, a plugin-backed or native camera an ``hdf``
+    child: those are per-shot devices.  A scalar-only device has neither —
+    a condition, read in every row: the submit leaves it out of
+    ``required`` (``expand_preset``'s ``device_tree``), and ``optimize``
+    refuses it as ``non_essential`` (nothing could place its readings on a
+    shot).
 
     Parameters
     ----------
     item :
         The expanded queue item (``args[0]`` the detectors, ``kwargs``
-        with ``acquisition`` / ``non_essential``).
+        with ``acquisition`` / ``required`` / ``non_essential``).
     known :
         The device names the manager resolves.
 
@@ -351,11 +350,14 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
         The refusal sentence, or ``None`` when every rule passes.
     """
     gated = item.kwargs.get("acquisition", "strict") == "gated"
-    non_essential = list(item.kwargs.get("non_essential") or ())
     detectors = list(item.args[0]) if item.args else []
-    unstamped = [
-        r for r in non_essential if f"{_owner_reference(r)}.acq_timestamp" not in known
-    ]
+    required = item.kwargs.get("required")
+    non_essential = list(item.kwargs.get("non_essential") or ())
+
+    def stamped(reference: str) -> bool:
+        return f"{_owner_reference(reference)}.acq_timestamp" in known
+
+    unstamped = [r for r in non_essential if not stamped(r)]
     if unstamped:
         return (
             f"non-essential device(s) with no shot stamp: {', '.join(unstamped)} "
@@ -365,8 +367,10 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
         )
     if not gated:
         return None
-    owners = [_owner_reference(r) for r in detectors]
-    if not any(f"{r}.acq_timestamp" in known for r in owners):
+    # A condition in ``required`` (expanded without the tree) is dropped at
+    # submit, when the client has it: never a clock either way.
+    clocks = detectors if required is None else list(required)
+    if not any(stamped(r) for r in clocks):
         return (
             "gated acquisition: no essential triggered device — nothing counts "
             "shots. Add a camera or a triggered scalar device (one with an "

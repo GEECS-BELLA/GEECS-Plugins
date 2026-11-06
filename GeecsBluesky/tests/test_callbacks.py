@@ -1163,6 +1163,7 @@ def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
     from geecs_bluesky.callbacks import StackCheckCallback
 
     plans, box, sfile = gated_worker
+    box.clock = True  # the fire-interval join needs the worker's clock
     stack_check = StackCheckCallback(finalize_timeout=4.0)
     RE.subscribe(stack_check)
     caplog.set_level(logging.INFO, logger="geecs_bluesky.callbacks")
@@ -1180,7 +1181,10 @@ def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
     box.cameras.remove(dead)
     col = DocCollector()
     RE.subscribe(col)
-    RE(plans["count"]([a], 6, acquisition=mode, non_essential=[slow, dead]))
+    # Strict fires spaced as a real run's: the unwitnessed join places a
+    # record by fire interval, which a 30 ms cadence would leave ambiguous.
+    spaced = {"shot_period": 0.15} if mode == "strict" else {}
+    RE(plans["count"]([a, slow, dead], 6, acquisition=mode, required=[a], **spaced))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     events = _events_from_pages(col, "u_slow_stream")
     stamps = [e["data"]["u_slow-acq_timestamp"] for e in events]
@@ -1192,7 +1196,11 @@ def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
 
     table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
     assert len(table) == 6
-    rows = _events_from_pages(col, "primary" if mode == "strict" else "shots")
+    rows = (
+        col.stream_events("uc_a_stream")
+        if mode == "strict"
+        else _events_from_pages(col, "shots")
+    )
     by_stamp = dict(zip([r["data"]["uc_a-acq_timestamp"] for r in rows], range(6)))
     hit = sorted(by_stamp[s] for s in stamps if s in by_stamp)
     assert hit == [2, 5]
@@ -1213,7 +1221,7 @@ def test_a_slow_non_essential_native_saver_joins_by_stamp_and_checks_its_files(
     # An event without its file, and a file between events with none: counted
     # apart, a WARNING, never a failure.
     (directory / f"U_Slow_{stamps[0]:.3f}.himg").unlink()
-    (directory / f"U_Slow_{stamps[0] + 1.0:.3f}.himg").write_bytes(b"x")
+    (directory / f"U_Slow_{(stamps[0] + stamps[1]) / 2:.3f}.himg").write_bytes(b"x")
     start = col.docs["start"][0]
     _replay_slow_stream({**start, "uid": "again"}, events)
     log = (tmp_path / "scans" / "Scan001" / "scan.log").read_text()
@@ -1241,10 +1249,11 @@ def test_a_scalars_view_non_essential_reaches_the_s_file(RE, gated_worker, tmp_p
     ``expand_preset`` now admits).
     """
     plans, box, sfile = gated_worker
+    box.clock = True
     a = _camera(RE, box, "UC_A")
     slow = _camera(RE, box, "U_Slow")
     set_mock_value(slow.meancounts, 9.0)
-    RE(plans["count"]([a], 3, non_essential=[slow.scalars]))
+    RE(plans["count"]([a, slow.scalars], 3, required=[a], shot_period=0.15))
     sfile.join(10.0)
     table = pd.read_csv(tmp_path / "analysis" / "s1.txt", sep="\t")
     assert list(table["U_Slow MeanCounts"]) == [9.0] * 3
@@ -1273,8 +1282,9 @@ def test_a_gated_run_whose_stack_never_finalizes_still_gets_its_s_file(
 def test_a_strict_run_with_a_non_essential_camera_joins_its_stack(
     RE, gated_worker, tmp_path, axes_namespace
 ):
-    """The strict rows stay the primary events; the streamed camera joins by stamp."""
+    """The strict rows are the shot table; both devices' streams join by fire interval."""
     plans, gated_box, sfile = gated_worker
+    gated_box.clock = True
     essential = _camera(RE, gated_box, "UC_Main")
     streamed, _ = _plugin_camera(RE, gated_box, "UC_B", tmp_path)
     set_mock_value(
@@ -1289,12 +1299,16 @@ def test_a_strict_run_with_a_non_essential_camera_joins_its_stack(
     axes_namespace["Motor"] = magnet
     col = DocCollector()
     RE.subscribe(col)
-    RE(plans["sweep"]([essential], sweep=range_payload(2), non_essential=[streamed]))
+    RE(
+        plans["sweep"](
+            [essential, streamed], sweep=range_payload(2), required=[essential]
+        )
+    )
     assert col.docs["stop"][-1]["exit_status"] == "success"
     stamps = [
-        e["data"]["uc_main-acq_timestamp"] for e in _stream_events(col, "primary")
+        e["data"]["uc_main-acq_timestamp"] for e in col.stream_events("uc_main_stream")
     ]
-    assert len(stamps) == 2
+    assert len(stamps) == 2 and len(_stream_events(col, "primary")) == 2
     # Two frames are referenced by B's datum; the third is one the camera wrote
     # between its collect and its unstage, which no datum covers — it must not
     # reach the s-file even though it sits inside a row's window.
@@ -1621,7 +1635,11 @@ def test_a_gated_run_with_a_non_essential_camera_joins_both_stream_shapes(
         )
     col = DocCollector()
     RE.subscribe(col)
-    RE(plans["count"]([essential], 3, acquisition="gated", non_essential=[streamed]))
+    RE(
+        plans["count"](
+            [essential, streamed], 3, acquisition="gated", required=[essential]
+        )
+    )
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert {d["name"] for d in col.docs["descriptor"]} == {
         "primary",

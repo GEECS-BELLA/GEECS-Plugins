@@ -334,6 +334,38 @@ class TestZmqQueueClient:
         assert added["kwargs"]["trigger_profile"] == "HTU-NoGas"
         assert added["kwargs"]["md"]["geecs"] == {"submission": {}, "preset": "p"}
 
+    def test_submit_preset_never_requires_a_condition(self):
+        """A stampless device (default essential) beside a non-essential camera still submits."""
+        from geecs_schemas import Preset
+
+        class Tree(_FakeManagerAPI):
+            def devices_allowed(self, *, reload=False, user_group=None) -> dict:
+                super().devices_allowed()
+                components = {"acq_timestamp": {}, "scalars": {}}
+                return {
+                    "success": True,
+                    "devices_allowed": {
+                        "UC_Cam": {"components": components},
+                        "U_Gauge": {"components": {"pressure": {}}},
+                    },
+                }
+
+        preset = Preset.model_validate(
+            {
+                "name": "p",
+                "devices": [
+                    {"device": "U_Gauge"},
+                    {"device": "UC_Cam", "essential": False},
+                ],
+                "plan": {"name": "count", "kwargs": {"num": 2}},
+            }
+        )
+        fake = Tree()
+        assert _client(fake).submit_preset(preset).ok
+        added = next(c[1] for c in fake.calls if c[0] == "item_add")
+        assert added["args"] == [["U_Gauge", "UC_Cam"]]
+        assert added["kwargs"]["required"] == []
+
     def test_submit_preset_refusal_is_the_expansion_message(self):
         from geecs_schemas import Preset
 

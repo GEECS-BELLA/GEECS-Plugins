@@ -5,7 +5,7 @@ layout; a software trigger gives one frame per press and none while
 armed and idle).  Pinned here: the camera is stopped and put in trigger
 mode *before* the HDF capture starts and armed once per run, the software
 source presses ``TriggerSoftware`` per shot and Line1 does not, a missed
-frame is the GEECS timeout and fails the step instead of refiring, the
+frame is the GEECS timeout, the
 writer keeps the IOC's layout with SWMR off, the row stamp is the frame's
 EPICS timestamp in the LabVIEW epoch through the reader's own conversion,
 ``unstage`` restores the camera, a bounded fly prepare (a gated batch) is
@@ -299,10 +299,8 @@ def test_a_line_the_camera_lacks_is_refused_before_the_camera_is_touched(
     assert _run(RE, lambda: cam.driver.acquire.get_value()) is True  # still live view
 
 
-def test_a_missed_frame_is_the_geecs_timeout_and_fails_the_step(
-    RE: RunEngine, tmp_path: Path
-) -> None:
-    """No frame: GeecsTriggerTimeoutError, an empty stamp, and no refire (discard raises)."""
+def test_a_missed_frame_is_the_geecs_timeout(RE: RunEngine, tmp_path: Path) -> None:
+    """No frame: GeecsTriggerTimeoutError carrying the writer's reason, and an empty stamp."""
     cam, _ = _camera(RE, tmp_path)  # software source, but no frame ever lands
     set_mock_value(cam.hdf.write_message, "Error opening file")
     _run(RE, lambda: cam.stage())
@@ -312,21 +310,6 @@ def test_a_missed_frame_is_the_geecs_timeout_and_fails_the_step(
     assert cam.missed_shot
     reading = _run(RE, lambda: cam.read())
     assert math.isnan(reading["adtest_cam1-acq_timestamp"]["value"])
-    with pytest.raises(GeecsTriggerTimeoutError, match="cannot refire"):
-        _run(RE, lambda: cam.discard_uncollected())
-
-
-def test_a_frame_that_arrived_survives_another_devices_miss(
-    RE: RunEngine, tmp_path: Path
-) -> None:
-    """Strict calls discard on every plugin-backed device when any device missed."""
-    cam, _ = _camera(RE, tmp_path)
-    _frames_on_software_trigger(cam)
-    _run(RE, lambda: cam.stage())
-    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
-    _run(RE, lambda: cam.trigger())
-    _run(RE, lambda: cam.discard_uncollected())  # no-op: its own frame stays
-    assert not cam.missed_shot
 
 
 def test_unstage_restores_the_camera_and_closes_the_file(
@@ -604,60 +587,6 @@ def test_column_header_is_the_device_stamp(RE: RunEngine, tmp_path: Path) -> Non
     assert cam._column_headers == {
         "adtest_cam1-acq_timestamp": "ADTEST_CAM1 acq_timestamp"
     }
-
-
-def test_a_pause_mid_shot_never_replays_the_shot(RE: RunEngine, tmp_path: Path) -> None:
-    """The strict shot's rewind rule, on the real RunEngine (``plans/strict.py``).
-
-    An immediate pause lands after the frame was written but before the row
-    is saved.  A rewindable shot would replay trigger + fire on resume and
-    the append-only writer would hold two frames for one row; the native
-    camera is not rewindable, so the resume continues and one frame stays.
-    """
-    import bluesky.plan_stubs as bps
-    from bluesky.preprocessors import rewindable_wrapper, run_wrapper, stage_wrapper
-    from bluesky.utils import all_safe_rewind
-
-    cam, _ = _camera(RE, tmp_path)
-    presses = _frames_on_software_trigger(cam)
-    paused = []
-
-    def press_then_pause(*_, **__):
-        presses.append(1)
-        set_mock_value(cam.hdf.num_captured, len(presses))
-        if not paused:
-            paused.append(1)
-            # From another thread, as an operator's pause arrives (the RE's
-            # own loop thread would deadlock on it).
-            import threading
-
-            threading.Thread(target=RE.request_pause, kwargs={"defer": False}).start()
-
-    get_mock_execute(cam.driver.trigger_software).side_effect = press_then_pause
-    assert all_safe_rewind([cam]) is False
-
-    def shot():
-        yield from bps.prepare(cam, STRICT_TRIGGER_INFO, wait=True)
-        yield from bps.checkpoint()
-        yield from rewindable_wrapper(
-            bps.trigger_and_read([cam]), all_safe_rewind([cam])
-        )
-
-    from bluesky.utils import RunEngineInterrupted
-
-    docs: list[tuple[str, dict]] = []
-    with pytest.raises(RunEngineInterrupted):
-        RE(
-            stage_wrapper(run_wrapper(shot()), [cam]),
-            lambda name, doc: docs.append((name, doc)),
-        )
-    assert RE.state == "paused" and paused
-    RE.resume()
-    assert len(presses) == 1  # the shot was not fired again
-    events = [doc for name, doc in docs if name == "event"]
-    datums = [doc for name, doc in docs if name == "stream_datum"]
-    assert len(events) == 1
-    assert sum(d["indices"]["stop"] - d["indices"]["start"] for d in datums) == 1
 
 
 def test_the_path_provider_hands_a_linux_ioc_a_posix_path(tmp_path: Path) -> None:

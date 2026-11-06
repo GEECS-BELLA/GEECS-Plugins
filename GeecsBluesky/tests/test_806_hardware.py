@@ -27,6 +27,11 @@ from disk and from the documents:
 Environment: ``GEECS_HW_EXPERIMENT`` (``Undulator``), ``GEECS_HW_CAMERA_DEVICE``
 (``UC_Amp4_IR_input``), ``GEECS_HW_TRIGGER_PROFILE`` (``HTU-NoGas``),
 ``GEECS_HW_SHOTS`` (5), ``GEECS_HW_DOCS_OUT`` (optional JSON dump).
+
+The bound plans now write the shot-table layout (``primary`` per fire,
+each device in its own stream); the assertions on ``primary`` below were
+written for the earlier layout, and their verification on hardware is
+owed.
 """
 
 from __future__ import annotations

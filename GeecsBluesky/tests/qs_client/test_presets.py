@@ -218,7 +218,7 @@ def test_a_preset_cannot_name_run_action() -> None:
 
 
 # ------------------------------------------------------------- phase 2b
-def test_non_essential_devices_ride_as_the_plans_keyword() -> None:
+def test_the_essential_devices_ride_as_required() -> None:
     preset = _preset(
         devices=[
             {"device": "UC_ALineEBeam3"},
@@ -228,15 +228,36 @@ def test_non_essential_devices_ride_as_the_plans_keyword() -> None:
         plan={"name": "count", "kwargs": {"num": 10, "acquisition": "gated"}},
     )
     item = expand_preset(preset)
-    assert item.args == [["UC_ALineEBeam3", "U_BCaveICT.scalars"]]
-    assert item.kwargs["non_essential"] == ["UC_SlowCam"]
+    assert item.args == [["UC_ALineEBeam3", "UC_SlowCam", "U_BCaveICT.scalars"]]
+    assert item.kwargs["required"] == ["UC_ALineEBeam3", "U_BCaveICT.scalars"]
+    assert "non_essential" not in item.kwargs
     assert item.kwargs["acquisition"] == "gated"
-    assert item.references == ["UC_ALineEBeam3", "U_BCaveICT.scalars", "UC_SlowCam"]
+    assert item.references == ["UC_ALineEBeam3", "UC_SlowCam", "U_BCaveICT.scalars"]
+    # None essential: an explicit empty list, never absent (absent = all).
+    none = _preset(devices=[{"device": "UC_SlowCam", "essential": False}])
+    assert expand_preset(none).kwargs["required"] == []
 
 
-def test_all_essential_preset_carries_no_non_essential_keyword() -> None:
+def test_a_condition_is_never_required_once_the_tree_says_so() -> None:
+    """A stampless device (its default ``essential``) beside a non-essential camera."""
+    preset = _preset(
+        devices=[
+            {"device": "UC_Cam"},
+            {"device": "U_Gauge"},
+            {"device": "UC_Slow", "essential": False},
+        ]
+    )
+    tree = {"UC_Cam.acq_timestamp", "UC_Slow.hdf", "U_Gauge", "U_Gauge.pressure"}
+    item = expand_preset(preset, device_tree=tree)
+    assert item.args[0] == ["UC_Cam", "U_Gauge", "UC_Slow"]
+    assert item.kwargs["required"] == ["UC_Cam"]
+    only_conditions = _preset(devices=[{"device": "UC_Cam"}, {"device": "U_Gauge"}])
+    assert "required" not in expand_preset(only_conditions, device_tree=tree).kwargs
+
+
+def test_all_essential_preset_carries_no_required_keyword() -> None:
     item = expand_preset(_preset())
-    assert "non_essential" not in item.kwargs and "acquisition" not in item.kwargs
+    assert "required" not in item.kwargs and "acquisition" not in item.kwargs
 
 
 def test_non_essential_scalars_only_streams_its_view() -> None:
@@ -253,8 +274,8 @@ def test_non_essential_scalars_only_streams_its_view() -> None:
             ]
         )
     )
-    assert item.args == [["UC_A"]]
-    assert item.kwargs["non_essential"] == ["UC_Cam.scalars"]
+    assert item.args == [["UC_A", "UC_Cam.scalars"]]
+    assert item.kwargs["required"] == ["UC_A"]
     assert item.references[:2] == ["UC_A", "UC_Cam.scalars"]
 
 
@@ -307,16 +328,11 @@ def _native_preset(device: dict, **kwargs) -> Preset:
         ({"device": "ADTEST_CAM1"}, {"acquisition": "gated"}, "not in a gated batch"),
         (
             {"device": "ADTEST_CAM1", "essential": False},
-            {},
-            "not as a non-essential stream",
-        ),
-        (
-            {"device": "ADTEST_CAM1", "essential": False},
             {"acquisition": "gated"},
-            "not as a non-essential stream",
+            "not in a gated batch",
         ),
     ],
-    ids=["gated-essential", "strict-non-essential", "gated-non-essential"],
+    ids=["gated-essential", "gated-not-required"],
 )
 def test_a_native_camera_in_a_refused_shape_is_refused_at_expansion(
     device: dict, kwargs: dict, why: str
@@ -331,7 +347,11 @@ def test_a_native_camera_in_a_refused_shape_is_refused_at_expansion(
     assert str(info.value) == STRICT_ONLY + why
 
 
-def test_the_strict_essential_shape_of_a_native_camera_expands() -> None:
+def test_a_strict_native_camera_expands_required_or_not() -> None:
+    loose = _native_preset({"device": "ADTEST_CAM1", "essential": False})
+    assert expand_preset(loose, native_devices={"ADTEST_CAM1"}).kwargs["required"] == [
+        "UC_Other"
+    ]
     item = expand_preset(
         _native_preset({"device": "ADTEST_CAM1"}), native_devices={"ADTEST_CAM1"}
     )

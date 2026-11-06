@@ -33,6 +33,8 @@ deliberately not here):
 
 from __future__ import annotations
 
+import contextlib
+
 import logging
 import threading
 from collections.abc import Callable, Mapping
@@ -841,9 +843,19 @@ class ScannerService:
         from geecs_bluesky.qs_client import expand_preset
 
         try:
-            return expand_preset(preset, catalog=catalog, resolver=self.resolver)
+            item = expand_preset(preset, catalog=catalog, resolver=self.resolver)
         except Exception as exc:
             raise ScannerError("invalid_request", str(exc)) from exc
+        if "required" not in item.kwargs:
+            return item
+        # Some device is not required: the tree tells the conditions apart
+        # (no shot stamp), which are never required — as the submit does.
+        tree: list[str] | None = None
+        with contextlib.suppress(Exception), self._lock:  # no tree: the default
+            tree = self.client.allowed_device_names()
+        return expand_preset(
+            preset, catalog=catalog, resolver=self.resolver, device_tree=tree
+        )
 
     def _queue_item(
         self, name: str, args: list[Any], kwargs: dict[str, Any], *, what: str

@@ -165,18 +165,40 @@ def test_every_row_records_the_witness_and_its_own_stamp(
     assert _warnings(caplog, "3 fire(s) since the baseline (count 0), 3 counted")
 
 
-def test_record_only_a_camera_retake_still_happens_and_the_witness_never_steers(
-    RE, box, profiles, witness
+def test_a_fire_nothing_saw_pauses_and_the_resume_fires_again(
+    RE, box, profiles, witness, caplog
 ) -> None:
-    """Fire 1: the camera misses AND the witness does not see it — the retake is normal."""
+    """Fire 1: the camera misses AND the witness does not see it — not fired: the row is kept, the run pauses."""
+    from bluesky.utils import RunEngineInterrupted
+
     cam = _camera(RE, box, "UC_Cam", shot_timeout=0.3)
     box.drop = {("uc_cam", 1)}
     box.unseen = {1}
-    col = _run(RE, _plans(profiles, witness)["count"], [cam], 1)
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(RunEngineInterrupted):
+        RE(_plans(profiles, witness)["count"]([cam], 1))
+    assert box.fires == 1 and _warnings(caplog, "the fire was not seen")
+    RE.resume()
     rows = col.primary_events()
-    assert box.fires == 2 and len(rows) == 2  # the partial row and its retake
+    assert box.fires == 2 and len(rows) == 2  # the unfired row and its retake
     assert [e["data"]["witness_count"] for e in rows] == [0, 1]
+    assert [e["data"]["complete"] for e in rows] == [False, True]
     assert col.docs["stop"][0]["exit_status"] == "success"
+
+
+def test_a_witness_that_stays_put_while_the_devices_report_is_late(
+    RE, box, profiles, witness
+) -> None:
+    cam = _camera(RE, box, "UC_Cam")
+    box.unseen = {2}
+    col = _run(RE, _plans(profiles, witness)["count"], [cam], 3)
+    assert [e["data"]["witness_late"] for e in col.primary_events()] == [
+        False,
+        True,
+        False,
+    ]
+    assert col.docs["start"][0]["shot_clock_column"] == "witness_stamp"
 
 
 @pytest.mark.parametrize(
@@ -259,6 +281,7 @@ def test_the_run_start_warnings_reach_scan_log(
             "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
         )
         connect_mock(RE, gauge)
+        # A shot-table run with nothing required waits on the witness: no note.
         readers, words = [gauge], "no triggered device"
     folder = tmp_path / "Scan001"
     folder.mkdir()
@@ -266,7 +289,7 @@ def test_the_run_start_warnings_reach_scan_log(
     md = {"scan_number": 1, "scan_folder": str(folder)}
     RE(_plans(profiles, witness)["count"](readers, 1, md=md))
     log = (folder / "scan.log").read_text()
-    assert log.count(words) == 1 and "finished (success)" in log
+    assert log.count(words) == int(down) and "finished (success)" in log
 
 
 def test_a_down_witness_at_the_start_records_why_and_the_run_proceeds(
@@ -399,10 +422,10 @@ def test_gated_and_box_less_runs_do_not_read_the_witness(witness) -> None:
 
 
 @pytest.mark.parametrize("triggered", [False, True])
-def test_a_run_with_no_triggered_device_is_noted_and_warned(
+def test_a_shot_table_run_always_waits_so_carries_no_note(
     RE, box, profiles, witness, caplog, triggered
 ) -> None:
-    """Nothing waits for the shot without a triggered device: a row may read it early."""
+    """With nothing required the slot waits on the witness itself: no row reads it early."""
     from geecs_bluesky.devices.ca import CaSnapshotReadable
     from geecs_bluesky.plans.registry import UNWAITED_NOTE
 
@@ -415,13 +438,7 @@ def test_a_run_with_no_triggered_device_is_noted_and_warned(
         col = _run(RE, _plans(profiles, witness)["count"], readers, 2)
     record = col.docs["start"][0]["witness"]
     assert record["read"] is True and box.fires == 2
-    if triggered:
-        assert "note" not in record
-        assert not _warnings(caplog, "no triggered device")
-    else:
-        assert record["note"] == UNWAITED_NOTE
-        # at bind, and once more after open_run (for scan.log)
-        assert len(_warnings(caplog, "no triggered device")) == 2
+    assert "note" not in record and not _warnings(caplog, UNWAITED_NOTE)
 
 
 # --------------------------------------------------------------- namespace

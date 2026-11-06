@@ -14,9 +14,9 @@ be skipped.  The GEECS camera contract over stock records
   — the accepted caveat), or through :meth:`NativeCamera.press` at the fire
   of a stream run; ``Line0`` / ``Line1`` wait for the timing system's edge
   on that input;
-- **one frame per row**: an own miss fails the step and a pause never
-  replays a shot (the writer cannot rewind; Bluesky's HDF5 consolidator
-  reads frames by datum count from 0);
+- **never rewound**: the writer appends, and Bluesky's HDF5 consolidator
+  reads frames by datum count from 0 — a strict run streams the camera, so
+  a skipped frame is a gap in its stream and a pause replays nothing;
 - **the row stamp** is the frame's EPICS timestamp through
   ``scan_stack.epics_timestamp_to_unix``, in the LabVIEW epoch.
 
@@ -499,21 +499,6 @@ class _StampDataLogic(DetectorDataLogic):
         )
 
 
-class _NotRewindable:
-    """What bluesky's ``all_safe_rewind`` reads (``rewindable.get()``): never safe.
-
-    A pause after this camera's frame landed but before the row was saved
-    would otherwise **replay** the trigger and the fire on resume
-    (``plans/strict.py`` wraps each shot in ``rewindable_wrapper``, and a
-    device without this attribute counts as safe to re-run): the stock
-    writer keeps the first frame and captures a second, one frame too many
-    for one row.  Not rewindable, the resume continues where it stopped.
-    """
-
-    def get(self) -> bool:
-        return False
-
-
 class NativeCamera(StandardDetector):
     """A native EPICS camera as a GEECS strict detector (module docstring).
 
@@ -562,8 +547,6 @@ class NativeCamera(StandardDetector):
             liveness_word, cnct=self.driver.asyn_connect
         )
         self._session = _Session()
-        #: Read by bluesky's ``all_safe_rewind``: a shot is never replayed.
-        self.rewindable = _NotRewindable()
         self._native_acquire = NativeAcquireLogic(
             self.driver, self._session, self.run_lock
         )
@@ -735,24 +718,6 @@ class NativeCamera(StandardDetector):
             )
         ctx.collections_written = sys.maxsize
         await super().kickoff()
-
-    async def discard_uncollected(self) -> None:
-        """Keep a frame that arrived; fail the step on this camera's own miss.
-
-        The strict plan calls this on every plugin-backed device when any
-        device missed.  A frame this camera did write is the shot's and its
-        datum stays (it is the run's only external key — mixed runs with a
-        gateway plugin camera are refused at bind).  Its own miss cannot be
-        retaken: the stock writer cannot rewind a late frame, and a skipped
-        frame shifts every later frame in Tiled (``NATIVE_DEVICES.md``).
-        """
-        if self._session.missed:
-            raise GeecsTriggerTimeoutError(
-                self._geecs_device_name,
-                self._frame_timeout(),
-                f"{self._geecs_device_name} missed a shot: a native camera cannot "
-                "refire yet (its writer cannot rewind) — the step fails",
-            )
 
 
 def native_cameras(devices: Iterable[Any]) -> list[NativeCamera]:

@@ -14,11 +14,13 @@ box)::
 
 What it proves (phase 0): a :class:`GeecsDetector` built for a real camera, a
 :class:`ShotControl` built from the trigger profile, and stock
-``bp.count`` / ``bp.list_scan`` with :func:`geecs_per_shot` /
-:func:`geecs_per_step` run a strict GEECS scan — the detector's own
-lifecycle turns native saving on and off, every row carries the shot's
-stamp, and the files land in the claimed scan folder.  Also records the
-per-shot timing the per-shot budget depends on.
+``bp.count`` / ``bp.list_scan`` with the on-demand hooks
+(``tests.test_strict_plans.strict_count`` / ``strict_scan``) run a strict
+GEECS scan in the shot-table layout — the detector's own lifecycle turns
+native saving on and off, its stream carries every shot's stamp, and the
+files land in the claimed scan folder.  Also records the per-shot timing
+the per-shot budget depends on.  Moved onto the shot-table layout without
+lab access: its verification on hardware is owed.
 
 **MOVES HARDWARE** when ``GEECS_HW_SCAN_VARIABLE`` is set: the swept
 setpoint is restored to its pre-scan setpoint in a ``finally``.  With
@@ -79,7 +81,7 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:  # noqa: C901,
     from geecs_bluesky.devices.shot_control import ShotControl
     from geecs_bluesky.namespace import DeviceRoster, GeecsNamespace, python_type
     from geecs_bluesky.plans.claim_scan import claim_scan_number
-    from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
+    from tests.test_strict_plans import strict_count, strict_scan
     from geecs_bluesky.run_engine import make_run_engine
 
     experiment = os.environ.get("GEECS_HW_EXPERIMENT", "Undulator")
@@ -162,18 +164,19 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:  # noqa: C901,
 
     def acceptance():
         yield from bps.mv(shot_control, "ARMED")
-        yield from bp.count(
+        yield from strict_count(
+            shot_control,
             [camera],
-            num=shots,
-            per_shot=geecs_per_shot(shot_control),
+            shots,
             md={"purpose": "807-phase0-count", "scan_number": scan_number},
         )
         if movable is not None:
-            yield from bp.list_scan(
+            yield from strict_scan(
+                shot_control,
                 [camera],
                 movable,
                 points,
-                per_step=geecs_per_step(shot_control),
+                plan=bp.list_scan,
                 md={"purpose": "807-phase0-scan", "scan_number": scan_number},
             )
 
@@ -199,7 +202,8 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:  # noqa: C901,
     assert len(events) == expected_events, (
         f"{len(events)} events, expected {expected_events}"
     )
-    stamps = [e["data"][f"{camera.name}-acq_timestamp"] for e in events]
+    records = docs.stream_events(f"{camera.name}_stream")
+    stamps = [e["data"][f"{camera.name}-acq_timestamp"] for e in records]
     assert len(set(stamps)) == expected_events, (
         f"stamps did not advance per shot: {stamps}"
     )
@@ -225,9 +229,9 @@ def test_one_camera_as_a_standard_detector_on_hardware() -> None:  # noqa: C901,
 
     if save:
         directory = Path(folder) / camera_name
-        assert [e["data"][f"{camera.name}-nonscalar_save_path"] for e in events] == [
+        assert [e["data"][f"{camera.name}-nonscalar_save_path"] for e in records] == [
             str(directory)
-        ] * len(events)
+        ] * len(records)
         files = wait_for_native_files(directory, expected_events)
         print(f"native files: {len(files)} in {directory}: {[f.name for f in files]}")
         save_state = asyncio.run_coroutine_threadsafe(

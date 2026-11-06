@@ -76,6 +76,9 @@ def test_scalar_optimization_records_and_dumps(setup):
     # the gauge is not in the run, the motor is (its owner is left to the row).
     start = docs.docs["start"][0]
     assert start["background_telemetry"] is True and start["background_dropped"] == []
+    # Optimize keeps the old layout until it reads the shot table itself.
+    assert start["non_essential"] == []
+    assert not {"layout", "per_shot_streams", "required", "stream_meta"} & set(start)
     rows = docs.primary_events()
     assert len(rows) == 6 and all(e["data"]["gauge-pressure"] == 2.5 for e in rows)
     import json

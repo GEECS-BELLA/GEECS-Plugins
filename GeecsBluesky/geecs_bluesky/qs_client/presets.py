@@ -5,8 +5,8 @@ call); submission translates its names into the namespace bindings the
 worker's plans (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`) take:
 
 - each device becomes its namespace binding (``UC_Amp4_IR_input``, or
-  ``UC_Amp4_IR_input.scalars`` when ``save_images`` is off); an
-  ``essential: false`` device goes to ``non_essential`` instead;
+  ``.scalars`` without images); the ``essential`` per-shot ones ride as
+  ``required`` (``optimize``: the others as ``non_essential``);
 - ``acquisition`` and ``shot_period`` ride in ``plan.kwargs``;
 - each scan-variable string in ``plan.args`` / ``plan.kwargs`` (a
   ``Device:Variable`` pair or a catalog name) becomes the namespace's
@@ -38,7 +38,6 @@ if TYPE_CHECKING:
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.native_scope import (
     NOT_GATED,
-    NOT_NON_ESSENTIAL,
     NOT_OPTIMIZE,
     native_refusal,
 )
@@ -170,6 +169,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     required_devices: frozenset[str] = frozenset(),
     resolver: ConfigsRepoResolver | None = None,
     native_devices: Collection[str] | Mapping[str, Any] | None = None,
+    device_tree: Collection[str] | None = None,
 ) -> QueueItem:
     """The queue item a preset submits.
 
@@ -191,6 +191,13 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         ``save_images: false`` entry for one is refused here; a positioner
         takes none of the camera's rules.  Unset = the resolver's registry
         (none without a resolver).
+    device_tree :
+        The manager's device tree as dotted names
+        (``QueueClient.allowed_device_names``).  A device with neither an
+        ``acq_timestamp`` nor an ``hdf`` child there is a condition, read in
+        every row: never passed as ``required``, whatever its ``essential``
+        says.  Unset, every non-native device counts as per-shot (the
+        binder refuses a condition named in ``required``).
 
     Raises
     ------
@@ -224,6 +231,8 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             )
         )
     detectors: list[str] = []
+    required: list[str] = []
+    per_shot: list[str] = []
     non_essential: list[str] = []
     devices = merge_required_devices(preset, required_devices).devices
     if native_devices is None:
@@ -253,12 +262,21 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             if d.save_images
             else device_reference(d.device) + ".scalars"
         )
-        if getattr(d, "essential", True):
-            detectors.append(reference)
-        else:
-            # Non-essential, either way: its own stream,
-            # joined by stamp; ``.scalars`` records its scalars without files.
+        essential = getattr(d, "essential", True)
+        if plan.name == "optimize" and not essential:
+            # Its own stream, joined by stamp; ``.scalars`` records its
+            # scalars without files.
             non_essential.append(reference)
+            continue
+        detectors.append(reference)
+        if (
+            d.device.casefold() in native
+            or device_tree is None
+            or {f"{d.device}.acq_timestamp", f"{d.device}.hdf"} & set(device_tree)
+        ):
+            per_shot.append(reference)
+        if essential and reference in per_shot:
+            required.append(reference)
     references: list[str] = [*detectors, *non_essential]
     args = [_resolve(a, catalog, references) for a in plan.args]
     kwargs = {k: _resolve(v, catalog, references) for k, v in plan.kwargs.items()}
@@ -294,6 +312,9 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         )
     if non_essential:
         kwargs["non_essential"] = non_essential
+    if plan.name != "optimize" and len(required) < len(per_shot):
+        # Explicit whenever a device is not required, an empty list included.
+        kwargs["required"] = required
     # The run-level preset fields are the one source of truth for the plan
     # keyword of the same name: a copy in plan.kwargs is refused rather
     # than merged.  Unset stays absent — the worker's default applies.
@@ -369,9 +390,6 @@ def _native_run_refusal(
         return None
     if plan_name == "optimize":
         return native_refusal((d.device for d in natives), NOT_OPTIMIZE)
-    streamed = [d.device for d in natives if not getattr(d, "essential", True)]
-    if streamed:
-        return native_refusal(streamed, NOT_NON_ESSENTIAL)
     if acquisition == "gated":
         return native_refusal((d.device for d in natives), NOT_GATED)
     return None

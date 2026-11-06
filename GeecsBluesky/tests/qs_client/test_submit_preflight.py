@@ -451,13 +451,11 @@ class TestAcquisitionRules:
 
         return acquisition_refusal(expand_preset(preset), set(self.TREE))
 
-    def test_non_essential_needs_a_stamp_not_a_plugin(self, engine):
-        """The 2026-09-26 ruling: any triggered device may be non-essential.
+    def test_a_condition_never_blocks_a_submission(self, engine):
+        """Any per-shot device may be not required, in either mode, scalars-only too.
 
-        Plugin or not, in either mode, and scalars-only too — its own
-        stream, joined by stamp.  Only a device with no stamp (a
-        free-running gauge) is refused: nothing could place its readings on
-        a shot (deferred).
+        A device with no stamp (a free-running gauge) is a condition, read in
+        every row, whatever its ``essential`` says.
         """
         gated = {"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}}
         for extra in ({}, {"plan": gated}):
@@ -477,14 +475,20 @@ class TestAcquisitionRules:
             )
             assert self._refusal(preset, engine) is None, extra
         preset = _preset(
-            devices=[
-                {"device": "UC_Plugin"},
-                {"device": "U_Gauge", "essential": False},
-            ]
+            devices=[{"device": "UC_Plugin"}, {"device": "U_Gauge", "essential": False}]
         )
-        refusal = self._refusal(preset, engine)
-        assert refusal and "no shot stamp" in refusal and "U_Gauge" in refusal
-        assert "UC_Plugin" not in refusal
+        assert self._refusal(preset, engine) is None
+        preset = _preset(
+            devices=[{"device": "UC_Plugin", "essential": False}, {"device": "U_Gauge"}]
+        )
+        # The gauge keeps its default essential: a condition all the same, so
+        # the preset still submits — the client leaves it out of ``required``.
+        assert self._refusal(preset, engine) is None
+        from geecs_bluesky.qs_client.presets import expand_preset
+
+        item = expand_preset(preset, device_tree=set(self.TREE))
+        assert item.args[0] == ["UC_Plugin", "U_Gauge"]
+        assert item.kwargs["required"] == []
 
     def test_gated_admits_a_native_saving_essential(self, engine):
         """The 2026-09-25 ruling: a device without a plugin is a gated essential.
