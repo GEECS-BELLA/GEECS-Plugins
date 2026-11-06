@@ -111,6 +111,9 @@ SYSTEMATIC_LAG_MIN_FRAMES = 10
 CLOCK_STEP_SHARE = 0.1
 #: The local level: the median of this many preceding residuals.
 CLOCK_STEP_LEVEL_FRAMES = 5
+#: Adjacent rows one behind the reference lag that make a clock step when
+#: the residual shows none (a whole-period step); shorter runs are poll lag.
+CLOCK_STEP_LAG_RUN = 3
 
 
 @dataclass(frozen=True)
@@ -814,14 +817,16 @@ def _clock_step_audit(
     A step of about a whole number of periods leaves the residual where it
     was, so the attribute is also read without one: every row of a run of
     consecutive timed rows lagging one more than the reference is
-    *clock-step* when the run is two rows or longer, or follows a row the
-    device has no record for.  A single one-behind row is the measured
-    poll lag, and a lag off by more is already *audit-mismatch*
+    *clock-step* when the run is :data:`CLOCK_STEP_LAG_RUN` rows or longer,
+    or one shorter after a row the device has no record for.  Shorter runs
+    are the measured poll lag (sporadic, where a step's displacement
+    persists), and a lag off by more is already *audit-mismatch*
     (:func:`_attribute_audit`).  The operating limits: without the
     attribute a whole-period step moves records exactly as a missed edge
     does (one gap, then every record one row on, counters consistent), and
-    it is not detected; with it, a move onto the last row alone after no
-    gap reads as poll lag.  The flag never moves a record.
+    it is not detected; with it, a step that moves fewer rows than the run
+    needs (the run's last one or two) reads as poll lag.  The flag never
+    moves a record.
     """
     threshold = max(CLOCK_STEP_SHARE * clock.period, 2.0 * clock.budget)
     timed = [
@@ -909,8 +914,11 @@ def _lag_runs(
 ) -> set[int]:
     """Timed positions in runs of adjacent rows lagging ``reference + 1``.
 
-    A run counts when it is two rows or longer, or when the row before its
-    first has no record from the device.
+    A record moved by a clock step stays moved, so a step is a sustained
+    run; poll lag is sporadic.  A run counts when it is
+    :data:`CLOCK_STEP_LAG_RUN` rows or longer, or one row shorter when the
+    row before its first has no record from the device (a forward step
+    leaves that gap).  Shorter runs read as poll lag.
     """
     found: set[int] = set()
     run: list[int] = []
@@ -918,7 +926,9 @@ def _lag_runs(
     def close() -> None:
         first = timed[run[0]][0] if run else 0
         after_gap = first > 0 and assigned[first - 1] is None
-        if len(run) >= 2 or (run and after_gap):
+        if len(run) >= CLOCK_STEP_LAG_RUN or (
+            after_gap and len(run) >= CLOCK_STEP_LAG_RUN - 1
+        ):
             found.update(run)
         run.clear()
 

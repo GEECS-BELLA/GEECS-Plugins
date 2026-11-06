@@ -249,6 +249,43 @@ def test_a_lone_late_record_is_no_clock_step() -> None:
     assert all(flags == () for flags in table.flags)
 
 
+@pytest.mark.parametrize(
+    ("lag_rows", "drop", "flagged"),
+    [
+        ((5, 6), (), []),  # two adjacent poll lags
+        ((0, 1), (), []),  # at the run's start
+        ((18, 19), (), []),  # at its end
+        ((6,), (5,), []),  # a missed frame, then one poll lag
+        ((7,), (5, 6), []),  # two missed, then one poll lag
+        ((5, 6, 7), (), [6, 7, 8]),  # a sustained run is a step
+        ((6, 7), (5,), [7, 8]),  # two after a gap: a forward step
+    ],
+)
+def test_sporadic_poll_lag_is_no_clock_step_a_sustained_run_is(
+    lag_rows, drop, flagged
+) -> None:
+    rows = _rows(20)
+    cam = _cam(rows, drop=drop)
+    attr = cam.witness_count.copy()
+    kept = [k for k in range(20) if k not in drop]
+    for k in lag_rows:
+        attr[kept.index(k)] -= 1
+    table = shot_table(
+        START,
+        rows,
+        [
+            _device(
+                "cam",
+                cam.records.stamps,
+                cam.counter,
+                attr,
+                np.arange(float(len(kept))),
+            )
+        ],
+    )
+    assert _flagged(table, "clock-step:cam") == flagged
+
+
 def test_residual_dither_within_the_stamp_budget_is_no_clock_step() -> None:
     rows = _rows(60)
     cam = _cam(rows)
