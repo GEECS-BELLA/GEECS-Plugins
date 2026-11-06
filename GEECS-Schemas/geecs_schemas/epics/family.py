@@ -381,6 +381,28 @@ class PanelGroup(SchemaModel):
             "control by the role's type."
         ),
     )
+    layout: Literal["fields", "grid"] = Field(
+        "fields",
+        description=(
+            "'fields': one labelled control per row; 'grid': a compact labelled "
+            "grid of short controls (a PLC's channels), for a group of bits, enums "
+            "and two-state whole numbers only."
+        ),
+    )
+
+
+class TweakHint(SchemaModel):
+    """A setpoint drawn with a step and a pair of step buttons beside it (the motor record's tweak)."""
+
+    model_config = _FROZEN
+
+    step: RoleName = Field(
+        description="The setpoint holding the step size (the motor record's 'twv')."
+    )
+    forward: RoleName = Field(
+        description="The command that steps forward by it ('twf'): the record moves, the page computes nothing."
+    )
+    reverse: RoleName = Field(description="The command that steps back by it ('twr').")
 
 
 class Panel(SchemaModel):
@@ -389,11 +411,13 @@ class Panel(SchemaModel):
     Layout only. The page draws each rail role by its type (an enum a
     select of the record's own choices, a setpoint a number beside its
     readback, a bit a checkbox, a command a button, a readback its text), so
-    the rail constrains no role type; a reading is a monitored role, since it
-    carries the module's word. The panel places roles whatever their
-    ``level``: ``level`` decides the role table's operator and expert views,
-    the panel what the page draws above it. Whether a write is permitted
-    stays the module's.
+    a plain group constrains no role type; two hints do: a ``grid`` group
+    holds short controls only (bits, enums, two-state whole numbers) and a
+    ``tweak`` names a setpoint, its step setpoint and two commands. A reading
+    is a monitored role, since it carries the module's word. The panel
+    places roles whatever their ``level``: ``level`` decides the role
+    table's operator and expert views, the panel what the page draws above
+    it. Whether a write is permitted stays the module's.
     """
 
     model_config = _FROZEN
@@ -413,6 +437,15 @@ class Panel(SchemaModel):
             "then 1 (an acquire as Stop / Start), in place of its type's control. "
             "The role is writable, in the rail, and a bit or a whole number "
             "limited to [0, 1]."
+        ),
+    )
+    tweak: dict[RoleName, TweakHint] = Field(
+        default_factory=dict,
+        description=(
+            "A rail setpoint drawn with its step and step buttons beside it, in "
+            "place of three separate controls: the key is the setpoint, the hint "
+            "its step setpoint and its forward and reverse commands, all writable "
+            "and in the key's rail group."
         ),
     )
     show_while: dict[RoleName, RoleName] = Field(
@@ -587,9 +620,14 @@ def _check_axes(roles: list[Role], by_name: Mapping[str, Role]) -> None:
 
 
 def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
-    """Refuse a panel naming a role the family lacks, one rail role in two places, an unmonitored reading, a button pair on no two-state rail role, or a default array no axis draws."""
+    """Refuse a panel naming a role the family lacks, one rail role in two places, an unmonitored reading, a button pair on no two-state rail role, a tweak on no writable setpoint and commands of its group, a grid of more than bits and enums, or a default array no axis draws."""
     named = [name for group in panel.rail for name in group.roles]
-    hinted = [*panel.buttons, *panel.show_while, *panel.show_while.values()]
+    tweaked = [
+        name
+        for key, hint in panel.tweak.items()
+        for name in (key, hint.step, hint.forward, hint.reverse)
+    ]
+    hinted = [*panel.buttons, *tweaked, *panel.show_while, *panel.show_while.values()]
     unknown = sorted(
         {name for name in [*named, *panel.readings, *hinted] if name not in by_name}
     )
@@ -605,11 +643,18 @@ def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
         )
     for name in panel.buttons:
         role = by_name[name]
-        two_state = role.type == "bit" or (role.integer and role.limits == (0, 1))
-        if name not in named or not role.writable or not two_state:
+        if name not in named or not role.writable or not _two_state(role):
             raise ValueError(
                 f"panel buttons {name!r}: a button pair draws a writable two-state "
                 "rail role (a bit, or a whole number limited to [0, 1])"
+            )
+    _check_tweaks(panel, by_name, tweaked)
+    for i, group in enumerate(panel.rail):
+        long = [n for n in group.roles if not _short(by_name[n])]
+        if group.layout == "grid" and long:
+            raise ValueError(
+                f"panel group {group.title!r} (group {i + 1}): a grid draws short controls only "
+                f"(bits, enums, two-state whole numbers), not {long}"
             )
     drawn = {target for r in by_name.values() for target in r.axis_of or ()}
     for array, flag in panel.show_while.items():
@@ -620,6 +665,52 @@ def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
                 f"panel show_while {array!r}: {flag!r} is not monitored, so the "
                 "page cannot read it"
             )
+
+
+def _two_state(role: Role) -> bool:
+    """A bit, or a whole number limited to [0, 1]: what a button pair draws."""
+    return role.type == "bit" or (role.integer and role.limits == (0, 1))
+
+
+def _short(role: Role) -> bool:
+    """A two-state role or an enum: what a grid cell draws."""
+    return role.type == "enum" or _two_state(role)
+
+
+def _check_tweaks(
+    panel: Panel, by_name: Mapping[str, Role], tweaked: list[str]
+) -> None:
+    """Refuse a tweak whose roles are not a writable setpoint, its step setpoint and two commands, all in the key's rail group and drawn by no other hint.
+
+    A group is the group itself (its place in the rail), never its title:
+    two groups may share a heading.
+    """
+    group_of = {name: i for i, group in enumerate(panel.rail) for name in group.roles}
+
+    def where(name: str) -> str:
+        i = group_of[name]
+        return f"{panel.rail[i].title!r}, group {i + 1}"
+
+    for key, hint in panel.tweak.items():
+        wanted = ((key, "setpoint"), (hint.step, "setpoint"),
+                  (hint.forward, "command"), (hint.reverse, "command"))  # fmt: skip
+        for name, type_ in wanted:
+            role = by_name[name]
+            if role.type != type_ or name not in group_of:
+                raise ValueError(
+                    f"panel tweak {key!r}: {name!r} must be a rail {type_} "
+                    f"({'an' if role.type[0] in 'aeiou' else 'a'} {role.type}"
+                    f"{'' if name in group_of else ' off the rail'})"
+                )
+            if group_of[name] != group_of[key]:
+                raise ValueError(
+                    f"panel tweak {key!r}: {name!r} sits in the setpoint's rail "
+                    f"group ({where(key)}), not ({where(name)})"
+                )
+    _refuse_duplicates("panel tweak roles", tweaked)
+    both = sorted(set(tweaked) & set(panel.buttons))
+    if both:
+        raise ValueError(f"panel roles {both} are drawn by a tweak and a button pair")
 
 
 def _refuse_duplicates(what: str, items: list[str]) -> None:

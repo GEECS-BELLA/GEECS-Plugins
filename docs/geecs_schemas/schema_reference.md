@@ -816,6 +816,7 @@ How a device page lays out the family's roles: the control rail and the readings
 | `rail` | `list[PanelGroup]` | no | empty | The rail's control groups, in order; a role sits in one group at most. |
 | `readings` | `list[str]` | no | empty | The roles of the readings strip, in order, each with its freshness word. |
 | `buttons` | `dict[str, tuple[str, str]]` | no | empty | A two-state rail role drawn as a pair of buttons, its labels for 0 then 1 (an acquire as Stop / Start), in place of its type's control. The role is writable, in the rail, and a bit or a whole number limited to [0, 1]. |
+| `tweak` | `dict[str, TweakHint]` | no | empty | A rail setpoint drawn with its step and step buttons beside it, in place of three separate controls: the key is the setpoint, the hint its step setpoint and its forward and reverse commands, all writable and in the key's rail group. |
 | `show_while` | `dict[str, str]` | no | empty | An array an axis draws, shown by default while a monitored role reads 1 (a processed spectrum while background subtraction is on); otherwise the axis' first array. A viewer's own choice wins. |
 
 ### PanelGroup
@@ -826,6 +827,17 @@ One titled group of a device page's control rail: the roles it draws, in order.
 |---|---|---|---|---|
 | `title` | `str` | yes | — | The group's heading on the rail. |
 | `roles` | `list[str]` | yes | — | The family roles the group draws, in order; the page picks each control by the role's type. |
+| `layout` | `'fields' \| 'grid'` | no | 'fields' | 'fields': one labelled control per row; 'grid': a compact labelled grid of short controls (a PLC's channels), for a group of bits, enums and two-state whole numbers only. |
+
+### TweakHint
+
+A setpoint drawn with a step and a pair of step buttons beside it (the motor record's tweak).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `step` | `str` | yes | — | The setpoint holding the step size (the motor record's 'twv'). |
+| `forward` | `str` | yes | — | The command that steps forward by it ('twf'): the record moves, the page computes nothing. |
+| `reverse` | `str` | yes | — | The command that steps back by it ('twr'). |
 
 ## `panel_devices`
 

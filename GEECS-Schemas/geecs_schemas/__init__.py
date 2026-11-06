@@ -67,6 +67,7 @@ from geecs_schemas.epics.family import (
     Panel,
     PanelGroup,
     Role,
+    TweakHint,
     load_families,
 )
 from geecs_schemas.epics.panel_devices import (
@@ -212,6 +213,7 @@ __all__ = [
     "Panel",
     "PanelGroup",
     "Role",
+    "TweakHint",
     "load_families",
     "REGISTRY_KIND_FAMILIES",
     "PanelDevices",
