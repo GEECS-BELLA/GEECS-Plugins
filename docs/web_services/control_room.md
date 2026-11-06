@@ -81,7 +81,9 @@ The launcher lists the experiment's screens by area, a device picker per
 family (cameras, motors, supplies, …), and links to the other services
 (Scanner, Data Portal, Logbook, Config editor). An entry the page cannot
 offer (a screen file that does not exist, a service the deployment has
-not configured) is drawn disabled with the reason beside it.
+not configured) is drawn disabled with the reason beside it. Every device,
+picked or not, is also in the [device directory](#the-device-directory)
+below.
 
 ### Presets
 
@@ -114,6 +116,41 @@ by whom, its scope, and its run when it is being restored.
 ![A preset's diff drawer](assets/control_room_02_preset_diff.jpg)
 
 ![The restore confirm](assets/control_room_03_restore_confirm.jpg)
+
+### The device directory
+
+The **Devices** panel at the foot of the home lists every native device
+the experiment's registry knows (`native_devices.yaml` and
+`panel_devices.yaml` in the configs repo), not a chosen few: the launcher
+above is the curated layer, the directory is the complete one. Devices are
+grouped by the page that draws them (camera, trace, motor, supply); each
+group's heading opens that kind's picker, and each device's name opens its
+page. A row gives the device's family, the module's word for it (the same
+words as the lists above), the IOC that serves it, and that IOC's
+heartbeat: `live` while the IOC's own counter advances, `stale` when it has
+stopped, `no IOC` when the device has none, `unknown` when the module has
+not answered for it. The chip in the panel's
+header counts the live devices.
+
+Type in the filter box to narrow every group at once: each word you type
+must appear in a device's name or its family (`cam`, `scope`, `test
+spectro`); a group with nothing left hides. A device whose family no page
+draws yet is listed last, under **no page yet**, without a link, so the
+directory is never silently short. When the module does not answer the
+rows stay, their words read `unknown` and the panel says why; a device in
+the registry that the module does not serve reads `not on the roster`, its
+heartbeat `unknown`. A device added to the registry appears on the next
+reload of the home.
+LabVIEW devices served through the CA gateway are not in the registry, so
+they are not in the directory; a screen draws them.
+
+![The home with the device directory, light theme](assets/control_room_13_directory_light.png)
+
+![The home with the device directory, dark theme](assets/control_room_14_directory_dark.png)
+
+Every device page leads back: its header reads
+**Control Room › trace › cct1**, the title the home's link, the kind the
+picker's, and the device's name the page you are on.
 
 ## A screen
 

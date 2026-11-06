@@ -461,3 +461,51 @@ plot stayed drawn (under the new toggle and chip) until the new array's
 first capture, indefinitely if its reads kept failing; the plot is now
 hidden until then, the window kept, pinned by a harness running the real
 `trace.js`.
+
+### 2026-11-06 — slice: the device directory
+
+**Planned** (the maintainer, after driving the spectrometer page: the home
+offered no path to the device pages but a Cameras picker he added to
+`home.yaml` himself). A registry-derived directory on the home, uncurated:
+every device of `native_devices.yaml` + `panel_devices.yaml`, grouped by
+kind in `KINDS` order, each row the name (linking its page), the family,
+the module's word and its IOC's heartbeat; a client-side filter; the kind
+headings link the pickers; a device whose family no page draws listed last
+("no page yet", unlinked); and a way back from every device page.
+
+**Landed.** `device_pages.catalogue` is the one registry join (every
+device with its kind word or `None`); `registered` (the pickers) filters
+it. `home.directory` groups it for `home.html`, server-drawn (the rows and
+links work without script, as the picker's table does); the words ride the
+home's existing 2 s `/api/home/devices` poll (`words`: the roster's state,
+the heartbeat from the device detail that poll already reads for the two
+lists), so the directory costs no module read of its own. Polling the four
+`/api/device/<kind>` rosters instead was rejected: they carry no heartbeat,
+and would read the roster four more times per tick for what the lists'
+read already has. `directory_rules.js` holds the filter (every term a
+substring of the name or the family), a row's words and the chip; a silent
+module leaves the rows with `unknown`. The trail is a `crumbs` block in
+`base.html` after the brand (the home's link and the trail's first step),
+filled by `device.html` (kind's picker › the device), so the camera and
+trace templates inherit it untouched.
+
+**What review changed** (one adversarial round, four low findings, all
+fixed): a device off the roster read heartbeat "no IOC" beside the IOC its
+panel entry names, now `unknown`; a registry whose devices all conflict
+between the two files read "cannot be read", now an `empty` pane naming the
+conflicts (`Catalogue.unreadable` keeps `error` for files that do not
+parse), and the empty panes no longer carry a "0/0 live" chip; a
+`[hidden]` rule the kit already holds (`!important`) was deleted; the roster
+state word is one rule for the pickers and the directory
+(`device_pages.state_word`). Kept: the directory's rows are fixed at page
+load (the pickers re-read theirs each poll); a registry change shows on
+reload, which the operator page says.
+
+**Left as it is.** `home.yaml`'s `device_pages` pickers now overlap the
+directory (every device a picker lists is a directory row); they stay the
+curated layer (pinned families), and whether to drop them from the
+experiment's `home.yaml` is the maintainer's (the configs repo is his). The
+directory lists the registry, not the roster: a DB (LabVIEW) device has no
+device page and stays out; a screen draws it. Grouping by area would need
+an area per device, which the registry does not carry; by kind is what it
+knows.

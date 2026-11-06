@@ -1,18 +1,23 @@
-"""The home: the two lists sort the module's words, the launcher reads home.yaml, the strip survives a silent scanner.
+"""The home: the two lists sort the module's words, the launcher reads home.yaml, the strip survives a silent scanner, the directory lists the registry by kind.
 
 The kit's rules on ``home.html`` are ``test_app.py``'s template guard, which walks every template.
 """
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from geecs_control_room import device_pages
 from geecs_control_room.app import create_app
-from geecs_control_room.home import launcher, sort_devices
+from geecs_control_room.home import NO_PAGE, directory, launcher, sort_devices, words
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
+from tests.test_device_pages import _NATIVE, _PANEL, _room
 
 _WORDS = ["live", "stale", "not answering", "unreachable", "off", "error", "unknown"]
 
@@ -224,3 +229,120 @@ async def test_the_baseline_sums_the_golden_diffs_and_is_none_without_one(settin
     assert await baseline(settings, module) == {"ok": True, "golden": 0, "differs": 0, "incomplete": 0, "presets": []}  # fmt: skip
     silent = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(lambda r: (_ for _ in ()).throw(httpx.ConnectError("down"))))  # fmt: skip
     assert (await baseline(settings, silent))["ok"] is False
+
+
+# ---- the device directory: the registry by page kind, the module's words beside each row
+
+
+@pytest.fixture
+def registry(settings: Settings) -> Path:
+    """The device pages' registry documents (two cameras, a motor, a supply) in the experiment's folder."""
+    folder = settings.experiment_dir
+    folder.mkdir(parents=True)
+    (folder / "native_devices.yaml").write_text(_NATIVE)
+    (folder / "panel_devices.yaml").write_text(_PANEL)
+    return folder
+
+
+def _row(html: str, name: str) -> str:
+    return re.search(rf'<tr data-name="{name}".*?</tr>', html, re.S).group(0)
+
+
+def test_the_directory_lists_the_registry_by_kind_and_hides_an_empty_kind(settings: Settings, registry: Path) -> None:  # fmt: skip
+    found = directory(settings)
+    assert found.state == "ok" and [(k, [r["name"] for r in rows]) for k, rows in found.groups] == [
+        ("camera", ["Cam1", "Cam2"]), ("motor", ["Mot1"]), ("supply", ["ps1"])]  # fmt: skip
+    with _room(settings) as c:
+        html = c.get("/").text
+    assert re.findall(r'data-group="([^"]+)"', html) == [
+        "camera",
+        "motor",
+        "supply",
+    ]  # no trace device: no group
+    assert (
+        '<a class="eyebrow" href="/device/camera"' in html
+    )  # the heading is the kind's picker
+    cam = _row(html, "Cam2")
+    assert (
+        '<a href="/device/camera/Cam2">Cam2</a>' in cam
+        and "<td>ad_camera_chain</td>" in cam
+    )
+    assert 'data-word="state"' in cam and 'data-word="heartbeat"' in cam
+    assert (
+        "U_DB" not in html.split('id="directory"')[1]
+    )  # a DB device is the roster's, not the registry's
+    assert html.index('id="directory"') > html.index(
+        "Launcher"
+    )  # the curated launcher stays above
+
+
+def test_a_family_no_page_draws_is_listed_last_without_a_link(settings: Settings, registry: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    unpaged = {
+        k: w for k, w in device_pages._WORD.items() if w != "supply"
+    }  # a kind with no page yet
+    monkeypatch.setattr(device_pages, "_WORD", unpaged)
+    groups = directory(settings).groups
+    assert [k for k, _ in groups] == ["camera", "motor", NO_PAGE] and [r["name"] for r in groups[-1][1]] == ["ps1"]  # fmt: skip
+    with _room(settings) as c:
+        html = c.get("/").text
+    ps1 = _row(html, "ps1")
+    assert "<a " not in ps1 and '<td class="id">ps1</td>' in ps1
+    assert (
+        f'<span class="eyebrow" title="no device page draws these families yet">{NO_PAGE} · 1</span>'
+        in html
+    )
+
+
+def test_the_directory_words_are_the_modules_for_the_registry_only(settings: Settings, registry: Path) -> None:  # fmt: skip
+    with _room(settings) as c:
+        body = c.get("/api/home/devices").json()
+    assert set(body["words"]) == {"Cam1", "Cam2", "Mot1", "ps1"}  # never the DB device
+    assert body["words"]["Cam2"] == {"state": "error", "kit": "failed", "heartbeat": "live", "heartbeatKit": "ok"}  # fmt: skip
+    assert body["words"]["Mot1"]["kit"] == "degraded"
+    # not served: its heartbeat is unknown, never "no IOC" (the registry may name one)
+    assert body["words"]["ps1"] == {"state": "not on the roster", "kit": "unknown", "heartbeat": "unknown", "heartbeatKit": "unknown"}  # fmt: skip
+    roster = [{"name": "a", "state": "live"}, {"name": "b", "state": "live"}]
+    got = words(["a", "b", "c"], roster, {"a": None, "b": {"heartbeat": None, "roles": []}})  # fmt: skip
+    assert (
+        got["a"]["heartbeat"] == "unknown" and got["b"]["heartbeat"] is None
+    )  # fmt: skip  (unread vs no IOC)
+    assert got["c"]["heartbeat"] == "unknown"  # off the roster
+
+
+def test_the_directory_rows_stay_when_the_module_is_silent(settings: Settings, registry: Path) -> None:  # fmt: skip
+    with _room(settings, down=True) as c:
+        html, body = c.get("/").text, c.get("/api/home/devices").json()
+    assert (
+        '<a href="/device/camera/Cam1">Cam1</a>' in html
+        and not body["ok"]
+        and "words" not in body
+    )
+
+
+_CONFLICT = ("schema_version: 1\ndevices:\n  Mot1: {kind: epics_motor, axes: [m1]}\n", "schema_version: 1\ndevices:\n  Mot1: {family: easydriver}\n")  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("native", "panel", "state", "title"),
+    [
+        (None, None, "empty", "No device in the registry"),
+        ("devices: [", None, "error", "The registry cannot be read"),
+        (*_CONFLICT, "empty", "No device the directory can list"),  # both files read; their one device conflicts
+    ],
+)  # fmt: skip
+def test_the_directory_says_why_it_has_no_rows(settings: Settings, native: str | None, panel: str | None, state: str, title: str) -> None:  # fmt: skip
+    where = settings.experiment_dir
+    where.mkdir(parents=True)
+    if native is not None:
+        (where / "native_devices.yaml").write_text(native)
+    if panel is not None:
+        (where / "panel_devices.yaml").write_text(panel)
+    with _room(settings) as c:
+        html = c.get("/").text.split('id="directory"')[1]
+    assert (
+        f'<div class="state" data-state="{state}">\n      <div class="t">{title}</div>'
+        in html
+    )
+    assert (
+        'id="directory-filter"' not in html and 'id="directory-chip"' not in html
+    )  # fmt: skip  (no "0/0 live" beside the pane)
