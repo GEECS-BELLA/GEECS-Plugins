@@ -531,7 +531,7 @@ def test_a_tweak_is_one_group_not_one_heading() -> None:
     )  # the setpoint's heading, another group
     _refused(
         doc,
-        r"'up' sits in the setpoint's rail group \('Run', group 1\), not 'Run' \(group 3\)",
+        r"'up' sits in the setpoint's rail group \('Run', group 1\), not \('Run', group 3\)",
     )
 
 
@@ -568,7 +568,7 @@ def test_a_grid_group_draws_bits_and_enums() -> None:
     assert [g.layout for g in family.panel.rail] == ["grid", "fields"]
     assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
     panel["rail"][1]["layout"] = "grid"
-    _refused({**tiny(), "panel": panel}, r"panel group 'Safety': a grid draws short controls only \(bits, enums, two-state whole numbers\), not \['fire', 'stop'\]")  # fmt: skip
+    _refused({**tiny(), "panel": panel}, r"panel group 'Safety' \(group 2\): a grid draws short controls only \(bits, enums, two-state whole numbers\), not \['fire', 'stop'\]")  # fmt: skip
     # a two-state whole number is short, as a button pair counts it; a whole number over a wider span is not
     doc = {
         **tiny(),

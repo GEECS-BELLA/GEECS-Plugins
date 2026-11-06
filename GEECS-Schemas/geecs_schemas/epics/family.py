@@ -649,11 +649,11 @@ def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
                 "rail role (a bit, or a whole number limited to [0, 1])"
             )
     _check_tweaks(panel, by_name, tweaked)
-    for group in panel.rail:
+    for i, group in enumerate(panel.rail):
         long = [n for n in group.roles if not _short(by_name[n])]
         if group.layout == "grid" and long:
             raise ValueError(
-                f"panel group {group.title!r}: a grid draws short controls only "
+                f"panel group {group.title!r} (group {i + 1}): a grid draws short controls only "
                 f"(bits, enums, two-state whole numbers), not {long}"
             )
     drawn = {target for r in by_name.values() for target in r.axis_of or ()}
@@ -705,8 +705,7 @@ def _check_tweaks(
             if group_of[name] != group_of[key]:
                 raise ValueError(
                     f"panel tweak {key!r}: {name!r} sits in the setpoint's rail "
-                    f"group ({where(key)}), not {panel.rail[group_of[name]].title!r} "
-                    f"(group {group_of[name] + 1})"
+                    f"group ({where(key)}), not ({where(name)})"
                 )
     _refuse_duplicates("panel tweak roles", tweaked)
     both = sorted(set(tweaked) & set(panel.buttons))
