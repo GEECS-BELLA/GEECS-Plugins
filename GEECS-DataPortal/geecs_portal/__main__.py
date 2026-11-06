@@ -56,8 +56,8 @@ def main() -> None:
         default="",
         help=(
             "URL prefix the portal is mounted under behind a PREFIX-PRESERVING "
-            "reverse proxy (e.g. /portal): the /static and /theme mounts then "
-            "answer at the prefixed path only. A proxy that strips the prefix "
+            "reverse proxy (e.g. /portal): the /theme mount then "
+            "answers at the prefixed path only. A proxy that strips the prefix "
             "must send X-Forwarded-Prefix instead, which overrides this per "
             "request (DEPLOYMENT.md § Behind a reverse proxy)"
         ),
