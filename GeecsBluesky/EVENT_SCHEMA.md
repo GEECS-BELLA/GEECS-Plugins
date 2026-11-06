@@ -103,6 +103,7 @@ What the row carries:
 | `<device>-baseline` | a frame count, or LabVIEW s | One per required device: its progress counter read **before** the fire — a plugin or native camera's frame count (`NumCaptured`, the fewest across its plugins), a stamped device's `acq_timestamp` (LabVIEW epoch, `NaN` before its first stamp). A record of row *k* is newer than baseline *k* |
 | `complete` | boolean | Every required device reported for this fire (the plan's decision to stop refiring; which record is which shot's is the join's — a reader auditing the two flags *complete-mismatch*) |
 | `missing` | string | The required devices that did not report, comma-joined ophyd names; `""` when complete |
+| `extra_frames` | string | Gateway plugin cameras (`GeecsDetector`, not a native camera) that counted more than one frame since the previous fire, comma-joined `<name>=<frames>`; `""` when none. One fire may (a missed shot's late frame before the refire's); two in a row pause the run naming the camera (free-running: put it in trigger mode). Not in a fly run |
 | `unwitnessed` | boolean | No witness read this run: the join assigns by fire interval |
 | `witness_late` | boolean | The witness count stayed put while a device reported (a poll or USB stall) — never a stop |
 | `interrupted` | boolean | A pause or suspension landed inside the fire's slot; the counters were re-read after the resume (a pause inside the row's own bundle drops it and reads it again — never a short row) |
@@ -117,7 +118,9 @@ pause followed (nothing saw it, or a required device is down) costs no
 refire, so the shot is still taken after the resume.  A shot whose refires are
 exhausted keeps its rows, its last flagged `complete: false`, and the scan
 continues; two such shots in a row pause the run, as does a required
-device whose liveness reads down (the reason in the log).
+device whose liveness reads down, or a gateway plugin camera counting
+more than one frame on two fires in a row (`extra_frames`; the reason in
+the log).
 
 **A fly run** (`acquisition: fly`, start `clock: "soft-tick"`): one row
 per tick of the worker's timer, `shot_period` apart on an absolute
@@ -125,7 +128,7 @@ schedule (a tick that would follow a late one by under half a period is
 re-anchored a full period on, so no catch-up tick); the box is never
 driven.  `witness_count` is the tick's number from 1, `witness_stamp` the
 worker's clock at the tick (Unix s), `witness_epoch` the run's uid; no
-`fire_stamp`, `unwitnessed` or `witness_late` column.  **One interval
+`fire_stamp`, `unwitnessed`, `witness_late` or `extra_frames` column.  **One interval
 rule, the plan's and the join's** (*m* the stamp budget, 30 ms):
 
 | Device | Row *k*'s record | The plan calls it complete when |

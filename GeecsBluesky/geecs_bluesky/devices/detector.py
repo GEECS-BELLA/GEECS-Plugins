@@ -28,6 +28,7 @@ import asyncio
 import logging
 import math
 import numbers
+import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -1016,10 +1017,23 @@ class GeecsDetector(StandardDetector):
         is explicit: ``kickoff`` sets it, ``trigger`` clears it.  A
         stale ``missed`` from a strict run's last shot is cleared too — no
         row of this stream is a shot the plan fired.
+
+        After an **unbounded** prepare (a device stream: acquisition keeps
+        running) a frame can land between the prepare and the kickoff, and
+        the stock kickoff would refuse it ("only prepared up to …"); the
+        stream's datums cover it anyway (from the zeroed count).  So the
+        prepare context's baseline is set past any count the stock check
+        can read, as :meth:`~geecs_bluesky.devices.native.NativeCamera.kickoff`
+        does.  Nothing else reads that baseline on a stream (the batch
+        reads — ``step_baseline``, ``frames_this_batch``, ``truncate_to`` —
+        are a bounded prepare's); the next prepare rebuilds it.
         """
         self._acquire.fly = True
         self._acquire.abandoned = False
         self._acquire.missed = False
+        ctx = self._prepare_ctx
+        if ctx is not None and ctx.trigger_info.number_of_events == 0:
+            ctx.collections_written = sys.maxsize
         await super().kickoff()
 
     def complete(self) -> AsyncStatus:
@@ -1127,27 +1141,6 @@ class GeecsDetector(StandardDetector):
             )
         )
         return max(0, min(int(c) for c in counts) - int(ctx.collections_written))
-
-    async def frames_since_last_datum(self) -> int:
-        """Frames past what a datum last referenced — the most any plugin holds.
-
-        The width the next collect would give this camera's datum.  In
-        strict acquisition a complete shot is exactly one: more means the
-        camera wrote frames the box did not fire, i.e. it is free-running
-        rather than waiting for the trigger.  ``0`` without a plugin or
-        outside ``prepare``.
-        """
-        ctx = self._prepare_ctx
-        if ctx is None or not ctx.streamable_data_providers:
-            return 0
-        providers = ctx.streamable_data_providers
-        counts = await asyncio.gather(
-            *(sdp.collections_written_signal.get_value() for sdp in providers)
-        )
-        return max(
-            int(count) - int(sdp.last_emitted)
-            for sdp, count in zip(providers, counts, strict=True)
-        )
 
     async def truncate_to(self, frames: int) -> None:
         """Rewind every plugin to ``baseline + frames``: the step's first *frames*, exactly.

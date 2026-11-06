@@ -160,24 +160,32 @@ class _BinJoin(_StreamCallback):
         return (complete if len(complete) else mine).to_dict("records")
 
 
-#: Seconds the bin's end waits for the companions' last stamps.
+#: Seconds the bin's end waits for the companions' last stamps and the
+#: device streams' last snapshots.
 SETTLE_S = 1.0
 
 
 class _Settle:
-    """Plan: until each companion recorded a stamp per frame its camera wrote, bounded.
+    """Plan: until every stamp the bin's devices published is recorded, bounded.
 
-    The camera's frame count and its gateway stamp travel separate paths;
-    a stamp still in flight at the bin's end would cost that shot's frame.
-    A stamp that never comes (the gateway dropped it) is a frame without a
-    stamp: on expiry the shortfall is logged once per camera and carried,
-    so a later bin waits only for its own frames.
+    Two waits in one bound.  A companion: until it recorded a stamp per
+    frame its camera wrote — the camera's frame count and its gateway stamp
+    travel separate paths, so a stamp still in flight at the bin's end
+    would cost that shot's frame.  A stamp that never comes (the gateway
+    dropped it) is a frame without a stamp: on expiry the shortfall is
+    logged once per camera and carried, so a later bin waits only for its
+    own frames.  A device stream (``streams.stamped``): until no stamp is
+    pending — its stamp completes the slot the moment it lands, while the
+    stream is still reading that shot's scalars, and an event not yet
+    recorded would be missing from the bin; on expiry it is logged once per
+    stream (the event joins a later collect, not this bin).
     """
 
     def __init__(self, streams: DeviceStreams) -> None:
         self.streams = streams
         self.shortfall = {id(c): 0 for c in streams.companions}
         self._warned: set[int] = set()
+        self._warned_stamped: set[int] = set()
 
     def _missing(self, companion: Any, frames: tuple[float, ...]) -> int:
         if not frames or companion.pending:
@@ -185,10 +193,23 @@ class _Settle:
         settled = companion.published + companion.failed + self.shortfall[id(companion)]
         return max(0, int(min(frames)) - settled)
 
+    def _report_unrecorded(self, stamped: Any) -> None:
+        """Log once per device stream a snapshot still pending at the bound."""
+        for s in stamped:
+            if s.pending and id(s) not in self._warned_stamped:
+                self._warned_stamped.add(id(s))
+                logger.warning(
+                    "%s: a snapshot still unrecorded after %.1f s at the bin's "
+                    "end — that shot is not in the bin (logged once)",
+                    s.device_name,
+                    SETTLE_S,
+                )
+
     def __call__(self):
         import asyncio
 
         companions = self.streams.companions
+        stamped = self.streams.stamped
         missing: dict[int, int] = {}
 
         async def settle() -> None:
@@ -198,12 +219,15 @@ class _Settle:
                 for c in companions:
                     frames = await _Progress(c.device, True).read_safe()
                     missing[id(c)] = self._missing(c, frames)
-                if not any(missing.values()) or loop.time() >= deadline:
+                if (
+                    not any(missing.values()) and not any(s.pending for s in stamped)
+                ) or loop.time() >= deadline:
                     return
                 await asyncio.sleep(0.02)
 
-        if companions:
+        if companions or stamped:
             yield from bps.wait_for([settle])
+        self._report_unrecorded(stamped)
         for c in companions:
             short = missing.get(id(c), 0)
             if short and not c.pending:

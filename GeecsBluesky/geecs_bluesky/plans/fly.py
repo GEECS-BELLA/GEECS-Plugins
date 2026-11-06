@@ -146,6 +146,8 @@ class FlyRun(OnDemand):
 
     AGAIN = "holding another tick"
     EXHAUSTED_HINT = f" — {BOX_NOT_DRIVEN}"
+    #: A free-running camera is legitimate in fly mode.
+    FRAME_CHECK = False
 
     def __init__(
         self,
