@@ -689,4 +689,12 @@ unchanged; an integration test validates and draws every screen in the
 configs checkout. The `group` widget (a device's rail group on a screen)
 moved to PR 2b to keep this one inside the size rule.
 
-**Review** changed: (filled in after the review).
+**Review** (round 1: two medium, four low; all fixed, confirmed in round 2)
+changed: the screen's write path is pinned by running the real rail and
+write scripts over a fake screen (a widget's note asks first, the pair, the
+narrowed select, a bare PV disabled; it failed with the note dropped); one
+redraw per frame on a screen (a Hare diff of N PVs had cost N full passes)
+and one subscription per role on the device page (`device_source`'s
+`read`); the field at the widget's precision; one spec builder
+(`screens.role_spec`); an unsent choice goes back to the reading; a note-only
+ask is titled "Write?".

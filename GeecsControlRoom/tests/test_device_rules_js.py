@@ -116,6 +116,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("field text: a number to six digits", "fieldText", [0.1 + 0.2], "0.3"),
     ("field text: a whole number", "fieldText", [12], "12"),
     ("field text: text as it is", "fieldText", ["Name 1"], "Name 1"),
+    ("field text: a screen widget's own digits", "fieldText", [1.25, 5], "1.25000"),
     ("field text: nothing read leaves the field", "fieldText", [None], None),
     # the draft: kept until accepted
     ("accepted: the module's word", "accepted", [{"outcome": "accepted", "journalId": 3}], True),

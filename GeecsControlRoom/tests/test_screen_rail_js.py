@@ -90,6 +90,14 @@ const rail = window.GeecsDeviceRail.make(page, box, { for: (c) => (c.closest(".w
   narrowed.fire("change");
   await flush();
   out.chosen = { put: puts[puts.length - 1], open: dialog.open, line: wheel.out.textContent };
+  // an unsent choice (no operator named) goes back to what the device reads, the select let go
+  let blurred = 0;
+  narrowed.blur = () => { blurred += 1; };
+  ids.operator.value = "";
+  narrowed.value = "2";
+  narrowed.fire("change");
+  await flush();
+  out.unsent = { value: narrowed.value, blurred, puts: puts.length, line: wheel.out.textContent };
   out.unread = unread.disabled;
   out.bare = { disabled: field.disabled, value: field.value };
   console.log(JSON.stringify(out));
@@ -132,6 +140,7 @@ def test_a_screen_widget_writes_through_the_rail_and_its_note_asks_first() -> No
         "operator": "ann",
     }
     assert not page["chosen"]["open"] and page["chosen"]["line"] == "pos ← 2 · accepted"
+    assert page["unsent"] == {"value": "0", "blurred": 1, "puts": 2, "line": "unsent · name yourself in the header first"}  # fmt: skip
     assert (
         page["unread"] is True
     )  # no choices read yet: nothing to choose, the module would refuse
