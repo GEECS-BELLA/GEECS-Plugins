@@ -33,7 +33,9 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   ============================  ==============================================
 
   A soft-tick (fly-mode) run's ticks fill the witness columns; its pressed
-  devices are synchronous, its free-running ones asynchronous.
+  devices are synchronous, filed by tick interval [t_k − m, t_k+1 − m)
+  (they acquire after their tick, however late in the period), its
+  free-running ones asynchronous.
 
 Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
@@ -370,6 +372,7 @@ class _RowClock:
     budget: float
     flags: list[list[str]]
     held: dict[str, set[int]] = field(default_factory=dict)
+    soft: bool = False  # a soft-tick (fly) run: synchronous records by tick interval
 
     @classmethod
     def of(cls, start, rows, offsets, new: bool, budget: float) -> "_RowClock":
@@ -407,6 +410,7 @@ class _RowClock:
             period=float(start.get("shot_period") or DEFAULT_SHOT_PERIOD_S),
             budget=budget,
             flags=flags,
+            soft=new and start.get("clock") == SOFT_TICK,
         )
 
     @property
@@ -427,12 +431,15 @@ class _RowClock:
                 k if k < records.size else None for k in range(n)
             ]
         else:
-            join = join_frames_to_shots(
-                np.where(self.loose | self.shared, np.nan, self.stamps),
-                records,
-                windows=row_windows(self.stamps, self.period),
-            )
-            assigned = list(join.frame_for_shot)
+            if self.soft:
+                assigned = _assign_ticks(records, self)
+            else:
+                join = join_frames_to_shots(
+                    np.where(self.loose | self.shared, np.nan, self.stamps),
+                    records,
+                    windows=row_windows(self.stamps, self.period),
+                )
+                assigned = list(join.frame_for_shot)
             ambiguous = _assign_intervals(assigned, records, self)
             unresolved, self.held[source.device] = _assign_shared(
                 assigned, records, source.counter, self
@@ -561,6 +568,37 @@ def _last_before(
         assigned.append(int(order[position]))
         ages[k] = clock - ordered[position]
     return assigned, ages
+
+
+def _assign_ticks(records: np.ndarray, clock: _RowClock) -> list[int | None]:
+    """File a soft-tick run's synchronous records by tick interval [t_k − m, t_k+1 − m).
+
+    A pressed device acquires after its tick and before the next (the
+    plan's completeness rule, the same interval), however late within it:
+    the nearest tick would hand a frame later than half a period to the
+    next row.  Each row takes its earliest record in its interval; the
+    rest are extras.  *m* is the stamp budget (host clocks a few ms
+    apart); the last row's interval closes a period after its tick.
+    """
+    ticks, n = clock.stamps, clock.stamps.size
+    assigned: list[int | None] = [None] * n
+    order = np.argsort(records, kind="stable")
+    ordered = records[order]
+    claimed: set[int] = set()
+    for k in range(n):
+        if not np.isfinite(ticks[k]):
+            continue
+        following = ticks[k + 1] if k + 1 < n else np.nan
+        if not np.isfinite(following):
+            following = ticks[k] + clock.period
+        low, high = ticks[k] - clock.budget, following - clock.budget
+        start = int(np.searchsorted(ordered, low, "left"))
+        stop = int(np.searchsorted(ordered, high, "left"))
+        free = [int(i) for i in order[start:stop] if int(i) not in claimed]
+        if free:
+            assigned[k] = free[0]
+            claimed.add(free[0])
+    return assigned
 
 
 def _assign_intervals(

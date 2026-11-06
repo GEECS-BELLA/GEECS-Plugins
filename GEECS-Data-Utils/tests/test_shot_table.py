@@ -485,6 +485,23 @@ def test_a_free_running_device_is_sampled_at_the_fire_on_loose_rows() -> None:
     )  # (fire + m) − the last sample
 
 
+def test_soft_tick_pressed_frames_late_in_the_period_stay_on_their_own_tick() -> None:
+    """A frame 0.6 P after its tick is that tick's, not the nearest (next) tick's."""
+    rows = _rows(5)
+    start = {**START, "clock": "soft-tick"}
+    cam = _cam(rows, offset=0.6)
+    cam = _device("cam", cam.records.stamps, cam.counter, None, np.arange(5.0))
+    table = shot_table(start, rows, [cam])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4)
+    assert not any(table.flags) and table.extras["cam"] == ()
+    # a missed press is a gap on its own row, never a shift
+    cam = _cam(rows, offset=0.6, drop=(2,))
+    cam = _device("cam", cam.records.stamps, cam.counter, None, np.arange(4.0))
+    table = shot_table(start, rows, [cam])
+    assert table.record_for_shot["cam"] == (0, 1, None, 2, 3)
+    assert _flagged(table, "missing:cam") == [3]
+
+
 def test_a_stale_required_free_running_record_does_not_complete_a_row() -> None:
     rows = _rows(6)
     start = {**START, "clock": "soft-tick", "required": ["gauge"]}
