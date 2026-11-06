@@ -124,8 +124,9 @@ with GEECS logics:
   Strict calls `prepare` **every shot** (`strict.py`), so the trigger and
   acquire logics make every prepare after the run's first a no-op: no
   `Acquire` put, the event count ignored.
-- **The stream path** (the device side is built; no plan uses it yet —
-  `refuse_native_run` still refuses a non-essential native at bind): an
+- **The stream path** (what a strict `count` / `sweep` uses: every
+  native is a per-shot device in its own stream, required or not, beside
+  gateway plugin cameras or not; a Software source pressed at the fire): an
   **unbounded** prepare (`number_of_events == 0`, `UNBOUNDED_TRIGGER_INFO`)
   arms the camera exactly as a strict run's first prepare does — the run
   lock, the source check and the trigger readbacks included — and the
@@ -167,32 +168,15 @@ with GEECS logics:
   `GeecsDetector`'s synchronous stamp baseline. The wait's timeout is the
   prepared `exposure_timeout` and raises `GeecsTriggerTimeoutError`,
   setting `missed_shot`.
-- **No orphan frames in v1.** The stack must hold exactly the frames the
-  datums reference, in order: Bluesky's `HDF5Consolidator` sizes the array
-  as the sum of datum widths and reads from frame 0, so a skipped frame
-  silently shifts every later frame in Tiled and the portal by one shot.
-  `GeecsDetector` avoids this by rewinding its plugin; stock `NDFileHDF5`
-  cannot rewind. So, for v1:
-  - a native camera that **misses a shot fails the step** (no refire —
-    `discard_uncollected` raises, naming the camera); a frame it *did*
-    write survives another device's miss (strict calls
-    `discard_uncollected` on every plugin-backed device; with one external
-    key per event the frame's datum is valid);
-  - **a pause never replays a shot**: strict wraps each shot in
-    `rewindable_wrapper(all_safe_rewind(devices))`, and a device without a
-    `rewindable` attribute counts as safe — a pause after the frame landed
-    would replay trigger + fire on resume and the append-only writer would
-    hold two frames for one row (Bluesky then fails the run: "multiple
-    indices in a stream_datum for one event"). `NativeCamera` declares
-    `rewindable.get() → False`, so the resume continues where it stopped
-    (GPT review on #1115; pinned by a mid-shot pause test);
-  - a run with a native camera **and** a gateway plugin camera is refused
-    at bind (a refire of the other camera would need a native rewind);
-  - a stray frame (an edge outside a shot) is the same fault — hence the
-    cabling rule in Acceptance.
-  Refires come back when the Tiled writer registers native stacks through
-  a consolidator that honours the seq_num→index map (a second
-  substitution in `tiled/writer.py`, tested against real Tiled).
+- **No placeholder frames.** Bluesky's `HDF5Consolidator` sizes the array
+  as the sum of datum widths and reads from frame 0, so the stream's datums
+  cover exactly the frames the writer wrote: a skipped frame is a gap in
+  the camera's own stream, never a shifted row, and the join
+  (`geecs_data_utils.shot_table`) assigns frames to shot-table rows by
+  stamp. A missed shot is refired like any device's (a new row); nothing
+  rewinds, and a pause replays nothing (the strict slot is not
+  rewindable). A stray frame (an edge outside a shot) is an extra the join
+  flags — hence the cabling rule in Acceptance still.
 - **Stamp, from the stock pair** (verified on ADCore 3.14, geecs-epics#2):
   a stock IOC cannot write one Unix float per frame (no arithmetic in the
   attribute XML, no `CONST` type; ADAravis' `NDArrayTimeStamp` is the
@@ -236,7 +220,8 @@ with GEECS logics:
 - **Facts strict reads**: `name = safe_name(device)`,
   `_geecs_device_name`, `plugin_backed = True`, `native_save = False`,
   `missed_shot`, `plugin_reasons()` (the plugin's `WriteMessage`),
-  `discard_uncollected()` (above), `count_zeroed`, `_geecs_namespace_member`.
+  `trigger_source` and `press()` (the fire's press), the writer's frame count (the
+  slot's progress counter), `count_zeroed`, `_geecs_namespace_member`.
 
 ## 4. Failure behaviour
 

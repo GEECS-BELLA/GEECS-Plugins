@@ -48,7 +48,8 @@ list or no positions.  `run_action` is compiled from
 
 Every bound scan verb takes, keyword-only, `trigger_profile`,
 `shots_per_step`, `acquisition` (`strict` default, or `gated`),
-`non_essential`, `shot_period` (the strict rep-rate throttle),
+`required` (`count` / `sweep`; `optimize` keeps `non_essential`),
+`shot_period` (the strict rep-rate throttle),
 `native_image_save` and `background_telemetry`; all ride in the start
 document (`EVENT_SCHEMA.md`).  Every GEECS-defined registered plan
 passes through `utils.resolve_annotations`: the manager evaluates a
@@ -94,8 +95,12 @@ geecs_bluesky/
                             #   oneshot, liveness, _pv (the explicit ca:// source),
                             #   forward_expr (a pseudo's forward/inverse formulas,
                             #   affine_coefficients)
-  plans/strict.py           # geecs_take_reading (the fire between trigger and wait),
-                            #   geecs_per_step / geecs_per_shot, name_failed_status
+  plans/on_demand.py        # the strict count/sweep slot over the shot-table layout:
+                            #   OnDemand, on_demand_per_shot / _per_step, start_keys
+  plans/streams.py          # DeviceStreams: every per-shot device in its own
+                            #   <name>_stream (strict per fire; non-essential at close)
+  plans/strict.py           # geecs_take_reading (optimize's shot: the fire between
+                            #   trigger and wait), BinCounter, name_failed_status
   plans/gated.py            # gated_take_reading, the run bracket, the non-essential
                             #   stream wrapper, shot_clock, native_essentials
   plans/sweep.py            # sweep_plan: the Sweep payload through scan_nd, relative/reset
@@ -181,9 +186,9 @@ qserver/                    # the worker: launcher, startup profile, permissions
   lock**: the first prepare's first act sets the IOC's `RUN:Lock` (waiting
   for its readback), and only a completed restore — or an unstage with
   nothing to restore — releases it; meanwhile the IOC refuses acquisition
-  writes from anyone but the worker (`NATIVE_DEVICES.md` §3).  **One
-  frame per row**: its own miss fails the step (no rewind), and it is
-  never rewindable, so a pause never replays a shot.  An unbounded prepare
+  writes from anyone but the worker (`NATIVE_DEVICES.md` §3).  **Never
+  rewound**: a strict run streams it, so a skipped frame is a gap in its
+  stream and a pause replays nothing.  An unbounded prepare
   makes it a datum-only stream (its datums the frames written, from 0; a
   `Software` source pressed by `press()` at the fire), armed and guarded as
   a strict run; a bounded fly prepare (a gated batch) is refused.  Built by the namespace from the native device
@@ -388,40 +393,75 @@ qserver/                    # the worker: launcher, startup profile, permissions
 scan verb.  `count` keeps its stock parameters; `sweep` takes the
 validated trajectory payload; `optimize` takes its optimizer config.
 
-**Strict** (`plans/strict.py`): each run bracketed ARMED → STANDBY through
-the profile's `ShotControl`.  Every shot is one row; `shots_per_step` rows
-per position carry the same `bin_number` —
+**Strict** (`plans/on_demand.py`, the shot-table layout): each run
+bracketed ARMED → STANDBY through the profile's `ShotControl`.  Every
+per-shot device — a `GeecsDetector`, its `.scalars` view, a `NativeCamera`
+— records into its own `<device>_stream` (`plans/streams.DeviceStreams`:
+staged, prepared unbounded and kicked off after `open_run`, collected per
+fire, closed before `close_run`, every step after the open a contingency);
+a stampless device (`CaSnapshotReadable`, a setpoint device) is a
+**condition**, read in the row.  `primary` is the shot table, one event
+per fire, refires included (`EVENT_SCHEMA.md`).  One slot per shot,
+`shots_per_step` complete shots per position —
 
 ```
-prepare(detectors, STRICT_TRIGGER_INFO)     # edge-triggered, one event; per shot,
-trigger(detectors, wait=False)              #   because stage() resets the context
-mv(shot_control, SINGLESHOT)                # the one GEECS line
-wait(group)                                 # every detector saw its stamp
-create / read / save
+throttle; mark = pause_count
+read every per-shot counter + the witness count   # frame count / acq_timestamp monitor
+[mv(scan_mode, ANNOUNCE)]; mv(box, SINGLESHOT); press Software natives
+wait (bounded) for every required counter         # none required: for the witness
+re-read the counters → complete / missing / witness_late / interrupted
+create / read / [pause landed inside? drop, read again] / save
+collect every stream
 ```
+
+`required=` names the per-shot devices whose record makes a shot
+complete (default: all; `[]`: none; a condition named is refused at
+bind).  An incomplete shot keeps its row and fires again (a new row,
+`attempt` + 1) up to `max_refires`; exhausted, the last row is flagged
+and the scan continues, and two exhausted shots in a row pause the run.
+A required device whose liveness reads down pauses the run with the
+reason; a non-required one is never waited on, never refires anything,
+and is logged once when down.  A fire neither the witness nor any device
+saw is not fired: the row is kept and the run pauses with the reason
+(the resume fires again) — a pause never ends a scan.  The wait's return is never the verdict: the counters
+are re-read after it, so a pause or suspension that cut into the slot
+costs nothing, and a pause inside the row's bundle drops it and reads
+again — never a saved short row.  Nothing rewinds; the slot is not
+rewindable (a resume replays nothing).  A plugin-backed camera's
+dual-write is switched on for the run by its unbounded prepare
+(`GeecsDetector.fly_native_save`), `native_image_save` still deciding;
+its directory rides in the stream descriptor's configuration
+(`<det>-nonscalar_save_path`), the stream being datum-only.
+Gated keeps its own shape (`required` → its detectors, the others to the
+non-essential stream) and `optimize` keeps the pre-shot-table strict shot
+(`plans/strict.py::geecs_take_reading`: prepare, trigger, fire, wait, the
+row with every detector's columns, `discard_uncollected` before a refire)
+and its `non_essential=` until it reads the shot table itself.
 
 **The witness** (`registry.run_witness`): when the namespace has a
 `main`-domain one, every strict run (`count`, `sweep`, `optimize`) appends
 it to the row's readers beside the background telemetry — one place, not
-per preset; not Triggerable, so `geecs_take_reading` never triggers or
-waits on it — and `witness_wrapper` logs its summary before `close_run`.
+per preset; not Triggerable, never triggered; the strict slot reads its
+count before and after the fire for the witness rule (and waits on it when
+nothing is required) — and `witness_wrapper` logs its summary before `close_run`.
 Listed as a device in a preset it is refused at bind (it is recorded
 already).  At the start it is probed (5 s): a down witness is a WARNING and
 `read: false, reason: down`, never a refusal.  Both start WARNINGs (this
 and the `note` below) are logged at bind, before `scan.log` exists, so
-`witness_wrapper` repeats them right after `open_run`.  A run with no triggered
-device has nothing that waits for the shot, so its rows can read the
-count before the edge lands: a WARNING at the start and a `note` in the
-record (still read, never waited on).  Not read in a gated run (not
+`witness_wrapper` repeats them right after `open_run`.  An `optimize` run
+with no triggered device has nothing that waits for the shot, so its rows
+can read the count before the edge lands: a WARNING at the start and a
+`note` in the record (a strict count/sweep always waits, so never).  Not read in a gated run (not
 yet) or under a box-less profile (nothing fired for it to count); the
 start document's `witness` says which (`null` without one,
 `EVENT_SCHEMA.md`).
 
-A no-frame wait (`FailedStatus` caused by `GeecsTriggerTimeoutError`)
-re-fires the whole event up to `max_refires` times; a device whose
-`CONNECTED` PV reads Disconnected raises `GeecsDeviceDownError` instead.
-Any other failed status (a refused fire) re-raises untouched — a refire
-must never issue an extra physical shot.  Strict holds 1 Hz on a count
+In `optimize`'s shot a no-frame wait (`FailedStatus` caused by
+`GeecsTriggerTimeoutError`) re-fires the whole event up to `max_refires`
+times; a device whose `CONNECTED` PV reads Disconnected raises
+`GeecsDeviceDownError` instead.  In either shape any other failed status
+(a refused fire) re-raises untouched — a refire must never issue an extra
+physical shot.  Strict holds 1 Hz on a count
 and every other edge on a moving scan: the fire put (~200 ms) plus the
 move overruns the ~550 ms between stamp arrival and the next edge.  The
 plan layer recovers it, not `take_reading`; the gated batch is the
@@ -512,7 +552,9 @@ never a failure).  A plugin-backed camera in a gated run still writes no
 native files (the dual-write is strict-only).  As a **non-essential** such
 a device gets a stream of its own (below).
 
-**Non-essential stream** (`non_essential=[…]`, strict or gated): the
+**Non-essential stream** (gated's per-shot devices not `required`,
+`optimize`'s `non_essential=[…]`; the same `DeviceStreams` a strict run
+uses for every per-shot device, collected only at the close): the
 listed devices are staged, prepared unbounded, kicked off right after
 `open_run` and each collected alone into `<name>_stream` before
 `close_run` — `fly_during_wrapper`'s shape with the stage and prepare it
@@ -537,16 +579,18 @@ that publishes nothing leaves an empty stream and a WARNING at the close.
 A device with **no** stamp (free-running) is refused at bind
 (`refuse_free_running_non_essentials`, and the preflight).
 
-**A native camera** (`NativeCamera`) is, for now, only an essential
-detector of a strict `count`/`sweep` under a box-fired profile with no
-gateway plugin camera in the run; every other shape is refused at bind,
-naming the camera, before the box moves and the claim
+**A native camera** (`NativeCamera`) is, for now, a per-shot device of a
+strict `count`/`sweep` under a box-fired profile — required or not,
+beside gateway plugin cameras or not: its own datum-only stream, a
+Software source pressed at the fire.  A gated run and a scan-mode profile
+are refused at bind, naming the camera, before the box moves and the claim
 (`registry.refuse_native_run`; `optimize` and the calibration plans
-through `devices/native.refuse_native_cameras`), and `expand_preset`
-refuses its `X.scalars` (`native_devices=`) and, in the worker's own
-words (`native_scope`), the shapes a preset alone shows — non-essential,
-gated, `optimize` — so the preflight's device rules never refuse a native
-camera for a reason that is not the real one.
+through `devices/native.refuse_native_cameras`); the cabling check and the
+run lock hold at its prepare.  `expand_preset` refuses its `X.scalars`
+(`native_devices=`) and, in the worker's own words (`native_scope`), the
+shapes a preset alone shows — gated, `optimize` — so the preflight's
+device rules never refuse a native camera for a reason that is not the
+real one.
 
 ### Sweep
 
@@ -978,11 +1022,11 @@ command) and never imports the gateway (circular).
   (`LvNativeFileDataLogic`, named with the stamp) — the non-image
   proprietary devices keep it whatever the switch says.  Live frames are
   the NTNDArray PVs.
-- **A missed shot** keeps its row (scalars, the missing device's columns
-  `NaN`, no frames) and the plan takes one more shot, rewinding every
-  plugin to its last referenced frame first
-  (`GeecsDetector.discard_uncollected`); the incomplete-shot warning and
-  the step's failure name each missed plugin's `WriteMessage`
+- **A missed shot** keeps its shot-table row (flagged, the device absent
+  from its stream for that fire) and the plan fires again — nothing
+  rewinds (`optimize` still rewinds every plugin to its last referenced
+  frame, `GeecsDetector.discard_uncollected`); the incomplete-shot and
+  flagged-step warnings name each missed plugin's `WriteMessage`
   (`plans/strict.py::plugin_reasons` through the bounded
   `GeecsDetector.plugin_reasons()`, which `prepare`'s failure note and the
   count timeouts of `trigger` and `complete` use too), so a plugin
