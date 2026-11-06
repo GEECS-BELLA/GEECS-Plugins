@@ -200,11 +200,11 @@ class TestRunView:
         assert 'data-pane="overview"' in response.text
         assert 'data-pane="plot"' in response.text
         assert 'data-pane="images"' in response.text
-        # The one committed JS asset — version-pinned, served locally.
-        assert "/static/plotly-cartesian-" in response.text
+        # The theme's vendored bundle — version-pinned, served locally.
+        assert "/theme/plotly-cartesian-" in response.text
 
     def test_vendored_plotly_is_served(self):
-        response = _client().get("/static/plotly-cartesian-3.1.1.min.js")
+        response = _client().get("/theme/plotly-cartesian-3.1.1.min.js")
         assert response.status_code == 200
         assert "plotly.js" in response.text[:200]
 
@@ -978,12 +978,12 @@ class TestReverseProxy:
         client = _client(FakeCatalog(), default_experiment="Undulator")
         response = client.get("/run/uid-002", headers=self.PREFIX)
         assert response.status_code == 200
-        assert 'src="/portal/static/plotly-cartesian-' in response.text
+        assert 'src="/portal/theme/plotly-cartesian-' in response.text
         # The JS builds every /api fetch (and the scan-jump dropdown)
         # from this constant.
         assert 'const ROOT = "/portal";' in response.text
         assert '"/portal/run/uid-001?' in response.text  # prev-scan stepper
-        assert 'src="/static/' not in response.text
+        assert 'src="/theme/' not in response.text
 
     def test_index_and_go_redirects_carry_the_prefix(self):
         response = _client().get("/", headers=self.PREFIX, follow_redirects=False)
@@ -1006,7 +1006,7 @@ class TestReverseProxy:
         client = _client(FakeCatalog(), default_experiment="Undulator")
         response = client.get("/run/uid-002")
         assert 'const ROOT = "";' in response.text
-        assert 'src="/static/plotly-cartesian-' in response.text
+        assert 'src="/theme/plotly-cartesian-' in response.text
         assert '"/run/uid-001?' in response.text
 
     def test_trailing_slash_prefix_is_normalized(self):

@@ -326,6 +326,10 @@ async def test_the_trace_page_draws_the_familys_panel_and_reads_the_trace_at_the
     assert 'data-role="trigger_level" step="any"' in page.text and 'data-role="num_images" step="1"' in page.text  # fmt: skip
     assert 'data-roles="ch_a_enable ch_a_range ch_a_coupling ch_a_offset"' in page.text
     assert 'class="live" data-role="ch_a_overrange"' in page.text and 'data-counter="arr_counter"' in page.text  # fmt: skip
+    # the plot is Plotly through the theme's template: the vendored bundle and plot.js, both served from /theme
+    assert '/theme/plotly-cartesian-3.1.1.min.js' in page.text and '/theme/plot.js' in page.text and '<canvas id="trace-plot"' not in page.text  # fmt: skip
+    for asset in ("/theme/plotly-cartesian-3.1.1.min.js", "/theme/plot.js"):
+        assert (await room.client.get(asset)).status_code == 200, asset
     # the trace: the counter, the capture and its channel count, the axis, at the PVs the module names
     room.ca.floats_by = {roles["data"]["pv"]: np.zeros(8, dtype=np.float32), roles["time_axis"]["pv"]: np.arange(2, dtype=np.float32)}  # fmt: skip
     room.ca.scalars = {roles["arr_channels"]["pv"]: 4.0}

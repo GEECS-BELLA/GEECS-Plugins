@@ -52,8 +52,9 @@ geecs_control_room/
                     it names, `[channels, samples]` by its `channels_by`, float32 LE gzip framed, held on
                     its `fresh_by` counter with ETag/304; § "The trace" below), over CA through Images' cache
   static/trace.js, trace_rules.js, trace.css   the trace page (device_trace.html): the rail and readings
-                    from the family's `panel`, the plot (one series per channel, ticks in SI units, cursor,
-                    linear/log, the viewer's window and average); the rules reuse camera_rules.js's
+                    from the family's `panel`, the plot (Plotly through the theme's plot.js: one trace per
+                    channel, decimated to the plot's width, linear/log, the viewer's window = Plotly's x
+                    range, and average); the rules reuse camera_rules.js's
   static/device_writes.js   a device page's write path (operator, hazard dialog, one list at a time,
                     sent once): the camera's and the trace page's
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
@@ -331,14 +332,34 @@ contract, pinned by `tests/test_traces.py` and `tests/test_trace_rules_js.py`
   the previous capture under a fresh tag.
 - **The page**: polls at 2 Hz while visible, `If-None-Match` the last
   `ETag`, 304 is nothing new; the chip is the counter role's word; the
-  scale, the window (a drag) and the average (the last N captures of one
-  shape and one axis, a tag counted once, finite values only) are the
-  viewer's, written nowhere.
+  scale, the window and the average (the last N captures of one shape and
+  one axis, a tag counted once, finite values only) are the viewer's,
+  written nowhere. What the route serves is unchanged by how the page
+  draws: the plot is **Plotly through the theme's template**
+  (`GeecsWebTheme/CLAUDE.md` § "Line plots are Plotly"; the bundle and
+  `plot.js` from `/theme`), one trace per channel in channel order (an off
+  channel one null point named `<x> off`, so trace *i* keeps
+  `--trace-(i+1)`), each decimated to two points per pixel column of the
+  plot (`plotData` over `decimate`; on a log scale a column's positive
+  extrema only), `Plotly.react` on each new capture with `uirevision` (the
+  viewer's zoom and legend toggles survive captures; x's revision is the
+  capture's shape, y's the scale). The window is Plotly's x range: a box
+  zoom or pan (`windowFromRelayout`) re-decimates inside it; autoscale,
+  reset or a double-click is the whole trace. Axis titles carry the
+  family's units; SI prefixes on ticks and in the hover for base SI units
+  only (the theme's `GeecsPlot.axisFormat`: s, V, A, Hz, m, W), every other unit plain (the
+  first cut prefixed every unit and a wavelength axis read "knm"). The
+  cartesian bundle has no `scattergl`; decimation is why SVG `scatter`
+  holds a 2 × 100 k capture at 2 Hz.
 
-The bench is `scripts/scope_soft_ioc.py` (caproto through `uvx`, loopback,
+The benches are `scripts/scope_soft_ioc.py` (caproto through `uvx`, loopback,
 every role of the scope contract, a synthetic `[3, samples]` capture at
-1 Hz, the counters in the IOC's order; channel C disabled, D absent):
-geecs-epics has no scope simulator.
+1 Hz, the counters in the IOC's order; channel C disabled, D absent) and
+`scripts/spectrometer_soft_ioc.py` (every role of the spectrometer
+contract, a 2048-pixel spectrum over a wavelength polynomial at 1 Hz, the
+chain's background path: `PROC:SaveBackground` holds the raw spectrum,
+`PROC:EnableBackground` subtracts it, STAT1 over the result): geecs-epics
+has no simulator for either.
 
 ## Settings
 
