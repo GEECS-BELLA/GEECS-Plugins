@@ -318,8 +318,35 @@ def _with_axis(**axis: object) -> dict:
 
 def test_an_axis_names_its_array() -> None:
     family = FamilyFile.model_validate(_with_axis(axis_of="trace"))
-    assert family.role("x").axis_of == "trace"
+    assert family.role("x").axis_of == ["trace"]  # one name is a list of one
     assert family.role("trace").axis_of is None
+
+
+def _with_second_array() -> dict:
+    doc = tiny()
+    doc["roles"].append({"name": "trace2", "suffix": "Trace2", "type": "array", "label": "trace 2"})  # fmt: skip
+    return doc
+
+
+def test_an_axis_draws_several_arrays() -> None:
+    doc = _with_second_array()
+    doc["roles"].append({"name": "x", "suffix": "X", "type": "array", "label": "x", "axis_of": ["trace", "trace2"]})  # fmt: skip
+    family = FamilyFile.model_validate(doc)
+    assert family.role("x").axis_of == ["trace", "trace2"]
+    assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
+    for bad, match in (([], "at least 1 item"), (["trace", "level"], "axis_of names an array other than itself"),
+                       (["trace", "trac"], "axis_of names no role")):  # fmt: skip
+        role(doc, "x")["axis_of"] = bad
+        _refused(doc, match)
+
+
+def test_an_array_of_a_list_still_has_one_axis() -> None:
+    doc = _with_second_array()
+    doc["roles"] += [
+        {"name": "x", "suffix": "X", "type": "array", "label": "x", "axis_of": ["trace", "trace2"]},
+        {"name": "x2", "suffix": "X2", "type": "array", "label": "x2", "axis_of": "trace2"},
+    ]  # fmt: skip
+    _refused(doc, r"axes \(one per array\) must be unique; repeated: \['trace2'\]")
 
 
 def test_an_axis_names_a_role() -> None:
@@ -402,6 +429,53 @@ def test_a_reading_is_monitored_and_listed_once() -> None:
         _refused({**tiny(), "panel": panel}, match)
 
 
+def _buttons(**over: object) -> dict:
+    doc = {**tiny(), "panel": {**copy.deepcopy(PANEL), **over}}
+    role(doc, "acquire").update(integer=True, limits=[0, 1])
+    return doc
+
+
+def test_a_two_state_rail_role_may_be_drawn_as_a_button_pair() -> None:
+    family = FamilyFile.model_validate(_buttons(buttons={"acquire": ["Stop", "Start"]}))
+    assert family.panel.buttons == {"acquire": ("Stop", "Start")}
+    assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
+    assert FamilyFile.model_validate({**tiny(), "panel": PANEL}).panel.buttons == {}
+
+
+@pytest.mark.parametrize(
+    "name, change",
+    [
+        ("level_sp", None),  # a setpoint limited to [0, 10]: not two-state
+        ("fault", None),  # a bit, but read only and not in the rail
+        ("acquire", lambda doc: role(doc, "acquire").pop("limits")),  # no [0, 1] limits
+        ("acquire", lambda doc: doc["panel"]["rail"][0]["roles"].remove("acquire")),  # not in the rail
+    ],
+)  # fmt: skip
+def test_a_button_pair_draws_a_writable_two_state_rail_role(name, change) -> None:
+    doc = _buttons(buttons={name: ["Off", "On"]})
+    if change:
+        change(doc)
+    _refused(doc, f"panel buttons {name!r}: a button pair draws a writable two-state rail role")  # fmt: skip
+
+
+def test_a_button_pair_has_two_labels() -> None:
+    for labels in (["Stop"], ["Stop", "Start", "Pause"], ["", "Start"]):
+        _refused(_buttons(buttons={"acquire": labels}), "buttons")
+    _refused(
+        _buttons(buttons={"halt": ["Off", "On"]}), r"panel names no role \['halt'\]"
+    )
+
+
+def test_a_default_array_is_one_an_axis_draws_while_a_monitored_role_reads_1() -> None:
+    doc = _with_second_array()
+    doc["roles"].append({"name": "x", "suffix": "X", "type": "array", "label": "x", "axis_of": ["trace", "trace2"]})  # fmt: skip
+    family = FamilyFile.model_validate({**doc, "panel": {"show_while": {"trace2": "flag"}}})  # fmt: skip
+    assert family.panel.show_while == {"trace2": "flag"}
+    _refused({**doc, "panel": {"show_while": {"x": "flag"}}}, "panel show_while 'x': no axis draws it")  # fmt: skip
+    _refused({**doc, "panel": {"show_while": {"trace2": "fire"}}}, "'fire' is not monitored")  # fmt: skip
+    _refused({**doc, "panel": {"show_while": {"trace2": "flg"}}}, r"panel names no role \['flg'\]")  # fmt: skip
+
+
 def test_a_rail_role_sits_in_one_group() -> None:
     panel = copy.deepcopy(PANEL)
     panel["rail"][1]["roles"].append("acquire")
@@ -410,7 +484,7 @@ def test_a_rail_role_sits_in_one_group() -> None:
 
 def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
     scope = load_families()["scope_contract"]
-    assert scope.role("time_axis").axis_of == "data"
+    assert scope.role("time_axis").axis_of == ["data"]
     # [channels, samples] by arr_channels, held on the ARR plugin's own counter (it publishes after the driver's)
     assert (scope.role("data").channels_by, scope.role("data").fresh_by) == ("arr_channels", "arr_counter")  # fmt: skip
     assert scope.role("arr_counter").suffix == "ARR:ArrayCounter_RBV"
@@ -425,18 +499,25 @@ def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
     # the rail is exactly the family's writable roles: none left off, no read-only one placed
     railed = [r for g in scope.panel.rail for r in g.roles]
     assert sorted(railed) == sorted(r.name for r in scope.roles if r.writable)
+    assert scope.panel.buttons == {"acquire": ("Stop", "Start")}  # 0 then 1
 
 
 def test_the_spectrometer_contract_draws_its_spectrum_over_its_wavelengths() -> None:
     spec = load_families()["spectrometer_contract"]
     assert spec.kind == "array_detector"
+    # the raw spectrum (ARR, on the driver's port) first, then the background-subtracted one (PROC's own ARR)
     assert (
-        spec.role("wavelength").axis_of == "spectrum"
+        spec.role("wavelength").axis_of == ["spectrum", "processed"]
         and spec.role("wavelength").units == "nm"
     )
-    # one channel ([pixels]), held on the ARR plugin's own counter, as the scope's capture is
+    # one channel ([pixels]) each, held on its own plugin's counter, as the scope's capture is
     assert (spec.role("spectrum").channels_by, spec.role("spectrum").fresh_by) == (None, "arr_counter")  # fmt: skip
+    assert (spec.role("processed").channels_by, spec.role("processed").fresh_by) == (None, "proc_counter")  # fmt: skip
     assert spec.role("arr_counter").suffix == "ARR:ArrayCounter_RBV"
+    assert (spec.role("processed").suffix, spec.role("proc_counter").suffix) == ("PROC:ARR:ArrayData", "PROC:ARR:ArrayCounter_RBV")  # fmt: skip
+    # the page shows the processed spectrum while subtraction is on; acquire is a Stop / Start pair
+    assert spec.panel.show_while == {"processed": "background_enable"}
+    assert spec.panel.buttons == {"acquire": ("Stop", "Start")}
     assert [g.title for g in spec.panel.rail] == [
         "Acquisition",
         "Trigger",

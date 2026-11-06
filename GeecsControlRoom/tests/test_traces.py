@@ -205,3 +205,25 @@ async def test_a_one_channel_family_reads_no_channel_count() -> None:
         count,
         (axis,),
     ]
+
+
+async def test_the_array_is_asked_by_name_and_an_array_the_axis_does_not_draw_is_a_404() -> (
+    None
+):
+    """``?y=``: the spectrometer's axis draws ``spectrum`` then ``processed``; each held on its own counter."""
+    sp = "bench:cct:"
+    pv = {r: sp + s for r, s in (("spectrum", "ARR:ArrayData"), ("processed", "PROC:ARR:ArrayData"), ("wavelength", "Wavelength_RBV"),
+                                 ("arr_counter", "ARR:ArrayCounter_RBV"), ("proc_counter", "PROC:ARR:ArrayCounter_RBV"))}  # fmt: skip
+    roles = [{"role": r, "pv": p, "read": "monitor" if r.endswith("counter") else "on_request", "type": "counter" if r.endswith("counter") else "array"} for r, p in pv.items()]  # fmt: skip
+    env = scope(roles, "spectrometer_contract")
+    env.ca.floats_by = {pv["spectrum"]: np.zeros(3, np.float32), pv["processed"]: np.ones(3, np.float32), pv["wavelength"]: np.arange(3.0)}  # fmt: skip
+    async with client(env) as c:
+        processed = await c.get(URL + "?y=processed")
+        assert processed.status_code == 200 and np.frombuffer(processed.content, "<f4")[3:].tolist() == [1, 1, 1]  # fmt: skip
+        assert ("scalar", pv["proc_counter"]) in reads(env) and ("scalar", pv["arr_counter"]) not in reads(env)  # fmt: skip
+        first = await c.get(URL)  # no y: the axis' first array
+        assert np.frombuffer(first.content, "<f4")[3:].tolist() == [0, 0, 0]
+        env.ca.calls.clear()
+        r = await c.get(URL + "?y=count")
+    assert r.status_code == 404 and r.json()["detail"] == "the axis wavelength draws no array 'count': it draws spectrum, processed"  # fmt: skip
+    assert reads(env) == []  # refused before any read

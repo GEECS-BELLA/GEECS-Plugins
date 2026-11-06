@@ -18,6 +18,7 @@ from tests.test_traces import capture, client, scope
 VIEW = {"ok": True, "state": "live", "roles": {}}
 CH = ["ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset"]
 KNOWN = CH + ["ch_a_present", "acquire"]
+YS = [{"role": "spectrum"}, {"role": "processed"}]
 
 ROWS: list[tuple[str, str, list[Any], Any]] = [
     # what the plot is given
@@ -38,6 +39,17 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("average: whole, 1..100", "averageOf", ["7.4"], 7),
     ("average: junk is 1", "averageOf", ["x"], 1),
     ("average: capped", "averageOf", [1000], 100),
+    # which array the plot shows (a spectrometer's raw and processed spectrum)
+    ("shown: the processed array while its role reads 1", "shownY", [YS, {"processed": "background_enable"}, {"background_enable": 1}, None], "processed"),
+    ("shown: the first array while that role reads 0", "shownY", [YS, {"processed": "background_enable"}, {"background_enable": 0}, None], "spectrum"),
+    ("shown: an unknown role shows the first", "shownY", [YS, {"processed": "background_enable"}, {}, None], "spectrum"),
+    ("shown: the viewer's choice wins", "shownY", [YS, {"processed": "background_enable"}, {"background_enable": 1}, "spectrum"], "spectrum"),
+    ("shown: a choice no longer drawn falls back", "shownY", [YS, {}, {}, "gone"], "spectrum"),
+    ("shown: none drawn", "shownY", [[], {}, {}, None], None),
+    ("trace url: the array asked by name", "traceUrl", ["/room/api/devices/cct1/trace", "processed"], "/room/api/devices/cct1/trace?y=processed"),
+    ("pressed: the button of the value read", "pressed", [1, 1], True),
+    ("pressed: the other button", "pressed", [0, 1], False),
+    ("pressed: unknown presses neither", "pressed", [None, 0], False),
     # the rail and the readings
     ("present: a channel's group, by its present role", "presentRole", [CH, KNOWN], "ch_a_present"),
     ("present: a channel's reading", "presentRole", [["ch_a_total"], KNOWN], "ch_a_present"),

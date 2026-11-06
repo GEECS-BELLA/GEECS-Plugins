@@ -1,12 +1,13 @@
 // The trace page's live half, DOM only: the rail's controls and the readings
 // (the family's panel; values from Hare, words and PVs the module's, through
 // window.GeecsDevicePage), and the plot: the trace pulled from
-// /api/devices/<name>/trace at 2 Hz while the tab is visible, one request in
+// /api/devices/<name>/trace?y=<array> at 2 Hz while the tab is visible, one request in
 // flight, If-None-Match the last ETag (the counter: a 304 is nothing new), drawn
 // by Plotly through the theme's template (window.GeecsPlot: one trace per
 // channel in --trace-1..n, the modebar, the hover readout, the repaint on a theme
-// change). This viewer's scale, window (Plotly's x range) and average are its
-// own, written nowhere. Writes go through device_writes.js (the module's put
+// change). Which array is shown (a spectrometer's raw or processed spectrum) follows
+// the panel's show_while until this viewer picks one. This viewer's array, scale,
+// window (Plotly's x range) and average are its own, written nowhere. Writes go through device_writes.js (the module's put
 // route, sent once). The rules are trace_rules.js's.
 (function () {
   "use strict";
@@ -19,6 +20,14 @@
   const focused = (el) => document.activeElement === el;
   const known = () => { const v = P.view(); return v && v.ok ? Object.values(v.roles).map((e) => e.role) : []; };
 
+  // ---- which array is shown: the viewer's pick, else the panel's show_while, else the first
+  const ys = JSON.parse($("trace-ys").textContent), showWhile = JSON.parse($("trace-show-while").textContent);
+  let chosen = null, current = null;
+  const flags = () => Object.fromEntries(Object.values(showWhile).map((r) => [r, value(r)]));
+  const yInfo = () => ys.find((y) => y.role === current) || {};
+  const yButtons = [...box.querySelectorAll("#yrole [data-y]")];
+  for (const b of yButtons) b.addEventListener("click", () => { chosen = b.dataset.y; fill(); });
+
   // ---- the rail and the readings: filled unless focused, enabled on the module's word, a channel's group hidden while absent
   const writes = window.GeecsDeviceWrites.make(P, () => fill());
   const controls = [...box.querySelectorAll(".rail [data-role]")];
@@ -27,6 +36,7 @@
       const role = el.dataset.role, c = R.control(P.view(), P.entry(role), writes.busy()), v = value(role);
       el.disabled = !c.enabled;
       el.title = c.why;
+      if (el.dataset.pair !== undefined) el.setAttribute("aria-pressed", String(R.pressed(v, Number(el.dataset.value))));
       if (el.tagName === "BUTTON") continue;
       if (el.type === "checkbox") { el.checked = !!v; continue; }
       if (el.tagName === "SELECT") {
@@ -53,9 +63,20 @@
     }
     const v = P.view();
     $("alarms").textContent = v && v.ok ? Object.values(v.roles).filter((e) => e.verdict === "error").map((e) => e.label || e.role).join(" · ") : "";
-    const counter = box.dataset.counter, word = counter ? P.word(counter) : "unknown";
+    const y = R.shownY(ys, showWhile, flags(), chosen);
+    if (y !== current) switchTo(y);
+    for (const b of yButtons) b.setAttribute("aria-pressed", String(b.dataset.y === current));
+    const counter = yInfo().counter, word = counter ? P.word(counter) : "unknown";
     const chip = $("trace-state");
     if (chip) { chip.dataset.state = KIT[word] || "unknown"; chip.textContent = `trace ${word}`; }
+  }
+  // A new array: its own captures (never averaged with the last array's), asked fresh; the x window is kept (one axis).
+  function switchTo(y) {
+    current = y;
+    held = [];
+    shown = null;
+    etag = null;
+    if (typeof draw === "function") draw();
   }
   for (const el of controls) {
     if (el.tagName === "BUTTON") { el.addEventListener("click", () => writes.write([[el.dataset.role, Number(el.dataset.value)]])); continue; }
@@ -64,33 +85,34 @@
       if (v !== null) writes.write([[el.dataset.role, v]]).then(fill);
     });
   }
+  // the plot's state, set before the first fill (a switch of array resets it)
+  const host = $("trace-plot"), G = window.GeecsPlot;
+  let held = [], shown = null, etag = null, win = null, seen = [], lastTag = null, shape = null, watching = false, draw = null;
   P.on(fill);
   fill();
 
   // ---- the plot
-  const host = $("trace-plot"), G = window.GeecsPlot;
   if (!host || !G || !window.Plotly) return;
   const yscale = $("yscale"), avgIn = $("average"), note = $("plot-note");
-  let held = [], shown = null, etag = null, win = null, seen = [], lastTag = null, shape = null, watching = false;
-  const ds = box.dataset, xFmt = G.axisFormat(ds.xUnits), yFmt = G.axisFormat(ds.yUnits);
+  const ds = box.dataset, xFmt = G.axisFormat(ds.xUnits);
 
   // Plotly.react with the template's layout under the page's axes. `uirevision` keeps the viewer's zoom, legend
   // toggles and hover across captures; x's revision is the capture's shape (a new shape is the whole trace again),
   // y's is the scale (a log/linear change rescales y).
-  function draw() {
-    const log = yscale.value === "log";
+  draw = function () {
+    const log = yscale.value === "log", yl = yInfo();
     let drawn = 0;
     if (shown) {
       const now = `${shown.channels}×${shown.samples}`;
       if (shape !== null && now !== shape) win = null;
       shape = now;
       const [x0, x1] = R.xRange(shown.axis, win), cols = Math.max(200, Math.round(host.clientWidth || 800));
-      const d = R.plotData(shown, x0, x1, cols, log, ds.yLabel);
+      const d = R.plotData(shown, x0, x1, cols, log, yl.label);
       drawn = d.drawn;
       window.Plotly.react(host, d.traces, G.layout({
         uirevision: "trace", showlegend: shown.channels > 1,
         xaxis: { title: { text: R.axisTitle(ds.xLabel, ds.xUnits) }, ...xFmt, uirevision: shape },
-        yaxis: { title: { text: R.axisTitle(ds.yLabel, ds.yUnits) }, type: log ? "log" : "linear", ...yFmt, uirevision: yscale.value },
+        yaxis: { title: { text: R.axisTitle(yl.label, yl.units) }, type: log ? "log" : "linear", ...G.axisFormat(yl.units), uirevision: `${yscale.value} ${current}` },
       }), G.config());
       if (!watching) {
         watching = true;
@@ -103,7 +125,7 @@
     const why = R.emptyWhy(shown, drawn, log);
     note.textContent = why;
     note.hidden = !why;
-  }
+  };
   yscale.addEventListener("change", draw);
   avgIn.addEventListener("change", () => { avgIn.value = R.averageOf(avgIn.value); held = held.slice(-R.averageOf(avgIn.value)); if (held.length) shown = R.averaged(held); draw(); });
 
@@ -115,9 +137,11 @@
   async function poll() {
     if (document.hidden) return;
     let fresh = false;
+    const want = current;
     try {
       await R.within(TIMEOUT_MS, async (signal) => {
-        const r = await fetch(box.dataset.traceUrl, { cache: "no-store", headers: R.ifNoneMatch(etag), signal });
+        const r = await fetch(R.traceUrl(box.dataset.traceUrl, want), { cache: "no-store", headers: R.ifNoneMatch(etag), signal });
+        if (want !== current) return; // the viewer switched arrays mid-request: this answer is the last array's
         const what = R.rawAnswer(r.status);
         if (what === "same") return;
         if (what === "error") { etag = null; say((await r.json().catch(() => ({}))).detail || `answered ${r.status}`); return; }

@@ -127,6 +127,19 @@
     return shown.series.every((s) => s.off) || !log ? "every channel is off or empty" : "nothing positive to draw on a log scale";
   }
 
+  // ---- which array the plot shows
+  // The viewer's choice when made and still drawn, else the first array whose `show_while` role reads 1 (a
+  // processed spectrum while background subtraction is on), else the axis' first. `ys` the template's
+  // [{role, …}], `showWhile` the panel's {array: role}, `values` {role: its value} (absent: unknown).
+  function shownY(ys, showWhile, values, chosen) {
+    if (ys.some((y) => y.role === chosen)) return chosen;
+    const on = ys.find((y) => showWhile[y.role] && values[showWhile[y.role]] === 1);
+    return on ? on.role : ys.length ? ys[0].role : null;
+  }
+  const traceUrl = (base, y) => (y ? `${base}?y=${encodeURIComponent(y)}` : base);
+  // A button pair's state: the button whose value the role reads is pressed; unknown, neither.
+  const pressed = (value, buttonValue) => typeof value === "number" && value === buttonValue;
+
   // ---- the rail and the readings
   // The role whose value 0 hides a group: `<ch>_present` when every role of the group is `<ch>_…`
   // (the scope contract's per-channel roles) and the device has it; else none.
@@ -147,7 +160,7 @@
     return { seen: recent, text };
   }
 
-  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, axisTitle, windowFromRelayout, plotData, emptyWhy, presentRole, hidden, rate, fmt: C.fmt, control: C.control, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
+  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, axisTitle, windowFromRelayout, plotData, emptyWhy, shownY, traceUrl, pressed, presentRole, hidden, rate, fmt: C.fmt, control: C.control, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
 })(
   typeof module === "object" ? module.exports : (window.GeecsTraceRules = {}),
   typeof module === "object" ? require("./camera_rules.js") : window.GeecsCameraRules,

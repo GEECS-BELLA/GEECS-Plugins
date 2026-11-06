@@ -3,7 +3,9 @@
 ``GET /api/devices/{name}/trace`` serves the trace page (``device_trace.html``):
 one array over a calibrated axis, bound by data shape, never by model.
 Which roles those are is the family file's: the axis is the role with
-``axis_of``, the trace (y) the array it names; a y array with ``channels_by``
+``axis_of``, the trace (y) an array it names, ``?y=<role>`` or else the
+first (a spectrometer's raw ``spectrum``, or ``processed``, its
+background-subtracted twin from PROC's own ``ARR``); a y array with ``channels_by``
 is ``[channels, samples]``, channels fastest (a scope's ``ARR`` capture, a
 disabled channel NaN), else one channel; the trace is held on the y
 array's ``fresh_by`` counter, as ``frame.raw`` is held on ``raw_counter``.
@@ -13,8 +15,8 @@ array's ``fresh_by`` counter, as ``frame.raw`` is held on ``raw_counter``.
   channels fastest); headers ``X-Trace-Channels``, ``X-Trace-Samples``,
   ``X-Trace-Tag`` = the quoted counter, ``ETag`` the same.
 - **304** on an ``If-None-Match`` naming the held ``ETag``.
-- **404** when the family names no trace or counter, or the module names no
-  such role; **503** with words when a source is silent or the shapes disagree.
+- **404** when the family names no trace or counter, ``?y=`` names an array
+  the axis does not draw, or the module names no such role; **503** with words when a source is silent or the shapes disagree.
 
 Reads: one in flight per device, held ``TRACE_HOLD_S`` and shared. The
 counter alone first; unmoved, the held trace is served (a 2 Hz poller costs
@@ -77,30 +79,34 @@ class TracePvs:
     channels: Optional[str]
 
 
-def trace_roles(family: Optional[FamilyFile]) -> Optional[tuple[Role, Role]]:
-    """The family's trace: its first axis role (``axis_of``, in the family's order) and the array it names; ``None`` without one.
+def trace_roles(family: Optional[FamilyFile]) -> Optional[tuple[Role, list[Role]]]:
+    """The family's trace: its first axis role (``axis_of``, in the family's order) and the arrays it draws, in its order; ``None`` without one.
 
     The one reading of the rule, for this route and the page's template alike.
     """
     axis = next((r for r in family.roles if r.axis_of), None) if family else None
-    return (
-        (axis, family.role(axis.axis_of)) if family and axis and axis.axis_of else None
-    )
+    if family is None or axis is None or not axis.axis_of:
+        return None
+    return axis, [family.role(y) for y in axis.axis_of]
 
 
-def trace_pvs(family_name: Optional[str], roles: dict[str, dict[str, Any]], name: str) -> TracePvs:  # fmt: skip
-    """The trace's PVs: the family says which roles, the module's device route names their PVs.
+def trace_pvs(family_name: Optional[str], roles: dict[str, dict[str, Any]], name: str, y_name: Optional[str] = None) -> TracePvs:  # fmt: skip
+    """The trace's PVs: the family says which roles (*y_name*, else the axis' first array), the module's device route names their PVs.
 
     Raises
     ------
     Unavailable
         404 when the family names no trace (no ``axis_of``) or no counter for
-        it (``fresh_by``), or the module names none of a role's PVs.
+        it (``fresh_by``), *y_name* is no array the axis draws, or the module
+        names none of a role's PVs.
     """
     pair = trace_roles(load_families().get(family_name or ""))
     if pair is None:
         raise Unavailable(404, f"the family of {name} names no trace (no role is an axis_of)")  # fmt: skip
-    axis, y = pair
+    axis, ys = pair
+    y = next((r for r in ys if r.name == y_name), None) if y_name else ys[0]
+    if y is None:
+        raise Unavailable(404, f"the axis {axis.name} draws no array {y_name!r}: it draws {', '.join(r.name for r in ys)}")  # fmt: skip
     if y.fresh_by is None:
         raise Unavailable(404, f"the family names no counter for {y.name} (fresh_by)")
     wanted = [y.name, axis.name, y.fresh_by] + ([y.channels_by] if y.channels_by else [])  # fmt: skip
@@ -120,10 +126,10 @@ class Traces:
         self._held: dict[tuple[str, TracePvs], Trace] = {}
         self._axes: dict[str, tuple[np.ndarray, float]] = {}
 
-    async def trace(self, module: ModuleClient, name: str) -> Trace:
-        """The latest trace, shared by every viewer within ``TRACE_HOLD_S``."""
+    async def trace(self, module: ModuleClient, name: str, y: Optional[str] = None) -> Trace:  # fmt: skip
+        """The latest trace of the array *y* (else the axis' first), shared by every viewer within ``TRACE_HOLD_S``."""
         roles = await self._images.roles(module, name)
-        pvs = trace_pvs(self._images.family(name), roles, name)
+        pvs = trace_pvs(self._images.family(name), roles, name, y)
         key = (name, pvs)
         source = self._sources.get(key)
         if source is None:
@@ -205,9 +211,9 @@ def router(traces: Traces) -> APIRouter:
     r = APIRouter()
 
     @r.get("/api/devices/{name}/trace")
-    async def trace(request: Request, name: str) -> Response:
+    async def trace(request: Request, name: str, y: Optional[str] = None) -> Response:  # fmt: skip
         try:
-            t = await traces.trace(request.app.state.module, name)
+            t = await traces.trace(request.app.state.module, name, y)
         except Unavailable as exc:
             return JSONResponse({"code": "unavailable", "detail": exc.detail}, status_code=exc.status)  # fmt: skip
         etag = f'"{t.tag}"'

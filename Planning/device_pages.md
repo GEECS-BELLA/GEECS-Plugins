@@ -407,6 +407,23 @@ When it lands, `decimate` (still in `trace_rules.js`) moves to `plot.js` if
 the camera needs it, so the theme holds every shared plot rule;
 `axisFormat` already moved there in PR 1's review.
 
-**PR 2 (next): the processed spectrum and Start/Stop.** The plot shows the
-raw `ARR` only, so Save/Subtract background change nothing on it; and the
-`acquire` role draws as a select of "Done" / "Acquiring".
+PR 1 merged as #1293 and is deployed on the services box (the live
+spectrometer page loads `plot.js` and the bundle, its axis in nm).
+
+**PR 2: the processed spectrum and Start/Stop** (GEECS-Schemas +
+GeecsControlRoom). The plot showed the raw `ARR` only, so Save/Subtract
+background changed nothing on it, and `acquire` drew as a select of the
+driver's words. Now `Role.axis_of` takes a list (a string is read as a
+list of one), so `wavelength` draws `spectrum` (`ARR`) and a new
+`processed` (`PROC:ARR:ArrayData`, held on its own `proc_counter`); the
+route takes `?y=` (default: the first; an array the axis does not draw is
+a 404 with words); the page's Show toggle picks, following the panel's new
+`show_while` (`processed` while `background_enable` reads 1) until the
+viewer picks. `Panel.buttons` draws a two-state rail role as a pair writing
+0 and 1: the scope's and the spectrometer's `acquire` as Stop / Start, the
+current state pressed. `show_while` is this PR's own addition to the
+brief: the default needed a home that names the roles, and the family's
+panel is where the page's layout already lives (no role names in the
+page's code). On the hardware the processed path worked
+(`PROC:ValidBackground_RBV` 1, `PROC:EnableBackground_RBV` 1, STAT1 mean
+about 0 after a save), so the default is what the operator expects.
