@@ -17,6 +17,9 @@ RAW_HINT = (
 )
 
 ROWS: list[tuple[str, str, list[Any], Any]] = [
+    ("pressed: the button of the value read", "pressed", [1, 1], True),
+    ("pressed: the other button", "pressed", [0, 1], False),
+    ("pressed: unknown presses neither", "pressed", [None, 0], False),
     # levels and the colour map
     (
         "levels: white kept above black",

@@ -86,6 +86,7 @@
       {"title": "Channel C", "roles": ["ch_c_enable", "ch_c_range", "ch_c_coupling", "ch_c_offset"]},
       {"title": "Channel D", "roles": ["ch_d_enable", "ch_d_range", "ch_d_coupling", "ch_d_offset"]}
     ],
-    "readings": ["state", "count", "ch_a_total", "ch_a_mean", "ch_a_sigma", "ch_a_overrange", "ch_b_total", "ch_b_mean", "ch_b_sigma", "ch_b_overrange", "ch_c_total", "ch_c_mean", "ch_c_sigma", "ch_c_overrange", "ch_d_total", "ch_d_mean", "ch_d_sigma", "ch_d_overrange", "last_error"]
+    "readings": ["state", "count", "ch_a_total", "ch_a_mean", "ch_a_sigma", "ch_a_overrange", "ch_b_total", "ch_b_mean", "ch_b_sigma", "ch_b_overrange", "ch_c_total", "ch_c_mean", "ch_c_sigma", "ch_c_overrange", "ch_d_total", "ch_d_mean", "ch_d_sigma", "ch_d_overrange", "last_error"],
+    "buttons": {"acquire": ["Stop", "Start"]}
   }
 }

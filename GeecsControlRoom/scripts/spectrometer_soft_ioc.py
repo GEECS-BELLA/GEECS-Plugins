@@ -5,7 +5,8 @@ role at ``<prefix><suffix>`` (and its write record), a 2048-pixel spectrum
 over a wavelength polynomial (``Fit0..2``) at 1 Hz while acquiring, the
 level readings, and the chain behind it as the IOC lays it out: ``ARR`` the
 raw spectrum, ``PROC`` the background-subtracted one (``PROC:SaveBackground``
-holds the current raw spectrum, ``PROC:EnableBackground`` subtracts it), and
+holds the current spectrum as if the light were blocked for the save, its
+dark pattern and noise, ``PROC:EnableBackground`` subtracts it), and
 ``STAT1`` over ``PROC``. The counters post in the IOC's order: the driver's
 ``count``, the ``ARR`` spectrum, ``arr_counter``; then ``PROC``'s and
 ``STAT1``'s. Any role the family names that the chain produces
@@ -158,9 +159,8 @@ async def acquire(by_role: dict[str, ChannelData]) -> None:
     held: dict[str, np.ndarray] = {}
     last = np.zeros(PIXELS)
 
-    def save() -> (
-        None
-    ):  # PROC:SaveBackground: the current raw spectrum held, the background valid
+    def save() -> None:
+        """PROC:SaveBackground: the current spectrum with the light blocked held (the dark and its noise); valid."""
         held["background"] = last.copy()
         asyncio.get_running_loop().create_task(
             by_role["background_valid"].write("Valid")
@@ -177,8 +177,9 @@ async def acquire(by_role: dict[str, ChannelData]) -> None:
             i / 90.0
         )  # the sensor's fixed pattern: what Save background removes
         light = gain * (30000.0 * np.exp(-(((nm - 800.0) / 4.0) ** 2)) + 6000.0 * np.exp(-(((nm - 532.0) / 30.0) ** 2)) * (1 + 0.05 * np.sin(n)))  # fmt: skip
-        raw = np.clip(dark + light + rng.normal(0, 25.0, PIXELS), 0, FULL_SCALE)
-        last = raw
+        noise = rng.normal(0, 25.0, PIXELS)
+        raw = np.clip(dark + light + noise, 0, FULL_SCALE)
+        last = dark + noise
         peak = float(raw.max())
         await by_role["count"].write(
             n

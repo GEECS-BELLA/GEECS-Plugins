@@ -48,8 +48,8 @@ geecs_control_room/
                     lineouts and histogram; the Raw toggle (frame.raw at 2 Hz, rotated / flipped by role
                     `transform` as TRANS1 would, levels per mode as fractions of the full scale);
                     device.js's GeecsDevicePage gives it the roles, values, words
-  traces.py         a trace (/api/devices/{name}/trace: the family's axis role (`axis_of`) and the array
-                    it names, `[channels, samples]` by its `channels_by`, float32 LE gzip framed, held on
+  traces.py         a trace (/api/devices/{name}/trace?y=: the family's axis role (`axis_of`) and an array
+                    it draws, `[channels, samples]` by its `channels_by`, float32 LE gzip framed, held on
                     its `fresh_by` counter with ETag/304; § "The trace" below), over CA through Images' cache
   static/trace.js, trace_rules.js, trace.css   the trace page (device_trace.html): the rail and readings
                     from the family's `panel`, the plot (Plotly through the theme's plot.js: one trace per
@@ -292,14 +292,26 @@ image rebuild): `README.md` § Deploy.
 The trace page (`/device/trace/<name>`, family kind `array_detector`) binds
 by data shape, never by model: one page for every array over a calibrated
 axis (the PicoScope's `scope_contract`, `[channels, samples]` over its time
-axis; the spectrometer's `spectrometer_contract`, one `[pixels]` spectrum
-over `Wavelength_RBV`, no `channels_by`). What differs per hardware is the family file's: the
+axis; the spectrometer's `spectrometer_contract`, two `[pixels]` spectra
+over `Wavelength_RBV`, the raw `spectrum` (`ARR`) and the
+background-subtracted `processed` (`PROC:ARR`), no `channels_by`). What differs per hardware is the family file's: the
 rail's groups and the readings strip are its `panel` (each rail role drawn
 by its type: an enum a select of the PV's own `enumChoices`, a setpoint a
 number with its readback, a writable bit a checkbox, a command a button,
-anything else its text; a role the device omits is not drawn), the axis is
-the role with `axis_of`, the y array the one it names (`traces.trace_roles`,
-the one reading of that rule, for the route and the template). A group whose roles
+anything else its text; a role in the panel's `buttons`, a two-state one
+such as an acquire, a pair of buttons writing 0 and 1 with the one the
+role reads `aria-pressed`; a role the device omits is not drawn), the axis is
+the role with `axis_of`, the y arrays the ones it names, in its order
+(`traces.trace_roles`, the one reading of that rule, for the route and the
+template; the template drops an array the device omits). With several, the
+page's Show toggle picks one (`trace_rules.shownY`): the viewer's pick, else
+the first whose panel `show_while` role reads 1 (the spectrometer's
+`processed` while `background_enable` is on), else the first. A switch
+starts the average afresh, asks with no `ETag`, drops an answer still in
+flight for the last array, and hides the plot (`visibility`, so the
+viewer's window survives) until the new array's first capture: the last
+array is never left drawn under the new one's toggle and chip (pinned by
+running `trace.js` itself over a fake page in `test_trace_rules_js.py`). A group whose roles
 are all `ch_<x>_…` is hidden while `ch_<x>_present` reads 0 (and its
 readings with it); unknown keeps it shown. Controls are filled, enabled and
 written exactly as the camera's (`camera_rules.control`, the module's put
@@ -314,11 +326,13 @@ contract, pinned by `tests/test_traces.py` and `tests/test_trace_rules_js.py`
   lays it out, `channels × samples`, channels fastest (a disabled channel
   NaN); headers `X-Trace-Channels`, `X-Trace-Samples`, `X-Trace-Tag` = the
   quoted counter, `ETag` the same. **304** on a matching `If-None-Match`.
-  **404** when the family names no axis or no `fresh_by` for its array, or
-  the module names no such role; **503** with words: the counter or the
+  **404** when the family names no axis or no `fresh_by` for its array,
+  `?y=` (default: the axis' first array) names an array the axis does not
+  draw (`the axis wavelength draws no array 'x': it draws spectrum,
+  processed`), or the module names no such role; **503** with words: the counter or the
   array unreadable, `shape disagrees: <n> values for <c> channels`, the axis
   unreadable or `has <m> values for <s> samples`.
-- **Reads**: one in flight per device, held `TRACE_HOLD_S` (0.5 s), shared.
+- **Reads**: one in flight per device and array, held `TRACE_HOLD_S` (0.5 s), shared.
   The counter first (equal to the held tag: the held trace, one scalar
   read); else the array asked `DBR_FLOAT` and the channel count in one
   batch, the counter again (a mismatch reads the batch once more, tagged by
@@ -326,8 +340,9 @@ contract, pinned by `tests/test_traces.py` and `tests/test_trace_rules_js.py`
   its length is not the trace's, its first two values moved (a two-value
   probe per new capture: a new interval or pre-trigger moves them; a whole
   axis would be a third of a 2 × 100 k capture's bytes) or it is older than
-  `AXIS_EVERY_S` (10 s). The counter is the y array's `fresh_by`, the
-  producing plugin's own (`ARR:ArrayCounter_RBV` for the scope): the
+  `AXIS_EVERY_S` (10 s); arrays over one axis share it. The counter is the y array's `fresh_by`, the
+  producing plugin's own (`ARR:ArrayCounter_RBV` for the scope and the raw
+  spectrum, `PROC:ARR:ArrayCounter_RBV` for the processed one): the
   driver's posts before `ARR` publishes, so a trace tagged by it could hold
   the previous capture under a fresh tag.
 - **The page**: polls at 2 Hz while visible, `If-None-Match` the last
@@ -357,8 +372,9 @@ every role of the scope contract, a synthetic `[3, samples]` capture at
 1 Hz, the counters in the IOC's order; channel C disabled, D absent) and
 `scripts/spectrometer_soft_ioc.py` (every role of the spectrometer
 contract, a 2048-pixel spectrum over a wavelength polynomial at 1 Hz, the
-chain's background path: `PROC:SaveBackground` holds the raw spectrum,
-`PROC:EnableBackground` subtracts it, STAT1 over the result): geecs-epics
+chain's background path: `PROC:SaveBackground` holds the spectrum as if
+the light were blocked (its dark pattern and noise), `PROC:EnableBackground`
+subtracts it into `PROC:ARR`, STAT1 over the result): geecs-epics
 has no simulator for either.
 
 ## Settings

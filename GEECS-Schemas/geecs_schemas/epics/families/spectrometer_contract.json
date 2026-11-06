@@ -2,7 +2,7 @@
   "schema_version": 1,
   "template": "spectrometer_contract",
   "kind": "array_detector",
-  "description": "geecs-epics' spectrometer contract: vendor-neutral settings at the device prefix, aliased by each spectrometer driver (ADSpecfirm first), with the standard chain behind them (ARR, PROC, STAT1); the spectrum is drawn over Wavelength_RBV.",
+  "description": "geecs-epics' spectrometer contract: vendor-neutral settings at the device prefix, aliased by each spectrometer driver (ADSpecfirm first), with the standard chain behind them (ARR, PROC, STAT1); the raw (ARR) and the background-subtracted (PROC:ARR) spectrum are drawn over Wavelength_RBV.",
   "roles": [
     {"name": "manufacturer", "suffix": "Manufacturer_RBV", "type": "readback", "label": "manufacturer", "text": "string", "level": "expert"},
     {"name": "model", "suffix": "Model_RBV", "type": "readback", "label": "model", "text": "string"},
@@ -45,8 +45,10 @@
     {"name": "arr_counter", "suffix": "ARR:ArrayCounter_RBV", "type": "counter", "label": "spectra published", "level": "expert"},
     {"name": "arr_uid", "suffix": "ARR:UniqueId_RBV", "type": "readback", "label": "spectrum id", "level": "expert"},
     {"name": "arr_pixels", "suffix": "ARR:ArraySize0_RBV", "type": "readback", "label": "spectrum length", "read": "on_request", "level": "expert"},
-    {"name": "spectrum", "suffix": "ARR:ArrayData", "type": "array", "label": "spectrum", "units": "counts", "fresh_by": "arr_counter"},
-    {"name": "wavelength", "suffix": "Wavelength_RBV", "type": "array", "label": "wavelength", "units": "nm", "axis_of": "spectrum"},
+    {"name": "spectrum", "suffix": "ARR:ArrayData", "type": "array", "label": "raw spectrum", "units": "counts", "fresh_by": "arr_counter"},
+    {"name": "proc_counter", "suffix": "PROC:ARR:ArrayCounter_RBV", "type": "counter", "label": "processed spectra published", "level": "expert"},
+    {"name": "processed", "suffix": "PROC:ARR:ArrayData", "type": "array", "label": "processed spectrum", "units": "counts", "fresh_by": "proc_counter"},
+    {"name": "wavelength", "suffix": "Wavelength_RBV", "type": "array", "label": "wavelength", "units": "nm", "axis_of": ["spectrum", "processed"]},
     {"name": "background_save", "suffix": "PROC:SaveBackground", "type": "command", "label": "Save background", "writable": true},
     {"name": "background_enable", "suffix": "PROC:EnableBackground_RBV", "type": "enum", "label": "subtract background", "writable": true, "write": "PROC:EnableBackground", "archive": true},
     {"name": "background_valid", "suffix": "PROC:ValidBackground_RBV", "type": "enum", "label": "background held"},
@@ -68,6 +70,8 @@
       {"title": "Trigger", "roles": ["trigger_mode", "trigger_slope"]},
       {"title": "Background", "roles": ["background_save", "background_enable"]}
     ],
-    "readings": ["state", "count", "level_max", "level_percent", "saturated", "background_valid", "total", "peak_index", "centroid_index", "width_index", "temperature", "last_error"]
+    "readings": ["state", "count", "level_max", "level_percent", "saturated", "background_valid", "total", "peak_index", "centroid_index", "width_index", "temperature", "last_error"],
+    "buttons": {"acquire": ["Stop", "Start"]},
+    "show_while": {"processed": "background_enable"}
   }
 }
