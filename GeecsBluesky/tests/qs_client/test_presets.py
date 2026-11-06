@@ -255,6 +255,16 @@ def test_a_condition_is_never_required_once_the_tree_says_so() -> None:
     assert "required" not in expand_preset(only_conditions, device_tree=tree).kwargs
 
 
+def test_a_non_identifier_device_is_classed_by_its_namespace_binding() -> None:
+    """The tree names the binding (``uc_cam_2``), never the GEECS spelling."""
+    preset = _preset(
+        devices=[{"device": "UC-Cam 2"}, {"device": "UC_Slow", "essential": False}]
+    )
+    tree = {"uc_cam_2.acq_timestamp", "UC_Slow.hdf"}
+    item = expand_preset(preset, device_tree=tree)
+    assert item.kwargs["required"] == ["uc_cam_2"]
+
+
 def test_all_essential_preset_carries_no_required_keyword() -> None:
     item = expand_preset(_preset())
     assert "required" not in item.kwargs and "acquisition" not in item.kwargs

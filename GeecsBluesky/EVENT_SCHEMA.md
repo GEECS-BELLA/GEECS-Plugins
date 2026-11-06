@@ -110,7 +110,9 @@ What the row carries:
 **A fire nothing saw pauses the run.** A fire whose witness count and
 every per-shot counter stayed put was not fired: the row is kept (flags
 as found) and the run pauses with the reason in the log; the resume
-fires again.  A pause never ends a scan.  A shot whose refires are
+fires again.  A pause never ends a scan and never loses a shot: a fire a
+pause followed (nothing saw it, or a required device is down) costs no
+refire, so the shot is still taken after the resume.  A shot whose refires are
 exhausted keeps its rows, its last flagged `complete: false`, and the scan
 continues; two such shots in a row pause the run, as does a required
 device whose liveness reads down (the reason in the log).

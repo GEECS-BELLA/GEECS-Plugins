@@ -59,6 +59,8 @@ POLL_S = 0.02
 WITNESS_GRACE_S = 0.25
 #: Exhausted slots in a row that pause the run.
 EXHAUSTED_PAUSE = 2
+#: What an incomplete row leads to (:meth:`OnDemand._missed`).
+_REFIRE, _PAUSED, _EXHAUSTED = "refire", "paused", "exhausted"
 #: Seconds one counter read may take; a read that fails or outlasts it is
 #: no reading (the device did not report), never a failed run.
 READ_TIMEOUT_S = 1.0
@@ -278,6 +280,7 @@ class OnDemand:
         self._last_fire: float | None = None
         self._exhausted = 0
         self._reported_down: set[str] = set()
+        self._refused_press: set[str] = set()
 
     # ------------------------------------------------------------------ plans
     def _counters(self):
@@ -333,7 +336,26 @@ class OnDemand:
             _log_non_frame_failure(exc)
             raise
         if self.presses:
-            yield from bps.wait_for([cam.press for cam in self.presses])
+            yield from bps.wait_for([self._press])
+
+    async def _press(self) -> None:
+        """Press every Software-source native; a refused press is logged once per camera."""
+        results = await asyncio.gather(
+            *(cam.press() for cam in self.presses), return_exceptions=True
+        )
+        for cam, result in zip(self.presses, results, strict=True):
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+            name = geecs_name(cam)
+            if isinstance(result, BaseException) and name not in self._refused_press:
+                self._refused_press.add(name)
+                logger.warning(
+                    "%s: the press failed (%s: %s) — its stream gaps for this "
+                    "fire (logged once)",
+                    name,
+                    type(result).__name__,
+                    result,
+                )
 
     def _write_row(self, readers: Sequence[Any], name: str):
         """Plan: one event; a pause inside the bundle drops it and reads again."""
@@ -388,7 +410,13 @@ class OnDemand:
         return missing, True
 
     def _slot(self, readers: Sequence[Any], name: str):
-        for attempt in range(1, self.attempts + 1):
+        # ``attempt`` counts the shot's fires (the row's column); ``spent``
+        # only the incomplete ones the budget pays for — a fire a pause
+        # followed (nothing saw it, or a required device is down) costs no
+        # refire, so a pause never loses a shot.
+        attempt = spent = 0
+        while True:
+            attempt += 1
             yield from self._throttle()
             mark = self.sc.pause_count
             base = yield from self._counters()
@@ -415,12 +443,15 @@ class OnDemand:
             if not missing:
                 self._exhausted = 0
                 return None
-            if not (yield from self._missed(missing, attempt)):
+            outcome = yield from self._missed(missing, spent + 1)
+            if outcome == _PAUSED:
+                continue
+            spent += 1
+            if outcome == _EXHAUSTED:
                 return None
-        return None
 
-    def _missed(self, missing: Sequence[_Progress], attempt: int):
-        """Plan: after an incomplete row; ``True`` to fire again, ``False`` to move on."""
+    def _missed(self, missing: Sequence[_Progress], n: int):
+        """Plan: after an incomplete row, its *n*-th paid attempt: refire, paused or exhausted."""
         labels = [geecs_name(p.owner) for p in missing]
         # A plugin refusing the frames says so only in its WriteMessage.
         reasons = yield from plugin_reasons([p.owner for p in missing])
@@ -434,16 +465,16 @@ class OnDemand:
                 f"required device(s) {', '.join(down)} report down — check them, "
                 "then resume (the step fires again)"
             )
-            return True
-        if attempt < self.attempts:
+            return _PAUSED
+        if n < self.attempts:
             logger.warning(
                 "shot %d of %d incomplete: no record from %s — row kept, taking "
                 "another shot",
-                attempt,
+                n,
                 self.attempts,
                 described,
             )
-            return True
+            return _REFIRE
         self._exhausted += 1
         cause = (
             "a file plugin refused what its camera pushed — see its message"
@@ -464,7 +495,7 @@ class OnDemand:
                 f"{EXHAUSTED_PAUSE} shots in a row exhausted their refires (no "
                 f"record from {', '.join(labels)})"
             )
-        return False
+        return _EXHAUSTED
 
     def _report_quiet_optional(self, base: dict[str, Any], now: dict[str, Any]):
         """Plan: a non-required device that did not report and reads down is logged once."""

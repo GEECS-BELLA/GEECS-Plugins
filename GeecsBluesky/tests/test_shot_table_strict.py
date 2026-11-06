@@ -278,6 +278,54 @@ def test_two_exhausted_shots_in_a_row_pause_the_run(RE, box, count) -> None:
     assert box.fires == 7 and col.primary_events()[-1]["data"]["complete"]
 
 
+def test_a_device_down_on_the_last_attempt_pauses_and_the_resume_still_fires(
+    RE, box, count
+) -> None:
+    a = _camera(RE, box, "UC_A", shot_timeout=0.1)
+    box.quiet = {"uc_a"}
+
+    def down_at_the_third(n: int) -> bool:
+        if n == 3:
+            set_mock_value(a.connected_status, "Disconnected")
+        return True
+
+    box.on_fire = down_at_the_third
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(RunEngineInterrupted):
+        RE(count([a], 1))
+    assert box.fires == 3
+    set_mock_value(a.connected_status, "")
+    box.quiet = set()
+    RE.resume()
+    rows = [e["data"] for e in col.primary_events()]
+    assert box.fires == 4 and [r["complete"] for r in rows] == [False] * 3 + [True]
+
+
+def test_a_refused_press_is_logged_once_and_never_fails_the_run(
+    RE, box, count, tmp_path, caplog
+) -> None:
+    from ophyd_async.core import get_mock_execute
+
+    from tests.test_native_camera import _camera as _native
+
+    cam = _camera(RE, box, "UC_A")
+    native, _ = _native(RE, tmp_path)
+
+    def refuse(*_, **__):
+        raise RuntimeError("TriggerSoftware refused")
+
+    get_mock_execute(native.driver.trigger_software).side_effect = refuse
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([cam, native], 3, required=[cam]))
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    said = [
+        r.getMessage() for r in caplog.records if "the press failed" in r.getMessage()
+    ]
+    assert len(said) == 1 and "ADTEST_CAM1" in said[0] and "refused" in said[0]
+
+
 @pytest.mark.parametrize("required", [lambda a, b: [a], lambda a, b: []])
 def test_a_non_required_device_going_quiet_never_refires(
     RE, box, count, required

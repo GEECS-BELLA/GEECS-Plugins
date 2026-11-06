@@ -269,10 +269,11 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             non_essential.append(reference)
             continue
         detectors.append(reference)
+        owner = device_reference(d.device)  # the tree's spelling, as the preflight's
         if (
             d.device.casefold() in native
             or device_tree is None
-            or {f"{d.device}.acq_timestamp", f"{d.device}.hdf"} & set(device_tree)
+            or {f"{owner}.acq_timestamp", f"{owner}.hdf"} & set(device_tree)
         ):
             per_shot.append(reference)
         if essential and reference in per_shot:

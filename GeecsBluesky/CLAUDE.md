@@ -423,7 +423,9 @@ A required device whose liveness reads down pauses the run with the
 reason; a non-required one is never waited on, never refires anything,
 and is logged once when down.  A fire neither the witness nor any device
 saw is not fired: the row is kept and the run pauses with the reason
-(the resume fires again) — a pause never ends a scan.  The wait's return is never the verdict: the counters
+(the resume fires again) — a pause never ends a scan, and the fires
+before a pause (not seen, or a required device down) cost the shot no
+refire, so a pause never loses a shot.  The wait's return is never the verdict: the counters
 are re-read after it, so a pause or suspension that cut into the slot
 costs nothing, and a pause inside the row's bundle drops it and reads
 again — never a saved short row.  Nothing rewinds; the slot is not

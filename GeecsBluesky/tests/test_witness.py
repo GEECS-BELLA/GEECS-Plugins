@@ -187,6 +187,54 @@ def test_a_fire_nothing_saw_pauses_and_the_resume_fires_again(
     assert col.docs["stop"][0]["exit_status"] == "success"
 
 
+def test_a_pause_never_costs_a_refire_so_the_shot_completes(
+    RE, box, profiles, witness
+) -> None:
+    """Every attempt unseen (the last included): three pauses, then the shot is taken."""
+    from bluesky.utils import RunEngineInterrupted
+
+    cam = _camera(RE, box, "UC_Cam", shot_timeout=0.2)
+    box.drop = {("uc_cam", n) for n in (1, 2, 3)}
+    box.unseen = {1, 2, 3}
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(RunEngineInterrupted):
+        RE(_plans(profiles, witness)["count"]([cam], 1))
+    for _ in range(2):
+        with pytest.raises(RunEngineInterrupted):
+            RE.resume()
+    RE.resume()
+    rows = [e["data"] for e in col.primary_events()]
+    assert box.fires == 4
+    assert [(r["attempt"], r["complete"]) for r in rows] == [
+        (1, False),
+        (2, False),
+        (3, False),
+        (4, True),
+    ]
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+
+
+def test_with_no_refires_a_pause_still_fires_again(RE, box, profiles, witness) -> None:
+    """``max_refires=0``: the unseen fire's pause is not the shot's one attempt."""
+    from bluesky.utils import RunEngineInterrupted
+
+    from tests.test_strict_plans import strict_count
+
+    cam = _camera(RE, box, "UC_Cam", shot_timeout=0.2)
+    box.drop, box.unseen = {("uc_cam", 1)}, {1}
+    col = DocCollector()
+    RE.subscribe(col)
+    plan = strict_count(
+        profiles.resolve(None), [cam], 1, max_refires=0, witness=witness
+    )
+    with pytest.raises(RunEngineInterrupted):
+        RE(plan)
+    RE.resume()
+    assert box.fires == 2
+    assert [e["data"]["complete"] for e in col.primary_events()] == [False, True]
+
+
 def test_a_witness_that_stays_put_while_the_devices_report_is_late(
     RE, box, profiles, witness
 ) -> None:
