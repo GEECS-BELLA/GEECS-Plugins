@@ -17,6 +17,13 @@ ENTRY = {
 }
 VIEW = {"ok": True, "state": "live", "roles": {}}
 ROWS_IN = [{"name": "b", "state": "live"}, {"name": "a"}]
+CH = ["ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset"]
+KNOWN = CH + ["ch_a_present", "acquire"]
+AXES = {"ok": True, "roles": {
+    "hls|m1": {"role": "hls", "axis": "m1", "label": "high limit switch", "verdict": "error"},
+    "hls|m2": {"role": "hls", "axis": "m2", "label": "high limit switch", "verdict": "live"},
+    "fault|": {"role": "fault", "axis": None, "label": "fault", "verdict": "error"},
+}}  # fmt: skip
 
 
 def row(**over: Any) -> dict[str, Any]:
@@ -72,6 +79,32 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("header: no heartbeat is a dash", "header", [{"ok": True, "state": "live", "heartbeat": None}],
      {"state": "live", "heartbeat": "heartbeat —"}),
     ("header: silent is unknown", "header", [{"ok": False}], {"state": "unknown", "heartbeat": "heartbeat unknown"}),
+    # the rail and the readings (device_rail.js)
+    ("present: a channel's group, by its present role", "presentRole", [CH, KNOWN], "ch_a_present"),
+    ("present: a channel's reading", "presentRole", [["ch_a_total"], KNOWN], "ch_a_present"),
+    ("present: a mixed group is never hidden", "presentRole", [["acquire", "ch_a_range"], KNOWN], None),
+    ("present: the device names no present role", "presentRole", [CH, CH], None),
+    ("hidden: while present reads 0", "hidden", [{"value": 0}], True),
+    ("hidden: present, or unknown, shows it", "hidden", [None], False),
+    ("write: a checkbox is 1 or 0", "writeValue", [{"type": "checkbox", "tag": "INPUT", "checked": True, "raw": "on"}], 1),
+    ("write: a select is its choice's index", "writeValue", [{"type": "select-one", "tag": "SELECT", "raw": "2"}], 2),
+    ("write: an empty select sends nothing", "writeValue", [{"type": "select-one", "tag": "SELECT", "raw": ""}], None),
+    ("write: a text setting is its text", "writeValue", [{"type": "text", "tag": "INPUT", "raw": "C:/data"}], "C:/data"),
+    ("write: a whole-number field", "writeValue", [{"type": "number", "tag": "INPUT", "step": "1", "raw": "7"}], 7),
+    ("write: a whole-number field rounds", "writeValue", [{"type": "number", "tag": "INPUT", "step": "1", "raw": "7.5"}], 8),
+    ("write: a number", "writeValue", [{"type": "number", "tag": "INPUT", "step": "any", "raw": "0.25"}], 0.25),
+    ("write: junk sends nothing", "writeValue", [{"type": "number", "tag": "INPUT", "step": "any", "raw": "x"}], None),
+    ("commit: Enter writes a draft", "commitKey", ["Enter", True], "write"),
+    ("commit: Escape drops a draft", "commitKey", ["Escape", True], "revert"),
+    ("commit: an arrow key never writes", "commitKey", ["ArrowUp", True], None),
+    ("commit: Enter without a draft sends nothing", "commitKey", ["Enter", False], None),
+    ("tweak: no draft, the press alone", "tweakList", ["twf", "twv", False, 2.0], [["twf", 1]]),
+    ("tweak: a draft step is written first, in the same list", "tweakList", ["twr", "twv", True, 0.5], [["twv", 0.5], ["twr", 1]]),
+    ("tweak: a draft that is no number sends nothing", "tweakList", ["twf", "twv", True, None], None),
+    ("alarms: one axis' error roles, by label", "alarmed", [AXES, "m1"], ["high limit switch"]),
+    ("alarms: the other axis has none", "alarmed", [AXES, "m2"], []),
+    ("alarms: a device without axes, every error role", "alarmed", [AXES, None], ["high limit switch", "fault"]),
+    ("alarms: the module silent, none", "alarmed", [{"ok": False, "roles": {}}, None], []),
 ]  # fmt: skip
 
 

@@ -101,10 +101,11 @@
     <div class="state" data-state="{{ directory.state }}">
       <div class="t">{{ "The registry cannot be read" if directory.state == "error" else ("No device the directory can list" if directory.problem else "No device in the registry") }}</div>
       <div class="m{% if directory.problem %} mono{% endif %}">{{ directory.problem or "native_devices.yaml and panel_devices.yaml name no device" }}</div>
+      {% if directory.silent %}<div class="m">{{ directory.silent }}</div>{% endif %}
     </div>
     {% else %}
     <div class="body">
-      <p class="dim" id="directory-note">{{ directory.problem or "" }}</p>
+      <p class="dim" id="directory-note">{{ [directory.problem, directory.silent] | select | join("; ") }}</p>
       {% for kind, rows in directory.groups %}{% set paged = rows[0].kind %}
       <section class="group" data-group="{{ kind }}">
         {% if paged %}<a class="eyebrow" href="{{ root }}/device/{{ kind }}" title="the {{ kind }} picker">{{ kind }} · {{ rows | length }}</a>

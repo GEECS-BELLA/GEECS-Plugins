@@ -2,21 +2,29 @@
   A device page (Planning/device_pages.md): the trail after the brand (home ›
   kind's picker › device, each a link but the page itself), the picker at /device/<kind>, and
   the device at /device/<kind>/<name> — the header (name, family, kind, the
-  module's state as a chip, heartbeat), the switcher (the picker's select, so
-  an operator changes device in place), and the role table from the device's
-  roles as the module's device route serves them (resolved there), level and
-  units from the family: the operator roles open, the expert roles in a disclosure,
-  one table per axis. Read only in this slice. Each row carries its role and
-  axis; device.js fills the PV and verdict from the module's device route and
-  the value from Hare. A device the page cannot draw is a kit pane saying why.
-  Each kind's page extends this one and fills `kind_component`.
-#}{% extends "base.html" %}
+  module's state as a chip, heartbeat, the operator's name), the switcher (the
+  picker's select, so an operator changes device in place), the kind's
+  component, and the role table from the device's roles as the module's device
+  route serves them (resolved there), level and units from the family: the
+  operator roles open, the expert roles in a disclosure, one table per axis,
+  folded under the component. Each row carries its role and axis; device.js
+  fills the PV and verdict from the module's device route and the value from
+  Hare. A device the page cannot draw is a kit pane saying why.
+  The component is the **settables page** unless a kind's template fills
+  `kind_component` (the camera's frame, the trace's plot): the rail and the
+  readings strip from the panel (_panel.html; the family's `panel`, else the
+  automatic layout: device_pages.page_panel), one pane per axis behind an axis
+  selector for a per-axis family; written through device_writes.js (the
+  module's put route, sent once, `axis` on a per-axis write), hazards behind
+  the dialog. So a kind with no data component (a motor, a supply, a GEECS DB
+  device) is complete with no template of its own.
+#}{% extends "base.html" %}{% import "_panel.html" as P %}
 {% block title %}{{ name or kind }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css"><link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
 {% block crumbs %}{% if kind in kinds %}<nav class="crumbs" aria-label="Breadcrumb"><span class="sep" aria-hidden="true">›</span>
   {% if name %}<a href="{{ root }}/device/{{ kind }}">{{ kind }}</a><span class="sep" aria-hidden="true">›</span><span class="mono" aria-current="page">{{ name }}</span>
   {% else %}<span aria-current="page">{{ kind }}</span>{% endif %}</nav>{% endif %}{% endblock %}
-{% block header %}{% if device %}
+{% block header %}{% if device %}<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>
 <span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
 {% endif %}{% endblock %}
 {% macro role_table(list, axis) -%}
@@ -69,22 +77,35 @@
   <article class="panel">
     <header>
       <span class="mono name">{{ name }}</span>
-      <span class="dim">{{ family.template }} · {{ kind }}</span>
+      <span class="dim">{{ family.template if family else device.family }} · {{ kind }}</span>
       <span class="chip lg" id="device-state" data-state="{{ kit_state.get(device.state, 'unknown') }}">{{ device.state or "unknown" }}</span>
       <span class="dim" id="heartbeat">heartbeat {{ device.heartbeat or "—" }}</span>
     </header>
-    {% block kind_component %}{# the kind's component: slice 3 the camera's frame, the trace page's plot #}{% endblock %}
-    {% block role_tables %}<div class="body">
+    {% block kind_component %}{% set axes = tables | map("first") | list %}
+    <div class="body settables" id="settables">
+      {% if axes | length > 1 %}<div class="row axis-pick"><div class="field"><label>Axis</label><div class="seg" role="group" aria-label="axis">{% for a in axes %}<button type="button" data-axis-pick="{{ a }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ a }}</button>{% endfor %}</div></div></div>{% endif %}
+      {% for a in axes %}
+      <div class="camera axis-pane" data-axis-pane="{{ a or '' }}"{% if not loop.first %} hidden{% endif %}>
+        <aside class="rail panel-rail">{{ P.rail(panel, specs, a) }}{% if not panel.rail %}<p class="dim">Nothing on this device is settable.</p>{% endif %}</aside>
+        <div class="pane">{{ P.readings(panel, specs, a) }}<div class="alarms"></div></div>
+      </div>
+      {% endfor %}
+      <div class="out" id="write-out" data-state="unknown" role="status"></div>
+      {% if auto %}<p class="dim note">Laid out automatically: every settable role, then every reading. {{ "The family " ~ family.template ~ " has no panel." if family else "A GEECS DB device: its variables as the module serves them." }}</p>{% endif %}
+    </div>
+    {% endblock %}
+    {% block role_tables %}<details class="disc roles-all"><summary>Every role · {{ device.roles | length }}</summary><div class="body">
     {% for axis, roles in tables %}
       {% if axis %}<span class="eyebrow">axis {{ axis }}</span>{% endif %}
       {{ role_table(roles | selectattr("level", "equalto", "operator") | list, axis) }}
       {% set expert = roles | selectattr("level", "equalto", "expert") | list %}
       {% if expert %}<details class="disc"><summary>Expert · {{ expert | length }} roles</summary><div class="dbody">{{ role_table(expert, axis) }}</div></details>{% endif %}
     {% endfor %}
-    </div>{% endblock %}
+    </div></details>{% endblock %}
   </article>
+  {{ P.hazard_dialog() }}
   {% endif %}
 </main>
 <script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/device_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/device.js" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/device_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/device.js" defer></script>{% if device %}<script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/device_rail.js" defer></script>{% endif %}{% endblock %}

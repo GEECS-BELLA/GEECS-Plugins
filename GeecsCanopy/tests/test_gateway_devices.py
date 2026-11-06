@@ -106,6 +106,12 @@ async def test_a_role_is_the_variable_name_typed_by_the_served_set(env):
     assert (plc["DI.Ch1"]["writable"], plc["DI.Ch1"]["writePv"]) == (False, None)
     body, stage = await roles(env, "U_Stage")
     assert stage["Position.Axis 1"]["type"] == "setpoint"
+    # a page draws a text setting as text, and the DB's units beside it: the route says both
+    assert (stage["Comment"]["text"], stage["Position.Axis 1"]["text"]) == (
+        "string",
+        None,
+    )
+    assert "units" in stage["Position.Axis 1"]
     assert body["source"] == "gateway" and body["axes"] == []
     assert (await env.client.get("/v1/devices/U_Off")).status_code == 404  # disabled
 

@@ -1,6 +1,6 @@
-// The trace page's live half, DOM only: the rail's controls and the readings
-// (the family's panel; values from Hare, words and PVs the module's, through
-// window.GeecsDevicePage), and the plot: the trace pulled from
+// The trace page's live half, DOM only: the rail and the readings through
+// device_rail.js (the family's panel, the one copy every panel page shares),
+// and the plot: the trace pulled from
 // /api/devices/<name>/trace?y=<array> at 2 Hz while the tab is visible, one request in
 // flight, If-None-Match the last ETag (the counter: a 304 is nothing new), drawn
 // by Plotly through the theme's template (window.GeecsPlot: one trace per
@@ -17,8 +17,6 @@
   const KIT = JSON.parse($("kit-state").textContent);
   const POLL_MS = 500, TIMEOUT_MS = 5000;
   const value = (role) => { const f = P.frame(role); return f ? f.value : undefined; };
-  const focused = (el) => document.activeElement === el;
-  const known = () => { const v = P.view(); return v && v.ok ? Object.values(v.roles).map((e) => e.role) : []; };
 
   // ---- which array is shown: the viewer's pick, else the panel's show_while, else the first
   const ys = JSON.parse($("trace-ys").textContent), showWhile = JSON.parse($("trace-show-while").textContent);
@@ -28,41 +26,9 @@
   const yButtons = [...box.querySelectorAll("#yrole [data-y]")];
   for (const b of yButtons) b.addEventListener("click", () => { chosen = b.dataset.y; fill(); });
 
-  // ---- the rail and the readings: filled unless focused, enabled on the module's word, a channel's group hidden while absent
-  const writes = window.GeecsDeviceWrites.make(P, () => fill());
-  const controls = [...box.querySelectorAll(".rail [data-role]")];
+  // ---- the rail and the readings (device_rail.js, the one copy), then the array shown and its chip
+  const writes = window.GeecsDeviceWrites.make(P, () => rail.fill());
   function fill() {
-    for (const el of controls) {
-      const role = el.dataset.role, c = R.control(P.view(), P.entry(role), writes.busy()), v = value(role);
-      el.disabled = !c.enabled;
-      el.title = c.why;
-      if (el.dataset.pair !== undefined) el.setAttribute("aria-pressed", String(R.pressed(v, Number(el.dataset.value))));
-      if (el.tagName === "BUTTON") continue;
-      if (el.type === "checkbox") { el.checked = !!v; continue; }
-      if (el.tagName === "SELECT") {
-        const choices = P.meta(role).enumChoices || []; // the PV's own choices, never a list of the page's
-        if (el.options.length !== choices.length) el.replaceChildren(...choices.map((t, i) => new Option(t, String(i))));
-        if (!focused(el) && typeof v === "number") el.value = String(v);
-        continue;
-      }
-      if (!focused(el) && typeof v === "number") el.value = Number.isInteger(v) ? v : Number(v.toPrecision(6));
-    }
-    for (const el of box.querySelectorAll("[data-rb]")) el.textContent = `now ${R.fmt(P.frame(el.dataset.rb), P.meta(el.dataset.rb))}`;
-    for (const el of box.querySelectorAll("[data-ro]")) el.textContent = R.fmt(P.frame(el.dataset.ro), P.meta(el.dataset.ro));
-    const names = known();
-    for (const g of box.querySelectorAll(".rail .group")) {
-      const present = R.presentRole(g.dataset.roles.split(" "), names);
-      g.hidden = !!present && R.hidden(P.frame(present));
-    }
-    for (const el of box.querySelectorAll(".readings .live")) {
-      const role = el.dataset.role, present = R.presentRole([role], names), word = P.word(role);
-      el.hidden = !!present && R.hidden(P.frame(present));
-      el.querySelector(".v").textContent = R.fmt(P.frame(role), P.meta(role));
-      el.querySelector(".dot").dataset.state = KIT[word] || "unknown";
-      el.querySelector(".word").textContent = word;
-    }
-    const v = P.view();
-    $("alarms").textContent = v && v.ok ? Object.values(v.roles).filter((e) => e.verdict === "error").map((e) => e.label || e.role).join(" · ") : "";
     const y = R.shownY(ys, showWhile, flags(), chosen);
     if (y !== current) switchTo(y);
     for (const b of yButtons) b.setAttribute("aria-pressed", String(b.dataset.y === current));
@@ -78,16 +44,10 @@
     etag = null;
     if (typeof draw === "function") draw();
   }
-  for (const el of controls) {
-    if (el.tagName === "BUTTON") { el.addEventListener("click", () => writes.write([[el.dataset.role, Number(el.dataset.value)]])); continue; }
-    el.addEventListener("change", () => {
-      const v = el.type === "checkbox" ? (el.checked ? 1 : 0) : el.tagName === "SELECT" ? Number(el.value) : el.step === "1" ? R.whole(el.value) : R.number(el.value);
-      if (v !== null) writes.write([[el.dataset.role, v]]).then(fill);
-    });
-  }
   // the plot's state, set before the first fill (a switch of array resets it)
   const host = $("trace-plot"), G = window.GeecsPlot;
   let held = [], shown = null, etag = null, win = null, seen = [], lastTag = null, shape = null, watching = false, draw = null;
+  const rail = window.GeecsDeviceRail.make(P, box, writes);
   P.on(fill);
   fill();
 

@@ -188,6 +188,9 @@ def test_a_live_db_device_is_not_read_in_detail_and_never_unread(settings: Setti
         body = c.get("/api/home/devices").json()
     assert asked == ["U_B"] and body["unread"] == []
     assert [row["name"] for row in body["not_live"]] == ["U_B"]
+    assert (
+        body["not_live"][0]["kind"] == "settables"
+    )  # its row links the settables page, never the raw JSON
 
 
 async def test_the_baseline_sums_the_golden_diffs_and_is_none_without_one(settings: Settings) -> None:  # fmt: skip
@@ -249,7 +252,7 @@ def _row(html: str, name: str) -> str:
 
 
 def test_the_directory_lists_the_registry_by_kind_and_hides_an_empty_kind(settings: Settings, registry: Path) -> None:  # fmt: skip
-    found = directory(settings)
+    found = directory(settings)  # no roster read: the registry's devices alone
     assert found.state == "ok" and [(k, [r["name"] for r in rows]) for k, rows in found.groups] == [
         ("camera", ["Cam1", "Cam2"]), ("motor", ["Mot1"]), ("supply", ["ps1"])]  # fmt: skip
     with _room(settings) as c:
@@ -258,7 +261,8 @@ def test_the_directory_lists_the_registry_by_kind_and_hides_an_empty_kind(settin
         "camera",
         "motor",
         "supply",
-    ]  # no trace device: no group
+        "settables",
+    ]  # no trace device: no group; the roster's DB device under settables, last
     assert (
         '<a class="eyebrow" href="/device/camera"' in html
     )  # the heading is the kind's picker
@@ -268,9 +272,11 @@ def test_the_directory_lists_the_registry_by_kind_and_hides_an_empty_kind(settin
         and "<td>ad_camera_chain</td>" in cam
     )
     assert 'data-word="state"' in cam and 'data-word="heartbeat"' in cam
+    db = _row(html, "U_DB")  # a DB device is the roster's, read once at page load
     assert (
-        "U_DB" not in html.split('id="directory"')[1]
-    )  # a DB device is the roster's, not the registry's
+        '<a href="/device/settables/U_DB">U_DB</a>' in db
+        and "<td>PhantomCamera</td>" in db
+    )
     assert html.index('id="directory"') > html.index(
         "Launcher"
     )  # the curated launcher stays above
@@ -293,10 +299,20 @@ def test_a_family_no_page_draws_is_listed_last_without_a_link(settings: Settings
     )
 
 
-def test_the_directory_words_are_the_modules_for_the_registry_only(settings: Settings, registry: Path) -> None:  # fmt: skip
+def test_the_directory_words_are_the_modules_for_every_listed_device(settings: Settings, registry: Path) -> None:  # fmt: skip
     with _room(settings) as c:
         body = c.get("/api/home/devices").json()
-    assert set(body["words"]) == {"Cam1", "Cam2", "Mot1", "ps1"}  # never the DB device
+    assert set(body["words"]) == {
+        "Cam1",
+        "Cam2",
+        "Mot1",
+        "ps1",
+        "U_DB",
+    }  # the DB device too: it is listed
+    assert (
+        body["words"]["U_DB"]["state"] == "live"
+        and body["words"]["U_DB"]["heartbeat"] is None
+    )  # no IOC
     assert body["words"]["Cam2"] == {"state": "error", "kit": "failed", "heartbeat": "live", "heartbeatKit": "ok"}  # fmt: skip
     assert body["words"]["Mot1"]["kit"] == "degraded"
     # not served: its heartbeat is unknown, never "no IOC" (the registry may name one)
@@ -337,12 +353,13 @@ def test_the_directory_says_why_it_has_no_rows(settings: Settings, native: str |
         (where / "native_devices.yaml").write_text(native)
     if panel is not None:
         (where / "panel_devices.yaml").write_text(panel)
-    with _room(settings) as c:
+    with _room(settings, down=True) as c:  # no DB device either: the module is silent
         html = c.get("/").text.split('id="directory"')[1]
     assert (
         f'<div class="state" data-state="{state}">\n      <div class="t">{title}</div>'
         in html
     )
+    assert "GEECS DB devices not listed: the module did not answer" in html
     assert (
         'id="directory-filter"' not in html and 'id="directory-chip"' not in html
     )  # fmt: skip  (no "0/0 live" beside the pane)

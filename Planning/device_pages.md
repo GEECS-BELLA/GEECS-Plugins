@@ -532,3 +532,57 @@ file. A restart control on the device drill-down (operator_surfaces § 2)
 is therefore a production-only affordance with a confirm, never offered
 for a bench instance; the contract page is geecs-epics
 `docs/architecture.md`, "Operating an IOC".
+
+### 2026-11-06 — slice 5, the settables page
+
+**Ruled** (the maintainer): one type-driven settables page for every kind
+without a data component, serving the native families (motor, supply) and
+the GEECS DB devices the module serves through the gateway; GeecsPanels'
+deletion waits until this page is proven.
+
+**PR 1 (#1298, merged).** GEECS-Schemas `Panel.tweak` (a setpoint, its step
+setpoint and two step commands, one rail group, compared by place, not
+heading: the maintainer's GPT finding), `PanelGroup.layout: grid` (short
+controls only: bits, enums, two-state whole numbers, the button pair's
+rule), and panels for `motor_record`, `easydriver`, `fastps`. Per-axis
+families need no field: the axes are instance data the module serves.
+
+**PR 2, the page.** `device.html` draws the rail and readings from a panel
+by default (`_panel.html`, the macros the trace page now shares;
+`device_rail.js`, the one rail script); a per-axis family is one pane per
+axis behind an axis selector, each write carrying `axis`. A family without
+a panel, and every DB device, is laid out automatically
+(`device_pages.auto_panel`: settings in role order, switches in a grid of
+their own from four, every monitored read-only role a reading). Kind word
+`settables` for the DB devices: the picker, the roster route and the
+home's directory list them from the module's roster. Proven on the
+geecs-epics sim stack (simmotor1, fpstest1, and trigger-box-sim standing in
+for a DB device) through GeecsCanopy's own module in process over an aioca
+Hare: a tweak on axis m2 accepted and the motor moved; the DB device's
+amplitude accepted; the FAST-PS current refused by the IOC's access
+security, the refusal shown (the sims restored after). The automatic layout
+is Python, not a node rule: one drawing path, server-side, from a panel
+authored or automatic.
+
+**What review changed** (two adversarial rounds and the maintainer's GPT
+round): a number or text field on the rail is a draft written on Enter (Esc
+drops it; kept on blur, as a screen keeps it), never on `change`, so an
+arrow key on a motor's target sends no move (the trace page gets it too),
+and a tweak's − / + sends a draft step first (round 2's finding: a typed
+step was dropped on the button's mousedown and the motor stepped by the old
+one); a gateway device is classified by its `source` before any family
+lookup (the GPT finding: a DB type spelled `motor_record` was sent to the
+motor page); the module's device route now serves each role's `text` and
+`units` (GeecsCanopy `freshness.view`), so a DB device's text setting is a
+text field from the first draw and its units show (the page's runtime type
+flip is deleted); the home's Not live and In alarm rows link a DB device to
+its settables page; the alarm line is one rule (`camera_rules.alarms`,
+filtered by axis) and the camera's write value is `device_rules.writeValue`.
+Left for the merge slice: the rules still in `camera_rules.js`, the camera's
+own rail, and the rail-and-pane grid's home (`GeecsControlRoom/CLAUDE.md`
+names each piece on both sides).
+
+**OWED.** The deployed pages on the services box (the coordinator's): a
+real PLC (many switches, the grid) and a filter wheel from the DB; Canopy
+rebuilt for the family files and the route's new fields, the Control Room
+restarted.

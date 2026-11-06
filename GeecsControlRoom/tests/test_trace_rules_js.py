@@ -16,8 +16,6 @@ from tests._node import call_all, needs_node, run
 from tests.test_traces import capture, client, scope
 
 VIEW = {"ok": True, "state": "live", "roles": {}}
-CH = ["ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset"]
-KNOWN = CH + ["ch_a_present", "acquire"]
 YS = [{"role": "spectrum"}, {"role": "processed"}]
 
 ROWS: list[tuple[str, str, list[Any], Any]] = [
@@ -47,21 +45,9 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("shown: a choice no longer drawn falls back", "shownY", [YS, {}, {}, "gone"], "spectrum"),
     ("shown: none drawn", "shownY", [[], {}, {}, None], None),
     ("trace url: the array asked by name", "traceUrl", ["/room/api/devices/cct1/trace", "processed"], "/room/api/devices/cct1/trace?y=processed"),
-    # the rail and the readings
-    ("present: a channel's group, by its present role", "presentRole", [CH, KNOWN], "ch_a_present"),
-    ("present: a channel's reading", "presentRole", [["ch_a_total"], KNOWN], "ch_a_present"),
-    ("present: a mixed group is never hidden", "presentRole", [["acquire", "ch_a_range"], KNOWN], None),
-    ("present: the device names no present role", "presentRole", [CH, CH], None),
-    ("hidden: while present reads 0", "hidden", [{"value": 0}], True),
-    ("hidden: present, or unknown, shows it", "hidden", [None], False),
     ("rate: first to last of the span's tags", "rate", [[0, 1000, 2000, 3000, 4000, 5000, 5900], 6000], {"seen": [1000, 2000, 3000, 4000, 5000, 5900], "text": "1.0 new/s"}),
     ("rate: one tag is no rate yet", "rate", [[4000], 6000], {"seen": [4000], "text": "1 new in 5 s"}),
     ("rate: none recent", "rate", [[0], 9000], {"seen": [], "text": "no new captures"}),
-    # reused from camera_rules.js, never copied
-    ("control: on the module's word", "control", [VIEW, {"role": "ch_a_range", "writable": True}, False], {"enabled": True, "why": ""}),
-    ("control: read only", "control", [VIEW, {"role": "count", "writable": False}, False], {"enabled": False, "why": "read only (the module's policy)"}),
-    ("pressed: a button pair's state", "pressed", [1, 1], True),
-    ("format: an enum by its label", "fmt", [{"value": 1}, {"enumChoices": ["10 mV", "20 mV"]}], "20 mV"),
 ]  # fmt: skip
 
 
@@ -208,6 +194,7 @@ const window = {
   GeecsTraceRules: R,
   GeecsDevicePage: { frame: () => undefined, view: () => ({ ok: true, roles: {} }), entry: () => undefined, meta: () => ({}), word: () => "live", on() {} },
   GeecsDeviceWrites: { make: () => ({ write: async () => true, busy: () => false }) },
+  GeecsDeviceRail: { make: () => ({ fill() {} }) },
   GeecsPlot: { axisFormat: () => ({}), layout: (o) => o, config: () => ({}), watch() {} },
   Plotly,
 };

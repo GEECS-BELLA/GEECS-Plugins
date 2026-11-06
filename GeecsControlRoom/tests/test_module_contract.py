@@ -11,6 +11,7 @@ imports it (the ``control-room-edges`` contract).
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import re
 from pathlib import Path
@@ -23,6 +24,7 @@ import numpy as np
 from geecs_canopy.testing import (
     EXPERIMENT,
     PANELS,
+    REGISTRY,
     POLICY,
     FakeSquirrel,
     live,
@@ -338,9 +340,11 @@ async def test_the_trace_page_draws_the_familys_panel_and_reads_the_trace_at_the
     assert page.status_code == 200 and 'id="trace"' in page.text and "/api/devices/scope1/trace" in page.text  # fmt: skip
     # the rail is the family's panel, each role drawn by its type: enums as selects, setpoints as numbers
     assert [t for t in ("<h4>Acquisition</h4>", "<h4>Trigger</h4>", "<h4>Channel A</h4>", "<h4>Channel D</h4>") if t not in page.text] == []  # fmt: skip
-    assert '<select id="c-ch_a_range" data-role="ch_a_range" disabled>' in page.text
+    assert re.search(
+        r'<select id="c-\d+-\d+" data-role="ch_a_range" disabled>', page.text
+    )
     assert 'data-role="trigger_level" step="any"' in page.text and 'data-role="num_images" step="1"' in page.text  # fmt: skip
-    assert 'data-roles="ch_a_enable ch_a_range ch_a_coupling ch_a_offset"' in page.text
+    assert ["ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset"] in [json.loads(html.unescape(g)) for g in re.findall(r'data-roles="([^"]*)"', page.text)]  # fmt: skip
     assert 'class="live" data-role="ch_a_overrange"' in page.text
     assert page_json(page.text, "trace-ys") == [{"role": "data", "label": "capture", "units": "V", "counter": "arr_counter"}]  # fmt: skip
     assert 'id="yrole"' not in page.text  # one array: no toggle
@@ -454,3 +458,144 @@ async def test_the_directory_reads_the_states_and_heartbeats_the_module_serves(r
     # and the page it links to leads back
     page = (await room.client.get("/device/trace/cct1")).text
     assert '<a href="/device/trace">trace</a>' in page and '<span class="mono" aria-current="page">cct1</span>' in page  # fmt: skip
+
+
+# ---- the settables page: a motor (two axes), a supply, and the module's DB devices, through one template
+
+
+def _db_devices() -> list:
+    """Two GEECS DB devices as the module's gateway source serves them (``gateway._role``'s shape): a PLC's channels, a filter wheel."""
+    from geecs_canopy.native import Resolved
+    from geecs_schemas import Role
+
+    def var(name: str, pv: str, kind: str, writable: bool, **more) -> Role:
+        fields = {
+            "name": name,
+            "suffix": pv,
+            "label": name,
+            "units": None,
+            "type": kind,
+        }
+        return Role.model_construct(**fields | ({"writable": True, "write": pv + ":SP"} if writable else {}) | more)  # fmt: skip
+
+    status = Role(name="connected", suffix="connected", type="enum", label="connected")
+    plc = [var(f"DO.Ch{i}", f"do_ch{i}", "enum", True) for i in range(1, 6)] + [var("DI.Ch1", "di_ch1", "enum", False), status]  # fmt: skip
+    wheel = [var("Position", "position", "enum", True), var("Comment", "comment", "setpoint", True, text="string"), var("Temperature", "temperature", "readback", False, units="degC"), status]  # fmt: skip
+
+    def resolved(name: str, family: str, roles: list) -> Resolved:
+        return Resolved(name, family, f"Test:{name.lower()}:", (), tuple(roles), (), None, frozenset(r.name for r in roles if r.writable), "gateway")  # fmt: skip
+
+    # a DB device type that is also an installed family's name: still a DB device, by its source
+    collides = [
+        var("Position", "position", "setpoint", True, limits=(0.0, 10.0)),
+        status,
+    ]
+    return [resolved("U_PLC", "PLC Digital Output", plc), resolved("U_Wheel", "Thorlabs FW102C", wheel), resolved("DBMotor", "motor_record", collides)]  # fmt: skip
+
+
+@pytest.fixture
+async def db_room(tmp_path: Path):
+    """The room over a module that also serves two DB devices (read before the first request)."""
+    env = make_env(tmp_path, gateway=_db_devices)
+    write_documents(tmp_path, registry=REGISTRY.replace("axes: [m1]", "axes: [m1, m2]"), policy=POLICY.replace("easydriver]", "easydriver, PLC Digital Output]"))  # fmt: skip
+    await env.module.read_gateway()
+    canopy = FastAPI()
+    canopy.mount("/geecs", env.app)
+    module = ModuleClient("http://canopy.test", "read-key", transport=httpx.ASGITransport(app=canopy))  # fmt: skip
+    settings = Settings(experiment=EXPERIMENT, configs_root=tmp_path, canopy_url="http://canopy.test", read_key="read-key")  # fmt: skip
+    app = create_app(settings, module, camera=Images(FakeCa(), lambda url: b""))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://room.test") as client:  # fmt: skip
+        yield SimpleNamespace(env=env, client=client)
+
+
+async def _meta(room, device: str, role: str, axis, meta: dict) -> None:
+    """Hare's metadata for one role's PVs (read and write), as the module reads its bounds."""
+    entry = next(r for r in (await room.client.get(f"/api/devices/{device}")).json()["roles"] if (r["role"], r["axis"]) == (role, axis))  # fmt: skip
+    for pv in {entry["pv"], entry["writePv"]}:
+        room.env.hare.meta[pv] = {"pv": pv} | meta
+
+
+def _groups(text: str) -> list[tuple[str, list[str]]]:
+    """Each rail group's heading and roles, in the page's order."""
+    found = re.findall(r'<section class="group([^"]*)" data-roles="([^"]*)">\s*<h4>([^<]*)</h4>', text)  # fmt: skip
+    return [(title + (" (grid)" if "grid-cells" in cls else ""), json.loads(html.unescape(roles))) for cls, roles, title in found]  # fmt: skip
+
+
+async def test_a_motor_draws_one_rail_per_axis_with_its_tweak(db_room) -> None:
+    page = (await db_room.client.get("/device/motor/Mot1")).text
+    # the axis selector, one pane per axis, the second hidden
+    assert re.findall(r'data-axis-pick="(\w+)"', page) == ["m1", "m2"]
+    assert '<div class="camera axis-pane" data-axis-pane="m1">' in page and '<div class="camera axis-pane" data-axis-pane="m2" hidden>' in page  # fmt: skip
+    # the family's panel, once per axis; the tweak's roles stay in their group, drawn with the target
+    assert _groups(page) == [("Move", ["val", "twv", "twf", "twr", "stop"]), ("Home", ["homf", "homr"]), ("Speed", ["velo"])] * 2  # fmt: skip
+    for axis in ("m1", "m2"):
+        assert f'data-role="twr" data-axis="{axis}" data-step="twv" data-value="1" aria-label="tweak reverse" disabled>−</button>' in page  # fmt: skip
+        assert f'<input type="number" id="c-{axis}-1-1-step" data-role="twv" data-axis="{axis}" step="any" disabled>' in page  # fmt: skip
+        assert f'class="live" data-role="hls" data-axis="{axis}"' in page
+    assert (
+        len(re.findall(r'<input[^>]*data-role="twv"', page)) == 2
+    )  # in the tweak only, never a field of its own
+    assert "Laid out automatically" not in page
+    # every write names its axis: the module takes it and answers (its bounds read from the record, as Hare serves them)
+    await _meta(db_room, "Mot1", "val", "m2", {"controlLow": -5.0, "controlHigh": 5.0})
+    status, answer = await put(db_room, "Mot1", role="val", axis="m2", value=1.5)
+    assert status == 200 and answer["outcome"] == "accepted", json.dumps(answer)
+    assert db_room.env.hare.puts[-1][0].endswith("m2.VAL")
+
+
+async def test_a_supply_draws_its_output_pair_and_readings(db_room) -> None:
+    page = (await db_room.client.get("/device/supply/ps1")).text
+    assert _groups(page) == [
+        ("Output", ["output_sp", "current_sp"]),
+        ("Faults", ["reset"]),
+    ]
+    assert 'data-role="output_sp" data-value="0" data-pair aria-pressed="false" disabled>Off</button>' in page  # fmt: skip
+    assert [r for r in ("current", "voltage", "output", "fault", "interlock") if f'class="live" data-role="{r}"' not in page] == []  # fmt: skip
+    assert 'id="hazard-dialog"' in page and 'id="operator"' in page and 'data-axis-pick' not in page  # fmt: skip
+
+
+async def test_a_db_device_is_laid_out_automatically_and_written_through_the_module(db_room) -> None:  # fmt: skip
+    roster = (await db_room.client.get("/api/device/settables")).json()
+    assert [(d["name"], d["family"]) for d in roster["devices"]] == [("DBMotor", "motor_record"), ("U_PLC", "PLC Digital Output"), ("U_Wheel", "Thorlabs FW102C")]  # fmt: skip
+    plc = await db_room.client.get("/device/settables/U_PLC")
+    assert plc.status_code == 200 and "Laid out automatically" in plc.text
+    # five writable channels: a grid of their own; the read-only channel and the state are readings
+    assert _groups(plc.text) == [
+        ("Settings (grid)", [f"DO.Ch{i}" for i in range(1, 6)])
+    ]
+    assert re.findall(r'class="live" data-role="([^"]+)"', plc.text) == [
+        "DI.Ch1",
+        "connected",
+    ]
+    wheel = (await db_room.client.get("/device/settables/U_Wheel")).text
+    assert _groups(wheel) == [("Settings", ["Position", "Comment"])]
+    assert re.search(r'<select id="c-1-1" data-role="Position" disabled>', wheel)
+    # a text setting is a text field from the first draw (the module says so), and the DB's units are shown
+    assert '<input type="text" id="c-1-2" data-role="Comment" disabled>' in wheel
+    assert re.search(
+        r'data-role="Temperature"><span class="k">Temperature <small>degC</small>',
+        wheel,
+    )
+    # a native device under settables, and a DB device under motor: the wrong kind, with the way to the right one
+    wrong = await db_room.client.get("/device/motor/U_PLC")
+    assert wrong.status_code == 422 and "/device/settables/U_PLC" in wrong.text
+    assert (await db_room.client.get("/device/settables/Mot1")).status_code == 422
+    # a channel written through the module's put route, the operator's name, sent once
+    await _meta(db_room, "U_PLC", "DO.Ch3", None, {"enumChoices": ["off", "on"]})
+    status, answer = await put(db_room, "U_PLC", role="DO.Ch3", value=1)
+    assert status == 200 and answer["outcome"] == "accepted", json.dumps(answer)
+    assert db_room.env.hare.puts[-1][0] == "Test:u_plc:do_ch3:SP"  # fmt: skip
+    # and the home's directory lists them under settables, linked
+    home = (await db_room.client.get("/")).text
+    assert '<a href="/device/settables/U_Wheel">U_Wheel</a>' in home
+
+
+async def test_a_db_device_is_classified_by_its_source_never_by_its_type_name(
+    db_room,
+) -> None:
+    """A DB device type spelled like an installed family (``motor_record``) is a DB device: never the family's page or panel."""
+    page = await db_room.client.get("/device/settables/DBMotor")
+    assert page.status_code == 200 and "Laid out automatically" in page.text
+    assert _groups(page.text) == [("Settings", ["Position"])]
+    wrong = await db_room.client.get("/device/motor/DBMotor")
+    assert wrong.status_code == 422 and "/device/settables/DBMotor" in wrong.text

@@ -48,7 +48,7 @@
     if (el.tagName === "BUTTON") { el.addEventListener("click", () => send([[el.dataset.role, Number(el.dataset.value)]])); continue; }
     if (DRAFT(el)) { el.addEventListener("input", () => { roiDraft = true; $("cam-roi-revert").hidden = false; }); continue; }
     el.addEventListener("change", () => {
-      const v = el.type === "checkbox" ? (el.checked ? 1 : 0) : el.tagName === "SELECT" ? Number(el.value) : el.step === "1" ? R.whole(el.value) : R.number(el.value);
+      const v = window.GeecsDeviceRules.writeValue({ type: el.type, tag: el.tagName, step: el.step, checked: el.checked, raw: el.value });
       if (v !== null) send([[el.dataset.role, v]]);
     });
   }

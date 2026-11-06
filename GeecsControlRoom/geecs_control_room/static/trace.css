@@ -1,12 +1,7 @@
 /* The trace page (device_trace.html): camera.css's rail-and-pane layout, the
-   rail's fields stacked, the plot (Plotly, the theme's template) filling the pane.
+   rail device.css's (.panel-rail, every panel page's), the plot (Plotly, the theme's template) filling the pane.
    Tokens only (GeecsWebTheme's guard). */
 .kit .device[data-kind="trace"]{max-width:none}
-.kit .trace .rail .group .row{flex-wrap:wrap;gap:8px}
-.kit .trace .rail .field{min-width:0;width:112px}
-.kit .trace .rail .field select,.kit .trace .rail .field input[type="number"]{width:100%}
-.kit .trace .rail .rb,.kit .trace .rail .ro{display:block;font-size:11px;min-height:1em}
-.kit .trace .readings .live[hidden],.kit .trace .rail .group[hidden]{display:none}
 .kit .trace .plot-host{position:relative}
 .kit .trace #trace-plot{width:100%;height:min(60vh,calc(100vh - 340px));min-height:300px}
 .kit .trace .plot-note{position:absolute;left:64px;top:40%;pointer-events:none}

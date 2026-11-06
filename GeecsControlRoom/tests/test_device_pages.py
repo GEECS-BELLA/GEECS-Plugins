@@ -10,7 +10,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from geecs_control_room.app import create_app
-from geecs_control_room.device_pages import KINDS, registered
+from geecs_schemas import load_families
+
+from geecs_control_room.device_pages import (
+    GRID_MIN,
+    KINDS,
+    auto_panel,
+    drawn_panel,
+    registered,
+)
 from geecs_control_room.home import launcher
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
@@ -125,7 +133,7 @@ def test_a_per_axis_device_has_a_table_per_axis(settings: Settings, folder: Path
     [
         ("/device/camera/Nope", 404, "denied", "Nope is not on the module's roster"),
         ("/device/camera/Mot1", 422, "denied", "Wrong kind: motor_record is a motor"),
-        ("/device/camera/U_DB", 422, "denied", "U_DB is not a native device"),
+        ("/device/camera/U_DB", 422, "denied", "Wrong kind: U_DB (a GEECS DB device, PhantomCamera) is a settables"),
         ("/device/pump/Cam1", 404, "error", "No device kind 'pump'"),
         ("/device/pump", 404, "error", "No device kind 'pump'"),
     ],
@@ -148,7 +156,7 @@ def test_a_silent_module_is_stale_and_the_page_asks_again(settings: Settings, fo
 def test_the_home_pickers_carry_their_kind(settings: Settings, folder: Path) -> None:  # fmt: skip
     (folder / "home.yaml").write_text("device_pages:\n  - {title: Cameras, families: [ad_camera_chain]}\n  - {title: Mixed, families: [ad_camera_chain, motor_record]}\n")  # fmt: skip
     assert [p.kind for p in launcher(settings).device_pages] == ["camera", None]
-    assert set(KINDS) == {"camera", "trace", "motor", "supply"}
+    assert set(KINDS) == {"camera", "trace", "motor", "supply", "settables"}
 
 
 @pytest.mark.parametrize("status, state", [(401, "denied"), (403, "denied"), (409, "error"), (503, "stale")])  # fmt: skip
@@ -190,3 +198,50 @@ def test_an_unknown_kind_has_no_trail_but_the_brand(settings: Settings, folder: 
     with _room(settings) as c:
         html = c.get("/device/nope").text
     assert '<a class="brand" href="/">' in html and 'class="crumbs"' not in html
+
+
+# ---- the panel a page draws: the family's, else the automatic layout
+
+
+def _entry(role: str, kind: str, writable: bool, read: str = "monitor") -> dict:
+    return {"role": role, "type": kind, "writePv": f"pv:{role}:SP" if writable else None, "read": read}  # fmt: skip
+
+
+def test_the_automatic_layout_is_every_writable_role_then_every_monitored_reading() -> (
+    None
+):
+    entries = [_entry("Velocity", "setpoint", True), _entry("Position", "readback", False), _entry("Home", "command", True, "never"),
+               _entry("Mode", "enum", True), _entry("Trace", "array", False, "on_request")]  # fmt: skip
+    panel = auto_panel(entries)
+    assert panel["rail"] == [{"title": "Settings", "roles": ["Velocity", "Home", "Mode"], "layout": "fields"}]  # role order, nothing hidden  # fmt: skip
+    assert panel["readings"] == [
+        "Position"
+    ]  # an array is no reading (it carries no word)
+
+
+def test_many_switches_get_a_grid_of_their_own() -> None:
+    switches = [_entry(f"DO{i}", "enum", True) for i in range(GRID_MIN)]
+    assert auto_panel(switches)["rail"] == [{"title": "Settings", "roles": [f"DO{i}" for i in range(GRID_MIN)], "layout": "grid"}]  # fmt: skip
+    mixed = auto_panel([_entry("Gain", "setpoint", True), *switches])["rail"]
+    assert [(g["title"], g["layout"]) for g in mixed] == [("Settings", "fields"), ("Switches", "grid")]  # fmt: skip
+    few = auto_panel([_entry("Gain", "setpoint", True), *switches[: GRID_MIN - 1]])[
+        "rail"
+    ]
+    assert [(g["title"], g["layout"]) for g in few] == [("Settings", "fields")]
+    assert (
+        auto_panel([_entry("T", "readback", False)])["rail"] == []
+    )  # nothing settable
+
+
+def test_a_device_draws_only_the_roles_it_serves_and_a_tweak_only_whole() -> None:
+    motor = load_families()["motor_record"].panel.model_dump(mode="json")
+    served = {r.name for r in load_families()["motor_record"].roles}
+    whole = drawn_panel(motor, served)
+    assert whole["tweak"] == {"val": {"step": "twv", "forward": "twf", "reverse": "twr"}} and whole["inside"] == {"twv", "twf", "twr"}  # fmt: skip
+    # a device that omits the step: no tweak; the target and the two commands each drawn by their own type
+    part = drawn_panel(motor, served - {"twv"})
+    assert part["tweak"] == {} and part["inside"] == set()
+    assert part["rail"][0]["roles"] == ["val", "twf", "twr", "stop"]
+    # a group with none of its roles served is not drawn; a reading the device omits is not either
+    gone = drawn_panel(motor, served - {"homf", "homr", "hls"})
+    assert [g["title"] for g in gone["rail"]] == ["Move", "Speed"] and "hls" not in gone["readings"]  # fmt: skip
