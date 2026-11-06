@@ -128,7 +128,8 @@ group's heading opens that kind's picker, and each device's name opens its
 page. A row gives the device's family, the module's word for it (the same
 words as the lists above), the IOC that serves it, and that IOC's
 heartbeat: `live` while the IOC's own counter advances, `stale` when it has
-stopped, `no IOC` when the registry names none. The chip in the panel's
+stopped, `no IOC` when the device has none, `unknown` when the module has
+not answered for it. The chip in the panel's
 header counts the live devices.
 
 Type in the filter box to narrow every group at once: each word you type
@@ -137,7 +138,9 @@ spectro`); a group with nothing left hides. A device whose family no page
 draws yet is listed last, under **no page yet**, without a link, so the
 directory is never silently short. When the module does not answer the
 rows stay, their words read `unknown` and the panel says why; a device in
-the registry that the module does not serve reads `not on the roster`.
+the registry that the module does not serve reads `not on the roster`, its
+heartbeat `unknown`. A device added to the registry appears on the next
+reload of the home.
 LabVIEW devices served through the CA gateway are not in the registry, so
 they are not in the directory; a screen draws them.
 

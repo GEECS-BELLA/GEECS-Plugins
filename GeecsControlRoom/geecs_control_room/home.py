@@ -47,7 +47,13 @@ from pydantic import ValidationError
 
 from urllib.parse import quote
 
-from geecs_control_room.device_pages import KINDS, catalogue, kind_of
+from geecs_control_room.device_pages import (
+    KINDS,
+    catalogue,
+    kind_of,
+    roster_states,
+    state_word,
+)
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.screens import KIT_STATE, through
 from geecs_control_room.settings import Settings
@@ -156,14 +162,14 @@ class Directory:
 
 def directory(settings: Settings) -> Directory:
     """Every registry device under its page kind (``KINDS`` order, a kind with none left out), the unpaged last; each row's IOC from ``panel_devices.yaml``."""
-    rows, problem = catalogue(settings)
-    if not rows:
-        return Directory(problem=problem, state="error" if problem else "empty")
+    found = catalogue(settings)
+    if not found.rows:  # unreadable files are an error; files that list nothing (or only conflicts) are empty
+        return Directory(problem=found.problem, state="error" if found.unreadable else "empty")  # fmt: skip
     iocs = _iocs(settings)
-    rows = [r | {"ioc": iocs.get(r["name"])} for r in rows]
+    rows = [r | {"ioc": iocs.get(r["name"])} for r in found.rows]
     groups = [(k, [r for r in rows if r["kind"] == k]) for k in [*KINDS, None]]
     named = [(k or NO_PAGE, g) for k, g in groups if g]
-    return Directory(named, problem)
+    return Directory(named, found.problem)
 
 
 def words(
@@ -171,22 +177,19 @@ def words(
     roster: list[dict[str, Any]],
     details: dict[str, Optional[dict[str, Any]]],
 ) -> dict[str, dict[str, Optional[str]]]:
-    """The directory's words for ``names``: the roster's state, the IOC heartbeat from the device's detail.
+    """The directory's words for ``names``: the roster's state (the pickers' rule), the IOC heartbeat from the device's detail.
 
-    A name the roster lacks is ``not on the roster``; a device whose detail the
-    module did not give has heartbeat ``unknown``; one whose detail names no
-    heartbeat (no IOC in its panel data) has ``None``.
+    The heartbeat is ``unknown`` for a device whose detail the module did not
+    give, a device the roster lacks included; ``None`` (no IOC) only when the
+    module's detail names none.
     """
-    states = {d["name"]: d.get("state") or "unknown" for d in roster}
+    states = roster_states(roster)
     out: dict[str, dict[str, Optional[str]]] = {}
     for name in names:
-        if name not in states:
-            out[name] = {"state": "not on the roster", "kit": "unknown", "heartbeat": None, "heartbeatKit": None}  # fmt: skip
-            continue
-        detail = details.get(name)
+        detail = details.get(name) if name in states else None
         beat = detail.get("heartbeat") if detail is not None else "unknown"
-        out[name] = {"state": states[name], "kit": KIT_STATE.get(states[name], "unknown")}  # fmt: skip
-        out[name] |= {"heartbeat": beat, "heartbeatKit": beat and KIT_STATE.get(beat, "unknown")}  # fmt: skip
+        out[name] = {**state_word(states, name), "heartbeat": beat}
+        out[name]["heartbeatKit"] = beat and KIT_STATE.get(beat, "unknown")
     return out
 
 
@@ -222,7 +225,7 @@ async def device_lists(settings: Settings, module: ModuleClient) -> dict[str, An
     details = dict(zip([d["name"] for d in roster], answers))
     lists = sort_devices(roster, details, journal or [], _iocs(settings))
     devices = [{"name": d["name"], "family": d.get("family")} for d in roster]
-    named = [r["name"] for r in catalogue(settings)[0]]
+    named = [r["name"] for r in catalogue(settings).rows]
     answer = {"ok": True, "devices": devices, "journal": journal is not None} | lists
     return answer | {"words": words(named, roster, details)}
 

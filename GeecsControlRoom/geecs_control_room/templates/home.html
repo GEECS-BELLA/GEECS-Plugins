@@ -94,12 +94,12 @@
   {# The device directory: the registry's every device, by page kind (home.directory), uncurated; the launcher above is the curated layer. #}
   <article class="panel" id="directory">
     <header><span class="eyebrow">Devices</span>
-      <span class="chip" id="directory-chip" data-state="unknown">reading</span>
-      {% if directory.groups %}<div class="field filter"><input id="directory-filter" type="search" placeholder="filter by name or family" aria-label="Filter devices by name or family" spellcheck="false" autocomplete="off"></div>{% endif %}
+      {% if directory.groups %}<span class="chip" id="directory-chip" data-state="unknown">reading</span>
+      <div class="field filter"><input id="directory-filter" type="search" placeholder="filter by name or family" aria-label="Filter devices by name or family" spellcheck="false" autocomplete="off"></div>{% endif %}
     </header>
     {% if directory.state != "ok" %}
     <div class="state" data-state="{{ directory.state }}">
-      <div class="t">{{ "No device in the registry" if directory.state == "empty" else "The registry cannot be read" }}</div>
+      <div class="t">{{ "The registry cannot be read" if directory.state == "error" else ("No device the directory can list" if directory.problem else "No device in the registry") }}</div>
       <div class="m{% if directory.problem %} mono{% endif %}">{{ directory.problem or "native_devices.yaml and panel_devices.yaml name no device" }}</div>
     </div>
     {% else %}

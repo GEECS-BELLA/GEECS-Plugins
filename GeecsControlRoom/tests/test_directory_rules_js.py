@@ -18,7 +18,7 @@ WORDS = {
     "words": {
         "CamRad": {"state": "live", "kit": "ok", "heartbeat": "live", "heartbeatKit": "ok"},
         "spec1": {"state": "stale", "kit": "degraded", "heartbeat": "stale", "heartbeatKit": "degraded"},
-        "ps1": {"state": "not on the roster", "kit": "unknown", "heartbeat": None, "heartbeatKit": None},
+        "ps1": {"state": "live", "kit": "ok", "heartbeat": None, "heartbeatKit": None},
     },
 }  # fmt: skip
 SILENT = {"ok": False, "detail": "the module did not answer: refused"}
@@ -49,7 +49,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("a row's words are the module's", "cellWords", [WORDS, "spec1"],
      {"state": "stale", "kit": "degraded", "heartbeat": "stale", "heartbeatKit": "degraded"}),
     ("a null heartbeat is no IOC", "cellWords", [WORDS, "ps1"],
-     {"state": "not on the roster", "kit": "unknown", "heartbeat": "no IOC", "heartbeatKit": "unknown"}),
+     {"state": "live", "kit": "ok", "heartbeat": "no IOC", "heartbeatKit": "unknown"}),
     ("a silent module: unknown, never a guess", "cellWords", [SILENT, "CamRad"], UNKNOWN),
     ("a name the answer lacks: unknown", "cellWords", [WORDS, "CamTop"], UNKNOWN),
     ("the chip counts the live ones", "chip", [WORDS, ["CamRad", "spec1"]], {"text": "1/2 live", "state": "degraded", "title": ""}),

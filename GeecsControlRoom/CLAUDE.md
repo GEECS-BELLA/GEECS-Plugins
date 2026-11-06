@@ -144,9 +144,11 @@ deploy/
   page draws last under "no page yet" without a link, a DB device not at all
   (no device page; a screen draws it). Its rows are drawn by the server, so
   the links work without script; its words (the module's state, the IOC
-  heartbeat; `not on the roster`, `unknown` when the detail was not read,
-  `no IOC` for none) ride the two lists' `/api/home/devices` read as
-  `words`, never a read of their own. The filter is client-side, every term
+  heartbeat; `not on the roster`; heartbeat `unknown` when the module gave
+  no detail, a device off the roster included, `no IOC` only when the
+  detail names none) ride the two lists' `/api/home/devices` read as
+  `words`, never a read of their own; the state word is the pickers' rule
+  (`device_pages.state_word`). The filter is client-side, every term
   a substring of the name or the family (`directory_rules.js`).
 - **No page is a leaf.** Every device page's topbar carries the trail after
   the brand (the brand is the home's link): the kind's picker, then the

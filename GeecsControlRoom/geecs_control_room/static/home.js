@@ -91,7 +91,7 @@
     td.querySelector(".word").textContent = word;
   };
   function directory(body) {
-    if (!dirPanel) return;
+    if (!dirPanel || !groups.length) return; // an empty or unreadable registry: the pane says why, no chip
     const c = D.chip(body, listed), chipEl = $("directory-chip");
     chipEl.textContent = c.text;
     chipEl.dataset.state = c.state;

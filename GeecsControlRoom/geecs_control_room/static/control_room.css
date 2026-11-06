@@ -24,9 +24,8 @@
 .kit #preset-save select[multiple] { height: auto; font-size: 12.5px; }
 .kit .home .grid #presets { grid-column: 1 / -1; }
 
-/* The device directory: groups by page kind, a filter in the header; the kit's .group and .state
-   are display:flex, so [hidden] needs saying here for the filter to hide them. */
-.kit .home #directory [hidden] { display: none; }
+/* The device directory: groups by page kind, a filter in the header (the kit's own [hidden] rule hides
+   what the filter leaves out). */
 .kit .home #directory .filter { min-width: 14rem; }
 .kit .home #directory .group > a.eyebrow { color: var(--accent); text-decoration: none; width: max-content; }
 .kit .home #directory .group > a.eyebrow:hover { text-decoration: underline; }

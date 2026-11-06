@@ -299,12 +299,14 @@ def test_the_directory_words_are_the_modules_for_the_registry_only(settings: Set
     assert set(body["words"]) == {"Cam1", "Cam2", "Mot1", "ps1"}  # never the DB device
     assert body["words"]["Cam2"] == {"state": "error", "kit": "failed", "heartbeat": "live", "heartbeatKit": "ok"}  # fmt: skip
     assert body["words"]["Mot1"]["kit"] == "degraded"
-    assert body["words"]["ps1"] == {"state": "not on the roster", "kit": "unknown", "heartbeat": None, "heartbeatKit": None}  # fmt: skip
+    # not served: its heartbeat is unknown, never "no IOC" (the registry may name one)
+    assert body["words"]["ps1"] == {"state": "not on the roster", "kit": "unknown", "heartbeat": "unknown", "heartbeatKit": "unknown"}  # fmt: skip
     roster = [{"name": "a", "state": "live"}, {"name": "b", "state": "live"}]
-    got = words(["a", "b"], roster, {"a": None, "b": {"heartbeat": None, "roles": []}})
+    got = words(["a", "b", "c"], roster, {"a": None, "b": {"heartbeat": None, "roles": []}})  # fmt: skip
     assert (
         got["a"]["heartbeat"] == "unknown" and got["b"]["heartbeat"] is None
-    )  # unread vs no IOC
+    )  # fmt: skip  (unread vs no IOC)
+    assert got["c"]["heartbeat"] == "unknown"  # off the roster
 
 
 def test_the_directory_rows_stay_when_the_module_is_silent(settings: Settings, registry: Path) -> None:  # fmt: skip
@@ -317,19 +319,30 @@ def test_the_directory_rows_stay_when_the_module_is_silent(settings: Settings, r
     )
 
 
+_CONFLICT = ("schema_version: 1\ndevices:\n  Mot1: {kind: epics_motor, axes: [m1]}\n", "schema_version: 1\ndevices:\n  Mot1: {family: easydriver}\n")  # fmt: skip
+
+
 @pytest.mark.parametrize(
-    ("native", "state", "title"),
-    [(None, "empty", "No device in the registry"), ("devices: [", "error", "The registry cannot be read")],
+    ("native", "panel", "state", "title"),
+    [
+        (None, None, "empty", "No device in the registry"),
+        ("devices: [", None, "error", "The registry cannot be read"),
+        (*_CONFLICT, "empty", "No device the directory can list"),  # both files read; their one device conflicts
+    ],
 )  # fmt: skip
-def test_the_directory_says_why_it_has_no_rows(settings: Settings, native: str | None, state: str, title: str) -> None:  # fmt: skip
+def test_the_directory_says_why_it_has_no_rows(settings: Settings, native: str | None, panel: str | None, state: str, title: str) -> None:  # fmt: skip
     where = settings.experiment_dir
     where.mkdir(parents=True)
     if native is not None:
         (where / "native_devices.yaml").write_text(native)
+    if panel is not None:
+        (where / "panel_devices.yaml").write_text(panel)
     with _room(settings) as c:
         html = c.get("/").text.split('id="directory"')[1]
     assert (
         f'<div class="state" data-state="{state}">\n      <div class="t">{title}</div>'
         in html
     )
-    assert 'id="directory-filter"' not in html
+    assert (
+        'id="directory-filter"' not in html and 'id="directory-chip"' not in html
+    )  # fmt: skip  (no "0/0 live" beside the pane)

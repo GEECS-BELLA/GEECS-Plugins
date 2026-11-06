@@ -458,6 +458,18 @@ module leaves the rows with `unknown`. The trail is a `crumbs` block in
 filled by `device.html` (kind's picker › the device), so the camera and
 trace templates inherit it untouched.
 
+**What review changed** (one adversarial round, four low findings, all
+fixed): a device off the roster read heartbeat "no IOC" beside the IOC its
+panel entry names, now `unknown`; a registry whose devices all conflict
+between the two files read "cannot be read", now an `empty` pane naming the
+conflicts (`Catalogue.unreadable` keeps `error` for files that do not
+parse), and the empty panes no longer carry a "0/0 live" chip; a
+`[hidden]` rule the kit already holds (`!important`) was deleted; the roster
+state word is one rule for the pickers and the directory
+(`device_pages.state_word`). Kept: the directory's rows are fixed at page
+load (the pickers re-read theirs each poll); a registry change shows on
+reload, which the operator page says.
+
 **Left as it is.** `home.yaml`'s `device_pages` pickers now overlap the
 directory (every device a picker lists is a directory row); they stay the
 curated layer (pinned families), and whether to drop them from the

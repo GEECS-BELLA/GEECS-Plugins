@@ -56,8 +56,21 @@ def kind_of(family: Optional[str]) -> Optional[str]:
     return _WORD.get(found.kind) if found else None
 
 
-def catalogue(settings: Settings) -> tuple[list[dict[str, Any]], Optional[str]]:  # fmt: skip
-    """Every registry device by name (``name``, ``family``, ``kind``: its page's kind word, ``None`` for no page), and the files' problems.
+#: The word for a registry device the module's roster does not list.
+NOT_ON_ROSTER = "not on the roster"
+
+
+@dataclass(frozen=True)
+class Catalogue:
+    """The registry's devices (``name``, ``family``, ``kind``), the files' problems, and whether the files could be read at all."""
+
+    rows: list[dict[str, Any]]
+    problem: Optional[str] = None
+    unreadable: bool = False
+
+
+def catalogue(settings: Settings) -> Catalogue:
+    """Every registry device by name (``kind``: its page's kind word, ``None`` for no page), and the files' problems.
 
     The module's join rule (GeecsCanopy ``native.py``): a device both files name
     with different families is no kind's; it is left out and named in the problem.
@@ -66,7 +79,7 @@ def catalogue(settings: Settings) -> tuple[list[dict[str, Any]], Optional[str]]:
     try:
         panel, native = registry(settings.experiment_dir)
     except (ValidationError, yaml.YAMLError, OSError) as exc:
-        return [], str(exc)
+        return Catalogue([], str(exc), unreadable=True)
     families = load_families()
     rows, problems = [], []
     for name in sorted({*native.devices, *panel.devices}):
@@ -77,13 +90,24 @@ def catalogue(settings: Settings) -> tuple[list[dict[str, Any]], Optional[str]]:
             continue
         family = families.get(template)
         rows.append({"name": name, "family": template, "kind": _WORD.get(family.kind) if family else None})  # fmt: skip
-    return rows, "; ".join(problems) or None
+    return Catalogue(rows, "; ".join(problems) or None)
+
+
+def roster_states(roster: list[dict[str, Any]]) -> dict[str, str]:
+    """The module's roster as each device's state word (none given: ``unknown``)."""
+    return {d["name"]: d.get("state") or "unknown" for d in roster}
+
+
+def state_word(states: dict[str, str], name: str) -> dict[str, str]:
+    """A registry device's word from the roster (``NOT_ON_ROSTER`` when it lacks it) and its kit state: the pickers' and the directory's one rule."""
+    word = states.get(name, NOT_ON_ROSTER)
+    return {"state": word, "kit": KIT_STATE.get(word, "unknown")}
 
 
 def registered(settings: Settings, kind: str) -> tuple[list[dict[str, str]], Optional[str]]:  # fmt: skip
     """The registry's devices of ``kind`` by name (``name``, ``family``), and the files' problems (``catalogue``'s)."""
-    rows, problem = catalogue(settings)
-    return [{"name": r["name"], "family": r["family"]} for r in rows if r["kind"] == kind], problem  # fmt: skip
+    found = catalogue(settings)
+    return [{"name": r["name"], "family": r["family"]} for r in found.rows if r["kind"] == kind], found.problem  # fmt: skip
 
 
 async def listing(settings: Settings, module: ModuleClient, kind: str) -> dict[str, Any]:  # fmt: skip
@@ -93,14 +117,13 @@ async def listing(settings: Settings, module: ModuleClient, kind: str) -> dict[s
     try:
         status, body = await module.devices()
         if status == 200 and isinstance(body, dict) and body.get("devices") is not None:
-            states = {d["name"]: d.get("state") or "unknown" for d in body["devices"]}
+            states = roster_states(body["devices"])
         else:
             why = f"the module answered {status}"
     except ModuleUnavailable as exc:
         why = f"the module did not answer: {exc}"
     for row in rows:
-        word = "unknown" if why else states.get(row["name"], "not on the roster")
-        row |= {"state": word, "kit": KIT_STATE.get(word, "unknown")}
+        row |= {"state": "unknown", "kit": "unknown"} if why else state_word(states, row["name"])  # fmt: skip
     return {
         "kind": kind,
         "devices": rows,
