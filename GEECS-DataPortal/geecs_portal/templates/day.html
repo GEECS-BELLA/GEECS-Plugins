@@ -32,6 +32,7 @@
     {% if where %}<input type="hidden" name="where" value="{{ where }}">{% endif %}
     {% if filter %}<a class="btn ghost" href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}{% if where %}&amp;where={{ where | urlencode }}{% endif %}">clear</a>{% endif %}
   </form>
+  {% if rows and plot_page %}<button class="btn" type="button" id="plot-shown" title="Open the Plot page with the scans this list shows now (after the text filter and the scan filters): the lowest-numbered one as the main scan, the others added; more than {{ max_overlay }} are merged">Plot these scans</button>{% endif %}
   {% if rows %}<button class="btn" type="button" id="scanf-open" title="Read each scan's s-file: show its conditions, and keep only the scans that meet rules on conditions (APL is in) or on a column's mean (charge between 10 and 20). Takes a few seconds on a busy day, so only when asked.">Conditions &amp; scan filters…</button>{% endif %}
 </div>
 {% if error %}
@@ -58,7 +59,7 @@
     <thead><tr><th>Scan</th><th>Time</th><th>Mode</th><th>Scanned</th><th class="scanf-cond" hidden>Conditions</th><th>Description</th><th class="num">Shots</th><th>Status</th></tr></thead>
     <tbody>
     {% for run, time_text in rows %}
-    <tr data-uid="{{ run.uid }}">
+    <tr data-uid="{{ run.uid }}"{% if run.scan_number is not none %} data-scan="{{ run.scan_number }}"{% endif %}>
       <td class="id">
         {%- if plot_page and run.scan_number is not none -%}
         {# GEECSplotter opens a scan on its plot; the Plot page's tabs
@@ -83,6 +84,52 @@
 </div>
 {% else %}
 <div class="state" data-state="empty"><div class="t">{% if filter %}No scans match the filter.{% else %}No scans recorded for this day.{% endif %}</div></div>
+{% endif %}
+{% if rows and plot_page %}
+<script>
+// "Plot these scans": the rows this list shows now become the Plot page's
+// scans, saved into the viewer's own settings set (the name the Plot page
+// keeps in this browser; asked once when it has none), then the page opens.
+(function () {
+  const OWN_KEY = "geecs-portal:set", AUTHOR_KEY = "geecs-portal:author";
+  const SET_NAME = /^[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?$/;
+  const folded = (n) => n.trim().split(/\s+/).join(" ").toLowerCase();
+  const MAX_OVERLAY = {{ max_overlay | tojson }}, DAY = {{ day.isoformat() | tojson }};
+  function viewer() {
+    try {
+      for (const key of [OWN_KEY, AUTHOR_KEY]) {
+        const n = folded(localStorage.getItem(key) || "");
+        if (SET_NAME.test(n)) return n;
+      }
+    } catch (_) { /* no storage: asked */ }
+    const typed = folded(window.prompt("Your name (your own settings set on the Plot page):") || "");
+    if (!SET_NAME.test(typed)) return "";
+    try { localStorage.setItem(OWN_KEY, typed); } catch (_) { /* asked again next time */ }
+    return typed;
+  }
+  document.getElementById("plot-shown").addEventListener("click", () => {
+    const numbers = [...document.querySelectorAll("tr[data-scan]")]
+      .filter((tr) => !tr.hidden).map((tr) => Number(tr.dataset.scan)).sort((a, b) => a - b);
+    if (!numbers.length) { if (window.GeecsKit) window.GeecsKit.toast("No scans shown to plot"); return; }
+    const name = viewer();
+    if (!name) return;
+    const [main, ...rest] = numbers;
+    const fields = { day: DAY, scan: String(main), set: name, owner: name, page: "plot",
+      scans: rest.map((n) => `${DAY}:${n}`).join(",") };
+    if (numbers.length > MAX_OVERLAY) fields.multi = "merged";
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = {{ (root ~ "/plot/") | tojson }};
+    for (const [k, v] of Object.entries(fields)) {
+      const input = document.createElement("input");
+      input.type = "hidden"; input.name = k; input.value = v;
+      form.append(input);
+    }
+    document.body.append(form);
+    form.submit();
+  });
+})();
+</script>
 {% endif %}
 {% if rows and not error %}
 <script>

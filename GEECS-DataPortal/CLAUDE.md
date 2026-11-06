@@ -280,7 +280,11 @@ judges each against the rules (`ScanRule`: a condition's label is / is
 not, or a column's mean between) as `pass` / `mixed` / `fail` /
 `missing`; the page fills a Conditions column and hides fail and missing.
 The rules ride in the address (`where`, the day arrows and the text
-filter keep it). The Scanned column (`RunSummary.scan_variable` /
+filter keep it). **Plot these scans** (with the Plot page mounted, the
+portal's experiment) posts the rows the list shows now into the viewer's own
+set — the browser's `geecs-portal:set` name, asked once when unknown — the
+lowest-numbered as the main scan, the rest `scans`, merged past
+`MAX_OVERLAY_SCANS` — and opens the Plot page. The Scanned column (`RunSummary.scan_variable` /
 `scan_range`) is from the listing itself.
 
 **Canonical day view (owner ruling 2026-09-13):** this package's `/day/`

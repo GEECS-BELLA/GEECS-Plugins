@@ -23,6 +23,7 @@ from geecs_portal.routes.common import (
     _scan_label,
     _sticky_query,
 )
+from geecs_portal.plotter.settings import MAX_OVERLAY_SCANS
 from geecs_portal.state import PortalState, get_state
 
 router = APIRouter()
@@ -79,6 +80,7 @@ def day_view(
             "error": error,
             # The plotter opens the portal's own experiment only.
             "plot_page": portal.plot_page and exp == portal.default_experiment,
+            "max_overlay": MAX_OVERLAY_SCANS,
             # the batch panel runs the portal's own experiment's scans
             "batch": portal.worker is not None and exp == portal.default_experiment,
             "qs": lambda **kw: _sticky_query(day_state, **kw),
