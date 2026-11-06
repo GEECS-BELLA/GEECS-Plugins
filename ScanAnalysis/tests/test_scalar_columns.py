@@ -189,3 +189,22 @@ def test_a_job_without_conditions_writes_no_labels(tmp_path, monkeypatch):
     _, sfile = build_scan(tmp_path)
     run(monkeypatch, tmp_path, job(MM))
     assert not list((sfile.parent / "Scan012").glob("*_labels.json"))
+
+
+def test_the_task_queue_runs_it_under_its_own_data_root(tmp_path):
+    """A host's base_directory reaches the analyzer: the scan read is the one
+    whose status record is written (a worker over another root once read and
+    wrote the configured share instead)."""
+    from scan_analysis.task_queue import read_statuses, run_task
+
+    scan, sfile = build_scan(tmp_path)
+    analyzer = create_scan_analyzer(job(MM), id="Derived")
+    try:
+        state = run_task(1000, TAG, analyzer, base_directory=tmp_path)
+    finally:
+        analyzer.cleanup()
+    assert state == "done"
+    np.testing.assert_allclose(
+        pd.read_csv(sfile, sep="\t")["Cam x (mm)"], [5, 10, np.nan, 20]
+    )
+    assert [s.state for s in read_statuses(scan)] == ["done"]

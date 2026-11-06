@@ -85,3 +85,21 @@ def batch_job(job_id: str, portal: PortalState = Depends(get_state)):
 def batch_cancel(job_id: str, portal: PortalState = Depends(get_state)):
     """Stop a job before its next task."""
     return _forward(portal, "POST", f"/api/jobs/{job_id}/cancel")
+
+
+@router.get("/api/batch/watch")
+def batch_watch(portal: PortalState = Depends(get_state)):
+    """The worker's running watch, or ``{watch: null}``."""
+    return _forward(portal, "GET", "/api/watch")
+
+
+@router.post("/api/batch/watch")
+def batch_watch_start(body: dict = Body(...), portal: PortalState = Depends(get_state)):
+    """Start watching a day: the group's ticked analyzers on each scan as it closes."""
+    return _forward(portal, "POST", "/api/watch", _with_experiment(portal, body))
+
+
+@router.post("/api/batch/watch/stop")
+def batch_watch_stop(portal: PortalState = Depends(get_state)):
+    """Stop watching (jobs it already queued still run)."""
+    return _forward(portal, "POST", "/api/watch/stop")

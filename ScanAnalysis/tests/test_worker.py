@@ -12,7 +12,7 @@ from geecs_data_utils import ScanPaths, ScanTag
 
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.task_queue import read_statuses
-from scan_analysis.worker import JobSpec, Worker
+from scan_analysis.worker import JobSpec, WatchSpec, Worker
 
 DAY = date(2026, 3, 10)
 
@@ -169,6 +169,67 @@ def test_a_missing_day_fails_the_job_not_the_worker(tmp_path):
         worker.stop(1)
 
 
+def test_a_job_runs_only_the_ticked_analyzers_from_its_start_scan(tmp_path):
+    build_day(tmp_path, closed=(1, 2, 4), open_=())
+    worker = make_worker(tmp_path, [FakeAnalyzer("A"), FakeAnalyzer("B")])
+    plan = worker.plan(spec(analyzers=("B",), from_scan=2))
+    assert sorted((t.scan, t.analyzer) for t in plan.tasks) == [(2, "B"), (4, "B")]
+
+
+def wait_for(condition, timeout=10.0):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if condition():
+            return
+        time.sleep(0.02)
+    raise AssertionError("condition not met")
+
+
+def close_scan(base: Path, n: int) -> None:
+    tag = ScanTag(year=2026, month=3, day=10, number=n, experiment="Test")
+    folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=base)
+    (folder / f"ScanDataScan{n:03d}.txt").write_text("Shotnumber\n1\n")
+
+
+def test_a_watch_analyzes_each_scan_once_it_closes(tmp_path):
+    build_day(tmp_path, closed=(1, 2), open_=(3,))
+    a, b = FakeAnalyzer("A"), FakeAnalyzer("B")
+    worker = make_worker(tmp_path, [a, b])
+    worker.watch_poll_seconds = 0.05
+    worker.start()
+    try:
+        worker.watch(
+            WatchSpec(
+                day=DAY, group="g", experiment="Test", analyzers=("A",), from_scan=2
+            )
+        )
+        wait_for(lambda: a.ran == [2])
+        assert statuses(tmp_path, 3) == {}  # still recording: left alone
+        close_scan(tmp_path, 3)
+        wait_for(lambda: a.ran == [2, 3])
+        watch = worker.watching()
+        assert all(worker.get(j).spec.origin == "watch" for j in watch.jobs)
+        time.sleep(0.3)  # more looks: nothing new, so no more jobs
+        assert a.ran == [2, 3] and b.ran == []  # scan 1 is before its start
+        assert len(worker.watching().jobs) == 2
+        assert worker.unwatch() is watch and worker.watching() is None
+    finally:
+        worker.stop(1)
+
+
+def test_a_watch_waits_for_a_day_not_started_yet(tmp_path):
+    worker = make_worker(tmp_path, [FakeAnalyzer("A")])
+    worker.watch_poll_seconds = 0.05
+    worker.start()
+    try:
+        worker.watch(WatchSpec(day=DAY, group="g", experiment="Test"))
+        wait_for(lambda: (worker.watching().note or "").startswith("waiting for"))
+        assert not (tmp_path / "Test").exists()  # nothing created
+        assert worker.watching().jobs == []
+    finally:
+        worker.stop(1)
+
+
 class TestApi:
     @pytest.fixture()
     def client(self, tmp_path):
@@ -213,3 +274,14 @@ class TestApi:
         assert client.post("/api/plan", json=missing).status_code == 404
         assert client.post("/api/jobs", json={"group": "x"}).status_code == 422
         assert client.get("/api/jobs/j999").status_code == 404
+
+    def test_watch_routes(self, client):
+        assert client.get("/api/watch").json() == {"watch": None}
+        body = {"day": "2026-03-10", "group": "PW/empty", "analyzers": ["A"]}
+        watch = client.post("/api/watch", json=body).json()["watch"]
+        assert watch["group"] == "PW/empty" and watch["analyzers"] == ["A"]
+        assert client.get("/api/watch").json()["watch"]["day"] == "2026-03-10"
+        assert client.post("/api/watch/stop").json() == {"watch": None}
+        assert (
+            client.post("/api/watch", json={**body, "group": "nope"}).status_code == 404
+        )

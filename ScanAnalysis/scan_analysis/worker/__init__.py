@@ -7,10 +7,28 @@ finished task is skipped unless the job asks to redo it.  ``jobs`` is the
 pure-Python runner, ``app`` its HTTP API (the Data Portal's day page is
 one client), ``__main__`` the ``scan-analysis-worker`` command.
 
-Triggers beyond an explicit request (a scan's end, from the engine's
-run-stop document) are a later step; they submit jobs like any client.
+A watch (the old LiveWatch, on this queue) submits a job whenever its
+day's newly closed scans have work for its ticked analyzers.  A trigger
+from the engine's run-stop document is a later step; it would submit jobs
+like any client.
 """
 
-from scan_analysis.worker.jobs import Job, JobSpec, TaskRecord, Worker, day_scan_tags
+from scan_analysis.worker.jobs import (
+    Job,
+    JobSpec,
+    TaskRecord,
+    Watch,
+    WatchSpec,
+    Worker,
+    day_scan_tags,
+)
 
-__all__ = ["Job", "JobSpec", "TaskRecord", "Worker", "day_scan_tags"]
+__all__ = [
+    "Job",
+    "JobSpec",
+    "TaskRecord",
+    "Watch",
+    "WatchSpec",
+    "Worker",
+    "day_scan_tags",
+]

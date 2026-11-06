@@ -511,12 +511,25 @@ redo. A cancel stops before the next task. A scan with no closed-run
 evidence (`run_closed_evidence`: its `ScanData` table or s-file) is still
 recording and is left out (`open_scans`). Jobs run in order on one
 thread; the job list is in memory and the status records are the durable
-result. `GET /health`, `GET /api/groups`, `POST /api/plan` (what a job
-would run, nothing written), `POST /api/jobs` (202), `GET /api/jobs`,
-`GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`. The Data Portal's day
-page is one client (over HTTP alone); triggers from a scan's end are a
-later step and submit jobs like any client. Tests: `tests/test_worker.py`
-(fake analyzers through the real queue).
+result. A job may name a subset of the group's analyzers (`analyzers`, by
+task id) and a `from_scan`. A **watch** (`Worker.watch(WatchSpec)`, the
+retired LiveWatch on this queue; one at a time, in memory) looks at its day
+every `WATCH_POLL_SECONDS` (5) and, when no job of its own is pending and a
+plan of its group's ticked analyzers over the closed scans from its start
+scan has tasks, submits that job (`origin: "watch"`) — so each scan is
+analysed once it closes and nothing is redone; a day with no `scans/`
+folder yet is waited for (the watch's `note`). `GET /health`,
+`GET /api/groups`, `POST /api/plan` (what a job would run, nothing
+written), `POST /api/jobs` (202), `GET /api/jobs`, `GET /api/jobs/{id}`,
+`POST /api/jobs/{id}/cancel`, `GET|POST /api/watch`, `POST /api/watch/stop`.
+The Data Portal's day page is one client (over HTTP alone); a trigger from
+the engine's run-stop document is a later step and would submit jobs like
+any client. **The data root reaches the analyzer**: `run_task(...,
+base_directory=)` sets `ScanAnalyzer.base_directory`, which
+`_handle_scan_tag` resolves the scan under — before 2026-11-05 a worker over
+another root wrote its status there but read and wrote the configured
+share (`test_the_task_queue_runs_it_under_its_own_data_root`). Tests:
+`tests/test_worker.py` (fake analyzers through the real queue).
 
 ## Task Queue System (`task_queue.py`)
 

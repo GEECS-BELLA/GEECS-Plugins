@@ -14,6 +14,14 @@ Jobs run in submission order on one thread; a cancel takes effect between
 tasks (an analyzer already running finishes).  The job list lives in memory
 — the status records on the share are the durable result.
 
+A **watch** (:class:`WatchSpec`, :meth:`Worker.watch`) is the old LiveWatch
+runner on this queue: every few seconds it plans its group (the ticked
+analyzers only) over its day's closed scans from a start scan on, and when
+that plan has tasks it submits them as a job — so each scan is analysed
+once it closes, a finished task is never redone, and the watch's jobs line
+up with any other job.  One watch at a time; it lives until stopped, and a
+day whose ``scans/`` folder does not exist yet is waited for, not an error.
+
 A scan still being recorded is left out: only a scan with closed-run
 evidence (:func:`geecs_data_utils.data.sfile.run_closed_evidence`, its
 ``ScanData`` table or s-file) is analysed.  Nothing here creates a scan
@@ -49,7 +57,18 @@ from scan_analysis.task_queue import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["Job", "JobSpec", "TaskRecord", "Worker", "day_scan_tags"]
+__all__ = [
+    "Job",
+    "JobSpec",
+    "TaskRecord",
+    "Watch",
+    "WatchSpec",
+    "Worker",
+    "day_scan_tags",
+]
+
+#: How often a watch looks for newly closed scans (seconds).
+WATCH_POLL_SECONDS = 5.0
 
 #: Job states.  ``queued`` → ``running`` → ``done`` | ``cancelled`` | ``failed``
 #: (``failed`` is the job itself — an unknown group, a missing day — never a task).
@@ -103,6 +122,62 @@ class JobSpec:
     experiment: str
     scans: Optional[tuple[int, ...]] = None
     redo: bool = False
+    #: the group's analyzers to run, by id; ``None`` runs every member
+    analyzers: Optional[tuple[str, ...]] = None
+    #: only scans numbered this or higher
+    from_scan: int = 0
+    #: who asked: ``batch`` (a person) or ``watch`` (the watch)
+    origin: str = "batch"
+
+
+@dataclass(frozen=True)
+class WatchSpec:
+    """What a watch asks for: a group's ticked analyzers on a day's new scans."""
+
+    day: date
+    group: str
+    experiment: str
+    analyzers: Optional[tuple[str, ...]] = None
+    from_scan: int = 0
+
+    def job(self) -> JobSpec:
+        """The job one look submits."""
+        return JobSpec(
+            day=self.day,
+            group=self.group,
+            experiment=self.experiment,
+            analyzers=self.analyzers,
+            from_scan=self.from_scan,
+            origin="watch",
+        )
+
+
+@dataclass
+class Watch:
+    """The running watch and what it has done."""
+
+    spec: WatchSpec
+    started: float = field(default_factory=time.time)
+    last_check: Optional[float] = None
+    #: why the last look found nothing to do, if it was not just "all done"
+    note: Optional[str] = None
+    jobs: list[str] = field(default_factory=list)
+
+    def to_json(self) -> dict:
+        """The wire shape of the watch."""
+        return {
+            "day": self.spec.day.isoformat(),
+            "group": self.spec.group,
+            "experiment": self.spec.experiment,
+            "analyzers": list(self.spec.analyzers)
+            if self.spec.analyzers is not None
+            else None,
+            "from_scan": self.spec.from_scan,
+            "started": self.started,
+            "last_check": self.last_check,
+            "note": self.note,
+            "jobs": list(self.jobs),
+        }
 
 
 @dataclass
@@ -163,6 +238,11 @@ class Job:
             "experiment": self.spec.experiment,
             "scans": list(self.spec.scans) if self.spec.scans is not None else None,
             "redo": self.spec.redo,
+            "analyzers": list(self.spec.analyzers)
+            if self.spec.analyzers is not None
+            else None,
+            "from_scan": self.spec.from_scan,
+            "origin": self.spec.origin,
             "state": self.state,
             "error": self.error,
             "created": self.created,
@@ -222,6 +302,11 @@ class Worker:
         self._ids = itertools.count(1)
         self._thread: Optional[threading.Thread] = None
         self._stopping = False
+        self._watch: Optional[Watch] = None
+        self._watch_wake = threading.Event()
+        self._watch_thread: Optional[threading.Thread] = None
+        #: seconds between a watch's looks (tests shorten it)
+        self.watch_poll_seconds = WATCH_POLL_SECONDS
 
     # ------------------------------------------------------------ lifecycle
 
@@ -235,7 +320,8 @@ class Worker:
             self._thread.start()
 
     def stop(self, timeout: Optional[float] = None) -> None:
-        """Cancel every job and stop the thread after the running task."""
+        """Stop the watch, cancel every job and stop the thread after the running task."""
+        self.unwatch()
         self._stopping = True
         with self._lock:
             for job in self._jobs.values():
@@ -272,6 +358,33 @@ class Worker:
             if job is not None and job.state in JOB_ACTIVE:
                 job.cancel_requested = True
             return job
+
+    def watch(self, spec: WatchSpec) -> Watch:
+        """Start watching (replacing any watch); the first look is at once."""
+        # the group must load now, so a typo is the caller's error, not a silent watch
+        self._loader(spec.group, config_dir=self.config_dir)
+        with self._lock:
+            self._watch = Watch(spec=spec)
+            watch = self._watch
+        if self._watch_thread is None or not self._watch_thread.is_alive():
+            self._watch_thread = threading.Thread(
+                target=self._watch_loop, name="analysis-watch", daemon=True
+            )
+            self._watch_thread.start()
+        self._watch_wake.set()
+        return watch
+
+    def unwatch(self) -> Optional[Watch]:
+        """Stop watching (its jobs already queued still run); the watch that was."""
+        with self._lock:
+            watch, self._watch = self._watch, None
+        self._watch_wake.set()
+        return watch
+
+    def watching(self) -> Optional[Watch]:
+        """The current watch, or ``None``."""
+        with self._lock:
+            return self._watch
 
     def plan(self, spec: JobSpec) -> Job:
         """What a job would run now, without running it (a job never queued)."""
@@ -311,6 +424,40 @@ class Worker:
             )
         return out
 
+    # ------------------------------------------------------------ the watch
+
+    def _watch_loop(self) -> None:
+        while not self._stopping:
+            watch = self.watching()
+            if watch is None:
+                return
+            try:
+                self._look(watch)
+            except Exception as exc:  # a look's failure is its note (logged)
+                logger.exception("watch look failed")
+                watch.note = f"{type(exc).__name__}: {exc}"
+            self._watch_wake.wait(self.watch_poll_seconds)
+            self._watch_wake.clear()
+
+    def _look(self, watch: Watch) -> None:
+        """One look: submit the watch's open work, unless a job of it is still pending."""
+        watch.last_check = time.time()
+        with self._lock:
+            pending = any(
+                self._jobs[j].state in JOB_ACTIVE for j in watch.jobs if j in self._jobs
+            )
+        if pending:
+            return  # its next look picks up whatever closed meanwhile
+        try:
+            plan = self.plan(watch.spec.job())
+        except FileNotFoundError:
+            watch.note = f"waiting for {watch.spec.day.isoformat()}'s scans folder"
+            return
+        watch.note = None
+        if plan.tasks and self.watching() is watch:
+            job = self.submit(watch.spec.job())
+            watch.jobs.append(job.id)
+
     # ------------------------------------------------------------ the thread
 
     def _loop(self) -> None:
@@ -338,6 +485,7 @@ class Worker:
         if spec.scans is not None:
             wanted = set(spec.scans)
             tags = [t for t in tags if t.number in wanted]
+        tags = [t for t in tags if t.number >= spec.from_scan]
         closed = []
         for tag in tags:
             folder = ScanPaths.get_scan_folder_path(
@@ -348,6 +496,9 @@ class Worker:
             else:
                 job.open_scans.append(tag.number)
         analyzers = self._loader(spec.group, config_dir=self.config_dir)
+        if spec.analyzers is not None:
+            ticked = set(spec.analyzers)
+            analyzers = [a for a in analyzers if analyzer_task_id(a) in ticked]
         work = build_worklist(
             closed,
             analyzers,

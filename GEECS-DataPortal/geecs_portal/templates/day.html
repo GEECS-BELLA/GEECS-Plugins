@@ -26,7 +26,7 @@
     <input type="hidden" name="experiment" value="{{ experiment }}">
     <div class="field day-filter">
       <label for="day-filter">Filter</label>
-      <input id="day-filter" type="search" name="filter" value="{{ filter }}" placeholder="scan number, mode, status, description, save set">
+      <input id="day-filter" type="search" name="filter" value="{{ filter }}" placeholder="scan number, mode, scanned parameter, status, description, save set">
     </div>
     <button class="btn" type="submit">Filter</button>
     {% if filter %}<a class="btn ghost" href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}">clear</a>{% endif %}
@@ -38,7 +38,7 @@
 <div class="panel">
   <div class="tscroll">
   <table>
-    <thead><tr><th>Scan</th><th>Time</th><th>Mode</th><th>Description</th><th class="num">Shots</th><th>Status</th></tr></thead>
+    <thead><tr><th>Scan</th><th>Time</th><th>Mode</th><th>Scanned</th><th>Description</th><th class="num">Shots</th><th>Status</th></tr></thead>
     <tbody>
     {% for run, time_text in rows %}
     <tr>
@@ -53,6 +53,7 @@
       </td>
       <td class="mono">{{ time_text }}</td>
       <td>{{ run.mode }}</td>
+      <td class="scanned">{% if run.scan_variable %}{{ run.scan_variable }}{% if run.scan_range %} <span class="dim mono">{{ run.scan_range }}</span>{% endif %}{% endif %}</td>
       <td>{{ run.description }}</td>
       <td class="num">{{ run.shots if run.shots is not none else "" }}</td>
       <td><span class="chip" data-state="{{ run.exit_status | run_state }}">{{ run.exit_status or "unknown" }}</span></td>
@@ -73,8 +74,12 @@
   </header>
   <div class="body">
     <div class="field"><label for="batch-group">Analysis group</label>
-      <select id="batch-group" onchange="batchPlan()"><option value="">loading…</option></select>
-      <div class="dim" id="batch-members"></div></div>
+      <select id="batch-group" onchange="batchPlan()"><option value="">loading…</option></select></div>
+    <fieldset class="batch-members" id="batch-members-box" hidden>
+      <legend>Active analyzers</legend>
+      <div id="batch-members"></div>
+      <div class="dim">Untick one to leave it out. Run and Watch both use only the ticked ones, in the group's order.</div>
+    </fieldset>
     <div class="field"><label for="batch-scans">Scans</label>
       <input id="batch-scans" type="text" placeholder="all — or e.g. 5-12, 20" oninput="batchPlanSoon()"></div>
     <label class="batch-redo"><input type="checkbox" id="batch-redo" onchange="batchPlan()"> redo scans already analyzed (and failed ones)</label>
@@ -83,6 +88,14 @@
       <span class="dim" id="batch-plan"></span>
     </div>
     <p class="err" id="batch-err" hidden></p>
+    <h3>Watch for new scans</h3>
+    <p class="dim">Like the old LiveWatch: the worker looks at this day every few seconds and analyzes each scan with the ticked analyzers <b>once the scan has finished</b> (its s-file has appeared). Scans already analyzed are skipped; nothing is redone. It keeps going when this page or the portal closes, until you stop it. One watch at a time: starting one replaces the last.</p>
+    <div class="row">
+      <label class="dim">from scan <input id="watch-from" type="number" min="0" placeholder="first" title="only scans numbered this or higher; empty: every scan of the day"></label>
+      <button class="btn" type="button" id="watch-start" onclick="watchStart()" disabled>Start watching</button>
+      <button class="btn" type="button" id="watch-stop" onclick="watchStop()" hidden>Stop watching</button>
+    </div>
+    <div id="watch-state" class="batch-watch dim">not watching</div>
     <h3>Jobs</h3>
     <div id="batch-jobs"><div class="dim">none yet</div></div>
     <p class="dim">The worker is its own service: a job keeps running when this page or the portal closes. Each scan's results are recorded in its <span class="mono">analysis_status/</span> folder, which is how a later run knows what is done.</p>
@@ -91,7 +104,7 @@
 <script>
 const BATCH_DAY = {{ day.isoformat() | tojson }};
 const BATCH_ROOT = {{ root | tojson }};
-let BATCH_DRAWER = null, BATCH_GROUPS = [], BATCH_POLL = null, BATCH_PLAN_SEQ = 0;
+let BATCH_DRAWER = null, BATCH_GROUPS = [], BATCH_POLL = null, BATCH_PLAN_SEQ = 0, BATCH_MEMBERS_FOR = null, BATCH_WATCH = null;
 const bEsc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 async function batchApi(path, opts) {
   const r = await fetch(`${BATCH_ROOT}/api/batch${path}`, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
@@ -113,8 +126,26 @@ function batchScans() {
   }
   return out;
 }
+// the ticked analyzers: null when every member is ticked (the whole group)
+function batchTicked() {
+  const boxes = [...document.querySelectorAll("#batch-members input[type=checkbox]")];
+  const ticked = boxes.filter((b) => b.checked).map((b) => b.value);
+  return ticked.length === boxes.length ? null : ticked;
+}
+function batchNoneTicked() { const t = batchTicked(); return t !== null && t.length === 0; }
 function batchBody() {
-  return { day: BATCH_DAY, group: document.getElementById("batch-group").value, scans: batchScans(), redo: document.getElementById("batch-redo").checked };
+  return { day: BATCH_DAY, group: document.getElementById("batch-group").value, scans: batchScans(), redo: document.getElementById("batch-redo").checked, analyzers: batchTicked() };
+}
+// one checkbox per member of the picked group; ticks kept while the group stays
+function batchMembers(g, ticked) {
+  const box = document.getElementById("batch-members"), field = document.getElementById("batch-members-box");
+  const id = g ? g.id : null;
+  if (id === BATCH_MEMBERS_FOR && !ticked) return;
+  BATCH_MEMBERS_FOR = id;
+  field.hidden = !g;
+  if (!g) { box.innerHTML = ""; return; }
+  if (!g.members.length) { box.innerHTML = '<div class="dim">this group runs nothing</div>'; return; }
+  box.innerHTML = g.members.map((m) => `<label class="batch-member"><input type="checkbox" value="${bEsc(m)}"${!ticked || ticked.includes(m) ? " checked" : ""} onchange="batchPlan()"> <span class="mono">${bEsc(m)}</span></label>`).join("");
 }
 async function openBatch(opener) {
   BATCH_DRAWER = BATCH_DRAWER || GeecsKit.drawer(document.getElementById("batchdrawer"));
@@ -125,6 +156,13 @@ async function openBatch(opener) {
       BATCH_GROUPS = (await batchApi("/groups")).groups;
       sel.innerHTML = BATCH_GROUPS.length ? BATCH_GROUPS.map((g) => `<option value="${bEsc(g.id)}">${bEsc(g.id)}</option>`).join("") : '<option value="">no groups in the configs tree</option>';
       batchError("");
+      // a watch on this day: open on its group and its ticks
+      const w = (await batchApi("/watch").catch(() => ({}))).watch;
+      if (w && w.day === BATCH_DAY && BATCH_GROUPS.some((g) => g.id === w.group)) {
+        sel.value = w.group;
+        batchMembers(BATCH_GROUPS.find((g) => g.id === w.group), w.analyzers);
+        if (w.from_scan) document.getElementById("watch-from").value = w.from_scan;
+      }
       batchPlan();
     } catch (e) { sel.innerHTML = '<option value="">—</option>'; batchError(e.message); }
   }
@@ -135,8 +173,10 @@ function batchPlanSoon() { clearTimeout(batchPlanTimer); batchPlanTimer = setTim
 async function batchPlan() {
   const out = document.getElementById("batch-plan"), run = document.getElementById("batch-run");
   const g = BATCH_GROUPS.find((x) => x.id === document.getElementById("batch-group").value);
-  document.getElementById("batch-members").textContent = g ? (g.members.length ? `runs ${g.members.join(", ")}` : "this group runs nothing") : "";
+  batchMembers(g);
   run.disabled = true;
+  document.getElementById("watch-start").disabled = !g || batchNoneTicked();
+  if (g && batchNoneTicked()) { out.textContent = "tick at least one analyzer"; return; }
   let body;
   try { body = batchBody(); } catch (e) { out.textContent = e.message; return; }
   if (!body.group) { out.textContent = ""; return; }
@@ -162,6 +202,30 @@ async function batchRun() {
   } catch (e) { batchError(e.message); }
   batchRefresh();
 }
+async function watchStart() {
+  const g = document.getElementById("batch-group").value, from = document.getElementById("watch-from").value;
+  try {
+    const r = await batchApi("/watch", { method: "POST", body: JSON.stringify({ day: BATCH_DAY, group: g, analyzers: batchTicked(), from_scan: from ? Number(from) : 0 }) });
+    batchError("");
+    watchShow(r.watch);
+  } catch (e) { batchError(e.message); }
+  batchRefresh();
+}
+async function watchStop() {
+  try { watchShow((await batchApi("/watch/stop", { method: "POST" })).watch); batchError(""); } catch (e) { batchError(e.message); }
+}
+function watchShow(w) {
+  BATCH_WATCH = w;
+  const box = document.getElementById("watch-state");
+  document.getElementById("watch-stop").hidden = !w;
+  document.getElementById("watch-start").textContent = w ? "Watch with these instead" : "Start watching";
+  if (!w) { box.innerHTML = "not watching"; return; }
+  const g = BATCH_GROUPS.find((x) => x.id === w.group);
+  const which = w.analyzers ? `${w.analyzers.length} of ${g ? g.members.length : "?"} analyzers (${w.analyzers.map(bEsc).join(", ")})` : "every analyzer in the group";
+  const look = w.last_check ? new Date(w.last_check * 1000).toLocaleTimeString() : "not yet";
+  const other = w.day !== BATCH_DAY ? ` <b>(another day — open ${bEsc(w.day)} to change it)</b>` : "";
+  box.innerHTML = `<span class="chip" data-state="running">watching</span> <span class="mono">${bEsc(w.day)}</span>${other} · ${bEsc(w.group)} · ${which}${w.from_scan ? ` · from Scan${String(w.from_scan).padStart(3, "0")}` : ""}<br>last look ${bEsc(look)} · ${w.jobs.length} job${w.jobs.length === 1 ? "" : "s"} so far${w.note ? ` · <span class="err">${bEsc(w.note)}</span>` : ""}`;
+}
 async function batchCancel(id) {
   try { await batchApi(`/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }); } catch (e) { batchError(e.message); }
   batchRefresh();
@@ -172,11 +236,12 @@ function batchJobRow(j, detail) {
   const pct = j.total ? Math.round(100 * finished / j.total) : (j.state === "done" ? 100 : 0);
   const parts = ["done", "no_data", "failed", "skipped", "cancelled"].filter((k) => c[k]).map((k) => `${c[k]} ${k.replace("_", " ")}`);
   const now = j.current ? `now: Scan${String(j.current.scan).padStart(3, "0")} ${bEsc(j.current.analyzer)}` : "";
-  const scope = j.scans ? `scans ${j.scans.length}` : "all scans";
+  const scope = (j.scans ? `scans ${j.scans.length}` : j.from_scan ? `from Scan${String(j.from_scan).padStart(3, "0")}` : "all scans") + (j.analyzers ? ` · ${j.analyzers.length} analyzer${j.analyzers.length === 1 ? "" : "s"}` : "");
+  const origin = j.origin === "watch" ? ' <span class="dim mono" title="queued by the watch">· watch</span>' : "";
   const failed = detail ? detail.tasks.filter((t) => t.state === "failed") : [];
   const fails = failed.length ? `<details><summary>${failed.length} failed</summary><ul>${failed.map((t) => `<li><span class="mono">Scan${String(t.scan).padStart(3, "0")} ${bEsc(t.analyzer)}</span> <span class="err">${bEsc(t.error)}</span></li>`).join("")}</ul></details>` : "";
   const cancel = (j.state === "queued" || j.state === "running") && !j.cancel_requested ? `<button class="btn sm" type="button" onclick="batchCancel('${bEsc(j.id)}')">Cancel</button>` : "";
-  return `<div class="panel batchjob"><div class="head"><span class="mono">${bEsc(j.day)}</span> <span>${bEsc(j.group)}</span> <span class="dim">${scope}${j.redo ? " · redo" : ""}</span>
+  return `<div class="panel batchjob"><div class="head"><span class="mono">${bEsc(j.day)}</span> <span>${bEsc(j.group)}</span>${origin} <span class="dim">${scope}${j.redo ? " · redo" : ""}</span>
     <span class="chip" data-state="${BATCH_WORD[j.state] || "unknown"}">${bEsc(j.cancel_requested && j.state === "running" ? "cancelling" : j.state)}</span><span class="spacer"></span>${cancel}</div>
     <div class="meter"><div class="track"><span class="fill" style="width:${pct}%"></span></div><div class="lbl"><span>${finished} / ${j.total}</span><span>${bEsc(now)}</span></div></div>
     <div class="dim">${parts.join(" · ")}${j.error ? ` <span class="err">${bEsc(j.error)}</span>` : ""}</div>${fails}</div>`;
@@ -186,11 +251,14 @@ async function batchRefresh() {
   const box = document.getElementById("batch-jobs");
   let jobs;
   try { jobs = (await batchApi("/jobs")).jobs; } catch (e) { box.innerHTML = `<div class="err">${bEsc(e.message)}</div>`; return; }
-  if (!jobs.length) { box.innerHTML = '<div class="dim">none yet</div>'; return; }
+  try { watchShow((await batchApi("/watch")).watch); } catch (e) { /* the jobs said why */ }
+  // keep looking while the drawer is open and something may change
+  const again = () => { if (BATCH_DRAWER && document.getElementById("batchdrawer").dataset.open === "true") BATCH_POLL = setTimeout(batchRefresh, 2000); };
+  if (!jobs.length) { box.innerHTML = '<div class="dim">none yet</div>'; if (BATCH_WATCH) again(); return; }
   const details = await Promise.all(jobs.map((j) => (j.counts && j.counts.failed) ? batchApi(`/jobs/${encodeURIComponent(j.id)}`).catch(() => null) : null));
   box.innerHTML = jobs.map((j, i) => batchJobRow(j, details[i])).join("");
-  if (jobs.some((j) => j.state === "queued" || j.state === "running")) BATCH_POLL = setTimeout(batchRefresh, 2000);
-  else batchPlan();
+  if (jobs.some((j) => j.state === "queued" || j.state === "running")) again();
+  else { if (BATCH_WATCH) again(); batchPlan(); }
 }
 </script>
 {% endif %}

@@ -1232,3 +1232,30 @@ class TestBrowsingApi:
             "/run/{uid}/plot.png",
         ):
             assert route in paths, route
+
+
+def test_the_day_list_names_what_each_scan_stepped():
+    import dataclasses
+
+    catalog = FakeCatalog()
+    stepped = catalog.details["uid-002"]
+    catalog.details["uid-002"] = dataclasses.replace(
+        stepped,
+        summary=dataclasses.replace(
+            stepped.summary,
+            scan_variable="HPD stage position",
+            scan_range="15 → 45, step 2.5",
+        ),
+    )
+    client = _client(catalog, default_experiment="Undulator")
+    page = client.get(f"/day/{TEST_DAY.isoformat()}").text
+    assert "<th>Scanned</th>" in page
+    assert 'HPD stage position <span class="dim mono">15 → 45, step 2.5</span>' in page
+    row = client.get(f"/api/day/{TEST_DAY.isoformat()}").json()["runs"][0]
+    assert row["scan_variable"] == "HPD stage position"
+    assert row["scan_range"] == "15 → 45, step 2.5"
+    # the day filter finds it by what it stepped
+    found = client.get(
+        f"/day/{TEST_DAY.isoformat()}", params={"filter": "hpd stage"}
+    ).text
+    assert "Scan 002" in found and "Scan 001" not in found

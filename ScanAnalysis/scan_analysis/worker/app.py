@@ -4,11 +4,16 @@
 
     GET  /health                 {ok, service, experiment, config_dir, active}
     GET  /api/groups             the configs tree's loadable groups
-    POST /api/plan               {day, group, scans?, redo?, experiment?} -> what a job would run
+    POST /api/plan               {day, group, scans?, redo?, analyzers?, from_scan?, experiment?}
+                                 -> what a job would run
     POST /api/jobs               same body -> 202 + the queued job
     GET  /api/jobs               every job, newest first (no task lists)
     GET  /api/jobs/{id}          one job with its tasks
     POST /api/jobs/{id}/cancel   stop it before its next task
+    GET  /api/watch              {watch}: the running watch, or null
+    POST /api/watch              {day, group, analyzers?, from_scan?, experiment?} -> start
+                                 watching (replaces any watch)
+    POST /api/watch/stop         stop watching (its queued jobs still run)
 
 Unauthenticated, like the portal's run verb: bind it to the host or the
 lab network only.  Errors: an unknown group or a day with no scans is a
@@ -25,9 +30,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from scan_analysis.worker.jobs import JobSpec, Worker
+from scan_analysis.worker.jobs import JobSpec, WatchSpec, Worker
 
-__all__ = ["JobRequest", "create_worker_app"]
+__all__ = ["JobRequest", "WatchRequest", "create_worker_app"]
 
 
 class JobRequest(BaseModel):
@@ -43,6 +48,26 @@ class JobRequest(BaseModel):
     redo: bool = Field(
         False, description="Run again tasks that already finished or failed."
     )
+    experiment: Optional[str] = Field(
+        None, description="The experiment folder; the worker's own when omitted."
+    )
+    analyzers: Optional[list[str]] = Field(
+        None,
+        description="Only these of the group's analyzers (by id); all when omitted.",
+    )
+    from_scan: int = Field(0, ge=0, description="Only scans numbered this or higher.")
+
+
+class WatchRequest(BaseModel):
+    """A watch request: the group's ticked analyzers on a day's scans as they close."""
+
+    day: date = Field(description="The day to watch, YYYY-MM-DD.")
+    group: str = Field(min_length=1, description="An analysis group.")
+    analyzers: Optional[list[str]] = Field(
+        None,
+        description="Only these of the group's analyzers (by id); all when omitted.",
+    )
+    from_scan: int = Field(0, ge=0, description="Only scans numbered this or higher.")
     experiment: Optional[str] = Field(
         None, description="The experiment folder; the worker's own when omitted."
     )
@@ -64,25 +89,31 @@ def create_worker_app(worker: Worker) -> FastAPI:
     )
     _info_routes(app, worker)
     _job_routes(app, worker)
+    _watch_routes(app, worker)
     return app
+
+
+def _check_group(worker: Worker, group: str) -> None:
+    """An unloadable group is a 404."""
+    from scan_analysis.config import load_analysis_group
+
+    try:
+        load_analysis_group(group, config_dir=worker.config_dir)
+    except (ValueError, FileNotFoundError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=f"group {group!r}: {exc}") from exc
 
 
 def _spec_of(worker: Worker, body: JobRequest) -> JobSpec:
     """The request as a job spec; an unloadable group is a 404."""
-    from scan_analysis.config import load_analysis_group
-
-    try:
-        load_analysis_group(body.group, config_dir=worker.config_dir)
-    except (ValueError, FileNotFoundError, KeyError) as exc:
-        raise HTTPException(
-            status_code=404, detail=f"group {body.group!r}: {exc}"
-        ) from exc
+    _check_group(worker, body.group)
     return JobSpec(
         day=body.day,
         group=body.group,
         experiment=body.experiment or worker.default_experiment,
         scans=tuple(body.scans) if body.scans is not None else None,
         redo=body.redo,
+        analyzers=tuple(body.analyzers) if body.analyzers is not None else None,
+        from_scan=body.from_scan,
     )
 
 
@@ -135,3 +166,35 @@ def _job_routes(app: FastAPI, worker: Worker) -> None:
         if found is None:
             raise HTTPException(status_code=404, detail=f"no job {job_id!r}")
         return found.to_json(with_tasks=False)
+
+
+def _watch_routes(app: FastAPI, worker: Worker) -> None:
+    def state() -> JSONResponse:
+        watch = worker.watching()
+        return JSONResponse(
+            {"watch": watch.to_json() if watch else None},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/api/watch")
+    def get_watch() -> JSONResponse:
+        return state()
+
+    @app.post("/api/watch")
+    def start_watch(body: WatchRequest) -> JSONResponse:
+        _check_group(worker, body.group)
+        worker.watch(
+            WatchSpec(
+                day=body.day,
+                group=body.group,
+                experiment=body.experiment or worker.default_experiment,
+                analyzers=tuple(body.analyzers) if body.analyzers is not None else None,
+                from_scan=body.from_scan,
+            )
+        )
+        return state()
+
+    @app.post("/api/watch/stop")
+    def stop_watch() -> JSONResponse:
+        worker.unwatch()
+        return state()

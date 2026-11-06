@@ -732,6 +732,9 @@ def run_task(
     try:
         display_files: Optional[List[str]] = None
         if not dry_run:
+            if base_directory is not None:
+                # the analyzer reads the scan this status record is for
+                analyzer.base_directory = Path(base_directory)
             raw = analyzer.run_analysis(tag)
             if raw:
                 display_files = [str(p) for p in raw]

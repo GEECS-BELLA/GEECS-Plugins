@@ -13,32 +13,37 @@ from test_app import TEST_DAY, FakeCatalog, _client
 URL = "http://127.0.0.1:8600"
 
 
+#: the fake worker's fixed answers, by (method, path)
+FIXED = {
+    ("GET", "/health"): (200, {"ok": True}),
+    ("GET", "/api/groups"): (200, {"groups": [{"id": "PW/g", "members": ["A"]}]}),
+    ("POST", "/api/plan"): (
+        200,
+        {"total": 2, "tasks": [], "open_scans": [], "already_done": 0},
+    ),
+    ("GET", "/api/jobs"): (200, {"jobs": [{"id": "j1"}]}),
+    ("POST", "/api/jobs/j1/cancel"): (200, {"id": "j1", "cancel_requested": True}),
+    ("GET", "/api/watch"): (200, {"watch": None}),
+    ("POST", "/api/watch/stop"): (200, {"watch": None}),
+}
+
+
 def fake_worker(seen: list):
     """An httpx transport answering like scan-analysis-worker."""
 
     def handle(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
         seen.append((request.method, request.url.path, body))
-        path = request.url.path
-        if path == "/health":
-            return httpx.Response(200, json={"ok": True})
-        if path == "/api/groups":
-            return httpx.Response(
-                200, json={"groups": [{"id": "PW/g", "members": ["A"]}]}
-            )
-        if path == "/api/plan":
-            return httpx.Response(
-                200, json={"total": 2, "tasks": [], "open_scans": [], "already_done": 0}
-            )
-        if path == "/api/jobs" and request.method == "POST":
+        key = (request.method, request.url.path)
+        if key == ("POST", "/api/jobs"):
             if body["group"] == "nope":
                 return httpx.Response(404, json={"detail": "group 'nope': unknown"})
             return httpx.Response(202, json={"id": "j1", "state": "queued"})
-        if path == "/api/jobs":
-            return httpx.Response(200, json={"jobs": [{"id": "j1"}]})
-        if path == "/api/jobs/j1/cancel":
-            return httpx.Response(200, json={"id": "j1", "cancel_requested": True})
-        return httpx.Response(404, json={"detail": "no such route"})
+        if key == ("POST", "/api/watch"):
+            watch = {"day": body["day"], "group": body["group"]}
+            return httpx.Response(200, json={"watch": watch})
+        status, answer = FIXED.get(key, (404, {"detail": "no such route"}))
+        return httpx.Response(status, json=answer)
 
     return httpx.Client(transport=httpx.MockTransport(handle))
 
@@ -111,3 +116,25 @@ def test_autostart_only_for_this_hosts_address(tmp_path):
     with pytest.raises(WorkerUnavailable):
         remote.call("GET", "/api/groups")
     assert remote._started is None
+
+
+def test_the_watch_routes_forward():
+    seen: list = []
+    worker = WorkerLink(URL, client=fake_worker(seen))
+    client = _client(FakeCatalog(), default_experiment="Undulator", worker=worker)
+    assert client.get("/api/batch/watch").json() == {"watch": None}
+    body = {"day": "2026-07-12", "group": "PW/g", "analyzers": ["A"], "from_scan": 3}
+    started = client.post("/api/batch/watch", json=body)
+    assert started.status_code == 200 and started.json()["watch"]["group"] == "PW/g"
+    assert seen[-1] == ("POST", "/api/watch", {"experiment": "Undulator", **body})
+    assert client.post("/api/batch/watch/stop").json() == {"watch": None}
+    assert seen[-1][:2] == ("POST", "/api/watch/stop")
+
+
+def test_the_drawer_has_the_ticks_and_the_watch():
+    worker = WorkerLink(URL, client=fake_worker([]))
+    client = _client(FakeCatalog(), default_experiment="Undulator", worker=worker)
+    page = client.get(f"/day/{TEST_DAY.isoformat()}").text
+    assert 'id="batch-members-box"' in page and "Active analyzers" in page
+    assert 'id="watch-start"' in page and 'id="watch-stop"' in page
+    assert "once the scan has finished" in page  # the help says when it runs
