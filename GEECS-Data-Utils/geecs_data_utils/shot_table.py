@@ -809,7 +809,19 @@ def _clock_step_audit(
     record's attribute lags the row's count exactly as the first level's
     records did (their commonest lag) is verified; any other row of a
     displaced level — another lag, or no attribute to read — is
-    *clock-step* too.  The flag never moves a record.
+    *clock-step* too.
+
+    A step of about a whole number of periods leaves the residual where it
+    was, so the attribute is also read without one: every row of a run of
+    consecutive timed rows lagging one more than the reference is
+    *clock-step* when the run is two rows or longer, or follows a row the
+    device has no record for.  A single one-behind row is the measured
+    poll lag, and a lag off by more is already *audit-mismatch*
+    (:func:`_attribute_audit`).  The operating limits: without the
+    attribute a whole-period step moves records exactly as a missed edge
+    does (one gap, then every record one row on, counters consistent), and
+    it is not detected; with it, a move onto the last row alone after no
+    gap reads as poll lag.  The flag never moves a record.
     """
     threshold = max(CLOCK_STEP_SHARE * clock.period, 2.0 * clock.budget)
     timed = [
@@ -824,25 +836,7 @@ def _clock_step_audit(
     residuals = np.array([records[i] - clock.stamps[k] for k, i in timed])
     if residuals.size < 2:
         return
-    level_of = np.zeros(residuals.size, dtype=int)  # each timed row's level
-    steps: list[int] = []
-    window: list[float] = [float(residuals[0])]
-    for j in range(1, residuals.size):
-        level = float(np.median(window[-CLOCK_STEP_LEVEL_FRAMES:]))
-        off = abs(residuals[j] - level) > threshold
-        following = residuals[j + 1] if j + 1 < residuals.size else None
-        confirmed = following is None or (
-            abs(following - level) > threshold
-            and abs(following - residuals[j]) <= threshold
-        )
-        if off and confirmed:
-            steps.append(j)
-            window = []
-        level_of[j] = len(steps)
-        if not off or confirmed:
-            window.append(float(residuals[j]))
-    if not steps:
-        return
+    level_of, steps = _residual_levels(residuals, threshold)
     first = residuals[level_of == 0]
     base = float(np.median(first[:CLOCK_STEP_LEVEL_FRAMES]))
     attribute = (
@@ -862,11 +856,79 @@ def _clock_step_audit(
         n: float(np.median(residuals[level_of == n][:CLOCK_STEP_LEVEL_FRAMES]))
         for n in set(level_of.tolist())
     }
-    for j, (k, _) in enumerate(timed):
+    flagged = set(steps)
+    for j in range(len(timed)):
         displaced = abs(levels[level_of[j]] - base) > threshold
-        unverified = displaced and (reference is None or lag(j) != reference)
-        if (j in steps or unverified) and f"clock-step:{name}" not in clock.flags[k]:
+        if displaced and (reference is None or lag(j) != reference):
+            flagged.add(j)
+    if reference is not None:
+        flagged.update(
+            _lag_runs(timed, [lag(j) for j in range(len(timed))], reference, assigned)
+        )
+    for j in sorted(flagged):
+        k = timed[j][0]
+        if f"clock-step:{name}" not in clock.flags[k]:
             clock.flags[k].append(f"clock-step:{name}")
+
+
+def _residual_levels(
+    residuals: np.ndarray, threshold: float
+) -> tuple[np.ndarray, list[int]]:
+    """Each residual's level number, and the positions where a new level began.
+
+    A residual off the median of its level's last
+    :data:`CLOCK_STEP_LEVEL_FRAMES` by more than *threshold* begins a new
+    level when the next one confirms it (or there is none); otherwise it
+    is a lone outlier and joins nothing.
+    """
+    level_of = np.zeros(residuals.size, dtype=int)
+    steps: list[int] = []
+    window: list[float] = [float(residuals[0])]
+    for j in range(1, residuals.size):
+        level = float(np.median(window[-CLOCK_STEP_LEVEL_FRAMES:]))
+        off = abs(residuals[j] - level) > threshold
+        following = residuals[j + 1] if j + 1 < residuals.size else None
+        confirmed = following is None or (
+            abs(following - level) > threshold
+            and abs(following - residuals[j]) <= threshold
+        )
+        if off and confirmed:
+            steps.append(j)
+            window = []
+        level_of[j] = len(steps)
+        if not off or confirmed:
+            window.append(float(residuals[j]))
+    return level_of, steps
+
+
+def _lag_runs(
+    timed: Sequence[tuple[int, int]],
+    lags: Sequence[float],
+    reference: float,
+    assigned: Sequence[int | None],
+) -> set[int]:
+    """Timed positions in runs of adjacent rows lagging ``reference + 1``.
+
+    A run counts when it is two rows or longer, or when the row before its
+    first has no record from the device.
+    """
+    found: set[int] = set()
+    run: list[int] = []
+
+    def close() -> None:
+        first = timed[run[0]][0] if run else 0
+        after_gap = first > 0 and assigned[first - 1] is None
+        if len(run) >= 2 or (run and after_gap):
+            found.update(run)
+        run.clear()
+
+    for j, (k, _) in enumerate(timed):
+        if lags[j] != reference + 1 or (run and timed[run[-1]][0] != k - 1):
+            close()
+        if lags[j] == reference + 1:
+            run.append(j)
+    close()
+    return found
 
 
 def _attribute_audit(

@@ -193,11 +193,13 @@ def test_a_clock_step_is_flagged_where_it_appears() -> None:
     assert [f for row in table.flags for f in row] == ["clock-step:cam"]
 
 
-def _stepped(attribute: bool = True) -> tuple[pd.DataFrame, DeviceRecords]:
-    """100 shots at 1 Hz; the camera's stamps jump +0.8 s from frame 91 on."""
+def _stepped(
+    attribute: bool = True, step: float = 0.8
+) -> tuple[pd.DataFrame, DeviceRecords]:
+    """100 shots at 1 Hz; the camera's stamps jump *step* s from frame 91 on."""
     rows = _rows(100)
     cam = _cam(rows)
-    stamps = cam.records.stamps + np.where(np.arange(100) >= 90, 0.8, 0.0)
+    stamps = cam.records.stamps + np.where(np.arange(100) >= 90, step, 0.0)
     attr = cam.witness_count if attribute else None
     return rows, _device("cam", stamps, cam.counter, attr, np.arange(100.0))
 
@@ -216,6 +218,23 @@ def test_a_clock_step_that_moves_records_flags_every_moved_row(attribute) -> Non
     assert _flagged(table, "missing:cam") == [91]
     assert _flagged(table, "clock-step:cam") == list(range(92, 101))
     assert table.device_flags == {}
+
+
+@pytest.mark.parametrize("step", [1.0, 0.95, 1.05])
+def test_a_whole_period_step_is_flagged_by_the_attribute(step) -> None:
+    """The residual does not move; the attribute lags one more on every moved row."""
+    rows, cam = _stepped(step=step)
+    table = shot_table(START, rows, [cam])
+    assert table.record_for_shot["cam"][90:] == (None,) + tuple(range(90, 99))
+    assert _flagged(table, "clock-step:cam") == list(range(92, 101))
+
+
+def test_a_whole_period_step_without_the_attribute_is_not_detected() -> None:
+    """The operating limit: −1 s moves records as a missed edge would; no flag says so."""
+    rows, cam = _stepped(attribute=False, step=-1.0)
+    table = shot_table(START, rows, [cam])
+    assert table.record_for_shot["cam"][90:99] == tuple(range(91, 100))
+    assert _flagged(table, "clock-step:cam") == []
 
 
 def test_a_lone_late_record_is_no_clock_step() -> None:
