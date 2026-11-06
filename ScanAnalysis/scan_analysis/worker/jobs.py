@@ -14,7 +14,7 @@ Jobs run in submission order on one thread; a cancel takes effect between
 tasks (an analyzer already running finishes).  The job list lives in memory
 — the status records on the share are the durable result.
 
-A **watch** (:class:`WatchSpec`, :meth:`Worker.watch`) is the old LiveWatch
+A **watch** (:class:`WatchSpec`, :meth:`Worker.watch`) is the automatic-analysis
 runner on this queue: every few seconds it plans its group (the ticked
 analyzers only) over its day's closed scans from a start scan on, and when
 that plan has tasks it submits them as a job — so each scan is analysed

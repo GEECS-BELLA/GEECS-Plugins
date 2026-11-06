@@ -7,7 +7,7 @@ finished task is skipped unless the job asks to redo it.  ``jobs`` is the
 pure-Python runner, ``app`` its HTTP API (the Data Portal's day page is
 one client), ``__main__`` the ``scan-analysis-worker`` command.
 
-A watch (the old LiveWatch, on this queue) submits a job whenever its
+A watch (automatic analysis of new scans, on this queue) submits a job whenever its
 day's newly closed scans have work for its ticked analyzers.  A trigger
 from the engine's run-stop document is a later step; it would submit jobs
 like any client.
