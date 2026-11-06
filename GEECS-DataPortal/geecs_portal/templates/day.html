@@ -29,19 +29,36 @@
       <input id="day-filter" type="search" name="filter" value="{{ filter }}" placeholder="scan number, mode, scanned parameter, status, description, save set">
     </div>
     <button class="btn" type="submit">Filter</button>
-    {% if filter %}<a class="btn ghost" href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}">clear</a>{% endif %}
+    {% if where %}<input type="hidden" name="where" value="{{ where }}">{% endif %}
+    {% if filter %}<a class="btn ghost" href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}{% if where %}&amp;where={{ where | urlencode }}{% endif %}">clear</a>{% endif %}
   </form>
+  {% if rows %}<button class="btn" type="button" id="scanf-open" title="Read each scan's s-file: show its conditions, and keep only the scans that meet rules on conditions (APL is in) or on a column's mean (charge between 10 and 20). Takes a few seconds on a busy day, so only when asked.">Conditions &amp; scan filters…</button>{% endif %}
 </div>
 {% if error %}
 <div class="state" data-state="error"><div class="t">The scans could not be listed</div><div class="m mono">{{ error }}</div></div>
 {% elif rows %}
+{# The scan filters (day_scans.py): rules on what each scan's s-file holds,
+   judged server-side by /api/day/{day}/scans, read only when asked. #}
+<section class="panel scanf" id="scanf" hidden aria-label="Scan filters">
+  <header><span class="eyebrow">Scan filters</span><span class="dim" id="scanf-status"></span></header>
+  <div class="body">
+    <p class="dim">Keep the scans that meet every rule. A <b>condition</b> (a scalar-columns job's rules, e.g. APL in/out) compares the scan's label; a scan whose shots disagree is kept and marked <i>mixed</i> when some shots match. A <b>number</b> compares the column's mean over the scan's shots. Scans without the column are hidden and counted.</p>
+    <div id="scanf-rules"></div>
+    <div class="row">
+      <button class="btn sm" type="button" id="scanf-add">+ Add rule</button>
+      <span class="spacer"></span>
+      <button class="btn sm ghost" type="button" id="scanf-clear">Clear rules</button>
+      <button class="btn sm primary" type="button" id="scanf-apply">Apply</button>
+    </div>
+  </div>
+</section>
 <div class="panel">
   <div class="tscroll">
   <table>
-    <thead><tr><th>Scan</th><th>Time</th><th>Mode</th><th>Scanned</th><th>Description</th><th class="num">Shots</th><th>Status</th></tr></thead>
+    <thead><tr><th>Scan</th><th>Time</th><th>Mode</th><th>Scanned</th><th class="scanf-cond" hidden>Conditions</th><th>Description</th><th class="num">Shots</th><th>Status</th></tr></thead>
     <tbody>
     {% for run, time_text in rows %}
-    <tr>
+    <tr data-uid="{{ run.uid }}">
       <td class="id">
         {%- if plot_page and run.scan_number is not none -%}
         {# GEECSplotter opens a scan on its plot; the Plot page's tabs
@@ -54,6 +71,7 @@
       <td class="mono">{{ time_text }}</td>
       <td>{{ run.mode }}</td>
       <td class="scanned">{% if run.scan_variable %}{{ run.scan_variable }}{% if run.scan_range %} <span class="dim mono">{{ run.scan_range }}</span>{% endif %}{% endif %}</td>
+      <td class="scanf-cond" hidden></td>
       <td>{{ run.description }}</td>
       <td class="num">{{ run.shots if run.shots is not none else "" }}</td>
       <td><span class="chip" data-state="{{ run.exit_status | run_state }}">{{ run.exit_status or "unknown" }}</span></td>
@@ -65,6 +83,111 @@
 </div>
 {% else %}
 <div class="state" data-state="empty"><div class="t">{% if filter %}No scans match the filter.{% else %}No scans recorded for this day.{% endif %}</div></div>
+{% endif %}
+{% if rows and not error %}
+<script>
+// The scan filters: read each scan's s-file only when asked (the button, or
+// a link that carries rules), show its conditions, keep the scans that
+// meet every rule. The judging is the server's (/api/day/{day}/scans).
+(function () {
+  const ROOT_ = {{ root | tojson }}, DAY_ = {{ day.isoformat() | tojson }}, EXP_ = {{ experiment | tojson }};
+  const panel = document.getElementById("scanf"), list = document.getElementById("scanf-rules");
+  const status = document.getElementById("scanf-status");
+  const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  let rules = [], loaded = null;
+  try { rules = JSON.parse({{ where | tojson }} || "[]"); } catch (_) { rules = []; }
+
+  async function load() {
+    status.textContent = " · reading the scans' s-files…";
+    const where = JSON.stringify(rules.filter(complete));
+    const url = `${ROOT_}/api/day/${DAY_}/scans?` + new URLSearchParams({ experiment: EXP_, where: rules.length ? where : "" });
+    const r = await fetch(url);
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { status.textContent = ` · ${body.detail || r.statusText}`; return; }
+    loaded = body;
+    show();
+  }
+  function complete(rule) {
+    return rule.column && (rule.op === "between" ? (rule.low !== null || rule.high !== null) : !!rule.label);
+  }
+  // Each row: its conditions, and hidden unless it meets the rules.
+  function show() {
+    document.querySelectorAll(".scanf-cond").forEach((c) => { c.hidden = false; });
+    const active = rules.filter(complete).length > 0;
+    const byUid = Object.fromEntries(loaded.runs.map((r) => [r.uid, r]));
+    for (const tr of document.querySelectorAll("tr[data-uid]")) {
+      const run = byUid[tr.dataset.uid];
+      const cell = tr.querySelector("td.scanf-cond");
+      const conds = run ? run.conditions : [];
+      cell.innerHTML = conds.map((c) => c.mixed
+        ? `<span title="${esc(c.detail)}">${esc(c.column)}: <span class="chip" data-state="degraded">mixed</span></span>`
+        : `${esc(c.column)}: <b>${esc(c.label)}</b>`).join(" · ") || '<span class="dim">—</span>';
+      const verdict = run ? run.verdict : "missing";
+      tr.hidden = active && (verdict === "fail" || verdict === "missing");
+      if (active && verdict === "mixed") cell.insertAdjacentHTML("beforeend", ' <span class="dim">(some shots)</span>');
+    }
+    const c = loaded.counts || {};
+    status.textContent = active
+      ? ` · ${(c.pass || 0) + (c.mixed || 0)} shown${c.mixed ? ` (${c.mixed} mixed)` : ""} · ${c.fail || 0} hidden${c.missing ? ` · ${c.missing} without the column` : ""}`
+      : ` · ${loaded.runs.length} scans read`;
+    drawRules();
+  }
+  // The rule editor: a column (conditions first), then its comparison.
+  function drawRules() {
+    const labels = loaded ? loaded.condition_labels : {};
+    const numbers = loaded ? loaded.columns.filter((c) => !(c in labels)) : [];
+    list.innerHTML = "";
+    rules.forEach((rule, i) => {
+      const row = document.createElement("div");
+      row.className = "row scanf-rule";
+      const cond = rule.column in labels;
+      const colSel = `<select data-k="column" aria-label="column"><option value="">pick a column…</option>
+        <optgroup label="conditions">${Object.keys(labels).map((c) => `<option${c === rule.column ? " selected" : ""}>${esc(c)}</option>`).join("")}</optgroup>
+        <optgroup label="numbers (the scan's mean)">${numbers.map((c) => `<option${c === rule.column ? " selected" : ""}>${esc(c)}</option>`).join("")}</optgroup></select>`;
+      const rest = !rule.column ? "" : cond
+        ? `<select data-k="op" aria-label="is or is not"><option value="is"${rule.op === "is" ? " selected" : ""}>is</option><option value="is_not"${rule.op === "is_not" ? " selected" : ""}>is not</option></select>
+           <select data-k="label" aria-label="label"><option value="">pick a label…</option>${labels[rule.column].map((l) => `<option${l === rule.label ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`
+        : `<span class="hint">mean between</span><input data-k="low" type="number" step="any" placeholder="no lower limit" value="${rule.low ?? ""}"><span class="hint">and</span><input data-k="high" type="number" step="any" placeholder="no upper limit" value="${rule.high ?? ""}">`;
+      row.innerHTML = `${colSel} ${rest} <button type="button" class="btn sm ghost" data-drop aria-label="remove rule">✕</button>`;
+      row.addEventListener("change", (e) => {
+        const k = e.target.dataset.k;
+        if (!k) return;
+        if (k === "column") {
+          rule.column = e.target.value;
+          const isCond = rule.column in labels;
+          Object.assign(rule, isCond ? { op: "is", label: "", low: null, high: null } : { op: "between", label: "", low: null, high: null });
+          drawRules();
+        } else if (k === "low" || k === "high") rule[k] = e.target.value === "" ? null : Number(e.target.value);
+        else rule[k] = e.target.value;
+      });
+      row.querySelector("[data-drop]").addEventListener("click", () => { rules.splice(i, 1); drawRules(); });
+      list.append(row);
+    });
+    if (!rules.length) list.innerHTML = '<div class="dim">no rules: every scan is shown</div>';
+  }
+  // The rules ride in the address (a link is the filtered day; the day arrows keep them).
+  function remember() {
+    const url = new URL(location.href);
+    const kept = rules.filter(complete).map((r) => (r.op === "between"
+      ? { column: r.column, op: r.op, ...(r.low !== null ? { low: r.low } : {}), ...(r.high !== null ? { high: r.high } : {}) }
+      : { column: r.column, op: r.op, label: r.label }));
+    if (kept.length) url.searchParams.set("where", JSON.stringify(kept)); else url.searchParams.delete("where");
+    history.replaceState(null, "", url);
+    for (const a of document.querySelectorAll('a[href*="/day/"]')) {
+      const link = new URL(a.href, location.href);
+      if (kept.length) link.searchParams.set("where", JSON.stringify(kept)); else link.searchParams.delete("where");
+      a.href = link.pathname + link.search;
+    }
+  }
+  function open() { panel.hidden = false; if (!loaded) load(); else drawRules(); }
+  document.getElementById("scanf-open").addEventListener("click", open);
+  document.getElementById("scanf-add").addEventListener("click", () => { rules.push({ column: "", op: "is", label: "", low: null, high: null }); drawRules(); });
+  document.getElementById("scanf-clear").addEventListener("click", () => { rules = []; remember(); load(); });
+  document.getElementById("scanf-apply").addEventListener("click", () => { remember(); load(); });
+  rules = rules.map((r) => ({ low: null, high: null, label: "", ...r }));
+  if (rules.length) open();  // a link that carries rules asks for them
+})();
+</script>
 {% endif %}
 {% if batch %}
 <aside class="drawer batchdrawer" id="batchdrawer" role="dialog" aria-modal="false" aria-labelledby="batchtitle" aria-hidden="true" data-open="false">

@@ -50,15 +50,20 @@ def day_view(
     day: str,
     experiment: str = "",
     filter: str = "",
+    where: str = "",
     portal: PortalState = Depends(get_state),
 ) -> HTMLResponse:
-    """The run list for one day (newest first, as the catalog lists)."""
+    """The run list for one day (newest first, as the catalog lists).
+
+    ``where`` (the scan filters' rules, JSON) is applied in the page: it
+    asks ``/api/day/{day}/scans`` once loaded, so the list itself stays fast.
+    """
     selected = _parse_iso_day(day)
     exp = experiment or portal.default_experiment
     runs, error = portal.list_day(exp, selected, filter)
     if error:
         error = f"catalog error: {error}"
-    day_state = {"experiment": exp, "filter": filter}
+    day_state = {"experiment": exp, "filter": filter, "where": where}
     return portal.templates.TemplateResponse(
         request,
         "day.html",
@@ -68,6 +73,7 @@ def day_view(
             "next_day": (selected + timedelta(days=1)).isoformat(),
             "experiment": exp,
             "filter": filter,
+            "where": where,
             "rows": [(run, fmt_time_of_day(run.start_time)) for run in runs],
             "scan_label": _scan_label,
             "error": error,

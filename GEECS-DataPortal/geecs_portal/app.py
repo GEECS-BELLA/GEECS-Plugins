@@ -44,6 +44,7 @@ from geecs_data_utils.tiled_catalog import ScanCatalog
 from geecs_portal import analysis_runs
 from geecs_portal.cache import ShotDataCache
 from geecs_portal.batch import WorkerLink
+from geecs_portal.day_scans import DayScans
 from geecs_portal.routes import batch, browse, images, logbook, pages, plot_api, runs
 from geecs_portal.routes.config_editor import mount_config_editor
 from geecs_portal.state import PortalState
@@ -78,6 +79,7 @@ def create_app(
     logbook_client: Optional[httpx.Client] = None,
     plotter: Optional[FastAPI] = None,
     worker: Optional[WorkerLink] = None,
+    day_scans: Optional[DayScans] = None,
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -191,6 +193,7 @@ def create_app(
         logbook_client=logbook_client,
         plot_page=plotter is not None,
         worker=worker,
+        day_scans=day_scans or DayScans(),
     )
     app.state.portal = portal
     for family in (plot_api, runs, logbook, browse, pages, images, batch):

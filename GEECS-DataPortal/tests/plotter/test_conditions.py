@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -77,3 +78,24 @@ def test_the_copied_grid_carries_the_condition_lines(
         "target: Al foil",
         "door: mixed — changed mid-scan (open 2 · shut 1 · unknown 1)",
     ]
+
+
+def test_the_filter_editor_gets_the_condition_labels(
+    client: TestClient, share: Path, camera: Path
+) -> None:
+    import re
+
+    label_scan(share, target=[0, 0, 1, 2], door=[0, 0, 1, 1])
+    for page_name in ("plot", "images"):
+        page = post(client, scan=1, page=page_name, device=CAM)
+        found = re.search(
+            r'<script type="application/json" id="filter-conditions">(.*?)</script>',
+            page,
+        )
+        assert found, page_name
+        assert json.loads(found.group(1)) == LABELS
+
+
+def test_no_conditions_no_labels(client: TestClient, camera: Path) -> None:
+    page = post(client, scan=1, page="plot")
+    assert 'id="filter-conditions">{}</script>' in page

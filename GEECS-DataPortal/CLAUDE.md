@@ -271,6 +271,18 @@ tests/
   test_page.py       # on the kit: status words, the theme's glue
 ```
 
+**The day page's scan filters** (the author, 2026-11-05): the list loads from
+the catalog alone; only on the **Conditions & scan filters…** button (or a
+link carrying `where=`) does the page ask `/api/day/{iso}/scans?where=`,
+which reads every scan's s-file (`geecs_data_utils.scan_summary`, eight at a
+time, kept in memory by the s-file's mtime — `day_scans.DayScans`) and
+judges each against the rules (`ScanRule`: a condition's label is / is
+not, or a column's mean between) as `pass` / `mixed` / `fail` /
+`missing`; the page fills a Conditions column and hides fail and missing.
+The rules ride in the address (`where`, the day arrows and the text
+filter keep it). The Scanned column (`RunSummary.scan_variable` /
+`scan_range`) is from the listing itself.
+
 **Canonical day view (owner ruling 2026-09-13):** this package's `/day/`
 is the Tiled catalog's list of runs — plus, since 0.39.0, every scan
 folder no Tiled run claims (`geecs_data_utils.folder_catalog`'s
@@ -966,6 +978,10 @@ analysis folder, the values from the s-file) — the scan's label, or
 *mixed* with a "changed mid-scan" chip and the split, `unknown` counting
 shots with no value; a "?" unfolds where they come from. The same list is
 `/plot/api/conditions?day=&scan=`. Per tile or on other pages: not yet.
+The shot filters' editor (`plot_tools.js`) offers a condition column's
+labels (`#filter-conditions`, `scans.condition_labels`: the open scan's)
+as "is / is not <label>", stored as the label's number for both bounds —
+the filter model is unchanged.
 Under them, the **scan scalars** (the author, 2026-11-05): the s-file
 columns the viewer picks in the rail's Scalars group (`image_scalars`,
 none by default; `scaladd` / `scaldrop`, at most `MAX_SCALARS`), each

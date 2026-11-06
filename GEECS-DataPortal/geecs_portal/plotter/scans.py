@@ -94,6 +94,16 @@ def load_frame(run: RunDetail) -> pd.DataFrame:
     return scan_frame(scan_folder=scan_folder(run)).frame
 
 
+def condition_labels(run: RunDetail, frame: pd.DataFrame) -> dict[str, list[str]]:
+    """The labels of the condition columns *frame* has: ``{column: [label by number]}``.
+
+    The shot filters' label menu: a condition column stores the number of
+    the rule that matched (``geecs_data_utils.scan_conditions``).
+    """
+    labels = read_condition_labels(analysis_folder_for(scan_folder(run)))
+    return {c: names for c, names in labels.items() if c in frame.columns}
+
+
 def conditions(run: RunDetail, frame: pd.DataFrame) -> list[dict]:
     """The scan's condition columns: each one's label over the scan's shots.
 

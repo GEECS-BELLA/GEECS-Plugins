@@ -98,3 +98,9 @@
 
 /* the day list's Scanned column: the range stays on one line */
 td.scanned .mono { white-space: nowrap; }
+
+/* the day page's scan filters */
+.scanf { margin: 0 0 var(--gap); }
+.scanf .scanf-rule { flex-wrap: wrap; gap: 0.4rem; margin: 0.3rem 0; }
+.scanf .scanf-rule input[type=number] { width: 8rem; }
+td.scanf-cond { white-space: nowrap; }

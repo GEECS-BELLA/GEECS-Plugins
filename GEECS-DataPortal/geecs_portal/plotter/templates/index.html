@@ -877,6 +877,8 @@
 {% if columns %}
 {# The shot filters' column menu (plot_tools.js): each column with its shown name. #}
 <datalist id="filter-columns">{% for c in columns %}<option value="{{ c }}" label="{{ ynames[c] if ynames else c }}">{% endfor %}</datalist>
+{# The condition columns' labels (number → label), so a filter on one picks a label. #}
+<script type="application/json" id="filter-conditions">{{ condition_labels | tojson }}</script>
 
 {# Rung 2: Add scan…, the kit's drawer picker (GeecsKit.picker): a day,
    its scans (number, description, shots), the ticked ones added. #}

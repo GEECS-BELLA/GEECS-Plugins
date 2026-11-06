@@ -439,6 +439,7 @@ def _page(
         "filter_pass": "",
         "conditions": [],
         "condition_lines": [],
+        "condition_labels": {},
         "scalar_summary": None,
         "scalar_line": "",
         "image_scalars": settings.image_scalars,
@@ -503,6 +504,8 @@ def _fill(
         picks = list(page["coverage"])
         page["scans_text"] = ",".join(f"{d.isoformat()}:{n}" for d, n, _ in extras)
     page["columns"] = picks
+    # the condition columns' labels, for the shot filters' label menu
+    page["condition_labels"] = scans.condition_labels(run, frame)
     page["uid"] = run.summary.uid
     page["logbook_send"] = logbook_send
     page["xnames"] = {c: scans.display_name(c, settings.x_alias) for c in picks}

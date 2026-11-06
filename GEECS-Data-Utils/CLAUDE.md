@@ -44,6 +44,10 @@ geecs_data_utils/
                                #   ScanAnalysis's suite, #682)
   shot_files.py                # completed-scan shot rows → native Path / stack ShotRef
   scalar_files.py              # shared s-file lock/merge and generated-scalar writes
+  scan_summary.py              # one scan's s-file at a glance (shots,
+                               #   columns, conditions, asked-for means) and
+                               #   ScanRule / scan_verdict — the portal day
+                               #   page's scan filters, one definition
   scan_conditions.py           # a scalar job's condition labels: the
                                #   analysis/ScanNNN/ScanNNN_<job>_labels.json
                                #   file (write: atomic, never mkdir; read:
