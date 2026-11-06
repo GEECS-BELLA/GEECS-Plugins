@@ -483,6 +483,19 @@ def register(router: APIRouter, ctx: Context) -> None:
         )
         return _json(body)
 
+    @router.get("/api/conditions")
+    def api_conditions(day: date, scan: int) -> JSONResponse:
+        """``{conditions}``: each condition column's label over the scan's shots.
+
+        What the Images page lists at the top; ``mixed`` when the shots carry
+        more than one label, ``detail`` the split, ``counts`` per label.
+        """
+        run = ctx.run(day, scan)
+        frame = scans.load_frame(run)
+        return JSONResponse(
+            {"conditions": scans.conditions(run, frame)}, headers=NO_CACHE
+        )
+
     @router.get("/api/day", response_model=DayResponse)
     def api_day(day: date) -> JSONResponse:
         """The day's scans: what the Add-scan drawer offers beside the open one."""

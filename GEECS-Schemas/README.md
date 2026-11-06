@@ -87,6 +87,7 @@ independently:
 | `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan request is silent; defaults run first, then the scan's own |
 | `analysis_recipe` | `AnalysisRecipe` | the analysis recipe (`scan_analysis_configs/analyzers/<ns>/<id>.yaml`) — format 3: `input`, ordered `steps` and a `measure` (registry references the analysis core binds), `figure`, `summaries`, `scan`. The retired v2 diagnostic (`analyzer:` + `image:`) is refused |
 | `himg_job` | `HimgJob` | a `.himg` data-management job in the same tree (top-level `kind:`) |
+| `scalar_job` | `ScalarJob` | new s-file columns computed from existing ones by formula (`kind: scalar_columns`) |
 | `analysis_group` | `AnalysisGroup` | analysis groups (`scan_analysis_configs/groups/<ns>/<name>.yaml`) — unchanged shape plus the `schema_version` stamp |
 
 `SCHEMA_REGISTRY` in `geecs_schemas/__init__.py` maps the kind strings to the
@@ -115,6 +116,10 @@ ImageAnalyzer) are not analyzer kinds but a document of their own,
 ScanAnalysis's factory maps to its runners. `HimgJob.destructive` marks
 the one job whose run deletes data files (`himg_compact`), so a host
 that offers one-click runs asks for a typed confirmation first.
+`scalar.ScalarJob` (`kind: scalar_columns`, `schema_version: 1`) is the
+third document: one formula per new s-file column over existing columns
+(the `restricted_expr` whitelist, syntax checked at load), shot by shot,
+merged back into the s-file — no device folder, no products.
 
 One non-model module: `geecs_schemas.restricted_expr` — the shared
 AST-whitelist core behind both GEECS expression eval sites (the gateway's

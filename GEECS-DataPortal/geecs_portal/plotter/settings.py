@@ -52,6 +52,18 @@ MAX_OVERLAY_SCANS = 8
 #: Cameras stacked on the Images page, the first included.
 MAX_CAMERAS = 8
 
+#: The highest scope channel a row may name (from 0).
+MAX_CHANNEL = 15
+
+#: The Images page's scan-scalar statistic, one for every picked scalar.
+SCALAR_STATS: tuple[str, ...] = ("mean_std", "median_iqr", "mean_stderr")
+
+#: The bounds of the strip's max tile width, in CSS pixels.
+TILE_MAX_RANGE = (40, 4000)
+
+#: The most scan scalars the Images page lists.
+MAX_SCALARS = 12
+
 #: The choices of the tab and image controls, as stored.
 CHOICES: dict[str, tuple[str, ...]] = {
     "tab": ("xy", "map", "images"),
@@ -60,6 +72,7 @@ CHOICES: dict[str, tuple[str, ...]] = {
     "image_hits": HIT_FILTERS,
     "image_layout": ("grid", "row"),
     "image_zscale": ("tile", "shared", "fixed"),
+    "image_scalar_stat": SCALAR_STATS,
     "xy_view": ("shot", "bin"),
     "scan_view": ("overlay", "merged"),
 }
@@ -134,6 +147,8 @@ class ImageCamera(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     device: Optional[str] = None
+    #: The camera picker's filter text, as the first camera's ``image_device_filter``.
+    device_filter: str = ""
     cmap: str = "white_blue_yellow"
     zscale: str = "shared"
     zmin: Optional[float] = None
@@ -142,6 +157,8 @@ class ImageCamera(BaseModel):
     centre: Optional[float] = Field(default=None, gt=0)
     cbar: bool = True
     bgsub: bool = True
+    #: A scope's channel (from 0), when the device records traces.
+    channel: int = Field(default=0, ge=0)
 
 
 class PlotterSettings(BaseModel):
@@ -239,6 +256,9 @@ class PlotterSettings(BaseModel):
     #: is off. ``None``: no background.
     image_bg: Optional[ScanRef] = None
     image_bgsub: bool = True
+    #: The first row's scope channel (from 0), when its device records
+    #: traces (a scope's files hold several); a camera ignores it.
+    image_channel: int = Field(default=0, ge=0)
     #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
     #: (x right, y down, the end excluded); a camera not here is whole.
     image_rois: dict[str, list[int]] = Field(default_factory=dict)
@@ -247,6 +267,17 @@ class PlotterSettings(BaseModel):
     image_more: list[ImageCamera] = Field(
         default_factory=list, max_length=MAX_CAMERAS - 1
     )
+    #: The s-file columns the Images page summarizes under the scan's
+    #: conditions (none by default), in the order picked, and the one
+    #: statistic they share (``SCALAR_STATS``); the picker's filter text.
+    image_scalars: list[str] = Field(default_factory=list, max_length=MAX_SCALARS)
+    #: The widest a strip tile is drawn, in CSS pixels (the height follows
+    #: the picture); ``None``: as wide as the columns allow.
+    image_tile_max: Optional[int] = Field(
+        default=None, ge=TILE_MAX_RANGE[0], le=TILE_MAX_RANGE[1]
+    )
+    image_scalar_stat: str = "mean_std"
+    image_scalar_filter: str = ""
     #: The XY plot per shot or binned (each bin's centre and error bars).
     xy_view: str = "shot"
     #: The plot's shot filters, the bin settings and the plot cosmetics,
@@ -511,6 +542,10 @@ FORM_FIELDS = {
     "cbar": "image_cbar",
     "bg": "image_bg",
     "bgsub": "image_bgsub",
+    "channel": "image_channel",
+    "scalstat": "image_scalar_stat",
+    "tilemax": "image_tile_max",
+    "scalf": "image_scalar_filter",
     "view": "xy_view",
     "filters": "shot_filters",
     "bincfg": "bin_config",
@@ -552,6 +587,7 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
     "y3_fit_order": (0, MAX_FIT_ORDER),
     "image_columns": (1, MAX_IMAGE_COLUMNS),
     "overlay_y": (1, MAX_Y_LISTS),
+    "image_channel": (0, MAX_CHANNEL),
 }
 
 #: The fixed z-scale values: any finite number, or empty for none.
@@ -577,6 +613,9 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
         _set_roi(
             rois, changes.get("image_device") or settings.image_device, form["roi"]
         )
+    scalars = _scalars(settings.image_scalars, form)
+    if scalars != settings.image_scalars:
+        changes["image_scalars"] = scalars
     more = _more_cameras(settings.image_more, form, rois)
     if more != settings.image_more:
         changes["image_more"] = more
@@ -588,7 +627,7 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
 #: A stacked camera's field: the first camera's form name, ``@`` and its
 #: place (2 for the second): ``cmap@2``, ``roi@3``.
 _CAMERA_FIELD = re.compile(
-    rf"(device|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|roi)@([2-{MAX_CAMERAS}])"
+    rf"(device|devf|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|channel|roi)@([2-{MAX_CAMERAS}])"
 )
 
 
@@ -639,6 +678,20 @@ def _more_cameras(
     if drop.isdigit() and 0 <= int(drop) - 2 < len(more):
         del more[int(drop) - 2]
     return more
+
+
+def _scalars(scalars: list[str], form: dict[str, str]) -> list[str]:
+    """The scan scalars after *form*'s ``scaladd`` (one column) and ``scaldrop``."""
+    out = list(scalars)
+    drop = form.get("scaldrop", "")
+    if drop in out:
+        out.remove(drop)
+    add = form.get("scaladd", "").strip()
+    if add and add not in out:
+        if len(out) >= MAX_SCALARS:
+            raise SettingsError(f"at most {MAX_SCALARS} scan scalars")
+        out.append(add)
+    return out
 
 
 def scan_refs(text: str) -> list[ScanRef]:
@@ -731,6 +784,17 @@ def _centre_value(value: str) -> Optional[float]:
     return number
 
 
+def _tile_max_value(text: str) -> Optional[int]:
+    """The max tile width: ``None`` (no limit) for ``""``, else whole pixels in range."""
+    if not text.strip():
+        return None
+    number = int(text)
+    low, high = TILE_MAX_RANGE
+    if not low <= number <= high:
+        raise ValueError(f"must be {low} to {high} pixels, or empty for no limit")
+    return number
+
+
 def _bg_value(text: str) -> Optional[ScanRef]:
     """The background scan, ``YYYY-MM-DD:N``; ``None`` (no background) for ``""``."""
     refs = scan_refs(text)
@@ -745,6 +809,7 @@ _PARSERS: dict[str, Callable[[str], object]] = {
     "extra_scans": scan_refs,
     "image_centre": _centre_value,
     "image_bg": _bg_value,
+    "image_tile_max": lambda text: _tile_max_value(text),
 }
 
 

@@ -197,6 +197,34 @@ class TestHostedRouter:
         )
         assert r.status_code == 405
 
+    def test_columns_ladder(self, tree):
+        def columns(params):
+            if params.get("scan") == 9:
+                raise LookupError("no such scan")
+            if "day" not in params:
+                raise ValueError("name a scan")
+            return ["Shotnumber", "A"]
+
+        bare = fastapi.FastAPI()
+        bare.include_router(create_editor_router(ConfigStore(tree)), prefix="/configs")
+        c = TestClient(bare)
+        assert c.get("/configs/api/list").json()["columns"] is False
+        assert c.post("/configs/api/columns", json={"params": {}}).status_code == 404
+        app = fastapi.FastAPI()
+        app.include_router(
+            create_editor_router(ConfigStore(tree), columns=columns), prefix="/configs"
+        )
+        c = TestClient(app)
+        assert c.get("/configs/api/list").json()["columns"] is True
+
+        def ask(params):
+            return c.post("/configs/api/columns", json={"params": params})
+
+        assert ask({"day": "d", "scan": 1}).json() == {"columns": ["Shotnumber", "A"]}
+        assert ask({"day": "d", "scan": 9}).status_code == 404
+        assert ask({}).status_code == 400
+        assert c.post("/configs/api/columns", json={"params": [1]}).status_code == 422
+
     def test_preview_ladder(self, tree):
         calls = []
 

@@ -118,6 +118,8 @@ class ScanAnalyzer:
             Additional analyzer-specific options (ignored by the base class).
         """
         self.scan_tag: Optional[ScanTag] = None
+        #: the data root to resolve scans under; ``None`` is the configured one
+        self.base_directory: Optional[Path] = None
         self.scan_data: Optional[ScanData] = None
         self.scan_directory: Optional[Path] = None
         self.experiment_dir: Optional[str] = None
@@ -189,7 +191,14 @@ class ScanAnalyzer:
     def _handle_scan_tag(self, scan_tag: ScanTag):
         """Resolve paths, read `.ini`, load auxiliary data, and set flags."""
         self.scan_tag = scan_tag
-        self.scan_paths = ScanPaths(tag=self.scan_tag, read_mode=True)
+        # The data root a host runs under (the task queue's base_directory),
+        # else the configured one: the scan read is the one its status is for.
+        root = getattr(self, "base_directory", None)
+        self.scan_paths = (
+            ScanPaths(tag=self.scan_tag, read_mode=True)
+            if root is None
+            else ScanPaths(tag=self.scan_tag, base_directory=root, read_mode=True)
+        )
         self.scan_data = ScanData(paths=self.scan_paths)
         self.scan_directory = self.scan_data.paths.get_folder()
         self.experiment_dir = self.scan_tag.experiment

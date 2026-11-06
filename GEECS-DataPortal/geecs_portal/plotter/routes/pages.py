@@ -43,6 +43,7 @@ from geecs_portal.plotter.routes.images import (
     strip_axis,
     strip_code,
     strip_tiles,
+    trace_code,
 )
 from geecs_portal.plotter.settings import (
     CHOICES,
@@ -51,6 +52,8 @@ from geecs_portal.plotter.settings import (
     MAX_FIT_ORDER,
     MAX_IMAGE_COLUMNS,
     MAX_OVERLAY_SCANS,
+    MAX_SCALARS,
+    TILE_MAX_RANGE,
     MAX_Y_LISTS,
     NameRefused,
     ImageCamera,
@@ -413,6 +416,8 @@ def _page(
         "centre": settings.image_centre,
         "layout": _choice(settings, "image_layout"),
         "cols": settings.image_columns,
+        "tile_max": settings.image_tile_max,
+        "tile_max_range": TILE_MAX_RANGE,
         "max_cols": MAX_IMAGE_COLUMNS,
         "cmap": settings.image_cmap,
         "cmaps": images.CMAPS,
@@ -432,6 +437,16 @@ def _page(
         "max_cameras": MAX_CAMERAS,
         "strip_x": "",
         "filter_pass": "",
+        "conditions": [],
+        "condition_lines": [],
+        "condition_labels": {},
+        "scalar_summary": None,
+        "scalar_line": "",
+        "image_scalars": settings.image_scalars,
+        "scalar_stat": settings.image_scalar_stat,
+        "scalf": settings.image_scalar_filter,
+        "max_scalars": MAX_SCALARS,
+        "scalar_stats": [(k, v[2]) for k, v in scans.SCALAR_STATS.items()],
         "bg": scan_refs_text([settings.image_bg]) if settings.image_bg else "",
         "bg_day": settings.image_bg.day if settings.image_bg else None,
         "bg_scan": settings.image_bg.scan if settings.image_bg else None,
@@ -489,6 +504,8 @@ def _fill(
         picks = list(page["coverage"])
         page["scans_text"] = ",".join(f"{d.isoformat()}:{n}" for d, n, _ in extras)
     page["columns"] = picks
+    # the condition columns' labels, for the shot filters' label menu
+    page["condition_labels"] = scans.condition_labels(run, frame)
     page["uid"] = run.summary.uid
     page["logbook_send"] = logbook_send
     page["xnames"] = {c: scans.display_name(c, settings.x_alias) for c in picks}
@@ -608,11 +625,18 @@ def _fill_images(
     folder = scans.scan_folder(run)
     devices = images.devices(folder)
     page["devices"] = devices
+    page["conditions"] = scans.conditions(run, frame)
+    # the same lines as text, for the exported grid's picture (strip_export.js)
+    page["condition_lines"] = [
+        f"{c['column']}: {c['label']}"
+        + (" — changed mid-scan" if c["mixed"] else "")
+        + (f" ({c['detail']})" if c["detail"] else "")
+        for c in page["conditions"]
+    ]
     looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
     x, page["strip_x"] = strip_axis(run, frame, settings.x_alias)
-    alone = len(looks) == 1
     page["cams"] = cams = [
-        _camera_row(page, run, frame, settings, folder, devices, look, place, x, alone)
+        _camera_row(page, run, frame, settings, folder, devices, look, place, x)
         for place, look in enumerate(looks, 1)
     ]
     # The shot filters keep the same shots here as on the Plot page.
@@ -622,6 +646,21 @@ def _fill_images(
         keep = None  # each row says why it has no tiles
     if keep is not None:
         page["filter_pass"] = f"{len(keep)} / {len(frame)} shots pass"
+    # The picked scan scalars over the same shots, one statistic for all.
+    if settings.image_scalars:
+        summary = scans.scan_scalars(
+            frame,
+            keep,
+            settings.image_scalars,
+            settings.image_scalar_stat,
+            page.get("ynames"),
+        )
+        page["scalar_summary"] = summary
+        texts = [s["text"] for s in summary["scalars"]]
+        page["scalar_line"] = (
+            "  ·  ".join(texts)
+            + f"   ({summary['label']} over {summary['shots']} shots)"
+        )
     try:
         missing = images.missing_filter_columns(frame, settings.shot_filters)
     except images.NoImage:
@@ -642,7 +681,17 @@ def _fill_images(
         display_query=first["display_query"],
         levels_url=first["levels_url"],
     )
-    if first["tiles"]:
+    if first["tiles"] and first["trace"]:
+        page["strip_code"] = trace_code(
+            page["day"],
+            page["scan"],
+            first["device"],
+            page["strip"],
+            experiment,
+            first["channel"],
+            first["pick_by"],
+        )
+    elif first["tiles"]:
         prep = ImagePrep(hits=first["hits"], centre=first["centre"])
         page["strip_code"] = strip_code(
             page["day"],
@@ -659,6 +708,7 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
     """The first camera's look: the set's own ``image_*`` fields."""
     return ImageCamera(
         device=settings.image_device,
+        device_filter=settings.image_device_filter,
         cmap=settings.image_cmap,
         zscale=_choice(settings, "image_zscale"),
         zmin=settings.image_zmin,
@@ -667,6 +717,7 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
         centre=settings.image_centre,
         cbar=settings.image_cbar,
         bgsub=settings.image_bgsub,
+        channel=settings.image_channel,
     )
 
 
@@ -690,15 +741,16 @@ def _camera_row(
     look: ImageCamera,
     place: int,
     x: Optional[str],
-    alone: bool,
 ) -> dict:
     """One camera's row: its look, its problem or its tiles and URLs.
 
     A saved camera this scan has no folder for is kept (``kept``) so the
     next pick does not erase it. With none saved the row asks for one:
     probing every folder for a camera costs tens of seconds cold over the
-    share. A trace device draws one shot at a time, so it is shown only
-    as the one camera.
+    share. A device that records traces (a scope) is a row of trace tiles
+    (``trace``: what it records; ``channels``: the scope's), on the same
+    bins; a camera's clean-ups, background, ROI and colour map do not
+    apply to it.
     """
     device = look.device or ""
     roi = settings.image_rois.get(device) if device else None
@@ -710,6 +762,7 @@ def _camera_row(
         "kept": "",
         "problem": None,
         "trace": "",
+        "channels": [],
         "tiles": [],
         "roi": ",".join(str(v) for v in roi) if roi else "",
         "pick_by": page.get("y", "") if page["pick"] == "ymax" else "",
@@ -729,18 +782,24 @@ def _camera_row(
     elif not device:
         row["problem"] = "pick a camera from the list"
     elif not images.is_image_device(folder, device, devices):
-        trace = images.trace_kind(folder, device, devices)
-        if trace and alone:
-            row["trace"] = trace  # the big view draws one shot's trace at a time
-        elif trace:
-            row["problem"] = f"{device} records {trace}s: open it as the only camera"
+        probe = images.trace_device(folder, device, devices)
+        if probe.kind:
+            # Traces: none of a camera's clean-ups, background or ROI.
+            row.update(
+                trace=probe.content,
+                channels=list(probe.channels),
+                bg="",
+                roi="",
+                cbar=False,
+            )
         else:
             row["problem"] = (
                 f"{device} has no pictures (a vendor format or a file the page cannot draw)"
             )
-    if row["problem"] or row["trace"]:
+    if row["problem"]:
         return row
-    prep = ImagePrep(hits=row["hits"], centre=row["centre"])
+    trace = bool(row["trace"])
+    prep = ImagePrep() if trace else ImagePrep(hits=row["hits"], centre=row["centre"])
     try:
         row["tiles"] = strip_tiles(
             run,
@@ -754,6 +813,7 @@ def _camera_row(
             prep=prep,
             filters=settings.shot_filters,
             bg=row["bg"],
+            channel=row["channel"] if trace else None,
         )
     except HTTPException as missing:
         row["problem"] = missing.detail
@@ -776,6 +836,7 @@ def _camera_row(
             # Bins and shots: the strip is the shots the shot filters keep.
             **({"filters": settings.shot_filters} if settings.shot_filters else {}),
             **({"bg": row["bg"]} if row["bg"] else {}),
+            **({"channel": row["channel"]} if trace else {}),
         }
     )
     return row

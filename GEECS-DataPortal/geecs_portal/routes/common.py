@@ -175,6 +175,8 @@ def _summary_json(summary: RunSummary) -> dict:
         "running": not summary.exit_status,
         "experiment": summary.experiment,
         "save_sets": list(summary.save_sets),
+        "scan_variable": summary.scan_variable,
+        "scan_range": summary.scan_range,
     }
 
 

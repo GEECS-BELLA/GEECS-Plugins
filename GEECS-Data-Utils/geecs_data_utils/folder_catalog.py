@@ -213,6 +213,11 @@ def folder_start_doc(
     if not info.noscan and info.parameter:
         start_doc["motors"] = [_scan_variable_column(info.parameter, header)]
         start_doc["plan_pattern"] = "inner_product"
+        # the ScanInfo range, for the day list's "Scanned" column
+        if start is not None and end is not None:
+            start_doc["scan_start"], start_doc["scan_end"] = start, end
+            if step:
+                start_doc["scan_step"] = step
     if (
         start is not None
         and end is not None

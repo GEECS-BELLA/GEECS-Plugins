@@ -21,6 +21,8 @@ from geecs_data_utils.scan_paths import ScanPaths
 from geecs_data_utils.tiled_catalog import RunDetail, ScanCatalog
 
 from geecs_portal import analysis_runs, resources
+from geecs_portal.batch import WorkerLink
+from geecs_portal.day_scans import DayScans
 from geecs_portal.cache import ShotDataCache
 from geecs_portal.routes.common import _figure_kwargs, _resolved_folder
 
@@ -63,6 +65,7 @@ class _DiagInfo:
 _DOCUMENT_KINDS = {
     "AnalysisRecipe": "recipe",
     "HimgJob": "job",
+    "ScalarJob": "scalar",
 }
 
 
@@ -107,6 +110,11 @@ class PortalState:
     #: Plot tab; without it the scan page has none).
     plot_page: bool = False
     config_editor_enabled: bool = False  # set when the editor router mounts
+    #: The analysis worker the day page's batch panel talks to
+    #: (``--analysis-worker-url``; ``None`` = no panel).
+    worker: Optional[WorkerLink] = None
+    #: The day page's on-demand scan summaries (conditions, scan filters).
+    day_scans: DayScans = dataclasses.field(default_factory=DayScans)
     # (fingerprint → valid names): re-validated only when the tree
     # changes — discovery lists every YAML stem, but legacy flat camera
     # configs in the same tree don't LOAD as diagnostics, and offering

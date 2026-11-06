@@ -44,6 +44,15 @@ geecs_data_utils/
                                #   ScanAnalysis's suite, #682)
   shot_files.py                # completed-scan shot rows → native Path / stack ShotRef
   scalar_files.py              # shared s-file lock/merge and generated-scalar writes
+  scan_summary.py              # one scan's s-file at a glance (shots,
+                               #   columns, conditions, asked-for means) and
+                               #   ScanRule / scan_verdict — the portal day
+                               #   page's scan filters, one definition
+  scan_conditions.py           # a scalar job's condition labels: the
+                               #   analysis/ScanNNN/ScanNNN_<job>_labels.json
+                               #   file (write: atomic, never mkdir; read:
+                               #   tolerant) and scan_conditions(frame, labels)
+                               #   → ScanCondition (one label / mixed / unknown)
   type_defs.py                 # ScanTag, ScanMode, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
@@ -119,6 +128,16 @@ geecs_data_utils/
                                #   load_shot_trace reads one as x-vs-y;
                                #   moved from the portal so every viewer
                                #   resolves a shot alike
+                               #   + shot_traces.py: a trace device row by
+                               #   row — trace_device (array stack, or
+                               #   per-shot NI-HWS scope files: the LeCroy
+                               #   .dat, read as tek_scope_hdf5, channels
+                               #   named from the file), load_row_trace (a
+                               #   missed row is refused, never a
+                               #   neighbour's), average_traces (sample by
+                               #   sample on ONE shared x axis, else None —
+                               #   never resampled); native_shot_file in
+                               #   shot_images is the file lookup both share
                                #   + display_png.py: frame → 8-bit PNG
                                #   through a percentile window, optional
                                #   matplotlib colour map (lazy import; no
@@ -266,6 +285,11 @@ binned = sd.bin(config)      # ScanData one-call API — legacy shape,
                              # counts re-attached as ("count", "center")
 binned = sd.binned_scalars   # stateful compat property (same shape)
 ```
+
+`summarize_columns(frame, columns, agg=, err=)` → `{column: ColumnSummary}`
+is the same reduction with every row one bin, each column on its own (a
+row missing one column still counts for the others) — the Data Portal's
+scan scalars.
 
 `BinningConfig` also carries the numeric-binning options (`bin_edges` /
 `bin_width` / `quantile_bins`, `label`, `right`, `origin`); a
@@ -421,7 +445,10 @@ this package and must never depend on GeecsBluesky or a GUI package).
   Control) falls back to the `run_closed_evidence` files —
   `ScanDataScanNNN.txt` or the analysis s-file, opened through
   `data/sfile.py`'s path helpers. Uids are
-  `folder:{experiment}:{YYYY-MM-DD}:{number}`. A **finished** scan's
+  `folder:{experiment}:{YYYY-MM-DD}:{number}`. The start doc also carries
+  the ScanInfo range (`scan_start` / `scan_end` / `scan_step`), which
+  `RunSummary.scan_range` shows beside `scan_variable` (each stepped
+  column's alias, else its name) in the portal's day list. A **finished** scan's
   documents are cached per catalog (bounded LRU by folder), so a
   finished day costs one `os.scandir` and no file opens; unfinished
   scans are re-read each call. The cache is keyed on the finished

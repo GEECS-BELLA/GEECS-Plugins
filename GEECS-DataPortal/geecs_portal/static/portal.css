@@ -78,7 +78,29 @@
 .kit .cedrawer .ce { flex: 1 1 auto; min-height: 0; height: auto; }
 .kit .cedrawer #cedup { width: 9rem; }
 .kit .cedrawer #ceshot { width: 5rem; }
+/* the day page's batch analysis drawer */
+.kit .drawer.batchdrawer { width: min(640px, 92vw); }
+.kit .batchdrawer > .body { display: flex; flex-direction: column; gap: 0.6rem; overflow: auto; }
+.kit .batchdrawer .batch-redo { display: flex; gap: 0.4rem; align-items: center; }
+.kit .batchdrawer .batchjob { display: flex; flex-direction: column; gap: 0.35rem; }
+.kit .batchdrawer .batchjob .head { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 
 @media (max-width: 900px) {
   .kit .shell.wide { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* the batch drawer's active analyzers and the watch line */
+.batchdrawer .batch-members { border: 1px solid var(--rule); border-radius: var(--r); padding: 0.3rem 0.6rem 0.5rem; margin: 0.3rem 0; }
+.batchdrawer .batch-members legend { font-size: 12px; color: var(--muted); padding: 0 0.3rem; }
+.batchdrawer .batch-member { display: block; padding: 0.1rem 0; }
+.batchdrawer .batch-watch { margin: 0.3rem 0 0.6rem; line-height: 1.6; }
+.batchdrawer #watch-from { width: 5rem; }
+
+/* the day list's Scanned column: the range stays on one line */
+td.scanned .mono { white-space: nowrap; }
+
+/* the day page's scan filters */
+.scanf { margin: 0 0 var(--gap); }
+.scanf .scanf-rule { flex-wrap: wrap; gap: 0.4rem; margin: 0.3rem 0; }
+.scanf .scanf-rule input[type=number] { width: 8rem; }
+td.scanf-cond { white-space: nowrap; }

@@ -315,10 +315,15 @@ class TestRunner:
             runner.shutdown()
 
     @pytest.mark.parametrize("outcome", ["done", "failed"])
-    def test_memory_is_released_before_the_run_reads_finished(
+    def test_memory_is_released_after_every_run_and_before_the_next(
         self, monkeypatch, outcome
     ):
-        """Every run, failed ones too, frees its memory before it reports done."""
+        """Every run, failed ones too, frees its memory once its record is final.
+
+        The record flips first, so the page sees the run done when its work
+        is; the release still happens on the worker thread before any next
+        job starts.
+        """
         runner = analysis_runs.AnalysisRunner()
         states: list[str] = []
         monkeypatch.setattr(
@@ -340,7 +345,11 @@ class TestRunner:
             assert job.state == (
                 analysis_runs.DONE if outcome == "done" else analysis_runs.FAILED
             )
-            assert states == [analysis_runs.RUNNING]
+            final = analysis_runs.DONE if outcome == "done" else analysis_runs.FAILED
+            deadline = time.monotonic() + 5
+            while not states and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert states == [final]  # released once, the record already final
         finally:
             runner.shutdown()
 
@@ -462,6 +471,29 @@ class TestListing:
         assert by_id["UC_Other"]["destructive"] is False
         assert all(a["job"] is None and a["files"] == [] for a in body["analyzers"])
         assert body["running"] is None
+
+    def test_a_scalar_job_applies_to_every_scan(self, scan_folder, configs_tree):
+        """It reads the s-file, not a device folder: never collapsed as inapplicable."""
+        pytest.importorskip("scan_analysis")
+        yaml = pytest.importorskip("yaml")
+        (configs_tree / "analyzers" / "HTU" / "Derived.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "kind": "scalar_columns",
+                    "columns": [{"name": "k", "expr": "2 * a", "inputs": {"a": "A"}}],
+                }
+            )
+        )
+        client = _client(scan_folder, configs_tree)
+        derived = next(
+            a
+            for a in client.get("/api/run/uid-002/analysis").json()["analyzers"]
+            if a["id"] == "Derived"
+        )
+        assert derived["applicable"] is True
+        assert derived["destructive"] is False
+        catalog = client.get("/api/analysis/catalog").json()["analyzers"]
+        assert next(a for a in catalog if a["id"] == "Derived")["kind"] == "scalar"
 
     def test_files_on_disk_survive_without_a_record(self, scan_folder, configs_tree):
         """A page loaded after a portal restart still lists earlier outputs."""
@@ -1059,3 +1091,15 @@ class TestCatalog:
     def test_feature_off_is_404(self) -> None:
         client = TestClient(create_app(FakeCatalog()))
         assert client.get("/api/analysis/catalog").status_code == 404
+
+
+def test_a_long_text_label_is_not_a_file(tmp_path):
+    """A scalar job's label naming many columns outruns the file system's
+    name limit; the listing calls it no file rather than failing."""
+    label = "wrote 8 column(s) to s69.txt: " + ", ".join(
+        f"'column {i}' (2 of 2 shots)" for i in range(30)
+    )
+    assert len(label) > 255
+    assert analysis_runs.contained_artifact(tmp_path, label) is None
+    described = analysis_runs.describe_artifact(tmp_path, label, servable=None)
+    assert described["servable"] is False

@@ -5,7 +5,8 @@
  * core's registry, the figure, the summaries, the scan runtime) and the
  * group, plus the list, YAML preview, save and (when the host provides one)
  * a live preview of the document under edit drawn as a scan run draws it.
- * A .himg job, or a file that is not a recipe, is shown read-only.
+ * A scalar-columns job gets its own (generic) form; a .himg job, or a file
+ * that is not a recipe, is shown read-only.
  *
  *   ConfigEditor.mount(container, {
  *     base,                 // URL of the editor router mount ("" | "/configs" | proxied)
@@ -265,16 +266,20 @@
     kvRows(n, value, path, opts) {
       const box = el("div", { class: "kv" });
       const rows = [];
-      const addBtn = el("button", { type: "button", class: "add", onclick: () => { add("", undefined); rows[rows.length - 1].key.focus(); } }, "+ keyword");
+      // x-rows: a schema's own words for its rows (a scalar column's inputs:
+      // symbol / s-file column, "+ input", one empty row on a new column)
+      const words = n["x-rows"] || {};
+      const addBtn = el("button", { type: "button", class: "add", onclick: () => { add("", undefined); rows[rows.length - 1].key.focus(); } }, words.add || "+ keyword");
       box.append(addBtn);
       const add = (k, v) => {
-        const key = el("input", { type: "text", class: "k", placeholder: "keyword", value: k ?? "", spellcheck: "false", oninput: () => this.onChange() });
-        const val = el("input", { type: "text", class: "v", placeholder: "value", value: v === undefined ? "" : Form.showValue(v), spellcheck: "false", oninput: () => this.onChange() });
+        const key = el("input", { type: "text", class: "k", placeholder: words.key || "keyword", value: k ?? "", spellcheck: "false", oninput: () => this.onChange() });
+        const val = el("input", { type: "text", class: "v", placeholder: words.value || "value", value: v === undefined ? "" : Form.showValue(v), spellcheck: "false", oninput: () => this.onChange() });
         const entry = { key, val, row: null };
         entry.row = el("div", { class: "row" }, key, val, el("button", { type: "button", title: "remove", onclick: () => { rows.splice(rows.indexOf(entry), 1); entry.row.remove(); this.onChange(); } }, "x"));
         rows.push(entry); box.insertBefore(entry.row, addBtn);
       };
       for (const [k, v] of Object.entries(value || {})) add(k, v);
+      if (!rows.length && words.start) add("", undefined);
       const get = () => { const out = {}; for (const r of rows) { const k = r.key.value.trim(); if (k) out[k] = Form.parseValue(r.val.value); } return out; };
       if (opts && opts.bare) return { node: box, get };
       return { node: this.field(n, path, box), get };
@@ -452,6 +457,30 @@
         }
         body.append(s.body);
       }
+      // x-choice: the object is one of a few kinds, each owning some keys (a
+      // scalar column: formula -> expr, condition -> cases + otherwise). A
+      // switch shows the picked kind's fields only, and get() writes only those.
+      const choice = n["x-choice"];
+      const choiceOf = new Map();
+      let picked = 0, choiceBoxes = null;
+      if (choice) {
+        choice.options.forEach((o, i) => o.keys.forEach((k) => choiceOf.set(k, i)));
+        const isSet = (k) => value && value[k] !== undefined && value[k] !== null;
+        picked = Math.max(0, choice.options.findIndex((o) => o.keys.some(isSet)));
+      }
+      const choiceSwitch = (target) => {
+        choiceBoxes = choice.options.map(() => el("div", { class: "ce-choice-opt" }));
+        const buttons = choice.options.map((o, i) => el("button", { type: "button", "aria-pressed": String(i === picked), onclick: () => pick(i) }, o.title));
+        const help = el("div", { class: "help" });
+        const show = () => {
+          choiceBoxes.forEach((b, j) => { b.hidden = j !== picked; });
+          buttons.forEach((b, j) => b.setAttribute("aria-pressed", String(j === picked)));
+          help.textContent = choice.options[picked].help || "";
+        };
+        const pick = (i) => { picked = i; show(); this.onChange(); };
+        show();
+        target.append(el("div", { class: "field ce-choice" }, el("label", {}, choice.label), el("div", { class: "ce-choice-buttons" }, ...buttons), help), ...choiceBoxes);
+      };
       for (const [key, sub] of Object.entries(props)) {
         if (skip.has(key)) continue;
         // Retired config fields remain round-trippable without offering controls.
@@ -471,6 +500,9 @@
             // the resolved names and the overrides sit together, where the first override falls
             if (!adv.advPlaced) { adv.advPlaced = true; adv.body.append(adv.namesEl, adv.advEl); }
             adv.advEl.append(r.node);
+          } else if (choiceOf.has(key)) {
+            if (!choiceBoxes) choiceSwitch(sec ? sec.body : body);
+            choiceBoxes[choiceOf.get(key)].append(r.node);
           } else (sec ? sec.body : body).append(r.node);
         }
         children.push([key, r]);
@@ -478,6 +510,7 @@
       const get = () => {
         const out = {};
         for (const [key, r] of children) {
+          if (choiceOf.has(key) && choiceOf.get(key) !== picked) continue;  // the other kind's field
           const v = r.get();
           if (v === undefined) continue;
           if (r.hidden) { out[key] = v; continue; }
@@ -653,8 +686,25 @@
       if (!doc) return "";
       return (doc.input && doc.input.folder) || doc.device || "";
     }
-    // a .himg job (top-level kind): data management, read-only here
-    function isHimgJob(doc) { return !!(doc && typeof doc.kind === "string"); }
+    // a scalar-columns job: new s-file columns by formula, its own form
+    function isScalarJob(doc) { return !!(doc && doc.kind === "scalar_columns"); }
+    // the scalar-columns form's help: what a column is, formulas, conditions
+    function scalarHelp() {
+      const pre = (text) => el("pre", { class: "ce-help-example" }, text);
+      // ("open" would read as an "on…" handler in el(): set the property)
+      const help = el("details", { class: "ce-help" },
+        el("summary", {}, "How scalar columns work"),
+        el("p", { html: "Each column is a <b>new s-file column</b>, computed for every shot from columns already in the scan's s-file. <code>name</code> is the new column (units in it if you like; never one of the scanner's own columns). <code>inputs</code> gives each short symbol the s-file column it reads, exact name as on the Plot page (the picker above lists a scan's columns). Columns run top to bottom, so a later one may read an earlier one by its name. Run the job from a scan's Analysis tab, or a whole day with <b>Analyze this day…</b>." }),
+        el("p", { html: "Each column's <b>kind</b> switch picks one of two:</p><p><b>A formula</b> (kind <i>formula</i>, <code>expr</code>): numbers, the symbols, <code>+ - * / ** %</code>, <code>sqrt log log10 exp abs</code>, the trig functions, <code>hypot minimum maximum</code> (shot by shot), <code>pi e</code>. Comparisons work too and give 1 or 0: <code>x &gt; 5</code>. <b>Column functions</b> take one input and use all of the scan's shots (missing ones skipped): <code>mean median std min max</code>, so <code>x - mean(x)</code> centres a column and <code>(x - min(x)) / (max(x) - min(x))</code> scales it to 0–1." }),
+        pre("expr: x * 0.0244          # pixels → mm\ninputs: {x: UC_TopView centroid_x}"),
+        el("p", { html: "<b>A condition</b> (kind <i>condition</i>: <code>cases</code> and <code>otherwise</code>; a column has no formula then): rules checked in order, each with a <code>label</code>; the first rule that holds wins, and <code>otherwise</code> names a shot no rule matches. A rule may use <code>&lt; &lt;= &gt; &gt;= == !=</code>, ranges like <code>4 &lt;= x &lt;= 6.5</code>, and <code>and</code> / <code>or</code> / <code>not</code>. The s-file stores the rule's number (0 for the first, then 1, 2 …; <code>otherwise</code> the number after the last), so a shot filter can keep one case (the column equal to its number), and the <b>Images page lists the scan's label</b> at the top — <i>mixed</i>, with the split, if the shots disagree." }),
+        pre("name: target in beam\ninputs: {x: Target Stage Position}\ncases:\n  - {when: \"4.0 <= x <= 6.5\", label: Al foil}\n  - {when: \"10 <= x <= 12\",   label: Cu foil}\notherwise: nothing"),
+        el("p", { html: "A shot missing any input of a column (no reading, a non-number) gets a blank cell: <i>unknown</i>, never 0 or <code>otherwise</code>." }));
+      help.open = !state.etag;  // open on a new job, folded on a saved one
+      return help;
+    }
+    // a .himg job (any other top-level kind): data management, read-only here
+    function isHimgJob(doc) { return !!(doc && typeof doc.kind === "string") && !isScalarJob(doc); }
     function hasSummaryPreview() { return hasPreview && !!(state.listing && state.listing.summary_preview); }
     // the host's own cap on shots per summary preview (its listing says)
     function shotsMax() { const m = state.listing && Number(state.listing.summary_shots_max); return m > 0 ? m : 8; }
@@ -725,7 +775,10 @@
           const dl = el("datalist", { id: `ce-ns-${kind}` });
           for (const name of L.namespaces[kind]) dl.append(el("option", { value: name }));
           const id = el("input", { placeholder: "new id" });
-          sec.append(el("div", { class: "ce-new" }, ns, dl, id, el("button", { type: "button", onclick: () => { if (ns.value && id.value) create(kind, ns.value.trim(), id.value.trim()); } }, newLabel)));
+          const make = (variant) => () => { if (ns.value && id.value) create(kind, ns.value.trim(), id.value.trim(), variant); };
+          sec.append(el("div", { class: "ce-new" }, ns, dl, id, el("button", { type: "button", onclick: make(null) }, newLabel),
+            kind === "analyzer" ? el("button", { type: "button", onclick: make("scalar"), title: "new s-file columns computed by formula from existing columns" }, "new scalar columns") : null,
+            kind === "analyzer" ? el("button", { type: "button", onclick: make("condition"), title: "a condition: rules over s-file columns (e.g. a stage position range) that say what was in the beam; the Images page lists the scan's label" }, "new condition") : null));
         }
         for (const ns of Object.keys(byNs).sort()) {
           const key = `${kind}/${ns}`;
@@ -739,7 +792,9 @@
           for (const e of byNs[ns]) grp.append(el("a", { href: "#", class: (state.kind === kind && state.id === e.id ? "sel" : "") + (e.valid ? "" : " bad"), title: e.error || (e.analyzer_kind ? `${e.analyzer_kind} / ${e.device}` : ""), onclick: (ev) => { ev.preventDefault(); open(kind, e.id); } }, e.id,
             kind === "analyzer" && e.valid && e.document === "job"
               ? el("span", { class: "tag", title: ".himg job: data management, read-only here" }, "job")
-              : null));
+              : kind === "analyzer" && e.valid && e.document === "scalar"
+                ? el("span", { class: "tag", title: "scalar columns: new s-file columns from formulas" }, "scalar")
+                : null));
           sec.append(grp);
         }
         side.append(sec);
@@ -754,6 +809,53 @@
       return state.schemas[kind];
     }
 
+    // ----- the scalar-columns form's column picker (host-provided names)
+    // The inputs' value boxes: each names the s-file column a symbol reads.
+    const INPUT_COLUMN_BOX = '.field[data-path$=".inputs"] input.v';
+    const COLUMNS_LIST_ID = "ce-sfile-columns";
+    // the last scan whose columns were loaded, kept across documents
+    // (a host's link may name the scan: ?day=YYYY-MM-DD&scan=N loads it on first use)
+    const linked = new URLSearchParams(location.search);
+    const columnsFrom = { day: linked.get("day") || "", scan: linked.get("scan") || "", label: "", names: [], tried: false };
+    function columnsList() {
+      let dl = window.document.getElementById(COLUMNS_LIST_ID);
+      if (!dl) { dl = el("datalist", { id: COLUMNS_LIST_ID }); window.document.body.append(dl); }
+      return dl;
+    }
+    function fillColumns(names) {
+      const dl = columnsList(); dl.innerHTML = "";
+      for (const name of names) dl.append(el("option", { value: name }));
+    }
+    async function loadColumns(params, status, label) {
+      status.textContent = "reading the s-file's columns...";
+      try {
+        const body = await api(base, "/columns", { method: "POST", body: JSON.stringify({ params }) });
+        columnsFrom.names = body.columns; columnsFrom.label = label;
+        fillColumns(body.columns);
+        status.textContent = `${body.columns.length} columns from ${label}: click an input's column box and type part of a name`;
+      } catch (e) { status.textContent = e.message; }
+    }
+    // In the drawer the scan is the page's; on the full page, typed in.
+    function columnPicker() {
+      const status = el("span", { class: "ce-cols-status" });
+      const scanParams = hasPreview && opts.preview.params ? opts.preview.params() : null;
+      if (scanParams && scanParams.uid) {
+        loadColumns({ uid: scanParams.uid, day: scanParams.day }, status, "this scan");
+        return el("div", { class: "ce-cols" }, el("strong", {}, "Columns "), status);
+      }
+      const day = el("input", { type: "date", value: columnsFrom.day, title: "the scan's day" });
+      const scan = el("input", { type: "number", min: "1", value: columnsFrom.scan, placeholder: "scan", class: "ce-cols-scan", title: "the scan's number" });
+      const go = () => {
+        columnsFrom.day = day.value; columnsFrom.scan = scan.value;
+        if (day.value && scan.value) loadColumns({ day: day.value, scan: Number(scan.value) }, status, `${day.value} Scan${String(scan.value).padStart(3, "0")}`);
+      };
+      if (columnsFrom.names.length) { fillColumns(columnsFrom.names); status.textContent = `${columnsFrom.names.length} columns from ${columnsFrom.label}`; }
+      else if (columnsFrom.day && columnsFrom.scan && !columnsFrom.tried) { columnsFrom.tried = true; go(); }
+      else status.textContent = "type a day and scan number, then load: the input boxes below then offer that scan's s-file columns";
+      return el("div", { class: "ce-cols" }, el("strong", {}, "Columns from "), day, " scan ", scan, " ",
+        el("button", { type: "button", onclick: go }, "load"), " ", status);
+    }
+
     // ----- documents
     async function open(kind, id) {
       const loaded = await api(base, `/${kind}s/${encodeURIComponent(id)}`);
@@ -766,17 +868,22 @@
       // The form is the recipe's (format 3). Anything else in the tree - a
       // .himg job, or a file of the retired v2 format - is shown as the file
       // it is, read only.
-      state.readOnlyDoc = kind === "analyzer" && !(loaded.document && loaded.document.schema_version === 3) ? loaded : null;
+      state.readOnlyDoc = kind === "analyzer" && !(loaded.document && (loaded.document.schema_version === 3 || isScalarJob(loaded.document))) ? loaded : null;
       await buildForm(kind, loaded.document, loaded.errors);
       if (side) renderSide();
       if (layout === "page") location.hash = `#/${kind}s/${encodeURIComponent(id)}`;
     }
-    async function create(kind, namespace, id) {
+    async function create(kind, namespace, id, variant) {
       state.readOnlyDoc = null;
       const schema = await schemaFor(kind);
       // a new recipe: a camera read as the device, measured as a beam, the
-      // grid and the average as summaries - the corpus's common shape
-      const doc = kind === "analyzer"
+      // grid and the average as summaries - the corpus's common shape; a
+      // new scalar-columns job: one column to fill in
+      const doc = variant === "scalar"
+        ? { schema_version: 1, kind: "scalar_columns", columns: [{ name: "new column", expr: "x * 1.0", inputs: { x: "" } }] }
+        : variant === "condition"
+        ? { schema_version: 1, kind: "scalar_columns", columns: [{ name: "in beam", inputs: { x: "" }, cases: [{ when: "4.0 <= x <= 6.5", label: "first thing" }], otherwise: "nothing" }] }
+        : kind === "analyzer"
         ? { schema_version: 3, device: id, input: { kind: "camera" }, steps: [], measure: { kind: "beam" }, summaries: [{ kind: "image_grid" }, { kind: "average" }] }
         : Object.assign(schema.defaultFor(schema.root), { name: id });
       state.kind = kind; state.id = id; state.namespace = namespace; state.etag = null; state.loadError = null; state.loadYaml = null;
@@ -784,13 +891,15 @@
       if (side) renderSide();
     }
     async function buildForm(kind, document, errors) {
-      const schema = await schemaFor(kind);
+      // a scalar-columns job is an analyzer document with its own form
+      const scalar = kind === "analyzer" && isScalarJob(document);
+      const schema = await schemaFor(scalar ? "scalar" : kind);
       main.innerHTML = "";
       // The kind, always: a new document is not in the listing yet, so the
       // sidebar highlight cannot say whether this is a diagnostic or a group.
       const ro = state.readOnlyDoc;
       const title = el("span", { class: "title" },
-        el("span", { class: "ce-kind" }, kind === "analyzer" ? (ro ? (isHimgJob(ro.document) ? ".himg job" : "not a recipe") : "recipe") : "group"),
+        el("span", { class: "ce-kind" }, kind === "analyzer" ? (ro ? (isHimgJob(ro.document) ? ".himg job" : "not a recipe") : scalar ? "scalar columns" : "recipe") : "group"),
         `${state.namespace}/${state.id}`);
       const dirty = el("span", { class: "dirty" });
       const bar = el("div", { class: "ce-bar" }, title, dirty);
@@ -822,12 +931,24 @@
         ndim: () => { let d = document; try { if (state.get) d = state.get(); } catch (_) { /* mid-edit */ } return d && d.input && d.input.kind === "line" ? 1 : 2; },
       });
       state.get = null;  // the ctx above reads the loaded document until the form exists
-      state.sections = kind === "analyzer" ? RECIPE_SECTIONS() : null;
-      const rendered = kind === "analyzer"
+      state.sections = kind === "analyzer" && !scalar ? RECIPE_SECTIONS() : null;
+      // shown unless the listing says the host has no column list (a form
+      // can be built before the listing arrives; the route 404s then)
+      if (scalar && !(state.listing && state.listing.columns === false)) main.append(columnPicker());
+      if (scalar) main.append(scalarHelp());
+      const rendered = kind === "analyzer" && !scalar
         ? state.form.object(schema.resolve(schema.root), document, [], false, { sections: state.sections, hidden: new Set(["schema_version"]) })
         : state.form.render(schema.root, document, []);
       formRoot.append(rendered.node);
       main.append(formRoot);
+      // the scalar form's input boxes offer the scan's s-file columns
+      // (rows added later get the list when they take focus)
+      if (scalar) formRoot.addEventListener("focusin", (ev) => {
+        if (!ev.target.matches(INPUT_COLUMN_BOX)) return;
+        ev.target.setAttribute("list", COLUMNS_LIST_ID);
+        // an empty box says where its list comes from
+        ev.target.placeholder = columnsFrom.names.length ? "s-file column (type to search)" : "s-file column (load a scan above for a list)";
+      });
       state.get = rendered.get; state.formRoot = formRoot; state.dirtyEl = dirty;
       state.inputKind = document && document.input ? document.input.kind : undefined;
       if (kind === "group" && state.listing) {
@@ -905,7 +1026,7 @@
       if (report.ok) {
         yamlBox.textContent = untouchedInvalid ? state.loadYaml : report.yaml;
         errBox.textContent = banner; okBox.textContent = banner ? "" : "valid";
-        if (hasPreview && state.kind === "analyzer" && !untouchedInvalid) {
+        if (hasPreview && state.kind === "analyzer" && !isScalarJob(doc) && !untouchedInvalid) {
           // first render on open; afterwards only in auto mode, else flag the image stale
           if (autoPreview || !previewBox.hasChildNodes()) previewDebounced(doc); else markPreviewStale();
         }

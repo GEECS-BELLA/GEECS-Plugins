@@ -104,6 +104,26 @@ extending this package.
   server-to-server, and a path-shaped base names the browser's front
   door, not a host this process can dial (it links but cannot send —
   `logbook_send` in the page context and the run JSON).
+- **Batch analysis is the worker's, never the portal's** (the author,
+  2026-11-04). The day page's **Analyze this day…** drawer (only with
+  `--analysis-worker-url`, for the portal's own experiment) runs an
+  analysis group over the day's scans on ScanAnalysis' analysis worker
+  (`scan-analysis-worker`, its own service): the portal forwards
+  `/api/batch/{status,groups,plan,jobs,jobs/{id},jobs/{id}/cancel,watch,watch/stop}` to it
+  over HTTP (`geecs_portal/batch.py`, `routes/batch.py`; it adds only its
+  experiment to a request that names none), imports none of it, and runs
+  no batch in its own process — a day's analysis outlives a portal restart
+  and never sits in this memory-capped process. No worker configured → 404,
+  one that does not answer → 503. The drawer's **Active analyzers** are
+checkboxes over the group's members (all ticked → `analyzers: null`, the
+whole group), used by Run and by **Watch for new scans** — the worker's
+watch on this day, started and stopped here, shown with its last look and
+its jobs (marked `· watch`). `--analysis-worker-autostart`
+  (development) starts one on this host (`python -m scan_analysis.worker`
+  over `--processing-configs`, its own session, left running) when the URL
+  is a loopback address and nothing answers; a deployment runs the worker
+  as its own unit. Tests: `tests/test_batch.py` (a fake worker over an
+  httpx transport).
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
   imports `tiled` directly and never talks to the catalog server except
@@ -251,6 +271,22 @@ tests/
   test_page.py       # on the kit: status words, the theme's glue
 ```
 
+**The day page's scan filters** (the author, 2026-11-05): the list loads from
+the catalog alone; only on the **Conditions & scan filters…** button (or a
+link carrying `where=`) does the page ask `/api/day/{iso}/scans?where=`,
+which reads every scan's s-file (`geecs_data_utils.scan_summary`, eight at a
+time, kept in memory by the s-file's mtime — `day_scans.DayScans`) and
+judges each against the rules (`ScanRule`: a condition's label is / is
+not, or a column's mean between) as `pass` / `mixed` / `fail` /
+`missing`; the page fills a Conditions column and hides fail and missing.
+The rules ride in the address (`where`, the day arrows and the text
+filter keep it). **Plot these scans** (with the Plot page mounted, the
+portal's experiment) posts the rows the list shows now into the viewer's own
+set — the browser's `geecs-portal:set` name, asked once when unknown — the
+lowest-numbered as the main scan, the rest `scans`, merged past
+`MAX_OVERLAY_SCANS` — and opens the Plot page. The Scanned column (`RunSummary.scan_variable` /
+`scan_range`) is from the listing itself.
+
 **Canonical day view (owner ruling 2026-09-13):** this package's `/day/`
 is the Tiled catalog's list of runs — plus, since 0.39.0, every scan
 folder no Tiled run claims (`geecs_data_utils.folder_catalog`'s
@@ -349,7 +385,7 @@ denylisted/miswired 400, analyzer failure 400 — never a 500.
 **Analysis runs** (0.16.0): `GET /api/analysis/catalog` (GEECS-MCP
 arc, 2026-10) lists the tree **scan-free** — every loadable diagnostic
 (`id`, `device`, `output_dir`, `destructive`, `kind` ∈
-`recipe|job`) and every loadable group with its resolved
+`recipe|job|scalar`) and every loadable group with its resolved
 `members` in run order (ScanAnalysis's own `discover_groups` +
 `load_analysis_group`, so a file that would fail a run — bad YAML, a
 ref no diagnostic answers to — is dropped with a log line; the group walk
@@ -359,7 +395,8 @@ for an agent or a picker; the portal still runs one diagnostic per job,
 so a group is a plan the caller expands.  `GET /api/run/{uid}/analysis`
 lists every loadable diagnostic in the same `--processing-configs`
 tree with `applicable` (its data device — `scan.device`, else the
-name — has a folder in this scan), its in-memory `job` record
+name — has a folder in this scan; a scalar-columns job, which reads the
+s-file alone, applies to every scan), its in-memory `job` record
 (`queued`/`running`/`done`/`failed`/`no_data`, artifacts, error, the
 run's captured log lines) and `files` (what is on disk under
 `analysis/ScanNNN/<output_name>/`, so a page loaded after a portal
@@ -416,14 +453,21 @@ through another's recipe), on demand via its `preview` button or per
 edit with `auto`; **duplicate as** copies the open recipe for the same
 device with `output_name` set to the new id; a save refreshes the analyzer list.  The editor's own API is documented
 in `ScanAnalysis/CLAUDE.md`.
+The portal also passes the editor its `columns=` hook
+(`_config_editor_columns`): a scan's s-file header, the scalar-columns
+form's input picker — the scan by `uid` (the drawer) or `day` + `scan` in
+the portal's experiment (the full page); one line read, nothing written.
 `GET /run/{uid}/artifact?path=<relative>` serves one produced file —
 the resolved path must stay inside the scan's own analysis folder
 (`analysis_runs.contained_artifact`; symlinks resolved), else 404.
 Build + run + `cleanup()` all happen on the worker thread, so config
 and analyzer failures become `failed` records, never 500s; every run ends
-with `release_memory()` (gc + glibc `malloc_trim`) before its record flips
-to finished, because the allocator otherwise keeps a run's peak resident
-in this long-lived, memory-capped process (2.8 GB after one scope scan);
+with `release_memory()` (gc + glibc `malloc_trim`), because the allocator
+otherwise keeps a run's peak resident in this long-lived, memory-capped
+process (2.8 GB after one scope scan) — **after** its record flips to
+finished (2026-11-05: the whole-process gc took seconds in a portal holding
+image caches, so a 0.1 s scalar job read "running" for ~2 s; the one worker
+thread still releases before any next job starts);
 `run_analysis` returning `None` and `DataUnavailableWarning` map to
 `no_data` (the worklist runner's own mapping).  The factory seam
 (`create_app(analysis_factory=…)`) is how the tests drive the whole
@@ -650,9 +694,12 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   `/plot/api/images/tile.png`; tiles across, the colour map and the levels
   redraw in place and save as typed; device, tiles and layout reload. The
   **z scale** (`image_zscale`) is LabVIEW's autoscale: each tile from its
-  own darkest to brightest pixel, one scale shared by every tile
-  (`images.shared_levels` via `/plot/api/images/levels`, which reads EVERY
-  tile first — the author's ruling, and the page says so), or black and
+  own darkest to brightest pixel, one scale shared by the tiles shown
+  (`images.shared_levels` via `/plot/api/images/levels`, which reads them
+  first and the page says so; `shown=` names a one-row strip's few spread
+  over the scan, so hidden tiles are never read for it — the author,
+  2026-11-03, replacing "every tile of the scan"; a hidden tile stepped to
+  in the big view may clip; changing tiles across reads it again), or black and
   white typed in ("fixed"). There is **no percentile window**: a laser
   mode is a small spot and a percentile white saturates it (the author,
   2026-10-28). The **ROI** is kept per camera (`image_rois`, `[x0, y0,
@@ -815,10 +862,11 @@ Two rules for anyone extending this:
   `wave_x0`/`wave_dx`; `read_1d_data` owns both facts and hands back the
   trace at its true length. A second copy of that arithmetic here is how
   the two drift.
-- **Per-bin averaging is not offered for traces.** Each shot carries its
-  own axis, so averaging across shots is the consumer's job (the arc's
-  ruling: resampling belongs to whoever averages): a trace device shows
-  one shot at a time whatever the per-shot/binned switch says.
+- **Nothing resamples a trace.** Each shot carries its own axis; on the
+  scan page's trace route a trace device shows one shot at a time. The
+  Images strip's bin tile (below) is the one average, and it is only
+  sample by sample over shots that share one x axis
+  (`geecs_data_utils.io.shot_traces.average_traces`), refused otherwise.
 
 ## The 2-D map (the Plot page's view; the Grid tab until 2026-10-29)
 
@@ -874,7 +922,9 @@ pages: the page form's `page` field says which one a save reopens
 plot or 2-D map), so a save here never moves the Plot page; a set an
 older copy saved on its strip (`tab="images"`) opens the XY plot.
 The rail holds what every camera shares (per bin / per shot / one per
-bin, layout, tiles across); each camera's row has its own toolbar
+bin, layout, tiles across, and the max tile width — `image_tile_max`, CSS
+px, none by default: a column never grows past it, so a scan of one tile or
+one bin stays a sensible size, and the export follows it); each camera's row has its own toolbar
 (camera, colour map, z scale and levels, X-ray-hit filter, centring,
 colour bar, ROI).
 
@@ -889,7 +939,24 @@ the place (`cmap@2`, `roi@3`, `settings.camera_field`), parsed in
 `dropcam` add and remove. ROIs stay per device in `image_rois`. Each row
 is one `.strip[data-cam]` (`id="strip"`, then `strip@2`, ...); a row on
 one scale keeps its bar in an end column every stacked row reserves, so
-the columns line up. A trace device shows only as the one camera.
+the columns line up.
+
+**Trace rows** (the author, 2026-11-03): a device that records traces
+(`images.trace_device` → `geecs_data_utils.io.shot_traces.trace_device`:
+an array stack, or per-shot NI-HWS scope files — the LeCroy's `.dat`) is
+a row like a camera's, alone or stacked, over the same tiles. A tile is a
+small server PNG (`routes.images.trace_png`, matplotlib's object API, so
+Copy/Save grid keep working); a bin's tile is its shots' mean **sample by
+sample, only when they share one x axis** (`shot_traces.average_traces`:
+same length, same x values; a bin whose axes differ has no tile and says
+why — nothing is resampled). The row's z scale is its y range (each tile,
+shared over every tile through the same `levels` route, or typed in); its
+channel is `image_channel` / `ImageCamera.channel` (`channel@N`), one per
+row — stack the scope again for another channel. A camera's colour map,
+clean-ups, background, colour bar and ROI do not apply and are not shown.
+`tile.png` and `levels` answer for either kind (the device decides);
+`/plot/api/images/trace` is a trace tile as a figure, which the big view
+draws so it zooms.
 `plotter/static/images.js` draws the **big view**: the tile
 clicked (or stepped to with ‹ › along its camera's row; a click on another
 row moves it to that camera) at full size: the tile's own picture
@@ -908,6 +975,31 @@ its place among the bins left). A bin tile's URL and the levels route
 carry the set's filter JSON (`filters=`), so every route resolves a
 tile's rows alike; a shot or picked tile names its row and needs none.
 
+**Scan conditions** (the author, 2026-11-05): above the strip, one line
+per condition column of a scalar-columns job (`plotter.scans.conditions`
+over `geecs_data_utils.scan_conditions`: the labels from the scan's own
+analysis folder, the values from the s-file) — the scan's label, or
+*mixed* with a "changed mid-scan" chip and the split, `unknown` counting
+shots with no value; a "?" unfolds where they come from. The same list is
+`/plot/api/conditions?day=&scan=`. Per tile or on other pages: not yet.
+The shot filters' editor (`plot_tools.js`) offers a condition column's
+labels (`#filter-conditions`, `scans.condition_labels`: the open scan's)
+as "is / is not <label>", stored as the label's number for both bounds —
+the filter model is unchanged.
+Under them, the **scan scalars** (the author, 2026-11-05): the s-file
+columns the viewer picks in the rail's Scalars group (`image_scalars`,
+none by default; `scaladd` / `scaldrop`, at most `MAX_SCALARS`), each
+summarized over the shots the strip shows (the shot filters apply) with
+one statistic for all (`image_scalar_stat`: mean ± std, median
+[quartiles], mean ± std. error) — `plotter.scans.scan_scalars` over
+Data-Utils' `binning.summarize_columns`, so no statistic is written here.
+The copied/saved grid prints the conditions on one line and the scalars
+on the next (`data-conditions`, `data-scalars`); the export draws each
+tile at its on-screen size by default, the `full res` switch (per
+browser) at the pictures' own resolution.
+`/plot/api/images/scalars?day=&scan=&cols=&stat=&filters=` answers the
+same numbers with the snippet that rebuilds them.
+
 **Background subtraction** (the author, 2026-11-03): the rail's
 Background scan (`image_bg`, a `ScanRef`, any day) names a scan whose
 average each camera takes off each of its shots, first (before the
@@ -917,9 +1009,9 @@ camera's tile over every shot of the background scan
 once); `images.Background` keys the cache on the scan's folder. Tile
 and levels URLs carry `bg=YYYY-MM-DD:N`; a camera row's bg / no bg
 toggle (`image_bgsub`, `ImageCamera.bgsub`) leaves it off that camera.
-The big view's processing preview (a recipe's) does not subtract it. A device whose stack holds traces
-(`images.trace_kind`) has no strip and draws one shot's trace from the
-portal's `/api/run/{uid}/trace`. Tiles carry their bin label
+The big view's processing preview (a recipe's) does not subtract it. A
+trace row's tile opens in the big view as its figure
+(`/plot/api/images/trace`), with no processing choice. Tiles carry their bin label
 (`images.Tile.bin`), which is how a 2-D map cell opens on its bin. The
 selection is the browser tab's (`sessionStorage`), never the set's. Like
 the Plot page, it opens the portal's own experiment only (the author:

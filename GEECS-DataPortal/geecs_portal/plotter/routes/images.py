@@ -8,6 +8,7 @@ and z scale. Each is a few calls into :mod:`geecs_portal.plotter.images`.
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import date
 from pathlib import Path
@@ -56,6 +57,16 @@ class LevelsResponse(BaseModel):
     tiles: int
 
 
+class TraceResponse(BaseModel):
+    """A trace tile as the big view draws it."""
+
+    #: The plotly figure (theme sentinels for the page to resolve).
+    figure: dict
+    points: int
+    #: The shots the tile's rows name (a bin's mean is over those that had a trace).
+    shots: int
+
+
 class StripResponse(BaseModel):
     """A device's strip: its tiles and the snippet that loads their pixels."""
 
@@ -93,8 +104,11 @@ def tile_url(
     prep: ImagePrep = ImagePrep(),
     filters: str = "",
     bg: str = "",
+    channel: Optional[int] = None,
 ) -> str:
     """A tile's PNG URL, relative to the app root; the page adds the display.
+
+    A trace device's tile names its scope *channel* (``None``: a camera).
 
     A bin's one shot (``pick``) is a shot tile: its index is its row. A
     bin carries the shot filters (*filters*, the set's JSON): its index is
@@ -106,6 +120,8 @@ def tile_url(
         query["filters"] = filters
     if bg:
         query["bg"] = bg  # the background scan (YYYY-MM-DD:N) taken off each shot
+    if channel is not None:
+        query["channel"] = channel
     return f"api/images/tile.png?{urlencode({**query, **prep_query(prep)})}"
 
 
@@ -117,6 +133,28 @@ def parse_rows(text: str) -> list[images.Tile]:
         raise HTTPException(
             status_code=422, detail=f"rows={text!r}: whole numbers"
         ) from None
+
+
+def shown_tiles(found: list[images.Tile], shown: str) -> list[images.Tile]:
+    """The tiles whose ``index`` the ``shown`` parameter lists (``""``: all).
+
+    The page's one-row layout shows a few tiles spread over the scan; the
+    shared scale is taken over those only (the author, 2026-11-03).
+
+    Raises
+    ------
+    HTTPException
+        422 when ``shown`` is not whole numbers.
+    """
+    if not shown:
+        return found
+    try:
+        wanted = {int(v) for v in shown.split(",")}
+    except ValueError:
+        raise HTTPException(
+            status_code=422, detail=f"shown={shown!r}: whole numbers"
+        ) from None
+    return [t for t in found if t.index in wanted]
 
 
 def parse_prep(hits: str, centre: Optional[float]) -> ImagePrep:
@@ -149,6 +187,7 @@ def strip_tiles(
     prep: ImagePrep = ImagePrep(),
     filters: str = "",
     bg: str = "",
+    channel: Optional[int] = None,
 ) -> list[TileModel]:
     """The strip's tiles with their URLs; captions carry the scan variable's value.
 
@@ -181,7 +220,7 @@ def strip_tiles(
             rows=list(t.rows),
             caption=t.caption,
             bin=t.bin,
-            url=tile_url(day, scan, device, strip, t.index, prep, filters, bg),
+            url=tile_url(day, scan, device, strip, t.index, prep, filters, bg, channel),
         )
         for t in found
     ]
@@ -213,6 +252,30 @@ def strip_code(
         "        print(tile.caption, '—', why)\n"
         "        continue\n"
         "    print(tile.caption, pixels.shape)\n"
+    )
+
+
+def scalars_code(
+    day: date, scan: int, columns: list[str], stat: str, filters: str, experiment: str
+) -> str:
+    """The notebook snippet that rebuilds the scan scalars' numbers."""
+    agg, err, _label = scans.SCALAR_STATS[stat]
+    where = f", experiment={experiment!r}" if experiment else ""
+    keep = (
+        f"keep = images.shot_rows(frame, {filters!r})\n"
+        "rows = frame if keep is None else frame.iloc[sorted(r - 1 for r in keep)]\n"
+        if filters
+        else "rows = frame\n"
+    )
+    return (
+        "from datetime import date\n"
+        "from geecs_data_utils.data.binning import summarize_columns\n"
+        "from geecs_portal.plotter import images, scans\n\n"
+        f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
+        "frame = scans.load_frame(run)\n"
+        f"{keep}"
+        f"for column, s in summarize_columns(rows, {columns!r}, agg={agg!r}, err={err!r}).items():\n"
+        "    print(column, s.center, s.err_low, s.err_high, s.count)\n"
     )
 
 
@@ -345,18 +408,134 @@ def open_background(ctx: Context, bg: str) -> Optional[images.Background]:
     )
 
 
+def trace_code(
+    day: date,
+    scan: int,
+    device: str,
+    strip: str,
+    experiment: str,
+    channel: int,
+    pick_by: str = "",
+) -> str:
+    """The notebook snippet that loads each trace tile as the page does."""
+    where = f", experiment={experiment!r}" if experiment else ""
+    by = f", pick_by=frame[{pick_by!r}]" if strip == "pick" and pick_by else ""
+    return (
+        "from datetime import date\n"
+        "from geecs_portal.plotter import images, scans\n\n"
+        f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
+        "frame, folder = scans.load_frame(run), scans.scan_folder(run)\n"
+        f"for tile in images.tiles(frame, {strip!r}{by}):\n"
+        "    try:\n"
+        f"        trace = images.trace_tile(folder, frame, {device!r}, tile.rows, {channel})\n"
+        "    except images.NoImage as why:\n"
+        "        print(tile.caption, '—', why)\n"
+        "        continue\n"
+        "    x, y = trace.data[:, 0], trace.data[:, 1]  # a bin: its shots' mean\n"
+        "    print(tile.caption, len(x), y.min(), y.max())\n"
+    )
+
+
+def _axis_title(label: Optional[str], units: Optional[str]) -> str:
+    """``"Time (s)"``: the reader's label and units, whichever it gave."""
+    if label and units:
+        return f"{label} ({units})"
+    return label or (f"({units})" if units else "")
+
+
+def trace_png(trace, levels: Optional[tuple[float, float]] = None) -> bytes:
+    """A trace tile: the line, small, with its axes; y from *levels* when given.
+
+    matplotlib's object API (never pyplot). Without *levels* the y range is
+    the trace's own; with them every tile of a row reads on one scale. The
+    ticks are few and in engineering units (``2 µs``, ``500 mV``), so they
+    read at a tile's size.
+    """
+    from matplotlib.figure import Figure
+    from matplotlib.ticker import EngFormatter, MaxNLocator
+
+    from geecs_portal.resources import figure_png
+
+    fig = Figure(figsize=(3.2, 2.0), dpi=100)
+    ax = fig.add_subplot()
+    ax.plot(trace.data[:, 0], trace.data[:, 1], linewidth=1.0)
+    ax.margins(x=0)
+    if levels is not None:
+        # A little room either side, as matplotlib's own range leaves,
+        # so the highest and lowest samples are not drawn on the frame.
+        pad = 0.04 * (levels[1] - levels[0])
+        ax.set_ylim(levels[0] - pad, levels[1] + pad)
+    for axis, units in ((ax.xaxis, trace.x_units), (ax.yaxis, trace.y_units)):
+        axis.set_major_locator(MaxNLocator(4))
+        axis.set_major_formatter(EngFormatter(unit=units or "", sep=" "))
+    ax.tick_params(labelsize=9, length=2, pad=1)
+    ax.grid(True, linewidth=0.3, alpha=0.5)
+    fig.subplots_adjust(left=0.2, right=0.96, top=0.95, bottom=0.14)
+    return figure_png(fig)
+
+
+def trace_tile_png(
+    folder: Path,
+    frame,
+    device: str,
+    rows: tuple[int, ...],
+    channel: int,
+    levels: Optional[tuple[float, float]],
+) -> bytes:
+    """A trace tile's PNG; a 404 naming why there is none.
+
+    Levels that do not rise (white not above black) draw the trace's own
+    range, rather than a flat line.
+    """
+    if levels is not None and not levels[1] > levels[0]:
+        levels = None
+    try:
+        return trace_png(
+            images.trace_tile(folder, frame, device, rows, channel), levels
+        )
+    except images.NoImage as why:
+        raise HTTPException(status_code=404, detail=str(why)) from None
+
+
+def trace_view(trace, name: str) -> dict:
+    """The big view's figure for a trace tile (plotly, the page's theme)."""
+    from geecs_portal import figures as portal_figures
+
+    figure = portal_figures.trace_figure(
+        trace.data[:, 0],
+        trace.data[:, 1],
+        name=name,
+        x_title=_axis_title(trace.x_label, trace.x_units),
+        y_title=_axis_title(trace.y_label, trace.y_units),
+        palette=portal_figures.THEMED_PALETTE,
+    )
+    return portal_figures.page_figure(figure)
+
+
+def opened_scan(ctx: Context, day: date, scan: int):
+    """The scan's run, its s-file and its folder (a 404 when it is not there)."""
+    run = ctx.run(day, scan)
+    return run, scans.load_frame(run), scans.scan_folder(run)
+
+
+def picture_device(folder: Path, device: str) -> bool:
+    """Whether *device* records traces; a 404 when it has no pictures either."""
+    if images.is_image_device(folder, device):
+        return False
+    if images.trace_device(folder, device).kind:
+        return True
+    raise HTTPException(
+        status_code=404, detail=f"{device!r} has no pictures in this scan"
+    )
+
+
 def register(router: APIRouter, ctx: Context) -> None:
-    """Add the image routes to *router*."""
+    """Add the image routes to *router* (the trace and scalar routes too)."""
+    register_traces(router, ctx)
+    register_scalars(router, ctx)
 
     def opened(day: date, scan: int):
-        run = ctx.run(day, scan)
-        return run, scans.load_frame(run), scans.scan_folder(run)
-
-    def picture_device(folder: Path, device: str) -> None:
-        if not images.is_image_device(folder, device):
-            raise HTTPException(
-                status_code=404, detail=f"{device!r} has no pictures in this scan"
-            )
+        return opened_scan(ctx, day, scan)
 
     @router.get("/api/images/devices", response_model=DevicesResponse)
     def api_devices(day: date, scan: int) -> JSONResponse:
@@ -371,16 +550,26 @@ def register(router: APIRouter, ctx: Context) -> None:
         scan: int,
         device: str,
         strip: Strip = Query(default="bins", description="a tile per bin or per shot"),
+        channel: int = Query(default=0, ge=0, description="a scope's channel"),
     ) -> JSONResponse:
         """The device's tiles, in order, each with its PNG URL."""
         run, frame, folder = opened(day, scan)
-        picture_device(folder, device)
-        body = StripResponse(
+        traces = picture_device(folder, device)
+        tiles = strip_tiles(
+            run,
+            frame,
+            strip,
+            day=day,
+            scan=scan,
             device=device,
-            strip=strip,
-            tiles=strip_tiles(run, frame, strip, day=day, scan=scan, device=device),
-            code=strip_code(day, scan, device, strip, ctx.experiment),
+            channel=channel if traces else None,
         )
+        code = (
+            trace_code(day, scan, device, strip, ctx.experiment, channel)
+            if traces
+            else strip_code(day, scan, device, strip, ctx.experiment)
+        )
+        body = StripResponse(device=device, strip=strip, tiles=tiles, code=code)
         return JSONResponse(body.model_dump(), headers=NO_CACHE)
 
     @router.get("/api/images/levels", response_model=LevelsResponse)
@@ -401,19 +590,35 @@ def register(router: APIRouter, ctx: Context) -> None:
         ),
         filters: str = Query(default="", description="the shot filters (JSON)"),
         bg: str = Query(default="", description="a background scan, YYYY-MM-DD:N"),
+        channel: int = Query(default=0, ge=0, description="a scope's channel"),
+        shown: str = Query(
+            default="",
+            description="the tiles on screen, their indices comma-separated; empty is all",
+        ),
     ) -> JSONResponse:
-        """One black and white for the whole strip (the "shared" z scale).
+        """One black and white over the tiles shown (the "shared" z scale).
 
-        Reads every tile of the strip: its darkest and its brightest pixel.
-        A strip of one shot per bin names its rows (``rows``); otherwise
-        the strip is the shots the shot filters (``filters``) keep.
+        Reads each of them: its darkest and its brightest pixel (a trace
+        device: its lowest and highest sample, the y range). A strip of one
+        shot per bin names its rows (``rows``); otherwise the strip is the
+        shots the shot filters (``filters``) keep. ``shown`` narrows it to
+        the tiles on screen (one row spread over the scan shows a few), so a
+        hidden tile is never read for the scale.
         """
         run, frame, folder = opened(day, scan)
-        picture_device(folder, device)
+        traces = picture_device(folder, device)
         prep = parse_prep(hits, centre)
         keep = None if rows else keep_rows(frame, filters)
         try:
             found = parse_rows(rows) if rows else images.tiles(frame, strip, keep=keep)
+            found = shown_tiles(found, shown)
+            if traces:
+                # A trace row's shared y range: its lowest to highest sample.
+                lo, hi, count = images.trace_levels(
+                    folder, frame, device, found, channel
+                )
+                body = LevelsResponse(zmin=lo, zmax=hi, tiles=count)
+                return JSONResponse(body.model_dump(), headers=NO_CACHE)
             zmin, zmax, count = images.shared_levels(
                 folder,
                 frame,
@@ -458,8 +663,12 @@ def register(router: APIRouter, ctx: Context) -> None:
             default="",
             description="a background scan, YYYY-MM-DD:N: its average off each shot",
         ),
+        channel: int = Query(default=0, ge=0, description="a scope's channel"),
     ) -> Response:
         """One tile's PNG: the shot's image, or the bin's average, in its ROI.
+
+        A trace device's tile is its trace drawn small (a bin: its shots'
+        mean on their shared x axis), ``zmin``/``zmax`` its y range.
 
         With ``zmin`` and ``zmax`` both given they are black and white
         (a fixed or shared z scale); otherwise the tile's own darkest and
@@ -467,10 +676,13 @@ def register(router: APIRouter, ctx: Context) -> None:
         or its files are not there) is a 404 naming why.
         """
         _, frame, folder = opened(day, scan)
-        picture_device(folder, device)
+        traces = picture_device(folder, device)
         keep = keep_rows(frame, filters) if strip == "bins" else None
         rows = tile_rows(frame, strip, index, keep)
         levels = (zmin, zmax) if zmin is not None and zmax is not None else None
+        if traces:
+            png = trace_tile_png(folder, frame, device, rows, channel, levels)
+            return Response(png, media_type="image/png", headers=NO_CACHE)
         prep = parse_prep(hits, centre)
         png = tile_png(
             folder,
@@ -502,3 +714,75 @@ def register(router: APIRouter, ctx: Context) -> None:
         """The strip's one colour bar on a shared or fixed z scale: *zmin* to *zmax*."""
         png = grid_bar_png(cmap, zmin, zmax, length, vertical)
         return Response(png, media_type="image/png")
+
+
+def register_scalars(router: APIRouter, ctx: Context) -> None:
+    """Add the scan scalars' route (the line under the conditions) to *router*."""
+
+    @router.get("/api/images/scalars")
+    def api_scalars(
+        day: date,
+        scan: int,
+        cols: str = Query(description="the s-file columns, as a JSON list"),
+        stat: str = Query(
+            default="mean_std", description="mean_std | median_iqr | mean_stderr"
+        ),
+        filters: str = Query(default="", description="the set's shot filters (JSON)"),
+    ) -> JSONResponse:
+        """The Images page's scan scalars: each column over the shots the strip shows."""
+        try:
+            columns = json.loads(cols)
+            if not (
+                isinstance(columns, list) and all(isinstance(c, str) for c in columns)
+            ):
+                raise ValueError
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="cols: a JSON list of column names"
+            ) from None
+        if stat not in scans.SCALAR_STATS:
+            raise HTTPException(
+                status_code=400, detail=f"stat: one of {', '.join(scans.SCALAR_STATS)}"
+            )
+        _run, frame, _folder = opened_scan(ctx, day, scan)
+        keep = keep_rows(frame, filters)
+        body = scans.scan_scalars(frame, keep, columns, stat)
+        body["code"] = scalars_code(day, scan, columns, stat, filters, ctx.experiment)
+        return JSONResponse(body, headers=NO_CACHE)
+
+
+def register_traces(router: APIRouter, ctx: Context) -> None:
+    """Add the trace tile's figure route (the big view's) to *router*."""
+
+    @router.get("/api/images/trace", response_model=TraceResponse)
+    def api_trace(
+        day: date,
+        scan: int,
+        device: str,
+        strip: Strip = "bins",
+        index: int = Query(default=0, description="the bin's position, or the row"),
+        channel: int = Query(default=0, ge=0, description="a scope's channel"),
+        filters: str = Query(
+            default="", description="the shot filters (JSON): a bin's shots"
+        ),
+    ) -> JSONResponse:
+        """A trace tile as a figure (the big view): the shot's trace, or the bin's mean.
+
+        The same rows and refusals as its ``tile.png``; a figure, not a
+        PNG, so the big view zooms and reads values off.
+        """
+        _, frame, folder = opened_scan(ctx, day, scan)
+        if not picture_device(folder, device):
+            raise HTTPException(status_code=404, detail=f"{device!r} records no traces")
+        keep = keep_rows(frame, filters) if strip == "bins" else None
+        rows = tile_rows(frame, strip, index, keep)
+        try:
+            trace = images.trace_tile(folder, frame, device, rows, channel)
+        except images.NoImage as why:
+            raise HTTPException(status_code=404, detail=str(why)) from None
+        body = TraceResponse(
+            figure=trace_view(trace, device),
+            points=int(trace.data.shape[0]),
+            shots=len(rows),
+        )
+        return JSONResponse(body.model_dump(), headers=NO_CACHE)

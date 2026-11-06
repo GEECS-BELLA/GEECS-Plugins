@@ -5,8 +5,14 @@
 // many across), each tile with its caption (and its colour bar, drawn into
 // it), a camera's one colour bar (a shared or fixed scale) in a narrow
 // column at the right beside its last row, and with several cameras each row under its camera's name;
-// all under the panel's title line. White background and dark text whatever
+// all under the panel's title line and the scan's conditions (the page's
+// list above the strip, on one line) and the picked scan scalars (a line
+// under them). White background and dark text whatever
 // the page's theme, so it pastes cleanly into slides and the logbook.
+// Each tile is drawn at the size it has on screen (times the screen's pixel
+// density: sharp where it is pasted, a fraction of the file); the "full res"
+// switch beside the buttons draws the pictures at their own resolution
+// instead, remembered per browser.
 "use strict";
 
 (function () {
@@ -17,6 +23,20 @@
   const toast = (text) => { if (window.GeecsKit) window.GeecsKit.toast(text); };
   const CLIPBOARD_OK = !!(navigator.clipboard && window.ClipboardItem);
   const MAX_WIDTH = 6000;  // px; a wider grid is scaled down to this
+  const FULL_KEY = "geecs.strip.fullres";
+  const fullButton = document.querySelector("[data-strip-full]");
+  let full = false;
+  try { full = localStorage.getItem(FULL_KEY) === "1"; } catch (_) { full = false; }
+  const showFull = () => { if (fullButton) fullButton.setAttribute("aria-pressed", String(full)); };
+  if (fullButton) {
+    showFull();
+    fullButton.addEventListener("click", () => {
+      full = !full;
+      showFull();
+      try { localStorage.setItem(FULL_KEY, full ? "1" : "0"); } catch (_) { /* this tab only */ }
+      toast(full ? "Grid exports at the pictures' full resolution" : "Grid exports at screen size");
+    });
+  }
   const FONT = 'px system-ui, -apple-system, "Segoe UI", sans-serif';
 
   // Tiles across as a strip lays them out now: in one row, every tile shown;
@@ -60,13 +80,27 @@
     let cellW = Math.max(...pictures.map((i) => i.naturalWidth));
     let cellH = Math.max(...pictures.map((i) => i.naturalHeight));
     const gap0 = Math.max(4, Math.round(cellW * 0.03));
-    const scale = Math.min(1, (MAX_WIDTH - gap0 * (cols + 1)) / (cellW * cols));
+    let scale = Math.min(1, (MAX_WIDTH - gap0 * (cols + 1)) / (cellW * cols));
+    if (!full) {
+      // the widest tile as shown, in device pixels; never above the picture's own size
+      const shown = Math.max(...parts.map((p) => p.tiles[0].getBoundingClientRect().width));
+      if (shown > 0) scale = Math.min(scale, (shown * (window.devicePixelRatio || 1)) / cellW);
+    }
     cellW = Math.round(cellW * scale);
     cellH = Math.round(cellH * scale);
     const gap = Math.max(4, Math.round(cellW * 0.03));
     const font = Math.max(11, Math.round(cellW * 0.07));
     const captionH = Math.round(font * 1.5);
     const titleH = Math.round(font * 2.2);
+    // the scan's conditions (the Images page's list), on one line under the title
+    let conditions = [];
+    try { conditions = JSON.parse(holder.dataset.conditions || "[]"); } catch (e) { conditions = []; }
+    const lineH = Math.round(font * 1.4);
+    // the picked scan scalars, one line under the conditions
+    let scalars = "";
+    try { scalars = JSON.parse(holder.dataset.scalars || '""'); } catch (e) { scalars = ""; }
+    const lines = (conditions.length ? 1 : 0) + (scalars ? 1 : 0);
+    const condH = lines ? lines * lineH + Math.round(font * 0.4) : 0;
     const nameH = named ? Math.round(font * 1.8) : 0;
     const rowH = cellH + captionH + gap;
     // A camera's one colour bar (a shared or fixed scale) stands in a
@@ -75,7 +109,7 @@
       .map((p) => Math.round(p.bar.naturalWidth * (cellH / p.bar.naturalHeight))));
     const canvas = document.createElement("canvas");
     canvas.width = gap + cols * (cellW + gap) + (barW ? barW + gap : 0);
-    canvas.height = titleH + parts.reduce((h, p) => h + nameH + p.rows * rowH, 0) + gap;
+    canvas.height = titleH + condH + parts.reduce((h, p) => h + nameH + p.rows * rowH, 0) + gap;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -83,6 +117,13 @@
     ctx.textBaseline = "middle";
     ctx.font = `600 ${font}${FONT}`;
     ctx.fillText(holder.dataset.title || "", gap, titleH / 2, canvas.width - 2 * gap);
+    ctx.font = `${font}${FONT}`;
+    let line = 0;
+    if (conditions.length) {
+      ctx.fillText(conditions.join("  ·  "), gap, titleH + lineH / 2, canvas.width - 2 * gap);
+      line += 1;
+    }
+    if (scalars) ctx.fillText(scalars, gap, titleH + line * lineH + lineH / 2, canvas.width - 2 * gap);
     const fit = (image, x, y) => {
       // Fit the cell, keeping the picture's shape.
       const f = Math.min(cellW / image.naturalWidth, cellH / image.naturalHeight);
@@ -90,7 +131,7 @@
       const h = image.naturalHeight * f;
       ctx.drawImage(image, x + (cellW - w) / 2, y + (cellH - h) / 2, w, h);
     };
-    let top = titleH;
+    let top = titleH + condH;
     for (const part of parts) {
       if (named) {
         ctx.font = `600 ${font}${FONT}`;
@@ -138,7 +179,11 @@
   const reason = (error) => (error && error.message) || String(error);
 
   saveButton.addEventListener("click", async () => {
-    try { download(await render()); toast(`Saved ${filename()}`); }
+    try {
+      const blob = await render();
+      download(blob);
+      toast(`Saved ${filename()} (${(blob.size / 1e6).toFixed(1)} MB${full ? ", full resolution" : ""})`);
+    }
     catch (error) { toast(`Could not save the grid: ${reason(error)}`); }
   });
   copyButton.addEventListener("click", async () => {

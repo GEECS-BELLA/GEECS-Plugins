@@ -14,6 +14,7 @@ from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_catalog import metadata_rows
 
 from geecs_portal import analysis
+from geecs_portal.day_scans import parse_rules, run_json
 from geecs_portal.routes.common import (
     _LISTING_HEADERS,
     _jump_target,
@@ -65,6 +66,62 @@ def api_day(
         "filter": filter,
         "runs": [_summary_json(run) for run in runs],
         "page": f"{root_of(request)}/day/{selected.isoformat()}",
+    }
+    return JSONResponse(payload, headers=_LISTING_HEADERS)
+
+
+@router.get("/api/day/{day}/scans")
+def api_day_scans(
+    day: str,
+    experiment: str = "",
+    where: str = "",
+    portal: PortalState = Depends(get_state),
+) -> JSONResponse:
+    """The day's scans judged by their s-files: conditions, and the ``where`` rules.
+
+    On demand only (the day page's button): every scan's s-file is read
+    (cached by its modification time). ``where`` is a JSON list of
+    ``ScanRule`` (a condition's label, or a column's mean in a range); each
+    run's ``verdict`` is ``pass`` / ``mixed`` / ``fail`` / ``missing``.
+    """
+    selected = _parse_iso_day(day)
+    exp = experiment or portal.default_experiment
+    try:
+        rules = parse_rules(where)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"where: {exc}") from exc
+    runs, error = portal.list_day(exp, selected, "")
+    if error:
+        raise HTTPException(status_code=503, detail=f"catalog unavailable: {error}")
+    numbers = [r.scan_number for r in runs if r.scan_number is not None]
+    means = sorted({r.column for r in rules if r.op == "between"})
+    found = portal.day_scans.summaries(exp, selected, numbers, means)
+    labels: dict[str, list[str]] = {}
+    columns: set[str] = set()
+    for summary in found.values():
+        if summary is not None:
+            columns |= summary.columns
+            for column, names in summary.labels.items():
+                labels.setdefault(column, names)
+    out = [
+        {
+            "uid": r.uid,
+            "scan_number": r.scan_number,
+            **run_json(found.get(r.scan_number), rules),
+        }
+        for r in runs
+    ]
+    counts: dict[str, int] = {}
+    for row in out:
+        counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
+    payload = {
+        "day": selected.isoformat(),
+        "experiment": exp,
+        "rules": [r.model_dump(exclude_none=True) for r in rules],
+        "runs": out,
+        "counts": counts,
+        "condition_labels": labels,
+        "columns": sorted(columns),
     }
     return JSONResponse(payload, headers=_LISTING_HEADERS)
 

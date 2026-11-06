@@ -391,3 +391,68 @@ def bin_frame(frame: "pd.DataFrame", cfg: BinningConfig) -> BinnedFrame:  # noqa
     out.index.name = bin_name
     counts.index.name = bin_name
     return BinnedFrame(frame=out, counts=counts)
+
+
+@dataclass(frozen=True)
+class ColumnSummary:
+    """One column over a set of rows: its centre and error band, and how many rows had a value.
+
+    ``center - err_low`` / ``center + err_high`` are the band's edges (the
+    quartiles for ``err="iqr"``); all three are NaN when ``count`` is 0.
+    """
+
+    column: str
+    center: float
+    err_low: float
+    err_high: float
+    count: int
+
+
+def summarize_columns(
+    frame: "pd.DataFrame",
+    columns: Iterable[str],
+    *,
+    agg: AggT = "mean",
+    err: ErrT = "std",
+    percentiles: Tuple[float, float] = (0.25, 0.75),
+) -> dict[str, ColumnSummary]:
+    """Each of *columns* over all of *frame*'s rows, as :func:`bin_frame` reduces one bin.
+
+    The rows are one bin, each column on its own (a row missing one column
+    still counts for the others), its non-numeric cells NaN and left out.
+    A column *frame* lacks is left out of the result.
+    """
+    import math
+
+    import pandas as pd
+
+    out: dict[str, ColumnSummary] = {}
+    for column in columns:
+        if column not in frame.columns:
+            continue
+        values = pd.to_numeric(frame[column], errors="coerce")
+        count = int(values.notna().sum())
+        if count == 0:
+            nan = math.nan
+            out[column] = ColumnSummary(column, nan, nan, nan, 0)
+            continue
+        work = pd.DataFrame({"__all__": 0, "__value__": values})
+        result = bin_frame(
+            work,
+            BinningConfig(
+                bin_col="__all__",
+                value_cols=["__value__"],
+                agg=agg,
+                err=err,
+                percentiles=percentiles,
+            ),
+        )
+        row = result.frame.iloc[0]
+        out[column] = ColumnSummary(
+            column,
+            float(row[("__value__", "center")]),
+            float(row[("__value__", "err_low")]),
+            float(row[("__value__", "err_high")]),
+            count,
+        )
+    return out

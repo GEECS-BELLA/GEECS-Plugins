@@ -20,14 +20,15 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
 from geecs_data_utils.data.binning import bin_rows
 from geecs_data_utils.data.row_filters import RowFilters, filter_mask
 from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep, subtract_background
-from geecs_data_utils.io import shot_images
+from geecs_data_utils.io import shot_images, shot_traces
+from geecs_data_utils.io.array1d import Data1DResult
 from geecs_data_utils.io.display_png import window_levels
 
 #: The X-ray-hit filters as the rail names them, in its order; one per
@@ -110,17 +111,26 @@ def is_image_device(
     )
 
 
-def trace_kind(folder: Path, device: str, devices: Optional[list[str]] = None) -> str:
-    """``"lineout"`` or ``"waveform"`` for a device whose stack holds traces, else ``""``.
+def trace_device(
+    folder: Path, device: str, devices: Optional[list[str]] = None
+) -> shot_traces.TraceDevice:
+    """How *device* records traces (``kind == ""``: it does not), remembered.
 
-    A trace has no strip (one shot carries its own axis, so shots do not
-    average); the Images page draws it one shot at a time.
+    ``geecs_data_utils.io.shot_traces.trace_device``: an array capture
+    stack, or per-shot scope files (one opened to name its channels). The
+    answer is kept until the device folder changes, so a page of tiles
+    probes the share once.
     """
-    probe = shot_images.device_kind(folder, device, devices=devices)
-    if probe.kind != "stack":
-        return ""
-    content = shot_images.stack_content(probe)
-    return "" if content == "image" else content
+    stamp = _folder_stamp(folder, device)
+    key = ("trace-device", str(folder), device, stamp)
+    with _kept_lock:
+        kept = _kept.get(key)
+    if isinstance(kept, shot_traces.TraceDevice):
+        return kept
+    found = shot_traces.trace_device(folder, device, devices=devices)
+    if stamp is not None:
+        _keep(key, found)
+    return found
 
 
 def devices(folder: Path) -> list[str]:
@@ -432,9 +442,59 @@ def tile_array(
     return found.array
 
 
-_kept: OrderedDict[tuple, np.ndarray | tuple[str, float]] = OrderedDict()
+_kept: OrderedDict[tuple, object] = OrderedDict()
 _kept_bytes = 0
 _kept_lock = threading.Lock()
+
+
+def _size(value: object) -> int:
+    """The bytes a kept value holds: pixels, a trace's samples, or a reason (0)."""
+    if isinstance(value, np.ndarray):
+        return value.nbytes
+    if isinstance(value, Data1DResult):
+        return value.data.nbytes
+    return 0
+
+
+def _remembered(key: tuple, compute: Callable[[], object]) -> object:
+    """*compute*'s value, kept under *key* (a :class:`NoImage` kept as its reason).
+
+    A refusal is kept for ``_REFUSAL_SECONDS`` only, so a passing failure
+    (a share blip, a file being written) is looked at again; a value until
+    the store, at most ``_KEPT_BYTES``, needs its room (oldest out first).
+
+    Raises
+    ------
+    NoImage
+        From *compute*, or remembered.
+    """
+    now = time.monotonic()
+    with _kept_lock:
+        kept = _kept.get(key)
+        if isinstance(kept, tuple) and now - kept[1] > _REFUSAL_SECONDS:
+            del _kept[key]  # look again: the failure may have passed
+            kept = None
+        if kept is not None:
+            _kept.move_to_end(key)
+    if isinstance(kept, tuple):
+        raise NoImage(kept[0])
+    if kept is not None:
+        return kept
+    try:
+        value = compute()
+    except NoImage as why:
+        _keep(key, (str(why), now))
+        raise
+    _keep(key, value)
+    return value
+
+
+def _folder_stamp(folder: Path, device: str) -> Optional[int]:
+    """The device folder's modification time (``None``: it cannot be read)."""
+    try:
+        return (folder / device).stat().st_mtime_ns
+    except OSError:
+        return None
 
 
 def kept_tile_array(
@@ -459,9 +519,8 @@ def kept_tile_array(
     NoImage
         As :func:`tile_array`.
     """
-    try:
-        stamp = (folder / device).stat().st_mtime_ns
-    except OSError:
+    stamp = _folder_stamp(folder, device)
+    if stamp is None:
         return tile_array(folder, frame, device, rows, prep, background)
     key = (
         str(folder),
@@ -473,32 +532,21 @@ def kept_tile_array(
         background,
         _background_stamp(background, device),
     )
-    now = time.monotonic()
-    with _kept_lock:
-        kept = _kept.get(key)
-        if isinstance(kept, tuple) and now - kept[1] > _REFUSAL_SECONDS:
-            del _kept[key]  # look again: the failure may have passed
-            kept = None
-        if kept is not None:
-            _kept.move_to_end(key)
-    if isinstance(kept, tuple):
-        raise NoImage(kept[0])
-    if kept is not None:
-        return kept
-    try:
+
+    def compute() -> np.ndarray:
         pixels = tile_array(folder, frame, device, rows, prep, background)
-    except NoImage as why:
-        _keep(key, (str(why), now))
-        raise
-    pixels.flags.writeable = False  # shared between requests: never edited
-    _keep(key, pixels)
-    return pixels
+        pixels.flags.writeable = False  # shared between requests: never edited
+        return pixels
+
+    found = _remembered(key, compute)
+    assert isinstance(found, np.ndarray)
+    return found
 
 
-def _keep(key: tuple, value: np.ndarray | tuple[str, float]) -> None:
+def _keep(key: tuple, value: object) -> None:
     """Store *value*, dropping the oldest until the store fits its bytes."""
     global _kept_bytes
-    size = value.nbytes if isinstance(value, np.ndarray) else 0
+    size = _size(value)
     if size > _KEPT_BYTES:
         return  # one tile bigger than the whole store: never kept
     with _kept_lock:
@@ -508,7 +556,84 @@ def _keep(key: tuple, value: np.ndarray | tuple[str, float]) -> None:
         _kept_bytes += size
         while _kept_bytes > _KEPT_BYTES:
             _, old = _kept.popitem(last=False)
-            _kept_bytes -= old.nbytes if isinstance(old, np.ndarray) else 0
+            _kept_bytes -= _size(old)
+
+
+def trace_tile(
+    folder: Path,
+    frame: pd.DataFrame,
+    device: str,
+    rows: tuple[int, ...],
+    channel: int = 0,
+) -> Data1DResult:
+    """The tile's trace: one shot's, or its shots' sample-by-sample mean.
+
+    ``geecs_data_utils.io.shot_traces.average_trace_rows``: shots the
+    device missed, or whose file is missing or unreadable, are left out;
+    a bin whose shots' x axes differ has no mean (nothing is resampled).
+    Remembered as :func:`kept_tile_array` is, until the folder changes.
+
+    Raises
+    ------
+    NoImage
+        No shot of the tile has a trace, or the axes differ; the reason.
+    """
+    probe = trace_device(folder, device)
+
+    def compute() -> Data1DResult:
+        found = shot_traces.average_trace_rows(
+            folder, frame, device, rows, channel, probe
+        )
+        if found.result is None:
+            raise NoImage(found.reason or found.kind)
+        found.result.data.flags.writeable = False  # shared between requests
+        return found.result
+
+    stamp = _folder_stamp(folder, device)
+    if stamp is None:
+        return compute()
+    key = ("trace", str(folder), device, rows, len(frame), stamp, channel)
+    found = _remembered(key, compute)
+    assert isinstance(found, Data1DResult)
+    return found
+
+
+def trace_levels(
+    folder: Path,
+    frame: pd.DataFrame,
+    device: str,
+    tiles: list[Tile],
+    channel: int = 0,
+) -> tuple[float, float, int]:
+    """One y range for every trace tile: the lowest and highest sample of them all.
+
+    The trace row's "shared" scale, as :func:`shared_levels` is a camera's:
+    every tile given (the page's shown ones) is read first, a few at a time.
+
+    Returns
+    -------
+    tuple
+        ``(low, high, tiles)``: the range and how many tiles had a trace.
+
+    Raises
+    ------
+    NoImage
+        No tile has a trace.
+    """
+
+    def levels(tile: Tile) -> Optional[tuple[float, float]]:
+        try:
+            y = trace_tile(folder, frame, device, tile.rows, channel).data[:, 1]
+        except NoImage:
+            return None
+        finite = y[np.isfinite(y)]
+        return (float(finite.min()), float(finite.max())) if finite.size else None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        found = [w for w in pool.map(levels, tiles) if w is not None]
+    if not found:
+        raise NoImage("no tile has a trace")
+    return min(lo for lo, _ in found), max(hi for _, hi in found), len(found)
 
 
 def crop(pixels: np.ndarray, roi: Optional[Roi]) -> np.ndarray:
@@ -540,12 +665,13 @@ def shared_levels(
     prep: ImagePrep = ImagePrep(),
     background: Optional[Background] = None,
 ) -> tuple[float, float, int]:
-    """One black and one white for every tile: the darkest and brightest pixel.
+    """One black and one white for *tiles*: the darkest and brightest pixel.
 
-    Over each tile's ROI; the brightest tile sets white, so no tile
-    saturates. This reads EVERY tile of the strip, the whole scan for a
-    strip of shots (the author's ruling: the scale must be consistent
-    across all of them), a few at a time; the page says so while it runs.
+    Over each tile's ROI; the brightest tile sets white, so none of them
+    saturates. Reads every tile given, a few at a time: the page gives the
+    tiles it shows (the author, 2026-11-03: a row spread over the scan
+    reads its few, not the whole scan; a hidden tile stepped to in the big
+    view may clip), and every tile of a grid; it says so while it runs.
 
     Returns
     -------

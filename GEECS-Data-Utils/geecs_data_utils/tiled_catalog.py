@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Protocol, TypeVar, cast, runtime_checkable
 
 from geecs_data_utils import tiled_schema
+from geecs_data_utils.data.sfile import column_alias
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,13 @@ class RunSummary:
         Free-text description (filterable).
     save_sets : tuple of str
         The named save sets recorded in the start doc.
+    scan_variable : str
+        What the scan stepped, as a person reads it: each stepped column's
+        LabVIEW alias when it has one, else its name (``scan_motors``),
+        joined with ``" × "``; empty for a noscan.
+    scan_range : str
+        The stepped range, e.g. ``"15 → 45, step 2.5"``, when the start doc
+        records it (a folder scan's ScanInfo does); empty otherwise.
     """
 
     uid: str
@@ -159,6 +167,8 @@ class RunSummary:
     experiment: str = ""
     description: str = ""
     save_sets: tuple[str, ...] = ()
+    scan_variable: str = ""
+    scan_range: str = ""
 
     def filter_text(self) -> str:
         """Return the lowercase haystack a metadata filter box searches.
@@ -176,6 +186,7 @@ class RunSummary:
                 self.mode,
                 self.exit_status or "",
                 self.description,
+                self.scan_variable,
                 *self.save_sets,
             ]
         ).lower()
@@ -333,7 +344,32 @@ def summary_from_metadata(
             or ""
         ),
         save_sets=tuple(str(s) for s in save_sets),
+        scan_variable=" × ".join(
+            column_alias(m) or m for m in tiled_schema.scan_motors(start_doc)
+        ),
+        scan_range=_scan_range(start_doc),
     )
+
+
+def _number(value: float) -> str:
+    return f"{value:.6g}"
+
+
+def _scan_range(start_doc: dict) -> str:
+    """``"15 → 45, step 2.5"`` from the start doc's ``scan_start`` / ``scan_end`` / ``scan_step``."""
+    try:
+        start = float(start_doc["scan_start"])
+        end = float(start_doc["scan_end"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    text = f"{_number(start)} → {_number(end)}"
+    step = start_doc.get("scan_step")
+    try:
+        if step is not None and float(step):
+            text += f", step {_number(abs(float(step)))}"
+    except (TypeError, ValueError):
+        pass
+    return text
 
 
 class TiledScanCatalog:

@@ -669,109 +669,134 @@ def run_worklist(
         If True, skip analysis execution but still update status to done.
     """
     for priority, tag, analyzer in worklist:
-        scan_folder = ScanPaths.get_scan_folder_path(
-            tag=tag, base_directory=base_directory
+        run_task(
+            priority, tag, analyzer, base_directory=base_directory, dry_run=dry_run
         )
-        analyzer_id = analyzer_task_id(analyzer)
 
-        owner = f"{socket.gethostname()}:{os.getpid()}"
-        # The atomic claim gate: exactly one runner passes per task (a
-        # loser here means another live runner owns it — skip, never
-        # double-run the same analyzer into the same output files).
-        if not try_acquire_claim(scan_folder, analyzer_id, owner):
-            logger.info(
-                "run_worklist: %s on scan %s is claimed by a live runner "
-                "(or the folder is not visible); skipping",
-                analyzer_id,
-                tag,
-            )
-            continue
+
+def run_task(
+    priority: int,
+    tag: ScanTag,
+    analyzer: object,
+    *,
+    base_directory: Optional[Path] = None,
+    dry_run: bool = False,
+) -> Optional[str]:
+    """Run one worklist task under its atomic claim; return its final state.
+
+    The body of :func:`run_worklist`'s loop, callable one task at a time
+    (the analysis worker checks for a cancel between tasks).  Returns
+    ``"done"``, ``"no_data"`` or ``"failed"``, or ``None`` when another
+    live runner holds the claim (the task was skipped).
+    """
+    scan_folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=base_directory)
+    analyzer_id = analyzer_task_id(analyzer)
+
+    owner = f"{socket.gethostname()}:{os.getpid()}"
+    final = "failed"
+    # The atomic claim gate: exactly one runner passes per task (a
+    # loser here means another live runner owns it — skip, never
+    # double-run the same analyzer into the same output files).
+    if not try_acquire_claim(scan_folder, analyzer_id, owner):
         logger.info(
-            "run_worklist: claiming scan=%s analyzer=%s priority=%s dry_run=%s",
-            tag,
+            "run_worklist: %s on scan %s is claimed by a live runner "
+            "(or the folder is not visible); skipping",
             analyzer_id,
-            priority,
-            dry_run,
+            tag,
         )
-        now_iso = datetime.now(timezone.utc).isoformat()
+        return None
+    logger.info(
+        "run_worklist: claiming scan=%s analyzer=%s priority=%s dry_run=%s",
+        tag,
+        analyzer_id,
+        priority,
+        dry_run,
+    )
+    now_iso = datetime.now(timezone.utc).isoformat()
+    update_status(
+        scan_folder,
+        analyzer_id,
+        priority=priority,
+        state="claimed",
+        claimed_by=owner,
+        claimed_at=now_iso,
+        last_heartbeat=now_iso,
+    )
+    stop_event = threading.Event()
+    hb_thread = threading.Thread(
+        target=_heartbeat_updater,
+        args=(scan_folder, analyzer_id, priority, stop_event),
+        daemon=True,
+    )
+    hb_thread.start()
+    try:
+        display_files: Optional[List[str]] = None
+        if not dry_run:
+            if base_directory is not None:
+                # the analyzer reads the scan this status record is for
+                analyzer.base_directory = Path(base_directory)
+            raw = analyzer.run_analysis(tag)
+            if raw:
+                display_files = [str(p) for p in raw]
+        # Stop heartbeat before writing final status to prevent a race where
+        # the heartbeat thread overwrites state="done" back to state="claimed".
+        stop_event.set()
+        hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
         update_status(
             scan_folder,
             analyzer_id,
             priority=priority,
-            state="claimed",
-            claimed_by=owner,
-            claimed_at=now_iso,
-            last_heartbeat=now_iso,
+            state="done",
+            error=None,
+            claimed_by=None,
+            claimed_at=None,
+            last_heartbeat=None,
+            display_files=display_files,
         )
-        stop_event = threading.Event()
-        hb_thread = threading.Thread(
-            target=_heartbeat_updater,
-            args=(scan_folder, analyzer_id, priority, stop_event),
-            daemon=True,
+        logger.info(
+            "run_worklist: completed scan=%s analyzer=%s priority=%s display_files=%s",
+            tag,
+            analyzer_id,
+            priority,
+            display_files,
         )
-        hb_thread.start()
-        try:
-            display_files: Optional[List[str]] = None
-            if not dry_run:
-                raw = analyzer.run_analysis(tag)
-                if raw:
-                    display_files = [str(p) for p in raw]
-            # Stop heartbeat before writing final status to prevent a race where
-            # the heartbeat thread overwrites state="done" back to state="claimed".
-            stop_event.set()
-            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
-            update_status(
-                scan_folder,
-                analyzer_id,
-                priority=priority,
-                state="done",
-                error=None,
-                claimed_by=None,
-                claimed_at=None,
-                last_heartbeat=None,
-                display_files=display_files,
-            )
-            logger.info(
-                "run_worklist: completed scan=%s analyzer=%s priority=%s display_files=%s",
-                tag,
-                analyzer_id,
-                priority,
-                display_files,
-            )
-        except DataUnavailableWarning:
-            # Device did not record data for this scan — expected, not an error.
-            stop_event.set()
-            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
-            update_status(
-                scan_folder,
-                analyzer_id,
-                priority=priority,
-                state="no_data",
-                error=None,
-                claimed_by=None,
-                claimed_at=None,
-                last_heartbeat=None,
-            )
-            logger.info("run_worklist: no_data scan=%s analyzer=%s", tag, analyzer_id)
-        except Exception as exc:  # pragma: no cover - log failure and continue
-            logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
-            stop_event.set()
-            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
-            update_status(
-                scan_folder,
-                analyzer_id,
-                priority=priority,
-                state="failed",
-                error=str(exc),
-                claimed_by=None,
-                claimed_at=None,
-                last_heartbeat=None,
-            )
-        finally:
-            stop_event.set()  # idempotent safety net
-            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)  # safe to join twice
-            release_claim(scan_folder, analyzer_id)
-            analyzer.cleanup()
+        final = "done"
+    except DataUnavailableWarning:
+        # Device did not record data for this scan — expected, not an error.
+        stop_event.set()
+        hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
+        update_status(
+            scan_folder,
+            analyzer_id,
+            priority=priority,
+            state="no_data",
+            error=None,
+            claimed_by=None,
+            claimed_at=None,
+            last_heartbeat=None,
+        )
+        logger.info("run_worklist: no_data scan=%s analyzer=%s", tag, analyzer_id)
+        final = "no_data"
+    except Exception as exc:  # pragma: no cover - log failure and continue
+        logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
+        stop_event.set()
+        hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
+        update_status(
+            scan_folder,
+            analyzer_id,
+            priority=priority,
+            state="failed",
+            error=str(exc),
+            claimed_by=None,
+            claimed_at=None,
+            last_heartbeat=None,
+        )
+    finally:
+        stop_event.set()  # idempotent safety net
+        hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)  # safe to join twice
+        release_claim(scan_folder, analyzer_id)
+        analyzer.cleanup()
+    return final
 
 
 def load_analyzers_from_config(

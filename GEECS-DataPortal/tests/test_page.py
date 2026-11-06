@@ -226,3 +226,33 @@ def test_the_scan_page_script_boots_without_an_undefined_name(
         [node, str(script)], capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_the_day_page_plots_the_scans_it_shows(tmp_path) -> None:
+    """ "Plot these scans" posts the shown rows into the viewer's set."""
+    import json
+
+    client = _with_plotter(tmp_path)
+    page = client.get("/day/2026-07-12").text
+    assert 'id="plot-shown"' in page
+    assert 'data-scan="1"' in page and 'data-scan="2"' in page
+    # what the button posts for nine shown scans: the lowest the main one,
+    # the rest added, merged (the overlay draws at most eight)
+    rest = ",".join(f"2026-07-12:{n}" for n in range(2, 10))
+    saved = client.post(
+        "/plot/",
+        data={
+            "day": "2026-07-12",
+            "scan": "1",
+            "set": "ann",
+            "owner": "ann",
+            "page": "plot",
+            "scans": rest,
+            "multi": "merged",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    body = json.loads((tmp_path / "sets" / "ann.json").read_text())
+    assert body["scan"] == 1 and len(body["extra_scans"]) == 8
+    assert body["scan_view"] == "merged"
