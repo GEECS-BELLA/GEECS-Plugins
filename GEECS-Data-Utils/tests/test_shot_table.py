@@ -223,6 +223,52 @@ def test_a_witness_outage_falls_back_to_fire_intervals_unaudited() -> None:
     assert [f for flags in table.flags for f in flags if f != "unwitnessed"] == []
 
 
+def test_a_fire_nobody_saw_keeps_the_previous_row_its_edge_and_frame() -> None:
+    """Sim-bench scan 4: row 5 fired, the witness did not count, the camera wrote nothing.
+
+    Row 5 repeats row 4's count and stamp.  It has no edge of its own, so it
+    is timed by its fire and flagged unwitnessed; row 4 keeps its frame.
+    """
+    clean = _rows()
+    rows = clean.copy()
+    rows.loc[4, ["witness_count", "witness_stamp"]] = rows.loc[
+        3, ["witness_count", "witness_stamp"]
+    ].to_numpy()
+    rows.loc[4, "fire_stamp"] = rows["witness_stamp"][3] + 0.07  # after row 4's edge
+    rows.loc[4, "complete"] = False
+    rows["witness_late"] = False
+    cam = _cam(clean, drop=(4,))
+    table = shot_table(START, rows, [cam])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, None, 4, 5, 6)
+    assert _flagged(table, "unwitnessed") == [5]
+    assert not any("witness-stamp-shared" in f for row in table.flags for f in row)
+    assert table.held.get("cam", ()) == () and table.extras["cam"] == ()
+    assert [f for row in table.flags for f in row] == ["unwitnessed", "missing:cam"]
+    assert list(table.rows["cam-meancounts"][:4]) == [0.0, 10.0, 20.0, 30.0]
+    # the old layout never reads the witness columns
+    old = {key: v for key, v in START.items() if key != "layout"}
+    assert not any("unwitnessed" in row for row in shot_table(old, rows, [cam]).flags)
+
+
+@pytest.mark.parametrize("late", [True, False])
+def test_a_dropped_witness_count_times_its_row_by_the_fire(late: bool) -> None:
+    """Sim-bench scan 3: the witness missed row 5's edge; the camera took it.
+
+    Flagged ``witness_late`` by the plan or not, the repeated count is no
+    edge: row 5 takes its own frame by its fire interval, row 4 keeps its.
+    """
+    clean = _rows()
+    rows = clean.copy()
+    rows.loc[4:, "witness_count"] -= 1  # one count lost from row 5 on
+    rows.loc[4, "witness_stamp"] = rows["witness_stamp"][3]
+    rows["witness_late"] = [k == 4 and late for k in range(8)]
+    cam = _cam(clean, attribute=False)
+    table = shot_table(START, rows, [cam])
+    assert table.record_for_shot["cam"] == tuple(range(8))
+    assert _flagged(table, "unwitnessed") == [5]
+    assert not any("witness-stamp-shared" in f for row in table.flags for f in row)
+
+
 def test_unwitnessed_assigns_by_interval_not_nearest() -> None:
     """The fire leads its edge by up to a period: here 0.7 s, nearer the next fire."""
     rows = _rows(lead=0.7).drop(columns=["witness_count", "witness_stamp"])

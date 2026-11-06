@@ -20,8 +20,10 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   witnessed, synchronous        nearest offset-corrected stamp, globally
                                 nearest pair first (the s-file's join)
   unwitnessed / witness late    the interval (fire *k* − m, fire *k*+1],
-                                *m* the stamp budget; the overlap by the
-                                run's phase, else *interval-ambiguous*
+  / count not advanced          *m* the stamp budget; the overlap by the
+                                run's phase, else *interval-ambiguous*;
+                                flagged *unwitnessed* (a repeated count's
+                                stamp is the previous row's edge)
   stamp-shared (count +k)       the group's records in counter order when
                                 there is one per row and the counters are
                                 consecutive, else unresolved (never guessed)
@@ -385,6 +387,7 @@ class _RowClock:
             for name in ("unwitnessed", "witness_late"):
                 if name in rows:
                     loose |= rows[name].fillna(False).astype(bool).to_numpy()
+            loose |= _count_held(rows)
             witnessed = pd.Series(np.where(loose, np.nan, stamps))
             shared = (witnessed.duplicated(keep=False) & witnessed.notna()).to_numpy()
             for k in range(n):
@@ -489,6 +492,26 @@ def _flag_complete_mismatch(
     for k, complete in enumerate(rows["complete"].fillna(False).astype(bool)):
         filled = all(fresh[device][k] for device in required)
         flags[k] += ["complete-mismatch"] * (filled != complete)
+
+
+def _count_held(rows: pd.DataFrame) -> np.ndarray:
+    """Rows whose ``witness_count`` did not advance over the previous row's.
+
+    Such a row has no witness edge of its own (a fire nobody saw, a
+    witness that dropped the count): its ``witness_stamp`` is the previous
+    row's edge repeated, so it is timed by its fire, like an unwitnessed
+    row, and the previous row keeps its edge and its record.  A count
+    across a ``witness_epoch`` change is a restart, not a repeat.
+    """
+    counts = _column(rows, "witness_count")
+    held = np.zeros(len(rows), dtype=bool)
+    if counts is None or len(rows) < 2:
+        return held
+    held[1:] = np.isfinite(counts[1:]) & (counts[1:] == counts[:-1])
+    if "witness_epoch" in rows:
+        epochs = rows["witness_epoch"].to_numpy()
+        held[1:] &= epochs[1:] == epochs[:-1]
+    return held
 
 
 def _column(rows: pd.DataFrame, name: str) -> np.ndarray | None:
