@@ -382,3 +382,30 @@ def test_a_native_camera_skipping_a_frame_leaves_a_gap_in_its_stream(
     assert sum(d["stop"] - d["start"] for d in col.datums("adtest_cam1")) == 2
     assert all(e["data"]["complete"] for e in col.primary_events())
     assert not math.isnan(col.primary_events()[0]["data"]["fire_stamp"])
+
+
+def test_a_down_pause_costs_the_shot_no_refire(RE, box) -> None:
+    """The fire that paused for a down device is not one of the shot's paid attempts."""
+    from tests.test_strict_plans import strict_count
+
+    sc = ShotControl(WRITES, experiment="TestExp", name="box", setter_factory=box)
+    connect_mock(RE, sc)
+    a = _camera(RE, box, "UC_A", shot_timeout=0.1)
+    box.quiet = {"uc_a"}
+
+    def down_at_the_first(n: int) -> bool:
+        if n == 1:
+            set_mock_value(a.connected_status, "Disconnected")
+        return True
+
+    box.on_fire = down_at_the_first
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(RunEngineInterrupted):
+        RE(strict_count(sc, [a], 1, max_refires=1))
+    assert box.fires == 1
+    set_mock_value(a.connected_status, "")
+    RE.resume()  # still quiet: both paid attempts (fires 2 and 3) miss
+    rows = [e["data"] for e in col.primary_events()]
+    assert box.fires == 3 and [r["attempt"] for r in rows] == [1, 2, 3]
+    assert col.docs["stop"][-1]["exit_status"] == "success"
