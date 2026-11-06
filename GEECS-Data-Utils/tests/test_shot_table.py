@@ -181,9 +181,8 @@ def test_a_clock_step_inside_the_window_moves_nothing() -> None:
     assert table.record_for_shot["cam"] == tuple(range(8))
 
 
-@pytest.mark.xfail(reason="residual tracker, later slice", strict=True)
 def test_a_clock_step_is_flagged_where_it_appears() -> None:
-    """Equal counters with a jump in residual is *clock-step*."""
+    """A jump in residual is *clock-step*; the attribute verifies the rows after it."""
     rows = _rows()
     cam = _cam(rows)
     stamps = cam.records.stamps + np.where(np.arange(8) >= 4, 0.3, 0.0)
@@ -191,6 +190,57 @@ def test_a_clock_step_is_flagged_where_it_appears() -> None:
         START, rows, [_device("cam", stamps, cam.counter, cam.witness_count)]
     )
     assert _flagged(table, "clock-step:cam") == [5]
+    assert [f for row in table.flags for f in row] == ["clock-step:cam"]
+
+
+def _stepped(attribute: bool = True) -> tuple[pd.DataFrame, DeviceRecords]:
+    """100 shots at 1 Hz; the camera's stamps jump +0.8 s from frame 91 on."""
+    rows = _rows(100)
+    cam = _cam(rows)
+    stamps = cam.records.stamps + np.where(np.arange(100) >= 90, 0.8, 0.0)
+    attr = cam.witness_count if attribute else None
+    return rows, _device("cam", stamps, cam.counter, attr, np.arange(100.0))
+
+
+@pytest.mark.parametrize("attribute", [True, False], ids=["attribute", "counter-only"])
+def test_a_clock_step_that_moves_records_flags_every_moved_row(attribute) -> None:
+    """The step lands frames 91.. on shots 92..: one gap, then nine wrong rows.
+
+    The counters advance once over the gap, as for a missed edge, so only
+    the witness attribute (one behind on every moved row) or, without it,
+    the displaced residual can say the rows after the step are suspect.
+    """
+    rows, cam = _stepped(attribute)
+    table = shot_table(START, rows, [cam])
+    assert table.record_for_shot["cam"][89:] == (89, None) + tuple(range(90, 99))
+    assert _flagged(table, "missing:cam") == [91]
+    assert _flagged(table, "clock-step:cam") == list(range(92, 101))
+    assert table.device_flags == {}
+
+
+def test_a_lone_late_record_is_no_clock_step() -> None:
+    rows = _rows(20)
+    cam = _cam(rows)
+    stamps = cam.records.stamps.copy()
+    stamps[7] += 0.3
+    table = shot_table(
+        START, rows, [_device("cam", stamps, cam.counter, cam.witness_count)]
+    )
+    assert table.record_for_shot["cam"] == tuple(range(20))
+    assert all(flags == () for flags in table.flags)
+
+
+def test_residual_dither_within_the_stamp_budget_is_no_clock_step() -> None:
+    rows = _rows(60)
+    cam = _cam(rows)
+    dither = np.random.default_rng(3).uniform(-0.03, 0.03, 60)
+    attr = cam.witness_count - np.isin(np.arange(60), [9, 33]).astype(float)
+    table = shot_table(
+        START,
+        rows,
+        [_device("cam", cam.records.stamps + dither, cam.counter, attr)],
+    )
+    assert all(flags == () for flags in table.flags)
 
 
 def test_shots_sharing_a_witness_stamp_take_records_in_counter_order() -> None:

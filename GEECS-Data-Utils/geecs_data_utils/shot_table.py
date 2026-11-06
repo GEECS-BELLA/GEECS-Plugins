@@ -38,7 +38,7 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
 
 Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
-``witness-stale``, ``unwitnessed``, ``witness-stamp-shared``,
+``witness-stale``, ``clock-step``, ``unwitnessed``, ``witness-stamp-shared``,
 ``witness-stamp-shared-unresolved``, ``interval-ambiguous``,
 ``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
@@ -103,6 +103,14 @@ STAMP_BUDGET_S = 0.03
 SYSTEMATIC_LAG_SHARE = 0.2
 #: ...over at least this many audited records.
 SYSTEMATIC_LAG_MIN_FRAMES = 10
+#: A synchronous device's residual (record stamp − row clock, both
+#: offset-corrected) that moves this many shot periods off its local level,
+#: and stays there, is a clock step (:func:`_clock_step_audit`).  The
+#: residual dithers by a few stamp budgets at most (host clocks, drain
+#: offsets), so the step threshold is never under two of them.
+CLOCK_STEP_SHARE = 0.1
+#: The local level: the median of this many preceding residuals.
+CLOCK_STEP_LEVEL_FRAMES = 5
 
 
 @dataclass(frozen=True)
@@ -326,7 +334,10 @@ def shot_table(
             claimed = set(assigned)
             extras[name] = tuple(i for i in range(len(records)) if i not in claimed)
             run_flags = clock.audit(
-                source, assigned, attribute=start.get("clock") != SOFT_TICK
+                source,
+                assigned,
+                records,
+                attribute=start.get("clock") != SOFT_TICK,
             )
             if run_flags:
                 device_flags[name] = run_flags
@@ -452,15 +463,21 @@ class _RowClock:
         return assigned
 
     def audit(
-        self, source: DeviceRecords, assigned, *, attribute: bool
+        self,
+        source: DeviceRecords,
+        assigned,
+        records: np.ndarray,
+        *,
+        attribute: bool,
     ) -> tuple[str, ...]:
-        """The counter audit, then (not on a soft tick) the attribute audit."""
+        """The counter audit, then (not on a soft tick) the clock-step and attribute audits."""
         if self.counts is None:
             return ()
         name = source.device
         _audit(name, source, assigned, self.counts, self.epochs, self.loose, self.flags)
         if not attribute:
             return ()
+        _clock_step_audit(name, source, assigned, records, self)
         return _attribute_audit(
             name, source, assigned, self.counts, self.loose, self.flags
         )
@@ -732,6 +749,91 @@ def _audit(
             for k in (ka, kb):
                 if f"audit-mismatch:{name}" not in flags[k]:
                     flags[k].append(f"audit-mismatch:{name}")
+
+
+def _clock_step_audit(
+    name: str,
+    source: DeviceRecords,
+    assigned: Sequence[int | None],
+    records: np.ndarray,
+    clock: _RowClock,
+) -> None:
+    """Flag a step in a synchronous device's residual, and every row it may have moved.
+
+    The residual of a timed row (witnessed, not stamp-shared) is its
+    record's stamp less the row's clock, both offset-corrected: a constant
+    for a device whose clock tracks the box's.  Where it leaves its local
+    level (the median of the last :data:`CLOCK_STEP_LEVEL_FRAMES`) by more
+    than the step threshold (:data:`CLOCK_STEP_SHARE` of a period, never
+    under two stamp budgets) and the next timed record confirms the new
+    level (or there is none), the device's clock stepped there: that row is
+    *clock-step*, and a new level begins.  A lone outlier is no step.
+
+    A step is seen only modulo the period, and a counter cannot tell a
+    record moved one shot from an edge the device missed (both advance the
+    counter once over two shots), so every row of a level off the run's
+    first is suspect.  The witness attribute decides it: a row whose
+    record's attribute lags the row's count exactly as the first level's
+    records did (their commonest lag) is verified; any other row of a
+    displaced level — another lag, or no attribute to read — is
+    *clock-step* too.  The flag never moves a record.
+    """
+    threshold = max(CLOCK_STEP_SHARE * clock.period, 2.0 * clock.budget)
+    timed = [
+        (k, i)
+        for k, i in enumerate(assigned)
+        if i is not None
+        and not clock.loose[k]
+        and not clock.shared[k]
+        and np.isfinite(clock.stamps[k])
+        and np.isfinite(records[i])
+    ]
+    residuals = np.array([records[i] - clock.stamps[k] for k, i in timed])
+    if residuals.size < 2:
+        return
+    level_of = np.zeros(residuals.size, dtype=int)  # each timed row's level
+    steps: list[int] = []
+    window: list[float] = [float(residuals[0])]
+    for j in range(1, residuals.size):
+        level = float(np.median(window[-CLOCK_STEP_LEVEL_FRAMES:]))
+        off = abs(residuals[j] - level) > threshold
+        following = residuals[j + 1] if j + 1 < residuals.size else None
+        confirmed = following is None or (
+            abs(following - level) > threshold
+            and abs(following - residuals[j]) <= threshold
+        )
+        if off and confirmed:
+            steps.append(j)
+            window = []
+        level_of[j] = len(steps)
+        if not off or confirmed:
+            window.append(float(residuals[j]))
+    if not steps:
+        return
+    first = residuals[level_of == 0]
+    base = float(np.median(first[:CLOCK_STEP_LEVEL_FRAMES]))
+    attribute = (
+        None
+        if source.witness_count is None
+        else np.asarray(source.witness_count, dtype=float)
+    )
+
+    def lag(j: int) -> float:
+        k, i = timed[j]
+        return np.nan if attribute is None else clock.counts[k] - attribute[i]
+
+    lags = [lag(j) for j in np.flatnonzero(level_of == 0)]
+    finite = [x for x in lags if np.isfinite(x)]
+    reference = max(set(finite), key=finite.count) if finite else None
+    levels = {
+        n: float(np.median(residuals[level_of == n][:CLOCK_STEP_LEVEL_FRAMES]))
+        for n in set(level_of.tolist())
+    }
+    for j, (k, _) in enumerate(timed):
+        displaced = abs(levels[level_of[j]] - base) > threshold
+        unverified = displaced and (reference is None or lag(j) != reference)
+        if (j in steps or unverified) and f"clock-step:{name}" not in clock.flags[k]:
+            clock.flags[k].append(f"clock-step:{name}")
 
 
 def _attribute_audit(
