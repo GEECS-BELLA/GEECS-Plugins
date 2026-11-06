@@ -9,8 +9,10 @@
   a setpoint a number beside its readback, a bit a checkbox, a command a
   button, a readback its text); a role this device omits is not drawn. Every
   control is filled from Hare, enabled on the module's word and written through
-  the module's put route with the operator's name, sent once. The scale, the
-  window and the average are this viewer's own, written nowhere.
+  the module's put route with the operator's name, sent once. The plot is
+  Plotly through the theme's template (plot.js beside the vendored bundle);
+  the scale, the window (Plotly's x range) and the average are this viewer's
+  own, written nowhere.
 #}{% extends "device.html" %}
 {% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/camera.css"><link rel="stylesheet" href="{{ root }}/static/trace.css">{% endblock %}
 {% block header %}{% if device %}<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>{% endif %}{{ super() }}{% endblock %}
@@ -50,17 +52,14 @@
     <article class="panel plot-panel">
       <header>
         <span class="eyebrow">trace</span>
-        <span class="legend" id="legend"></span>
-        <span class="mono dim" id="cursor"></span>
         <span class="chip" id="trace-state" data-state="unknown">trace unknown</span>
         <span class="mono dim" id="rate"></span>
       </header>
-      {% if y %}<canvas id="trace-plot" aria-label="live trace"></canvas>
+      {% if y %}<div class="plot-host"><div id="trace-plot" aria-label="live trace"></div><div class="plot-note dim" id="plot-note">waiting for the first trace</div></div>
       <div class="row tools">
         <div class="field"><label for="yscale">Scale</label><select id="yscale"><option value="linear">linear</option><option value="log">log</option></select></div>
         <div class="field avg"><label for="average">Average</label><input id="average" type="number" min="1" max="100" step="1" value="1"></div>
-        <button class="btn sm ghost" type="button" id="window-full" disabled>Full window</button>
-        <span class="dim" id="window-note">drag across the plot to window it; this viewer's own, written nowhere</span>
+        <span class="dim" id="window-note">drag across the plot to zoom; double-click, or the toolbar's autoscale, for the whole trace; hover for values; this viewer's own, written nowhere</span>
       </div>
       <div class="state" data-state="error" id="trace-error" hidden><div class="t">No trace</div><div class="m mono" id="trace-error-text"></div></div>
       {% else %}<div class="state" data-state="denied"><div class="t">No trace</div><div class="m">The family {{ family.template }} names no axis (no role is an axis_of).</div></div>{% endif %}
@@ -81,4 +80,4 @@
 </dialog>
 {% endblock %}
 {% block role_tables %}<details class="disc roles-all"><summary>Every role · {{ device.roles | length }}</summary>{{ super() }}</details>{% endblock %}
-{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/trace_rules.js" defer></script><script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/trace.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/theme/plotly-cartesian-3.1.1.min.js" defer></script><script src="{{ root }}/theme/plot.js" defer></script><script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/trace_rules.js" defer></script><script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/trace.js" defer></script>{% endif %}{% endblock %}

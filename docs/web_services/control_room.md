@@ -267,7 +267,7 @@ family file, never from the page.
 
 ![The trace page on the bench scope, light theme](assets/control_room_10_trace_light.png)
 
-![The trace page on the bench scope, dark theme](assets/control_room_11_trace_dark.png)
+![The trace page on the bench spectrometer, dark theme](assets/control_room_11_trace_dark.png)
 
 - **The rail** is the family's control groups (for a scope: Acquisition,
   Trigger, one group per channel). Each control is drawn by what it is: a
@@ -278,15 +278,22 @@ family file, never from the page.
   `present` reads 0) has no group and no readings.
 - **The readings** carry the module's word, as everywhere.
 - **The plot** draws one line per channel (A, B, C, D in the theme's trace
-  colours; a disabled channel is listed as `off` and not drawn), at most two
-  new captures a second, and only while the tab is visible. The chip is
-  the capture counter's word: `trace live` while captures arrive, `stale`
-  when they stop. Hover for the cursor readout (time and each channel's
-  value). **Scale** switches linear and log; **Average** averages the last
-  N captures; **drag across the plot** to window it, **Full window** to
-  undo. All three are yours alone: nothing is written to the device.
+  colours; a disabled channel is listed as `C off` and not drawn), at most
+  two new captures a second, and only while the tab is visible. It is the
+  same plot as every other line plot in the Control Room and the portal
+  (Plotly, in the theme's colours). The chip is the capture counter's
+  word: `trace live` while captures arrive, `stale` when they stop.
+  **Hover** for the readout: the axis value and each channel's value
+  there. **Drag across the plot** to zoom in on that part (every sample
+  inside is drawn); **double-click**, or the toolbar's autoscale or reset,
+  for the whole trace again; the toolbar also pans and saves the plot as
+  a PNG. Click a channel's name in the legend to hide or show it.
+  **Scale** switches linear and log; **Average** averages the last N
+  captures. All of these are yours alone: nothing is written to the
+  device. Axis numbers carry SI prefixes only for SI units (`2µ` on a
+  time axis in s); a wavelength in nm, counts or a percentage read plain.
 
-![A window dragged over the pulse, averaging eight captures](assets/control_room_12_trace_window_average.png)
+![A box zoom over the pulse, averaging eight captures](assets/control_room_12_trace_window_average.png)
 
 ## When a write is refused
 

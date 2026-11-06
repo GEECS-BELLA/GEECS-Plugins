@@ -20,27 +20,26 @@ CH = ["ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset"]
 KNOWN = CH + ["ch_a_present", "acquire"]
 
 ROWS: list[tuple[str, str, list[Any], Any]] = [
-    # the scale
+    # what the plot is given
     ("x range: the axis' extent", "xRange", [[3, 1, 2, None], None], [1, 3]),
     ("x range: the viewer's window wins", "xRange", [[0, 10], [2, 4]], [2, 4]),
     ("x range: one point opens one unit", "xRange", [[5], None], [5, 6]),
-    ("ticks: 1, 2 or 5 × 10^k", "ticks", [0, 1, 5], [0, 0.2, 0.4, 0.6, 0.8, 1]),
-    ("ticks: across zero, no float noise", "ticks", [-1e-6, 1e-6, 4], [-1e-6, -5e-7, 0, 5e-7, 1e-6]),
-    ("log ticks: the decades inside", "logTicks", [0.5, 2000], [1, 10, 100, 1000]),
-    ("si: microseconds", "si", [4e-6], {"factor": 1e-6, "prefix": "µ"}),
-    ("si: millivolts", "si", [0.25], {"factor": 0.001, "prefix": "m"}),
-    ("si: volts at 1", "si", [1], {"factor": 1, "prefix": ""}),
-    ("si: nothing to scale", "si", [0], {"factor": 1, "prefix": ""}),
-    ("tick label: in the prefix's units", "tickLabel", [2.5e-6, 1e-6], "2.5"),
-    ("axis title: label, prefix, units", "axisTitle", ["time axis", "s", "µ"], "time axis (µs)"),
-    ("axis title: no units, the label alone", "axisTitle", ["samples", "", "m"], "samples"),
-    # the cursor and the window
-    ("nearest: the closer sample", "nearest", [[0, 1, 2, 3], 1.6], 2),
-    ("nearest: past the end, the last", "nearest", [[0, 1, 2], 9], 2),
-    ("nearest: an empty axis", "nearest", [[], 1], -1),
-    ("window: a drag over the drawn range", "windowFromDrag", [100, 20, 200, 0, 10], [1, 5]),
-    ("window: a click is no window", "windowFromDrag", [50, 52, 200, 0, 10], None),
-    ("window: a drag past the edge clamps", "windowFromDrag", [-30, 100, 200, 0, 10], [0, 5]),
+    ("si unit: seconds take prefixes", "siUnit", ["s"], True),
+    ("si unit: volts, amps, hertz, metres, watts", "siUnit", ["Hz"], True),
+    ("si unit: nanometres are plain (never knm)", "siUnit", ["nm"], False),
+    ("si unit: counts, percent, pixels are plain", "siUnit", ["counts"], False),
+    ("si unit: no unit is plain", "siUnit", [None], False),
+    ("axis format: SI ticks and hover for seconds", "axisFormat", ["s"], {"exponentformat": "SI", "hoverformat": ".4~s"}),
+    ("axis format: a wavelength's ticks plain", "axisFormat", ["nm"], {"exponentformat": "none", "hoverformat": ".5~g"}),
+    ("axis title: label and the family's units", "axisTitle", ["wavelength", "nm"], "wavelength (nm)"),
+    ("axis title: no units, the label alone", "axisTitle", ["samples", ""], "samples"),
+    ("window: a box zoom's x range, ordered", "windowFromRelayout", [{"xaxis.range[0]": 5, "xaxis.range[1]": 2, "yaxis.range[0]": 0}], [2, 5]),
+    ("window: a range given whole", "windowFromRelayout", [{"xaxis.range": [1, 3]}], [1, 3]),
+    ("window: autoscale or reset is the whole trace", "windowFromRelayout", [{"xaxis.autorange": True, "yaxis.autorange": True}], None),
+    ("empty: before the first trace", "emptyWhy", [None, 0, False], "waiting for the first trace"),
+    ("empty: drawing, no words", "emptyWhy", [{"series": [{"off": False}]}, 10, False], ""),
+    ("empty: every channel off", "emptyWhy", [{"series": [{"off": True}]}, 0, True], "every channel is off or empty"),
+    ("empty: nothing positive on a log scale", "emptyWhy", [{"series": [{"off": False}]}, 0, True], "nothing positive to draw on a log scale"),
     ("series name: one channel, the trace's label", "seriesName", [0, 1, "spectrum"], "spectrum"),
     ("series name: the scope's channel letters", "seriesName", [2, 4, "capture"], "C"),
     ("average: whole, 1..100", "averageOf", ["7.4"], 7),
@@ -93,11 +92,15 @@ out.again = R.keep(held, { ...held[1] }, 5).length; // the same tag asked again:
 out.untagged = R.keep(held, { ...held[1], tag: null }, 5).length;
 out.reshaped = R.keep(held, { channels: 2, samples: 3, axis: f32([0, 1, 2]), tag: "x" }, 5).length;
 out.moved = R.keep(held, cap([1, 1, 1], [0, 2, 4]), 5).length; // a new interval: the axis moved, start over
-// y range: finite in the window, off channels out, log positive only
-const axis = f32([0, 1, 2, 3]), s = [{ values: f32([1, null, 3, 100]), off: false }, { values: f32([null, null, null, null]), off: true }];
-out.y = R.yRange(axis, s, 0, 2, false);
-out.ylog = R.yRange(axis, [{ values: f32([-1, 0, 10, 1000]), off: false }], 0, 3, true);
-out.ynone = R.yRange(axis, [s[1]], 0, 3, false);
+// what Plotly is given: one trace per channel in channel order, an off channel empty and named so, a NaN a gap (null),
+// the window's samples only, and on a log scale the positive extrema only
+const axis = f32([0, 1, 2, 3]);
+const three = { channels: 3, samples: 4, axis, series: [{ values: f32([1, null, 3, 100]), off: false }, { values: f32([null, null, null, null]), off: true }, { values: f32([-1, 0, 10, 1000]), off: false }] };
+const pd = R.plotData(three, 0, 2, 100, false, "capture");
+out.plot = { names: pd.traces.map((t) => t.name), x: pd.traces.map((t) => t.x), y: pd.traces.map((t) => t.y), drawn: pd.drawn, kind: [pd.traces[0].type, pd.traces[0].mode, pd.traces[0].connectgaps] };
+out.plotLog = R.plotData(three, 0, 3, 100, true, "capture").traces[2].y;
+out.plotOne = R.plotData({ channels: 1, samples: 4, axis, series: [three.series[0]] }, 0, 3, 100, false, "spectrum").traces.map((t) => t.name);
+out.yOnly = R.windowFromRelayout({ "yaxis.range[0]": 0, "yaxis.range[1]": 1 }) === undefined && R.windowFromRelayout({ "hiddenlabels": [] }) === undefined;
 // decimate: min and max per column, a NaN breaks the line
 const many = f32([...Array(100).keys()].map((i) => (i === 50 ? null : i % 10)));
 const pts = R.decimate(f32([...Array(100).keys()]), many, 0, 99, 10);
@@ -143,7 +146,19 @@ async def test_the_page_decodes_the_trace_the_route_serves() -> None:
         and got["reshaped"] == got["moved"] == 1
     )
     assert (got["again"], got["untagged"]) == (2, 3)
-    assert got["y"] == [0.9, 3.1] and got["ylog"] == [10, 1000] and got["ynone"] is None
+    p = got["plot"]
+    assert p["names"] == ["A", "B off", "C"] and p["kind"] == [
+        "scatter",
+        "lines",
+        False,
+    ]
+    assert (
+        p["x"] == [[0, None, 2], [None], [0, 1, 2]]
+        and p["y"] == [[1, None, 3], [None], [-1, 0, 10]]
+        and p["drawn"] == 5
+    )
+    assert got["plotLog"] == [10, 1000]  # the log scale's positive samples only
+    assert got["plotOne"] == ["spectrum"] and got["yOnly"] is True
     assert got["dec"]["gaps"] == 1 and got["dec"]["n"] <= 2 * 10 + 1 and got["dec"]["first"] == [[0, 0], [9, 9]]  # fmt: skip
     assert got["decWindow"] == [[1, 2], [2, 3]]
     # log: 100 columns of [-1, 1..9] draw as one connected line over the positive extrema (1 and 9), never 100 lone moves

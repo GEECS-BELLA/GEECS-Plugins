@@ -1,12 +1,12 @@
-// The trace page's rules, pure: no DOM, no socket, no clock. trace.js draws what
-// these say; tests/test_trace_rules_js.py runs each rule under node. The answer's
-// decode and reshape, this viewer's average and window, the scale and its ticks,
-// the cursor, which channel group the page hides. Values and words are the
+// The trace page's rules, pure: no DOM, no socket, no clock. trace.js hands what
+// these say to Plotly through the theme's template (plot.js); tests/test_trace_rules_js.py
+// runs each rule under node. The answer's decode and reshape, this viewer's average
+// and window, the traces Plotly is given (decimated, a log scale's positive extrema),
+// the axes' titles and number formats, which channel group the page hides. Values and words are the
 // camera page's rules (fmt, control), reused, never copied; nothing here judges
 // the device. window.GeecsTraceRules in the page, module.exports under node.
 (function (rules, C) {
   "use strict";
-  const PREFIXES = { "-15": "f", "-12": "p", "-9": "n", "-6": "µ", "-3": "m", 0: "", 3: "k", 6: "M", 9: "G", 12: "T" };
 
   // The route's 200: float32 LE, the axis (samples) then y (channels × samples, channels fastest).
   // Each channel's series, and `off` for one all NaN (a disabled scope channel).
@@ -51,58 +51,14 @@
   // The average count typed: a whole number in 1..100, else 1.
   const averageOf = (raw) => { const n = Math.round(Number(raw)); return Number.isFinite(n) ? Math.min(100, Math.max(1, n)) : 1; };
 
-  // ---- the scale
-  // The x range drawn: the viewer's window, else the axis' own extent.
+  // ---- what the plot is given (plot.js and Plotly draw it)
+  // The x range decimated over: the viewer's window, else the axis' own extent.
   function xRange(axis, window) {
     if (window) return window;
     let lo = Infinity, hi = -Infinity;
     for (const x of axis) if (Number.isFinite(x)) { if (x < lo) lo = x; if (x > hi) hi = x; }
     return lo <= hi ? [lo, hi === lo ? lo + 1 : hi] : [0, 1];
   }
-  // The y range over the finite (log: positive) values of the drawn series inside [x0, x1]; null when there is none.
-  function yRange(axis, series, x0, x1, log) {
-    let lo = Infinity, hi = -Infinity;
-    for (const s of series) {
-      if (s.off) continue;
-      for (let i = 0; i < axis.length; i++) {
-        const v = s.values[i];
-        if (axis[i] < x0 || axis[i] > x1 || !Number.isFinite(v) || (log && v <= 0)) continue;
-        if (v < lo) lo = v; if (v > hi) hi = v;
-      }
-    }
-    if (!(lo <= hi)) return null;
-    if (log) return lo === hi ? [lo / 10, hi * 10] : [lo, hi];
-    const pad = (hi - lo) * 0.05 || Math.abs(hi) * 0.05 || 1;
-    return [lo - pad, hi + pad];
-  }
-  // Linear ticks at 1, 2 or 5 × 10^k, about `count` of them, inside [lo, hi].
-  function ticks(lo, hi, count = 6) {
-    const span = hi - lo;
-    if (!(span > 0)) return [lo];
-    const raw = span / count, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
-    const step = (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * mag, out = [];
-    // each tick as i × step, rounded to 12 digits: never a running sum's float noise
-    for (let i = Math.ceil(lo / step - 1e-9); i <= Math.floor(hi / step + 1e-9); i++) out.push(i === 0 ? 0 : Number((i * step).toPrecision(12)));
-    return out;
-  }
-  // Log ticks: every decade inside [lo, hi] (both > 0).
-  function logTicks(lo, hi) {
-    const out = [];
-    for (let k = Math.ceil(Math.log10(lo) - 1e-9); k <= Math.floor(Math.log10(hi) + 1e-9); k++) out.push(Math.pow(10, k));
-    return out;
-  }
-  // The SI prefix that shows values up to `maxAbs` with 1..999 before the point: its factor and letter.
-  function si(maxAbs) {
-    if (!(maxAbs > 0) || !Number.isFinite(maxAbs)) return { factor: 1, prefix: "" };
-    const k = Math.min(12, Math.max(-15, 3 * Math.floor(Math.log10(maxAbs) / 3 + 1e-9)));
-    return { factor: Math.pow(10, k), prefix: PREFIXES[k] };
-  }
-  // A tick's label in the scale's units: up to 4 significant digits, no float noise.
-  const tickLabel = (v, factor) => String(Number((v / factor).toPrecision(4)));
-  // An axis's title: its label and units, prefixed ("time axis (µs)", "capture (mV)", "samples").
-  const axisTitle = (label, units, prefix) => (units ? `${label} (${prefix}${units})` : label);
-
-  // ---- drawing and the cursor
   // At most two points per pixel column inside [x0, x1] (each column's min and max, in order); NaN breaks the line (null).
   // On a log scale (`log`) a column's extrema are over its positive samples only, and a column with none is a gap:
   // the signed extrema of a bipolar trace would otherwise all be dropped by the drawing, leaving nothing.
@@ -131,21 +87,50 @@
     flush();
     return pts;
   }
-  // The sample nearest x on an increasing axis (binary search); -1 for an empty one.
-  function nearest(axis, x) {
-    if (!axis.length) return -1;
-    let a = 0, b = axis.length - 1;
-    while (b - a > 1) { const m = (a + b) >> 1; if (axis[m] <= x) a = m; else b = m; }
-    return Math.abs(axis[a] - x) <= Math.abs(axis[b] - x) ? a : b;
-  }
-  // The viewer's window from a drag between two pixel x's over [x0, x1] drawn in `width` px; null for a click (< 4 px).
-  function windowFromDrag(px0, px1, width, x0, x1) {
-    if (Math.abs(px1 - px0) < 4 || !(width > 0)) return null;
-    const at = (px) => x0 + (Math.min(width, Math.max(0, px)) / width) * (x1 - x0);
-    return [at(Math.min(px0, px1)), at(Math.max(px0, px1))];
-  }
   // A series' name: the trace's label for one channel, else the channel's letter (the scope contract's A, B, …).
   const seriesName = (i, channels, label) => (channels === 1 ? label : String.fromCharCode(65 + i));
+
+
+  // The units SI prefixes belong on (a tick of 2e-6 s reads "2µ"); every other unit is plain (nm, counts, %, px:
+  // a wavelength of 1200 nm is never "1.2k nm").
+  const SI_UNITS = ["s", "V", "A", "Hz", "m", "W"];
+  const siUnit = (units) => SI_UNITS.includes(String(units || "").trim());
+  // An axis's number format for Plotly: SI prefixes on the ticks and in the hover for a base SI unit, plain otherwise.
+  const axisFormat = (units) => (siUnit(units) ? { exponentformat: "SI", hoverformat: ".4~s" } : { exponentformat: "none", hoverformat: ".5~g" });
+  // An axis's title: its label and its units as the family names them ("time axis (s)", "spectrum (counts)", "samples").
+  const axisTitle = (label, units) => (units ? `${label} (${units})` : label);
+  // The viewer's window from a Plotly relayout event: [lo, hi] for an x zoom or pan, null for an autoscale or a
+  // reset (the whole trace), undefined for an event that leaves the x axis alone (a y-only zoom, a legend click).
+  function windowFromRelayout(ev) {
+    if (!ev) return undefined;
+    if (ev["xaxis.autorange"]) return null;
+    const r = Array.isArray(ev["xaxis.range"]) ? ev["xaxis.range"] : [ev["xaxis.range[0]"], ev["xaxis.range[1]"]];
+    const lo = Number(r[0]), hi = Number(r[1]);
+    return r[0] === undefined || r[1] === undefined || !Number.isFinite(lo) || !Number.isFinite(hi) ? undefined : [Math.min(lo, hi), Math.max(lo, hi)];
+  }
+  // The Plotly traces for the shown capture inside [x0, x1]: one per channel, in channel order (so trace i keeps the
+  // theme's --trace-(i+1) whether or not its neighbours are on), each decimated to `columns` (a NaN or a log-scale
+  // column with nothing positive is a gap: null); an off channel is one null point named "<name> off" (Plotly lists a
+  // trace with a point in the legend, never one with none). `drawn` counts the points given, so the page can say why
+  // the plot is empty.
+  function plotData(shown, x0, x1, columns, log, label) {
+    let drawn = 0;
+    const traces = shown.series.map((s, i) => {
+      const name = seriesName(i, shown.channels, label), x = s.off ? [null] : [], y = s.off ? [null] : [];
+      if (!s.off) for (const p of decimate(shown.axis, s.values, x0, x1, columns, log)) {
+        if (p === null) { x.push(null); y.push(null); continue; }
+        x.push(p[0]); y.push(p[1]); drawn++;
+      }
+      return { type: "scatter", mode: "lines", name: s.off ? `${name} off` : name, x, y, connectgaps: false, line: { width: 1.25 } };
+    });
+    return { traces, drawn };
+  }
+  // Why the plot is empty, in words ("" while it draws something).
+  function emptyWhy(shown, drawn, log) {
+    if (!shown) return "waiting for the first trace";
+    if (drawn) return "";
+    return shown.series.every((s) => s.off) || !log ? "every channel is off or empty" : "nothing positive to draw on a log scale";
+  }
 
   // ---- the rail and the readings
   // The role whose value 0 hides a group: `<ch>_present` when every role of the group is `<ch>_…`
@@ -167,7 +152,7 @@
     return { seen: recent, text };
   }
 
-  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, yRange, ticks, logTicks, si, tickLabel, axisTitle, decimate, nearest, windowFromDrag, seriesName, presentRole, hidden, rate, fmt: C.fmt, control: C.control, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
+  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, siUnit, axisFormat, axisTitle, windowFromRelayout, plotData, emptyWhy, presentRole, hidden, rate, fmt: C.fmt, control: C.control, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
 })(
   typeof module === "object" ? module.exports : (window.GeecsTraceRules = {}),
   typeof module === "object" ? require("./camera_rules.js") : window.GeecsCameraRules,

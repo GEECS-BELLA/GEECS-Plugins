@@ -374,3 +374,36 @@ through `device_trace.html` as planned.
 the configs clone on the box pulled); an operator-policy grant for
 `spectrometer_contract` (and `scope_contract`) if writes from the page are
 wanted, the maintainer's.
+
+### 2026-11-05 — slice 4d, the maintainer's findings from the live spectrometer
+
+The maintainer drove the deployed spectrometer page (`ccttest1`) and ruled a
+centre-wide plotting rule: **line plots are Plotly**, through one layout
+template the theme derives from its tokens and vendors beside its
+stylesheets; images stay each surface's own (the camera page's canvas viewer
+stays; the portal is not bound on images). Four findings, in two PRs:
+
+**PR 1, the rule and the trace plot on Plotly** (GeecsWebTheme +
+GeecsControlRoom; the portal's bundle moved). The rule is
+`GeecsWebTheme/CLAUDE.md` § "Line plots are Plotly"; `plot.js` is the
+template (tokens read at run time, trace *i* in `--trace-(i+1)` through the
+colorway, the modebar, the repaint on `geecs:theme`); the one vendored
+bundle is the portal's `plotly-cartesian-3.1.1.min.js`, moved into the
+theme (the portal now loads it from its `/theme` mount; its empty `/static`
+mount is gone). The trace page draws with it: one trace per channel,
+decimated to the plot's width, the window as Plotly's x range (the drag and
+"Full window" are gone), hover for the readout, `uirevision` across
+captures. The unit bug (a wavelength axis read "knm") is fixed: the unit in
+the axis title, SI prefixes for base SI units only. The bench gained
+`scripts/spectrometer_soft_ioc.py`. Found while proving it: Plotly 3.1.1
+hangs in `Plotly.react` when the config names `modeBarButtons` (its config
+comparison never returns on the second react), so the template removes the
+selection tools by `modeBarButtonsToRemove` instead, pinned.
+
+**Next slice's first item: the camera page's lineouts and histogram onto
+`plot.js`** (`camera_controls.js`'s `lines()` canvas drawing,
+`camera_rules.js`'s plot rules). Left out of PR 1 to keep it reviewable.
+
+**PR 2 (next): the processed spectrum and Start/Stop.** The plot shows the
+raw `ARR` only, so Save/Subtract background change nothing on it; and the
+`acquire` role draws as a select of "Done" / "Acquiring".

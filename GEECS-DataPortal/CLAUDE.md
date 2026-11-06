@@ -113,11 +113,14 @@ extending this package.
 - **No build chain.**  Server-rendered Jinja2 templates + minimal inline
   CSS; page behaviour is plain inline JS.  No npm, no CDN assets
   (control-room machines may lack internet).  The one amendment (owner
-  approval 2026-08-30): **vendored, version-pinned JS assets committed
-  under `geecs_portal/static/`** — today exactly one, the Plotly
-  cartesian bundle (`plotly-cartesian-<version>.min.js`, MIT), served
-  from `/static/`.  Upgrading it = replacing the file + the template
-  reference in one commit; never fetch it at build or run time.
+  approval 2026-08-30): **vendored, version-pinned JS assets** — today
+  exactly one, the Plotly cartesian bundle
+  (`plotly-cartesian-<version>.min.js`, MIT), which since 2026-11-05 is
+  GeecsWebTheme's (one copy for every surface, beside its `plot.js`
+  template: `GeecsWebTheme/CLAUDE.md` § "Line plots are Plotly"), served
+  from the portal's `/theme/` mount.  Upgrading it is the theme's change
+  (the file + every template reference in one commit); never fetch it at
+  build or run time.
   Server-side matplotlib PNGs (via the **object API** —
   `matplotlib.figure.Figure`, never pyplot: no global figure registry
   on FastAPI's threadpool) remain for `plot.png`-style endpoints;
@@ -208,7 +211,6 @@ geecs_portal/
   figures.py     # server-side Plot-tab figure authoring (plotly.py):
                  #   palette, base layout, multi-axis ladder, display
   resources.py   # (folder, device, shot) → PNG bytes / tiered refusal
-  static/        # the vendored Plotly bundle (the ONE committed JS asset)
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
                  #   --config-editor mounts scan_analysis.config_editor at /configs
                  #   --logbook-url  the logbook service's base URL (its own process,
