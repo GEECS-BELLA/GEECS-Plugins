@@ -644,12 +644,23 @@ presets and Squirrel. A DB device's field tracks its value, not its `:SP`
 judged within `rdbd`. The rules and their reasons are
 `GeecsControlRoom/CLAUDE.md` § "The setpoint control".
 
-**Proved** in the module contract tests (tracking sources over the module's
-own entries, a write accepted, refused and denied, a settled mismatch, a
-motor by done-moving) and on the spectrometer and scope soft IOCs through
+**Proved**: the rules in the module contract tests (tracking sources over
+the module's own entries, the module's answers to a write accepted, refused
+and denied, a settled mismatch, a motor by done-moving, a DB device's
+tolerance reaching the field); the page's DOM half (tracking, the draft,
+arming) on the spectrometer and scope soft IOCs through
 GeecsCanopy's real module (the bench's driver clamps integration time to
 10 s: a write of 20 reads `set 20 · now 10 · differs`). The bench found one
 defect, fixed: the field is disabled while its write runs and so lost focus,
 leaving Esc on a kept draft with nowhere to go.
 
-**Review** changed: (filled in after the review).
+**Review** (round 1, five findings) changed: the focus guard is back (a
+DB device's field tracks its measured value, which would land under the
+caret and be written); a DB device's `differs` is judged within its DB
+`tolerance` (GeecsCanopy's gateway source puts it on the role, the module's
+route serves `tolerance`; the gateway's PREC is 3 for every numeric, so the
+fallback was 0.001); a kept draft no longer takes focus back from the
+operator's name; `device_writes.js` stops on `device_rules.accepted`, the
+rule the tests pin. Waived: Squirrel's registry tolerance (presets' own
+concern), a disarm on one agreeing sample (the tolerance is the noise
+control).

@@ -6,7 +6,7 @@
 // pane's alarms are the roles the module judges `error`. On the settables page (#settables) it starts itself and
 // drives the axis selector.
 // A setpoint field tracks the device's setpoint (its write record, device_rules.sources) whenever it holds no
-// draft, focused or not; beside it the setpoint, where it is a record of its own, and the measured value, each with
+// draft and is not focused (a value landing under the caret would be typed into); beside it the setpoint, where it is a record of its own, and the measured value, each with
 // its word. A number or text field is a draft once typed in (marked): Enter writes it, Esc drops it, and it is
 // kept through a blur, a refusal and an unsent write until a write of it is accepted (device_rules.keepsDraft,
 // the tweak's step alike); an arrow key or a spinner click never writes a move. A tweak's − / + with its step a
@@ -41,7 +41,7 @@
       const t = P.target(role, axis), own = { frame: P.frame(role, axis), meta: P.meta(role, axis), word: P.word(role, axis) };
       const sp = t || own, field = src.field === "write" ? sp : own;
       const text = D.fieldText(field.frame && field.frame.value);
-      if (!el.dataset.draft && text !== null && el.value !== text) el.value = text;
+      if (!el.dataset.draft && !focused(el) && text !== null && el.value !== text) el.value = text;
       const host = el.closest(".field"), shown = host.querySelector(".sv"), now = host.querySelector(".rb"), mark = host.querySelector(".differs");
       shown.hidden = !src.set;
       if (src.set) paint(shown, C.fmt(sp.frame, sp.meta), sp.word);
@@ -78,7 +78,7 @@
         }
         if (el.closest(".field.setpoint")) { setpoint(el); continue; }
         const text = D.fieldText(v); // a tweak's step: its own record
-        if (!el.dataset.draft && text !== null && el.value !== text) el.value = text;
+        if (!el.dataset.draft && !focused(el) && text !== null && el.value !== text) el.value = text;
       }
       for (const el of box.querySelectorAll("[data-ro]")) el.textContent = C.fmt(P.frame(el.dataset.ro, axisOf(el)), P.meta(el.dataset.ro, axisOf(el)));
       for (const el of box.querySelectorAll("[data-egu]")) el.textContent = D.units(el.dataset.type, "", P.meta(el.dataset.egu, axisOf(el)));
@@ -125,7 +125,10 @@
           writes.write([[el.dataset.role, v, axisOf(el)]]).then((ok) => {
             if (!D.keepsDraft(ok)) { delete el.dataset.draft; if (el.closest(".field.setpoint")) arm(el); }
             fill();
-            setTimeout(() => { if (el.dataset.draft && !el.disabled) el.focus(); }); // after device_writes re-enables: the kept draft focused again, for Esc or a fix
+            setTimeout(() => { // after device_writes re-enables: the kept draft focused again, for Esc or a fix, unless focus went elsewhere (the operator's name)
+              const at = document.activeElement;
+              if (el.dataset.draft && !el.disabled && (!at || at === document.body || at === el)) el.focus();
+            });
           });
         });
         continue;

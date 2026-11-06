@@ -380,8 +380,9 @@ track a setpoint: never cite them as precedent). One control: `_panel.html`'s
 `device_rules.js` with rows in `test_device_rules_js.py` and, over
 GeecsCanopy's own module, in `test_module_contract.py`.
 
-- **The field tracks the device's setpoint** whenever it holds no draft,
-  focused or not (rewritten only when the text differs). The setpoint is the
+- **The field tracks the device's setpoint** whenever it holds no draft
+  and is not focused (a value landing under the caret, a DB device's
+  measured value at 5 Hz, would be typed into and written). The setpoint is the
   role's **write record**, the module's `writePv`, read over Hare
   (`GeecsDevicePage.target`: watched on first ask, judged as a bare PV, since
   the module judges the role's own record): areaDetector's `X` beside the
@@ -402,17 +403,21 @@ GeecsCanopy's own module, in `test_module_contract.py`.
   target never sends a move; Esc drops it. It survives a blur, a refusal, an
   unsent write (no operator, the hazard not confirmed, another write in
   flight) and a value that is no number, and clears only when a write of it
-  is accepted (`device_rules.keepsDraft`): one rule for a field's Enter and a
-  tweak's step. The field is disabled while its write runs, so a kept draft
-  is focused again after, for Esc or a fix.
+  is accepted (`device_rules.accepted`, the one test of the module's answer,
+  which `device_writes.js` stops on; `device_rules.keepsDraft`): one rule for
+  a field's Enter and a tweak's step. The field is disabled while its write
+  runs, so a kept draft is focused again after, for Esc or a fix, unless
+  focus went elsewhere meanwhile (the operator's name, asked for).
 - **`differs`, after a write settles.** An accepted write of a setpoint (or
   its tweak's press) arms the field; the mark is judged `SETTLE_MS` (1 s)
   after the acceptance and, for a setpoint with `settled_by` (the motor's
   `dmov`), only while that done flag reads 1 (`device_rules.mark`); it stands
   while the measured value is outside the tolerance of the setpoint and
   clears, disarming, when they agree. The tolerance is the role's `tolerance`
-  (a number), else its `tolerance_by` role's value (the motor's `rdbd`, the
-  record's own retry deadband), else one unit in the last digit of the
+  (a number: the family's, or a DB device's DB `tolerance`, its
+  set-convergence criterion, which GeecsCanopy's gateway source puts on the
+  role and the module's route serves), else its `tolerance_by` role's value
+  (the motor's `rdbd`, the record's own retry deadband), else one unit in the last digit of the
   measured record's precision (Hare's meta), else exact (a whole number, or
   no precision). The page judges its own writes only: another client's
   write, or one made before the page loaded, arms nothing; a reload disarms.

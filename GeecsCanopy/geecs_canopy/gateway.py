@@ -98,6 +98,16 @@ def _role(var: ServedVariable, prefix: str, readback: str) -> Role:
         low, high = row.get("min"), row.get("max")
         if settable and vartype == "numeric" and None not in (low, high) and low < high:
             fields["limits"] = (low, high)  # the span the gateway serves as DRVL/DRVH
+        tol = row.get("tolerance")
+        if (
+            settable
+            and vartype == "numeric"
+            and isinstance(tol, (int, float))
+            and tol > 0
+        ):
+            fields["tolerance"] = float(
+                tol
+            )  # the DB's set-convergence criterion: a page's `differs` after a set
     # A GEECS variable name is no RoleName (dots, spaces): built, not validated.
     return Role.model_construct(**fields)
 

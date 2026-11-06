@@ -419,8 +419,10 @@ supply's current) is drawn the same way.
 ![A spectrometer's integration time after a write of 20 s that the device read back as 10 s: set 20, now 10, differs (light theme)](assets/control_room_19_setpoint_differs_light.png)
 
 - **The field shows the device's setpoint**, and follows it while you are
-  not typing: if someone else changes it, the field changes too. To change
-  it, type over it and press **Enter**.
+  not in it: if someone else changes it, the field changes too. To change
+  it, click in, type over it and press **Enter**. While the field has the
+  cursor it holds still, so nothing arriving from the device lands in what
+  you are typing.
 - **What you type is kept until the device takes it.** The field's border
   is marked while it holds your value. It stays when you click away, when
   the write is refused (out of bounds, not permitted, no operator name in
@@ -440,7 +442,8 @@ supply's current) is drawn the same way.
 - **`differs`** appears after a write of yours has settled (a second after
   the module accepted it, and for a motor once it has stopped moving) when
   `now` is further from `set` than the device's tolerance: the motor's
-  retry deadband, else one step in the last digit the device shows. It
+  retry deadband, a GEECS device's tolerance from the GEECS database, else
+  one step in the last digit the device shows. It
   means the device did not get where you asked (a value it clamped, a
   motor that stopped short, a supply still ramping). It goes away when the
   two agree again. The page only marks writes made from it: a reload, or a

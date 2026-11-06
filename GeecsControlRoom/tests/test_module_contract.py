@@ -488,7 +488,9 @@ def _db_devices() -> list:
 
     # a DB device type that is also an installed family's name: still a DB device, by its source
     collides = [
-        var("Position", "position", "setpoint", True, limits=(0.0, 10.0)),
+        var(
+            "Position", "position", "setpoint", True, limits=(0.0, 10.0), tolerance=0.05
+        ),
         status,
     ]
     return [resolved("U_PLC", "PLC Digital Output", plc), resolved("U_Wheel", "Thorlabs FW102C", wheel), resolved("DBMotor", "motor_record", collides)]  # fmt: skip
@@ -601,6 +603,11 @@ async def test_a_db_device_is_classified_by_its_source_never_by_its_type_name(
     page = await db_room.client.get("/device/settables/DBMotor")
     assert page.status_code == 200 and "Laid out automatically" in page.text
     assert _groups(page.text) == [("Settings", ["Position"])]
+    # its DB tolerance reaches the field through the module's route: `differs` is judged within it
+    assert re.search(
+        r'data-role="Position" step="any" data-readback="Position" data-tol="0.05"',
+        page.text,
+    )
     wrong = await db_room.client.get("/device/motor/DBMotor")
     assert wrong.status_code == 422 and "/device/settables/DBMotor" in wrong.text
 

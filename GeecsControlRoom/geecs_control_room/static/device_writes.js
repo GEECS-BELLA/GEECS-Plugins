@@ -8,7 +8,7 @@
 // window.GeecsDeviceWrites.make(page, changed, refused) → { write(pairs, confirmed), busy(), hazardsOf(pairs) }.
 (function () {
   "use strict";
-  const C = window.GeecsCameraRules, S = window.GeecsScreenRules;
+  const C = window.GeecsCameraRules, S = window.GeecsScreenRules, D = window.GeecsDeviceRules;
   const OP_KEY = "geecs-control-room-operator";
   const $ = (id) => document.getElementById(id);
 
@@ -52,7 +52,7 @@
           } catch (_) { a = { outcome: "unknown", code: "no_answer", detail: "read the device and the journal before repeating it" }; }
           const word = a.outcome || "unknown";
           say(word, `${what} ← ${v} · ${word}${a.code ? " · " + a.code : ""}`, a.detail);
-          if (word !== "accepted") { refused(); return false; }
+          if (!D.accepted(a)) { refused(); return false; }
         }
         return true;
       } finally { setTimeout(changed); } // after single() has let go
