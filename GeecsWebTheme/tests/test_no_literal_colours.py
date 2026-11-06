@@ -130,6 +130,9 @@ _SURFACES = [
     "GeecsControlRoom/geecs_control_room/static/trace.js",
     "GeecsControlRoom/geecs_control_room/static/trace_rules.js",
     "GeecsControlRoom/geecs_control_room/static/device_writes.js",
+    "GeecsControlRoom/geecs_control_room/templates/_panel.html",
+    "GeecsControlRoom/geecs_control_room/static/device_rail.js",
+    "GeecsControlRoom/geecs_control_room/static/device_rules.js",
 ]
 
 #: Selectors whose rules may carry a literal, each with its reason. This is

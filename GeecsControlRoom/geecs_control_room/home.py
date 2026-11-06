@@ -50,7 +50,9 @@ from urllib.parse import quote
 from geecs_control_room.device_pages import (
     KINDS,
     catalogue,
+    db_devices,
     kind_of,
+    roster_of,
     roster_states,
     state_word,
 )
@@ -158,18 +160,28 @@ class Directory:
     groups: list[tuple[str, list[dict[str, Any]]]] = field(default_factory=list)
     problem: Optional[str] = None
     state: str = "ok"  # ok | empty (no device in the registry) | error (the files do not validate)
+    silent: Optional[str] = None  # why the roster's DB devices are not listed
 
 
-def directory(settings: Settings) -> Directory:
-    """Every registry device under its page kind (``KINDS`` order, a kind with none left out), the unpaged last; each row's IOC from ``panel_devices.yaml``."""
+def directory(settings: Settings, roster: Optional[list[dict[str, Any]]] = None, silent: Optional[str] = None) -> Directory:  # fmt: skip
+    """Every registry device under its page kind (``KINDS`` order, a kind with none left out), the unpaged last; each row's IOC from ``panel_devices.yaml``.
+
+    The GEECS DB devices are the module's roster's (``roster``, read once at
+    page load): under ``settables``, by name. ``silent``: why the roster could
+    not be read, said in the note (the registry's devices are listed regardless).
+    """
     found = catalogue(settings)
-    if not found.rows:  # unreadable files are an error; files that list nothing (or only conflicts) are empty
-        return Directory(problem=found.problem, state="error" if found.unreadable else "empty")  # fmt: skip
+    db = db_devices(roster or [])
+    silent = silent and f"GEECS DB devices not listed: {silent}"
+    if (
+        not found.rows and not db
+    ):  # unreadable files are an error; files that list nothing (or only conflicts) are empty
+        return Directory(problem=found.problem, state="error" if found.unreadable else "empty", silent=silent)  # fmt: skip
     iocs = _iocs(settings)
-    rows = [r | {"ioc": iocs.get(r["name"])} for r in found.rows]
+    rows = [r | {"ioc": iocs.get(r["name"])} for r in found.rows] + db
     groups = [(k, [r for r in rows if r["kind"] == k]) for k in [*KINDS, None]]
     named = [(k or NO_PAGE, g) for k, g in groups if g]
-    return Directory(named, found.problem)
+    return Directory(named, found.problem, silent=silent)
 
 
 def words(
@@ -225,7 +237,7 @@ async def device_lists(settings: Settings, module: ModuleClient) -> dict[str, An
     details = dict(zip([d["name"] for d in roster], answers))
     lists = sort_devices(roster, details, journal or [], _iocs(settings))
     devices = [{"name": d["name"], "family": d.get("family")} for d in roster]
-    named = [r["name"] for r in catalogue(settings).rows]
+    named = [r["name"] for r in catalogue(settings).rows] + [r["name"] for r in db_devices(roster)]  # fmt: skip
     answer = {"ok": True, "devices": devices, "journal": journal is not None} | lists
     return answer | {"words": words(named, roster, details)}
 
@@ -461,7 +473,8 @@ def router(settings: Settings, scanner: Optional[httpx.AsyncClient]) -> APIRoute
 
     @r.get("/")
     async def home(request: Request) -> Any:
-        context = {"launcher": launcher(settings), "directory": directory(settings)}
+        roster, silent = await roster_of(request.app.state.module)
+        context = {"launcher": launcher(settings), "directory": directory(settings, roster, silent)}  # fmt: skip
         return request.app.state.templates.TemplateResponse(request, "home.html", context)  # fmt: skip
 
     @r.get("/api/home/devices")

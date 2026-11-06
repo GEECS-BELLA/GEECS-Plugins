@@ -138,17 +138,6 @@
   }
   const traceUrl = (base, y) => (y ? `${base}?y=${encodeURIComponent(y)}` : base);
 
-  // ---- the rail and the readings
-  // The role whose value 0 hides a group: `<ch>_present` when every role of the group is `<ch>_…`
-  // (the scope contract's per-channel roles) and the device has it; else none.
-  function presentRole(roles, known) {
-    const m = roles.length ? /^(ch_[a-z0-9]+)_/.exec(roles[0]) : null;
-    if (!m || !roles.every((r) => r.startsWith(m[1] + "_"))) return null;
-    const present = `${m[1]}_present`;
-    return known.includes(present) && !roles.includes(present) ? present : null;
-  }
-  // A group (or a reading) is hidden only while its present role reads 0: unknown keeps it shown.
-  const hidden = (frame) => !!frame && frame.value === 0;
   // The rate chip: captures per second over the new tags seen in the last `spanMs`, first to last (never a count
   // over the whole span, which a 1 Hz source reads as 1.0 or 1.2 by where the span falls).
   function rate(seen, now, spanMs = 5000) {
@@ -158,7 +147,7 @@
     return { seen: recent, text };
   }
 
-  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, axisTitle, windowFromRelayout, plotData, emptyWhy, shownY, traceUrl, presentRole, hidden, rate, fmt: C.fmt, control: C.control, pressed: C.pressed, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
+  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, axisTitle, windowFromRelayout, plotData, emptyWhy, shownY, traceUrl, rate, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within });
 })(
   typeof module === "object" ? module.exports : (window.GeecsTraceRules = {}),
   typeof module === "object" ? require("./camera_rules.js") : window.GeecsCameraRules,

@@ -532,3 +532,38 @@ file. A restart control on the device drill-down (operator_surfaces § 2)
 is therefore a production-only affordance with a confirm, never offered
 for a bench instance; the contract page is geecs-epics
 `docs/architecture.md`, "Operating an IOC".
+
+### 2026-11-06 — slice 5, the settables page
+
+**Ruled** (the maintainer): one type-driven settables page for every kind
+without a data component, serving the native families (motor, supply) and
+the GEECS DB devices the module serves through the gateway; GeecsPanels'
+deletion waits until this page is proven.
+
+**PR 1 (#1298, merged).** GEECS-Schemas `Panel.tweak` (a setpoint, its step
+setpoint and two step commands, one rail group, compared by place, not
+heading: the maintainer's GPT finding), `PanelGroup.layout: grid` (short
+controls only: bits, enums, two-state whole numbers, the button pair's
+rule), and panels for `motor_record`, `easydriver`, `fastps`. Per-axis
+families need no field: the axes are instance data the module serves.
+
+**PR 2, the page.** `device.html` draws the rail and readings from a panel
+by default (`_panel.html`, the macros the trace page now shares;
+`device_rail.js`, the one rail script); a per-axis family is one pane per
+axis behind an axis selector, each write carrying `axis`. A family without
+a panel, and every DB device, is laid out automatically
+(`device_pages.auto_panel`: settings in role order, switches in a grid of
+their own from four, every monitored read-only role a reading). Kind word
+`settables` for the DB devices: the picker, the roster route and the
+home's directory list them from the module's roster. Proven on the
+geecs-epics sim stack (simmotor1, fpstest1, and trigger-box-sim standing in
+for a DB device) through GeecsCanopy's own module in process over an aioca
+Hare: a tweak on axis m2 accepted and the motor moved; the DB device's
+amplitude accepted; the FAST-PS current refused by the IOC's access
+security, the refusal shown (the sims restored after). The automatic layout
+is Python, not a node rule: one drawing path, server-side, from a panel
+authored or automatic.
+
+**OWED.** The deployed pages on the services box (the coordinator's): a
+real PLC (many switches, the grid) and a filter wheel from the DB; Canopy
+rebuilt for the family files, the Control Room restarted.

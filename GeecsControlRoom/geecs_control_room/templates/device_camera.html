@@ -11,10 +11,10 @@
   with the operator's name, sent once; a run-locked role is refused by the
   module while a run holds the camera (its outcome says so). The lineouts
   and histogram are the on-request arrays (/api/devices/<name>/arrays), read
-  only while the plots are open. Every word is the module's verdict.
+  only while the plots are open. Every word is the module's verdict. Its
+  rail is still hand-coded (not the panel's _panel.html): the camera moves
+  onto its family's panel and the shared rail in a slice of its own.
 #}{% extends "device.html" %}
-{% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
-{% block header %}{% if device %}<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>{% endif %}{{ super() }}{% endblock %}
 {% macro num(role, label, step="any") -%}
 <div class="field coord"><label for="c-{{ role }}">{{ label }}</label><input type="number" id="c-{{ role }}" data-role="{{ role }}" step="{{ step }}" disabled></div>
 {%- endmacro %}
@@ -133,17 +133,5 @@
     </div>
   </div>
 </dialog>
-<dialog id="hazard-dialog" aria-labelledby="hazard-dialog-title">
-  <div class="body">
-    <h4 id="hazard-dialog-title">Write a hazard role?</h4>
-    <p id="hazard-dialog-roles"></p>
-    <p class="mono" id="hazard-dialog-text"></p>
-    <div class="row end">
-      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
-      <button class="btn primary" type="button" value="write">Write</button>
-    </div>
-  </div>
-</dialog>
 {% endblock %}
-{% block role_tables %}<details class="disc roles-all"><summary>Every role · {{ device.roles | length }}</summary>{{ super() }}</details>{% endblock %}
-{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/camera.js" defer></script><script src="{{ root }}/static/camera_controls.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/static/camera.js" defer></script><script src="{{ root }}/static/camera_controls.js" defer></script>{% endif %}{% endblock %}

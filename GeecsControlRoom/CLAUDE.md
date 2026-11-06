@@ -21,10 +21,13 @@ geecs_control_room/
   screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
                     its image files, and the module pass-throughs (/api/devices/{name}[/put],
                     /api/actions, …/{plan}/run, …/runs/{id}[/stop])
-  device_pages.py   KINDS (kind word → family kind → template); `catalogue` the one registry join (every
-                    device with its kind word, None for no page); /device/{kind} the picker (the registry's
-                    devices of the kind, /api/device/{kind} their roster states), /device/{kind}/{name} the
-                    device resolved by one module read (denied / stale panes, never blank)
+  device_pages.py   KINDS (kind word → family kind → template; `settables` the module's DB devices, family
+                    kind None); `catalogue` the one registry join (every device with its kind word, None for
+                    no page); `db_devices` the roster's DB devices; /device/{kind} the picker (the registry's
+                    devices of the kind, the roster's for settables; /api/device/{kind} their roster states),
+                    /device/{kind}/{name} the device resolved by one module read (denied / stale panes, never
+                    blank) and the panel it draws (`page_panel`: the family's `panel`, else `auto_panel`,
+                    trimmed to the served roles by `drawn_panel`; § "The settables page" below)
   images.py         a camera's frame (/api/devices/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
                     names, rehosted to the IOC's CA address, one fetch in flight, shared, held on role
                     `image_counter` with ETag/304; § "The JPEG" below) and arrays
@@ -42,8 +45,12 @@ geecs_control_room/
   static/screen_rules.js, home_rules.js, directory_rules.js   the pages' rules, pure (verdict word,
                     value shown, bounds, writable, differs, outcome state; the home lists' words; the
                     directory's filter, row words and chip)
-  static/device.js, device_rules.js   the device pages' live half (roles from the module, values
-                    from Hare, read only) and its rules (picker options, a role row's word and units)
+  static/device.js, device_rules.js   the device pages' live half (roles from the module per role and
+                    axis, values from Hare) and its rules (picker options, a role row's word and units, the
+                    rail's present-hiding, a control's written value, a pane's alarms)
+  static/device_rail.js   the ONE rail and readings strip of every page drawn from a panel (the settables
+                    page and the trace page): fill from Hare, enable on the module's word, write through
+                    device_writes.js (axis on a per-axis write); starts itself on the settables page
   static/device.css the device pages' layout
   static/camera.js, camera_controls.js, camera_rules.js, camera.css   the camera page (device_camera.html):
                     the viewer (frame loop, zoom/pan, colour map, levels), crosshairs and analysis ROI
@@ -55,15 +62,18 @@ geecs_control_room/
                     it draws, `[channels, samples]` by its `channels_by`, float32 LE gzip framed, held on
                     its `fresh_by` counter with ETag/304; § "The trace" below), over CA through Images' cache
   static/trace.js, trace_rules.js, trace.css   the trace page (device_trace.html): the rail and readings
-                    from the family's `panel`, the plot (Plotly through the theme's plot.js: one trace per
+                    (device_rail.js) from the family's `panel`, the plot (Plotly through the theme's plot.js: one trace per
                     channel, decimated to the plot's width, linear/log, the viewer's window = Plotly's x
                     range, and average); the rules reuse camera_rules.js's
   static/device_writes.js   a device page's write path (operator, hazard dialog, one list at a time,
-                    sent once): the camera's and the trace page's
+                    sent once, `axis` on a per-axis write): every device page's
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
                     dropped, a timeout, back-off to 10 s, at most 8 requests at once
   templates/        base.html (every page's shell; `crumbs` the trail after the brand), screen.html (EVERY screen), device.html (every
-                    device page until a kind gets its own, filling `kind_component`; device_camera.html the camera's, device_trace.html the trace's), the pages
+                    device page: header with the operator, the hazard dialog, the folded role tables, and by default
+                    the settables page; a kind with a data component fills `kind_component`: device_camera.html the
+                    camera's, device_trace.html the trace's), _panel.html (the rail's macros: control, tweak, rail,
+                    readings, hazard_dialog; one copy), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
 deploy/
@@ -139,10 +149,12 @@ deploy/
 - **The launcher is curated; the directory is complete.** The home's
   device directory is the registry (`native_devices.yaml` +
   `panel_devices.yaml`, `device_pages.catalogue`, the pickers' join), never
-  `home.yaml` and never the roster: every registry device under its page
+  `home.yaml`: every registry device under its page
   kind in `KINDS` order (a kind with none hidden), a device whose family no
-  page draws last under "no page yet" without a link, a DB device not at all
-  (no device page; a screen draws it). Its rows are drawn by the server, so
+  page draws last under "no page yet" without a link, and the roster's DB
+  devices under `settables` (the roster read once at page load, the only
+  rows that are the roster's; the module silent, they are left out and the
+  panel says so). Its rows are drawn by the server, so
   the links work without script; its words (the module's state, the IOC
   heartbeat; `not on the roster`; heartbeat `unknown` when the module gave
   no detail, a device off the roster included, `no IOC` only when the
@@ -308,6 +320,34 @@ page's rules under node):
 Deploy (bandwidth, the CA array size, the front door's gzip, the Canopy
 image rebuild): `README.md` § Deploy.
 
+## The settables page
+
+Every kind without a data component (a motor, a supply, a GEECS DB device)
+is complete in `device.html` with no template of its own: a rail and a
+readings strip drawn from a **panel**, one pane per axis behind the kit's
+segmented axis selector for a per-axis family. The panel is the family's
+`panel` when it has one; otherwise `device_pages.auto_panel` builds one from
+the module's device route: every role with a `writePv` in role order in one
+`Settings` group (four or more bits/enums among them: those in a `Switches`
+grid group after the rest, or the whole group a grid when there is no
+rest), every other monitored role a reading, nothing hidden. `drawn_panel`
+trims either to the roles the device serves (`omit`, `labels` and the
+policy's hazards already applied by the module's route): a group with none
+left is dropped, a tweak is drawn only with all four of its roles (else each
+is drawn by its own type), a button pair only with its role. Drawing is by
+role type (_panel.html's `control`, the one control macro), a `tweak` as the
+setpoint with `−` / step / `+` (the record moves by its step: the page never
+computes the target), a `grid` group as compact cells. The family's
+`actions` stay the module's write permissions; the page draws by role and
+hint, and a role the device's `allow` does not grant is drawn disabled with
+the module's word. A DB device's text setting (the module serves no `text`
+flag for it) is drawn as a number field and turned into a text field by the
+first string Hare delivers (`device_rail.js`). The camera page keeps its
+hand-coded rail until it moves onto its family's panel. The screen
+renderer's widget kinds and these controls are two vocabularies today; the
+merge into one is a later slice, and `control` + `device_writes.js` are
+what it takes over.
+
 ## The trace
 
 The trace page (`/device/trace/<name>`, family kind `array_detector`) binds
@@ -316,12 +356,10 @@ axis (the PicoScope's `scope_contract`, `[channels, samples]` over its time
 axis; the spectrometer's `spectrometer_contract`, two `[pixels]` spectra
 over `Wavelength_RBV`, the raw `spectrum` (`ARR`) and the
 background-subtracted `processed` (`PROC:ARR`), no `channels_by`). What differs per hardware is the family file's: the
-rail's groups and the readings strip are its `panel` (each rail role drawn
-by its type: an enum a select of the PV's own `enumChoices`, a setpoint a
-number with its readback, a writable bit a checkbox, a command a button,
-anything else its text; a role in the panel's `buttons`, a two-state one
-such as an acquire, a pair of buttons writing 0 and 1 with the one the
-role reads `aria-pressed`; a role the device omits is not drawn), the axis is
+rail's groups and the readings strip are its `panel`, drawn as the
+settables page draws it (§ above; a role in the panel's `buttons`, a
+two-state one such as an acquire, a pair of buttons writing 0 and 1 with
+the one the role reads `aria-pressed`), the axis is
 the role with `axis_of`, the y arrays the ones it names, in its order
 (`traces.trace_roles`, the one reading of that rule, for the route and the
 template; the template drops an array the device omits). With several, the

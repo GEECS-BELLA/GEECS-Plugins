@@ -7,56 +7,29 @@
   `fresh_by` counter); with several arrays (a spectrometer's raw and
   processed spectrum) a toggle picks one, by default the panel's
   `show_while` array while its role reads 1, else the first. The rail and
-  the readings strip are the family's `panel`, each rail role drawn by its
-  type (an enum a select of the record's own choices, a setpoint a number
-  beside its readback, a bit a checkbox, a command a button, a readback its
-  text) or, named in the panel's `buttons`, as a pair of buttons writing 0
-  and 1 (an acquire's Stop / Start); a role this device omits is not drawn. Every
-  control is filled from Hare, enabled on the module's word and written through
-  the module's put route with the operator's name, sent once. The plot is
+  the readings strip are the family's `panel`, drawn by device.html's shared
+  macros (_panel.html, device_rail.js: one copy for every panel page). The plot is
   Plotly through the theme's template (plot.js beside the vendored bundle);
   the scale, the window (Plotly's x range) and the average are this viewer's
   own, written nowhere.
-#}{% extends "device.html" %}
-{% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/camera.css"><link rel="stylesheet" href="{{ root }}/static/trace.css">{% endblock %}
-{% block header %}{% if device %}<label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>{% endif %}{{ super() }}{% endblock %}
-{% macro control(fr, label, units, pair) -%}
-{% set id = "c-" ~ fr.name %}
-{% if pair %}<div class="field"><label>{{ label }}</label><div class="seg" role="group" aria-label="{{ label }}">{% for word in pair %}<button type="button" data-role="{{ fr.name }}" data-value="{{ loop.index0 }}" data-pair aria-pressed="false" disabled>{{ word }}</button>{% endfor %}</div></div>
-{% elif fr.type == "command" %}<div class="field"><button class="btn sm" type="button" data-role="{{ fr.name }}" data-value="1" disabled>{{ label }}</button></div>
-{% elif fr.type == "bit" and fr.writable %}<div class="field"><label class="dim"><input type="checkbox" id="{{ id }}" data-role="{{ fr.name }}" disabled> {{ label }}</label></div>
-{% elif fr.type == "enum" and fr.writable %}<div class="field"><label for="{{ id }}">{{ label }}</label><select id="{{ id }}" data-role="{{ fr.name }}" disabled></select></div>
-{% elif fr.type == "setpoint" %}<div class="field"><label for="{{ id }}">{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><input type="number" id="{{ id }}" data-role="{{ fr.name }}" step="{{ 1 if fr.integer else 'any' }}" disabled><span class="rb mono dim" data-rb="{{ fr.readback or fr.name }}">—</span></div>
-{% else %}<div class="field"><label>{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><span class="ro mono" data-ro="{{ fr.name }}">—</span></div>
-{% endif %}
-{%- endmacro %}
+#}{% extends "device.html" %}{% import "_panel.html" as P %}
+{% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/trace.css">{% endblock %}
 {% block kind_component %}
-{% set labels, units = {}, {} %}{% for r in device.roles %}{% set _ = labels.update({r.role: r.label or r.role}) %}{% endfor %}
-{% for _axis, rows in tables %}{% for r in rows %}{% set _ = units.update({r.name: r.units}) %}{% endfor %}{% endfor %}
+{% set labels = {} %}{% for r in device.roles %}{% set _ = labels.update({r.role: r.label or r.role}) %}{% endfor %}
 {% set ax, arrays = trace if trace else (none, []) %}{# traces.trace_roles: the one reading of the axis rule #}
 {% set ys = [] %}{% for r in arrays if r.name in labels %}{% set _ = ys.append({"role": r.name, "label": labels[r.name], "units": r.units or "", "counter": r.fresh_by or ""}) %}{% endfor %}
-{% set buttons = family.panel.buttons if family.panel else {} %}
 <div class="camera trace" id="trace" data-trace-url="{{ root }}/api/devices/{{ name | urlencode }}/trace"
   {% if ys %}data-x-label="{{ labels.get(ax.name, ax.label) }}" data-x-units="{{ ax.units or '' }}"{% endif %}>
   <script type="application/json" id="trace-ys">{{ ys | tojson }}</script>
   <script type="application/json" id="trace-show-while">{{ (family.panel.show_while if family.panel else {}) | tojson }}</script>
-  <aside class="rail">
-    {% for group in (family.panel.rail if family.panel else []) %}{% set drawn = group.roles | select("in", labels) | list %}{% if drawn %}
-    <section class="group" data-roles="{{ drawn | join(' ') }}">
-      <h4>{{ group.title }}</h4>
-      <div class="row">{% for r in drawn %}{{ control(family.role(r), labels[r], units.get(r), buttons.get(r)) }}{% endfor %}</div>
-    </section>{% endif %}{% endfor %}
+  <aside class="rail panel-rail">
+    {{ P.rail(panel, specs) }}
     <div class="out" id="write-out" data-state="unknown" role="status"></div>
   </aside>
 
   <div class="pane">
-    <div class="grid tight readings">
-      {% for role in (family.panel.readings if family.panel else []) %}{% if role in labels %}
-      <div class="live" data-role="{{ role }}"><span class="k">{{ labels[role] }}{% if units.get(role) %} <small>{{ units[role] }}</small>{% endif %}</span><span class="v">—</span>
-        <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></span></div>
-      {% endif %}{% endfor %}
-    </div>
-    <div class="dim" id="alarms"></div>
+    {{ P.readings(panel, specs) }}
+    <div class="alarms"></div>
 
     <article class="panel plot-panel">
       <header>
@@ -77,17 +50,5 @@
   </div>
 </div>
 
-<dialog id="hazard-dialog" aria-labelledby="hazard-dialog-title">
-  <div class="body">
-    <h4 id="hazard-dialog-title">Write a hazard role?</h4>
-    <p id="hazard-dialog-roles"></p>
-    <p class="mono" id="hazard-dialog-text"></p>
-    <div class="row end">
-      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
-      <button class="btn primary" type="button" value="write">Write</button>
-    </div>
-  </div>
-</dialog>
 {% endblock %}
-{% block role_tables %}<details class="disc roles-all"><summary>Every role · {{ device.roles | length }}</summary>{{ super() }}</details>{% endblock %}
-{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/theme/plotly-cartesian-3.1.1.min.js" defer></script><script src="{{ root }}/theme/plot.js" defer></script><script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/trace_rules.js" defer></script><script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/trace.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{{ super() }}{% if device %}<script src="{{ root }}/theme/plotly-cartesian-3.1.1.min.js" defer></script><script src="{{ root }}/theme/plot.js" defer></script><script src="{{ root }}/static/trace_rules.js" defer></script><script src="{{ root }}/static/trace.js" defer></script>{% endif %}{% endblock %}

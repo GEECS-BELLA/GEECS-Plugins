@@ -3,7 +3,7 @@
 // page, each role row's PV and verdict from the module's device route (polled)
 // and its value from Hare; the header's state and heartbeat are the module's.
 // On a stale page (the module silent) the device route is polled until it
-// answers, and the page reloads to show what it says. Read only. The rules are
+// answers, and the page reloads to show what it says. The rules are
 // device_rules.js's and screen_rules.js's (tested under node), the polling poller.js's.
 (function () {
   "use strict";
@@ -67,12 +67,13 @@
   // and meta, and its word; on(f) calls f after every change. Assigned before the component's deferred scripts run.
   const listeners = [];
   const changed = () => listeners.forEach((f) => f());
-  const entry = (role) => view && view.roles[S.key(role)];
-  const frameOf = (role) => { const e = entry(role); return e && D.watched(e) ? wire[e.pv] : undefined; };
+  // `axis`: a per-axis family's axis (a motor's m1); omitted for every other device.
+  const entry = (role, axis) => view && view.roles[S.key(role, axis)];
+  const frameOf = (role, axis) => { const e = entry(role, axis); return e && D.watched(e) ? wire[e.pv] : undefined; };
   window.GeecsDevicePage = {
     name, root, on: (f) => listeners.push(f), view: () => view, entry, frame: frameOf,
-    meta: (role) => { const e = entry(role); return e && e.pv ? hare.meta(e.pv) : {}; },
-    word: (role) => D.rowWord({ hareUp: hareState === "open", frame: frameOf(role), view, entry: entry(role) }),
+    meta: (role, axis) => { const e = entry(role, axis); return e && e.pv ? hare.meta(e.pv) : {}; },
+    word: (role, axis) => D.rowWord({ hareUp: hareState === "open", frame: frameOf(role, axis), view, entry: entry(role, axis) }),
   };
 
   function draw(tr) {

@@ -11,3 +11,28 @@
 .kit .device table.roles td.ws{color:var(--muted)}
 .kit .device details.disc{margin-top:6px}
 .kit .hare{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+/* The rail and readings of every page drawn from a panel (_panel.html: the settables page, the trace page),
+   in camera.css's rail-and-pane layout: short fields that wrap, a setpoint's readback under it, a tweak's
+   step between its − and +, a grid group's cells. */
+.kit .device .settables{display:flex;flex-direction:column;gap:8px}
+.kit .panel-rail .group .row{flex-wrap:wrap;gap:8px}
+.kit .panel-rail .field{min-width:0;width:112px}
+.kit .panel-rail .field select,.kit .panel-rail .field input[type="number"],.kit .panel-rail .field input[type="text"]{width:100%}
+.kit .panel-rail .rb,.kit .panel-rail .ro{display:block;font-size:11px;min-height:1em}
+.kit .panel-rail .field.tweak{width:auto}
+.kit .panel-rail .tweak .seg input{width:6.5em;border:0;background:transparent;text-align:center}
+.kit .panel-rail .grid-cells .row{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px 8px}
+.kit .panel-rail .grid-cells .field{width:auto}
+.kit .settables .camera{padding:0;grid-template-columns:minmax(280px,460px) minmax(0,1fr)}
+@media (max-width:900px){.kit .settables .camera{grid-template-columns:minmax(0,1fr)}}
+.kit .panel-rail .field label{overflow-wrap:anywhere}
+.kit .panel-rail .field:has(input[type="text"]){width:232px}
+.kit .settables .axis-pick .seg button{min-width:3em}
+.kit .settables .note{font-size:11.5px;margin:0}
+/* A write's outcome line (device_writes.js): the module's word, in its colour. */
+.kit .device .out{font-size:11px;font-family:var(--ff-mono);min-height:1em;color:var(--muted)}
+.kit .device .out[data-state="ok"]{color:var(--ok)}
+.kit .device .out[data-state="degraded"]{color:var(--warn)}
+.kit .device .out[data-state="failed"]{color:var(--crit)}
+.kit .device .alarms{color:var(--crit);font-size:11.5px}
+.kit .device .alarms:empty{display:none}

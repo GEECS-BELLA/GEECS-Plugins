@@ -1,0 +1,70 @@
+{#
+  The rail and the readings strip of a device page, drawn from a panel
+  (device_pages.page_panel: the family's `panel`, else the automatic one,
+  trimmed to the roles this device serves). One copy, imported by
+  device.html (every kind without a data component) and device_trace.html;
+  the camera page keeps its hand-coded rail until it moves onto its panel.
+  Each rail role is drawn by its type through `control`: an enum a select
+  of the record's own choices, a setpoint a number beside its readback (a
+  text setpoint a text field), a bit a checkbox, a command a button, a
+  read-only role its text; named in the panel's `buttons`, a pair of buttons
+  writing 0 and 1; named as a `tweak`, the setpoint with its step and its
+  − / + commands (the record moves by the step: the page computes nothing).
+  A `grid` group draws its short controls as compact labelled cells. Every
+  control carries its role (and axis); device_rail.js fills it from Hare,
+  enables it on the module's word and writes it through device_writes.js.
+#}
+{% macro control(spec, id, pair=none, axis=none) -%}
+{% set ax %}{% if axis %} data-axis="{{ axis }}"{% endif %}{% endset %}
+{% set label, units = spec.label, spec.units %}
+{% if pair %}<div class="field"><label>{{ label }}</label><div class="seg" role="group" aria-label="{{ label }}">{% for word in pair %}<button type="button" data-role="{{ spec.name }}"{{ ax }} data-value="{{ loop.index0 }}" data-pair aria-pressed="false" disabled>{{ word }}</button>{% endfor %}</div></div>
+{% elif spec.type == "command" %}<div class="field"><button class="btn sm" type="button" data-role="{{ spec.name }}"{{ ax }} data-value="1" disabled>{{ label }}</button></div>
+{% elif spec.type == "bit" and spec.writable %}<div class="field"><label class="dim"><input type="checkbox" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }} disabled> {{ label }}</label></div>
+{% elif spec.type == "enum" and spec.writable %}<div class="field"><label for="{{ id }}">{{ label }}</label><select id="{{ id }}" data-role="{{ spec.name }}"{{ ax }} disabled></select></div>
+{% elif spec.type == "setpoint" %}<div class="field"><label for="{{ id }}">{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><input type="{{ 'text' if spec.text else 'number' }}" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }}{% if not spec.text %} step="{{ 1 if spec.integer else 'any' }}"{% endif %} disabled><span class="rb mono dim" data-rb="{{ spec.readback }}"{{ ax }}>—</span></div>
+{% else %}<div class="field"><label>{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><span class="ro mono" data-ro="{{ spec.name }}"{{ ax }}>—</span></div>
+{% endif %}
+{%- endmacro %}
+
+{% macro tweak(spec, hint, specs, id, axis=none) -%}
+{% set ax %}{% if axis %} data-axis="{{ axis }}"{% endif %}{% endset %}
+{{ control(spec, id, none, axis) }}
+<div class="field tweak"><label for="{{ id }}-step">{{ specs[hint.step].label }}{% if specs[hint.step].units %} <small>{{ specs[hint.step].units }}</small>{% endif %}</label>
+  <div class="seg" role="group" aria-label="{{ spec.label }}: step">
+    <button type="button" data-role="{{ hint.reverse }}"{{ ax }} data-value="1" aria-label="{{ specs[hint.reverse].label }}" disabled>−</button>
+    <input type="number" id="{{ id }}-step" data-role="{{ hint.step }}"{{ ax }} step="any" disabled>
+    <button type="button" data-role="{{ hint.forward }}"{{ ax }} data-value="1" aria-label="{{ specs[hint.forward].label }}" disabled>+</button>
+  </div></div>
+{%- endmacro %}
+
+{% macro rail(panel, specs, axis=none) -%}
+{% for group in panel.rail %}{% set g = loop.index %}
+<section class="group{% if group.layout == 'grid' %} grid-cells{% endif %}" data-roles="{{ group.roles | tojson | forceescape }}">
+  <h4>{{ group.title }}</h4>
+  <div class="row">{% for r in group.roles if r not in panel.inside %}{% set id = "c-" ~ (axis ~ "-" if axis else "") ~ g ~ "-" ~ loop.index %}
+    {% if r in panel.tweak %}{{ tweak(specs[r], panel.tweak[r], specs, id, axis) }}{% else %}{{ control(specs[r], id, panel.buttons.get(r), axis) }}{% endif %}{% endfor %}</div>
+</section>{% endfor %}
+{%- endmacro %}
+
+{% macro readings(panel, specs, axis=none) -%}
+<div class="grid tight readings">
+  {% for role in panel.readings %}{% set s = specs[role] %}
+  <div class="live" data-role="{{ role }}"{% if axis %} data-axis="{{ axis }}"{% endif %}><span class="k">{{ s.label }}{% if s.units %} <small>{{ s.units }}</small>{% endif %}</span><span class="v">—</span>
+    <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></span></div>
+  {% endfor %}
+</div>
+{%- endmacro %}
+
+{% macro hazard_dialog() -%}
+<dialog id="hazard-dialog" aria-labelledby="hazard-dialog-title">
+  <div class="body">
+    <h4 id="hazard-dialog-title">Write a hazard role?</h4>
+    <p id="hazard-dialog-roles"></p>
+    <p class="mono" id="hazard-dialog-text"></p>
+    <div class="row end">
+      <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
+      <button class="btn primary" type="button" value="write">Write</button>
+    </div>
+  </div>
+</dialog>
+{%- endmacro %}

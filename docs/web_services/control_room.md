@@ -121,9 +121,10 @@ by whom, its scope, and its run when it is being restored.
 
 The **Devices** panel at the foot of the home lists every native device
 the experiment's registry knows (`native_devices.yaml` and
-`panel_devices.yaml` in the configs repo), not a chosen few: the launcher
-above is the curated layer, the directory is the complete one. Devices are
-grouped by the page that draws them (camera, trace, motor, supply); each
+`panel_devices.yaml` in the configs repo), and every GEECS database device
+the module serves, not a chosen few: the launcher above is the curated
+layer, the directory is the complete one. Devices are grouped by the page
+that draws them (camera, trace, motor, supply, settables); each
 group's heading opens that kind's picker, and each device's name opens its
 page. A row gives the device's family, the module's word for it (the same
 words as the lists above), the IOC that serves it, and that IOC's
@@ -141,8 +142,10 @@ rows stay, their words read `unknown` and the panel says why; a device in
 the registry that the module does not serve reads `not on the roster`, its
 heartbeat `unknown`. A device added to the registry appears on the next
 reload of the home.
-LabVIEW devices served through the CA gateway are not in the registry, so
-they are not in the directory; a screen draws them.
+The LabVIEW devices served through the CA gateway are listed under
+**settables** (the database device type is their family; they have no IOC
+of their own); they are read from the module once when the home loads, so
+while the module is silent they are not listed and the panel says so.
 
 ![The home with the device directory, light theme](assets/control_room_13_directory_light.png)
 
@@ -340,6 +343,64 @@ family file, never from the page.
   setting and changes what the device sends.
 
 ![A box zoom over the pulse, averaging eight captures](assets/control_room_12_trace_window_average.png)
+
+## Settables pages: motors, supplies and every GEECS device
+
+A device with nothing to plot or picture has a **settables page**: a rail
+of controls and a row of readings. Motors (`/device/motor/<name>`) and
+power supplies (`/device/supply/<name>`) get it, and so does every GEECS
+device the module serves from the GEECS database
+(`/device/settables/<name>`): a filter wheel, a PLC, a stage, any device
+LabVIEW runs. A new device of any of these kinds needs a row in the
+registry or the database, never a new page.
+
+![A motor's settables page on the sim motor, axis m2, light theme](assets/control_room_15_settables_motor_light.png)
+
+- **The rail.** Its groups come from the device's family when the family
+  has a panel. A motor has Move, Home and Speed; a supply has Output and
+  Faults. Each control is drawn by what it is, as on the trace page:
+  - A setting is a number with `now …` under it, the value the device
+    holds. A text setting is a text field.
+  - A choice is a list of the record's own choices.
+  - A switch is a checkbox, or a pair of buttons such as a supply's
+    **Off / On**.
+  - A command is a button.
+- **The motor's tweak** sits beside the target: **−** and **+** move it
+  back or forward by the step in the box between them. Changing the step
+  changes the step size on the motor itself. The motor record does the
+  moving, so the page never adds anything up.
+- **Axes.** A motor with several axes has an **Axis** selector above
+  the rail. Each axis has its own rail and readings, and every write names
+  its axis.
+- **The readings** carry the module's word, as everywhere. For a motor
+  they are position, done moving, the two limit switches, and whether the
+  target is outside the soft limits. For a supply they are current,
+  voltage, output, and the fault and interlock bits.
+- **Writes** go through the same path as a screen's, with your name from
+  the header and sent once. A hazard asks first (a supply's output, a
+  motor's home), and the module's answer is shown under the rail.
+
+![A supply's settables page on the sim FAST-PS, dark theme: the IOC refused the current write, and the page says so](assets/control_room_17_settables_supply_dark.png)
+
+**When a device has no panel**, as every GEECS database device and any
+family not yet given one, the page lays it out automatically. Every
+setting comes first, in the device's own order. When a device has four
+or more switches (a PLC's channels, say), they get a compact grid of
+their own, headed **Switches**. Every other value it reports follows as
+a reading. Nothing is hidden. The page notes "Laid out automatically"
+under the rail.
+
+![A GEECS database device (the sim trigger box) laid out automatically, light theme](assets/control_room_18_settables_db_device_light.png)
+
+Every role, with its PV and the module's word, is still in the **Every
+role** fold under the page.
+
+The home's **Devices** directory lists the GEECS database devices under
+**settables** with the rest. It reads them from the module when the home
+loads; if the module does not answer, the directory says so and lists
+the registry's devices alone.
+
+![The motor's page, dark theme](assets/control_room_16_settables_motor_dark.png)
 
 ## When a write is refused
 
