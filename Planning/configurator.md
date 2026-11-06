@@ -38,7 +38,8 @@ is a later pass; this brief is the mechanics.
   locations, `pending_changes()` as a read-only `git status`. It knows two
   kinds (analyzer, group), binds them to GEECS-Analysis's registry
   (`compile_recipe`, `recipe_schema`), writes into the **share's checkout
-  uncommitted**, and commits nothing: "commit is a human act". Its
+  uncommitted**, and commits nothing: its page says "saves write the configs
+  tree; commit them yourself". Its
   `editor.js` is lazy-loaded into a drawer on the portal's run page, which is
   the embedded-editor precedent.
 - **The catalogue exists, with non-file members.** `geecs_schemas.SCHEMA_REGISTRY`
@@ -73,8 +74,10 @@ is a later pass; this brief is the mechanics.
   and a reopen is the only reload: tens of seconds of every device
   reconnecting (`geecs-qserver-ready` does one after every manager start; the
   queue client exposes no open or close verb today). The action library is
-  re-read per call, experiment defaults per plan, scan variables on mtime
-  change, optimizer configs per request. Canopy reads the operator policy and
+  re-read per call, experiment defaults per plan, optimizer configs per
+  request; the scanner's resolver re-reads the scan-variable catalogue on
+  mtime change, but the worker keeps the catalogue it read at environment
+  open. Canopy reads the operator policy and
   the action library per request with a short cache. The scanner reads
   presets per submit; its preflight resolves a trigger profile **by name from
   disk**, while the preset itself travels inline. The archiver reads its
@@ -109,10 +112,12 @@ is a later pass; this brief is the mechanics.
   `md["geecs"]["operator"]` on preset submits only. `submit_plan` takes no
   `md`, and GEECS's `mv` is a wrap of `bps.mv`, which forwards keyword
   arguments to each device's `set()`, so an `md` there would reach the device.
-- **#883 (2026-09-13) ruled** "controls configs → the GEECS DB; add no new YAML
-  config kind to the configs repo". Since then the repo gained operator
-  policy, screens, home layout, panel devices and the archive policy as YAML
-  kinds. The ruling is dead in practice and nothing in the tree cites it.
+- **#883 (2026-09-13) recorded a direction, not scheduled**: controls
+  configs to the GEECS DB, analysis configs staying YAML, with the one-PR
+  consequence that the arc then under way added no new YAML config kind.
+  Since then the repo gained operator policy, screens, home layout, panel
+  devices and the archive policy as YAML kinds. The direction is dead in
+  practice and nothing in the tree cites it.
 
 ## The design
 
@@ -155,12 +160,17 @@ plug-in** (an HTTP call to the consumer, a CLI, or none). `GET
 it, which is what the form draws from; `schema_export` grows to every file
 kind so OSPREY and the docs see the same schema. The schema package's own
 tests pin that every file kind has a tier and a folder and every non-file
-kind is listed as such.
+kind is listed as such. Family files are not a configs-repo document: the
+editor shows them read-only from the schema package under the label `code`,
+outside the file table and its test.
 
-**Tiers are declared in GEECS-Schemas**, nowhere else: a `tier` class
-attribute on each document model (`operator` unless said otherwise) and
-`json_schema_extra={"tier": "maintainer"}` on a field that is stricter than its
-document. The editor marks the field; the strictest tier among the *changed*
+**Tiers are declared in GEECS-Schemas**, nowhere else: on each document
+model a `tier: ClassVar[Tier]` (`operator` unless said otherwise) **and** the
+same value in `model_config`'s `json_schema_extra`, so it reaches
+`model_json_schema()` (a bare class attribute neither passes pydantic nor
+appears in the schema); and `json_schema_extra={"tier": "maintainer"}` on a
+field that is stricter than its document. The editor marks the field; the
+strictest tier among the *changed*
 fields decides the action, where "changed" is any difference at the field's
 path, a reordered list included. `docgen` prints the tier beside each kind.
 
@@ -170,7 +180,7 @@ path, a reordered list included. `docgen` prints the tier beside each kind.
 | maintainer | opens a pull request on the configs repo | the maintainer's review | operator policy (grants, hazards), native devices, panel devices, derived channels, the archive policy's include and exclude rules |
 | parameter | commits to geecs-epics | the record exists; the value is in range | a tuning field on an IOC record (ADEL, MDEL, a trigger delay, a ROI pin) — **a later arc**, see rulings |
 | sudo | prepares the hub verb's exact command and records the hand-off | the maintainer runs it | an experiment up or down |
-| code | read-only | a PR in GEECS-Plugins | family files |
+| code | read-only | a PR in GEECS-Plugins | family files (package data, shown from the package; not a configs-repo file) |
 
 There is **no password**. Identity is the operator's name, required and
 refused when blank, as on every write today. The maintainer tier is a PR
@@ -219,10 +229,20 @@ becomes the service's clone, so they read a clean checkout the moment it is
 pushed; and the share's clone becomes **read-only for humans and services**,
 because an uncommitted edit on it blocks the fast-forward. The writers above
 route through the service (presets in slice 3, the analysis kinds in
-slice 6); shot offsets stay the worker's file and are **reconciled**: the
-service commits any file the worker wrote, authored as the worker, on its
-next save and on a timer. The edits already sitting on the share are
-committed once, by hand, before the switch.
+slice 6). Shot offsets stay the worker's file: the worker's configs root is
+the service's clone, so it writes `shot_offsets.yaml` there uncommitted, and
+the service **reconciles** on a timer of seconds and before any fetch: it
+commits the worker's file, authored as the worker, and pushes; if main moved
+the same file meanwhile, the worker's measurement wins and the log says so.
+An operator's edit of shot offsets is an ordinary operator-tier commit; last
+wins. The edits already sitting on the share are committed once, by hand,
+before the switch.
+
+**A merge on GitHub is an event too.** The service fetches main on a timer
+(a webhook later): a commit on main that did not come from the service, a
+merged maintainer-tier PR above all, fast-forwards the service's clone, then
+the share's, then runs the kind's apply and logs it, so a merged grant or
+registry change takes effect without anyone opening the editor.
 
 ### Apply, per kind
 
@@ -232,9 +252,10 @@ the verb per consumer and runs it after the push, or queues it:
 - **Read per request** (screens, home layout, operator policy, setups,
   presets, optimizer configs, experiment defaults, analysis documents):
   nothing to do.
-- **Scan variables**: nothing to do (mtime).
-- **Trigger profiles, native devices, shot offsets**: the worker environment
-  reopens. The queue client grows `environment_close` and `environment_open`;
+- **Trigger profiles, scan variables, native devices, shot offsets**: the
+  worker environment reopens (the scanner's own picker sees a scan-variable
+  change on mtime, the worker only at open). The queue client grows
+  `environment_close` and `environment_open`;
   the scanner grows `POST /api/environment/reopen`, which holds the service
   lock through close and open, refuses unless the environment is idle **and**
   the queue is empty (an environment that is merely closed is not idle), and
@@ -255,8 +276,10 @@ inline already and gains an optional inline trigger-profile document (slice
 3); the portal exposes `validate` and `schema` for the analysis kinds, bound
 to GEECS-Analysis's registry as its editor's are today (slice 6); the
 archiver's plan reads the draft by `--policy`; the scanner's settables list
-checks a setup's targets; the Control Room's roster route checks a screen's
-bindings. A kind with no consumer check has no dry run and says so.
+checks a setup's targets. Screens have no dry run in v1: the Control Room
+checks a screen's bindings against the roster when it renders, and a
+draft-screen check is a later route. A kind with no consumer check has no
+dry run and says so.
 
 ### Setups
 
@@ -342,7 +365,10 @@ switch (ruling 4) is a site.env change **and** a re-render of Canopy's compose
 `config.ini` on the box; the runbook step says all three. No facility value
 in code.
 
-## Rulings needed before slice 2
+## Rulings needed
+
+Rulings 1 and 3 before slice 0 (it bakes in the name and the store); the
+rest before slice 2. Nothing is built before 1 and 3.
 
 1. **The word.** "Setup" is the working name; "preset" is taken twice (scan
    presets, DB presets).
@@ -352,8 +378,9 @@ in code.
    grant check, as moves and scans have none today. (The red team's P1:
    deleting the module route would drop the gates and break restore.)
 3. **The configs repo over the DB** for every operator-tier document, setups
-   included. This reverses #883's "no new YAML kind", which five kinds have
-   already passed; close or retarget #883 when ruled.
+   included. This reverses the direction #883 recorded (controls configs to
+   the DB, no new YAML kind), which five kinds have already passed; close or
+   retarget #883 when ruled.
 4. **The clones.** Linux services read the service's clone; the share's clone
    is fast-forwarded after each push from the service's clone and is
    read-only for humans and services; the uncommitted edits on it are
@@ -383,9 +410,9 @@ in code.
    fetch-and-fast-forward before serve and before save, the 409 on a moved
    base, the operator author, the operator-tier commit with push retry, the
    maintainer-tier PR, the share fast-forward from the local clone, the
-   reconcile of worker-written files, the commit log. Proven on a scratch
-   repo in CI and on the box against the real configs repo with a throwaway
-   branch.
+   reconcile of worker-written files, the timer fetch that propagates a
+   merge, the commit log. Proven on a scratch repo in CI and on the box
+   against the real configs repo with a throwaway branch.
 3. **Dry runs and applies.** The scanner's inline trigger-profile preflight
    and readback plug-ins; `environment_close` / `environment_open` on the
    queue client and `POST /api/environment/reopen` on the scanner (idle and
@@ -483,4 +510,21 @@ behaviour, not by line.
 The verdict kept: the configs repo as the one store with a real commit path,
 tiers on the schema, the service as a thin HTTP client, one setup file per
 plan, the per-kind apply table, deleting the half-editor rather than growing
-it. Slice 0 is a safe first PR after the maintainer's rulings.
+it. Slice 0 is a safe first PR after rulings 1 and 3.
+
+### 2026-11-06 — the PR's correctness round (#1301)
+
+One correctness-only round on the diff, a fresh reader. Every code claim in
+"What exists today" checked out; eight findings, all fixed in the follow-up
+commit on the branch:
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Scan variables sat on the "nothing to do (mtime)" row, but only the scanner's resolver re-reads on mtime; the worker reads the catalogue at environment open | Moved to the reopen row; the survey bullet says which reader sees what |
+| 2 | A maintainer PR merged on GitHub was neither a serve nor a push, so it never propagated or applied | The service fetches main on a timer: a foreign commit fast-forwards both clones and runs the kind's apply; proof of done extended |
+| 3 | The read-only rule and the worker's uncommitted `shot_offsets.yaml` were stated without mechanics | The worker writes into the service's clone; the reconcile runs on a timer and before any fetch, the measurement wins a race, operator edits are ordinary commits |
+| 4 | Family files had a tier but were not a file | Named as package data shown read-only under the label `code`, outside the file table and its test |
+| 5 | "Rulings before slice 2" while slice 0 bakes in the name and the store | Rulings 1 and 3 before slice 0, the rest before slice 2 |
+| 6 | The screens' dry run cited a roster route that does not exist | Screens have no dry run in v1; the render-time check stands |
+| 7 | A bare `tier` class attribute neither passes pydantic nor reaches `model_json_schema()` | `ClassVar` plus `model_config`'s `json_schema_extra` |
+| 8 | Two paraphrases in quotation marks | The editor's actual words; #883 described as a recorded direction, not a ruling |
