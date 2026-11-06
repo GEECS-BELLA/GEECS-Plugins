@@ -70,7 +70,7 @@
       {"title": "Trigger", "roles": ["trigger_mode", "trigger_slope"]},
       {"title": "Background", "roles": ["background_save", "background_enable"]}
     ],
-    "readings": ["state", "count", "level_max", "level_percent", "saturated", "background_valid", "total", "peak_index", "centroid_index", "width_index", "temperature", "last_error"],
+    "readings": ["state", "connected", "status", "count", "level_max", "level_percent", "saturated", "background_valid", "total", "peak_index", "centroid_index", "width_index", "temperature", "last_error"],
     "buttons": {"acquire": ["Stop", "Start"]},
     "show_while": {"processed": "background_enable"}
   }

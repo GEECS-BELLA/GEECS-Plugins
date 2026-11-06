@@ -494,7 +494,8 @@ def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
     assert scope.panel.rail[2].roles == [
         "ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset",
     ]  # fmt: skip
-    assert scope.panel.readings[:2] == ["state", "count"]
+    # the detector's health beside its Start button: the state word, the line, the driver's reason
+    assert scope.panel.readings[:4] == ["state", "connected", "status", "count"]
     assert scope.panel.readings[-1] == "last_error"
     # the rail is exactly the family's writable roles: none left off, no read-only one placed
     railed = [r for g in scope.panel.rail for r in g.roles]
@@ -523,7 +524,7 @@ def test_the_spectrometer_contract_draws_its_spectrum_over_its_wavelengths() -> 
         "Trigger",
         "Background",
     ]
-    assert spec.panel.readings[:2] == ["state", "count"]
+    assert spec.panel.readings[:4] == ["state", "connected", "status", "count"]
     assert spec.panel.readings[-1] == "last_error"
     # the rail is exactly the family's writable roles: none left off, no read-only one placed
     railed = [r for g in spec.panel.rail for r in g.roles]

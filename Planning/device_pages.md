@@ -509,3 +509,26 @@ directory lists the registry, not the roster: a DB (LabVIEW) device has no
 device page and stays out; a screen draws it. Grouping by area would need
 an area per device, which the registry does not carry; by kind is what it
 knows.
+
+### 2026-11-06 — the detector's health beside its Start button
+
+**Landed.** From the spectrometer port's hand-off (geecs-epics, the ccttest1
+session): a fault on the instrument is the driver's decision, not a crash.
+It stops, sets `Acquire` to Done and says why in `StatusMessage_RBV`;
+`DetectorState_RBV` reads Error; a new Start recovers from Error. A line
+that stops answering reads Disconnected on `Connected_RBV` (MAJOR) and the
+driver retries on its own. So the page must show, beside Start, the state
+word, the line and the driver's reason. Both `array_detector` panels'
+readings strips now open with `state`, `connected`, `status`, then the
+counter (the roles existed; only the layout changes). Deploy: Canopy's
+image carries the family files, so a rebuild and the Control Room's
+restart.
+
+**Noted, not built.** Every IOC serves `<IOC>:SysReset` (a put of any
+value exits the IOC; a widget writing 0 then 1 would restart it twice); a
+production container restarts on its own, a bench container stops and is
+started by name on its host, and the put is subject to the IOC's access
+file. A restart control on the device drill-down (operator_surfaces § 2)
+is therefore a production-only affordance with a confirm, never offered
+for a bench instance; the contract page is geecs-epics
+`docs/architecture.md`, "Operating an IOC".
