@@ -298,17 +298,28 @@ class OnDemand:
 
     # ------------------------------------------------------------------ plans
     def _counters(self):
-        """Plan: every per-shot counter, and the witness count (``None`` without one)."""
-        out: dict[str, Any] = {}
+        """Plan: every per-shot counter, and the witness count (``None`` without one).
 
-        async def read() -> None:
-            for p in self.progress.values():
-                out[p.name] = await p.read_safe()
-            if self.witness is not None:
-                out[""] = await _bounded(self.witness.counts.get_value, None)
+        A snapshot is used only whole: an immediate pause that cuts the read
+        resumes this (non-rewindable) plan past it with some counters
+        unread, so the snapshot is taken again, every counter in one pass.
+        """
+        keys = [p.name for p in self.progress.values()]
+        if self.witness is not None:
+            keys.append("")
+        while True:
+            out: dict[str, Any] = {}
 
-        yield from bps.wait_for([read])
-        return out
+            async def read(out: dict[str, Any] = out) -> None:
+                for p in self.progress.values():
+                    out[p.name] = await p.read_safe()
+                if self.witness is not None:
+                    out[""] = await _bounded(self.witness.counts.get_value, None)
+
+            yield from bps.wait_for([read])
+            if all(k in out for k in keys):
+                return out
+            logger.info("a pause cut the counter snapshot: taking it again")
 
     def _wait(self, base: dict[str, Any]):
         """Plan: until every required counter advanced (or the witness, with none required)."""

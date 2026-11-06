@@ -409,3 +409,39 @@ def test_a_down_pause_costs_the_shot_no_refire(RE, box) -> None:
     rows = [e["data"] for e in col.primary_events()]
     assert box.fires == 3 and [r["attempt"] for r in rows] == [1, 2, 3]
     assert col.docs["stop"][-1]["exit_status"] == "success"
+
+
+@pytest.mark.parametrize("which", [1, 2], ids=["pre-fire", "post-wait"])
+def test_an_immediate_pause_inside_a_counter_snapshot_never_ends_the_run(
+    RE, box, count, monkeypatch, which
+) -> None:
+    """The snapshot cut by the pause is taken again before use: the run completes.
+
+    ``uc_b`` is not required, so its counter is read only in the two
+    snapshots: its first read is the pre-fire one, its second the post-wait.
+    """
+    from geecs_bluesky.plans import on_demand
+
+    a = _camera(RE, box, "UC_A")
+    b = _camera(RE, box, "UC_B")
+    reads = {"n": 0}
+    plain = on_demand._Progress.read
+
+    async def read(self):
+        if self.name == "uc_b":
+            reads["n"] += 1
+            if reads["n"] == which:
+                _pause_from_a_thread(RE)
+                await asyncio.sleep(0.5)
+        return await plain(self)
+
+    monkeypatch.setattr(on_demand._Progress, "read", read)
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(RunEngineInterrupted):
+        RE(count([a, b], 2, required=[a]))
+    RE.resume()
+    rows = [e["data"] for e in col.primary_events()]
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+    assert box.fires == 2 and all(r["complete"] for r in rows)
+    assert rows[0]["interrupted"]
