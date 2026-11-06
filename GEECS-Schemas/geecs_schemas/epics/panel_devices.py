@@ -2,13 +2,14 @@
 
 The configs repository's ``<experiment>/panel_devices.yaml``: for each
 device a page is drawn for, the family (record template) it instantiates
-and what differs from that family on this device — its own PV names for
-a role (the two supplies have no shared record set), a bit's label, the actions the page may take on it
-(``allow``), the line the page shows (``note``), the roles it does not
-have (``omit``), the roles that need a hazard confirm on it alone
-(``hazard``), the roles the archiver takes beyond the family's
-(``archive``) or leaves out on this device (``no_archive``), and the IOC
-serving it (``ioc``, whose devIocStats heartbeat the archiver keeps).
+and what differs from that family on this device — its own PV names for a
+role (the two supplies have no shared record set), a bit's label, the
+actions the page may take on it (``allow``), the line the page shows
+(``note``), the roles it does not have (``omit``), the roles that need a
+hazard confirm on it alone (``hazard``), the roles the archiver takes
+beyond the family's (``archive``) or leaves out on this device
+(``no_archive``), and the IOC serving it (``ioc``, whose devIocStats
+heartbeat the archiver keeps).
 
 Read by GeecsCanopy, by GeecsControlRoom (the home and the screens), and
 by the archiver's registry pass for the device's
