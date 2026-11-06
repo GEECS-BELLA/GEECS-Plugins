@@ -1038,6 +1038,65 @@ def test_an_event_stream_takes_its_bare_counter_and_w5_parts() -> None:
         assert list(source.witness_count) == [5.0, 6.0]
 
 
+def test_a_native_datum_stream_joins_on_its_epics_pair_parts_offline() -> None:
+    """A native camera's datum-only stream: bare NDAttribute parts, the EPICS pair the stamp.
+
+    The offline s-file gets the camera's stamp column under its strict-row
+    name, NaN on the row it has no frame for, and the counter for the audit.
+    """
+    import numpy as np
+
+    from geecs_data_utils.io.scan_stack import EPICS_EPOCH_OFFSET, LABVIEW_EPOCH_OFFSET
+    from geecs_data_utils.tiled_export import (
+        build_legacy_scalar_dataframe,
+        read_device_records,
+    )
+
+    unix = np.array([1_793_940_000.0, 1_793_940_002.0])  # row 2 has no frame
+    rows = pd.DataFrame(
+        {
+            "bin_number": [1, 1, 1],
+            "witness_count": [1, 2, 3],
+            "witness_stamp": [1_793_940_000.0, 1_793_940_001.0, 1_793_940_002.0],
+        }
+    )
+    stream = _FakeStream(
+        {
+            "uc_nat": _FakePart(np.zeros((2, 4, 4)), "array"),
+            "NDArrayEpicsTSSec": _FakePart(unix - EPICS_EPOCH_OFFSET, "array"),
+            "NDArrayEpicsTSnSec": _FakePart(np.zeros(2), "array"),
+            "NDArrayUniqueId": _FakePart(np.array([11.0, 12.0]), "array"),
+        }
+    )
+    start = {
+        "layout": "shot-table/1",
+        "per_shot_streams": ["uc_nat_stream"],
+        "required": ["uc_nat"],
+        "shot_clock_column": "witness_stamp",
+        "geecs_scalar_headers": {"uc_nat-acq_timestamp": "UC_Nat acq_timestamp"},
+    }
+
+    class _Run:
+        metadata = {"start": start}
+
+        def __iter__(self):
+            return iter(["primary", "uc_nat_stream"])
+
+        def __getitem__(self, key):
+            if key == "primary":
+                return _FakeStream({"internal": _FakePart(rows, "table")})
+            return stream
+
+    for lean in (False, True):
+        (source,) = read_device_records(_Run(), "primary", stamps_only=lean)
+        assert source.device == "uc_nat" and list(source.counter) == [11.0, 12.0]
+    (source,) = read_device_records(_Run(), "primary")
+    frame = build_legacy_scalar_dataframe(start, rows, [source])
+    stamps = frame["UC_Nat acq_timestamp"].to_numpy()
+    assert np.allclose(stamps[[0, 2]], unix + LABVIEW_EPOCH_OFFSET)
+    assert np.isnan(stamps[1])
+
+
 def test_an_unknown_sync_class_warns_once_and_reads_synchronous(caplog) -> None:
     """A ``stream_meta`` class W3a does not know: synchronous, said once."""
     import logging

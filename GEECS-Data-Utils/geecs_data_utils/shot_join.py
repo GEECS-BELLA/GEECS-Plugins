@@ -87,7 +87,8 @@ NON_DEVICE_CLOCK_COLUMNS = ("witness_stamp", "fire_stamp")
 #: The row columns stamped in **Unix** seconds (CA record times and the
 #: worker's clock).  Every other stamp the join reads is in the **LabVIEW**
 #: epoch: a row's ``<device>-acq_timestamp``, an event stream's, and
-#: :attr:`FrameColumns.stamps` (a stack's Unix stamps are shifted on read,
+#: :attr:`FrameColumns.stamps` (a stack's Unix stamps — GEECS or a native
+#: camera's EPICS pair — are shifted on read,
 #: :func:`frame_columns_from_attributes`).  :func:`to_labview_epoch` is the
 #: one place a row clock crosses between the two.
 UNIX_EPOCH_COLUMNS = frozenset({"witness_stamp", "fire_stamp", "announce_stamp"})
@@ -565,11 +566,18 @@ def frame_columns_from_attributes(
 
     Notes
     -----
-    Stamps are recognised by GEECS attribute name only. A stock areaDetector
-    stack (a native EPICS camera) carries the EPICS pair instead —
-    ``io.scan_stack.frame_stamps`` reads it; teach this join the same rule
-    before native cameras are admitted to gated or non-essential runs
-    (refused in v1, so no such stack reaches it today).
+    A stock areaDetector stack (a native EPICS camera) carries no GEECS
+    stamp: its frames are stamped by the EPICS pair
+    (``NDArrayEpicsTSSec`` / ``NDArrayEpicsTSnSec``), read through
+    ``io.scan_stack.epics_pair_stamps`` — the conversion the stack check
+    and the camera's own row stamp use — and spelled
+    ``<object_name>-acq_timestamp`` as a strict row of that camera spells
+    it.  The pair itself is consumed, not a column; the GEECS stamp wins
+    when a stack has both.  The writer's other bare attributes
+    (``NDArrayUniqueId``, ``NDArrayTimeStamp``, the layout's markers) are
+    its bookkeeping, not scalars a strict row carries: no column — the
+    counter and ``WitnessCount`` reach the audit by name from the
+    attributes themselves (``shot_table.device_records``).
     """
     from geecs_data_utils.io.arrays import WAVEFORM_ATTRIBUTE_SUFFIXES
     from geecs_data_utils.io.scan_stack import parse_attribute_name
@@ -578,7 +586,10 @@ def frame_columns_from_attributes(
     stamps: np.ndarray | None = None
     columns: dict[str, np.ndarray] = {}
     raw_names: dict[str, str] = {}
+    native, skipped = _native_stamps(attributes)
     for name, values in attributes.items():
+        if name in skipped:
+            continue  # the EPICS pair, a native writer's bookkeeping
         parsed = parse_attribute_name(name)
         device = parsed[0] if parsed else object_name
         suffix = parsed[2] if parsed else name
@@ -599,6 +610,9 @@ def frame_columns_from_attributes(
             columns[key] = array
             if name in manifest:
                 raw_names[key] = str(manifest[name])
+    if stamps is None and native is not None:
+        stamps = native + float(labview_epoch_offset)
+        columns[f"{object_name}{ACQ_TIMESTAMP_SUFFIX}"] = stamps
     if stamps is None:
         logger.warning(
             "%s: no frame stamp among the stack's attributes (%s); not joined",
@@ -624,6 +638,36 @@ def frame_columns_from_attributes(
         columns=columns,
         raw_names=raw_names,
     )
+
+
+def _native_stamps(
+    attributes: Mapping[str, Any],
+) -> tuple[np.ndarray | None, frozenset[str]]:
+    """``(Unix stamps, names that are no column)`` of a native stack's attributes.
+
+    The stamps are the EPICS pair's (``io.scan_stack.epics_pair_stamps``)
+    when no GEECS stamp is present, else ``None``.  The pair is never a
+    column; on a native stack no bare name is either (the writer's
+    bookkeeping).
+    """
+    from geecs_data_utils.io.scan_stack import (
+        EPICS_TS_NSEC,
+        EPICS_TS_SEC,
+        epics_pair_stamps,
+        parse_attribute_name,
+    )
+
+    pair = frozenset({EPICS_TS_SEC, EPICS_TS_NSEC})
+    if any(
+        name == "acq_timestamp" or name.endswith(f"-{FRAME_STAMP_SUFFIX}")
+        for name in attributes
+    ):
+        return None, pair
+    stamps = epics_pair_stamps(attributes)
+    if stamps is None:
+        return None, pair
+    bare = (name for name in attributes if parse_attribute_name(name) is None)
+    return stamps, pair | frozenset(bare)
 
 
 __all__ = [

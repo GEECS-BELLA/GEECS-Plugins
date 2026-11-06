@@ -301,6 +301,44 @@ def test_a_pre_0_8_stack_uses_the_stream_name_for_its_bare_stamp() -> None:
     assert list(columns.columns["uc_a-acq_timestamp"]) == [5.0]
 
 
+def test_a_native_stacks_epics_pair_is_its_frame_stamp() -> None:
+    """A stock areaDetector stack: the EPICS pair is the stamp, in the rows' epoch."""
+    from geecs_data_utils.io.scan_stack import (
+        EPICS_EPOCH_OFFSET,
+        epics_timestamp_to_unix,
+    )
+
+    sec = np.array([1_162_788_389, 1_162_788_390], dtype=np.uint32)
+    nsec = np.array([931_098_300, 249_263_258], dtype=np.uint32)
+    columns = frame_columns_from_attributes(
+        "uc_nat",
+        {
+            "NDArrayEpicsTSSec": sec,
+            "NDArrayEpicsTSnSec": nsec,
+            "NDArrayUniqueId": np.array([7, 8], dtype=np.int32),
+        },
+        labview_epoch_offset=LABVIEW_EPOCH_OFFSET,
+    )
+    assert columns is not None
+    expected = epics_timestamp_to_unix(sec, nsec) + LABVIEW_EPOCH_OFFSET
+    assert np.allclose(columns.stamps, expected, rtol=0, atol=1e-6)
+    assert columns.stamps[0] - LABVIEW_EPOCH_OFFSET > EPICS_EPOCH_OFFSET
+    assert np.array_equal(columns.columns["uc_nat-acq_timestamp"], columns.stamps)
+    assert set(columns.columns) == {"uc_nat-acq_timestamp"}  # bookkeeping is no column
+
+
+def test_a_geecs_stamp_wins_over_the_epics_pair() -> None:
+    columns = frame_columns_from_attributes(
+        "uc_a",
+        {
+            "uc_a-hdf-image-frame_acq_timestamp": np.array([5.0]),
+            "NDArrayEpicsTSSec": np.array([1]),
+            "NDArrayEpicsTSnSec": np.array([0]),
+        },
+    )
+    assert columns is not None and list(columns.stamps) == [5.0]
+
+
 def test_attributes_without_a_frame_stamp_are_not_joinable(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         assert (

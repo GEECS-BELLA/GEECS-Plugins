@@ -117,6 +117,83 @@ def test_a_shot_table_runs_s_file_joins_both_stream_shapes(tmp_path) -> None:
     assert list(sfile["Shotnumber"]) == [1, 2, 3]
 
 
+def test_a_native_cameras_stack_joins_the_s_file_on_its_epics_pair(
+    tmp_path, caplog
+) -> None:
+    """A stock NDFileHDF5 stack: the EPICS pair is the stamp, NaN where no frame."""
+    import h5py
+
+    from geecs_bluesky.callbacks import SFileCallback
+    from geecs_data_utils.io.scan_stack import ATTRIBUTES_GROUP, EPICS_EPOCH_OFFSET
+
+    folder = tmp_path / "scans" / "Scan009"
+    path = folder / "UC_Nat" / "UC_Nat.h5"
+    path.parent.mkdir(parents=True)
+    witness = [1_793_940_000.0 + k for k in range(3)]  # Unix, past the EPICS epoch
+    frames = np.array([witness[0], witness[2]]) + 0.004  # row 2 skipped
+    with h5py.File(path, "w") as f:
+        f.create_dataset(FRAMES_DATASET, data=np.zeros((2, 2, 2), dtype=np.uint16))
+        group = f.require_group(ATTRIBUTES_GROUP)
+        seconds = np.floor(frames)
+        group["NDArrayEpicsTSSec"] = (seconds - EPICS_EPOCH_OFFSET).astype(np.uint32)
+        group["NDArrayEpicsTSnSec"] = np.round((frames - seconds) * 1e9).astype(
+            np.uint32
+        )
+        group["NDArrayUniqueId"] = np.array([41, 43], dtype=np.int32)
+        f["entry"].attrs["finalized"] = np.int32(1)
+    cb = SFileCallback(finalize_timeout=2.0)
+    start = {
+        "uid": "r",
+        "scan_number": 9,
+        "scan_folder": str(folder),
+        "layout": "shot-table/1",
+        "per_shot_streams": ["uc_nat_stream"],
+        "required": ["uc_nat"],
+        "shot_clock_column": "witness_stamp",
+        "geecs_scalar_headers": {"uc_nat-acq_timestamp": "UC_Nat acq_timestamp"},
+    }
+    with caplog.at_level(logging.WARNING):
+        cb("start", start)
+        for uid, name in (("dp", "primary"), ("dc", "uc_nat_stream")):
+            cb(
+                "descriptor",
+                {"uid": uid, "run_start": "r", "name": name, "data_keys": {}},
+            )
+        for k, stamp in enumerate(witness):
+            row = {"shot_index": k + 1, "bin_number": 1, "witness_count": k + 7}
+            row["witness_stamp"] = stamp
+            cb("event", {"descriptor": "dp", "seq_num": k + 1, "data": row})
+        cb(
+            "stream_resource",
+            {
+                "uid": "sr",
+                "run_start": "r",
+                "data_key": "uc_nat",
+                "mimetype": "application/x-hdf5",
+                "uri": path.as_uri(),
+                "parameters": {"dataset": FRAMES_DATASET},
+            },
+        )
+        cb(
+            "stream_datum",
+            {
+                "stream_resource": "sr",
+                "descriptor": "dc",
+                "indices": {"start": 0, "stop": 2},
+                "seq_nums": {"start": 1, "stop": 3},
+            },
+        )
+        cb("stop", {"run_start": "r", "exit_status": "success"})
+        cb.join(10.0)
+    assert "no frame stamp" not in caplog.text
+    assert "required device" not in caplog.text
+    assert "no scalar header names" not in caplog.text  # no bookkeeping columns
+    sfile = pd.read_csv(tmp_path / "analysis" / "s9.txt", sep="\t")
+    stamps = sfile["UC_Nat acq_timestamp"].to_numpy()
+    assert np.allclose(stamps[[0, 2]], frames + LV, rtol=0, atol=1e-6)
+    assert np.isnan(stamps[1])
+
+
 def test_stack_check_joins_a_shot_table_stack_through_the_helper(
     tmp_path, caplog
 ) -> None:

@@ -370,7 +370,9 @@ def read_device_records(
     them (a bare ``NDArrayUniqueId`` / ``WitnessCount`` part belongs to
     the stream's one stamped device — an attribute stream's or an event
     stream's alike: a native camera's stream is an event stream of its
-    frame stamps beside its stack's NDAttribute parts).  A stream that
+    frame stamps beside its stack's NDAttribute parts, or a datum-only
+    stream whose bare parts carry the EPICS stamp pair, joined on that
+    pair as the live s-file joins the stack).  A stream that
     publishes neither (a plugin stack carries no per-frame counter) has no
     audit here, as in the s-file.  *stamps_only* reads each device's stamps
     and counters and no scalar column (what a frame lookup needs).
@@ -416,8 +418,11 @@ def read_device_records(
     list of DeviceRecords
         One entry per device, in stream then device order.
     """
-    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
-    from geecs_data_utils.shot_join import frame_columns_from_attributes
+    from geecs_data_utils.io.scan_stack import EPICS_TS_SEC, LABVIEW_EPOCH_OFFSET
+    from geecs_data_utils.shot_join import (
+        NON_ESSENTIAL_STREAM_SUFFIX,
+        frame_columns_from_attributes,
+    )
 
     start = dict((getattr(run, "metadata", None) or {}).get("start") or {})
     audit_keys = (*COUNTER_KEYS, WITNESS_ATTRIBUTE_KEY)
@@ -441,6 +446,13 @@ def read_device_records(
                 continue
         contents = node.get_contents()
         per_device, bare = _attribute_parts(node, contents, audit_keys, stamps_only)
+        if not per_device and EPICS_TS_SEC in bare:
+            # A native camera's stream: its NDAttribute parts carry bare names,
+            # the EPICS stamp pair among them, and belong to the stream's device.
+            device = event_streams.get(
+                stream, stream.removesuffix(NON_ESSENTIAL_STREAM_SUFFIX)
+            )
+            per_device = {device: dict(bare)}
         built: list[FrameColumns] = []
         for device, attributes in sorted(per_device.items()):
             columns = frame_columns_from_attributes(
@@ -475,10 +487,15 @@ def _attribute_parts(
     """``(device → its attribute parts, the bare audit parts)`` of one stream node.
 
     Only 1-D parts named ``<device>-hdf-<variable>-<suffix>`` are read (never
-    the frame stack); *stamps_only* keeps the stamps and audit columns
+    the frame stack), and the bare audit parts with a native camera's EPICS
+    stamp pair (``NDArrayEpicsTSSec`` / ``NDArrayEpicsTSnSec``); *stamps_only* keeps the stamps and audit columns
     (matched case- and separator-blind: a plugin suffix is lowercase).
     """
-    from geecs_data_utils.io.scan_stack import parse_attribute_name
+    from geecs_data_utils.io.scan_stack import (
+        EPICS_TS_NSEC,
+        EPICS_TS_SEC,
+        parse_attribute_name,
+    )
     from geecs_data_utils.shot_join import FRAME_STAMP_SUFFIX, _squash
 
     keep = {_squash(key) for key in (FRAME_STAMP_SUFFIX, *audit_keys)}
@@ -488,7 +505,7 @@ def _attribute_parts(
     for part in map(str, contents):
         parsed = parse_attribute_name(part)
         if parsed is None:
-            if part in audit_keys:
+            if part in audit_keys or part in (EPICS_TS_SEC, EPICS_TS_NSEC):
                 bare[part] = node.base[part].read()
             continue  # the frame stack (or a part of another shape)
         if stamps_only and _squash(parsed[2]) not in keep:

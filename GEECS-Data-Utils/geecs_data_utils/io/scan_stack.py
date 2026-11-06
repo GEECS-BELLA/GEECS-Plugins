@@ -121,6 +121,29 @@ def epics_timestamp_to_unix(
     )
 
 
+def epics_pair_stamps(
+    attributes: "Mapping[str, object] | h5py.Group | None",
+) -> "np.ndarray | None":
+    """Per-frame Unix seconds from *attributes*' EPICS timestamp pair, or ``None``.
+
+    *attributes* is the stack's attributes group or any mapping of its
+    datasets by bare name (``read_stack_attributes``, a Tiled stream's
+    parts): ``NDArrayEpicsTSSec`` and ``NDArrayEpicsTSnSec`` through
+    :func:`epics_timestamp_to_unix`.  ``None`` unless both are present —
+    the one reading of a native EPICS camera's frame stamps.
+    """
+    if attributes is None or EPICS_TS_SEC not in attributes:
+        return None
+    if EPICS_TS_NSEC not in attributes:
+        return None
+    sec, nsec = attributes[EPICS_TS_SEC], attributes[EPICS_TS_NSEC]
+    if isinstance(sec, h5py.Dataset):
+        sec = sec[()]
+    if isinstance(nsec, h5py.Dataset):
+        nsec = nsec[()]
+    return epics_timestamp_to_unix(np.asarray(sec), np.asarray(nsec))
+
+
 def _has_epics_pair(f: "h5py.File") -> bool:
     group = f.get(ATTRIBUTES_GROUP)
     return group is not None and EPICS_TS_SEC in group and EPICS_TS_NSEC in group
@@ -137,10 +160,7 @@ def frame_stamps(f: "h5py.File") -> "np.ndarray | None":
     dataset = timestamps_dataset(f)
     if dataset is not None:
         return np.asarray(f[dataset][:], dtype=float)
-    if _has_epics_pair(f):
-        group = f[ATTRIBUTES_GROUP]
-        return epics_timestamp_to_unix(group[EPICS_TS_SEC][:], group[EPICS_TS_NSEC][:])
-    return None
+    return epics_pair_stamps(f.get(ATTRIBUTES_GROUP))
 
 
 def stack_finalized(f: "h5py.File") -> bool:
