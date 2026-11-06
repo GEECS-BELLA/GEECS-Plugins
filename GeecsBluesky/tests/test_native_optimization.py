@@ -458,6 +458,32 @@ def test_a_stamp_landing_after_the_bins_last_collect_still_counts(setup, caplog)
     assert "without a gateway stamp" not in caplog.text
 
 
+def test_a_stamped_snapshot_still_reading_at_the_bins_end_still_counts(
+    setup, monkeypatch
+):
+    """A device stream's last event of the bin publishes before the bin is scored.
+
+    The stamp advances at once (the slot completes) while the stream's
+    read of the scalars takes 80 ms: the bin's end waits for it.
+    """
+    import asyncio
+
+    from geecs_bluesky.devices import sampler
+
+    merge = sampler.merge_gathered_dicts
+
+    async def slow_merge(coros):
+        await asyncio.sleep(0.08)
+        return await merge(coros)
+
+    monkeypatch.setattr(sampler, "merge_gathered_dicts", slow_merge)
+    re, plan, meter, box, docs = _meter_plan(setup)
+    re(plan([meter], optimizer_config="test", shot_period=0.15))
+    events = _optimization_events(docs)
+    assert [e["output:meter"] for e in events] == [1.5, 3.5, 5.5]
+    assert [e["n_valid_shots:meter"] for e in events] == [2, 2, 2]
+
+
 def test_a_stamp_that_never_lands_is_warned_once_and_not_waited_again(
     setup, caplog, monkeypatch
 ):

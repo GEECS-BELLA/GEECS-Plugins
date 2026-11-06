@@ -638,8 +638,10 @@ reads (its frames or one of its scalars) gets a **companion**
 `StampStream` on its gateway `acq_timestamp` — the stamp and the cached
 scalars per shot, in `<name>_stamps_stream`, not one of the run's
 `per_shot_streams` — and the bin's end waits (bounded, `SETTLE_S`) for a
-stamp per frame written; a stamp that never lands is WARNING-logged once
-per camera and not waited for again.  A movable's readback is read in the
+stamp per frame written, and for every device stream (`StampStream`) to
+finish recording the stamps it holds (its stamp completes the slot while
+its scalars are still being read); a stamp that never lands is
+WARNING-logged once per camera and not waited for again.  A movable's readback is read in the
 row; a bin with no finite readback records `measured` NaN with a WARNING
 and is not told to the optimizer (never the proposal).  Native cameras
 stay refused in optimize (`NOT_OPTIMIZE`).  `OptimizerConfig` lives in
