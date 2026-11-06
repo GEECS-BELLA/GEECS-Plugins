@@ -568,16 +568,17 @@ class TiledScanCatalog:
             shot_source=source,
         )
         if source is not None and not detail.rows_are_frames:
-            shots = source()  # stamps only: one read per device
-            if shots is not None:
-                joined = functools.partial(_joined_rows, run, start_doc, shots, stream)
-                from geecs_data_utils.shot_table import fresh_rows
+            from geecs_data_utils.shot_table import fresh_rows
 
-                detail = replace(
-                    detail,
-                    data=fresh_rows(shots.table),
-                    scalar_source=_once(joined),
-                )
+            shots = source()  # stamps only: one read per device
+            joined = functools.partial(
+                _joined_rows, run, start_doc, source, rows, stream
+            )
+            detail = replace(
+                detail,
+                data=rows if shots is None else fresh_rows(shots.table),
+                scalar_source=_once_joined(joined),
+            )
         return detail
 
     def _shots_for(
@@ -613,15 +614,23 @@ class TiledScanCatalog:
             return shots
 
 
-def _once(build: Callable[[], Any]) -> Callable[[], Any]:
-    """*build*, called at most once; concurrent first callers wait for it."""
+def _once_joined(build: Callable[[], tuple[Any, bool]]) -> Callable[[], Any]:
+    """*build*'s rows, kept once it reports a full join; concurrent callers wait.
+
+    *build* returns ``(rows, joined)``.  Rows short of the full join (a
+    scalar read failed, the shot table not built) are served and not
+    kept, so the next call tries again.
+    """
     lock, done = threading.Lock(), []
 
     def call() -> Any:
         with lock:
-            if not done:
-                done.append(build())
-            return done[0]
+            if done:
+                return done[0]
+            rows, joined = build()
+            if joined:
+                done.append(rows)
+            return rows
 
     return call
 
@@ -666,14 +675,27 @@ def _stamp_records(run: Any, start: dict, row_stream: str) -> list:
     return read_device_records(run, row_stream, stamps_only=True)
 
 
-def _joined_rows(run: Any, start: dict, shots: RunShots, stream: str) -> Any:
-    """*shots*' rows with every device's scalars joined, read on first use.
+def _joined_rows(
+    run: Any,
+    start: dict,
+    source: Callable[[], Optional[RunShots]],
+    rows: Any,
+    stream: str,
+) -> tuple[Any, bool]:
+    """The run's rows with every device's scalars joined, and whether they are.
 
-    Stale samples are blanked (:func:`geecs_data_utils.shot_table.fresh_rows`).
+    ``(rows, True)`` on a full join.  With no shot table (*source* built
+    none) the bare *rows*, on a failed scalar read the shot table's
+    stamps-only rows, both with ``False``: :func:`_once_joined` keeps only
+    a full join.  Stale samples are blanked
+    (:func:`geecs_data_utils.shot_table.fresh_rows`).
     """
     from geecs_data_utils.shot_table import fresh_rows, shot_table
     from geecs_data_utils.tiled_export import read_device_records, read_drain_offsets
 
+    shots = source()
+    if shots is None:
+        return rows, False
     try:
         devices = read_device_records(run, stream)
         offsets = read_drain_offsets(run)
@@ -682,8 +704,8 @@ def _joined_rows(run: Any, start: dict, shots: RunShots, stream: str) -> Any:
         )
     except Exception:  # the stamps-only rows still serve
         logger.exception("run %s: device scalars not joined", start.get("uid"))
-        return fresh_rows(shots.table)
-    return fresh_rows(table)
+        return fresh_rows(shots.table), False
+    return fresh_rows(table), True
 
 
 def read_primary_scalars(primary: Any) -> Optional[Any]:

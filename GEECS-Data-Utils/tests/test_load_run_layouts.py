@@ -236,3 +236,31 @@ def test_concurrent_first_scalars_calls_read_once(monkeypatch) -> None:
     for thread in threads:
         thread.join()
     assert run.reads.count("uc_gatedcam-hdf-image-meancounts") == 1
+
+
+def test_a_failed_scalar_read_is_retried_not_kept() -> None:
+    run = gated_run()
+    part = run["primary"].base["uc_gatedcam-hdf-image-meancounts"]
+    value, part.value = part.value, ConnectionError("timed out")
+    detail = load(run)
+    assert "uc_gatedcam-meancounts" not in detail.scalars()  # stamps only, served
+    part.value = value
+    assert_dropped_frame_is_a_gap(detail)  # read again, joined
+    reads = run.reads.count("uc_gatedcam-hdf-image-meancounts")
+    detail.scalars()
+    assert run.reads.count("uc_gatedcam-hdf-image-meancounts") == reads  # kept
+
+
+def test_a_failed_shot_table_build_still_joins_once_it_recovers() -> None:
+    run = gated_run()
+    stamp = run["primary"].base["uc_gatedcam-hdf-image-frame_acq_timestamp"]
+    value, stamp.value = stamp.value, ConnectionError("timed out")
+    catalog = TiledScanCatalog(uri="http://fake:8000")
+    now = [0.0]
+    catalog._clock = lambda: now[0]
+    detail = load(run, catalog)
+    assert detail.shots() is None
+    assert "uc_gatedcam-meancounts" not in detail.scalars()
+    stamp.value = value
+    now[0] = 31.0  # past the failed build's TTL
+    assert_dropped_frame_is_a_gap(detail)
