@@ -48,7 +48,6 @@ from geecs_portal.state import PortalState
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
-_STATIC_DIR = Path(__file__).parent / "static"
 
 #: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
 #: convention every reverse proxy speaks.
@@ -197,16 +196,11 @@ def create_app(
         directory=str(_TEMPLATES_DIR),
         context_processors=[lambda request: {"root": _root(request)}],
     )
-    # The one committed JS asset: the version-pinned vendored Plotly
-    # bundle (doctrine amendment 2026-08-30 — still no npm, no CDN).
-    app.mount(
-        "/static", RevalidatingStaticFiles(directory=str(_STATIC_DIR)), name="static"
-    )
-
-    # The shared palette every GEECS web surface draws from. Mounted here
-    # because the portal is the host: the config editor is a router inside
-    # this app, so one mount serves both and a viewer's choice follows
-    # them between pages.
+    # The shared palette every GEECS web surface draws from, and the
+    # vendored Plotly bundle beside it (the theme's, one copy for every
+    # surface: still no npm, no CDN). Mounted here because the portal is
+    # the host: the config editor is a router inside this app, so one
+    # mount serves both and a viewer's choice follows them between pages.
     from geecs_web_theme import static_dir as _theme_dir
 
     app.mount(

@@ -6,6 +6,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.117.0] - 2026-11-04
+
+### Added
+
+- The `setpoint_device` kind: a supply's plain records as confirm-on-readback
+  settables (#1270).
+- `QueueClient.remove_item(uid)`, and `append=True` on `submit_plan` /
+  `submit_preset`: add behind the waiting items of a started queue; a
+  stopped queue with items waiting still refuses with `pending_items` (#1285).
+- Native cameras: `trigger_source line0` (#1129); a run holds the IOC's run
+  lock from its first prepare until the camera is restored (#1136); the
+  `epics_motor` kind, a positioner's motor records as a native noun (#1142);
+  the registry pass that feeds the archive set (#1237); the design notes for
+  the kinds beyond the camera and for gated runs (#1140, #1121).
+- A shared scan-log list stamped into every scan's ScanInfo (#1125).
+- Per-instance Redis prefix, plan list and manager addresses from the
+  environment; a second experiment as `<unit>@<Instance>` (#1227, #1235).
+
+### Fixed
+
+- Strict scans name a free-running camera instead of failing on a
+  datum-width error (#1276, #1277).
+- A gated batch whose gate read fails turns the box off and keeps its shots
+  (#1123).
+- A camera resting in trigger mode is the usual case, not a warning (#1246).
+- A native camera's refused run shape is named at preset expansion (#1122).
+
+### Changed
+
+- The config.ini EPICS address bootstrap moved to GEECS-Core (#1130); the
+  action-step library moved to GEECS-Schemas with Canopy push 3 (#1214).
+
+### Deploy
+
+- Pull the queueserver checkout and restart `geecs-qserver`; its ready unit
+  re-opens the environment. Not while a scan runs: the restart ends it.
+
 ## [0.116.0] - 2026-10-22
 
 ### Added

@@ -15,11 +15,6 @@ reader (GeecsCanopy and the archiver's registry pass), and this package
 keeps PyYAML out of its runtime dependencies (YAML is serialization, not
 the contract; see :meth:`VersionedSchemaModel.from_path`).
 
-The contents were transcribed from GeecsPanels' per-kind tables
-(``motor.py``, ``camera.py``, ``scope.py``, ``power.py``); the pin that
-holds the two in step (web estate S2) is kept with the PV bridge at
-the tag ``web-estate-final``, not beside these files.
-
 The installed families are shared by everything in the process, so the
 models are frozen and :func:`load_families` returns a read-only mapping.
 """
@@ -33,7 +28,14 @@ from importlib import resources
 from types import MappingProxyType
 from typing import Annotated, Literal, Optional
 
-from pydantic import AfterValidator, ConfigDict, Field, ValidationInfo, model_validator
+from pydantic import (
+    AfterValidator,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    model_validator,
+)
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
@@ -98,6 +100,16 @@ FamilyWord = Annotated[str, Field(min_length=1, pattern=r"^\S(.*\S)?$")]
 
 #: A PV suffix under the device's prefix: no whitespace.
 Suffix = Annotated[str, Field(pattern=r"^\S+$")]
+
+
+def _one_or_many(value: object) -> object:
+    return [value] if isinstance(value, str) else value
+
+
+#: The arrays an axis is the x axis of: one name, or a list of them.
+AxisTargets = Annotated[
+    list[RoleName], Field(min_length=1), BeforeValidator(_one_or_many)
+]
 
 #: Roles a write goes to; the others are read only.
 _ALWAYS_WRITABLE = frozenset({"setpoint", "command"})
@@ -254,11 +266,30 @@ class Role(SchemaModel):
         False,
         description="A bit that reads 1 when tripped: any tripped fault makes the device 'failed'.",
     )
+    axis_of: Optional[AxisTargets] = Field(
+        None,
+        description=(
+            "On an array: the array role (or the list of them) this one is the x "
+            "axis of, one value per sample of each of its channels (a scope's time "
+            "axis beside its capture, a spectrometer's wavelengths beside its raw "
+            "and its processed spectrum). A single name is read as a list of one. "
+            "All are arrays; an array has one axis at most, and an axis is no "
+            "array's trace."
+        ),
+    )
+    channels_by: Optional[RoleName] = Field(
+        None,
+        description=(
+            "On an array of several channels: the readback that counts them. The "
+            "array is then [channels, samples], channels fastest (a scope's ARR "
+            "capture, a disabled channel NaN). Absent: one channel."
+        ),
+    )
     read: Optional[ReadMode] = Field(
         None,
         description=(
             "How the bridge reads it, when not the type's own: monitored (scalars), "
-            "on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record)."
+            "on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame)."
         ),
     )
 
@@ -329,6 +360,100 @@ class FamilyAction(SchemaModel):
     )
 
 
+#: A button's label on the page.
+ButtonLabel = Annotated[str, Field(min_length=1)]
+
+
+class PanelGroup(SchemaModel):
+    """One titled group of a device page's control rail: the roles it draws, in order."""
+
+    model_config = _FROZEN
+
+    title: str = Field(min_length=1, description="The group's heading on the rail.")
+    roles: list[RoleName] = Field(
+        min_length=1,
+        description=(
+            "The family roles the group draws, in order; the page picks each "
+            "control by the role's type."
+        ),
+    )
+    layout: Literal["fields", "grid"] = Field(
+        "fields",
+        description=(
+            "'fields': one labelled control per row; 'grid': a compact labelled "
+            "grid of short controls (a PLC's channels), for a group of bits, enums "
+            "and two-state whole numbers only."
+        ),
+    )
+
+
+class TweakHint(SchemaModel):
+    """A setpoint drawn with a step and a pair of step buttons beside it (the motor record's tweak)."""
+
+    model_config = _FROZEN
+
+    step: RoleName = Field(
+        description="The setpoint holding the step size (the motor record's 'twv')."
+    )
+    forward: RoleName = Field(
+        description="The command that steps forward by it ('twf'): the record moves, the page computes nothing."
+    )
+    reverse: RoleName = Field(description="The command that steps back by it ('twr').")
+
+
+class Panel(SchemaModel):
+    """How a device page lays out the family's roles: the control rail and the readings strip.
+
+    Layout only. The page draws each rail role by its type (an enum a
+    select of the record's own choices, a setpoint a number beside its
+    readback, a bit a checkbox, a command a button, a readback its text), so
+    a plain group constrains no role type; two hints do: a ``grid`` group
+    holds short controls only (bits, enums, two-state whole numbers) and a
+    ``tweak`` names a setpoint, its step setpoint and two commands. A reading
+    is a monitored role, since it carries the module's word. The panel
+    places roles whatever their ``level``: ``level`` decides the role
+    table's operator and expert views, the panel what the page draws above
+    it. Whether a write is permitted stays the module's.
+    """
+
+    model_config = _FROZEN
+
+    rail: list[PanelGroup] = Field(
+        default_factory=list,
+        description="The rail's control groups, in order; a role sits in one group at most.",
+    )
+    readings: list[RoleName] = Field(
+        default_factory=list,
+        description="The roles of the readings strip, in order, each with its freshness word.",
+    )
+    buttons: dict[RoleName, tuple[ButtonLabel, ButtonLabel]] = Field(
+        default_factory=dict,
+        description=(
+            "A two-state rail role drawn as a pair of buttons, its labels for 0 "
+            "then 1 (an acquire as Stop / Start), in place of its type's control. "
+            "The role is writable, in the rail, and a bit or a whole number "
+            "limited to [0, 1]."
+        ),
+    )
+    tweak: dict[RoleName, TweakHint] = Field(
+        default_factory=dict,
+        description=(
+            "A rail setpoint drawn with its step and step buttons beside it, in "
+            "place of three separate controls: the key is the setpoint, the hint "
+            "its step setpoint and its forward and reverse commands, all writable "
+            "and in the key's rail group."
+        ),
+    )
+    show_while: dict[RoleName, RoleName] = Field(
+        default_factory=dict,
+        description=(
+            "An array an axis draws, shown by default while a monitored role reads "
+            "1 (a processed spectrum while background subtraction is on); otherwise "
+            "the axis' first array. A viewer's own choice wins."
+        ),
+    )
+
+
 class FamilyFile(VersionedSchemaModel):
     """The records of one IOC record template, by role: what every device of the family serves.
 
@@ -375,6 +500,13 @@ class FamilyFile(VersionedSchemaModel):
             "Empty: every writable role is its own permission."
         ),
     )
+    panel: Optional[Panel] = Field(
+        None,
+        description=(
+            "How the kind's device page lays the roles out (the rail's groups, the "
+            "readings strip); absent: the page's own default."
+        ),
+    )
 
     def role(self, name: str) -> Role:
         """The role called *name*; ``KeyError`` if the family has none."""
@@ -407,6 +539,9 @@ class FamilyFile(VersionedSchemaModel):
         by_name = {role.name: role for role in self.roles}
         for role in self.roles:
             _check_links(role, by_name)
+        _check_axes(self.roles, by_name)
+        if self.panel is not None:
+            _check_panel(self.panel, by_name)
         for action_name, action in self.actions.items():
             for name in action.roles:
                 if name not in by_name or not by_name[name].writable:
@@ -445,6 +580,133 @@ def _check_links(role: Role, by_name: Mapping[str, Role]) -> None:
                 f"role {role.name!r}: fresh_by names a counter, not "
                 f"{other.type} {target!r}"
             )
+
+
+def _check_axes(roles: list[Role], by_name: Mapping[str, Role]) -> None:
+    """Refuse an axis that is no array, names no array, is a second axis of one array, or is itself a trace; a channel count that is no readback."""
+    drawn = [target for r in roles for target in r.axis_of or ()]
+    for role in roles:
+        if role.channels_by is not None:
+            counter = by_name.get(role.channels_by)
+            if role.type != "array" or counter is None or counter.type != "readback":
+                raise ValueError(
+                    f"role {role.name!r}: channels_by is an array's, naming a readback "
+                    f"({role.channels_by!r})"
+                )
+        if role.axis_of is None:
+            continue
+        if role.type != "array":
+            raise ValueError(
+                f"role {role.name!r}: only an array is an axis ({role.type})"
+            )
+        for target in role.axis_of:
+            other = by_name.get(target)
+            if other is None:
+                raise ValueError(
+                    f"role {role.name!r}: axis_of names no role ({target!r})"
+                )
+            if other.type != "array" or target == role.name:
+                raise ValueError(
+                    f"role {role.name!r}: axis_of names an array other than itself, "
+                    f"not {other.type} {target!r}"
+                )
+        if role.name in drawn:
+            raise ValueError(f"role {role.name!r}: an axis is no array's trace")
+    _refuse_duplicates("axes (one per array)", drawn)
+
+
+def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
+    """Refuse a panel naming a role the family lacks, one rail role in two places, an unmonitored reading, a button pair on no two-state rail role, a tweak on no writable setpoint and commands of its group, a grid of more than bits and enums, or a default array no axis draws."""
+    named = [name for group in panel.rail for name in group.roles]
+    tweaked = [
+        name
+        for key, hint in panel.tweak.items()
+        for name in (key, hint.step, hint.forward, hint.reverse)
+    ]
+    hinted = [*panel.buttons, *tweaked, *panel.show_while, *panel.show_while.values()]
+    unknown = sorted(
+        {name for name in [*named, *panel.readings, *hinted] if name not in by_name}
+    )
+    if unknown:
+        raise ValueError(f"panel names no role {unknown}")
+    _refuse_duplicates("panel rail roles", named)
+    _refuse_duplicates("panel readings", list(panel.readings))
+    unjudged = [n for n in panel.readings if by_name[n].read_mode != "monitor"]
+    if unjudged:
+        raise ValueError(
+            f"panel readings {unjudged} are not monitored: a reading carries the "
+            "module's word, and the module judges monitored roles only"
+        )
+    for name in panel.buttons:
+        role = by_name[name]
+        if name not in named or not role.writable or not _two_state(role):
+            raise ValueError(
+                f"panel buttons {name!r}: a button pair draws a writable two-state "
+                "rail role (a bit, or a whole number limited to [0, 1])"
+            )
+    _check_tweaks(panel, by_name, tweaked)
+    for i, group in enumerate(panel.rail):
+        long = [n for n in group.roles if not _short(by_name[n])]
+        if group.layout == "grid" and long:
+            raise ValueError(
+                f"panel group {group.title!r} (group {i + 1}): a grid draws short controls only "
+                f"(bits, enums, two-state whole numbers), not {long}"
+            )
+    drawn = {target for r in by_name.values() for target in r.axis_of or ()}
+    for array, flag in panel.show_while.items():
+        if array not in drawn:
+            raise ValueError(f"panel show_while {array!r}: no axis draws it")
+        if by_name[flag].read_mode != "monitor":
+            raise ValueError(
+                f"panel show_while {array!r}: {flag!r} is not monitored, so the "
+                "page cannot read it"
+            )
+
+
+def _two_state(role: Role) -> bool:
+    """A bit, or a whole number limited to [0, 1]: what a button pair draws."""
+    return role.type == "bit" or (role.integer and role.limits == (0, 1))
+
+
+def _short(role: Role) -> bool:
+    """A two-state role or an enum: what a grid cell draws."""
+    return role.type == "enum" or _two_state(role)
+
+
+def _check_tweaks(
+    panel: Panel, by_name: Mapping[str, Role], tweaked: list[str]
+) -> None:
+    """Refuse a tweak whose roles are not a writable setpoint, its step setpoint and two commands, all in the key's rail group and drawn by no other hint.
+
+    A group is the group itself (its place in the rail), never its title:
+    two groups may share a heading.
+    """
+    group_of = {name: i for i, group in enumerate(panel.rail) for name in group.roles}
+
+    def where(name: str) -> str:
+        i = group_of[name]
+        return f"{panel.rail[i].title!r}, group {i + 1}"
+
+    for key, hint in panel.tweak.items():
+        wanted = ((key, "setpoint"), (hint.step, "setpoint"),
+                  (hint.forward, "command"), (hint.reverse, "command"))  # fmt: skip
+        for name, type_ in wanted:
+            role = by_name[name]
+            if role.type != type_ or name not in group_of:
+                raise ValueError(
+                    f"panel tweak {key!r}: {name!r} must be a rail {type_} "
+                    f"({'an' if role.type[0] in 'aeiou' else 'a'} {role.type}"
+                    f"{'' if name in group_of else ' off the rail'})"
+                )
+            if group_of[name] != group_of[key]:
+                raise ValueError(
+                    f"panel tweak {key!r}: {name!r} sits in the setpoint's rail "
+                    f"group ({where(key)}), not ({where(name)})"
+                )
+    _refuse_duplicates("panel tweak roles", tweaked)
+    both = sorted(set(tweaked) & set(panel.buttons))
+    if both:
+        raise ValueError(f"panel roles {both} are drawn by a tweak and a button pair")
 
 
 def _refuse_duplicates(what: str, items: list[str]) -> None:

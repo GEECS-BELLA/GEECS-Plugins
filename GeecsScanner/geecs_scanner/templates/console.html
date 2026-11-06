@@ -46,7 +46,7 @@
     <div>
       <h4>Scanner</h4>
       <nav class="picklist">
-        <a href="#now" aria-current="page">Now</a>
+        <a href="#now" aria-current="page">Current</a>
         <a href="#submit">New scan</a>
         <a href="#queue">Queue</a>
         <a href="#devices">Devices</a>
@@ -71,7 +71,7 @@
     {# ============================ NOW ============================ #}
     <section id="now" class="panel" aria-labelledby="now-h">
       <header>
-        <span class="eyebrow" id="now-h">now</span>
+        <span class="eyebrow" id="now-h">current</span>
         <span class="chip lg" data-state="unknown" id="now-chip">connecting</span>
       </header>
       <div class="body">
@@ -229,6 +229,8 @@
           <span class="dim note" id="presets-note"></span>
           <select id="preset" class="preset-load" aria-label="Load a preset"><option value="" disabled selected>Loading presets…</option></select>
           <button class="btn" type="button" data-drawer-open="drw-preset" id="btn-save-preset" disabled>Save as preset…</button>
+          <label class="dim note" title="Ask for the scan title (the description) before each Start; remembered in this browser"><input type="checkbox" id="confirm-title" checked> confirm title</label>
+          <button class="btn" type="button" id="btn-append" disabled title="Append to the end of the queue; no title dialog">Add to Queue</button>
           <button class="btn primary" type="button" id="btn-start" disabled>Start</button>
         </div>
       </footer>
@@ -240,15 +242,23 @@
         <span class="eyebrow" id="q-h">queue</span>
         <span class="dim note" id="q-summary">—</span>
       </header>
-      <div class="tscroll sticky">
-        <table>
-          <thead><tr><th>state</th><th>item</th><th>by</th><th>detail</th></tr></thead>
-          <tbody id="qbody"><tr><td class="dim" colspan="4">Waiting for the manager.</td></tr></tbody>
-        </table>
+      <div class="body">
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-run-h">Ongoing</summary>
+          <table><tbody id="q-run"><tr><td class="dim">Waiting for the manager.</td></tr></tbody></table>
+        </details>
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-wait-h">Waiting</summary>
+          <table><tbody id="q-wait"></tbody></table>
+        </details>
+        <details class="fold" open>
+          <summary class="eyebrow" id="q-done-h">History</summary>
+          <div class="tscroll"><table><tbody id="q-done"></tbody></table></div>
+        </details>
       </div>
       <footer>
         <div class="row">
-          <span class="dim note">The manager runs one item behind the running one; a new submission replaces the waiting item after you say so.</span>
+          <span class="dim note">Add to Queue appends behind a started queue; Start replaces a waiting item after you say so. In a stopped queue with items waiting, Add to Queue refuses until they are removed or cleared.</span>
           <span class="spacer"></span>
           <button class="btn danger sm" type="button" data-dialog-open="dlg-clear" id="btn-clear" disabled>Clear queue…</button>
         </div>
@@ -432,6 +442,14 @@
   </div>
 </dialog>
 
+<dialog id="dlg-title" aria-labelledby="dlg-title-h">
+  <div class="body">
+    <h4 id="dlg-title-h">Scan title</h4>
+    <div class="field"><label for="title-box">description</label><input id="title-box" placeholder="what this scan is for" autofocus></div>
+    <div class="row end"><button class="btn" type="button" data-dialog-close>Cancel</button><button class="btn primary" type="button" id="do-title">Confirm</button></div>
+  </div>
+</dialog>
+
 <dialog id="dlg-stop" aria-labelledby="dlg-stop-title">
   <div class="body">
     <h4 id="dlg-stop-title">Stop <span id="dlg-stop-scan">the running scan</span>?</h4>
@@ -451,7 +469,7 @@
 <dialog id="dlg-pending" aria-labelledby="dlg-pending-title">
   <div class="body">
     <h4 id="dlg-pending-title">An item is already waiting</h4>
-    <p id="dlg-pending-text">The manager runs one item behind the running one. Replace the waiting item with this scan?</p>
+    <p id="dlg-pending-text">Replacing clears every waiting item, then queues this scan. Add to Queue appends instead.</p>
     <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Keep it</button><button class="btn primary" type="button" id="do-replace">Replace and queue</button></div>
   </div>
 </dialog>

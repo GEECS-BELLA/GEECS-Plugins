@@ -673,3 +673,56 @@ def test_the_alias_resolves_when_it_names_one_variable() -> None:
     assert _settable_match("Jet X") == "U_S1H:Current"
     assert _settable_match("jet x") == "U_S1H:Current"
     assert _settable_match("shared") is None
+
+
+def test_start_confirms_the_scan_title_behind_a_checkbox(client: TestClient) -> None:
+    """#1280: Start opens a title dialog prefilled from the description, toggled beside it."""
+    html = client.get("/").text
+    footer = html[html.index('id="submit"') : html.index('id="queue"')]
+    footer = footer[footer.index("<footer>") :]
+    assert '<input type="checkbox" id="confirm-title" checked>' in footer
+    assert footer.index('id="confirm-title"') < footer.index('id="btn-start"')
+    dialog = html[html.index('<dialog id="dlg-title"') :]
+    dialog = dialog[: dialog.index("</dialog>")]
+    for piece in ('id="title-box"', "data-dialog-close", 'id="do-title"'):
+        assert piece in dialog, piece
+    script = (_PKG / "static" / "scanner.js").read_text()
+    confirm = script[script.index('$("do-title").addEventListener') :]
+    confirm = confirm[: confirm.index("  });")]
+    assert '$("desc").value = $("title-box").value' in confirm
+    assert "startScan();" in confirm
+    assert '$("btn-start").disabled' in confirm
+    start = script[script.index('$("btn-start").addEventListener("click"') :]
+    start = start[: start.index("  });")]
+    assert 'if (!$("confirm-title").checked) { startScan(); return; }' in start
+
+
+def test_queue_sections_and_add_to_queue_beside_start(client: TestClient) -> None:
+    """#1281: Ongoing / Waiting / History, each a fold; Add to Queue appends and skips the title dialog."""
+    html = client.get("/").text
+    queue = html[html.index('id="queue"') :]
+    queue = queue[: queue.index("</section>")]
+    spots = [queue.index(f'id="{i}"') for i in ("q-run", "q-wait", "q-done")]
+    assert spots == sorted(spots)
+    for word in ("Ongoing", "Waiting", "History"):
+        assert f">{word}</summary>" in queue, word
+    assert queue.count('<details class="fold" open>') == 3
+    footer = html[html.index('id="submit"') : html.index('id="queue"')]
+    assert footer.index('id="btn-append"') < footer.index('id="btn-start"')
+    script = (_PKG / "static" / "scanner.js").read_text()
+    handler = script[script.index('$("btn-append").addEventListener') :]
+    handler = handler[: handler.index("\n")]
+    assert "startScan(true)" in handler and "dlg-title" not in handler
+    assert "append: !!S.pendingAppend" in script
+    # The running row's scan number arrives with the start document, after the
+    # queue refresh: the progress handler redraws that one row.
+    progress = script[script.index('es.addEventListener("progress"') :]
+    progress = progress[: progress.index("});")]
+    assert 'section("q-run", [S.queue.running]' in progress
+    assert 'p.state === "running" || p.state === "paused"' in script
+    assert (
+        '"/api/queue/" + encodeURIComponent(b.dataset.uid), { method: "DELETE" }'
+        in script
+    )
+    # Replace clears every waiting item, so the prompt counts them (#1285 review M1)
+    assert '". Clear all " + items.length + " waiting items' in script

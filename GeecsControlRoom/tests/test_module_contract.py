@@ -11,13 +11,26 @@ imports it (the ``control-room-edges`` contract).
 from __future__ import annotations
 
 import asyncio
+import html
+import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
 import pytest
 from fastapi import FastAPI
-from geecs_canopy.testing import EXPERIMENT, FakeSquirrel, live, make_env
+import numpy as np
+from geecs_canopy.testing import (
+    EXPERIMENT,
+    PANELS,
+    REGISTRY,
+    POLICY,
+    FakeSquirrel,
+    live,
+    make_env,
+    write_documents,
+)
 
 from geecs_control_room.app import create_app
 from geecs_control_room.images import Images
@@ -272,15 +285,317 @@ async def test_the_camera_page_reads_the_image_and_arrays_at_the_pvs_the_module_
     assert roles["image"]["read"] == "once" and roles["exposure"]["locked"] is True
     image = roles["image"]["pv"]
     frame = await room.client.get("/api/devices/Cam1/frame.jpg")
+    counter = roles["image_counter"][
+        "pv"
+    ]  # the JPEG is held on MJPG1's counter, at the PV the module names
     assert frame.status_code == 200 and room.ca.calls == [
+        ("scalar", counter),
         ("text", image),
         ("host", image),
     ]
+    assert counter.endswith("MJPG1:ArrayCounter_RBV") and frame.headers["etag"]
     arrays = (await room.client.get("/api/devices/Cam1/arrays")).json()
-    asked = {r: e["pv"] for r, e in roles.items() if e["read"] == "on_request"}
+    asked = {r: e["pv"] for r, e in roles.items() if e["read"] == "on_request" and e["type"] == "array"}  # fmt: skip
     assert arrays["pvs"] == asked and set(asked) == {"profile_x", "profile_y", "cursor_profile_x", "cursor_profile_y", "histogram"}  # fmt: skip
+    # the raw frame's source: the module names it (read never) and its on-request scalars, none judged, none in /arrays
+    assert (
+        roles["raw_frame"]["read"] == "never" and roles["raw_frame"]["verdict"] is None
+    )
+    assert {roles[r]["read"] for r in ("raw_width", "raw_height", "raw_counter")} == {"on_request"}  # fmt: skip
+    assert all(roles[r]["verdict"] is None for r in ("raw_width", "raw_height", "raw_counter"))  # fmt: skip
+    raw = await room.client.get(
+        "/api/devices/Cam1/frame.raw"
+    )  # read at the PVs the module names
+    assert raw.status_code == 200 and ("frame", tuple(roles[r]["pv"] for r in ("raw_frame", "raw_width", "raw_height"))) in room.ca.calls  # fmt: skip
+    assert {("scalar", roles["raw_counter"]["pv"]), ("scalar", roles["full_scale"]["pv"])} <= set(room.ca.calls)  # fmt: skip
     page = await room.client.get("/device/camera/Cam1")
     assert 'id="camera"' in page.text and "/api/devices/Cam1/frame.jpg" in page.text
     assert (
         'id="hazard-dialog"' in page.text
     )  # a policy-marked role is asked, then sent with confirm
+
+
+def page_json(text: str, element: str) -> object:
+    """The JSON a page carries in ``<script type="application/json" id=element>``."""
+    m = re.search(
+        rf'<script type="application/json" id="{element}">(.*?)</script>', text
+    )
+    assert m, element
+    return json.loads(m.group(1))
+
+
+def stop_start(role: str) -> str:
+    """A panel button pair as the trace template draws it: 0 then 1, disabled until the module's word."""
+    return "".join(f'<button type="button" data-role="{role}" data-value="{v}" data-pair aria-pressed="false" disabled>{w}</button>' for v, w in ((0, "Stop"), (1, "Start")))  # fmt: skip
+
+
+async def test_the_trace_page_draws_the_familys_panel_and_reads_the_trace_at_the_pvs_the_module_names(room, tmp_path: Path) -> None:  # fmt: skip
+    # a bench scope beside the shared documents, written before the module's first read
+    write_documents(tmp_path, panels=PANELS + '  scope1: {family: scope_contract, prefix: "bench:scope1:"}\n', policy=POLICY.replace("easydriver]", "easydriver, scope_contract]"))  # fmt: skip
+    roles = {r["role"]: r for r in (await room.client.get("/api/devices/scope1")).json()["roles"]}  # fmt: skip
+    assert all(CAMERA_FIELDS <= set(r) for r in roles.values())
+    assert (roles["data"]["read"], roles["time_axis"]["read"], roles["arr_counter"]["read"]) == ("on_request", "on_request", "monitor")  # fmt: skip
+    assert roles["data"]["verdict"] is None and roles["ch_a_range"]["writable"] is True
+    page = await room.client.get("/device/trace/scope1")
+    assert page.status_code == 200 and 'id="trace"' in page.text and "/api/devices/scope1/trace" in page.text  # fmt: skip
+    # the rail is the family's panel, each role drawn by its type: enums as selects, setpoints as numbers
+    assert [t for t in ("<h4>Acquisition</h4>", "<h4>Trigger</h4>", "<h4>Channel A</h4>", "<h4>Channel D</h4>") if t not in page.text] == []  # fmt: skip
+    assert re.search(
+        r'<select id="c-\d+-\d+" data-role="ch_a_range" disabled>', page.text
+    )
+    assert 'data-role="trigger_level" step="any"' in page.text and 'data-role="num_images" step="1"' in page.text  # fmt: skip
+    assert ["ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset"] in [json.loads(html.unescape(g)) for g in re.findall(r'data-roles="([^"]*)"', page.text)]  # fmt: skip
+    assert 'class="live" data-role="ch_a_overrange"' in page.text
+    assert page_json(page.text, "trace-ys") == [{"role": "data", "label": "capture", "units": "V", "counter": "arr_counter"}]  # fmt: skip
+    assert 'id="yrole"' not in page.text  # one array: no toggle
+    # acquire, named in the panel's buttons, is a Stop / Start pair writing 0 and 1, not a select
+    assert (
+        stop_start("acquire") in page.text and '<select id="c-acquire"' not in page.text
+    )
+    # the plot is Plotly through the theme's template: the vendored bundle and plot.js, both served from /theme
+    assert '/theme/plotly-cartesian-3.1.1.min.js' in page.text and '/theme/plot.js' in page.text and '<canvas id="trace-plot"' not in page.text  # fmt: skip
+    for asset in ("/theme/plotly-cartesian-3.1.1.min.js", "/theme/plot.js"):
+        assert (await room.client.get(asset)).status_code == 200, asset
+    # the trace: the counter, the capture and its channel count, the axis, at the PVs the module names
+    room.ca.floats_by = {roles["data"]["pv"]: np.zeros(8, dtype=np.float32), roles["time_axis"]["pv"]: np.arange(2, dtype=np.float32)}  # fmt: skip
+    room.ca.scalars = {roles["arr_channels"]["pv"]: 4.0}
+    trace = await room.client.get("/api/devices/scope1/trace")
+    assert trace.status_code == 200 and (trace.headers["x-trace-channels"], trace.headers["x-trace-samples"]) == ("4", "2")  # fmt: skip
+    asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
+    assert asked == [roles["arr_counter"]["pv"], (roles["data"]["pv"],), roles["arr_channels"]["pv"], roles["arr_counter"]["pv"], (roles["time_axis"]["pv"],)]  # fmt: skip
+
+
+async def test_the_trace_page_draws_a_spectrometer_through_the_same_template(room, tmp_path: Path) -> None:  # fmt: skip
+    # the bench spectrometer beside the shared documents: the other array_detector family, one channel
+    write_documents(tmp_path, panels=PANELS + '  cct1: {family: spectrometer_contract, prefix: "bench:cct1:"}\n', policy=POLICY.replace("easydriver]", "easydriver, spectrometer_contract]"))  # fmt: skip
+    roles = {r["role"]: r for r in (await room.client.get("/api/devices/cct1")).json()["roles"]}  # fmt: skip
+    assert (roles["spectrum"]["read"], roles["wavelength"]["read"], roles["arr_counter"]["read"]) == ("on_request", "on_request", "monitor")  # fmt: skip
+    assert roles["background_save"]["read"] == "never" and roles["background_save"]["writable"] is True  # fmt: skip
+    page = await room.client.get("/device/trace/cct1")
+    assert page.status_code == 200 and 'id="trace"' in page.text and "/api/devices/cct1/trace" in page.text  # fmt: skip
+    assert [t for t in ("<h4>Acquisition</h4>", "<h4>Trigger</h4>", "<h4>Background</h4>") if t not in page.text] == []  # fmt: skip
+    assert (
+        "<h4>Channel A</h4>" not in page.text
+    )  # the spectrometer's rail, not the scope's
+    assert '<button class="btn sm" type="button" data-role="background_save" data-value="1" disabled>Save background</button>' in page.text  # fmt: skip
+    assert 'data-role="integration_time" step="any"' in page.text and 'data-role="averages" step="1"' in page.text  # fmt: skip
+    assert 'class="live" data-role="saturated"' in page.text and 'data-x-units="nm"' in page.text  # fmt: skip
+    # two arrays over the wavelengths, each by its own counter; the toggle shows processed while subtraction is on
+    assert page_json(page.text, "trace-ys") == [
+        {"role": "spectrum", "label": "raw spectrum", "units": "counts", "counter": "arr_counter"},
+        {"role": "processed", "label": "processed spectrum", "units": "counts", "counter": "proc_counter"},
+    ]  # fmt: skip
+    assert page_json(page.text, "trace-show-while") == {
+        "processed": "background_enable"
+    }
+    assert '<button type="button" data-y="processed" aria-pressed="false">processed spectrum</button>' in page.text  # fmt: skip
+    assert stop_start("acquire") in page.text
+    assert (roles["processed"]["read"], roles["proc_counter"]["read"], roles["processed"]["verdict"]) == ("on_request", "monitor", None)  # fmt: skip
+    # one channel: the counter, the spectrum (no channel count asked), the counter, the wavelengths
+    room.ca.floats_by = {roles["spectrum"]["pv"]: np.zeros(8, dtype=np.float32), roles["wavelength"]["pv"]: np.arange(8, dtype=np.float32)}  # fmt: skip
+    trace = await room.client.get("/api/devices/cct1/trace")
+    assert trace.status_code == 200 and (trace.headers["x-trace-channels"], trace.headers["x-trace-samples"]) == ("1", "8")  # fmt: skip
+    asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
+    assert asked == [roles["arr_counter"]["pv"], (roles["spectrum"]["pv"],), roles["arr_counter"]["pv"], (roles["wavelength"]["pv"],)]  # fmt: skip
+    # ?y=processed: PROC's own array, held on PROC's own counter, at the PVs the module names; the axis is shared
+    room.ca.floats_by[roles["processed"]["pv"]] = np.ones(8, dtype=np.float32)
+    room.ca.calls.clear()
+    processed = await room.client.get("/api/devices/cct1/trace?y=processed")
+    assert processed.status_code == 200 and np.frombuffer(processed.content, dtype="<f4")[8:].tolist() == [1.0] * 8  # fmt: skip
+    asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
+    assert asked[:3] == [roles["proc_counter"]["pv"], (roles["processed"]["pv"],), roles["proc_counter"]["pv"]]  # fmt: skip
+    unknown = await room.client.get("/api/devices/cct1/trace?y=wavelength")
+    assert unknown.status_code == 404 and unknown.json()["detail"] == "the axis wavelength draws no array 'wavelength': it draws spectrum, processed"  # fmt: skip
+    # Saturated_RBV is an enum reading, but its alarm is the IOC's (MAJOR on the CCT), and the
+    # module's rule stands: a MAJOR role is in error, and so is the device while it reads so
+    await asyncio.sleep(0)  # the module subscribes as a task
+    room.env.hare.on_frame(
+        {roles["saturated"]["pv"]: live(1, severity="MAJOR", alarmStatus=1)}
+    )
+    device = (await room.client.get("/api/devices/cct1")).json()
+    saturated = next(r for r in device["roles"] if r["role"] == "saturated")
+    assert (saturated["verdict"], device["state"]) == ("error", "error")
+    # a STAT1 reading is fresh by the plugin's counter AND computed by its flag: with the
+    # centroid off while spectra keep coming, the held centroid reads 'off', never 'live'
+    room.env.hare.on_frame({roles["stat_counter"]["pv"]: live(1), roles["compute_centroid"]["pv"]: live(0), roles["compute_statistics"]["pv"]: live(1), roles["centroid_index"]["pv"]: live(25.0), roles["total"]["pv"]: live(4.0e6)})  # fmt: skip
+    room.env.hare.on_frame({roles["stat_counter"]["pv"]: live(2)})
+    by_role = {r["role"]: r["verdict"] for r in (await room.client.get("/api/devices/cct1")).json()["roles"]}  # fmt: skip
+    assert by_role["centroid_index"] == "off" and by_role["total"] == "live"
+
+
+async def test_the_directory_reads_the_states_and_heartbeats_the_module_serves(room, tmp_path: Path) -> None:  # fmt: skip
+    # a bench scope (served by an IOC, so a heartbeat) and a bench spectrometer beside the shared documents
+    panels = PANELS + '  scope1: {family: scope_contract, prefix: "bench:scope1:", ioc: scopeioc}\n  cct1: {family: spectrometer_contract, prefix: "bench:cct1:"}\n'  # fmt: skip
+    write_documents(tmp_path, panels=panels)
+    body = (await room.client.get("/api/home/devices")).json()
+    assert body["ok"] and set(body["words"]) == {
+        "Cam1",
+        "Mot1",
+        "ps1",
+        "scope1",
+        "cct1",
+    }
+    assert {n: body["words"][n]["state"] for n in ("Cam1", "scope1", "cct1")} == {"Cam1": "unknown", "scope1": "unknown", "cct1": "unknown"}  # fmt: skip
+    assert body["words"]["Cam1"]["heartbeat"] is None and body["words"]["scope1"]["heartbeat"] == "unknown"  # fmt: skip
+    # the scope's IOC heartbeat advances: the module's word reaches the row
+    await asyncio.sleep(0)
+    room.env.hare.on_frame({"SCOPEIOC:HEARTBEAT": live(1)})
+    room.env.hare.on_frame({"SCOPEIOC:HEARTBEAT": live(2)})
+    beat = (await room.client.get("/api/home/devices")).json()["words"]["scope1"]
+    assert (beat["heartbeat"], beat["heartbeatKit"]) == ("live", "ok")
+    # every device under its page kind, linked; the trace group holds both array detectors
+    html = (await room.client.get("/")).text
+    groups = re.findall(r'data-group="([^"]+)"', html)
+    assert groups == ["camera", "trace", "motor", "supply"]
+    for kind, name in (
+        ("camera", "Cam1"),
+        ("trace", "scope1"),
+        ("trace", "cct1"),
+        ("supply", "ps1"),
+    ):
+        assert f'<a href="/device/{kind}/{name}">{name}</a>' in html
+    assert '<td class="mono">scopeioc</td>' in html
+    # and the page it links to leads back
+    page = (await room.client.get("/device/trace/cct1")).text
+    assert '<a href="/device/trace">trace</a>' in page and '<span class="mono" aria-current="page">cct1</span>' in page  # fmt: skip
+
+
+# ---- the settables page: a motor (two axes), a supply, and the module's DB devices, through one template
+
+
+def _db_devices() -> list:
+    """Two GEECS DB devices as the module's gateway source serves them (``gateway._role``'s shape): a PLC's channels, a filter wheel."""
+    from geecs_canopy.native import Resolved
+    from geecs_schemas import Role
+
+    def var(name: str, pv: str, kind: str, writable: bool, **more) -> Role:
+        fields = {
+            "name": name,
+            "suffix": pv,
+            "label": name,
+            "units": None,
+            "type": kind,
+        }
+        return Role.model_construct(**fields | ({"writable": True, "write": pv + ":SP"} if writable else {}) | more)  # fmt: skip
+
+    status = Role(name="connected", suffix="connected", type="enum", label="connected")
+    plc = [var(f"DO.Ch{i}", f"do_ch{i}", "enum", True) for i in range(1, 6)] + [var("DI.Ch1", "di_ch1", "enum", False), status]  # fmt: skip
+    wheel = [var("Position", "position", "enum", True), var("Comment", "comment", "setpoint", True, text="string"), var("Temperature", "temperature", "readback", False, units="degC"), status]  # fmt: skip
+
+    def resolved(name: str, family: str, roles: list) -> Resolved:
+        return Resolved(name, family, f"Test:{name.lower()}:", (), tuple(roles), (), None, frozenset(r.name for r in roles if r.writable), "gateway")  # fmt: skip
+
+    # a DB device type that is also an installed family's name: still a DB device, by its source
+    collides = [
+        var("Position", "position", "setpoint", True, limits=(0.0, 10.0)),
+        status,
+    ]
+    return [resolved("U_PLC", "PLC Digital Output", plc), resolved("U_Wheel", "Thorlabs FW102C", wheel), resolved("DBMotor", "motor_record", collides)]  # fmt: skip
+
+
+@pytest.fixture
+async def db_room(tmp_path: Path):
+    """The room over a module that also serves two DB devices (read before the first request)."""
+    env = make_env(tmp_path, gateway=_db_devices)
+    write_documents(tmp_path, registry=REGISTRY.replace("axes: [m1]", "axes: [m1, m2]"), policy=POLICY.replace("easydriver]", "easydriver, PLC Digital Output]"))  # fmt: skip
+    await env.module.read_gateway()
+    canopy = FastAPI()
+    canopy.mount("/geecs", env.app)
+    module = ModuleClient("http://canopy.test", "read-key", transport=httpx.ASGITransport(app=canopy))  # fmt: skip
+    settings = Settings(experiment=EXPERIMENT, configs_root=tmp_path, canopy_url="http://canopy.test", read_key="read-key")  # fmt: skip
+    app = create_app(settings, module, camera=Images(FakeCa(), lambda url: b""))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://room.test") as client:  # fmt: skip
+        yield SimpleNamespace(env=env, client=client)
+
+
+async def _meta(room, device: str, role: str, axis, meta: dict) -> None:
+    """Hare's metadata for one role's PVs (read and write), as the module reads its bounds."""
+    entry = next(r for r in (await room.client.get(f"/api/devices/{device}")).json()["roles"] if (r["role"], r["axis"]) == (role, axis))  # fmt: skip
+    for pv in {entry["pv"], entry["writePv"]}:
+        room.env.hare.meta[pv] = {"pv": pv} | meta
+
+
+def _groups(text: str) -> list[tuple[str, list[str]]]:
+    """Each rail group's heading and roles, in the page's order."""
+    found = re.findall(r'<section class="group([^"]*)" data-roles="([^"]*)">\s*<h4>([^<]*)</h4>', text)  # fmt: skip
+    return [(title + (" (grid)" if "grid-cells" in cls else ""), json.loads(html.unescape(roles))) for cls, roles, title in found]  # fmt: skip
+
+
+async def test_a_motor_draws_one_rail_per_axis_with_its_tweak(db_room) -> None:
+    page = (await db_room.client.get("/device/motor/Mot1")).text
+    # the axis selector, one pane per axis, the second hidden
+    assert re.findall(r'data-axis-pick="(\w+)"', page) == ["m1", "m2"]
+    assert '<div class="camera axis-pane" data-axis-pane="m1">' in page and '<div class="camera axis-pane" data-axis-pane="m2" hidden>' in page  # fmt: skip
+    # the family's panel, once per axis; the tweak's roles stay in their group, drawn with the target
+    assert _groups(page) == [("Move", ["val", "twv", "twf", "twr", "stop"]), ("Home", ["homf", "homr"]), ("Speed", ["velo"])] * 2  # fmt: skip
+    for axis in ("m1", "m2"):
+        assert f'data-role="twr" data-axis="{axis}" data-step="twv" data-value="1" aria-label="tweak reverse" disabled>−</button>' in page  # fmt: skip
+        assert f'<input type="number" id="c-{axis}-1-1-step" data-role="twv" data-axis="{axis}" step="any" disabled>' in page  # fmt: skip
+        assert f'class="live" data-role="hls" data-axis="{axis}"' in page
+    assert (
+        len(re.findall(r'<input[^>]*data-role="twv"', page)) == 2
+    )  # in the tweak only, never a field of its own
+    assert "Laid out automatically" not in page
+    # every write names its axis: the module takes it and answers (its bounds read from the record, as Hare serves them)
+    await _meta(db_room, "Mot1", "val", "m2", {"controlLow": -5.0, "controlHigh": 5.0})
+    status, answer = await put(db_room, "Mot1", role="val", axis="m2", value=1.5)
+    assert status == 200 and answer["outcome"] == "accepted", json.dumps(answer)
+    assert db_room.env.hare.puts[-1][0].endswith("m2.VAL")
+
+
+async def test_a_supply_draws_its_output_pair_and_readings(db_room) -> None:
+    page = (await db_room.client.get("/device/supply/ps1")).text
+    assert _groups(page) == [
+        ("Output", ["output_sp", "current_sp"]),
+        ("Faults", ["reset"]),
+    ]
+    assert 'data-role="output_sp" data-value="0" data-pair aria-pressed="false" disabled>Off</button>' in page  # fmt: skip
+    assert [r for r in ("current", "voltage", "output", "fault", "interlock") if f'class="live" data-role="{r}"' not in page] == []  # fmt: skip
+    assert 'id="hazard-dialog"' in page and 'id="operator"' in page and 'data-axis-pick' not in page  # fmt: skip
+
+
+async def test_a_db_device_is_laid_out_automatically_and_written_through_the_module(db_room) -> None:  # fmt: skip
+    roster = (await db_room.client.get("/api/device/settables")).json()
+    assert [(d["name"], d["family"]) for d in roster["devices"]] == [("DBMotor", "motor_record"), ("U_PLC", "PLC Digital Output"), ("U_Wheel", "Thorlabs FW102C")]  # fmt: skip
+    plc = await db_room.client.get("/device/settables/U_PLC")
+    assert plc.status_code == 200 and "Laid out automatically" in plc.text
+    # five writable channels: a grid of their own; the read-only channel and the state are readings
+    assert _groups(plc.text) == [
+        ("Settings (grid)", [f"DO.Ch{i}" for i in range(1, 6)])
+    ]
+    assert re.findall(r'class="live" data-role="([^"]+)"', plc.text) == [
+        "DI.Ch1",
+        "connected",
+    ]
+    wheel = (await db_room.client.get("/device/settables/U_Wheel")).text
+    assert _groups(wheel) == [("Settings", ["Position", "Comment"])]
+    assert re.search(r'<select id="c-1-1" data-role="Position" disabled>', wheel)
+    # a text setting is a text field from the first draw (the module says so), and the DB's units are shown
+    assert '<input type="text" id="c-1-2" data-role="Comment" disabled>' in wheel
+    assert re.search(
+        r'data-role="Temperature"><span class="k">Temperature <small>degC</small>',
+        wheel,
+    )
+    # a native device under settables, and a DB device under motor: the wrong kind, with the way to the right one
+    wrong = await db_room.client.get("/device/motor/U_PLC")
+    assert wrong.status_code == 422 and "/device/settables/U_PLC" in wrong.text
+    assert (await db_room.client.get("/device/settables/Mot1")).status_code == 422
+    # a channel written through the module's put route, the operator's name, sent once
+    await _meta(db_room, "U_PLC", "DO.Ch3", None, {"enumChoices": ["off", "on"]})
+    status, answer = await put(db_room, "U_PLC", role="DO.Ch3", value=1)
+    assert status == 200 and answer["outcome"] == "accepted", json.dumps(answer)
+    assert db_room.env.hare.puts[-1][0] == "Test:u_plc:do_ch3:SP"  # fmt: skip
+    # and the home's directory lists them under settables, linked
+    home = (await db_room.client.get("/")).text
+    assert '<a href="/device/settables/U_Wheel">U_Wheel</a>' in home
+
+
+async def test_a_db_device_is_classified_by_its_source_never_by_its_type_name(
+    db_room,
+) -> None:
+    """A DB device type spelled like an installed family (``motor_record``) is a DB device: never the family's page or panel."""
+    page = await db_room.client.get("/device/settables/DBMotor")
+    assert page.status_code == 200 and "Laid out automatically" in page.text
+    assert _groups(page.text) == [("Settings", ["Position"])]
+    wrong = await db_room.client.get("/device/motor/DBMotor")
+    assert wrong.status_code == 422 and "/device/settables/DBMotor" in wrong.text

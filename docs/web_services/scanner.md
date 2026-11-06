@@ -34,14 +34,14 @@ poetry run geecs-scanner --demo                      # an in-memory manager that
 
 ## A tour of the page
 
-![The scanner running a jet-pressure sweep: the Now panel with progress, shot counts and the scan.log tail](assets/scanner_01_running.png)
+![The scanner running a jet-pressure sweep: the Current panel with progress, shot counts and the scan.log tail](assets/scanner_01_running.png)
 
 The rail on the left lists the page's sections; the **health chips** in
 the header say whether the RE Manager answers (`manager`), whether the
 worker's document stream is being heard (`doc stream`), and whether the
 Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
 
-- **Now** — the running scan: state, the claimed scan number, progress
+- **Current** — the running scan: state, the claimed scan number, progress
   against the planned shots, and a live tail of the scan's own `scan.log`
   (the manager's console text sits behind a toggle). **Pause**, **Resume**
   and **Stop scan…** live here and act on the running item.
@@ -61,9 +61,14 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   yet. Press
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
   The current form can be saved back as a preset (**Save as preset…**).
-- **Queue** — the running item, what waits behind it, and recent history;
-  **Clear** empties what waits. The page refuses a second waiting item
-  unless you say so.
+- **Queue** — three sections, each one folding: **Ongoing** (the running
+  item), **Waiting** (in execution order, each with **Remove**) and
+  **History** (newest first, with the scan number and who started it);
+  **Clear** empties what waits. **Add to Queue** beside Start appends the
+  scan to the end (the same preflight, no title dialog); Start replaces a
+  waiting item after you say so. While the queue is stopped with items
+  waiting (a failed scan returns to its front), Add to Queue refuses
+  until you remove or clear them.
 - **Devices · move** — every numeric settable variable of the experiment,
   straight from the GEECS database, behind a type-ahead: type any fragment
   of the device, the variable or its alias to narrow the list. Pick one and
@@ -84,7 +89,9 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
 
 1. Pick a preset in **New scan**, or compose a scan and pick a trigger
    profile.
-2. Press **Start**. The page first runs the pre-submit **preflight**.
+2. Press **Start**. With **confirm title** ticked beside it (the default,
+   remembered per browser) Start first asks for the scan title, prefilled
+   from the description; then the page runs the pre-submit **preflight**.
    Refusals (an unknown name, a variable no device serves, a worker that
    is not ready) come back as text and nothing is queued. Warnings come
    back as *questions* — stale cameras, a trigger that looks off — in a
@@ -92,7 +99,7 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
    press **Submit to queue**. The acknowledgements are stamped into the
    run's metadata. A clean preflight queues the item at once — Start is
    not a dry run (the dry run is the API's `POST /api/preflight`).
-3. The item lands in the queue and, when the worker is idle, runs; **Now**
+3. The item lands in the queue and, when the worker is idle, runs; **Current**
    follows it shot by shot.
 4. **Stop scan…** aborts at the next safe point and restores the trigger
    to its standby state. An aborted scan's folder is kept, never deleted.
@@ -135,5 +142,5 @@ The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.
   `a plan is running` or `items wait in the queue`; they open again when
   the queue is idle.
 - **The scan folder is missing data** — start at the scan's `scan.log`
-  (the **Now** tail, or the file in the scan folder) and the repository's
+  (the **Current** tail, or the file in the scan folder) and the repository's
   `/triage` skill.

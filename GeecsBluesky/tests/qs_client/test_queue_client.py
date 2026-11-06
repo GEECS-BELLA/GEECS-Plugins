@@ -182,6 +182,10 @@ class _FakeManagerAPI:
     def queue_start(self) -> None:
         self.calls.append(("queue_start",))
 
+    def item_remove(self, *, uid=None, pos=None) -> None:
+        self.calls.append(("item_remove", uid))
+        self.queue_items = [i for i in self.queue_items if i["item_uid"] != uid]
+
     def queue_stop(self) -> None:
         self.calls.append(("queue_stop",))
 
@@ -292,6 +296,36 @@ class TestZmqQueueClient:
         assert result.ok
         names = [c[0] for c in fake.calls]
         assert names == ["queue_get", "queue_clear", "item_add", "queue_start"]
+
+    def test_append_queues_behind_a_waiting_item_in_a_started_queue(self):
+        """#1281: a started queue has no failed item at its front; append keeps order."""
+        fake = _FakeManagerAPI()
+        fake.queue_items = [{"item_uid": "waiting"}]
+        fake.status_payloads = [{"manager_state": "executing_queue"}]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 3], append=True)
+        assert result.ok and result.item_uid == "uid-1"
+        names = [c[0] for c in fake.calls]
+        assert names == ["queue_get", "status", "item_add", "queue_start"]
+        assert fake.queue_items == [{"item_uid": "waiting"}]
+
+    def test_append_in_a_stopped_queue_with_waiting_items_refuses(self):
+        """#1281: a stopped queue may hold a failed item at its front — refuse as today."""
+        fake = _FakeManagerAPI()
+        fake.queue_items = [{"item_uid": "failed"}]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 3], append=True)
+        assert not result.ok and result.pending_items[0]["item_uid"] == "failed"
+        assert not any(c[0] in ("item_add", "queue_clear") for c in fake.calls)
+
+    def test_remove_item_removes_a_waiting_uid_and_refuses_the_running_one(self):
+        fake = _FakeManagerAPI()
+        fake.queue_items = [{"item_uid": "a"}, {"item_uid": "b"}]
+        fake.running = {"item_uid": "run"}
+        client = _client(fake)
+        assert client.remove_item("a") == (True, "removed")
+        assert fake.queue_items == [{"item_uid": "b"}]
+        ok, message = client.remove_item("run")
+        assert not ok and "not waiting" in message
+        assert ("item_remove", "run") not in fake.calls
 
     def test_submit_preset_expands_then_queues(self):
         from geecs_schemas import Preset

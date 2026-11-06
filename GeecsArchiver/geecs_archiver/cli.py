@@ -13,8 +13,8 @@ pass (the records native IOCs serve, from ``native_devices.yaml`` and
 
 Exit status: 0 ok · 1 drift (a wanted PV nothing serves, a request the
 appliance refused, a device both the DB and the registry own, or a registry
-device the pass cannot resolve) · 2 usage (no experiment / URL, or a pause
-larger than the guard without ``--yes``) · 3 the appliance did not answer.
+device the pass cannot resolve) · 2 usage (no experiment / URL, or pauses
+and aborts larger than the guard without ``--yes``) · 3 the appliance did not answer.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ EXIT_DRIFT = 1
 EXIT_USAGE = 2
 EXIT_UNREACHABLE = 3
 
-#: More pauses than this in one run need ``--yes`` — a half-empty device
+#: More pauses and aborts than this in one run need ``--yes`` — a half-empty device
 #: table (DB maintenance, flipped ``enabled`` flags) must not silently pause
 #: the experiment.
 PAUSE_GUARD = 10
@@ -203,9 +203,13 @@ def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
             statuses=statuses,
             archived_pvs=archived,
             prefix=prefix,
+            never_connected=[
+                str(r.get("pvName", "")) for r in client.never_connected()
+            ],
         )
         if args.no_pause:
             plan.to_pause.clear()
+            plan.to_abort.clear()
         print(
             f"{_report_sources(experiment, desired, archive_set)}; plan: {plan.summary()}"
         )
@@ -221,6 +225,8 @@ def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
                 print(f"  ~ retune {pv} -> {s.period:g} s {s.method}")
             for pv in plan.to_pause:
                 print(f"  - pause  {pv}")
+            for pv in plan.to_abort:
+                print(f"  x abort  {pv}  (requested, never connected)")
         # The drift alarm, on EVERY run: wanted PVs stuck in the appliance's
         # archive-request workflow because they never answered on CA.
         stuck = stuck_requests(client, desired)
@@ -228,9 +234,10 @@ def cmd_onboard(args: argparse.Namespace) -> int:  # noqa: C901, PLR0912
             print(_never_connected(pv, desired))
         if stuck:
             rc = EXIT_DRIFT
-        if len(plan.to_pause) > PAUSE_GUARD and not args.yes:
+        dropped = len(plan.to_pause) + len(plan.to_abort)
+        if dropped > PAUSE_GUARD and not args.yes:
             print(
-                f"refusing to pause {len(plan.to_pause)} PVs (> {PAUSE_GUARD}) without --yes — "
+                f"refusing to pause or abort {dropped} PVs (> {PAUSE_GUARD}) without --yes — "
                 "is the database complete? (nothing was sent)",
                 file=sys.stderr,
             )
@@ -384,12 +391,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--no-pause",
         action="store_true",
-        help="never pause PVs the rule no longer wants",
+        help="never pause or abort PVs the rule no longer wants",
     )
     p.add_argument(
         "--yes",
         action="store_true",
-        help=f"allow pausing more than {PAUSE_GUARD} PVs in one run",
+        help=f"allow pausing or aborting more than {PAUSE_GUARD} PVs in one run",
     )
     p.add_argument(
         "--wait",

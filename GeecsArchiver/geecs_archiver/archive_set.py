@@ -6,7 +6,11 @@ two cannot drift; onboarding's stuck-request check
 (:func:`geecs_archiver.onboard.verify`, the appliance's never-connected
 list) stays as the alarm.  Per enabled device:
 
-* the **readback** PV of every monitored (``get='yes'``) scalar variable;
+* the **readback** PV of every served scalar variable — monitored
+  (``get='yes'``) or settable.  The gateway subscribes every served
+  variable, so a settable's readback follows the device whoever changed
+  it; its ``:SP`` sees only writes made through the gateway, and a change
+  made in a LabVIEW GUI reaches the archive through the readback alone;
 * the **``:SP`` setpoint** of every settable scalar variable (they change
   only on puts and carry the operator's intent) — ``include_setpoints``;
 * the device's **``connected`` status** PV — ``include_status``;
@@ -220,8 +224,7 @@ def derive_candidates(
             if is_timestamp_variable(name) or dtype in UNARCHIVABLE_DTYPES:
                 continue
             readback = pv_name(experiment, device, name)
-            if sv.monitored:
-                out.append(ArchiveCandidate(readback, device, name, "readback", dtype))
+            out.append(ArchiveCandidate(readback, device, name, "readback", dtype))
             if sv.settable and policy.include_setpoints:
                 out.append(
                     ArchiveCandidate(

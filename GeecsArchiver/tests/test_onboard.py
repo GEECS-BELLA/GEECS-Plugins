@@ -135,6 +135,49 @@ def test_unknown_method_never_forces_a_retune():
     assert plan.is_noop
 
 
+def test_never_connected_requests_outside_the_set_are_aborted():
+    """#1248: a retired device's requests that never connected left a permanent drift alarm."""
+    plan = plan_onboarding(
+        {"undulator:a:kept": S1, "undulator:a:wanted": S1},
+        statuses=[
+            st("undulator:a:kept"),
+            st("undulator:a:wanted", "Initial sampling", None, None, None),
+        ],
+        archived_pvs=["undulator:a:kept"],
+        prefix="undulator:",
+        never_connected=["undulator:cam:gone", "undulator:a:wanted", "other:x:gone"],
+    )
+    assert plan.to_abort == [
+        "undulator:cam:gone"
+    ]  # never desired, never another prefix
+    assert plan.pending == ["undulator:a:wanted"]  # the appliance's to finish
+    assert not plan.is_noop and "abort 1," in plan.summary()
+
+
+def test_a_converged_appliance_plans_no_aborts():
+    plan = plan_onboarding(
+        {"undulator:a:kept": S1},
+        statuses=[st("undulator:a:kept")],
+        archived_pvs=["undulator:a:kept"],
+        prefix="undulator:",
+        never_connected=[],
+    )
+    assert plan.is_noop and plan.to_abort == []
+
+
+def test_a_wanted_val_request_listed_under_its_base_name_is_not_aborted():
+    """The appliance may strip a request's ``.VAL``; the base name is still wanted."""
+    plan = plan_onboarding(
+        {"undulator:m:x.VAL": S1},
+        statuses=[st("undulator:m:x.VAL", "Initial sampling", None, None, None)],
+        archived_pvs=[],
+        prefix="undulator:",
+        never_connected=["undulator:m:x", "undulator:m:gone"],
+    )
+    assert plan.to_abort == ["undulator:m:gone"]
+    assert plan.pending == ["undulator:m:x.VAL"]
+
+
 class FakeClient:
     """The appliance as the planner sees it: 'ghost' PVs never connect (they sit on the never-connected list)."""
 
@@ -143,6 +186,7 @@ class FakeClient:
         self.resumed = []
         self.retuned = []
         self.paused = []
+        self.aborted = []
         self.polls = 0
         self.flips_after = flips_after
 
@@ -166,6 +210,9 @@ class FakeClient:
 
     def pause(self, pv):
         self.paused.append(pv)
+
+    def abort(self, pv):
+        self.aborted.append(pv)
 
     def never_connected(self):
         return [
@@ -201,6 +248,7 @@ def test_apply_batches_and_reports_rejections():
         ],
         archived_pvs=["undulator:a:p", "undulator:a:r", "undulator:a:old"],
         prefix="undulator:",
+        never_connected=["undulator:a:gone", "undulator:a:gone2"],
     )
     client = FakeClient()
     report = apply(client, plan, batch=2)
@@ -209,6 +257,7 @@ def test_apply_batches_and_reports_rejections():
     assert client.resumed == ["undulator:a:p"]
     assert client.retuned == [("undulator:a:r", 5.0, "SCAN")]
     assert client.paused == ["undulator:a:old"]
+    assert client.aborted == report.aborted == ["undulator:a:gone", "undulator:a:gone2"]
 
 
 def test_stuck_requests_is_the_appliance_list_intersected_with_what_we_want():

@@ -195,8 +195,8 @@ Two proxy shapes, one setting each — they are **not interchangeable**
   forwards `/run/…` and sends the header. No flag.
 - **Prefix-preserving** (forwards `/portal/run/…` as is, sends no
   header): start the service with `geecs-data-portal --root-path
-  /portal`. The page then links `/portal/static/…`, and the mounted
-  assets (`/static`, `/theme`) answer at the prefixed path **only** —
+  /portal`. The page then links `/portal/theme/…`, and the mounted
+  assets (`/theme`) answer at the prefixed path **only** —
   plain routes answer either way, which is why the wrong pairing fails
   quietly: a stripping proxy without the header serves the HTML and
   loses every stylesheet and script. In this mode also avoid mount names

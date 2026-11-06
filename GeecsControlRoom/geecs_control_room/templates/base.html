@@ -2,7 +2,8 @@
   Every page's shell: the kit, the header, and on <body> what a page script
   needs to reach Canopy — Hare's WebSocket URL and the display's READ key
   (never a write key: every write goes through the module's put route).
-  hare.js reads them; a page adds its own blocks.
+  hare.js reads them; a page adds its own blocks (`crumbs`: the trail after
+  the brand, which is the home's link and the trail's first step).
 #}<!doctype html>
 <html lang="en">
 <head>
@@ -20,6 +21,7 @@
 <header class="topbar">
   <div class="topbar-in">
     <a class="brand" href="{{ root }}/">{{ settings.title }} <span class="sub">{{ settings.experiment }}</span></a>
+    {% block crumbs %}{% endblock %}
     {% block header %}{% endblock %}
     <a class="btn ghost sm" href="https://geecs-plugins.readthedocs.io/en/latest/web_services/control_room/" target="_blank" rel="noopener" title="How to use the Control Room (opens the docs)">Docs</a>
     <div data-density-picker></div>

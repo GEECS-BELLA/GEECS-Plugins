@@ -20,9 +20,9 @@ is still found.  On a service host ``config.ini`` is rendered from
 ``site.env``.
 
 Import order: libca reads these variables when the CA context is created,
-which happens as soon as aioca is imported, so every CA client calls
-:func:`apply_epics_address_config` before importing aioca — GeecsBluesky's
-``__init__`` before any submodule, GeecsPanels before its PV bridge.
+which happens as soon as aioca is imported, so every CA client that takes
+its addressing from ``config.ini`` calls :func:`apply_epics_address_config`
+before importing aioca — GeecsBluesky's ``__init__`` before any submodule.
 Explicitly exported environment variables always win (``setdefault``).
 """
 

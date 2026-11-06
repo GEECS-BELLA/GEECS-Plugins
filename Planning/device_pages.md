@@ -6,8 +6,9 @@ anything load-bearing into the owning `CLAUDE.md` files. The coordinator runs
 the slices in order, one PR each into this branch, with the `/land` ritual, and
 merges a lane PR after its review is dispositioned (maintainer's rule for
 integration branches). `master` is merged forward at least weekly. Promotion
-to `master` is the maintainer's merge; the GeecsPanels deletion is its own PR
-under the kill rule, after the maintainer has looked at the rendered pages.
+to `master` is the maintainer's merge; the GeecsPanels deletion was its own PR
+under the kill rule, after the maintainer had looked at the rendered pages
+(slice 6, done 2026-11-06: § Status).
 
 ## Goal (the maintainer's acceptance criterion, 2026-10-31)
 
@@ -35,8 +36,8 @@ deleted** when they are proven: one operator surface, no bench tool.
   GeecsControlRoom as components with their own small routes: the frame proxy
   that pulls the IOC's JPEG one frame at a time, the client-side colour map,
   levels and ROI, the freshness judgement by the plugin's `ArrayCounter_RBV`,
-  and the scope traces streamed over SSE. Copy, adapt to the kit, then delete
-  the originals in the deletion PR; GeecsControlRoom never imports GeecsPanels.
+  and the scope traces streamed over SSE. Copied, adapted to the kit, and the
+  originals deleted with the package in slice 6 (done 2026-11-06).
 - **The camera page's feature list** is `Planning/operator_surfaces.md` §6
   (ROI, exposure, gain, trigger mode and delay, rate, last update, max counts
   against saturation, crosshairs, centroid/sigma/max/mean/total, lineouts and
@@ -48,7 +49,7 @@ deleted** when they are proven: one operator surface, no bench tool.
   groups, confirms and calls, never computes; plain JS, no build step; the
   rules modules under node tests; the contract test over
   `geecs_canopy.testing`); the import graph in root `CLAUDE.md` (GeecsCanopy a
-  dev-only dep, nothing from GeecsPanels, GeecsBluesky, the portal); facility
+  dev-only dep, nothing from GeecsBluesky, the portal); facility
   values in config only; no IOC address in code (the geecs-epics chain
   contract names the IOC).
 
@@ -67,15 +68,20 @@ deleted** when they are proven: one operator surface, no bench tool.
    moved frame proxy + colour map/levels/ROI component; freshness chip;
    screenshots light and dark on a `screenshots/*` branch (the maintainer
    reviews by looking).
-4. **Scope page.** Channel configuration and trigger through the module; the
-   moved SSE trace component over the scope contract; screenshots.
+4. **Trace page** (was "scope page"; § Status 2026-11-05). One page for every
+   array over a calibrated axis (one channel, or `[channels, samples]`) (a scope's capture over its time axis, a
+   spectrometer's spectrum over its wavelengths): the rail and the readings
+   strip come from the family's `panel`, the y array is the `axis_of` target
+   of the axis role (`[channels, samples]` by its `channels_by`); the trace
+   polled at 2 Hz, held on the y array's `fresh_by` counter (not SSE);
+   screenshots.
 5. **Motor and supply pages** from the family files' roles (small; the
    inspector's rich view and the drill-down).
 6. **GeecsPanels deletion PR** (separate, under the kill rule): the package,
    its unit template, its row in root `CLAUDE.md`, `.importlinter`,
    `scripts/check.sh`, `scripts/ci_select.py`, the theme's template walk, the
-   docs page, the CHANGELOG list.
-   Opened on this branch but merged only after the maintainer's look.
+   docs page, the CHANGELOG list. **Done 2026-11-06**, one PR to `master`
+   after the maintainer's look (§ Status).
 7. **Docs + promotion body.** `GeecsControlRoom/CLAUDE.md` gains the device
    pages and the image/array rule in one paragraph; `operator_surfaces.md` §6
    is folded into it and the section deleted; the promotion body lists lane
@@ -257,8 +263,8 @@ make. The "not a native device" pane has no bench device (proved in tests).
 URL role `image` names, read over CA as a char string and rehosted to the
 IOC's CA address; one fetch in flight per device, a frame shared within
 0.1 s; `X-Frame-Tag` the bytes' checksum, so a frozen frame is never "new")
-and `/api/devices/{name}/arrays` (every `on_request` role by name, at most
-every 0.5 s, shared), both read only, the module's device route cached 10 s;
+and `/api/devices/{name}/arrays` (every `on_request` role of type `array` by name, at most
+every 0.5 s, shared; the raw-frames arc narrowed it, so a scope's on-request scalars `arr_channels`/`arr_samples` are the scope route's to read with its traces, as the frame route reads `raw_width`/`raw_height`), both read only, the module's device route cached 10 s;
 404 when the module names no such role (never a derived PV), 503 with words
 when a source is silent. aioca is a runtime dependency; CA addressing is
 `EPICS_CA_*` alone. `device_camera.html` + `camera.js` (viewer, overlay,
@@ -282,3 +288,338 @@ to-centroid, run-lock override.
 **OWED.** A live frame: the sim camera is in `error` (Disconnected, frames
 frozen); the page was proven on its frozen frame, and the reset is the
 maintainer's (a sim-side write) or the IOC host's camera.
+
+### 2026-11-05 — slice 4 becomes the trace page
+
+**Decision (maintainer and coordinator).** Slice 4 is built as a **trace
+page**, not a scope page: one page for every 1-D array over a calibrated
+axis, bound by data shape, so the PicoScope (family `scope_contract`) and
+the spectrometer (an areaDetector `ADSpecfirm` driver, its family file to
+come) render through one template. What differs per hardware (its controls,
+its readings, its array's shape and counter) is the family file's, never
+page code. Polled binary at 2 Hz, held on the y array's `fresh_by` counter
+as `frame.raw` is held on `raw_counter`, not SSE. The camera rail's move into a `panel` block is a
+later tidy, not this slice.
+
+**Three schema additions** (GEECS-Schemas `epics/family.py`, PR 4a):
+
+- `Role.axis_of`: an array role names the array it is the x axis of (both
+  arrays, one axis per array, an axis no array's trace, validated on the
+  family file). The scope's `time_axis` is `axis_of: data`. Beside it,
+  `Role.channels_by`: an array of several channels names the readback that
+  counts them (`[channels, samples]`, channels fastest); the scope's `data`
+  is `channels_by: arr_channels`, `fresh_by: count` (the hold counter).
+- `FamilyFile.panel`: `rail` (titled groups of roles, in order) and
+  `readings` (the readings strip). Every named role must exist; a rail role
+  sits in one group; a reading is a monitored role (it carries the module's
+  word). No rail role type is constrained: the page draws each by its type;
+  `level` stays the role table's. The scope's rail (every writable role):
+  Acquisition, Trigger, Channel A..D; its readings: state, captures, per
+  channel total/mean/sigma/over range, last error.
+
+**Then.** PR 4b, the page in GeecsControlRoom (`/device/trace/<name>`,
+`/api/devices/{name}/trace`); PR 4c, the spectrometer's family file, waits
+on its IOC image.
+
+### 2026-11-05 — slice 4b, the trace page
+
+**Landed.** `/device/trace/<name>` (the kind word `scope` renamed `trace`:
+one family kind per word), `device_trace.html` (rail and readings from the
+family's `panel`, each rail role drawn by its type), `trace.js` /
+`trace_rules.js` (one series per channel, SI ticks, cursor, linear/log, the
+viewer's drag window and average), `device_writes.js` (the write path, now
+the camera's and the trace page's), and
+`GET /api/devices/{name}/trace` (`traces.py`: float32 axis then y, gzip,
+held on the y array's `fresh_by`, the scope's `ARR:ArrayCounter_RBV`
+(role `arr_counter`, added in review: the driver's `count` posts before
+`ARR` publishes); `GeecsControlRoom/CLAUDE.md` § "The trace"). The bench scope `picotest1` is registered in the configs repo's
+`panel_devices.yaml` with its bench prefix.
+
+**Proof.** On a loopback caproto soft IOC serving the scope contract
+(`GeecsControlRoom/scripts/scope_soft_ioc.py`; geecs-epics has no scope
+simulator), through the real trace route over CA, a stub module and a fake
+Hare fed from the same IOC: screenshots light and dark in
+`docs/web_services/control_room.md`. **OWED:** live proof on `picotest1`
+from the services box after the merge and deploy (Canopy's image rebuilt
+for the family change; the Control Room restarted).
+
+### 2026-11-05 — slice 4c, the spectrometer's family file
+
+**Landed.** `spectrometer_contract.json` (GEECS-Schemas), the family of
+geecs-epics' `docs/spectrometer-contract.md` (the Thorlabs CCT on
+`ADSpecfirm` first): 57 roles after review, the spectrum (`ARR:ArrayData`, `[pixels]`,
+one channel, held on `arr_counter`) over `wavelength` (`Wavelength_RBV`,
+`axis_of: spectrum`); the rail Acquisition (acquire, image mode, spectra
+per acquire, integration time, averages, period, light/raw), Trigger
+(mode, slope) and Background (`PROC:SaveBackground`, `PROC:EnableBackground`:
+the chain's dark path, never the instrument's dark command); the readings
+state, count, peak count and its share of full scale, saturated, background
+held, the processed spectrum's integral, peak, centroid and width (STAT1
+over PROC, in index units, fresh by STAT1's own counter), temperature, last
+error. The plot is the raw spectrum (`ARR`, before PROC): saturation and
+exposure are judged on it; the statistics are of the processed one, the
+background-subtracted spectrum when subtraction is on. Nothing autosaved
+(the IOC writes nothing at boot). `Saturated_RBV` is read as the record's
+own word, not a family fault bit; its alarm severity is the IOC's (`OSV`
+MAJOR on the CCT), and the module turns MAJOR into the device's `error`
+state, so a saturated spectrum reads as the device in error, the CCT's
+full-scale first frame after an idle period included (review finding; the
+severity is a geecs-epics ruling, not this repo's). The two `array_detector` families share
+their vocabulary where the thing is the same (pinned). The bench unit
+`ccttest1` is registered in the configs repo's `panel_devices.yaml` with
+its bench prefix. The page needed no change: the spectrometer renders
+through `device_trace.html` as planned.
+
+**Proof (2026-11-05, evening).** Live on `ccttest1` (the Thorlabs CCT on
+ioc-spectrometer 2026.11.1b2, started by the maintainer on the camera
+server) from the services box after the merge (#1291) and the deploy
+(Canopy rebuilt, the Control Room restarted): the roster lists it, the
+device route resolves all 57 roles, the heartbeat and every scalar read
+`live`, and `/api/devices/ccttest1/trace` serves one channel of 2048
+samples over 183.9 to 1021.1 nm (a dark input: 30 to 280 counts), drawn on
+the page over the wavelength axis; the spectrum-bound roles read `stale`
+while `Acquire` is Done, the counters still, which is the right word. Two
+facility values stood in the way and were fixed in their homes on the box,
+by the maintainer's hand: the configs clone on the data share is written
+only as the service account (the CIFS mount's uid), and the box's
+`EPICS_CA_ADDR_LIST` in `site.env` did not carry the bench IOCs' ports on
+the camera server, so every role of both bench devices read `unreachable`
+until it did (geecs-epics' IOC host runbook has the rule). Hare's
+WebSocket was proven from the box, not from a browser over the VPN.
+
+**OWED.** The maintainer's look at the page in their own browser (Hare live
+there); the same proof on `picotest1`, which stays `error` until the
+PicoScope is plugged back in (its IOC reports no unit on USB); an
+operator-policy grant for `spectrometer_contract` (and
+`scope_contract`) if writes from the page are wanted, the maintainer's; the
+`Saturated_RBV` severity ruling and the wavelength axis's last value
+(1021.1 nm against the fit's 1006.7 at pixel 2047), both the spectrometer
+port's in geecs-epics.
+
+### 2026-11-05 — slice 4d, the maintainer's findings from the live spectrometer
+
+The maintainer drove the deployed spectrometer page (`ccttest1`) and ruled a
+centre-wide plotting rule: **line plots are Plotly**, through one layout
+template the theme derives from its tokens and vendors beside its
+stylesheets; images stay each surface's own (the camera page's canvas viewer
+stays; the portal is not bound on images). Four findings, in two PRs:
+
+**PR 1, the rule and the trace plot on Plotly** (GeecsWebTheme +
+GeecsControlRoom; the portal's bundle moved). The rule is
+`GeecsWebTheme/CLAUDE.md` § "Line plots are Plotly"; `plot.js` is the
+template (tokens read at run time, trace *i* in `--trace-(i+1)` through the
+colorway, the modebar, the repaint on `geecs:theme`); the one vendored
+bundle is the portal's `plotly-cartesian-3.1.1.min.js`, moved into the
+theme (the portal now loads it from its `/theme` mount; its empty `/static`
+mount is gone). The trace page draws with it: one trace per channel,
+decimated to the plot's width, the window as Plotly's x range (the drag and
+"Full window" are gone), hover for the readout, `uirevision` across
+captures. The unit bug (a wavelength axis read "knm") is fixed: the unit in
+the axis title, SI prefixes for base SI units only. The bench gained
+`scripts/spectrometer_soft_ioc.py`. Found while proving it: Plotly 3.1.1
+hangs in `Plotly.react` when the config names `modeBarButtons` (its config
+comparison never returns on the second react), so the template removes the
+selection tools by `modeBarButtonsToRemove` instead, pinned.
+
+**Next slice's first item: the camera page's lineouts and histogram onto
+`plot.js`** (`camera_controls.js`'s `lines()` canvas drawing,
+`camera_rules.js`'s plot rules). Left out of PR 1 to keep it reviewable.
+When it lands, `decimate` (still in `trace_rules.js`) moves to `plot.js` if
+the camera needs it, so the theme holds every shared plot rule;
+`axisFormat` already moved there in PR 1's review.
+
+PR 1 merged as #1293 and is deployed on the services box (the live
+spectrometer page loads `plot.js` and the bundle, its axis in nm).
+
+**PR 2: the processed spectrum and Start/Stop** (GEECS-Schemas +
+GeecsControlRoom). The plot showed the raw `ARR` only, so Save/Subtract
+background changed nothing on it, and `acquire` drew as a select of the
+driver's words. Now `Role.axis_of` takes a list (a string is read as a
+list of one), so `wavelength` draws `spectrum` (`ARR`) and a new
+`processed` (`PROC:ARR:ArrayData`, held on its own `proc_counter`); the
+route takes `?y=` (default: the first; an array the axis does not draw is
+a 404 with words); the page's Show toggle picks, following the panel's new
+`show_while` (`processed` while `background_enable` reads 1) until the
+viewer picks. `Panel.buttons` draws a two-state rail role as a pair writing
+0 and 1: the scope's and the spectrometer's `acquire` as Stop / Start, the
+current state pressed. `show_while` is this PR's own addition to the
+brief: the default needed a home that names the roles, and the family's
+panel is where the page's layout already lives (no role names in the
+page's code). On the hardware the processed path worked
+(`PROC:ValidBackground_RBV` 1, `PROC:EnableBackground_RBV` 1, STAT1 mean
+about 0 after a save), so the default is what the operator expects.
+
+What PR 2's review changed: the page re-checks the array after every await
+of a request, so a switch mid-body never draws the last array's capture
+under the new label (or keeps its ETag); "one read in flight per device"
+now says "per device and array"; `pressed`, a control rule, moved to
+`camera_rules.js` beside `control`. Left for the camera slice: the camera
+page draws its own Start | Stop pair (no pressed state, the opposite order
+to `Panel.buttons`' 0-then-1); when the camera page moves onto the panel's
+hints it takes `buttons` and `pressed` and the two pages agree. The
+maintainer's GPT round found one more: after a switch the last array's
+plot stayed drawn (under the new toggle and chip) until the new array's
+first capture, indefinitely if its reads kept failing; the plot is now
+hidden until then, the window kept, pinned by a harness running the real
+`trace.js`.
+
+### 2026-11-06 — slice: the device directory
+
+**Planned** (the maintainer, after driving the spectrometer page: the home
+offered no path to the device pages but a Cameras picker he added to
+`home.yaml` himself). A registry-derived directory on the home, uncurated:
+every device of `native_devices.yaml` + `panel_devices.yaml`, grouped by
+kind in `KINDS` order, each row the name (linking its page), the family,
+the module's word and its IOC's heartbeat; a client-side filter; the kind
+headings link the pickers; a device whose family no page draws listed last
+("no page yet", unlinked); and a way back from every device page.
+
+**Landed.** `device_pages.catalogue` is the one registry join (every
+device with its kind word or `None`); `registered` (the pickers) filters
+it. `home.directory` groups it for `home.html`, server-drawn (the rows and
+links work without script, as the picker's table does); the words ride the
+home's existing 2 s `/api/home/devices` poll (`words`: the roster's state,
+the heartbeat from the device detail that poll already reads for the two
+lists), so the directory costs no module read of its own. Polling the four
+`/api/device/<kind>` rosters instead was rejected: they carry no heartbeat,
+and would read the roster four more times per tick for what the lists'
+read already has. `directory_rules.js` holds the filter (every term a
+substring of the name or the family), a row's words and the chip; a silent
+module leaves the rows with `unknown`. The trail is a `crumbs` block in
+`base.html` after the brand (the home's link and the trail's first step),
+filled by `device.html` (kind's picker › the device), so the camera and
+trace templates inherit it untouched.
+
+**What review changed** (one adversarial round, four low findings, all
+fixed): a device off the roster read heartbeat "no IOC" beside the IOC its
+panel entry names, now `unknown`; a registry whose devices all conflict
+between the two files read "cannot be read", now an `empty` pane naming the
+conflicts (`Catalogue.unreadable` keeps `error` for files that do not
+parse), and the empty panes no longer carry a "0/0 live" chip; a
+`[hidden]` rule the kit already holds (`!important`) was deleted; the roster
+state word is one rule for the pickers and the directory
+(`device_pages.state_word`). Kept: the directory's rows are fixed at page
+load (the pickers re-read theirs each poll); a registry change shows on
+reload, which the operator page says.
+
+**Left as it is.** `home.yaml`'s `device_pages` pickers now overlap the
+directory (every device a picker lists is a directory row); they stay the
+curated layer (pinned families), and whether to drop them from the
+experiment's `home.yaml` is the maintainer's (the configs repo is his). The
+directory lists the registry, not the roster: a DB (LabVIEW) device has no
+device page and stays out; a screen draws it. Grouping by area would need
+an area per device, which the registry does not carry; by kind is what it
+knows.
+
+### 2026-11-06 — the detector's health beside its Start button
+
+**Landed.** From the spectrometer port's hand-off (geecs-epics, the ccttest1
+session): a fault on the instrument is the driver's decision, not a crash.
+It stops, sets `Acquire` to Done and says why in `StatusMessage_RBV`;
+`DetectorState_RBV` reads Error; a new Start recovers from Error. A line
+that stops answering reads Disconnected on `Connected_RBV` (MAJOR) and the
+driver retries on its own. So the page must show, beside Start, the state
+word, the line and the driver's reason. Both `array_detector` panels'
+readings strips now open with `state`, `connected`, `status`, then the
+counter (the roles existed; only the layout changes). Deploy: Canopy's
+image carries the family files, so a rebuild and the Control Room's
+restart.
+
+**Noted, not built.** Every IOC serves `<IOC>:SysReset` (a put of any
+value exits the IOC; a widget writing 0 then 1 would restart it twice); a
+production container restarts on its own, a bench container stops and is
+started by name on its host, and the put is subject to the IOC's access
+file. A restart control on the device drill-down (operator_surfaces § 2)
+is therefore a production-only affordance with a confirm, never offered
+for a bench instance; the contract page is geecs-epics
+`docs/architecture.md`, "Operating an IOC".
+
+### 2026-11-06 — slice 5, the settables page
+
+**Ruled** (the maintainer): one type-driven settables page for every kind
+without a data component, serving the native families (motor, supply) and
+the GEECS DB devices the module serves through the gateway; GeecsPanels'
+deletion waits until this page is proven.
+
+**PR 1 (#1298, merged).** GEECS-Schemas `Panel.tweak` (a setpoint, its step
+setpoint and two step commands, one rail group, compared by place, not
+heading: the maintainer's GPT finding), `PanelGroup.layout: grid` (short
+controls only: bits, enums, two-state whole numbers, the button pair's
+rule), and panels for `motor_record`, `easydriver`, `fastps`. Per-axis
+families need no field: the axes are instance data the module serves.
+
+**PR 2, the page.** `device.html` draws the rail and readings from a panel
+by default (`_panel.html`, the macros the trace page now shares;
+`device_rail.js`, the one rail script); a per-axis family is one pane per
+axis behind an axis selector, each write carrying `axis`. A family without
+a panel, and every DB device, is laid out automatically
+(`device_pages.auto_panel`: settings in role order, switches in a grid of
+their own from four, every monitored read-only role a reading). Kind word
+`settables` for the DB devices: the picker, the roster route and the
+home's directory list them from the module's roster. Proven on the
+geecs-epics sim stack (simmotor1, fpstest1, and trigger-box-sim standing in
+for a DB device) through GeecsCanopy's own module in process over an aioca
+Hare: a tweak on axis m2 accepted and the motor moved; the DB device's
+amplitude accepted; the FAST-PS current refused by the IOC's access
+security, the refusal shown (the sims restored after). The automatic layout
+is Python, not a node rule: one drawing path, server-side, from a panel
+authored or automatic.
+
+**What review changed** (two adversarial rounds and the maintainer's GPT
+round): a number or text field on the rail is a draft written on Enter (Esc
+drops it; kept on blur, as a screen keeps it), never on `change`, so an
+arrow key on a motor's target sends no move (the trace page gets it too),
+and a tweak's − / + sends a draft step first (round 2's finding: a typed
+step was dropped on the button's mousedown and the motor stepped by the old
+one); a gateway device is classified by its `source` before any family
+lookup (the GPT finding: a DB type spelled `motor_record` was sent to the
+motor page); the module's device route now serves each role's `text` and
+`units` (GeecsCanopy `freshness.view`), so a DB device's text setting is a
+text field from the first draw and its units show (the page's runtime type
+flip is deleted); the home's Not live and In alarm rows link a DB device to
+its settables page; the alarm line is one rule (`camera_rules.alarms`,
+filtered by axis) and the camera's write value is `device_rules.writeValue`.
+Left for the merge slice: the rules still in `camera_rules.js`, the camera's
+own rail, and the rail-and-pane grid's home (`GeecsControlRoom/CLAUDE.md`
+names each piece on both sides).
+
+**OWED.** The deployed pages on the services box (the coordinator's): a
+real PLC (many switches, the grid) and a filter wheel from the DB; Canopy
+rebuilt for the family files and the route's new fields, the Control Room
+restarted.
+
+### 2026-11-06 — slice 6, GeecsPanels deleted
+
+**Ruled** (the maintainer, after looking at the deployed camera, trace and
+settables pages): the prototype is deleted under the kill rule. One PR to
+`master`, off `master` (#1300).
+
+**Deleted.** `GeecsPanels/` whole (0.1.0): the FastAPI app on port 8500,
+its own CA client (aioca), the per-kind pages (camera, scope, motor,
+supply), its bench file and `allow` lists, its tests. It ran from a laptop
+over the VPN only; nothing on the services box changes. The final state is
+kept at the tag `geecs-panels-v0.1.0-final`, cut by the maintainer on
+master's last commit before the deletion (the PR body has the lines).
+
+**Rewritten** (every live reference): the root `CLAUDE.md` (the map row,
+the "GEECS side" sentence, the dependency-graph entry and two "never
+imports" lines, the CHANGELOG list, a paragraph in "Deleted legacy
+packages"); `README.md` (the table row, the mermaid node and edge);
+`CONTRIBUTING.md` § Tests; `.importlinter` (the package in `root_packages`
+and the layers, every forbidden list, the `panels-edges` contract, the
+Control Room contract's name); `scripts/check.sh` and `scripts/ci_select.py`
+(the leg); `scripts/doc_audit.py` (`GeecsPanels` joins `STALE_TERMS`);
+GeecsWebTheme's literal-colour walk and its surface table; the docstrings
+and notes that named it as a consumer (`epics_env`, `pv_naming`,
+`panel_devices`, `family`, GEECS-Core's `DESIGN.md`, GEECS-Schemas'
+`CLAUDE.md`, GeecsBluesky's `NATIVE_DEVICES.md`); GeecsControlRoom's
+`CLAUDE.md` and `camera.js` header; this brief's live instructions and
+`operator_surfaces.md` §6 (now pointing at the Control Room's pages).
+There was no unit template under `deploy/`, no mkdocs page and no skill
+probe of port 8500 to remove.
+
+**Stays.** The configs repo's `panel_devices.yaml` and GEECS-Schemas'
+`PanelDevices`: no longer GeecsPanels' file, read by GeecsCanopy,
+GeecsControlRoom and the archiver, untouched. History stays history: the CHANGELOGs, this brief's
+dated entries, `CONTRIBUTING.md`'s Planning audits, the "Panels" paragraph
+of `NATIVE_DEVICES.md` (marked as the record).

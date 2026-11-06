@@ -19,5 +19,13 @@
     "current": {"label": "current", "roles": ["current_sp"]},
     "output": {"label": "output", "roles": ["output_sp"]},
     "reset": {"label": "reset", "roles": ["reset"]}
+  },
+  "panel": {
+    "rail": [
+      {"title": "Output", "roles": ["output_sp", "current_sp"]},
+      {"title": "Faults", "roles": ["reset"]}
+    ],
+    "buttons": {"output_sp": ["Off", "On"]},
+    "readings": ["current", "voltage", "output", "loop_mode", "fault", "interlock_1", "interlock_2"]
   }
 }

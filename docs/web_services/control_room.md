@@ -81,7 +81,9 @@ The launcher lists the experiment's screens by area, a device picker per
 family (cameras, motors, supplies, …), and links to the other services
 (Scanner, Data Portal, Logbook, Config editor). An entry the page cannot
 offer (a screen file that does not exist, a service the deployment has
-not configured) is drawn disabled with the reason beside it.
+not configured) is drawn disabled with the reason beside it. Every device,
+picked or not, is also in the [device directory](#the-device-directory)
+below.
 
 ### Presets
 
@@ -114,6 +116,44 @@ by whom, its scope, and its run when it is being restored.
 ![A preset's diff drawer](assets/control_room_02_preset_diff.jpg)
 
 ![The restore confirm](assets/control_room_03_restore_confirm.jpg)
+
+### The device directory
+
+The **Devices** panel at the foot of the home lists every native device
+the experiment's registry knows (`native_devices.yaml` and
+`panel_devices.yaml` in the configs repo), and every GEECS database device
+the module serves, not a chosen few: the launcher above is the curated
+layer, the directory is the complete one. Devices are grouped by the page
+that draws them (camera, trace, motor, supply, settables); each
+group's heading opens that kind's picker, and each device's name opens its
+page. A row gives the device's family, the module's word for it (the same
+words as the lists above), the IOC that serves it, and that IOC's
+heartbeat: `live` while the IOC's own counter advances, `stale` when it has
+stopped, `no IOC` when the device has none, `unknown` when the module has
+not answered for it. The chip in the panel's
+header counts the live devices.
+
+Type in the filter box to narrow every group at once: each word you type
+must appear in a device's name or its family (`cam`, `scope`, `test
+spectro`); a group with nothing left hides. A device whose family no page
+draws yet is listed last, under **no page yet**, without a link, so the
+directory is never silently short. When the module does not answer the
+rows stay, their words read `unknown` and the panel says why; a device in
+the registry that the module does not serve reads `not on the roster`, its
+heartbeat `unknown`. A device added to the registry appears on the next
+reload of the home.
+The LabVIEW devices served through the CA gateway are listed under
+**settables** (the database device type is their family; they have no IOC
+of their own); they are read from the module once when the home loads, so
+while the module is silent they are not listed and the panel says so.
+
+![The home with the device directory, light theme](assets/control_room_13_directory_light.png)
+
+![The home with the device directory, dark theme](assets/control_room_14_directory_dark.png)
+
+Every device page leads back: its header reads
+**Control Room › trace › cct1**, the title the home's link, the kind the
+picker's, and the device's name the page you are on.
 
 ## A screen
 
@@ -182,6 +222,192 @@ refused (`409 already_running`).
 ![An action running](assets/control_room_06_action_running.jpg)
 
 ![An action whose check failed](assets/control_room_07_action_failed.jpg)
+
+## The camera page
+
+A camera's page (`/device/camera/<name>`, from the home's camera picker)
+shows its image with the acquisition controls, crosshairs, the analysis ROI,
+the lineouts and the histogram beside it. By default the image is the IOC's
+MJPEG display stream: 8-bit and JPEG-compressed, good for watching a beam,
+too coarse for a camera's noise (a dark floor flattens to a few grey levels
+and a single bright pixel smears into a block).
+
+### Raw view
+
+![The raw view at 1:1, light theme](assets/control_room_08_camera_raw_light.png)
+
+![The raw view at 1:1, dark theme](assets/control_room_09_camera_raw_dark.png)
+
+Tick **Raw** in the image header to see the camera's own frame instead: its
+12-bit counts, uncompressed, with the colour map, scale and levels applied
+in your browser. Untick it to go back. The page always opens on the MJPEG
+stream; Raw is never remembered.
+
+**What Raw shows.** The frame as the camera driver produced it, before the
+IOC rotates or flips it and before any background is subtracted. "Raw"
+means exactly that: a background you see in the MJPEG view is not removed
+here. The page applies the camera's rotate / flip setting itself, so the
+crosshairs, the analysis ROI and the cursor sit on the same pixels in both
+views, and toggling keeps your zoom. When that setting is one the page does
+not know, it draws the frame as the driver sent it, hides the overlays and
+says `rotate / flip unknown: the driver's frame as is, overlays hidden`.
+The note beside the toggle also names a rotation in use (`Rot90 applied`)
+and the camera's full scale (`full scale 4095`); `4095 · full scale
+assumed` means the camera did not report one.
+
+**Rate.** Raw refreshes at most twice a second, and every viewer of a
+camera shares the one frame the server read, so opening more raw views does
+not load the camera. The chip at the right of the header reads `new
+frames/s`: how many new frames the page received over the last two
+seconds. It is not the camera's rate: the page asks twice a second, so it
+reads at most `2.0`, whatever the camera runs at. A camera triggered at 1 Hz
+reads `1.0` (sometimes `1.5`, as frames fall either side of the window), and
+a stopped camera reads `0.0` even though the page keeps asking. Raw is for the lab network; a full-size frame is a few
+megabytes.
+
+**Levels.** In Raw the black and white inputs, the cursor readout and the
+histogram are in counts of the camera's full scale (0–4095 for a 12-bit
+camera), not 0–255. The histogram plot in Raw is the whole raw frame's,
+counted in your browser, so it ignores the IOC's histogram setting and
+range; the MJPEG view plots the IOC's histogram as before. Each view keeps its own levels: what you set in Raw
+does not change the MJPEG view's, and the other way round. **Auto levels**
+puts black and white at the 0.1 and 99.9 percentiles of the frame, and with
+**every frame** ticked it does that on each new frame.
+
+!!! note "A hot pixel under auto levels"
+    Auto levels puts white at the frame's 99.9th percentile, so the
+    brightest 0.1 percent of the frame is drawn white. On a dark frame with
+    one hot pixel, that 0.1 percent is the noise's top (a few hundred pixels
+    of a 600×600 frame) plus the hot pixel, and they are all the **same
+    white**: the hot pixel does not stand out. Under the log scale the floor
+    is near white too (the screenshots above: the snow is visible, the hot
+    pixel is not distinct); under linear the floor is mid grey, but the hot
+    pixel is still one white point among the noise's. The scale does not
+    change this; the white level does. To single the pixel out, untick
+    **every frame** and set **White** to the full scale (4095): under log
+    the floor stays visible as dark snow and the hot pixel is the one bright
+    point; under linear the floor goes black and the hot pixel is the only
+    lit point. Zoom past 1:1 to see it as a block.
+
+Nothing in Raw writes to the camera.
+
+## The trace page
+
+A trace's page (`/device/trace/<name>`) is one page for every device whose
+data is an array over a calibrated axis: an oscilloscope's capture over its
+time axis, and a spectrometer's spectrum over its wavelengths (its rail:
+Acquisition, Trigger and Background; its readings the peak count and
+whether the spectrum is saturated, the background's state, and the
+integral, peak, centroid and width of the processed spectrum: the
+background-subtracted one while subtraction is on). The page is the same
+for both: which controls the
+rail carries and which readings sit above the plot come from the device's
+family file, never from the page.
+
+![The trace page on the bench scope, light theme](assets/control_room_10_trace_light.png)
+
+![The trace page on the bench spectrometer, dark theme: the processed spectrum, background subtracted, with Show under the plot](assets/control_room_11_trace_dark.png)
+
+- **The rail** is the family's control groups (for a scope: Acquisition,
+  Trigger, one group per channel). Each control is drawn by what it is: a
+  choice is a list of the record's own choices, a setting a number with
+  `now …` (what the device holds) under it, written when you press Enter,
+  a switch a checkbox. Acquire
+  is a **Stop / Start** pair; the highlighted one is what the device is
+  doing now. Every
+  write goes through the same path as a screen's, with your name from the
+  header; a hazard asks first. A channel the scope does not have (its
+  `present` reads 0) has no group and no readings.
+- **The readings** carry the module's word, as everywhere.
+- **The plot** draws one line per channel (A, B, C, D in the theme's trace
+  colours; a disabled channel is listed as `C off` and not drawn), at most
+  two new captures a second, and only while the tab is visible. It is
+  Plotly in the theme's colours, the plot every line plot in the GEECS web
+  pages is moving to (the camera page's lineouts and histogram are next).
+  The chip is the capture counter's
+  word: `trace live` while captures arrive, `stale` when they stop.
+  **Hover** for the readout: the axis value and each channel's value
+  there. **Drag across the plot** to zoom in on that part (every sample
+  inside is drawn); **double-click**, or the toolbar's autoscale or reset,
+  for the whole trace again; the toolbar also pans and saves the plot as
+  a PNG. Click a channel's name in the legend to hide or show it.
+  **Scale** switches linear and log; **Average** averages the last N
+  captures. All of these are yours alone: nothing is written to the
+  device. Axis numbers carry SI prefixes only for SI units (`2µ` on a
+  time axis in s); a wavelength in nm, counts or a percentage read plain.
+- **Show** (a spectrometer): the **raw spectrum**, what the sensor read
+  (judge saturation and exposure here), or the **processed spectrum**,
+  with the saved background subtracted. While **subtract background** is
+  on the page shows the processed one, and the raw one while it is off;
+  once you pick one yourself, your pick stays. Show is yours alone too.
+  It is not the rail's **spectrum kind**, which is the instrument's own
+  setting and changes what the device sends.
+
+![A box zoom over the pulse, averaging eight captures](assets/control_room_12_trace_window_average.png)
+
+## Settables pages: motors, supplies and every GEECS device
+
+A device with nothing to plot or picture has a **settables page**: a rail
+of controls and a row of readings. Motors (`/device/motor/<name>`) and
+power supplies (`/device/supply/<name>`) get it, and so does every GEECS
+device the module serves from the GEECS database
+(`/device/settables/<name>`): a filter wheel, a PLC, a stage, any device
+LabVIEW runs. A new device of any of these kinds needs a row in the
+registry or the database, never a new page.
+
+![A motor's settables page on the sim motor, axis m2, light theme](assets/control_room_15_settables_motor_light.png)
+
+- **The rail.** Its groups come from the device's family when the family
+  has a panel. A motor has Move, Home and Speed; a supply has Output and
+  Faults. Each control is drawn by what it is, as on the trace page:
+  - A setting is a number with `now …` under it, the value the device
+    holds. A text setting is a text field.
+  - A choice is a list of the record's own choices.
+  - A switch is a checkbox, or a pair of buttons such as a supply's
+    **Off / On**.
+  - A command is a button.
+- **The motor's tweak** sits beside the target: **−** and **+** move it
+  back or forward by the step in the box between them. Changing the step
+  changes the step size on the motor itself. The motor record does the
+  moving, so the page never adds anything up.
+- **Axes.** A motor with several axes has an **Axis** selector above
+  the rail. Each axis has its own rail and readings, and every write names
+  its axis.
+- **The readings** carry the module's word, as everywhere. For a motor
+  they are position, done moving, the two limit switches, and whether the
+  target is outside the soft limits. For a supply they are current,
+  voltage, output, and the fault and interlock bits.
+- **Writes** go through the same path as a screen's, with your name from
+  the header and sent once. A number or text field writes when you press
+  **Enter**; until then what you typed is kept, its border marked, and
+  **Esc** drops it and shows the device's value again, so an arrow key or
+  the field's little arrows never move a motor on their own. A step typed
+  in the tweak's box and not yet written is sent first when you press
+  **−** or **+**. A list, a checkbox or a button writes
+  when you choose it. A hazard asks first (a supply's output, a motor's
+  home), and the module's answer is shown under the rail.
+
+![A supply's settables page on the sim FAST-PS, dark theme: the IOC refused the current write, and the page says so](assets/control_room_17_settables_supply_dark.png)
+
+**When a device has no panel**, as every GEECS database device and any
+family not yet given one, the page lays it out automatically. Every
+setting comes first, in the device's own order. When a device has four
+or more switches (a PLC's channels, say), they get a compact grid of
+their own, headed **Switches**. Every other value it reports follows as
+a reading. Nothing is hidden. The page notes "Laid out automatically"
+under the rail.
+
+![A GEECS database device (the sim trigger box) laid out automatically, light theme](assets/control_room_18_settables_db_device_light.png)
+
+Every role, with its PV and the module's word, is still in the **Every
+role** fold under the page.
+
+The home's **Devices** directory lists the GEECS database devices under
+**settables** with the rest. It reads them from the module when the home
+loads; if the module does not answer, the directory says so and lists
+the registry's devices alone.
+
+![The motor's page, dark theme](assets/control_room_16_settables_motor_dark.png)
 
 ## When a write is refused
 

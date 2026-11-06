@@ -89,10 +89,13 @@ deploy/
   edit is the same reflex as restarting the gateway. The appliance's own
   store (a JDBM2 file) only has to survive restarts; `export-config` is the
   byte-exact snapshot for the hand-tuned exceptions.
-- **Never delete data.** A PV the rule no longer wants is *paused*. Only
-  PVs under the experiment's own prefix are ever touched, and pausing more
-  than `PAUSE_GUARD` PVs in one run needs `--yes`. A hand-added PV belongs in
-  the policy's `include` list, or the next run pauses it.
+- **Never delete data.** A PV the rule no longer wants is *paused*; a
+  never-connected request it no longer wants is *aborted*, which drops the
+  request and nothing else (a PV back in the set is requested again by the
+  next run). Only PVs under the experiment's own prefix are ever touched,
+  and pausing or aborting more than `PAUSE_GUARD` PVs in one run needs
+  `--yes`. A hand-added PV belongs in the policy's `include` list, or the
+  next run pauses it.
 - **The overlay is the one sampling table.** Every request carries its
   period and method (the appliance's user-specified sampling, which wins
   over `policies.py`); there are no named policies to keep in step.

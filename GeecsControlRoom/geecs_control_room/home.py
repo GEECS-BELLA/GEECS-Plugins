@@ -1,4 +1,4 @@
-"""The experiment's home, the Control Room: the top strip, the two device lists, the launcher.
+"""The experiment's home, the Control Room: the top strip, the two device lists, the launcher, the device directory.
 
 The lists sort the module's words; they judge nothing. **Not live** holds
 every device whose state is not ``live``; **In alarm** every device whose
@@ -16,7 +16,11 @@ are the module's (Squirrel's snapshots behind it): listed, saved, diffed,
 marked golden and restored through its routes, each write sent once (the
 module resolves a scope, screens included). The strip's "baseline" is the
 golden snapshots' differing rows, polled slowly, and incomplete while a
-row of theirs could not be compared.
+row of theirs could not be compared. The device directory is the
+registry's every device (``native_devices.yaml`` + ``panel_devices.yaml``,
+joined as the pickers join them), grouped by page kind in ``KINDS`` order,
+a device whose family no page draws last and unlinked; its words are the
+module's, read in the same poll as the two lists (``words``).
 """
 
 from __future__ import annotations
@@ -43,7 +47,17 @@ from pydantic import ValidationError
 
 from urllib.parse import quote
 
-from geecs_control_room.device_pages import kind_of
+from geecs_control_room.device_pages import (
+    DB_KIND,
+    GATEWAY,
+    KINDS,
+    catalogue,
+    db_devices,
+    kind_of,
+    roster_of,
+    roster_states,
+    state_word,
+)
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.screens import KIT_STATE, through
 from geecs_control_room.settings import Settings
@@ -115,9 +129,8 @@ def sort_devices(
         detail = details.get(name)
         roles = (detail or {}).get("roles", [])
         row = {"name": name, "family": device.get("family"), "state": state}
-        row["kind"] = kind_of(
-            device.get("family")
-        )  # its device page; None: a DB device
+        # its device page: a DB device's is settables; None: a family no page draws
+        row["kind"] = DB_KIND if device.get("source") == GATEWAY else kind_of(device.get("family"))  # fmt: skip
         row |= {"kit": KIT_STATE.get(state, "unknown"), "ioc": iocs.get(name)}
         row["last"] = last.get(name)
         if state != "live":
@@ -137,8 +150,64 @@ def _iocs(settings: Settings) -> dict[str, str]:
     return {name: d.ioc for name, d in panel.devices.items() if d.ioc}
 
 
+#: The directory's last group: registry devices whose family no device page draws.
+NO_PAGE = "no page yet"
+
+
+@dataclass
+class Directory:
+    """The registry's devices grouped for the home: ``(kind, rows)`` per page kind with devices, ``NO_PAGE`` last."""
+
+    groups: list[tuple[str, list[dict[str, Any]]]] = field(default_factory=list)
+    problem: Optional[str] = None
+    state: str = "ok"  # ok | empty (no device in the registry) | error (the files do not validate)
+    silent: Optional[str] = None  # why the roster's DB devices are not listed
+
+
+def directory(settings: Settings, roster: Optional[list[dict[str, Any]]] = None, silent: Optional[str] = None) -> Directory:  # fmt: skip
+    """Every registry device under its page kind (``KINDS`` order, a kind with none left out), the unpaged last; each row's IOC from ``panel_devices.yaml``.
+
+    The GEECS DB devices are the module's roster's (``roster``, read once at
+    page load): under ``settables``, by name. ``silent``: why the roster could
+    not be read, said in the note (the registry's devices are listed regardless).
+    """
+    found = catalogue(settings)
+    db = db_devices(roster or [])
+    silent = silent and f"GEECS DB devices not listed: {silent}"
+    if (
+        not found.rows and not db
+    ):  # unreadable files are an error; files that list nothing (or only conflicts) are empty
+        return Directory(problem=found.problem, state="error" if found.unreadable else "empty", silent=silent)  # fmt: skip
+    iocs = _iocs(settings)
+    rows = [r | {"ioc": iocs.get(r["name"])} for r in found.rows] + db
+    groups = [(k, [r for r in rows if r["kind"] == k]) for k in [*KINDS, None]]
+    named = [(k or NO_PAGE, g) for k, g in groups if g]
+    return Directory(named, found.problem, silent=silent)
+
+
+def words(
+    names: list[str],
+    roster: list[dict[str, Any]],
+    details: dict[str, Optional[dict[str, Any]]],
+) -> dict[str, dict[str, Optional[str]]]:
+    """The directory's words for ``names``: the roster's state (the pickers' rule), the IOC heartbeat from the device's detail.
+
+    The heartbeat is ``unknown`` for a device whose detail the module did not
+    give, a device the roster lacks included; ``None`` (no IOC) only when the
+    module's detail names none.
+    """
+    states = roster_states(roster)
+    out: dict[str, dict[str, Optional[str]]] = {}
+    for name in names:
+        detail = details.get(name) if name in states else None
+        beat = detail.get("heartbeat") if detail is not None else "unknown"
+        out[name] = {**state_word(states, name), "heartbeat": beat}
+        out[name]["heartbeatKit"] = beat and KIT_STATE.get(beat, "unknown")
+    return out
+
+
 async def device_lists(settings: Settings, module: ModuleClient) -> dict[str, Any]:
-    """The roster sorted into the two lists, or why it could not be read (never an empty list then)."""
+    """The roster sorted into the two lists and the directory's words, or why it could not be read (never an empty list then)."""
     try:
         status, body = await module.devices()
     except ModuleUnavailable as exc:
@@ -166,9 +235,12 @@ async def device_lists(settings: Settings, module: ModuleClient) -> dict[str, An
 
     # the details and the journal at once: the whole read is two module reads long
     *answers, journal = await asyncio.gather(*(detail(d) for d in roster), rows())  # fmt: skip
-    lists = sort_devices(roster, dict(zip([d["name"] for d in roster], answers)), journal or [], _iocs(settings))  # fmt: skip
+    details = dict(zip([d["name"] for d in roster], answers))
+    lists = sort_devices(roster, details, journal or [], _iocs(settings))
     devices = [{"name": d["name"], "family": d.get("family")} for d in roster]
-    return {"ok": True, "devices": devices, "journal": journal is not None} | lists
+    named = [r["name"] for r in catalogue(settings).rows] + [r["name"] for r in db_devices(roster)]  # fmt: skip
+    answer = {"ok": True, "devices": devices, "journal": journal is not None} | lists
+    return answer | {"words": words(named, roster, details)}
 
 
 async def strip(scanner: Optional[httpx.AsyncClient]) -> dict[str, Any]:
@@ -402,7 +474,8 @@ def router(settings: Settings, scanner: Optional[httpx.AsyncClient]) -> APIRoute
 
     @r.get("/")
     async def home(request: Request) -> Any:
-        context = {"launcher": launcher(settings)}
+        roster, silent = await roster_of(request.app.state.module)
+        context = {"launcher": launcher(settings), "directory": directory(settings, roster, silent)}  # fmt: skip
         return request.app.state.templates.TemplateResponse(request, "home.html", context)  # fmt: skip
 
     @r.get("/api/home/devices")

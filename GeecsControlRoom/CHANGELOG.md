@@ -5,6 +5,40 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
 
+## [0.3.0] - 2026-11-04
+
+The raw-frames arc: the camera page shows the camera's own 12-bit frame
+beside the IOC's MJPEG stream.
+
+### Added
+
+- **The raw view** on the camera page: a Raw toggle polls
+  `/api/devices/{name}/frame.raw` at 2 Hz with `If-None-Match`, decodes the
+  camera's 16-bit frame, applies the camera's `TRANS1` transform so the
+  crosshairs and the analysis ROI keep their coordinates, and renders it
+  with a histogram, auto-levels and the page's colour maps and scales on the
+  12-bit values; levels are kept per mode as fractions of each mode's full
+  scale; the chip reads new frames per second from the frame tag (#1269)
+- **`GET /api/devices/{name}/frame.raw`**: the raw frame read over Channel
+  Access at the PVs the module names (`raw_frame`, `raw_width`,
+  `raw_height`, `raw_counter`), one read in flight per device shared for
+  0.5 s, the counter probed before any array read, served as uint16
+  little-endian under gzip with `ETag`/304, 503 words for an unreadable
+  counter or frame and for a geometry disagreement (#1267)
+- The operator page's raw-view section and screenshots, the deploy notes
+  (bandwidth, `EPICS_CA_MAX_ARRAY_BYTES`, the gzip pass-through a proxy must
+  keep, the Canopy image rebuild a family change needs); the page's decode
+  path tested through the real route over the fake CA (#1271)
+
+### Changed
+
+- `/api/devices/{name}/arrays` serves the on-request roles **of type
+  `array`** alone, so a frame or an on-request scalar never lands in the
+  JSON answer (#1263)
+- The camera family dropped `frame_rate` (`cam1:FrameRate_RBV`): the record
+  is the camera's configured rate, unavailable on a triggered Blackfly and
+  an unused cap on a Basler; the delivered rate is `rate` (#1254)
+
 ## [0.2.0] - 2026-11-03
 
 The first release since the skeleton: pushes 2 and 3 of the GeecsCanopy arc

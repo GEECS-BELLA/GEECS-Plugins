@@ -104,6 +104,14 @@ deploy/           the unit template + DEPLOYMENT.md
   action preview flattens nested `run` steps over the schema models in
   `service/actions.py` (never the worker's compiler: `geecs_bluesky.plans`
   is off limits); an unresolvable plan cannot be run.
+- **Append only behind a started queue** (#1281). Add to Queue posts
+  `append: true`: the client adds behind the waiting items while the
+  queue is started, and while it is stopped (a failed item may sit at the
+  front, and an add restarts the queue) it still refuses with
+  `pending_items`, which the page shows rather than offering Replace.
+  `DELETE /api/queue/{uid}` removes one waiting item; the running uid is
+  `policy_refusal`, an unknown one `not_found`. The many-waiting-items
+  limit was the client's posture, never the manager's.
 - **Writes go through the resolver.** "Save as preset" calls
   `ConfigsRepoResolver.write_preset` (atomic, refuses overwrite unless asked,
   never creates the experiment folder); the scanner never opens a file in

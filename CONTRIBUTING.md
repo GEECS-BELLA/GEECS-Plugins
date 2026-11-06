@@ -163,6 +163,17 @@ layout; delete-when-executed is the whole discipline):
   items were listed in the PR body rather than filed. Kept:
   `operator_surfaces.md` (§11 decisions open) and `device_pages.md` (arc
   continues).
+- **2026-11-04**, raw-frames arc (the camera page's Raw view, slices 0,
+  R1–R3 on `feat/raw-frames`) — `raw_frames.md` deleted in its last slice,
+  ahead of the promotion PR. Its contract and rules moved to
+  `GeecsControlRoom/CLAUDE.md` § "The raw frame" (the source and the
+  transform rule, the byte contract, the read discipline, the per-mode
+  levels, the rules with rows), the raw roles and why `read: never` /
+  `on_request` to `GEECS-Schemas/CLAUDE.md`, the bandwidth, gzip and image
+  rebuild notes to `GeecsControlRoom/README.md` § Deploy, and the operator's
+  view to `docs/web_services/control_room.md` § "Raw view". The brief's
+  § Status (the red team's dispositions) is in #1271's body; the hardware
+  proof is owed after the deploy.
 
 ## Every PR that changes a package
 
@@ -301,7 +312,7 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 
 CI (`.github/workflows/unit-tests.yml`, one Ubuntu job) runs: root
 `tests/`, ScanAnalysis, GEECS-Data-Utils and GEECS-Schemas
-from the **root env**, and GeecsWebTheme, GeecsLogbook, GeecsPanels, GeecsScanner,
+from the **root env**, and GeecsWebTheme, GeecsLogbook, GeecsScanner,
 GeecsControlRoom, GEECS-DataPortal, GEECS-Core, GeecsCAGateway, GeecsBluesky (pure unit
 tests, `qs-client` extra included), GEECS-MCP and GeecsPvaGateway each
 from its **own env**. Not in CI — run locally via `scripts/check.sh` when

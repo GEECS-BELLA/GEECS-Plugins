@@ -1,8 +1,8 @@
 // The device pages' rules, pure: no DOM, no socket, no clock. device.js draws
 // what these say; tests/test_device_rules_js.py runs each rule under node. The
-// verdict word and the value shown are screen_rules.js's, reused, never copied.
+// verdict word and the value shown are screen_rules.js's, a field's number camera_rules.js's: reused, never copied.
 // window.GeecsDeviceRules in the page, module.exports under node.
-(function (rules, S) {
+(function (rules, S, C) {
   "use strict";
 
   // The picker's options: by name (a device never jumps as its state changes),
@@ -46,8 +46,47 @@
     return { state: view.state || "unknown", heartbeat: `heartbeat ${view.heartbeat || "—"}` };
   }
 
-  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header });
+  // ---- the rail and the readings (device_rail.js: every page drawn from a panel)
+  // The role whose value 0 hides a group: `<ch>_present` when every role of the group is `<ch>_…`
+  // (the scope contract's per-channel roles) and the device has it; else none.
+  function presentRole(roles, known) {
+    const m = roles.length ? /^(ch_[a-z0-9]+)_/.exec(roles[0]) : null;
+    if (!m || !roles.every((r) => r.startsWith(m[1] + "_"))) return null;
+    const present = `${m[1]}_present`;
+    return known.includes(present) && !roles.includes(present) ? present : null;
+  }
+  // A group (or a reading) is hidden only while its present role reads 0: unknown keeps it shown.
+  const hidden = (frame) => !!frame && frame.value === 0;
+
+  // A control's value as written: a checkbox 1 or 0, a select its choice's index, a whole-number field a whole
+  // number, a text field its text, any other field a number; null (nothing sent) for a field that does not parse.
+  function writeValue({ type, tag, step, checked, raw }) {
+    if (type === "checkbox") return checked ? 1 : 0;
+    if (tag === "SELECT") return raw === "" ? null : Number(raw);
+    if (type === "text") return raw;
+    return step === "1" ? C.whole(raw) : C.number(raw);
+  }
+
+  // A key in a field holding a draft: Enter writes it, Escape drops it; any other key, or no draft, nothing.
+  const commitKey = (key, draft) => (!draft ? null : key === "Enter" ? "write" : key === "Escape" ? "revert" : null);
+
+  // A tweak's press: the command alone, or (its step holding a draft) the step's value first, in one list,
+  // so the record never steps by the step the field no longer shows; null for a draft that is no number.
+  function tweakList(command, step, drafted, value) {
+    if (!drafted) return [[command, 1]];
+    return value === null ? null : [[step, value], [command, 1]];
+  }
+
+  // The roles the module judges `error` on one axis (none named: every role), by label: a pane's alarm line.
+  // camera_rules.js's `alarms` over the axis' roles: one rule for every page's alarm line.
+  function alarmed(view, axis) {
+    if (axis === undefined || axis === null || !view || !view.ok) return C.alarms(view);
+    return C.alarms({ ...view, roles: Object.fromEntries(Object.entries(view.roles).filter(([, e]) => e.axis === axis)) });
+  }
+
+  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, writeValue, commitKey, tweakList, alarmed });
 })(
   typeof module === "object" ? module.exports : (window.GeecsDeviceRules = {}),
   typeof module === "object" ? require("./screen_rules.js") : window.GeecsScreenRules,
+  typeof module === "object" ? require("./camera_rules.js") : window.GeecsCameraRules,
 );

@@ -504,6 +504,7 @@ class DemoQueueClient:
         args: Sequence[Any] = (),
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        append: bool = False,
     ) -> Any:
         """Queue an item and start the queue if idle."""
         from geecs_bluesky.qs_client import SubmitResult
@@ -521,8 +522,10 @@ class DemoQueueClient:
         with self._lock:
             # The real client's guard (client._submit_item): an item already
             # WAITING refuses the add unless the caller clears it first — the
-            # failed-item-at-front trap. The running item does not count.
-            if self._queue and not clear_pending:
+            # failed-item-at-front trap. The running item does not count; an
+            # append behind a started (running) queue is let through.
+            appending = append and self._running is not None
+            if self._queue and not (clear_pending or appending):
                 return SubmitResult(
                     ok=False,
                     message=(
@@ -531,7 +534,7 @@ class DemoQueueClient:
                     ),
                     pending_items=[dict(i) for i in self._queue],
                 )
-            if clear_pending:
+            if clear_pending and not appending:
                 self._queue.clear()
             self._queue.append(item)
             self.streams.push_console_line(
@@ -549,13 +552,18 @@ class DemoQueueClient:
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
         resolver: Any | None = None,
+        append: bool = False,
     ) -> Any:
         """Expand with the real expansion, then queue."""
         from geecs_bluesky.qs_client import expand_preset
 
         item = expand_preset(preset, catalog=catalog, md=md, resolver=resolver)
         return self.submit_plan(
-            item.name, args=item.args, kwargs=item.kwargs, clear_pending=clear_pending
+            item.name,
+            args=item.args,
+            kwargs=item.kwargs,
+            clear_pending=clear_pending,
+            append=append,
         )
 
     def request_pause(self) -> tuple[bool, str]:
@@ -602,6 +610,15 @@ class DemoQueueClient:
         """The running item, or ``None``."""
         with self._lock:
             return dict(self._running) if self._running else None
+
+    def remove_item(self, uid: str) -> tuple[bool, str]:
+        """Drop one waiting item; a uid not waiting is refused."""
+        with self._lock:
+            if not any(i["item_uid"] == uid for i in self._queue):
+                return False, f"{uid} is not waiting in the queue"
+            self._queue = [i for i in self._queue if i["item_uid"] != uid]
+            self.streams.push_console_line(f"item_remove: {uid}")
+            return True, "removed"
 
     def clear_queue(self) -> tuple[bool, str]:
         """Drop every waiting item."""

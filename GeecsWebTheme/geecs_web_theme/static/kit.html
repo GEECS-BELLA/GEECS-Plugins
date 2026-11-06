@@ -110,6 +110,13 @@
           </div>
         </div>
 
+        <details class="fold" open>
+          <summary class="eyebrow">fold &middot; a group that closes &middot; 3</summary>
+          <p class="dim">A section the reader may put away: a history, a long
+            table. Native <code>&lt;details&gt;</code> with the eyebrow as its
+            summary; no box, no script.</p>
+        </details>
+
         <div class="group">
           <span class="eyebrow">well &middot; output you did not write</span>
           <div class="well"><pre>scan_variables:
@@ -291,8 +298,22 @@
         <button class="btn primary" type="button" data-dialog-open="k-ack">Submit scan&hellip;</button>
         <span class="dim"><code>dialog.ack</code> &mdash; rung 3 widened once, for the
           preflight questions an operator must answer on the record before a scan
-          is queued. The kit styles the list; the surface wires Submit to the boxes.</span>
+          is queued. The kit styles the list; the surface wires Submit to the boxes.
+          Otherwise a dialog holds no form, beyond the one input a confirmation confirms.</span>
       </div>
+    </section>
+
+    <section id="plots" class="group">
+      <h2>Line plots</h2>
+      <p class="dim">Every line plot on every surface (a trace, a lineout, a histogram, a
+        scalar plot) is Plotly, drawn through <code>plot.js</code>: the layout and the
+        modebar read from the tokens, trace <em>i</em> in <code>--trace-(i+1)</code>,
+        repainted when the theme changes. The page sets its axes and data, never a
+        colour. Images are each surface's own.</p>
+      <article class="panel">
+        <header><span class="eyebrow">Two channels</span></header>
+        <div id="k-plot" style="height:240px"></div>
+      </article>
     </section>
 
     <section id="states" class="group">
@@ -502,6 +523,20 @@
 
 <script src="theme.js" defer></script>
 <script src="kit.js" defer></script>
+<script src="plotly-cartesian-3.1.1.min.js" defer></script>
+<script src="plot.js" defer></script>
+<script>
+  // The plot specimen: data and axes are all a surface writes; the template does the rest.
+  window.addEventListener("DOMContentLoaded", function () {
+    var x = [], a = [], b = [];
+    for (var i = 0; i < 400; i++) { var t = (i - 80) * 2.5e-8; x.push(t); a.push(0.8 * Math.exp(-Math.pow((t - 4e-6) / 1.5e-6, 2))); b.push(0.3 * Math.sin(2 * Math.PI * t / 6e-6)); }
+    var host = document.getElementById("k-plot");
+    window.Plotly.react(host, [{ type: "scatter", mode: "lines", name: "A", x: x, y: a }, { type: "scatter", mode: "lines", name: "B", x: x, y: b }],
+      window.GeecsPlot.layout({ xaxis: { title: { text: "time (s)" }, exponentformat: "SI" }, yaxis: { title: { text: "capture (V)" } } }),
+      window.GeecsPlot.config());
+    window.GeecsPlot.watch(host);
+  });
+</script>
 <script>
   // The picker specimen: the rows and what Add does are all a surface writes.
   window.addEventListener("DOMContentLoaded", function () {

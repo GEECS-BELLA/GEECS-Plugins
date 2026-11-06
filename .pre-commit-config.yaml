@@ -26,10 +26,11 @@ repos:
       - id: check-toml
       - id: check-added-large-files
         args: [--maxkb=1024]
-        # The portal's vendored, version-pinned JS assets (owner-approved
-        # doctrine amendment 2026-08-30 — see GEECS-DataPortal/CLAUDE.md)
-        # are the one sanctioned class of >1MB blobs.
-        exclude: "^GEECS-DataPortal/geecs_portal/static/"
+        # The vendored, version-pinned Plotly bundle (owner-approved
+        # doctrine amendment 2026-08-30; the theme's since 2026-11-05 — see
+        # GeecsWebTheme/CLAUDE.md § "Line plots are Plotly") is the one
+        # sanctioned class of >1MB blobs.
+        exclude: "^GeecsWebTheme/geecs_web_theme/static/plotly-"
       - id: mixed-line-ending
         args: [--fix=lf]
 

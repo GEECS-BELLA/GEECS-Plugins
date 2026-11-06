@@ -311,7 +311,9 @@ route accepts images and PDFs only.
   and `operator` pass through; the scanner records them and today acts
   regardless (its ownership registry is a later scanner PR). The MCP's
   own ownership check goes with `client_identity`: the queue item's
-  `user` is now the scanner's identity for every submitter.
+  `user` is the operator the submission recorded (for the MCP, its
+  `agent, admin supervision (<operator>)` line), the scanner's identity
+  only when none was sent.
 
 ### 4.8 Two portal additions (PR B)
 

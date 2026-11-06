@@ -80,6 +80,8 @@ class FakeBox:
         self.stamp = (
             time.time() + LABVIEW_EPOCH_OFFSET if self.clock else self.stamp + step
         )
+        # Frames a free-running camera's plugin counts per fire beyond the shot's.
+        self.extra: dict[str, int] = {}
 
     def __call__(self, device: str, variable: str):
         box = self
@@ -99,7 +101,11 @@ class FakeBox:
                             continue
                         hdf = getattr(cam, "hdf", None)
                         if hdf is not None:  # a plugin-backed camera counts first
-                            box.counts[cam.name] = box.counts.get(cam.name, 0) + 1
+                            box.counts[cam.name] = (
+                                box.counts.get(cam.name, 0)
+                                + 1
+                                + box.extra.get(cam.name, 0)
+                            )
                             set_mock_value(hdf.num_captured, box.counts[cam.name])
                         set_mock_value(cam.acq_timestamp, box.stamp)
 

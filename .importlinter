@@ -35,7 +35,6 @@ root_packages =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 include_external_packages = True
@@ -53,7 +52,7 @@ exclude_type_checking_imports = True
 name = Package layers: edges point down the dependency graph; packages on one layer never import each other
 type = layers
 layers =
-    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook | geecs_panels | geecs_control_room
+    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook | geecs_control_room
     geecs_bluesky | scan_analysis | geecs_ca_gateway | geecs_pva_gateway | geecs_archiver | geecs_canopy | geecs_log_triage
     geecs_analysis
     geecs_core | geecs_data_utils | geecs_schemas | geecs_web_theme | logmaker_4_googledocs
@@ -85,7 +84,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 
@@ -106,7 +104,6 @@ source_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 forbidden_modules =
@@ -131,7 +128,6 @@ source_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 forbidden_modules =
@@ -157,7 +153,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 
@@ -184,7 +179,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 
@@ -205,7 +199,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
 
@@ -298,7 +291,6 @@ source_modules =
 forbidden_modules =
     geecs_scanner
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
     geecs_bluesky
@@ -339,29 +331,6 @@ forbidden_modules =
     tiled
 allow_indirect_imports = True
 
-[importlinter:contract:panels-edges]
-name = GeecsPanels imports GEECS-Core, GEECS-Schemas and the web theme: never GeecsBluesky, the scanner, the portal, the logbook, the analysis packages or GEECS-Data-Utils
-type = forbidden
-source_modules =
-    geecs_panels
-forbidden_modules =
-    geecs_bluesky
-    geecs_scanner
-    geecs_portal
-    geecs_logbook
-    geecs_control_room
-    geecs_mcp
-    geecs_analysis
-    scan_analysis
-    geecs_data_utils
-    geecs_archiver
-    geecs_log_triage
-    geecs_ca_gateway
-    geecs_pva_gateway
-    bluesky
-    ophyd_async
-allow_indirect_imports = True
-
 [importlinter:contract:scanner-edges]
 name = GeecsScanner imports GeecsBluesky's client side, GEECS-Schemas, GEECS-Core and the web theme: never the portal, the logbook, MCP, the analysis packages, GEECS-Data-Utils or the EPICS side
 type = forbidden
@@ -370,7 +339,6 @@ source_modules =
 forbidden_modules =
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_mcp
     geecs_analysis
@@ -389,7 +357,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_control_room
     geecs_core
     geecs_schemas
@@ -483,7 +450,7 @@ forbidden_modules =
     geecs_bluesky.optimization
 
 [importlinter:contract:control-room-edges]
-name = GeecsControlRoom imports GEECS-Schemas and the web theme: never GeecsCanopy (a service), GeecsBluesky, the scanner, the portal, the logbook, the panels, the analysis packages, GEECS-Core or GEECS-Data-Utils
+name = GeecsControlRoom imports GEECS-Schemas and the web theme: never GeecsCanopy (a service), GeecsBluesky, the scanner, the portal, the logbook, the analysis packages, GEECS-Core or GEECS-Data-Utils
 type = forbidden
 source_modules =
     geecs_control_room
@@ -493,7 +460,6 @@ forbidden_modules =
     geecs_scanner
     geecs_portal
     geecs_logbook
-    geecs_panels
     geecs_mcp
     geecs_analysis
     scan_analysis

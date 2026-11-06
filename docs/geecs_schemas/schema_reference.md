@@ -580,7 +580,7 @@ Example:
 
 ```yaml
 schema_version: 1
-# the archive set is derived from the DB (monitored readbacks, :SP, connected,
+# the archive set is derived from the DB (served readbacks, :SP, connected,
 # derived channels); this file lists the exceptions
 exclude:
   - "undulator:uc_*:image_size*"
@@ -756,6 +756,7 @@ The records of one IOC record template, by role: what every device of the family
 | `per_axis` | `bool` | no | False | The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names. |
 | `roles` | `list[Role]` | yes | — | The template's records, by role, in the page's order. |
 | `actions` | `dict[str, FamilyAction]` | no | empty | The page's actions and the roles each writes; a device may permit a subset. When there are actions, every writable role belongs to one. Empty: every writable role is its own permission. |
+| `panel` | `Panel (optional)` | no | None | How the kind's device page lays the roles out (the rail's groups, the readings strip); absent: the page's own default. |
 
 Example:
 
@@ -806,7 +807,9 @@ One record of the template, by what it does for a page.
 | `integer` | `bool` | no | False | A write takes a whole number. |
 | `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
 | `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
-| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record). |
+| `axis_of` | `list[str] (optional)` | no | None | On an array: the array role (or the list of them) this one is the x axis of, one value per sample of each of its channels (a scope's time axis beside its capture, a spectrometer's wavelengths beside its raw and its processed spectrum). A single name is read as a list of one. All are arrays; an array has one axis at most, and an axis is no array's trace. |
+| `channels_by` | `str (optional)` | no | None | On an array of several channels: the readback that counts them. The array is then [channels, samples], channels fastest (a scope's ARR capture, a disabled channel NaN). Absent: one channel. |
+| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame). |
 
 ### FamilyAction
 
@@ -817,6 +820,38 @@ One thing a page does to a device of the family, and the roles it writes.
 | `label` | `str` | yes | — | What the page's control is called. |
 | `roles` | `list[str]` | yes | — | The writable roles the action writes. |
 | `requires` | `list[str]` | no | empty | Actions a device permitting this one must permit too (a motion needs stop). |
+
+### Panel
+
+How a device page lays out the family's roles: the control rail and the readings strip.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `rail` | `list[PanelGroup]` | no | empty | The rail's control groups, in order; a role sits in one group at most. |
+| `readings` | `list[str]` | no | empty | The roles of the readings strip, in order, each with its freshness word. |
+| `buttons` | `dict[str, tuple[str, str]]` | no | empty | A two-state rail role drawn as a pair of buttons, its labels for 0 then 1 (an acquire as Stop / Start), in place of its type's control. The role is writable, in the rail, and a bit or a whole number limited to [0, 1]. |
+| `tweak` | `dict[str, TweakHint]` | no | empty | A rail setpoint drawn with its step and step buttons beside it, in place of three separate controls: the key is the setpoint, the hint its step setpoint and its forward and reverse commands, all writable and in the key's rail group. |
+| `show_while` | `dict[str, str]` | no | empty | An array an axis draws, shown by default while a monitored role reads 1 (a processed spectrum while background subtraction is on); otherwise the axis' first array. A viewer's own choice wins. |
+
+### PanelGroup
+
+One titled group of a device page's control rail: the roles it draws, in order.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The group's heading on the rail. |
+| `roles` | `list[str]` | yes | — | The family roles the group draws, in order; the page picks each control by the role's type. |
+| `layout` | `'fields' \| 'grid'` | no | 'fields' | 'fields': one labelled control per row; 'grid': a compact labelled grid of short controls (a PLC's channels), for a group of bits, enums and two-state whole numbers only. |
+
+### TweakHint
+
+A setpoint drawn with a step and a pair of step buttons beside it (the motor record's tweak).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `step` | `str` | yes | — | The setpoint holding the step size (the motor record's 'twv'). |
+| `forward` | `str` | yes | — | The command that steps forward by it ('twf'): the record moves, the page computes nothing. |
+| `reverse` | `str` | yes | — | The command that steps back by it ('twr'). |
 
 ## `panel_devices`
 

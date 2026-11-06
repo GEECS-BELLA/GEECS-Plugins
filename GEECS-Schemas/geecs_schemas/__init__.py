@@ -65,7 +65,10 @@ from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
     FamilyAction,
     FamilyFile,
+    Panel,
+    PanelGroup,
     Role,
+    TweakHint,
     load_families,
 )
 from geecs_schemas.epics.panel_devices import (
@@ -209,7 +212,10 @@ __all__ = [
     # epics.family / epics.panel_devices (the web estate's device data)
     "FamilyFile",
     "FamilyAction",
+    "Panel",
+    "PanelGroup",
     "Role",
+    "TweakHint",
     "load_families",
     "REGISTRY_KIND_FAMILIES",
     "PanelDevices",

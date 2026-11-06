@@ -23,6 +23,11 @@ deliberately not here):
   item added behind a running or waiting scan would run by itself the
   moment that scan ends — the surprise GEECS-MCP's ``run_action`` refuses
   for the same reason.  The check and the add happen under the one lock.
+- **Append behind a started queue only.**  ``append`` adds behind the
+  waiting items while the queue is started; while it is stopped a failed
+  item may sit at its front and an add would restart the queue and re-run
+  it, so waiting items still refuse (``pending_items``).  ``remove_queued``
+  removes one waiting item, never the running one.
 - **Ownership** (who may stop whose scan) arrives with the operator
   registry (arc PR 5); until then every verb acts and ``force`` is
   recorded but changes nothing.
@@ -471,6 +476,7 @@ class ScannerService:
                 md=md,
                 clear_pending=body.clear_pending,
                 resolver=self.resolver,
+                append=body.append,
             )
         if not result.ok:
             if result.pending_items:
@@ -783,6 +789,27 @@ class ScannerService:
             ok, message = self.client.clear_queue()
         return VerbOut(ok=ok, message=message)
 
+    def remove_queued(self, uid: str) -> VerbOut:
+        """Remove one waiting item; the running uid is a refusal, an unknown one not found."""
+        with self._lock:
+            try:
+                running = self.client.running_item() or {}
+                is_running = running.get("item_uid") == uid
+                ok, message = (
+                    (False, "") if is_running else self.client.remove_item(uid)
+                )
+            except Exception as exc:
+                raise ScannerError(
+                    "manager_unreachable", f"remove failed: {exc}"
+                ) from exc
+        if is_running:
+            raise ScannerError(
+                "policy_refusal", "the running item is never removed; stop it instead"
+            )
+        if not ok:
+            raise ScannerError("not_found", message)
+        return VerbOut(ok=True, message=message)
+
     def _verb(self, name: str, body: VerbIn) -> VerbOut:
         if body.force:
             logger.info("%s forced by %s", name, body.operator or "unknown operator")
@@ -936,12 +963,24 @@ def _row(
         word=word,
         plan=summary.plan,
         summary=summary.text,
-        user=str(item.get("user") or ""),
+        user=_operator(item),
         detail=summary.description,
         item_uid=item.get("item_uid"),
         position=position,
         planned_shots=summary.planned_shots,
     )
+
+
+def _operator(item: dict) -> str:
+    """Who pressed Start: ``md["geecs"]["operator"]`` when recorded, else the manager's user.
+
+    The manager's ``user`` is this process's identity, the same on every
+    row; the operator the page or GEECS-MCP sent is the name worth a column.
+    """
+    kwargs = item.get("kwargs") if isinstance(item.get("kwargs"), dict) else {}
+    md = kwargs.get("md") if isinstance(kwargs.get("md"), dict) else {}
+    geecs = md.get("geecs") if isinstance(md.get("geecs"), dict) else {}
+    return str(geecs.get("operator") or item.get("user") or "")
 
 
 def _history_row(item: dict) -> QueueRow:

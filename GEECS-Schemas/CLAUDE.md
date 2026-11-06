@@ -52,8 +52,35 @@ pass tiny ones through the validation context (`context={"families":
 ...}`). The installed families are frozen and shared process-wide; a
 family with actions puts every writable role in one, so `allow` decides
 every write. A family file changes when its IOC template does;
-the pin holding the camera, scope, motor and supply files to GeecsPanels'
-own suffix tables (web estate S2) is kept at the tag `web-estate-final`, not here.
+the pin that held the camera, scope, motor and supply files to the deleted
+GeecsPanels' suffix tables (web estate S2) is kept at the tag `web-estate-final`, not here.
+
+A role's `read` decides who reads it, and the camera's raw-frame roles
+(`ad_camera_chain.json`, the Control Room's Raw view) are the case that
+needs it. `ARR` (`NDStdArrays`, `USHORT`) sits on the driver's own port, so
+its frame is before `TRANS1` and before background subtraction:
+
+| role | suffix | type | read |
+|---|---|---|---|
+| `raw_frame` | `ARR:ArrayData` | `array` | `never` |
+| `raw_width`, `raw_height` | `ARR:ArraySize0_RBV`, `ArraySize1_RBV` | `readback`, expert | `on_request` |
+| `raw_counter` | `ARR:ArrayCounter_RBV` | `counter`, expert | `on_request` |
+
+`raw_frame` is `read: never` because a frame is never JSON: the module's
+bridge never reads it, the Control Room's `frame.raw` route reads it by
+this role name, and the Control Room's `/arrays` serves `on_request` roles
+**of type `array`** only, so `never` keeps a 10 MB frame out of it (no new
+role type: a `frame` type with `on_request` would land it there). The three
+scalars are `on_request`, never `monitor`: the module judges and
+subscribes only `monitor` roles, so none of the four is judged or
+subscribed on Hare, the device's state does not depend on `ARR` (an `ARR`
+with callbacks off cannot make a live camera stale), and Hare's
+subscriptions per camera are unchanged. None sets `archive` either; read
+mode does not decide archiving (the archiver keeps `archive: true` roles),
+so the flag is what keeps them out. `tests/test_family_file.py` pins the read modes
+and that none of the four is archived; the Control Room's contract test
+pins `verdict: null` on them. A family change reaches Canopy only through its image's copy of this
+package, so it rebuilds Canopy's image at deploy.
 
 ## Screens
 
