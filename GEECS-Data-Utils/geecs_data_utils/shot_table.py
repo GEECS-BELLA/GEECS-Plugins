@@ -576,9 +576,11 @@ def _assign_ticks(records: np.ndarray, clock: _RowClock) -> list[int | None]:
     A pressed device acquires after its tick and before the next (the
     plan's completeness rule, the same interval), however late within it:
     the nearest tick would hand a frame later than half a period to the
-    next row.  Each row takes its earliest record in its interval; the
-    rest are extras.  *m* is the stamp budget (host clocks a few ms
-    apart); the last row's interval closes a period after its tick.
+    next row.  Each row takes its latest record in its interval; the
+    rest are extras.  A held tick's press can land after the wait closed,
+    in the next interval and before that row's own press: the later
+    record is the row's own.  *m* is the stamp budget (host clocks a few
+    ms apart); the last row's interval closes a period after its tick.
     """
     ticks, n = clock.stamps, clock.stamps.size
     assigned: list[int | None] = [None] * n
@@ -596,8 +598,8 @@ def _assign_ticks(records: np.ndarray, clock: _RowClock) -> list[int | None]:
         stop = int(np.searchsorted(ordered, high, "left"))
         free = [int(i) for i in order[start:stop] if int(i) not in claimed]
         if free:
-            assigned[k] = free[0]
-            claimed.add(free[0])
+            assigned[k] = free[-1]
+            claimed.add(free[-1])
     return assigned
 
 

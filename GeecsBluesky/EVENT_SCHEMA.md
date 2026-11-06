@@ -130,7 +130,7 @@ rule, the plan's and the join's** (*m* the stamp budget, 30 ms):
 
 | Device | Row *k*'s record | The plan calls it complete when |
 |---|---|---|
-| pressed (Software-source native, `synchronous`) | the first stamped in [t<sub>k</sub> − m, t<sub>k+1</sub> − m), however late in the period (later ones are extras) | its frame lands before t<sub>k+1</sub> − m |
+| pressed (Software-source native, `synchronous`) | the last stamped in [t<sub>k</sub> − m, t<sub>k+1</sub> − m), however late in the period (earlier ones, a held tick's press landing after its wait, are extras) | its frame lands before t<sub>k+1</sub> − m |
 | free-running (`asynchronous`) | the last at or before t<sub>k</sub>, *stale* when older than one period | it recorded in (t<sub>k−1</sub>, t<sub>k</sub>] |
 
 So a required free-runner slower than the tick rate holds ticks.  The

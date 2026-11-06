@@ -502,6 +502,23 @@ def test_soft_tick_pressed_frames_late_in_the_period_stay_on_their_own_tick() ->
     assert _flagged(table, "missing:cam") == [3]
 
 
+@pytest.mark.parametrize("n", [4, 3])
+def test_soft_tick_a_held_ticks_late_frame_never_displaces_the_next_rows_own(n) -> None:
+    """Row 2's press lands just before tick 3: row 3 keeps its own, later frame.
+
+    ``n == 3`` is the case the counter audit cannot see (the last row).
+    """
+    rows = _rows(n)
+    rows["complete"] = [k != 1 for k in range(n)]
+    start = {**START, "clock": "soft-tick"}
+    t = rows["witness_stamp"].to_numpy() + LV
+    stamps = [t[0] + 0.05, t[2] - 0.01, t[2] + 0.05] + ([t[3] + 0.05] if n == 4 else [])
+    cam = _device("cam", stamps, np.arange(1.0, n + 1), None, np.arange(float(n)))
+    table = shot_table(start, rows, [cam])
+    assert table.record_for_shot["cam"] == (0, None, 2, 3)[:n]
+    assert table.extras["cam"] == (1,)
+
+
 def test_a_stale_required_free_running_record_does_not_complete_a_row() -> None:
     rows = _rows(6)
     start = {**START, "clock": "soft-tick", "required": ["gauge"]}
