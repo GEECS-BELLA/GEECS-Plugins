@@ -343,10 +343,16 @@ hint, and a role the device's `allow` does not grant is drawn disabled with
 the module's word. A role's `text` and `units` come from the module's device
 route (a DB device's from the DB through the gateway source); a value with no
 units of its own shows the record's EGU from Hare. A number or text field is
-a **draft** while typed in: Enter writes it, Esc or leaving the field drops
-it, so an arrow key or a spinner click on a motor's target never sends a
-move (the screen renderer's rule); a select, a checkbox or a button writes
-when chosen (`device_rules.commitKey`, `writeValue`).
+a **draft** once typed in, marked and kept when the field loses focus:
+Enter writes it, Esc drops it, so an arrow key or a spinner click on a
+motor's target never sends a move (the screen renderer's rule); a tweak's
+− / + while its step is a draft sends the step and then the press as one
+list, stopped at the first refusal, so the record never steps by a step the
+field no longer shows (`device_rules.tweakList`); a select, a checkbox or a
+button writes when chosen (`device_rules.commitKey`, `writeValue`).
+A device is classified by its roster `source` first: a gateway device's
+family is its DB device type, never looked up as a family file, even when
+it is spelled like one.
 
 The camera page keeps its hand-coded rail (`device_camera.html`,
 `camera_controls.js`, which writes on `change`, and its readings in

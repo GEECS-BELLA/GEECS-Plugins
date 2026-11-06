@@ -4,9 +4,10 @@
 // module's put route, the operator's name, sent once; a per-axis control's write carries its axis); each reading
 // shows its value and the module's word; a value with no family units takes the record's (Hare's EGU); a group whose `<ch>_present` reads 0 is hidden; each pane's alarms are
 // the roles the module judges `error`. On the settables page (#settables) it starts itself and drives the axis
-// selector. A number or text field is a draft while typed in: Enter writes it, Esc or leaving the field
-// drops it (an arrow key or a spinner click never writes a move); a select, a checkbox or a button writes
-// when chosen. The rules are device_rules.js's and camera_rules.js's (tested under node).
+// selector. A number or text field is a draft once typed in (marked, kept when the field loses focus, the
+// screen renderer's rule): Enter writes it, Esc drops it (an arrow key or a spinner click never writes a
+// move); a tweak's − / + with its step a draft sends the step, then the press (one list, stopped at a refusal);
+// a select, a checkbox or a button writes when chosen. The rules are device_rules.js's and camera_rules.js's (tested under node).
 // window.GeecsDeviceRail.make(page, box, writes) → { fill }.
 (function () {
   "use strict";
@@ -20,6 +21,8 @@
     const value = (role, axis) => { const f = P.frame(role, axis); return f ? f.value : undefined; };
     const known = () => { const v = P.view(); return v && v.ok ? Object.values(v.roles).map((e) => e.role) : []; };
     const controls = [...box.querySelectorAll(".panel-rail [data-role]")];
+    const out = document.getElementById("write-out");
+    const say = (text) => { if (out) { out.dataset.state = "unknown"; out.textContent = text; } };
     function fill() {
       for (const el of controls) {
         const role = el.dataset.role, axis = axisOf(el), v = value(role, axis);
@@ -59,6 +62,16 @@
     }
     for (const el of controls) {
       const write = (v) => writes.write([[el.dataset.role, v, axisOf(el)]]).then(fill);
+      const fieldValue = (f) => D.writeValue({ type: f.type, tag: f.tagName, step: f.step, checked: f.checked, raw: f.value });
+      if (el.tagName === "BUTTON" && el.dataset.step) { // a tweak's − / +: its step's draft first, when it has one
+        const step = el.closest(".tweak").querySelector("input[data-role]");
+        el.addEventListener("click", () => {
+          const list = D.tweakList(el.dataset.role, step.dataset.role, !!step.dataset.draft, fieldValue(step));
+          if (!list) { say("unsent · the step is not a number"); return; }
+          writes.write(list.map(([role, v]) => [role, v, axisOf(el)])).then((ok) => { if (ok) delete step.dataset.draft; fill(); });  // a refusal keeps the draft
+        });
+        continue;
+      }
       if (el.tagName === "BUTTON") { el.addEventListener("click", () => write(Number(el.dataset.value))); continue; }
       if (el.tagName === "INPUT" && el.type !== "checkbox") {
         el.addEventListener("input", () => { el.dataset.draft = "1"; });
@@ -66,18 +79,15 @@
           const act = D.commitKey(ev.key, !!el.dataset.draft);
           if (!act) return;
           ev.preventDefault();
+          if (act === "revert") { delete el.dataset.draft; el.blur(); fill(); return; }
+          const v = fieldValue(el);
+          if (v === null) { say("unsent · not a number"); return; } // the draft stays, for the operator to fix
           delete el.dataset.draft;
-          if (act === "revert") { el.blur(); return; } // leaving the field shows the device's value again
-          const v = D.writeValue({ type: el.type, tag: el.tagName, step: el.step, checked: el.checked, raw: el.value });
-          if (v !== null) write(v);
+          write(v);
         });
-        el.addEventListener("blur", () => { delete el.dataset.draft; fill(); });
         continue;
       }
-      el.addEventListener("change", () => {
-        const v = D.writeValue({ type: el.type, tag: el.tagName, step: el.step, checked: el.checked, raw: el.value });
-        if (v !== null) write(v);
-      });
+      el.addEventListener("change", () => { const v = fieldValue(el); if (v !== null) write(v); });
     }
     P.on(fill);
     fill();

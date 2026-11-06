@@ -379,9 +379,11 @@ registry or the database, never a new page.
   voltage, output, and the fault and interlock bits.
 - **Writes** go through the same path as a screen's, with your name from
   the header and sent once. A number or text field writes when you press
-  **Enter**; **Esc**, or clicking elsewhere, drops what you typed and shows
-  the device's value again, so an arrow key or the field's little arrows
-  never move a motor on their own. A list, a checkbox or a button writes
+  **Enter**; until then what you typed is kept, its border marked, and
+  **Esc** drops it and shows the device's value again, so an arrow key or
+  the field's little arrows never move a motor on their own. A step typed
+  in the tweak's box and not yet written is sent first when you press
+  **−** or **+**. A list, a checkbox or a button writes
   when you choose it. A hazard asks first (a supply's output, a motor's
   home), and the module's answer is shown under the rail.
 

@@ -279,10 +279,12 @@ async def resolve(module: ModuleClient, kind: str, name: str) -> tuple[int, dict
             f"{why or f'it answered {status}'}; this page asks again every few seconds."
         )
         return 503, {"pane": ("stale", "The module did not answer", note), "recover": True}  # fmt: skip
-    family = load_families().get(body["family"] or "")
-    if family is None and body.get("source") != GATEWAY:
+    # the source decides first: a DB device's family is its DB device type, never looked up as a family file
+    gateway = body.get("source") == GATEWAY
+    family = None if gateway else load_families().get(body["family"] or "")
+    if family is None and not gateway:
         return 422, {"pane": ("denied", f"{name} has no page", f"Its family {body['family']!r} is no installed family file.")}  # fmt: skip
-    word = _WORD.get(family.kind) if family else DB_KIND
+    word = DB_KIND if gateway else _WORD.get(family.kind)
     if word != kind:
         what = family.template if family else f"{name} (a GEECS DB device, {body['family'] or 'no type'})"  # fmt: skip
         return 422, {"pane": ("denied", f"Wrong kind: {what} is a {word}", ""), "other": word}  # fmt: skip

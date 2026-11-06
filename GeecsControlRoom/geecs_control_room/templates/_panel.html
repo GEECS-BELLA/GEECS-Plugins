@@ -6,10 +6,11 @@
   the camera page keeps its hand-coded rail until it moves onto its panel.
   Each rail role is drawn by its type through `control`: an enum a select
   of the record's own choices, a setpoint a number beside its readback (a
-  text setpoint a text field; a field writes on Enter, never as typed), a bit a checkbox, a command a button, a
+  text setpoint a text field; a field's draft writes on Enter, never as typed), a bit a checkbox, a command a button, a
   read-only role its text; named in the panel's `buttons`, a pair of buttons
   writing 0 and 1; named as a `tweak`, the setpoint with its step and its
-  − / + commands (the record moves by the step: the page computes nothing).
+  − / + commands (the record moves by the step: the page computes nothing; a
+  step typed and not yet written is sent first).
   A `grid` group draws its short controls as compact labelled cells. Every
   control carries its role (and axis); device_rail.js fills it from Hare,
   enables it on the module's word and writes it through device_writes.js.
@@ -31,9 +32,9 @@
 {{ control(spec, id, none, axis) }}
 <div class="field tweak"><label for="{{ id }}-step">{{ specs[hint.step].label }}{% if specs[hint.step].units %} <small>{{ specs[hint.step].units }}</small>{% endif %}</label>
   <div class="seg" role="group" aria-label="{{ spec.label }}: step">
-    <button type="button" data-role="{{ hint.reverse }}"{{ ax }} data-value="1" aria-label="{{ specs[hint.reverse].label }}" disabled>−</button>
+    <button type="button" data-role="{{ hint.reverse }}"{{ ax }} data-step="{{ hint.step }}" data-value="1" aria-label="{{ specs[hint.reverse].label }}" disabled>−</button>
     <input type="number" id="{{ id }}-step" data-role="{{ hint.step }}"{{ ax }} step="any" disabled>
-    <button type="button" data-role="{{ hint.forward }}"{{ ax }} data-value="1" aria-label="{{ specs[hint.forward].label }}" disabled>+</button>
+    <button type="button" data-role="{{ hint.forward }}"{{ ax }} data-step="{{ hint.step }}" data-value="1" aria-label="{{ specs[hint.forward].label }}" disabled>+</button>
   </div></div>
 {%- endmacro %}
 

@@ -564,10 +564,15 @@ security, the refusal shown (the sims restored after). The automatic layout
 is Python, not a node rule: one drawing path, server-side, from a panel
 authored or automatic.
 
-**What review changed** (one adversarial round): a number or text field
-on the rail is a draft written on Enter (Esc or leaving drops it), never on
-`change`, so an arrow key on a motor's target sends no move (the trace page
-gets it too); the module's device route now serves each role's `text` and
+**What review changed** (two adversarial rounds and the maintainer's GPT
+round): a number or text field on the rail is a draft written on Enter (Esc
+drops it; kept on blur, as a screen keeps it), never on `change`, so an
+arrow key on a motor's target sends no move (the trace page gets it too),
+and a tweak's − / + sends a draft step first (round 2's finding: a typed
+step was dropped on the button's mousedown and the motor stepped by the old
+one); a gateway device is classified by its `source` before any family
+lookup (the GPT finding: a DB type spelled `motor_record` was sent to the
+motor page); the module's device route now serves each role's `text` and
 `units` (GeecsCanopy `freshness.view`), so a DB device's text setting is a
 text field from the first draw and its units show (the page's runtime type
 flip is deleted); the home's Not live and In alarm rows link a DB device to

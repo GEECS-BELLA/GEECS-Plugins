@@ -70,6 +70,13 @@
   // A key in a field holding a draft: Enter writes it, Escape drops it; any other key, or no draft, nothing.
   const commitKey = (key, draft) => (!draft ? null : key === "Enter" ? "write" : key === "Escape" ? "revert" : null);
 
+  // A tweak's press: the command alone, or (its step holding a draft) the step's value first, in one list,
+  // so the record never steps by the step the field no longer shows; null for a draft that is no number.
+  function tweakList(command, step, drafted, value) {
+    if (!drafted) return [[command, 1]];
+    return value === null ? null : [[step, value], [command, 1]];
+  }
+
   // The roles the module judges `error` on one axis (none named: every role), by label: a pane's alarm line.
   // camera_rules.js's `alarms` over the axis' roles: one rule for every page's alarm line.
   function alarmed(view, axis) {
@@ -77,7 +84,7 @@
     return C.alarms({ ...view, roles: Object.fromEntries(Object.entries(view.roles).filter(([, e]) => e.axis === axis)) });
   }
 
-  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, writeValue, commitKey, alarmed });
+  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, writeValue, commitKey, tweakList, alarmed });
 })(
   typeof module === "object" ? module.exports : (window.GeecsDeviceRules = {}),
   typeof module === "object" ? require("./screen_rules.js") : window.GeecsScreenRules,

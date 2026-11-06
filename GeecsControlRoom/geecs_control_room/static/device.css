@@ -19,6 +19,8 @@
 .kit .panel-rail .field{min-width:0;width:112px}
 .kit .panel-rail .field select,.kit .panel-rail .field input[type="number"],.kit .panel-rail .field input[type="text"]{width:100%}
 .kit .panel-rail .rb,.kit .panel-rail .ro{display:block;font-size:11px;min-height:1em}
+/* A draft (typed, not yet written: Enter writes it, Esc drops it), marked like a screen's. */
+.kit .panel-rail input[data-draft]{border-color:var(--accent)}
 .kit .panel-rail .field.tweak{width:auto}
 .kit .panel-rail .tweak .seg input{width:6.5em;border:0;background:transparent;text-align:center}
 .kit .panel-rail .grid-cells .row{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:4px 8px}

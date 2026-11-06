@@ -485,7 +485,12 @@ def _db_devices() -> list:
     def resolved(name: str, family: str, roles: list) -> Resolved:
         return Resolved(name, family, f"Test:{name.lower()}:", (), tuple(roles), (), None, frozenset(r.name for r in roles if r.writable), "gateway")  # fmt: skip
 
-    return [resolved("U_PLC", "PLC Digital Output", plc), resolved("U_Wheel", "Thorlabs FW102C", wheel)]  # fmt: skip
+    # a DB device type that is also an installed family's name: still a DB device, by its source
+    collides = [
+        var("Position", "position", "setpoint", True, limits=(0.0, 10.0)),
+        status,
+    ]
+    return [resolved("U_PLC", "PLC Digital Output", plc), resolved("U_Wheel", "Thorlabs FW102C", wheel), resolved("DBMotor", "motor_record", collides)]  # fmt: skip
 
 
 @pytest.fixture
@@ -524,7 +529,7 @@ async def test_a_motor_draws_one_rail_per_axis_with_its_tweak(db_room) -> None:
     # the family's panel, once per axis; the tweak's roles stay in their group, drawn with the target
     assert _groups(page) == [("Move", ["val", "twv", "twf", "twr", "stop"]), ("Home", ["homf", "homr"]), ("Speed", ["velo"])] * 2  # fmt: skip
     for axis in ("m1", "m2"):
-        assert f'data-role="twr" data-axis="{axis}" data-value="1" aria-label="tweak reverse" disabled>−</button>' in page  # fmt: skip
+        assert f'data-role="twr" data-axis="{axis}" data-step="twv" data-value="1" aria-label="tweak reverse" disabled>−</button>' in page  # fmt: skip
         assert f'<input type="number" id="c-{axis}-1-1-step" data-role="twv" data-axis="{axis}" step="any" disabled>' in page  # fmt: skip
         assert f'class="live" data-role="hls" data-axis="{axis}"' in page
     assert (
@@ -551,7 +556,7 @@ async def test_a_supply_draws_its_output_pair_and_readings(db_room) -> None:
 
 async def test_a_db_device_is_laid_out_automatically_and_written_through_the_module(db_room) -> None:  # fmt: skip
     roster = (await db_room.client.get("/api/device/settables")).json()
-    assert [(d["name"], d["family"]) for d in roster["devices"]] == [("U_PLC", "PLC Digital Output"), ("U_Wheel", "Thorlabs FW102C")]  # fmt: skip
+    assert [(d["name"], d["family"]) for d in roster["devices"]] == [("DBMotor", "motor_record"), ("U_PLC", "PLC Digital Output"), ("U_Wheel", "Thorlabs FW102C")]  # fmt: skip
     plc = await db_room.client.get("/device/settables/U_PLC")
     assert plc.status_code == 200 and "Laid out automatically" in plc.text
     # five writable channels: a grid of their own; the read-only channel and the state are readings
@@ -583,3 +588,14 @@ async def test_a_db_device_is_laid_out_automatically_and_written_through_the_mod
     # and the home's directory lists them under settables, linked
     home = (await db_room.client.get("/")).text
     assert '<a href="/device/settables/U_Wheel">U_Wheel</a>' in home
+
+
+async def test_a_db_device_is_classified_by_its_source_never_by_its_type_name(
+    db_room,
+) -> None:
+    """A DB device type spelled like an installed family (``motor_record``) is a DB device: never the family's page or panel."""
+    page = await db_room.client.get("/device/settables/DBMotor")
+    assert page.status_code == 200 and "Laid out automatically" in page.text
+    assert _groups(page.text) == [("Settings", ["Position"])]
+    wrong = await db_room.client.get("/device/motor/DBMotor")
+    assert wrong.status_code == 422 and "/device/settables/DBMotor" in wrong.text
