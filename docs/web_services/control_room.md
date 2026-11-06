@@ -296,20 +296,21 @@ time axis, and a spectrometer's spectrum over its wavelengths (its rail:
 Acquisition, Trigger and Background; its readings the peak count and
 whether the spectrum is saturated, the background's state, and the
 integral, peak, centroid and width of the processed spectrum: the
-background-subtracted one while subtraction is on. The plot itself is the
-raw spectrum, so saturation and exposure are judged on what the sensor
-read). The page is the same for both: which controls the
+background-subtracted one while subtraction is on). The page is the same
+for both: which controls the
 rail carries and which readings sit above the plot come from the device's
 family file, never from the page.
 
 ![The trace page on the bench scope, light theme](assets/control_room_10_trace_light.png)
 
-![The trace page on the bench spectrometer, dark theme](assets/control_room_11_trace_dark.png)
+![The trace page on the bench spectrometer, dark theme: the processed spectrum, background subtracted, with Show under the plot](assets/control_room_11_trace_dark.png)
 
 - **The rail** is the family's control groups (for a scope: Acquisition,
   Trigger, one group per channel). Each control is drawn by what it is: a
   choice is a list of the record's own choices, a setting a number with
-  `now …` (what the device holds) under it, a switch a checkbox. Every
+  `now …` (what the device holds) under it, a switch a checkbox. Acquire
+  is a **Stop / Start** pair; the highlighted one is what the device is
+  doing now. Every
   write goes through the same path as a screen's, with your name from the
   header; a hazard asks first. A channel the scope does not have (its
   `present` reads 0) has no group and no readings.
@@ -330,6 +331,13 @@ family file, never from the page.
   captures. All of these are yours alone: nothing is written to the
   device. Axis numbers carry SI prefixes only for SI units (`2µ` on a
   time axis in s); a wavelength in nm, counts or a percentage read plain.
+- **Show** (a spectrometer): the **raw spectrum**, what the sensor read
+  (judge saturation and exposure here), or the **processed spectrum**,
+  with the saved background subtracted. While **subtract background** is
+  on the page shows the processed one, and the raw one while it is off;
+  once you pick one yourself, your pick stays. Show is yours alone too.
+  It is not the rail's **spectrum kind**, which is the instrument's own
+  setting and changes what the device sends.
 
 ![A box zoom over the pulse, averaging eight captures](assets/control_room_12_trace_window_average.png)
 

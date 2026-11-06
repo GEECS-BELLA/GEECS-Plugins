@@ -33,7 +33,14 @@ from importlib import resources
 from types import MappingProxyType
 from typing import Annotated, Literal, Optional
 
-from pydantic import AfterValidator, ConfigDict, Field, ValidationInfo, model_validator
+from pydantic import (
+    AfterValidator,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    model_validator,
+)
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
@@ -97,6 +104,16 @@ FamilyWord = Annotated[str, Field(min_length=1, pattern=r"^\S(.*\S)?$")]
 
 #: A PV suffix under the device's prefix: no whitespace.
 Suffix = Annotated[str, Field(pattern=r"^\S+$")]
+
+
+def _one_or_many(value: object) -> object:
+    return [value] if isinstance(value, str) else value
+
+
+#: The arrays an axis is the x axis of: one name, or a list of them.
+AxisTargets = Annotated[
+    list[RoleName], Field(min_length=1), BeforeValidator(_one_or_many)
+]
 
 #: Roles a write goes to; the others are read only.
 _ALWAYS_WRITABLE = frozenset({"setpoint", "command"})
@@ -253,13 +270,15 @@ class Role(SchemaModel):
         False,
         description="A bit that reads 1 when tripped: any tripped fault makes the device 'failed'.",
     )
-    axis_of: Optional[RoleName] = Field(
+    axis_of: Optional[AxisTargets] = Field(
         None,
         description=(
-            "On an array: the array role this one is the x axis of, one value per "
-            "sample of each of its channels (a scope's time axis beside its "
-            "capture, a spectrometer's wavelengths beside its spectrum). Both are "
-            "arrays; an array has one axis at most, and an axis is no array's trace."
+            "On an array: the array role (or the list of them) this one is the x "
+            "axis of, one value per sample of each of its channels (a scope's time "
+            "axis beside its capture, a spectrometer's wavelengths beside its raw "
+            "and its processed spectrum). A single name is read as a list of one. "
+            "All are arrays; an array has one axis at most, and an axis is no "
+            "array's trace."
         ),
     )
     channels_by: Optional[RoleName] = Field(
@@ -345,6 +364,10 @@ class FamilyAction(SchemaModel):
     )
 
 
+#: A button's label on the page.
+ButtonLabel = Annotated[str, Field(min_length=1)]
+
+
 class PanelGroup(SchemaModel):
     """One titled group of a device page's control rail: the roles it draws, in order."""
 
@@ -382,6 +405,23 @@ class Panel(SchemaModel):
     readings: list[RoleName] = Field(
         default_factory=list,
         description="The roles of the readings strip, in order, each with its freshness word.",
+    )
+    buttons: dict[RoleName, tuple[ButtonLabel, ButtonLabel]] = Field(
+        default_factory=dict,
+        description=(
+            "A two-state rail role drawn as a pair of buttons, its labels for 0 "
+            "then 1 (an acquire as Stop / Start), in place of its type's control. "
+            "The role is writable, in the rail, and a bit or a whole number "
+            "limited to [0, 1]."
+        ),
+    )
+    show_while: dict[RoleName, RoleName] = Field(
+        default_factory=dict,
+        description=(
+            "An array an axis draws, shown by default while a monitored role reads "
+            "1 (a processed spectrum while background subtraction is on); otherwise "
+            "the axis' first array. A viewer's own choice wins."
+        ),
     )
 
 
@@ -515,7 +555,7 @@ def _check_links(role: Role, by_name: Mapping[str, Role]) -> None:
 
 def _check_axes(roles: list[Role], by_name: Mapping[str, Role]) -> None:
     """Refuse an axis that is no array, names no array, is a second axis of one array, or is itself a trace; a channel count that is no readback."""
-    targets = {r.axis_of for r in roles if r.axis_of is not None}
+    drawn = [target for r in roles for target in r.axis_of or ()]
     for role in roles:
         if role.channels_by is not None:
             counter = by_name.get(role.channels_by)
@@ -524,33 +564,34 @@ def _check_axes(roles: list[Role], by_name: Mapping[str, Role]) -> None:
                     f"role {role.name!r}: channels_by is an array's, naming a readback "
                     f"({role.channels_by!r})"
                 )
-        target = role.axis_of
-        if target is None:
+        if role.axis_of is None:
             continue
         if role.type != "array":
             raise ValueError(
                 f"role {role.name!r}: only an array is an axis ({role.type})"
             )
-        other = by_name.get(target)
-        if other is None:
-            raise ValueError(f"role {role.name!r}: axis_of names no role ({target!r})")
-        if other.type != "array" or target == role.name:
-            raise ValueError(
-                f"role {role.name!r}: axis_of names an array other than itself, "
-                f"not {other.type} {target!r}"
-            )
-        if role.name in targets:
+        for target in role.axis_of:
+            other = by_name.get(target)
+            if other is None:
+                raise ValueError(
+                    f"role {role.name!r}: axis_of names no role ({target!r})"
+                )
+            if other.type != "array" or target == role.name:
+                raise ValueError(
+                    f"role {role.name!r}: axis_of names an array other than itself, "
+                    f"not {other.type} {target!r}"
+                )
+        if role.name in drawn:
             raise ValueError(f"role {role.name!r}: an axis is no array's trace")
-    _refuse_duplicates(
-        "axes (one per array)", [r.axis_of for r in roles if r.axis_of is not None]
-    )
+    _refuse_duplicates("axes (one per array)", drawn)
 
 
 def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
-    """Refuse a panel naming a role the family lacks, one rail role in two places, or an unmonitored reading."""
+    """Refuse a panel naming a role the family lacks, one rail role in two places, an unmonitored reading, a button pair on no two-state rail role, or a default array no axis draws."""
     named = [name for group in panel.rail for name in group.roles]
+    hinted = [*panel.buttons, *panel.show_while, *panel.show_while.values()]
     unknown = sorted(
-        {name for name in [*named, *panel.readings] if name not in by_name}
+        {name for name in [*named, *panel.readings, *hinted] if name not in by_name}
     )
     if unknown:
         raise ValueError(f"panel names no role {unknown}")
@@ -562,6 +603,23 @@ def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
             f"panel readings {unjudged} are not monitored: a reading carries the "
             "module's word, and the module judges monitored roles only"
         )
+    for name in panel.buttons:
+        role = by_name[name]
+        two_state = role.type == "bit" or (role.integer and role.limits == (0, 1))
+        if name not in named or not role.writable or not two_state:
+            raise ValueError(
+                f"panel buttons {name!r}: a button pair draws a writable two-state "
+                "rail role (a bit, or a whole number limited to [0, 1])"
+            )
+    drawn = {target for r in by_name.values() for target in r.axis_of or ()}
+    for array, flag in panel.show_while.items():
+        if array not in drawn:
+            raise ValueError(f"panel show_while {array!r}: no axis draws it")
+        if by_name[flag].read_mode != "monitor":
+            raise ValueError(
+                f"panel show_while {array!r}: {flag!r} is not monitored, so the "
+                "page cannot read it"
+            )
 
 
 def _refuse_duplicates(what: str, items: list[str]) -> None:

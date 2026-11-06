@@ -11,6 +11,7 @@ imports it (the ``control-room-edges`` contract).
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -312,6 +313,20 @@ async def test_the_camera_page_reads_the_image_and_arrays_at_the_pvs_the_module_
     )  # a policy-marked role is asked, then sent with confirm
 
 
+def page_json(text: str, element: str) -> object:
+    """The JSON a page carries in ``<script type="application/json" id=element>``."""
+    m = re.search(
+        rf'<script type="application/json" id="{element}">(.*?)</script>', text
+    )
+    assert m, element
+    return json.loads(m.group(1))
+
+
+def stop_start(role: str) -> str:
+    """A panel button pair as the trace template draws it: 0 then 1, disabled until the module's word."""
+    return "".join(f'<button type="button" data-role="{role}" data-value="{v}" data-pair aria-pressed="false" disabled>{w}</button>' for v, w in ((0, "Stop"), (1, "Start")))  # fmt: skip
+
+
 async def test_the_trace_page_draws_the_familys_panel_and_reads_the_trace_at_the_pvs_the_module_names(room, tmp_path: Path) -> None:  # fmt: skip
     # a bench scope beside the shared documents, written before the module's first read
     write_documents(tmp_path, panels=PANELS + '  scope1: {family: scope_contract, prefix: "bench:scope1:"}\n', policy=POLICY.replace("easydriver]", "easydriver, scope_contract]"))  # fmt: skip
@@ -326,7 +341,13 @@ async def test_the_trace_page_draws_the_familys_panel_and_reads_the_trace_at_the
     assert '<select id="c-ch_a_range" data-role="ch_a_range" disabled>' in page.text
     assert 'data-role="trigger_level" step="any"' in page.text and 'data-role="num_images" step="1"' in page.text  # fmt: skip
     assert 'data-roles="ch_a_enable ch_a_range ch_a_coupling ch_a_offset"' in page.text
-    assert 'class="live" data-role="ch_a_overrange"' in page.text and 'data-counter="arr_counter"' in page.text  # fmt: skip
+    assert 'class="live" data-role="ch_a_overrange"' in page.text
+    assert page_json(page.text, "trace-ys") == [{"role": "data", "label": "capture", "units": "V", "counter": "arr_counter"}]  # fmt: skip
+    assert 'id="yrole"' not in page.text  # one array: no toggle
+    # acquire, named in the panel's buttons, is a Stop / Start pair writing 0 and 1, not a select
+    assert (
+        stop_start("acquire") in page.text and '<select id="c-acquire"' not in page.text
+    )
     # the plot is Plotly through the theme's template: the vendored bundle and plot.js, both served from /theme
     assert '/theme/plotly-cartesian-3.1.1.min.js' in page.text and '/theme/plot.js' in page.text and '<canvas id="trace-plot"' not in page.text  # fmt: skip
     for asset in ("/theme/plotly-cartesian-3.1.1.min.js", "/theme/plot.js"):
@@ -354,13 +375,33 @@ async def test_the_trace_page_draws_a_spectrometer_through_the_same_template(roo
     )  # the spectrometer's rail, not the scope's
     assert '<button class="btn sm" type="button" data-role="background_save" data-value="1" disabled>Save background</button>' in page.text  # fmt: skip
     assert 'data-role="integration_time" step="any"' in page.text and 'data-role="averages" step="1"' in page.text  # fmt: skip
-    assert 'class="live" data-role="saturated"' in page.text and 'data-counter="arr_counter"' in page.text and 'data-x-units="nm"' in page.text  # fmt: skip
+    assert 'class="live" data-role="saturated"' in page.text and 'data-x-units="nm"' in page.text  # fmt: skip
+    # two arrays over the wavelengths, each by its own counter; the toggle shows processed while subtraction is on
+    assert page_json(page.text, "trace-ys") == [
+        {"role": "spectrum", "label": "raw spectrum", "units": "counts", "counter": "arr_counter"},
+        {"role": "processed", "label": "processed spectrum", "units": "counts", "counter": "proc_counter"},
+    ]  # fmt: skip
+    assert page_json(page.text, "trace-show-while") == {
+        "processed": "background_enable"
+    }
+    assert '<button type="button" data-y="processed" aria-pressed="false">processed spectrum</button>' in page.text  # fmt: skip
+    assert stop_start("acquire") in page.text
+    assert (roles["processed"]["read"], roles["proc_counter"]["read"], roles["processed"]["verdict"]) == ("on_request", "monitor", None)  # fmt: skip
     # one channel: the counter, the spectrum (no channel count asked), the counter, the wavelengths
     room.ca.floats_by = {roles["spectrum"]["pv"]: np.zeros(8, dtype=np.float32), roles["wavelength"]["pv"]: np.arange(8, dtype=np.float32)}  # fmt: skip
     trace = await room.client.get("/api/devices/cct1/trace")
     assert trace.status_code == 200 and (trace.headers["x-trace-channels"], trace.headers["x-trace-samples"]) == ("1", "8")  # fmt: skip
     asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
     assert asked == [roles["arr_counter"]["pv"], (roles["spectrum"]["pv"],), roles["arr_counter"]["pv"], (roles["wavelength"]["pv"],)]  # fmt: skip
+    # ?y=processed: PROC's own array, held on PROC's own counter, at the PVs the module names; the axis is shared
+    room.ca.floats_by[roles["processed"]["pv"]] = np.ones(8, dtype=np.float32)
+    room.ca.calls.clear()
+    processed = await room.client.get("/api/devices/cct1/trace?y=processed")
+    assert processed.status_code == 200 and np.frombuffer(processed.content, dtype="<f4")[8:].tolist() == [1.0] * 8  # fmt: skip
+    asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
+    assert asked[:3] == [roles["proc_counter"]["pv"], (roles["processed"]["pv"],), roles["proc_counter"]["pv"]]  # fmt: skip
+    unknown = await room.client.get("/api/devices/cct1/trace?y=wavelength")
+    assert unknown.status_code == 404 and unknown.json()["detail"] == "the axis wavelength draws no array 'wavelength': it draws spectrum, processed"  # fmt: skip
     # Saturated_RBV is an enum reading, but its alarm is the IOC's (MAJOR on the CCT), and the
     # module's rule stands: a MAJOR role is in error, and so is the device while it reads so
     await asyncio.sleep(0)  # the module subscribes as a task
