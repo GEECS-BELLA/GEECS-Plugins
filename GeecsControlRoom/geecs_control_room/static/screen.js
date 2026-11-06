@@ -27,7 +27,9 @@
   const listeners = [];
   let hareState = "connecting";
   const hareUp = () => hareState === "open";
-  const changed = () => listeners.forEach((f) => f());
+  // one redraw per frame, however many PVs a Hare diff carries (camera.js's rule)
+  let queued = false;
+  const changed = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; listeners.forEach((f) => f()); }); } };
   const opInput = document.getElementById("operator");
 
   const widgets = [...document.querySelectorAll(".w")];

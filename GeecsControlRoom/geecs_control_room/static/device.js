@@ -67,7 +67,7 @@
   // and meta, and its word; on(f) calls f after every change. Assigned before the component's deferred scripts run.
   const listeners = [];
   const changed = () => listeners.forEach((f) => f());
-  const source = window.GeecsDeviceSource.make({ name, root, hare, view: () => view, hareUp: () => hareState === "open", wire, changed });
+  const source = window.GeecsDeviceSource.make({ name, root, hare, view: () => view, hareUp: () => hareState === "open", wire, changed, read: (pv) => wire[pv] });  // the rows watch every role
   window.GeecsDevicePage = { ...source, on: (f) => listeners.push(f) };
 
   function draw(tr) {

@@ -27,6 +27,7 @@
     function ask(pairs, roles, note) {
       $("hazard-dialog-text").textContent = pairs.map(([role, v, axis]) => `${page.name} · ${named(role, axis)} ← ${v}`).join("\n");
       $("hazard-dialog-roles").textContent = roles.length ? `Hazard: ${roles.join(", ")}.` : "";
+      $("hazard-dialog-title").textContent = roles.length ? "Write a hazard role?" : "Write?"; // a screen's note alone
       $("hazard-dialog-note").textContent = note || "";
       return new Promise((done) => {
         dialog.onclick = (ev) => { if (ev.target.value) { dialog.close(); done(ev.target.value === "write"); } };

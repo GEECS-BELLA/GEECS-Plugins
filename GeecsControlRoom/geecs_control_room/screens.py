@@ -36,6 +36,7 @@ from geecs_schemas import (
     Bound,
     NativeDevices,
     PanelDevices,
+    Role,
     Screen,
     ScreenError,
     load_action_library,
@@ -138,6 +139,12 @@ _DRAWN = {
 PAIR = ("Off", "On")
 
 
+def role_spec(role: Optional[Role], name: str) -> dict[str, Any]:
+    """What the rail's control macro reads from a family role: whole, text, readback, done flag, tolerance (no role: a DB device's, none here)."""
+    keys = ("text", "settled_by", "tolerance", "tolerance_by")
+    return {"integer": bool(role and role.integer), "readback": (role.readback if role else None) or name} | {k: getattr(role, k) if role else None for k in keys}  # fmt: skip
+
+
 def spec_of(bound: Bound) -> dict[str, Any]:
     """A bound widget as the rail's control macro reads it: the screen's label and units over the role's, the kind's control.
 
@@ -149,12 +156,7 @@ def spec_of(bound: Bound) -> dict[str, Any]:
     name = (b.pv or b.role) if b else ""
     spec: dict[str, Any] = {"name": name, "type": _DRAWN.get(w.kind, "pair"), "writable": w.kind != "readout"}  # fmt: skip
     spec |= {"label": w.label or (role.label if role else name), "units": w.units or (role.units if role else None)}  # fmt: skip
-    spec |= {"text": role.text if role else None, "integer": bool(role and role.integer), "choices": role.choices if role else None}  # fmt: skip
-    spec |= {k: getattr(role, k) if role else None for k in ("settled_by", "tolerance", "tolerance_by")}  # fmt: skip
-    return spec | {
-        "readback": (role.readback if role else None) or name,
-        "enum_labels": not w.values,
-    }
+    return spec | role_spec(role, name) | {"choices": role.choices if role else None, "enum_labels": not w.values}  # fmt: skip
 
 
 def pair_values(bound: Bound) -> tuple[float, float]:

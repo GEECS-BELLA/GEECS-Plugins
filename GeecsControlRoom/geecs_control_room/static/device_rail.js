@@ -47,7 +47,7 @@
       const src = D.sources(P.entry(role, axis), rb, !!view && view.source === "gateway");
       const t = P.target(role, axis), own = { frame: P.frame(role, axis), meta: P.meta(role, axis), word: P.word(role, axis) };
       const sp = t || own, field = src.field === "write" ? sp : own;
-      const text = D.fieldText(field.frame && field.frame.value);
+      const text = D.fieldText(field.frame && field.frame.value, field.meta.digits);
       if (!el.dataset.draft && !focused(el) && text !== null && el.value !== text) el.value = text;
       const host = el.closest(".field"), shown = host.querySelector(".sv"), now = host.querySelector(".rb"), mark = host.querySelector(".differs");
       shown.hidden = !src.set;
@@ -153,7 +153,11 @@
         });
         continue;
       }
-      el.addEventListener("change", () => { const v = fieldValue(el); if (v !== null) write(v); });
+      el.addEventListener("change", () => { // a select or a checkbox: an unsent or refused choice goes back to what the device reads
+        const v = fieldValue(el);
+        if (v === null) return;
+        wr(el).write([[el.dataset.role, v, axisOf(el)]], false, opts(el)).then((ok) => { if (D.keepsDraft(ok)) el.blur(); fill(); });
+      });
     }
     P.on(fill);
     fill();
