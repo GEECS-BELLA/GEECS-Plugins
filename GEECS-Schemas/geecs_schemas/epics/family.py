@@ -414,10 +414,10 @@ class Panel(SchemaModel):
     a plain group constrains no role type; two hints do: a ``grid`` group
     holds short controls only (bits, enums, two-state whole numbers) and a
     ``tweak`` names a setpoint, its step setpoint and two commands. A reading
-    is a monitored role, since it carries the module's word. The panel places roles whatever their
-    ``level``: ``level`` decides the role table's operator and expert views,
-    the panel what the page draws above it. Whether a write is permitted
-    stays the module's.
+    is a monitored role, since it carries the module's word. The panel
+    places roles whatever their ``level``: ``level`` decides the role
+    table's operator and expert views, the panel what the page draws above
+    it. Whether a write is permitted stays the module's.
     """
 
     model_config = _FROZEN
