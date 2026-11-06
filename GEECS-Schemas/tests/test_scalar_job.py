@@ -167,3 +167,25 @@ def test_the_form_hint_names_real_fields():
     assert set(owned) <= set(ScalarColumn.model_fields)
     assert [o["title"] for o in options] == ["formula", "condition"]
     assert len(owned) == len(set(owned))
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "x - mean(x)",
+        "(x - min(x)) / (max(x) - min(x))",
+        "x / median(x) + std(x)",
+        "x > mean(x)",
+    ],
+)
+def test_column_functions_are_accepted(expr):
+    load_analysis_document(column(expr=expr))
+
+
+def test_a_column_function_takes_one_input():
+    with pytest.raises(ValidationError, match="takes one input"):
+        load_analysis_document(column(expr="max(x, 2)"))
+    with pytest.raises(ValidationError, match="function or constant"):
+        load_analysis_document(column(expr="mean", inputs={"mean": "C"}))
+    # a rule may use one too
+    load_analysis_document(condition(cases=[{"when": "x > mean(x)", "label": "high"}]))

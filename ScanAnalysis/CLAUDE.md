@@ -322,7 +322,9 @@ like a recipe's scalars — sidecar, then the locked s-file merge, a refused
 merge a failed run. A name that is one of the scanner's own columns
 (`ScanDataScanNNN.txt`'s header) is refused before anything is written,
 and an input column the s-file lacks makes the run `no_data`, naming the
-closest columns it has. A shot missing any of a column's inputs is NaN
+closest columns it has. The column functions (`SCALAR_REDUCTIONS`: `mean median std min max`) reduce
+one input over all of the scan's shots, missing ones skipped (`_over_shots`;
+NaN when none has a value), so `x - mean(x)` centres a column. A shot missing any of a column's inputs is NaN
 ("unknown"), for a comparison too. Comparisons and `and`/`or`/`not` run
 element-wise (the tree is rewritten onto numpy's logical functions, a
 chain `a <= x <= b` into its pairs). A **condition** column (`cases`)

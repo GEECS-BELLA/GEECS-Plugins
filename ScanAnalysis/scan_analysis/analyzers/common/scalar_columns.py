@@ -40,6 +40,7 @@ from __future__ import annotations
 import ast
 import difflib
 import logging
+import warnings
 from functools import reduce
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Union
@@ -60,6 +61,17 @@ __all__ = ["ScalarColumnsAnalyzer"]
 #: The key the s-file merge joins on.
 KEY = "Shotnumber"
 
+
+def _over_shots(reduce: Callable, values) -> float:
+    """*reduce* over a column's shots, NaN when none has a value (no warning)."""
+    column = np.asarray(values, dtype=float)
+    if not np.isfinite(column).any():
+        return float("nan")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return float(reduce(column[np.isfinite(column)]))
+
+
 _WHITELIST = scalar_whitelist(
     {
         "abs": np.abs,
@@ -77,6 +89,12 @@ _WHITELIST = scalar_whitelist(
         "hypot": np.hypot,
         "minimum": np.minimum,
         "maximum": np.maximum,
+        # the column functions: one number over every shot, missing ones skipped
+        "mean": lambda v: _over_shots(np.nanmean, v),
+        "median": lambda v: _over_shots(np.nanmedian, v),
+        "std": lambda v: _over_shots(lambda a: np.nanstd(a, ddof=1), v),
+        "min": lambda v: _over_shots(np.nanmin, v),
+        "max": lambda v: _over_shots(np.nanmax, v),
     },
     {"pi": float(np.pi), "e": float(np.e)},
 )

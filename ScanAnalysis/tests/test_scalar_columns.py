@@ -208,3 +208,28 @@ def test_the_task_queue_runs_it_under_its_own_data_root(tmp_path):
         pd.read_csv(sfile, sep="\t")["Cam x (mm)"], [5, 10, np.nan, 20]
     )
     assert [s.state for s in read_statuses(scan)] == ["done"]
+
+
+def test_column_functions_reduce_over_the_scan():
+    out = compute(
+        {"name": "centred", "expr": "x - mean(x)", "inputs": {"x": "X"}},
+        {
+            "name": "scaled",
+            "expr": "(x - min(x)) / (max(x) - min(x))",
+            "inputs": {"x": "X"},
+        },
+        {"name": "above", "expr": "x > median(x)", "inputs": {"x": "X"}},
+        {"name": "spread", "expr": "std(x) + 0 * x", "inputs": {"x": "X"}},
+        X=[1.0, 2.0, 3.0, np.nan, 6.0],
+    )
+    np.testing.assert_allclose(out["centred"], [-2, -1, 0, np.nan, 3])
+    np.testing.assert_allclose(out["scaled"], [0, 0.2, 0.4, np.nan, 1])
+    np.testing.assert_array_equal(out["above"], [0, 0, 1, np.nan, 1])
+    np.testing.assert_allclose(out["spread"][0], np.std([1, 2, 3, 6], ddof=1))
+
+
+def test_a_column_with_no_values_reduces_to_blank():
+    out = compute(
+        {"name": "c", "expr": "x - mean(x)", "inputs": {"x": "X"}}, X=[np.nan, np.nan]
+    )
+    assert out["c"].isna().all()

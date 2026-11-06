@@ -21,7 +21,9 @@ data-management jobs, not analyses — a top-level `kind`, its own
 `schema_version: 1`) and the `ScalarJob` (`analysis/scalar.py`, `kind:
 scalar_columns`: new s-file columns, one formula each over existing
 columns, in the `restricted_expr` language — syntax checked at load, the
-function names in `SCALAR_FUNCTIONS`, bound to numpy by the runner,
+function names in `SCALAR_FUNCTIONS` (shot by shot) and `SCALAR_REDUCTIONS`
+(`mean median std min max`: one input, over all the scan's shots — the
+one-input rule checked here), bound to numpy by the runner,
 comparisons and `and`/`or`/`not` allowed; or a **condition** instead of a
 formula, `cases` (`ScalarCase`: `when` + `label`, first match wins) +
 `otherwise`, stored as the case's number with `ScalarColumn.labels` the

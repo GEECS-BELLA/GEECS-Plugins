@@ -38,9 +38,11 @@ column's ``name`` as an input.  The formula language is the restricted one
 the CA gateway's derived channels use (:mod:`geecs_schemas.restricted_expr`):
 numbers, the symbols named in ``inputs``, ``+ - * / ** %``, the
 comparisons ``< <= > >= == !=`` (chains like ``a <= x <= b`` included),
-``and`` / ``or`` / ``not``, and the functions in :data:`SCALAR_FUNCTIONS` —
-never attribute access, imports or any other Python.  A comparison is 1
-where it holds and 0 where it does not.  The syntax is checked here, when the file is loaded, so
+``and`` / ``or`` / ``not``, the shot-by-shot functions in
+:data:`SCALAR_FUNCTIONS` and the column functions in
+:data:`SCALAR_REDUCTIONS` (one input each, over all the scan's shots, a
+missing shot skipped: ``x - mean(x)``) — never attribute access, imports or
+any other Python.  A comparison is 1 where it holds and 0 where it does not.  The syntax is checked here, when the file is loaded, so
 a typo fails in the editor and the catalog rather than at run time.
 """
 
@@ -79,6 +81,12 @@ SCALAR_FUNCTIONS: tuple[str, ...] = (
     "maximum",
 )
 
+#: The column functions: one input, reduced over every shot of the scan
+#: (missing shots skipped) to one number every shot then uses —
+#: ``x - mean(x)``, ``(x - min(x)) / (max(x) - min(x))``.  Not ``minimum`` /
+#: ``maximum``, which compare two values shot by shot.
+SCALAR_REDUCTIONS: tuple[str, ...] = ("mean", "median", "std", "min", "max")
+
 #: The bare constants a formula may name.
 SCALAR_CONSTANTS: tuple[str, ...] = ("pi", "e")
 
@@ -102,7 +110,11 @@ SCALAR_COMPARE_OPS: tuple[type[ast.cmpop], ...] = (
 )
 SCALAR_BOOL_OPS: tuple[type[ast.boolop], ...] = (ast.And, ast.Or)
 
-_RESERVED = frozenset(SCALAR_FUNCTIONS) | frozenset(SCALAR_CONSTANTS)
+_RESERVED = (
+    frozenset(SCALAR_FUNCTIONS)
+    | frozenset(SCALAR_REDUCTIONS)
+    | frozenset(SCALAR_CONSTANTS)
+)
 
 
 def scalar_whitelist(functions: dict, constants: dict) -> ExpressionWhitelist:
@@ -113,7 +125,9 @@ def scalar_whitelist(functions: dict, constants: dict) -> ExpressionWhitelist:
     the one defined above.
     """
     return ExpressionWhitelist(
-        functions={name: functions[name] for name in SCALAR_FUNCTIONS},
+        functions={
+            name: functions[name] for name in (*SCALAR_FUNCTIONS, *SCALAR_REDUCTIONS)
+        },
         constants={name: constants[name] for name in SCALAR_CONSTANTS},
         binary_ops=SCALAR_BINARY_OPS,
         unary_ops=SCALAR_UNARY_OPS,
@@ -127,7 +141,7 @@ def _placeholder(*_args: float) -> float:  # never called: syntax check only
 
 
 _CHECK_WHITELIST = scalar_whitelist(
-    {name: _placeholder for name in SCALAR_FUNCTIONS},
+    {name: _placeholder for name in (*SCALAR_FUNCTIONS, *SCALAR_REDUCTIONS)},
     {name: 0.0 for name in SCALAR_CONSTANTS},
 )
 
@@ -137,6 +151,20 @@ def _check(text: str, symbols: set[str], what: str) -> None:
         compile_expression(text, symbols, _CHECK_WHITELIST)
     except ExpressionWhitelistError as exc:
         raise ValueError(f"{what} {text!r}: {exc}") from exc
+    # a column function takes exactly one input (numpy's second argument
+    # would be an axis, not a second column)
+    for node in ast.walk(ast.parse(text, mode="eval")):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in SCALAR_REDUCTIONS
+            and len(node.args) != 1
+        ):
+            raise ValueError(
+                f"{what} {text!r}: {node.func.id}() takes one input, e.g. "
+                f"{node.func.id}(x) (for the larger of two values per shot use "
+                "maximum(a, b) / minimum(a, b))"
+            )
 
 
 class ScalarCase(SchemaModel):
@@ -225,9 +253,12 @@ class ScalarColumn(SchemaModel):
         description=(
             "The formula, e.g. 'x * 0.0244' or 'a * b / c'. Numbers, the "
             "symbols in inputs, + - * / ** %, comparisons (1 where true, 0 "
-            "where false), and/or/not, and the functions "
+            "where false), and/or/not, the shot-by-shot functions "
             + ", ".join(SCALAR_FUNCTIONS)
-            + " (and pi, e). For a column of kind formula; a condition has cases instead."
+            + " (and pi, e), and the column functions "
+            + ", ".join(SCALAR_REDUCTIONS)
+            + " (one input, over all the scan's shots: x - mean(x)). For a column "
+            "of kind formula; a condition has cases instead."
         ),
     )
     cases: Optional[list[ScalarCase]] = Field(
@@ -389,6 +420,7 @@ class ScalarJob(VersionedSchemaModel):
 __all__ = [
     "SCALAR_CONSTANTS",
     "SCALAR_FUNCTIONS",
+    "SCALAR_REDUCTIONS",
     "ScalarCase",
     "ScalarColumn",
     "ScalarJob",
