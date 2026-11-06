@@ -97,3 +97,22 @@ def test_shot_tiles_carry_their_bin(share: Path, camera: Path) -> None:
     tiles = images.tiles(frame, "shots")
     assert [t.bin for t in tiles] == ["1", "1", "2", "2"]
     assert [t.bin for t in images.tiles(frame, "bins")] == ["1", "2"]
+
+
+def test_a_max_tile_width_caps_the_columns(client: TestClient, camera: Path) -> None:
+    import pytest
+
+    from geecs_portal.plotter.settings import PlotterSettings, SettingsError, merged
+
+    page = post(client, scan=1, page="images", device=CAM)
+    assert 'id="tilemax"' in page and 'placeholder="none"' in page
+    assert "minmax(0, 1fr)" in page  # no limit by default
+    page = post(client, scan=1, page="images", device=CAM, tilemax="240")
+    assert 'value="240"' in page and "minmax(0, 240px)" in page
+    # empty is no limit again; out of range is refused
+    assert (
+        merged(PlotterSettings(image_tile_max=240), {"tilemax": ""}).image_tile_max
+        is None
+    )
+    with pytest.raises(SettingsError, match="pixels"):
+        merged(PlotterSettings(), {"tilemax": "5"})

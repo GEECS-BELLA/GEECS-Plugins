@@ -462,6 +462,12 @@
       // still steps through every one.
       // A row's colour bar (a shared or fixed scale) takes a narrow column
       // of its own after the tiles, never a tile's width.
+      // One tile's column: as wide as the strip allows, or at most the
+      // set's max tile width (the height follows each picture).
+      function column() {
+        const max = Number(value("tilemax"));
+        return max > 0 ? `minmax(0, ${max}px)` : "minmax(0, 1fr)";
+      }
       function across(n) {
         if (strip.classList.contains("row")) {
           const total = figures.length;
@@ -473,9 +479,9 @@
           const many = Boolean(strip.closest(".strips.many"));
           const bar = many ? ` ${BAR_COLUMN}` : barCell && !barCell.hidden ? " auto" : "";
           strip.style.gridAutoColumns = "";
-          strip.style.gridTemplateColumns = `repeat(${shown.size}, minmax(0, 1fr))${bar}`;
+          strip.style.gridTemplateColumns = `repeat(${shown.size}, ${column()})${bar}`;
         } else {
-          strip.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
+          strip.style.gridTemplateColumns = `repeat(${n}, ${column()})`;
         }
         fitGridBar();
         // Other tiles shown: the shared scale is read again over them.
@@ -510,10 +516,12 @@
           const [lo, hi] = [row.own("zmin"), row.own("zmax")];
           warning.hidden = lo === "" || hi === "" || Number(hi) > Number(lo);
         }
-        if (!control.checkValidity() || control.value === "") return;
+        // An empty max tile width is "no limit", a value of its own.
+        if (!control.checkValidity() || (control.value === "" && control.name !== "tilemax")) return;
         clearTimeout(redraw);
         redraw = setTimeout(() => {
           if (control.name === "cols") rows.forEach((r) => r.across(Number(control.value)));
+          else if (control.name === "tilemax") rows.forEach((r) => r.across(Number(value("cols")) || 1));
           else if (row) row.drawTiles();
           saveField(control.name, control.value);
         }, AUTO_OPEN_MS);

@@ -324,6 +324,14 @@
                 <span class="spacer"></span>
                 <input id="cols" name="cols" type="number" min="1" max="{{ max_cols }}" value="{{ cols }}" class="narrow-number" data-live>
               </div>
+              {# The widest a tile is drawn (px; the height follows the
+                 picture), so a scan with one tile, or one bin, stays a
+                 sensible size; empty: as wide as the columns allow. #}
+              <div class="row">
+                <label for="tilemax" class="hint" title="The widest a tile is drawn, in pixels; its height follows the picture. Empty: as wide as the page allows. Copy/Save grid follow it too.">Max tile width</label>
+                <span class="spacer"></span>
+                <input id="tilemax" name="tilemax" type="number" min="{{ tile_max_range[0] }}" max="{{ tile_max_range[1] }}" step="10" value="{{ tile_max or '' }}" placeholder="none" class="narrow-number" data-live title="pixels; empty: no limit">
+              </div>
             </div>
             <div class="field">
               {# The background scan: each camera's average over all its shots
@@ -664,7 +672,7 @@
                        data-kind="{{ 'trace' if c.trace else 'image' }}" data-channel="{{ c.channel if c.trace else '' }}"
                        data-cbar="{{ 'true' if c.cbar else 'false' }}" data-device="{{ c.device }}"
                        data-levels-url="{{ root }}/{{ c.levels_url }}" data-full-url="{{ root }}/{{ c.tiles[0].url }}"
-                       style="{% if lay == 'row' %}grid-auto-columns: calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% else %}grid-template-columns: repeat({{ cols }}, minmax(0, 1fr)){% endif %}">
+                       style="{% if lay == 'row' %}grid-auto-columns: {% if tile_max %}min({{ tile_max }}px, calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }})){% else %}calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% endif %}{% else %}grid-template-columns: repeat({{ cols }}, minmax(0, {{ (tile_max ~ 'px') if tile_max else '1fr' }})){% endif %}">
                     {% for t in c.tiles %}
                       <figure class="tile" data-index="{{ t.index }}" data-bin="{{ t.bin }}" data-caption="{{ t.caption }}">
                         <img loading="lazy" alt="{{ c.device }} {{ t.caption }}" data-tile="{{ root }}/{{ t.url }}"

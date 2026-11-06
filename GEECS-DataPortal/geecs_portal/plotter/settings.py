@@ -58,6 +58,9 @@ MAX_CHANNEL = 15
 #: The Images page's scan-scalar statistic, one for every picked scalar.
 SCALAR_STATS: tuple[str, ...] = ("mean_std", "median_iqr", "mean_stderr")
 
+#: The bounds of the strip's max tile width, in CSS pixels.
+TILE_MAX_RANGE = (40, 4000)
+
 #: The most scan scalars the Images page lists.
 MAX_SCALARS = 12
 
@@ -268,6 +271,11 @@ class PlotterSettings(BaseModel):
     #: conditions (none by default), in the order picked, and the one
     #: statistic they share (``SCALAR_STATS``); the picker's filter text.
     image_scalars: list[str] = Field(default_factory=list, max_length=MAX_SCALARS)
+    #: The widest a strip tile is drawn, in CSS pixels (the height follows
+    #: the picture); ``None``: as wide as the columns allow.
+    image_tile_max: Optional[int] = Field(
+        default=None, ge=TILE_MAX_RANGE[0], le=TILE_MAX_RANGE[1]
+    )
     image_scalar_stat: str = "mean_std"
     image_scalar_filter: str = ""
     #: The XY plot per shot or binned (each bin's centre and error bars).
@@ -536,6 +544,7 @@ FORM_FIELDS = {
     "bgsub": "image_bgsub",
     "channel": "image_channel",
     "scalstat": "image_scalar_stat",
+    "tilemax": "image_tile_max",
     "scalf": "image_scalar_filter",
     "view": "xy_view",
     "filters": "shot_filters",
@@ -775,6 +784,17 @@ def _centre_value(value: str) -> Optional[float]:
     return number
 
 
+def _tile_max_value(text: str) -> Optional[int]:
+    """The max tile width: ``None`` (no limit) for ``""``, else whole pixels in range."""
+    if not text.strip():
+        return None
+    number = int(text)
+    low, high = TILE_MAX_RANGE
+    if not low <= number <= high:
+        raise ValueError(f"must be {low} to {high} pixels, or empty for no limit")
+    return number
+
+
 def _bg_value(text: str) -> Optional[ScanRef]:
     """The background scan, ``YYYY-MM-DD:N``; ``None`` (no background) for ``""``."""
     refs = scan_refs(text)
@@ -789,6 +809,7 @@ _PARSERS: dict[str, Callable[[str], object]] = {
     "extra_scans": scan_refs,
     "image_centre": _centre_value,
     "image_bg": _bg_value,
+    "image_tile_max": lambda text: _tile_max_value(text),
 }
 
 

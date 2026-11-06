@@ -906,7 +906,9 @@ pages: the page form's `page` field says which one a save reopens
 plot or 2-D map), so a save here never moves the Plot page; a set an
 older copy saved on its strip (`tab="images"`) opens the XY plot.
 The rail holds what every camera shares (per bin / per shot / one per
-bin, layout, tiles across); each camera's row has its own toolbar
+bin, layout, tiles across, and the max tile width — `image_tile_max`, CSS
+px, none by default: a column never grows past it, so a scan of one tile or
+one bin stays a sensible size, and the export follows it); each camera's row has its own toolbar
 (camera, colour map, z scale and levels, X-ray-hit filter, centring,
 colour bar, ROI).
 
