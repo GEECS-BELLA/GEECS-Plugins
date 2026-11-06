@@ -420,10 +420,13 @@ this package and must never depend on GeecsBluesky or a GUI package).
   and the witness attribute only audit. Plain inputs, no I/O; the
   adapters are the readers' (`tiled_export.read_device_records` for a
   Tiled run, GeecsBluesky's callback buffer for the live one, both through
-  `device_records`: `stream_meta`, the counter, `WitnessCount`). **W3c
-  duty:** publish the per-frame counter and `WitnessCount` as stream
-  parts, or the portal disagrees with the s-file on shared-stamp groups
-  (the live readers get them from the stack file). And
+  `device_records`: `stream_meta`, the counter, `WitnessCount`). The
+  Tiled reader takes a stream's bare `NDArrayUniqueId` / `WitnessCount`
+  parts, an attribute stream's or an event stream's (a native camera's)
+  alike; the live readers get them from the stack file.  Which parts a
+  native's HDF writer publishes is the worker's (the stock data logic
+  declares only the NDAttributes of an inline XML); a plugin stack has no
+  per-frame counter at all. And
   `per_shot_event_streams(start)` is the one event-stream gate
   (`per_shot_streams`, or an older run's `non_essential`).
   `shot_join.to_labview_epoch` is the one Unix → LabVIEW conversion of a

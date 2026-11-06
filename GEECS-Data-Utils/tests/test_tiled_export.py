@@ -998,6 +998,46 @@ def test_a_stampless_device_does_not_cost_the_stamped_one_its_counter() -> None:
     assert source.device == "uc_b" and list(source.counter) == [8.0, 9.0]
 
 
+def test_an_event_stream_takes_its_bare_counter_and_w5_parts() -> None:
+    """A native camera's stream: its stamps a table, its NDAttribute parts bare arrays.
+
+    The counter and ``WitnessCount`` reach the shot table from Tiled as they
+    do from the stack file live, so the portal audits as the s-file does.
+    """
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_device_records
+
+    rows = pd.DataFrame({"bin_number": [1, 1], "witness_stamp": [100.0, 101.0]})
+    events = pd.DataFrame({"uc_nat-acq_timestamp": [1.0, 2.0]})
+    stream = _FakeStream(
+        {
+            "internal": _FakePart(events, "table"),
+            "uc_nat": _FakePart(np.zeros((2, 4, 4)), "array"),
+            "NDArrayUniqueId": _FakePart(np.array([11.0, 12.0]), "array"),
+            "WitnessCount": _FakePart(np.array([5.0, 6.0]), "array"),
+        }
+    )
+    start = {"layout": "shot-table/1", "per_shot_streams": ["uc_nat_stream"]}
+
+    class _Run:
+        metadata = {"start": start}
+
+        def __iter__(self):
+            return iter(["primary", "uc_nat_stream"])
+
+        def __getitem__(self, key):
+            if key == "primary":
+                return _FakeStream({"internal": _FakePart(rows, "table")})
+            return stream
+
+    for lean in (False, True):
+        (source,) = read_device_records(_Run(), "primary", stamps_only=lean)
+        assert source.device == "uc_nat"
+        assert list(source.counter) == [11.0, 12.0]
+        assert list(source.witness_count) == [5.0, 6.0]
+
+
 def test_an_unknown_sync_class_warns_once_and_reads_synchronous(caplog) -> None:
     """A ``stream_meta`` class W3a does not know: synchronous, said once."""
     import logging

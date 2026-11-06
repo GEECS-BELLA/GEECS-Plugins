@@ -368,9 +368,11 @@ def read_device_records(
     each source's class and staleness from the start document's
     ``stream_meta``, its counter and W5 attribute when the stream carries
     them (a bare ``NDArrayUniqueId`` / ``WitnessCount`` part belongs to
-    the stream's one stamped device).  No plan publishes those parts yet:
-    until W3c does, a Tiled reader has no counters and can disagree with
-    the s-file on a group of rows sharing one witness stamp.  *stamps_only* reads each device's stamps
+    the stream's one stamped device — an attribute stream's or an event
+    stream's alike: a native camera's stream is an event stream of its
+    frame stamps beside its stack's NDAttribute parts).  A stream that
+    publishes neither (a plugin stack carries no per-frame counter) has no
+    audit here, as in the s-file.  *stamps_only* reads each device's stamps
     and counters and no scalar column (what a frame lookup needs).
 
     A stream other than the one the rows came from carries no per-shot row
@@ -430,7 +432,12 @@ def read_device_records(
             if columns is not None:
                 if stamps_only:
                     columns = _stamps_and_counters(columns, audit_keys)
-                out.append(device_records(stream, columns, start))
+                bare = {
+                    part: node.base[part].read()
+                    for part in map(str, node.get_contents())
+                    if part in audit_keys
+                }
+                out.append(device_records(stream, columns, start, bare))
                 continue
         contents = node.get_contents()
         per_device, bare = _attribute_parts(node, contents, audit_keys, stamps_only)
