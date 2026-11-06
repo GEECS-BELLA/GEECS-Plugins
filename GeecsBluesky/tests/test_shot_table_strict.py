@@ -37,6 +37,7 @@ SHOT_KEYS = {
     "fire_stamp",
     "complete",
     "missing",
+    "extra_frames",
     "unwitnessed",
     "witness_late",
     "interrupted",
@@ -56,6 +57,8 @@ class ClockBox(FakeBox):
         self.quiet: set[str] = set()
         self.on_fire = lambda n: True
         self.stamps: list[float] = []
+        # Frames a free-running camera's plugin counts per fire beyond the shot's.
+        self.extra: dict[str, int] = {}
 
     def __call__(self, device: str, variable: str):
         box = self
@@ -80,7 +83,9 @@ class ClockBox(FakeBox):
                 continue
             hdf = getattr(cam, "hdf", None)
             if hdf is not None:
-                self.counts[cam.name] = self.counts.get(cam.name, 0) + 1
+                self.counts[cam.name] = (
+                    self.counts.get(cam.name, 0) + 1 + self.extra.get(cam.name, 0)
+                )
                 set_mock_value(hdf.num_captured, self.counts[cam.name])
             set_mock_value(cam.acq_timestamp, self.stamp)
 
@@ -445,3 +450,99 @@ def test_an_immediate_pause_inside_a_counter_snapshot_never_ends_the_run(
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert box.fires == 2 and all(r["complete"] for r in rows)
     assert rows[0]["interrupted"]
+
+
+def test_a_free_running_plugin_camera_pauses_the_run_by_name(
+    RE, box, count, tmp_path, caplog
+) -> None:
+    """Two fires in a row with more than one frame: the run pauses naming the camera.
+
+    A camera not in trigger mode free-runs and its plugin counts every frame
+    it pushes.  The excess is on every row (``extra_frames``); the pause
+    says to put the camera in trigger mode, and the resume carries on.
+    """
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+    box.extra = {"uc_b": 5}
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(RunEngineInterrupted):
+        RE(count([a, b], 3))
+    assert box.fires == 2
+    said = [m for m in caplog.messages if "pausing the run" in m]
+    assert len(said) == 1 and "UC_B (6 frames" in said[0], said
+    assert "put it in trigger mode" in said[0] and "UC_A" not in said[0]
+    box.extra = {}
+    RE.resume()
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["extra_frames"] for r in rows] == ["uc_b=6", "uc_b=6", ""]
+    assert all(r["complete"] for r in rows) and box.fires == 3
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+
+
+def test_one_fire_with_two_frames_is_on_the_row_and_pauses_nothing(
+    RE, box, count, tmp_path
+) -> None:
+    """A missed shot's late frame landing before the refire's: one excess, no pause."""
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+
+    def second_fire_doubles(n: int) -> bool:
+        box.extra = {"uc_a": 1} if n == 2 else {}
+        return True
+
+    box.on_fire = second_fire_doubles
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([a], 3))
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["extra_frames"] for r in rows] == ["", "uc_a=2", ""]
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+
+
+def test_an_unreadable_frame_count_is_named_and_never_ends_the_run(
+    RE, box, count, tmp_path, monkeypatch, caplog
+) -> None:
+    """A plugin camera whose count cannot be read is named once; the run goes on."""
+    from geecs_bluesky.plans import on_demand
+
+    a = _camera(RE, box, "UC_A")
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+    plain = on_demand._Progress.read
+
+    async def read(self):
+        if self.name == "uc_b":
+            raise TimeoutError("NumCaptured_RBV")
+        return await plain(self)
+
+    monkeypatch.setattr(on_demand._Progress, "read", read)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([a, b], 3, required=[a]))
+    said = [m for m in caplog.messages if "frame count unreadable" in m]
+    assert len(said) == 1 and "UC_B" in said[0]
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+
+
+def test_a_native_camera_writing_two_frames_a_fire_is_not_checked(
+    RE, box, count, tmp_path
+) -> None:
+    """A NativeCamera arms its own trigger mode: the free-running check leaves it alone."""
+    from ophyd_async.core import get_mock_execute
+
+    from tests.test_native_camera import _camera as _native
+
+    cam = _camera(RE, box, "UC_A")
+    native, _ = _native(RE, tmp_path)
+    presses: list[int] = []
+
+    def press(*_, **__):
+        presses.append(1)
+        set_mock_value(native.hdf.num_captured, 2 * len(presses))
+
+    get_mock_execute(native.driver.trigger_software).side_effect = press
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([cam, native], 3))
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["extra_frames"] for r in rows] == [""] * 3
+    assert col.docs["stop"][-1]["exit_status"] == "success"

@@ -64,6 +64,9 @@ _REFIRE, _PAUSED, _EXHAUSTED = "refire", "paused", "exhausted"
 #: Seconds one counter read may take; a read that fails or outlasts it is
 #: no reading (the device did not report), never a failed run.
 READ_TIMEOUT_S = 1.0
+#: Fires in a row on which a gateway plugin camera counted more than one
+#: frame that pause the run (:meth:`OnDemand._free_running`).
+FREE_RUNNING_PAUSE = 2
 
 
 async def _bounded(read: Any, failed: Any) -> Any:
@@ -161,15 +164,18 @@ class SlotColumns:
 
         A fly row has no fire and no hardware witness: no ``fire_stamp``,
         ``unwitnessed`` or ``witness_late`` (an ``unwitnessed`` column would
-        make the reader time the row by a fire it does not have).
+        make the reader time the row by a fire it does not have), and no
+        ``extra_frames`` (free-running is legitimate there).
         """
         fired = {} if self._fly else {"fire_stamp": math.nan}
         witness = {} if self._fly else {"unwitnessed": False, "witness_late": False}
+        extra = {} if self._fly else {"extra_frames": ""}
         self.values = {
             "attempt": attempt,
             **fired,
             "complete": False,
             "missing": "",
+            **extra,
             **witness,
             "interrupted": False,
             **{f"{n}-baseline": baselines.get(n, math.nan) for n in self._required},
@@ -228,7 +234,9 @@ class OnDemand:
     6. the witness: only when neither the witness nor any per-shot device
        advanced is the fire reported as not fired — the row is kept and the
        run pauses with the reason; a witness that stayed put while devices
-       advanced is ``witness_late``;
+       advanced is ``witness_late``; a gateway plugin camera that counted
+       more than one frame since the previous fire is in ``extra_frames``
+       (:meth:`_free_running`);
     7. the row: ``create``, read, and before ``save`` compare
        ``pause_count`` once more — a pause inside the bundle means ``drop``
        and read again, never a saved short row;
@@ -259,6 +267,8 @@ class OnDemand:
     #: rows adds to its reason (:meth:`_missed`).
     AGAIN = "taking another shot"
     EXHAUSTED_HINT = ""
+    #: Whether a gateway plugin camera's frames per fire are checked.
+    FRAME_CHECK = True
 
     def __init__(
         self,
@@ -295,6 +305,14 @@ class OnDemand:
         self._exhausted = 0
         self._reported_down: set[str] = set()
         self._refused_press: set[str] = set()
+        #: The gateway plugin cameras the free-running check reads (a
+        #: NativeCamera arms its own trigger mode); none in a fly run.
+        self.checked = (
+            [self.progress[id(d)] for d in streams.plugin] if self.FRAME_CHECK else []
+        )
+        self._frames_at: dict[str, tuple[float, ...]] = {}
+        self._excess_streak: dict[str, int] = {}
+        self._unreadable: set[str] = set()
 
     # ------------------------------------------------------------------ plans
     def _counters(self):
@@ -463,10 +481,13 @@ class OnDemand:
             now = yield from self._counters()
             self.columns.values["interrupted"] = self.sc.pause_count != mark
             missing, fired = self._verdict(base, now)
+            free_running = self._free_running(base, now)
             yield from self._write_row(readers, name)
             yield from self.streams.collect()
             yield from self._report_quiet_optional(base, now)
             self._settled(base)
+            if free_running:
+                yield from self._pause(free_running)
             if not fired:
                 yield from self._pause(
                     "the fire was not seen: neither the witness nor any per-shot "
@@ -483,6 +504,55 @@ class OnDemand:
             spent += 1
             if outcome == _EXHAUSTED:
                 return None
+
+    def _free_running(self, base: dict[str, Any], now: dict[str, Any]) -> str:
+        """Flag the row's gateway plugin cameras that counted more than one frame.
+
+        Frames since the previous fire's re-read (this fire's own baseline
+        at the first), the most any of the camera's plugins counted.  One
+        fire may hold two — a missed shot's late frame landing before the
+        refire's — so one excess is only on the row (``extra_frames``,
+        ``name=frames``); :data:`FREE_RUNNING_PAUSE` fires in a row mean the
+        camera is not waiting for the trigger, and the returned pause reason
+        names each such camera.  An unreadable count is named once (WARNING)
+        and is no evidence.  ``""``: nothing to pause for.
+        """
+        if not self.checked:
+            return ""
+        flagged: list[str] = []
+        streaks: list[str] = []
+        for p in self.checked:
+            prev = self._frames_at.get(p.name, base[p.name])
+            cur = now[p.name]
+            if cur:
+                self._frames_at[p.name] = cur
+            if not cur or not prev or len(cur) != len(prev):
+                if not cur and p.name not in self._unreadable:
+                    self._unreadable.add(p.name)
+                    logger.warning(
+                        "%s: frame count unreadable — the free-running check "
+                        "skips it while it is (logged once)",
+                        geecs_name(p.owner),
+                    )
+                continue
+            frames = int(max(c - b for c, b in zip(cur, prev, strict=True)))
+            if frames <= 1:
+                self._excess_streak[p.name] = 0
+                continue
+            flagged.append(f"{p.name}={frames}")
+            streak = self._excess_streak.get(p.name, 0) + 1
+            self._excess_streak[p.name] = streak
+            if streak >= FREE_RUNNING_PAUSE:
+                self._excess_streak[p.name] = 0
+                streaks.append(f"{geecs_name(p.owner)} ({frames} frames this fire)")
+        self.columns.values["extra_frames"] = ",".join(flagged)
+        if not streaks:
+            return ""
+        return (
+            f"more than one frame per fire, {FREE_RUNNING_PAUSE} fires in a row, "
+            f"from {', '.join(streaks)} — the camera is not waiting for the "
+            "trigger (free-running?): put it in trigger mode, then resume"
+        )
 
     def _missed(self, missing: Sequence[_Progress], n: int):
         """Plan: after an incomplete row, its *n*-th paid attempt: refire, paused or exhausted."""

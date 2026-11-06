@@ -1142,27 +1142,6 @@ class GeecsDetector(StandardDetector):
         )
         return max(0, min(int(c) for c in counts) - int(ctx.collections_written))
 
-    async def frames_since_last_datum(self) -> int:
-        """Frames past what a datum last referenced — the most any plugin holds.
-
-        The width the next collect would give this camera's datum.  In
-        strict acquisition a complete shot is exactly one: more means the
-        camera wrote frames the box did not fire, i.e. it is free-running
-        rather than waiting for the trigger.  ``0`` without a plugin or
-        outside ``prepare``.
-        """
-        ctx = self._prepare_ctx
-        if ctx is None or not ctx.streamable_data_providers:
-            return 0
-        providers = ctx.streamable_data_providers
-        counts = await asyncio.gather(
-            *(sdp.collections_written_signal.get_value() for sdp in providers)
-        )
-        return max(
-            int(count) - int(sdp.last_emitted)
-            for sdp, count in zip(providers, counts, strict=True)
-        )
-
     async def truncate_to(self, frames: int) -> None:
         """Rewind every plugin to ``baseline + frames``: the step's first *frames*, exactly.
 
