@@ -41,5 +41,14 @@
     "stop": {"label": "stop", "roles": ["stop"]},
     "home": {"label": "home", "roles": ["homf", "homr"], "requires": ["stop"]},
     "velocity": {"label": "velocity", "roles": ["velo"]}
+  },
+  "panel": {
+    "rail": [
+      {"title": "Move", "roles": ["val", "twv", "twf", "twr", "stop"]},
+      {"title": "Home", "roles": ["homf", "homr"]},
+      {"title": "Speed", "roles": ["velo"]}
+    ],
+    "tweak": {"val": {"step": "twv", "forward": "twf", "reverse": "twr"}},
+    "readings": ["rbv", "dmov", "hls", "lls", "lvio"]
   }
 }

@@ -482,6 +482,117 @@ def test_a_rail_role_sits_in_one_group() -> None:
     _refused({**tiny(), "panel": panel}, "panel rail roles must be unique")
 
 
+def _tweak(**over: object) -> dict:
+    """TINY with a step setpoint and two step commands beside level_sp in its group."""
+    doc = tiny()
+    doc["roles"] += [
+        {"name": "step", "suffix": "step", "type": "setpoint", "label": "step", "writable": True},
+        {"name": "up", "suffix": "up", "type": "command", "label": "up", "writable": True},
+        {"name": "down", "suffix": "down", "type": "command", "label": "down", "writable": True},
+    ]  # fmt: skip
+    doc["actions"]["level"]["roles"] += ["step", "up", "down"]
+    panel = copy.deepcopy(PANEL)
+    panel["rail"][0]["roles"] += ["step", "up", "down"]
+    panel["tweak"] = {"level_sp": {"step": "step", "forward": "up", "reverse": "down"}}
+    doc["panel"] = {**panel, **over}
+    return doc
+
+
+def test_a_setpoint_may_be_drawn_with_its_step_and_step_commands() -> None:
+    family = FamilyFile.model_validate(_tweak())
+    hint = family.panel.tweak["level_sp"]
+    assert (hint.step, hint.forward, hint.reverse) == ("step", "up", "down")
+    assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
+    assert FamilyFile.model_validate({**tiny(), "panel": PANEL}).panel.tweak == {}
+
+
+@pytest.mark.parametrize(
+    "hint, match",
+    [
+        ({"step": "step", "forward": "up", "reverse": "lvl"}, r"panel names no role \['lvl'\]"),
+        ({"step": "level", "forward": "up", "reverse": "down"}, r"'level' must be a rail setpoint \(a readback off the rail\)"),
+        ({"step": "step", "forward": "step", "reverse": "down"}, r"'step' must be a rail command \(a setpoint\)"),
+        ({"step": "step", "forward": "up", "reverse": "up"}, r"panel tweak roles must be unique; repeated: \['up'\]"),
+        ({"step": "step", "forward": "fire", "reverse": "down"}, "'fire' sits in the setpoint's rail group"),
+    ],
+)  # fmt: skip
+def test_a_tweak_names_a_step_setpoint_and_two_commands_of_its_group(
+    hint, match
+) -> None:
+    _refused(_tweak(tweak={"level_sp": hint}), match)
+
+
+def test_a_tweaked_setpoint_and_its_roles_are_on_the_rail() -> None:
+    doc = _tweak()
+    doc["panel"]["rail"][0]["roles"].remove("down")
+    _refused(doc, r"'down' must be a rail command \(a command off the rail\)")
+    doc = _tweak(
+        tweak={"acquire": {"step": "step", "forward": "up", "reverse": "down"}}
+    )
+    _refused(
+        doc, r"panel tweak 'acquire': 'acquire' must be a rail setpoint \(an enum\)"
+    )
+
+
+def test_a_role_is_drawn_by_one_hint() -> None:
+    doc = _tweak(buttons={"up": ["Off", "On"]})
+    _refused(
+        doc, "a button pair draws a writable two-state rail role"
+    )  # a command is no two-state role
+    doc = _tweak()
+    role(doc, "step").update(integer=True, limits=[0, 1])
+    doc["panel"]["buttons"] = {"step": ["Off", "On"]}
+    _refused(doc, r"panel roles \['step'\] are drawn by a tweak and a button pair")
+
+
+def test_a_grid_group_draws_bits_and_enums() -> None:
+    panel = copy.deepcopy(PANEL)
+    panel["rail"] = [
+        {"title": "Run", "roles": ["acquire", "flag"], "layout": "grid"},
+        {"title": "Safety", "roles": ["fire", "stop"]},
+    ]
+    family = FamilyFile.model_validate({**tiny(), "panel": panel})
+    assert [g.layout for g in family.panel.rail] == ["grid", "fields"]
+    assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
+    panel["rail"][1]["layout"] = "grid"
+    _refused({**tiny(), "panel": panel}, r"panel group 'Safety': a grid draws bits and enums only, not \['fire', 'stop'\]")  # fmt: skip
+    panel["rail"][1]["layout"] = "table"
+    _refused({**tiny(), "panel": panel}, "layout")
+
+
+def _railed_is_writable(family: FamilyFile) -> None:
+    """The rail is exactly the family's writable roles; every reading is monitored."""
+    railed = [r for g in family.panel.rail for r in g.roles]
+    assert sorted(railed) == sorted(r.name for r in family.roles if r.writable)
+    assert all(family.role(r).read_mode == "monitor" for r in family.panel.readings)
+
+
+def test_the_motor_record_draws_its_target_with_a_tweak() -> None:
+    motor = load_families()["motor_record"]
+    _railed_is_writable(motor)
+    assert [g.title for g in motor.panel.rail] == ["Move", "Home", "Speed"]
+    hint = motor.panel.tweak["val"]
+    assert (hint.step, hint.forward, hint.reverse) == ("twv", "twf", "twr")
+    # position, done moving, the limit switches and the soft-limit violation
+    assert motor.panel.readings == ["rbv", "dmov", "hls", "lls", "lvio"]
+    # the action groups stay the write permissions the page's hints do not replace
+    assert motor.actions["tweak"].roles == ["twv", "twf", "twr"]
+
+
+@pytest.mark.parametrize("name", ["easydriver", "fastps"])
+def test_the_supplies_draw_output_as_a_button_pair(name: str) -> None:
+    supply = load_families()[name]
+    _railed_is_writable(supply)
+    assert [g.title for g in supply.panel.rail] == ["Output", "Faults"]
+    assert supply.panel.buttons == {
+        "output_sp": ("Off", "On")
+    }  # 0 then 1, behind its hazard confirm
+    assert supply.role("output_sp").confirm == "hazard"
+    faults = [r.name for r in supply.roles if r.fault]
+    assert supply.panel.readings[:3] == ["current", "voltage", "output"]
+    assert set(faults) <= set(supply.panel.readings)
+
+
 def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
     scope = load_families()["scope_contract"]
     assert scope.role("time_axis").axis_of == ["data"]
