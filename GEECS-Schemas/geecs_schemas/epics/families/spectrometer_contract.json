@@ -50,15 +50,17 @@
     {"name": "background_save", "suffix": "PROC:SaveBackground", "type": "command", "label": "Save background", "writable": true},
     {"name": "background_enable", "suffix": "PROC:EnableBackground_RBV", "type": "enum", "label": "subtract background", "writable": true, "write": "PROC:EnableBackground", "archive": true},
     {"name": "background_valid", "suffix": "PROC:ValidBackground_RBV", "type": "enum", "label": "background held"},
-    {"name": "stat_counter", "suffix": "STAT1:ArrayCounter_RBV", "type": "counter", "label": "statistics computed", "level": "expert"},
-    {"name": "total", "suffix": "STAT1:Total_RBV", "type": "readback", "label": "integral", "units": "counts", "fresh_by": "stat_counter"},
-    {"name": "max", "suffix": "STAT1:MaxValue_RBV", "type": "readback", "label": "peak", "units": "counts", "fresh_by": "stat_counter"},
-    {"name": "min", "suffix": "STAT1:MinValue_RBV", "type": "readback", "label": "minimum", "units": "counts", "level": "expert", "fresh_by": "stat_counter"},
-    {"name": "mean", "suffix": "STAT1:MeanValue_RBV", "type": "readback", "label": "mean", "units": "counts", "level": "expert", "fresh_by": "stat_counter"},
-    {"name": "sigma", "suffix": "STAT1:Sigma_RBV", "type": "readback", "label": "sigma", "units": "counts", "level": "expert", "fresh_by": "stat_counter"},
-    {"name": "peak_index", "suffix": "STAT1:MaxX_RBV", "type": "readback", "label": "peak index", "units": "px", "fresh_by": "stat_counter"},
-    {"name": "centroid_index", "suffix": "STAT1:CentroidX_RBV", "type": "readback", "label": "centroid index", "units": "px", "fresh_by": "stat_counter"},
-    {"name": "width_index", "suffix": "STAT1:SigmaX_RBV", "type": "readback", "label": "width index", "units": "px", "fresh_by": "stat_counter"}
+    {"name": "compute_statistics", "suffix": "STAT1:ComputeStatistics", "type": "bit", "label": "statistics computed", "level": "expert"},
+    {"name": "compute_centroid", "suffix": "STAT1:ComputeCentroid", "type": "bit", "label": "centroid computed", "level": "expert"},
+    {"name": "stat_counter", "suffix": "STAT1:ArrayCounter_RBV", "type": "counter", "label": "statistics spectra", "level": "expert"},
+    {"name": "total", "suffix": "STAT1:Total_RBV", "type": "readback", "label": "integral", "units": "counts", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
+    {"name": "max", "suffix": "STAT1:MaxValue_RBV", "type": "readback", "label": "peak", "units": "counts", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
+    {"name": "min", "suffix": "STAT1:MinValue_RBV", "type": "readback", "label": "minimum", "units": "counts", "level": "expert", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
+    {"name": "mean", "suffix": "STAT1:MeanValue_RBV", "type": "readback", "label": "mean", "units": "counts", "level": "expert", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
+    {"name": "sigma", "suffix": "STAT1:Sigma_RBV", "type": "readback", "label": "sigma", "units": "counts", "level": "expert", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
+    {"name": "peak_index", "suffix": "STAT1:MaxX_RBV", "type": "readback", "label": "peak index", "units": "px", "fresh_by": "stat_counter", "computed_by": "compute_statistics"},
+    {"name": "centroid_index", "suffix": "STAT1:CentroidX_RBV", "type": "readback", "label": "centroid index", "units": "px", "fresh_by": "stat_counter", "computed_by": "compute_centroid"},
+    {"name": "width_index", "suffix": "STAT1:SigmaX_RBV", "type": "readback", "label": "width index", "units": "px", "fresh_by": "stat_counter", "computed_by": "compute_centroid"}
   ],
   "panel": {
     "rail": [
