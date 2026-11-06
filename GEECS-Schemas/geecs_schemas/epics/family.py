@@ -385,8 +385,8 @@ class PanelGroup(SchemaModel):
         "fields",
         description=(
             "'fields': one labelled control per row; 'grid': a compact labelled "
-            "grid of short controls (a PLC's channels), for a group of bits and "
-            "enums only."
+            "grid of short controls (a PLC's channels), for a group of bits, enums "
+            "and two-state whole numbers only."
         ),
     )
 
@@ -411,8 +411,10 @@ class Panel(SchemaModel):
     Layout only. The page draws each rail role by its type (an enum a
     select of the record's own choices, a setpoint a number beside its
     readback, a bit a checkbox, a command a button, a readback its text), so
-    the rail constrains no role type; a reading is a monitored role, since it
-    carries the module's word. The panel places roles whatever their
+    a plain group constrains no role type; two hints do: a ``grid`` group
+    holds short controls only (bits, enums, two-state whole numbers) and a
+    ``tweak`` names a setpoint, its step setpoint and two commands. A reading
+    is a monitored role, since it carries the module's word. The panel places roles whatever their
     ``level``: ``level`` decides the role table's operator and expert views,
     the panel what the page draws above it. Whether a write is permitted
     stays the module's.
@@ -641,19 +643,18 @@ def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
         )
     for name in panel.buttons:
         role = by_name[name]
-        two_state = role.type == "bit" or (role.integer and role.limits == (0, 1))
-        if name not in named or not role.writable or not two_state:
+        if name not in named or not role.writable or not _two_state(role):
             raise ValueError(
                 f"panel buttons {name!r}: a button pair draws a writable two-state "
                 "rail role (a bit, or a whole number limited to [0, 1])"
             )
     _check_tweaks(panel, by_name, tweaked)
     for group in panel.rail:
-        long = [n for n in group.roles if by_name[n].type not in ("bit", "enum")]
+        long = [n for n in group.roles if not _short(by_name[n])]
         if group.layout == "grid" and long:
             raise ValueError(
-                f"panel group {group.title!r}: a grid draws bits and enums only, "
-                f"not {long}"
+                f"panel group {group.title!r}: a grid draws short controls only "
+                f"(bits, enums, two-state whole numbers), not {long}"
             )
     drawn = {target for r in by_name.values() for target in r.axis_of or ()}
     for array, flag in panel.show_while.items():
@@ -664,6 +665,16 @@ def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
                 f"panel show_while {array!r}: {flag!r} is not monitored, so the "
                 "page cannot read it"
             )
+
+
+def _two_state(role: Role) -> bool:
+    """A bit, or a whole number limited to [0, 1]: what a button pair draws."""
+    return role.type == "bit" or (role.integer and role.limits == (0, 1))
+
+
+def _short(role: Role) -> bool:
+    """A two-state role or an enum: what a grid cell draws."""
+    return role.type == "enum" or _two_state(role)
 
 
 def _check_tweaks(

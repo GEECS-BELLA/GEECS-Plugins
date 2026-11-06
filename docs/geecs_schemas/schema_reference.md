@@ -827,7 +827,7 @@ One titled group of a device page's control rail: the roles it draws, in order.
 |---|---|---|---|---|
 | `title` | `str` | yes | — | The group's heading on the rail. |
 | `roles` | `list[str]` | yes | — | The family roles the group draws, in order; the page picks each control by the role's type. |
-| `layout` | `'fields' \| 'grid'` | no | 'fields' | 'fields': one labelled control per row; 'grid': a compact labelled grid of short controls (a PLC's channels), for a group of bits and enums only. |
+| `layout` | `'fields' \| 'grid'` | no | 'fields' | 'fields': one labelled control per row; 'grid': a compact labelled grid of short controls (a PLC's channels), for a group of bits, enums and two-state whole numbers only. |
 
 ### TweakHint
 

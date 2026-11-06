@@ -555,7 +555,15 @@ def test_a_grid_group_draws_bits_and_enums() -> None:
     assert [g.layout for g in family.panel.rail] == ["grid", "fields"]
     assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
     panel["rail"][1]["layout"] = "grid"
-    _refused({**tiny(), "panel": panel}, r"panel group 'Safety': a grid draws bits and enums only, not \['fire', 'stop'\]")  # fmt: skip
+    _refused({**tiny(), "panel": panel}, r"panel group 'Safety': a grid draws short controls only \(bits, enums, two-state whole numbers\), not \['fire', 'stop'\]")  # fmt: skip
+    # a two-state whole number is short, as a button pair counts it; a whole number over a wider span is not
+    doc = {
+        **tiny(),
+        "panel": {"rail": [{"title": "Run", "roles": ["level_sp"], "layout": "grid"}]},
+    }
+    _refused(doc, r"not \['level_sp'\]")
+    role(doc, "level_sp").update(integer=True, limits=[0, 1])
+    assert FamilyFile.model_validate(doc).panel.rail[0].layout == "grid"
     panel["rail"][1]["layout"] = "table"
     _refused({**tiny(), "panel": panel}, "layout")
 
