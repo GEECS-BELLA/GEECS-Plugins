@@ -455,33 +455,33 @@ class TestAcquisitionRules:
         """Any per-shot device may be not required, in either mode, scalars-only too.
 
         A device with no stamp (a free-running gauge) is a condition, read in
-        every row, whatever its ``essential`` says.
+        every row, whatever its ``required`` says.
         """
         gated = {"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}}
         for extra in ({}, {"plan": gated}):
             for device in (
-                {"device": "UC_Native", "essential": False},
-                {"device": "U_ICT", "essential": False},
-                {"device": "UC_Native", "essential": False, "save_images": False},
+                {"device": "UC_Native", "required": False},
+                {"device": "U_ICT", "required": False},
+                {"device": "UC_Native", "required": False, "save_images": False},
             ):
                 preset = _preset(devices=[{"device": "UC_Plugin"}, device], **extra)
                 assert self._refusal(preset, engine) is None, (device, extra)
             preset = _preset(
                 devices=[
                     {"device": "U_ICT"},
-                    {"device": "UC_Plugin", "essential": False, "save_images": False},
+                    {"device": "UC_Plugin", "required": False, "save_images": False},
                 ],
                 **extra,
             )
             assert self._refusal(preset, engine) is None, extra
         preset = _preset(
-            devices=[{"device": "UC_Plugin"}, {"device": "U_Gauge", "essential": False}]
+            devices=[{"device": "UC_Plugin"}, {"device": "U_Gauge", "required": False}]
         )
         assert self._refusal(preset, engine) is None
         preset = _preset(
-            devices=[{"device": "UC_Plugin", "essential": False}, {"device": "U_Gauge"}]
+            devices=[{"device": "UC_Plugin", "required": False}, {"device": "U_Gauge"}]
         )
-        # The gauge keeps its default essential: a condition all the same, so
+        # The gauge keeps its default required: a condition all the same, so
         # the preset still submits — the client leaves it out of ``required``.
         assert self._refusal(preset, engine) is None
         from geecs_bluesky.qs_client.presets import expand_preset
@@ -515,7 +515,7 @@ class TestAcquisitionRules:
         preset = _preset(
             devices=[
                 {"device": "UC_Plugin"},
-                {"device": "UC_Native", "essential": False},
+                {"device": "UC_Native", "required": False},
             ],
             plan=gated,
         )
@@ -582,4 +582,4 @@ class TestNativeCamera:
         report = run_submit_preflight(
             preset, "TestExp", client=_FakeQueueClient(devices=self.TREE)
         )
-        assert report.refusal and "no essential triggered device" in report.refusal
+        assert report.refusal and "no required triggered device" in report.refusal

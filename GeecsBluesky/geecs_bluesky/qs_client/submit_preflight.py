@@ -14,8 +14,7 @@ Checks, in order (the ``PreflightOutcome.check`` vocabulary):
   it knows the plan and every device reference the expansion created.
   A closed environment or a missing plan is a hard refusal naming the
   recovery gesture; an unreachable manager, an unanswered plan list or no
-  ``[qserver]`` config is *skipped* (fail-open).  Off the same tree: every
-  ``non_essential`` device (optimize) must be triggered, and a gated run
+  ``[qserver]`` config is *skipped* (fail-open).  Off the same tree: a gated run
   needs a required triggered device.
 - ``gateway_liveness`` — each preset and trigger-profile device's
   ``CONNECTED`` PV, read once; only the exact ``"Disconnected"`` counts
@@ -332,15 +331,13 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
     an ``acq_timestamp`` child, a plugin-backed or native camera an ``hdf``
     child: those are per-shot devices.  A scalar-only device has neither —
     a condition, read in every row: the submit leaves it out of
-    ``required`` (``expand_preset``'s ``device_tree``), and ``optimize``
-    refuses it as ``non_essential`` (nothing could place its readings on a
-    shot).
+    ``required`` (``expand_preset``'s ``device_tree``).
 
     Parameters
     ----------
     item :
         The expanded queue item (``args[0]`` the detectors, ``kwargs``
-        with ``acquisition`` / ``required`` / ``non_essential``).
+        with ``acquisition`` / ``required``).
     known :
         The device names the manager resolves.
 
@@ -352,19 +349,10 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
     gated = item.kwargs.get("acquisition", "strict") == "gated"
     detectors = list(item.args[0]) if item.args else []
     required = item.kwargs.get("required")
-    non_essential = list(item.kwargs.get("non_essential") or ())
 
     def stamped(reference: str) -> bool:
         return f"{_owner_reference(reference)}.acq_timestamp" in known
 
-    unstamped = [r for r in non_essential if not stamped(r)]
-    if unstamped:
-        return (
-            f"non-essential device(s) with no shot stamp: {', '.join(unstamped)} "
-            "— a non-essential device is recorded by its acq_timestamp and "
-            "joined to the shots by it; a free-running device (no stamp) is "
-            "not admitted as non-essential yet. Make it essential."
-        )
     if not gated:
         return None
     # A condition in ``required`` (expanded without the tree) is dropped at
@@ -372,7 +360,7 @@ def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
     clocks = detectors if required is None else list(required)
     if not any(stamped(r) for r in clocks):
         return (
-            "gated acquisition: no essential triggered device — nothing counts "
+            "gated acquisition: no required triggered device — nothing counts "
             "shots. Add a camera or a triggered scalar device (one with an "
             "acq_timestamp), or use acquisition='strict'."
         )

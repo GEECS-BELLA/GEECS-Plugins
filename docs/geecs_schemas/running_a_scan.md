@@ -121,7 +121,7 @@ catalog.
 ### Tier 2 — background telemetry
 
 Every `get='yes'` variable the run does not record itself — the required
-devices and the non-essential ones are the run's; of the scanned axis's
+devices and the non-required ones are the run's; of the scanned axis's
 device only the axis column is — is still recorded, the way Master Control
 did it: every such scalar is read into every row, softly (`BackgroundSnapshot` in GeecsBluesky,
 GEECS-Plugins#1016). This tier is safe by construction:

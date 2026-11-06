@@ -217,6 +217,26 @@ def test_save_preset_writes_then_refuses_to_overwrite_unless_asked(
     assert client.get("/api/configs/presets/jet_v2").json()["description"] == "second"
 
 
+def test_save_preset_round_trips_required_and_refuses_essential(
+    client: TestClient, preset_doc: dict
+) -> None:
+    """The devices table's second checkbox is ``required``; an ``essential`` body is refused."""
+    doc = dict(preset_doc)
+    doc["devices"] = [
+        {"device": "UC_ALineEBeam3", "save_images": True, "required": True},
+        {"device": "U_ICT", "save_images": False, "required": False},
+    ]
+    r = client.post("/api/configs/presets/req_rt", json={"preset": doc})
+    assert r.status_code == 200, r.text
+    saved = client.get("/api/configs/presets/req_rt").json()
+    assert [d["required"] for d in saved["devices"]] == [True, False]
+    old = dict(doc, devices=[{"device": "U_ICT", "essential": False}])
+    r = client.post("/api/configs/presets/req_old", json={"preset": old})
+    assert r.status_code == 400
+    errors = r.json()["error"]["errors"]
+    assert any("renamed 'required'" in e["msg"] for e in errors), errors
+
+
 def test_save_preset_exists_is_decided_from_the_listing_not_a_message(
     client: TestClient, preset_doc: dict
 ) -> None:

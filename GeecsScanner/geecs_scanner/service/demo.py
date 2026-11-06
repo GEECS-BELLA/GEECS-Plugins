@@ -83,14 +83,14 @@ def demo_presets() -> list[Any]:
                     {
                         "device": "UC_ALineEBeam3",
                         "save_images": True,
-                        "essential": True,
+                        "required": True,
                     },
                     {
                         "device": "UC_TC_Phosphor",
                         "save_images": True,
-                        "essential": False,
+                        "required": False,
                     },
-                    {"device": "U_ICT", "save_images": False, "essential": True},
+                    {"device": "U_ICT", "save_images": False, "required": True},
                 ],
                 "plan": {
                     "name": "sweep",
@@ -124,12 +124,12 @@ def demo_presets() -> list[Any]:
                     {
                         "device": "UC_ALineEBeam3",
                         "save_images": True,
-                        "essential": True,
+                        "required": True,
                     },
                     {
                         "device": "UC_UndulatorRad2",
                         "save_images": True,
-                        "essential": True,
+                        "required": True,
                     },
                 ],
                 "plan": {
@@ -149,7 +149,7 @@ def demo_presets() -> list[Any]:
                     {
                         "device": "UC_ALineEBeam3",
                         "save_images": True,
-                        "essential": True,
+                        "required": True,
                     },
                 ],
                 "plan": {

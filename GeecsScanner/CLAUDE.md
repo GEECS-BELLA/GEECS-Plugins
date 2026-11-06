@@ -179,7 +179,7 @@ The form selects an `OptimizerConfig` by ID; shared `prepare_optimizer_preset`
 resolves defaults and required devices before both preflight and submission.
 Saved presets retain the authored devices/kwargs; expansion happens only for
 preflight/submission through the shared client seam.
-Expanded required devices have `essential=True` and `save_images=True` even
+Expanded required devices have `required=True` and `save_images=True` even
 when an authored table row says otherwise. StreamCache reduces the worker's `optimization` stream; NaN
 becomes null for JSON. Set to best takes a run UID, rejects stale/incomplete
 runs, unsuccessful runs, offers older than 15 minutes, and offers invalidated

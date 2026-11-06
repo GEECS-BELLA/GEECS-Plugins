@@ -97,7 +97,7 @@ spellings.
     `Scan999_pulsewire-picoscope_002.tdms` through `_004`. Rows 2 to 4 get
     their files; row 1 gets none.
 
-The post-run stack check does not match a non-essential device's files to
+The post-run stack check does not match a non-required device's files to
 its stream under scan mode, because the files are named by shot number and
 not by timestamp.
 
@@ -187,10 +187,10 @@ Seen on the Undulator, accepted for now:
   scan. The idle `Empty` keepalive is measured, not built: the worker
   sends `Empty` only in the `Empty, Empty, ScanStart` entry sequence.
 - **A software single shot sets the pace.** With the box on `Single shot`
-  (laser off) the next shot follows once the essential devices have
+  (laser off) the next shot follows once the required devices have
   answered, after the plan's own work and any `shot_period`. A slower
-  device the run does not wait for (unlisted or `non_essential`) misses
-  some shots. With the laser on, `Single shot external rising edges`
+  device the run does not wait for (unlisted, or a preset device with
+  `required: false`) misses some shots. With the laser on, `Single shot external rising edges`
   synchronizes each shot to a laser edge; the same limits still set the
   rate, so a moving scan can take every other edge.
 

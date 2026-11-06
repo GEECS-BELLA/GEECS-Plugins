@@ -50,7 +50,8 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   top half is common to every scan: shots per step, trigger profile,
   whether LabVIEW saves its own files, shot period, a description, and
   the devices table (which devices to record, whether each saves images,
-  and which are essential). The mode buttons fill the bottom half:
+  and which are required: a required device is waited on every shot and
+  a shot it misses is refired; the others record what they take). The mode buttons fill the bottom half:
   **Count** (N shots at a fixed configuration, optionally tagged as a
   background), **Sweep** (one or more variables along a trajectory) or
   **Optimize** (an optimizer drives the variables). Acquisition is
@@ -77,7 +78,7 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
 
 ## Running a scan
 
-![New scan with the background_dark preset loaded: Count mode, one essential camera, 50 shots](assets/scanner_02_new_scan_preset.png)
+![New scan with the background_dark preset loaded: Count mode, one required camera, 50 shots](assets/scanner_02_new_scan_preset.png)
 
 1. Pick a preset in **New scan**, or compose a scan and pick a trigger
    profile.

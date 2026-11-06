@@ -335,7 +335,7 @@ class TestZmqQueueClient:
         assert added["kwargs"]["md"]["geecs"] == {"submission": {}, "preset": "p"}
 
     def test_submit_preset_never_requires_a_condition(self):
-        """A stampless device (default essential) beside a non-essential camera still submits."""
+        """A stampless device (default required) beside a non-required camera still submits."""
         from geecs_schemas import Preset
 
         class Tree(_FakeManagerAPI):
@@ -355,7 +355,7 @@ class TestZmqQueueClient:
                 "name": "p",
                 "devices": [
                     {"device": "U_Gauge"},
-                    {"device": "UC_Cam", "essential": False},
+                    {"device": "UC_Cam", "required": False},
                 ],
                 "plan": {"name": "count", "kwargs": {"num": 2}},
             }

@@ -15,7 +15,7 @@ def test_minimal_preset_is_a_device_group():
     preset = Preset(name="group", devices=[PresetDevice(device="UC_Cam")])
     assert preset.plan is None
     assert preset.devices[0].save_images is True
-    assert preset.devices[0].essential is True  # phase 2: waited on every shot
+    assert preset.devices[0].required is True  # phase 2: waited on every shot
     assert preset.trigger_profile is None and preset.background is False
     assert preset.native_image_save is None  # unset: the experiment default
     assert preset.background_telemetry is None  # unset: the experiment default
@@ -31,9 +31,9 @@ def test_full_preset_round_trips():
         "native_image_save": False,
         "background_telemetry": True,
         "devices": [
-            {"device": "UC_ALineEBeam3", "save_images": True, "essential": True},
-            {"device": "U_BCaveICT", "save_images": False, "essential": True},
-            {"device": "UC_SlowCam", "save_images": True, "essential": False},
+            {"device": "UC_ALineEBeam3", "save_images": True, "required": True},
+            {"device": "U_BCaveICT", "save_images": False, "required": True},
+            {"device": "UC_SlowCam", "save_images": True, "required": False},
         ],
         "plan": {
             "name": "scan",
@@ -48,7 +48,15 @@ def test_full_preset_round_trips():
         kwargs={"shots_per_step": 20, "acquisition": "gated"},
     )
     assert preset.model_dump(mode="json") == document
-    assert [d.essential for d in preset.devices] == [True, True, False]
+    assert [d.required for d in preset.devices] == [True, True, False]
+
+
+def test_the_old_essential_field_is_refused_naming_required():
+    """Ruling 6: no alias — an ``essential`` preset fails, the message names the new field."""
+    with pytest.raises(ValidationError, match="'essential' was renamed 'required'"):
+        Preset.model_validate(
+            {"name": "p", "devices": [{"device": "C", "essential": False}]}
+        )
 
 
 def test_native_image_save_is_one_value_per_scan():

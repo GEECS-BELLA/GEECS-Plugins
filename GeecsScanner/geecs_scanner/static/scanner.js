@@ -467,17 +467,17 @@
     // The run-level LabVIEW-files switch (#738): unset = the experiment default.
     $("native-save").value = doc.native_image_save === true ? "true" : doc.native_image_save === false ? "false" : "";
     var body = $("devs"); body.textContent = "";
-    (doc.devices || []).forEach(function (d) { body.appendChild(deviceRow(d.device, d.save_images !== false, d.essential !== false)); });
+    (doc.devices || []).forEach(function (d) { body.appendChild(deviceRow(d.device, d.save_images !== false, d.required !== false)); });
     noDevicesNote();
     if (shape === "optimize") { setSelect("optimizer-config", kw.optimizer_config || ""); loadOptimizer(kw); }
     recalc(); renderCalibration();
   }
-  function deviceRow(name, saveImages, essential) {
+  function deviceRow(name, saveImages, required) {
     var tr = document.createElement("tr");
     tr.dataset.device = name;
     tr.appendChild(td(name, "id"));
     tr.appendChild(td(checkbox(saveImages, "save images for " + name)));
-    tr.appendChild(td(checkbox(essential, name + " essential")));
+    tr.appendChild(td(checkbox(required, name + " required")));
     var rm = document.createElement("button");
     rm.type = "button"; rm.className = "btn sm ghost rm"; rm.textContent = "remove";
     rm.setAttribute("aria-label", "remove " + name);
@@ -498,7 +498,7 @@
     var out = [];
     Array.prototype.forEach.call($("devs").querySelectorAll("tr[data-device]"), function (tr) {
       var boxes = tr.querySelectorAll("input[type=checkbox]");
-      out.push({ device: tr.dataset.device, save_images: boxes[0].checked, essential: boxes[1].checked });
+      out.push({ device: tr.dataset.device, save_images: boxes[0].checked, required: boxes[1].checked });
     });
     return out;
   }
