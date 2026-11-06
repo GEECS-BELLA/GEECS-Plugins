@@ -1114,3 +1114,50 @@ def test_an_unknown_sync_class_warns_once_and_reads_synchronous(caplog) -> None:
         }
     assert classes == {SYNCHRONOUS}
     assert caplog.text.count("unknown sync_class 'sometimes'") == 1
+
+
+def test_a_stale_sample_is_blanked_in_the_s_file() -> None:
+    """One free-running sample 0.1 s before the first tick, stale from row 2 on.
+
+    The join keeps it on every row with its age and ``stale:cam``; the
+    s-file, which carries neither, blanks it on the stale rows.
+    """
+    import numpy as np
+
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET as LV
+    from geecs_data_utils.shot_join import FrameColumns
+    from geecs_data_utils.shot_table import ASYNCHRONOUS, DeviceRecords, shot_table
+
+    ticks = 1000.0 + np.arange(5.0)
+    rows = pd.DataFrame(
+        {
+            "bin_number": [1] * 5,
+            "witness_count": np.arange(1.0, 6.0),
+            "witness_stamp": ticks,
+            "witness_epoch": ["e"] * 5,
+            "complete": [True] * 5,
+        }
+    )
+    start = {
+        "layout": "shot-table/1",
+        "clock": "soft-tick",
+        "shot_clock_column": "witness_stamp",
+        "shot_period": 1.0,
+        "per_shot_streams": ["cam_stream"],
+        "required": [],
+        "geecs_scalar_headers": {"cam-meancounts": "Cam MeanCounts"},
+    }
+    stamp = np.array([ticks[0] - 0.1 + LV])
+    cam = DeviceRecords(
+        "cam_stream",
+        FrameColumns(
+            "cam", stamp, {"cam-acq_timestamp": stamp, "cam-meancounts": [42.0]}
+        ),
+        sync_class=ASYNCHRONOUS,
+        stale_after=1.0,
+    )
+    table = shot_table(start, rows, [cam])
+    assert [("stale:cam" in f) for f in table.flags] == [False] + [True] * 4
+    assert list(table.rows["cam-meancounts"]) == [42.0] * 5  # the evidence stays
+    values = build_legacy_scalar_dataframe(start, rows, [cam])["Cam MeanCounts"]
+    assert values.iloc[0] == 42.0 and values.iloc[1:].isna().all()

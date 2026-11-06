@@ -571,9 +571,11 @@ class TiledScanCatalog:
             shots = source()  # stamps only: one read per device
             if shots is not None:
                 joined = functools.partial(_joined_rows, run, start_doc, shots, stream)
+                from geecs_data_utils.shot_table import fresh_rows
+
                 detail = replace(
                     detail,
-                    data=shots.table.rows,
+                    data=fresh_rows(shots.table),
                     scalar_source=_once(joined),
                 )
         return detail
@@ -665,8 +667,11 @@ def _stamp_records(run: Any, start: dict, row_stream: str) -> list:
 
 
 def _joined_rows(run: Any, start: dict, shots: RunShots, stream: str) -> Any:
-    """*shots*' rows with every device's scalars joined, read on first use."""
-    from geecs_data_utils.shot_table import shot_table
+    """*shots*' rows with every device's scalars joined, read on first use.
+
+    Stale samples are blanked (:func:`geecs_data_utils.shot_table.fresh_rows`).
+    """
+    from geecs_data_utils.shot_table import fresh_rows, shot_table
     from geecs_data_utils.tiled_export import read_device_records, read_drain_offsets
 
     try:
@@ -677,8 +682,8 @@ def _joined_rows(run: Any, start: dict, shots: RunShots, stream: str) -> Any:
         )
     except Exception:  # the stamps-only rows still serve
         logger.exception("run %s: device scalars not joined", start.get("uid"))
-        return shots.table.rows
-    return table.rows
+        return fresh_rows(shots.table)
+    return fresh_rows(table)
 
 
 def read_primary_scalars(primary: Any) -> Optional[Any]:

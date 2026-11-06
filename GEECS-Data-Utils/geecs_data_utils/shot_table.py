@@ -178,6 +178,8 @@ class ShotTable:
     held :
         Device → the extras inside a ``witness-stamp-shared-unresolved``
         group's window: records nothing was guessed for, not strays.
+    columns :
+        Device → the columns it joined onto :attr:`rows`.
     """
 
     rows: pd.DataFrame
@@ -189,6 +191,30 @@ class ShotTable:
     ages: Mapping[str, np.ndarray]
     device_flags: Mapping[str, tuple[str, ...]]
     held: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+    columns: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+def fresh_rows(table: ShotTable) -> pd.DataFrame:
+    """*table*'s rows with every *stale* sample blanked: the scalar tables' view.
+
+    A stale asynchronous sample stays in :attr:`ShotTable.rows`, with its
+    age and its ``stale:<device>`` flag beside it.  A table that carries
+    neither (the s-file, a scalar plot) must not pass it off as the shot's
+    measurement, so there that device's joined columns are ``NaN`` on each
+    row flagged stale.
+    """
+    blank = {
+        name: [k for k, flags in enumerate(table.flags) if f"stale:{name}" in flags]
+        for name in table.ages
+    }
+    if not any(blank.values()):
+        return table.rows
+    rows = table.rows.copy()
+    for name, stale in blank.items():
+        for column in table.columns.get(name, ()):
+            if stale:
+                rows.iloc[stale, rows.columns.get_loc(column)] = np.nan
+    return rows
 
 
 #: (stream, value) pairs already warned about, so a bad value warns once.
@@ -315,6 +341,7 @@ def shot_table(
     ages: dict[str, np.ndarray] = {}
     device_flags: dict[str, tuple[str, ...]] = {}
     joined: dict[str, np.ndarray] = {}  # allocated once: ~300 columns fragment
+    columns: dict[str, tuple[str, ...]] = {}
     for source in devices:
         name = source.device
         records = np.asarray(source.records.stamps, dtype=float) - float(
@@ -344,9 +371,14 @@ def shot_table(
             fresh[name] = tuple(a is not None for a in assigned)
         record_for[name] = tuple(assigned)
         if new or (not positional and clock.column is not None and len(rows)):
-            for key, values in source.records.columns.items():
-                if key not in rows.columns and key not in joined:
-                    joined[key] = _gathered(values, assigned)
+            mine = [
+                key
+                for key in source.records.columns
+                if key not in rows.columns and key not in joined
+            ]
+            for key in mine:
+                joined[key] = _gathered(source.records.columns[key], assigned)
+            columns[name] = tuple(mine)
     if new:
         required = _resolve_required(start, list(fresh), device_flags)
         if "complete" in rows:
@@ -363,6 +395,7 @@ def shot_table(
         held={name: tuple(sorted(i)) for name, i in clock.held.items()},
         ages=ages,
         device_flags=device_flags,
+        columns=columns,
     )
 
 
@@ -910,6 +943,7 @@ __all__ = [
     "DeviceRecords",
     "ShotTable",
     "frame_for",
+    "fresh_rows",
     "device_records",
     "per_shot_event_streams",
     "shot_table",

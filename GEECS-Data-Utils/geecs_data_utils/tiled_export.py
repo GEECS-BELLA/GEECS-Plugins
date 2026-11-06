@@ -57,6 +57,7 @@ from geecs_data_utils.shot_table import (
     WITNESS_ATTRIBUTE_KEY,
     DeviceRecords,
     device_records,
+    fresh_rows,
     per_shot_event_streams,
     shot_table,
 )
@@ -212,8 +213,10 @@ def join_frame_columns(
 ) -> pd.DataFrame:
     """Add each source's per-record columns to *rows*, through the shot table.
 
-    One row per shot, always: a record no row claims is an extra and is
-    dropped here (it stays in its stream and in Tiled — Sam, 2026-09-12),
+    One row per shot, always: a stale asynchronous sample is blanked
+    (``NaN``; :func:`geecs_data_utils.shot_table.fresh_rows`), since the
+    s-file carries no age or flag to qualify it; a record no row claims is
+    an extra and is dropped here (it stays in its stream and in Tiled — Sam, 2026-09-12),
     and a row with no record from a source gets ``NaN`` in that source's
     columns (:func:`geecs_data_utils.shot_table.shot_table`, either
     layout).  Extras and gaps are logged per source; for a gated run's
@@ -277,7 +280,7 @@ def join_frame_columns(
                 table.clock,
                 extras,
             )
-    return table.rows
+    return fresh_rows(table)
 
 
 def _records(source: Source) -> DeviceRecords:
