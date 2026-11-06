@@ -1063,6 +1063,10 @@ Old presets are regenerated, not aliased (the configs rule).
 | W3g | fly mode: the soft-tick witness, the press of software-source natives per tick, last-before sampling of free-running devices, `clock: soft-tick` rows; after W3c+e | **yes** (a new mode) | ~200 / ~250 |
 | W3f | the deletions of §10's first list, `EVENT_SCHEMA.md`, the CLAUDE.md files | — | net negative |
 
+Status (2026-11-06): W3a, W3b, W3c+e, W3g and W3f merged on
+`feat/shot-sync`; W3d set aside. Sim bench done; the laser-off run and
+the hardware proof are owed before the promotion to `master`.
+
 W3a and W3b change no run's layout and can go to master on their own
 (W3b behind its byte-identical gate). W3c+e onward is the contract
 change, proven on the sim bench (the witness sim, the camera fake skipping
@@ -1244,27 +1248,30 @@ Open:
 
 ## 10. What this deletes at the end
 
-The arc (§7, W3) deletes, under the model:
+Done in the arc (W3c+e deleted, W3f checked and finished the vocabulary):
 
-- the rewind: both `discard_uncollected`s (`devices/detector.py:1177-1190`,
-  `devices/native.py:676-692`), `_rewind_plugins`, `NativeCamera`'s
-  not-rewindable stand-in (`devices/native.py:498-562`) and the
-  `rewindable_wrapper` use (`plans/strict.py:448`); the plugin's `Rewind`
-  keeps one use, zeroing the count at a fresh session, until the plugin
-  itself goes;
-- the retake budget as it stands (`max_refires`, `plans/strict.py:248`,
-  `:397-447`), replaced by the completeness budget of §6.1;
-- frame datums in `primary`, and the partial row's "no frames" rule
-  (`EVENT_SCHEMA.md` "Partial rows");
-- *not in the arc* (gated frozen, §6.6, ruled 2026-11-04): gated's
-  separate `shots` stream, the camera shot clock (`plans/gated.py:86-123`)
-  and the sampler's stamp-advance clock with its settle and NaN logic
-  (`devices/sampler.py`); they go when gated is retired;
-- the essential / non-essential split, replaced by `required`;
-- most of `refuse_native_run`'s reasons (`plans/registry.py:522-557`):
-  beside a gateway plugin camera and as non-required. The scan-mode
-  refusal stays (scan mode is LabVIEW-only, §6.6); the gated refusal
-  stays while gated is frozen.
+- **the strict rewind**: both `discard_uncollected`s, `NativeCamera`'s
+  not-rewindable stand-in and the strict refire's rewind are gone. The
+  strict slot (`plans/on_demand.py`) wraps itself not rewindable — the
+  model's rule (a resume replays nothing), not the old retake's;
+- **the retake budget**: `max_refires` now counts the completeness
+  budget's refires (a new row each, then flagged; two exhausted in a row
+  pause);
+- **frame datums in a strict `primary`** and the partial row's "no
+  frames" rule: a shot-table run writes none; `EVENT_SCHEMA.md` keeps the
+  rule as an earlier run's (readers still read the old layout);
+- **essential / non-essential**: `required` everywhere outside gated; the
+  stream helper is `shot_join.device_stream`; the preset refuses
+  `essential` by name;
+- **`refuse_native_run`**: the plugin-camera and non-required reasons are
+  gone.
+
+Kept, because gated is frozen and still uses them (they go when gated is
+retired): `_rewind_plugins` (the batch's `truncate_to`, and `zero_count`
+at a fresh session, which strict's streams call too), the plugin's
+`Rewind`, gated's `shots` stream and camera shot clock, the sampler,
+gated's `non_essential` start key and `non_essential_wrapper`, and
+`refuse_native_run`'s gated and scan-mode refusals.
 
 When the last LabVIEW device has migrated:
 
