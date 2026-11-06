@@ -356,3 +356,12 @@ async def test_the_trace_page_draws_a_spectrometer_through_the_same_template(roo
     assert trace.status_code == 200 and (trace.headers["x-trace-channels"], trace.headers["x-trace-samples"]) == ("1", "8")  # fmt: skip
     asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
     assert asked == [roles["arr_counter"]["pv"], (roles["spectrum"]["pv"],), roles["arr_counter"]["pv"], (roles["wavelength"]["pv"],)]  # fmt: skip
+    # Saturated_RBV is an enum reading, but its alarm is the IOC's (MAJOR on the CCT), and the
+    # module's rule stands: a MAJOR role is in error, and so is the device while it reads so
+    await asyncio.sleep(0)  # the module subscribes as a task
+    room.env.hare.on_frame(
+        {roles["saturated"]["pv"]: live(1, severity="MAJOR", alarmStatus=1)}
+    )
+    device = (await room.client.get("/api/devices/cct1")).json()
+    saturated = next(r for r in device["roles"] if r["role"] == "saturated")
+    assert (saturated["verdict"], device["state"]) == ("error", "error")

@@ -353,11 +353,17 @@ per acquire, integration time, averages, period, light/raw), Trigger
 (mode, slope) and Background (`PROC:SaveBackground`, `PROC:EnableBackground`:
 the chain's dark path, never the instrument's dark command); the readings
 state, count, peak count and its share of full scale, saturated, background
-held, the subtracted spectrum's integral, peak, centroid and width (STAT1,
-in index units), temperature, last error. Nothing autosaved (the IOC writes
-nothing at boot). `Saturated_RBV` is an enum reading, not a fault bit: the
-CCT's first frame after an idle period reads full scale, and a fault would
-turn the device `failed` on it. The two `array_detector` families share
+held, the processed spectrum's integral, peak, centroid and width (STAT1
+over PROC, in index units, fresh by STAT1's own counter), temperature, last
+error. The plot is the raw spectrum (`ARR`, before PROC): saturation and
+exposure are judged on it; the statistics are of the processed one, the
+background-subtracted spectrum when subtraction is on. Nothing autosaved
+(the IOC writes nothing at boot). `Saturated_RBV` is read as the record's
+own word, not a family fault bit; its alarm severity is the IOC's (`OSV`
+MAJOR on the CCT), and the module turns MAJOR into the device's `error`
+state, so a saturated spectrum reads as the device in error, the CCT's
+full-scale first frame after an idle period included (review finding; the
+severity is a geecs-epics ruling, not this repo's). The two `array_detector` families share
 their vocabulary where the thing is the same (pinned). The bench unit
 `ccttest1` is registered in the configs repo's `panel_devices.yaml` with
 its bench prefix. The page needed no change: the spectrometer renders

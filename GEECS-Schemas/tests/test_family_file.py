@@ -447,15 +447,21 @@ def test_the_spectrometer_contract_draws_its_spectrum_over_its_wavelengths() -> 
     # the rail is exactly the family's writable roles: none left off, no read-only one placed
     railed = [r for g in spec.panel.rail for r in g.roles]
     assert sorted(railed) == sorted(r.name for r in spec.roles if r.writable)
-    # saturation is a reading of the spectrum, not a fault of the device (the CCT's first frame
-    # after an idle period reads full scale): it is an enum, never a fault bit
+    # saturation is read as the record's own word (OK / Saturated), not a fault bit of the
+    # family's; its alarm severity is the IOC's, and the module's verdict follows that
     assert spec.role("saturated").type == "enum" and not spec.role("saturated").fault
+    # the statistics are NDStats' over PROC: fresh by that plugin's own counter, as the camera's are
+    stats = [
+        r for r in spec.roles if r.suffix.startswith("STAT1:") and r.type != "counter"
+    ]
+    assert len(stats) == 8 and {r.fresh_by for r in stats} == {"stat_counter"}
+    assert spec.role("stat_counter").suffix == "STAT1:ArrayCounter_RBV"
     # the background is the chain's (NDProcess), never the instrument's dark command
     assert spec.role("background_save").type == "command" and spec.role("background_save").read_mode == "never"  # fmt: skip
 
 
 def test_the_two_array_detector_families_share_their_vocabulary() -> None:
-    """The names a trace page's rules and a reader may rely on across the kind."""
+    """A convention, pinned so a divergence is a decision: where the two families serve the same thing, they name it alike."""
     scope, spec = (
         load_families()["scope_contract"],
         load_families()["spectrometer_contract"],
