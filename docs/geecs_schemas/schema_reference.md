@@ -742,6 +742,7 @@ The records of one IOC record template, by role: what every device of the family
 | `per_axis` | `bool` | no | False | The records repeat per axis (the motor record): every suffix is under '<prefix><axis>' for each axis the device names. |
 | `roles` | `list[Role]` | yes | — | The template's records, by role, in the page's order. |
 | `actions` | `dict[str, FamilyAction]` | no | empty | The page's actions and the roles each writes; a device may permit a subset. When there are actions, every writable role belongs to one. Empty: every writable role is its own permission. |
+| `panel` | `Panel (optional)` | no | None | How the kind's device page lays the roles out (the rail's groups, the readings strip); absent: the page's own default. |
 
 Example:
 
@@ -792,6 +793,8 @@ One record of the template, by what it does for a page.
 | `integer` | `bool` | no | False | A write takes a whole number. |
 | `choices` | `list[str] (optional)` | no | None | The values a write may take, where the page offers fewer than the record's own (an enum's choices are otherwise read from the PV). |
 | `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
+| `axis_of` | `str (optional)` | no | None | On an array: the array role this one is the x axis of, one value per sample of each of its channels (a scope's time axis beside its capture, a spectrometer's wavelengths beside its spectrum). Both are arrays; an array has one axis at most, and an axis is no array's trace. |
+| `channels_by` | `str (optional)` | no | None | On an array of several channels: the readback that counts them. The array is then [channels, samples], channels fastest (a scope's ARR capture, a disabled channel NaN). Absent: one channel. |
 | `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame). |
 
 ### FamilyAction
@@ -803,6 +806,24 @@ One thing a page does to a device of the family, and the roles it writes.
 | `label` | `str` | yes | — | What the page's control is called. |
 | `roles` | `list[str]` | yes | — | The writable roles the action writes. |
 | `requires` | `list[str]` | no | empty | Actions a device permitting this one must permit too (a motion needs stop). |
+
+### Panel
+
+How a device page lays out the family's roles: the control rail and the readings strip.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `rail` | `list[PanelGroup]` | no | empty | The rail's control groups, in order; a role sits in one group at most. |
+| `readings` | `list[str]` | no | empty | The roles of the readings strip, in order, each with its freshness word. |
+
+### PanelGroup
+
+One titled group of a device page's control rail: the roles it draws, in order.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The group's heading on the rail. |
+| `roles` | `list[str]` | yes | — | The family roles the group draws, in order; the page picks each control by the role's type. |
 
 ## `panel_devices`
 

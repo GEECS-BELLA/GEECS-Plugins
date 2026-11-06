@@ -300,3 +300,124 @@ def test_the_loader_refuses_a_file_named_for_another_template(
         assert list(load_families()) == ["tiny"]
     finally:
         load_families.cache_clear()
+
+
+# ---- an array's axis, the panel ---------------------------------------------
+
+
+def _with_axis(**axis: object) -> dict:
+    doc = tiny()
+    doc["roles"].append(
+        {"name": "x", "suffix": "X", "type": "array", "label": "x", **axis}
+    )
+    return doc
+
+
+def test_an_axis_names_its_array() -> None:
+    family = FamilyFile.model_validate(_with_axis(axis_of="trace"))
+    assert family.role("x").axis_of == "trace"
+    assert family.role("trace").axis_of is None
+
+
+def test_an_axis_names_a_role() -> None:
+    _refused(_with_axis(axis_of="trac"), "axis_of names no role")
+
+
+def test_an_axis_is_of_an_array() -> None:
+    _refused(_with_axis(axis_of="level"), "axis_of names an array other than itself")
+    _refused(_with_axis(axis_of="x"), "axis_of names an array other than itself")
+
+
+def test_only_an_array_is_an_axis() -> None:
+    doc = tiny()
+    role(doc, "level")["axis_of"] = "trace"
+    _refused(doc, "only an array is an axis")
+
+
+def test_an_array_has_one_axis() -> None:
+    doc = _with_axis(axis_of="trace")
+    doc["roles"].append(
+        {
+            "name": "x2",
+            "suffix": "X2",
+            "type": "array",
+            "label": "x2",
+            "axis_of": "trace",
+        }
+    )
+    _refused(doc, r"axes \(one per array\) must be unique; repeated: \['trace'\]")
+
+
+def test_an_axis_is_no_arrays_trace() -> None:
+    doc = _with_axis(axis_of="trace")
+    role(doc, "trace")["axis_of"] = "x"  # each the other's axis: which is the trace?
+    _refused(doc, "an axis is no array's trace")
+
+
+def test_a_channel_count_is_an_arrays_and_a_readback() -> None:
+    doc = tiny()
+    role(doc, "trace")["channels_by"] = "level"
+    assert FamilyFile.model_validate(doc).role("trace").channels_by == "level"
+    for owner, target in (("trace", "counter"), ("trace", "lvl"), ("level", "level")):
+        doc = tiny()
+        role(doc, owner)["channels_by"] = target
+        _refused(doc, "channels_by is an array's, naming a readback")
+
+
+PANEL = {
+    "rail": [
+        {"title": "Run", "roles": ["acquire", "level_sp"]},
+        {"title": "Safety", "roles": ["fire", "stop", "fault"]},
+    ],
+    "readings": ["mean", "counter", "fault"],
+}
+
+
+def test_a_panel_round_trips_and_takes_any_role_type() -> None:
+    family = FamilyFile.model_validate({**tiny(), "panel": PANEL})
+    assert [g.title for g in family.panel.rail] == ["Run", "Safety"]
+    assert family.panel.readings == ["mean", "counter", "fault"]
+    assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
+    assert FamilyFile.model_validate(tiny()).panel is None
+
+
+@pytest.mark.parametrize("where", ["rail", "readings"])
+def test_a_panel_names_family_roles(where: str) -> None:
+    panel = copy.deepcopy(PANEL)
+    if where == "rail":
+        panel["rail"][1]["roles"].append("halt")
+    else:
+        panel["readings"].append("halt")
+    _refused({**tiny(), "panel": panel}, r"panel names no role \['halt'\]")
+
+
+def test_a_reading_is_monitored_and_listed_once() -> None:
+    for reading, match in (("trace", "panel readings \\['trace'\\] are not monitored"),
+                           ("mean", "panel readings must be unique")):  # fmt: skip
+        panel = copy.deepcopy(PANEL)
+        panel["readings"].append(reading)
+        _refused({**tiny(), "panel": panel}, match)
+
+
+def test_a_rail_role_sits_in_one_group() -> None:
+    panel = copy.deepcopy(PANEL)
+    panel["rail"][1]["roles"].append("acquire")
+    _refused({**tiny(), "panel": panel}, "panel rail roles must be unique")
+
+
+def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
+    scope = load_families()["scope_contract"]
+    assert scope.role("time_axis").axis_of == "data"
+    # [channels, samples] by arr_channels, held on the driver's counter
+    assert (scope.role("data").channels_by, scope.role("data").fresh_by) == ("arr_channels", "count")  # fmt: skip
+    assert [g.title for g in scope.panel.rail] == [
+        "Acquisition", "Trigger", "Channel A", "Channel B", "Channel C", "Channel D",
+    ]  # fmt: skip
+    assert scope.panel.rail[2].roles == [
+        "ch_a_enable", "ch_a_range", "ch_a_coupling", "ch_a_offset",
+    ]  # fmt: skip
+    assert scope.panel.readings[:2] == ["state", "count"]
+    assert scope.panel.readings[-1] == "last_error"
+    # the rail is exactly the family's writable roles: none left off, no read-only one placed
+    railed = [r for g in scope.panel.rail for r in g.roles]
+    assert sorted(railed) == sorted(r.name for r in scope.roles if r.writable)
