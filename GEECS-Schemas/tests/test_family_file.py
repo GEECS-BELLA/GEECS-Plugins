@@ -244,6 +244,7 @@ def test_the_installed_families_load_by_template() -> None:
         "fastps",
         "motor_record",
         "scope_contract",
+        "spectrometer_contract",
     }
     assert families["motor_record"].per_axis
     assert families["ad_camera_chain"].kind == "aravis_camera"
@@ -263,6 +264,7 @@ def test_the_installed_families_mark_their_hazards() -> None:
     }
     assert hazards["motor_record"] == ["homf", "homr"]
     assert hazards["fastps"] == hazards["easydriver"] == ["output_sp"]
+    assert hazards["scope_contract"] == hazards["spectrometer_contract"] == []
 
 
 def test_autosaved_round_trips_and_defaults_false() -> None:
@@ -280,7 +282,8 @@ def test_the_installed_families_mark_what_autosave_restores() -> None:
     assert {"exposure", "roi_minx"} <= saved["ad_camera_chain"]
     assert "trigger_mode" not in saved["ad_camera_chain"]
     assert {"trigger_level", "ch_a_range"} <= saved["scope_contract"]
-    assert saved["motor_record"] == saved["fastps"] == saved["easydriver"] == set()
+    # the spectrometer IOC writes nothing at boot: its output records take the board's values
+    assert saved["motor_record"] == saved["fastps"] == saved["easydriver"] == saved["spectrometer_contract"] == set()  # fmt: skip
 
 
 def test_the_loader_refuses_a_file_named_for_another_template(
@@ -422,3 +425,55 @@ def test_the_scope_contract_draws_its_capture_over_its_time_axis() -> None:
     # the rail is exactly the family's writable roles: none left off, no read-only one placed
     railed = [r for g in scope.panel.rail for r in g.roles]
     assert sorted(railed) == sorted(r.name for r in scope.roles if r.writable)
+
+
+def test_the_spectrometer_contract_draws_its_spectrum_over_its_wavelengths() -> None:
+    spec = load_families()["spectrometer_contract"]
+    assert spec.kind == "array_detector"
+    assert (
+        spec.role("wavelength").axis_of == "spectrum"
+        and spec.role("wavelength").units == "nm"
+    )
+    # one channel ([pixels]), held on the ARR plugin's own counter, as the scope's capture is
+    assert (spec.role("spectrum").channels_by, spec.role("spectrum").fresh_by) == (None, "arr_counter")  # fmt: skip
+    assert spec.role("arr_counter").suffix == "ARR:ArrayCounter_RBV"
+    assert [g.title for g in spec.panel.rail] == [
+        "Acquisition",
+        "Trigger",
+        "Background",
+    ]
+    assert spec.panel.readings[:2] == ["state", "count"]
+    assert spec.panel.readings[-1] == "last_error"
+    # the rail is exactly the family's writable roles: none left off, no read-only one placed
+    railed = [r for g in spec.panel.rail for r in g.roles]
+    assert sorted(railed) == sorted(r.name for r in spec.roles if r.writable)
+    # saturation is read as the record's own word (OK / Saturated), not a fault bit of the
+    # family's; its alarm severity is the IOC's, and the module's verdict follows that
+    assert spec.role("saturated").type == "enum" and not spec.role("saturated").fault
+    # the statistics are NDStats' over PROC: fresh by that plugin's own counter, as the camera's are
+    stats = [r for r in spec.roles if r.suffix.startswith("STAT1:") and r.type not in ("counter", "bit")]  # fmt: skip
+    assert len(stats) == 8 and {r.fresh_by for r in stats} == {"stat_counter"}
+    assert spec.role("stat_counter").suffix == "STAT1:ArrayCounter_RBV"
+    # and each bound to the flag that computes it (off: the value reads 'off', never fresh)
+    assert {r.name: r.computed_by for r in stats} == {
+        "total": "compute_statistics", "max": "compute_statistics", "min": "compute_statistics",
+        "mean": "compute_statistics", "sigma": "compute_statistics", "peak_index": "compute_statistics",
+        "centroid_index": "compute_centroid", "width_index": "compute_centroid",
+    }  # fmt: skip
+    assert (spec.role("compute_statistics").suffix, spec.role("compute_centroid").suffix) == ("STAT1:ComputeStatistics", "STAT1:ComputeCentroid")  # fmt: skip
+    # the background is the chain's (NDProcess), never the instrument's dark command
+    assert spec.role("background_save").type == "command" and spec.role("background_save").read_mode == "never"  # fmt: skip
+
+
+def test_the_two_array_detector_families_share_their_vocabulary() -> None:
+    """A convention, pinned so a divergence is a decision: where the two families serve the same thing, they name it alike."""
+    scope, spec = (
+        load_families()["scope_contract"],
+        load_families()["spectrometer_contract"],
+    )
+    shared = {"connected", "state", "status", "last_error", "acquire", "image_mode", "num_images", "trigger_mode", "count", "arr_counter", "arr_uid", "model", "serial", "manufacturer", "firmware"}  # fmt: skip
+    assert shared <= {r.name for r in scope.roles} and shared <= {
+        r.name for r in spec.roles
+    }
+    for name in shared:
+        assert (scope.role(name).type, scope.role(name).suffix) == (spec.role(name).type, spec.role(name).suffix), name  # fmt: skip

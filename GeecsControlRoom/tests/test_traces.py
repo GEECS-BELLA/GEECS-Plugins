@@ -176,3 +176,32 @@ async def test_a_silent_source_or_a_shape_disagreement_is_a_503_with_words(break
     async with client(env) as c:
         r = await c.get(URL)
     assert r.status_code == 503 and r.json()["detail"].startswith(words)
+
+
+async def test_a_one_channel_family_reads_no_channel_count() -> None:
+    """The spectrometer: ``[pixels]`` over its wavelengths, no ``channels_by``; one channel, no scalar read for the count."""
+    sp = "bench:cct:"
+    y, axis, count = (
+        sp + "ARR:ArrayData",
+        sp + "Wavelength_RBV",
+        sp + "ARR:ArrayCounter_RBV",
+    )
+    roles = [
+        {"role": "spectrum", "pv": y, "read": "on_request", "type": "array"},
+        {"role": "wavelength", "pv": axis, "read": "on_request", "type": "array"},
+        {"role": "arr_counter", "pv": count, "read": "monitor", "type": "counter"},
+    ]
+    env = scope(roles, "spectrometer_contract")
+    env.ca.floats_by = {y: np.arange(6, dtype=np.float32) * 100, axis: 180.0 + np.arange(6, dtype=np.float64) * 0.36}  # fmt: skip
+    async with client(env) as c:
+        r, raw = await wire(c)
+    assert r.status_code == 200 and (r.headers["x-trace-channels"], r.headers["x-trace-samples"]) == ("1", "6")  # fmt: skip
+    values = np.frombuffer(gzip.decompress(raw), dtype="<f4")
+    assert values[:6] == pytest.approx(180.0 + np.arange(6) * 0.36, abs=1e-4) and list(values[6:]) == [0, 100, 200, 300, 400, 500]  # fmt: skip
+    # the counter, the spectrum alone (no channel count asked), the counter again, the axis
+    assert [a for k, a in env.ca.calls if k in ("floats", "scalar")] == [
+        count,
+        (y,),
+        count,
+        (axis,),
+    ]

@@ -255,8 +255,13 @@ Nothing in Raw writes to the camera.
 
 A trace's page (`/device/trace/<name>`) is one page for every device whose
 data is an array over a calibrated axis: an oscilloscope's capture over its
-time axis today, and the spectrometer's spectrum over its wavelengths once
-its family file exists. The page is the same for both: which controls the
+time axis, and a spectrometer's spectrum over its wavelengths (its rail:
+Acquisition, Trigger and Background; its readings the peak count and
+whether the spectrum is saturated, the background's state, and the
+integral, peak, centroid and width of the processed spectrum: the
+background-subtracted one while subtraction is on. The plot itself is the
+raw spectrum, so saturation and exposure are judged on what the sensor
+read). The page is the same for both: which controls the
 rail carries and which readings sit above the plot come from the device's
 family file, never from the page.
 

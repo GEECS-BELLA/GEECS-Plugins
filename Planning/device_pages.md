@@ -341,3 +341,36 @@ Hare fed from the same IOC: screenshots light and dark in
 `docs/web_services/control_room.md`. **OWED:** live proof on `picotest1`
 from the services box after the merge and deploy (Canopy's image rebuilt
 for the family change; the Control Room restarted).
+
+### 2026-11-05 — slice 4c, the spectrometer's family file
+
+**Landed.** `spectrometer_contract.json` (GEECS-Schemas), the family of
+geecs-epics' `docs/spectrometer-contract.md` (the Thorlabs CCT on
+`ADSpecfirm` first): 55 roles, the spectrum (`ARR:ArrayData`, `[pixels]`,
+one channel, held on `arr_counter`) over `wavelength` (`Wavelength_RBV`,
+`axis_of: spectrum`); the rail Acquisition (acquire, image mode, spectra
+per acquire, integration time, averages, period, light/raw), Trigger
+(mode, slope) and Background (`PROC:SaveBackground`, `PROC:EnableBackground`:
+the chain's dark path, never the instrument's dark command); the readings
+state, count, peak count and its share of full scale, saturated, background
+held, the processed spectrum's integral, peak, centroid and width (STAT1
+over PROC, in index units, fresh by STAT1's own counter), temperature, last
+error. The plot is the raw spectrum (`ARR`, before PROC): saturation and
+exposure are judged on it; the statistics are of the processed one, the
+background-subtracted spectrum when subtraction is on. Nothing autosaved
+(the IOC writes nothing at boot). `Saturated_RBV` is read as the record's
+own word, not a family fault bit; its alarm severity is the IOC's (`OSV`
+MAJOR on the CCT), and the module turns MAJOR into the device's `error`
+state, so a saturated spectrum reads as the device in error, the CCT's
+full-scale first frame after an idle period included (review finding; the
+severity is a geecs-epics ruling, not this repo's). The two `array_detector` families share
+their vocabulary where the thing is the same (pinned). The bench unit
+`ccttest1` is registered in the configs repo's `panel_devices.yaml` with
+its bench prefix. The page needed no change: the spectrometer renders
+through `device_trace.html` as planned.
+
+**OWED.** Live proof on `ccttest1` from the services box after the deploy
+(Canopy's image rebuilt for the family change; the Control Room restarted;
+the configs clone on the box pulled); an operator-policy grant for
+`spectrometer_contract` (and `scope_contract`) if writes from the page are
+wanted, the maintainer's.

@@ -290,8 +290,9 @@ image rebuild): `README.md` § Deploy.
 
 The trace page (`/device/trace/<name>`, family kind `array_detector`) binds
 by data shape, never by model: one page for every array over a calibrated
-axis (the PicoScope's scope contract today; the spectrometer once its
-family file exists). What differs per hardware is the family file's: the
+axis (the PicoScope's `scope_contract`, `[channels, samples]` over its time
+axis; the spectrometer's `spectrometer_contract`, one `[pixels]` spectrum
+over `Wavelength_RBV`, no `channels_by`). What differs per hardware is the family file's: the
 rail's groups and the readings strip are its `panel` (each rail role drawn
 by its type: an enum a select of the PV's own `enumChoices`, a setpoint a
 number with its readback, a writable bit a checkbox, a command a button,
