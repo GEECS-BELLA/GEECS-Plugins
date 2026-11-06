@@ -23,14 +23,6 @@ fails the run from its close on.  A framed stream is declared only once
 it has a frame (or at the close): the plugin settles its geometry on its
 first fresh frame, and a descriptor composed earlier would carry the held
 frame's shape.  A strict run also collects every stream once per shot.
-
-A plugin camera's stream carries no stamp until its stack is finalized.
-Where a plan needs the camera's per-shot stamp *during* the run
-(optimize's live frames), the camera gets a **companion**: a
-:class:`~geecs_bluesky.devices.sampler.StampStream` on its gateway
-``acq_timestamp``, in ``<name>_stamps_stream`` (:data:`COMPANION_SUFFIX`),
-joined like any stamped stream.  A companion is not one of the run's
-``per_shot_streams``: the s-file and the stack check read the stack.
 """
 
 from __future__ import annotations
@@ -83,8 +75,12 @@ class DeviceStreams:
     label :
         The word that opens each log line (``non-essential``), or none.
     companions :
-        Plugin cameras among *devices* that also record their gateway stamp
-        (module docstring).
+        Plugin cameras among *devices* whose per-shot stamp a plan needs
+        during the run (optimize's live frames; the stack has it only once
+        finalized): each also gets a :class:`StampStream` on its gateway
+        ``acq_timestamp`` in ``<name>_stamps_stream``
+        (:data:`COMPANION_SUFFIX`) — not one of the run's
+        ``per_shot_streams``, since the s-file reads the stack.
     """
 
     def __init__(
