@@ -213,7 +213,8 @@ def scan_mode_refusal(item: Any, profile: Any) -> Optional[str]:
 
     A trigger profile with ``use_scan_mode`` runs strict only — the worker
     refuses a gated item under it (``plans/scan_mode.scan_mode_preflight``)
-    and a fly item (``registry.strict_plan``: no box, no announce); this
+    and a fly item naming it (``registry.strict_plan``: no box, no announce;
+    a fly item naming no profile resolves none); this
     mirrors that one rule so the scanner's report says so before the queue
     does.  Everything else scan mode checks (the DB endpoint, the
     boundary rows, the announced address) is the worker's alone.
@@ -223,6 +224,8 @@ def scan_mode_refusal(item: Any, profile: Any) -> Optional[str]:
     acquisition = item.kwargs.get("acquisition", "strict")
     if acquisition not in ("gated", "fly"):
         return None
+    if acquisition == "fly" and item.kwargs.get("trigger_profile") is None:
+        return None  # a fly run resolves no default profile
     run = "a gated batch" if acquisition == "gated" else "a fly run"
     return (
         f"trigger profile {getattr(profile, 'name', '?')!r} runs in GEECS scan "

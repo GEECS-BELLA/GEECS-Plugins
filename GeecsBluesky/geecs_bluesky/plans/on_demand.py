@@ -405,6 +405,9 @@ class OnDemand:
     def _settled(self, base: dict[str, Any]) -> None:
         """The slot's counters are judged (a hook: the strict slot keeps nothing)."""
 
+    def restart(self) -> None:
+        """A step's motors just moved (a hook: the strict slot keeps nothing across shots)."""
+
     def _pause(self, reason: str):
         logger.error("pausing the run: %s", reason)
         yield from bps.pause()
@@ -572,6 +575,7 @@ def on_demand_per_step(
     def one_step(detectors: Sequence[Any], step: Any, pos_cache: Any):
         motors = list(step.keys())
         yield from bps.move_per_step(step, pos_cache)
+        run.restart()
         bins.value += 1
         for _ in range(shots_per_step):
             # A checkpoint per shot: a deferred pause lands between shots.

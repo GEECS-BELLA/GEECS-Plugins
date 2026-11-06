@@ -1,28 +1,22 @@
 """Fly mode: a software tick is the shot clock; no timing in the loop.
 
-``acquisition="fly"`` on a bound ``count`` / ``sweep``.  The run is the
-shot-table layout (:mod:`~geecs_bluesky.plans.on_demand`) clocked by a
-**soft-tick witness** (:class:`SoftTickClock`): a timer in the worker that
-publishes the witness contract — a count, a stamp per count, an epoch (the
-run's uid) — at ``shot_period`` (default 1 s).  One ``primary`` row per tick;
-the start document says ``clock: "soft-tick"``, so no reader mistakes a
-tick for a counted shot.
+``acquisition="fly"`` on a bound ``count`` / ``sweep``: the shot-table layout
+clocked by a **soft-tick witness** (:class:`SoftTickClock`: a count, a stamp
+per count, the run's uid as epoch) every ``shot_period`` (default 1 s); the
+start document says ``clock: "soft-tick"``.  **The trigger box is never
+driven** (no state, no fire, no read), and no default profile is resolved: a
+named scan-mode profile is refused, any other ignored.
 
-**The trigger box is never driven**: no state, no fire, no read of it.  A
-Software-source native camera is pressed at each tick and acquires on the
-row's clock (``synchronous``); every other per-shot device free-runs into
-its stream (``asynchronous``: the join samples it last-before, with its age,
-*stale* past a limit) — so a device on a hardware trigger line records only
-while the box already free-runs.
-
-**Completeness.**  A pressed device is complete when its counter moved
-between the read before the tick and the read after the wait (the wait ends
-at the next tick).  A free-running one is complete when it recorded in the
-window ending at the tick, (t_{k-1}, t_k] — what the join's
-last-before rule assigns.  So a required free-running device slower than
-the tick rate holds ticks.  A short tick holds one more tick (a new row,
-``attempt`` + 1) up to the budget, then is flagged; two exhausted in a row
-pause the run with the reason.  Nothing fires, so nothing refires.
+A Software-source native is pressed at each tick (``synchronous``); every
+other per-shot device free-runs (``asynchronous``).  Completeness and the
+join's assignment are one interval rule: a pressed frame in
+[t_k - m, t_k+1 - m) (*m* the stamp budget), a free-runner's record in
+(t_k-1, t_k], stale past a period — so a required free-runner slower than
+the tick holds ticks.  That window is re-opened (counters read again, then
+a full period) at the run's first tick, each step's first and after a
+pause, so it never spans a move or a pause.  A short tick holds another (a
+new row, ``attempt`` + 1) up to the budget, then is flagged; two exhausted
+in a row pause the run, the reason saying the box is not driven.
 """
 
 from __future__ import annotations
@@ -40,13 +34,13 @@ from bluesky.utils import Msg
 from geecs_data_utils.shot_table import (
     ASYNCHRONOUS,
     SOFT_TICK,
+    STAMP_BUDGET_S,
     STREAM_META_KEY,
     SYNCHRONOUS,
 )
 
 from geecs_bluesky.devices.witness import COUNT_KEY, EPOCH_KEY, STAMP_KEY
 from geecs_bluesky.plans.on_demand import (
-    POLL_S,
     OnDemand,
     SlotColumns,
     _until_moved,
@@ -173,22 +167,38 @@ class FlyRun(OnDemand):
         self.pressed = {self.progress[id(d)].name for d in self.presses}
         self._next: float | None = None
         self._prev: dict[str, Any] = {}
+        self._prev_pauses = self._base_pauses = 0
+
+    def restart(self) -> None:
+        """A new step (the motors just moved): the next tick opens a fresh window."""
+        self._next = None
 
     def _throttle(self):
-        if self._next is None:
-            # The first tick waits one period, so row 1 has a window too.
-            self._prev = yield from self._counters()
-            self._next = time.monotonic() + self.period
-        remaining = self._next - time.monotonic()
-        if remaining > 0:
-            yield from bps.sleep(remaining)
+        # The window (t_k-1, t_k] of a free-running device must not span a
+        # move or a pause: at the run's first tick, a step's first tick and
+        # the first tick after a pause the window is re-opened — the
+        # counters read again, then one full period before the tick.
+        while True:
+            if self._next is None or self.clock.pause_count != self._prev_pauses:
+                self._prev_pauses = self.clock.pause_count
+                self._prev = yield from self._counters()
+                self._next = time.monotonic() + self.period
+            remaining = self._next - time.monotonic()
+            if remaining > 0:
+                yield from bps.sleep(remaining)
+            if self.clock.pause_count == self._prev_pauses:
+                break
+        self._base_pauses = self.clock.pause_count
 
     def _fire(self):
-        # An absolute schedule; more than a period late (a pause, an
-        # overrun) re-anchors at now, so no burst of catch-up ticks.
+        # An absolute schedule; a tick that would follow this one by under
+        # half a period (this one late: an overrun, a pause) re-anchors at
+        # now, so no catch-up tick comes right after a late one.
         now = time.monotonic()
         following = (self._next or now) + self.period
-        self._next = following if following > now else now + self.period
+        if following - now < self.period / 2:
+            following = now + self.period
+        self._next = following
         self.clock.tick()
         if self.presses:
             yield from bps.wait_for([self._press])
@@ -197,7 +207,11 @@ class FlyRun(OnDemand):
         pressed = [p for p in self.required if p.name in self.pressed]
         if not pressed:
             return
-        until_next = (self._next or time.monotonic()) - time.monotonic() - POLL_S
+        # The tick's interval [t_k - m, t_k+1 - m), the join's (m the stamp
+        # budget): a frame stamped later is the next row's.
+        until_next = (
+            (self._next or time.monotonic()) - time.monotonic() - STAMP_BUDGET_S
+        )
         budget = max(min(max(p.timeout for p in pressed), until_next), 0.0)
 
         async def wait() -> None:
@@ -214,7 +228,7 @@ class FlyRun(OnDemand):
         return p.moved(self._prev.get(p.name, ()), base[p.name])
 
     def _settled(self, base: dict[str, Any]) -> None:
-        self._prev = base
+        self._prev, self._prev_pauses = base, self._base_pauses
 
     def _verdict(self, base: dict[str, Any], now: dict[str, Any]):
         values = self.columns.values
@@ -233,7 +247,8 @@ def fly_start_keys(
     keys[STREAM_META_KEY] = {
         name: {
             "sync_class": SYNCHRONOUS if name in pressed else ASYNCHRONOUS,
-            "stale_after": None,
+            # One period: the join's freshness is the plan's window.
+            "stale_after": None if name in pressed else run.period,
         }
         for name in streams.names
     }

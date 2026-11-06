@@ -13,6 +13,7 @@ import inspect
 import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from inspect import Parameter
+from types import SimpleNamespace
 from typing import Any
 
 import bluesky.plan_stubs as bps
@@ -598,6 +599,10 @@ def _refuse_twice_listed(per_shot: Sequence[Any]) -> None:
         owners.add(id(owner_of(d)))
 
 
+#: A fly run's stand-in for the trigger box: no box, no scan mode, nothing to judge.
+_NO_BOX = SimpleNamespace(use_scan_mode=False, boxless=False, liveness_signals={})
+
+
 def strict_plan(  # noqa: C901, PLR0915
     stock: Callable[..., Any],
     profiles: TriggerProfiles,
@@ -678,17 +683,26 @@ def strict_plan(  # noqa: C901, PLR0915
                     "shot_period is a strict-mode throttle: a gated batch runs "
                     "at the box's rate (drop shot_period or use acquisition='strict')"
                 )
-        shot_control = profiles.resolve(trigger_profile)
+        fly = acquisition == "fly"
+        # A fly run drives no box, so it resolves no default profile: only a
+        # profile named for it is checked, and refused if it is scan mode.
+        if fly:
+            if (
+                trigger_profile is not None
+                and profiles.resolve(trigger_profile).use_scan_mode
+            ):
+                raise GeecsConfigurationError(
+                    f"trigger profile {trigger_profile!r} runs in GEECS scan "
+                    "mode, which needs a box and a per-shot announce: a fly run "
+                    "drives neither (name no profile, one without "
+                    "use_scan_mode, or use acquisition='strict')"
+                )
+            shot_control: Any = _NO_BOX
+        else:
+            shot_control = profiles.resolve(trigger_profile)
         profile_key = (
             trigger_profile if trigger_profile is not None else profiles.default
         )
-        fly = acquisition == "fly"
-        if fly and shot_control.use_scan_mode:
-            raise GeecsConfigurationError(
-                f"trigger profile {profile_key!r} runs in GEECS scan mode, which "
-                "needs a box and a per-shot announce: a fly run drives neither "
-                "(use a profile without use_scan_mode, or acquisition='strict')"
-            )
         if fly and shot_period is None:
             shot_period = DEFAULT_TICK_PERIOD_S
         bound_args = signature.bind_partial(*args, **kwargs).arguments

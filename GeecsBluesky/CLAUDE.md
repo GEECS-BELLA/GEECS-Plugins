@@ -441,14 +441,18 @@ non-essential stream).  `optimize` runs the same slot and layout (below).
 **Fly** (`plans/fly.py`): the same slot and layout clocked by a
 **soft-tick witness** (`SoftTickClock`: count, stamp, epoch = the run
 uid, every `shot_period`, default 1 s; start `clock: "soft-tick"`).  The
-box is **never driven** — no state, no fire, no liveness read — and a
-scan-mode profile is refused.  A Software-source native is pressed at each
+box is **never driven** — no state, no fire, no liveness read.  A Software-source native is pressed at each
 tick (`synchronous`); every other per-shot device free-runs
-(`asynchronous`, sampled last-before by the join).  Complete: a pressed
-device's frame before the next tick; a free-runner's record in
+(`asynchronous`, sampled last-before by the join, stale past a period).
+The plan's completeness and the join's assignment are one interval rule
+(`EVENT_SCHEMA.md`, "A fly run"): a pressed frame in
+[t<sub>k</sub> − m, t<sub>k+1</sub> − m), a free-runner's record in
 (t<sub>k−1</sub>, t<sub>k</sub>] (a required free-runner slower than the
-tick holds ticks).  Held ticks, flags and the two-in-a-row pause are the
-strict budget's; the pause reason says the box is not driven in fly mode.
+tick holds ticks); the window is re-opened, a full period before the
+tick, at every step's first tick and after a pause.  No default profile
+is resolved; a named scan-mode one is refused.  Held ticks, flags and the
+two-in-a-row pause are the strict budget's; the pause reason says the box
+is not driven in fly mode.
 
 **The witness** (`registry.run_witness`): when the namespace has a
 `main`-domain one, every strict run (`count`, `sweep`, `optimize`) appends

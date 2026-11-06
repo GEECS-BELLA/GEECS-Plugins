@@ -29,11 +29,11 @@ adds:
 | `per_shot_streams` | the bound plan (shot-table) | Every per-shot device's stream, `<device>_stream` (ophyd name), in the run's device order |
 | `required` | the bound plan (shot-table) | The per-shot devices (ophyd names) whose record makes a shot complete: waited on and refired for. Every per-shot device unless the request said `required=` (an empty list: none) |
 | `shot_clock_column` | the bound plan (shot-table) | The row clock: `witness_stamp` when the witness is read (or the run is fly), else `fire_stamp` (both Unix seconds) |
-| `stream_meta` | the bound plan (shot-table) | `{<stream>: {sync_class, stale_after}}`: every strict device stream is `synchronous` (it acquires on the fire), `stale_after` `null`. Fly: a Software-source native camera's stream (pressed at each tick) is `synchronous`, every other stream `asynchronous` (free-running: the join takes its last record at or before the tick, with its age, *stale* past `stale_after`, `null` = two periods) |
+| `stream_meta` | the bound plan (shot-table) | `{<stream>: {sync_class, stale_after}}`: every strict device stream is `synchronous` (it acquires on the fire), `stale_after` `null`. Fly: a Software-source native camera's stream (pressed at each tick) is `synchronous`, `stale_after` `null`; every other stream `asynchronous`, `stale_after` the tick period (free-running; the join's rule is in "A fly run" below) |
 | `clock` | the bound plan (fly) | `"soft-tick"`: the rows are a software timer's ticks (`acquisition: fly`), not counted shots — the `witness_*` columns are the tick's (below). Absent on every other run |
 | `shot_period` | the bound plan | Strict: the requested rep-rate throttle, seconds (absent when none). Fly: the tick period, always written (default 1 s) |
 | `non_essential` | the bound plan (gated; an earlier `optimize`) | The devices streamed for the run beside the rows, by owner name (`<name>_stream`, below); a gated run's are the per-shot devices not `required` |
-| `trigger_profile` | the bound plan | The trigger profile that drove the shots; `null` on a fly run (it drives no box) |
+| `trigger_profile` | the bound plan | The trigger profile that drove the shots; `null` on a fly run (it drives no box and resolves no default profile; a named scan-mode profile is refused) |
 | `use_scan_mode` | the bound plan | Whether the run drove GEECS scan mode — the trigger profile's `use_scan_mode` flag: the devices were told the scan (`ScanStart`) and every shot (its number and save path, before the fire) and released at the close (`ScanEnd`), as under Master Control; each `primary` row then carries `announced_shot` |
 | `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated essential or a non-essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (an earlier strict run), `shots` (gated) or its own `<det>_stream` (a shot-table run's device without a plugin, a non-essential) — a shot-table run's plugin-backed camera in its stream descriptor's configuration instead (`<det>-nonscalar_save_path` under the object `<det>`, a run-long constant: the stream is datum-only). The s-file never carries the column |
 | `background_telemetry` | the bound plan | Whether the run read the background telemetry into its rows: the preset's value, else the experiment default; `False` also when the namespace carries no telemetry set at all (a run whose every candidate is its own device still says `True`, with nothing dropped and no extra column) |
@@ -121,19 +121,27 @@ device whose liveness reads down (the reason in the log).
 
 **A fly run** (`acquisition: fly`, start `clock: "soft-tick"`): one row
 per tick of the worker's timer, `shot_period` apart on an absolute
-schedule (a pause or overrun re-anchors it, never a burst of catch-up
-ticks); the box is never driven.  `witness_count` is the tick's number
-from 1, `witness_stamp` the worker's clock at the tick (Unix s),
-`witness_epoch` the run's uid; no `fire_stamp`, `unwitnessed` or
-`witness_late` column.  A Software-source native camera is pressed at
-each tick and is complete when a frame lands before the next tick; a
-free-running device is complete when it recorded in the window ending at
-the tick, (t<sub>k−1</sub>, t<sub>k</sub>] — so a required free-runner
-slower than the tick rate holds ticks.  An incomplete tick holds one more
+schedule (a tick that would follow a late one by under half a period is
+re-anchored a full period on, so no catch-up tick); the box is never
+driven.  `witness_count` is the tick's number from 1, `witness_stamp` the
+worker's clock at the tick (Unix s), `witness_epoch` the run's uid; no
+`fire_stamp`, `unwitnessed` or `witness_late` column.  **One interval
+rule, the plan's and the join's** (*m* the stamp budget, 30 ms):
+
+| Device | Row *k*'s record | The plan calls it complete when |
+|---|---|---|
+| pressed (Software-source native, `synchronous`) | the first stamped in [t<sub>k</sub> − m, t<sub>k+1</sub> − m), however late in the period (later ones are extras) | its frame lands before t<sub>k+1</sub> − m |
+| free-running (`asynchronous`) | the last at or before t<sub>k</sub>, *stale* when older than one period | it recorded in (t<sub>k−1</sub>, t<sub>k</sub>] |
+
+So a required free-runner slower than the tick rate holds ticks.  The
+window (t<sub>k−1</sub>, t<sub>k</sub>] never spans a move or a pause: at
+the run's first tick, every step's first tick and the first tick after a
+pause the counters are read again and the tick comes a full period
+later.  An incomplete tick holds one more
 (a new row, `attempt` + 1) up to the budget, then is flagged; two
 exhausted in a row pause the run, the reason naming the device and
 saying the box is not driven in fly mode (a device on a hardware trigger
-line records only while the box already free-runs).  A scan-mode
+line records only while the box already free-runs).  A named scan-mode
 profile is refused.
 
 **Every stamp column's epoch**: a device's `<device>-acq_timestamp` (an

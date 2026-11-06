@@ -7,11 +7,13 @@ Software-source native camera writes a frame per press.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 import time
 
 import bluesky.plans as bp
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -20,7 +22,12 @@ pytest.importorskip("aioca")
 from bluesky import RunEngine
 from bluesky.utils import RunEngineInterrupted
 from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET as LV
-from ophyd_async.core import get_mock_execute, set_mock_value, soft_signal_rw
+from ophyd_async.core import (
+    AsyncStatus,
+    get_mock_execute,
+    set_mock_value,
+    soft_signal_rw,
+)
 
 from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
 from geecs_bluesky.exceptions import GeecsConfigurationError
@@ -78,6 +85,10 @@ class FreeRunner:
         self._thread.start()
         return self
 
+    def stop(self) -> None:
+        """No more records."""
+        self._stop.set()
+
     def __exit__(self, *_) -> None:
         self._stop.set()
         self._thread.join()
@@ -118,6 +129,8 @@ def test_a_fly_count_writes_soft_tick_rows_and_never_touches_the_box(
     meta = start["stream_meta"]
     assert meta["adtest_cam1_stream"]["sync_class"] == "synchronous"
     assert meta["u_ps_stream"]["sync_class"] == "asynchronous"
+    assert meta["u_ps_stream"]["stale_after"] == PERIOD
+    assert meta["adtest_cam1_stream"]["stale_after"] is None
     assert start["required"] == ["u_ps", "adtest_cam1"]
     rows = [e["data"] for e in col.primary_events()]
     assert [r["witness_count"] for r in rows] == [1, 2, 3, 4]
@@ -254,16 +267,23 @@ def test_a_scan_mode_profile_is_refused_before_anything_moves(RE, box) -> None:
     col = DocCollector()
     RE.subscribe(col)
     with pytest.raises(GeecsConfigurationError, match="scan mode"):
-        RE(count([cam], 1, acquisition="fly"))
+        RE(count([cam], 1, acquisition="fly", trigger_profile="P"))
     assert box.puts == [] and col.docs["start"] == []
-
-    class Item:
-        kwargs = {"acquisition": "fly"}
+    # The experiment's default profile is not resolved for a fly run at all.
+    RE(count([cam], 1, acquisition="fly", required=[], shot_period=0.05))
+    assert col.docs["start"][0]["use_scan_mode"] is False and box.puts == []
 
     class Profile:
         name, use_scan_mode = "P", True
 
-    assert "a fly run" in (scan_mode_refusal(Item(), Profile()) or "")
+    class Named:
+        kwargs = {"acquisition": "fly", "trigger_profile": "P"}
+
+    class Default:
+        kwargs = {"acquisition": "fly"}
+
+    assert "a fly run" in (scan_mode_refusal(Named(), Profile()) or "")
+    assert scan_mode_refusal(Default(), Profile()) is None
 
 
 def test_a_fly_count_refuses_a_delay(RE, box) -> None:
@@ -272,3 +292,176 @@ def test_a_fly_count_refuses_a_delay(RE, box) -> None:
     with pytest.raises(GeecsConfigurationError, match="tick"):
         RE(count([cam], 2, delay=0.5, acquisition="fly"))
     assert box.puts == []
+
+
+class SlowMotor:
+    """A mover that takes *delay* s to arrive, recording each arrival."""
+
+    parent = None
+
+    def __init__(self, name: str, delay: float) -> None:
+        self.name, self.delay, self.pos = name, delay, 0.0
+        self.arrived: list[float] = []
+
+    def set(self, value):
+        async def go() -> None:
+            await asyncio.sleep(self.delay)
+            self.pos = float(value)
+            self.arrived.append(time.time())
+
+        return AsyncStatus(go())
+
+    def read(self):
+        return {self.name: {"value": self.pos, "timestamp": time.time()}}
+
+    def describe(self):
+        return {self.name: {"source": "m", "dtype": "number", "shape": []}}
+
+
+def test_a_step_s_first_tick_opens_a_fresh_window_after_the_move(RE, box) -> None:
+    """A free-runner's record from during the move never completes the step's first row."""
+    free = _camera(RE, box, "U_PS")
+    motor = SlowMotor("m", 4 * PERIOD)
+    streams = DeviceStreams([free], dual_write=True)
+    clock, keys, hook = bind_fly(
+        streams, [free], hook="per_step", shots_per_step=2, period=PERIOD
+    )
+    col = DocCollector()
+    RE.subscribe(col)
+    with FreeRunner(RE, free, every=0.05) as runner:
+        RE(
+            clock.wrap(
+                streams.wrap(bp.scan([clock], motor, 0, 1, 2, per_step=hook, md=keys))
+            )
+        )
+    rows = [e["data"] for e in col.primary_events()]
+    stamps = np.array(runner.stamps) - LV
+    for arrival, position in zip(motor.arrived, (0.0, 1.0), strict=True):
+        first = next(r for r in rows if r["m"] == position)
+        assert first["witness_stamp"] - arrival >= 0.9 * PERIOD
+        last_before = stamps[stamps <= first["witness_stamp"]].max()
+        assert last_before >= arrival and first["complete"]
+
+
+def test_a_pause_reopens_the_window_so_a_device_stopped_in_it_completes_nothing(
+    RE, box, tmp_path
+) -> None:
+    """The free-runner records into the pause, then stops: no row after the resume is complete."""
+    count = _count(RE, box)
+    free = _camera(RE, box, "U_PS")
+    runner = FreeRunner(RE, free)
+    stopped = threading.Event()
+
+    def pause_then_stop() -> None:
+        RE.request_pause(defer=False)
+        time.sleep(0.1)  # it still records, inside the pause
+        runner.stop()
+        stopped.set()
+
+    def at_press(n: int) -> None:
+        if n == 2:
+            threading.Thread(target=pause_then_stop).start()
+
+    native, _ = _pressed(RE, tmp_path, on_press=at_press)
+    col = DocCollector()
+    RE.subscribe(col)
+    with runner:
+        with pytest.raises(RunEngineInterrupted):
+            RE(
+                count(
+                    [free, native],
+                    3,
+                    acquisition="fly",
+                    shot_period=PERIOD,
+                    required=[free],
+                )
+            )
+        stopped.wait(5)
+        RE.resume()
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["complete"] for r in rows] == [True, True, False, False, False]
+    assert rows[1]["interrupted"]
+
+
+def test_a_required_free_runner_going_quiet_is_incomplete_from_then_on(
+    RE, box, tmp_path
+) -> None:
+    """Records only at presses 1 and 2: each completes the next window, then nothing does."""
+    count = _count(RE, box)
+    free = _camera(RE, box, "U_PS")
+
+    def record(n: int) -> None:
+        if n <= 2:
+            set_mock_value(free.acq_timestamp, time.time() + LV)
+
+    native, _ = _pressed(RE, tmp_path, on_press=record)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([free, native], 3, acquisition="fly", shot_period=0.05, required=[free]))
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["complete"] for r in rows] == [False, True, True, False, False, False]
+    assert [r["attempt"] for r in rows] == [1, 2, 1, 1, 2, 3]
+
+
+class _SlowOnce:
+    """A condition whose *n*-th read takes *delay* s (a slot that overruns)."""
+
+    name, parent = "u_cond", None
+
+    def __init__(self, n: int, delay: float) -> None:
+        self.n, self.delay, self.reads = n, delay, 0
+
+    async def read(self):
+        self.reads += 1
+        if self.reads == self.n:
+            await asyncio.sleep(self.delay)
+        return {"u_cond-x": {"value": 1.0, "timestamp": time.time()}}
+
+    async def describe(self):
+        return {"u_cond-x": {"source": "test", "dtype": "number", "shape": []}}
+
+
+def test_a_late_tick_is_not_followed_by_a_catch_up_tick(RE, box) -> None:
+    """Slot 2 overruns to 0.9 P past tick 3's time: tick 4 still comes a period after tick 3."""
+    count = _count(RE, box)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([_SlowOnce(2, 1.9 * PERIOD)], 5, acquisition="fly", shot_period=PERIOD))
+    stamps = [e["data"]["witness_stamp"] for e in col.primary_events()]
+    gaps = np.diff(stamps)
+    assert gaps.min() > 0.5 * PERIOD, gaps
+
+
+def test_the_bound_sweep_flies_two_ticks_per_bin_and_never_touches_the_box(
+    RE, box, tmp_path
+) -> None:
+    """Through ``strict_plan``: the sweep payload, its movers, every wrapper; the run uid as epoch."""
+    from tests.test_callbacks import Magnet, follow_setpoint, range_payload
+
+    sc = ShotControl(WRITES, experiment="TestExp", name="box", setter_factory=box)
+    connect_mock(RE, sc)
+    axes: dict = {}
+    sweep = bind_plans(TriggerProfiles({"P": sc}, default="P"), settables=axes)["sweep"]
+    magnet = Magnet()
+    axes["Motor"] = magnet.current
+    connect_mock(RE, magnet)
+    follow_setpoint(magnet.current)
+    native, presses = _pressed(RE, tmp_path)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(
+        sweep(
+            [native],
+            sweep=range_payload(2),
+            shots_per_step=2,
+            acquisition="fly",
+            shot_period=0.05,
+        )
+    )
+    start = col.docs["start"][0]
+    rows = [e["data"] for e in col.primary_events()]
+    assert {r["witness_epoch"] for r in rows} == {start["uid"]}
+    assert [r["bin_number"] for r in rows] == [1, 1, 2, 2]
+    assert all(r["complete"] for r in rows) and len(presses) == 4
+    assert box.puts == [] and box.fires == 0
+    assert col.docs["stop"][-1]["exit_status"] == "success"
