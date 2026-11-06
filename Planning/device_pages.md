@@ -435,4 +435,9 @@ now says "per device and array"; `pressed`, a control rule, moved to
 `camera_rules.js` beside `control`. Left for the camera slice: the camera
 page draws its own Start | Stop pair (no pressed state, the opposite order
 to `Panel.buttons`' 0-then-1); when the camera page moves onto the panel's
-hints it takes `buttons` and `pressed` and the two pages agree.
+hints it takes `buttons` and `pressed` and the two pages agree. The
+maintainer's GPT round found one more: after a switch the last array's
+plot stayed drawn (under the new toggle and chip) until the new array's
+first capture, indefinitely if its reads kept failing; the plot is now
+hidden until then, the window kept, pinned by a harness running the real
+`trace.js`.

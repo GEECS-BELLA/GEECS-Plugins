@@ -102,6 +102,10 @@
   draw = function () {
     const log = yscale.value === "log", yl = yInfo();
     let drawn = 0;
+    // No capture of the shown array yet (the first, or just after a switch): the plot is hidden, never left
+    // showing the last array under this one's toggle and chip. `visibility`, not `display`: the plot keeps its
+    // size and Plotly its state, so the viewer's window is drawn again when the array's capture arrives.
+    host.style.visibility = shown ? "" : "hidden";
     if (shown) {
       const now = `${shown.channels}×${shown.samples}`;
       if (shape !== null && now !== shape) win = null;

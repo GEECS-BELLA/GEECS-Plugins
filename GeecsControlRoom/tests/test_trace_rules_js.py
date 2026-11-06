@@ -168,3 +168,96 @@ async def test_the_page_decodes_the_trace_the_route_serves() -> None:
     assert got["log"] == {"moves": 1, "lines": 199, "positive": True, "lowest": 1}
     assert got["logGap"] == [[0, 1], None, [3, 3]]
     assert got["linear"] == [[0, -1], [9, 9]]
+
+
+# The real trace.js in a VM over a fake page: the module's frames, Plotly, fetch and the poll timer are the
+# harness's, the rules trace_rules.js's own. Load raw, switch to processed, fail its reads: the previous
+# array's plot must not stay up under the new array's toggle and chip; the viewer's x window survives.
+_PAGE = r"""
+const vm = require("vm"), fs = require("fs"), path = require("path");
+const dir = path.dirname(process.argv[1]);
+const R = require(path.join(dir, "trace_rules.js"));
+const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+const timers = [];
+function el(props = {}) {
+  const on = {};
+  return Object.assign({ dataset: {}, style: {}, hidden: false, textContent: "", value: "", disabled: false, title: "", attrs: {},
+    setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k]; },
+    addEventListener(t, f) { (on[t] = on[t] || []).push(f); }, fire(t, ev) { (on[t] || []).forEach((f) => f(ev)); },
+    querySelector() { return el(); }, querySelectorAll() { return []; } }, props);
+}
+const ys = [{ role: "spectrum", label: "raw spectrum", units: "counts", counter: "arr_counter" },
+            { role: "processed", label: "processed spectrum", units: "counts", counter: "proc_counter" }];
+const yButtons = ys.map((y) => el({ dataset: { y: y.role } }));
+const box = el({ dataset: { traceUrl: "/api/devices/cct1/trace", xLabel: "wavelength", xUnits: "nm" },
+  querySelectorAll: (sel) => (sel === "#yrole [data-y]" ? yButtons : []) });
+const relayout = [];
+const host = el({ clientWidth: 400, on: (t, f) => { if (t === "plotly_relayout") relayout.push(f); } });
+const ids = { trace: box, "trace-plot": host, "kit-state": el({ textContent: "{}" }), "trace-ys": el({ textContent: JSON.stringify(ys) }),
+  "trace-show-while": el({ textContent: JSON.stringify({ processed: "background_enable" }) }), yscale: el({ value: "linear" }),
+  average: el({ value: "1" }), alarms: el(), "trace-state": el(), "plot-note": el(), "trace-error": el(), "trace-error-text": el(), rate: el() };
+const Plotly = { calls: [], react(h, data, layout) { this.calls.push({ data, layout }); } };
+const answers = [], asked = [];
+function answer(a) {
+  if (a.status !== 200) return { status: a.status, headers: { get: () => null }, json: async () => ({ detail: "processed unreadable" }) };
+  const body = Float32Array.from([...a.axis, ...a.y]);
+  const hdr = { "X-Trace-Channels": "1", "X-Trace-Samples": String(a.axis.length), "X-Trace-Tag": `"${a.tag}"`, ETag: `"${a.tag}"` };
+  return { status: 200, headers: { get: (k) => hdr[k] ?? null }, arrayBuffer: async () => body.buffer };
+}
+const window = {
+  GeecsTraceRules: R,
+  GeecsDevicePage: { frame: () => undefined, view: () => ({ ok: true, roles: {} }), entry: () => undefined, meta: () => ({}), word: () => "live", on() {} },
+  GeecsDeviceWrites: { make: () => ({ write: async () => true, busy: () => false }) },
+  GeecsPlot: { axisFormat: () => ({}), layout: (o) => o, config: () => ({}), watch() {} },
+  Plotly,
+};
+const document = { getElementById: (id) => ids[id] || null, hidden: false, activeElement: null, addEventListener() {} };
+const fetch = async (url) => { asked.push(url); return answer(answers.shift()); };
+const ctx = vm.createContext({ window, document, fetch, performance: { now: () => Date.now() }, console,
+  setTimeout: (f) => { timers.push(f); return timers.length; }, clearTimeout() {} });
+const shown = () => {
+  const last = Plotly.calls[Plotly.calls.length - 1];
+  const live = !!last && last.data.length > 0 && host.style.visibility !== "hidden";
+  return { calls: Plotly.calls.length, live, name: live ? last.data[0].name : null, title: live ? last.layout.yaxis.title.text : null,
+           xs: live ? last.data[0].x.filter((v) => v !== null) : null, error: ids["trace-error-text"].textContent };
+};
+const tick = async () => { timers.shift()(); await flush(); };
+(async () => {
+  const out = {};
+  answers.push({ status: 200, axis: [0, 1, 2, 3], y: [10, 11, 12, 13], tag: 5 });
+  vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
+  await flush();
+  out.raw = shown();
+  relayout.forEach((f) => f({ "xaxis.range[0]": 1, "xaxis.range[1]": 2 })); // the viewer's window
+  out.window = shown();
+  yButtons[1].fire("click");
+  out.switched = shown();
+  for (let i = 0; i < 3; i++) { answers.push({ status: 503 }); await tick(); }
+  out.failing = shown();
+  answers.push({ status: 200, axis: [0, 1, 2, 3], y: [20, 21, 22, 23], tag: 5 });
+  await tick();
+  out.processed = shown();
+  out.asked = asked;
+  out.pressed = yButtons.map((b) => b.getAttribute("aria-pressed"));
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+@needs_node
+def test_switching_arrays_never_leaves_the_last_arrays_plot_up() -> None:
+    page = run("trace.js", _PAGE)
+    assert page["raw"]["live"] and page["raw"]["name"] == "raw spectrum"
+    assert page["window"]["xs"] == [1, 2]  # the viewer's window, drawn
+    # switched, and while every processed read fails: no plot shown, the toggle and the words say processed
+    for state in ("switched", "failing"):
+        assert not page[state]["live"], state
+    assert page["failing"]["error"] == "processed unreadable"
+    # the processed capture arrives: drawn under its own label, in the viewer's window
+    after = page["processed"]
+    assert after["live"] and (after["name"], after["title"]) == ("processed spectrum", "processed spectrum (counts)")  # fmt: skip
+    assert after["xs"] == [1, 2] and after["error"] == ""
+    assert page["asked"][0].endswith("?y=spectrum") and page["asked"][-1].endswith(
+        "?y=processed"
+    )
+    assert page["pressed"] == ["false", "true"]

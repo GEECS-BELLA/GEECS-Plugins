@@ -307,8 +307,11 @@ template; the template drops an array the device omits). With several, the
 page's Show toggle picks one (`trace_rules.shownY`): the viewer's pick, else
 the first whose panel `show_while` role reads 1 (the spectrometer's
 `processed` while `background_enable` is on), else the first. A switch
-starts the average afresh, asks with no `ETag`, and drops an answer still in
-flight for the last array. A group whose roles
+starts the average afresh, asks with no `ETag`, drops an answer still in
+flight for the last array, and hides the plot (`visibility`, so the
+viewer's window survives) until the new array's first capture: the last
+array is never left drawn under the new one's toggle and chip (pinned by
+running `trace.js` itself over a fake page in `test_trace_rules_js.py`). A group whose roles
 are all `ch_<x>_…` is hidden while `ch_<x>_present` reads 0 (and its
 readings with it); unknown keeps it shown. Controls are filled, enabled and
 written exactly as the camera's (`camera_rules.control`, the module's put
