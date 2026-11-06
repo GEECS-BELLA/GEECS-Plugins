@@ -43,6 +43,20 @@
 
 /* The image strip, as a grid or one scrolling row; the tiles across are
    the element's own style (the template, and plotter.js on a change). */
+/* The Images page's camera rows: each its toolbar over its tiles. */
+.kit .strips { display: flex; flex-direction: column; gap: var(--gap); }
+/* Stacked rows: the bar fits the end column every row keeps. */
+.kit .strips.many .strip-bar-cell img { max-width: 100%; object-fit: contain; object-position: left center; }
+.kit .strips.many .cam + .cam { border-top: var(--bw) solid var(--rule); padding-top: var(--gap); }
+.kit .cam { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.kit .cam-bar { flex-wrap: wrap; gap: 6px; align-items: center; }
+.kit .cam-bar .cam-pick { width: min(16rem, 100%); }
+.kit .cam-bar .cam-pick .combo { width: 100%; }
+/* The grid's one colour bar (a shared or fixed z scale): upright in the
+   cell after the last tile, its height the tiles' picture height (plotter.js). */
+.kit .strip-bar-cell { margin: 0; min-width: 0; }
+.kit .strip-bar-cell[hidden] { display: none; }
+.kit .strip-bar-cell img { display: block; width: auto; max-width: 100%; height: auto; }
 .kit .strip { display: grid; gap: var(--gap); align-items: start; }
 .kit .strip.row { grid-auto-flow: column; overflow-x: auto; padding-bottom: var(--gap); }
 .kit .tile { margin: 0; min-width: 0; }
@@ -96,3 +110,15 @@
 .kit .scan-row { gap: 6px; flex-wrap: nowrap; }
 .kit .scan-row .field { flex: 1 1 auto; min-width: 0; }
 .kit .scan-row .scan-field { flex: 0 1 5.5em; }
+
+/* The picker popover's "How to filter" (a native details under the list). */
+.kit .combo-help { margin-top: 4px; font-size: 0.85em; }
+.kit .combo-help summary { cursor: pointer; color: var(--accent); }
+.kit .combo-help ul { margin: 4px 0 0; padding-left: 1.1em; max-width: 22rem; }
+.kit .combo-help li + li { margin-top: 2px; }
+.kit .filter-help .dbody p { margin: 0 0 6px; }
+
+/* The shot filters' lines read as a sentence and wrap in the drawer. */
+.kit #filters-drawer .frow { flex-wrap: wrap; }
+.kit #filters-drawer .frow select.col { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
+.kit #filters-drawer .frow input.val { width: 8rem; }

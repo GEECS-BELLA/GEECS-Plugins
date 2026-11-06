@@ -157,6 +157,26 @@
   const scanBox = document.querySelector("[data-auto-open]");
   if (scanBox) stepper(scanBox, () => Boolean(form.elements.day.value));
 
+  // The background scan (the Images page): its day and number write the
+  // form's bg field (YYYY-MM-DD:N) and reload; "none" clears it.
+  const bgField = form && form.elements.bg;
+  const bgDay = document.querySelector("[data-bg-day]");
+  const bgScan = document.querySelector("[data-bg-scan]");
+  if (bgField && bgDay && bgScan) {
+    const saveBg = () => {
+      const scan = Number(bgScan.value);
+      if (!bgDay.value || !Number.isInteger(scan) || scan < 1) return;
+      bgField.value = `${bgDay.value}:${scan}`;
+      form.requestSubmit();
+    };
+    bgScan.addEventListener("change", saveBg);
+    bgDay.addEventListener("change", saveBg);
+    document.querySelector("[data-bg-clear]")?.addEventListener("click", () => {
+      bgField.value = "";
+      form.requestSubmit();
+    });
+  }
+
   // The two-way toggles (name | alias, X = scan variable): set the hidden
   // field and resubmit; the filters ride along in the form.
   for (const button of document.querySelectorAll("[data-toggle-for]")) {
@@ -339,114 +359,169 @@
     });
   }
 
-  // The image strip. Tiles across, the colour map and the levels redraw in
-  // place (no reload) and save into the set as they change; a tile with no
-  // image says why, from the server's answer. The display half of a tile's
-  // URL is built here as pages.display_query builds it.
-  const strip = document.getElementById("strip");
-  if (strip) {
-    const tiles = Array.from(strip.querySelectorAll("img[data-tile]"));
+  // The Images page: one strip per camera row. Each row's colour map and
+  // levels redraw in place (no reload) and save into the set as they
+  // change; tiles across is every row's. A tile with no image says why,
+  // from the server's answer. A tile URL's display half is built here as
+  // pages.display_query builds it.
+  const stripEls = Array.from(document.querySelectorAll(".strip[data-cam]"));
+  if (stripEls.length) {
     const value = (name) => (form.elements[name] ? form.elements[name].value : "");
-    const zscale = strip.dataset.zscale;
-    let shared = null;  // [black, white] for the shared z scale, once read
-    const display = () => {
-      const query = new URLSearchParams({ cmap: value("cmap") });
-      if (strip.dataset.roi) query.set("roi", strip.dataset.roi);
-      const levels = zscale === "fixed" ? [value("zmin"), value("zmax")]
-        : zscale === "shared" && shared ? shared.map(String) : null;
-      if (levels && levels.every((v) => v !== "")) {
-        query.set("zmin", levels[0]);
-        query.set("zmax", levels[1]);
-      }
-      return query;
-    };
-    const drawTiles = () => {
-      for (const img of tiles) {
-        img.closest(".tile").classList.remove("missing");
-        img.src = `${img.dataset.tile}&${display()}`;
-      }
-    };
-    // The shared z scale reads every tile first (the server's
-    // /api/images/levels), then draws them all on that one scale.
-    const sharedNote = document.getElementById("shared-levels");
-    const readShared = () => {
-      const url = new URL(strip.dataset.levelsUrl, location.href);
-      if (sharedNote) sharedNote.textContent = "reading every tile…";
-      return fetch(url)
-        .then((response) => response.json().then((body) => ({ response, body })))
-        .then(({ response, body }) => {
-          if (!response.ok) throw new Error(String(body.detail || response.statusText));
-          shared = [body.zmin, body.zmax];
-          if (sharedNote) sharedNote.textContent =
-            `${body.zmin.toPrecision(4)} to ${body.zmax.toPrecision(4)}, over ${body.tiles} tiles`;
-          drawTiles();
-        })
-        .catch((error) => {
-          shared = null;
-          if (sharedNote) sharedNote.textContent = `no shared scale: ${error.message}`;
-          drawTiles();  // each tile its own window, rather than nothing
-        });
-    };
-    if (zscale === "shared") readShared();
+    // A camera's form field: the first camera's name, "@" and its place.
+    const fieldOf = (name, cam) => (cam === 1 ? name : `${name}@${cam}`);
+    // The end column every stacked camera row keeps for its colour bar.
+    const BAR_COLUMN = "3.5rem";
+    const rows = new Map(stripEls.map((strip) => [Number(strip.dataset.cam), stripRow(strip)]));
 
-    // Tiles across, as the template writes it: equal columns in a grid; in
-    // one row, that many tiles spread evenly over the whole scan (the
-    // first, the last and evenly between), the rest hidden — the big view
-    // still steps through every one.
-    const across = (n) => {
-      if (strip.classList.contains("row")) {
-        strip.style.gridAutoColumns = `calc((100% - ${n - 1} * var(--gap)) / ${n})`;
-        const figures = tiles.map((img) => img.closest(".tile"));
-        const total = figures.length;
-        const shown = new Set(total <= n ? figures.keys()
-          : Array.from({ length: n }, (_, i) => Math.round((i * (total - 1)) / Math.max(n - 1, 1))));
-        figures.forEach((figure, i) => { figure.hidden = !shown.has(i); });
-      } else {
-        strip.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
+    function stripRow(strip) {
+      const cam = Number(strip.dataset.cam);
+      const own = (name) => value(fieldOf(name, cam));
+      const tiles = Array.from(strip.querySelectorAll("img[data-tile]"));
+      const zscale = strip.dataset.zscale;
+      let shared = null;  // [black, white] for the shared z scale, once read
+      const display = () => {
+        const query = new URLSearchParams({ cmap: own("cmap") });
+        if (strip.dataset.roi) query.set("roi", strip.dataset.roi);
+        const levels = zscale === "fixed" ? [own("zmin"), own("zmax")]
+          : zscale === "shared" && shared ? shared.map(String) : null;
+        if (levels && levels.every((v) => v !== "")) {
+          query.set("zmin", levels[0]);
+          query.set("zmax", levels[1]);
+        } else if (strip.dataset.cbar === "true") {
+          query.set("cbar", "true");  // a tile scaling itself carries its own bar
+        }
+        return query;
+      };
+      // On one scale (shared or fixed) the row has one colour bar instead:
+      // upright, in the cell after the last tile, as tall as a tile's picture.
+      const barCell = strip.querySelector(".strip-bar-cell");
+      const gridBar = barCell && barCell.querySelector("img");
+      const fitGridBar = () => {
+        const shown = tiles.find((img) => img.offsetHeight > 0 && !img.closest(".tile").hidden);
+        if (gridBar && shown) gridBar.style.height = `${shown.offsetHeight}px`;
+      };
+      const drawGridBar = (query) => {
+        if (!gridBar) return;
+        const lo = Number(query.get("zmin"));
+        const hi = Number(query.get("zmax"));
+        const one = strip.dataset.cbar === "true" && query.has("zmin") && hi > lo;
+        barCell.hidden = !one;
+        across(Number(value("cols")) || 1);  // the bar's narrow column, or none
+        if (!one) { gridBar.removeAttribute("src"); return; }
+        const bar = new URLSearchParams({ cmap: query.get("cmap"), zmin: query.get("zmin"), zmax: query.get("zmax"), vertical: "true" });
+        gridBar.src = `${gridBar.dataset.bar}?${bar}`;
+        fitGridBar();
+      };
+      if (gridBar) {
+        for (const img of tiles) img.addEventListener("load", fitGridBar);
+        window.addEventListener("resize", fitGridBar);
       }
-    };
-    across(Number(value("cols")) || 1);
+      const drawTiles = () => {
+        const query = display();
+        for (const img of tiles) {
+          img.closest(".tile").classList.remove("missing");
+          img.src = `${img.dataset.tile}&${query}`;
+        }
+        drawGridBar(query);
+      };
+      // The shared z scale reads every tile first (the server's
+      // /api/images/levels), then draws them all on that one scale.
+      const sharedNote = document.querySelector(`[data-shared-for="${cam}"]`);
+      const readShared = () => {
+        const url = new URL(strip.dataset.levelsUrl, location.href);
+        if (sharedNote) sharedNote.textContent = "reading every tile…";
+        return fetch(url)
+          .then((response) => response.json().then((body) => ({ response, body })))
+          .then(({ response, body }) => {
+            if (!response.ok) throw new Error(String(body.detail || response.statusText));
+            shared = [body.zmin, body.zmax];
+            if (sharedNote) sharedNote.textContent =
+              `shared scale ${body.zmin.toPrecision(4)} to ${body.zmax.toPrecision(4)}, over ${body.tiles} tiles`;
+            drawTiles();
+          })
+          .catch((error) => {
+            shared = null;
+            if (sharedNote) sharedNote.textContent = `no shared scale: ${error.message}`;
+            drawTiles();  // each tile its own window, rather than nothing
+          });
+      };
+      if (zscale === "shared") readShared();
+      else drawGridBar(display());  // a fixed scale's bar, from the page's levels
+
+      // Tiles across, as the template writes it: equal columns in a grid; in
+      // one row, that many tiles spread evenly over the whole scan (the
+      // first, the last and evenly between), the rest hidden — the big view
+      // still steps through every one.
+      // A row's colour bar (a shared or fixed scale) takes a narrow column
+      // of its own after the tiles, never a tile's width.
+      function across(n) {
+        if (strip.classList.contains("row")) {
+          const figures = tiles.map((img) => img.closest(".tile"));
+          const total = figures.length;
+          const shown = new Set(total <= n ? figures.keys()
+            : Array.from({ length: n }, (_, i) => Math.round((i * (total - 1)) / Math.max(n - 1, 1))));
+          figures.forEach((figure, i) => { figure.hidden = !shown.has(i); });
+          // Stacked cameras all keep the same end column, bar or not, so
+          // their tiles line up bin by bin.
+          const many = Boolean(strip.closest(".strips.many"));
+          const bar = many ? ` ${BAR_COLUMN}` : barCell && !barCell.hidden ? " auto" : "";
+          strip.style.gridAutoColumns = "";
+          strip.style.gridTemplateColumns = `repeat(${shown.size}, minmax(0, 1fr))${bar}`;
+        } else {
+          strip.style.gridTemplateColumns = `repeat(${n}, minmax(0, 1fr))`;
+        }
+        fitGridBar();
+      }
+      across(Number(value("cols")) || 1);
+      for (const img of tiles) {
+        img.addEventListener("error", () => {
+          const tile = img.closest(".tile");
+          const caption = tile.querySelector("figcaption");
+          tile.classList.add("missing");
+          fetch(img.src)
+            .then((response) => response.json())
+            .then((body) => { caption.dataset.reason = String(body.detail || "no image"); })
+            .catch(() => { caption.dataset.reason = "no image"; });
+        });
+      }
+      return { cam, strip, own, drawTiles, across };
+    }
+
     let redraw = null;
     for (const control of document.querySelectorAll("[data-live]")) {
       control.addEventListener(control.tagName === "SELECT" ? "change" : "input", () => {
+        const cam = Number(control.dataset.cam || 0);
+        const row = rows.get(cam);
         // The warning the page draws for white not above black, kept true
         // as the fixed levels are typed (or one is cleared).
-        const warning = document.getElementById("level-warning");
-        if (warning && (control.name === "zmin" || control.name === "zmax")) {
-          const [lo, hi] = [value("zmin"), value("zmax")];
+        const warning = document.getElementById(`level-warning${cam > 1 ? `@${cam}` : ""}`);
+        if (warning && row && /^zm(in|ax)/.test(control.name)) {
+          const [lo, hi] = [row.own("zmin"), row.own("zmax")];
           warning.hidden = lo === "" || hi === "" || Number(hi) > Number(lo);
         }
         if (!control.checkValidity() || control.value === "") return;
         clearTimeout(redraw);
         redraw = setTimeout(() => {
-          if (control.name === "cols") across(Number(control.value));
-          else drawTiles();
+          if (control.name === "cols") rows.forEach((r) => r.across(Number(control.value)));
+          else if (row) row.drawTiles();
           saveField(control.name, control.value);
         }, AUTO_OPEN_MS);
       });
     }
-    for (const img of tiles) {
-      img.addEventListener("error", () => {
-        const tile = img.closest(".tile");
-        const caption = tile.querySelector("figcaption");
-        tile.classList.add("missing");
-        fetch(img.src)
-          .then((response) => response.json())
-          .then((body) => { caption.dataset.reason = String(body.detail || "no image"); })
-          .catch(() => { caption.dataset.reason = "no image"; });
-      });
-    }
 
-    // The ROI, kept per camera: saved with the camera's name, then the page
-    // reloads so every tile (and a shared scale) is taken over it.
-    const saveRoi = (roi) => {
+    // The ROI, kept per camera: saved with the camera's name (the first) or
+    // as its row's roi@N, then the page reloads so every tile (and a shared
+    // scale) is taken over it.
+    const saveRoi = (row, roi) => {
       const shown = form.elements.set.value;
       // Under someone else's set the ROI goes into the viewer's own, copied
       // from the shown one, and the page then opens the viewer's set.
       if (!owner) { form.requestSubmit(); return Promise.resolve(); }  // asks the name
       const set = owner;
       const url = new URL(`api/settings/${encodeURIComponent(set)}`, form.action);
-      const body = new URLSearchParams({ device: strip.dataset.device, roi });
+      const body = row.cam === 1
+        ? new URLSearchParams({ device: row.strip.dataset.device, roi })
+        : new URLSearchParams({ [fieldOf("roi", row.cam)]: roi });
       if (set !== shown) body.set("copy_from", shown);
       const reopen = () => {
         if (set === shown) { location.reload(); return; }
@@ -463,22 +538,27 @@
           if (problem) { problem.textContent = `Not saved: ${error.message}`; problem.hidden = false; }
         });
     };
-    document.querySelector("[data-roi-clear]")?.addEventListener("click", () => saveRoi(""));
+    for (const button of document.querySelectorAll("[data-roi-clear]")) {
+      const row = rows.get(Number(button.dataset.roiClear));
+      if (row) button.addEventListener("click", () => saveRoi(row, ""));
+    }
     const drawerEl = document.getElementById("roi-drawer");
-    const opener = document.querySelector("[data-roi-open]");
     // kit.js loads after this script, so the drawer is asked for on click.
-    if (drawerEl && opener) roiDrawer(drawerEl, opener, saveRoi);
+    if (drawerEl) roiDrawer(drawerEl, rows, saveRoi);
   }
 
   // The ROI drawer: the camera's first tile, whole, with a rectangle drawn
   // by dragging (or typed in the four boxes), in the image's own pixels.
-  function roiDrawer(drawerEl, opener, saveRoi) {
+  // One drawer serves every camera row: its ROI… button says which.
+  function roiDrawer(drawerEl, rows, saveRoi) {
     const image = document.getElementById("roi-image");
     const box = document.getElementById("roi-box");
     const stage = document.getElementById("roi-stage");
+    const title = document.getElementById("roi-drawer-title");
     const boxes = ["x0", "y0", "x1", "y1"].map((k) => document.getElementById(`roi-${k}`));
     const size = document.getElementById("roi-size");
     let roi = null;  // [x0, y0, x1, y1] in image pixels
+    let current = null;  // the camera row being drawn on
     const scale = () => image.clientWidth / (image.naturalWidth || 1);
     const show = () => {
       box.hidden = !roi;
@@ -523,16 +603,24 @@
     }
     image.addEventListener("load", show);
     window.addEventListener("resize", show);
-    opener.addEventListener("click", () => {
-      const saved = strip.dataset.roi;
-      roi = saved ? saved.split(",").map(Number) : null;
-      // The whole image, in the strip's colour map and each tile's window.
-      const query = new URLSearchParams({ cmap: form.elements.cmap.value });
-      image.src = `${strip.dataset.fullUrl}&${query}`;
-      if (window.GeecsKit) window.GeecsKit.drawer(drawerEl).open(opener);
-      show();
+    for (const opener of document.querySelectorAll("[data-roi-open]")) {
+      const row = rows.get(Number(opener.dataset.roiOpen));
+      if (!row) continue;
+      opener.addEventListener("click", () => {
+        current = row;
+        const saved = row.strip.dataset.roi;
+        roi = saved ? saved.split(",").map(Number) : null;
+        if (title) title.textContent = `ROI · ${row.strip.dataset.device}`;
+        // The whole image, in the row's colour map and each tile's window.
+        const query = new URLSearchParams({ cmap: row.own("cmap") });
+        image.src = `${row.strip.dataset.fullUrl}&${query}`;
+        if (window.GeecsKit) window.GeecsKit.drawer(drawerEl).open(opener);
+        show();
+      });
+    }
+    document.getElementById("roi-apply").addEventListener("click", () => {
+      if (current) saveRoi(current, roi ? roi.join(",") : "");
     });
-    document.getElementById("roi-apply").addEventListener("click", () => saveRoi(roi ? roi.join(",") : ""));
   }
 
   const host = document.getElementById("plot");

@@ -873,18 +873,51 @@ pages: the page form's `page` field says which one a save reopens
 (`pages._opened`), and its `tab` field carries the Plot page's view (XY
 plot or 2-D map), so a save here never moves the Plot page; a set an
 older copy saved on its strip (`tab="images"`) opens the XY plot.
-The rail is the strip's (camera, bins or shots, layout, colour map, z
-scale, ROI). `plotter/static/images.js` draws the **big view**: the tile
-clicked (or stepped to with ‹ ›) at full size: the tile's own picture
+The rail holds what every camera shares (per bin / per shot / one per
+bin, layout, tiles across); each camera's row has its own toolbar
+(camera, colour map, z scale and levels, X-ray-hit filter, centring,
+colour bar, ROI).
+
+**Stacked cameras** (the author, 2026-11-03): `+ Add camera` stacks up
+to `MAX_CAMERAS` rows, one line each, over the same tiles, so a bin
+reads down the page. The first camera is the set's flat `image_*`
+fields (an older set opens unchanged); the others are
+`PlotterSettings.image_more` (`ImageCamera`: the same choices without
+the prefix), their form fields the first camera's names with `@` and
+the place (`cmap@2`, `roi@3`, `settings.camera_field`), parsed in
+`settings._more_cameras` by the first camera's rules; `addcam` /
+`dropcam` add and remove. ROIs stay per device in `image_rois`. Each row
+is one `.strip[data-cam]` (`id="strip"`, then `strip@2`, ...); a row on
+one scale keeps its bar in an end column every stacked row reserves, so
+the columns line up. A trace device shows only as the one camera.
+`plotter/static/images.js` draws the **big view**: the tile
+clicked (or stepped to with ‹ › along its camera's row; a click on another
+row moves it to that camera) at full size: the tile's own picture
 (its ROI, levels and colour map), redrawn whenever the tile's picture
 changes (a shared z scale read late, a new colour map) through a
 `MutationObserver`. With a recipe picked, a shot is the portal's
 processing preview instead (`image.png?processing=`, the whole frame on
 its own levels; the choices are `/api/run/{uid}/device`'s
 `processing_options`). A bin has no processing (the author's choice:
-it always matches its tile). The strip shows every shot: the shot
-filters narrow the Plot page's plots and map, not the strip, and a map
-cell's link says so. A device whose stack holds traces
+it always matches its tile). The shot filters apply here too (the
+author, 2026-11-03, reversing the strip-shows-every-shot rule): the
+rail shows the same Shot filters group, and a strip keeps only the
+passing shots (`images.shot_rows` → `keep`; a bin averages or picks
+from its passing shots and drops out with none, a bin tile's index is
+its place among the bins left). A bin tile's URL and the levels route
+carry the set's filter JSON (`filters=`), so every route resolves a
+tile's rows alike; a shot or picked tile names its row and needs none.
+
+**Background subtraction** (the author, 2026-11-03): the rail's
+Background scan (`image_bg`, a `ScanRef`, any day) names a scan whose
+average each camera takes off each of its shots, first (before the
+X-ray-hit filter, the centring and the ROI). The background is that
+camera's tile over every shot of the background scan
+(`images.background_array`, through `kept_tile_array`, so it is read
+once); `images.Background` keys the cache on the scan's folder. Tile
+and levels URLs carry `bg=YYYY-MM-DD:N`; a camera row's bg / no bg
+toggle (`image_bgsub`, `ImageCamera.bgsub`) leaves it off that camera.
+The big view's processing preview (a recipe's) does not subtract it. A device whose stack holds traces
 (`images.trace_kind`) has no strip and draws one shot's trace from the
 portal's `/api/run/{uid}/trace`. Tiles carry their bin label
 (`images.Tile.bin`), which is how a 2-D map cell opens on its bin. The

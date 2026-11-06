@@ -27,7 +27,9 @@ geecs_data_utils/
                                #   `scan` / `day`, the union of columns (NaN where
                                #   a scan lacks one), each shot keeping its own
                                #   number — so `Bin #` means nothing across scans
-  data/image_prep.py           # ImagePrep: one camera image's clean-ups, before
+  data/image_prep.py           # subtract_background (image less a background
+                               #   average, same size or a ValueError);
+                               #   ImagePrep: one camera image's clean-ups, before
                                #   it is drawn or averaged — X-ray hits out
                                #   (remove_hits: median 3×3/5×5, or "hot": only a
                                #   pixel far above neighbours that sit at the
@@ -121,6 +123,12 @@ geecs_data_utils/
                                #   through a percentile window, optional
                                #   matplotlib colour map (lazy import; no
                                #   matplotlib = greyscale)
+                               #   + colour_tables.py: GEECSplotter's
+                               #   LabVIEW tables (enhance_low,
+                               #   white_blue_yellow, from "image color
+                               #   table presets.vi"), registered with
+                               #   matplotlib by safe_cmap so every
+                               #   by-name lookup finds them
   himg_cli.py                  # geecs-himg convert | verify | compact | restore: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
 ```

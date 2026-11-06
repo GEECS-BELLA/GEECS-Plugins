@@ -18,14 +18,15 @@ import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 from geecs_data_utils.data.binning import bin_rows
-from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
+from geecs_data_utils.data.row_filters import RowFilters, filter_mask
+from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep, subtract_background
 from geecs_data_utils.io import shot_images
 from geecs_data_utils.io.display_png import window_levels
 
@@ -41,9 +42,12 @@ if set(HIT_LABELS) != set(HIT_FILTERS):  # pragma: no cover - a developer's slip
     raise RuntimeError("every image_prep.HIT_FILTERS entry needs a HIT_LABELS label")
 
 #: The colour maps offered (matplotlib names), "gray" first, the default:
-#: the perceptual ones, then the classic false-colour tables.
+#: GEECSplotter's LabVIEW tables (``io.colour_tables``), the perceptual
+#: ones, then the classic false-colour tables.
 CMAPS = (
     "gray",
+    "enhance_low",
+    "white_blue_yellow",
     "viridis",
     "magma",
     "inferno",
@@ -149,6 +153,79 @@ def bins(frame: pd.DataFrame) -> list[tuple[object, tuple[int, ...]]]:
         raise NoImage("this scan has no Bin # column") from None
 
 
+def _parsed_filters(filters: str) -> RowFilters:
+    try:
+        return RowFilters.model_validate_json(filters)
+    except ValueError as why:  # pydantic's ValidationError is one
+        raise NoImage(f"the shot filters cannot be read: {why}") from None
+
+
+def missing_filter_columns(frame: pd.DataFrame, filters: str) -> list[str]:
+    """The columns the active shot filters name that *frame* lacks, in order.
+
+    The Plot page filters several scans merged (``scan``, ``day``, columns
+    only some have); the Images page shows one scan, and leaves those
+    conditions out (:func:`shot_rows`) rather than show nothing.
+    """
+    if not filters:
+        return []
+    missing: list[str] = []
+    for group in _parsed_filters(filters).active_groups():
+        for c in group.conditions:
+            if c.column not in frame.columns and c.column not in missing:
+                missing.append(c.column)
+    return missing
+
+
+def shot_rows(frame: pd.DataFrame, filters: str) -> Optional[frozenset[int]]:
+    """The rows (from 1) the page's shot filters keep; ``None`` when none is on.
+
+    *filters* is the set's ``shot_filters`` JSON (``RowFilters``), the
+    same the Plot page draws with, so both pages keep the same shots. A
+    condition on a column this scan lacks (:func:`missing_filter_columns`)
+    is left out; a group left with none is off.
+
+    Raises
+    ------
+    NoImage
+        Filters that cannot be read, or applied (a date column).
+    """
+    if not filters:
+        return None
+    parsed = _parsed_filters(filters)
+    groups = [
+        g.model_copy(
+            update={
+                "conditions": [c for c in g.conditions if c.column in frame.columns]
+            }
+        )
+        for g in parsed.groups
+    ]
+    parsed = parsed.model_copy(update={"groups": groups})
+    try:
+        if not parsed.active_groups():
+            return None
+        mask = filter_mask(frame, parsed).to_numpy(dtype=bool)
+    except ValueError as why:  # pydantic's ValidationError is one too
+        raise NoImage(f"the shot filters cannot be applied here: {why}") from None
+    return frozenset(int(i) + 1 for i in np.flatnonzero(mask))
+
+
+def kept_bins(
+    frame: pd.DataFrame, keep: Optional[frozenset[int]] = None
+) -> list[tuple[object, tuple[int, ...]]]:
+    """:func:`bins` with only the rows *keep* holds; a bin left empty goes."""
+    found = bins(frame)
+    if keep is None:
+        return found
+    out = []
+    for label, rows in found:
+        kept = tuple(r for r in rows if r in keep)
+        if kept:
+            out.append((label, kept))
+    return out
+
+
 def _number(value: object, missing: str) -> str:
     """A label or shot number as shown: 1.0 as 1, NaN as *missing*."""
     if isinstance(value, float):
@@ -192,8 +269,9 @@ def tiles(
     scan_values: Optional[pd.Series] = None,
     shot_numbers: Optional[pd.Series] = None,
     pick_by: Optional[pd.Series] = None,
+    keep: Optional[frozenset[int]] = None,
 ) -> list[Tile]:
-    """The strip's tiles, in order.
+    """The strip's tiles, in order (only the shots *keep* holds, when given).
 
     A bin's caption is its scan variable's value, ``"17.5 · 5 shots"``
     (``"bin 2 · 5 shots"`` without one, ``"17.5 · bin 2 · 5 shots"`` when
@@ -216,6 +294,11 @@ def tiles(
     pick_by : pandas.Series, optional
         For ``pick``: the column whose highest value picks each bin's
         shot (the plot's Y1); ``None`` picks the first shot.
+    keep : frozenset of int, optional
+        The rows the shot filters keep (:func:`shot_rows`): a bin averages
+        (or picks from) only those, a bin with none goes, and a shots
+        strip shows only those. A bin tile's ``index`` is its place among
+        the bins left.
 
     Returns
     -------
@@ -230,6 +313,8 @@ def tiles(
         out = []
         bin_numbers = frame.get("Bin #")
         for row in range(1, len(frame) + 1):
+            if keep is not None and row not in keep:
+                continue
             label = shot_label(row)
             in_bin = (
                 "" if bin_numbers is None else _number(bin_numbers.iloc[row - 1], "")
@@ -238,7 +323,7 @@ def tiles(
             caption = f"{label} · {value}" if value else label
             out.append(Tile(row, (row,), caption, in_bin))
         return out
-    found = list(bins(frame))
+    found = kept_bins(frame, keep)
     wheres = [_value(scan_values, rows) for _, rows in found]
     # A value two bins share (a scan back over its start, or medians alike
     # to 4 figures) names the bin too, so no two tiles read the same.
@@ -257,18 +342,64 @@ def tiles(
     return out
 
 
+@dataclass(frozen=True)
+class Background:
+    """A background scan: each camera's average over all its shots there.
+
+    Identified by its folder (the cache keys on it); the s-file rides
+    along to name the shots.
+    """
+
+    folder: Path
+    frame: pd.DataFrame = field(compare=False, hash=False, repr=False)
+    label: str = field(default="", compare=False)
+
+
+def _background_stamp(background: Optional[Background], device: str) -> object:
+    """What makes a cached tile stale with its background (folder time, rows).
+
+    A background scan still being written changes both.
+    """
+    if background is None:
+        return None
+    try:
+        stamp = (background.folder / device).stat().st_mtime_ns
+    except OSError:
+        stamp = None
+    return (stamp, len(background.frame))
+
+
+def background_array(background: Background, device: str) -> np.ndarray:
+    """*device*'s average over every shot of the background scan (remembered).
+
+    Raises
+    ------
+    NoImage
+        The background scan has no image of *device*.
+    """
+    rows = tuple(range(1, len(background.frame) + 1))
+    try:
+        return kept_tile_array(background.folder, background.frame, device, rows)
+    except NoImage as why:
+        raise NoImage(
+            f"no background: {background.label or 'the background scan'} {why}"
+        ) from None
+
+
 def tile_array(
     folder: Path,
     frame: pd.DataFrame,
     device: str,
     rows: tuple[int, ...],
     prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
 ) -> np.ndarray:
     """The tile's pixels: one shot's image, or its shots' average.
 
-    *prep* cleans each shot before the average
+    *background* comes off each shot first (the camera's average over the
+    background scan, :func:`background_array`), then *prep* cleans it
     (``geecs_data_utils.data.image_prep``: X-ray hits out, then centred
-    on its beam), so a bin's average is of centred shots.
+    on its beam), so a bin's average is of subtracted, centred shots.
 
     ``geecs_data_utils.io.shot_images.average_rows``: shots the device
     missed, or whose file is missing or unreadable, are left out of the
@@ -279,8 +410,22 @@ def tile_array(
     NoImage
         No shot of the tile has an image; the reason why.
     """
+    back = background_array(background, device) if background is not None else None
+
+    def prepare(image: np.ndarray) -> np.ndarray:
+        if back is not None:
+            try:
+                image = subtract_background(image, back)
+            except ValueError as why:
+                raise NoImage(str(why)) from None
+        return prep.apply(image)
+
     found = shot_images.average_rows(
-        folder, frame, device, rows, prepare=prep.apply if prep.active else None
+        folder,
+        frame,
+        device,
+        rows,
+        prepare=prepare if (prep.active or back is not None) else None,
     )
     if found.array is None:
         raise NoImage(found.reason or found.kind)
@@ -298,6 +443,7 @@ def kept_tile_array(
     device: str,
     rows: tuple[int, ...],
     prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
 ) -> np.ndarray:
     """:func:`tile_array`, remembered until the camera's folder changes.
 
@@ -316,8 +462,17 @@ def kept_tile_array(
     try:
         stamp = (folder / device).stat().st_mtime_ns
     except OSError:
-        return tile_array(folder, frame, device, rows, prep)
-    key = (str(folder), device, rows, len(frame), stamp, prep)
+        return tile_array(folder, frame, device, rows, prep, background)
+    key = (
+        str(folder),
+        device,
+        rows,
+        len(frame),
+        stamp,
+        prep,
+        background,
+        _background_stamp(background, device),
+    )
     now = time.monotonic()
     with _kept_lock:
         kept = _kept.get(key)
@@ -331,7 +486,7 @@ def kept_tile_array(
     if kept is not None:
         return kept
     try:
-        pixels = tile_array(folder, frame, device, rows, prep)
+        pixels = tile_array(folder, frame, device, rows, prep, background)
     except NoImage as why:
         _keep(key, (str(why), now))
         raise
@@ -383,6 +538,7 @@ def shared_levels(
     tiles: list[Tile],
     roi: Optional[Roi] = None,
     prep: ImagePrep = ImagePrep(),
+    background: Optional[Background] = None,
 ) -> tuple[float, float, int]:
     """One black and one white for every tile: the darkest and brightest pixel.
 
@@ -405,7 +561,9 @@ def shared_levels(
 
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
-            pixels = crop(kept_tile_array(folder, frame, device, tile.rows, prep), roi)
+            pixels = crop(
+                kept_tile_array(folder, frame, device, tile.rows, prep, background), roi
+            )
         except NoImage:
             return None
         return window_levels(pixels, 0.0, 100.0)  # its darkest and brightest

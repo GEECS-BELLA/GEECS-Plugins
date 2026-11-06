@@ -1,55 +1,64 @@
-// The Images page's strip as one picture: Copy puts it on the clipboard,
-// Save downloads it as a PNG. It is drawn from the tiles' own pictures
-// (their ROI, levels and colour map as shown) at their full resolution,
-// laid out as the strip is (its tiles across), each with its caption, under
-// the panel's title line. White background and dark text whatever the
-// page's theme, so it pastes cleanly into slides and the logbook.
+// The Images page's camera rows as one picture: Copy puts it on the
+// clipboard, Save downloads it as a PNG. It is drawn from the tiles' own
+// pictures (their ROI, levels and colour map as shown) at their full
+// resolution, each camera laid out as its strip is (the tiles shown, as
+// many across), each tile with its caption (and its colour bar, drawn into
+// it), a camera's one colour bar (a shared or fixed scale) in a narrow
+// column at the right beside its last row, and with several cameras each row under its camera's name;
+// all under the panel's title line. White background and dark text whatever
+// the page's theme, so it pastes cleanly into slides and the logbook.
 "use strict";
 
 (function () {
-  const strip = document.getElementById("strip");
+  const holder = document.getElementById("strips");
   const copyButton = document.querySelector("[data-strip-copy]");
   const saveButton = document.querySelector("[data-strip-save]");
-  if (!strip || !copyButton || !saveButton) return;
+  if (!holder || !copyButton || !saveButton) return;
   const toast = (text) => { if (window.GeecsKit) window.GeecsKit.toast(text); };
   const CLIPBOARD_OK = !!(navigator.clipboard && window.ClipboardItem);
   const MAX_WIDTH = 6000;  // px; a wider grid is scaled down to this
   const FONT = 'px system-ui, -apple-system, "Segoe UI", sans-serif';
 
-  // Tiles across as the strip lays them out now: the tiles sharing the
-  // first one's row (a "row" layout is one row however many fit on screen).
-  function across(tiles) {
+  // Tiles across as a strip lays them out now: in one row, every tile shown;
+  // in a grid, the tiles sharing the first one's row.
+  function across(strip, tiles) {
     if (strip.classList.contains("row")) return tiles.length;
     const top = tiles[0].offsetTop;
-    const n = tiles.filter((t) => t.offsetTop === top).length;
-    return Math.max(1, n);
+    return Math.max(1, tiles.filter((t) => t.offsetTop === top).length);
   }
 
-  // Each tile's picture, loaded now (the strip loads them as they scroll
-  // into view). A tile still waiting for shared levels has no picture yet.
-  async function pictures(tiles) {
-    return Promise.all(tiles.map(async (tile) => {
-      const src = tile.querySelector("img").getAttribute("src");
-      if (!src || tile.classList.contains("missing")) return null;
-      const image = new Image();
-      image.src = src;
-      try { await image.decode(); return image; } catch (_) { return null; }
-    }));
+  async function loaded(src) {
+    if (!src) return null;
+    const image = new Image();
+    image.src = src;
+    try { await image.decode(); return image; } catch (_) { return null; }
   }
 
-  // The whole grid drawn on one canvas.
-  async function render() {
-    const tiles = Array.from(strip.querySelectorAll(".tile"));
-    if (!tiles.length) throw new Error("no tiles");
+  // One camera's part: its shown tiles and their pictures (loaded now: the
+  // strip loads them as they scroll into view), its bar, its name.
+  async function section(strip) {
+    const tiles = Array.from(strip.querySelectorAll(".tile")).filter((t) => !t.hidden);
+    if (!tiles.length) return null;
     if (tiles.some((t) => !t.querySelector("img").getAttribute("src")))
-      throw new Error("the strip's levels are still being read");
-    const images = await pictures(tiles);
-    const loaded = images.filter(Boolean);
-    if (!loaded.length) throw new Error("no tile has a picture");
-    const cols = across(tiles);
-    const rows = Math.ceil(tiles.length / cols);
-    let cellW = Math.max(...loaded.map((i) => i.naturalWidth));
-    let cellH = Math.max(...loaded.map((i) => i.naturalHeight));
+      throw new Error("a strip's levels are still being read");
+    const images = await Promise.all(tiles.map((tile) =>
+      tile.classList.contains("missing") ? null : loaded(tile.querySelector("img").getAttribute("src"))));
+    const cell = strip.querySelector(".strip-bar-cell");
+    const bar = cell && !cell.hidden ? await loaded(cell.querySelector("img").getAttribute("src")) : null;
+    const cols = across(strip, tiles);
+    return { tiles, images, bar, cols, rows: Math.ceil(tiles.length / cols), name: strip.dataset.device || "" };
+  }
+
+  // Every camera's part drawn on one canvas.
+  async function render() {
+    const strips = Array.from(holder.querySelectorAll(".strip[data-cam]"));
+    const parts = (await Promise.all(strips.map(section))).filter(Boolean);
+    const pictures = parts.flatMap((p) => p.images).filter(Boolean);
+    if (!pictures.length) throw new Error("no tile has a picture");
+    const named = parts.length > 1;
+    const cols = Math.max(...parts.map((p) => p.cols));
+    let cellW = Math.max(...pictures.map((i) => i.naturalWidth));
+    let cellH = Math.max(...pictures.map((i) => i.naturalHeight));
     const gap0 = Math.max(4, Math.round(cellW * 0.03));
     const scale = Math.min(1, (MAX_WIDTH - gap0 * (cols + 1)) / (cellW * cols));
     cellW = Math.round(cellW * scale);
@@ -58,41 +67,63 @@
     const font = Math.max(11, Math.round(cellW * 0.07));
     const captionH = Math.round(font * 1.5);
     const titleH = Math.round(font * 2.2);
+    const nameH = named ? Math.round(font * 1.8) : 0;
+    const rowH = cellH + captionH + gap;
+    // A camera's one colour bar (a shared or fixed scale) stands in a
+    // narrow column at the right, beside its last row, as tall as a picture.
+    const barW = Math.max(0, ...parts.filter((p) => p.bar)
+      .map((p) => Math.round(p.bar.naturalWidth * (cellH / p.bar.naturalHeight))));
     const canvas = document.createElement("canvas");
-    canvas.width = gap + cols * (cellW + gap);
-    canvas.height = titleH + rows * (cellH + captionH + gap) + gap;
+    canvas.width = gap + cols * (cellW + gap) + (barW ? barW + gap : 0);
+    canvas.height = titleH + parts.reduce((h, p) => h + nameH + p.rows * rowH, 0) + gap;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#fff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#111";
     ctx.textBaseline = "middle";
     ctx.font = `600 ${font}${FONT}`;
-    ctx.fillText(strip.dataset.title || "", gap, titleH / 2, canvas.width - 2 * gap);
-    ctx.font = `${font}${FONT}`;
-    ctx.textAlign = "center";
-    tiles.forEach((tile, k) => {
-      const x = gap + (k % cols) * (cellW + gap);
-      const y = titleH + Math.floor(k / cols) * (cellH + captionH + gap);
-      const image = images[k];
-      if (image) {
-        // Fit the cell, keeping the picture's shape.
-        const f = Math.min(cellW / image.naturalWidth, cellH / image.naturalHeight);
-        const w = image.naturalWidth * f;
-        const h = image.naturalHeight * f;
-        ctx.drawImage(image, x + (cellW - w) / 2, y + (cellH - h) / 2, w, h);
-      } else {
-        ctx.fillStyle = "#eee";
-        ctx.fillRect(x, y, cellW, cellH);
-        ctx.fillStyle = "#111";
+    ctx.fillText(holder.dataset.title || "", gap, titleH / 2, canvas.width - 2 * gap);
+    const fit = (image, x, y) => {
+      // Fit the cell, keeping the picture's shape.
+      const f = Math.min(cellW / image.naturalWidth, cellH / image.naturalHeight);
+      const w = image.naturalWidth * f;
+      const h = image.naturalHeight * f;
+      ctx.drawImage(image, x + (cellW - w) / 2, y + (cellH - h) / 2, w, h);
+    };
+    let top = titleH;
+    for (const part of parts) {
+      if (named) {
+        ctx.font = `600 ${font}${FONT}`;
+        ctx.textAlign = "left";
+        ctx.fillText(part.name, gap, top + nameH / 2, canvas.width - 2 * gap);
+        top += nameH;
       }
-      ctx.fillText(tile.dataset.caption || "", x + cellW / 2, y + cellH + captionH / 2, cellW);
-    });
+      ctx.font = `${font}${FONT}`;
+      ctx.textAlign = "center";
+      const at = (k) => [gap + (k % part.cols) * (cellW + gap), top + Math.floor(k / part.cols) * rowH];
+      part.tiles.forEach((tile, k) => {
+        const [x, y] = at(k);
+        if (part.images[k]) fit(part.images[k], x, y);
+        else {
+          ctx.fillStyle = "#eee";
+          ctx.fillRect(x, y, cellW, cellH);
+          ctx.fillStyle = "#111";
+        }
+        ctx.fillText(tile.dataset.caption || "", x + cellW / 2, y + cellH + captionH / 2, cellW);
+      });
+      if (part.bar) {
+        const f = cellH / part.bar.naturalHeight;
+        const y = top + (part.rows - 1) * rowH;
+        ctx.drawImage(part.bar, gap + cols * (cellW + gap), y, part.bar.naturalWidth * f, cellH);
+      }
+      top += part.rows * rowH;
+    }
     return new Promise((resolve, reject) =>
       canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("no PNG"))), "image/png"));
   }
 
   function filename() {
-    const name = (strip.dataset.filename || "geecs-images").replace(/[^\w.-]+/g, "_");
+    const name = (holder.dataset.filename || "geecs-images").replace(/[^\w.-]+/g, "_");
     return `${name}.png`;
   }
   function download(blob) {

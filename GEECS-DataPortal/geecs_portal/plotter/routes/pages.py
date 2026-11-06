@@ -47,13 +47,16 @@ from geecs_portal.plotter.routes.images import (
 from geecs_portal.plotter.settings import (
     CHOICES,
     DEFAULT_SET,
+    MAX_CAMERAS,
     MAX_FIT_ORDER,
     MAX_IMAGE_COLUMNS,
     MAX_OVERLAY_SCANS,
     MAX_Y_LISTS,
     NameRefused,
+    ImageCamera,
     PlotterSettings,
     SettingsError,
+    camera_field,
     form_value,
     merged,
     scan_refs_text,
@@ -414,6 +417,7 @@ def _page(
         "cmap": settings.image_cmap,
         "cmaps": images.CMAPS,
         "zscale": _choice(settings, "image_zscale"),
+        "cbar": settings.image_cbar,
         "zmin": settings.image_zmin,
         "zmax": settings.image_zmax,
         "roi": "",
@@ -424,7 +428,13 @@ def _page(
         "device_kept": "",
         "device_problem": None,
         "tiles": [],
+        "cams": [],
+        "max_cameras": MAX_CAMERAS,
         "strip_x": "",
+        "filter_pass": "",
+        "bg": scan_refs_text([settings.image_bg]) if settings.image_bg else "",
+        "bg_day": settings.image_bg.day if settings.image_bg else None,
+        "bg_scan": settings.image_bg.scan if settings.image_bg else None,
         "trace": "",
         "strip_code": "",
     }
@@ -586,93 +596,205 @@ def _fill_map(
 def _fill_images(
     page: dict, run: RunDetail, frame, settings: PlotterSettings, experiment: str
 ) -> None:
-    """Add the device list and, for a picture device, the strip's tiles.
+    """Add the device list and one row per camera (``cams``), each with its tiles.
 
-    The saved device, when this scan has no folder for it, is kept in the
-    list ("not in this scan") so the next click does not erase it, and the
-    strip says so. With none saved the page asks for one: finding a camera
-    by probing the folders one by one costs tens of seconds cold over the
-    share on a scan of trace and scalar devices.
+    The first camera is the set's own ``image_*`` fields, the rest
+    ``image_more``; each row has its own look (colour map, z scale,
+    clean-ups, colour bar, ROI) over the page's tiles, so the rows line up
+    bin by bin. The first row's values are also the page's own keys
+    (``device``, ``tiles``, ...), which the big view and the notebook code
+    read.
     """
     folder = scans.scan_folder(run)
     devices = images.devices(folder)
     page["devices"] = devices
-    saved = settings.image_device
-    if saved and saved not in devices:
-        page["device_kept"] = saved
-        page["device_problem"] = f"{saved} is not in this scan"
-        return
-    device = saved or ""
-    page["device"] = device
-    if not devices:
-        page["device_problem"] = "this scan has no device folders"
-        return
-    if not device:
-        page["device_problem"] = "pick a camera from the list"
-        return
-    if not images.is_image_device(folder, device, devices):
-        trace = images.trace_kind(folder, device, devices)
-        if trace:
-            # No strip: the big view draws one shot's trace at a time.
-            page["trace"] = trace
-            return
-        page["device_problem"] = (
-            f"{device} has no pictures (a vendor format or a file the page cannot draw)"
-        )
-        return
-    day, scan = page["day"], page["scan"]
-    prep = ImagePrep(hits=page["hits"], centre=settings.image_centre)
-    pick_by = page.get("y", "") if page["pick"] == "ymax" else ""
+    looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
     x, page["strip_x"] = strip_axis(run, frame, settings.x_alias)
+    alone = len(looks) == 1
+    page["cams"] = cams = [
+        _camera_row(page, run, frame, settings, folder, devices, look, place, x, alone)
+        for place, look in enumerate(looks, 1)
+    ]
+    # The shot filters keep the same shots here as on the Plot page.
     try:
-        page["tiles"] = strip_tiles(
-            run,
-            frame,
-            page["strip"],
-            day=day,
-            scan=scan,
-            device=device,
-            x=x,
-            pick_by=pick_by,
-            prep=prep,
-        )
-    except HTTPException as missing:
-        page["device_problem"] = missing.detail
-        return
-    page["strip_code"] = strip_code(
-        day, scan, device, page["strip"], experiment, pick_by, prep
+        keep = images.shot_rows(frame, settings.shot_filters)
+    except images.NoImage:
+        keep = None  # each row says why it has no tiles
+    if keep is not None:
+        page["filter_pass"] = f"{len(keep)} / {len(frame)} shots pass"
+    try:
+        missing = images.missing_filter_columns(frame, settings.shot_filters)
+    except images.NoImage:
+        missing = []
+    if missing:
+        # The Plot page may filter merged scans; here, one scan.
+        page["filter_pass"] = (
+            page["filter_pass"] + " · " if page["filter_pass"] else ""
+        ) + f"not in this scan, so left out: {', '.join(missing)}"
+    first = cams[0]
+    page.update(
+        device=first["device"],
+        device_kept=first["kept"],
+        device_problem=first["problem"],
+        trace=first["trace"],
+        tiles=first["tiles"],
+        roi=first["roi"],
+        display_query=first["display_query"],
+        levels_url=first["levels_url"],
     )
-    roi = settings.image_rois.get(device)
-    page["roi"] = ",".join(str(v) for v in roi) if roi else ""
-    page["display_query"] = display_query(page)
-    page["levels_url"] = "api/images/levels?" + urlencode(
-        {
-            "day": day.isoformat(),
-            "scan": scan,
-            "device": device,
-            "strip": page["strip"],
-            "roi": page["roi"],
-            # One shot per bin: the shots picked, each its own tile.
-            **(
-                {"rows": ",".join(str(t.rows[0]) for t in page["tiles"])}
-                if page["strip"] == "pick"
-                else {}
-            ),
-            **prep_query(prep),
+    if first["tiles"]:
+        prep = ImagePrep(hits=first["hits"], centre=first["centre"])
+        page["strip_code"] = strip_code(
+            page["day"],
+            page["scan"],
+            first["device"],
+            page["strip"],
+            experiment,
+            first["pick_by"],
+            prep,
+        )
+
+
+def _first_look(settings: PlotterSettings) -> ImageCamera:
+    """The first camera's look: the set's own ``image_*`` fields."""
+    return ImageCamera(
+        device=settings.image_device,
+        cmap=settings.image_cmap,
+        zscale=_choice(settings, "image_zscale"),
+        zmin=settings.image_zmin,
+        zmax=settings.image_zmax,
+        hits=_choice(settings, "image_hits"),
+        centre=settings.image_centre,
+        cbar=settings.image_cbar,
+        bgsub=settings.image_bgsub,
+    )
+
+
+def _safe_look(look: ImageCamera) -> ImageCamera:
+    """*look* with a choice this copy does not offer at its default."""
+    return look.model_copy(
+        update={
+            "zscale": look.zscale if look.zscale in CHOICES["image_zscale"] else "tile",
+            "hits": look.hits if look.hits in CHOICES["image_hits"] else "none",
         }
     )
 
 
+def _camera_row(
+    page: dict,
+    run: RunDetail,
+    frame,
+    settings: PlotterSettings,
+    folder,
+    devices: list[str],
+    look: ImageCamera,
+    place: int,
+    x: Optional[str],
+    alone: bool,
+) -> dict:
+    """One camera's row: its look, its problem or its tiles and URLs.
+
+    A saved camera this scan has no folder for is kept (``kept``) so the
+    next pick does not erase it. With none saved the row asks for one:
+    probing every folder for a camera costs tens of seconds cold over the
+    share. A trace device draws one shot at a time, so it is shown only
+    as the one camera.
+    """
+    device = look.device or ""
+    roi = settings.image_rois.get(device) if device else None
+    row = {
+        **look.model_dump(),
+        "place": place,
+        "sfx": camera_field("", place),
+        "device": device,
+        "kept": "",
+        "problem": None,
+        "trace": "",
+        "tiles": [],
+        "roi": ",".join(str(v) for v in roi) if roi else "",
+        "pick_by": page.get("y", "") if page["pick"] == "ymax" else "",
+        # The background scan this row takes off each shot ("": none).
+        "bg": (
+            scan_refs_text([settings.image_bg])
+            if settings.image_bg and look.bgsub
+            else ""
+        ),
+        "display_query": "",
+        "levels_url": "",
+    }
+    if device and device not in devices:
+        row.update(kept=device, device="", problem=f"{device} is not in this scan")
+    elif not devices:
+        row["problem"] = "this scan has no device folders"
+    elif not device:
+        row["problem"] = "pick a camera from the list"
+    elif not images.is_image_device(folder, device, devices):
+        trace = images.trace_kind(folder, device, devices)
+        if trace and alone:
+            row["trace"] = trace  # the big view draws one shot's trace at a time
+        elif trace:
+            row["problem"] = f"{device} records {trace}s: open it as the only camera"
+        else:
+            row["problem"] = (
+                f"{device} has no pictures (a vendor format or a file the page cannot draw)"
+            )
+    if row["problem"] or row["trace"]:
+        return row
+    prep = ImagePrep(hits=row["hits"], centre=row["centre"])
+    try:
+        row["tiles"] = strip_tiles(
+            run,
+            frame,
+            page["strip"],
+            day=page["day"],
+            scan=page["scan"],
+            device=device,
+            x=x,
+            pick_by=row["pick_by"],
+            prep=prep,
+            filters=settings.shot_filters,
+            bg=row["bg"],
+        )
+    except HTTPException as missing:
+        row["problem"] = missing.detail
+        return row
+    row["display_query"] = display_query(row)
+    row["levels_url"] = "api/images/levels?" + urlencode(
+        {
+            "day": page["day"].isoformat(),
+            "scan": page["scan"],
+            "device": device,
+            "strip": page["strip"],
+            "roi": row["roi"],
+            # One shot per bin: the shots picked, each its own tile.
+            **(
+                {"rows": ",".join(str(t.rows[0]) for t in row["tiles"])}
+                if page["strip"] == "pick"
+                else {}
+            ),
+            **prep_query(prep),
+            # Bins and shots: the strip is the shots the shot filters keep.
+            **({"filters": settings.shot_filters} if settings.shot_filters else {}),
+            **({"bg": row["bg"]} if row["bg"] else {}),
+        }
+    )
+    return row
+
+
 def display_query(page: dict) -> str:
-    """The display half of a tile's URL (plotter.js builds the same).
+    """The display half of a camera row's tile URLs (plotter.js builds the same).
 
     The colour map, the ROI and, on a fixed z scale with both values set,
     the black and white; a shared z scale's values come from
-    ``/api/images/levels`` in the browser.
+    ``/api/images/levels`` in the browser. A tile that scales itself
+    carries its own colour bar (``cbar``) when bars are on; on one scale
+    the grid has one bar instead (``api/images/colourbar.png``).
     """
     query = {"cmap": page["cmap"]}
     if page["roi"]:
         query["roi"] = page["roi"]
     if page["zscale"] == "fixed" and None not in (page["zmin"], page["zmax"]):
         query.update(zmin=page["zmin"], zmax=page["zmax"])
+    elif page["cbar"]:
+        query["cbar"] = "true"  # a tile scaling itself carries its own bar
     return urlencode(query)

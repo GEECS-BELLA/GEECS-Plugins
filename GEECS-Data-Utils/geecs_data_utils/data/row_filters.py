@@ -45,9 +45,13 @@ class FilterCondition(BaseModel):
     ``within`` passes rows with ``low <= value <= high`` (inclusive);
     ``outside`` passes the complement.  NaN handling is the parent
     :class:`RowFilters`' ``nan_policy`` — deliberately not per-condition.
+    An infinite bound is a one-sided condition ("above 10" is ``10`` to
+    ``inf``); JSON carries it as the string ``"Infinity"`` /
+    ``"-Infinity"`` (JSON has no infinity, and ``null`` would not read
+    back), which validation reads back as the float.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", ser_json_inf_nan="strings")
 
     column: str = Field(description="Column name, verbatim (any provenance).")
     mode: Literal["within", "outside"] = Field(

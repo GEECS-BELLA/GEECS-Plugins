@@ -47,6 +47,21 @@ window.PlotTools = (function () {
   const passText = document.getElementById("passcount");
   let draft = null;
 
+  // A bound: a finite number, or none (an empty box: no limit on that side).
+  // JSON has no infinity, so a saved one-sided bound reads back as the
+  // string "Infinity"/"-Infinity" (or "inf"); the model takes either.
+  const bound = (v) => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    if (typeof v === "string" && /inf/i.test(v)) return null;
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  // The columns to pick from (the page's list), by their shown name.
+  const filterColumns = Array.from(document.querySelectorAll("#filter-columns option"),
+    (o) => ({ value: o.value, text: o.label || o.value }))
+    .sort((a, b) => a.text.localeCompare(b.text, undefined, { sensitivity: "base", numeric: true }));
+  // A new line to fill in: no column, no limits yet.
+  const emptyLine = () => ({ column: "", mode: "within", low: null, high: null });
   function filterJson(model) {
     const active = (model.groups || []).length;
     return active || model.nan_policy !== "exclude" ? JSON.stringify(model) : "";
@@ -57,7 +72,14 @@ window.PlotTools = (function () {
         .map((g) => ({
           name: g.name || "",
           enabled: g.enabled !== false,
-          conditions: (g.conditions || []).filter((c) => c.column && Number.isFinite(c.low) && Number.isFinite(c.high)),
+          // A line needs a column and at least one limit, low not above high;
+          // an empty side is no limit (an infinite bound).
+          conditions: (g.conditions || [])
+            .map((c) => ({ ...c, low: bound(c.low), high: bound(c.high) }))
+            .filter((c) => c.column && (c.low !== null || c.high !== null)
+              && (c.low === null || c.high === null || c.low <= c.high))
+            .map((c) => ({ column: c.column, mode: c.mode === "outside" ? "outside" : "within",
+              low: c.low === null ? "-inf" : c.low, high: c.high === null ? "inf" : c.high })),
         }))
         .filter((g) => g.conditions.length),
       nan_policy: model.nan_policy || "exclude",
@@ -72,7 +94,7 @@ window.PlotTools = (function () {
   function draftCount() {
     const model = completed(draft);
     const out = document.getElementById("draftcount");
-    if (!model.groups.length) { out.textContent = "no complete conditions: every shot would pass"; return; }
+    if (!model.groups.length) { out.textContent = "no complete lines yet (a column and at least one number): every shot would pass"; return; }
     fetch(countUrl(JSON.stringify(model)))
       .then((r) => r.json().then((b) => (r.ok ? b : Promise.reject(new Error(b.detail || r.statusText)))))
       .then((c) => { out.textContent = `${c.pass} / ${c.total} shots would pass`; })
@@ -85,19 +107,28 @@ window.PlotTools = (function () {
     draft.groups.forEach((g, gi) => {
       if (gi) groups.append(el("div", { class: "orjoin" }, "OR"));
       const rows = (g.conditions || []).map((c, ci) => {
+        // Plain numbers; an empty box is no limit on that side.
         const number = (key) => el("input", {
-          class: "val", value: Number.isFinite(c[key]) ? c[key] : "", placeholder: key === "low" ? "low" : "high",
-          "aria-label": key, on: { change: (e) => { c[key] = parseFloat(e.target.value); draftCount(); } },
+          class: "val", type: "number", step: "any", value: bound(c[key]) ?? "",
+          placeholder: key === "low" ? "no lower limit" : "no upper limit",
+          "aria-label": key === "low" ? "low (empty: no lower limit)" : "high (empty: no upper limit)",
+          on: { input: (e) => { c[key] = e.target.value === "" ? null : parseFloat(e.target.value); draftCount(); } },
         });
-        const mode = el("select", { "aria-label": "within or outside", on: { change: (e) => { c.mode = e.target.value; draftCount(); } } },
-          el("option", { value: "within" }, "within"), el("option", { value: "outside" }, "outside"));
+        const mode = el("select", { "aria-label": "between or not between", on: { change: (e) => { c.mode = e.target.value; draftCount(); } } },
+          el("option", { value: "within" }, "between"), el("option", { value: "outside" }, "not between"));
         mode.value = c.mode === "outside" ? "outside" : "within";
+        // The column from a menu (a click, then typing jumps through it).
+        const column = el("select", { class: "col", "aria-label": "column",
+          on: { change: (e) => { c.column = e.target.value; draftCount(); } } },
+          el("option", { value: "" }, "pick a column…"),
+          ...filterColumns.map((o) => el("option", { value: o.value }, o.text)));
+        if (c.column && !filterColumns.some((o) => o.value === c.column)) {
+          column.append(el("option", { value: c.column }, `${c.column} (not in this scan)`));
+        }
+        column.value = c.column || "";
         return el("div", { class: "frow" },
-          el("input", {
-            class: "col", list: "filter-columns", value: c.column || "", placeholder: "column", "aria-label": "column",
-            on: { change: (e) => { c.column = e.target.value; draftCount(); } },
-          }),
-          mode, number("low"), el("span", { class: "hint" }, "to"), number("high"),
+          el("span", { class: "hint" }, "keep shots where"), column, el("span", { class: "hint" }, "is"),
+          mode, number("low"), el("span", { class: "hint" }, "and"), number("high"),
           el("button", { type: "button", class: "x", "aria-label": "remove condition",
             on: { click: () => { g.conditions.splice(ci, 1); renderFilters(); } } }, "✕"));
       });
@@ -109,7 +140,7 @@ window.PlotTools = (function () {
           el("button", { type: "button", class: "x", on: { click: () => { draft.groups.splice(gi, 1); renderFilters(); } } }, "✕ group")),
         ...rows,
         el("div", {}, el("button", { type: "button", class: "btn sm",
-          on: { click: () => { (g.conditions = g.conditions || []).push({ column: "", mode: "within", low: 0, high: 1 }); renderFilters(); } } },
+          on: { click: () => { (g.conditions = g.conditions || []).push(emptyLine()); renderFilters(); } } },
           "+ AND condition"))));
     });
     draftCount();
@@ -117,12 +148,12 @@ window.PlotTools = (function () {
   document.getElementById("filters-open")?.addEventListener("click", (event) => {
     draft = JSON.parse(JSON.stringify(FILTERS));
     draft.groups = draft.groups || [];
-    if (!draft.groups.length) draft.groups.push({ name: "", enabled: true, conditions: [] });
+    if (!draft.groups.length) draft.groups.push({ name: "", enabled: true, conditions: [emptyLine()] });
     renderFilters();
     drawer("filters-drawer", event.currentTarget);
   });
   document.getElementById("filters-add-group")?.addEventListener("click", () => {
-    draft.groups.push({ name: "", enabled: true, conditions: [] });
+    draft.groups.push({ name: "", enabled: true, conditions: [emptyLine()] });
     renderFilters();
   });
   document.getElementById("nanpolicy")?.addEventListener("change", (e) => { draft.nan_policy = e.target.value; draftCount(); });

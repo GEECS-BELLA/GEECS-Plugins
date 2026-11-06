@@ -257,6 +257,7 @@ class TestPage:
             layout="row",
             cols=3,
             cmap="magma",
+            zscale="tile",  # each tile scales itself: its URL is on the page
         )
         assert "grid-auto-columns: calc((100% - 2 * var(--gap)) / 3)" in page
         assert page.count('class="tile"') == 4
@@ -492,3 +493,132 @@ def test_fixed_levels_with_white_below_black_say_so(
     assert 'id="level-warning" role="alert">' in page  # shown
     fine = post(client, scan=1, page="images", device=CAM, zmin=10, zmax=50)
     assert 'id="level-warning" role="alert" hidden>' in fine
+
+
+def test_a_tile_can_carry_its_own_colour_bar(client: TestClient, camera: Path) -> None:
+    query = {"day": DAY, "scan": 1, "device": CAM, "strip": "shots", "index": 1}
+    plain = client.get("/api/images/tile.png", params=query)
+    barred = client.get("/api/images/tile.png", params={**query, "cbar": "true"})
+    assert plain.status_code == barred.status_code == 200
+    width = Image.open(io.BytesIO(plain.content)).width
+    assert Image.open(io.BytesIO(barred.content)).width > width
+
+
+def test_the_grid_colour_bar_route(client: TestClient) -> None:
+    ok = client.get("/api/images/colourbar.png", params={"zmin": 0, "zmax": 10})
+    assert ok.status_code == 200 and ok.headers["content-type"] == "image/png"
+    flat = client.get("/api/images/colourbar.png", params={"zmin": 5, "zmax": 5})
+    assert flat.status_code == 422
+
+
+def test_bars_follow_the_z_scale_and_can_be_turned_off(
+    client: TestClient, camera: Path
+) -> None:
+    each = post(client, scan=1, page="images", device=CAM, zscale="tile")
+    assert "cbar=true" in each and 'data-cbar="true"' in each
+    assert "strip-bar-cell" in each
+    fixed = post(
+        client, scan=1, page="images", device=CAM, zscale="fixed", zmin=0, zmax=50
+    )
+    assert "cbar=true" not in fixed  # one bar for the grid instead
+    off = post(client, scan=1, page="images", device=CAM, zscale="tile", cbar="false")
+    assert "cbar=true" not in off and 'data-cbar="false"' in off
+
+
+def test_the_grid_colour_bar_stands_upright_on_request(client: TestClient) -> None:
+    query = {"zmin": 0, "zmax": 10}
+    lying = Image.open(
+        io.BytesIO(client.get("/api/images/colourbar.png", params=query).content)
+    )
+    upright = Image.open(
+        io.BytesIO(
+            client.get(
+                "/api/images/colourbar.png", params={**query, "vertical": "true"}
+            ).content
+        )
+    )
+    assert lying.width > lying.height and upright.height > upright.width
+
+
+def test_a_new_set_draws_white_blue_yellow_on_one_shared_scale(
+    client: TestClient, camera: Path
+) -> None:
+    """The author's defaults: GEECSplotter's table, every tile on one scale."""
+    settings = PlotterSettings()
+    assert (settings.image_cmap, settings.image_zscale) == (
+        "white_blue_yellow",
+        "shared",
+    )
+    page = post(client, scan=1, page="images", device=CAM)
+    assert 'data-zscale="shared"' in page
+    assert '<option value="white_blue_yellow" selected>' in page
+
+
+def _charge_filter(low: float, high: str = "inf") -> str:
+    return (
+        '{"groups":[{"conditions":[{"column":"U_ICT charge","low":%s,"high":"%s"}]}],'
+        '"nan_policy":"exclude"}' % (low, high)
+    )
+
+
+class TestShotFilters:
+    """The Plot page's shot filters keep the same shots on the Images page."""
+
+    def test_a_bin_keeps_only_its_passing_shots(self, share: Path) -> None:
+        frame, _ = _opened(share)  # charge 10, 12, NaN, 30 in bins 1, 1, 2, 2
+        keep = images.shot_rows(frame, _charge_filter(11))
+        assert keep == {2, 4}
+        assert [t.rows for t in images.tiles(frame, "bins", keep=keep)] == [(2,), (4,)]
+        assert [t.index for t in images.tiles(frame, "shots", keep=keep)] == [2, 4]
+
+    def test_a_bin_with_no_passing_shot_drops_out(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        keep = images.shot_rows(frame, _charge_filter(20))
+        found = images.tiles(frame, "bins", keep=keep)
+        assert [(t.index, t.rows, t.bin) for t in found] == [(0, (4,), "2")]
+
+    def test_no_active_filter_keeps_every_shot(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        assert images.shot_rows(frame, "") is None
+        assert images.shot_rows(frame, '{"groups":[],"nan_policy":"exclude"}') is None
+
+    def test_a_condition_on_a_column_this_scan_lacks_is_left_out(
+        self, share: Path
+    ) -> None:
+        """The Plot page may filter merged scans (``scan``, ``day``); one scan here."""
+        frame, _ = _opened(share)
+        only = '{"groups":[{"conditions":[{"column":"scan","low":0,"high":1}]}]}'
+        assert images.shot_rows(frame, only) is None  # its group is left with none
+        assert images.missing_filter_columns(frame, only) == ["scan"]
+        mixed = (
+            '{"groups":[{"conditions":[{"column":"scan","low":0,"high":1},'
+            '{"column":"U_ICT charge","low":20,"high":"inf"}]}]}'
+        )
+        assert images.shot_rows(frame, mixed) == {4}
+
+    def test_filters_that_cannot_be_read_say_so(self, share: Path) -> None:
+        frame, _ = _opened(share)
+        with pytest.raises(images.NoImage, match="cannot be read"):
+            images.shot_rows(frame, "{not json")
+
+    def test_the_page_and_its_routes_keep_the_filtered_shots(
+        self, client: TestClient, camera: Path
+    ) -> None:
+        filters = _charge_filter(20)
+        page = post(client, scan=1, page="images", device=CAM, filters=filters)
+        assert page.count('class="tile"') == 1  # bin 1 has no shot above 20
+        assert "1 / 4 shots pass" in page
+        assert "Edit filters" in page and 'id="filters-drawer"' in page
+        # The one tile is bin 2's, at index 0 among the bins left: its route
+        # averages shot 4 alone (its picture is shot 4's).
+        query = {"day": DAY, "scan": 1, "device": CAM, "strip": "bins", "index": 0}
+        alone = client.get("/api/images/tile.png", params={**query, "filters": filters})
+        shot4 = client.get(
+            "/api/images/tile.png", params={**query, "strip": "shots", "index": 4}
+        )
+        assert alone.status_code == 200 and alone.content == shot4.content
+        levels = client.get(
+            "/api/images/levels",
+            params={"day": DAY, "scan": 1, "device": CAM, "filters": filters},
+        ).json()
+        assert levels["tiles"] == 1

@@ -10,13 +10,88 @@
    click, or typing, opens a popover with the filter box over the list.
    The list and its filter keep plotter.js's behaviour (a click or Enter
    picks, a double-click copies a row into the filter, arrows move). #}
-{%- macro picker(key, label, shown, filter_name="", filter_text="", placeholder="") %}
+{%- macro picker(key, label, shown, filter_name="", filter_text="", placeholder="", form_id="") %}
             <button type="button" class="combo" id="{{ key }}-pick" popovertarget="{{ key }}-pop" title="{{ shown }}"><span class="val">{{ shown }}</span></button>
             <div popover id="{{ key }}-pop" class="combo-pop">
-              {% if filter_name %}<input id="{{ key }}-filter" name="{{ filter_name }}" value="{{ filter_text }}" type="search" autocomplete="off" placeholder="{{ placeholder or 'filter ' ~ label ~ ' columns' }}"
+              {% if filter_name %}<input id="{{ key }}-filter" name="{{ filter_name }}" value="{{ filter_text }}" type="search" autocomplete="off"{% if form_id %} form="{{ form_id }}"{% endif %} placeholder="{{ placeholder or 'filter ' ~ label ~ ' columns' }}"
                      aria-label="Filter {{ label }}" data-filter-for="{{ key }}" data-combo-filter>{% endif %}
-              <select id="{{ key }}" name="{{ key }}" size="12" class="picks" data-pick aria-label="{{ label }}">{{ caller() }}</select>
+              <select id="{{ key }}" name="{{ key }}" size="12" class="picks" data-pick aria-label="{{ label }}"{% if form_id %} form="{{ form_id }}"{% endif %}>{{ caller() }}</select>
+              {% if filter_name %}
+              {# How the filter box works (rung 0: native details, no script). #}
+              <details class="combo-help">
+                <summary>How to filter</summary>
+                <ul class="hint">
+                  <li>Type part of a name: the list keeps only the entries containing it, capitals or not (the alias or the raw name).</li>
+                  <li><kbd>Enter</kbd> picks the one entry left. <kbd>↓</kbd> moves into the list; a click or <kbd>Enter</kbd> there picks.</li>
+                  <li>Double-click an entry to copy its name into the box.</li>
+                  <li>The filter is saved with your set: clear the box to see everything again.</li>
+                </ul>
+              </details>
+              {% endif %}
             </div>
+{%- endmacro %}
+{# One camera's toolbar on the Images page: its camera, colour map, z scale
+   (black and white when fixed), X-ray-hit filter, centring, colour bar and
+   ROI, and (after the first) its remove. Every field is the first camera's
+   form name with ``@`` and its place for the others (``cmap@2``), all in the
+   rail's form, so the set keeps each camera's look. #}
+{%- macro cam_bar(c) %}
+              {% set k = c.place %}
+              <div class="row cam-bar" data-cam="{{ k }}">
+                {% set shown = (c.kept ~ " (not in this scan)") if c.kept else c.device or "pick a camera" %}
+                <span class="cam-pick">
+                {% call picker("device" ~ c.sfx, "camera", shown, "devf" if k == 1 else "", devf if k == 1 else "", "filter devices", "pick") %}
+                  {% if c.kept %}<option value="{{ c.kept }}" selected>{{ c.kept }} (not in this scan)</option>{% endif %}
+                  {% for d in devices %}<option value="{{ d }}"{% if d == c.device %} selected{% endif %}>{{ d }}</option>{% endfor %}
+                {% endcall %}
+                </span>
+                <select name="cmap{{ c.sfx }}" form="pick" data-live data-cam="{{ k }}" aria-label="Colour map" title="Colour map">
+                  {% for m in cmaps %}<option value="{{ m }}"{% if m == c.cmap %} selected{% endif %}>{{ m }}</option>{% endfor %}
+                  {% if c.cmap not in cmaps %}<option value="{{ c.cmap }}" selected>{{ c.cmap }} (not in this version)</option>{% endif %}
+                </select>
+                {# GEECSplotter's z scale (LabVIEW's autoscale): each tile from its
+                   own darkest to brightest pixel; every tile on one scale
+                   ("shared"); or black and white typed in. #}
+                <div class="seg" role="group" aria-label="Z scale" title="Z scale">
+                  <button type="button" data-toggle-for="zscale{{ c.sfx }}" data-value="tile" aria-pressed="{{ 'true' if c.zscale == 'tile' else 'false' }}" title="Each tile from its darkest to its brightest pixel">each tile</button>
+                  <button type="button" data-toggle-for="zscale{{ c.sfx }}" data-value="shared" aria-pressed="{{ 'true' if c.zscale == 'shared' else 'false' }}" title="Every tile on one scale: the darkest to the brightest pixel of them all">shared</button>
+                  <button type="button" data-toggle-for="zscale{{ c.sfx }}" data-value="fixed" aria-pressed="{{ 'true' if c.zscale == 'fixed' else 'false' }}" title="Black and white typed in, in pixel values">fixed</button>
+                </div>
+                {% if c.zscale == "fixed" %}
+                  <label class="hint" for="zmin{{ c.sfx }}">black</label>
+                  <input id="zmin{{ c.sfx }}" name="zmin{{ c.sfx }}" form="pick" type="number" step="any" value="{{ c.zmin if c.zmin is not none else '' }}" class="narrow-number" data-live data-cam="{{ k }}">
+                  <label class="hint" for="zmax{{ c.sfx }}">white</label>
+                  <input id="zmax{{ c.sfx }}" name="zmax{{ c.sfx }}" form="pick" type="number" step="any" value="{{ c.zmax if c.zmax is not none else '' }}" class="narrow-number" data-live data-cam="{{ k }}">
+                {% endif %}
+                {# Each shot is cleaned before it is drawn or averaged: X-ray hits
+                   out first, then centred on its beam (the centre of mass above
+                   the threshold). A bin averages its centred shots. #}
+                <select name="hits{{ c.sfx }}" form="pick" data-submit-on-change aria-label="X-ray hits" title="X-ray hits">
+                  {% for value, text in hit_labels.items() %}<option value="{{ value }}"{% if c.hits == value %} selected{% endif %}>{{ 'hits: ' ~ text if value == 'none' else text }}</option>{% endfor %}
+                </select>
+                <input name="centre{{ c.sfx }}" form="pick" type="text" inputmode="decimal" class="narrow-number" placeholder="centre: off"
+                       value="{{ c.centre if c.centre is not none else '' }}" data-submit-on-change aria-label="Centre on beam: threshold"
+                       title="Centre each image on its beam: the centre of mass above this threshold. 1 or more is counts, below 1 a fraction of the peak (0.5 = half max). Empty is off.">
+                <div class="seg" role="group" aria-label="Colour bars" title="Colour bars: one per tile while each scales itself, one for the row on a shared or fixed scale">
+                  <button type="button" data-toggle-for="cbar{{ c.sfx }}" data-value="true" aria-pressed="{{ 'true' if c.cbar else 'false' }}">bar</button>
+                  <button type="button" data-toggle-for="cbar{{ c.sfx }}" data-value="false" aria-pressed="{{ 'false' if c.cbar else 'true' }}">no bar</button>
+                </div>
+                {% if bg %}
+                <div class="seg" role="group" aria-label="Background subtraction" title="Take the background scan's average (this camera's) off every shot">
+                  <button type="button" data-toggle-for="bgsub{{ c.sfx }}" data-value="true" aria-pressed="{{ 'true' if c.bgsub else 'false' }}">bg</button>
+                  <button type="button" data-toggle-for="bgsub{{ c.sfx }}" data-value="false" aria-pressed="{{ 'false' if c.bgsub else 'true' }}">no bg</button>
+                </div>
+                {% endif %}
+                {# The region of interest, kept per camera: every tile shows it,
+                   and the z scale is taken over it. #}
+                <button class="btn sm" type="button" data-roi-open="{{ k }}"{% if not c.tiles %} disabled{% endif %}
+                        title="{% if c.roi %}{% set r = c.roi.split(',') %}ROI x {{ r[0] }}–{{ r[2] }}, y {{ r[1] }}–{{ r[3] }}{% else %}whole image{% endif %}">ROI{{ '*' if c.roi }}…</button>
+                {% if c.roi %}<button class="btn sm ghost" type="button" data-roi-clear="{{ k }}" title="Back to the whole image">whole</button>{% endif %}
+                {% if k > 1 %}<span class="spacer"></span>
+                <button class="btn sm ghost" type="submit" form="pick" name="dropcam" value="{{ k }}" aria-label="Remove this camera" title="Remove this camera">✕</button>{% endif %}
+              </div>
+              {% if c.zscale == "fixed" %}<span class="hint level-problem" id="level-warning{{ c.sfx }}" role="alert"{% if c.zmin is none or c.zmax is none or c.zmax > c.zmin %} hidden{% endif %}>White must be above black: every tile draws flat until it is.</span>{% endif %}
+              {% if c.zscale == "shared" and c.tiles %}<span class="hint mono" data-shared-for="{{ k }}" aria-live="polite">reading every tile…</span>{% endif %}
 {%- endmacro %}
 {# One Y row: its colour, its Fit menu and alias toggle on one line, its
    picker under them. #}
@@ -170,28 +245,32 @@
           <input type="hidden" name="pick" value="{{ pick }}">
           <input type="hidden" name="layout" value="{{ layout }}">
           <input type="hidden" name="zscale" value="{{ zscale }}">
+          <input type="hidden" name="cbar" value="{{ 'true' if cbar else 'false' }}">
+          {% if tab == "images" %}
+          {# The background scan (YYYY-MM-DD:N; the Strip group's day and scan
+             boxes write it) and the first camera's on/off for it. #}
+          <input type="hidden" name="bg" value="{{ bg }}">
+          {% if cams %}<input type="hidden" name="bgsub" value="{{ 'true' if cams[0].bgsub else 'false' }}">{% endif %}
+          {% endif %}
+          {% for c in cams[1:] %}
+          <input type="hidden" name="bgsub{{ c.sfx }}" value="{{ 'true' if c.bgsub else 'false' }}">
+          <input type="hidden" name="zscale{{ c.sfx }}" value="{{ c.zscale }}">
+          <input type="hidden" name="cbar{{ c.sfx }}" value="{{ 'true' if c.cbar else 'false' }}">
+          {% endfor %}
           <div class="row">
             <button class="btn primary sm" type="submit">Open</button>
             <span class="spacer"></span>
-            <button class="btn sm" type="button" data-drawer-open="settings-drawer" title="settings set, Save as{{ ', colour map, z scale' if tab == 'images' else '' }}">&#9881; Settings</button>
+            <button class="btn sm" type="button" data-drawer-open="settings-drawer" title="settings set, Save as">&#9881; Settings</button>
           </div>
         </div>
       </details>
       {% if tab == "images" and (devices or device_kept) %}
-        {# The image strip's controls. The camera, the tiles and the layout
-           reload the page; the tiles across redraw in place and save as
-           typed. The colour map and the z scale are in the Settings drawer. #}
+        {# The tiles every camera row shares (so the rows line up bin by bin):
+           per bin, per shot or one per bin, the layout and tiles across. Each
+           camera's own look is on its row's toolbar. #}
         <details class="disc rail-group" open>
           <summary>Strip</summary>
           <div class="dbody">
-            <div class="field">
-              <label for="device-pick">Camera</label>
-              {% set shown = (device_kept ~ " (not in this scan)") if device_kept else device or "pick a camera" %}
-              {% call picker("device", "camera", shown, "devf", devf, "filter devices") %}
-                {% if device_kept %}<option value="{{ device_kept }}" selected>{{ device_kept }} (not in this scan)</option>{% endif %}
-                {% for d in devices %}<option value="{{ d }}"{% if d == device %} selected{% endif %}>{{ d }}</option>{% endfor %}
-              {% endcall %}
-            </div>
             <div class="field">
               <div class="row">
                 <span class="hint">Tiles</span>
@@ -214,34 +293,14 @@
               {% endif %}
             </div>
             <div class="field">
-              {# Each shot is cleaned before it is drawn or averaged: X-ray hits
-                 out first, then centred on its beam (the centre of mass above
-                 the threshold). A bin averages its centred shots. #}
-              <div class="row">
-                <label for="hits" class="hint">X-ray hits</label>
-                <span class="spacer"></span>
-                <select id="hits" name="hits" data-submit-on-change>
-                  {% for value, text in hit_labels.items() %}
-                  <option value="{{ value }}"{% if hits == value %} selected{% endif %}>{{ text }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div class="row">
-                <label for="centre" class="hint" title="Shift each image so the centre of mass of the pixels above this threshold is in the middle">Centre on beam</label>
-                <span class="spacer"></span>
-                <input id="centre" name="centre" type="text" inputmode="decimal" class="narrow-number" placeholder="off"
-                       value="{{ centre if centre is not none else '' }}" data-submit-on-change aria-describedby="centre-hint">
-              </div>
-              <span class="hint" id="centre-hint">Threshold: 1 or more is counts, below 1 a fraction of the peak (0.5 = half max). Empty is off.</span>
-            </div>
-            <div class="field">
               <div class="row">
                 <span class="hint">Layout</span>
                 <span class="spacer"></span>
+                {% if cams | length > 1 %}<span class="hint">one row per camera</span>{% else %}
                 <div class="seg" role="group" aria-label="A grid or one row">
                   <button type="button" data-toggle-for="layout" data-value="grid" aria-pressed="{{ 'true' if layout == 'grid' else 'false' }}">grid</button>
                   <button type="button" data-toggle-for="layout" data-value="row" aria-pressed="{{ 'true' if layout == 'row' else 'false' }}">one row</button>
-                </div>
+                </div>{% endif %}
               </div>
               <div class="row">
                 <label for="cols" class="hint">Tiles across</label>
@@ -250,17 +309,19 @@
               </div>
             </div>
             <div class="field">
-              {# The region of interest, kept per camera: every tile shows it,
-                 and the z scale is taken over it. #}
+              {# The background scan: each camera's average over all its shots
+                 there comes off each of its shots (before the clean-ups). Any
+                 day; a camera row's "bg" toggle leaves it off that camera. #}
               <div class="row">
-                <span class="hint">ROI</span>
+                <span class="hint">Background scan</span>
                 <span class="spacer"></span>
-                <span class="hint mono">{% if roi %}{% set r = roi.split(',') %}x {{ r[0] }}–{{ r[2] }}, y {{ r[1] }}–{{ r[3] }}{% else %}whole image{% endif %}</span>
+                {% if bg %}<button class="btn sm ghost" type="button" data-bg-clear title="No background">none</button>{% endif %}
               </div>
               <div class="row">
-                <button class="btn sm" type="button" data-roi-open{% if not tiles %} disabled{% endif %}>Draw ROI…</button>
-                <button class="btn sm" type="button" data-roi-clear{% if not roi %} disabled{% endif %}>Whole image</button>
+                <input type="date" aria-label="Background scan's day" value="{{ bg_day or day or '' }}" data-bg-day>
+                <input type="number" min="1" class="narrow-number" aria-label="Background scan number" placeholder="scan" value="{{ bg_scan or '' }}" data-bg-scan>
               </div>
+              <span class="hint">{% if bg %}Scan{{ '%03d' % bg_scan }} ({{ bg_day }}): each camera's average over its shots there is taken off every shot.{% else %}Off. Type a scan number (and its day) to take its average off every shot.{% endif %}</span>
             </div>
           </div>
         </details>
@@ -374,9 +435,12 @@
           </div>
         </details>
         {% endif %}
+      {% endif %}
+      {% if columns %}
         {# The shot filters: keep only the shots inside (or outside) bounds;
            conditions AND within a group, groups OR. A chip turns its group
-           on or off, or removes it; the drawer edits them all. #}
+           on or off, or removes it; the drawer edits them all. Both pages
+           keep the same shots: the plots and map here, the strips on Images. #}
         <details class="disc rail-group"{% if filter_groups %} open{% endif %}>
           <summary>Shot filters <span class="hint">· {{ filter_groups | length if filter_groups else 'none' }}</span></summary>
           <div class="dbody">
@@ -390,7 +454,7 @@
             {% else %}
               <div class="note">none: every shot is kept</div>
             {% endfor %}
-            <div class="count" id="passcount"></div>
+            <div class="count" id="passcount">{{ filter_pass if tab == "images" else "" }}</div>
             <div><button class="btn sm" type="button" id="filters-open">Edit filters…</button></div>
           </div>
         </details>
@@ -485,46 +549,70 @@
         <div class="m">Scan{{ '%03d' % scan }} has no s-file yet, or it has no numeric columns.</div>
       </div>
     {% elif tab == "images" %}
+      {% set many = cams | length > 1 %}
+      {% set lay = 'row' if many else layout %}
+      {% set shown_tiles = cams | selectattr('tiles') | list %}
       <article class="panel">
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
-          {% set strip_line %}{{ device or device_kept }}{% if tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if tiles %} · {{ tiles | length }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if hits != 'none' or centre is not none %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}{% endset %}
+          {% set n_tiles = (shown_tiles[0].tiles | length) if shown_tiles else 0 %}
+          {% set strip_line %}{% if many %}{{ cams | length }} cameras{% else %}{{ device or device_kept }}{% endif %}{% if shown_tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if shown_tiles %} · {{ n_tiles }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if not many and (hits != 'none' or centre is not none) %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% elif trace %} · {{ trace }}s, one shot at a time{% endif %}{% if bg and shown_tiles and (cams | selectattr('bg') | list) %} · minus background Scan{{ '%03d' % bg_scan }}{% endif %}{% endset %}
           <span class="dim">{{ strip_line }}</span>
-          {% if tiles and not device_problem and not trace %}
-            {# The strip as one PNG (strip_export.js): copied, or saved to disk. #}
-            <button class="btn sm ghost" type="button" data-strip-copy title="Copy the grid of images to the clipboard as one picture">Copy grid</button>
-            <button class="btn sm ghost" type="button" data-strip-save title="Save the grid of images as a PNG">Save grid</button>
+          {% if shown_tiles %}
+            {# The rows as one PNG (strip_export.js): copied, or saved to disk. #}
+            <button class="btn sm ghost" type="button" data-strip-copy title="Copy the images to the clipboard as one picture">Copy grid</button>
+            <button class="btn sm ghost" type="button" data-strip-save title="Save the images as a PNG">Save grid</button>
           {% endif %}
         </header>
         <div class="body">
-          {% if device_problem %}
-            <div class="state" data-state="empty">
-              <div class="t">No images to show</div>
-              <div class="m">{{ device_problem }}</div>
+          {# One row per camera: its toolbar, then its tiles (or why there are
+             none). Each tile loads when it scrolls into view; plotter.js adds
+             the row's display (colour map, levels) to every tile's URL. #}
+          <div id="strips" class="strips{{ ' many' if many }}"
+               data-title="Scan{{ '%03d' % scan }} · {{ day }} · {{ strip_line | trim }}"
+               data-filename="Scan{{ '%03d' % scan }}_{{ day }}_{{ (cams | map(attribute='device') | select | join('+')) or 'images' }}_{{ strip }}">
+            {% for c in cams %}
+              <section class="cam" data-cam="{{ c.place }}" aria-label="{{ c.device or 'camera ' ~ c.place }}">
+                {{ cam_bar(c) }}
+                {% if c.problem %}
+                  <div class="state" data-state="empty">
+                    <div class="t">No images to show</div>
+                    <div class="m">{{ c.problem }}</div>
+                  </div>
+                {% elif c.tiles %}
+                  {# Tiles across: the same rule plotter.js applies when the box changes. #}
+                  <div id="strip{{ c.sfx }}" class="strip {{ lay }}" data-cam="{{ c.place }}" data-zscale="{{ c.zscale }}" data-roi="{{ c.roi }}"
+                       data-cbar="{{ 'true' if c.cbar else 'false' }}" data-device="{{ c.device }}"
+                       data-levels-url="{{ root }}/{{ c.levels_url }}" data-full-url="{{ root }}/{{ c.tiles[0].url }}"
+                       style="{% if lay == 'row' %}grid-auto-columns: calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% else %}grid-template-columns: repeat({{ cols }}, minmax(0, 1fr)){% endif %}">
+                    {% for t in c.tiles %}
+                      <figure class="tile" data-index="{{ t.index }}" data-bin="{{ t.bin }}" data-caption="{{ t.caption }}">
+                        <img loading="lazy" alt="{{ c.device }} {{ t.caption }}" data-tile="{{ root }}/{{ t.url }}"
+                             {% if c.zscale != "shared" %}src="{{ root }}/{{ t.url }}&amp;{{ c.display_query }}"{% endif %}>
+                        <figcaption class="hint">{{ t.caption }}</figcaption>
+                      </figure>
+                    {% endfor %}
+                    {# The row's one colour bar (a shared or fixed z scale): upright,
+                       in the cell after the last tile, as tall as a tile's picture.
+                       plotter.js draws it once the levels are known. #}
+                    <figure class="strip-bar-cell" hidden>
+                      <img alt="colour bar" data-bar="{{ root }}/api/images/colourbar.png">
+                    </figure>
+                  </div>
+                {% endif %}
+              </section>
+            {% endfor %}
+          </div>
+          {% if cams | length < max_cameras %}
+            <div class="row">
+              <button class="btn sm" type="submit" form="pick" name="addcam" value="1" title="Stack another camera's row under these, the same bins in the same columns">+ Add camera</button>
             </div>
-          {% elif trace %}
+          {% endif %}
+          {% if trace %}
             {# A trace device: no strip (each shot has its own axis, so shots
                do not average); one shot at a time. #}
             {{ big_view("trace") }}
-          {% else %}
-            {# One tile per bin (its shots' average) or per shot. Each image
-               loads when it scrolls into view; plotter.js adds the display
-               (colour map, levels) to every tile's URL. #}
-            {# Tiles across: the same rule plotter.js applies when the box changes. #}
-            <div id="strip" class="strip {{ layout }}" data-zscale="{{ zscale }}" data-roi="{{ roi }}"
-                 data-title="Scan{{ '%03d' % scan }} · {{ day }} · {{ strip_line | trim }}"
-                 data-filename="Scan{{ '%03d' % scan }}_{{ day }}_{{ device }}_{{ strip }}"
-                 data-device="{{ device }}" data-levels-url="{{ root }}/{{ levels_url }}"
-                 data-full-url="{{ root }}/{{ tiles[0].url if tiles else '' }}"
-                 style="{% if layout == 'row' %}grid-auto-columns: calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% else %}grid-template-columns: repeat({{ cols }}, minmax(0, 1fr)){% endif %}">
-              {% for t in tiles %}
-                <figure class="tile" data-index="{{ t.index }}" data-bin="{{ t.bin }}" data-caption="{{ t.caption }}">
-                  <img loading="lazy" alt="{{ device }} {{ t.caption }}" data-tile="{{ root }}/{{ t.url }}"
-                       {% if zscale != "shared" %}src="{{ root }}/{{ t.url }}&amp;{{ display_query }}"{% endif %}>
-                  <figcaption class="hint">{{ t.caption }}</figcaption>
-                </figure>
-              {% endfor %}
-            </div>
+          {% elif shown_tiles %}
             {{ big_view(strip) }}
             <details class="disc">
               <summary>Notebook code</summary>
@@ -611,7 +699,7 @@
                 <div id="map-values" class="row map-values" aria-live="polite"></div>
                 <details class="disc"><summary>Member shots passing the filters</summary><div id="map-members" class="dbody mono"></div></details>
                 <div class="row"><a class="btn sm" id="map-images" href="#">View this cell's images</a>
-                  <span class="hint">every shot of its bin: the shot filters narrow the map, not the image strip</span></div>
+                  <span class="hint">its bin's shots that pass the shot filters, as the map counts them</span></div>
               </div>
               <p class="hint" id="map-notes"></p>
               <details class="disc">
@@ -696,51 +784,15 @@
         </div>
       </div>
     </form>
-    {% if tab == "images" and (devices or device_kept) %}
-    <div class="group">
-      <div class="field">
-        <label for="cmap">Colour map</label>
-        <select id="cmap" name="cmap" form="pick" data-live>
-          {% for c in cmaps %}<option value="{{ c }}"{% if c == cmap %} selected{% endif %}>{{ c }}</option>{% endfor %}
-          {% if cmap not in cmaps %}<option value="{{ cmap }}" selected>{{ cmap }} (not in this version)</option>{% endif %}
-        </select>
-      </div>
-      <div class="field">
-        {# GEECSplotter's z scale (LabVIEW's autoscale): each tile from its
-           own darkest to brightest pixel; every tile on one scale, the
-           darkest to the brightest pixel of all ("shared"); or black and
-           white typed in. #}
-        <div class="row">
-          <span class="hint">Z scale</span>
-          <span class="spacer"></span>
-          <div class="seg" role="group" aria-label="Z scale">
-            <button type="button" data-toggle-for="zscale" data-value="tile" aria-pressed="{{ 'true' if zscale == 'tile' else 'false' }}">each tile</button>
-            <button type="button" data-toggle-for="zscale" data-value="shared" aria-pressed="{{ 'true' if zscale == 'shared' else 'false' }}">shared</button>
-            <button type="button" data-toggle-for="zscale" data-value="fixed" aria-pressed="{{ 'true' if zscale == 'fixed' else 'false' }}">fixed</button>
-          </div>
-        </div>
-        {% if zscale == "fixed" %}
-          <div class="row levels">
-            <label for="zmin" class="hint">black</label>
-            <input id="zmin" name="zmin" form="pick" type="number" step="any" value="{{ zmin if zmin is not none else '' }}" class="narrow-number" data-live>
-            <label for="zmax" class="hint">white</label>
-            <input id="zmax" name="zmax" form="pick" type="number" step="any" value="{{ zmax if zmax is not none else '' }}" class="narrow-number" data-live>
-          </div>
-          <span class="hint">Pixel values.{% if zmin is none or zmax is none %} Until both are set, each tile scales itself.{% endif %}</span>
-          <span class="hint level-problem" id="level-warning" role="alert"{% if zmin is none or zmax is none or zmax > zmin %} hidden{% endif %}>White must be above black: every tile draws flat until it is.</span>
-        {% else %}
-          <span class="hint">{{ 'Each tile from its darkest to its brightest pixel.' if zscale == 'tile' else 'Every tile on one scale: the darkest to the brightest pixel of them all. It reads every image of the strip first (for shots, the whole scan).' }}</span>
-          {% if zscale == "shared" %}<span class="hint mono" id="shared-levels" aria-live="polite">reading every tile…</span>{% endif %}
-        {% endif %}
-      </div>
-    </div>
-    {% endif %}
   </div>
 </aside>
 {% endif %}
 
-{% if columns and tab != "images" %}
-<datalist id="filter-columns">{% for c in columns %}<option value="{{ c }}">{% endfor %}</datalist>
+{# The column list and the drawers the rail opens (the shot filters on
+   both pages; the others the Plot page's). #}
+{% if columns %}
+{# The shot filters' column menu (plot_tools.js): each column with its shown name. #}
+<datalist id="filter-columns">{% for c in columns %}<option value="{{ c }}" label="{{ ynames[c] if ynames else c }}">{% endfor %}</datalist>
 
 {# Rung 2: Add scan…, the kit's drawer picker (GeecsKit.picker): a day,
    its scans (number, description, shots), the ticked ones added. #}
@@ -774,6 +826,31 @@
     <button class="btn sm" type="button" data-drawer-close>Close</button>
   </header>
   <div class="body">
+    {# How shot filters work (rung 0: native details, no script). #}
+    <details class="disc filter-help">
+      <summary>How shot filters work (with examples)</summary>
+      <div class="dbody hint">
+        <p>Each line reads as a sentence: keep shots where <b>[column]</b> is <b>between</b> (or <b>not between</b>)
+          <b>[low]</b> and <b>[high]</b>. Pick the column from its menu (click it and start typing to jump);
+          type plain numbers in the two boxes — never <code>&lt;</code>, <code>&gt;</code> or <code>=</code>.
+          Leave a box empty for no limit on that side. Both ends are included.</p>
+        <p><b>Examples</b></p>
+        <ul>
+          <li>Charge between 10 and 50: <i>U_ICT charge</i> · between · <code>10</code> and <code>50</code>.</li>
+          <li>Charge above 10 (no upper limit): <i>U_ICT charge</i> · between · <code>10</code> and <i>(empty)</i>.</li>
+          <li>Jet position below 3: <i>jet position</i> · between · <i>(empty)</i> and <code>3</code>.</li>
+          <li>Leave out a bad window, 2 to 3: <i>jet position</i> · not between · <code>2</code> and <code>3</code>.</li>
+        </ul>
+        <p>A <b>group</b> keeps a shot only if <b>all</b> its lines hold (AND): charge 10 to 50 <i>and</i> jet
+          below 3 is one group with two lines (+ AND condition). With several groups a shot is kept if <b>any</b>
+          group keeps it (OR): add + OR group for a second, alternative window.</p>
+        <p>The count under the groups says how many shots would pass before you <b>Apply</b>. In the rail, a
+          group's tick turns it off without deleting it; ✕ deletes it. "Rows with NaN" says whether a missing
+          value passes or fails a line.</p>
+        <p>Both pages keep the same shots: the Plot page's plots and 2-D map, and the Images strips (a bin
+          averages only its passing shots; a bin with none drops out).</p>
+      </div>
+    </details>
     <div id="fgroups" class="group"></div>
     <div><button class="btn sm" type="button" id="filters-add-group">+ OR group</button></div>
     <div class="setrow">
