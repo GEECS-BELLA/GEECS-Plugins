@@ -1,4 +1,4 @@
-"""NativeCamera — a native EPICS areaDetector camera as a GEECS strict detector.
+"""NativeCamera — a native EPICS areaDetector camera as a GEECS strict or fly detector.
 
 A camera served by its own IOC (geecs-epics: ADAravis + the stock
 ``NDFileHDF5`` plugin), not ophyd-async's ``AravisDetector`` — that one

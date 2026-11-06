@@ -79,7 +79,7 @@ geecs_bluesky/
                             #   (enter / announce a shot / exit) + Readable (announced_shot);
                             #   the state file, release_stale at environment open
   devices/native.py         # NativeCamera — a native EPICS areaDetector camera (geecs-epics
-                            #   IOC) as a strict detector; NATIVE_DEVICES.md is its design
+                            #   IOC) as a strict or fly detector; NATIVE_DEVICES.md is its design
   devices/native_motor.py   # NativeMotor — a positioner's EPICS motor records (one stock
                             #   ophyd-async Motor per axis) as Movable children of one noun
   devices/native_setpoint.py # NativeSetpointDevice — a supply's plain records: each settable
