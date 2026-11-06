@@ -650,6 +650,11 @@ class GeecsDetector(StandardDetector):
 
     #: :meth:`zero_count` done in the current plugin session.
     count_zeroed: bool = False
+    #: A fly prepare also switches a plugin-backed camera's LabVIEW-native
+    #: saving on (``native_image_save`` still decides): the strict
+    #: dual-write of a camera streamed for a shot-table run.  Set and
+    #: cleared by the plan around the run.
+    fly_native_save: bool = False
 
     def __init__(
         self,
@@ -834,6 +839,35 @@ class GeecsDetector(StandardDetector):
         self._scalars.extend(signals)
         self._scalars_logic.add(*signals)
 
+    def _streamed_save_path(self) -> str | None:
+        """The dual-write directory of a camera streamed with ``fly_native_save``, else ``None``."""
+        logic = self._native_logic
+        if not (self.fly_native_save and self._hdf_ios and logic is not None):
+            return None
+        return None if logic.directory is None else str(logic.directory)
+
+    async def read_configuration(self) -> dict[str, Reading]:
+        """The drain offset; a streamed camera's dual-write directory beside it.
+
+        A streamed plugin-backed camera's stream is datum-only, so its
+        ``-nonscalar_save_path`` — a run-long constant — rides in the
+        stream's descriptor configuration instead of an event column.
+        """
+        out = await super().read_configuration()
+        path = self._streamed_save_path()
+        if path is not None:
+            key = self.name + LvNativeFileDataLogic.datakey_suffix
+            out[key] = Reading(value=path, timestamp=time.time(), alarm_severity=0)
+        return out
+
+    async def describe_configuration(self) -> dict[str, DataKey]:
+        """The configuration's data keys (:meth:`read_configuration`)."""
+        out = await super().describe_configuration()
+        if self._streamed_save_path() is not None:
+            key = self.name + LvNativeFileDataLogic.datakey_suffix
+            out[key] = DataKey(source="derived://" + key, dtype="string", shape=[])
+        return out
+
     async def connect(
         self,
         mock: Any = False,
@@ -886,7 +920,9 @@ class GeecsDetector(StandardDetector):
         """
         if _data_logic_supported(logic.prepare_unbounded):
             return True
-        return logic is self._native_logic and not self._hdf_ios
+        return logic is self._native_logic and (
+            not self._hdf_ios or self.fly_native_save
+        )
 
     async def _update_prepare_context(self, trigger_info: TriggerInfo) -> None:
         """The stock context; in a fly prepare only the flying logics take part.
