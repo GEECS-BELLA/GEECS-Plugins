@@ -17,7 +17,16 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import FastAPI
-from geecs_canopy.testing import EXPERIMENT, FakeSquirrel, live, make_env
+import numpy as np
+from geecs_canopy.testing import (
+    EXPERIMENT,
+    PANELS,
+    POLICY,
+    FakeSquirrel,
+    live,
+    make_env,
+    write_documents,
+)
 
 from geecs_control_room.app import create_app
 from geecs_control_room.images import Images
@@ -300,3 +309,27 @@ async def test_the_camera_page_reads_the_image_and_arrays_at_the_pvs_the_module_
     assert (
         'id="hazard-dialog"' in page.text
     )  # a policy-marked role is asked, then sent with confirm
+
+
+async def test_the_trace_page_draws_the_familys_panel_and_reads_the_trace_at_the_pvs_the_module_names(room, tmp_path: Path) -> None:  # fmt: skip
+    # a bench scope beside the shared documents, written before the module's first read
+    write_documents(tmp_path, panels=PANELS + '  scope1: {family: scope_contract, prefix: "bench:scope1:"}\n', policy=POLICY.replace("easydriver]", "easydriver, scope_contract]"))  # fmt: skip
+    roles = {r["role"]: r for r in (await room.client.get("/api/devices/scope1")).json()["roles"]}  # fmt: skip
+    assert all(CAMERA_FIELDS <= set(r) for r in roles.values())
+    assert (roles["data"]["read"], roles["time_axis"]["read"], roles["arr_counter"]["read"]) == ("on_request", "on_request", "monitor")  # fmt: skip
+    assert roles["data"]["verdict"] is None and roles["ch_a_range"]["writable"] is True
+    page = await room.client.get("/device/trace/scope1")
+    assert page.status_code == 200 and 'id="trace"' in page.text and "/api/devices/scope1/trace" in page.text  # fmt: skip
+    # the rail is the family's panel, each role drawn by its type: enums as selects, setpoints as numbers
+    assert [t for t in ("<h4>Acquisition</h4>", "<h4>Trigger</h4>", "<h4>Channel A</h4>", "<h4>Channel D</h4>") if t not in page.text] == []  # fmt: skip
+    assert '<select id="c-ch_a_range" data-role="ch_a_range" disabled>' in page.text
+    assert 'data-role="trigger_level" step="any"' in page.text and 'data-role="num_images" step="1"' in page.text  # fmt: skip
+    assert 'data-roles="ch_a_enable ch_a_range ch_a_coupling ch_a_offset"' in page.text
+    assert 'class="live" data-role="ch_a_overrange"' in page.text and 'data-counter="arr_counter"' in page.text  # fmt: skip
+    # the trace: the counter, the capture and its channel count, the axis, at the PVs the module names
+    room.ca.floats_by = {roles["data"]["pv"]: np.zeros(8, dtype=np.float32), roles["time_axis"]["pv"]: np.arange(2, dtype=np.float32)}  # fmt: skip
+    room.ca.scalars = {roles["arr_channels"]["pv"]: 4.0}
+    trace = await room.client.get("/api/devices/scope1/trace")
+    assert trace.status_code == 200 and (trace.headers["x-trace-channels"], trace.headers["x-trace-samples"]) == ("4", "2")  # fmt: skip
+    asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
+    assert asked == [roles["arr_counter"]["pv"], (roles["data"]["pv"],), roles["arr_channels"]["pv"], roles["arr_counter"]["pv"], (roles["time_axis"]["pv"],)]  # fmt: skip

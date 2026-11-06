@@ -312,7 +312,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
         "control: no such role",
         "control",
         [VIEW, None, False],
-        {"enabled": False, "why": "the module names no such role for this camera"},
+        {"enabled": False, "why": "the module names no such role for this device"},
     ),  # fmt: skip
     (
         "control: read only",
@@ -324,7 +324,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
         "control: run-locked stays enabled, says why",
         "control",
         [VIEW, W, False],
-        {"enabled": True, "why": "refused while a run holds the camera (the run lock)"},
+        {"enabled": True, "why": "refused while a run holds the device (the run lock)"},
     ),  # fmt: skip
     (
         "control: a write in flight",

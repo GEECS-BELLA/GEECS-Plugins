@@ -69,7 +69,7 @@
       <span class="chip lg" id="device-state" data-state="{{ kit_state.get(device.state, 'unknown') }}">{{ device.state or "unknown" }}</span>
       <span class="dim" id="heartbeat">heartbeat {{ device.heartbeat or "—" }}</span>
     </header>
-    {% block kind_component %}{# the kind's component: slice 3 the camera's frame, slice 4 the scope's traces #}{% endblock %}
+    {% block kind_component %}{# the kind's component: slice 3 the camera's frame, the trace page's plot #}{% endblock %}
     {% block role_tables %}<div class="body">
     {% for axis, roles in tables %}
       {% if axis %}<span class="eyebrow">axis {{ axis }}</span>{% endif %}

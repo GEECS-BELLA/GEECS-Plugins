@@ -79,7 +79,7 @@ def test_the_registry_lists_each_kind_from_both_files(settings: Settings, folder
     assert problem is None and cams == [{"name": "Cam1", "family": "ad_camera_chain"}, {"name": "Cam2", "family": "ad_camera_chain"}]  # fmt: skip
     assert [d["name"] for d in registered(settings, "motor")[0]] == ["Mot1"]
     assert [d["name"] for d in registered(settings, "supply")[0]] == ["ps1"]
-    assert registered(settings, "scope")[0] == []
+    assert registered(settings, "trace")[0] == []
 
 
 def test_the_roster_read_annotates_each_row_or_says_unknown(settings: Settings, folder: Path) -> None:  # fmt: skip
@@ -148,7 +148,7 @@ def test_a_silent_module_is_stale_and_the_page_asks_again(settings: Settings, fo
 def test_the_home_pickers_carry_their_kind(settings: Settings, folder: Path) -> None:  # fmt: skip
     (folder / "home.yaml").write_text("device_pages:\n  - {title: Cameras, families: [ad_camera_chain]}\n  - {title: Mixed, families: [ad_camera_chain, motor_record]}\n")  # fmt: skip
     assert [p.kind for p in launcher(settings).device_pages] == ["camera", None]
-    assert set(KINDS) == {"camera", "scope", "motor", "supply"}
+    assert set(KINDS) == {"camera", "trace", "motor", "supply"}
 
 
 @pytest.mark.parametrize("status, state", [(401, "denied"), (403, "denied"), (409, "error"), (503, "stale")])  # fmt: skip

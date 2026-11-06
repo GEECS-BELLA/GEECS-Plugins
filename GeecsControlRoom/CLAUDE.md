@@ -48,10 +48,18 @@ geecs_control_room/
                     lineouts and histogram; the Raw toggle (frame.raw at 2 Hz, rotated / flipped by role
                     `transform` as TRANS1 would, levels per mode as fractions of the full scale);
                     device.js's GeecsDevicePage gives it the roles, values, words
+  traces.py         a trace (/api/devices/{name}/trace: the family's axis role (`axis_of`) and the array
+                    it names, `[channels, samples]` by its `channels_by`, float32 LE gzip framed, held on
+                    its `fresh_by` counter with ETag/304; § "The trace" below), over CA through Images' cache
+  static/trace.js, trace_rules.js, trace.css   the trace page (device_trace.html): the rail and readings
+                    from the family's `panel`, the plot (one series per channel, ticks in SI units, cursor,
+                    linear/log, the viewer's window and average); the rules reuse camera_rules.js's
+  static/device_writes.js   a device page's write path (operator, hazard dialog, one list at a time,
+                    sent once): the camera's and the trace page's
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
                     dropped, a timeout, back-off to 10 s, at most 8 requests at once
   templates/        base.html (every page's shell), screen.html (EVERY screen), device.html (every
-                    device page until a kind gets its own, filling `kind_component`; device_camera.html the camera's), the pages
+                    device page until a kind gets its own, filling `kind_component`; device_camera.html the camera's, device_trace.html the trace's), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
 deploy/
@@ -65,8 +73,8 @@ deploy/
   verdicts and writes. Never import `geecs_canopy`, GeecsBluesky, the
   portal or the logbook (import contract `control-room-edges`). The one
   exception to "through Canopy" is what Hare does not carry: a camera's
-  frame and its arrays are read over Channel Access by this server
-  (`images.py`, aioca), **read only**, at the PVs the module's device route
+  frame and its arrays, and a trace, are read over Channel Access by this
+  server (`images.py`, `traces.py`, aioca), **read only**, at the PVs the module's device route
   names (never derived here); CA addressing is the standard `EPICS_CA_*`
   environment from `site.env`, never `config.ini` or GEECS-Core. No write
   ever leaves this process but through the module's put route.
@@ -261,7 +269,7 @@ page's rules under node):
   decodes new bytes only); `ETag` = the counter and the CRC
   (`"3;0a1b2c3d"`), so a capped fetch that brings other bytes under the
   same counter is a 200, never a 304 that hides them; **304** on a matching
-  `If-None-Match` (`_matches`, as the raw route), no body, the same `ETag`
+  `If-None-Match` (`etag_matches`, as the raw route), no body, the same `ETag`
   and `X-Frame-Tag`.
 - **No counter, no hold**: the module names no `image_counter`, or the
   probe fails (any CA failure, a NaN): the JPEG is fetched every floor as
@@ -277,6 +285,59 @@ page's rules under node):
 
 Deploy (bandwidth, the CA array size, the front door's gzip, the Canopy
 image rebuild): `README.md` § Deploy.
+
+## The trace
+
+The trace page (`/device/trace/<name>`, family kind `array_detector`) binds
+by data shape, never by model: one page for every array over a calibrated
+axis (the PicoScope's scope contract today; the spectrometer once its
+family file exists). What differs per hardware is the family file's: the
+rail's groups and the readings strip are its `panel` (each rail role drawn
+by its type: an enum a select of the PV's own `enumChoices`, a setpoint a
+number with its readback, a writable bit a checkbox, a command a button,
+anything else its text; a role the device omits is not drawn), the axis is
+the role with `axis_of`, the y array the one it names (`traces.trace_roles`,
+the one reading of that rule, for the route and the template). A group whose roles
+are all `ch_<x>_…` is hidden while `ch_<x>_present` reads 0 (and its
+readings with it); unknown keeps it shown. Controls are filled, enabled and
+written exactly as the camera's (`camera_rules.control`, the module's put
+route, sent once, a `confirm: hazard` role behind the dialog).
+
+`GET /api/devices/{name}/trace` (`traces.py`) and `trace_rules.js` are one
+contract, pinned by `tests/test_traces.py` and `tests/test_trace_rules_js.py`
+(the route's own bytes decoded under node):
+
+- **200**: float32 little-endian, gzip framed (`zlib.compressobj(1, wbits=31)`,
+  as `frame.raw`): the axis (`samples` values), then the y array as the IOC
+  lays it out, `channels × samples`, channels fastest (a disabled channel
+  NaN); headers `X-Trace-Channels`, `X-Trace-Samples`, `X-Trace-Tag` = the
+  quoted counter, `ETag` the same. **304** on a matching `If-None-Match`.
+  **404** when the family names no axis or no `fresh_by` for its array, or
+  the module names no such role; **503** with words: the counter or the
+  array unreadable, `shape disagrees: <n> values for <c> channels`, the axis
+  unreadable or `has <m> values for <s> samples`.
+- **Reads**: one in flight per device, held `TRACE_HOLD_S` (0.5 s), shared.
+  The counter first (equal to the held tag: the held trace, one scalar
+  read); else the array asked `DBR_FLOAT` and the channel count in one
+  batch, the counter again (a mismatch reads the batch once more, tagged by
+  the second). The axis is read with the first trace and again only when
+  its length is not the trace's, its first two values moved (a two-value
+  probe per new capture: a new interval or pre-trigger moves them; a whole
+  axis would be a third of a 2 × 100 k capture's bytes) or it is older than
+  `AXIS_EVERY_S` (10 s). The counter is the y array's `fresh_by`, the
+  producing plugin's own (`ARR:ArrayCounter_RBV` for the scope): the
+  driver's posts before `ARR` publishes, so a trace tagged by it could hold
+  the previous capture under a fresh tag.
+- **The page**: polls at 2 Hz while visible, `If-None-Match` the last
+  `ETag`, 304 is nothing new; the chip is the counter role's word; the
+  scale, the window (a drag) and the average (the last N captures of one
+  shape and one axis, a tag counted once, finite values only) are the
+  viewer's, written nowhere.
+
+The bench is `scripts/scope_soft_ioc.py` (caproto through `uvx`, loopback,
+every role of the scope contract, a synthetic `[3, samples]` capture at
+1 Hz, the counters in the IOC's order; channel C disabled, D absent):
+geecs-epics has no scope simulator.
 
 ## Settings
 

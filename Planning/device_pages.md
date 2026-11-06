@@ -68,7 +68,7 @@ deleted** when they are proven: one operator surface, no bench tool.
    screenshots light and dark on a `screenshots/*` branch (the maintainer
    reviews by looking).
 4. **Trace page** (was "scope page"; § Status 2026-11-05). One page for every
-   1-D array over a calibrated axis (a scope's capture over its time axis, a
+   array over a calibrated axis (one channel, or `[channels, samples]`) (a scope's capture over its time axis, a
    spectrometer's spectrum over its wavelengths): the rail and the readings
    strip come from the family's `panel`, the y array is the `axis_of` target
    of the axis role (`[channels, samples]` by its `channels_by`); the trace
@@ -319,3 +319,25 @@ later tidy, not this slice.
 **Then.** PR 4b, the page in GeecsControlRoom (`/device/trace/<name>`,
 `/api/devices/{name}/trace`); PR 4c, the spectrometer's family file, waits
 on its IOC image.
+
+### 2026-11-05 — slice 4b, the trace page
+
+**Landed.** `/device/trace/<name>` (the kind word `scope` renamed `trace`:
+one family kind per word), `device_trace.html` (rail and readings from the
+family's `panel`, each rail role drawn by its type), `trace.js` /
+`trace_rules.js` (one series per channel, SI ticks, cursor, linear/log, the
+viewer's drag window and average), `device_writes.js` (the write path, now
+the camera's and the trace page's), and
+`GET /api/devices/{name}/trace` (`traces.py`: float32 axis then y, gzip,
+held on the y array's `fresh_by`, the scope's `ARR:ArrayCounter_RBV`
+(role `arr_counter`, added in review: the driver's `count` posts before
+`ARR` publishes); `GeecsControlRoom/CLAUDE.md` § "The trace"). The bench scope `picotest1` is registered in the configs repo's
+`panel_devices.yaml` with its bench prefix.
+
+**Proof.** On a loopback caproto soft IOC serving the scope contract
+(`GeecsControlRoom/scripts/scope_soft_ioc.py`; geecs-epics has no scope
+simulator), through the real trace route over CA, a stub module and a fake
+Hare fed from the same IOC: screenshots light and dark in
+`docs/web_services/control_room.md`. **OWED:** live proof on `picotest1`
+from the services box after the merge and deploy (Canopy's image rebuilt
+for the family change; the Control Room restarted).

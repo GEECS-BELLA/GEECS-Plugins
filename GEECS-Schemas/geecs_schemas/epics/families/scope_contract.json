@@ -27,6 +27,7 @@
     {"name": "trigger_edge", "suffix": "TriggerEdge_RBV", "type": "enum", "label": "trigger edge", "writable": true, "write": "TriggerEdge", "archive": true, "autosaved": true},
     {"name": "auto_ms", "suffix": "AutoTriggerTime_RBV", "type": "setpoint", "label": "auto-trigger after", "writable": true, "write": "AutoTriggerTime", "units": "ms", "integer": true, "limits": [1, 32767], "autosaved": true},
     {"name": "arr_uid", "suffix": "ARR:UniqueId_RBV", "type": "readback", "label": "capture id", "level": "expert"},
+    {"name": "arr_counter", "suffix": "ARR:ArrayCounter_RBV", "type": "counter", "label": "captures published", "level": "expert"},
     {"name": "ch_a_present", "suffix": "A:Present_RBV", "type": "enum", "label": "A present", "level": "expert"},
     {"name": "ch_a_enable", "suffix": "A:Enable_RBV", "type": "enum", "label": "A enabled", "writable": true, "write": "A:Enable", "archive": true, "autosaved": true},
     {"name": "ch_a_range", "suffix": "A:Range_RBV", "type": "enum", "label": "A range", "writable": true, "write": "A:Range", "archive": true, "autosaved": true},
@@ -71,7 +72,7 @@
     {"name": "ch_d_min", "suffix": "STAT_D:MinValue_RBV", "type": "readback", "label": "D min"},
     {"name": "ch_d_max", "suffix": "STAT_D:MaxValue_RBV", "type": "readback", "label": "D max"},
     {"name": "ch_d_sigma", "suffix": "STAT_D:Sigma_RBV", "type": "readback", "label": "D sigma"},
-    {"name": "data", "suffix": "ARR:ArrayData", "type": "array", "label": "capture", "units": "V", "fresh_by": "count", "channels_by": "arr_channels"},
+    {"name": "data", "suffix": "ARR:ArrayData", "type": "array", "label": "capture", "units": "V", "fresh_by": "arr_counter", "channels_by": "arr_channels"},
     {"name": "time_axis", "suffix": "TimeAxis_RBV", "type": "array", "label": "time axis", "units": "s", "axis_of": "data"},
     {"name": "arr_channels", "suffix": "ARR:ArraySize0_RBV", "type": "readback", "label": "capture channels", "read": "on_request", "level": "expert"},
     {"name": "arr_samples", "suffix": "ARR:ArraySize1_RBV", "type": "readback", "label": "capture samples", "read": "on_request", "level": "expert"}

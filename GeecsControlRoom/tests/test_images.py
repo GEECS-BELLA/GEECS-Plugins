@@ -86,6 +86,9 @@ class FakeCa:
     ``full_scale`` the ``FullScale`` read (``None``: unreadable).
     The JPEG: ``image_counters`` the successive ``MJPG1:ArrayCounter_RBV``
     reads (the last repeats), ``image_counter_fails`` makes them raise.
+    A trace (``traces.py``): ``floats_by`` the float32 arrays by PV (a missing
+    one raises, as a silent PV), ``scalars`` a scalar by PV ahead of the rules
+    above (a channel count).
     """
 
     def __init__(self) -> None:
@@ -98,6 +101,8 @@ class FakeCa:
         self.image_counter_fails = False
         self.full_scale: float | None = 4095.0
         self.scale_gate: asyncio.Event | None = None
+        self.floats_by: dict[str, np.ndarray] = {}
+        self.scalars: dict[str, float] = {}
 
     async def text(self, pv: str) -> str:
         self.calls.append(("text", pv))
@@ -117,6 +122,8 @@ class FakeCa:
 
     async def scalar(self, pv: str) -> float:
         self.calls.append(("scalar", pv))
+        if pv in self.scalars:
+            return self.scalars[pv]
         if "MJPG1:" in pv:  # the JPEG's counter, the module's or this file's
             if self.image_counter_fails:
                 raise TimeoutError("no answer from the IOC")
@@ -139,6 +146,17 @@ class FakeCa:
             raise TimeoutError("no answer from the IOC")
         return self.raw
 
+    async def floats(self, pvs: list[str], count: int | None = None) -> list[np.ndarray]:  # fmt: skip
+        self.calls.append(
+            ("floats", tuple(pvs)) if count is None else ("head", tuple(pvs))
+        )
+        if self.gate:
+            await self.gate.wait()
+        missing = [pv for pv in pvs if pv not in self.floats_by]
+        if missing:
+            raise TimeoutError(f"no answer from {missing[0]}")
+        return [self.floats_by[pv][:count] for pv in pvs]
+
     def kinds(self) -> list[str]:
         """The reads by kind, the full scale's apart: ``counter`` / ``frame`` / ``scale`` / ``image_counter``."""
         names = {FULL_SCALE: "scale", COUNTER: "counter", IMAGE_COUNTER: "image_counter"}  # fmt: skip
@@ -153,14 +171,16 @@ class Env:
             None  # set: every fetch returns these bytes (else each fetch's own)
         )
         self.status, self.roles = status, roles
+        self.family: str | None = (
+            None  # the device route's family (the trace route reads it)
+        )
 
         def answer(request: httpx.Request) -> httpx.Response:
             self.reads += 1
             if self.status == 0:
                 raise httpx.ConnectError("refused", request=request)
-            return httpx.Response(
-                self.status, json={"name": "Cam", "roles": self.roles}
-            )
+            body = {"name": "Cam", "roles": self.roles}
+            return httpx.Response(self.status, json=body | ({"family": self.family} if self.family else {}))  # fmt: skip
 
         self.module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
         self.images = Images(self.ca, self.fetch, clock=lambda: self.clock[0])

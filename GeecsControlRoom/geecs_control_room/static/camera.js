@@ -427,58 +427,10 @@
   $("reset-levels").addEventListener("click", () => { blackIn.value = 0; whiteIn.value = full; scaleSel.value = "linear"; autoLive.checked = false; buildLut(); recolour(); save(); });
   $("roi-show").addEventListener("change", draw);
 
-  // ---- writes: POST /api/devices/<name>/put {role, value, operator[, confirm]}, each sent once; a list stops at its first refusal
-  const OP_KEY = "geecs-control-room-operator", opInput = $("operator");
-  try { opInput.value = localStorage.getItem(OP_KEY) || ""; } catch (_) { /* no storage */ }
-  opInput.addEventListener("change", () => { try { localStorage.setItem(OP_KEY, opInput.value.trim()); } catch (_) { /* no storage */ } });
-  const out = $("write-out");
-  const say = (word, text, detail) => { out.dataset.state = S.outcomeState(word); out.textContent = text; out.title = detail || ""; };
-  // The roles in `pairs` the module marks as hazards (asked before anything is sent).
-  const hazardsOf = (pairs) => R.hazards(pairs, Object.fromEntries(pairs.map(([role]) => [role, P.entry(role)])));
-  const hazardDialog = $("hazard-dialog");
-  function askHazard(pairs, roles) {
-    $("hazard-dialog-text").textContent = pairs.map(([role, v]) => `${P.name} · ${role} ← ${v}`).join("\n");
-    $("hazard-dialog-roles").textContent = `Hazard: ${roles.join(", ")}.`;
-    return new Promise((done) => {
-      hazardDialog.onclick = (ev) => { if (ev.target.value) { hazardDialog.close(); done(ev.target.value === "write"); } };
-      hazardDialog.onclose = () => done(false); // however it closed (Escape, a close watcher): not confirmed; a button's answer came first
-      hazardDialog.showModal();
-    });
-  }
-  // `confirmed`: the caller's own dialog, naming these writes and their hazards, was answered (the camera ROI's).
-  // One list at a time for the whole page: while one is asked or in flight, every control is disabled and an
-  // image edit is refused, so two lists never interleave (an ROI assembled from two edits).
-  const write = R.single(async (pairs, confirmed = false) => {
-    const operator = opInput.value.trim();
-    if (!operator) { opInput.focus(); say("unknown", "unsent · name yourself in the header first"); return false; }
-    hooks.forEach((f) => f()); // the rail drawn disabled while this list runs
-    try {
-      // one decision for the whole list: the confirm sent is the dialog the operator answered
-      const marked = hazardsOf(pairs);
-      if (marked.length && !confirmed && !(await askHazard(pairs, marked))) { say("unknown", "unsent · not confirmed"); return false; }
-      const confirm = confirmed || marked.length > 0;
-      for (const [role, v] of pairs) {
-        say("sending", `${role} ← ${v} · sending`);
-        let a;
-        try {
-          const body = { role, value: v, operator };
-          if (confirm) body.confirm = true;
-          const r = await fetch(`${P.root}/api/devices/${encodeURIComponent(P.name)}/put`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-          a = await r.json();
-        } catch (_) { a = { outcome: "unknown", code: "no_answer", detail: "read the device and the journal before repeating it" }; }
-        const word = a.outcome || "unknown";
-        say(word, `${role} ← ${v} · ${word}${a.code ? " · " + a.code : ""}`, a.detail);
-        if (word !== "accepted") { held.xh = {}; held.roi = null; draw(); return false; }
-      }
-      return true;
-    } finally { setTimeout(() => hooks.forEach((f) => f())); } // after single() has let go: the rail enabled again
-  });
-  // a list refused because another runs is said, never silent (the edit snaps back to the readback)
-  const writeOrSay = async (pairs, confirmed = false) => {
-    const ok = await write(pairs, confirmed);
-    if (ok === null) say("unknown", "unsent · another write is in flight");
-    return ok;
-  };
+  // ---- writes: device_writes.js (the module's put route, sent once, a hazard asked first); the rail drawn
+  // disabled while a list runs, and a refusal drops this viewer's held edits (the image snaps back to the readbacks)
+  const write = window.GeecsDeviceWrites.make(P, () => hooks.forEach((f) => f()), () => { held.xh = {}; held.roi = null; draw(); });
+  const writeOrSay = write.write, hazardsOf = write.hazardsOf;
   const W = window.GeecsCameraView = { write: writeOrSay, busy: write.busy, hazardsOf, value, hooks, modes, clicks, layers, toView, redraw: draw, rawHistogram: () => (raw && heldRaw && rawHist ? rawHist : null), frameSize: () => (overlaysOn() ? [iw, ih] : [0, 0]) }; // an unknown transform's geometry is not the ROI's
   resize();
   sayMode();

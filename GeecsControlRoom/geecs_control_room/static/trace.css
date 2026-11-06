@@ -1,0 +1,17 @@
+/* The trace page (device_trace.html): camera.css's rail-and-pane layout, the
+   rail's fields stacked, the plot filling the pane. Tokens only (GeecsWebTheme's guard). */
+.kit .device[data-kind="trace"]{max-width:none}
+.kit .trace .rail .group .row{flex-wrap:wrap;gap:8px}
+.kit .trace .rail .field{min-width:0;width:112px}
+.kit .trace .rail .field select,.kit .trace .rail .field input[type="number"]{width:100%}
+.kit .trace .rail .rb,.kit .trace .rail .ro{display:block;font-size:11px;min-height:1em}
+.kit .trace .readings .live[hidden],.kit .trace .rail .group[hidden]{display:none}
+.kit .trace #trace-plot{display:block;width:100%;height:min(60vh,calc(100vh - 340px));min-height:300px;touch-action:none;cursor:crosshair}
+.kit .trace .tools{align-items:flex-end;gap:10px;padding-top:6px}
+.kit .trace .tools .avg{width:84px}
+.kit .trace .legend{display:inline-flex;gap:10px;font-size:11px;margin-right:auto}
+.kit .trace .legend .key::before{content:"";display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;background:currentColor}
+.kit .trace .legend .key[data-n="1"]{color:var(--trace-1)}
+.kit .trace .legend .key[data-n="2"]{color:var(--trace-2)}
+.kit .trace .legend .key[data-n="3"]{color:var(--trace-3)}
+.kit .trace .legend .key[data-n="4"]{color:var(--trace-4)}

@@ -216,12 +216,13 @@
   }
 
   // A control: enabled on the module's word only (the role named, writable, the module answering, no write in
-  // flight). A run-locked role stays enabled: the module refuses it while a run holds the camera, and says so.
+  // flight). A run-locked role stays enabled: the module refuses it while a run holds the device, and says so.
+  // Shared: the trace page (trace_rules.js) takes it as is.
   function control(view, entry, busy) {
     if (!view || !view.ok) return { enabled: false, why: "the module cannot say" };
-    if (!entry) return { enabled: false, why: "the module names no such role for this camera" };
+    if (!entry) return { enabled: false, why: "the module names no such role for this device" };
     if (!entry.writable) return { enabled: false, why: "read only (the module's policy)" };
-    const why = entry.locked ? "refused while a run holds the camera (the run lock)" : "";
+    const why = entry.locked ? "refused while a run holds the device (the run lock)" : "";
     return { enabled: !busy, why: busy ? "a write is in flight" : why };
   }
 

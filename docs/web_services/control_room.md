@@ -251,6 +251,38 @@ puts black and white at the 0.1 and 99.9 percentiles of the frame, and with
 
 Nothing in Raw writes to the camera.
 
+## The trace page
+
+A trace's page (`/device/trace/<name>`) is one page for every device whose
+data is an array over a calibrated axis: an oscilloscope's capture over its
+time axis today, and the spectrometer's spectrum over its wavelengths once
+its family file exists. The page is the same for both: which controls the
+rail carries and which readings sit above the plot come from the device's
+family file, never from the page.
+
+![The trace page on the bench scope, light theme](assets/control_room_10_trace_light.png)
+
+![The trace page on the bench scope, dark theme](assets/control_room_11_trace_dark.png)
+
+- **The rail** is the family's control groups (for a scope: Acquisition,
+  Trigger, one group per channel). Each control is drawn by what it is: a
+  choice is a list of the record's own choices, a setting a number with
+  `now …` (what the device holds) under it, a switch a checkbox. Every
+  write goes through the same path as a screen's, with your name from the
+  header; a hazard asks first. A channel the scope does not have (its
+  `present` reads 0) has no group and no readings.
+- **The readings** carry the module's word, as everywhere.
+- **The plot** draws one line per channel (A, B, C, D in the theme's trace
+  colours; a disabled channel is listed as `off` and not drawn), at most two
+  new captures a second, and only while the tab is visible. The chip is
+  the capture counter's word: `trace live` while captures arrive, `stale`
+  when they stop. Hover for the cursor readout (time and each channel's
+  value). **Scale** switches linear and log; **Average** averages the last
+  N captures; **drag across the plot** to window it, **Full window** to
+  undo. All three are yours alone: nothing is written to the device.
+
+![A window dragged over the pulse, averaging eight captures](assets/control_room_12_trace_window_average.png)
+
 ## When a write is refused
 
 The code after `denied` or `refused` says why. The ones you will meet:
