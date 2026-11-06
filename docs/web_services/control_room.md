@@ -279,9 +279,10 @@ family file, never from the page.
 - **The readings** carry the module's word, as everywhere.
 - **The plot** draws one line per channel (A, B, C, D in the theme's trace
   colours; a disabled channel is listed as `C off` and not drawn), at most
-  two new captures a second, and only while the tab is visible. It is the
-  same plot as every other line plot in the Control Room and the portal
-  (Plotly, in the theme's colours). The chip is the capture counter's
+  two new captures a second, and only while the tab is visible. It is
+  Plotly in the theme's colours, the plot every line plot in the GEECS web
+  pages is moving to (the camera page's lineouts and histogram are next).
+  The chip is the capture counter's
   word: `trace live` while captures arrive, `stale` when they stop.
   **Hover** for the readout: the axis value and each channel's value
   there. **Drag across the plot** to zoom in on that part (every sample

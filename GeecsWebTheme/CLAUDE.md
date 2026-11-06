@@ -66,6 +66,9 @@ scalar plot) is **Plotly, drawn through `plot.js`**, the one template this
 package derives from its tokens. Images are each surface's own for now: the
 Control Room's canvas frame viewer is right for 16-bit frames and stays, and
 the Data Portal is bound by nothing about images while it evolves.
+Adoption: the Control Room's trace page draws through it (2026-11-05); the
+camera page's lineouts and histogram are still its own canvas drawing, the
+device-pages arc's next item; the portal's figures are below.
 
 - **One vendored bundle**, `static/plotly-cartesian-<version>.min.js`
   (MIT, the version in the file name): the official `cartesian` dist bundle
@@ -81,7 +84,8 @@ the Data Portal is bound by nothing about images while it evolves.
   the template with a page's keys merged over it; `watch(host)` repaints a
   drawn plot on the `geecs:theme` event `theme.js` dispatches
   (`Plotly.relayout` of the colour and face leaves only, so a repaint never
-  undoes the viewer's zoom). Trace *i* takes `--trace-((i mod n)+1)`
+  undoes the viewer's zoom); `axisFormat(units)` is the SI-prefix rule
+  below as one function. Trace *i* takes `--trace-((i mod n)+1)`
   through the layout's `colorway`, so a page sets no line colour; the
   modebar is PNG export, zoom, pan, zoom in/out, autoscale, reset; a
   double-click resets, a legend click toggles a trace, no Plotly logo, the
@@ -92,7 +96,8 @@ the Data Portal is bound by nothing about images while it evolves.
   family names it, `yaxis.type`, `uirevision` to keep the viewer's zoom
   across live updates. SI prefixes on ticks belong on base SI units only
   (`exponentformat: "SI"` for s, V, A, Hz, m, W); every other unit is
-  plain (a wavelength axis of 1200 nm never reads "1.2k").
+  plain (a wavelength axis of 1200 nm never reads "1.2k"): take it from
+  `GeecsPlot.axisFormat(units)`, never a copy.
 - The Data Portal's figures are server-authored (plotly.py, `$tok:`
   sentinels resolved in the page) and load this bundle from its `/theme`
   mount; moving them onto `plot.js` is the portal's own change, not done.
@@ -108,7 +113,7 @@ the theme without being on the kit.
 | GeecsLogbook | yes | yes | yes (0.10.0) |
 | GeecsScanner (web console, its branch) | yes | yes | yes |
 | GeecsPanels (prototype) | yes | yes | yes |
-| GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) — one exception: its `/static` and `/theme` mounts use `RevalidatingStaticFiles` (#1128), so a deploy is not hidden behind a cached asset. That is not the glue adoption below; the middleware copy and `root` processor stay until then |
+| GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) — one exception: its `/theme` mount (which also serves the vendored Plotly bundle) uses `RevalidatingStaticFiles` (#1128), so a deploy is not hidden behind a cached asset. That is not the glue adoption below; the middleware copy and `root` processor stay until then |
 | ScanAnalysis config editor (`/configs`) | yes | no | no |
 
 **Portal onto the kit is deliberately LAST** — after the Qt console's

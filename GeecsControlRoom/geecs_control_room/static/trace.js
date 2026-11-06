@@ -72,7 +72,7 @@
   if (!host || !G || !window.Plotly) return;
   const yscale = $("yscale"), avgIn = $("average"), note = $("plot-note");
   let held = [], shown = null, etag = null, win = null, seen = [], lastTag = null, shape = null, watching = false;
-  const ds = box.dataset, xFmt = R.axisFormat(ds.xUnits), yFmt = R.axisFormat(ds.yUnits);
+  const ds = box.dataset, xFmt = G.axisFormat(ds.xUnits), yFmt = G.axisFormat(ds.yUnits);
 
   // Plotly.react with the template's layout under the page's axes. `uirevision` keeps the viewer's zoom, legend
   // toggles and hover across captures; x's revision is the capture's shape (a new shape is the whole trace again),

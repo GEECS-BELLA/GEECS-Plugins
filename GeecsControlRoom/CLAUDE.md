@@ -347,7 +347,7 @@ contract, pinned by `tests/test_traces.py` and `tests/test_trace_rules_js.py`
   zoom or pan (`windowFromRelayout`) re-decimates inside it; autoscale,
   reset or a double-click is the whole trace. Axis titles carry the
   family's units; SI prefixes on ticks and in the hover for base SI units
-  only (`axisFormat`: s, V, A, Hz, m, W), every other unit plain (the
+  only (the theme's `GeecsPlot.axisFormat`: s, V, A, Hz, m, W), every other unit plain (the
   first cut prefixed every unit and a wavelength axis read "knm"). The
   cartesian bundle has no `scattergl`; decimation is why SVG `scatter`
   holds a 2 × 100 k capture at 2 Hz.

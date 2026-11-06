@@ -403,6 +403,9 @@ selection tools by `modeBarButtonsToRemove` instead, pinned.
 **Next slice's first item: the camera page's lineouts and histogram onto
 `plot.js`** (`camera_controls.js`'s `lines()` canvas drawing,
 `camera_rules.js`'s plot rules). Left out of PR 1 to keep it reviewable.
+When it lands, `decimate` (still in `trace_rules.js`) moves to `plot.js` if
+the camera needs it, so the theme holds every shared plot rule;
+`axisFormat` already moved there in PR 1's review.
 
 **PR 2 (next): the processed spectrum and Start/Stop.** The plot shows the
 raw `ARR` only, so Save/Subtract background change nothing on it; and the

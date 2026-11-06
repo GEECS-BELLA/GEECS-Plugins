@@ -42,6 +42,8 @@ console.log(JSON.stringify({
   count: [P.traceCount(read({})), P.traceCount(read({ "--trace-1": "a", "--trace-2": "b" }))],
   merged: P.merge({ a: { b: 1, c: 2 }, l: [1, 2] }, { a: { c: 3 }, l: [9] }),
   keys: P.themeKeys(t.layout), calls,
+  formats: ["s", "V", "A", "Hz", "m", "W", "nm", "counts", "%", "px", "", null, " s "].map((u) => [u, P.axisFormat(u).exponentformat]),
+  hover: [P.axisFormat("s").hoverformat, P.axisFormat("nm").hoverformat],
 }));
 """
 
@@ -155,3 +157,11 @@ def test_every_page_names_the_bundle_the_theme_vendors() -> None:
     named = {(p.relative_to(repo).as_posix(), m) for p in pages for m in re.findall(r"plotly-[a-z0-9]+-[0-9.]+\.min\.js", p.read_text())}  # fmt: skip
     assert {"GEECS-DataPortal/geecs_portal/templates/run.html", "GeecsControlRoom/geecs_control_room/templates/device_trace.html"} <= {p for p, _ in named}  # fmt: skip
     assert [(p, m) for p, m in named if m != vendored[0]] == []
+
+
+def test_si_prefixes_only_on_base_si_units(out: dict) -> None:
+    # a wavelength axis in nm read "knm" when every unit was prefixed: only s, V, A, Hz, m, W take SI prefixes
+    si = {u for u, f in out["formats"] if f == "SI"}
+    assert si == {"s", "V", "A", "Hz", "m", "W", " s "}
+    assert {u: f for u, f in out["formats"] if u in ("nm", "counts", "%", "px", "", None)} == dict.fromkeys(("nm", "counts", "%", "px", "", None), "none")  # fmt: skip
+    assert out["hover"] == [".4~s", ".5~g"]

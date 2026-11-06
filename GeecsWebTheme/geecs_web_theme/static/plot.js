@@ -10,7 +10,8 @@
  *
  * Trace i takes --trace-((i mod n) + 1) through the layout's colorway (n the
  * --trace-k tokens the palette defines), so a page sets no line colour of its
- * own and a theme change recolours every trace. Images are each surface's own.
+ * own and a theme change recolours every trace. axisFormat(units) is the one
+ * rule for SI prefixes on an axis. Images are each surface's own.
  *
  * window.GeecsPlot in a page, module.exports under node (tests/test_plot_js.py).
  */
@@ -67,6 +68,16 @@
     };
   }
 
+  // The units SI prefixes belong on (a tick of 2e-6 s reads "2µ"); every other unit is plain (nm, counts, %, px:
+  // a wavelength of 1200 nm never reads "1.2k").
+  var SI_UNITS = ["s", "V", "A", "Hz", "m", "W"];
+  // An axis's number format for a unit: SI prefixes on the ticks and in the hover for a base SI unit, plain otherwise.
+  // Merge it into the axis (`xaxis: Object.assign({ title: … }, GeecsPlot.axisFormat(units))`).
+  function axisFormat(units) {
+    var si = SI_UNITS.indexOf(String(units || "").trim()) >= 0;
+    return si ? { exponentformat: "SI", hoverformat: ".4~s" } : { exponentformat: "none", hoverformat: ".5~g" };
+  }
+
   // A deep merge of plain objects (arrays and values replace): the page's keys over the template's.
   function merge(base, over) {
     var out = {}, k;
@@ -113,6 +124,7 @@
   api.traceCount = traceCount;
   api.template = template;
   api.merge = merge;
+  api.axisFormat = axisFormat;
   api.themeKeys = themeKeys;
   api.layout = function (over) { return merge(template(tokens()).layout, over); };
   api.config = function (over) { return merge(template(tokens()).config, over); };

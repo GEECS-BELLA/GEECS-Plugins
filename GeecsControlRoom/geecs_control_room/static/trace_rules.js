@@ -2,7 +2,8 @@
 // these say to Plotly through the theme's template (plot.js); tests/test_trace_rules_js.py
 // runs each rule under node. The answer's decode and reshape, this viewer's average
 // and window, the traces Plotly is given (decimated, a log scale's positive extrema),
-// the axes' titles and number formats, which channel group the page hides. Values and words are the
+// the axes' titles (their number format is the theme's GeecsPlot.axisFormat), which
+// channel group the page hides. Values and words are the
 // camera page's rules (fmt, control), reused, never copied; nothing here judges
 // the device. window.GeecsTraceRules in the page, module.exports under node.
 (function (rules, C) {
@@ -91,12 +92,6 @@
   const seriesName = (i, channels, label) => (channels === 1 ? label : String.fromCharCode(65 + i));
 
 
-  // The units SI prefixes belong on (a tick of 2e-6 s reads "2µ"); every other unit is plain (nm, counts, %, px:
-  // a wavelength of 1200 nm is never "1.2k nm").
-  const SI_UNITS = ["s", "V", "A", "Hz", "m", "W"];
-  const siUnit = (units) => SI_UNITS.includes(String(units || "").trim());
-  // An axis's number format for Plotly: SI prefixes on the ticks and in the hover for a base SI unit, plain otherwise.
-  const axisFormat = (units) => (siUnit(units) ? { exponentformat: "SI", hoverformat: ".4~s" } : { exponentformat: "none", hoverformat: ".5~g" });
   // An axis's title: its label and its units as the family names them ("time axis (s)", "spectrum (counts)", "samples").
   const axisTitle = (label, units) => (units ? `${label} (${units})` : label);
   // The viewer's window from a Plotly relayout event: [lo, hi] for an x zoom or pan, null for an autoscale or a
@@ -152,7 +147,7 @@
     return { seen: recent, text };
   }
 
-  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, siUnit, axisFormat, axisTitle, windowFromRelayout, plotData, emptyWhy, presentRole, hidden, rate, fmt: C.fmt, control: C.control, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
+  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, axisTitle, windowFromRelayout, plotData, emptyWhy, presentRole, hidden, rate, fmt: C.fmt, control: C.control, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
 })(
   typeof module === "object" ? module.exports : (window.GeecsTraceRules = {}),
   typeof module === "object" ? require("./camera_rules.js") : window.GeecsCameraRules,
