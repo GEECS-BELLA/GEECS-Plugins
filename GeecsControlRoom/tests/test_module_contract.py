@@ -36,6 +36,7 @@ from geecs_control_room.app import create_app
 from geecs_control_room.images import Images
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
+from tests._node import call_all, needs_node
 from tests.test_images import FakeCa
 
 #: Every field screen.js reads from a role of /api/devices/{name}.
@@ -571,7 +572,10 @@ async def test_a_db_device_is_laid_out_automatically_and_written_through_the_mod
     assert _groups(wheel) == [("Settings", ["Position", "Comment"])]
     assert re.search(r'<select id="c-1-1" data-role="Position" disabled>', wheel)
     # a text setting is a text field from the first draw (the module says so), and the DB's units are shown
-    assert '<input type="text" id="c-1-2" data-role="Comment" disabled>' in wheel
+    assert (
+        '<input type="text" id="c-1-2" data-role="Comment" data-readback="Comment" disabled>'
+        in wheel
+    )
     assert re.search(
         r'data-role="Temperature"><span class="k">Temperature <small>degC</small>',
         wheel,
@@ -599,3 +603,94 @@ async def test_a_db_device_is_classified_by_its_source_never_by_its_type_name(
     assert _groups(page.text) == [("Settings", ["Position"])]
     wrong = await db_room.client.get("/device/motor/DBMotor")
     assert wrong.status_code == 422 and "/device/settables/DBMotor" in wrong.text
+
+
+# ---- the setpoint control over the module's own answers (device_rules.js under node)
+
+
+async def _roles(room, device: str) -> dict:
+    """The module's route entries for ``device`` by (role, axis)."""
+    body = (await room.client.get(f"/api/devices/{device}")).json()
+    return {(r["role"], r["axis"]): r for r in body["roles"]}
+
+
+@needs_node
+async def test_a_setpoint_field_tracks_the_write_record_the_module_names(room) -> None:
+    cam, mot, ps = (await _roles(room, "Cam1")), (await _roles(room, "Mot1")), (await _roles(room, "ps1"))  # fmt: skip
+    exposure = cam[("exposure", None)]
+    assert exposure["pv"].endswith("AcquireTime_RBV") and exposure["writePv"].endswith("AcquireTime")  # fmt: skip
+    got = call_all("device_rules.js", [
+        ("sources", [exposure, "exposure", False]),  # the field tracks AcquireTime, the _RBV beside it
+        ("sources", [mot[("val", "m1")], "rbv", False]),  # .VAL, .RBV beside it
+        ("sources", [mot[("velo", "m1")], "velo", False]),  # one record
+        ("sources", [ps[("current_sp", None)], "current", False]),  # current:SP, current beside it
+    ])  # fmt: skip
+    assert got == [{"field": "write", "set": True}, {"field": "self", "set": True}, {"field": "self", "set": False}, {"field": "self", "set": True}]  # fmt: skip
+
+
+@needs_node
+async def test_an_accepted_write_clears_the_draft_and_a_refusal_keeps_it(room) -> None:
+    await _meta(
+        room, "ps1", "current_sp", None, {"controlLow": 0.0, "controlHigh": 10.0}
+    )
+    answers = [
+        (await put(room, "ps1", role="current_sp", value=2.0))[1],
+        (await put(room, "ps1", role="current_sp", value=11.0))[1],  # out of bounds
+        (await put(room, "ps1", role="reset", value=1, operator="bob"))[
+            1
+        ],  # not permitted
+    ]
+    assert [a["outcome"] for a in answers] == ["accepted", "refused", "denied"]
+    oks = call_all("device_rules.js", [("accepted", [a]) for a in answers])
+    assert call_all("device_rules.js", [("keepsDraft", [ok]) for ok in oks]) == [
+        False,
+        True,
+        True,
+    ]
+
+
+@needs_node
+async def test_a_settled_mismatch_is_flagged_and_cleared_when_they_agree(room) -> None:
+    await _meta(
+        room, "ps1", "current_sp", None, {"controlLow": 0.0, "controlHigh": 10.0}
+    )
+    roles = await _roles(room, "ps1")
+    sp_pv, mv_pv = (
+        roles[("current_sp", None)]["writePv"],
+        roles[("current", None)]["pv"],
+    )
+    status, answer = await put(room, "ps1", role="current_sp", value=5.0)
+    assert (status, answer["outcome"]) == (200, "accepted")
+    sp = (await room.env.hare.get(sp_pv))[
+        "value"
+    ]  # the setpoint record holds the write
+    [tol] = call_all(
+        "device_rules.js", [("tolerance", [{"precision": 2}])]
+    )  # the record's PREC 2
+    marks = call_all("device_rules.js", [
+        ("mark", [{"armedAt": 0, "now": 500, "sp": sp, "mv": 4.0, "tol": tol}]),  # not settled yet
+        ("mark", [{"armedAt": 0, "now": 1000, "sp": sp, "mv": 4.0, "tol": tol}]),  # settled: the supply sits at 4 A
+        ("mark", [{"armedAt": 0, "now": 3000, "sp": sp, "mv": 4.996, "tol": tol}]),  # within 0.01: agrees
+    ])  # fmt: skip
+    assert (sp, tol, marks) == (5.0, 0.01, ["waiting", "differs", "agrees"])
+    assert mv_pv != sp_pv
+
+
+@needs_node
+async def test_a_motor_is_judged_by_done_moving_within_its_deadband(room) -> None:
+    await _meta(room, "Mot1", "val", "m1", {"controlLow": -10.0, "controlHigh": 10.0})
+    roles = await _roles(room, "Mot1")
+    status, answer = await put(room, "Mot1", role="val", axis="m1", value=3.0)
+    assert (status, answer["outcome"]) == (200, "accepted"), json.dumps(answer)
+    hare = room.env.hare
+    hare.values[roles[("rdbd", "m1")]["pv"]] = live(0.01)
+    sp = (await hare.get(roles[("val", "m1")]["writePv"]))["value"]
+    rdbd = (await hare.get(roles[("rdbd", "m1")]["pv"]))["value"]
+    rules = call_all("device_rules.js", [("tolerance", [{"by": rdbd, "precision": 4}]), ("done", [live(0)]), ("done", [live(1)])])  # fmt: skip
+    tol, moving, stopped = rules
+    marks = call_all("device_rules.js", [
+        ("mark", [{"armedAt": 0, "now": 5000, "isDone": moving, "sp": sp, "mv": 1.2, "tol": tol}]),  # DMOV 0: waiting
+        ("mark", [{"armedAt": 0, "now": 9000, "isDone": stopped, "sp": sp, "mv": 2.95, "tol": tol}]),  # stopped short
+        ("mark", [{"armedAt": 0, "now": 9000, "isDone": stopped, "sp": sp, "mv": 2.995, "tol": tol}]),  # inside RDBD
+    ])  # fmt: skip
+    assert (sp, tol, marks) == (3.0, 0.01, ["waiting", "differs", "agrees"])

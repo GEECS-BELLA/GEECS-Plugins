@@ -12,7 +12,10 @@ dark pattern and noise, ``PROC:EnableBackground`` subtracts it), and
 ``STAT1``'s. Any role the family names that the chain produces
 (``processed``, ``proc_counter``) is written when the family has it. Enum
 words are the bench's, close to the driver's, never read by the page from
-anywhere but the PV. A write to ``X`` lands on ``X_RBV``. Bench only: never
+anywhere but the PV. A write to ``X`` lands on ``X_RBV``, clamped to the
+range the bench's driver takes (``TAKES``: an integration time beyond 10 s
+reads back 10 s while ``IntegrationTime`` keeps the request, as an asyn
+driver's setpoint does): the setpoint control's ``differs``. Bench only: never
 a production device, never installed, served on 127.0.0.1.
 
     EPICS_CAS_SERVER_PORT=5097 EPICS_CA_SERVER_PORT=5097 \
@@ -55,6 +58,8 @@ START = {
     "pixels": PIXELS, "arr_pixels": PIXELS, "fit0": FIT[0], "fit1": FIT[1], "fit2": FIT[2], "fit3": 0.0, "fit4": 0.0,
     "min_integration": 1e-5, "stored_integration": 0.01, "stored_averages": 1, "compute_statistics": 1, "compute_centroid": 1,
 }  # fmt: skip
+#: The range the bench's driver takes per role: a write outside it reads back clamped.
+TAKES = {"integration_time": (1e-5, 10.0)}
 WHOLE = {
     "pixels",
     "arr_pixels",
@@ -68,12 +73,14 @@ class Mirrored:
     """A write record whose value lands on its readback, as the contract's setpoints follow their ``_RBV``."""
 
     mirror: ChannelData | None = None
+    takes: tuple[float, float] | None = None
 
     async def verify_value(self, data):
-        """The value as written, mirrored onto the readback."""
+        """The value as written, mirrored onto the readback (clamped to ``takes``)."""
         value = await super().verify_value(data)  # type: ignore[misc]
         if self.mirror is not None:
-            await self.mirror.write(value)
+            low, high = self.takes or (value, value)
+            await self.mirror.write(min(max(value, low), high))
         return value
 
 
@@ -142,7 +149,7 @@ def pvdb(prefix: str) -> tuple[dict[str, ChannelData], dict[str, ChannelData]]:
         db[prefix + role["suffix"]] = by_role[name] = ch
         if role.get("write"):
             w = db[prefix + role["write"]] = channel(role, START.get(name), write=True)
-            w.mirror = ch
+            w.mirror, w.takes = ch, TAKES.get(name)
     return db, by_role
 
 

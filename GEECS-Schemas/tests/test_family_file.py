@@ -691,3 +691,33 @@ def test_the_two_array_detector_families_share_their_vocabulary() -> None:
     }
     for name in shared:
         assert (scope.role(name).type, scope.role(name).suffix) == (spec.role(name).type, spec.role(name).suffix), name  # fmt: skip
+
+
+def test_a_setpoints_tolerance_is_a_number_or_a_readback() -> None:
+    doc = tiny()
+    role(doc, "level_sp")["tolerance"] = 0.5
+    assert FamilyFile.model_validate(doc).role("level_sp").tolerance == 0.5
+    role(doc, "level_sp").update(tolerance=None, tolerance_by="level")
+    assert FamilyFile.model_validate(doc).role("level_sp").tolerance_by == "level"
+
+
+@pytest.mark.parametrize(
+    "name, fields, match",
+    [
+        ("level_sp", {"tolerance": 0.5, "tolerance_by": "level"}, "a number or a role, not both"),
+        ("level_sp", {"tolerance": -1}, "greater than or equal to 0"),
+        ("level_sp", {"tolerance_by": "levl"}, "tolerance_by names no role"),
+        ("level_sp", {"tolerance_by": "flag"}, "tolerance_by names a readback, not bit"),
+        ("level_sp", {"tolerance_by": "trace"}, "tolerance_by 'trace' is not monitored"),
+        ("acquire", {"tolerance": 0.5}, "only a setpoint has a tolerance"),
+    ],
+)  # fmt: skip
+def test_a_tolerance_is_refused_off_a_setpoint_or_a_readback(name: str, fields: dict, match: str) -> None:  # fmt: skip
+    doc = tiny()
+    role(doc, name).update(fields)
+    _refused(doc, match)
+
+
+def test_a_motors_target_is_judged_within_its_retry_deadband() -> None:
+    val = load_families()["motor_record"].role("val")
+    assert (val.readback, val.settled_by, val.tolerance_by) == ("rbv", "dmov", "rdbd")

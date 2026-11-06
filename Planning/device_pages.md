@@ -623,3 +623,33 @@ probe of port 8500 to remove.
 GeecsControlRoom and the archiver, untouched. History stays history: the CHANGELOGs, this brief's
 dated entries, `CONTRIBUTING.md`'s Planning audits, the "Panels" paragraph
 of `NATIVE_DEVICES.md` (marked as the record).
+
+### 2026-11-06 — vocabulary merge, PR 1: the setpoint control
+
+**Ruled** (the maintainer, 2026-11-06): the rail becomes the one control set,
+the screen renderer adopts it (PR 2), flipper and annotation stay
+screen-only; four setpoint behaviours from his operators' request to set a
+value and see it read back in the same interface (a field that tracks the
+setpoint, both values beside it, `differs` after a settle with a tolerance,
+the draft kept until accepted).
+
+**Built** (the rail only: the trace and settables pages; the camera's
+hand-coded rail moves in PR 3). The setpoint is the role's write record, the
+module's `writePv`, read over Hare: no family declares a setpoint record of
+its own, because the route already names it for every device, native and
+DB, and declaring one would change what a role means to the archiver,
+presets and Squirrel. A DB device's field tracks its value, not its `:SP`
+(the gateway's last forwarded put, 0 until the first). GEECS-Schemas'
+`Role` gains `tolerance` and `tolerance_by`; `motor_record`'s `val` is
+judged within `rdbd`. The rules and their reasons are
+`GeecsControlRoom/CLAUDE.md` § "The setpoint control".
+
+**Proved** in the module contract tests (tracking sources over the module's
+own entries, a write accepted, refused and denied, a settled mismatch, a
+motor by done-moving) and on the spectrometer and scope soft IOCs through
+GeecsCanopy's real module (the bench's driver clamps integration time to
+10 s: a write of 20 reads `set 20 · now 10 · differs`). The bench found one
+defect, fixed: the field is disabled while its write runs and so lost focus,
+leaving Esc on a kept draft with nowhere to go.
+
+**Review** changed: (filled in after the review).

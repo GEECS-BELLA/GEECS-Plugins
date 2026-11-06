@@ -50,7 +50,8 @@ geecs_control_room/
                     rail's present-hiding, a control's written value, a pane's alarms)
   static/device_rail.js   the ONE rail and readings strip of every page drawn from a panel (the settables
                     page and the trace page): fill from Hare, enable on the module's word, write through
-                    device_writes.js (axis on a per-axis write); starts itself on the settables page
+                    device_writes.js (axis on a per-axis write), the setpoint control (§ "The setpoint
+                    control" below); starts itself on the settables page
   static/device.css the device pages' layout
   static/camera.js, camera_controls.js, camera_rules.js, camera.css   the camera page (device_camera.html):
                     the viewer (frame loop, zoom/pan, colour map, levels), crosshairs and analysis ROI
@@ -341,14 +342,14 @@ computes the target), a `grid` group as compact cells. The family's
 hint, and a role the device's `allow` does not grant is drawn disabled with
 the module's word. A role's `text` and `units` come from the module's device
 route (a DB device's from the DB through the gateway source); a value with no
-units of its own shows the record's EGU from Hare. A number or text field is
-a **draft** once typed in, marked and kept when the field loses focus:
-Enter writes it, Esc drops it, so an arrow key or a spinner click on a
-motor's target never sends a move (the screen renderer's rule); a tweak's
-− / + while its step is a draft sends the step and then the press as one
-list, stopped at the first refusal, so the record never steps by a step the
-field no longer shows (`device_rules.tweakList`); a select, a checkbox or a
-button writes when chosen (`device_rules.commitKey`, `writeValue`).
+units of its own shows the record's EGU from Hare. A setpoint is the
+setpoint control (§ below: a field tracking the device's setpoint, a draft
+kept until a write of it is accepted, the two values under it, `differs`);
+a tweak's − / + while its step is a draft sends the step and then the press
+as one list, stopped at the first refusal, so the record never steps by a
+step the field no longer shows (`device_rules.tweakList`); a select, a
+checkbox or a button writes when chosen (`device_rules.commitKey`,
+`writeValue`).
 A device is classified by its roster `source` first: a gateway device's
 family is its DB device type, never looked up as a family file, even when
 it is spelled like one.
@@ -356,7 +357,8 @@ it is spelled like one.
 The camera page keeps its hand-coded rail (`device_camera.html`,
 `camera_controls.js`, which writes on `change`, and its readings in
 `camera.js`) until it moves onto its family's panel and this rail. The
-screen renderer and this rail are two vocabularies today; the slice that
+screen renderer and this rail are two vocabularies today (the setpoint
+control below is the merge's first piece, on this side only); the slice that
 merges them takes over, on this side, `_panel.html`'s `control` and
 `readings`, `device_rules.writeValue`, `device_writes.js` (with its hazard
 dialog) and the enable, format and hazard rules still in `camera_rules.js`
@@ -368,6 +370,52 @@ dialog) and the enable, format and hazard rules still in `camera_rules.js`
 select has no widget kind yet; the merge adds one. The rail-and-pane grid
 still borrows `camera.css`'s `.camera` layout, which moves to `device.css`
 with it.
+
+## The setpoint control
+
+The maintainer's rulings of 2026-11-06, from his operators' request to set a
+value and see it read back in the same interface (our LabVIEW GUIs do not
+track a setpoint: never cite them as precedent). One control: `_panel.html`'s
+`control` for a `setpoint` and `device_rail.js`'s `setpoint()`, its rules in
+`device_rules.js` with rows in `test_device_rules_js.py` and, over
+GeecsCanopy's own module, in `test_module_contract.py`.
+
+- **The field tracks the device's setpoint** whenever it holds no draft,
+  focused or not (rewritten only when the text differs). The setpoint is the
+  role's **write record**, the module's `writePv`, read over Hare
+  (`GeecsDevicePage.target`: watched on first ask, judged as a bare PV, since
+  the module judges the role's own record): areaDetector's `X` beside the
+  `X_RBV` the role reads, the motor's `.VAL`, a supply's `current:SP`
+  (`device_rules.sources`). No family declares a setpoint record of its own:
+  the route already names it, a role keeps the meaning the archiver, presets
+  and Squirrel read, and a DB device needs no per-device data. One
+  exception: a DB device's write record is the gateway's `:SP`, the last put
+  the gateway forwarded (0 or empty until the first since the gateway
+  started; it never reads the device), so its field tracks the device's
+  value. Drop the exception if the gateway ever seeds `:SP` from the device.
+- **Both values beside the field where they are distinct records**: `set`
+  the setpoint record, `now` the measured one (the family's `readback`, else
+  the role's own record), each with its word; `now` alone where the two are
+  one record (a motor's speed).
+- **The draft** (a number or text field once typed in, marked) writes on
+  Enter, never as typed, so an arrow key or a spinner click on a motor's
+  target never sends a move; Esc drops it. It survives a blur, a refusal, an
+  unsent write (no operator, the hazard not confirmed, another write in
+  flight) and a value that is no number, and clears only when a write of it
+  is accepted (`device_rules.keepsDraft`): one rule for a field's Enter and a
+  tweak's step. The field is disabled while its write runs, so a kept draft
+  is focused again after, for Esc or a fix.
+- **`differs`, after a write settles.** An accepted write of a setpoint (or
+  its tweak's press) arms the field; the mark is judged `SETTLE_MS` (1 s)
+  after the acceptance and, for a setpoint with `settled_by` (the motor's
+  `dmov`), only while that done flag reads 1 (`device_rules.mark`); it stands
+  while the measured value is outside the tolerance of the setpoint and
+  clears, disarming, when they agree. The tolerance is the role's `tolerance`
+  (a number), else its `tolerance_by` role's value (the motor's `rdbd`, the
+  record's own retry deadband), else one unit in the last digit of the
+  measured record's precision (Hare's meta), else exact (a whole number, or
+  no precision). The page judges its own writes only: another client's
+  write, or one made before the page loaded, arms nothing; a reload disarms.
 
 ## The trace
 

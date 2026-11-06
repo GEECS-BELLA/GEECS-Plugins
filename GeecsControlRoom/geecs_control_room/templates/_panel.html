@@ -5,8 +5,11 @@
   device.html (every kind without a data component) and device_trace.html;
   the camera page keeps its hand-coded rail until it moves onto its panel.
   Each rail role is drawn by its type through `control`: an enum a select
-  of the record's own choices, a setpoint a number beside its readback (a
-  text setpoint a text field; a field's draft writes on Enter, never as typed), a bit a checkbox, a command a button, a
+  of the record's own choices, a setpoint a number field tracking the
+  device's setpoint with the setpoint and the measured value under it, each
+  with its word, and a `differs` mark (a text setpoint a text field; a
+  field's draft writes on Enter, never as typed, and is kept until a write
+  of it is accepted), a bit a checkbox, a command a button, a
   read-only role its text; named in the panel's `buttons`, a pair of buttons
   writing 0 and 1; named as a `tweak`, the setpoint with its step and its
   − / + commands (the record moves by the step: the page computes nothing; a
@@ -22,7 +25,10 @@
 {% elif spec.type == "command" %}<div class="field"><button class="btn sm" type="button" data-role="{{ spec.name }}"{{ ax }} data-value="1" disabled>{{ label }}</button></div>
 {% elif spec.type == "bit" and spec.writable %}<div class="field"><label class="dim"><input type="checkbox" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }} disabled> {{ label }}</label></div>
 {% elif spec.type == "enum" and spec.writable %}<div class="field"><label for="{{ id }}">{{ label }}</label><select id="{{ id }}" data-role="{{ spec.name }}"{{ ax }} disabled></select></div>
-{% elif spec.type == "setpoint" %}<div class="field"><label for="{{ id }}">{{ label }} {% if units %}<small>{{ units }}</small>{% else %}<small data-egu="{{ spec.name }}" data-type="setpoint"{{ ax }}></small>{% endif %}</label><input type="{{ 'text' if spec.text else 'number' }}" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }}{% if not spec.text %} step="{{ 1 if spec.integer else 'any' }}"{% endif %} disabled><span class="rb mono dim" data-rb="{{ spec.readback }}"{{ ax }}>—</span></div>
+{% elif spec.type == "setpoint" %}<div class="field setpoint"><label for="{{ id }}">{{ label }} {% if units %}<small>{{ units }}</small>{% else %}<small data-egu="{{ spec.name }}" data-type="setpoint"{{ ax }}></small>{% endif %}</label><input type="{{ 'text' if spec.text else 'number' }}" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }}{% if not spec.text %} step="{{ 1 if spec.integer else 'any' }}"{% endif %} data-readback="{{ spec.readback }}"{% if spec.settled_by %} data-settled-by="{{ spec.settled_by }}"{% endif %}{% if spec.tolerance is not none %} data-tol="{{ spec.tolerance }}"{% endif %}{% if spec.tolerance_by %} data-tol-by="{{ spec.tolerance_by }}"{% endif %} disabled>
+  <span class="sv" hidden><span class="k">set</span> <b class="mono">—</b> <span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>
+  <span class="rb"><span class="k">now</span> <b class="mono">—</b> <span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>
+  <span class="differs" hidden><span class="dot" data-state="degraded" aria-hidden="true"></span>differs</span></div>
 {% else %}<div class="field"><label>{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><span class="ro mono" data-ro="{{ spec.name }}"{{ ax }}>—</span></div>
 {% endif %}
 {%- endmacro %}
@@ -30,7 +36,7 @@
 {% macro tweak(spec, hint, specs, id, axis=none) -%}
 {% set ax %}{% if axis %} data-axis="{{ axis }}"{% endif %}{% endset %}
 {{ control(spec, id, none, axis) }}
-<div class="field tweak"><label for="{{ id }}-step">{{ specs[hint.step].label }}{% if specs[hint.step].units %} <small>{{ specs[hint.step].units }}</small>{% endif %}</label>
+<div class="field tweak" data-tweaks="{{ spec.name }}"><label for="{{ id }}-step">{{ specs[hint.step].label }}{% if specs[hint.step].units %} <small>{{ specs[hint.step].units }}</small>{% endif %}</label>
   <div class="seg" role="group" aria-label="{{ spec.label }}: step">
     <button type="button" data-role="{{ hint.reverse }}"{{ ax }} data-step="{{ hint.step }}" data-value="1" aria-label="{{ specs[hint.reverse].label }}" disabled>−</button>
     <input type="number" id="{{ id }}-step" data-role="{{ hint.step }}"{{ ax }} step="any" disabled>
