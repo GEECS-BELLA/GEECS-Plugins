@@ -333,3 +333,26 @@ async def test_the_trace_page_draws_the_familys_panel_and_reads_the_trace_at_the
     assert trace.status_code == 200 and (trace.headers["x-trace-channels"], trace.headers["x-trace-samples"]) == ("4", "2")  # fmt: skip
     asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
     assert asked == [roles["arr_counter"]["pv"], (roles["data"]["pv"],), roles["arr_channels"]["pv"], roles["arr_counter"]["pv"], (roles["time_axis"]["pv"],)]  # fmt: skip
+
+
+async def test_the_trace_page_draws_a_spectrometer_through_the_same_template(room, tmp_path: Path) -> None:  # fmt: skip
+    # the bench spectrometer beside the shared documents: the other array_detector family, one channel
+    write_documents(tmp_path, panels=PANELS + '  cct1: {family: spectrometer_contract, prefix: "bench:cct1:"}\n', policy=POLICY.replace("easydriver]", "easydriver, spectrometer_contract]"))  # fmt: skip
+    roles = {r["role"]: r for r in (await room.client.get("/api/devices/cct1")).json()["roles"]}  # fmt: skip
+    assert (roles["spectrum"]["read"], roles["wavelength"]["read"], roles["arr_counter"]["read"]) == ("on_request", "on_request", "monitor")  # fmt: skip
+    assert roles["background_save"]["read"] == "never" and roles["background_save"]["writable"] is True  # fmt: skip
+    page = await room.client.get("/device/trace/cct1")
+    assert page.status_code == 200 and 'id="trace"' in page.text and "/api/devices/cct1/trace" in page.text  # fmt: skip
+    assert [t for t in ("<h4>Acquisition</h4>", "<h4>Trigger</h4>", "<h4>Background</h4>") if t not in page.text] == []  # fmt: skip
+    assert (
+        "<h4>Channel A</h4>" not in page.text
+    )  # the spectrometer's rail, not the scope's
+    assert '<button class="btn sm" type="button" data-role="background_save" data-value="1" disabled>Save background</button>' in page.text  # fmt: skip
+    assert 'data-role="integration_time" step="any"' in page.text and 'data-role="averages" step="1"' in page.text  # fmt: skip
+    assert 'class="live" data-role="saturated"' in page.text and 'data-counter="arr_counter"' in page.text and 'data-x-units="nm"' in page.text  # fmt: skip
+    # one channel: the counter, the spectrum (no channel count asked), the counter, the wavelengths
+    room.ca.floats_by = {roles["spectrum"]["pv"]: np.zeros(8, dtype=np.float32), roles["wavelength"]["pv"]: np.arange(8, dtype=np.float32)}  # fmt: skip
+    trace = await room.client.get("/api/devices/cct1/trace")
+    assert trace.status_code == 200 and (trace.headers["x-trace-channels"], trace.headers["x-trace-samples"]) == ("1", "8")  # fmt: skip
+    asked = [a for k, a in room.ca.calls if k in ("floats", "scalar")]
+    assert asked == [roles["arr_counter"]["pv"], (roles["spectrum"]["pv"],), roles["arr_counter"]["pv"], (roles["wavelength"]["pv"],)]  # fmt: skip
