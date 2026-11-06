@@ -592,7 +592,7 @@ restarted.
 
 **Ruled** (the maintainer, after looking at the deployed camera, trace and
 settables pages): the prototype is deleted under the kill rule. One PR to
-`master`, off `master`.
+`master`, off `master` (#1300).
 
 **Deleted.** `GeecsPanels/` whole (0.1.0): the FastAPI app on port 8500,
 its own CA client (aioca), the per-kind pages (camera, scope, motor,
@@ -619,7 +619,7 @@ There was no unit template under `deploy/`, no mkdocs page and no skill
 probe of port 8500 to remove.
 
 **Stays.** The configs repo's `panel_devices.yaml` and GEECS-Schemas'
-`PanelDevices`: no longer GeecsPanels' file, read by GeecsCanopy and the
-archiver, untouched. History stays history: the CHANGELOGs, this brief's
+`PanelDevices`: no longer GeecsPanels' file, read by GeecsCanopy,
+GeecsControlRoom and the archiver, untouched. History stays history: the CHANGELOGs, this brief's
 dated entries, `CONTRIBUTING.md`'s Planning audits, the "Panels" paragraph
 of `NATIVE_DEVICES.md` (marked as the record).

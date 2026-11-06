@@ -421,7 +421,8 @@ code. Its successor: GeecsControlRoom's device pages (`/device/<kind>/<name>`:
 the camera page, the trace page for scopes and spectrometers, the settables
 page for motors, supplies and the GEECS DB devices), drawn over Canopy and
 its GEECS module. The configs repo's `panel_devices.yaml` outlives it: it is
-GEECS-Schemas' `PanelDevices` document, read by GeecsCanopy and the archiver.
+GEECS-Schemas' `PanelDevices` document, read by GeecsCanopy, GeecsControlRoom
+and the archiver.
 
 ## Release & Versioning
 
