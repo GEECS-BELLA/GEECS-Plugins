@@ -52,8 +52,8 @@ pass tiny ones through the validation context (`context={"families":
 ...}`). The installed families are frozen and shared process-wide; a
 family with actions puts every writable role in one, so `allow` decides
 every write. A family file changes when its IOC template does;
-the pin holding the camera, scope, motor and supply files to GeecsPanels'
-own suffix tables (web estate S2) is kept at the tag `web-estate-final`, not here.
+the pin that held the camera, scope, motor and supply files to the deleted
+GeecsPanels' suffix tables (web estate S2) is kept at the tag `web-estate-final`, not here.
 
 A role's `read` decides who reads it, and the camera's raw-frame roles
 (`ad_camera_chain.json`, the Control Room's Raw view) are the case that

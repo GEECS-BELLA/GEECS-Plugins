@@ -6,8 +6,9 @@ anything load-bearing into the owning `CLAUDE.md` files. The coordinator runs
 the slices in order, one PR each into this branch, with the `/land` ritual, and
 merges a lane PR after its review is dispositioned (maintainer's rule for
 integration branches). `master` is merged forward at least weekly. Promotion
-to `master` is the maintainer's merge; the GeecsPanels deletion is its own PR
-under the kill rule, after the maintainer has looked at the rendered pages.
+to `master` is the maintainer's merge; the GeecsPanels deletion was its own PR
+under the kill rule, after the maintainer had looked at the rendered pages
+(slice 6, done 2026-11-06: § Status).
 
 ## Goal (the maintainer's acceptance criterion, 2026-10-31)
 
@@ -35,8 +36,8 @@ deleted** when they are proven: one operator surface, no bench tool.
   GeecsControlRoom as components with their own small routes: the frame proxy
   that pulls the IOC's JPEG one frame at a time, the client-side colour map,
   levels and ROI, the freshness judgement by the plugin's `ArrayCounter_RBV`,
-  and the scope traces streamed over SSE. Copy, adapt to the kit, then delete
-  the originals in the deletion PR; GeecsControlRoom never imports GeecsPanels.
+  and the scope traces streamed over SSE. Copied, adapted to the kit, and the
+  originals deleted with the package in slice 6 (done 2026-11-06).
 - **The camera page's feature list** is `Planning/operator_surfaces.md` §6
   (ROI, exposure, gain, trigger mode and delay, rate, last update, max counts
   against saturation, crosshairs, centroid/sigma/max/mean/total, lineouts and
@@ -48,7 +49,7 @@ deleted** when they are proven: one operator surface, no bench tool.
   groups, confirms and calls, never computes; plain JS, no build step; the
   rules modules under node tests; the contract test over
   `geecs_canopy.testing`); the import graph in root `CLAUDE.md` (GeecsCanopy a
-  dev-only dep, nothing from GeecsPanels, GeecsBluesky, the portal); facility
+  dev-only dep, nothing from GeecsBluesky, the portal); facility
   values in config only; no IOC address in code (the geecs-epics chain
   contract names the IOC).
 
@@ -79,8 +80,8 @@ deleted** when they are proven: one operator surface, no bench tool.
 6. **GeecsPanels deletion PR** (separate, under the kill rule): the package,
    its unit template, its row in root `CLAUDE.md`, `.importlinter`,
    `scripts/check.sh`, `scripts/ci_select.py`, the theme's template walk, the
-   docs page, the CHANGELOG list.
-   Opened on this branch but merged only after the maintainer's look.
+   docs page, the CHANGELOG list. **Done 2026-11-06**, one PR to `master`
+   after the maintainer's look (§ Status).
 7. **Docs + promotion body.** `GeecsControlRoom/CLAUDE.md` gains the device
    pages and the image/array rule in one paragraph; `operator_surfaces.md` §6
    is folded into it and the section deleted; the promotion body lists lane
@@ -586,3 +587,39 @@ names each piece on both sides).
 real PLC (many switches, the grid) and a filter wheel from the DB; Canopy
 rebuilt for the family files and the route's new fields, the Control Room
 restarted.
+
+### 2026-11-06 — slice 6, GeecsPanels deleted
+
+**Ruled** (the maintainer, after looking at the deployed camera, trace and
+settables pages): the prototype is deleted under the kill rule. One PR to
+`master`, off `master` (#1300).
+
+**Deleted.** `GeecsPanels/` whole (0.1.0): the FastAPI app on port 8500,
+its own CA client (aioca), the per-kind pages (camera, scope, motor,
+supply), its bench file and `allow` lists, its tests. It ran from a laptop
+over the VPN only; nothing on the services box changes. The final state is
+kept at the tag `geecs-panels-v0.1.0-final`, cut by the maintainer on
+master's last commit before the deletion (the PR body has the lines).
+
+**Rewritten** (every live reference): the root `CLAUDE.md` (the map row,
+the "GEECS side" sentence, the dependency-graph entry and two "never
+imports" lines, the CHANGELOG list, a paragraph in "Deleted legacy
+packages"); `README.md` (the table row, the mermaid node and edge);
+`CONTRIBUTING.md` § Tests; `.importlinter` (the package in `root_packages`
+and the layers, every forbidden list, the `panels-edges` contract, the
+Control Room contract's name); `scripts/check.sh` and `scripts/ci_select.py`
+(the leg); `scripts/doc_audit.py` (`GeecsPanels` joins `STALE_TERMS`);
+GeecsWebTheme's literal-colour walk and its surface table; the docstrings
+and notes that named it as a consumer (`epics_env`, `pv_naming`,
+`panel_devices`, `family`, GEECS-Core's `DESIGN.md`, GEECS-Schemas'
+`CLAUDE.md`, GeecsBluesky's `NATIVE_DEVICES.md`); GeecsControlRoom's
+`CLAUDE.md` and `camera.js` header; this brief's live instructions and
+`operator_surfaces.md` §6 (now pointing at the Control Room's pages).
+There was no unit template under `deploy/`, no mkdocs page and no skill
+probe of port 8500 to remove.
+
+**Stays.** The configs repo's `panel_devices.yaml` and GEECS-Schemas'
+`PanelDevices`: no longer GeecsPanels' file, read by GeecsCanopy,
+GeecsControlRoom and the archiver, untouched. History stays history: the CHANGELOGs, this brief's
+dated entries, `CONTRIBUTING.md`'s Planning audits, the "Panels" paragraph
+of `NATIVE_DEVICES.md` (marked as the record).

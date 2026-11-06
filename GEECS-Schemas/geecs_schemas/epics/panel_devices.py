@@ -1,17 +1,18 @@
 """PanelDevices — per-device panel data, one document per experiment (layer 0b of the web estate).
 
-The configs repository's ``<experiment>/panel_devices.yaml`` (the panels'
-``--bench`` file, promoted): for each device a page is drawn for, the
-family (record template) it instantiates and what differs from that
-family on this device — its own PV names for a role (the two supplies have
-no shared record set), a bit's label, the actions the page may take on it
-(``allow``), the line the page shows (``note``), the roles it does not
-have (``omit``), the roles that need a hazard confirm on it alone
-(``hazard``), the roles the archiver takes beyond the family's
-(``archive``) or leaves out on this device (``no_archive``), and the IOC
-serving it (``ioc``, whose devIocStats heartbeat the archiver keeps).
+The configs repository's ``<experiment>/panel_devices.yaml``: for each
+device a page is drawn for, the family (record template) it instantiates
+and what differs from that family on this device — its own PV names for a
+role (the two supplies have no shared record set), a bit's label, the
+actions the page may take on it (``allow``), the line the page shows
+(``note``), the roles it does not have (``omit``), the roles that need a
+hazard confirm on it alone (``hazard``), the roles the archiver takes
+beyond the family's (``archive``) or leaves out on this device
+(``no_archive``), and the IOC serving it (``ioc``, whose devIocStats
+heartbeat the archiver keeps).
 
-Read by GeecsCanopy, and by the archiver's registry pass for the device's
+Read by GeecsCanopy, by GeecsControlRoom (the home and the screens), and
+by the archiver's registry pass for the device's
 archived roles, prefix, axes and IOC.
 The scan worker never reads it, so a device
 listed here may still be owned by the GEECS DB (a bench device on a bench
