@@ -215,6 +215,10 @@
     return a !== 0 && (a >= 1e5 || a < 1e-3) ? v.toExponential(3) : String(Number(v.toPrecision(4)));
   }
 
+  // A button pair's state (a family panel's `buttons`, e.g. acquire's Stop / Start): the button whose value the
+  // role reads is pressed; unknown, neither.
+  const pressed = (value, buttonValue) => typeof value === "number" && value === buttonValue;
+
   // A control: enabled on the module's word only (the role named, writable, the module answering, no write in
   // flight). A run-locked role stays enabled: the module refuses it while a run holds the device, and says so.
   // Shared: the trace page (trace_rules.js) takes it as is.
@@ -295,5 +299,5 @@
     return s === "" || !Number.isFinite(n) ? null : n;
   }
 
-  Object.assign(rules, { MAPS, levels, lut, histogram, autoLevels, storedLevels, storeLevels, ASSUMED_FULL, rawAnswer, decodeRaw, transformName, transformFrame, modeWords, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, imageChip, alarms, hazards, notComputed, histogramPlot, rawIsNew, jpegIsNew, ifNoneMatch, single, valid, whole, number, gestureEnds, within });
+  Object.assign(rules, { MAPS, levels, lut, histogram, autoLevels, storedLevels, storeLevels, ASSUMED_FULL, rawAnswer, decodeRaw, transformName, transformFrame, modeWords, imageSize, toView, toImage, fitScale, fit, zoomAt, roiToImage, imageToRoi, dragRoi, roiHandle, fmt, control, pressed, imageChip, alarms, hazards, notComputed, histogramPlot, rawIsNew, jpegIsNew, ifNoneMatch, single, valid, whole, number, gestureEnds, within });
 })(typeof module === "object" ? module.exports : (window.GeecsCameraRules = {}));

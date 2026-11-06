@@ -47,9 +47,6 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("shown: a choice no longer drawn falls back", "shownY", [YS, {}, {}, "gone"], "spectrum"),
     ("shown: none drawn", "shownY", [[], {}, {}, None], None),
     ("trace url: the array asked by name", "traceUrl", ["/room/api/devices/cct1/trace", "processed"], "/room/api/devices/cct1/trace?y=processed"),
-    ("pressed: the button of the value read", "pressed", [1, 1], True),
-    ("pressed: the other button", "pressed", [0, 1], False),
-    ("pressed: unknown presses neither", "pressed", [None, 0], False),
     # the rail and the readings
     ("present: a channel's group, by its present role", "presentRole", [CH, KNOWN], "ch_a_present"),
     ("present: a channel's reading", "presentRole", [["ch_a_total"], KNOWN], "ch_a_present"),
@@ -63,6 +60,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     # reused from camera_rules.js, never copied
     ("control: on the module's word", "control", [VIEW, {"role": "ch_a_range", "writable": True}, False], {"enabled": True, "why": ""}),
     ("control: read only", "control", [VIEW, {"role": "count", "writable": False}, False], {"enabled": False, "why": "read only (the module's policy)"}),
+    ("pressed: a button pair's state", "pressed", [1, 1], True),
     ("format: an enum by its label", "fmt", [{"value": 1}, {"enumChoices": ["10 mV", "20 mV"]}], "20 mV"),
 ]  # fmt: skip
 

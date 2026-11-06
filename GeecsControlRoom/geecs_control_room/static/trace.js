@@ -144,9 +144,11 @@
         if (want !== current) return; // the viewer switched arrays mid-request: this answer is the last array's
         const what = R.rawAnswer(r.status);
         if (what === "same") return;
-        if (what === "error") { etag = null; say((await r.json().catch(() => ({}))).detail || `answered ${r.status}`); return; }
+        if (what === "error") { const why = (await r.json().catch(() => ({}))).detail; if (want !== current) return; etag = null; say(why || `answered ${r.status}`); return; }
         const h = { channels: r.headers.get("X-Trace-Channels"), samples: r.headers.get("X-Trace-Samples"), tag: r.headers.get("X-Trace-Tag") };
-        const t = R.decodeTrace(await r.arrayBuffer(), h);
+        const body = await r.arrayBuffer();
+        if (want !== current) return; // and again after every await: the body was the last array's too
+        const t = R.decodeTrace(body, h);
         if (!t.ok) { etag = null; say(t.why); return; }
         say(null);
         etag = r.headers.get("ETag");

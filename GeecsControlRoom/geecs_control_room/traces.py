@@ -18,7 +18,8 @@ array's ``fresh_by`` counter, as ``frame.raw`` is held on ``raw_counter``.
 - **404** when the family names no trace or counter, ``?y=`` names an array
   the axis does not draw, or the module names no such role; **503** with words when a source is silent or the shapes disagree.
 
-Reads: one in flight per device, held ``TRACE_HOLD_S`` and shared. The
+Reads: one in flight per device and array, held ``TRACE_HOLD_S`` and shared
+(arrays over one axis share its held read). The
 counter alone first; unmoved, the held trace is served (a 2 Hz poller costs
 one scalar read). Else the y array (asked ``DBR_FLOAT``: float32 on the
 wire, half a ``DOUBLE`` waveform's bytes) and its channel count in one

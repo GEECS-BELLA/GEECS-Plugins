@@ -427,3 +427,12 @@ panel is where the page's layout already lives (no role names in the
 page's code). On the hardware the processed path worked
 (`PROC:ValidBackground_RBV` 1, `PROC:EnableBackground_RBV` 1, STAT1 mean
 about 0 after a save), so the default is what the operator expects.
+
+What PR 2's review changed: the page re-checks the array after every await
+of a request, so a switch mid-body never draws the last array's capture
+under the new label (or keeps its ETag); "one read in flight per device"
+now says "per device and array"; `pressed`, a control rule, moved to
+`camera_rules.js` beside `control`. Left for the camera slice: the camera
+page draws its own Start | Stop pair (no pressed state, the opposite order
+to `Panel.buttons`' 0-then-1); when the camera page moves onto the panel's
+hints it takes `buttons` and `pressed` and the two pages agree.

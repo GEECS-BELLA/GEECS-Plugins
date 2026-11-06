@@ -137,8 +137,6 @@
     return on ? on.role : ys.length ? ys[0].role : null;
   }
   const traceUrl = (base, y) => (y ? `${base}?y=${encodeURIComponent(y)}` : base);
-  // A button pair's state: the button whose value the role reads is pressed; unknown, neither.
-  const pressed = (value, buttonValue) => typeof value === "number" && value === buttonValue;
 
   // ---- the rail and the readings
   // The role whose value 0 hides a group: `<ch>_present` when every role of the group is `<ch>_…`
@@ -160,7 +158,7 @@
     return { seen: recent, text };
   }
 
-  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, axisTitle, windowFromRelayout, plotData, emptyWhy, shownY, traceUrl, pressed, presentRole, hidden, rate, fmt: C.fmt, control: C.control, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
+  Object.assign(rules, { decodeTrace, keep, averaged, averageOf, xRange, decimate, seriesName, axisTitle, windowFromRelayout, plotData, emptyWhy, shownY, traceUrl, presentRole, hidden, rate, fmt: C.fmt, control: C.control, pressed: C.pressed, rawAnswer: C.rawAnswer, ifNoneMatch: C.ifNoneMatch, within: C.within, whole: C.whole, number: C.number });
 })(
   typeof module === "object" ? module.exports : (window.GeecsTraceRules = {}),
   typeof module === "object" ? require("./camera_rules.js") : window.GeecsCameraRules,

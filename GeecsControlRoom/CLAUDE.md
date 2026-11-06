@@ -329,7 +329,7 @@ contract, pinned by `tests/test_traces.py` and `tests/test_trace_rules_js.py`
   processed`), or the module names no such role; **503** with words: the counter or the
   array unreadable, `shape disagrees: <n> values for <c> channels`, the axis
   unreadable or `has <m> values for <s> samples`.
-- **Reads**: one in flight per device, held `TRACE_HOLD_S` (0.5 s), shared.
+- **Reads**: one in flight per device and array, held `TRACE_HOLD_S` (0.5 s), shared.
   The counter first (equal to the held tag: the held trace, one scalar
   read); else the array asked `DBR_FLOAT` and the channel count in one
   batch, the counter again (a mismatch reads the batch once more, tagged by
