@@ -1,4 +1,4 @@
-"""Images serves the frame the shot table assigned, or says there is none (W3b-2).
+"""Images serves the frame the shot table assigned, or says there is none.
 
 A camera that dropped shot 2's frame: Tiled holds its records for shots 1
 and 3; its stack on disk holds those as frames 0 and 2, with an unclaimed

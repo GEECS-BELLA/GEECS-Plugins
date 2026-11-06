@@ -18,12 +18,14 @@ run's start document carries a ``geecs_scalar_headers`` map (event key →
 ``Device Variable``) recorded at scan time so the original headers can be
 recovered.  See ``GeecsBluesky/EVENT_SCHEMA.md``.
 
-**Rows are not always events.**  A strict run records every essential
-device per shot, so its rows are the ``primary`` events.  A *gated* run's
+**Rows are not always events.**  A strict run's rows are the ``primary``
+events (an earlier strict run's carry its waited-on devices too; a
+shot-table run's carry none).  A *gated* run's
 ``primary`` is datum-only — the frames and their per-frame scalars live in
 each camera's stack — and its rows are the per-shot sampler's ``shots``
-events; a *non-essential* device streams into its own ``<name>_stream``
-whichever mode the run used — a plugin camera's frames, or one event per
+events; a streamed device records into its own ``<name>_stream`` (every
+per-shot device of a shot-table run, a gated run's devices not required)
+— a plugin camera's frames, or one event per
 stamp a triggered device without a plugin published.  Either way the
 per-frame columns are joined onto the rows by offset-corrected stamp
 through the shot table (:mod:`geecs_data_utils.shot_table`, which also
@@ -47,7 +49,7 @@ import pandas as pd
 from geecs_data_utils.shot_join import (
     SHOTS_STREAM,
     FrameColumns,
-    non_essential_stream,
+    device_stream,
 )
 from geecs_data_utils.shot_table import (
     COUNTER_KEYS,
@@ -108,10 +110,10 @@ def build_legacy_scalar_dataframe(
         strict run's ``primary`` events, a gated run's ``shots`` events.
     frames:
         Each per-shot source outside the rows (a gated run's cameras, a
-        non-essential camera or event stream, a shot-table run's device
+        streamed camera or event stream, a shot-table run's device
         streams), joined onto the rows by the shot table
         (:func:`join_frame_columns`).  A column a row already carries is never
-        overwritten — a strict run's essential camera is read per shot, and
+        overwritten — an earlier strict run's camera was read per shot, and
         the event row is the authority.
     drain_offsets:
         Object name → its ``drain_offset``, seconds — the clock device's and
@@ -282,9 +284,7 @@ def _records(source: Source) -> DeviceRecords:
     """*source* as :class:`DeviceRecords`; bare columns stream as ``<name>_stream``."""
     if isinstance(source, DeviceRecords):
         return source
-    return DeviceRecords(
-        stream=non_essential_stream(source.object_name), records=source
-    )
+    return DeviceRecords(stream=device_stream(source.object_name), records=source)
 
 
 def _resolve_output_paths(start_doc: dict[str, Any]) -> Optional[tuple[Path, Path]]:
@@ -366,7 +366,7 @@ def read_device_records(
 
     The Tiled adapter of :func:`geecs_data_utils.shot_table.shot_table`:
     each source's class and staleness from the start document's
-    ``stream_meta``, its counter and W5 attribute when the stream carries
+    ``stream_meta``, its counter and witness attribute when the stream carries
     them (a bare ``NDArrayUniqueId`` / ``WitnessCount`` part belongs to
     the stream's one stamped device — an attribute stream's or an event
     stream's alike: a native camera's stream is an event stream of its
@@ -378,11 +378,11 @@ def read_device_records(
     and counters and no scalar column (what a frame lookup needs).
 
     A stream other than the one the rows came from carries no per-shot row
-    of its own: a gated run's ``primary`` and every non-essential device's
-    ``<name>_stream``.  A non-essential device **without** a file plugin
+    of its own: a gated run's ``primary`` and every streamed device's
+    ``<name>_stream``.  A streamed device **without** a file plugin
     records an event per stamp it published instead of frames; its
     stream's table (named by the start document's ``per_shot_streams``, or
-    an older run's ``non_essential``) is read as join columns by :func:`_event_stream_columns`.  Otherwise
+    a gated run's ``non_essential``) is read as join columns by :func:`_event_stream_columns`.  Otherwise
     its per-frame attribute columns are 1-D arrays named ``<device>-hdf-<variable>-<suffix>``
     (``io.scan_stack.parse_attribute_name``), read **by name** — the frame
     stack itself, the only multi-dimensional part, is never touched, and a
@@ -402,8 +402,8 @@ def read_device_records(
     metadata — no download).  That count comes from the run's stream
     datums, which is exactly what the worker's live path truncates to, so
     the two paths agree whether or not the server happens to clip a 1-D
-    attribute dataset to the datum range: a non-essential camera's frames
-    written between its ``collect`` and its ``unstage`` reach neither
+    attribute dataset to the datum range: a streamed camera's frames
+    written between its last ``collect`` and its ``unstage`` reach neither
     s-file.
 
     Parameters
@@ -420,7 +420,7 @@ def read_device_records(
     """
     from geecs_data_utils.io.scan_stack import EPICS_TS_SEC, LABVIEW_EPOCH_OFFSET
     from geecs_data_utils.shot_join import (
-        NON_ESSENTIAL_STREAM_SUFFIX,
+        DEVICE_STREAM_SUFFIX,
         frame_columns_from_attributes,
     )
 
@@ -450,7 +450,7 @@ def read_device_records(
             # A native camera's stream: its NDAttribute parts carry bare names,
             # the EPICS stamp pair among them, and belong to the stream's device.
             device = event_streams.get(
-                stream, stream.removesuffix(NON_ESSENTIAL_STREAM_SUFFIX)
+                stream, stream.removesuffix(DEVICE_STREAM_SUFFIX)
             )
             per_device = {device: dict(bare)}
         built: list[FrameColumns] = []
@@ -528,7 +528,7 @@ def _stamps_and_counters(columns: FrameColumns, keys: Sequence[str]) -> FrameCol
 
 
 def _event_stream_columns(object_name: str, node: Any) -> FrameColumns | None:
-    """A non-essential device's event stream as join columns, or ``None``.
+    """A streamed device's event stream as join columns, or ``None``.
 
     The stream of a triggered device without a file plugin: one event per
     stamp it published (``shot_join.frame_columns_from_events``).  Its

@@ -778,7 +778,7 @@ def test_a_wide_frame_is_built_in_one_allocation() -> None:
     ]
 
 
-# ------------------------------------------- shot-table layout (W3b readers)
+# ------------------------------------------- shot-table layout (the readers)
 def test_per_shot_event_streams_reads_both_layouts() -> None:
     """``per_shot_streams`` (stream names) and ``non_essential`` (device names) both count."""
     from geecs_data_utils.shot_table import per_shot_event_streams
@@ -948,7 +948,7 @@ def test_read_device_records_reads_stream_meta_and_stamps_only() -> None:
 
 
 def test_device_records_reads_the_w5_attribute_by_its_hdf5_name() -> None:
-    """``WitnessCount`` (W5) and ``NDArrayUniqueId`` from a stack's datasets."""
+    """``WitnessCount`` (the witness attribute) and ``NDArrayUniqueId`` from a stack's datasets."""
     import numpy as np
 
     from geecs_data_utils.shot_join import FrameColumns
@@ -1098,7 +1098,7 @@ def test_a_native_datum_stream_joins_on_its_epics_pair_parts_offline() -> None:
 
 
 def test_an_unknown_sync_class_warns_once_and_reads_synchronous(caplog) -> None:
-    """A ``stream_meta`` class W3a does not know: synchronous, said once."""
+    """A ``stream_meta`` class the reader does not know: synchronous, said once."""
     import logging
 
     import numpy as np

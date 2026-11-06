@@ -1,4 +1,4 @@
-"""``TiledScanCatalog.load_run`` over both layouts and plan kinds (W3b-2).
+"""``TiledScanCatalog.load_run`` over both layouts and plan kinds.
 
 A fake Tiled run per shape, a camera that dropped shot 2's frame in the
 gated and shot-table runs: the rows say so and the shot table gives the

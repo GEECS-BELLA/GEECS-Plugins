@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 class SFileCallback(_StreamCallback):
     """Write the legacy scalar files at the stop document from the run's per-shot rows.
 
-    The rows are the ``primary`` events when the run has them (strict:
-    every essential device is read per shot) and the per-shot sampler's
+    The rows are the ``primary`` events when the run has them (strict: the
+    shot table, or an earlier run's per-shot reads) and the per-shot sampler's
     ``shots`` events otherwise (gated: ``primary`` carries only the
     cameras' frames).  The columns are whatever the rows carried — the run's
     devices and its background telemetry alike — renamed and ordered by
@@ -36,11 +36,10 @@ class SFileCallback(_StreamCallback):
     :func:`geecs_data_utils.build_legacy_scalar_dataframe`.
 
     Every **datum-only** stream of the run — a gated run's cameras, a
-    non-essential camera in either mode, a shot-table run's device
-    streams — has its per-frame columns joined onto those rows by
+    gated run's streamed camera, a shot-table run's device streams — has its per-frame columns joined onto those rows by
     offset-corrected stamp through the shot table
     (:mod:`geecs_data_utils.shot_table`): one
-    s-file row per essential shot, a camera's per-frame scalars spelled as
+    s-file row per row of the run, a camera's per-frame scalars spelled as
     a strict row spells them, and a frame with no shot inside the window
     left where it is (in the stack and in Tiled, out of the s-file).
 
@@ -145,8 +144,8 @@ class SFileCallback(_StreamCallback):
             if columns is None:
                 continue
             if stack.width and stack.width < len(columns):
-                # Frames the documents do not reference: a non-essential camera
-                # keeps writing between its ``collect`` and its ``unstage``, and
+                # Frames the documents do not reference: a streamed camera
+                # keeps writing between its last ``collect`` and its ``unstage``, and
                 # a value in the s-file for a frame Tiled has no datum for would
                 # make the two disagree about the same shot.
                 logger.info(
@@ -158,7 +157,7 @@ class SFileCallback(_StreamCallback):
                     stack.width,
                 )
                 columns = columns.truncated(stack.width)
-            # The stack's counter and W5 attribute too, as the stack check
+            # The stack's counter and witness attribute too, as the stack check
             # reads them: the two must assign a shared-stamp group alike.
             frames.append(device_records(stack.stream, columns, start, attributes))
         self._write(start, rows, [*frames, *events], drain_offsets)

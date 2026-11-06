@@ -331,7 +331,9 @@ def test_generic_reference_resolution_preserves_literal_strings():
 # -- a native EPICS camera's refused run shapes, in the worker's words ---------
 
 #: The worker's bind-time sentence (``devices/native.refuse_native_cameras``).
-STRICT_ONLY = "ADTEST_CAM1: native EPICS cameras run in strict scans only for now — "
+STRICT_ONLY = (
+    "ADTEST_CAM1: native EPICS cameras run in strict and fly scans only for now — "
+)
 
 
 def _native_preset(device: dict, **kwargs) -> Preset:

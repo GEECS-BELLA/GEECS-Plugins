@@ -574,7 +574,7 @@ class TestNativeCamera:
         )
         report = run_submit_preflight(preset, "TestExp", resolver=resolver)
         assert report.refusal == (
-            "ADTEST_CAM1: native EPICS cameras run in strict scans only for now "
+            "ADTEST_CAM1: native EPICS cameras run in strict and fly scans only for now "
             "— not in a gated batch"
         )
         assert report.outcomes == [] and report.questions == []

@@ -1,8 +1,8 @@
 """A native EPICS camera's run-shape scope, worded once — import-light on purpose.
 
 A native camera (the configs repo's ``native_devices.yaml``) runs as a
-per-shot device of a strict scan only for now (``NATIVE_DEVICES.md``,
-"Scope of the first build").  Two sides refuse the other shapes and must
+per-shot device of a strict or fly ``count`` / ``sweep`` only for now
+(``NATIVE_DEVICES.md``, "Scope of the first build").  Two sides refuse the other shapes and must
 say the same thing: the worker at bind
 (:func:`~geecs_bluesky.devices.native.refuse_native_cameras`, over device
 objects) and the client's preset expansion
@@ -31,8 +31,8 @@ NOT_CALIBRATION = "not in a shot-offset calibration (it reads GEECS stamps)"
 def native_refusal(names: Iterable[str], why: str) -> str:
     """The refusal sentence naming the native camera(s) *names* and *why*."""
     return (
-        f"{', '.join(names)}: native EPICS cameras run in strict scans only "
-        f"for now — {why}"
+        f"{', '.join(names)}: native EPICS cameras run in strict and fly "
+        f"scans only for now — {why}"
     )
 
 

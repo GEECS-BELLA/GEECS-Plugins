@@ -644,12 +644,12 @@
       var needed = required.some(function (name) { return name.toLowerCase() === tr.dataset.device.toLowerCase(); });
       var boxes = tr.querySelectorAll("input[type=checkbox]");
       if (needed && !tr.dataset.optimizerRequired) {
-        tr.dataset.previousSave = boxes[0].checked; tr.dataset.previousEssential = boxes[1].checked;
+        tr.dataset.previousSave = boxes[0].checked; tr.dataset.previousRequired = boxes[1].checked;
         tr.dataset.optimizerRequired = "true";
       } else if (!needed && tr.dataset.optimizerRequired) {
         if (tr.dataset.optimizerAdded) { tr.remove(); return; }
         boxes[0].checked = tr.dataset.previousSave === "true";
-        boxes[1].checked = tr.dataset.previousEssential === "true";
+        boxes[1].checked = tr.dataset.previousRequired === "true";
         delete tr.dataset.optimizerRequired;
       }
       Array.prototype.forEach.call(boxes, function (box) { box.disabled = needed; if (needed) box.checked = true; });

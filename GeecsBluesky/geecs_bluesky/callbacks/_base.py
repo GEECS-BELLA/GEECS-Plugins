@@ -157,7 +157,7 @@ class _RunStreams:
         the streams' descriptor configuration).
     event_streams :
         Stream name → object name, for every per-shot device stream the
-        start document names (``per_shot_streams``, or an older run's
+        start document names (``per_shot_streams``, or a gated run's
         ``non_essential``: ``<name>_stream``).  The ones that carry events are
         a triggered device without a file plugin, one event per stamp it
         published (GeecsBluesky's ``StampStream``): buffered like the rows
@@ -180,7 +180,8 @@ class _RunStreams:
     def rows_by_seq(self, stream: str) -> dict[int, dict[str, Any]]:
         """The event rows of *stream* keyed by sequence number, last one winning.
 
-        The RunEngine reuses a sequence number after a rewind, and a datum
+        The RunEngine reuses a sequence number after a rewind (an earlier
+        strict run's), and a datum
         that names it means the row emitted last — which is what plain
         assignment in arrival order gives.
         """

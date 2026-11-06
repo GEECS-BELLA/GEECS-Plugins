@@ -398,9 +398,9 @@ def test_waveform_axis_attributes_are_not_scalar_columns() -> None:
 
 # ----------------------------------- a non-essential device's event stream
 def test_the_non_essential_stream_is_named_after_its_device() -> None:
-    from geecs_data_utils.shot_join import non_essential_stream
+    from geecs_data_utils.shot_join import device_stream
 
-    assert non_essential_stream("u_haso") == "u_haso_stream"
+    assert device_stream("u_haso") == "u_haso_stream"
 
 
 def test_events_become_join_columns_keyed_by_their_own_stamp() -> None:

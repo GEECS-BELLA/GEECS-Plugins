@@ -34,7 +34,7 @@ from typing import Any
 import bluesky.plan_stubs as bps
 from bluesky.preprocessors import contingency_wrapper, finalize_wrapper, plan_mutator
 from bluesky.utils import Msg, ensure_generator, short_uid, single_gen
-from geecs_data_utils.shot_join import non_essential_stream
+from geecs_data_utils.shot_join import device_stream
 
 from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.detector import UNBOUNDED_TRIGGER_INFO, GeecsDetector
@@ -58,7 +58,7 @@ def is_per_shot(obj: Any) -> bool:
 
 def stream_name(obj: Any) -> str:
     """The stream a listed per-shot device records into: ``<owner name>_stream``."""
-    return non_essential_stream(owner_of(obj).name)
+    return device_stream(owner_of(obj).name)
 
 
 class DeviceStreams:
@@ -71,7 +71,8 @@ class DeviceStreams:
     dual_write :
         Plugin-backed cameras also switch their LabVIEW-native saving on
         for the run (the strict dual-write; ``native_image_save`` still
-        decides per camera).  Off for a non-essential stream, as before.
+        decides per camera).  Off for gated's stream of the devices not
+        required.
     label :
         The word that opens each log line (``non-essential``), or none.
     companions :
@@ -121,12 +122,12 @@ class DeviceStreams:
     @property
     def names(self) -> list[str]:
         """Every device stream's name, in the devices' order (companions not)."""
-        return [non_essential_stream(s.name) for s in [*self.framed, *self.stamped]]
+        return [device_stream(s.name) for s in [*self.framed, *self.stamped]]
 
     def companion_streams(self) -> dict[str, str]:
         """Companion stream → the camera's object name (the join's device)."""
         return {
-            non_essential_stream(c.name): c.name.removesuffix(COMPANION_SUFFIX)
+            device_stream(c.name): c.name.removesuffix(COMPANION_SUFFIX)
             for c in self.companions
         }
 
@@ -155,7 +156,7 @@ class DeviceStreams:
 
     def _declare(self, stream: Any):
         yield from bps.declare_stream(
-            stream, name=non_essential_stream(stream.name), collect=True
+            stream, name=device_stream(stream.name), collect=True
         )
         self._declared.add(id(stream))
 
@@ -177,7 +178,7 @@ class DeviceStreams:
                     if not found[0]:
                         return
                     yield from self._declare(stream)
-                yield from bps.collect(stream, name=non_essential_stream(stream.name))
+                yield from bps.collect(stream, name=device_stream(stream.name))
 
             def skip(exc, stream=stream):
                 if stream.name not in self._failing:
@@ -205,7 +206,7 @@ class DeviceStreams:
             verbs.append(
                 (
                     "collect",
-                    lambda f=stream: bps.collect(f, name=non_essential_stream(f.name)),
+                    lambda f=stream: bps.collect(f, name=device_stream(f.name)),
                 )
             )
             for verb, plan_factory in verbs:
@@ -232,7 +233,7 @@ class DeviceStreams:
                     "columns read NaN in the s-file",
                     self._who,
                     stream.device_name,
-                    non_essential_stream(stream.name),
+                    device_stream(stream.name),
                 )
 
     def _unstage_all(self):

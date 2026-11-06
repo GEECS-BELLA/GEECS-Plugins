@@ -1,8 +1,8 @@
 """The callbacks read a shot-table run (``layout: "shot-table/1"``) through the helper.
 
-Synthetic documents built to ``Planning/shot_synchronization.md`` §6.6
-"Documents": ``primary`` is the shot table (witness columns, Unix), every
-device is in its own ``<device>_stream`` named by ``per_shot_streams``.
+Synthetic documents in the shot-table layout (``EVENT_SCHEMA.md``):
+``primary`` is the shot table (witness columns, Unix), every device is in
+its own ``<device>_stream`` named by ``per_shot_streams``.
 """
 
 from __future__ import annotations

@@ -28,7 +28,9 @@ from tests.ca_mock_helpers import DocCollector, connect_mock
 from tests.test_native_camera import _camera as _native_camera
 from tests.test_strict_plans import WRITES, FakeBox, _camera, _plugin_camera
 
-STRICT_ONLY = "ADTEST_CAM1: native EPICS cameras run in strict scans only for now"
+STRICT_ONLY = (
+    "ADTEST_CAM1: native EPICS cameras run in strict and fly scans only for now"
+)
 #: The strict states plus the gated bracket's, so a gated run could start.
 STATES = {
     **WRITES.states,

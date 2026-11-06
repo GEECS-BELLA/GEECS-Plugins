@@ -655,9 +655,9 @@ def _run_shots(
 def _stamp_records(run: Any, start: dict, row_stream: str) -> list:
     """One stamps-only ``DeviceRecords`` per device outside the rows, in its own stream.
 
-    The one Tiled read behind a frame lookup.  Counters come only from bare
-    stream parts no plan publishes yet, so a portal frame lookup has none
-    until W3c (``tiled_export.read_device_records``).
+    The one Tiled read behind a frame lookup: stamps, and the counters a
+    stream's bare parts carry (a native camera's ``NDArrayUniqueId``; a
+    plugin stack has none) (``tiled_export.read_device_records``).
     """
     from geecs_data_utils.tiled_export import read_device_records
 

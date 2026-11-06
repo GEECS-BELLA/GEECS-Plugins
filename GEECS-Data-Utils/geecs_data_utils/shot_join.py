@@ -1,22 +1,22 @@
 """Join a run's per-frame stream columns onto its shot rows.
 
-A strict run records every essential device in the ``primary`` event rows,
-so its s-file is those rows renamed (:mod:`geecs_data_utils.tiled_export`).
-Two shapes of the native-Bluesky scanner put per-shot values *outside* the
-rows instead:
+A strict run before the shot-table layout recorded every device it waited
+on in the ``primary`` event rows, so its s-file is those rows renamed
+(:mod:`geecs_data_utils.tiled_export`).  Every other shape puts per-shot
+values *outside* the rows:
 
 - a **gated** run's frames and their per-frame scalars live in each
   plugin-backed camera's stack, referenced by a datum-only stream with no
   events at all; its rows are the per-shot sampler's ``shots`` events;
-- a **non-essential** camera streams for a whole run into its own
-  ``<name>_stream``, and its frame for shot *k* may arrive during *k+1*;
-- a **non-essential** triggered device *without* a file plugin (a
-  LabVIEW-native saver, a scalar device with a stamp) records one event
-  per stamp it publishes in its own ``<name>_stream``
-  (:func:`frame_columns_from_events`) — at its own rate, slower than the
-  rows' if it is slow.
+- a device streamed for the run into its own ``<name>_stream`` (every
+  per-shot device of a shot-table run; a gated run's devices not
+  required): a camera's frame for shot *k* may arrive during *k+1*;
+- such a triggered device *without* a file plugin (a LabVIEW-native
+  saver, a scalar device with a stamp) records one event per stamp it
+  publishes (:func:`frame_columns_from_events`) — at its own rate, slower
+  than the rows' if it is slow.
 
-Both are joined to the rows by the one shot identity GEECS has, the
+All are joined to the rows by the one shot identity GEECS has, the
 device's ``acq_timestamp``.  Cross-device stamps of one shot differ by a
 per-device constant — the camera's drain offset — so the join corrects
 each
@@ -32,10 +32,9 @@ one frame per row and one row per frame — so no window arithmetic has to
 carry the "a frame belongs to one row" invariant on its own.
 
 A frame no row claims is an **orphan**: the extra edge at a step's end, a
-frame taken during an interrupted step, a non-essential device's frame or
-event for a shot nobody recorded.  It stays in the stack and in Tiled and is left out
-of the s-file (Sam, 2026-09-12): one s-file row per
-essential shot, always.
+frame taken during an interrupted step, a streamed device's frame or
+event for a shot nobody recorded.  It stays in the stack and in Tiled and
+is left out of the s-file: one s-file row per row of the run, always.
 
 Pure arithmetic over arrays — no I/O, no Bluesky, no pandas — so both the
 worker's live callback (reading the stacks off the share at the stop
@@ -67,11 +66,11 @@ ACQ_TIMESTAMP_SUFFIX = "-acq_timestamp"
 #: re-export reads it back out of Tiled.
 SHOTS_STREAM = "shots"
 
-#: A non-essential device's stream is ``<ophyd name>`` + this suffix, in
-#: either mode: a plugin camera's datum-only stream, or the event stream a
+#: A streamed device's stream is ``<ophyd name>`` + this suffix, in every
+#: mode: a plugin camera's datum-only stream, or the event stream a
 #: triggered device without a plugin gets (one event per stamp it
 #: published).  A document contract like :data:`SHOTS_STREAM`.
-NON_ESSENTIAL_STREAM_SUFFIX = "_stream"
+DEVICE_STREAM_SUFFIX = "_stream"
 
 #: The stack attribute suffix that carries a frame's GEECS acquisition
 #: stamp (``geecs_data_utils.io.scan_stack.TIMESTAMP_SUFFIX``); as an
@@ -79,8 +78,7 @@ NON_ESSENTIAL_STREAM_SUFFIX = "_stream"
 FRAME_STAMP_SUFFIX = "frame_acq_timestamp"
 
 #: The non-device clocks a shot-table run's start document may name as its
-#: ``shot_clock_column`` (``Planning/shot_synchronization.md`` §6.6): row
-#: columns of their own, not a device's ``-acq_timestamp``.  A soft-tick
+#: ``shot_clock_column``: row columns of their own, not a device's ``-acq_timestamp``.  A soft-tick
 #: (fly-mode) run writes its ticks into the witness columns.
 NON_DEVICE_CLOCK_COLUMNS = ("witness_stamp", "fire_stamp")
 
@@ -137,7 +135,7 @@ class FrameColumns:
 
         The worker knows how many frames a stream's datums referenced;
         anything past that is in the file but not in the documents (a
-        non-essential camera keeps writing between its ``collect`` and its
+        streamed camera keeps writing between its last ``collect`` and its
         ``unstage``), and joining it would put a value in the s-file for a
         frame the catalog does not have.
         """
@@ -178,9 +176,9 @@ class ShotJoin:
         return sum(1 for index in self.frame_for_shot if index is not None)
 
 
-def non_essential_stream(object_name: str) -> str:
-    """The stream a non-essential device's data goes to (``uc_haso`` → ``uc_haso_stream``)."""
-    return f"{object_name}{NON_ESSENTIAL_STREAM_SUFFIX}"
+def device_stream(object_name: str) -> str:
+    """The stream a streamed device's data goes to (``uc_haso`` → ``uc_haso_stream``)."""
+    return f"{object_name}{DEVICE_STREAM_SUFFIX}"
 
 
 def numeric_data_keys(data_keys: Mapping[str, Any]) -> list[str]:
@@ -203,9 +201,9 @@ def frame_columns_from_events(
     *,
     keys: Sequence[str] = (),
 ) -> FrameColumns | None:
-    """Build a :class:`FrameColumns` from a non-essential device's event stream.
+    """Build a :class:`FrameColumns` from a streamed device's event stream.
 
-    A triggered device without a file plugin, listed non-essential, records
+    A streamed triggered device without a file plugin records
     one event per stamp it published (``<name>_stream``,
     GeecsBluesky's ``StampStream``): its ``<name>-acq_timestamp`` and its
     scalars, the spellings a strict row uses.  Each event is one "frame"
@@ -284,7 +282,7 @@ def shot_clock_column(
        column lives in ``geecs_core.pv_naming`` and is never reimplemented
        here, so this is a match, not a derivation);
     3. the first ``detectors`` entry that has a stamp column — a strict
-       run's rows carry one per essential device, and any of them is a
+       run's rows carry one per device it waited on, and any of them is a
        valid clock because the join corrects both sides by their own
        offsets;
     4. the first stamp column at all.
@@ -674,8 +672,8 @@ __all__ = [
     "ACQ_TIMESTAMP_SUFFIX",
     "DEFAULT_SHOT_PERIOD_S",
     "FRAME_STAMP_SUFFIX",
+    "DEVICE_STREAM_SUFFIX",
     "NON_DEVICE_CLOCK_COLUMNS",
-    "NON_ESSENTIAL_STREAM_SUFFIX",
     "SHOTS_STREAM",
     "UNIX_EPOCH_COLUMNS",
     "FrameColumns",
@@ -684,8 +682,8 @@ __all__ = [
     "clock_stamps",
     "frame_columns_from_attributes",
     "frame_columns_from_events",
+    "device_stream",
     "join_frames_to_shots",
-    "non_essential_stream",
     "numeric_data_keys",
     "row_windows",
     "shot_clock_column",

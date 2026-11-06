@@ -41,16 +41,17 @@ class StackCheckCallback(_StreamCallback):
     A plugin-backed camera's stream resource names its stack
     (``application/x-hdf5``, dataset ``FRAMES_DATASET``) and its data key
     ``<name>``; its stream datums say which rows own a frame
-    (``seq_nums``, assigned by the RunEngine bundler) — a partial row owns
-    none even when the camera delivered (its frame was rewound), so the
-    rows are taken from the datums, never from the stamp column alone.
-    Three shapes, one per way a stack can be referenced:
+    (``seq_nums``, assigned by the RunEngine bundler) — an earlier strict
+    run's partial row owns none even when the camera delivered (its frame
+    was rewound), so the rows are taken from the datums, never from the
+    stamp column alone.
+    Four shapes, one per way a stack can be referenced:
 
-    - a stream **with event rows** (strict ``primary``): the stack's own
-      stamps are read (LabVIEW epoch, the rows' epoch — the plugin stores
-      Unix seconds) and compared with those rows' ``<name>-acq_timestamp``;
-      the frame count must be the datums' total width and every referenced
-      row's stamp its frame's;
+    - a stream **with event rows** (an earlier strict ``primary``): the
+      stack's own stamps are read (LabVIEW epoch, the rows' epoch — the
+      plugin stores Unix seconds) and compared with those rows'
+      ``<name>-acq_timestamp``; the frame count must be the datums' total
+      width and every referenced row's stamp its frame's;
     - a **gated** run's datum-only ``primary``: the count, plus the
       ``shots`` rows — the sampler ticked once per shot and the batch
       trimmed every stack to the quota, so *every* row must own exactly one
@@ -61,8 +62,8 @@ class StackCheckCallback(_StreamCallback):
       the join flags (an audit mismatch, an ambiguous interval), is a
       WARNING; a row without a frame, and rows sharing a witness stamp the
       counters cannot order, are reported, not warned;
-    - any other datum-only stream (a non-essential ``<name>_stream``): the
-      count alone — a non-essential camera's frame for shot *k* may land
+    - any other datum-only stream (a gated run's ``<name>_stream``): the
+      count alone — a streamed camera's frame for shot *k* may land
       during *k+1* and an orphan there is normal, not a defect.
 
     A gated run's **native-saving essentials** (no plugin; their LabVIEW
@@ -201,9 +202,9 @@ class StackCheckCallback(_StreamCallback):
     def _spawn_stream_file_checks(
         self, start: dict[str, Any], run: _RunStreams
     ) -> None:
-        """Spawn the native-files check of each non-essential saver's stream.
+        """Spawn the native-files check of each streamed native saver's stream.
 
-        A non-essential native saver without a plugin (either mode): its
+        A streamed native saver without a plugin (any mode): its
         stream's EVENTS are matched to its files — one event per stamp it
         published, so an event without a file is a lost save and a file
         without an event a stamp the stream never saw.  Not under scan
@@ -240,11 +241,11 @@ class StackCheckCallback(_StreamCallback):
         """Match the records' *stamps* against the native files in *directory*.
 
         *record* names what a stamp came from — a gated run's ``shots row``,
-        or a non-essential stream's event (*stream_closes*).  Waits, bounded by *timeout*,
-        for every record to have its file (the device writes a LabVIEW
-        loop period behind the edge); then one line, WARNING on a record
+        or a device stream's event (*stream_closes*).  Waits, bounded by
+        *timeout*, for every record to have its file (the device writes a
+        LabVIEW loop period behind the edge); then one line, WARNING on a record
         without a file or a file stamp with no record — never a failure.
-        For a non-essential stream, files stamped **after** its last event
+        For a device stream, files stamped **after** its last event
         are counted apart and are no defect: the device keeps saving from
         the stream's close (before ``close_run``) to its ``unstage``, and
         a slow device's last frame lands in that gap.
@@ -322,7 +323,7 @@ class StackCheckCallback(_StreamCallback):
             return
         stamps = read_stack_timestamps(path, labview_epoch=True)
         if expected is None:
-            # A datum-only stream (gated primary, a non-essential stream):
+            # A datum-only stream (gated primary, a device stream):
             # no row of its own carries a stamp; the datums' width is the
             # contract.
             _stack_verdict(

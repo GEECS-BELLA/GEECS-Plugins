@@ -183,7 +183,7 @@ def test_a_clock_step_inside_the_window_moves_nothing() -> None:
 
 @pytest.mark.xfail(reason="residual tracker, later slice", strict=True)
 def test_a_clock_step_is_flagged_where_it_appears() -> None:
-    """§4.3: equal counters with a jump in residual is *clock-step*."""
+    """Equal counters with a jump in residual is *clock-step*."""
     rows = _rows()
     cam = _cam(rows)
     stamps = cam.records.stamps + np.where(np.arange(8) >= 4, 0.3, 0.0)
@@ -311,7 +311,7 @@ def test_unwitnessed_assigns_by_interval_not_nearest() -> None:
     assert shot_table(start, rows, [late]).record_for_shot["cam"][0] is None
 
 
-# ------------------------------------------------------------ the W5 attribute
+# ------------------------------------------------------- the witness attribute
 def test_an_attribute_one_behind_is_the_measured_lag_not_a_mismatch() -> None:
     rows = _rows(60)
     cam = _cam(rows)
@@ -634,7 +634,7 @@ def test_an_overlap_record_after_a_missed_row_with_no_evidence_is_ambiguous() ->
     """A witness outage that opens on a miss: whose is the record before fire 5?
 
     Nothing in the outage tells a late record from the next row's early one,
-    so every overlap after the miss stays ambiguous (W3c's baselines decide).
+    so every overlap after the miss stays ambiguous (the rows' baselines would decide).
     """
     rows = _rows(8, lead=0.975)
     rows.loc[3:, ["witness_count", "witness_stamp"]] = np.nan

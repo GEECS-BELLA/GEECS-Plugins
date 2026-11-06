@@ -1,18 +1,17 @@
 """The shot table: which record of each per-shot device belongs to which shot.
 
-One reader for both run layouts (``Planning/shot_synchronization.md``
-§6.6, "The shared reader helper"), over plain inputs: the start document,
+One reader for both run layouts, over plain inputs: the start document,
 the row stream as a DataFrame and one :class:`DeviceRecords` per device.
 Tiled and document-buffer adapters build those; nothing here does I/O.
 
 - **Old layout** (no ``layout`` key).  A device whose records live in the
   row stream itself (a strict run's ``primary`` stacks) is positional:
   row *k* is frame *k*.  Every other source (a gated run's ``primary``
-  stacks under ``shots`` rows, a non-essential ``<name>_stream``) is
+  stacks under ``shots`` rows, a streamed ``<name>_stream``) is
   joined exactly as the s-file joins it (:mod:`geecs_data_utils.shot_join`).
 - **Shot-table layout** (``layout: "shot-table/1"``).  ``primary`` is the
   shot table and every device is in its own stream.  Time assigns,
-  counters audit (§4.3):
+  counters audit — a counter never moves a record:
 
   ============================  ==============================================
   rows / device                 assignment
@@ -43,7 +42,7 @@ Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``witness-stamp-shared-unresolved``, ``interval-ambiguous``,
 ``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
-W5 attribute NaN all run), ``attribute-lag-systematic``,
+witness attribute NaN all run), ``attribute-lag-systematic``,
 ``required-unresolved``.  The audit never moves a record.
 """
 
@@ -58,13 +57,13 @@ import pandas as pd
 
 from geecs_data_utils.shot_join import (
     DEFAULT_SHOT_PERIOD_S,
-    NON_ESSENTIAL_STREAM_SUFFIX,
+    DEVICE_STREAM_SUFFIX,
     FrameColumns,
     _squash,
     clock_device,
     clock_stamps,
     join_frames_to_shots,
-    non_essential_stream,
+    device_stream,
     row_windows,
     shot_clock_column,
 )
@@ -77,14 +76,14 @@ LAYOUT_KEY, SHOT_TABLE_LAYOUT = "layout", "shot-table/1"
 SOFT_TICK = "soft-tick"
 SYNCHRONOUS, ASYNCHRONOUS = "synchronous", "asynchronous"
 
-#: The start-document key W3c writes per device stream:
+#: The start-document key a shot-table run writes per device stream:
 #: ``{<stream>: {"sync_class": ..., "stale_after": <seconds or null>}}``;
 #: absent means synchronous, default staleness.
 STREAM_META_KEY = "stream_meta"
 #: A device's own per-frame counter, by its dataset name, first found wins:
 #: areaDetector's ``NDArrayUniqueId`` in a stock stack.
 COUNTER_KEYS = ("NDArrayUniqueId", "UniqueId", "ArrayCounter")
-#: The W5 attribute: the witness count recorded on each frame, the camera
+#: The witness attribute: the witness count recorded on each frame, the camera
 #: family's NDAttribute (``/entry/instrument/NDAttributes/WitnessCount``,
 #: int32; NaN on a camera booted without the witness).  No alias: nothing
 #: in this repo writes a per-frame ``witness_count`` (that name is the
@@ -92,15 +91,15 @@ COUNTER_KEYS = ("NDArrayUniqueId", "UniqueId", "ArrayCounter")
 WITNESS_ATTRIBUTE_KEY = "WitnessCount"
 
 #: How far before its fire an unwitnessed record may be stamped, seconds:
-#: a LabVIEW host's clock runs up to 16 ms off the box (§4.5) and a stored
-#: drain offset dithers by up to ~10 ms across hosts (§4.4), so 30 ms.
+#: a LabVIEW host's clock runs up to 16 ms off the box and a stored
+#: drain offset dithers by up to ~10 ms across hosts, so 30 ms.
 #: It opens each fire interval early; a record within it of the *next*
 #: fire is in the overlap of two intervals (:func:`_assign_intervals`).
 STAMP_BUDGET_S = 0.03
 
 #: A run whose audited records sit one shot behind the witness attribute
 #: this often is flagged ``attribute-lag-systematic``: the measured poll
-#: lag puts 1.7 % there (§6.2), a period-wrong offset nearly all of them.
+#: lag puts 1.7 % there, a period-wrong offset nearly all of them.
 SYSTEMATIC_LAG_SHARE = 0.2
 #: ...over at least this many audited records.
 SYSTEMATIC_LAG_MIN_FRAMES = 10
@@ -123,7 +122,7 @@ class DeviceRecords:
         The per-record device counter (``ArrayCounter``, ``UniqueId``), or
         ``None``: audits only.
     witness_count :
-        The witness count recorded on each record (the W5 attribute), or
+        The witness count recorded on each record (the witness attribute), or
         ``None``: audits only.
     sync_class :
         :data:`SYNCHRONOUS` or :data:`ASYNCHRONOUS`.
@@ -197,7 +196,7 @@ def device_records(
     """The one adapter core: *records* of *stream* as :class:`DeviceRecords`.
 
     The class and staleness come from the start document's
-    :data:`STREAM_META_KEY`; the counter (:data:`COUNTER_KEYS`) and the W5
+    :data:`STREAM_META_KEY`; the counter (:data:`COUNTER_KEYS`) and the witness
     attribute (:data:`WITNESS_ATTRIBUTE_KEY`) from *attributes* (a stack's
     datasets, bare names) or from the columns (``<device>-<name>``).
     """
@@ -238,15 +237,14 @@ def per_shot_event_streams(start: Mapping[str, Any]) -> dict[str, str]:
     """Stream → object name of every per-shot device stream *start* names.
 
     A shot-table run names its streams (``per_shot_streams``,
-    ``<device>_stream``); an older run names its non-essential devices
-    (``non_essential``).  Both are read, so a reader gating event streams
-    on either never drops a device's stream.
+    ``<device>_stream``); a gated run and an earlier strict one name their
+    streamed devices (``non_essential``).  Both are read, so a reader
+    gating event streams on either never drops a device's stream.
     """
     streams = {
-        non_essential_stream(str(name)): str(name)
-        for name in start.get("non_essential") or ()
+        device_stream(str(name)): str(name) for name in start.get("non_essential") or ()
     }
-    suffix = NON_ESSENTIAL_STREAM_SUFFIX
+    suffix = DEVICE_STREAM_SUFFIX
     for stream in map(str, start.get("per_shot_streams") or ()):
         streams.setdefault(stream, stream.removesuffix(suffix))
     return streams
@@ -621,9 +619,10 @@ def _assign_intervals(
     waits for row *k*+1.  With no evidence after a row already missed,
     nothing is guessed: rows *k* and *k*+1 are left empty and returned
     (*interval-ambiguous*), and their records stay extras.  The last row's
-    interval closes a period after its fire.  The robust rule is W3c's:
-    the plan records each row's pre-fire baseline per required device, and
-    a record is row *k*'s only if it is newer than baseline *k*.
+    interval closes a period after its fire.  The plan also records each
+    row's pre-fire baseline per required device (``<device>-baseline``):
+    a record newer than baseline *k* is row *k*'s or later.  This join
+    does not read it.
     """
     claimed = {i for i in assigned if i is not None}
     fires, n = clock.fires, clock.fires.size
@@ -669,11 +668,11 @@ def _assign_shared(
 
     A strict row reads count and stamp from one CA reading, so it rarely
     lands here; this is the reader half of per-integer-count rows, the
-    set-aside gated rework (§6.6 "The batch policy (gated): set aside"),
-    where one +k update stamps k rows.  A +k update stamps k edges at the
+    shape a gated rework would write (gated is frozen without it), where
+    one +k update stamps k rows.  A +k update stamps k edges at the
     poll after the last one, so the group's records lie up to k − 1
     periods before the stamp.  Time cannot
-    order them, and nothing is guessed (§4.3): the group is filled in
+    order them, and nothing is guessed: the group is filled in
     counter order only when it found exactly one record per row and their
     counters are consecutive.  Otherwise its rows stay empty for this
     device and are returned, with the records it found: left unclaimed
@@ -743,7 +742,7 @@ def _attribute_audit(
     loose: np.ndarray,
     flags: list[list[str]],
 ) -> tuple[str, ...]:
-    """The W5 attribute against the row's count: equal, or one behind.
+    """The witness attribute against the row's count: equal, or one behind.
 
     An attribute that stopped advancing while the count did is
     *witness-stale*; any other disagreement is *audit-mismatch*.  Returns

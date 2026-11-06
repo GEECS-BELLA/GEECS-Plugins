@@ -1,7 +1,7 @@
 """A strict count writes the shot table: ``primary`` per fire, every device in its own stream.
 
 Driven through the bound ``count`` on mocks.  The box stamps every device
-with the worker's clock (LabVIEW epoch) at the fire, so the W3b readers —
+with the worker's clock (LabVIEW epoch) at the fire, so the readers —
 the s-file and the stack check, fed the run's own documents — join the
 streams onto the rows by fire interval, as they do a real run's.
 """
