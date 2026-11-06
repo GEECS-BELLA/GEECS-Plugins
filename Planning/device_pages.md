@@ -346,7 +346,7 @@ for the family change; the Control Room restarted).
 
 **Landed.** `spectrometer_contract.json` (GEECS-Schemas), the family of
 geecs-epics' `docs/spectrometer-contract.md` (the Thorlabs CCT on
-`ADSpecfirm` first): 55 roles, the spectrum (`ARR:ArrayData`, `[pixels]`,
+`ADSpecfirm` first): 57 roles after review, the spectrum (`ARR:ArrayData`, `[pixels]`,
 one channel, held on `arr_counter`) over `wavelength` (`Wavelength_RBV`,
 `axis_of: spectrum`); the rail Acquisition (acquire, image mode, spectra
 per acquire, integration time, averages, period, light/raw), Trigger
@@ -369,7 +369,7 @@ their vocabulary where the thing is the same (pinned). The bench unit
 its bench prefix. The page needed no change: the spectrometer renders
 through `device_trace.html` as planned.
 
-**Proof (2026-11-06).** Live on `ccttest1` (the Thorlabs CCT on
+**Proof (2026-11-05, evening).** Live on `ccttest1` (the Thorlabs CCT on
 ioc-spectrometer 2026.11.1b2, started by the maintainer on the camera
 server) from the services box after the merge (#1291) and the deploy
 (Canopy rebuilt, the Control Room restarted): the roster lists it, the
@@ -386,8 +386,10 @@ the camera server, so every role of both bench devices read `unreachable`
 until it did (geecs-epics' IOC host runbook has the rule). Hare's
 WebSocket was proven from the box, not from a browser over the VPN.
 
-**OWED.** The maintainer's look at the page in his own browser (Hare live
-there); an operator-policy grant for `spectrometer_contract` (and
+**OWED.** The maintainer's look at the page in their own browser (Hare live
+there); the same proof on `picotest1`, which stays `error` until the
+PicoScope is plugged back in (its IOC reports no unit on USB); an
+operator-policy grant for `spectrometer_contract` (and
 `scope_contract`) if writes from the page are wanted, the maintainer's; the
 `Saturated_RBV` severity ruling and the wavelength axis's last value
 (1021.1 nm against the fit's 1006.7 at pixel 2047), both the spectrometer
