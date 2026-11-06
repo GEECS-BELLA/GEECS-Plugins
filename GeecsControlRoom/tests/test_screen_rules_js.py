@@ -70,19 +70,8 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("bounds: ±1e300 is no limit", "bounds", [{"controlLow": -1e300, "controlHigh": 5}], ""),
     ("bounds: an empty range is none", "bounds", [{"controlLow": 0, "controlHigh": 0}], ""),
     # writable
-    ("writable: the module's word", "writable", [ROLE, False, False], True),
-    ("writable: never a bare PV", "writable", [ROLE, True, False], False),
-    ("writable: never while busy", "writable", [ROLE, False, True], False),
-    ("writable: not when the module says no", "writable", [ROLE | {"writable": False}, False, False], False),
-    ("writable: never a deferred misfit", "writable", [ROLE | {"type": "readback"}, False, False, ["bit", "enum"]], False),
     # hazard: the screen's mark, or the module's (the policy's hazards)
-    ("hazard: the module's mark asks", "hazard", [None, ROLE | {"confirm": "hazard"}], True),
-    ("hazard: the screen's note asks", "hazard", ["Are you sure?", ROLE], True),
-    ("hazard: else no confirm", "hazard", [None, ROLE], False),
     # differs
-    ("differs: -0.000 equals 0.000", "differs", ["-0.000", "0.000", True], False),
-    ("differs: two values disagree", "differs", ["1.000", "1.001", True], True),
-    ("differs: not unless both are read", "differs", ["1.000", "2.000", False], False),
     # the outcome word as a kit state
     ("outcome: accepted is ok", "outcomeState", ["accepted"], "ok"),
     ("outcome: denied is degraded", "outcomeState", ["denied"], "degraded"),

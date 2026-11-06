@@ -668,3 +668,25 @@ dropped the route's entry, which read as "nothing to judge" and disarmed the
 field, so the mark never came back with the route; the module's silence now
 keeps the arming (`settleMark`, `disarms`), pinned by running the real rail
 script over a fake page (the case failed before the fix).
+
+### 2026-11-06 — vocabulary merge, PR 2: the screen renderer draws the rail's controls
+
+**Built.** A screen's setpoint, toggle, flipper, select, button and readout
+are `_panel.html`'s `control`, filled and written by `device_rail.js` through
+`device_writes.js` (one per device; the widget's own outcome line and
+`confirm` note); a toggle is the rail's two-state pair. `screen.js` keeps the
+polling, the words, a flipper's lamps and the action runs; its own field,
+toggle and write path, and `screen_rules.writable` / `hazard` / `differs`,
+are deleted. One device reading for both kinds of page:
+`device_source.js` (the device page's `GeecsDevicePage` and each device a
+screen binds). The rail takes a page and writes per element (`for(el)`).
+
+**Found on the way.** The configs repo's Control Center uses `select` and a
+toggle's `values` (#1241), merged into `feat/control-room-push4` and never
+promoted: master could not draw it. This PR carries both (the schema half
+as #1241 had it, the page half on the rail), so master draws the screen
+unchanged; an integration test validates and draws every screen in the
+configs checkout. The `group` widget (a device's rail group on a screen)
+moved to PR 2b to keep this one inside the size rule.
+
+**Review** changed: (filled in after the review).

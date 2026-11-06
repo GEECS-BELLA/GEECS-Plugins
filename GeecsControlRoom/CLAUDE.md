@@ -41,10 +41,14 @@ geecs_control_room/
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
                     slowly), fills the device pickers, the directory's words and its filter, the presets
                     region (save dialog, diff drawer, restore confirm, the run on the row, the golden mark)
-  static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
+  static/screen.js  the renderer's live half: the module's verdicts polled per device, each widget's page
+                    (its device's GeecsDeviceSource, or its bare PV's; a deferred widget's kind fits) under
+                    the ONE rail (device_rail.js) and device_writes.js, the words, a flipper's lamps, the action runs
   static/screen_rules.js, home_rules.js, directory_rules.js   the pages' rules, pure (verdict word,
-                    value shown, bounds, writable, differs, outcome state; the home lists' words; the
+                    misfit, value shown, bounds, outcome state; the home lists' words; the
                     directory's filter, row words and chip)
+  static/device_source.js   one device as a page reads it (entry, frame watched on first ask, meta, word,
+                    its write record as `target`): the device page's GeecsDevicePage and each device a screen binds
   static/device.js, device_rules.js   the device pages' live half (roles from the module per role and
                     axis, values from Hare) and its rules (picker options, a role row's word and units, the
                     rail's present-hiding, a control's written value, a pane's alarms)
@@ -115,6 +119,23 @@ deploy/
   such role, "wrong kind" when its type does not fit the kind, Hare's alarm
   rules where the module gives no verdict) and writes it through the same
   put route. A writing kind on a bare PV is drawn disabled.
+- **A screen's controls are the rail's.** Every widget but an annotation,
+  a picture and an action button is `_panel.html`'s `control`
+  (`screens.spec_of`: the screen's label, units and precision over the
+  role's) filled and written by `device_rail.js` through `device_writes.js`,
+  one per device (the outcome on the widget's own line, its `confirm` note
+  asked first in the rail's hazard dialog): a `setpoint` is the setpoint
+  control (§ below), a `toggle` or `flipper` the rail's two-state pair
+  (its `values`, else 0 and 1; labelled by the enum's own words, a bit's Off
+  / On; a reading that is neither presses neither), a `select` the rail's
+  select (the PV's choices, narrowed to a family role's `choices`), a
+  `button` a command, a `readout` the value with its word. A LabVIEW
+  variable's convention is the screen's word, never a DB type edit: a
+  boolean a VI keeps as a number is a `toggle` with `values: {on, off}`
+  (it binds a numeric setpoint role; the module's bounds gate still
+  applies), a choice the LabVIEW GUI showed as a number box a `select`
+  (enum roles only). What a kind accepts is GEECS-Schemas' table, carried
+  to the page as `data-fits`.
 - **A button may name an action plan** (`bind: {action: <plan>}`, checked
   against the experiment's `action_library/actions.yaml`). The module runs
   it, every `set` through its gates; the page asks once (the plan's
@@ -357,19 +378,10 @@ it is spelled like one.
 The camera page keeps its hand-coded rail (`device_camera.html`,
 `camera_controls.js`, which writes on `change`, and its readings in
 `camera.js`) until it moves onto its family's panel and this rail. The
-screen renderer and this rail are two vocabularies today (the setpoint
-control below is the merge's first piece, on this side only); the slice that
-merges them takes over, on this side, `_panel.html`'s `control` and
-`readings`, `device_rules.writeValue`, `device_writes.js` (with its hazard
-dialog) and the enable, format and hazard rules still in `camera_rules.js`
-(`control`, `fmt`, `pressed`, `hazards`); on the screen's side, the
-`setpoint` / `toggle` / `flipper` / `button` / `readout` widgets,
-`screen_rules.writable` / `show` / `misfit`, `screen.js`'s `asValue`,
-`write` and its `#confirm` dialog, and GEECS-Schemas `screens.py`'s `_FITS`
-(the kind ↔ role-type table this rail writes the other way round). An enum
-select has no widget kind yet; the merge adds one. The rail-and-pane grid
-still borrows `camera.css`'s `.camera` layout, which moves to `device.css`
-with it.
+screen renderer draws its controls with this rail (§ "Rules that hold
+here"); a screen widget that embeds a device's rail group is the next
+piece. The rail-and-pane grid still borrows `camera.css`'s `.camera`
+layout, which moves to `device.css` with the camera's rail.
 
 ## The setpoint control
 

@@ -78,16 +78,27 @@ module.
 Every widget has a `kind` and a `label` (empty: the role's own label).
 Optional fields: `units` (when the record carries none), `precision`
 (digits after the point, 0–12) and `confirm` (a hazard note the operator
-confirms before a write; writing kinds only).
+confirms before a write; writing kinds only). A writing widget is drawn
+with the device pages' own controls (one set for both, the device rail's),
+so a setting looks and behaves the same on a screen as on its device's
+page.
 
-**setpoint**: an input with the role's readback beside it. Takes a writable
-`setpoint` role.
+**setpoint**: the device page's setting: a field that shows the device's
+setpoint, with `set` and `now` under it and `differs` after a write that did
+not land (the operator's view: [A setting and the numbers under
+it](../web_services/control_room.md#a-setting-and-the-numbers-under-it)).
+Takes a writable `setpoint` role.
 
 ```yaml
 - {kind: setpoint, label: Exposure, bind: {device: UC_VisaEBeam6, role: exposure}, units: s, precision: 4}
 ```
 
-**toggle**: a two-state switch. Takes a writable `bit` or `enum` role.
+**toggle**: a pair of buttons, off then on; the one the record reads is
+pressed, and pressing the other writes it. Labelled by the enum's own two
+words (a bit: Off / On). Takes a writable `bit` or `enum` role. With
+`values: {on: <n>, off: <n>}` it writes those numbers to a numeric
+`setpoint` role instead (a LabVIEW boolean kept as a number); a reading that
+is neither number presses neither button.
 
 ```yaml
 - kind: toggle
@@ -97,8 +108,8 @@ confirms before a write; writing kinds only).
 ```
 
 **flipper**: a toggle with up to two indicators, in then out. Takes a
-writable `bit` or `enum` role; each indicator is a binding that can be
-read.
+writable `bit` or `enum` role (or `values`, as a toggle); each indicator is
+a binding that can be read.
 
 ```yaml
 - kind: flipper
@@ -115,7 +126,15 @@ writable `command` or `bit` role, or `{action: …}`.
 - {kind: button, label: Park, bind: {action: bench_park}}
 ```
 
-**readout**: a read-only value. Takes a `readback`, `setpoint`, `counter`,
+**select**: a list of the enum's own choices (narrowed to the family role's
+`choices` when it has them); choosing one writes it. Takes a writable `enum`
+role (a filter wheel's position).
+
+```yaml
+- {kind: select, label: Coarse filters, bind: {device: U_FilterWheel, role: "pos.Channel0"}}
+```
+
+**readout**: a read-only value with its word. Takes a `readback`, `setpoint`, `counter`,
 `bit` or `enum` role, or a bare PV.
 
 ```yaml

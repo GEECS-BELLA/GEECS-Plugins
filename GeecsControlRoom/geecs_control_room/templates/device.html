@@ -108,4 +108,4 @@
 </main>
 <script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/device_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/device.js" defer></script>{% if device %}<script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/device_rail.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/device_rules.js" defer></script><script src="{{ root }}/static/device_source.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/device.js" defer></script>{% if device %}<script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/device_rail.js" defer></script>{% endif %}{% endblock %}

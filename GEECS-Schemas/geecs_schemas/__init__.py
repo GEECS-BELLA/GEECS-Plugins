@@ -89,6 +89,7 @@ from geecs_schemas.screens import (
     Group,
     Screen,
     ScreenError,
+    ToggleValues,
     Widget,
     resolve as resolve_screen,
 )
@@ -229,6 +230,7 @@ __all__ = [
     "Screen",
     "Group",
     "Widget",
+    "ToggleValues",
     "Binding",
     "Bound",
     "ScreenError",

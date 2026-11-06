@@ -157,19 +157,24 @@ picker's, and the device's name the page you are on.
 
 ## A screen
 
-![A screen: the simulator bench](assets/control_room_04_screen.png)
+![A screen: the HTU Control Center (a bench of its own bindings), light theme](assets/control_room_21_screen_control_center.png)
 
 A screen is a grid of titled groups, each a column of widgets. Every
-widget shows a label, the value, and a status dot with its word.
+widget shows a label, the value, and a status dot with its word. Its
+controls are the device pages' own, so a setting works the same on a
+screen as on its device's page.
 
-- A **setpoint** shows an input with the limits beside it
-  (`[-5 … 5]`) and the readback under it (`rb 0.001`). When setpoint and
-  readback disagree at the precision shown, the readback says `differs`.
-- A **toggle** shows the current state as a button; pressing it writes the
-  other state.
+- A **setpoint** is a setting: the field shows the device's setpoint, with
+  `set` and `now` under it and `differs` after a write that did not land
+  (see [A setting and the numbers under it](#a-setting-and-the-numbers-under-it));
+  hover over the field for its limits.
+- A **toggle** is a pair of buttons, off and on (or the device's own two
+  words); the pressed one is what the device reads, and pressing the other
+  writes it. When the device reads neither, neither is pressed.
 - A **flipper** is a toggle with its in and out indicators.
+- A **select** is a list of the device's own choices; choosing one writes it.
 - A **button** sends a command (a jog, a reset) or runs an action.
-- A **readout** is read-only.
+- A **readout** is read-only, with its word.
 - Text notes and pictures are part of the layout only.
 
 A writing widget is greyed out when the module says the role is not
@@ -178,8 +183,9 @@ a raw PV rather than a device role (those are read-only by design).
 
 ### Writing
 
-Type a value and press Enter (a setpoint), or press the toggle or button.
-The widget shows `sending`, then the module's answer:
+Type a value and press Enter (a setpoint: what you typed stays until the
+device takes it), choose an option, or press a toggle's other button or a
+button. The widget shows `sending`, then the module's answer:
 
 - `accepted`: the write was made and journaled.
 - `denied · <code>`: a rule stopped it before anything was sent (see
