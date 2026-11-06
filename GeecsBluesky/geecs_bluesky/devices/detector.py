@@ -28,6 +28,7 @@ import asyncio
 import logging
 import math
 import numbers
+import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -1016,10 +1017,23 @@ class GeecsDetector(StandardDetector):
         is explicit: ``kickoff`` sets it, ``trigger`` clears it.  A
         stale ``missed`` from a strict run's last shot is cleared too — no
         row of this stream is a shot the plan fired.
+
+        After an **unbounded** prepare (a device stream: acquisition keeps
+        running) a frame can land between the prepare and the kickoff, and
+        the stock kickoff would refuse it ("only prepared up to …"); the
+        stream's datums cover it anyway (from the zeroed count).  So the
+        prepare context's baseline is set past any count the stock check
+        can read, as :meth:`~geecs_bluesky.devices.native.NativeCamera.kickoff`
+        does.  Nothing else reads that baseline on a stream (the batch
+        reads — ``step_baseline``, ``frames_this_batch``, ``truncate_to`` —
+        are a bounded prepare's); the next prepare rebuilds it.
         """
         self._acquire.fly = True
         self._acquire.abandoned = False
         self._acquire.missed = False
+        ctx = self._prepare_ctx
+        if ctx is not None and ctx.trigger_info.number_of_events == 0:
+            ctx.collections_written = sys.maxsize
         await super().kickoff()
 
     def complete(self) -> AsyncStatus:

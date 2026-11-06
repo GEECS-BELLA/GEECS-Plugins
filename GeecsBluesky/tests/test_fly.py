@@ -465,3 +465,25 @@ def test_the_bound_sweep_flies_two_ticks_per_bin_and_never_touches_the_box(
     assert all(r["complete"] for r in rows) and len(presses) == 4
     assert box.puts == [] and box.fires == 0
     assert col.docs["stop"][-1]["exit_status"] == "success"
+
+
+def test_a_plugin_frame_landing_before_the_kickoff_never_refuses_the_run(
+    RE, box, tmp_path
+) -> None:
+    """A free-running plugin camera writes a frame between its last prepare and the kickoff."""
+    from tests.test_strict_plans import _plugin_camera
+
+    count = _count(RE, box)
+    cam, _ = _plugin_camera(RE, box, "UC_Cam", tmp_path)
+    landed: list[int] = []
+
+    def frame_before_kickoff(msg) -> None:
+        if msg.command == "kickoff" and not landed:
+            landed.append(1)
+            set_mock_value(cam.hdf.num_captured, 1)
+
+    RE.msg_hook = frame_before_kickoff
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([cam], 2, acquisition="fly", shot_period=PERIOD, required=[]))
+    assert landed and col.docs["stop"][-1]["exit_status"] == "success"
