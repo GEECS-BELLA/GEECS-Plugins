@@ -11,6 +11,7 @@ imports it (the ``control-room-edges`` contract).
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -375,3 +376,40 @@ async def test_the_trace_page_draws_a_spectrometer_through_the_same_template(roo
     room.env.hare.on_frame({roles["stat_counter"]["pv"]: live(2)})
     by_role = {r["role"]: r["verdict"] for r in (await room.client.get("/api/devices/cct1")).json()["roles"]}  # fmt: skip
     assert by_role["centroid_index"] == "off" and by_role["total"] == "live"
+
+
+async def test_the_directory_reads_the_states_and_heartbeats_the_module_serves(room, tmp_path: Path) -> None:  # fmt: skip
+    # a bench scope (served by an IOC, so a heartbeat) and a bench spectrometer beside the shared documents
+    panels = PANELS + '  scope1: {family: scope_contract, prefix: "bench:scope1:", ioc: scopeioc}\n  cct1: {family: spectrometer_contract, prefix: "bench:cct1:"}\n'  # fmt: skip
+    write_documents(tmp_path, panels=panels)
+    body = (await room.client.get("/api/home/devices")).json()
+    assert body["ok"] and set(body["words"]) == {
+        "Cam1",
+        "Mot1",
+        "ps1",
+        "scope1",
+        "cct1",
+    }
+    assert {n: body["words"][n]["state"] for n in ("Cam1", "scope1", "cct1")} == {"Cam1": "unknown", "scope1": "unknown", "cct1": "unknown"}  # fmt: skip
+    assert body["words"]["Cam1"]["heartbeat"] is None and body["words"]["scope1"]["heartbeat"] == "unknown"  # fmt: skip
+    # the scope's IOC heartbeat advances: the module's word reaches the row
+    await asyncio.sleep(0)
+    room.env.hare.on_frame({"SCOPEIOC:HEARTBEAT": live(1)})
+    room.env.hare.on_frame({"SCOPEIOC:HEARTBEAT": live(2)})
+    beat = (await room.client.get("/api/home/devices")).json()["words"]["scope1"]
+    assert (beat["heartbeat"], beat["heartbeatKit"]) == ("live", "ok")
+    # every device under its page kind, linked; the trace group holds both array detectors
+    html = (await room.client.get("/")).text
+    groups = re.findall(r'data-group="([^"]+)"', html)
+    assert groups == ["camera", "trace", "motor", "supply"]
+    for kind, name in (
+        ("camera", "Cam1"),
+        ("trace", "scope1"),
+        ("trace", "cct1"),
+        ("supply", "ps1"),
+    ):
+        assert f'<a href="/device/{kind}/{name}">{name}</a>' in html
+    assert '<td class="mono">scopeioc</td>' in html
+    # and the page it links to leads back
+    page = (await room.client.get("/device/trace/cct1")).text
+    assert '<a href="/device/trace">trace</a>' in page and '<span class="mono" aria-current="page">cct1</span>' in page  # fmt: skip

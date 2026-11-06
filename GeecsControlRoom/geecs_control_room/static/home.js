@@ -3,7 +3,9 @@
 // there), the device pickers from the same roster, the presets from
 // /api/home/presets (Squirrel's snapshots through the module: a save, a diff
 // drawer, a restore as a run shown on the row, the golden mark) and the strip's
-// baseline chip from /api/home/baseline, polled slowly. Nothing here judges a
+// baseline chip from /api/home/baseline, polled slowly; the device directory's
+// words from the same /api/home/devices answer (its rows are the server's, from
+// the registry) and its filter (directory_rules.js). Nothing here judges a
 // device: a list the module could not give reads "unknown", never "none".
 // The rules are home_rules.js's and screen_rules.js's (tested under node), the polling poller.js's.
 (function () {
@@ -76,6 +78,45 @@
     const select = ev.target.closest("select[data-families]");
     if (select && select.value) window.location.href = deviceHref(select.value, select.dataset.kind);
   });
+
+  // ---- the device directory: rows drawn by the server from the registry; the words and the filter here
+  const D = window.GeecsDirectoryRules, dirPanel = $("directory");
+  const groups = dirPanel ? [...dirPanel.querySelectorAll("[data-group]")].map((el) => ({
+    el, group: el.dataset.group,
+    rows: [...el.querySelectorAll("tr[data-name]")].map((tr) => ({ tr, name: tr.dataset.name, family: tr.dataset.family })),
+  })) : [];
+  const listed = groups.flatMap((g) => g.rows.map((r) => r.name));
+  const paint = (td, word, kit) => {
+    td.querySelector(".dot").dataset.state = kit;
+    td.querySelector(".word").textContent = word;
+  };
+  function directory(body) {
+    if (!dirPanel) return;
+    const c = D.chip(body, listed), chipEl = $("directory-chip");
+    chipEl.textContent = c.text;
+    chipEl.dataset.state = c.state;
+    chipEl.title = c.title;
+    const note = $("directory-note");
+    if (note) note.textContent = [note.dataset.problem, body.ok ? "" : body.detail].filter(Boolean).join("; ");
+    for (const g of groups) for (const r of g.rows) {
+      const w = D.cellWords(body, r.name);
+      paint(r.tr.querySelector('[data-word="state"]'), w.state, w.kit);
+      paint(r.tr.querySelector('[data-word="heartbeat"]'), w.heartbeat, w.heartbeatKit);
+    }
+  }
+  function filter() {
+    const query = $("directory-filter").value, v = D.filterView(groups, query);
+    for (const g of groups) {
+      const keep = new Set(v.shown[g.group]);
+      for (const r of g.rows) r.tr.hidden = !keep.has(r.name);
+      g.el.hidden = v.hidden.includes(g.group);
+    }
+    const none = $("directory-none");
+    none.hidden = !v.none;
+    none.querySelector(".m").textContent = v.none ? `nothing in the registry has “${query.trim()}” in its name or family` : "";
+  }
+  if ($("directory-filter")) $("directory-filter").addEventListener("input", filter);
+  if ($("directory-note")) $("directory-note").dataset.problem = $("directory-note").textContent;
 
   let points = [], scan = null;
   function strip(s) {
@@ -280,6 +321,7 @@
     [DEVICES]: (body) => {
       list("not_live", body);
       list("in_alarm", body);
+      directory(body);
       if (body.ok) pickers(body.devices);
     },
     [STRIP]: strip,

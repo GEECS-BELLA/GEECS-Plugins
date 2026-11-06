@@ -164,3 +164,29 @@ def test_a_device_the_two_files_disagree_on_is_no_kind(settings: Settings, folde
     rows, problem = registered(settings, "motor")
     assert rows == [] and problem == "Mot1: native_devices.yaml names motor_record, panel_devices.yaml easydriver; not listed"  # fmt: skip
     assert "Mot1" not in [d["name"] for d in registered(settings, "supply")[0]]
+
+
+@pytest.mark.parametrize(
+    ("path", "trail"),
+    [
+        ("/device/camera/Cam2", '<a href="/device/camera">camera</a><span class="sep" aria-hidden="true">›</span><span class="mono" aria-current="page">Cam2</span>'),
+        ("/device/camera/Nope", '<a href="/device/camera">camera</a><span class="sep" aria-hidden="true">›</span><span class="mono" aria-current="page">Nope</span>'),
+        ("/device/motor", '<span aria-current="page">motor</span>'),
+    ],
+)  # fmt: skip
+def test_every_device_page_has_the_way_back(settings: Settings, folder: Path, path: str, trail: str) -> None:  # fmt: skip
+    """The brand is the home's link and the trail's first step; then the kind's picker; the page itself is not a link."""
+    with _room(settings) as c:
+        html = c.get(path).text
+    assert '<a class="brand" href="/">' in html
+    nav = re.search(r'<nav class="crumbs" aria-label="Breadcrumb">(.*?)</nav>', html, re.S).group(1)  # fmt: skip
+    assert trail in nav
+    assert html.index('class="brand"') < html.index(
+        'class="crumbs"'
+    )  # right after the brand
+
+
+def test_an_unknown_kind_has_no_trail_but_the_brand(settings: Settings, folder: Path) -> None:  # fmt: skip
+    with _room(settings) as c:
+        html = c.get("/device/nope").text
+    assert '<a class="brand" href="/">' in html and 'class="crumbs"' not in html

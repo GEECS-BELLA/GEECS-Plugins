@@ -56,17 +56,18 @@ def kind_of(family: Optional[str]) -> Optional[str]:
     return _WORD.get(found.kind) if found else None
 
 
-def registered(settings: Settings, kind: str) -> tuple[list[dict[str, str]], Optional[str]]:  # fmt: skip
-    """The registry's devices of ``kind`` by name (``name``, ``family``), and the files' problems.
+def catalogue(settings: Settings) -> tuple[list[dict[str, Any]], Optional[str]]:  # fmt: skip
+    """Every registry device by name (``name``, ``family``, ``kind``: its page's kind word, ``None`` for no page), and the files' problems.
 
     The module's join rule (GeecsCanopy ``native.py``): a device both files name
     with different families is no kind's; it is left out and named in the problem.
+    A family that is not installed, or whose kind no page draws, is kind ``None``.
     """
     try:
         panel, native = registry(settings.experiment_dir)
     except (ValidationError, yaml.YAMLError, OSError) as exc:
         return [], str(exc)
-    families, want = load_families(), KINDS[kind].family_kind
+    families = load_families()
     rows, problems = [], []
     for name in sorted({*native.devices, *panel.devices}):
         entry, panel_entry = native.devices.get(name), panel.devices.get(name)
@@ -75,9 +76,14 @@ def registered(settings: Settings, kind: str) -> tuple[list[dict[str, str]], Opt
             problems.append(f"{name}: native_devices.yaml names {template}, panel_devices.yaml {panel_entry.family}; not listed")  # fmt: skip
             continue
         family = families.get(template)
-        if family and family.kind == want:
-            rows.append({"name": name, "family": template})
+        rows.append({"name": name, "family": template, "kind": _WORD.get(family.kind) if family else None})  # fmt: skip
     return rows, "; ".join(problems) or None
+
+
+def registered(settings: Settings, kind: str) -> tuple[list[dict[str, str]], Optional[str]]:  # fmt: skip
+    """The registry's devices of ``kind`` by name (``name``, ``family``), and the files' problems (``catalogue``'s)."""
+    rows, problem = catalogue(settings)
+    return [{"name": r["name"], "family": r["family"]} for r in rows if r["kind"] == kind], problem  # fmt: skip
 
 
 async def listing(settings: Settings, module: ModuleClient, kind: str) -> dict[str, Any]:  # fmt: skip

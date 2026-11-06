@@ -16,11 +16,13 @@ geecs_control_room/
   home.py           the home at /: the strip (/api/home/strip, the scanner's API; /api/home/baseline,
                     the golden presets' diff), the "Not live" and "In alarm" lists (/api/home/devices),
                     the launcher (home.yaml), the presets (/api/home/presets and the pass-throughs
-                    /api/presets[/{id}/diff|golden|restore] to the module's preset routes)
+                    /api/presets[/{id}/diff|golden|restore] to the module's preset routes), the device
+                    directory (`directory`: the registry by page kind; its `words` in /api/home/devices)
   screens.py        load(): a screen file bound by resolve_screen; GET /screens/{name},
                     its image files, and the module pass-throughs (/api/devices/{name}[/put],
                     /api/actions, …/{plan}/run, …/runs/{id}[/stop])
-  device_pages.py   KINDS (kind word → family kind → template); /device/{kind} the picker (the registry's
+  device_pages.py   KINDS (kind word → family kind → template); `catalogue` the one registry join (every
+                    device with its kind word, None for no page); /device/{kind} the picker (the registry's
                     devices of the kind, /api/device/{kind} their roster states), /device/{kind}/{name} the
                     device resolved by one module read (denied / stale panes, never blank)
   images.py         a camera's frame (/api/devices/{name}/frame.jpg: the IOC's JPEG at the URL role `image`
@@ -34,11 +36,12 @@ geecs_control_room/
                     § "The raw frame" below), over CA (aioca), read only; the module's route cached ROUTE_TTL_S
   static/hare.js    GeecsHare: Hare's WebSocket, reconnect + resubscribe
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
-                    slowly), fills the device pickers, the presets region (save dialog, diff drawer,
-                    restore confirm, the run on the row, the golden mark)
+                    slowly), fills the device pickers, the directory's words and its filter, the presets
+                    region (save dialog, diff drawer, restore confirm, the run on the row, the golden mark)
   static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
-  static/screen_rules.js, home_rules.js   the pages' rules, pure (verdict word, value shown,
-                    bounds, writable, differs, outcome state; the home lists' words)
+  static/screen_rules.js, home_rules.js, directory_rules.js   the pages' rules, pure (verdict word,
+                    value shown, bounds, writable, differs, outcome state; the home lists' words; the
+                    directory's filter, row words and chip)
   static/device.js, device_rules.js   the device pages' live half (roles from the module, values
                     from Hare, read only) and its rules (picker options, a role row's word and units)
   static/device.css the device pages' layout
@@ -59,7 +62,7 @@ geecs_control_room/
                     sent once): the camera's and the trace page's
   static/poller.js  the pages' one poll loop: one request in flight per target, late answers
                     dropped, a timeout, back-off to 10 s, at most 8 requests at once
-  templates/        base.html (every page's shell), screen.html (EVERY screen), device.html (every
+  templates/        base.html (every page's shell; `crumbs` the trail after the brand), screen.html (EVERY screen), device.html (every
                     device page until a kind gets its own, filling `kind_component`; device_camera.html the camera's, device_trace.html the trace's), the pages
 examples/sim_bench.yaml   the worked example: the geecs-epics simulator bench's four devices
 docs/             the example rendered live (the PR's screenshots)
@@ -133,6 +136,22 @@ deploy/
   could not give reads "unknown", never "none". A row's cause is the module's evidence (heartbeat word,
   roles by verdict). The launcher is `<experiment>/home.yaml` (GEECS-Schemas
   `HomeLayout`); its link URLs are settings, never the file's.
+- **The launcher is curated; the directory is complete.** The home's
+  device directory is the registry (`native_devices.yaml` +
+  `panel_devices.yaml`, `device_pages.catalogue`, the pickers' join), never
+  `home.yaml` and never the roster: every registry device under its page
+  kind in `KINDS` order (a kind with none hidden), a device whose family no
+  page draws last under "no page yet" without a link, a DB device not at all
+  (no device page; a screen draws it). Its rows are drawn by the server, so
+  the links work without script; its words (the module's state, the IOC
+  heartbeat; `not on the roster`, `unknown` when the detail was not read,
+  `no IOC` for none) ride the two lists' `/api/home/devices` read as
+  `words`, never a read of their own. The filter is client-side, every term
+  a substring of the name or the family (`directory_rules.js`).
+- **No page is a leaf.** Every device page's topbar carries the trail after
+  the brand (the brand is the home's link): the kind's picker, then the
+  device (`device.html`'s `crumbs` block, inherited by every kind's
+  template).
 - **The raw frame is the driver's frame; the page transforms it.** The
   camera family's `raw_frame` role is `ARR:ArrayData` (`NDStdArrays`,
   `USHORT`) on `CAM1.CAM`, the driver's own port: before `TRANS1`, before
@@ -386,7 +405,7 @@ since httpx would decode the gzip itself, and the fake CA's `counters` script
 the counter probe and the mid-batch retry. The page scripts run under node (skipped without it; no
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
-`test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
+`test_directory_rules_js.py` / `test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
 `test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
 by `frame.raw` over `test_images.py`'s fake CA (as int16, as aioca delivers it asked `DBR_SHORT`), its bytes checked on the
 wire, then decoded, transformed and levelled by `camera_rules.js` under node. A rule a
@@ -399,5 +418,6 @@ at `/geecs` behind `ModuleClient`, driven through this app's routes. It pins
 the fields the pages read (a role's `role`, `axis`, `pv`, `read`, `writable`,
 `verdict`, and for the camera `label` and `locked`; the image and arrays read
 at the PVs the module names; the put envelope's `outcome`, `code`, `journalId`, `detail`; a
-journal row's fields) and the home's lists and `unread`. geecs-canopy is a
+journal row's fields) and the home's lists, `unread` and the directory's `words` (a camera, a
+bench scope behind an IOC heartbeat, a bench spectrometer). geecs-canopy is a
 dev-only dependency; `geecs_control_room` never imports it.

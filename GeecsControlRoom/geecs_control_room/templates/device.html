@@ -1,5 +1,6 @@
 {#
-  A device page (Planning/device_pages.md): the picker at /device/<kind>, and
+  A device page (Planning/device_pages.md): the trail after the brand (home ›
+  kind's picker › device, each a link but the page itself), the picker at /device/<kind>, and
   the device at /device/<kind>/<name> — the header (name, family, kind, the
   module's state as a chip, heartbeat), the switcher (the picker's select, so
   an operator changes device in place), and the role table from the device's
@@ -12,6 +13,9 @@
 #}{% extends "base.html" %}
 {% block title %}{{ name or kind }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css">{% endblock %}
+{% block crumbs %}{% if kind in kinds %}<nav class="crumbs" aria-label="Breadcrumb"><span class="sep" aria-hidden="true">›</span>
+  {% if name %}<a href="{{ root }}/device/{{ kind }}">{{ kind }}</a><span class="sep" aria-hidden="true">›</span><span class="mono" aria-current="page">{{ name }}</span>
+  {% else %}<span aria-current="page">{{ kind }}</span>{% endif %}</nav>{% endif %}{% endblock %}
 {% block header %}{% if device %}
 <span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
 {% endif %}{% endblock %}

@@ -2,7 +2,8 @@
   The experiment's home, the Control Room (operator_surfaces.md §4): the
   top strip, the two lists that should read "none", the launcher from
   home.yaml, the presets (Squirrel's snapshots through the module: save,
-  diff, restore as a run, golden). home.js fills the strip, the lists and
+  diff, restore as a run, golden), and the device directory (the registry's
+  every device by page kind; its words from the same /api/home/devices poll). home.js fills the strip, the lists and
   the presets from /api/home/*; the launcher is drawn here, its pickers
   there. Overlays by the kit's ladder: the save and the restore's confirm
   are dialogs, the diff with its device subset a drawer.
@@ -89,6 +90,43 @@
       <div class="state" data-state="loading" id="presets-state"><div class="t">reading the module</div><div class="m"></div></div>
     </article>
   </div>
+
+  {# The device directory: the registry's every device, by page kind (home.directory), uncurated; the launcher above is the curated layer. #}
+  <article class="panel" id="directory">
+    <header><span class="eyebrow">Devices</span>
+      <span class="chip" id="directory-chip" data-state="unknown">reading</span>
+      {% if directory.groups %}<div class="field filter"><input id="directory-filter" type="search" placeholder="filter by name or family" aria-label="Filter devices by name or family" spellcheck="false" autocomplete="off"></div>{% endif %}
+    </header>
+    {% if directory.state != "ok" %}
+    <div class="state" data-state="{{ directory.state }}">
+      <div class="t">{{ "No device in the registry" if directory.state == "empty" else "The registry cannot be read" }}</div>
+      <div class="m{% if directory.problem %} mono{% endif %}">{{ directory.problem or "native_devices.yaml and panel_devices.yaml name no device" }}</div>
+    </div>
+    {% else %}
+    <div class="body">
+      <p class="dim" id="directory-note">{{ directory.problem or "" }}</p>
+      {% for kind, rows in directory.groups %}{% set paged = rows[0].kind %}
+      <section class="group" data-group="{{ kind }}">
+        {% if paged %}<a class="eyebrow" href="{{ root }}/device/{{ kind }}" title="the {{ kind }} picker">{{ kind }} · {{ rows | length }}</a>
+        {% else %}<span class="eyebrow" title="no device page draws these families yet">{{ kind }} · {{ rows | length }}</span>{% endif %}
+        <div class="tscroll"><table>
+          <thead><tr><th>Device</th><th>Family</th><th>State</th><th>IOC</th><th>Heartbeat</th></tr></thead>
+          <tbody>{% for d in rows %}
+            <tr data-name="{{ d.name }}" data-family="{{ d.family }}">
+              <td class="id">{% if paged %}<a href="{{ root }}/device/{{ kind }}/{{ d.name | urlencode }}">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}</td>
+              <td>{{ d.family }}</td>
+              <td class="ws" data-word="state"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">reading</span></td>
+              <td class="mono">{{ d.ioc or "—" }}</td>
+              <td class="ws" data-word="heartbeat"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">reading</span></td>
+            </tr>{% endfor %}
+          </tbody>
+        </table></div>
+      </section>
+      {% endfor %}
+      <div class="state" data-state="empty" id="directory-none" hidden><div class="t">No device matches</div><div class="m"></div></div>
+    </div>
+    {% endif %}
+  </article>
 </main>
 
 {# Save: rung 3 — one question (save this?) with the name, the operator and the scope it needs. #}
@@ -131,4 +169,4 @@
   </div>
 </dialog>
 {% endblock %}
-{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/home_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/home.js" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/home_rules.js" defer></script><script src="{{ root }}/static/directory_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/home.js" defer></script>{% endblock %}
