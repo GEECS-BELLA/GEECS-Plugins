@@ -515,7 +515,9 @@ class OnDemand:
         ``name=frames``); :data:`FREE_RUNNING_PAUSE` fires in a row mean the
         camera is not waiting for the trigger, and the returned pause reason
         names each such camera.  An unreadable count is named once (WARNING)
-        and is no evidence.  ``""``: nothing to pause for.
+        and is no evidence: the camera's next fire measures from its own
+        baseline, and the streak neither grows nor resets.  ``""``: nothing
+        to pause for.
         """
         if not self.checked:
             return ""
@@ -526,6 +528,10 @@ class OnDemand:
             cur = now[p.name]
             if cur:
                 self._frames_at[p.name] = cur
+            else:
+                # No frames inferred across a gap: the next fire measures from
+                # its own baseline; the streak neither grows nor resets.
+                self._frames_at.pop(p.name, None)
             if not cur or not prev or len(cur) != len(prev):
                 if not cur and p.name not in self._unreadable:
                     self._unreadable.add(p.name)
