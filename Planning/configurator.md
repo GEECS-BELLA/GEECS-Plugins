@@ -450,8 +450,10 @@ browser, the commit reaches main under their name, the share's clone
 fast-forwards, the worker reopens its environment when the queue is idle and
 empty, and the next laser-off scan fires at the new amplitude; a setup
 captured from live readbacks is applied as one queue item with every step
-completed by its device; a grant change opens a PR as the App. Light and
-dark, no literal colour, the theme's tests walking the templates.
+completed by its device; a grant change opens a PR as the App, and its merge
+reaches both clones and applies on the timer without anyone opening the
+editor. Light and dark, no literal colour, the theme's tests walking the
+templates.
 
 ## Out of scope
 
