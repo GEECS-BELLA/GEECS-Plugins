@@ -6,7 +6,7 @@
   the camera page keeps its hand-coded rail until it moves onto its panel.
   Each rail role is drawn by its type through `control`: an enum a select
   of the record's own choices, a setpoint a number beside its readback (a
-  text setpoint a text field), a bit a checkbox, a command a button, a
+  text setpoint a text field; a field writes on Enter, never as typed), a bit a checkbox, a command a button, a
   read-only role its text; named in the panel's `buttons`, a pair of buttons
   writing 0 and 1; named as a `tweak`, the setpoint with its step and its
   − / + commands (the record moves by the step: the page computes nothing).
@@ -21,7 +21,7 @@
 {% elif spec.type == "command" %}<div class="field"><button class="btn sm" type="button" data-role="{{ spec.name }}"{{ ax }} data-value="1" disabled>{{ label }}</button></div>
 {% elif spec.type == "bit" and spec.writable %}<div class="field"><label class="dim"><input type="checkbox" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }} disabled> {{ label }}</label></div>
 {% elif spec.type == "enum" and spec.writable %}<div class="field"><label for="{{ id }}">{{ label }}</label><select id="{{ id }}" data-role="{{ spec.name }}"{{ ax }} disabled></select></div>
-{% elif spec.type == "setpoint" %}<div class="field"><label for="{{ id }}">{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><input type="{{ 'text' if spec.text else 'number' }}" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }}{% if not spec.text %} step="{{ 1 if spec.integer else 'any' }}"{% endif %} disabled><span class="rb mono dim" data-rb="{{ spec.readback }}"{{ ax }}>—</span></div>
+{% elif spec.type == "setpoint" %}<div class="field"><label for="{{ id }}">{{ label }} {% if units %}<small>{{ units }}</small>{% else %}<small data-egu="{{ spec.name }}" data-type="setpoint"{{ ax }}></small>{% endif %}</label><input type="{{ 'text' if spec.text else 'number' }}" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }}{% if not spec.text %} step="{{ 1 if spec.integer else 'any' }}"{% endif %} disabled><span class="rb mono dim" data-rb="{{ spec.readback }}"{{ ax }}>—</span></div>
 {% else %}<div class="field"><label>{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><span class="ro mono" data-ro="{{ spec.name }}"{{ ax }}>—</span></div>
 {% endif %}
 {%- endmacro %}
@@ -49,7 +49,7 @@
 {% macro readings(panel, specs, axis=none) -%}
 <div class="grid tight readings">
   {% for role in panel.readings %}{% set s = specs[role] %}
-  <div class="live" data-role="{{ role }}"{% if axis %} data-axis="{{ axis }}"{% endif %}><span class="k">{{ s.label }}{% if s.units %} <small>{{ s.units }}</small>{% endif %}</span><span class="v">—</span>
+  <div class="live" data-role="{{ role }}"{% if axis %} data-axis="{{ axis }}"{% endif %}><span class="k">{{ s.label }} {% if s.units %}<small>{{ s.units }}</small>{% else %}<small data-egu="{{ role }}" data-type="{{ s.type }}"{% if axis %} data-axis="{{ axis }}"{% endif %}></small>{% endif %}</span><span class="v">—</span>
     <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></span></div>
   {% endfor %}
 </div>

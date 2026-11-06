@@ -48,6 +48,8 @@ from pydantic import ValidationError
 from urllib.parse import quote
 
 from geecs_control_room.device_pages import (
+    DB_KIND,
+    GATEWAY,
     KINDS,
     catalogue,
     db_devices,
@@ -127,9 +129,8 @@ def sort_devices(
         detail = details.get(name)
         roles = (detail or {}).get("roles", [])
         row = {"name": name, "family": device.get("family"), "state": state}
-        row["kind"] = kind_of(
-            device.get("family")
-        )  # its device page; None: a DB device
+        # its device page: a DB device's is settables; None: a family no page draws
+        row["kind"] = DB_KIND if device.get("source") == GATEWAY else kind_of(device.get("family"))  # fmt: skip
         row |= {"kit": KIT_STATE.get(state, "unknown"), "ioc": iocs.get(name)}
         row["last"] = last.get(name)
         if state != "live":

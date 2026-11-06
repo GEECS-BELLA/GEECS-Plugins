@@ -176,7 +176,7 @@ def view(device: Resolved, tracker: Tracker, stale_after_s: float) -> dict[str, 
                     verdicts.append(verdict)
             faulted |= bool(role.fault and wire.get("connected") and wire.get("value"))
             entry = {"role": role.name, "axis": axis, "read": role.read_mode}
-            entry |= role.model_dump(include={"label", "type", "confirm", "locked"})
+            entry |= role.model_dump(include={"label", "type", "units", "text", "confirm", "locked"})  # fmt: skip
             entry["pv"] = device.pv(role, axis)
             entry["writePv"] = (
                 role.writable and device.pv(role, axis, write=True) or None

@@ -1,10 +1,12 @@
 // A panel page's rail and readings strip, DOM only: the one copy for every page drawn from a panel
 // (_panel.html: the settables page in device.html, the trace page). Each control is filled from Hare unless
-// focused, enabled on the module's word (camera_rules.js's `control`), written through device_writes.js (the
+// focused or holding a draft, enabled on the module's word (camera_rules.js's `control`), written through device_writes.js (the
 // module's put route, the operator's name, sent once; a per-axis control's write carries its axis); each reading
-// shows its value and the module's word; a group whose `<ch>_present` reads 0 is hidden; each pane's alarms are
+// shows its value and the module's word; a value with no family units takes the record's (Hare's EGU); a group whose `<ch>_present` reads 0 is hidden; each pane's alarms are
 // the roles the module judges `error`. On the settables page (#settables) it starts itself and drives the axis
-// selector. The rules are device_rules.js's and camera_rules.js's (tested under node).
+// selector. A number or text field is a draft while typed in: Enter writes it, Esc or leaving the field
+// drops it (an arrow key or a spinner click never writes a move); a select, a checkbox or a button writes
+// when chosen. The rules are device_rules.js's and camera_rules.js's (tested under node).
 // window.GeecsDeviceRail.make(page, box, writes) → { fill }.
 (function () {
   "use strict";
@@ -33,12 +35,13 @@
           if (!focused(el) && typeof v === "number") el.value = String(v);
           continue;
         }
-        if (focused(el)) continue;
-        if (typeof v === "string") { el.type = "text"; el.value = v; continue; } // a text setting (a DB device's string)
+        if (focused(el) || el.dataset.draft) continue;
+        if (typeof v === "string") { el.value = v; continue; } // a text setting
         if (typeof v === "number") el.value = Number.isInteger(v) ? v : Number(v.toPrecision(6));
       }
       for (const el of box.querySelectorAll("[data-rb]")) el.textContent = `now ${C.fmt(P.frame(el.dataset.rb, axisOf(el)), P.meta(el.dataset.rb, axisOf(el)))}`;
       for (const el of box.querySelectorAll("[data-ro]")) el.textContent = C.fmt(P.frame(el.dataset.ro, axisOf(el)), P.meta(el.dataset.ro, axisOf(el)));
+      for (const el of box.querySelectorAll("[data-egu]")) el.textContent = D.units(el.dataset.type, "", P.meta(el.dataset.egu, axisOf(el)));
       const names = known();
       for (const g of box.querySelectorAll(".panel-rail .group")) {
         const present = D.presentRole(JSON.parse(g.dataset.roles), names);
@@ -57,6 +60,20 @@
     for (const el of controls) {
       const write = (v) => writes.write([[el.dataset.role, v, axisOf(el)]]).then(fill);
       if (el.tagName === "BUTTON") { el.addEventListener("click", () => write(Number(el.dataset.value))); continue; }
+      if (el.tagName === "INPUT" && el.type !== "checkbox") {
+        el.addEventListener("input", () => { el.dataset.draft = "1"; });
+        el.addEventListener("keydown", (ev) => {
+          const act = D.commitKey(ev.key, !!el.dataset.draft);
+          if (!act) return;
+          ev.preventDefault();
+          delete el.dataset.draft;
+          if (act === "revert") { el.blur(); return; } // leaving the field shows the device's value again
+          const v = D.writeValue({ type: el.type, tag: el.tagName, step: el.step, checked: el.checked, raw: el.value });
+          if (v !== null) write(v);
+        });
+        el.addEventListener("blur", () => { delete el.dataset.draft; fill(); });
+        continue;
+      }
       el.addEventListener("change", () => {
         const v = D.writeValue({ type: el.type, tag: el.tagName, step: el.step, checked: el.checked, raw: el.value });
         if (v !== null) write(v);

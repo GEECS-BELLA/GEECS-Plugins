@@ -67,14 +67,17 @@
     return step === "1" ? C.whole(raw) : C.number(raw);
   }
 
+  // A key in a field holding a draft: Enter writes it, Escape drops it; any other key, or no draft, nothing.
+  const commitKey = (key, draft) => (!draft ? null : key === "Enter" ? "write" : key === "Escape" ? "revert" : null);
+
   // The roles the module judges `error` on one axis (none named: every role), by label: a pane's alarm line.
+  // camera_rules.js's `alarms` over the axis' roles: one rule for every page's alarm line.
   function alarmed(view, axis) {
-    if (!view || !view.ok) return [];
-    const on = (e) => axis === undefined || axis === null || e.axis === axis;
-    return Object.values(view.roles).filter((e) => e.verdict === "error" && on(e)).map((e) => e.label || e.role);
+    if (axis === undefined || axis === null || !view || !view.ok) return C.alarms(view);
+    return C.alarms({ ...view, roles: Object.fromEntries(Object.entries(view.roles).filter(([, e]) => e.axis === axis)) });
   }
 
-  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, writeValue, alarmed });
+  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, writeValue, commitKey, alarmed });
 })(
   typeof module === "object" ? module.exports : (window.GeecsDeviceRules = {}),
   typeof module === "object" ? require("./screen_rules.js") : window.GeecsScreenRules,

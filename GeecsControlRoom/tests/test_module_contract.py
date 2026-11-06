@@ -480,7 +480,7 @@ def _db_devices() -> list:
 
     status = Role(name="connected", suffix="connected", type="enum", label="connected")
     plc = [var(f"DO.Ch{i}", f"do_ch{i}", "enum", True) for i in range(1, 6)] + [var("DI.Ch1", "di_ch1", "enum", False), status]  # fmt: skip
-    wheel = [var("Position", "position", "enum", True), var("Comment", "comment", "setpoint", True, text="string"), var("Temperature", "temperature", "readback", False), status]  # fmt: skip
+    wheel = [var("Position", "position", "enum", True), var("Comment", "comment", "setpoint", True, text="string"), var("Temperature", "temperature", "readback", False, units="degC"), status]  # fmt: skip
 
     def resolved(name: str, family: str, roles: list) -> Resolved:
         return Resolved(name, family, f"Test:{name.lower()}:", (), tuple(roles), (), None, frozenset(r.name for r in roles if r.writable), "gateway")  # fmt: skip
@@ -565,6 +565,12 @@ async def test_a_db_device_is_laid_out_automatically_and_written_through_the_mod
     wheel = (await db_room.client.get("/device/settables/U_Wheel")).text
     assert _groups(wheel) == [("Settings", ["Position", "Comment"])]
     assert re.search(r'<select id="c-1-1" data-role="Position" disabled>', wheel)
+    # a text setting is a text field from the first draw (the module says so), and the DB's units are shown
+    assert '<input type="text" id="c-1-2" data-role="Comment" disabled>' in wheel
+    assert re.search(
+        r'data-role="Temperature"><span class="k">Temperature <small>degC</small>',
+        wheel,
+    )
     # a native device under settables, and a DB device under motor: the wrong kind, with the way to the right one
     wrong = await db_room.client.get("/device/motor/U_PLC")
     assert wrong.status_code == 422 and "/device/settables/U_PLC" in wrong.text

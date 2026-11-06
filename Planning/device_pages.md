@@ -564,6 +564,20 @@ security, the refusal shown (the sims restored after). The automatic layout
 is Python, not a node rule: one drawing path, server-side, from a panel
 authored or automatic.
 
+**What review changed** (one adversarial round): a number or text field
+on the rail is a draft written on Enter (Esc or leaving drops it), never on
+`change`, so an arrow key on a motor's target sends no move (the trace page
+gets it too); the module's device route now serves each role's `text` and
+`units` (GeecsCanopy `freshness.view`), so a DB device's text setting is a
+text field from the first draw and its units show (the page's runtime type
+flip is deleted); the home's Not live and In alarm rows link a DB device to
+its settables page; the alarm line is one rule (`camera_rules.alarms`,
+filtered by axis) and the camera's write value is `device_rules.writeValue`.
+Left for the merge slice: the rules still in `camera_rules.js`, the camera's
+own rail, and the rail-and-pane grid's home (`GeecsControlRoom/CLAUDE.md`
+names each piece on both sides).
+
 **OWED.** The deployed pages on the services box (the coordinator's): a
 real PLC (many switches, the grid) and a filter wheel from the DB; Canopy
-rebuilt for the family files, the Control Room restarted.
+rebuilt for the family files and the route's new fields, the Control Room
+restarted.

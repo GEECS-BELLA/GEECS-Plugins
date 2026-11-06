@@ -145,14 +145,21 @@ async def rows_of(settings: Settings, module: ModuleClient, kind: str) -> tuple[
     if kind != DB_KIND:
         return registered(settings, kind)
     roster, why = await roster_of(module)
-    return [{"name": r["name"], "family": r["family"]} for r in db_devices(roster or [])], why  # fmt: skip
+    return _picker_rows(roster), why
+
+
+def _picker_rows(roster: Optional[list[dict[str, Any]]]) -> list[dict[str, str]]:
+    """The roster's DB devices as picker rows (``name``, ``family``)."""
+    return [
+        {"name": r["name"], "family": r["family"]} for r in db_devices(roster or [])
+    ]
 
 
 async def listing(settings: Settings, module: ModuleClient, kind: str) -> dict[str, Any]:  # fmt: skip
     """The picker's rows, each with the module's roster state (``unknown`` while the module is silent)."""
     if kind == DB_KIND:
         roster, why = await roster_of(module)
-        rows, problem = [{"name": r["name"], "family": r["family"]} for r in db_devices(roster or [])], None  # fmt: skip
+        rows, problem = _picker_rows(roster), None
     else:
         rows, problem = registered(settings, kind)
         roster, why = await roster_of(module)
@@ -181,7 +188,10 @@ def tables(body: dict[str, Any], family: Optional[FamilyFile]) -> list[tuple[Opt
             level = role.level if role else "operator"
             label = entry.get("label") or entry["role"]
             row = {"name": entry["role"], "label": label, "type": entry.get("type")}
-            rows.append(row | {"level": level, "units": role.units if role else None})
+            rows.append(
+                row
+                | {"level": level, "units": role.units if role else entry.get("units")}
+            )
         out.append((axis, rows))
     return out
 
@@ -236,7 +246,7 @@ def specs(entries: list[dict[str, Any]], family: Optional[FamilyFile], units: di
         role = family.role(name) if family and name in family.role_names() else None
         spec: dict[str, Any] = {"name": name, "type": e.get("type"), "label": e.get("label") or name}  # fmt: skip
         spec |= {"writable": bool(e.get("writePv")), "units": units.get(name)}
-        spec |= {"integer": bool(role and role.integer), "text": role.text if role else None}  # fmt: skip
+        spec |= {"integer": bool(role and role.integer), "text": role.text if role else e.get("text")}  # fmt: skip
         out[name] = spec | {"readback": (role.readback if role else None) or name}
     return out
 

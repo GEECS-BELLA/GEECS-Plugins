@@ -340,13 +340,29 @@ setpoint with `−` / step / `+` (the record moves by its step: the page never
 computes the target), a `grid` group as compact cells. The family's
 `actions` stay the module's write permissions; the page draws by role and
 hint, and a role the device's `allow` does not grant is drawn disabled with
-the module's word. A DB device's text setting (the module serves no `text`
-flag for it) is drawn as a number field and turned into a text field by the
-first string Hare delivers (`device_rail.js`). The camera page keeps its
-hand-coded rail until it moves onto its family's panel. The screen
-renderer's widget kinds and these controls are two vocabularies today; the
-merge into one is a later slice, and `control` + `device_writes.js` are
-what it takes over.
+the module's word. A role's `text` and `units` come from the module's device
+route (a DB device's from the DB through the gateway source); a value with no
+units of its own shows the record's EGU from Hare. A number or text field is
+a **draft** while typed in: Enter writes it, Esc or leaving the field drops
+it, so an arrow key or a spinner click on a motor's target never sends a
+move (the screen renderer's rule); a select, a checkbox or a button writes
+when chosen (`device_rules.commitKey`, `writeValue`).
+
+The camera page keeps its hand-coded rail (`device_camera.html`,
+`camera_controls.js`, which writes on `change`, and its readings in
+`camera.js`) until it moves onto its family's panel and this rail. The
+screen renderer and this rail are two vocabularies today; the slice that
+merges them takes over, on this side, `_panel.html`'s `control` and
+`readings`, `device_rules.writeValue`, `device_writes.js` (with its hazard
+dialog) and the enable, format and hazard rules still in `camera_rules.js`
+(`control`, `fmt`, `pressed`, `hazards`); on the screen's side, the
+`setpoint` / `toggle` / `flipper` / `button` / `readout` widgets,
+`screen_rules.writable` / `show` / `misfit`, `screen.js`'s `asValue`,
+`write` and its `#confirm` dialog, and GEECS-Schemas `screens.py`'s `_FITS`
+(the kind ↔ role-type table this rail writes the other way round). An enum
+select has no widget kind yet; the merge adds one. The rail-and-pane grid
+still borrows `camera.css`'s `.camera` layout, which moves to `device.css`
+with it.
 
 ## The trace
 

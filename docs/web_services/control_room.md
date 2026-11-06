@@ -311,7 +311,8 @@ family file, never from the page.
 - **The rail** is the family's control groups (for a scope: Acquisition,
   Trigger, one group per channel). Each control is drawn by what it is: a
   choice is a list of the record's own choices, a setting a number with
-  `now …` (what the device holds) under it, a switch a checkbox. Acquire
+  `now …` (what the device holds) under it, written when you press Enter,
+  a switch a checkbox. Acquire
   is a **Stop / Start** pair; the highlighted one is what the device is
   doing now. Every
   write goes through the same path as a screen's, with your name from the
@@ -377,8 +378,12 @@ registry or the database, never a new page.
   target is outside the soft limits. For a supply they are current,
   voltage, output, and the fault and interlock bits.
 - **Writes** go through the same path as a screen's, with your name from
-  the header and sent once. A hazard asks first (a supply's output, a
-  motor's home), and the module's answer is shown under the rail.
+  the header and sent once. A number or text field writes when you press
+  **Enter**; **Esc**, or clicking elsewhere, drops what you typed and shows
+  the device's value again, so an arrow key or the field's little arrows
+  never move a motor on their own. A list, a checkbox or a button writes
+  when you choose it. A hazard asks first (a supply's output, a motor's
+  home), and the module's answer is shown under the rail.
 
 ![A supply's settables page on the sim FAST-PS, dark theme: the IOC refused the current write, and the page says so](assets/control_room_17_settables_supply_dark.png)
 

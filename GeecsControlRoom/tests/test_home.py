@@ -188,6 +188,9 @@ def test_a_live_db_device_is_not_read_in_detail_and_never_unread(settings: Setti
         body = c.get("/api/home/devices").json()
     assert asked == ["U_B"] and body["unread"] == []
     assert [row["name"] for row in body["not_live"]] == ["U_B"]
+    assert (
+        body["not_live"][0]["kind"] == "settables"
+    )  # its row links the settables page, never the raw JSON
 
 
 async def test_the_baseline_sums_the_golden_diffs_and_is_none_without_one(settings: Settings) -> None:  # fmt: skip
