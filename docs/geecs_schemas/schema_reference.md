@@ -785,6 +785,8 @@ One record of the template, by what it does for a page.
 | `locked` | `bool` | no | False | Refused while a run holds the device (the run lock), or while the lock cannot be read: what a scan saves. |
 | `settled_by` | `str (optional)` | no | None | A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag. |
 | `readback` | `str (optional)` | no | None | A setpoint's readback, shown beside it (a motor's .RBV beside .VAL). |
+| `tolerance` | `float (optional)` | no | None | On a setpoint: how far its measured value may sit from the setpoint, in the role's units, before a page marks them as differing once a write has settled. Absent: 'tolerance_by', else the record's precision (one unit in the last digit shown), else exact. |
+| `tolerance_by` | `str (optional)` | no | None | On a setpoint: the readback whose value is that tolerance, where the record keeps one (the motor record's retry deadband, RDBD). |
 | `fresh_by` | `str (optional)` | no | None | The counter role whose advance makes this value fresh (the producing plugin's ArrayCounter_RBV): statistics post only on change, so a steady value is judged by its producer. Absent: fresh while connected. |
 | `computed_by` | `str (optional)` | no | None | The flag that must be on for the value to be computed at all (ComputeCentroid): with it off the value reads 'off', not fresh. |
 | `text` | `'string' \| 'char_array' (optional)` | no | None | Read as text: a string record, or a char-array record longer than a string's 40 characters. Enums are read by state name regardless. |

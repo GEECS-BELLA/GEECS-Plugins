@@ -34,10 +34,10 @@
   // A row's units: the family's, else the record's (EGU) for a value only (a motor's bits carry its EGU too).
   const units = (type, family, meta) => family || (["readback", "setpoint"].includes(type) && (meta || {}).units) || "";
 
-  // The device route as the page keeps it: the screen's view, and the heartbeat word.
+  // The device route as the page keeps it: the screen's view, the heartbeat word, and its source (a DB device's "gateway").
   function deviceView(ok, body) {
     const v = S.deviceView(ok, body);
-    return ok ? { ...v, heartbeat: body.heartbeat || null } : v;
+    return ok ? { ...v, heartbeat: body.heartbeat || null, source: body.source || null } : v;
   }
 
   // The header: the module's device state and heartbeat, "unknown" while it is silent.
@@ -67,6 +67,72 @@
     return step === "1" ? C.whole(raw) : C.number(raw);
   }
 
+  // ---- the setpoint control: what the field tracks, what stands beside it, the draft, the mark
+  // Where a setpoint field's value comes from and whether the setpoint is shown beside it. The setpoint is the
+  // role's write record (the module's `writePv`): areaDetector's X beside the X_RBV the role reads, the motor's
+  // .VAL, a supply's current:SP. `readback` is the measured role (the family's `readback`, else the role itself).
+  // field "write": the write record, when it is not the role's own record; "self": the role's record. One
+  // exception: a DB device's write record is the gateway's `:SP`, which holds the last put it forwarded (0
+  // until the first since the gateway started), never the device's setting, so its field tracks the device's
+  // value. set: the setpoint record is shown beside the field, distinct from the measured one.
+  function sources(entry, readback, gateway) {
+    if (!entry) return { field: "self", set: false };
+    const apart = !!entry.writePv && entry.writePv !== entry.pv;
+    return { field: apart && !gateway ? "write" : "self", set: apart || (!!readback && readback !== entry.role) };
+  }
+
+  // A tracked value as the field shows it: text as it is, a number to six significant digits; null leaves the field.
+  function fieldText(v) {
+    if (typeof v === "string") return v;
+    if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    return String(Number.isInteger(v) ? v : Number(v.toPrecision(6)));
+  }
+
+  // A write list's answer from the module: accepted, or it stops there (device_writes.js).
+  const accepted = (answer) => !!answer && answer.outcome === "accepted";
+  // A typed draft is kept until its write is accepted: a refusal, an unsent list (no operator, not confirmed,
+  // another write in flight) and a blur keep it. One rule for a field's Enter and a tweak's step.
+  const keepsDraft = (ok) => ok !== true;
+
+  // How far the measured value may sit from the setpoint: the family's number, else its tolerance role's value
+  // (`by`: undefined when the family names none; unread, nothing is judged), else one unit in the last digit
+  // the record shows (its precision), else exact (a whole number, or no precision).
+  function tolerance({ hint, by, precision, integer }) {
+    if (typeof hint === "number") return hint;
+    if (by !== undefined) return typeof by === "number" && Number.isFinite(by) && by >= 0 ? by : null;
+    if (integer) return 0;
+    const p = Number(precision);
+    return precision !== null && precision !== undefined && Number.isInteger(p) && p >= 0 ? 10 ** -p : 0;
+  }
+
+  // A done flag (a setpoint's `settled_by`, the motor's DMOV) reads done at 1; unread is not done.
+  const done = (frame) => !!frame && frame.value === 1;
+
+  // The mark beside a setpoint after this page's accepted write (`armedAt`, ms): "waiting" until it settles
+  // (SETTLE_MS after the acceptance, and its done flag reading done when it has one, `isDone` false while not)
+  // and while either value is unread; then "differs" while the measured value sits outside the tolerance of
+  // the setpoint, "agrees" once within it (the page then disarms); "none" when unarmed.
+  const SETTLE_MS = 1000;
+  function mark({ armedAt, now, isDone, sp, mv, tol }) {
+    if (typeof armedAt !== "number") return "none";
+    if (now - armedAt < SETTLE_MS || isDone === false) return "waiting";
+    const num = (x) => typeof x === "number" && Number.isFinite(x);
+    if (!num(sp) || !num(mv) || tol === null) return "waiting";
+    const slack = 1e-9 * Math.max(1, Math.abs(sp), Math.abs(mv)); // the float error of "one unit in the last digit"
+    return Math.abs(sp - mv) - tol > slack ? "differs" : "agrees";
+  }
+
+  // A setpoint field's mark state: "none" unarmed, or where the setpoint and the measured value are one record
+  // (`set` false); "waiting" while the module is silent (`known` false: no route entry, so nothing is known and
+  // nothing is judged; the arming is kept and the mark hidden until the route answers again); else mark()'s.
+  function settleMark({ known, set, ...judged }) {
+    if (typeof judged.armedAt !== "number") return "none";
+    if (!known) return "waiting";
+    return set ? mark(judged) : "none";
+  }
+  // The page disarms a field on verified agreement, or where there is nothing to judge; never on a silence.
+  const disarms = (state) => state === "agrees" || state === "none";
+
   // A key in a field holding a draft: Enter writes it, Escape drops it; any other key, or no draft, nothing.
   const commitKey = (key, draft) => (!draft ? null : key === "Enter" ? "write" : key === "Escape" ? "revert" : null);
 
@@ -84,7 +150,7 @@
     return C.alarms({ ...view, roles: Object.fromEntries(Object.entries(view.roles).filter(([, e]) => e.axis === axis)) });
   }
 
-  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, writeValue, commitKey, tweakList, alarmed });
+  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, sources, fieldText, accepted, keepsDraft, tolerance, done, SETTLE_MS, mark, settleMark, disarms, writeValue, commitKey, tweakList, alarmed });
 })(
   typeof module === "object" ? module.exports : (window.GeecsDeviceRules = {}),
   typeof module === "object" ? require("./screen_rules.js") : window.GeecsScreenRules,

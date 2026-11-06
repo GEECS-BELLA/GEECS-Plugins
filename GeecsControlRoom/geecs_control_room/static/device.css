@@ -18,7 +18,15 @@
 .kit .panel-rail .group .row{flex-wrap:wrap;gap:8px}
 .kit .panel-rail .field{min-width:0;width:112px}
 .kit .panel-rail .field select,.kit .panel-rail .field input[type="number"],.kit .panel-rail .field input[type="text"]{width:100%}
-.kit .panel-rail .rb,.kit .panel-rail .ro{display:block;font-size:11px;min-height:1em}
+.kit .panel-rail .ro{display:block;font-size:11px;min-height:1em}
+/* A setpoint field: the setpoint (where it is a record of its own) and the measured value under it, each with
+   its word, and the `differs` mark once a write has settled outside the tolerance. */
+.kit .panel-rail .field.setpoint{width:148px}
+.kit .panel-rail .sv,.kit .panel-rail .rb,.kit .panel-rail .differs{display:flex;align-items:center;gap:4px;font-size:11px;min-height:1em;color:var(--muted);white-space:nowrap}
+.kit .panel-rail .sv[hidden],.kit .panel-rail .differs[hidden]{display:none}
+.kit .panel-rail .sv .k,.kit .panel-rail .rb .k{width:2.2em}
+.kit .panel-rail .sv b,.kit .panel-rail .rb b{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.kit .panel-rail .differs{color:var(--warn);font-weight:600}
 /* A draft (typed, not yet written: Enter writes it, Esc drops it), marked like a screen's. */
 .kit .panel-rail input[data-draft]{border-color:var(--accent)}
 .kit .panel-rail .field.tweak{width:auto}

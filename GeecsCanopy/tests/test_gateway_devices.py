@@ -14,8 +14,10 @@ from geecs_canopy.routes import build_app
 from geecs_canopy.testing import KEY, FakeHare, live
 
 
-def row(name, settable=False, vartype="numeric", choices=None, lo=None, hi=None):
-    return {"name": name, "settable": settable, "variabletype": vartype, "choices": choices, "min": lo, "max": hi, "units": "", "alias": ""}  # fmt: skip
+def row(
+    name, settable=False, vartype="numeric", choices=None, lo=None, hi=None, tol=None
+):
+    return {"name": name, "settable": settable, "variabletype": vartype, "choices": choices, "min": lo, "max": hi, "units": "", "alias": "", "tolerance": tol}  # fmt: skip
 
 
 VARIABLES = {
@@ -24,7 +26,7 @@ VARIABLES = {
         row("DI.Ch1", False, "choice", "on,off"),
     ],  # fmt: skip
     "U_Stage": [
-        row("Position.Axis 1", True, lo=-10.0, hi=10.0),
+        row("Position.Axis 1", True, lo=-10.0, hi=10.0, tol=0.01),
         row("Velocity", True),
         row("Comment", True, "string"),
         row("Wheel", True, "choice", ",".join(map(str, range(20)))),  # 20: no CA enum
@@ -112,6 +114,11 @@ async def test_a_role_is_the_variable_name_typed_by_the_served_set(env):
         None,
     )
     assert "units" in stage["Position.Axis 1"]
+    # a settable numeric carries its DB tolerance (the set-convergence criterion); none set, none
+    assert (stage["Position.Axis 1"]["tolerance"], stage["Velocity"]["tolerance"]) == (
+        0.01,
+        None,
+    )
     assert body["source"] == "gateway" and body["axes"] == []
     assert (await env.client.get("/v1/devices/U_Off")).status_code == 404  # disabled
 

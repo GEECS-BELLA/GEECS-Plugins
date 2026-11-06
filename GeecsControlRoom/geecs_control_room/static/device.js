@@ -70,8 +70,19 @@
   // `axis`: a per-axis family's axis (a motor's m1); omitted for every other device.
   const entry = (role, axis) => view && view.roles[S.key(role, axis)];
   const frameOf = (role, axis) => { const e = entry(role, axis); return e && D.watched(e) ? wire[e.pv] : undefined; };
+  // A role's write record (the module's `writePv`) when it is not the role's own record (areaDetector's X beside
+  // the X_RBV the role reads, a DB device's :SP): watched on the first ask, judged as a bare PV (Hare's connection
+  // and alarm: the module judges the role's record, not this one); null when the role has no such record.
+  const targets = new Set();
+  function target(role, axis) {
+    const e = entry(role, axis);
+    if (!e || !e.writePv || e.writePv === e.pv) return null;
+    const pv = e.writePv;
+    if (!targets.has(pv)) { targets.add(pv); hare.watch([pv], (pvName, frame) => { wire[pvName] = frame; changed(); }); }
+    return { frame: wire[pv], meta: hare.meta(pv), word: S.judge({ hareUp: hareState === "open", frame: wire[pv], bare: true }) };
+  }
   window.GeecsDevicePage = {
-    name, root, on: (f) => listeners.push(f), view: () => view, entry, frame: frameOf,
+    name, root, on: (f) => listeners.push(f), view: () => view, entry, frame: frameOf, target,
     meta: (role, axis) => { const e = entry(role, axis); return e && e.pv ? hare.meta(e.pv) : {}; },
     word: (role, axis) => D.rowWord({ hareUp: hareState === "open", frame: frameOf(role, axis), view, entry: entry(role, axis) }),
   };

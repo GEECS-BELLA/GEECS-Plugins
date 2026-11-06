@@ -239,7 +239,7 @@ def drawn_panel(panel: dict[str, Any], served: set[str]) -> dict[str, Any]:
 
 
 def specs(entries: list[dict[str, Any]], family: Optional[FamilyFile], units: dict[str, Optional[str]]) -> dict[str, dict[str, Any]]:  # fmt: skip
-    """Each served role as the rail's control macro reads it: its type and label, writable, whole, text, readback, units."""
+    """Each served role as the rail's control macro reads it: its type and label, writable, whole, text, readback, units, and a setpoint's done flag and tolerance."""
     out: dict[str, dict[str, Any]] = {}
     for e in entries:
         name = e["role"]
@@ -247,6 +247,10 @@ def specs(entries: list[dict[str, Any]], family: Optional[FamilyFile], units: di
         spec: dict[str, Any] = {"name": name, "type": e.get("type"), "label": e.get("label") or name}  # fmt: skip
         spec |= {"writable": bool(e.get("writePv")), "units": units.get(name)}
         spec |= {"integer": bool(role and role.integer), "text": role.text if role else e.get("text")}  # fmt: skip
+        spec |= {k: getattr(role, k) if role else None for k in ("settled_by", "tolerance_by")}  # fmt: skip
+        spec["tolerance"] = (
+            role.tolerance if role else e.get("tolerance")
+        )  # a DB device's: its DB row's, through the route
         out[name] = spec | {"readback": (role.readback if role else None) or name}
     return out
 
