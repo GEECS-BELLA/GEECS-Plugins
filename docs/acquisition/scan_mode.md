@@ -64,12 +64,12 @@ scan-mode profile.
 ## Shot numbers and files
 
 The shot number is run-wide and starts at 1. Every fire takes the next
-number, refires included, and a number is never sent twice. A device that
-misses a shot still leaves a row: the partial row keeps its number and the
-retake takes the next one, so the row index and the number usually agree.
-They part when an announced shot ends in no row. For example, an
-immediate pause rewinds the shot in progress and the replay is announced
-under the next number.
+number, refires included, and a number is never sent twice. Every
+announced fire is a row of the shot table: a shot a required device misses
+keeps its row and number, and the refire takes the next one. Runs recorded
+before the shot table could part the two: an immediate pause rewound the
+shot in progress and the replay was announced under the next number, so
+the row index is never the join key.
 
 Each row records the number it was announced as:
 

@@ -25,7 +25,7 @@ adds:
 | `scan_tag` | `claim_scan` preprocessor | `{year, month, day, number, experiment}` — the `geecs_data_utils.ScanTag` |
 | `geecs_scalar_headers` | `scalar_headers` preprocessor | Event key → legacy `Device Variable` header for every staged device (the s-file and the browser's display names) |
 | `shot_clock` / `shot_clock_column` | the bound plan (gated) | The device whose `acq_timestamp` is the shot id, and the row column carrying it — what the s-file's join keys on |
-| `layout` | the bound plan (strict or fly `count` / `sweep`; `optimize`) | `"shot-table/1"`: `primary` is the shot table and every per-shot device is in its own stream (below). Absent on a gated run and every earlier run (an `optimize` run before W3c+e included); readers branch on it (`geecs_data_utils.shot_table`) |
+| `layout` | the bound plan (strict or fly `count` / `sweep`; `optimize`) | `"shot-table/1"`: `primary` is the shot table and every per-shot device is in its own stream (below). Absent on a gated run and every earlier run (an earlier `optimize` run included); readers branch on it (`geecs_data_utils.shot_table`) |
 | `per_shot_streams` | the bound plan (shot-table) | Every per-shot device's stream, `<device>_stream` (ophyd name), in the run's device order |
 | `required` | the bound plan (shot-table) | The per-shot devices (ophyd names) whose record makes a shot complete: waited on and refired for. Every per-shot device unless the request said `required=` (an empty list: none) |
 | `shot_clock_column` | the bound plan (shot-table) | The row clock: `witness_stamp` when the witness is read (or the run is fly), else `fire_stamp` (both Unix seconds) |
@@ -35,7 +35,7 @@ adds:
 | `non_essential` | the bound plan (gated; an earlier `optimize`) | The devices streamed for the run beside the rows, by owner name (`<name>_stream`, below); a gated run's are the per-shot devices not `required` |
 | `trigger_profile` | the bound plan | The trigger profile that drove the shots; `null` on a fly run (it drives no box and resolves no default profile; a named scan-mode profile is refused) |
 | `use_scan_mode` | the bound plan | Whether the run drove GEECS scan mode — the trigger profile's `use_scan_mode` flag: the devices were told the scan (`ScanStart`) and every shot (its number and save path, before the fire) and released at the close (`ScanEnd`), as under Master Control; each `primary` row then carries `announced_shot` |
-| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a non-essential stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated essential or a non-essential). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (an earlier strict run), `shots` (gated) or its own `<det>_stream` (a shot-table run's device without a plugin, a non-essential) — a shot-table run's plugin-backed camera in its stream descriptor's configuration instead (`<det>-nonscalar_save_path` under the object `<det>`, a run-long constant: the stream is datum-only). The s-file never carries the column |
+| `native_image_save` | the bound plan | The run's LabVIEW-files **switch** — the preset's value, else the experiment default — not a record of what was written. It reaches a plugin-backed camera only as a strict full detector (a `.scalars` view, a gated run's stream and a gated batch's plugin-backed cameras write no native files whatever it says; a device without a file plugin always writes them, as a strict detector, a gated required device or a streamed one). Whether a device wrote is the presence of its `<det>-nonscalar_save_path` column, in `primary` (an earlier strict run), `shots` (gated) or its own `<det>_stream` (a shot-table run's device without a plugin, a gated run's streamed device) — a shot-table run's plugin-backed camera in its stream descriptor's configuration instead (`<det>-nonscalar_save_path` under the object `<det>`, a run-long constant: the stream is datum-only). The s-file never carries the column |
 | `background_telemetry` | the bound plan | Whether the run read the background telemetry into its rows: the preset's value, else the experiment default; `False` also when the namespace carries no telemetry set at all (a run whose every candidate is its own device still says `True`, with nothing dropped and no extra column) |
 | `background_dropped` | the bound plan (`background_wrapper`) | GEECS device names the background probe dropped for this run — no answer within its budget (a PV the gateway does not serve, a failed connect or describe); absent when the run read no background |
 | `background_probe_error` | the bound plan (`background_wrapper`) | Present only when the probe itself failed (an unexpected error, logged at ERROR — never a member's failure, which is its own drop): `Type: message`, and the run opened with no background columns |
@@ -166,7 +166,6 @@ key), `optimize` included.
 | `<device>-<settable>-position` / `-readback` | A settable child's readback when the DB subscribes it (`CaMotor` / `CaSettable`) or always, for a native setpoint device's settable (`NativeSetpoint`), and the scan motor's column |
 | `bin_number` | The scan step the row belongs to, from 1 (the GEECS `per_step`; every row of a `count` is bin 1) — the s-file's `Bin #` |
 | `announced_shot` | Scan mode only (`use_scan_mode`): the run-wide shot number announced for the row's shot, from 1 — every fire increments it, refires included, so a partial row keeps its number and the retake takes the next; a number is never re-sent. The join key for a device's shot-numbered files (`ScanNNN_<device>_SSS.<ext>`): the s-file's row index is not it — the s-file's `Announced Shot` |
-
 | `witness_count` | A strict run with a witness (`witness.read`): the witness's hardware count as its record stood when the row was read (after every detector's frame) — the shot is `(witness_epoch, witness_count)`, never the count alone. `NaN` when the witness did not answer (a WARNING; the run continues). In a run with no triggered device (the start record's `note`) nothing waits for the shot, so a row may carry the previous shot's count while its steps still read +1. Audited against the previous row — row 1 against the baseline the stage reads (count and epoch; when it does not answer, the audit starts at row 2) — never failed: a step other than +1 (a doubled edge, a fire it did not see, a read before its update) is one WARNING naming the row, and the run's close logs one summary line (fires against what it counted: every row's fire from the baseline, else the fires after row 1) |
 | `witness_stamp` | The count record's own CA timestamp (Unix seconds) — the IOC's clock at the poll that saw the edge, never the worker's read time; `NaN` with the count |
 | `witness_epoch` | The witness's epoch string: it changes whenever the count restarts (an IOC restart); a change between rows is a WARNING. `""` when the witness did not answer |
@@ -176,14 +175,14 @@ device carries; `save_images: false` in a preset) contributes the same
 columns as `X` — for a detector `<det>-<variable>` and
 `<det>-acq_timestamp` with no `-nonscalar_save_path`.
 
-**Partial rows.** A shot on which a detector produced no frame within the
-timeout is still a row: every other device's columns are real, the
-frameless detector's `<det>-<variable>` and `<det>-acq_timestamp` read
-`NaN` (its monitor cache would otherwise carry the previous shot), and
-the row references **no** frames for any plugin-backed camera (one datum
-per external key per event, or none). The plan then takes one more shot
-for the step, so every step has its full quota of complete rows; the
-s-file carries the `NaN` holes.
+**Partial rows** (an earlier strict run). A shot on which a detector
+produced no frame within the timeout is still a row: every other device's
+columns are real, the frameless detector's `<det>-<variable>` and
+`<det>-acq_timestamp` read `NaN`, and the row references **no** frames
+for any plugin-backed camera (one datum per external key per event, or
+none); the plan took one more shot for the step, and the s-file carries
+the `NaN` holes.  A shot-table run writes no frame datums in `primary`:
+a missed record is a gap in the device's own stream.
 
 Native files are named with the row's stamp
 (`<Device>_<acq_timestamp>.png`, `geecs_data_utils.native_files`) and join
@@ -212,7 +211,7 @@ save path below) is a run-long constant and stays.
 
 | Column | Meaning |
 |---|---|
-| `<det>-nonscalar_save_path` | A **native-saving essential**'s save directory (a device without a file plugin — a LabVIEW-native camera, a DAQ or wavefront sensor with its own file writer, a scope with every capture channel disabled): the same companion column a strict row carries, here a **run-long constant** — LabVIEW's saving is switched on at the run's first prepare and off at `unstage`, never per step. Its scalars and its own `<det>-acq_timestamp` ride in the row like any non-plugin device's (it may be the clock). Its files are named by that stamp and join by it (`geecs_data_utils.native_files`); a shot on which it dropped a frame is a row with no file — **no retake**. The stack check matches every row's stamp to a file in that directory at the stop (`geecs_data_utils.native_files.native_file_keys`) and appends a `native files check` line to `scan.log` — rows without a file and file stamps without a row counted apart (WARNING on either, never a failure). Absent for a plugin-backed camera (its stack is its record) and for a `.scalars` view |
+| `<det>-nonscalar_save_path` | A **native-saving required device**'s save directory (a device without a file plugin — a LabVIEW-native camera, a DAQ or wavefront sensor with its own file writer, a scope with every capture channel disabled): the same companion column a strict row carries, here a **run-long constant** — LabVIEW's saving is switched on at the run's first prepare and off at `unstage`, never per step. Its scalars and its own `<det>-acq_timestamp` ride in the row like any non-plugin device's (it may be the clock). Its files are named by that stamp and join by it (`geecs_data_utils.native_files`); a shot on which it dropped a frame is a row with no file — **no retake**. The stack check matches every row's stamp to a file in that directory at the stop (`geecs_data_utils.native_files.native_file_keys`) and appends a `native files check` line to `scan.log` — rows without a file and file stamps without a row counted apart (WARNING on either, never a failure). Absent for a plugin-backed camera (its stack is its record) and for a `.scalars` view |
 
 An additive column convention, not a schema change: a reader that never
 looked for the column in `shots` sees the rows it saw before.
@@ -237,20 +236,20 @@ columns joined on by offset-corrected stamp
 `<ophyd>-hdf-<variable>-frame_acq_timestamp` becomes the column
 `<ophyd>-acq_timestamp` and a subscribed scalar becomes
 `<ophyd>-<scalar>` — the same spellings a strict row uses, so one header
-map renames both.  One row per essential shot: a frame with no shot inside
-the join window stays in the stack and in Tiled and is left out of the
-s-file.  The same join adds a **non-essential** device's columns
-(`<name>_stream`, below) to either mode's rows.
+map renames both.  One s-file row per `shots` row: a frame with no shot
+inside the join window stays in the stack and in Tiled and is left out of
+the s-file.  The same join adds a streamed device's columns
+(`<name>_stream`, below) to the rows.
 
-## Event stream `<name>_stream` (a shot-table run's per-shot device; a non-essential device)
+## Event stream `<name>_stream` (a shot-table run's per-shot device; a gated run's device not required)
 
 Every per-shot device of a shot-table run, and a device listed
 `non_essential` (gated), streams for the run into its own
-`<ophyd name>_stream` (`geecs_data_utils.shot_join.non_essential_stream`).
+`<ophyd name>_stream` (`geecs_data_utils.shot_join.device_stream`).
 A shot-table run collects every stream once per fire (each collect a
 contingency: a stream that fails to collect gaps, logged once, never
-failing the run) and once more at the close; a non-essential stream is
-collected at the close.  Nothing in a stream is a placeholder: a fire a
+failing the run) and once more at the close; a gated run's stream is
+collected at the close only.  Nothing in a stream is a placeholder: a fire a
 device missed is simply absent from its stream.  Three shapes:
 
 - a **plugin-backed** camera, or a **native camera** (its own HDF
@@ -279,8 +278,9 @@ inside its own window, by offset-corrected stamp; a row with none reads
 the descriptor's numeric data keys), an event no row's window reaches
 stays in the stream and in Tiled and is left out of the s-file, and a
 string column (the save path) is never an s-file column.  The start
-document's `non_essential` names which `<name>_stream`s these are (the
-offline re-export reads them from there).  The
+document's `per_shot_streams` (a gated run's: `non_essential`) names
+which `<name>_stream`s these are (the offline re-export reads them from
+there).  The
 stack check matches a native saver's **events** (not the rows) to its
 files: events without a file and file stamps without an event counted
 apart, files stamped after the last event (saved between the stream's
@@ -294,7 +294,7 @@ looked for these streams sees the runs it saw before.
 
 Every subscribed scalar of the experiment whose device is **not** in the
 run — not a detector, not the owner of a listed `.scalars` view, not a
-non-essential device, not a scan motor — rides in every row of the run's
+streamed device, not a scan motor — rides in every row of the run's
 row stream (`primary` for a strict run, `shots` for a gated one) under the
 same `<device>-<variable>` keys a listed device would carry, read softly
 from the gateway's monitor cache by the run's `BackgroundSnapshot`.  A detector

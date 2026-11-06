@@ -388,9 +388,9 @@ this package and must never depend on GeecsBluesky or a GUI package).
 - **`shot_join`** — the one home of the rule that joins a run's per-frame
   stream columns onto its shot rows (`FrameColumns`,
   `join_frames_to_shots`, `row_windows`, `shot_clock_column`,
-  `frame_columns_from_attributes`, `SHOTS_STREAM`) — and a non-essential
+  `frame_columns_from_attributes`, `SHOTS_STREAM`) — and a streamed
   device's **event** stream onto them the same way
-  (`frame_columns_from_events`, `non_essential_stream`: one event per stamp
+  (`frame_columns_from_events`, `device_stream`: one event per stamp
   a triggered device without a plugin published, NaN on the rows it
   missed).  Pure arithmetic over
   arrays — no I/O, no Bluesky, no pandas — because two callers must agree
@@ -408,9 +408,9 @@ this package and must never depend on GeecsBluesky or a GUI package).
   invariant to window arithmetic, which two rows published a fraction of a
   millisecond apart defeated.  A frame no row claims is
   an **orphan**: it stays in the stack and in Tiled and is left out of the
-  s-file — one s-file row per essential shot, always.
-- **`shot_table`** — the shared reader helper of the shot-synchronization
-  arc (`Planning/shot_synchronization.md` §6.6): `shot_table(start, rows,
+  s-file — one s-file row per row of the run, always.
+- **`shot_table`** — the shared reader helper of both run layouts
+  (`GeecsBluesky/EVENT_SCHEMA.md`): `shot_table(start, rows,
   devices)` assigns each per-shot device's records (`DeviceRecords`) to
   the rows and flags them; `frame_for(table, device, shot)` gives
   `(stream, index)` or `None`. Both layouts: an old run (no `layout` key)
@@ -428,7 +428,7 @@ this package and must never depend on GeecsBluesky or a GUI package).
   declares only the NDAttributes of an inline XML); a plugin stack has no
   per-frame counter at all. And
   `per_shot_event_streams(start)` is the one event-stream gate
-  (`per_shot_streams`, or an older run's `non_essential`).
+  (`per_shot_streams`, or a gated or earlier strict run's `non_essential`).
   `shot_join.to_labview_epoch` is the one Unix → LabVIEW conversion of a
   row clock, and `shot_join.clock_stamps(rows, column)` the stamps every
   `shot_clock_column` caller times against.

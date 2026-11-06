@@ -72,7 +72,7 @@ geecs_bluesky/
                             #   states, Pausable; CaPutSetter + the writes
                             #   (ShotControlWrites, QUIESCE_FROM)
   devices/sampler.py        # ShotSampler (the gated run's per-shot record) + StampStream
-                            #   (a non-essential device without a plugin)
+                            #   (a streamed device without a plugin)
   devices/background.py     # BackgroundSnapshot — the run's background telemetry,
                             #   warm_up / warm_up_on at environment open
   devices/scan_mode.py      # ScanModeControl — GEECS scan mode's client side as one Movable
@@ -98,8 +98,9 @@ geecs_bluesky/
                             #   affine_coefficients)
   plans/on_demand.py        # the strict count/sweep slot over the shot-table layout:
                             #   OnDemand, on_demand_per_shot / _per_step, start_keys
+  plans/fly.py              # fly mode: SoftTickClock (the soft-tick witness), bind_fly
   plans/streams.py          # DeviceStreams: every per-shot device in its own
-                            #   <name>_stream (strict per fire; non-essential at close)
+                            #   <name>_stream (strict/fly per row; gated's at the close)
   plans/strict.py           # shared shot helpers: fire_and_await_shot (the calibration's
                             #   shot), plugin_reasons, BinCounter, name_failed_status
   plans/gated.py            # gated_take_reading, the run bracket, the non-essential
@@ -287,8 +288,9 @@ qserver/                    # the worker: launcher, startup profile, permissions
   missing file for that row is simply missing.  `ShotSampler.missed`
   counts them per step; the log says so once per member and once at the
   step's end.
-- **`StampStream`** (`devices/sampler.py`) — a non-essential triggered
-  device without a plugin, recorded for the run in its own
+- **`StampStream`** (`devices/sampler.py`) — a streamed triggered
+  device without a plugin (a shot-table run's per-shot device, a gated
+  run's device not required), recorded for the run in its own
   `<name>_stream`: Flyable + EventCollectable over ONE device, subscribed
   to its `acq_timestamp` at `kickoff`, one event per advance (the stamp,
   the cached scalars, a native saver's save path); `complete` immediate,
@@ -591,9 +593,9 @@ A device with **no** stamp (free-running) is refused at bind
 (`refuse_free_running_non_essentials`, and the preflight).
 
 **A native camera** (`NativeCamera`) is, for now, a per-shot device of a
-strict `count`/`sweep` under a box-fired profile — required or not,
-beside gateway plugin cameras or not: its own datum-only stream, a
-Software source pressed at the fire.  A gated run and a scan-mode profile
+strict `count`/`sweep` under a box-fired profile, or of a fly one —
+required or not, beside gateway plugin cameras or not: its own datum-only
+stream, a Software source pressed at the fire (fly: at the tick).  A gated run and a scan-mode profile
 are refused at bind, naming the camera, before the box moves and the claim
 (`registry.refuse_native_run`; `optimize` and the calibration plans
 through `devices/native.refuse_native_cameras`); the cabling check and the
@@ -697,8 +699,8 @@ mv(box, STANDBY)
 
 The rules: the entry sits **inside the trigger bracket, before the stage
 and the claim** (a refused entry claims nothing, the liveness gate's
-posture); the run devices the entry waits for are the detectors' owners,
-the non-essentials and the profile's box — not the movers, not the
+posture); the run devices the entry waits for are the detectors' owners (every
+per-shot device) and the profile's box — not the movers, not the
 background; the shot number is **run-wide and never re-sent** (a refire
 takes the next number; the partial row keeps its own — `announced_shot`
 is the join key for the files, never the s-file's row index); the pushed
@@ -739,10 +741,10 @@ last shot on the stand were the run's detectors, which do pause.)  Readers
 join a device's shot-numbered files to rows by `announced_shot` — the
 s-file's `Announced Shot` — through `geecs_data_utils.tiled_schema.announced_shots`
 (it parts from the row index only when an announced shot ends in no row,
-e.g. an immediate pause's rewind): the shot mapper, the `.himg` stack
+e.g. an earlier run's immediate-pause rewind): the shot mapper, the `.himg` stack
 converter, `ScanData`'s expected paths and the portal's native tier.  The
-stack check skips its stamp-named file match for non-essentials under
-scan mode (`callbacks/stack_check.py`).
+stack check skips its stamp-named file match for streamed native savers
+under scan mode (`callbacks/stack_check.py`).
 Deferred from v1 (the issue): a scanner tag, a ScanInfo row, the path
 template in metadata, re-sending a repeated shot number, restricting
 `ScanStart` to the run's devices (it is multicast by design).
@@ -751,14 +753,14 @@ template in metadata, re-sending a repeated shot number, restricting
 
 The rows are `primary`'s events when it has them and the sampler's
 `shots` events otherwise, and every **datum-only** stream's per-frame
-columns — and every non-essential **event** stream's events (a device
+columns — and every per-shot **event** stream's events (a device
 without a plugin, one "frame" per stamp) — are joined onto them by
 offset-corrected stamp.  The join itself is `geecs_data_utils.shot_table`
 (over `shot_join`; the clock through `shot_join.clock_stamps`, so a Unix
 witness clock meets LabVIEW device stamps), shared with the offline
 re-export so the two cannot drift, and fed
 **one** drain-offsets map (from the streams' descriptor configuration)
-that covers both sides of every comparison.  One row per essential shot:
+that covers both sides of every comparison.  One s-file row per row:
 a camera's per-frame scalars and its own stamp come from its stack under
 the names a *strict* row uses, each row takes the nearest frame in its
 own window, an orphan frame stays in the stack and in Tiled, a shot
@@ -769,10 +771,10 @@ plugin finalizes it, which happens at `unstage`, after the stop
 document); a run with no datum-only stream is still written
 synchronously.  An event stream counts as per-shot when the start document names it in
 `per_shot_streams` (the shot-table layout) or its device in `non_essential`.
-`StackCheckCallback` checks a non-essential stream by
+`StackCheckCallback` checks a gated run's device stream by
 count, a shot-table run's device stream by count and through the shot
 table (an extra or a flagged record warns), and a *gated* stack by count **and** stamps — one frame per `shots`
-row, none orphaned — and a non-essential native saver's files against its
+row, none orphaned — and a streamed native saver's files against its
 stream's **events** (not the rows; events without a file and file stamps
 without an event counted apart, files after the last event — saved
 between the stream's close and the unstage — apart again; WARNING, never
@@ -990,9 +992,9 @@ command) and never imports the gateway (circular).
   first fresh frame when the device's settings moved since, so the
   provider reads the main dataset's shape and dtype off the plugin's
   geometry PVs at the first describe and the first stream documents (after
-  the first frame; strict composes its descriptor at the first `save`,
-  gated declares `primary` after the first batch, and a non-essential
-  plugin stream is declared at the run's close right before its collect)
+  the first frame; a strict or fly device stream is declared at the first
+  collect that finds a frame, gated declares `primary` after the first
+  batch and its stream of the devices not required at the run's close)
   and keeps them once a datum is out.  The run's stream documents
   reference the stack and Tiled reads it with its stock adapter.  The rule
   is the namespace's: a served capture stream + endpoint in

@@ -55,8 +55,10 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   **Count** (N shots at a fixed configuration, optionally tagged as a
   background), **Sweep** (one or more variables along a trajectory) or
   **Optimize** (an optimizer drives the variables). Acquisition is
-  **strict** (fire between trigger and wait, one row per shot) or
-  **gated** (the trigger box in SCAN, cameras count a batch). Press
+  **strict** (one fire per shot, one row per fire) or **gated** (the
+  trigger box in SCAN, cameras count a batch); **fly** (a software tick,
+  the box never driven) is a preset's `acquisition: fly`, with no button
+  yet. Press
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
   The current form can be saved back as a preset (**Save as preset…**).
 - **Queue** — the running item, what waits behind it, and recent history;
