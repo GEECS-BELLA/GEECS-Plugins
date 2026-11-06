@@ -50,8 +50,8 @@
       const by = el.dataset.tolBy;
       const tol = D.tolerance({ hint: el.dataset.tol === undefined ? undefined : Number(el.dataset.tol), by: by ? (P.frame(by, axis) || {}).value ?? null : undefined, precision: mvMeta.precision ?? sp.meta.precision, integer: el.step === "1" });
       const settledBy = el.dataset.settledBy;
-      const m = !src.set ? "none" : D.mark({ armedAt: el.dataset.armed === undefined ? undefined : Number(el.dataset.armed), now: Date.now(), isDone: settledBy ? D.done(P.frame(settledBy, axis)) : undefined, sp: sp.frame && sp.frame.value, mv: mv && mv.value, tol });
-      if (m === "agrees" || m === "none") delete el.dataset.armed;
+      const m = D.settleMark({ known: !!P.entry(role, axis), set: src.set, armedAt: el.dataset.armed === undefined ? undefined : Number(el.dataset.armed), now: Date.now(), isDone: settledBy ? D.done(P.frame(settledBy, axis)) : undefined, sp: sp.frame && sp.frame.value, mv: mv && mv.value, tol });
+      if (D.disarms(m)) delete el.dataset.armed; // never on a silent module: a failed poll keeps the arming
       mark.hidden = m !== "differs";
       mark.title = m === "differs" ? `the measured value is more than ${tol} from the setpoint since the write settled` : "";
     }

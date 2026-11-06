@@ -413,7 +413,12 @@ GeecsCanopy's own module, in `test_module_contract.py`.
   after the acceptance and, for a setpoint with `settled_by` (the motor's
   `dmov`), only while that done flag reads 1 (`device_rules.mark`); it stands
   while the measured value is outside the tolerance of the setpoint and
-  clears, disarming, when they agree. The tolerance is the role's `tolerance`
+  clears, disarming, when they agree (`device_rules.disarms`: verified
+  agreement, or nothing to judge). While the module is silent (a failed
+  device poll: no route entry) the mark is hidden and the field stays armed
+  (`device_rules.settleMark`), so the mark returns with the route; pinned by
+  running `device_rail.js` itself over a fake page in
+  `test_device_rules_js.py`. The tolerance is the role's `tolerance`
   (a number: the family's, or a DB device's DB `tolerance`, its
   set-convergence criterion, which GeecsCanopy's gateway source puts on the
   role and the module's route serves), else its `tolerance_by` role's value

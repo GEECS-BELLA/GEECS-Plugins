@@ -122,6 +122,17 @@
     return Math.abs(sp - mv) - tol > slack ? "differs" : "agrees";
   }
 
+  // A setpoint field's mark state: "none" unarmed, or where the setpoint and the measured value are one record
+  // (`set` false); "waiting" while the module is silent (`known` false: no route entry, so nothing is known and
+  // nothing is judged; the arming is kept and the mark hidden until the route answers again); else mark()'s.
+  function settleMark({ known, set, ...judged }) {
+    if (typeof judged.armedAt !== "number") return "none";
+    if (!known) return "waiting";
+    return set ? mark(judged) : "none";
+  }
+  // The page disarms a field on verified agreement, or where there is nothing to judge; never on a silence.
+  const disarms = (state) => state === "agrees" || state === "none";
+
   // A key in a field holding a draft: Enter writes it, Escape drops it; any other key, or no draft, nothing.
   const commitKey = (key, draft) => (!draft ? null : key === "Enter" ? "write" : key === "Escape" ? "revert" : null);
 
@@ -139,7 +150,7 @@
     return C.alarms({ ...view, roles: Object.fromEntries(Object.entries(view.roles).filter(([, e]) => e.axis === axis)) });
   }
 
-  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, sources, fieldText, accepted, keepsDraft, tolerance, done, SETTLE_MS, mark, writeValue, commitKey, tweakList, alarmed });
+  Object.assign(rules, { pickerOptions, recovered, pickerNote, watched, rowWord, units, deviceView, header, presentRole, hidden, sources, fieldText, accepted, keepsDraft, tolerance, done, SETTLE_MS, mark, settleMark, disarms, writeValue, commitKey, tweakList, alarmed });
 })(
   typeof module === "object" ? module.exports : (window.GeecsDeviceRules = {}),
   typeof module === "object" ? require("./screen_rules.js") : window.GeecsScreenRules,

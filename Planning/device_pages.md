@@ -663,4 +663,8 @@ fallback was 0.001); a kept draft no longer takes focus back from the
 operator's name; `device_writes.js` stops on `device_rules.accepted`, the
 rule the tests pin. Waived: Squirrel's registry tolerance (presets' own
 concern), a disarm on one agreeing sample (the tolerance is the noise
-control).
+control). The maintainer's GPT round (one P2): a failed device poll
+dropped the route's entry, which read as "nothing to judge" and disarmed the
+field, so the mark never came back with the route; the module's silence now
+keeps the arming (`settleMark`, `disarms`), pinned by running the real rail
+script over a fake page (the case failed before the fix).

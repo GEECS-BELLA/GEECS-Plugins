@@ -143,6 +143,14 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("mark: a motor done outside its deadband differs", "mark", [{"armedAt": 5000, "now": 9000, "isDone": True, "sp": 3, "mv": 2.99, "tol": 0.001}], "differs"),
     ("mark: a value unread waits", "mark", [{"armedAt": 5000, "now": 9000, "sp": 3, "mv": None, "tol": 0}], "waiting"),
     ("mark: an unread tolerance waits", "mark", [{"armedAt": 5000, "now": 9000, "sp": 3, "mv": 2, "tol": None}], "waiting"),
+    ("settle mark: unarmed, none", "settleMark", [{"known": True, "set": True, "now": 9000, "sp": 5, "mv": 3, "tol": 0.01}], "none"),
+    ("settle mark: the module silent keeps waiting, never none", "settleMark", [{"known": False, "set": False, "armedAt": 5000, "now": 9000, "sp": None, "mv": None, "tol": 0.01}], "waiting"),
+    ("settle mark: one record, nothing to judge", "settleMark", [{"known": True, "set": False, "armedAt": 5000, "now": 9000, "sp": 5, "mv": 3, "tol": 0.01}], "none"),
+    ("settle mark: known and settled, mark()'s word", "settleMark", [{"known": True, "set": True, "armedAt": 5000, "now": 9000, "sp": 5, "mv": 3, "tol": 0.01}], "differs"),
+    ("disarms: on agreement", "disarms", ["agrees"], True),
+    ("disarms: nothing to judge", "disarms", ["none"], True),
+    ("disarms: never while waiting (a silent module)", "disarms", ["waiting"], False),
+    ("disarms: never while it differs", "disarms", ["differs"], False),
     ("alarms: one axis' error roles, by label", "alarmed", [AXES, "m1"], ["high limit switch"]),
     ("alarms: the other axis has none", "alarmed", [AXES, "m2"], []),
     ("alarms: a device without axes, every error role", "alarmed", [AXES, None], ["high limit switch", "fault"]),
@@ -159,3 +167,84 @@ def answers() -> list[Any]:
 @pytest.mark.parametrize("i", range(len(ROWS)), ids=[r[0] for r in ROWS])
 def test_rule(answers: list[Any], i: int) -> None:
     assert answers[i] == ROWS[i][3]
+
+
+# The real device_rail.js in a VM over a fake page: one supply setpoint (current_sp, its readback current), the
+# module's view and Hare's frames the harness's, the clock the harness's, the rules device_rules.js's own.
+# An accepted write settles with set 5 and now 3 (`differs`); one device-route poll fails (the module silent);
+# the route recovers with the same values: the mark must stand again, never lost until another write.
+_RAIL = r"""
+const vm = require("vm"), fs = require("fs"), path = require("path");
+const dir = path.dirname(process.argv[1]);
+const D = require(path.join(dir, "device_rules.js")), C = require(path.join(dir, "camera_rules.js"));
+const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+let clock = 1000;
+function el(props = {}) {
+  const on = {}, kids = {};
+  const self = Object.assign({ dataset: {}, hidden: false, textContent: "", value: "", disabled: false, title: "", tagName: "SPAN",
+    addEventListener(t, f) { (on[t] = on[t] || []).push(f); }, fire(t, ev) { (on[t] || []).forEach((f) => f(ev)); },
+    querySelector(sel) { return (kids[sel] = kids[sel] || el()); }, querySelectorAll() { return []; },
+    closest() { return null; }, focus() {}, blur() {} }, props);
+  return self;
+}
+const field = el();
+const input = el({ tagName: "INPUT", type: "number", step: "any", dataset: { role: "current_sp", readback: "current" },
+  closest: (sel) => (sel.startsWith(".field") ? field : null) });
+const box = el({ querySelectorAll: (sel) => (sel === ".panel-rail [data-role]" ? [input] : []) });
+const ENTRIES = {
+  "current_sp|": { role: "current_sp", pv: "ps:current:SP", writePv: "ps:current:SP", writable: true, read: "monitor", verdict: "live" },
+  "current|": { role: "current", pv: "ps:current", writePv: null, writable: false, read: "monitor", verdict: "live" },
+};
+let up = true;
+const FRAMES = { current_sp: { value: 5, connected: true }, current: { value: 3, connected: true } };
+const P = {
+  view: () => (up ? { ok: true, state: "live", roles: ENTRIES, source: "native" } : { ok: false, roles: {} }),
+  entry: (role) => (up ? ENTRIES[role + "|"] : undefined),
+  frame: (role) => (up ? FRAMES[role] : undefined), target: () => null,
+  meta: () => ({ precision: 2 }), word: () => (up ? "live" : "unknown"), on() {},
+};
+const writes = { write: async () => true, busy: () => false };
+const ids = { "kit-state": el({ textContent: "{}" }), "write-out": el() };
+const document = { getElementById: (id) => ids[id] || null, activeElement: null };
+const ctx = vm.createContext({ window: { GeecsCameraRules: C, GeecsDeviceRules: D }, document, console, CSS: { escape: (s) => s },
+  Date: { now: () => clock }, setTimeout: () => 0 });
+vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
+const rail = ctx.window.GeecsDeviceRail.make(P, box, writes);
+const state = () => ({ differs: !field.querySelector(".differs").hidden, armed: input.dataset.armed !== undefined });
+(async () => {
+  const out = {};
+  input.value = "5"; input.dataset.draft = "1";
+  input.fire("keydown", { key: "Enter", preventDefault() {} });
+  await flush();
+  out.accepted = state();
+  clock += 1500; rail.fill();
+  out.settled = state();
+  up = false; rail.fill();
+  out.silent = state();
+  up = true; rail.fill();
+  out.recovered = state();
+  FRAMES.current = { value: 5, connected: true }; rail.fill();
+  out.agreed = state();
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+@needs_node
+def test_a_failed_poll_never_loses_the_differs_mark() -> None:
+    from tests._node import run
+
+    page = run("device_rail.js", _RAIL)
+    assert page["accepted"] == {"differs": False, "armed": True}  # inside the settle
+    assert page["settled"] == {"differs": True, "armed": True}  # set 5, now 3
+    assert page["silent"][
+        "armed"
+    ]  # the module silent: the mark may hide, the arming stays
+    assert page["recovered"] == {
+        "differs": True,
+        "armed": True,
+    }  # the same mismatch: the mark again
+    assert page["agreed"] == {
+        "differs": False,
+        "armed": False,
+    }  # verified agreement disarms

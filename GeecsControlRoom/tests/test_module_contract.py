@@ -681,6 +681,24 @@ async def test_a_settled_mismatch_is_flagged_and_cleared_when_they_agree(room) -
     ])  # fmt: skip
     assert (sp, tol, marks) == (5.0, 0.01, ["waiting", "differs", "agrees"])
     assert mv_pv != sp_pv
+    # the module's route fails one poll (the page keeps no entry), then answers again: the arming survives the silence
+    room.broken.add("/devices/ps1")
+    silent = await room.client.get("/api/devices/ps1")
+    room.broken.clear()
+    back = await room.client.get("/api/devices/ps1")
+    assert (
+        silent.status_code >= 500 and back.status_code == 200
+    )  # device.js: a 5xx is the module silent
+    known = [False, any(r["role"] == "current_sp" for r in back.json()["roles"])]
+    judged = {"set": True, "armedAt": 0, "now": 9000, "sp": sp, "mv": 4.0, "tol": tol}
+    states = call_all(
+        "device_rules.js", [("settleMark", [judged | {"known": k}]) for k in known]
+    )
+    assert states == ["waiting", "differs"]
+    assert call_all("device_rules.js", [("disarms", [x]) for x in states]) == [
+        False,
+        False,
+    ]
 
 
 @needs_node

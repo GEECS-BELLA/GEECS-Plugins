@@ -446,7 +446,9 @@ supply's current) is drawn the same way.
   one step in the last digit the device shows. It
   means the device did not get where you asked (a value it clamped, a
   motor that stopped short, a supply still ramping). It goes away when the
-  two agree again. The page only marks writes made from it: a reload, or a
+  two agree again. While the page cannot reach the module it is hidden,
+  with every word `unknown`, and it comes back if the two still differ
+  once the page hears from the module again. The page only marks writes made from it: a reload, or a
   write from another screen, starts with no mark.
 - **A GEECS device** (one LabVIEW serves): the field shows the device's
   value, and `set` is the last value written through the gateway since it
