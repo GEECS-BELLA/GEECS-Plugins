@@ -1002,8 +1002,8 @@ both owners list, or one the pass cannot resolve, is drift. The
 never-connected list stays the drift alarm between registry and IOCs.
 
 **One home for the PV surface.** The native prefix is
-`geecs_core.pv_naming.native_device_prefix` (built: the namespace, the
-panels' registry, GeecsCanopy and the archiver all call it — the archiver
+`geecs_core.pv_naming.native_device_prefix` (built: the namespace,
+GeecsCanopy and the archiver all call it — the archiver
 cannot import the namespace, `.importlinter`: `geecs_bluesky` and
 `geecs_archiver` share a layer). Each
 kind's record suffixes — what the archive pass, the scanner and the panel
@@ -1017,7 +1017,9 @@ need — become data beside the kind models in `geecs_schemas.epics`.
 | positioner | an axis at INVALID severity (COMM/UDF) |
 | setpoint device | a readback at INVALID severity (TIMEOUT/COMM) |
 
-**Panels** (GeecsPanels, #1131–#1138):
+**Panels** (GeecsPanels, #1131–#1138; the package was deleted 2026-11-06,
+superseded by GeecsControlRoom's device pages, whose every write goes
+through the GEECS module's put route — this paragraph is its record):
 a kind whose writes move things submits through the scanner's
 `POST /api/move`, serialized with scans — the positioner and a setpoint
 device's numeric settables (the positioner panel, #1143, writes the record

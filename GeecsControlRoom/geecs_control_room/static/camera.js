@@ -1,8 +1,8 @@
 // The camera page's viewer, DOM only: the frame loop, zoom and pan, this
 // viewer's colour map and levels, the crosshairs and analysis ROI drawn and
-// dragged over the image, and the live readings. Moved from GeecsPanels and
-// adapted: the PVs and words are the module's (window.GeecsDevicePage, from
-// device.js), the values Hare's, every write the module's put route.
+// dragged over the image, and the live readings. The PVs and words are the
+// module's (window.GeecsDevicePage, from device.js), the values Hare's, every
+// write the module's put route.
 //
 // Frames are PULLED one at a time (never more than one in flight); the loop
 // pauses while the tab is hidden, asks with If-None-Match the held ETag (MJPG1's

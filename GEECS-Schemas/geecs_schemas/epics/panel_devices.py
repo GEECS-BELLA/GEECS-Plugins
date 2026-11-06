@@ -1,8 +1,7 @@
 """PanelDevices — per-device panel data, one document per experiment (layer 0b of the web estate).
 
-The configs repository's ``<experiment>/panel_devices.yaml`` (the panels'
-``--bench`` file, promoted): for each device a page is drawn for, the
-family (record template) it instantiates and what differs from that
+The configs repository's ``<experiment>/panel_devices.yaml``: for each
+device a page is drawn for, the family (record template) it instantiates and what differs from that
 family on this device — its own PV names for a role (the two supplies have
 no shared record set), a bit's label, the actions the page may take on it
 (``allow``), the line the page shows (``note``), the roles it does not

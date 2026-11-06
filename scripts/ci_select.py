@@ -80,7 +80,6 @@ OWN_ENV_PKGS = (
     "GeecsCanopy",
     "GeecsControlRoom",
     "GeecsLogbook",
-    "GeecsPanels",
     "GeecsPvaGateway",
     "GeecsScanner",
     "GeecsWebTheme",

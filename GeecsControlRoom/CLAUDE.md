@@ -294,8 +294,8 @@ page's rules under node):
   **tagged by the counter read before the fetch** (the plugin stores its
   JPEG, then posts the counter, so the JPEG is at least that new and a
   later counter change always fetches again; no second probe, no
-  refetch). These are GeecsPanels' `FrameSource` rules (`feed.py`), ported:
-  the dependency graph keeps the two packages apart.
+  refetch). These rules were ported from the deleted GeecsPanels'
+  `FrameSource` (tag `geecs-panels-v0.1.0-final`).
 - **The reuse cap is the safety net**: should a counter ever be posted
   before its JPEG, the stale frame lasts `JPEG_REUSE_S`, never until the
   next trigger. A stopped camera therefore costs one fetch per second.
