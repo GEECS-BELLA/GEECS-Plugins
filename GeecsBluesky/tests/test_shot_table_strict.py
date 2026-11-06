@@ -546,3 +546,42 @@ def test_a_native_camera_writing_two_frames_a_fire_is_not_checked(
     rows = [e["data"] for e in col.primary_events()]
     assert [r["extra_frames"] for r in rows] == [""] * 3
     assert col.docs["stop"][-1]["exit_status"] == "success"
+
+
+def test_an_unreadable_count_infers_no_frames_across_the_gap(monkeypatch) -> None:
+    """A triggered camera whose count read fails on fires 2 and 4: no excess, no pause.
+
+    The fire after a gap measures from its own baseline, never from the
+    count two fires back; an unreadable fire neither adds to nor resets
+    the streak.
+    """
+    import types
+
+    from geecs_bluesky.plans import on_demand
+    from geecs_bluesky.plans.on_demand import OnDemand
+
+    monkeypatch.setattr(on_demand, "geecs_name", lambda o: "UC_Cam")
+    p = types.SimpleNamespace(name="cam", owner=object())
+    run = types.SimpleNamespace(
+        checked=[p],
+        _frames_at={},
+        _excess_streak={},
+        _unreadable=set(),
+        columns=types.SimpleNamespace(values={}),
+    )
+    counts = [(1.0,), (), (3.0,), (), (5.0,)]
+    base, flags, reasons = (0.0,), [], []
+    for k, now in enumerate(counts, 1):
+        reasons.append(OnDemand._free_running(run, {"cam": base}, {"cam": now}))
+        flags.append(run.columns.values.get("extra_frames"))
+        base = now or (float(k),)  # the next fire's baseline: the true count
+    assert flags == [""] * 5 and reasons == [""] * 5
+
+    # The streak survives a gap: excess, unreadable, excess pauses.
+    run._frames_at.clear()
+    run._excess_streak.clear()
+    reasons = [
+        OnDemand._free_running(run, {"cam": b}, {"cam": n})
+        for b, n in [((0.0,), (5.0,)), ((5.0,), ()), ((10.0,), (15.0,))]
+    ]
+    assert reasons[:2] == ["", ""] and "UC_Cam (5 frames" in reasons[2]
