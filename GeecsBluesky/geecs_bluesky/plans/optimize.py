@@ -34,7 +34,7 @@ from geecs_bluesky.optimization.events import (
     optimization_column as _column,
 )
 from geecs_bluesky.callbacks._base import _StreamCallback
-from geecs_data_utils.shot_table import shot_table
+from geecs_data_utils.shot_table import fresh_rows, shot_table
 from geecs_schemas import TriggerState
 
 from .gated import run_bracket
@@ -154,7 +154,9 @@ class _BinJoin(_StreamCallback):
             run.event_stream_records(start),
             drain_offsets=run.drain_offsets,
         )
-        mine = table.rows[table.rows[column] == value]
+        # A stale sample is not the shot's measurement: never tell it.
+        joined = fresh_rows(table)
+        mine = joined[joined[column] == value]
         complete = mine[mine["complete"].astype(bool)]
         # NaN is the join's gap; the measurements skip it.
         return (complete if len(complete) else mine).to_dict("records")
