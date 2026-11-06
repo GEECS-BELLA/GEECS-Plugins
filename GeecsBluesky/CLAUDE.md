@@ -614,12 +614,17 @@ otherwise).  At each bin's end the objective's scalars come from an
 **in-plan join** — the run's documents so far through the s-file's
 `geecs_data_utils.shot_table.shot_table` (`_BinJoin`, the callback buffer
 of `callbacks/_base.py`) — over the bin's complete rows.  A camera
-objective keeps the live PVA frames matched by stamp; a plugin camera's
-stream is datum-only, so it gets a **companion** `StampStream` on its
-gateway `acq_timestamp` (`<name>_stamps_stream`, not one of the run's
-`per_shot_streams`), and the bin's end waits (bounded, `SETTLE_S`) for a
-stamp per frame written.  Native cameras stay refused in optimize
-(`NOT_OPTIMIZE`).  `OptimizerConfig` lives in
+objective keeps the live PVA frames matched by stamp.  A plugin camera's
+stream is datum-only until stop, so every plugin camera a measurement
+reads (its frames or one of its scalars) gets a **companion**
+`StampStream` on its gateway `acq_timestamp` — the stamp and the cached
+scalars per shot, in `<name>_stamps_stream`, not one of the run's
+`per_shot_streams` — and the bin's end waits (bounded, `SETTLE_S`) for a
+stamp per frame written; a stamp that never lands is WARNING-logged once
+per camera and not waited for again.  A movable's readback is read in the
+row; a bin with no finite readback records `measured` NaN with a WARNING
+and is not told to the optimizer (never the proposal).  Native cameras
+stay refused in optimize (`NOT_OPTIMIZE`).  `OptimizerConfig` lives in
 GEECS-Schemas and embeds GEST's VOCS; Xopt and GEECS-Analysis load only
 inside the worker's optional optimize path (the `optimize` extra).
 Validation and frame subscriptions precede the scan claim.  Measurements

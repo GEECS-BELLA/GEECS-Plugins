@@ -164,31 +164,84 @@ class _BinJoin(_StreamCallback):
 SETTLE_S = 1.0
 
 
-def _settle(streams: DeviceStreams):
+class _Settle:
     """Plan: until each companion recorded a stamp per frame its camera wrote, bounded.
 
     The camera's frame count and its gateway stamp travel separate paths;
     a stamp still in flight at the bin's end would cost that shot's frame.
+    A stamp that never comes (the gateway dropped it) is a frame without a
+    stamp: on expiry the shortfall is logged once per camera and carried,
+    so a later bin waits only for its own frames.
     """
-    import asyncio
 
-    async def settle() -> None:
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + SETTLE_S
-        while loop.time() < deadline:
-            counts = [
-                await _Progress(c.device, True).read_safe() for c in streams.companions
-            ]
-            if all(
-                c.pending == 0 and (not n or c.published >= min(n))
-                for c, n in zip(streams.companions, counts, strict=True)
-            ):
-                return
-            await asyncio.sleep(0.02)
+    def __init__(self, streams: DeviceStreams) -> None:
+        self.streams = streams
+        self.shortfall = {id(c): 0 for c in streams.companions}
+        self._warned: set[int] = set()
 
-    if streams.companions:
-        yield from bps.wait_for([settle])
-    yield from streams.collect()
+    def _missing(self, companion: Any, frames: tuple[float, ...]) -> int:
+        if not frames or companion.pending:
+            return int(bool(companion.pending))
+        settled = companion.published + companion.failed + self.shortfall[id(companion)]
+        return max(0, int(min(frames)) - settled)
+
+    def __call__(self):
+        import asyncio
+
+        companions = self.streams.companions
+        missing: dict[int, int] = {}
+
+        async def settle() -> None:
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + SETTLE_S
+            while True:
+                for c in companions:
+                    frames = await _Progress(c.device, True).read_safe()
+                    missing[id(c)] = self._missing(c, frames)
+                if not any(missing.values()) or loop.time() >= deadline:
+                    return
+                await asyncio.sleep(0.02)
+
+        if companions:
+            yield from bps.wait_for([settle])
+        for c in companions:
+            short = missing.get(id(c), 0)
+            if short and not c.pending:
+                self.shortfall[id(c)] += short
+            if short and id(c) not in self._warned:
+                self._warned.add(id(c))
+                logger.warning(
+                    "%s: %d frame(s) without a gateway stamp after %.1f s — "
+                    "those shots read no live frame (logged once)",
+                    c.device_name,
+                    short,
+                    SETTLE_S,
+                )
+        yield from self.streams.collect()
+
+
+def _measured(
+    rows: list[dict[str, Any]], keys: Mapping[str, str], iteration: int
+) -> dict[str, float]:
+    """Each variable's mean readback over *rows*; ``NaN`` (and a WARNING) when none is finite.
+
+    Never the proposal: a bin without a readback is recorded as measured
+    NaN and not told to the optimizer.
+    """
+    out = {}
+    for name, key in keys.items():
+        values = [
+            float(r[key]) for r in rows if math.isfinite(float(r.get(key, math.nan)))
+        ]
+        out[name] = sum(values) / len(values) if values else math.nan
+        if not values:
+            logger.warning(
+                "bin %d: no readback of %s in any row — measured NaN, the bin "
+                "is not told to the optimizer",
+                iteration,
+                name,
+            )
+    return out
 
 
 def _on_thread(pool, function, *args):
@@ -409,12 +462,16 @@ def optimize_plan(  # noqa: C901, PLR0915
         # Read with every row and staged (the stage resets a pre-read's
         # audit), like the background below; never waited on as a device.
         extras = [] if witness is None else [witness]
-        # A plugin camera the objective reads: its stamp, per shot, in the plan.
+        # A plugin camera any measurement reads (its frames or a scalar):
+        # its stream is datum-only until stop, so the companion carries its
+        # per-shot stamp and cached scalars into the bin's join.
+        read_owners = {
+            id(owner_of(namespace.resolve(m.device))) for m in compiled.measurements
+        }
         cameras = [
             d
             for d in per_shot
-            if getattr(d, "plugin_backed", False)
-            and any(namespace.resolve(n) is d for n in compiled.sources)
+            if getattr(d, "plugin_backed", False) and id(owner_of(d)) in read_owners
         ]
         streams = DeviceStreams(per_shot, dual_write=True, companions=cameras)
         metadata.update(start_keys(streams, required_devices, witness is not None))
@@ -458,6 +515,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             ]
         )
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="geecs-optimize")
+        settle = _Settle(streams)
         slot = OnDemand(
             sc,
             streams,
@@ -503,24 +561,15 @@ def optimize_plan(  # noqa: C901, PLR0915
                     )
                 # Commit the acquired bin: calculation and tell must never be replayed.
                 yield Msg("rewindable", None, False)
-                yield from _settle(streams)
+                yield from settle()
                 rows = records.bin_rows(bins.name, iteration)
                 frames = yield from _on_thread(pool, compiled.frames_for, rows)
                 result = yield from _on_thread(
                     pool, compiled.evaluate_bin, rows, frames
                 )
-                measured = {}
-                for name, key in reading_keys.items():
-                    values = [
-                        float(r[key])
-                        for r in rows
-                        if math.isfinite(float(r.get(key, math.nan)))
-                    ]
-                    # No readback joined (every row missed it): the proposal.
-                    measured[name] = (
-                        sum(values) / len(values) if values else proposal[name]
-                    )
-                driver.tell(measured, result.outputs)
+                measured = _measured(rows, reading_keys, iteration)
+                if all(math.isfinite(v) for v in measured.values()):
+                    driver.tell(measured, result.outputs)
                 best = driver.best or {}
                 physical_best = {}
                 if best:
@@ -607,9 +656,15 @@ def optimize_plan(  # noqa: C901, PLR0915
         def prepared():  # noqa: C901
             # Read only scalar surfaces before claim. These messages also invoke
             # connect_on_demand; a camera's full describe requires prepare first.
-            keys = set()
+            # A movable's readback is read in the row unless a condition
+            # already carries it there; a measurement's column may come from
+            # a per-shot device's stream (the in-plan join).
+            keys, row_keys = set(), set()
             for obj in detectors:
-                keys.update((yield from bps.read(getattr(obj, "scalars", obj))))
+                reading = yield from bps.read(getattr(obj, "scalars", obj))
+                keys.update(reading)
+                if not is_per_shot(obj):
+                    row_keys.update(reading)
             for name, obj in movables.items():
                 reading = yield from bps.read(obj)
                 if len(reading) != 1:
@@ -617,8 +672,9 @@ def optimize_plan(  # noqa: C901, PLR0915
                         f"{name}: expected one numeric readback"
                     )
                 key = next(iter(reading))
-                if key not in keys:
+                if key not in row_keys:
                     measurement_signals.append(_MeasurementReadback(obj, key, name))
+                    row_keys.add(key)
                     keys.add(key)
             for measurement in compiled.measurements:
                 if (

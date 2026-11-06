@@ -522,8 +522,11 @@ class StampStream:
         self._subscribed = False
         #: Events recorded this run (the close's WARNING when it stays 0).
         self.published = 0
-        #: Stamps queued and not yet recorded (:meth:`settled`).
+        #: Stamps queued and not yet recorded.
         self.pending = 0
+        #: Stamps that arrived but could not be recorded (a failed read):
+        #: settled, never coming — a waiter counts them with ``published``.
+        self.failed = 0
 
     @property
     def device(self) -> Any:
@@ -553,7 +556,7 @@ class StampStream:
         async def do() -> None:
             await self._stop()
             self._events = []
-            self.published = self.pending = 0
+            self.published = self.pending = self.failed = 0
             self._last = await self._stamp.get_value()
             self._queue = asyncio.Queue()
             self._stamp.subscribe_reading(self._on_stamp)
@@ -592,6 +595,7 @@ class StampStream:
                 )
             except Exception as exc:  # noqa: BLE001 - a non-essential never fails
                 self.pending -= 1
+                self.failed += 1
                 logger.warning(
                     "%s: stamp %s not recorded (%s: %s)",
                     self.name,
