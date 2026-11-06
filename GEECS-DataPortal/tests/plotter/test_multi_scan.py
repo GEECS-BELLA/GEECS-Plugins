@@ -367,3 +367,14 @@ def test_a_chip_s_colour_is_its_trace_s_with_a_missing_scan_first(client, two_da
     assert before[before.rindex('class="swatch t') :].startswith('class="swatch t2"')
     body = figure(client, scans="2026-10-03:1")
     assert body["figure"]["data"][1]["marker"]["color"] == "$tok:--trace-2"
+
+
+def test_remove_all_clears_the_added_scans(client, settings_dir) -> None:
+    import json as _json
+
+    page = post(client, scan=1, scans="2026-10-02:2")
+    assert "data-scans-clear" in page  # shown once scans are added
+    page = post(client, scan=1, scans="")  # what Remove all posts
+    assert "data-scans-clear" not in page
+    saved = _json.loads((settings_dir / "default.json").read_text())
+    assert saved["extra_scans"] == []

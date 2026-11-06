@@ -430,7 +430,10 @@
                 <button type="button" class="x" data-scan-remove="{{ e.text }}" aria-label="remove {{ e.label }}">✕</button>
               </div>
             {% endfor %}
-            <div><button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer" data-max-overlay="{{ max_overlay }}">Add scan…</button></div>
+            <div class="row">
+              <button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer" data-max-overlay="{{ max_overlay }}">Add scan…</button>
+              {% if extra_scans %}<button class="btn sm ghost" type="button" data-scans-clear title="Remove every added scan; the main scan stays">Remove all</button>{% endif %}
+            </div>
             {% if extra_scans %}
               <div class="field">
                 <div class="row">

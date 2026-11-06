@@ -202,6 +202,8 @@
   for (const button of document.querySelectorAll("[data-scan-remove]")) {
     button.addEventListener("click", () => saveScans(scanList().filter((s) => s !== button.dataset.scanRemove)));
   }
+  // Remove all: back to the main scan alone, in one click.
+  document.querySelector("[data-scans-clear]")?.addEventListener("click", () => saveScans([]));
   const scansOpen = document.getElementById("scans-open");
   // kit.js loads after this script, so the picker is built on first click.
   let scansPicker = null;
