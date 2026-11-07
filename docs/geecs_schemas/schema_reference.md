@@ -8,6 +8,8 @@
 
 ## `optimizer_config`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/optimizer_configs/<name>.yaml`
+
 ### OptimizerConfig
 
 An optimization: search space, live measurements, derived outputs and generator.
@@ -98,6 +100,8 @@ Run defaults; queue-item arguments may override the iteration and shot budgets.
 
 ## `preset`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/presets/<name>.yaml`
+
 ### Preset
 
 A saved scan: the device group plus the plan call.
@@ -153,6 +157,8 @@ The stock plan the preset runs, with its arguments.
 | `kwargs` | `dict[str, JsonValue]` | no | empty | Keyword arguments — e.g. {num: 100} for count, {shots_per_step: 10} for the scan verbs (rows recorded at every position). |
 
 ## `scan_request`
+
+Not a file: a plan parameter: built per submit from a preset, never saved
 
 ### ScanRequest
 
@@ -245,6 +251,8 @@ Which named action plans run around (and inside) the scan.
 
 ## `scan_variables`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/scan_devices/scan_variables.yaml`
+
 ### ScanVariables
 
 The experiment's catalog of scannable variables, keyed by friendly name.
@@ -308,6 +316,8 @@ One device a pseudo variable moves, and the formula for its value.
 
 ## `trigger_profile`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/shot_control_configurations/<name>.yaml`
+
 ### TriggerProfile
 
 The device writes that drive the machine through its trigger states.
@@ -361,6 +371,8 @@ One device variable set during a state transition.
 | `value` | `str` | yes | — | The value to send, exactly as the device expects it — a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges'). |
 
 ## `action_plan`
+
+Not a file: a sub-document: one plan inside the action library's file
 
 ### ActionPlan
 
@@ -435,6 +447,8 @@ One step that runs another named action plan.
 
 ## `action_plan_library`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/action_library/actions.yaml`
+
 ### ActionPlanLibrary
 
 The collection of all named action plans for an experiment.
@@ -462,6 +476,8 @@ plans:
 ```
 
 ## `experiment_defaults`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/experiment_defaults.yaml`
 
 ### ExperimentDefaults
 
@@ -501,6 +517,8 @@ The action plans every scan of the experiment runs by default.
 | `closeout` | `list[str]` | no | empty | Names of action plans to run after every scan, after any closeout plans the scan itself lists (teardown mirrors setup: these are the outermost bracket). |
 
 ## `derived_channels`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/gateway/derived_channels.yaml`
 
 ### DerivedChannels
 
@@ -560,6 +578,8 @@ One source variable bound to a symbol in a derived-channel formula.
 
 ## `archive_policy`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/archiver/archive_policy.yaml`
+
 ### ArchivePolicy
 
 The experiment's archive-set exceptions and sampling defaults.
@@ -567,11 +587,11 @@ The experiment's archive-set exceptions and sampling defaults.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `exclude` | `list[str]` | no | empty | fnmatch globs over full lowercase PV names that the derived rule would include but this experiment does not archive. |
-| `include` | `list[str]` | no | empty | Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:uptime'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them. |
-| `include_setpoints` | `bool` | no | True | Archive the ':SP' setpoint PV of every settable variable. They change only on puts and carry the operator's intent and the refused-write alarm history. |
-| `include_status` | `bool` | no | True | Archive every device's 'connected' status PV (state changes only) and the gateway's own heartbeat and devices_connected. |
-| `include_derived` | `bool` | no | True | Archive the gateway's derived channels declared in the experiment's gateway/derived_channels.yaml. |
+| `exclude` | `list[str]` | no | empty | *Tier: maintainer.* fnmatch globs over full lowercase PV names that the derived rule would include but this experiment does not archive. |
+| `include` | `list[str]` | no | empty | *Tier: maintainer.* Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:uptime'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them. |
+| `include_setpoints` | `bool` | no | True | *Tier: maintainer.* Archive the ':SP' setpoint PV of every settable variable. They change only on puts and carry the operator's intent and the refused-write alarm history. |
+| `include_status` | `bool` | no | True | *Tier: maintainer.* Archive every device's 'connected' status PV (state changes only) and the gateway's own heartbeat and devices_connected. |
+| `include_derived` | `bool` | no | True | *Tier: maintainer.* Archive the gateway's derived channels declared in the experiment's gateway/derived_channels.yaml. |
 | `default_sampling_period` | `float` | no | 1.0 | Sampling period (seconds) for PVs no override matches. |
 | `default_sampling_method` | `'MONITOR' \| 'SCAN'` | no | 'MONITOR' | Sampling method for PVs no override matches. |
 | `sampling_overrides` | `list[SamplingOverride]` | no | empty | Per-glob sampling rules; the last matching entry wins per field. |
@@ -603,6 +623,8 @@ A sampling rule for the PVs matching one glob.
 | `sampling_method` | `'MONITOR' \| 'SCAN' (optional)` | no | None | MONITOR (store every change the appliance is sent; the period only sizes its buffer) or SCAN (store the latest value once per period). |
 
 ## `shot_offsets`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/shot_offsets.yaml`
 
 ### ShotOffsets
 
@@ -655,6 +677,8 @@ One device's measured edge-to-stamp latency, relative to the reference.
 | `geecs_device` | `str` | no | '' | GEECS device name this offset was measured for, e.g. 'UC_Amp3_IR_input'. Informational: the mapping key is the ophyd object name the runtime uses. |
 
 ## `native_devices`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/native_devices.yaml`
 
 ### NativeDevices
 
@@ -728,6 +752,8 @@ One settable of a setpoint device: how close its readback must come, and how soo
 | `timeout` | `float` | no | 10.0 | Seconds the set waits for the readback to arrive within the tolerance after the write, before it fails. Size it for the slowest ramp plus the readback's scan period. |
 
 ## `family_file`
+
+Tier: `code` · Not a file: package data (geecs_schemas/epics/families/): shown read-only as 'code', changed by a PR to GEECS-Plugins
 
 ### FamilyFile
 
@@ -843,6 +869,8 @@ A setpoint drawn with a step and a pair of step buttons beside it (the motor rec
 
 ## `panel_devices`
 
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/panel_devices.yaml`
+
 ### PanelDevices
 
 The experiment's devices with a panel: each one's family and per-device panel data.
@@ -891,6 +919,8 @@ One device's panel data: its family and what differs from it on this device.
 | `ioc` | `str (optional)` | no | None | The IOC serving the device, as its host's compose file names it (IOC_NAME, e.g. 'adtest-cam1'): the archiver keeps that IOC's devIocStats heartbeat. Absent: no heartbeat for it. |
 
 ## `operator_policy`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/operator_policy.yaml`
 
 ### OperatorPolicy
 
@@ -944,6 +974,8 @@ These roles of these devices need the hazard confirm, as a family role with ``co
 
 ## `journal_entry`
 
+Not a file: a database row: the device module's record of a write attempt
+
 ### JournalEntry
 
 One journal row: a request's outcome, or the ``attempted`` row a dispatched write leaves first (its outcome names it in ``attempt``).
@@ -982,6 +1014,8 @@ detail: 12.5 is outside the record's limits [0.0, 10.0]
 ```
 
 ## `screen`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/screens/<name>.yaml`
 
 ### Screen
 
@@ -1071,6 +1105,8 @@ The two numbers a toggle writes to a numeric role (a LabVIEW boolean kept as a n
 
 ## `home_layout`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/home.yaml`
+
 ### HomeLayout
 
 The launcher: screens by area, device pages by family, the named links.
@@ -1115,6 +1151,8 @@ A device-page entry: a picker over the roster's devices of these families.
 | `families` | `list[str]` | yes | — | Family file names whose devices the picker lists. |
 
 ## `analysis_recipe`
+
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
 
 ### AnalysisRecipe
 
@@ -1312,6 +1350,8 @@ A straight-line fit of measured scalars against the scan position.
 
 ## `analysis_group`
 
+Tier: `operator` · File: `scan_analysis_configs/groups/**/<name>.yaml`
+
 ### AnalysisGroup
 
 A named set of diagnostics to run after each scan, in priority order.
@@ -1347,6 +1387,8 @@ One diagnostic in a group, optionally disabled or re-prioritised for this group.
 
 ## `himg_job`
 
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
+
 ### HimgJob
 
 One ``.himg`` data-management job over a HASO device folder.
@@ -1379,6 +1421,8 @@ How the job runs among a group's analyses.
 | `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
 
 ## `log_entry`
+
+Not a file: a database row: the logbook's store
 
 ### LogEntry
 
@@ -1468,3 +1512,90 @@ One file uploaded with an entry — a pasted screenshot, a PDF.
 | `content_type` | `str` | yes | — | Media type, e.g. image/png. |
 | `size_bytes` | `int` | yes | — | Stored size in bytes. |
 | `uploaded_at` | `datetime` | yes | — | When the file was stored. |
+
+## `setup`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/setups/<name>.yaml`
+
+### Setup
+
+A named device state: the steps that put the machine in it, in order.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `name` | `str` | yes | — | The setup's name, also its file stem, e.g. 'low_power'. |
+| `description` | `str` | no | '' | What this state is and when to use it. |
+| `steps` | `list[SetupSetStep \| WaitStep \| SetupCheckStep \| SetupApplyStep]` | yes | — | The steps to perform, in order from top to bottom. |
+| `captured` | `SetupCapture (optional)` | no | None | Where the values came from; absent for a hand-written setup. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/setups/low_power.yaml: one setup per file, the file stem its name.
+name: low_power
+description: Amp4 off, the jet at its standby pressure
+steps:
+  - {do: set, device: U_HP_Daq, variable: AnalogOutput.Channel 1, value: 0.5}
+  - {do: wait, seconds: 3}
+  - {do: check, device: U_HP_Daq, variable: AnalogInput.Channel 1, expected: 0.5,
+     tolerance: 0.02}               # a number matches within tolerance, a word exactly
+  - {do: apply, setup: shutters_closed}   # another setup, inlined here; loops refused
+captured:
+  by: A. Operator
+  at: "2026-11-07T18:02:00-08:00"
+  readbacks:
+    - {device: U_HP_Daq, variable: AnalogOutput.Channel 1}
+```
+
+### SetupSetStep
+
+One step that sets a device variable and waits for the device to finish.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'set'` | yes | — | Step type. 'set' writes a value and waits for the device. |
+| `device` | `str` | yes | — | The device, e.g. 'U_S1H'. |
+| `variable` | `str` | yes | — | The variable, e.g. 'Current'. |
+| `value` | `str \| float \| int` | yes | — | The value to write: a number, or a word such as 'on'. |
+
+### SetupCheckStep
+
+One step that reads a device variable and stops the setup on a mismatch.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'check'` | yes | — | Step type. 'check' reads a variable and stops on a mismatch. |
+| `device` | `str` | yes | — | The device to read. |
+| `variable` | `str` | yes | — | The variable to read. |
+| `expected` | `str \| float \| int` | yes | — | The value the reading must match: a number or a word. |
+| `tolerance` | `float` | no | 0.0 | How far a numeric reading may be from 'expected' and still match. Only for a numeric 'expected'; a word matches exactly. |
+
+### SetupApplyStep
+
+One step that applies another setup, inlined where it sits.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'apply'` | yes | — | Step type. 'apply' runs another setup's steps here. |
+| `setup` | `str` | yes | — | The other setup's name (its file stem). |
+
+### SetupCapture
+
+Where a setup's values came from: who captured them, when, from which readbacks.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `by` | `str` | yes | — | The operator who captured it. |
+| `at` | `datetime` | yes | — | When it was captured. |
+| `readbacks` | `list[CapturedReadback]` | no | empty | The readbacks the values were read from. |
+
+### CapturedReadback
+
+One readback a captured value was read from.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str` | yes | — | The device read. |
+| `variable` | `str` | yes | — | The variable read. |

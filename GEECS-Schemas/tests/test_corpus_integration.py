@@ -25,7 +25,16 @@ from pathlib import Path
 import pytest
 import yaml
 
-from geecs_schemas import ActionPlanLibrary, Preset, ScanVariables
+from geecs_schemas import (
+    OPTIMIZER_CONFIGS_FOLDER,
+    PRESETS_FOLDER,
+    SCAN_VARIABLES_FILENAME,
+    SCAN_VARIABLES_FOLDER,
+    TRIGGER_PROFILES_FOLDER,
+    ActionPlanLibrary,
+    Preset,
+    ScanVariables,
+)
 from geecs_schemas.convert import (
     convert_shot_control,
 )
@@ -68,7 +77,7 @@ class TestFullCorpus:
         """Every deployed preset is a valid new-schema ``Preset`` (no converter)."""
         validated = 0
         for experiment in experiments():
-            for path in sorted(experiment.glob("presets/*.yaml")):
+            for path in sorted(experiment.glob(f"{PRESETS_FOLDER}/*.yaml")):
                 document = yaml.safe_load(path.read_text())
                 preset = Preset.model_validate(document)
                 assert preset.name, path
@@ -87,7 +96,7 @@ class TestFullCorpus:
         """
         validated = 0
         for experiment in experiments():
-            path = experiment / "scan_devices" / "scan_variables.yaml"
+            path = experiment / SCAN_VARIABLES_FOLDER / SCAN_VARIABLES_FILENAME
             if not path.exists():
                 continue
             document = yaml.safe_load(path.read_text())
@@ -103,7 +112,7 @@ class TestFullCorpus:
     def test_every_shot_control_converts(self):
         converted, no_device = 0, 0
         for experiment in experiments():
-            for path in sorted(experiment.glob("shot_control_configurations/*.yaml")):
+            for path in sorted(experiment.glob(f"{TRIGGER_PROFILES_FOLDER}/*.yaml")):
                 profile = convert_shot_control(path)
                 if profile is None:
                     # Documented empty/deviceless configs: Bella Normal,
@@ -138,7 +147,7 @@ class TestFullCorpus:
 
         validated = 0
         for experiment in experiments():
-            for path in sorted(experiment.glob("optimizer_configs/*.yaml")):
+            for path in sorted(experiment.glob(f"{OPTIMIZER_CONFIGS_FOLDER}/*.yaml")):
                 text = path.read_text()
                 if text.startswith("# LEGACY"):
                     continue

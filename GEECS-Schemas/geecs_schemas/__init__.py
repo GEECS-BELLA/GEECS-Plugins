@@ -3,7 +3,7 @@
 Configs are schemas; YAML is just serialization.  This package is the single
 home of the models: presets (the saved scan: device group +
 plan call), scan requests, scan variables, trigger profiles, action plans,
-and gateway derived channels — plus converters from the legacy YAML
+setups (named device states) and gateway derived channels — plus converters from the legacy YAML
 dialects still in use (``geecs_schemas.convert``; scan variables, presets
 and action libraries have none, GEECS-Plugins#779 / #807) and a Markdown
 reference generator (``geecs_schemas.docgen``).
@@ -12,7 +12,7 @@ It depends on Pydantic and GEST (the lightweight VOCS model), so anything — en
 tooling — can import it without dragging in hardware or analysis stacks.
 """
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import TIERS, SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.analysis import (
     AnalysisGroup,
     AnalysisRecipe,
@@ -101,8 +101,12 @@ from geecs_schemas.home_layout import (
     HomeLayout,
     HomeLink,
 )
-from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
-from geecs_schemas.preset import PlanCall, Preset, PresetDevice
+from geecs_schemas.experiment_defaults import (
+    EXPERIMENT_DEFAULTS_FILENAME,
+    DefaultActions,
+    ExperimentDefaults,
+)
+from geecs_schemas.preset import PRESETS_FOLDER, PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
     AnalysisPayload,
     Attachment,
@@ -127,7 +131,21 @@ from geecs_schemas.scan_request import (
     ScanRequestMode,
     SubmissionRecord,
 )
-from geecs_schemas.shot_offsets import DeviceOffset, ShotOffsets
+from geecs_schemas.setup import (
+    SETUPS_FOLDER,
+    CapturedReadback,
+    Setup,
+    SetupApplyStep,
+    SetupCapture,
+    SetupCheckStep,
+    SetupCycleError,
+    SetupNotFoundError,
+    SetupSetStep,
+    flatten_setup,
+    setup_value_matches,
+)
+from geecs_schemas.shot_offsets import SHOT_OFFSETS_FILENAME, DeviceOffset, ShotOffsets
+from geecs_schemas.storage import KIND_STORAGE, FileStorage, KindStorage, NotAFile
 from geecs_schemas.sweep import (
     AxisSweep,
     FermatSpiralSweep,
@@ -142,6 +160,8 @@ from geecs_schemas.sweep import (
     X2XSweep,
 )
 from geecs_schemas.scan_variables import (
+    SCAN_VARIABLES_FILENAME,
+    SCAN_VARIABLES_FOLDER,
     CompositeMode,
     PseudoComponent,
     PseudoScanVariable,
@@ -151,6 +171,7 @@ from geecs_schemas.scan_variables import (
     split_device_variable,
 )
 from geecs_schemas.trigger_profile import (
+    TRIGGER_PROFILES_FOLDER,
     TriggerProfile,
     TriggerState,
     TriggerWrite,
@@ -159,6 +180,13 @@ from geecs_schemas.trigger_profile import (
 __all__ = [
     "SchemaModel",
     "VersionedSchemaModel",
+    "Tier",
+    "TIERS",
+    # storage (where each registered kind is kept)
+    "KIND_STORAGE",
+    "FileStorage",
+    "NotAFile",
+    "KindStorage",
     # scan_request
     "ScanRequest",
     "ScanRequestMode",
@@ -185,10 +213,13 @@ __all__ = [
     "DerivedInput",
     # preset
     "Preset",
+    "PRESETS_FOLDER",
     "PresetDevice",
     "PlanCall",
     # scan_variables
     "ScanVariables",
+    "SCAN_VARIABLES_FOLDER",
+    "SCAN_VARIABLES_FILENAME",
     "split_device_variable",
     "ScanVariable",
     "ScanVariableSpec",
@@ -197,6 +228,7 @@ __all__ = [
     "CompositeMode",
     # trigger_profile
     "TriggerProfile",
+    "TRIGGER_PROFILES_FOLDER",
     "TriggerState",
     "TriggerWrite",
     # epics (native EPICS devices)
@@ -246,6 +278,7 @@ __all__ = [
     "resolve_screen",
     # experiment_defaults
     "ExperimentDefaults",
+    "EXPERIMENT_DEFAULTS_FILENAME",
     "DefaultActions",
     # action_plan
     "ACTION_LIBRARY_FILENAME",
@@ -270,6 +303,19 @@ __all__ = [
     "HimgJob",
     # shot_offsets
     "ShotOffsets",
+    "SHOT_OFFSETS_FILENAME",
+    # setup (a named device state: <experiment>/setups/<name>.yaml)
+    "Setup",
+    "SetupSetStep",
+    "SetupCheckStep",
+    "SetupApplyStep",
+    "SetupCapture",
+    "CapturedReadback",
+    "SetupCycleError",
+    "SetupNotFoundError",
+    "SETUPS_FOLDER",
+    "flatten_setup",
+    "setup_value_matches",
     "DeviceOffset",
     # log_entry
     "LogEntry",
@@ -282,6 +328,7 @@ __all__ = [
     "EntryStatus",
     "SCHEMA_REGISTRY",
     "OptimizerConfig",
+    "OPTIMIZER_CONFIGS_FOLDER",
     "optimizer_required_devices",
     # sweep payload (nested in a plan call, not a standalone config document)
     "Sweep",
@@ -299,7 +346,11 @@ __all__ = [
 
 # kind → top-level document model, for generic tooling (loaders, editors,
 # docgen). Keys are the canonical config-kind identifiers.
-from .optimizer_config import OptimizerConfig, optimizer_required_devices
+from .optimizer_config import (
+    OPTIMIZER_CONFIGS_FOLDER,
+    OptimizerConfig,
+    optimizer_required_devices,
+)
 
 SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "optimizer_config": OptimizerConfig,
@@ -324,4 +375,5 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "analysis_group": AnalysisGroup,
     "himg_job": HimgJob,
     "log_entry": LogEntry,
+    "setup": Setup,
 }

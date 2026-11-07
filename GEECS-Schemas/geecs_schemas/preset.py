@@ -45,11 +45,14 @@ catalog; the client resolves it to the namespace's Movable child
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import ClassVar, Optional
 
 from pydantic import Field, JsonValue, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
+
+#: Where an experiment's scan presets live: ``presets/<name>.yaml``.
+PRESETS_FOLDER = "presets"
 
 
 class PresetDevice(SchemaModel):
@@ -143,6 +146,8 @@ class Preset(VersionedSchemaModel):
     A preset without a ``plan`` is a device group waiting for one: it is
     listed and editable but cannot be submitted as is.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     name: str = Field(description="The name clients use to pick this preset.")
     description: str = Field(

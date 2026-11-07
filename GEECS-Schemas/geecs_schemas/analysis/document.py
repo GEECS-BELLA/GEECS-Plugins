@@ -16,6 +16,10 @@ from typing import Union
 from geecs_schemas.analysis.himg import HimgJob
 from geecs_schemas.analysis.recipe import AnalysisRecipe
 
+#: The tree's folder under ``scan_analysis_configs/``; files nest one level
+#: or more below it (``analyzers/HTU/<name>.yaml``).
+ANALYZERS_FOLDER = "analyzers"
+
 #: What a loader hands back: one of the two documents of the tree.
 AnalysisDocument = Union[AnalysisRecipe, HimgJob]
 

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "TriggerState": {
+      "description": "The named states the machine trigger can be driven to.\n\nThese names survived from the legacy system because they match how\noperators think about the machine.\n\nAttributes\n----------\nOFF : str\n    Trigger fully stopped (used e.g. before timing synchronization).\nSTANDBY : str\n    Between-steps idle: trigger free-runs but data-taking output (e.g.\n    the gas jet) is off.\nSCAN : str\n    Taking data: trigger running with data-taking output on.\nSINGLESHOT : str\n    Fire exactly one shot (strict acquisition).\nARMED : str\n    Ready for single shots: data-taking output on, trigger switched to\n    single-shot source, waiting for SINGLESHOT commands.",
+      "enum": [
+        "OFF",
+        "STANDBY",
+        "SCAN",
+        "SINGLESHOT",
+        "ARMED"
+      ],
+      "title": "TriggerState",
+      "type": "string"
+    },
+    "TriggerWrite": {
+      "additionalProperties": false,
+      "description": "One device variable set during a state transition.\n\nA transition is an ordered list of these; they are sent top to bottom.",
+      "properties": {
+        "device": {
+          "description": "The device to write to, e.g. 'U_DG645_ShotControl' or a gas-jet controller \u2014 any settable device can take part in a transition.",
+          "minLength": 1,
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "Which variable on the device to set, e.g. 'Trigger.Source'.",
+          "minLength": 1,
+          "title": "Variable",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to send, exactly as the device expects it \u2014 a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges').",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device",
+        "variable",
+        "value"
+      ],
+      "title": "TriggerWrite",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The device writes that drive the machine through its trigger states.\n\nFor each state (OFF, STANDBY, SCAN, SINGLESHOT, ARMED) list the writes \u2014\npossibly to several devices \u2014 that put the machine into it, **in the\norder they should be sent**.  Edit it when timing hardware or its\nsettings change; make a separate profile for a different operating\ncondition (e.g. laser off).\n\nNotes\n-----\nValues are sent verbatim over the GEECS wire protocol.  Use\n:meth:`writes_for` / :meth:`defines_state` instead of digging the lists \u2014\nthey implement the \"state with no writes is not defined\" rule.\n:attr:`devices` lists every device the profile touches.\n\nFormat v2 removed the v1 ``variants`` overlay (see the module\ndocstring); a before-validator drops an empty v1 block, refuses a\npopulated one, and normalizes ``schema_version`` \u2264 1 to 2.",
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "description": "Format version of this config file. Leave at 2 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "description": "The name scans use to refer to this trigger profile.",
+      "title": "Name",
+      "type": "string"
+    },
+    "states": {
+      "additionalProperties": {
+        "items": {
+          "$ref": "#/$defs/TriggerWrite"
+        },
+        "type": "array"
+      },
+      "description": "For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched.",
+      "propertyNames": {
+        "$ref": "#/$defs/TriggerState"
+      },
+      "title": "States",
+      "type": "object"
+    },
+    "description": {
+      "default": "",
+      "description": "Optional note about what setup this profile is for.",
+      "title": "Description",
+      "type": "string"
+    },
+    "use_scan_mode": {
+      "default": false,
+      "description": "Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a gated run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case \u2014 the shot message is the only trigger.",
+      "title": "Use Scan Mode",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "tier": "operator",
+  "title": "TriggerProfile",
+  "type": "object"
+}

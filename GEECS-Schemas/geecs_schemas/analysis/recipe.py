@@ -32,6 +32,7 @@ from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from geecs_schemas._base import (
     SchemaModel,
+    Tier,
     VersionedSchemaModel,
     declared_schema_version,
 )
@@ -495,6 +496,8 @@ class AnalysisRecipe(VersionedSchemaModel):
     product files; ``output_name`` (defaulting to ``device``) labels
     everything written — s-file columns, the output folder.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     schema_version: int = Field(
         CURRENT_RECIPE_VERSION,

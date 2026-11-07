@@ -86,6 +86,7 @@
   "required": [
     "name"
   ],
+  "tier": "operator",
   "title": "AnalysisGroup",
   "type": "object"
 }

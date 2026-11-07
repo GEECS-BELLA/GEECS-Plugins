@@ -46,11 +46,14 @@ yet enforced by the engine in v1.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import ClassVar, Literal, Optional, Union
 
 from pydantic import Field, field_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
+
+#: Where an experiment's scan-variable catalogue lives: ``scan_devices/scan_variables.yaml``.
+SCAN_VARIABLES_FOLDER, SCAN_VARIABLES_FILENAME = "scan_devices", "scan_variables.yaml"
 
 
 def _validate_target(value: str) -> str:
@@ -295,6 +298,8 @@ class ScanVariables(VersionedSchemaModel):
     pair with one document.  Simple entries default to ``kind: setpoint``;
     entries with ``kind: pseudo`` carry targets and formulas.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     variables: dict[str, ScanVariableSpec] = Field(
         description=(

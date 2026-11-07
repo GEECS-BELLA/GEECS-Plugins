@@ -25,11 +25,11 @@ from __future__ import annotations
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import Literal, Optional
+from typing import ClassVar, Literal, Optional
 
 from pydantic import Field, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.epics import NativeDevices
 from geecs_schemas.epics.family import AnyRoleName, FamilyFile, Role, Suffix
 from geecs_schemas.epics.panel_devices import DeviceName, PanelDevices
@@ -182,6 +182,8 @@ class Group(SchemaModel):
 
 class Screen(VersionedSchemaModel):
     """A control GUI: a title and groups of widgets, drawn by one renderer."""
+
+    tier: ClassVar[Tier] = "operator"
 
     schema_version: Literal[1] = Field(1, description="Format version. Leave at 1.")
     title: str = Field(min_length=1, description="The screen's title.")

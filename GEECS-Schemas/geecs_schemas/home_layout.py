@@ -11,11 +11,11 @@ the reason.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import Field, field_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.epics.family import TemplateName
 
 #: The home's file name in the experiment's configs folder.
@@ -51,6 +51,8 @@ class DevicePages(SchemaModel):
 
 class HomeLayout(VersionedSchemaModel):
     """The launcher: screens by area, device pages by family, the named links."""
+
+    tier: ClassVar[Tier] = "operator"
 
     schema_version: Literal[1] = Field(1, description="Format version. Leave at 1.")
     areas: list[Area] = Field([], description="Screens grouped by area, in order.")

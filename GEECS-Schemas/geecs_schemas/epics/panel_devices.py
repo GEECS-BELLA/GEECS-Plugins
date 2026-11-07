@@ -23,11 +23,11 @@ in both takes its axes from the registry and its panel data from here.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Literal, Optional
+from typing import Annotated, ClassVar, Literal, Optional
 
 from pydantic import AfterValidator, Field, ValidationInfo, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.epics.family import (
     FamilyFile,
     Role,
@@ -273,6 +273,8 @@ class PanelDevices(VersionedSchemaModel):
     (a bench device): the scan worker reads ``native_devices.yaml``, never
     this file.
     """
+
+    tier: ClassVar[Tier] = "maintainer"
 
     schema_version: Literal[1] = Field(
         1,

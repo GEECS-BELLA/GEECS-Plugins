@@ -9,11 +9,14 @@ automatically.
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, ClassVar, List, Optional
 
 from pydantic import Field, field_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
+
+#: The groups' folder under ``scan_analysis_configs/`` (``groups/HTU/<name>.yaml``).
+GROUPS_FOLDER = "groups"
 
 
 class AnalyzerRef(SchemaModel):
@@ -40,6 +43,8 @@ class AnalysisGroup(VersionedSchemaModel):
     priority}`` mappings; bare IDs are stored as enabled entries with no
     priority override.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     name: str = Field(
         ...,

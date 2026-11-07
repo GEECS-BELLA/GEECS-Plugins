@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, ClassVar, Literal, Optional, Union
 
 from pydantic import (
     Field,
@@ -36,7 +36,7 @@ from pydantic import (
     model_validator,
 )
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
     FamilyFile,
@@ -330,6 +330,8 @@ DETECTOR_KINDS: frozenset[str] = frozenset({"aravis_camera"})
 
 class NativeDevices(VersionedSchemaModel):
     """The experiment's devices served by native EPICS IOCs, by GEECS device name."""
+
+    tier: ClassVar[Tier] = "maintainer"
 
     schema_version: Literal[1] = Field(
         1,

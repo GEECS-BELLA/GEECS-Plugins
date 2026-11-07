@@ -8,9 +8,11 @@ must declare a freshness window with ``stale_after``.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from pydantic import Field, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
 #: Where the gateway's overlay lives inside the configs repository, per
 #: experiment: ``scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml``.
@@ -214,6 +216,8 @@ class DerivedChannels(VersionedSchemaModel):
     Load this file at gateway startup to add semantic, derived readbacks on top
     of the raw GEECS database-driven PV set.
     """
+
+    tier: ClassVar[Tier] = "maintainer"
 
     derived_channels: list[DerivedChannel] = Field(
         default_factory=list,
