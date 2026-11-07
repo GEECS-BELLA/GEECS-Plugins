@@ -714,4 +714,10 @@ the hazard dialog's styles move from `camera.css` to `device.css`. Also:
 `traces.trace_pvs` no longer looks a DB device's type up as a family (the
 module's `source` decides first, as `device_pages.resolve` does).
 
-**Review** changed: (filled in after the review).
+**Review** (round 1: one medium, five low, a placement note; all fixed,
+confirmed in round 2) changed: the camera ROI can never land on a camera's
+rail (`device_pages.OWN_ROLES`: roles a kind's page draws itself, whatever
+the family's panel says or when it has none); the camera's rail is filled
+once per frame through `camera.js`'s hooks, not on every PV update; the
+rail's group selector is pinned under node; the analysis-ROI tools sit
+under their group; `GATEWAY` lives once, in `module_client.py`.
