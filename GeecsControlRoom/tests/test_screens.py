@@ -306,7 +306,7 @@ def test_a_readout_without_units_of_its_own_takes_the_records(client: TestClient
     "status, says",
     [
         (503, "The module did not answer: busy; reload the screen to draw it"),
-        (404, "U_PLC is not on the module&#39;s roster: Choose a device above, or check the name."),
+        (404, "U_PLC is not on the module&#39;s roster: check the screen&#39;s device name, or why the module has not loaded it"),
         (403, "The module refused this display&#39;s read: busy"),
     ],
 )  # fmt: skip

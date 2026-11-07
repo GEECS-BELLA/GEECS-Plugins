@@ -351,8 +351,11 @@ async def embedded(module: ModuleClient, keys: Collection[GroupKey]) -> dict[Gro
     out = {}
     for key in keys:
         status, body = bodies[key[0]]
-        if why := unread(status, body, key[0]):
-            out[key] = Embedded(problem=f"{why.title}: {why.detail}" + ("; reload the screen to draw it" if why.again else ""))  # fmt: skip
+        if why := unread(
+            status, body, key[0]
+        ):  # a screen has no picker: its own advice for a device off the roster
+            detail = "check the screen's device name, or why the module has not loaded it" if why.status == 404 else why.detail  # fmt: skip
+            out[key] = Embedded(problem=f"{why.title}: {detail}" + ("; reload the screen to draw it" if why.again else ""))  # fmt: skip
         else:
             out[key] = group_panel(body, key[2], key[1])
     return out
