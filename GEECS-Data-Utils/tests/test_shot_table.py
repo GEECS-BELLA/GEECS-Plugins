@@ -851,3 +851,17 @@ def test_frequent_poll_lag_qualifies_the_run_instead_of_flagging_rows() -> None:
     )
     assert "attribute-lag-noisy" in table.device_flags["cam"]
     assert _flagged(table, "clock-step:cam") == []
+
+
+def test_a_frozen_witness_attribute_is_no_poll_noise() -> None:
+    """A stalled attribute climbs past one behind; a later step is still flagged."""
+    rows = _rows(200)
+    cam = _cam(rows)
+    attribute = cam.witness_count.copy()
+    attribute[20:45] = attribute[19]  # frozen for 25 rows while the count runs
+    attribute[180:] -= 1  # every record from 180 one shot late
+    table = shot_table(
+        START, rows, [_device("cam", cam.records.stamps, cam.counter, attribute)]
+    )
+    assert "attribute-lag-noisy" not in table.device_flags.get("cam", ())
+    assert all("clock-step:cam" in table.flags[k] for k in range(181, 200))

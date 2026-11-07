@@ -121,12 +121,16 @@ CLOCK_STEP_LAG_RUN = 3
 WITNESS_CONTRACT_LAG = 0
 #: Timed rows a row's local lag is the lower median of (:func:`_local_lags`).
 CLOCK_STEP_LAG_WINDOW = 5
-#: Timed rows whose lag differs from both neighbours', as a share, past
-#: which the poll lag is too frequent for the row-by-row attribute reading
-#: (:func:`_lag_noisy`): the run is then ``attribute-lag-noisy``.  The
-#: measured 1.7 % isolates about that share; a tenth is about one record
-#: in nine lagging.
-CLOCK_STEP_NOISY_SHARE = 0.1
+#: Adjacent timed pairs whose lag flips between equal and one behind, as a
+#: share, past which the poll lag is too frequent for the row-by-row
+#: attribute reading (:func:`_lag_noisy`): the run is then
+#: ``attribute-lag-noisy``.  A share p of records lagging flips about
+#: 2p(1 - p) of pairs: the measured 1.7 % about 3 %; 8 % is reached
+#: between about 4 % and 96 % of records lagging (on a run of a few hundred
+#: rows; a shorter one needs the floor below).
+CLOCK_STEP_NOISY_SHARE = 0.08
+#: ...and never fewer flips than this (sampling spread on a short run).
+CLOCK_STEP_NOISY_MIN_FLIPS = 12
 #: ...over at least this many timed rows; a shorter run is never noisy.
 CLOCK_STEP_NOISY_MIN_ROWS = 50
 
@@ -848,13 +852,16 @@ def _clock_step_audit(
     stretch is flagged and a moved one can pass.  A flagged stretch's edge
     rows are flagged with it, the window reading them least surely.  The
     reading assumes that measured rate, which depends on the witness IOC's
-    poll period: where too many rows lag apart from their neighbours
-    (:func:`_lag_noisy`) the attribute verifies and convicts no row, the
-    displaced levels are flagged whole, and the run is
-    ``attribute-lag-noisy``; a whole-period step is then not detected.
-    Between the measured rate and that bound (up to about 11 % of records
-    lagging) the row reading still runs and flags up to about 1 % of
-    correct rows; rows are over-flagged there rather than passed.  The reference is the
+    poll period: where the lag flips between equal and one behind too
+    often (:func:`_lag_noisy`, from about 5 % to about 90 % of records
+    lagging on a run of a few hundred rows) the attribute verifies and
+    convicts no row, the displaced levels are flagged whole, and the run
+    is ``attribute-lag-noisy``; a whole-period step is then not detected.
+    Below that band a few correct rows may be over-flagged; above it, and
+    on a short run near its top, the run reads as filed a shot late
+    (``attribute-lag-systematic``) and most of its rows are flagged.  Both
+    over-flag; neither passes a moved row silently.  A two-row step and return in mid-run, with no gap,
+    reads as poll lag.  The reference is the
     contract, never the run's own lags, so a step anywhere in the run —
     its first rows, after a poll lag, over most of it — cannot become
     "normal"; a run filed one shot late from its start is *clock-step* on
@@ -896,7 +903,7 @@ def _clock_step_audit(
         for n in set(level_of.tolist())
     }
     lags = [lag(j) for j in range(len(timed))]
-    noisy = reference is not None and _lag_noisy(lags)
+    noisy = reference is not None and _lag_noisy(lags, reference)
     if noisy:
         # Poll lag too frequent for a row's lag to say where its record is:
         # the attribute verifies nothing and convicts nothing row by row.
@@ -922,24 +929,28 @@ def _clock_step_audit(
     return ("attribute-lag-noisy",) if noisy else ()
 
 
-def _lag_noisy(lags: Sequence[float]) -> bool:
+def _lag_noisy(lags: Sequence[float], reference: float) -> bool:
     """Whether the witness attribute's poll lag is too frequent to audit rows by.
 
     The row-by-row reading assumes the measured poll lag (1.7 % of records
     one behind, at the witness IOC's 10 ms poll): sporadic, so a stretch of
-    lagging rows is a moved one.  A slower poll lags far more often.  A
-    poll lag is a row whose lag differs from both its neighbours'; a clock
-    step's edge is not one.  More than :data:`CLOCK_STEP_NOISY_SHARE` of at
-    least :data:`CLOCK_STEP_NOISY_MIN_ROWS` timed rows so isolated is that.
+    lagging rows is a moved one.  A slower poll lags often, and then the
+    lag flips between equal and one behind from row to row; a clock step
+    flips it once (twice with its return), and a frozen attribute climbs
+    past one behind, which is no flip.  So more than
+    :data:`CLOCK_STEP_NOISY_SHARE` of adjacent timed pairs flipping between
+    *reference* and one behind (and at least
+    :data:`CLOCK_STEP_NOISY_MIN_FLIPS`), over at least
+    :data:`CLOCK_STEP_NOISY_MIN_ROWS` timed rows, is that.
     """
     finite = [x for x in lags if np.isfinite(x)]
     if len(finite) < CLOCK_STEP_NOISY_MIN_ROWS:
         return False
-    isolated = sum(
-        finite[j] != finite[j - 1] and finite[j] != finite[j + 1]
-        for j in range(1, len(finite) - 1)
+    poll = (reference, reference + 1)
+    flips = sum(a != b and a in poll and b in poll for a, b in zip(finite, finite[1:]))
+    return flips > max(
+        CLOCK_STEP_NOISY_SHARE * (len(finite) - 1), CLOCK_STEP_NOISY_MIN_FLIPS
     )
-    return isolated > CLOCK_STEP_NOISY_SHARE * len(finite)
 
 
 def _residual_levels(
