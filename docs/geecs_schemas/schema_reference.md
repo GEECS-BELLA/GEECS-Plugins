@@ -1037,8 +1037,8 @@ One control: its kind, the label a person reads, and what it is bound to.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'select' \| 'readout' \| 'annotation' \| 'image'` | yes | — | The widget, one of the eight. |
-| `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label. |
+| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'select' \| 'readout' \| 'annotation' \| 'image' \| 'group'` | yes | — | The widget, one of the nine. |
+| `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label (a group's: its title). |
 | `bind` | `Binding (optional)` | no | None | What it shows and writes; none for an annotation or an image. |
 | `indicators` | `list[Binding]` | no | [] | A flipper's in and out indicators, in that order. |
 | `confirm` | `str (optional)` | no | None | A hazard note the operator confirms before the write. |
@@ -1058,6 +1058,7 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
 | `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
 | `action` | `str (optional)` | no | None | An action plan's name in the experiment's library: a button runs it. |
+| `group` | `str (optional)` | no | None | A rail group's title in the device's family panel, or 'settings' for the automatic layout: a group widget draws it. |
 
 ### ToggleValues
 

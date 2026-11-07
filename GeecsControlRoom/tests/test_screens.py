@@ -299,3 +299,30 @@ def test_a_readout_without_units_of_its_own_takes_the_records(client: TestClient
     assert (
         "<label>Set <small>mbar</small></label>" in page
     )  # the screen's own units win
+
+
+def test_a_group_whose_device_the_module_did_not_give_says_so_and_the_screen_draws(settings: Settings) -> None:  # fmt: skip
+    """The module silent for an embedded device: that widget says why (drawn on the next load), never a 500 or a blank."""
+    reads: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/devices"):
+            return httpx.Response(200, json={"devices": [{"name": "U_PLC", "source": "gateway"}]})  # fmt: skip
+        reads.append(request.url.path)
+        return httpx.Response(503, json={"detail": "busy"})
+
+    _screens(settings, "title: T\ngroups: [{title: G, at: [1, 1], widgets: [{kind: group, bind: {device: U_PLC, group: settings}}, {kind: group, label: Again, bind: {device: U_PLC, group: settings}}, {kind: toggle, bind: {device: U_PLC, role: DO.Ch1}}]}]\n")  # fmt: skip
+    module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
+    with TestClient(create_app(settings, module)) as c:
+        r = c.get("/screens/sim_bench")
+    assert r.status_code == 200 and reads == [
+        "/geecs/v1/devices/U_PLC"
+    ]  # one read per device, however many widgets
+    assert r.text.count("the module answered 503: reload the screen to draw it") == 2
+    assert '<div class="w gw-missing" data-kind="group"><span class="lbl">Again · U_PLC</span>' in r.text  # fmt: skip
+    assert (
+        'data-kind="group" data-device' not in r.text
+    )  # never polled or written: nothing drawn to write
+    assert (
+        'data-device="U_PLC" data-role="DO.Ch1"' in r.text
+    )  # the rest of the screen drawn

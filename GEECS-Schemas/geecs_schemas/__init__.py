@@ -83,6 +83,7 @@ from geecs_schemas.epics.operations import (
     OperatorPolicy,
 )
 from geecs_schemas.screens import (
+    AUTO_GROUP,
     SCREENS_DIRNAME,
     Binding,
     Bound,
@@ -231,6 +232,7 @@ __all__ = [
     "Group",
     "Widget",
     "ToggleValues",
+    "AUTO_GROUP",
     "Binding",
     "Bound",
     "ScreenError",

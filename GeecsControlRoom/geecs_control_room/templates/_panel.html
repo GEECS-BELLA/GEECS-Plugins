@@ -17,6 +17,9 @@
   A `grid` group draws its short controls as compact labelled cells. Every
   control carries its role (and axis); device_rail.js fills it from Hare,
   enables it on the module's word and writes it through device_writes.js.
+  A screen's `group` widget draws one group with `rail` and the panel's
+  readings with `readings` (its ids under the widget's `prefix`, its label
+  the first group's `title`).
   A screen draws its widgets through the same `control` (screen.html): a
   pair writes `values` (a toggle's numbers; else 0 and 1), labelled by the
   record's own choices when `spec.enum_labels`; a select offers the record's
@@ -48,11 +51,11 @@
   </div></div>
 {%- endmacro %}
 
-{% macro rail(panel, specs, axis=none) -%}
+{% macro rail(panel, specs, axis=none, prefix="c", title=none) -%}
 {% for group in panel.rail %}{% set g = loop.index %}
 <section class="group{% if group.layout == 'grid' %} grid-cells{% endif %}" data-roles="{{ group.roles | tojson | forceescape }}">
-  <h4>{{ group.title }}</h4>
-  <div class="row">{% for r in group.roles if r not in panel.inside %}{% set id = "c-" ~ (axis ~ "-" if axis else "") ~ g ~ "-" ~ loop.index %}
+  <h4>{{ title if title and loop.first else group.title }}</h4>
+  <div class="row">{% for r in group.roles if r not in panel.inside %}{% set id = prefix ~ "-" ~ (axis ~ "-" if axis else "") ~ g ~ "-" ~ loop.index %}
     {% if r in panel.tweak %}{{ tweak(specs[r], panel.tweak[r], specs, id, axis) }}{% else %}{{ control(specs[r], id, panel.buttons.get(r), axis) }}{% endif %}{% endfor %}</div>
 </section>{% endfor %}
 {%- endmacro %}

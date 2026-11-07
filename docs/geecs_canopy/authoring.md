@@ -62,13 +62,14 @@ is a complete worked example.
 
 ### Bindings
 
-A widget's `bind` is exactly one of three forms:
+A widget's `bind` is exactly one of four forms:
 
 | Form | Example | Meaning |
 |---|---|---|
 | Device role | `{device: eztest1, role: current_sp}` | A role from the device's family file. On a per-axis family (a motor), add `axis: m1`. On a LabVIEW device served through the gateway, the role is the GEECS variable name: `{device: U_PLC, role: DO.Ch1}`. |
 | Bare PV | `{pv: "x:u_plc:di_ch5"}` | A PV by name, **read only**: a writing widget bound to one is drawn disabled. For a value that belongs to no device role (a timestamp, a derived channel). |
 | Action | `{action: bench_park}` | A plan in `action_library/actions.yaml`. Only a `button` may bind one. |
+| Device group | `{device: eztest1, group: Output}` | A rail group of the device's page, by its title in the family's `panel` (`axis:` on a per-axis family), or `settings` for the automatic layout of a device whose family has none (every LabVIEW device served through the gateway). Only a `group` may bind one. |
 
 Name the device by its GEECS name, never by its PV; the PV comes from the
 module.
@@ -154,6 +155,29 @@ binding.
 ```yaml
 - {kind: image, src: chicane_layout.png}
 ```
+
+**group**: a whole group of a device's page, drawn as that page draws it:
+every control of the group, and the device's readings folded under it
+(**Readings · device**; under the first group widget of each device only). Binds a device and a group: a title from the
+family's `panel` (a supply's `Output`, a motor's `Move` on an axis, a
+scope's `Trigger`), or `settings` for a device laid out automatically (a
+LabVIEW device's writable variables, its read-only ones the readings). The
+`label`, when given, replaces the group's title. It takes no `units`,
+`precision` or `confirm`: its controls take theirs from the device, and a
+hazard role asks as on the device's page. The screen refuses a group the
+family's panel does not have, and lists the ones it does. Use it where a
+screen wants what the device page already lays out; bind single roles where
+it wants a few of them in its own order.
+
+```yaml
+- {kind: group, bind: {device: eztest1, group: Output}}
+- {kind: group, label: Stage X, bind: {device: SimMotor1, group: Move, axis: m1}}
+- {kind: group, label: Plunger PLC, bind: {device: U_PLC, group: settings}}
+```
+
+The group is read from the module when the page is drawn: should the module
+not answer for that device, the widget says so and the rest of the screen
+draws; reload the page to draw it.
 
 ## The home's launcher: `home.yaml`
 

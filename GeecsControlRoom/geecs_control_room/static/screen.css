@@ -43,3 +43,17 @@
 .kit .sgroup .pic{max-width:100%}
 .kit .operator{display:inline-flex;align-items:center;gap:6px;font-size:12px}
 .kit .hare{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+/* A group widget: a device's rail group as its page draws it, its controls the dense widgets' above (one per
+   line), a grid group's cells side by side, its readings folded under it. */
+.kit .w[data-kind="group"]{display:block;grid-column:1/-1}
+.kit .w[data-kind="group"] .group{gap:0}
+.kit .w[data-kind="group"] .group h4{margin:4px 0 2px;font-size:10.5px;letter-spacing:var(--tk);text-transform:uppercase;color:var(--muted)}
+.kit .w[data-kind="group"] .group .row{flex-direction:column;align-items:stretch;gap:2px}
+.kit .w[data-kind="group"] .grid-cells .row{display:grid;grid-template-columns:repeat(auto-fill,minmax(8rem,1fr));gap:2px 8px}
+.kit .w[data-kind="group"] .field{flex:none}
+.kit .w[data-kind="group"] .field.tweak .seg input{width:5em;text-align:center}
+.kit .w[data-kind="group"] details.disc{margin-top:4px;font-size:11.5px}
+.kit .w[data-kind="group"] .readings{grid-template-columns:repeat(auto-fill,minmax(7rem,1fr));gap:4px 10px}
+.kit .w[data-kind="group"] .readings .live .v{font-size:13px}
+.kit .w[data-kind="group"] .readings .ws{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;color:var(--muted)}
+.kit .w.gw-missing .m{flex-basis:100%;font-size:11px;color:var(--muted)}

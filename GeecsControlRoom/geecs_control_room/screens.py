@@ -6,7 +6,10 @@
 (read at most every ``ROSTER_TTL_S``): a device only the module lists (a
 DB device) is bound deferred, its roles judged on the page by the module's
 device route. A button may name an action plan, checked against the
-experiment's library and run by the module. The page reads live values
+experiment's library and run by the module. A group widget draws a
+device's rail group as its device page does: the server reads the module's
+device route for it when it draws the page (``device_pages.embedded``,
+handed in by the app, since that module builds on this one). The page reads live values
 from Hare itself; the routes here only pass the module's answers through:
 a device's verdicts, a put, and an action run's start, state and stop,
 each write sent once.
@@ -18,7 +21,7 @@ import asyncio
 import math
 import re
 import time
-from collections.abc import Collection
+from collections.abc import Awaitable, Callable, Collection
 from urllib.parse import quote
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -240,8 +243,18 @@ async def through(
         return unreachable(exc, why)
 
 
-def router(settings: Settings) -> APIRouter:
-    """The screen page, the screens' images, and the device pass-throughs."""
+#: The group widgets' keys (device, axis, group) → each drawn as its device page draws it (``device_pages.embedded``).
+Embed = Callable[[ModuleClient, Collection[tuple[str, Optional[str], str]]], Awaitable[dict[Any, Any]]]  # fmt: skip
+
+
+def group_keys(loaded: Loaded) -> list[tuple[str, Optional[str], str]]:
+    """The screen's group widgets as (device, axis, group), in order, once each."""
+    found = [(w.bind.device or "", w.bind.axis, w.bind.group or "") for row in loaded.rows for b in row if (w := b.widget).kind == "group" and w.bind]  # fmt: skip
+    return list(dict.fromkeys(found))
+
+
+def router(settings: Settings, embed: Embed) -> APIRouter:
+    """The screen page, the screens' images, and the device pass-throughs; ``embed`` draws its group widgets."""
     r = APIRouter()
     roster = _Roster()
 
@@ -253,7 +266,9 @@ def router(settings: Settings) -> APIRouter:
             error and loaded.status == 422
         ):  # a DB device may be refused for want of the roster: say so before the widgets
             loaded.cause = f"the module's roster is incomplete ({error}): a DB device cannot be bound"  # fmt: skip
-        context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE, "spec_of": spec_of, "pair_values": pair_values, "pair": PAIR}  # fmt: skip
+        keys = group_keys(loaded)
+        groups = await embed(request.app.state.module, keys) if keys else {}
+        context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE, "spec_of": spec_of, "pair_values": pair_values, "pair": PAIR, "groups": groups}  # fmt: skip
         templates = request.app.state.templates
         return templates.TemplateResponse(
             request, "screen.html", context, status_code=loaded.status

@@ -596,6 +596,39 @@ async def test_a_db_device_is_laid_out_automatically_and_written_through_the_mod
     assert '<a href="/device/settables/U_Wheel">U_Wheel</a>' in home
 
 
+async def test_a_screens_group_widget_draws_a_devices_rail_group_as_its_page_does(db_room) -> None:  # fmt: skip
+    (db_room.env.folder / "screens").mkdir()
+    (db_room.env.folder / "screens" / "s.yaml").write_text(
+        "title: S\ngroups:\n  - {title: G, at: [1, 1], widgets: [\n"
+        "      {kind: group, bind: {device: ps1, group: Output}},\n"
+        "      {kind: group, label: Stage, bind: {device: Mot1, group: Move, axis: m2}},\n"
+        "      {kind: group, bind: {device: U_PLC, group: settings}},\n"
+        "      {kind: group, bind: {device: ps1, group: Faults}}]}\n"
+    )
+    page = (await db_room.client.get("/screens/s")).text
+    # the family's group (the screen's label over its title), the motor's on the bound axis, a DB device's automatic layout
+    plc = [f"DO.Ch{i}" for i in range(1, 6)]
+    assert _groups(page) == [("Output", ["output_sp", "current_sp"]), ("Stage", ["val", "twv", "twf", "twr", "stop"]), ("Settings (grid)", plc), ("Faults", ["reset"])]  # fmt: skip
+    supply = (await db_room.client.get("/device/supply/ps1")).text
+    motor = (await db_room.client.get("/device/motor/Mot1")).text
+    assert (
+        _groups(supply)[0] == _groups(page)[0]
+        and _groups(motor)[0][1] == _groups(page)[1][1]
+    )  # as the device pages draw them
+    assert 'data-role="output_sp" data-value="0" data-pair aria-pressed="false" disabled>Off</button>' in page  # fmt: skip
+    assert 'data-role="twr" data-axis="m2" data-step="twv" data-value="1"' in page and 'data-axis="m1"' not in page  # fmt: skip
+    # each device's readings (per axis) folded under its first group widget only; every id on the page once
+    assert re.findall(r"<summary>Readings · ([\w ]+)</summary>", page) == ["ps1", "Mot1 m2", "U_PLC"]  # fmt: skip
+    assert 'class="live" data-role="hls" data-axis="m2"' in page and 'class="live" data-role="DI.Ch1"' in page  # fmt: skip
+    ids = re.findall(r' id="([^"]+)"', page)
+    assert len(ids) == len(set(ids))
+    # each widget is its device's (polled, written through the module's put route as any screen control)
+    assert re.findall(r'<div class="w" data-kind="group" data-device="(\w+)"', page) == ["ps1", "Mot1", "U_PLC", "ps1"]  # fmt: skip
+    await _meta(db_room, "U_PLC", "DO.Ch2", None, {"enumChoices": ["off", "on"]})
+    status, answer = await put(db_room, "U_PLC", role="DO.Ch2", value=1)
+    assert status == 200 and answer["outcome"] == "accepted", json.dumps(answer)
+
+
 async def test_a_db_device_is_classified_by_its_source_never_by_its_type_name(
     db_room,
 ) -> None:

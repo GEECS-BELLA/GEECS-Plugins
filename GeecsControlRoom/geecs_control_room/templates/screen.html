@@ -9,7 +9,12 @@
   pair (its `values`, else 0 and 1), a select the enum's choices, a button a
   command, a readout the value with its word; device_rail.js fills and
   writes them through device_writes.js (the module's put route, the
-  operator's name, sent once). A flipper's lamps, the annotations, the
+  operator's name, sent once). A `group` widget is a device's rail group
+  as its device page draws it (`rail`, the panel's readings folded under
+  it), from the module's device route read when the page is drawn
+  (`groups`: device_pages.embedded; a device's readings under its first
+  group widget only, per axis); the module silent, it says so and is
+  drawn on the next load. A flipper's lamps, the annotations, the
   pictures and an action button are the screen's own (screen.js).
 #}{% extends "base.html" %}{% import "_panel.html" as P %}
 {% set s = loaded.screen %}
@@ -43,7 +48,7 @@
   </div>
 </main></div>
 {% else %}
-{% set stacks = loaded.stacks %}
+{% set stacks = loaded.stacks %}{% set read = namespace(devices=[]) %}{# a device's readings fold under its first group widget only #}
 <main class="screen" style="grid-template-columns: repeat({{ loaded.columns }}, minmax(17rem, 1fr))">
   {% for column in stacks or [range(s.groups | length)] %}{% if stacks %}<div class="scol">{% endif %}
   {% for gi in column %}{% set group = s.groups[gi] %}
@@ -54,6 +59,16 @@
     <p class="note">{{ w.label }}</p>
     {% elif w.kind == "image" %}
     <img class="pic" src="{{ root }}/screens/files/{{ w.src }}" alt="{{ w.label }}">
+    {% elif w.kind == "group" %}{% set b = w.bind %}{% set g = groups[(b.device, b.axis, b.group)] %}
+    {% if g.problem %}
+    <div class="w gw-missing" data-kind="group"><span class="lbl">{{ w.label or b.group }} · {{ b.device }}</span><span class="ws"><span class="dot" data-state="degraded" aria-hidden="true"></span><span class="word">not drawn</span></span><span class="m">{{ g.problem }}</span></div>
+    {% else %}{% set panel = g.panel %}
+    <div class="w" data-kind="group" data-device="{{ b.device }}"{% if b.axis %} data-axis="{{ b.axis }}"{% endif %}>
+      <div class="panel-rail"{% if b.axis %} data-axis-pane="{{ b.axis }}"{% endif %}>{{ P.rail(panel, g.specs, b.axis, "w-" ~ gi ~ "-" ~ loop.index, w.label) }}</div>
+      {% if panel.readings and (b.device, b.axis) not in read.devices %}{% set read.devices = read.devices + [(b.device, b.axis)] %}<details class="disc"><summary>Readings · {{ b.device }}{% if b.axis %} {{ b.axis }}{% endif %}</summary><div class="dbody">{{ P.readings(panel, g.specs, b.axis) }}</div></details>{% endif %}
+      <span class="out" aria-live="polite"></span>
+    </div>
+    {% endif %}
     {% else %}
     <div class="w" data-kind="{{ w.kind }}"{{ bindattrs(w.bind) }}
       {%- if bound.deferred %} data-deferred="1" data-fits="{{ bound.fits | join(' ') }}"{% endif %}

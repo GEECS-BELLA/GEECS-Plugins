@@ -67,6 +67,11 @@
   // ---- the words beside a control, and a flipper's lamps
   function draw() {
     for (const w of widgets) {
+      if (w.dataset.kind === "group") { // its words are its controls' and readings' (device_rail.js); all its groups hidden, it hides with them
+        const groups = [...w.querySelectorAll(".panel-rail .group")];
+        w.hidden = groups.length > 0 && groups.every((g) => g.hidden) && !w.querySelector("details");
+        continue;
+      }
       if (w.dataset.action) continue;
       const ws = w.querySelector(":scope > .ws"), P = pageOf(w);
       if (ws) {

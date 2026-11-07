@@ -22,6 +22,8 @@ family not yet given a panel are complete with no template of their own.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import quote
@@ -29,7 +31,7 @@ from urllib.parse import quote
 import yaml
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
-from geecs_schemas import FamilyFile, load_families
+from geecs_schemas import AUTO_GROUP, FamilyFile, load_families
 from geecs_web_theme.web import root_of
 from pydantic import ValidationError
 
@@ -258,14 +260,67 @@ def specs(entries: list[dict[str, Any]], family: Optional[FamilyFile], units: di
 OWN_ROLES = {"camera": frozenset({"min_x", "min_y", "size_x", "size_y"})}
 
 
-def page_panel(body: dict[str, Any], family: Optional[FamilyFile], rows: list[dict[str, Any]], kind: Optional[str] = None) -> dict[str, Any]:  # fmt: skip
-    """What the page draws above the role tables: the panel (the family's, else automatic) for this device's roles, less the kind's own (``OWN_ROLES``), and each role's control spec."""
+def page_panel(body: dict[str, Any], family: Optional[FamilyFile], rows: list[dict[str, Any]], kind: Optional[str] = None, axis: Optional[str] = None) -> dict[str, Any]:  # fmt: skip
+    """What the page draws above the role tables: the panel (the family's, else automatic) for this device's roles on ``axis`` (default: its first), less the kind's own (``OWN_ROLES``), and each role's control spec."""
     axes = body.get("axes") or [None]
-    entries = [e for e in body.get("roles") or [] if e.get("axis") == (axes[0] if family and family.per_axis else None)]  # fmt: skip
+    entries = [e for e in body.get("roles") or [] if e.get("axis") == ((axis or axes[0]) if family and family.per_axis else None)]  # fmt: skip
     authored: Optional[dict[str, Any]] = family.panel.model_dump(mode="json") if family and family.panel else None  # fmt: skip
     panel = drawn_panel(authored or auto_panel(entries), {e["role"] for e in entries} - OWN_ROLES.get(kind or "", frozenset()))  # fmt: skip
     units = {r["name"]: r.get("units") for r in rows}
     return {"panel": panel, "specs": specs(entries, family, units), "auto": authored is None}  # fmt: skip
+
+
+#: A screen's group widget: (device, axis, group), as ``resolve_screen`` bound it.
+GroupKey = tuple[str, Optional[str], str]
+
+
+@dataclass(frozen=True)
+class Embedded:
+    """A screen's group widget as the device page draws that group: the panel (its rail the one group) and specs, or why not."""
+
+    panel: Optional[dict[str, Any]] = None
+    specs: Optional[dict[str, dict[str, Any]]] = None
+    problem: Optional[str] = None
+
+
+def group_panel(
+    body: dict[str, Any], group: str, axis: Optional[str] = None
+) -> Embedded:
+    """The device's rail group ``group`` (``settings``: the automatic layout, every group of it) and the panel's readings, as its page draws them."""
+    gateway = body.get("source") == GATEWAY
+    family = None if gateway else load_families().get(body.get("family") or "")
+    if family is None and not gateway:
+        return Embedded(problem=f"its family {body.get('family')!r} is no installed family file")  # fmt: skip
+    word = DB_KIND if gateway else _WORD.get(family.kind)
+    drawn = page_panel(body, family, [r for _, rows in tables(body, family) for r in rows], word, axis)  # fmt: skip
+    panel = drawn["panel"]
+    rail = panel["rail"] if drawn["auto"] == (group == AUTO_GROUP) else []
+    rail = rail if group == AUTO_GROUP else [g for g in rail if g["title"] == group]
+    if not rail:
+        return Embedded(
+            problem=f"the device as the module serves it draws no group {group!r}"
+        )
+    return Embedded(panel | {"rail": rail}, drawn["specs"])
+
+
+async def embedded(module: ModuleClient, keys: Collection[GroupKey]) -> dict[GroupKey, Embedded]:  # fmt: skip
+    """Each group widget's group, one module read per device (concurrently); a device the module did not give is a problem, never a 500."""
+    names = sorted({name for name, _, _ in keys})
+
+    async def read(name: str) -> tuple[int, Any]:
+        try:
+            return await module.device(name)
+        except ModuleUnavailable as exc:
+            return 0, {"detail": str(exc)}
+
+    bodies = dict(zip(names, await asyncio.gather(*(read(n) for n in names))))
+    out = {}
+    for key in keys:
+        status, body = bodies[key[0]]
+        ok = status == 200 and isinstance(body, dict) and "family" in body
+        why = f"the module answered {status}" if status else f"the module did not answer ({body['detail']})"  # fmt: skip
+        out[key] = group_panel(body, key[2], key[1]) if ok else Embedded(problem=f"{why}: reload the screen to draw it")  # fmt: skip
+    return out
 
 
 async def resolve(module: ModuleClient, kind: str, name: str) -> tuple[int, dict[str, Any]]:  # fmt: skip
