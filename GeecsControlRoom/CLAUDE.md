@@ -59,7 +59,8 @@ geecs_control_room/
   static/device.css the device pages' layout
   static/camera.js, camera_controls.js, camera_rules.js, camera.css   the camera page (device_camera.html):
                     the viewer (frame loop, zoom/pan, colour map, levels), crosshairs and analysis ROI
-                    drawn and dragged, the acquisition controls and camera ROI (a dialog first), the
+                    drawn and dragged, the rail and readings (the family's panel, device_rail.js over
+                    camera.js's writes), its own camera ROI (one draft, a dialog first) and display, the
                     lineouts and histogram; the Raw toggle (frame.raw at 2 Hz, rotated / flipped by role
                     `transform` as TRANS1 would, levels per mode as fractions of the full scale);
                     device.js's GeecsDevicePage gives it the roles, values, words
@@ -376,13 +377,20 @@ A device is classified by its roster `source` first: a gateway device's
 family is its DB device type, never looked up as a family file, even when
 it is spelled like one.
 
-The camera page keeps its hand-coded rail (`device_camera.html`,
-`camera_controls.js`, which writes on `change`, and its readings in
-`camera.js`) until it moves onto its family's panel and this rail. The
-screen renderer draws its controls with this rail (§ "Rules that hold
-here"); a screen widget that embeds a device's rail group is the next
-piece. The rail-and-pane grid still borrows `camera.css`'s `.camera`
-layout, which moves to `device.css` with the camera's rail.
+The camera page draws its family's panel with the same macros
+(acquisition with acquire's Stop / Start, the crosshairs, the analysis
+ROI; the readings strip), filled and written by this rail through
+`camera.js`'s writes (one list at a time for the page, shared with the
+image's drags). Two blocks stay the camera's own: the camera ROI, one
+draft of four fields applied behind its dialog because it changes what
+scans save (its fields carry `data-roi-role`, never `data-role`, so the
+rail does not bind them), and the display (this viewer's colour map and
+levels). The rail skips a group without `data-roles` (a page's own group
+beside the panel's). The rail-and-pane grid (class `camera`) and the
+readings strip are `device.css`'s; `camera.css` is the camera page's alone.
+The screen renderer draws its controls with this rail too (§ "Rules that
+hold here"); a screen widget that embeds a device's rail group is the next
+piece.
 
 ## The setpoint control
 

@@ -103,7 +103,7 @@
       }
       for (const el of box.querySelectorAll("[data-egu]")) el.textContent = D.units(el.dataset.type, "", pg(el).meta(el.dataset.egu, axisOf(el)));
       const names = known();
-      for (const g of box.querySelectorAll(".panel-rail .group")) {
+      for (const g of box.querySelectorAll(".panel-rail .group[data-roles]")) { // a panel group: a page's own groups beside it carry none
         const present = D.presentRole(JSON.parse(g.dataset.roles), names);
         g.hidden = !!present && D.hidden(pg(g).frame(present, paneAxis(g)));
       }

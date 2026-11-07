@@ -174,13 +174,17 @@ class Env:
         self.family: str | None = (
             None  # the device route's family (the trace route reads it)
         )
+        self.source: str | None = (
+            None  # the device route's source ("gateway": a DB device)
+        )
 
         def answer(request: httpx.Request) -> httpx.Response:
             self.reads += 1
             if self.status == 0:
                 raise httpx.ConnectError("refused", request=request)
             body = {"name": "Cam", "roles": self.roles}
-            return httpx.Response(self.status, json=body | ({"family": self.family} if self.family else {}))  # fmt: skip
+            body |= {"family": self.family} if self.family else {}
+            return httpx.Response(self.status, json=body | ({"source": self.source} if self.source else {}))  # fmt: skip
 
         self.module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
         self.images = Images(self.ca, self.fetch, clock=lambda: self.clock[0])
