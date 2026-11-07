@@ -13,7 +13,8 @@
   let roiDraft = false;
   // camera.js's write runs one list at a time for the page (the rail and the image's edits); null: refused, one runs
   const send = (pairs, confirmed = false) => V.write(pairs, confirmed);
-  const rail = window.GeecsDeviceRail.make(P, $("camera"), { write: V.write, busy: V.busy });
+  // filled through camera.js's hooks (one refresh per animation frame, and a write's start and end), never on every PV update
+  const rail = window.GeecsDeviceRail.make({ ...P, on() {} }, $("camera"), { write: V.write, busy: V.busy });
 
   // ---- the camera ROI's four fields: filled unless focused or holding the draft, enabled on the module's word
   const CAM_ROI = ["min_x", "min_y", "size_x", "size_y"];

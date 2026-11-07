@@ -52,8 +52,8 @@ geecs_control_room/
   static/device.js, device_rules.js   the device pages' live half (roles from the module per role and
                     axis, values from Hare) and its rules (picker options, a role row's word and units, the
                     rail's present-hiding, a control's written value, a pane's alarms)
-  static/device_rail.js   the ONE rail and readings strip of every page drawn from a panel (the settables
-                    page and the trace page): fill from Hare, enable on the module's word, write through
+  static/device_rail.js   the ONE rail and readings strip of every page drawn from a panel (the settables,
+                    trace and camera pages; a screen's widgets): fill from Hare, enable on the module's word, write through
                     device_writes.js (axis on a per-axis write), the setpoint control (§ "The setpoint
                     control" below); starts itself on the settables page
   static/device.css the device pages' layout

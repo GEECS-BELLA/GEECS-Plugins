@@ -57,7 +57,7 @@ import numpy as np
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
-from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
+from geecs_control_room.module_client import GATEWAY, ModuleClient, ModuleUnavailable
 
 #: The module's device route is reused this long (the roster's own cadence).
 ROUTE_TTL_S = 10.0
@@ -306,7 +306,7 @@ class Images:
             raise Unavailable(503, f"the module answered {status} for {name}")
         roles = {r["role"]: r for r in body.get("roles") or [] if r.get("pv") and not r.get("axis")}  # fmt: skip
         # the source decides first: a DB device's family is its DB device type, never looked up as a family file
-        family = None if body.get("source") == "gateway" else body.get("family")
+        family = None if body.get("source") == GATEWAY else body.get("family")
         self._good[name], self._family[name] = roles, family
         return roles
 

@@ -33,7 +33,7 @@ from geecs_schemas import FamilyFile, load_families
 from geecs_web_theme.web import root_of
 from pydantic import ValidationError
 
-from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
+from geecs_control_room.module_client import GATEWAY, ModuleClient, ModuleUnavailable
 from geecs_control_room.screens import KIT_STATE, registry, role_spec
 from geecs_control_room.settings import Settings
 from geecs_control_room.traces import trace_roles
@@ -49,8 +49,6 @@ class Kind:
 
 #: The kind word of the GEECS DB devices the module serves through the gateway (no family file).
 DB_KIND = "settables"
-#: The roster's ``source`` of a DB device.
-GATEWAY = "gateway"
 
 #: The URL's kind word → the family kind → the page. A new family of a kind needs no code.
 KINDS = {
@@ -255,12 +253,17 @@ def specs(entries: list[dict[str, Any]], family: Optional[FamilyFile], units: di
     return out
 
 
-def page_panel(body: dict[str, Any], family: Optional[FamilyFile], rows: list[dict[str, Any]]) -> dict[str, Any]:  # fmt: skip
-    """What the page draws above the role tables: the panel (the family's, else automatic) for this device's roles, and each role's control spec."""
+#: Roles a kind's page draws itself, never on its rail, whatever the family's panel says: the camera ROI (one
+#: draft of four fields applied behind its dialog, since it changes what every scan with the camera saves).
+OWN_ROLES = {"camera": frozenset({"min_x", "min_y", "size_x", "size_y"})}
+
+
+def page_panel(body: dict[str, Any], family: Optional[FamilyFile], rows: list[dict[str, Any]], kind: Optional[str] = None) -> dict[str, Any]:  # fmt: skip
+    """What the page draws above the role tables: the panel (the family's, else automatic) for this device's roles, less the kind's own (``OWN_ROLES``), and each role's control spec."""
     axes = body.get("axes") or [None]
     entries = [e for e in body.get("roles") or [] if e.get("axis") == (axes[0] if family and family.per_axis else None)]  # fmt: skip
     authored: Optional[dict[str, Any]] = family.panel.model_dump(mode="json") if family and family.panel else None  # fmt: skip
-    panel = drawn_panel(authored or auto_panel(entries), {e["role"] for e in entries})
+    panel = drawn_panel(authored or auto_panel(entries), {e["role"] for e in entries} - OWN_ROLES.get(kind or "", frozenset()))  # fmt: skip
     units = {r["name"]: r.get("units") for r in rows}
     return {"panel": panel, "specs": specs(entries, family, units), "auto": authored is None}  # fmt: skip
 
@@ -293,7 +296,9 @@ async def resolve(module: ModuleClient, kind: str, name: str) -> tuple[int, dict
         what = family.template if family else f"{name} (a GEECS DB device, {body['family'] or 'no type'})"  # fmt: skip
         return 422, {"pane": ("denied", f"Wrong kind: {what} is a {word}", ""), "other": word}  # fmt: skip
     rows = tables(body, family)
-    drawn = page_panel(body, family, [r for _, axis_rows in rows for r in axis_rows])
+    drawn = page_panel(
+        body, family, [r for _, axis_rows in rows for r in axis_rows], word
+    )
     return 200, {"pane": None, "device": body, "family": family, "tables": rows, "trace": trace_roles(family)} | drawn  # fmt: skip
 
 

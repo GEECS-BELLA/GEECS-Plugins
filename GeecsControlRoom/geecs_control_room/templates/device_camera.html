@@ -26,6 +26,13 @@
 <div class="camera" id="camera" data-frame-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.jpg" data-raw-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.raw" data-arrays-url="{{ root }}/api/devices/{{ name | urlencode }}/arrays">
   <aside class="rail panel-rail">
     {{ P.rail(panel, specs) }}
+    <section class="group roi-tools">
+      <div class="row">
+        <button class="btn sm" type="button" id="roi-full" disabled>Analysis ROI: full frame</button>
+        <label class="dim"><input type="checkbox" id="roi-show" checked> show it</label>
+      </div>
+      <div class="hint dim">Drag a crosshair's centre or the analysis ROI's edges on the image.</div>
+    </section>
     <section class="group">
       <h4>Camera ROI</h4>
       <div class="row">{{ roi("min_x", "x") }}{{ roi("min_y", "y") }}</div>
@@ -56,11 +63,6 @@
         <button class="btn sm ghost" type="button" id="reset-levels">Reset</button>
       </div>
       <div class="hint dim" id="levels-hint">The 8-bit stream, stretched in this browser: nothing is written to the camera.</div>
-      <div class="row">
-        <button class="btn sm" type="button" id="roi-full" disabled>Analysis ROI: full frame</button>
-        <label class="dim"><input type="checkbox" id="roi-show" checked> show the ROI</label>
-      </div>
-      <div class="hint dim">Drag a crosshair's centre or the analysis ROI's edges on the image.</div>
     </section>
     <div class="out" id="write-out" data-state="unknown" role="status"></div>
   </aside>

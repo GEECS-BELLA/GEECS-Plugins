@@ -21,8 +21,8 @@
 .kit .camera .readings{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
 .kit .camera .readings .live .v{font-size:15px}
 .kit .camera .readings .ws{font-size:10.5px;color:var(--muted)}
-/* The rail and readings of every page drawn from a panel (_panel.html: the settables page, the trace page),
-   in camera.css's rail-and-pane layout: short fields that wrap, a setpoint's readback under it, a tweak's
+/* The rail and readings of every page drawn from a panel (_panel.html: the settables, trace and camera pages),
+   in the rail-and-pane layout above: short fields that wrap, a setpoint's set / now under it, a tweak's
    step between its − and +, a grid group's cells. */
 .kit .device .settables{display:flex;flex-direction:column;gap:8px}
 .kit .panel-rail .group .row{flex-wrap:wrap;gap:8px}

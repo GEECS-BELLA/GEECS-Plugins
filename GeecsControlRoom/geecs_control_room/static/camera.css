@@ -18,4 +18,4 @@
 .kit .panel.image header #raw-note:empty{display:none}
 .kit .panel.image header #raw-note[data-state="degraded"]{color:var(--warn)}
 /* The camera's rail is the panel's (_panel.html): two fields to a row in its narrow column, set / now under each. */
-.kit #camera .panel-rail .field,.kit #camera .panel-rail .field.setpoint{width:118px}
+.kit #camera .panel-rail .group[data-roles] .field{width:118px}
