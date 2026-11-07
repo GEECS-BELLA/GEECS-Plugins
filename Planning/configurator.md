@@ -258,16 +258,22 @@ becomes the service's clone, so they read a clean checkout the moment it is
 pushed; and the share's clone becomes **read-only for humans and services**,
 because an uncommitted edit on it blocks the fast-forward. The writers above
 route through the service (presets in slice 3, the analysis kinds in
-slice 6). Shot offsets are the one file written into the live checkout by
-someone else: the worker's configs root is that checkout, so
-`measure_shot_offsets` writes `shot_offsets.yaml` there uncommitted, and the
-service **reconciles** on a timer of seconds and before any fetch: it copies
-the worker's file into a staging worktree on top of main, commits it
-authored as the worker, pushes, and fast-forwards the live checkout, which
-then matches; if main moved the same file meanwhile, the worker's
-measurement wins and the log says so. An operator's edit of shot offsets is
-an ordinary operator-tier commit; last wins. The edits already sitting on
-the share are committed once, by hand, before the switch.
+slice 6). **Nothing writes into the live checkout**, because a dirty
+checkout cannot be fast-forwarded: git refuses to overwrite an uncommitted
+file, identical bytes included (the maintainer reproduced it). The worker's
+one write, `measure_shot_offsets` saving `shot_offsets.yaml`, therefore
+lands elsewhere: the resolver gains a **write root** (site.env
+`GEECS_CONFIGS_WRITE_ROOT`, defaulting to the read root so a laptop behaves
+as today), and on the box it is the service's **inbox** directory. The
+service **reconciles** the inbox on a timer of seconds and before any fetch:
+it copies the file into a staging worktree on top of main, commits it
+authored as the worker, pushes, fast-forwards the clean live checkout, and
+removes the inbox file; the worker reads the committed offsets at its next
+environment open, which is the apply the table already lists for that kind.
+If main moved the same file meanwhile, the measurement wins and the log
+says so. An operator's edit of shot offsets is an ordinary operator-tier
+commit; last wins. The edits already sitting on the share are committed
+once, by hand, before the switch.
 
 **A merge on GitHub is an event too.** The service fetches main on a timer
 (a webhook later): a commit on main that did not come from the service, a
@@ -423,7 +429,8 @@ rest before slice 2. Nothing is built before 1 and 3.
    after each push from the service's repository and is read-only for
    humans and services; the uncommitted edits on it are committed once by
    hand first; the portal's editor is read-only from the switch until it
-   moves onto the service.
+   moves onto the service; the worker's write root is the service's inbox,
+   so the live checkout is never dirty.
 5. **Squirrel.** Setups do not use Canopy's presets; the module's preset
    routes stay as they are, on the module's executor. Two mechanisms for one
    thing is the thing to avoid later, not now.
@@ -461,8 +468,10 @@ rest before slice 2. Nothing is built before 1 and 3.
    (ruling 4): site.env, Canopy's compose, the rendered config.ini, the
    one-time commit of the share's edits, and **the portal's editor flipped
    to its read-only mode** (its router's `read_only` switch makes every save
-   a 405) for the interval until slice 6, so no writer but the service and
-   the worker's shot offsets touches a checkout the service fast-forwards.
+   a 405) for the interval until slice 6, and the worker's write root
+   pointed at the service's inbox (the resolver's new
+   `GEECS_CONFIGS_WRITE_ROOT`), so nothing but the service's own
+   fast-forward touches the live checkout.
 4. **Setups, the engine.** `apply_setup` in GeecsBluesky with `md`; the
    scanner's setups routes with the hazard confirmations; the module reads
    `setups/`; the converter; `run_action` and `ActionPlanLibrary` deleted.
@@ -585,3 +594,9 @@ commit on the branch:
 
 The review also asked for an explicit exit checklist; it is in the opening
 section.
+
+### 2026-11-07 — the maintainer's follow-up review (one P2)
+
+| # | Finding | Disposition |
+|---|---|---|
+| P2 | The reconcile fast-forwarded a live checkout holding the worker's uncommitted `shot_offsets.yaml`; git refuses that, identical bytes included (reproduced in a scratch repository) | **Fixed.** Nothing writes into the live checkout. The resolver gains a write root (`GEECS_CONFIGS_WRITE_ROOT`, defaulting to the read root) that on the box is the service's inbox; the reconcile commits from the inbox in a staging worktree, pushes, fast-forwards the clean live checkout and removes the inbox file; the worker reads the result at its next environment open. Slice 3 and ruling 4 say so |
