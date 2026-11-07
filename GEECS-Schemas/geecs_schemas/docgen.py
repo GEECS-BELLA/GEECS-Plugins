@@ -249,6 +249,9 @@ devices:
   U_ExampleSupply: {kind: setpoint_device,
                     settables: {current: {tolerance: 0.005, timeout: 10}},
                     readbacks: [voltage], status: [fault, interlock]}
+  # A witness: the hardware count of one trigger domain's edges (Counter1Counts),
+  # recorded in every strict row; at most one per domain.
+  U_ExampleWitness: {kind: witness, counter: Counter1, domain: main}
   # An entry may name its family ('template', one of its kind's); absent,
   # the kind's default. Older readers refuse the key.
 """,

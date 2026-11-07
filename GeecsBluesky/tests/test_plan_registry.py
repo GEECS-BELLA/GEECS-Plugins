@@ -102,11 +102,11 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
         assert params["trigger_profile"].kind is inspect.Parameter.KEYWORD_ONLY
         assert ("shots_per_step" in params) == (name != "count")
         assert "trigger_profile" in plan.__doc__
-        # the acquisition mode, the non-essential list, the throttle;
+        # the acquisition mode, the required list, the throttle;
         # #738: the LabVIEW-files switch; #1016: the background switch
         for extra in (
             "acquisition",
-            "non_essential",
+            "required",
             "shot_period",
             "native_image_save",
             "background_telemetry",
@@ -114,7 +114,7 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
             assert params[extra].kind is inspect.Parameter.KEYWORD_ONLY
             assert extra in plan.__doc__
         assert params["acquisition"].default == "strict"
-        assert params["non_essential"].default is None
+        assert params["required"].default is None
         assert params["shot_period"].default is None
         assert params["native_image_save"].default is None
         assert params["background_telemetry"].default is None
@@ -148,7 +148,7 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
     gated_item = {
         "name": "count",
         "args": [["UC_Cam"]],
-        "kwargs": {"num": 3, "acquisition": "gated", "non_essential": ["UC_Cam"]},
+        "kwargs": {"num": 3, "acquisition": "gated", "required": ["UC_Cam"]},
         "item_type": "plan",
         "user_group": "admin",
     }
@@ -158,7 +158,7 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
     assert ok, message
     from bluesky_queueserver.manager.profile_ops import prepare_plan
 
-    # the manager resolves the non_essential names like the detectors'
+    # the manager resolves the required names like the detectors'
     resolved = prepare_plan(
         gated_item,
         plans_in_nspace=plans_in_nspace,
@@ -167,7 +167,7 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
         allowed_devices={"admin": devices},
         nspace=ns,
     )
-    assert resolved["kwargs"]["non_essential"] == [cam]
+    assert resolved["kwargs"]["required"] == [cam]
     assert resolved["kwargs"]["acquisition"] == "gated"
     items = [
         ("count", [["UC_Cam"], 3], {"trigger_profile": "HTU-Test"}),
@@ -238,12 +238,9 @@ def test_bound_count_is_one_bin_and_scalars_view_saves_nothing(
     events = col.primary_events()
     assert box.fires == 3 and len(events) == 3
     assert [e["data"]["bin_number"] for e in events] == [1, 1, 1]
-    assert [e["data"]["uc_cam-acq_timestamp"] for e in events] == [
-        1001.0,
-        1002.0,
-        1003.0,
-    ]
-    assert not any("nonscalar_save_path" in k for k in events[0]["data"])
+    stream = [e["data"] for e in col.stream_events("uc_cam_stream")]
+    assert [e["uc_cam-acq_timestamp"] for e in stream] == [1001.0, 1002.0, 1003.0]
+    assert not any("nonscalar_save_path" in k for k in stream[0])
     assert not (folder / "UC_Cam").exists()
     assert col.docs["start"][0]["shots_per_step"] == 1
     assert col.docs["start"][0]["detectors"] == ["uc_cam-scalars"]
@@ -286,17 +283,28 @@ def test_native_image_save_off_reaches_plugin_cameras_only_and_restores(
     RE(count([plugin, native], 2, native_image_save=False))
     start = col.docs["start"][0]
     assert start["native_image_save"] is False
-    data = col.primary_events()[0]["data"]
+    data = col.stream_events("uc_native_stream")[0]["data"]
     assert "uc_native-nonscalar_save_path" in data  # no plugin: its only record
-    assert "uc_plugin-nonscalar_save_path" not in data  # the stack is the record
+    assert _save_path(col, "uc_plugin") is None  # the stack is the record
     assert (tmp_path / "Scan001" / "UC_Native").is_dir()
     assert not (tmp_path / "Scan001" / "UC_Plugin").exists()
     assert plugin.native_image_save and native.native_image_save  # restored
     # Unset: the construction default (dual-write) is back for the next run.
     RE(count([plugin], 1))
     assert col.docs["start"][-1]["native_image_save"] is True
-    assert "uc_plugin-nonscalar_save_path" in col.primary_events()[-1]["data"]
+    # A streamed camera's datum-only stream: the dual-write's directory rides
+    # in its descriptor configuration, a run-long constant.
+    assert _save_path(col, "uc_plugin") == str(tmp_path / "Scan001" / "UC_Plugin")
     assert (tmp_path / "Scan001" / "UC_Plugin").is_dir()
+
+
+def _save_path(col, name: str):
+    """The last run's ``<name>-nonscalar_save_path`` in its stream's descriptor configuration."""
+    descriptor = [d for d in col.docs["descriptor"] if d["name"] == f"{name}_stream"][
+        -1
+    ]
+    config = descriptor["configuration"][name]["data"]
+    return config.get(f"{name}-nonscalar_save_path")
 
 
 def test_native_image_save_default_comes_from_the_experiment_defaults_per_run(
@@ -311,11 +319,11 @@ def test_native_image_save_default_comes_from_the_experiment_defaults_per_run(
     count = bind_plans(profiles, resolver=defaults)["count"]
     RE(count([plugin], 1))
     assert col.docs["start"][-1]["native_image_save"] is False
-    assert "uc_plugin-nonscalar_save_path" not in col.primary_events()[-1]["data"]
+    assert not (tmp_path / "Scan001" / "UC_Plugin").exists()
     defaults.value = True  # the file was edited: no rebind, no reopen
     RE(count([plugin], 1))
     assert col.docs["start"][-1]["native_image_save"] is True
-    assert "uc_plugin-nonscalar_save_path" in col.primary_events()[-1]["data"]
+    assert (tmp_path / "Scan001" / "UC_Plugin").is_dir()
     # The item's own value beats the default — recorded as the run's switch
     # even when nothing here can be switched (a view leaves the owner's
     # data logics unprepared), and the journal then names no camera.
@@ -462,8 +470,9 @@ def test_scalars_view_yields_to_the_owners_scanned_child(RE, box, profiles):
     assert [e["data"]["uc_cam-exposure-position"] for e in events[3:]] == pytest.approx(
         [1.0, 2.0, 3.0]
     )
-    assert "uc_cam-acq_timestamp" in events[3]["data"]
-    assert not any("nonscalar_save_path" in k for k in events[3]["data"])
+    stream = col.stream_events("uc_cam_stream")
+    assert "uc_cam-acq_timestamp" in stream[0]["data"]
+    assert not any("nonscalar_save_path" in k for k in stream[0]["data"])
     # a child the view does not read stays in the row
     other = CaMotor("U_S1H", "Other", experiment="TestExp", tolerance=0.01)
     magnet.other = other
@@ -501,7 +510,7 @@ def test_every_dead_device_of_the_scan_is_named(RE, box, profiles) -> None:
     RE.subscribe(col)
     count = bind_plans(profiles)["count"]
     with pytest.raises(GeecsDeviceDownError) as info:
-        RE(count([a, b.scalars, live], 1, non_essential=[c]))
+        RE(count([a, b.scalars, live, c], 1, required=[a, b.scalars, live]))
     message = str(info.value)
     assert "UC_A, UC_B, UC_C" in message and "UC_Live" not in message
     assert "nothing claimed" in message
@@ -644,7 +653,7 @@ def test_optimize_signature_and_classification(profiles):
         "shots_per_step",
         "trigger_profile",
         "shot_period",
-        "non_essential",
+        "required",
         "native_image_save",
         "background_telemetry",
         "md",

@@ -27,6 +27,8 @@ submit verbs surface the queue's front items (``pending_items``): cleared on
 
 from __future__ import annotations
 
+import contextlib
+
 import logging
 import os
 import threading
@@ -796,6 +798,15 @@ class ZmqQueueClient:
 
         try:
             item = expand_preset(preset, catalog=catalog, md=md, resolver=resolver)
+            if "required" in item.kwargs:
+                # Some device is not required: the tree tells the conditions
+                # (no shot stamp) apart, which are never required.
+                tree: list[str] | None = None
+                with contextlib.suppress(Exception):  # the submit reports the manager
+                    tree = self.allowed_device_names()
+                item = expand_preset(
+                    preset, catalog=catalog, md=md, resolver=resolver, device_tree=tree
+                )
         except GeecsConfigurationError as exc:
             return SubmitResult(ok=False, message=str(exc))
         return self.submit_plan(

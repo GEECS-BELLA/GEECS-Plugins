@@ -47,8 +47,10 @@ list or no positions.  `run_action` is compiled from
 `geecs_bluesky.actions.steps` (the same walk the scanner previews with).
 
 Every bound scan verb takes, keyword-only, `trigger_profile`,
-`shots_per_step`, `acquisition` (`strict` default, or `gated`),
-`non_essential`, `shot_period` (the strict rep-rate throttle),
+`shots_per_step`, `acquisition` (`strict` default, `gated`, or `fly`),
+`required` (`count`, `sweep`, `optimize`; a preset's `required` field
+passed through),
+`shot_period` (the strict rep-rate throttle),
 `native_image_save` and `background_telemetry`; all ride in the start
 document (`EVENT_SCHEMA.md`).  Every GEECS-defined registered plan
 passes through `utils.resolve_annotations`: the manager evaluates a
@@ -70,18 +72,20 @@ geecs_bluesky/
                             #   states, Pausable; CaPutSetter + the writes
                             #   (ShotControlWrites, QUIESCE_FROM)
   devices/sampler.py        # ShotSampler (the gated run's per-shot record) + StampStream
-                            #   (a non-essential device without a plugin)
+                            #   (a streamed device without a plugin)
   devices/background.py     # BackgroundSnapshot — the run's background telemetry,
                             #   warm_up / warm_up_on at environment open
   devices/scan_mode.py      # ScanModeControl — GEECS scan mode's client side as one Movable
                             #   (enter / announce a shot / exit) + Readable (announced_shot);
                             #   the state file, release_stale at environment open
   devices/native.py         # NativeCamera — a native EPICS areaDetector camera (geecs-epics
-                            #   IOC) as a strict detector; NATIVE_DEVICES.md is its design
+                            #   IOC) as a strict or fly detector; NATIVE_DEVICES.md is its design
   devices/native_motor.py   # NativeMotor — a positioner's EPICS motor records (one stock
                             #   ophyd-async Motor per axis) as Movable children of one noun
   devices/native_setpoint.py # NativeSetpointDevice — a supply's plain records: each settable
                             #   a confirm-on-readback Movable child (NativeSetpoint)
+  devices/witness.py        # Witness — a trigger domain's hardware edge count (the registry's
+                            #   witness): record-only, its count in every strict row
   devices/hdf_plugin.py     # the file plugin's worker side: GeecsHdfIO (+Rewind),
                             #   PluginPathProvider (two paths per folder), file_plugin_hosts,
                             #   GeecsHdfDataLogic (the stock logic; the stream's geometry read
@@ -92,8 +96,13 @@ geecs_bluesky/
                             #   oneshot, liveness, _pv (the explicit ca:// source),
                             #   forward_expr (a pseudo's forward/inverse formulas,
                             #   affine_coefficients)
-  plans/strict.py           # geecs_take_reading (the fire between trigger and wait),
-                            #   geecs_per_step / geecs_per_shot, name_failed_status
+  plans/on_demand.py        # the strict count/sweep slot over the shot-table layout:
+                            #   OnDemand, on_demand_per_shot / _per_step, start_keys
+  plans/fly.py              # fly mode: SoftTickClock (the soft-tick witness), bind_fly
+  plans/streams.py          # DeviceStreams: every per-shot device in its own
+                            #   <name>_stream (strict/fly per row; gated's at the close)
+  plans/strict.py           # shared shot helpers: fire_and_await_shot (the calibration's
+                            #   shot), plugin_reasons, BinCounter, name_failed_status
   plans/gated.py            # gated_take_reading, the run bracket, the non-essential
                             #   stream wrapper, shot_clock, native_essentials
   plans/sweep.py            # sweep_plan: the Sweep payload through scan_nd, relative/reset
@@ -179,10 +188,12 @@ qserver/                    # the worker: launcher, startup profile, permissions
   lock**: the first prepare's first act sets the IOC's `RUN:Lock` (waiting
   for its readback), and only a completed restore — or an unstage with
   nothing to restore — releases it; meanwhile the IOC refuses acquisition
-  writes from anyone but the worker (`NATIVE_DEVICES.md` §3).  **One
-  frame per row**: its own miss fails the step (no rewind), and it is
-  never rewindable, so a pause never replays a shot.  Strict only: fly
-  prepares are refused.  Built by the namespace from the native device
+  writes from anyone but the worker (`NATIVE_DEVICES.md` §3).  **Never
+  rewound**: a strict run streams it, so a skipped frame is a gap in its
+  stream and a pause replays nothing.  An unbounded prepare
+  makes it a datum-only stream (its datums the frames written, from 0; a
+  `Software` source pressed by `press()` at the fire), armed and guarded as
+  a strict run; a bounded fly prepare (a gated batch) is refused.  Built by the namespace from the native device
   registry (below).  The IOCs themselves (instances, decisions, hardware
   runbooks) live in the private repo `GEECS-BELLA/geecs-epics`, whose
   `CLAUDE.md` is the entry point.
@@ -232,6 +243,22 @@ qserver/                    # the worker: launcher, startup profile, permissions
   readbacks) with the `.scalars` view and a telemetry candidate; the run's
   liveness gate judges it, as a detector, by its readbacks' `.SEVR`
   (INVALID or unreadable = down).  No `stop()`, no user offset yet.
+- **`Witness`** (`devices/witness.py`) — the registry's `witness`: a
+  hardware count of one trigger domain's edges (a counter input on the
+  gated trigger output) and an epoch string that changes when the count
+  restarts, both records named by the family file (`witness_counter`).
+  **Record only**: never triggered, never waited on, never refusing,
+  failing or ending a run — a recording device adds no way for a
+  production scan to fail.  A plain Readable over the staged monitor
+  cache: each row reads `witness_count`, `witness_stamp` (the count
+  record's own CA timestamp, never the read time) and `witness_epoch`
+  (`NaN` / `""` and a WARNING when it does not answer).  The audit
+  compares each row with the previous one, row 1 with the baseline the
+  stage reads from the cache (bounded; unreadable, the audit starts at
+  row 2) — a step other than +1, an epoch change: one WARNING each — and
+  logs one summary line before the run's close.  The namespace builds one per domain (the schema refuses
+  two) and WARNs about a witness outside `main`, which strict runs do
+  not read.
 - **`ShotControl`** — `Movable` over the trigger profile's states (`OFF`,
   `STANDBY`, `SCAN`, `ARMED`, `SINGLESHOT` — OFF is the only quiet
   state, STANDBY is the machine's idle and passes edges), replaying each
@@ -261,8 +288,9 @@ qserver/                    # the worker: launcher, startup profile, permissions
   missing file for that row is simply missing.  `ShotSampler.missed`
   counts them per step; the log says so once per member and once at the
   step's end.
-- **`StampStream`** (`devices/sampler.py`) — a non-essential triggered
-  device without a plugin, recorded for the run in its own
+- **`StampStream`** (`devices/sampler.py`) — a streamed triggered
+  device without a plugin (a shot-table run's per-shot device, a gated
+  run's device not required), recorded for the run in its own
   `<name>_stream`: Flyable + EventCollectable over ONE device, subscribed
   to its `acq_timestamp` at `kickoff`, one event per advance (the stamp,
   the cached scalars, a native saver's save path); `complete` immediate,
@@ -290,7 +318,8 @@ qserver/                    # the worker: launcher, startup profile, permissions
   through `data_paths.native_ioc_save_path`, an `epics_motor` a
   `NativeMotor` whose axes bind by `settable_attribute` (the rule a
   `Device:axis` reference expands by), a `setpoint_device` a
-  `NativeSetpointDevice` whose settables and readbacks bind the same way;
+  `NativeSetpointDevice` whose settables and readbacks bind the same way, a
+  `witness` a `Witness` (`namespace.witnesses()`, by domain);
   **one owner per device**: a registry name whose `safe_name` is also a DB
   roster device's (enabled, built or not) refuses to open, naming both.
   `telemetry()` is the background-telemetry candidate set (a native
@@ -360,36 +389,100 @@ qserver/                    # the worker: launcher, startup profile, permissions
 
 ## The scan path
 
-### Acquisition: two modes, one keyword
+### Acquisition: three modes, one keyword
 
 `acquisition` (default `strict`) selects the GEECS `per_step` /
 `per_shot` hook that `plans/registry.py::strict_plan` binds into the
 scan verb.  `count` keeps its stock parameters; `sweep` takes the
 validated trajectory payload; `optimize` takes its optimizer config.
 
-**Strict** (`plans/strict.py`): each run bracketed ARMED → STANDBY through
-the profile's `ShotControl`.  Every shot is one row; `shots_per_step` rows
-per position carry the same `bin_number` —
+**Strict** (`plans/on_demand.py`, the shot-table layout): each run
+bracketed ARMED → STANDBY through the profile's `ShotControl`.  Every
+per-shot device — a `GeecsDetector`, its `.scalars` view, a `NativeCamera`
+— records into its own `<device>_stream` (`plans/streams.DeviceStreams`:
+staged, prepared unbounded and kicked off after `open_run`, collected per
+fire, closed before `close_run`, every step after the open a contingency);
+a stampless device (`CaSnapshotReadable`, a setpoint device) is a
+**condition**, read in the row.  `primary` is the shot table, one event
+per fire, refires included (`EVENT_SCHEMA.md`).  One slot per shot,
+`shots_per_step` complete shots per position —
 
 ```
-prepare(detectors, STRICT_TRIGGER_INFO)     # edge-triggered, one event; per shot,
-trigger(detectors, wait=False)              #   because stage() resets the context
-mv(shot_control, SINGLESHOT)                # the one GEECS line
-wait(group)                                 # every detector saw its stamp
-create / read / save
+throttle; mark = pause_count
+read every per-shot counter + the witness count   # frame count / acq_timestamp monitor
+[mv(scan_mode, ANNOUNCE)]; mv(box, SINGLESHOT); press Software natives
+wait (bounded) for every required counter         # none required: for the witness
+re-read the counters → complete / missing / extra_frames / witness_late / interrupted
+create / read / [pause landed inside? drop, read again] / save
+collect every stream
 ```
 
-A no-frame wait (`FailedStatus` caused by `GeecsTriggerTimeoutError`)
-re-fires the whole event up to `max_refires` times; a device whose
-`CONNECTED` PV reads Disconnected raises `GeecsDeviceDownError` instead.
-Any other failed status (a refused fire) re-raises untouched — a refire
-must never issue an extra physical shot.  A complete shot on which a
-gateway plugin camera (a `GeecsDetector`; a `NativeCamera` arms its own
-trigger mode) holds more than one frame past its last datum fails the
-run before the row, naming the camera and its count
-(`refuse_free_running_cameras`): a camera not in trigger mode free-runs,
-and bluesky would otherwise refuse the row with an unnamed datum-width
-error; no refire, another shot cannot help.  Strict holds 1 Hz on a count
+`required=` names the per-shot devices whose record makes a shot
+complete (default: all; `[]`: none; a condition named is refused at
+bind).  An incomplete shot keeps its row and fires again (a new row,
+`attempt` + 1) up to `max_refires`; exhausted, the last row is flagged
+and the scan continues, and two exhausted shots in a row pause the run.
+A required device whose liveness reads down pauses the run with the
+reason; a non-required one is never waited on, never refires anything,
+and is logged once when down.  A gateway plugin camera (a `GeecsDetector`;
+a `NativeCamera` arms its own trigger mode) that counted more than one
+frame since the previous fire is on the row (`extra_frames`); one such
+fire is no fault (a missed shot's late frame can land before the
+refire's), but two in a row pause the run naming the camera and its
+count, with "put it in trigger mode" — a camera not in trigger mode
+free-runs (`OnDemand._free_running`; an unreadable count is named once and
+is no evidence; fly is exempt).  A fire neither the witness nor any device
+saw is not fired: the row is kept and the run pauses with the reason
+(the resume fires again) — a pause never ends a scan, and the fires
+before a pause (not seen, or a required device down) cost the shot no
+refire, so a pause never loses a shot.  The wait's return is never the verdict: the counters
+are re-read after it, so a pause or suspension that cut into the slot
+costs nothing, and a pause inside the row's bundle drops it and reads
+again — never a saved short row.  Nothing rewinds; the slot is not
+rewindable (a resume replays nothing).  A plugin-backed camera's
+dual-write is switched on for the run by its unbounded prepare
+(`GeecsDetector.fly_native_save`), `native_image_save` still deciding;
+its directory rides in the stream descriptor's configuration
+(`<det>-nonscalar_save_path`), the stream being datum-only.
+Gated keeps its own shape (`required` → its detectors, the others to the
+non-essential stream).  `optimize` runs the same slot and layout (below).
+
+**Fly** (`plans/fly.py`): the same slot and layout clocked by a
+**soft-tick witness** (`SoftTickClock`: count, stamp, epoch = the run
+uid, every `shot_period`, default 1 s; start `clock: "soft-tick"`).  The
+box is **never driven** — no state, no fire, no liveness read.  A Software-source native is pressed at each
+tick (`synchronous`); every other per-shot device free-runs
+(`asynchronous`, sampled last-before by the join, stale past a period).
+The plan's completeness and the join's assignment are one interval rule
+(`EVENT_SCHEMA.md`, "A fly run"): a pressed frame in
+[t<sub>k</sub> − m, t<sub>k+1</sub> − m), a free-runner's record in
+(t<sub>k−1</sub>, t<sub>k</sub>] (a required free-runner slower than the
+tick holds ticks); the window is re-opened, a full period before the
+tick, at every step's first tick and after a pause.  No default profile
+is resolved; a named scan-mode one is refused.  Held ticks, flags and the
+two-in-a-row pause are the strict budget's; the pause reason says the box
+is not driven in fly mode.
+
+**The witness** (`registry.run_witness`): when the namespace has a
+`main`-domain one, every strict run (`count`, `sweep`, `optimize`) appends
+it to the row's readers beside the background telemetry — one place, not
+per preset; not Triggerable, never triggered; the strict slot reads its
+count before and after the fire for the witness rule (and waits on it when
+nothing is required) — and `witness_wrapper` logs its summary before `close_run`.
+Listed as a device in a preset it is refused at bind (it is recorded
+already).  At the start it is probed (5 s): a down witness is a WARNING and
+`read: false, reason: down`, never a refusal.  Both start WARNINGs (this
+and the `note` below) are logged at bind, before `scan.log` exists, so
+`witness_wrapper` repeats them right after `open_run`.  A strict run
+always waits (on its required devices, else on the witness), so no strict
+row reads the count before the edge.  Not read in a gated run (not
+yet) or under a box-less profile (nothing fired for it to count); the
+start document's `witness` says which (`null` without one,
+`EVENT_SCHEMA.md`).
+
+In the slot any failed status of the fire itself (a refused SINGLESHOT
+put) re-raises untouched — a refire must never issue an extra physical
+shot.  Strict holds 1 Hz on a count
 and every other edge on a moving scan: the fire put (~200 ms) plus the
 move overruns the ~550 ms between stamp arrival and the next edge.  The
 plan layer recovers it, not `take_reading`; the gated batch is the
@@ -480,7 +573,8 @@ never a failure).  A plugin-backed camera in a gated run still writes no
 native files (the dual-write is strict-only).  As a **non-essential** such
 a device gets a stream of its own (below).
 
-**Non-essential stream** (`non_essential=[…]`, strict or gated): the
+**Non-essential stream** (gated's per-shot devices not `required`; the same `DeviceStreams` a strict run
+uses for every per-shot device, collected only at the close): the
 listed devices are staged, prepared unbounded, kicked off right after
 `open_run` and each collected alone into `<name>_stream` before
 `close_run` — `fly_during_wrapper`'s shape with the stage and prepare it
@@ -505,16 +599,18 @@ that publishes nothing leaves an empty stream and a WARNING at the close.
 A device with **no** stamp (free-running) is refused at bind
 (`refuse_free_running_non_essentials`, and the preflight).
 
-**A native camera** (`NativeCamera`) is, for now, only an essential
-detector of a strict `count`/`sweep` under a box-fired profile with no
-gateway plugin camera in the run; every other shape is refused at bind,
-naming the camera, before the box moves and the claim
+**A native camera** (`NativeCamera`) is, for now, a per-shot device of a
+strict `count`/`sweep` under a box-fired profile, or of a fly one —
+required or not, beside gateway plugin cameras or not: its own datum-only
+stream, a Software source pressed at the fire (fly: at the tick).  A gated run and a scan-mode profile
+are refused at bind, naming the camera, before the box moves and the claim
 (`registry.refuse_native_run`; `optimize` and the calibration plans
-through `devices/native.refuse_native_cameras`), and `expand_preset`
-refuses its `X.scalars` (`native_devices=`) and, in the worker's own
-words (`native_scope`), the shapes a preset alone shows — non-essential,
-gated, `optimize` — so the preflight's device rules never refuse a native
-camera for a reason that is not the real one.
+through `devices/native.refuse_native_cameras`); the cabling check and the
+run lock hold at its prepare.  `expand_preset` refuses its `X.scalars`
+(`native_devices=`) and, in the worker's own words (`native_scope`), the
+shapes a preset alone shows — gated, `optimize` — so the preflight's
+device rules never refuse a native camera for a reason that is not the
+real one.
 
 ### Sweep
 
@@ -536,7 +632,26 @@ metadata.
 ### Optimize
 
 The bound `optimize` plan (`plans/optimize.py`) runs strict acquisition in
-one run, with one bin per iteration.  `OptimizerConfig` lives in
+one run, with one bin per iteration, on the shot-table layout: the same
+`OnDemand` slot and `DeviceStreams` as `count` / `sweep`, `required=` the
+same way (the objective's devices must be required, refused at bind
+otherwise).  At each bin's end the objective's scalars come from an
+**in-plan join** — the run's documents so far through the s-file's
+`geecs_data_utils.shot_table.shot_table` (`_BinJoin`, the callback buffer
+of `callbacks/_base.py`) — over the bin's complete rows.  A camera
+objective keeps the live PVA frames matched by stamp.  A plugin camera's
+stream is datum-only until stop, so every plugin camera a measurement
+reads (its frames or one of its scalars) gets a **companion**
+`StampStream` on its gateway `acq_timestamp` — the stamp and the cached
+scalars per shot, in `<name>_stamps_stream`, not one of the run's
+`per_shot_streams` — and the bin's end waits (bounded, `SETTLE_S`) for a
+stamp per frame written, and for every device stream (`StampStream`) to
+finish recording the stamps it holds (its stamp completes the slot while
+its scalars are still being read); a stamp that never lands is
+WARNING-logged once per camera and not waited for again.  A movable's readback is read in the
+row; a bin with no finite readback records `measured` NaN with a WARNING
+and is not told to the optimizer (never the proposal).  Native cameras
+stay refused in optimize (`NOT_OPTIMIZE`).  `OptimizerConfig` lives in
 GEECS-Schemas and embeds GEST's VOCS; Xopt and GEECS-Analysis load only
 inside the worker's optional optimize path (the `optimize` extra).
 Validation and frame subscriptions precede the scan claim.  Measurements
@@ -593,8 +708,8 @@ mv(box, STANDBY)
 
 The rules: the entry sits **inside the trigger bracket, before the stage
 and the claim** (a refused entry claims nothing, the liveness gate's
-posture); the run devices the entry waits for are the detectors' owners,
-the non-essentials and the profile's box — not the movers, not the
+posture); the run devices the entry waits for are the detectors' owners (every
+per-shot device) and the profile's box — not the movers, not the
 background; the shot number is **run-wide and never re-sent** (a refire
 takes the next number; the partial row keeps its own — `announced_shot`
 is the join key for the files, never the s-file's row index); the pushed
@@ -635,10 +750,10 @@ last shot on the stand were the run's detectors, which do pause.)  Readers
 join a device's shot-numbered files to rows by `announced_shot` — the
 s-file's `Announced Shot` — through `geecs_data_utils.tiled_schema.announced_shots`
 (it parts from the row index only when an announced shot ends in no row,
-e.g. an immediate pause's rewind): the shot mapper, the `.himg` stack
+e.g. an earlier run's immediate-pause rewind): the shot mapper, the `.himg` stack
 converter, `ScanData`'s expected paths and the portal's native tier.  The
-stack check skips its stamp-named file match for non-essentials under
-scan mode (`callbacks/stack_check.py`).
+stack check skips its stamp-named file match for streamed native savers
+under scan mode (`callbacks/stack_check.py`).
 Deferred from v1 (the issue): a scanner tag, a ScanInfo row, the path
 template in metadata, re-sending a repeated shot number, restricting
 `ScanStart` to the run's devices (it is multicast by design).
@@ -647,12 +762,14 @@ template in metadata, re-sending a repeated shot number, restricting
 
 The rows are `primary`'s events when it has them and the sampler's
 `shots` events otherwise, and every **datum-only** stream's per-frame
-columns — and every non-essential **event** stream's events (a device
+columns — and every per-shot **event** stream's events (a device
 without a plugin, one "frame" per stamp) — are joined onto them by
-offset-corrected stamp.  The join itself is `geecs_data_utils.shot_join`,
-shared with the offline re-export so the two cannot drift, and fed
+offset-corrected stamp.  The join itself is `geecs_data_utils.shot_table`
+(over `shot_join`; the clock through `shot_join.clock_stamps`, so a Unix
+witness clock meets LabVIEW device stamps), shared with the offline
+re-export so the two cannot drift, and fed
 **one** drain-offsets map (from the streams' descriptor configuration)
-that covers both sides of every comparison.  One row per essential shot:
+that covers both sides of every comparison.  One s-file row per row:
 a camera's per-frame scalars and its own stamp come from its stack under
 the names a *strict* row uses, each row takes the nearest frame in its
 own window, an orphan frame stays in the stack and in Tiled, a shot
@@ -661,9 +778,12 @@ Frames past what a stream's datums referenced are not s-file data.  Such
 a run's s-file is written on a thread (a stack may only be read once the
 plugin finalizes it, which happens at `unstage`, after the stop
 document); a run with no datum-only stream is still written
-synchronously.  `StackCheckCallback` checks a non-essential stream by
-count and a *gated* stack by count **and** stamps — one frame per `shots`
-row, none orphaned — and a non-essential native saver's files against its
+synchronously.  An event stream counts as per-shot when the start document names it in
+`per_shot_streams` (the shot-table layout) or its device in `non_essential`.
+`StackCheckCallback` checks a gated run's device stream by
+count, a shot-table run's device stream by count and through the shot
+table (an extra or a flagged record warns), and a *gated* stack by count **and** stamps — one frame per `shots`
+row, none orphaned — and a streamed native saver's files against its
 stream's **events** (not the rows; events without a file and file stamps
 without an event counted apart, files after the last event — saved
 between the stream's close and the unstage — apart again; WARNING, never
@@ -881,9 +1001,9 @@ command) and never imports the gateway (circular).
   first fresh frame when the device's settings moved since, so the
   provider reads the main dataset's shape and dtype off the plugin's
   geometry PVs at the first describe and the first stream documents (after
-  the first frame; strict composes its descriptor at the first `save`,
-  gated declares `primary` after the first batch, and a non-essential
-  plugin stream is declared at the run's close right before its collect)
+  the first frame; a strict or fly device stream is declared at the first
+  collect that finds a frame, gated declares `primary` after the first
+  batch and its stream of the devices not required at the run's close)
   and keeps them once a datum is out.  The run's stream documents
   reference the stack and Tiled reads it with its stock adapter.  The rule
   is the namespace's: a served capture stream + endpoint in
@@ -941,11 +1061,10 @@ command) and never imports the gateway (circular).
   (`LvNativeFileDataLogic`, named with the stamp) — the non-image
   proprietary devices keep it whatever the switch says.  Live frames are
   the NTNDArray PVs.
-- **A missed shot** keeps its row (scalars, the missing device's columns
-  `NaN`, no frames) and the plan takes one more shot, rewinding every
-  plugin to its last referenced frame first
-  (`GeecsDetector.discard_uncollected`); the incomplete-shot warning and
-  the step's failure name each missed plugin's `WriteMessage`
+- **A missed shot** keeps its shot-table row (flagged, the device absent
+  from its stream for that fire) and the plan fires again — nothing
+  rewinds; the incomplete-shot and
+  flagged-step warnings name each missed plugin's `WriteMessage`
   (`plans/strict.py::plugin_reasons` through the bounded
   `GeecsDetector.plugin_reasons()`, which `prepare`'s failure note and the
   count timeouts of `trigger` and `complete` use too), so a plugin

@@ -137,7 +137,7 @@
           <button type="button" data-mode="optimize" aria-pressed="false" disabled title="No compatible optimizer configs available">Optimize</button>
         </div>
         <div class="seg" role="group" aria-label="Acquisition" id="acq">
-          <button type="button" data-acq="strict" aria-pressed="true" title="Fire between trigger and wait; one row per shot">strict</button>
+          <button type="button" data-acq="strict" aria-pressed="true" title="One fire per shot; one shot-table row per fire, refires included">strict</button>
           <button type="button" data-acq="gated" title="Box in SCAN, cameras count a batch; one shots row per shot">gated</button>
         </div>
       </header>
@@ -164,11 +164,11 @@
             </div>
             <div class="tscroll">
               <table class="devtable">
-                <thead><tr><th>device</th><th>save images</th><th>essential</th><th></th></tr></thead>
+                <thead><tr><th>device</th><th>save images</th><th>required</th><th></th></tr></thead>
                 <tbody id="devs"><tr><td class="dim" colspan="4">No devices — add one.</td></tr></tbody>
               </table>
             </div>
-            <span class="dim note">A gated run needs at least one essential triggered device.</span>
+            <span class="dim note">A gated run needs at least one required triggered device.</span>
           </div>
         </div>
 
@@ -391,7 +391,7 @@
       <span class="dim note">click to select · shift-click for a range</span>
     </div>
     <nav class="picklist" id="devlist" aria-label="Devices"></nav>
-    <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are essential until you say otherwise.</span>
+    <span class="dim note">A device the gateway does not serve does not appear. Added rows save images and are required until you say otherwise.</span>
   </div>
 </aside>
 

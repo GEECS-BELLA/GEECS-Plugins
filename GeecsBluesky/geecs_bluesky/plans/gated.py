@@ -34,24 +34,20 @@ from typing import Any, Callable
 
 import bluesky.plan_stubs as bps
 from bluesky.preprocessors import (
-    contingency_wrapper,
     finalize_wrapper,
-    plan_mutator,
     rewindable_wrapper,
 )
 from bluesky.utils import (
     FailedStatus,
     Msg,
-    ensure_generator,
     separate_devices,
     short_uid,
-    single_gen,
 )
 
 # The stream the sampler's rows go to: defined in ``geecs_data_utils.shot_join``,
 # the one home of that document contract — the plan writes it, the s-file
 # callback reads it, and the offline re-export reads it back out of Tiled.
-from geecs_data_utils.shot_join import SHOTS_STREAM, non_essential_stream
+from geecs_data_utils.shot_join import SHOTS_STREAM
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
@@ -61,7 +57,7 @@ from geecs_bluesky.devices.detector import (
     GeecsDetector,
     gated_trigger_info,
 )
-from geecs_bluesky.devices.sampler import ShotSampler, StampStream
+from geecs_bluesky.devices.sampler import ShotSampler
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     GeecsFrameCountReadError,
@@ -69,6 +65,7 @@ from geecs_bluesky.exceptions import (
     failure_cause_text,
 )
 from geecs_bluesky.plans.strict import BinCounter, name_failed_status
+from geecs_bluesky.plans.streams import DeviceStreams
 
 logger = logging.getLogger(__name__)
 
@@ -501,7 +498,7 @@ def refuse_free_running_non_essentials(devices: Sequence[Any]) -> None:
         )
 
 
-def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:  # noqa: C901, PLR0915
+def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:
     """Stream the non-essential devices for the run, each into its own ``<name>_stream``.
 
     Two kinds, one contract — recorded by stamp, joined to the rows by it
@@ -554,145 +551,7 @@ def non_essential_wrapper(plan: Any, flyers: Sequence[Any]) -> Any:  # noqa: C90
     if not flyers:
         return (yield from plan)
     refuse_free_running_non_essentials(flyers)
-    # What the run stages: a view's owner (a view has no lifecycle of its own).
-    roots: list[Any] = []
-    for flyer in flyers:
-        root = owner_of(flyer)
-        if all(root is not r for r in roots):
-            roots.append(root)
-    plugin = [f for f in flyers if isinstance(f, GeecsDetector) and f.plugin_backed]
-    stamped = [StampStream(f) for f in flyers if f not in plugin]
-    # A native saver listed itself (not its view): its LabVIEW files are the
-    # record, switched on by its own unbounded prepare.
-    native = [
-        s.device
-        for s in stamped
-        if isinstance(s.device, GeecsDetector) and s.device.native_save
-    ]
-    streams: list[Any] = [*plugin, *stamped]
-
-    def after_open():
-        group = short_uid("non-essential-prepare")
-        for flyer in [*plugin, *native]:
-            yield from bps.prepare(
-                flyer, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
-            )
-        yield from bps.wait(group=group)
-        # The plugin's count PV still reads the previous session's total at
-        # the arm: zero it inside the fresh session and prepare again, or
-        # the kickoff baselines above what the run will write and the
-        # close's count wait never returns.
-        if plugin:
-            yield from bps.wait_for([f.zero_count for f in plugin])
-            group = short_uid("non-essential-prepare-zeroed")
-            for flyer in plugin:
-                yield from bps.prepare(
-                    flyer, UNBOUNDED_TRIGGER_INFO, group=group, wait=False
-                )
-            yield from bps.wait(group=group)
-        # The stamp streams are declared here; a plugin stream at the close,
-        # right before its collect (``before_close``).
-        for stream in stamped:
-            yield from bps.declare_stream(
-                stream, name=non_essential_stream(stream.name), collect=True
-            )
-        yield from bps.kickoff_all(*streams, wait=True)
-
-    def before_close():
-        # Nothing waits on a non-essential device — a plugin whose gateway
-        # went away mid-run must not fail the run at its close: each
-        # stream's complete + collect is its own contingency, logged and
-        # skipped.
-        for stream in streams:
-            # complete, declare and collect are SEPARATE contingencies: a
-            # complete that fails (a stalled or dead plugin) must not cost
-            # the datums for the frames it did write.  A plugin stream is
-            # declared here and not at the open: its descriptor then reads
-            # the geometry the plugin settled on at its first fresh frame;
-            # the stamp streams were declared at the open.
-            verbs = [("complete", lambda f=stream: bps.complete(f, wait=True))]
-            if stream in plugin:
-                verbs.append(
-                    (
-                        "declare_stream",
-                        lambda f=stream: bps.declare_stream(
-                            f, name=non_essential_stream(f.name), collect=True
-                        ),
-                    )
-                )
-            verbs.append(
-                (
-                    "collect",
-                    lambda f=stream: bps.collect(f, name=non_essential_stream(f.name)),
-                )
-            )
-            for verb, plan_factory in verbs:
-
-                def skip(exc, flyer=stream, verb=verb):
-                    logger.warning(
-                        "non-essential %s: %s failed at the run's close (%s: %s) — "
-                        "its stream carries what it wrote",
-                        flyer.name,
-                        verb,
-                        type(exc).__name__,
-                        exc,
-                    )
-                    yield from bps.null()
-
-                yield from contingency_wrapper(
-                    plan_factory(), except_plan=skip, auto_raise=False
-                )
-        for stream in stamped:
-            if not stream.published:
-                logger.warning(
-                    "non-essential %s: published no shot stamp this run — "
-                    "%s is empty and its columns read NaN in the s-file",
-                    stream.device_name,
-                    non_essential_stream(stream.name),
-                )
-
-    def insert_after_open(msg: Msg):
-        if msg.command == "open_run":
-            return single_gen(msg), ensure_generator(after_open())
-        return None, None
-
-    def insert_before_close(msg: Msg):
-        if msg.command == "close_run":
-
-            def new_gen():
-                yield from before_close()
-                yield msg
-
-            return new_gen(), None
-        return None, None
-
-    inner = plan_mutator(plan_mutator(plan, insert_after_open), insert_before_close)
-
-    def unstage_all_tolerant():
-        for root in roots:
-
-            def one(root=root):
-                # Wait inside the contingency: a failure of the unstage
-                # status must land here, not at the next message outside.
-                yield from bps.unstage(root, group=short_uid("ne-unstage"), wait=True)
-
-            def skip(exc, root=root):
-                logger.warning(
-                    "non-essential %s: unstage failed (%s: %s) — skipped; a stale "
-                    "Capture or save is cleared by its next stage()",
-                    root.name,
-                    type(exc).__name__,
-                    exc,
-                )
-                yield from bps.null()
-
-            yield from contingency_wrapper(one(), except_plan=skip, auto_raise=False)
-
-    def staged():
-        yield from bps.stage_all(*roots)
-        return (yield from inner)
-
-    return (yield from finalize_wrapper(staged(), unstage_all_tolerant()))
+    return (yield from DeviceStreams(flyers, label="non-essential").wrap(plan))
 
 
 def run_bracket(plan: Any, shot_control: Any, opening: TriggerState) -> Any:

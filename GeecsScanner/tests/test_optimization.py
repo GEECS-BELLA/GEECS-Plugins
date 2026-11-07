@@ -11,7 +11,7 @@ def test_config_and_required_merge(client):
     assert response.json()["required_devices"] == ["U_BCaveICT"]
     preset = {
         "name": "optimization",
-        "devices": [{"device": "U_BCaveICT", "essential": False, "save_images": False}],
+        "devices": [{"device": "U_BCaveICT", "required": False, "save_images": False}],
         "plan": {
             "name": "optimize",
             "kwargs": {"optimizer_config": "xopt_beam_charge"},
@@ -163,7 +163,7 @@ def test_saving_optimizer_draft_does_not_resolve_or_merge(
     )
     document = {
         "name": "draft",
-        "devices": [{"device": "Meter", "essential": False, "save_images": False}],
+        "devices": [{"device": "Meter", "required": False, "save_images": False}],
         "plan": {
             "name": "optimize",
             "kwargs": {"optimizer_config": "renamed", "acquisition": "strict"},
@@ -172,7 +172,7 @@ def test_saving_optimizer_draft_does_not_resolve_or_merge(
     service.save_preset("draft", SavePresetIn(preset=document))
     assert captured[0].plan.kwargs == document["plan"]["kwargs"]
     assert (
-        not captured[0].devices[0].essential and not captured[0].devices[0].save_images
+        not captured[0].devices[0].required and not captured[0].devices[0].save_images
     )
 
 

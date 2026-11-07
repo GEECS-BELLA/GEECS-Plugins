@@ -30,16 +30,25 @@ dispatch them off the GUI thread.
 from __future__ import annotations
 
 import configparser
+import functools
 import logging
 import math
-from dataclasses import dataclass, field
+import threading
+import time
+from collections import OrderedDict
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from geecs_data_utils import tiled_schema
 
 logger = logging.getLogger(__name__)
+
+#: How long a running run's (or a failed) shot-table build is kept, seconds.
+_SHOTS_TTL_S = 30.0
+#: Runs whose shot table is kept.
+_SHOTS_CACHE_RUNS = 64
 
 #: Bounded budget for the connection probe (seconds).
 _PROBE_TIMEOUT_S = 2.5
@@ -147,15 +156,102 @@ class RunDetail:
     stop_doc : dict
         The full stop document (may be empty).
     data : object
-        The primary event stream as a pandas ``DataFrame``, or ``None``
-        when the run has no primary stream (typed loosely so this module
-        never imports pandas at import time).
+        The run's rows as a pandas ``DataFrame`` (one per shot,
+        ``Shotnumber`` = position + 1), or ``None`` when it has none
+        (typed loosely so this module never imports pandas at import
+        time).  An old strict run's ``primary`` as recorded; an old gated
+        run's ``shots`` and a shot-table run's ``primary`` with every
+        device's scalars joined (:func:`geecs_data_utils.shot_table.shot_table`).
+    row_stream : str
+        The stream the rows came from (``""``: not a Tiled run's).
+    shot_source : callable, optional
+        Builds the run's :class:`RunShots` (cached); see :meth:`shots`.
+    scalar_source : callable, optional
+        Joins every device's scalars onto the rows (cached); see :meth:`scalars`.
     """
 
     summary: RunSummary
     start_doc: dict = field(default_factory=dict)
     stop_doc: dict = field(default_factory=dict)
     data: Any = None  # pandas.DataFrame — loose so pandas stays lazy
+    row_stream: str = ""
+    shot_source: Optional[Callable[[], Optional["RunShots"]]] = field(
+        default=None, repr=False, compare=False
+    )
+    scalar_source: Optional[Callable[[], Any]] = field(
+        default=None, repr=False, compare=False
+    )
+
+    @property
+    def rows_are_frames(self) -> bool:
+        """Row *k* is frame *k* of every device in it: an old strict run (or no Tiled run).
+
+        Otherwise (gated, shot-table) a device's frame for a shot comes only
+        from :meth:`shots`, never from its ordinal.
+        """
+        start = self.start_doc
+        return (
+            self.row_stream in ("", "primary")
+            and start.get("layout") is None
+            and start.get("acquisition") != "gated"
+        )
+
+    def shots(self) -> Optional["RunShots"]:
+        """The run's shot table, built on first use; ``None`` when it has none.
+
+        Never raises: a build that fails is logged and reads ``None``.
+        """
+        return None if self.shot_source is None else self.shot_source()
+
+    def scalars(self) -> Any:
+        """:attr:`data` with every device's scalars joined (gated, shot-table), read on first use."""
+        return self.data if self.scalar_source is None else self.scalar_source()
+
+
+@dataclass(frozen=True)
+class RunShots:
+    """A run's shot table and the device records it assigned.
+
+    Attributes
+    ----------
+    table : geecs_data_utils.shot_table.ShotTable
+        The join.
+    records : dict
+        :func:`tiled_schema.normalize_token` of the device → its
+        :class:`~geecs_data_utils.shot_table.DeviceRecords`: the devices
+        recorded outside the rows (an old strict run's in-row devices are
+        not here; their row is their frame), stamps only.
+    rows : DataFrame
+        The rows the table was built from.
+    running : bool
+        Built while the run was running: an unwitnessed newest row's fire
+        interval is still open (it closes at the next fire, a period after
+        its own), so the next shot's record could fill it; it reads a gap
+        until the next row exists.
+    """
+
+    table: Any
+    records: dict
+    rows: Any = field(default=None, repr=False, compare=False)
+    running: bool = False
+
+    def covers(self, device: str) -> bool:
+        """Whether *device* (object or folder name) is one of the joined devices."""
+        return tiled_schema.normalize_token(device) in self.records
+
+    def stamp_for(self, device: str, shot: int) -> Optional[float]:
+        """The stamp (LabVIEW epoch) of *device*'s record for 1-based *shot*, or ``None`` (a gap)."""
+        from geecs_data_utils.shot_table import frame_for
+
+        flags = self.table.flags
+        if self.running and shot == len(flags) and "unwitnessed" in flags[-1]:
+            return None  # its interval is open: the next shot's frame may sit in it
+        source = self.records.get(tiled_schema.normalize_token(device))
+        hit = None if source is None else frame_for(self.table, source.device, shot)
+        if hit is None:
+            return None
+        stamp = float(source.records.stamps[hit[1]])
+        return stamp if math.isfinite(stamp) and stamp > 0 else None
 
 
 @dataclass(frozen=True)
@@ -315,6 +411,10 @@ class TiledScanCatalog:
         self.uri = uri
         self._api_key = api_key
         self._client: Any = None
+        self._clock = time.monotonic
+        self._shots: OrderedDict[str, tuple] = OrderedDict()
+        self._shots_lock = threading.Lock()
+        self._building: dict[str, threading.Lock] = {}
 
     @classmethod
     def from_config(cls, config_path: Optional[Path] = None) -> "TiledScanCatalog":
@@ -418,7 +518,7 @@ class TiledScanCatalog:
         return summaries
 
     def load_run(self, uid: str) -> RunDetail:
-        """Load one run: documents plus the primary table as a DataFrame.
+        """Load one run: documents plus its rows as a DataFrame.
 
         Parameters
         ----------
@@ -428,10 +528,12 @@ class TiledScanCatalog:
         Returns
         -------
         RunDetail
-            Start/stop docs and the primary event stream's **scalar**
-            columns as a pandas DataFrame (:func:`read_primary_scalars` —
-            the stream's array parts are never downloaded); ``data=None``
-            when the run has no primary stream or no event rows.
+            Start/stop docs and the rows' **scalar** columns
+            (:func:`read_primary_scalars` — array parts are never
+            downloaded): ``primary``, else a gated run's ``shots``, joined
+            through the shot table unless they are an old strict run's
+            (:attr:`RunDetail.data`); ``data=None`` when the run has no
+            event rows.  The shot table is built lazily for a strict run.
 
         Raises
         ------
@@ -446,21 +548,164 @@ class TiledScanCatalog:
         metadata = run.metadata
         start_doc = dict(metadata.get("start") or {})
         stop_doc = dict(metadata.get("stop") or {})
-        data = None
-        try:
-            primary = run["primary"]
-        except KeyError:
-            logger.info("run %s has no primary stream", uid)
+        from geecs_data_utils.tiled_export import read_run_rows
+
+        rows, stream = read_run_rows(run)
+        data, source = None, None
+        if not len(rows):
+            logger.info("run %s has no event rows", uid)
         else:
-            data = read_primary_scalars(primary)
-            if data is None:
-                logger.info("run %s primary stream has no event rows", uid)
-        return RunDetail(
+            data = rows
+            source = functools.partial(
+                self._shots_for, uid, run, start_doc, rows, stream, bool(stop_doc)
+            )
+        detail = RunDetail(
             summary=summary_from_metadata(uid, start_doc, stop_doc),
             start_doc=start_doc,
             stop_doc=stop_doc,
             data=data,
+            row_stream=stream,
+            shot_source=source,
         )
+        if source is not None and not detail.rows_are_frames:
+            from geecs_data_utils.shot_table import fresh_rows
+
+            shots = source()  # stamps only: one read per device
+            joined = functools.partial(
+                _joined_rows, run, start_doc, source, rows, stream
+            )
+            detail = replace(
+                detail,
+                data=rows if shots is None else fresh_rows(shots.table),
+                scalar_source=_once_joined(joined),
+            )
+        return detail
+
+    def _shots_for(
+        self, uid: str, run: Any, start: dict, rows: Any, stream: str, complete: bool
+    ) -> Optional[RunShots]:
+        """*uid*'s :class:`RunShots`, one build at a time per run.
+
+        Kept for good once a finished run's build succeeds; a running run's
+        (or a failed build, as ``None``) for :data:`_SHOTS_TTL_S`, unless the
+        run has finished since or its rows changed: then it is rebuilt.
+        """
+        with self._shots_lock:
+            lock = self._building.setdefault(uid, threading.Lock())
+        with lock:
+            with self._shots_lock:
+                hit = self._shots.get(uid)
+            if hit is not None:
+                built_at, forever, cached, as_built = hit
+                young = self._clock() - built_at < _SHOTS_TTL_S
+                if forever or (young and as_built == (complete, len(rows))):
+                    return cached
+            shots = _run_shots(run, start, rows, stream, complete)
+            with self._shots_lock:
+                self._shots[uid] = (
+                    self._clock(),
+                    complete and shots is not None,
+                    shots,
+                    (complete, len(rows)),
+                )
+                self._shots.move_to_end(uid)
+                while len(self._shots) > _SHOTS_CACHE_RUNS:
+                    self._building.pop(self._shots.popitem(last=False)[0], None)
+            return shots
+
+
+def _once_joined(build: Callable[[], tuple[Any, bool]]) -> Callable[[], Any]:
+    """*build*'s rows, kept once it reports a full join; concurrent callers wait.
+
+    *build* returns ``(rows, joined)``.  Rows short of the full join (a
+    scalar read failed, the shot table not built) are served and not
+    kept, so the next call tries again.
+    """
+    lock, done = threading.Lock(), []
+
+    def call() -> Any:
+        with lock:
+            if done:
+                return done[0]
+            rows, joined = build()
+            if joined:
+                done.append(rows)
+            return rows
+
+    return call
+
+
+def _run_shots(
+    run: Any, start: dict, rows: Any, stream: str, complete: bool = True
+) -> Optional[RunShots]:
+    """A Tiled run's :class:`RunShots` from its devices' stamps, or ``None`` (logged).
+
+    Its devices are every stream but the rows' (:func:`_stamp_records`), with
+    the run's drain offsets.
+    """
+    from geecs_data_utils.shot_table import shot_table
+    from geecs_data_utils.tiled_export import read_drain_offsets
+
+    try:
+        devices = _stamp_records(run, start, stream)
+        offsets = read_drain_offsets(run)
+        table = shot_table(
+            start, rows, devices, row_stream=stream, drain_offsets=offsets
+        )
+    except Exception:  # a run that cannot be joined still loads; its images refuse
+        logger.exception("run %s: no shot table", start.get("uid"))
+        return None
+    return RunShots(
+        table=table,
+        records={tiled_schema.normalize_token(d.device): d for d in devices},
+        rows=rows,
+        running=not complete,
+    )
+
+
+def _stamp_records(run: Any, start: dict, row_stream: str) -> list:
+    """One stamps-only ``DeviceRecords`` per device outside the rows, in its own stream.
+
+    The one Tiled read behind a frame lookup: stamps, and the counters a
+    stream's bare parts carry (a native camera's ``NDArrayUniqueId``; a
+    plugin stack has none) (``tiled_export.read_device_records``).
+    """
+    from geecs_data_utils.tiled_export import read_device_records
+
+    return read_device_records(run, row_stream, stamps_only=True)
+
+
+def _joined_rows(
+    run: Any,
+    start: dict,
+    source: Callable[[], Optional[RunShots]],
+    rows: Any,
+    stream: str,
+) -> tuple[Any, bool]:
+    """The run's rows with every device's scalars joined, and whether they are.
+
+    ``(rows, True)`` on a full join.  With no shot table (*source* built
+    none) the bare *rows*, on a failed scalar read the shot table's
+    stamps-only rows, both with ``False``: :func:`_once_joined` keeps only
+    a full join.  Stale samples are blanked
+    (:func:`geecs_data_utils.shot_table.fresh_rows`).
+    """
+    from geecs_data_utils.shot_table import fresh_rows, shot_table
+    from geecs_data_utils.tiled_export import read_device_records, read_drain_offsets
+
+    shots = source()
+    if shots is None:
+        return rows, False
+    try:
+        devices = read_device_records(run, stream)
+        offsets = read_drain_offsets(run)
+        table = shot_table(
+            start, shots.rows, devices, row_stream=stream, drain_offsets=offsets
+        )
+    except Exception:  # the stamps-only rows still serve
+        logger.exception("run %s: device scalars not joined", start.get("uid"))
+        return fresh_rows(shots.table), False
+    return fresh_rows(table), True
 
 
 def read_primary_scalars(primary: Any) -> Optional[Any]:
@@ -685,10 +930,12 @@ def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:  # noqa: C901, PL
         reason = str(stop.get("reason") or "")
         if reason:
             rows.append(("Reason", reason))
+        # The rows' stream: ``primary`` (strict, shot-table), else gated's ``shots``.
         events = stop.get("num_events")
-        primary = events.get("primary") if isinstance(events, dict) else None
-        if primary is not None:
-            rows.append(("Recorded rows", str(primary)))
+        events = events if isinstance(events, dict) else {}
+        recorded = events.get("primary", events.get("shots"))
+        if recorded is not None:
+            rows.append(("Recorded rows", str(recorded)))
     else:
         rows.append(("Exit status", "no stop document"))
     return rows

@@ -1,4 +1,4 @@
-"""NativeCamera — a native EPICS areaDetector camera as a GEECS strict detector.
+"""NativeCamera — a native EPICS areaDetector camera as a GEECS strict or fly detector.
 
 A camera served by its own IOC (geecs-epics: ADAravis + the stock
 ``NDFileHDF5`` plugin), not ophyd-async's ``AravisDetector`` — that one
@@ -11,15 +11,18 @@ be skipped.  The GEECS camera contract over stock records
   the stack); ``unstage`` restores the camera (live view between scans);
 - **a shot is the writer's frame count advancing**: ``Software`` presses
   ``TriggerSoftware`` inside ``trigger()`` (exposed when the worker says go
-  — the accepted caveat), ``Line0`` / ``Line1`` wait for the timing
-  system's edge on that input;
-- **one frame per row**: an own miss fails the step and a pause never
-  replays a shot (the writer cannot rewind; Bluesky's HDF5 consolidator
-  reads frames by datum count from 0);
+  — the accepted caveat), or through :meth:`NativeCamera.press` at the fire
+  of a stream run; ``Line0`` / ``Line1`` wait for the timing system's edge
+  on that input;
+- **never rewound**: the writer appends, and Bluesky's HDF5 consolidator
+  reads frames by datum count from 0 — a strict run streams the camera, so
+  a skipped frame is a gap in its stream and a pause replays nothing;
 - **the row stamp** is the frame's EPICS timestamp through
   ``scan_stack.epics_timestamp_to_unix``, in the LabVIEW epoch.
 
-Strict runs only: fly prepares are refused here as well as at bind.
+A strict shot per row, or a datum-only **stream** after an unbounded
+prepare (its datums the frames written, from 0; a skip is absent, never a
+placeholder), both armed alike; a bounded fly prepare is refused.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ import logging
 import math
 import os
 import socket
+import sys
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -495,21 +499,6 @@ class _StampDataLogic(DetectorDataLogic):
         )
 
 
-class _NotRewindable:
-    """What bluesky's ``all_safe_rewind`` reads (``rewindable.get()``): never safe.
-
-    A pause after this camera's frame landed but before the row was saved
-    would otherwise **replay** the trigger and the fire on resume
-    (``plans/strict.py`` wraps each shot in ``rewindable_wrapper``, and a
-    device without this attribute counts as safe to re-run): the stock
-    writer keeps the first frame and captures a second, one frame too many
-    for one row.  Not rewindable, the resume continues where it stopped.
-    """
-
-    def get(self) -> bool:
-        return False
-
-
 class NativeCamera(StandardDetector):
     """A native EPICS camera as a GEECS strict detector (module docstring).
 
@@ -558,8 +547,6 @@ class NativeCamera(StandardDetector):
             liveness_word, cnct=self.driver.asyn_connect
         )
         self._session = _Session()
-        #: Read by bluesky's ``all_safe_rewind``: a shot is never replayed.
-        self.rewindable = _NotRewindable()
         self._native_acquire = NativeAcquireLogic(
             self.driver, self._session, self.run_lock
         )
@@ -627,11 +614,15 @@ class NativeCamera(StandardDetector):
 
     @AsyncStatus.wrap
     async def prepare(self, value: TriggerInfo) -> None:
-        """The stock prepare, strict only; a failure carries the writer's reason."""
-        if isinstance(value, FlyTriggerInfo):
+        """The stock prepare: a strict shot or an unbounded stream; a failure carries the writer's reason.
+
+        A bounded fly prepare (a gated batch) is refused before the camera
+        is touched: its quota would need a rewind the writer lacks.
+        """
+        if isinstance(value, FlyTriggerInfo) and value.number_of_events != 0:
             raise GeecsConfigurationError(
                 f"{self._geecs_device_name} is a native EPICS camera: strict scans "
-                "only for now (no gated batch, no non-essential stream)"
+                "or an unbounded stream only for now (no gated batch)"
             )
         try:
             async with self._session.guard:  # whole, so an unstage waits for it
@@ -646,8 +637,43 @@ class NativeCamera(StandardDetector):
         ctx = self._prepare_ctx
         return (ctx.trigger_info if ctx else STRICT_TRIGGER_INFO).exposure_timeout
 
+    def _streams(self) -> bool:
+        """Whether the camera is prepared as a stream (unbounded) rather than for strict shots."""
+        ctx = self._prepare_ctx
+        return ctx is not None and ctx.trigger_info.number_of_events == 0
+
+    async def press(self) -> None:
+        """Press ``TriggerSoftware`` once, outside ``trigger()``: the fire of a stream run.
+
+        Refused on a hardware-source camera (its shot is the timing system's
+        edge; a press would be a stray frame) and unless the camera is
+        prepared as a stream and acquiring: before the Acquire readback (mid
+        prepare, a failed prepare, after unstage) the press is lost or lands
+        on the live view, and on a strict camera it writes a frame outside any
+        row and shifts every later one.
+        """
+        if self._source != NativeTriggerSource.SOFTWARE:
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name}: trigger_source is "
+                f"{self._source.name.lower()} ({self._source.value!r}) — only a "
+                "Software-source native camera is pressed"
+            )
+        if not self._streams():
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name}: press() needs an unbounded prepare "
+                "(the stream path); a strict shot presses inside trigger()"
+            )
+        if not self._session.acquiring:
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name}: press() before the camera is "
+                "acquiring would be lost"
+            )
+        await self.driver.trigger_software.trigger()
+
     def trigger(self) -> AsyncStatus:
         """Wait for one more frame in the stack (pressing the software trigger if that is the source)."""
+        if self._streams():
+            return AsyncStatus(self._refuse_trigger_on_a_stream())
         self._session.missed = False
         self._session.fire_pending = self._source == NativeTriggerSource.SOFTWARE
         return AsyncStatus(self._translate_count_timeout(super().trigger()))
@@ -666,30 +692,32 @@ class NativeCamera(StandardDetector):
                 f"{timeout:.1f}s" + "".join(f"; {r}" for r in reasons),
             ) from exc
 
-    @AsyncStatus.wrap
-    async def kickoff(self) -> None:
-        """Refused: native cameras fly in no stream yet (strict only)."""
+    async def _refuse_trigger_on_a_stream(self) -> None:
         raise GeecsConfigurationError(
-            f"{self._geecs_device_name} is a native EPICS camera: strict scans only"
+            f"{self._geecs_device_name}: prepared as a stream (unbounded) — its "
+            "shots are collected, never triggered"
         )
 
-    async def discard_uncollected(self) -> None:
-        """Keep a frame that arrived; fail the step on this camera's own miss.
+    @AsyncStatus.wrap
+    async def kickoff(self) -> None:
+        """Start the stream; only after an unbounded prepare.
 
-        The strict plan calls this on every plugin-backed device when any
-        device missed.  A frame this camera did write is the shot's and its
-        datum stays (it is the run's only external key — mixed runs with a
-        gateway plugin camera are refused at bind).  Its own miss cannot be
-        retaken: the stock writer cannot rewind a late frame, and a skipped
-        frame shifts every later frame in Tiled (``NATIVE_DEVICES.md``).
+        A frame landing after the prepare (which starts the camera) — an
+        edge while the box idles, before or during the kickoff — would make
+        the stock kickoff raise ("only prepared up to …"); the stream's
+        datums cover it anyway (from frame 0).  So the prepare context's
+        baseline is set past any count the stock check can read: no second
+        read has to agree with a first.  Nothing else reads that baseline
+        on a stream (``trigger()`` is refused; the next prepare rebuilds it).
         """
-        if self._session.missed:
-            raise GeecsTriggerTimeoutError(
-                self._geecs_device_name,
-                self._frame_timeout(),
-                f"{self._geecs_device_name} missed a shot: a native camera cannot "
-                "refire yet (its writer cannot rewind) — the step fails",
+        ctx = self._prepare_ctx
+        if ctx is None or not self._streams():
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name} is a native EPICS camera: kickoff needs "
+                "an unbounded prepare (the stream path)"
             )
+        ctx.collections_written = sys.maxsize
+        await super().kickoff()
 
 
 def native_cameras(devices: Iterable[Any]) -> list[NativeCamera]:
