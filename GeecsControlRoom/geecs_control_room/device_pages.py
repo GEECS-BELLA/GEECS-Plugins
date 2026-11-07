@@ -22,6 +22,8 @@ family not yet given a panel are complete with no template of their own.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import quote
@@ -29,12 +31,12 @@ from urllib.parse import quote
 import yaml
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
-from geecs_schemas import FamilyFile, load_families
+from geecs_schemas import AUTO_GROUP, FamilyFile, load_families
 from geecs_web_theme.web import root_of
 from pydantic import ValidationError
 
 from geecs_control_room.module_client import GATEWAY, ModuleClient, ModuleUnavailable
-from geecs_control_room.screens import KIT_STATE, registry, role_spec
+from geecs_control_room.screens import KIT_STATE, GroupKey, registry, role_spec
 from geecs_control_room.settings import Settings
 from geecs_control_room.traces import trace_roles
 
@@ -258,14 +260,105 @@ def specs(entries: list[dict[str, Any]], family: Optional[FamilyFile], units: di
 OWN_ROLES = {"camera": frozenset({"min_x", "min_y", "size_x", "size_y"})}
 
 
-def page_panel(body: dict[str, Any], family: Optional[FamilyFile], rows: list[dict[str, Any]], kind: Optional[str] = None) -> dict[str, Any]:  # fmt: skip
-    """What the page draws above the role tables: the panel (the family's, else automatic) for this device's roles, less the kind's own (``OWN_ROLES``), and each role's control spec."""
+def page_panel(body: dict[str, Any], family: Optional[FamilyFile], rows: list[dict[str, Any]], kind: Optional[str] = None, axis: Optional[str] = None) -> dict[str, Any]:  # fmt: skip
+    """What the page draws above the role tables: the panel (the family's, else automatic) for this device's roles on ``axis`` (default: its first), less the kind's own (``OWN_ROLES``), and each role's control spec."""
     axes = body.get("axes") or [None]
-    entries = [e for e in body.get("roles") or [] if e.get("axis") == (axes[0] if family and family.per_axis else None)]  # fmt: skip
+    entries = [e for e in body.get("roles") or [] if e.get("axis") == ((axis or axes[0]) if family and family.per_axis else None)]  # fmt: skip
     authored: Optional[dict[str, Any]] = family.panel.model_dump(mode="json") if family and family.panel else None  # fmt: skip
     panel = drawn_panel(authored or auto_panel(entries), {e["role"] for e in entries} - OWN_ROLES.get(kind or "", frozenset()))  # fmt: skip
     units = {r["name"]: r.get("units") for r in rows}
     return {"panel": panel, "specs": specs(entries, family, units), "auto": authored is None}  # fmt: skip
+
+
+#: A screen's group widget's read: one page draw, never a 2 s poll, so it waits past a slow module reload tick.
+EMBED_TIMEOUT_S = 5.0
+
+
+@dataclass(frozen=True)
+class Unread:
+    """Why the module's answer for a device is no device a page can draw: the page's status, its pane, and whether asking again may help."""
+
+    status: int
+    state: str
+    title: str
+    detail: str
+    again: bool = False
+
+
+def unread(status: int, body: Any, name: str) -> Optional[Unread]:
+    """The module's answer for ``name`` read as the device pages read it; ``None`` for a device."""
+    why = body.get("detail") if isinstance(body, dict) else None
+    if status == 404:
+        return Unread(404, "denied", f"{name} is not on the module's roster", "Choose a device above, or check the name.")  # fmt: skip
+    if status in (401, 403):  # the read key refused: no amount of asking again helps
+        return Unread(status, "denied", "The module refused this display's read", why or f"it answered {status}")  # fmt: skip
+    if 400 <= status < 500 or (status == 200 and (not isinstance(body, dict) or "family" not in body)):  # fmt: skip
+        return Unread(502, "error", f"The module answered {status} for {name}", why or "not a device the page can read")  # fmt: skip
+    if status != 200:  # unreachable, not JSON, or a 5xx
+        return Unread(503, "stale", "The module did not answer", why or f"it answered {status}", again=True)  # fmt: skip
+    return None
+
+
+def classify(body: dict[str, Any]) -> tuple[Optional[FamilyFile], Optional[str], Optional[str]]:  # fmt: skip
+    """A device's family and page kind word, or why it has no page: the source decides first (a DB device's family is its DB device type, never looked up as a family file)."""
+    if body.get("source") == GATEWAY:
+        return None, DB_KIND, None
+    family = load_families().get(body.get("family") or "")
+    if family is None:
+        return None, None, f"Its family {body.get('family')!r} is no installed family file."  # fmt: skip
+    return family, _WORD.get(family.kind), None
+
+
+def drawn_of(body: dict[str, Any], family: Optional[FamilyFile], word: Optional[str], axis: Optional[str] = None) -> tuple[list[tuple[Optional[str], list[dict[str, Any]]]], dict[str, Any]]:  # fmt: skip
+    """The role tables and what the page draws above them (``page_panel``) on ``axis``."""
+    rows = tables(body, family)
+    return rows, page_panel(body, family, [r for _, axis_rows in rows for r in axis_rows], word, axis)  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Embedded:
+    """A screen's group widget as the device page draws that group: the panel (its rail the one group) and specs, or why not."""
+
+    panel: Optional[dict[str, Any]] = None
+    specs: Optional[dict[str, dict[str, Any]]] = None
+    problem: Optional[str] = None
+
+
+def group_panel(body: dict[str, Any], group: str, axis: Optional[str] = None) -> Embedded:  # fmt: skip
+    """The device's rail group ``group`` (``settings`` on an automatic layout: every group of it) and the panel's readings, as its page draws them."""
+    family, word, problem = classify(body)
+    if problem:
+        return Embedded(problem=problem)
+    _, drawn = drawn_of(body, family, word, axis)
+    auto, rail = drawn["auto"], drawn["panel"]["rail"]
+    rail = rail if auto and group == AUTO_GROUP else [g for g in rail if not auto and g["title"] == group]  # fmt: skip
+    if not rail:
+        return Embedded(problem=f"the device as the module serves it draws no group {group!r}")  # fmt: skip
+    return Embedded(drawn["panel"] | {"rail": rail}, drawn["specs"])
+
+
+async def embedded(module: ModuleClient, keys: Collection[GroupKey]) -> dict[GroupKey, Embedded]:  # fmt: skip
+    """Each group widget's group, one module read per device (concurrently); a device the module did not give is a problem, never a 500."""
+    names = sorted({name for name, _, _ in keys})
+
+    async def read(name: str) -> tuple[int, Any]:
+        try:
+            return await module.device(name, timeout=EMBED_TIMEOUT_S)
+        except ModuleUnavailable as exc:
+            return 0, {"detail": str(exc)}
+
+    bodies = dict(zip(names, await asyncio.gather(*(read(n) for n in names))))
+    out = {}
+    for key in keys:
+        status, body = bodies[key[0]]
+        if why := unread(
+            status, body, key[0]
+        ):  # a screen has no picker: its own advice for a device off the roster
+            detail = "check the screen's device name, or why the module has not loaded it" if why.status == 404 else why.detail  # fmt: skip
+            out[key] = Embedded(problem=f"{why.title}: {detail}" + ("; reload the screen to draw it" if why.again else ""))  # fmt: skip
+        else:
+            out[key] = group_panel(body, key[2], key[1])
+    return out
 
 
 async def resolve(module: ModuleClient, kind: str, name: str) -> tuple[int, dict[str, Any]]:  # fmt: skip
@@ -274,31 +367,16 @@ async def resolve(module: ModuleClient, kind: str, name: str) -> tuple[int, dict
         status, body = await module.device(name)
     except ModuleUnavailable as exc:
         status, body = 0, {"detail": str(exc)}
-    if status == 404:
-        return 404, {"pane": ("denied", f"{name} is not on the module's roster", "Choose a device above, or check the name.")}  # fmt: skip
-    why = body.get("detail") if isinstance(body, dict) else None
-    if status in (401, 403):  # the read key refused: no amount of asking again helps
-        return status, {"pane": ("denied", "The module refused this display's read", why or f"it answered {status}")}  # fmt: skip
-    if 400 <= status < 500 or (status == 200 and (not isinstance(body, dict) or "family" not in body)):  # fmt: skip
-        return 502, {"pane": ("error", f"The module answered {status} for {name}", why or "not a device the page can read")}  # fmt: skip
-    if status != 200:  # unreachable, not JSON, or a 5xx: the page asks again
-        note = (
-            f"{why or f'it answered {status}'}; this page asks again every few seconds."
-        )
-        return 503, {"pane": ("stale", "The module did not answer", note), "recover": True}  # fmt: skip
-    # the source decides first: a DB device's family is its DB device type, never looked up as a family file
-    gateway = body.get("source") == GATEWAY
-    family = None if gateway else load_families().get(body["family"] or "")
-    if family is None and not gateway:
-        return 422, {"pane": ("denied", f"{name} has no page", f"Its family {body['family']!r} is no installed family file.")}  # fmt: skip
-    word = DB_KIND if gateway else _WORD.get(family.kind)
+    if why := unread(status, body, name):
+        note = f"{why.detail}; this page asks again every few seconds." if why.again else why.detail  # fmt: skip
+        return why.status, {"pane": (why.state, why.title, note)} | ({"recover": True} if why.again else {})  # fmt: skip
+    family, word, problem = classify(body)
+    if problem:
+        return 422, {"pane": ("denied", f"{name} has no page", problem)}
     if word != kind:
         what = family.template if family else f"{name} (a GEECS DB device, {body['family'] or 'no type'})"  # fmt: skip
         return 422, {"pane": ("denied", f"Wrong kind: {what} is a {word}", ""), "other": word}  # fmt: skip
-    rows = tables(body, family)
-    drawn = page_panel(
-        body, family, [r for _, axis_rows in rows for r in axis_rows], word
-    )
+    rows, drawn = drawn_of(body, family, word)
     return 200, {"pane": None, "device": body, "family": family, "tables": rows, "trace": trace_roles(family)} | drawn  # fmt: skip
 
 

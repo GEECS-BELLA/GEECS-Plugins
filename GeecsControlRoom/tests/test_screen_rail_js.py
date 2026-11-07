@@ -45,7 +45,12 @@ const bare = widget({ pv: "x:u_a:b" }, [field], true);
 const all = [...pairs, narrowed, unread, field];
 // a page's own group beside the panel's (a camera's ROI, its display) carries no data-roles: the rail leaves it be
 const own = el("SECTION");
-const box = el("MAIN", { querySelectorAll: (sel) => (sel === ".field [data-role]" ? all : sel === ".panel-rail .group" ? [own] : []) });
+// a group widget's rail group and reading: hidden by its OWN device's channel-present role (a screen's page has no view)
+const scopeW = el("DIV", { dataset: { kind: "group", device: "Scope" }, kids: { ".out": el("SPAN") } });
+const chC = el("SECTION", { dataset: { roles: JSON.stringify(["ch_c_enable", "ch_c_range"]) } });
+const chCTotal = el("DIV", { dataset: { role: "ch_c_total" }, kids: { ".v": el("SPAN"), ".dot": el("SPAN"), ".word": el("SPAN") } });
+for (const e of [chC, chCTotal]) e.closest = (sel) => (sel === ".w" ? scopeW : null);
+const box = el("MAIN", { querySelectorAll: (sel) => (sel === ".field [data-role]" ? all : sel === ".panel-rail .group" ? [own] : sel === ".panel-rail .group[data-roles]" ? [chC] : sel === ".readings .live" ? [chCTotal] : []) });
 // the module's entries and Hare's values per device, as screen.js's pageOf answers them
 const DEV = {
   PLC: { roles: { "DO.Ch1|": { role: "DO.Ch1", pv: "plc:do1", writePv: "plc:do1:SP", writable: true, read: "monitor", verdict: null } },
@@ -53,6 +58,8 @@ const DEV = {
   Wheel: { roles: { "pos|": { role: "pos", pv: "w:pos", writePv: "w:pos:SP", writable: true, read: "monitor", verdict: null },
                     "pos2|": { role: "pos2", pv: "w:pos2", writePv: "w:pos2:SP", writable: true, read: "monitor", verdict: null } },
            frames: { pos: { value: 0, connected: true }, pos2: { value: 1, connected: true } }, meta: { pos: { enumChoices: ["A", "B", "C", "D"] }, pos2: {} } },
+  Scope: { roles: Object.fromEntries(["ch_c_enable", "ch_c_range", "ch_c_present", "ch_c_total"].map((r) => [r + "|", { role: r, pv: "s:" + r, read: "monitor", verdict: null }])),
+           frames: { ch_c_present: { value: 0, connected: true }, ch_c_total: { value: 7, connected: true } }, meta: {} },
 };
 const device = (name) => ({ name, root: "", view: () => ({ ok: true, state: "live", roles: DEV[name].roles, source: "gateway" }),
   entry: (role) => DEV[name].roles[role + "|"], frame: (role) => DEV[name].frames[role], meta: (role) => DEV[name].meta[role] || {},
@@ -75,6 +82,7 @@ const page = { for: (c) => (c.closest(".w").dataset.pv ? barePage : device(c.clo
 const rail = window.GeecsDeviceRail.make(page, box, { for: (c) => (c.closest(".w").dataset.pv ? { busy: () => false, write: async () => false } : writesOf(c.closest(".w").dataset.device)) });
 (async () => {
   const out = {};
+  out.group = { section: chC.hidden, reading: chCTotal.hidden };
   out.pair = pairs.map((b) => [b.textContent, b.getAttribute("aria-pressed"), b.disabled]);
   pairs[1].fire("click");
   await flush();
@@ -110,6 +118,8 @@ const rail = window.GeecsDeviceRail.make(page, box, { for: (c) => (c.closest(".w
 @needs_node
 def test_a_screen_widget_writes_through_the_rail_and_its_note_asks_first() -> None:
     page: dict[str, Any] = run("device_rail.js", _SCREEN)
+    # a group widget's channel group and its reading are hidden by its own device's present role reading 0
+    assert page["group"] == {"section": True, "reading": True}
     # the pair: the enum's own words, the reading's state pressed, enabled on the module's word
     assert page["pair"] == [["out", "true", False], ["in", "false", False]]
     # the widget's confirm note asks before anything is sent (a note alone: no hazard role marked)
@@ -181,11 +191,15 @@ const egu = el("SMALL", { dataset: { egu: "x:press", type: "readback" } });
 const roW = el("DIV", { dataset: { pv: "x:press" }, kids: { ".out": el("SPAN") } });
 for (const e of [ro, egu]) e.closest = (s) => (s === ".w" ? roW : null);
 ro.parentElement = roField;
+// two group widgets whose one rail group the rail hid (a channel not present): the one without readings hides with it
+const hiddenGroup = () => el("SECTION", { hidden: true });
+const bareGroupW = el("DIV", { dataset: { kind: "group", device: "Scope" }, querySelectorAll: (s) => (s === ".panel-rail .group" ? [hiddenGroup()] : []) });
+const readGroupW = el("DIV", { dataset: { kind: "group", device: "Scope" }, kids: { details: el("DETAILS") }, querySelectorAll: (s) => (s === ".panel-rail .group" ? [hiddenGroup()] : []) });
 const main = el("MAIN", { querySelectorAll: (s) => (s === ".field [data-role]" ? [sp] : s === "[data-ro]" ? [ro] : s === "[data-egu]" ? [egu] : []) });
 const ids = { "kit-state": el("SCRIPT", { textContent: "{}" }), operator: el("INPUT", { value: "ann" }), "hare-state": el("SPAN"), confirm: el("DIALOG"),
   "write-out": el("DIV"), "hazard-dialog": el("DIALOG"), "hazard-dialog-text": el("P"), "hazard-dialog-roles": el("P"), "hazard-dialog-note": el("P"), "hazard-dialog-title": el("H4") };
 const document = { getElementById: (id) => ids[id] || null, activeElement: null, body: { dataset: {} },
-  querySelectorAll: (s) => (s === ".w" ? [spW, roW] : s === ".w[data-device], .ind[data-device]" ? [spW] : []),
+  querySelectorAll: (s) => (s === ".w" ? [spW, roW, bareGroupW, readGroupW] : s === ".w[data-device], .ind[data-device]" ? [spW] : []),
   querySelector: (s) => (s === "main.screen" ? main : s === ".hare .dot" ? el("SPAN") : null) };
 const META = { "dev:x": { precision: 3 }, "dev:x:SP": { precision: 3 }, "x:press": { units: "Torr", precision: 2 } };
 const FRAMES = { "dev:x": { value: 4.4, connected: true, severity: "NO_ALARM", alarmStatus: 0 }, "dev:x:SP": { value: 4.4, connected: true }, "x:press": { value: 0.0012, connected: true } };
@@ -208,6 +222,7 @@ vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
   onView("Dev", { ok: true, value: D.deviceView(true, { state: "live", source: "gateway",
     roles: [{ role: "X", axis: null, pv: "dev:x", writePv: "dev:x:SP", type: "setpoint", writable: true, read: "monitor", verdict: null }] }) });
   await flush();
+  out.groups = [bareGroupW.hidden, readGroupW.hidden];
   out.shown = { field: sp.value, now: spField.querySelector(".rb").querySelector("b").textContent, ro: ro.textContent, units: egu.textContent };
   sp.value = "5"; sp.dataset.draft = "1";
   sp.fire("keydown", { key: "Enter", preventDefault() {} });
@@ -224,6 +239,8 @@ def test_a_widgets_precision_shows_but_never_judges_and_a_readouts_units_are_har
     None
 ):
     page: dict[str, Any] = run("screen.js", _PAGE)
+    # a group widget whose groups are all hidden hides with them, unless it carries its device's readings
+    assert page["groups"] == [True, False]
     # shown at the widget's precision 0; a bare readout carries its units from Hare's metadata alone
     assert page["shown"] == {"field": "4", "now": "4", "ro": "0.0012", "units": "Torr"}
     # set 5, the device at 4.4: judged within the record's PREC 3 (0.001), never the widget's 0 digits (1)

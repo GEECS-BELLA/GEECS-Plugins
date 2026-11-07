@@ -18,7 +18,8 @@
 // the widget's own (a device, a bare PV, a DB device judged against its kind), and a write says its outcome on the
 // widget's line and asks with the widget's own hazard note. A pair labelled by the record (`data-enum-label`) takes
 // the enum's own words; a select is narrowed to `data-choices` (a family role's); a field the module serves as text
-// (a DB device's) takes text; the module's `tolerance` is the hint when the page was drawn with none.
+// (a DB device's) takes text; the module's `tolerance` is the hint when the page was drawn with none. A screen's
+// group widget is a device's rail group and readings, judged and hidden by that device's own roles.
 // window.GeecsDeviceRail.make(page, box, writes) → { fill }.
 (function () {
   "use strict";
@@ -32,7 +33,7 @@
     const pg = (el) => (P.for ? P.for(el) : P), wr = (el) => (writes.for ? writes.for(el) : writes);
     const opts = (el) => { const w = el.closest(".w"); return w ? { out: w.querySelector(".out"), note: w.dataset.confirm } : {}; };
     const value = (el, role, axis) => { const f = pg(el).frame(role, axis); return f ? f.value : undefined; };
-    const known = () => { const v = P.view(); return v && v.ok ? Object.values(v.roles).map((e) => e.role) : []; };
+    const known = (el) => { const v = pg(el).view(); return v && v.ok ? Object.values(v.roles).map((e) => e.role) : []; }; // the element's device's roles
     const controls = [...box.querySelectorAll(".field [data-role]")];
     const say = (el, text) => { const out = opts(el).out || document.getElementById("write-out"); if (out) { out.dataset.state = "unknown"; out.textContent = text; } };
     const paint = (line, text, word) => {
@@ -102,13 +103,12 @@
         if (ws) { ws.querySelector(".dot").dataset.state = KIT[word] || "unknown"; ws.querySelector(".word").textContent = word; }
       }
       for (const el of box.querySelectorAll("[data-egu]")) el.textContent = D.units(el.dataset.type, "", pg(el).meta(el.dataset.egu, axisOf(el)));
-      const names = known();
       for (const g of box.querySelectorAll(".panel-rail .group[data-roles]")) { // a panel group: a page's own groups beside it carry none
-        const present = D.presentRole(JSON.parse(g.dataset.roles), names);
+        const present = D.presentRole(JSON.parse(g.dataset.roles), known(g));
         g.hidden = !!present && D.hidden(pg(g).frame(present, paneAxis(g)));
       }
       for (const el of box.querySelectorAll(".readings .live")) {
-        const P = pg(el), role = el.dataset.role, axis = axisOf(el), present = D.presentRole([role], names), word = P.word(role, axis);
+        const P = pg(el), role = el.dataset.role, axis = axisOf(el), present = D.presentRole([role], known(el)), word = P.word(role, axis);
         el.hidden = !!present && D.hidden(P.frame(present, axis));
         el.querySelector(".v").textContent = C.fmt(P.frame(role, axis), P.meta(role, axis));
         el.querySelector(".dot").dataset.state = KIT[word] || "unknown";

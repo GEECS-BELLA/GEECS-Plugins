@@ -721,3 +721,76 @@ the family's panel says or when it has none); the camera's rail is filled
 once per frame through `camera.js`'s hooks, not on every PV update; the
 rail's group selector is pinned under node; the analysis-ROI tools sit
 under their group; `GATEWAY` lives once, in `module_client.py`.
+
+### 2026-11-07 — vocabulary merge, PR 2b (#1306): a screen embeds a device's rail group
+
+**Built.** `Screen` gains a ninth kind, `group`, binding `{device, group}`:
+a rail group's title in the family's `panel` (an axis on a per-axis
+family), or `settings` (`AUTO_GROUP`) for the automatic layout, which is a
+DB device's only group. `resolve_screen` refuses a title the panel lacks
+(listing the groups the device draws) and a group the device's `omit`
+empties. The renderer reads the module's device route once per embedded
+device, concurrently, when it draws the page (`device_pages.embedded`,
+handed to `screens.router` by the app). It draws the group through the
+device page's own `page_panel` and `_panel.html`'s `rail` on the bound
+axis. The device's readings fold under its first group widget, once per
+device and axis. The rail now hides a channel group by its own element's
+device's `<ch>_present`; a screen has no view of its own, so before this a
+scope's absent channel was never hidden on a screen. A group widget whose
+groups are all hidden hides with them. The bench (the scope and
+spectrometer soft IOCs through GeecsCanopy's real module) found two
+defects, both fixed before the PR: a device's readings repeated under each
+of its group widgets, and a hidden channel group left its readings behind.
+
+**Review** (round 1: one medium, five low; all fixed or, for one part,
+waived; confirmed in round 2, which found one new low, fixed) changed:
+- **The read timeout:** the page draw's read waits `EMBED_TIMEOUT_S` (5 s),
+  never the 2 s poll's 1.4 s, so a module reload tick no longer leaves a
+  group undrawn until a manual reload.
+- **One classification for the device page and the group widget:**
+  `unread`, `classify` and `drawn_of`. `resolve`'s panes are unchanged
+  (the reviewer compared 28 answers old against new).
+- **The advice:** a group widget says what the device page would say, and
+  "reload" only where asking again may help. A device off the roster gets
+  the screen's own advice, not the picker's.
+- **`settings`** is the automatic layout only where the page draws one; on
+  a family panel it is a title like any.
+- **The deploy order** is stated: the Control Room's env, then Canopy's
+  image, then the first group widget in the configs repo. An older Canopy
+  refuses `kind: group` in a preset's screen scope.
+- **Placement:** one `GroupKey`. Waived: moving the panel builders into a
+  module below `screens` and `device_pages` (about 120 unchanged lines);
+  reopen when a third module needs them.
+
+### 2026-11-07 — the vocabulary merge, closed
+
+The rail is the one control set: the device pages (settables, trace,
+camera) and the screens draw `_panel.html`'s controls, filled and written
+by `device_rail.js` through `device_writes.js`, and a screen can embed a
+device's rail group whole. Four PRs: #1302 (the setpoint control), #1304
+(the renderer on the rail, with #1241's `select` and valued toggle carried
+in, so master draws the Control Center again), #1305 (the camera on its
+family's panel, the trace source check), and #1306 (the `group` widget).
+
+What review changed across the slice, beyond each PR's own list above
+(the bench's own finds are in each **Built** paragraph):
+- **Read the module's silence and its refusals apart.** A failed device poll
+  used to disarm `differs` (the maintainer's GPT round on #1302). On
+  #1306, a refusing or absent device for an embedded group used to read
+  like a silent module, with reload advice that could not help, and a slow
+  module was taken for a silent one at the poll's 1.4 s.
+- **A screen is not a page:** it has no picker, so its advice must be its
+  own (#1306). That it has no view of its own either, so a channel group
+  must be hidden by its element's own device, was the bench's find, before
+  review.
+- **A widget's precision is display only.** The record's precision judges
+  the settle (the GPT round on #1304).
+- **A kind's own roles stay off the rail whatever the family says:** the
+  camera ROI behind its dialog (#1305).
+- **One copy of each rule:** `device_rules.accepted` (#1302),
+  `screens.role_spec` (#1304), `GATEWAY` (#1305), the device route's
+  classification (#1306).
+
+Every PR was proved on the soft IOCs in headless Chrome before review; the
+bench found a defect in three of the four. Owed: the deployed pages and
+screens on the services box, the coordinator's.

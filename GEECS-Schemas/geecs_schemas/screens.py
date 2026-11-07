@@ -10,7 +10,10 @@ is read-only, for anything servable (a timestamp, a derived channel): a
 writing kind on one is drawn disabled; a write binds ``{device, role}``.
 A button may instead name an action plan (``{action: <plan>}``) from the
 experiment's action library: the device module runs it, step by step
-through its gates; the screen only calls it.
+through its gates; the screen only calls it. A ``group`` widget binds
+``{device, group}``: the device's rail group of that title (its family's
+``panel``), or ``settings`` for the automatic layout a device without a
+panel gets (a DB device's), drawn as the device page draws it.
 Whether the role exists on the device and fits the widget depends on the
 family files and the instance data, so it is checked by :func:`resolve`,
 not by the model; a DB device's roles are the device module's, so
@@ -19,7 +22,7 @@ not by the model; a DB device's roles are the device module's, so
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from functools import partial
 from typing import Literal, Optional
@@ -34,12 +37,15 @@ from geecs_schemas.epics.panel_devices import DeviceName, PanelDevices
 #: The screens' folder in the experiment's configs folder.
 SCREENS_DIRNAME = "screens"
 
-#: The eight widgets: setpoint (with its readback), two-state toggle, flipper
+#: The nine widgets: setpoint (with its readback), two-state toggle, flipper
 #: (a toggle with in/out indicators), latching button, a choice of an enum's
-#: options, read-only value, text, picture.
+#: options, read-only value, text, picture, and a device's rail group.
 WidgetKind = Literal[
-    "setpoint", "toggle", "flipper", "button", "select", "readout", "annotation", "image"
+    "setpoint", "toggle", "flipper", "button", "select", "readout", "annotation", "image", "group"
 ]  # fmt: skip
+
+#: A group binding's word for the automatic layout (every writable role; a device whose family has no panel).
+AUTO_GROUP = "settings"
 
 #: The kit's colour tokens a group may wear: hues with no status meaning.
 GroupTone = Literal[
@@ -89,25 +95,27 @@ class Binding(SchemaModel):
     )
     pv: Optional[Suffix] = Field(None, description="A bare PV, read only: a writing kind on one is drawn disabled.")  # fmt: skip
     action: Optional[str] = Field(None, min_length=1, description="An action plan's name in the experiment's library: a button runs it.")  # fmt: skip
+    group: Optional[str] = Field(None, min_length=1, description=f"A rail group's title in the device's family panel, or '{AUTO_GROUP}' for the automatic layout: a group widget draws it.")  # fmt: skip
 
     @model_validator(mode="after")
     def _one_kind_of_binding(self) -> "Binding":
-        named = self.device is not None and self.role is not None
-        loose = (self.device or self.role) and not named
+        on_device = (self.role is not None) + (self.group is not None)
+        named = self.device is not None and on_device == 1
+        loose = (self.device is not None or on_device) and not named
         if loose or named + (self.pv is not None) + (self.action is not None) != 1:
             raise ValueError(
-                "a binding names a device and a role, a pv, or an action: one of them"
+                "a binding names a device and a role, a device and a group, a pv, or an action: one of them"
             )
         if self.axis is not None and not named:
-            raise ValueError("an axis belongs to a device's role")
+            raise ValueError("an axis belongs to a device's role or group")
         return self
 
 
 class Widget(SchemaModel):
     """One control: its kind, the label a person reads, and what it is bound to."""
 
-    kind: WidgetKind = Field(description="The widget, one of the eight.")
-    label: str = Field("", description="Free text shown beside it (an annotation's text); empty: the role's label.")  # fmt: skip
+    kind: WidgetKind = Field(description="The widget, one of the nine.")
+    label: str = Field("", description="Free text shown beside it (an annotation's text); empty: the role's label (a group's: its title).")  # fmt: skip
     bind: Optional[Binding] = Field(None, description="What it shows and writes; none for an annotation or an image.")  # fmt: skip
     indicators: list[Binding] = Field([], max_length=2, description="A flipper's in and out indicators, in that order.")  # fmt: skip
     confirm: Optional[str] = Field(None, min_length=1, description="A hazard note the operator confirms before the write.")  # fmt: skip
@@ -140,6 +148,12 @@ class Widget(SchemaModel):
         runs = [b for b in (self.bind, *self.indicators) if b and b.action]
         if runs and (self.kind != "button" or runs[0] is not self.bind):
             raise ValueError("only a button runs an action")
+        if any(b.group for b in self.indicators) or (self.kind == "group") != bool(self.bind and self.bind.group):  # fmt: skip
+            raise ValueError("a group, and only a group, binds a device's group")
+        if self.kind == "group" and (self.units or self.precision is not None):
+            raise ValueError(
+                "a group's controls take their units and precision from the device"
+            )
         return self
 
 
@@ -208,8 +222,8 @@ def _device_roles(
     families: Mapping[str, FamilyFile],
     panel: PanelDevices,
     native: NativeDevices,
-) -> tuple[dict[str, Role], tuple[str, ...]]:
-    """The device's roles and axes, joined from both files as GeecsCanopy's ``native.py`` joins them."""
+) -> tuple[FamilyFile, dict[str, Role], tuple[str, ...]]:
+    """The device's family, roles and axes, joined from both files as GeecsCanopy's ``native.py`` joins them."""
     entry, registered = panel.devices.get(name), native.devices.get(name)
     template = entry.family if entry else registered and registered.family_template
     family = families.get(template or "")
@@ -221,7 +235,7 @@ def _device_roles(
     axes = getattr(registered, "axes", None) or (entry and entry.axes) or []
     if family.per_axis and not axes:
         raise KeyError(f"{name}: the {template} family needs axes")
-    return {r.name: r for r in roles}, tuple(axes)
+    return family, {r.name: r for r in roles}, tuple(axes)
 
 
 def _accepts(widget: Widget) -> frozenset[str]:
@@ -274,6 +288,65 @@ def _roleless(
     return b.pv is not None or b.action is not None or _later(b, deferred, panel, known)
 
 
+def _group_problems(
+    b: Optional[Binding],
+    deferred: bool,
+    families: Mapping[str, FamilyFile],
+    panel: PanelDevices,
+    native: NativeDevices,
+) -> list[str]:
+    """Why ``b`` names no group of its device; a DB device (``deferred``) has no family panel, only the automatic layout."""
+    if b is None:
+        return []
+    if not deferred:
+        return _no_group(b, families, panel, native)
+    return [] if b.group == AUTO_GROUP else [f"{b.device} is a DB device: its one group is {AUTO_GROUP!r}"]  # fmt: skip
+
+
+def _no_group(
+    b: Binding,
+    families: Mapping[str, FamilyFile],
+    panel: PanelDevices,
+    native: NativeDevices,
+) -> list[str]:
+    """Why ``b`` names no group its device draws: no such device or axis, no rail group of that title, or none of its roles served (``omit``)."""
+    try:
+        family, roles, axes = _device_roles(b.device or "", families, panel, native)
+    except KeyError as exc:
+        return [exc.args[0]]
+    problems = [] if (b.axis or None) in (axes or (None,)) else [f"{b.device} takes an axis of {list(axes)}"]  # fmt: skip
+    # a panel's title names every rail group so headed (a panel may repeat one): their roles together;
+    # no panel at all (never an empty rail): the automatic layout, every writable role
+    groups: dict[str, set[str]] = {
+        AUTO_GROUP: {r.name for r in roles.values() if r.writable}
+    }
+    if family.panel:
+        groups = {}
+        for g in family.panel.rail:
+            groups.setdefault(g.title, set()).update(g.roles)
+    drawn = [title for title, names in groups.items() if names & roles.keys()]
+    if b.group not in drawn:
+        why = "the device serves none of its roles" if b.group in groups else f"its groups are {drawn}"  # fmt: skip
+        problems.append(f"{b.device} has no group {b.group!r}: {why}")
+    return problems
+
+
+def _bind_group(
+    widget: Widget,
+    where: str,
+    *,
+    later: Callable[[Optional[Binding]], bool],
+    families: Mapping[str, FamilyFile],
+    panel: PanelDevices,
+    native: NativeDevices,
+    problems: list[str],
+) -> Bound:
+    """A group widget, bound to no role (a DB device's deferred); why its group is not its device's is added to ``problems``."""
+    deferred = later(widget.bind)
+    problems.extend(f"{where}: {why}" for why in _group_problems(widget.bind, deferred, families, panel, native))  # fmt: skip
+    return Bound(widget, deferred=deferred)
+
+
 def _unplanned(widget: Widget, actions: Collection[str], where: str) -> list[str]:
     """A button naming a plan the library does not hold."""
     plan = widget.bind.action if widget.bind else None
@@ -301,12 +374,13 @@ def resolve(
 
     later = partial(_later, deferred=deferred, panel=panel, known=known)
     roleless = partial(_roleless, deferred=deferred, panel=panel, known=known)
+    bind_group = partial(_bind_group, later=later, families=families, panel=panel, native=known, problems=problems)  # fmt: skip
 
     def role_of(b: Binding, where: str) -> Optional[Role]:
         if roleless(b):
             return None
         try:
-            roles, axes = _device_roles(b.device or "", families, panel, known)
+            _, roles, axes = _device_roles(b.device or "", families, panel, known)
         except KeyError as exc:
             problems.append(f"{where}: {exc.args[0]}")
             return None
@@ -331,7 +405,9 @@ def resolve(
 
     out = [
         [
-            bind(w, f"{g.title!r} widget {n} ({w.kind})")
+            (bind_group if w.kind == "group" else bind)(
+                w, f"{g.title!r} widget {n} ({w.kind})"
+            )
             for n, w in enumerate(g.widgets, 1)
         ]  # fmt: skip
         for g in screen.groups

@@ -1,4 +1,4 @@
-"""Screen: eight widget kinds, kit tokens, one kind of binding; resolve() fits widgets to roles."""
+"""Screen: nine widget kinds, kit tokens, one kind of binding; resolve() fits widgets to roles and groups."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from geecs_schemas import (
+    AUTO_GROUP,
     NativeDevices,
     PanelDevices,
     Screen,
@@ -34,9 +35,9 @@ def screen(*widgets: dict, tone: str = "trace-1") -> Screen:
     return Screen.model_validate({"title": "S", "groups": [group]})
 
 
-def test_the_eight_kinds_and_no_ninth() -> None:
+def test_the_nine_kinds_and_no_tenth() -> None:
     assert set(typing.get_args(WidgetKind)) == {
-        "setpoint", "toggle", "flipper", "button", "select", "readout", "annotation", "image"
+        "setpoint", "toggle", "flipper", "button", "select", "readout", "annotation", "image", "group"
     }  # fmt: skip
     with pytest.raises(ValidationError):
         screen({"kind": "slider", "bind": {"pv": "X:Y"}})
@@ -57,6 +58,9 @@ def test_a_group_wears_a_kit_token_never_a_colour(tone: str) -> None:
         {"pv": "A:B", "axis": "m1"},
         {"action": "park", "pv": "A:B"},
         {"action": "park", "device": "ps"},
+        {"group": "Output"},
+        {"device": "ps", "role": "current", "group": "Output"},
+        {"pv": "A:B", "group": "Output"},
     ],  # fmt: skip
 )
 def test_a_binding_is_a_device_and_role_or_a_pv(bind: dict) -> None:
@@ -259,3 +263,89 @@ def test_every_screen_in_the_configs_repo_validates_and_binds(configs_repo) -> N
         assert sum(map(len, rows)) == sum(len(g.widgets) for g in screen.groups), (
             path.name
         )
+
+
+GROUP = {"kind": "group", "bind": {"device": "ps", "group": "Output"}}
+
+
+def test_a_group_binds_a_device_and_a_rail_group_of_its_family_panel() -> None:
+    motor = {"kind": "group", "bind": {"device": "st", "group": "Move", "axis": "m1"}}
+    db = {"kind": "group", "label": "Plunger", "bind": {"device": "U_PLC", "group": AUTO_GROUP}}  # fmt: skip
+    rows = resolve_screen(screen(GROUP, motor, db), load_families(), PANEL, NATIVE, deferred={"U_PLC"})  # fmt: skip
+    assert [(b.role, b.deferred) for b in rows[0]] == [(None, False), (None, False), (None, True)]  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    "bind, why",
+    [
+        ({"device": "ps", "group": "output"}, r"no group 'output': its groups are \['Output', 'Faults'\]"),
+        ({"device": "ps", "group": AUTO_GROUP}, "no group 'settings'"),  # a family with a panel draws it
+        ({"device": "st", "group": "Move"}, "takes an axis"),
+        ({"device": "st", "group": "Move", "axis": "m9"}, "takes an axis"),
+        ({"device": "U_PLC", "group": "Output"}, "a DB device: its one group is 'settings'"),
+        ({"device": "U_Gone", "group": AUTO_GROUP}, "no device 'U_Gone'"),
+    ],
+)  # fmt: skip
+def test_resolve_refuses_a_group_its_device_does_not_draw(bind: dict, why: str) -> None:
+    with pytest.raises(ScreenError, match=why):
+        resolve_screen(screen({"kind": "group", "bind": bind}), load_families(), PANEL, NATIVE, deferred={"U_PLC"})  # fmt: skip
+
+
+def test_a_group_whose_roles_the_device_omits_is_refused() -> None:
+    """The page would draw nothing: the device's ``omit`` leaves the group empty."""
+    omitted = PanelDevices.model_validate({"devices": {"ps": {"family": "easydriver", "omit": ["reset"]}}})  # fmt: skip
+    faults = {"kind": "group", "bind": {"device": "ps", "group": "Faults"}}
+    with pytest.raises(
+        ScreenError, match="no group 'Faults': the device serves none of its roles"
+    ):
+        resolve_screen(screen(faults), load_families(), omitted, NATIVE)
+    with pytest.raises(ScreenError, match=r"its groups are \['Output'\]"):
+        resolve_screen(screen(faults | {"bind": {"device": "ps", "group": "Fault"}}), load_families(), omitted, NATIVE)  # fmt: skip
+
+
+def test_a_repeated_heading_is_every_rail_group_of_that_title() -> None:
+    """A panel may repeat a heading: the title names every such group, so one with a served role is enough (the renderer draws them all)."""
+    families = dict(load_families())
+    doc = families["easydriver"].model_dump(mode="json")
+    doc["panel"]["rail"][1]["title"] = doc["panel"]["rail"][0][
+        "title"
+    ]  # Output, then Output (its reset)
+    families["easydriver"] = type(families["easydriver"]).model_validate(doc)
+    omitted = PanelDevices.model_validate({"devices": {"ps": {"family": "easydriver", "omit": ["reset"]}}})  # fmt: skip
+    ((bound,),) = resolve_screen(screen(GROUP), families, omitted, NATIVE)
+    assert bound.widget.bind.group == "Output"
+
+
+def test_a_panel_of_readings_alone_offers_no_group_not_even_settings() -> None:
+    """An authored panel with no rail groups draws no automatic layout either (the page draws the panel): `settings` is refused."""
+    families = dict(load_families())
+    doc = families["easydriver"].model_dump(mode="json")
+    doc["panel"] |= {"rail": [], "buttons": {}}
+    families["easydriver"] = type(families["easydriver"]).model_validate(doc)
+    with pytest.raises(ScreenError, match=r"no group 'settings': its groups are \[\]"):
+        resolve_screen(screen(GROUP | {"bind": {"device": "ps", "group": AUTO_GROUP}}), families, PANEL, NATIVE)  # fmt: skip
+
+
+def test_a_family_without_a_panel_offers_the_automatic_layout_alone() -> None:
+    families = dict(load_families())
+    families["easydriver"] = families["easydriver"].model_copy(update={"panel": None})
+    ((bound,),) = resolve_screen(screen(GROUP | {"bind": {"device": "ps", "group": AUTO_GROUP}}), families, PANEL, NATIVE)  # fmt: skip
+    assert not bound.deferred
+    with pytest.raises(ScreenError, match=r"its groups are \['settings'\]"):
+        resolve_screen(screen(GROUP), families, PANEL, NATIVE)
+
+
+@pytest.mark.parametrize(
+    "widget, why",
+    [
+        ({"kind": "readout", "bind": {"device": "ps", "group": "Output"}}, "only a group"),
+        ({"kind": "group", "bind": {"device": "ps", "role": "current"}}, "only a group"),
+        (FLIP | {"indicators": [{"device": "ps", "group": "Output"}]}, "only a group"),
+        (GROUP | {"units": "A"}, "units and precision"),
+        (GROUP | {"precision": 2}, "units and precision"),
+        (GROUP | {"confirm": "Sure?"}, "nothing to confirm"),
+    ],
+)  # fmt: skip
+def test_only_a_group_binds_a_group_and_takes_nothing_of_a_controls(widget: dict, why: str) -> None:  # fmt: skip
+    with pytest.raises(ValidationError, match=why):
+        screen(widget)
