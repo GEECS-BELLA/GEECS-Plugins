@@ -316,6 +316,16 @@ def test_a_repeated_heading_is_every_rail_group_of_that_title() -> None:
     assert bound.widget.bind.group == "Output"
 
 
+def test_a_panel_of_readings_alone_offers_no_group_not_even_settings() -> None:
+    """An authored panel with no rail groups draws no automatic layout either (the page draws the panel): `settings` is refused."""
+    families = dict(load_families())
+    doc = families["easydriver"].model_dump(mode="json")
+    doc["panel"] |= {"rail": [], "buttons": {}}
+    families["easydriver"] = type(families["easydriver"]).model_validate(doc)
+    with pytest.raises(ScreenError, match=r"no group 'settings': its groups are \[\]"):
+        resolve_screen(screen(GROUP | {"bind": {"device": "ps", "group": AUTO_GROUP}}), families, PANEL, NATIVE)  # fmt: skip
+
+
 def test_a_family_without_a_panel_offers_the_automatic_layout_alone() -> None:
     families = dict(load_families())
     families["easydriver"] = families["easydriver"].model_copy(update={"panel": None})
