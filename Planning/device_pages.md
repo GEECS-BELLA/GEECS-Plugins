@@ -722,7 +722,7 @@ once per frame through `camera.js`'s hooks, not on every PV update; the
 rail's group selector is pinned under node; the analysis-ROI tools sit
 under their group; `GATEWAY` lives once, in `module_client.py`.
 
-### 2026-11-07 — vocabulary merge, PR 2b: a screen embeds a device's rail group
+### 2026-11-07 — vocabulary merge, PR 2b (#1306): a screen embeds a device's rail group
 
 **Built.** `Screen` gains a ninth kind, `group`, binding `{device, group}`:
 a rail group's title in the family's `panel` (an axis on a per-axis
@@ -770,24 +770,26 @@ by `device_rail.js` through `device_writes.js`, and a screen can embed a
 device's rail group whole. Four PRs: #1302 (the setpoint control), #1304
 (the renderer on the rail, with #1241's `select` and valued toggle carried
 in, so master draws the Control Center again), #1305 (the camera on its
-family's panel, the trace source check), and PR 2b (the `group` widget).
+family's panel, the trace source check), and #1306 (the `group` widget).
 
-What review changed across the slice, beyond each PR's own list above.
-Each PR's reviewer found the defects that the tests did not reach:
-- **A silent module is not agreement.** A failed device poll used to
-  disarm `differs` (the maintainer's GPT round on #1302), and a silent
-  module for an embedded group used to read like a misspelled device
-  (2b).
-- **A screen is not a page.** It has no view of its own, so per-element
-  lookups are needed for channel hiding (2b). It also has no picker, so
-  its advice must be its own (2b).
+What review changed across the slice, beyond each PR's own list above
+(the bench's own finds are in each **Built** paragraph):
+- **Read the module's silence and its refusals apart.** A failed device poll
+  used to disarm `differs` (the maintainer's GPT round on #1302). On
+  #1306, a refusing or absent device for an embedded group used to read
+  like a silent module, with reload advice that could not help, and a slow
+  module was taken for a silent one at the poll's 1.4 s.
+- **A screen is not a page:** it has no picker, so its advice must be its
+  own (#1306). That it has no view of its own either, so a channel group
+  must be hidden by its element's own device, was the bench's find, before
+  review.
 - **A widget's precision is display only.** The record's precision judges
   the settle (the GPT round on #1304).
 - **A kind's own roles stay off the rail whatever the family says:** the
   camera ROI behind its dialog (#1305).
 - **One copy of each rule:** `device_rules.accepted` (#1302),
   `screens.role_spec` (#1304), `GATEWAY` (#1305), the device route's
-  classification (2b).
+  classification (#1306).
 
 Every PR was proved on the soft IOCs in headless Chrome before review; the
 bench found a defect in three of the four. Owed: the deployed pages and
