@@ -114,6 +114,12 @@ CLOCK_STEP_LEVEL_FRAMES = 5
 #: Adjacent rows one behind the reference lag that make a clock step when
 #: the residual shows none (a whole-period step); shorter runs are poll lag.
 CLOCK_STEP_LAG_RUN = 3
+#: A record's witness attribute less the row's count when the record is on
+#: its shot: equal.  One behind is the sporadic poll lag; one behind for a
+#: sustained run is a record filed a shot late.
+WITNESS_CONTRACT_LAG = 0
+#: Timed rows a row's local lag is the lower median of (:func:`_local_lags`).
+CLOCK_STEP_LAG_WINDOW = 5
 
 
 @dataclass(frozen=True)
@@ -809,14 +815,16 @@ def _clock_step_audit(
     record moved one shot from an edge the device missed (both advance the
     counter once over two shots), so every row of a level off the run's
     first is suspect.  The witness attribute decides it: a row whose
-    record's attribute lags the row's count exactly as the first level's
-    records did (their commonest lag) is verified; any other row of a
-    displaced level — another lag, or no attribute to read — is
-    *clock-step* too.
+    record's attribute equals the row's count
+    (:data:`WITNESS_CONTRACT_LAG`) — judged by its local lag, the lower
+    median over the rows around it (:func:`_local_lags`), because a moved
+    record that also poll-lags can read as equal — is verified; any other
+    row of a displaced level, or one with no attribute to read, is
+    *clock-step* too.  So is any row whose local lag is off the contract.
 
     A step of about a whole number of periods leaves the residual where it
     was, so the attribute is also read without one: every row of a run of
-    consecutive timed rows lagging one more than the reference is
+    consecutive timed rows one behind the contract is
     *clock-step* when the run is :data:`CLOCK_STEP_LAG_RUN` rows or longer,
     or one shorter after a row the device has no record for.  Shorter runs
     are the measured poll lag (sporadic, where a step's displacement
@@ -825,11 +833,15 @@ def _clock_step_audit(
     attribute a whole-period step moves records exactly as a missed edge
     does (one gap, then every record one row on, counters consistent), and
     it is not detected; with it, a step that moves fewer rows than the run
-    needs (the run's last one or two) reads as poll lag, and one inside the
-    first :data:`CLOCK_STEP_LAG_RUN` rows becomes the reference (the run is
-    then flagged ``attribute-lag-systematic`` instead).  The reference is
-    the run's first stable lag (:func:`_reference_lag`), so a step later in
-    the run cannot redefine it.  The flag never moves a record.
+    needs (the run's last one or two) reads as poll lag, and where poll lag
+    is dense enough to put three of a window's five rows off the contract
+    (measured: 1.7 % of records, so about one window in 20 000) a clean
+    stretch is flagged and a moved one can pass.  The reference is the
+    contract, never the run's own lags, so a step anywhere in the run —
+    its first rows, after a poll lag, over most of it — cannot become
+    "normal"; a run filed one shot late from its start is *clock-step* on
+    every row it moved, beside ``attribute-lag-systematic``.  The flag
+    never moves a record.
     """
     threshold = max(CLOCK_STEP_SHARE * clock.period, 2.0 * clock.budget)
     timed = [
@@ -857,22 +869,29 @@ def _clock_step_audit(
         k, i = timed[j]
         return np.nan if attribute is None else clock.counts[k] - attribute[i]
 
-    reference = _reference_lag(
-        [(timed[j][0], lag(j)) for j in np.flatnonzero(level_of == 0)]
-    )
+    # The contract lag, never one read off the run: a record equal to the
+    # row's count is on its shot, so no stretch of shifted records, early
+    # or long, can redefine what "on its shot" means.
+    reference = None if attribute is None else WITNESS_CONTRACT_LAG
     levels = {
         n: float(np.median(residuals[level_of == n][:CLOCK_STEP_LEVEL_FRAMES]))
         for n in set(level_of.tolist())
     }
+    lags = [lag(j) for j in range(len(timed))]
+    local = _local_lags(lags)
     flagged = set(steps)
     for j in range(len(timed)):
         displaced = abs(levels[level_of[j]] - base) > threshold
-        if displaced and (reference is None or lag(j) != reference):
+        moved = reference is not None and local[j] != reference
+        if (
+            displaced
+            and (reference is None or moved)
+            or moved
+            and np.isfinite(local[j])
+        ):
             flagged.add(j)
     if reference is not None:
-        flagged.update(
-            _lag_runs(timed, [lag(j) for j in range(len(timed))], reference, assigned)
-        )
+        flagged.update(_lag_runs(timed, lags, reference, assigned))
     for j in sorted(flagged):
         k = timed[j][0]
         if f"clock-step:{name}" not in clock.flags[k]:
@@ -909,27 +928,26 @@ def _residual_levels(
     return level_of, steps
 
 
-def _reference_lag(lags: Sequence[tuple[int, float]]) -> float | None:
-    """The lag the run starts with: its first stable prefix's, never its majority's.
+def _local_lags(lags: Sequence[float]) -> list[float]:
+    """Each timed row's local lag: the lower median of the lags around it.
 
-    *lags* is ``(row, lag)`` in row order.  The reference is the lag of the
-    first :data:`CLOCK_STEP_LAG_RUN` adjacent rows that agree, so a step
-    later in the run, however many rows it moves, cannot redefine it; a
-    sporadic poll lag at the start does not either.  Without such a run,
-    the commonest lag; without any finite lag, ``None``.
+    The window is :data:`CLOCK_STEP_LAG_WINDOW` timed rows, centred where it
+    can be and shifted inward at the run's ends so it is always full.  A
+    record moved by a clock step stays moved, so a stretch of them sets the
+    median however a sporadic poll lag shifts one of them (a record moved
+    one row early that also lags reads as equal); one or two lagged rows
+    never do.  ``NaN`` where fewer than half the window has a lag.
     """
-    run: list[tuple[int, float]] = []
-    for row, value in lags:
-        if not np.isfinite(value):
-            run = []
-            continue
-        if run and (value != run[-1][1] or row != run[-1][0] + 1):
-            run = []
-        run.append((row, value))
-        if len(run) >= CLOCK_STEP_LAG_RUN:
-            return value
-    finite = [value for _, value in lags if np.isfinite(value)]
-    return max(set(finite), key=finite.count) if finite else None
+    n = len(lags)
+    width = min(CLOCK_STEP_LAG_WINDOW, n)
+    out: list[float] = []
+    for j in range(n):
+        lo = min(max(j - width // 2, 0), n - width)
+        window = sorted(x for x in lags[lo : lo + width] if np.isfinite(x))
+        out.append(
+            window[(len(window) - 1) // 2] if 2 * len(window) > width else np.nan
+        )
+    return out
 
 
 def _lag_runs(

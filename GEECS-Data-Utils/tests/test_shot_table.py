@@ -769,3 +769,52 @@ def test_an_early_whole_period_step_cannot_become_the_reference(step) -> None:
     ]
     assert len(wrong) == 89
     assert all("clock-step:cam" in table.flags[k] for k in wrong)
+
+
+@pytest.mark.parametrize("step", [1.0, 0.95, 1.05])
+def test_a_startup_poll_lag_does_not_hide_a_later_clock_step(step) -> None:
+    """The reference is the contract lag, not the run's first agreeing rows."""
+    rows = _rows(100)
+    cam = _cam(rows)
+    attribute = cam.witness_count.copy()
+    attribute[2] -= 1
+    stamps = cam.records.stamps + np.where(np.arange(100) >= 5, step, 0.0)
+    table = shot_table(START, rows, [_device("cam", stamps, cam.counter, attribute)])
+    wrong = [
+        k
+        for k, i in enumerate(table.record_for_shot["cam"])
+        if i is not None and i != k
+    ]
+    assert len(wrong) == 94
+    assert all("clock-step:cam" in table.flags[k] for k in wrong)
+    assert "clock-step:cam" not in table.flags[2]  # the poll lag itself
+
+
+def test_a_run_filed_one_shot_late_from_its_start_flags_every_moved_row() -> None:
+    rows = _rows(30)
+    cam = _cam(rows)
+    late = _device("cam", cam.records.stamps + 1.0, cam.counter, cam.witness_count)
+    table = shot_table(START, rows, [late])
+    wrong = [
+        k
+        for k, i in enumerate(table.record_for_shot["cam"])
+        if i is not None and i != k
+    ]
+    assert wrong and all("clock-step:cam" in table.flags[k] for k in wrong)
+
+
+@pytest.mark.parametrize("step", [-1.0, -0.8, 1.0])
+def test_a_poll_lag_inside_a_moved_stretch_does_not_verify_its_row(step) -> None:
+    """A record moved early that also poll-lags reads as equal; its stretch decides."""
+    rows = _rows(100)
+    cam = _cam(rows)
+    attribute = cam.witness_count.copy()
+    attribute[[30, 60]] -= 1
+    stamps = cam.records.stamps + np.where(np.arange(100) >= 10, step, 0.0)
+    table = shot_table(START, rows, [_device("cam", stamps, cam.counter, attribute)])
+    wrong = [
+        k
+        for k, i in enumerate(table.record_for_shot["cam"])
+        if i is not None and i != k
+    ]
+    assert wrong and all("clock-step:cam" in table.flags[k] for k in wrong)
