@@ -210,6 +210,7 @@
     const v = frame.value;
     if (meta && meta.enumChoices && typeof v === "number") return meta.enumChoices[v] ?? String(v);
     if (typeof v !== "number") return String(v);
+    if (meta && Number.isInteger(meta.digits)) return v.toFixed(meta.digits); // a screen widget's own precision
     if (Number.isInteger(v) && Math.abs(v) < 1e7) return String(v);
     const a = Math.abs(v);
     return a !== 0 && (a >= 1e5 || a < 1e-3) ? v.toExponential(3) : String(Number(v.toPrecision(4)));

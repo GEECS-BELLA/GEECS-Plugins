@@ -60,18 +60,6 @@
     return set(lo) && set(hi) && lo < hi ? `[${lo} … ${hi}]` : "";
   }
 
-  // Writable only on the module's word, never on a bare PV, never on a misfit, never while a write is in flight.
-  const writable = (entry, bare, busy, fits) => !bare && !!entry && !!entry.writable && !misfit(entry, fits) && !busy;
-
-  // The write asks first: the screen's own note or a family role's hazard, or the module's hazard mark (the policy's).
-  const hazard = (marked, entry) => !!marked || (!!entry && entry.confirm === "hazard");
-
-  // Setpoint and readback disagree at the precision shown (-0.000 is 0.000).
-  function differs(shownSp, shownRb, bothRead) {
-    const same = shownSp === shownRb || (shownSp !== "—" && Number(shownSp) === Number(shownRb));
-    return bothRead && !same;
-  }
-
   const outcomeState = (word) => OUT[word] || "unknown";
 
   // The header's source line: Hare's state, and the devices the module is slow to answer for.
@@ -98,5 +86,5 @@
   const runState = (run) => RUN[run.state] || "unknown";
   const runEnded = (run) => ["done", "failed", "stopped", "lost"].includes(run.state);
 
-  Object.assign(rules, { key, deviceView, misfit, judge, show, bounds, writable, hazard, differs, outcomeState, sourceLine, runWord, runDetail, runState, runEnded });
+  Object.assign(rules, { key, deviceView, misfit, judge, show, bounds, outcomeState, sourceLine, runWord, runDetail, runState, runEnded });
 })(typeof module === "object" ? module.exports : (window.GeecsScreenRules = {}));

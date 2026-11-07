@@ -81,10 +81,12 @@
     return { field: apart && !gateway ? "write" : "self", set: apart || (!!readback && readback !== entry.role) };
   }
 
-  // A tracked value as the field shows it: text as it is, a number to six significant digits; null leaves the field.
-  function fieldText(v) {
+  // A tracked value as the field shows it: text as it is, a number at a screen widget's own `digits`, else to six
+  // significant digits; null leaves the field.
+  function fieldText(v, digits) {
     if (typeof v === "string") return v;
     if (typeof v !== "number" || !Number.isFinite(v)) return null;
+    if (Number.isInteger(digits)) return v.toFixed(digits);
     return String(Number.isInteger(v) ? v : Number(v.toPrecision(6)));
   }
 

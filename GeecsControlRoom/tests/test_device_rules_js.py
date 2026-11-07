@@ -116,6 +116,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("field text: a number to six digits", "fieldText", [0.1 + 0.2], "0.3"),
     ("field text: a whole number", "fieldText", [12], "12"),
     ("field text: text as it is", "fieldText", ["Name 1"], "Name 1"),
+    ("field text: a screen widget's own digits", "fieldText", [1.25, 5], "1.25000"),
     ("field text: nothing read leaves the field", "fieldText", [None], None),
     # the draft: kept until accepted
     ("accepted: the module's word", "accepted", [{"outcome": "accepted", "journalId": 3}], True),
@@ -176,7 +177,7 @@ def test_rule(answers: list[Any], i: int) -> None:
 _RAIL = r"""
 const vm = require("vm"), fs = require("fs"), path = require("path");
 const dir = path.dirname(process.argv[1]);
-const D = require(path.join(dir, "device_rules.js")), C = require(path.join(dir, "camera_rules.js"));
+const D = require(path.join(dir, "device_rules.js")), C = require(path.join(dir, "camera_rules.js")), S = require(path.join(dir, "screen_rules.js"));
 const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
 let clock = 1000;
 function el(props = {}) {
@@ -190,7 +191,7 @@ function el(props = {}) {
 const field = el();
 const input = el({ tagName: "INPUT", type: "number", step: "any", dataset: { role: "current_sp", readback: "current" },
   closest: (sel) => (sel.startsWith(".field") ? field : null) });
-const box = el({ querySelectorAll: (sel) => (sel === ".panel-rail [data-role]" ? [input] : []) });
+const box = el({ querySelectorAll: (sel) => (sel === ".field [data-role]" ? [input] : []) });
 const ENTRIES = {
   "current_sp|": { role: "current_sp", pv: "ps:current:SP", writePv: "ps:current:SP", writable: true, read: "monitor", verdict: "live" },
   "current|": { role: "current", pv: "ps:current", writePv: null, writable: false, read: "monitor", verdict: "live" },
@@ -206,7 +207,7 @@ const P = {
 const writes = { write: async () => true, busy: () => false };
 const ids = { "kit-state": el({ textContent: "{}" }), "write-out": el() };
 const document = { getElementById: (id) => ids[id] || null, activeElement: null };
-const ctx = vm.createContext({ window: { GeecsCameraRules: C, GeecsDeviceRules: D }, document, console, CSS: { escape: (s) => s },
+const ctx = vm.createContext({ window: { GeecsCameraRules: C, GeecsDeviceRules: D, GeecsScreenRules: S }, document, console, CSS: { escape: (s) => s },
   Date: { now: () => clock }, setTimeout: () => 0 });
 vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
 const rail = ctx.window.GeecsDeviceRail.make(P, box, writes);

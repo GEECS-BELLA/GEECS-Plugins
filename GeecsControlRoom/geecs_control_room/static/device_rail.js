@@ -14,21 +14,27 @@
 // (or its tweak) the field is armed: once the write settles (device_rules.mark) a `differs` mark stands while the
 // measured value is outside the tolerance, cleared (and disarmed) when they agree. A select, a checkbox or a
 // button writes when chosen. The rules are device_rules.js's and camera_rules.js's (tested under node).
+// A screen draws its widgets through the same controls (screen.js): its `page` and `writes` then answer `for(el)`,
+// the widget's own (a device, a bare PV, a DB device judged against its kind), and a write says its outcome on the
+// widget's line and asks with the widget's own hazard note. A pair labelled by the record (`data-enum-label`) takes
+// the enum's own words; a select is narrowed to `data-choices` (a family role's); a field the module serves as text
+// (a DB device's) takes text; the module's `tolerance` is the hint when the page was drawn with none.
 // window.GeecsDeviceRail.make(page, box, writes) → { fill }.
 (function () {
   "use strict";
-  const C = window.GeecsCameraRules, D = window.GeecsDeviceRules;
+  const C = window.GeecsCameraRules, D = window.GeecsDeviceRules, S = window.GeecsScreenRules;
   const KIT = JSON.parse(document.getElementById("kit-state").textContent);
   const focused = (el) => document.activeElement === el;
   const axisOf = (el) => el.dataset.axis || undefined;
   const paneAxis = (el) => { const p = el.closest("[data-axis-pane]"); return (p && p.dataset.axisPane) || undefined; };
 
   function make(P, box, writes) {
-    const value = (role, axis) => { const f = P.frame(role, axis); return f ? f.value : undefined; };
+    const pg = (el) => (P.for ? P.for(el) : P), wr = (el) => (writes.for ? writes.for(el) : writes);
+    const opts = (el) => { const w = el.closest(".w"); return w ? { out: w.querySelector(".out"), note: w.dataset.confirm } : {}; };
+    const value = (el, role, axis) => { const f = pg(el).frame(role, axis); return f ? f.value : undefined; };
     const known = () => { const v = P.view(); return v && v.ok ? Object.values(v.roles).map((e) => e.role) : []; };
-    const controls = [...box.querySelectorAll(".panel-rail [data-role]")];
-    const out = document.getElementById("write-out");
-    const say = (text) => { if (out) { out.dataset.state = "unknown"; out.textContent = text; } };
+    const controls = [...box.querySelectorAll(".field [data-role]")];
+    const say = (el, text) => { const out = opts(el).out || document.getElementById("write-out"); if (out) { out.dataset.state = "unknown"; out.textContent = text; } };
     const paint = (line, text, word) => {
       line.querySelector("b").textContent = text;
       line.querySelector(".dot").dataset.state = KIT[word] || "unknown";
@@ -36,11 +42,12 @@
     };
     // A setpoint field: the tracked value (no draft), the setpoint and the measured value beside it, the mark.
     function setpoint(el) {
-      const role = el.dataset.role, axis = axisOf(el), rb = el.dataset.readback || role, view = P.view();
+      const P = pg(el), role = el.dataset.role, axis = axisOf(el), rb = el.dataset.readback || role, view = P.view(), e = P.entry(role, axis);
+      if (e && e.text && el.type === "number") { el.type = "text"; el.removeAttribute("step"); } // a DB device's text, as the module serves it
       const src = D.sources(P.entry(role, axis), rb, !!view && view.source === "gateway");
       const t = P.target(role, axis), own = { frame: P.frame(role, axis), meta: P.meta(role, axis), word: P.word(role, axis) };
       const sp = t || own, field = src.field === "write" ? sp : own;
-      const text = D.fieldText(field.frame && field.frame.value);
+      const text = D.fieldText(field.frame && field.frame.value, field.meta.digits);
       if (!el.dataset.draft && !focused(el) && text !== null && el.value !== text) el.value = text;
       const host = el.closest(".field"), shown = host.querySelector(".sv"), now = host.querySelector(".rb"), mark = host.querySelector(".differs");
       shown.hidden = !src.set;
@@ -48,7 +55,9 @@
       const mv = P.frame(rb, axis), mvMeta = P.meta(rb, axis);
       paint(now, C.fmt(mv, mvMeta), P.word(rb, axis));
       const by = el.dataset.tolBy;
-      const tol = D.tolerance({ hint: el.dataset.tol === undefined ? undefined : Number(el.dataset.tol), by: by ? (P.frame(by, axis) || {}).value ?? null : undefined, precision: mvMeta.precision ?? sp.meta.precision, integer: el.step === "1" });
+      const hint = el.dataset.tol === undefined ? (e && typeof e.tolerance === "number" ? e.tolerance : undefined) : Number(el.dataset.tol);
+      el.title = el.title || (S.bounds(P.meta(role, axis)) && `limits ${S.bounds(P.meta(role, axis))}`);
+      const tol = D.tolerance({ hint, by: by ? (P.frame(by, axis) || {}).value ?? null : undefined, precision: mvMeta.precision ?? sp.meta.precision, integer: el.step === "1" });
       const settledBy = el.dataset.settledBy;
       const m = D.settleMark({ known: !!P.entry(role, axis), set: src.set, armedAt: el.dataset.armed === undefined ? undefined : Number(el.dataset.armed), now: Date.now(), isDone: settledBy ? D.done(P.frame(settledBy, axis)) : undefined, sp: sp.frame && sp.frame.value, mv: mv && mv.value, tol });
       if (D.disarms(m)) delete el.dataset.armed; // never on a silent module: a failed poll keeps the arming
@@ -63,16 +72,23 @@
     }
     function fill() {
       for (const el of controls) {
-        const role = el.dataset.role, axis = axisOf(el), v = value(role, axis);
-        const c = C.control(P.view(), P.entry(role, axis), writes.busy());
+        const P = pg(el), role = el.dataset.role, axis = axisOf(el), v = value(el, role, axis);
+        const c = C.control(P.view(), P.entry(role, axis), wr(el).busy());
         el.disabled = !c.enabled;
         el.title = c.why;
-        if (el.dataset.pair !== undefined) el.setAttribute("aria-pressed", String(C.pressed(v, Number(el.dataset.value))));
+        if (el.dataset.pair !== undefined) {
+          el.setAttribute("aria-pressed", String(C.pressed(v, Number(el.dataset.value))));
+          const word = el.dataset.enumLabel !== undefined && (P.meta(role, axis).enumChoices || [])[Number(el.dataset.value)];
+          if (word && el.textContent !== word) el.textContent = word; // the record's own word for the state
+        }
         if (el.tagName === "BUTTON") continue;
         if (el.type === "checkbox") { el.checked = !!v; continue; }
         if (el.tagName === "SELECT") {
-          const choices = P.meta(role, axis).enumChoices || []; // the PV's own choices, never a list of the page's
-          if (el.options.length !== choices.length) el.replaceChildren(...choices.map((t, i) => new Option(t, String(i))));
+          const only = el.dataset.choices ? JSON.parse(el.dataset.choices) : null; // the PV's own choices, never a list of the page's
+          const choices = (P.meta(role, axis).enumChoices || []).map((t, i) => [t, i]).filter(([t]) => !only || only.includes(t));
+          const sig = choices.join("\n");
+          if (el.dataset.sig !== sig) { el.replaceChildren(...choices.map(([t, i]) => new Option(t, String(i)))); el.dataset.sig = sig; }
+          if (!choices.length) el.disabled = true; // unread: the module would refuse
           if (!focused(el) && typeof v === "number") el.value = String(v);
           continue;
         }
@@ -80,15 +96,19 @@
         const text = D.fieldText(v); // a tweak's step: its own record
         if (!el.dataset.draft && !focused(el) && text !== null && el.value !== text) el.value = text;
       }
-      for (const el of box.querySelectorAll("[data-ro]")) el.textContent = C.fmt(P.frame(el.dataset.ro, axisOf(el)), P.meta(el.dataset.ro, axisOf(el)));
-      for (const el of box.querySelectorAll("[data-egu]")) el.textContent = D.units(el.dataset.type, "", P.meta(el.dataset.egu, axisOf(el)));
+      for (const el of box.querySelectorAll("[data-ro]")) {
+        const P = pg(el), role = el.dataset.ro, axis = axisOf(el), word = P.word(role, axis), ws = el.parentElement.querySelector(".ws");
+        el.textContent = C.fmt(P.frame(role, axis), P.meta(role, axis));
+        if (ws) { ws.querySelector(".dot").dataset.state = KIT[word] || "unknown"; ws.querySelector(".word").textContent = word; }
+      }
+      for (const el of box.querySelectorAll("[data-egu]")) el.textContent = D.units(el.dataset.type, "", pg(el).meta(el.dataset.egu, axisOf(el)));
       const names = known();
       for (const g of box.querySelectorAll(".panel-rail .group")) {
         const present = D.presentRole(JSON.parse(g.dataset.roles), names);
-        g.hidden = !!present && D.hidden(P.frame(present, paneAxis(g)));
+        g.hidden = !!present && D.hidden(pg(g).frame(present, paneAxis(g)));
       }
       for (const el of box.querySelectorAll(".readings .live")) {
-        const role = el.dataset.role, axis = axisOf(el), present = D.presentRole([role], names), word = P.word(role, axis);
+        const P = pg(el), role = el.dataset.role, axis = axisOf(el), present = D.presentRole([role], names), word = P.word(role, axis);
         el.hidden = !!present && D.hidden(P.frame(present, axis));
         el.querySelector(".v").textContent = C.fmt(P.frame(role, axis), P.meta(role, axis));
         el.querySelector(".dot").dataset.state = KIT[word] || "unknown";
@@ -98,14 +118,14 @@
       for (const el of box.querySelectorAll(".alarms")) el.textContent = D.alarmed(view, paneAxis(el)).join(" · ");
     }
     for (const el of controls) {
-      const write = (v) => writes.write([[el.dataset.role, v, axisOf(el)]]).then(fill);
+      const write = (v) => wr(el).write([[el.dataset.role, v, axisOf(el)]], false, opts(el)).then(fill);
       const fieldValue = (f) => D.writeValue({ type: f.type, tag: f.tagName, step: f.step, checked: f.checked, raw: f.value });
       if (el.tagName === "BUTTON" && el.dataset.step) { // a tweak's − / +: its step's draft first, when it has one
         const step = el.closest(".tweak").querySelector("input[data-role]");
         el.addEventListener("click", () => {
           const list = D.tweakList(el.dataset.role, step.dataset.role, !!step.dataset.draft, fieldValue(step));
-          if (!list) { say("unsent · the step is not a number"); return; }
-          writes.write(list.map(([role, v]) => [role, v, axisOf(el)])).then((ok) => {
+          if (!list) { say(el, "unsent · the step is not a number"); return; }
+          wr(el).write(list.map(([role, v]) => [role, v, axisOf(el)]), false, opts(el)).then((ok) => {
             if (!D.keepsDraft(ok)) { delete step.dataset.draft; arm(el.closest(".row").querySelector(`.field.setpoint input[data-role="${CSS.escape(el.closest(".tweak").dataset.tweaks)}"]`)); }
             fill();
           });
@@ -121,8 +141,8 @@
           ev.preventDefault();
           if (act === "revert") { delete el.dataset.draft; el.blur(); fill(); return; }
           const v = fieldValue(el);
-          if (v === null) { say("unsent · not a number"); return; } // the draft stays, for the operator to fix
-          writes.write([[el.dataset.role, v, axisOf(el)]]).then((ok) => {
+          if (v === null) { say(el, "unsent · not a number"); return; } // the draft stays, for the operator to fix
+          wr(el).write([[el.dataset.role, v, axisOf(el)]], false, opts(el)).then((ok) => {
             if (!D.keepsDraft(ok)) { delete el.dataset.draft; if (el.closest(".field.setpoint")) arm(el); }
             fill();
             setTimeout(() => { // after device_writes re-enables: the kept draft focused again, for Esc or a fix, unless focus went elsewhere (the operator's name)
@@ -133,7 +153,11 @@
         });
         continue;
       }
-      el.addEventListener("change", () => { const v = fieldValue(el); if (v !== null) write(v); });
+      el.addEventListener("change", () => { // a select or a checkbox: an unsent or refused choice goes back to what the device reads
+        const v = fieldValue(el);
+        if (v === null) return;
+        wr(el).write([[el.dataset.role, v, axisOf(el)]], false, opts(el)).then((ok) => { if (D.keepsDraft(ok)) el.blur(); fill(); });
+      });
     }
     P.on(fill);
     fill();

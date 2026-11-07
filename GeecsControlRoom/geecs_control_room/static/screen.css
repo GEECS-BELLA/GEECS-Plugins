@@ -15,13 +15,23 @@
 .kit .sgroup h3{margin:2px 0 4px;font-size:11px;letter-spacing:var(--tk);text-transform:uppercase;color:var(--tone)}
 .kit .w{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;min-height:26px;font-size:12px;border-top:var(--bw) solid var(--rule-soft);padding:2px 0}
 .kit .w .lbl{flex:1 1 6rem;min-width:0;overflow-wrap:anywhere;color:var(--ink)}
-.kit .w .sp{width:6.5rem;max-width:100%;min-width:3.5rem;font-family:var(--ff-mono);font-size:12px;text-align:right}
-.kit .w .sp[data-draft]{border-color:var(--accent)}
-.kit .w .v,.kit .w .rb,.kit .w .ind b{font-family:var(--ff-mono);font-variant-numeric:tabular-nums}
-.kit .w .rb{color:var(--slate)}
-.kit .w .rb::before{content:"rb ";color:var(--muted)}
-.kit .w .differs{color:var(--warn);font-size:11px}
-.kit .w .u,.kit .w .bounds{color:var(--muted);font-size:11px}
+/* The rail's control (_panel.html), dense: its label left, the control right (below it in a narrow cell); a
+   setpoint's set / now on a line of their own under both, then `differs`. */
+.kit .w .field{flex:1 1 9rem;min-width:0;display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;gap:1px 6px}
+.kit .w .field>label{flex:1 1 4.5rem;min-width:0;overflow-wrap:anywhere;margin:0;font-family:var(--ff-ui);color:var(--ink);font-size:12px;font-weight:400;letter-spacing:0;text-transform:none}
+.kit .w .field>label small{color:var(--muted);font-size:10.5px}
+.kit .w .field>input{width:6.5rem;max-width:100%;min-width:3.5rem;margin-left:auto;font-family:var(--ff-mono);font-size:12px;text-align:right}
+.kit .w .field>input[data-draft]{border-color:var(--accent)}
+.kit .w .field>select,.kit .w .field>.seg,.kit .w .field>.ro{margin-left:auto;max-width:100%}
+.kit .w .field>.ro{font-family:var(--ff-mono);font-variant-numeric:tabular-nums}
+.kit .w .field.setpoint::after{content:"";order:1;flex-basis:100%}
+.kit .w .field>.sv,.kit .w .field>.rb,.kit .w .field>.differs{order:2;display:flex;align-items:center;gap:3px;font-size:10.5px;color:var(--muted);white-space:nowrap;min-width:0}
+.kit .w .field>.rb{margin-left:auto}
+.kit .w .field>.sv[hidden],.kit .w .field>.differs[hidden]{display:none}
+.kit .w .field .sv b,.kit .w .field .rb b{font-family:var(--ff-mono);font-weight:500;color:var(--slate);overflow:hidden;text-overflow:ellipsis}
+.kit .w .field>.differs{color:var(--warn);font-weight:600}
+.kit .w .seg button{padding:1px 8px;font-size:11.5px}
+.kit .w .ind b{font-family:var(--ff-mono);font-variant-numeric:tabular-nums}
 .kit .w .ws{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;color:var(--muted)}
 .kit .w .out{flex-basis:100%;font-size:10.5px;font-family:var(--ff-mono);text-align:right}
 .kit .w .out:empty{display:none}

@@ -36,6 +36,7 @@ from geecs_schemas import (
     Bound,
     NativeDevices,
     PanelDevices,
+    Role,
     Screen,
     ScreenError,
     load_action_library,
@@ -126,6 +127,44 @@ def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loade
         return Loaded(problems=[str(exc)], status=422)
 
 
+#: A widget kind as the rail's control draws it (``_panel.html``'s ``control``, by ``spec.type``); a toggle
+#: or a flipper is the rail's two-state pair.
+_DRAWN = {
+    "setpoint": "setpoint",
+    "select": "enum",
+    "button": "command",
+    "readout": "readback",
+}
+#: A pair's words when the record has none of its own (a bit, a toggle's numbers): off, then on.
+PAIR = ("Off", "On")
+
+
+def role_spec(role: Optional[Role], name: str) -> dict[str, Any]:
+    """What the rail's control macro reads from a family role: whole, text, readback, done flag, tolerance (no role: a DB device's, none here)."""
+    keys = ("text", "settled_by", "tolerance", "tolerance_by")
+    return {"integer": bool(role and role.integer), "readback": (role.readback if role else None) or name} | {k: getattr(role, k) if role else None for k in keys}  # fmt: skip
+
+
+def spec_of(bound: Bound) -> dict[str, Any]:
+    """A bound widget as the rail's control macro reads it: the screen's label and units over the role's, the kind's control.
+
+    A deferred widget (a DB device) has no role here: the page takes its
+    type, text and tolerance from the module's device route.
+    """
+    w, role = bound.widget, bound.role
+    b = w.bind
+    name = (b.pv or b.role) if b else ""
+    spec: dict[str, Any] = {"name": name, "type": _DRAWN.get(w.kind, "pair"), "writable": w.kind != "readout"}  # fmt: skip
+    spec |= {"label": w.label or (role.label if role else name), "units": w.units or (role.units if role else None)}  # fmt: skip
+    return spec | role_spec(role, name) | {"choices": role.choices if role else None, "enum_labels": not w.values}  # fmt: skip
+
+
+def pair_values(bound: Bound) -> tuple[float, float]:
+    """What a toggle's or a flipper's pair writes: off, then on (its ``values``; else 0 and 1)."""
+    v = bound.widget.values
+    return (v.off, v.on) if v else (0, 1)
+
+
 class PutBody(BaseModel):
     """A write as the module takes it: role (and axis), value, operator, hazard confirm."""
 
@@ -214,7 +253,7 @@ def router(settings: Settings) -> APIRouter:
             error and loaded.status == 422
         ):  # a DB device may be refused for want of the roster: say so before the widgets
             loaded.cause = f"the module's roster is incomplete ({error}): a DB device cannot be bound"  # fmt: skip
-        context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE}
+        context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE, "spec_of": spec_of, "pair_values": pair_values, "pair": PAIR}  # fmt: skip
         templates = request.app.state.templates
         return templates.TemplateResponse(
             request, "screen.html", context, status_code=loaded.status

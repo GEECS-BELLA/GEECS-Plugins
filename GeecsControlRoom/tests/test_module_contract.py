@@ -719,3 +719,38 @@ async def test_a_motor_is_judged_by_done_moving_within_its_deadband(room) -> Non
         ("mark", [{"armedAt": 0, "now": 9000, "isDone": stopped, "sp": sp, "mv": 2.995, "tol": tol}]),  # inside RDBD
     ])  # fmt: skip
     assert (sp, tol, marks) == (3.0, 0.01, ["waiting", "differs", "agrees"])
+
+
+async def test_a_select_and_a_valued_toggle_draw_the_rails_controls_and_write_through_the_put_route(room) -> None:  # fmt: skip
+    (room.env.folder / "screens").mkdir()
+    (room.env.folder / "screens" / "s.yaml").write_text(
+        "title: S\ngroups:\n  - {title: G, at: [1, 1], widgets: [\n"
+        "      {kind: select, bind: {device: Cam1, role: transform}},\n"
+        "      {kind: select, bind: {device: Cam1, role: crosshair1_shape}},\n"
+        "      {kind: toggle, bind: {device: ps1, role: current_sp}, values: {on: 2, off: 0}}]}\n"
+    )
+    page = (await room.client.get("/screens/s")).text
+    # the rail's select (the family's narrowing on it) and the rail's two-state pair writing the toggle's numbers
+    assert re.search(
+        r'<select id="w-[^"]+" data-role="transform"[^>]*disabled></select>', page
+    )
+    assert (
+        'data-role="crosshair1_shape" data-choices="[&#34;Cross&#34;, &#34;Rectangle&#34;]"'
+        in page
+    )
+    assert re.findall(r'data-role="current_sp" data-value="([^"]+)" data-pair aria-pressed', page) == ["0.0", "2.0"]  # fmt: skip
+    roles = {r["role"]: r for r in (await room.client.get("/api/devices/Cam1")).json()["roles"]}  # fmt: skip
+    assert roles["transform"]["type"] == "enum" and roles["transform"]["writable"]
+    sp = next(r["pv"] for r in (await room.client.get("/api/devices/ps1")).json()["roles"] if r["role"] == "current_sp")  # fmt: skip
+    room.env.hare.meta[sp] = {"controlLow": 0.0, "controlHigh": 5.0}
+    room.env.hare.meta[roles["transform"]["writePv"] or roles["transform"]["pv"]] = {"enumChoices": ["None", "Rot90"]}  # fmt: skip
+    status, body = await put(
+        room, "ps1", role="current_sp", value=2.0
+    )  # the pair's "On"
+    assert (status, body["outcome"]) == (200, "accepted")
+    status, body = await put(
+        room, "Cam1", role="transform", value=1
+    )  # the option, by index
+    assert (status, body["outcome"]) == (200, "accepted") and room.env.hare.puts[-1][
+        1
+    ] == 1

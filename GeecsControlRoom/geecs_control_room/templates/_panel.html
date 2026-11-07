@@ -17,19 +17,23 @@
   A `grid` group draws its short controls as compact labelled cells. Every
   control carries its role (and axis); device_rail.js fills it from Hare,
   enables it on the module's word and writes it through device_writes.js.
+  A screen draws its widgets through the same `control` (screen.html): a
+  pair writes `values` (a toggle's numbers; else 0 and 1), labelled by the
+  record's own choices when `spec.enum_labels`; a select offers the record's
+  choices, narrowed to `spec.choices` (a family role's) when it has them.
 #}
-{% macro control(spec, id, pair=none, axis=none) -%}
+{% macro control(spec, id, pair=none, axis=none, values=(0, 1)) -%}
 {% set ax %}{% if axis %} data-axis="{{ axis }}"{% endif %}{% endset %}
 {% set label, units = spec.label, spec.units %}
-{% if pair %}<div class="field"><label>{{ label }}</label><div class="seg" role="group" aria-label="{{ label }}">{% for word in pair %}<button type="button" data-role="{{ spec.name }}"{{ ax }} data-value="{{ loop.index0 }}" data-pair aria-pressed="false" disabled>{{ word }}</button>{% endfor %}</div></div>
+{% if pair %}<div class="field"><label>{{ label }}</label><div class="seg" role="group" aria-label="{{ label }}">{% for word in pair %}<button type="button" data-role="{{ spec.name }}"{{ ax }} data-value="{{ values[loop.index0] }}" data-pair{% if spec.enum_labels %} data-enum-label{% endif %} aria-pressed="false" disabled>{{ word }}</button>{% endfor %}</div></div>
 {% elif spec.type == "command" %}<div class="field"><button class="btn sm" type="button" data-role="{{ spec.name }}"{{ ax }} data-value="1" disabled>{{ label }}</button></div>
 {% elif spec.type == "bit" and spec.writable %}<div class="field"><label class="dim"><input type="checkbox" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }} disabled> {{ label }}</label></div>
-{% elif spec.type == "enum" and spec.writable %}<div class="field"><label for="{{ id }}">{{ label }}</label><select id="{{ id }}" data-role="{{ spec.name }}"{{ ax }} disabled></select></div>
+{% elif spec.type == "enum" and spec.writable %}<div class="field"><label for="{{ id }}">{{ label }}</label><select id="{{ id }}" data-role="{{ spec.name }}"{{ ax }}{% if spec.choices %} data-choices="{{ spec.choices | tojson | forceescape }}"{% endif %} disabled></select></div>
 {% elif spec.type == "setpoint" %}<div class="field setpoint"><label for="{{ id }}">{{ label }} {% if units %}<small>{{ units }}</small>{% else %}<small data-egu="{{ spec.name }}" data-type="setpoint"{{ ax }}></small>{% endif %}</label><input type="{{ 'text' if spec.text else 'number' }}" id="{{ id }}" data-role="{{ spec.name }}"{{ ax }}{% if not spec.text %} step="{{ 1 if spec.integer else 'any' }}"{% endif %} data-readback="{{ spec.readback }}"{% if spec.settled_by %} data-settled-by="{{ spec.settled_by }}"{% endif %}{% if spec.tolerance is not none %} data-tol="{{ spec.tolerance }}"{% endif %}{% if spec.tolerance_by %} data-tol-by="{{ spec.tolerance_by }}"{% endif %} disabled>
   <span class="sv" hidden><span class="k">set</span> <b class="mono">—</b> <span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>
   <span class="rb"><span class="k">now</span> <b class="mono">—</b> <span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>
   <span class="differs" hidden><span class="dot" data-state="degraded" aria-hidden="true"></span>differs</span></div>
-{% else %}<div class="field"><label>{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><span class="ro mono" data-ro="{{ spec.name }}"{{ ax }}>—</span></div>
+{% else %}<div class="field"><label>{{ label }} {% if units %}<small>{{ units }}</small>{% else %}<small data-egu="{{ spec.name }}" data-type="{{ spec.type }}"{{ ax }}></small>{% endif %}</label><span class="ro mono" data-ro="{{ spec.name }}"{{ ax }}>—</span><span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span></div>
 {% endif %}
 {%- endmacro %}
 
@@ -68,6 +72,7 @@
     <h4 id="hazard-dialog-title">Write a hazard role?</h4>
     <p id="hazard-dialog-roles"></p>
     <p class="mono" id="hazard-dialog-text"></p>
+    <p id="hazard-dialog-note"></p>
     <div class="row end">
       <button class="btn" type="button" value="cancel" autofocus>Cancel</button>
       <button class="btn primary" type="button" value="write">Write</button>
