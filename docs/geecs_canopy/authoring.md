@@ -165,7 +165,8 @@ LabVIEW device's writable variables, its read-only ones the readings). The
 `label`, when given, replaces the group's title. It takes no `units`,
 `precision` or `confirm`: its controls take theirs from the device, and a
 hazard role asks as on the device's page. The screen refuses a group the
-family's panel does not have, and lists the ones it does. Use it where a
+family's panel does not have (and lists the ones it does), and one whose
+roles the device's `omit` leaves empty. Use it where a
 screen wants what the device page already lays out; bind single roles where
 it wants a few of them in its own order.
 

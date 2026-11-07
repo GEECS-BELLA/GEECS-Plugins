@@ -291,6 +291,18 @@ def test_resolve_refuses_a_group_its_device_does_not_draw(bind: dict, why: str) 
         resolve_screen(screen({"kind": "group", "bind": bind}), load_families(), PANEL, NATIVE, deferred={"U_PLC"})  # fmt: skip
 
 
+def test_a_group_whose_roles_the_device_omits_is_refused() -> None:
+    """The page would draw nothing: the device's ``omit`` leaves the group empty."""
+    omitted = PanelDevices.model_validate({"devices": {"ps": {"family": "easydriver", "omit": ["reset"]}}})  # fmt: skip
+    faults = {"kind": "group", "bind": {"device": "ps", "group": "Faults"}}
+    with pytest.raises(
+        ScreenError, match="no group 'Faults': the device serves none of its roles"
+    ):
+        resolve_screen(screen(faults), load_families(), omitted, NATIVE)
+    with pytest.raises(ScreenError, match=r"its groups are \['Output'\]"):
+        resolve_screen(screen(faults | {"bind": {"device": "ps", "group": "Fault"}}), load_families(), omitted, NATIVE)  # fmt: skip
+
+
 def test_a_family_without_a_panel_offers_the_automatic_layout_alone() -> None:
     families = dict(load_families())
     families["easydriver"] = families["easydriver"].model_copy(update={"panel": None})

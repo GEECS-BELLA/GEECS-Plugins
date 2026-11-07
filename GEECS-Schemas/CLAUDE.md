@@ -105,7 +105,9 @@ nothing else does: a rail group's title in the family's `panel`, or
 `AUTO_GROUP` (`settings`) for a family without a panel and for a DB device
 (deferred: its one group). It takes no units, precision or confirm (its
 controls are the device's); `resolve_screen` checks the title against the
-installed families, and the renderer draws the group as the device page does.
+installed families and refuses a group the device serves none of (`omit`;
+for `settings`, no writable role), and the renderer draws the group as the
+device page does.
 
 ## Action plans
 

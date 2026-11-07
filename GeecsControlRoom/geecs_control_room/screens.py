@@ -25,7 +25,7 @@ from collections.abc import Awaitable, Callable, Collection
 from urllib.parse import quote
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import yaml
 from fastapi import APIRouter, Request
@@ -50,6 +50,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.settings import Settings
+
+if TYPE_CHECKING:  # device_pages builds on this module: its type only
+    from geecs_control_room.device_pages import Embedded
 
 _NAME = re.compile(r"^[\w-]+$")
 #: Raster images only: an SVG opened directly would run its script on this origin.
@@ -243,11 +246,13 @@ async def through(
         return unreachable(exc, why)
 
 
-#: The group widgets' keys (device, axis, group) → each drawn as its device page draws it (``device_pages.embedded``).
-Embed = Callable[[ModuleClient, Collection[tuple[str, Optional[str], str]]], Awaitable[dict[Any, Any]]]  # fmt: skip
+#: A group widget's key: (device, axis, group), as ``resolve_screen`` bound it.
+GroupKey = tuple[str, Optional[str], str]
+#: The group widgets' keys → each drawn as its device page draws it (``device_pages.embedded``).
+Embed = Callable[[ModuleClient, Collection[GroupKey]], Awaitable["dict[GroupKey, Embedded]"]]  # fmt: skip
 
 
-def group_keys(loaded: Loaded) -> list[tuple[str, Optional[str], str]]:
+def group_keys(loaded: Loaded) -> list[GroupKey]:
     """The screen's group widgets as (device, axis, group), in order, once each."""
     found = [(w.bind.device or "", w.bind.axis, w.bind.group or "") for row in loaded.rows for b in row if (w := b.widget).kind == "group" and w.bind]  # fmt: skip
     return list(dict.fromkeys(found))

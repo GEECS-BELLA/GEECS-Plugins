@@ -144,14 +144,19 @@ deploy/
   with `_panel.html`'s `rail` and the panel's readings folded under it
   (under the device's first group widget only, per axis),
   from the module's device route read when the page is drawn
-  (`device_pages.embedded`: one read per device, concurrently; handed to
+  (`device_pages.embedded`: one read per device, concurrently, waiting
+  `EMBED_TIMEOUT_S`, never the poll's `READ_TIMEOUT_S`; handed to
   `screens.router` by the app, since `device_pages` builds on `screens`)
-  through the device page's own `page_panel`, on the bound axis. Its controls
+  through the device page's own classification (`unread`, `classify`,
+  `drawn_of`: one copy for both) on the bound axis; `settings` is the
+  automatic layout only where the page draws one (on a family panel it is a
+  title like any). Its controls
   are any screen control's (the device's page and writes, the widget's
   outcome line); a channel group hides by its own device's
-  `<ch>_present`. The module silent for that device, the widget says so
-  ("not drawn", the module's answer, reload) and the rest of the screen
-  draws: never a 500, never a blank.
+  `<ch>_present`. The module silent or refusing for that device, the widget
+  says why as the device page would ("not drawn"; "reload" only where asking
+  again may help) and the rest of the screen draws: never a 500, never a
+  blank.
 - **A button may name an action plan** (`bind: {action: <plan>}`, checked
   against the experiment's `action_library/actions.yaml`). The module runs
   it, every `set` through its gates; the page asks once (the plan's

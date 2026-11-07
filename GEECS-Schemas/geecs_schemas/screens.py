@@ -309,15 +309,17 @@ def _no_group(
     panel: PanelDevices,
     native: NativeDevices,
 ) -> list[str]:
-    """Why ``b`` names no group of its device: no such device or axis, or no rail group of that title."""
+    """Why ``b`` names no group its device draws: no such device or axis, no rail group of that title, or none of its roles served (``omit``)."""
     try:
-        family, _, axes = _device_roles(b.device or "", families, panel, native)
+        family, roles, axes = _device_roles(b.device or "", families, panel, native)
     except KeyError as exc:
         return [exc.args[0]]
     problems = [] if (b.axis or None) in (axes or (None,)) else [f"{b.device} takes an axis of {list(axes)}"]  # fmt: skip
-    titles = [g.title for g in family.panel.rail] if family.panel else [AUTO_GROUP]
-    if b.group not in titles:
-        problems.append(f"{b.device} has no group {b.group!r}: its groups are {titles}")
+    groups = {g.title: g.roles for g in family.panel.rail} if family.panel else {AUTO_GROUP: [r.name for r in roles.values() if r.writable]}  # fmt: skip
+    drawn = [title for title, names in groups.items() if set(names) & roles.keys()]
+    if b.group not in drawn:
+        why = "the device serves none of its roles" if b.group in groups else f"its groups are {drawn}"  # fmt: skip
+        problems.append(f"{b.device} has no group {b.group!r}: {why}")
     return problems
 
 

@@ -270,3 +270,25 @@ def test_a_cameras_rail_never_carries_its_camera_roi(panel: str) -> None:
     drawn = page_panel(body, family, [], kind="camera")
     railed = {r for g in drawn["panel"]["rail"] for r in g["roles"]}
     assert railed and not railed & {"min_x", "min_y", "size_x", "size_y"}
+
+
+@pytest.mark.parametrize("titled", [False, True])
+def test_a_group_widget_reads_settings_as_the_automatic_layout_only_where_the_page_draws_one(monkeypatch: pytest.MonkeyPatch, titled: bool) -> None:  # fmt: skip
+    """``settings`` is every group of an automatic layout; on a family panel it is a title like any (a rail group named so is drawn)."""
+    from geecs_schemas import FamilyFile
+
+    from geecs_control_room import device_pages
+
+    doc = load_families()["easydriver"].model_dump(mode="json")
+    if titled:
+        doc["panel"]["rail"][0]["title"] = "settings"
+    else:
+        doc["panel"] = None
+    family = FamilyFile.model_validate(doc)
+    monkeypatch.setattr(device_pages, "load_families", lambda: {"easydriver": family})
+    body = {"family": "easydriver", "roles": [_entry(r.name, r.type, r.writable, r.read_mode) | {"axis": None} for r in family.roles]}  # fmt: skip
+    got = device_pages.group_panel(body, "settings")
+    assert got.problem is None and got.panel is not None
+    want = [doc["panel"]["rail"][0]["roles"]] if titled else [g["roles"] for g in auto_panel(body["roles"])["rail"]]  # fmt: skip
+    assert [g["roles"] for g in got.panel["rail"]] == want
+    assert device_pages.group_panel(body, "Faults").problem == (None if titled else "the device as the module serves it draws no group 'Faults'")  # fmt: skip

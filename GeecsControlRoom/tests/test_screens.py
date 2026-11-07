@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from geecs_web_theme import STATES
 
@@ -301,15 +302,23 @@ def test_a_readout_without_units_of_its_own_takes_the_records(client: TestClient
     )  # the screen's own units win
 
 
-def test_a_group_whose_device_the_module_did_not_give_says_so_and_the_screen_draws(settings: Settings) -> None:  # fmt: skip
-    """The module silent for an embedded device: that widget says why (drawn on the next load), never a 500 or a blank."""
+@pytest.mark.parametrize(
+    "status, says",
+    [
+        (503, "The module did not answer: busy; reload the screen to draw it"),
+        (404, "U_PLC is not on the module&#39;s roster: Choose a device above, or check the name."),
+        (403, "The module refused this display&#39;s read: busy"),
+    ],
+)  # fmt: skip
+def test_a_group_whose_device_the_module_did_not_give_says_why_and_the_screen_draws(settings: Settings, status: int, says: str) -> None:  # fmt: skip
+    """The module silent or refusing for an embedded device: that widget says why as the device page would (reload only where asking again may help), never a 500 or a blank."""
     reads: list[str] = []
 
     def answer(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/devices"):
             return httpx.Response(200, json={"devices": [{"name": "U_PLC", "source": "gateway"}]})  # fmt: skip
         reads.append(request.url.path)
-        return httpx.Response(503, json={"detail": "busy"})
+        return httpx.Response(status, json={"detail": "busy"})
 
     _screens(settings, "title: T\ngroups: [{title: G, at: [1, 1], widgets: [{kind: group, bind: {device: U_PLC, group: settings}}, {kind: group, label: Again, bind: {device: U_PLC, group: settings}}, {kind: toggle, bind: {device: U_PLC, role: DO.Ch1}}]}]\n")  # fmt: skip
     module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
@@ -318,7 +327,7 @@ def test_a_group_whose_device_the_module_did_not_give_says_so_and_the_screen_dra
     assert r.status_code == 200 and reads == [
         "/geecs/v1/devices/U_PLC"
     ]  # one read per device, however many widgets
-    assert r.text.count("the module answered 503: reload the screen to draw it") == 2
+    assert r.text.count(says) == 2 and (status == 503) == ("reload" in r.text)
     assert '<div class="w gw-missing" data-kind="group"><span class="lbl">Again · U_PLC</span>' in r.text  # fmt: skip
     assert (
         'data-kind="group" data-device' not in r.text
@@ -326,3 +335,21 @@ def test_a_group_whose_device_the_module_did_not_give_says_so_and_the_screen_dra
     assert (
         'data-device="U_PLC" data-role="DO.Ch1"' in r.text
     )  # the rest of the screen drawn
+
+
+def test_a_group_widgets_read_waits_past_the_polls_timeout() -> None:
+    """A page draw reads once: it waits EMBED_TIMEOUT_S, not the 2 s poll's READ_TIMEOUT_S (a module reload tick runs past it)."""
+    import asyncio
+
+    from geecs_control_room.device_pages import EMBED_TIMEOUT_S, embedded
+    from geecs_control_room.module_client import READ_TIMEOUT_S
+
+    asked: list = []
+
+    class Module:
+        async def device(self, name: str, timeout: float | None = None):
+            asked.append(timeout)
+            return 404, {}
+
+    asyncio.run(embedded(Module(), [("U_PLC", None, "settings")]))
+    assert asked == [EMBED_TIMEOUT_S] and EMBED_TIMEOUT_S > 2 * READ_TIMEOUT_S
