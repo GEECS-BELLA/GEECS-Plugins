@@ -303,6 +303,19 @@ def test_a_group_whose_roles_the_device_omits_is_refused() -> None:
         resolve_screen(screen(faults | {"bind": {"device": "ps", "group": "Fault"}}), load_families(), omitted, NATIVE)  # fmt: skip
 
 
+def test_a_repeated_heading_is_every_rail_group_of_that_title() -> None:
+    """A panel may repeat a heading: the title names every such group, so one with a served role is enough (the renderer draws them all)."""
+    families = dict(load_families())
+    doc = families["easydriver"].model_dump(mode="json")
+    doc["panel"]["rail"][1]["title"] = doc["panel"]["rail"][0][
+        "title"
+    ]  # Output, then Output (its reset)
+    families["easydriver"] = type(families["easydriver"]).model_validate(doc)
+    omitted = PanelDevices.model_validate({"devices": {"ps": {"family": "easydriver", "omit": ["reset"]}}})  # fmt: skip
+    ((bound,),) = resolve_screen(screen(GROUP), families, omitted, NATIVE)
+    assert bound.widget.bind.group == "Output"
+
+
 def test_a_family_without_a_panel_offers_the_automatic_layout_alone() -> None:
     families = dict(load_families())
     families["easydriver"] = families["easydriver"].model_copy(update={"panel": None})

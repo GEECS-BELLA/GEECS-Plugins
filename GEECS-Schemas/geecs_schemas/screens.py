@@ -315,8 +315,13 @@ def _no_group(
     except KeyError as exc:
         return [exc.args[0]]
     problems = [] if (b.axis or None) in (axes or (None,)) else [f"{b.device} takes an axis of {list(axes)}"]  # fmt: skip
-    groups = {g.title: g.roles for g in family.panel.rail} if family.panel else {AUTO_GROUP: [r.name for r in roles.values() if r.writable]}  # fmt: skip
-    drawn = [title for title, names in groups.items() if set(names) & roles.keys()]
+    groups: dict[
+        str, set[str]
+    ] = {}  # a title names every rail group so headed (a panel may repeat one): their roles together
+    for g in family.panel.rail if family.panel else []:
+        groups.setdefault(g.title, set()).update(g.roles)
+    groups = groups or {AUTO_GROUP: {r.name for r in roles.values() if r.writable}}
+    drawn = [title for title, names in groups.items() if names & roles.keys()]
     if b.group not in drawn:
         why = "the device serves none of its roles" if b.group in groups else f"its groups are {drawn}"  # fmt: skip
         problems.append(f"{b.device} has no group {b.group!r}: {why}")

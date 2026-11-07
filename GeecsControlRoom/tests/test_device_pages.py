@@ -292,3 +292,23 @@ def test_a_group_widget_reads_settings_as_the_automatic_layout_only_where_the_pa
     want = [doc["panel"]["rail"][0]["roles"]] if titled else [g["roles"] for g in auto_panel(body["roles"])["rail"]]  # fmt: skip
     assert [g["roles"] for g in got.panel["rail"]] == want
     assert device_pages.group_panel(body, "Faults").problem == (None if titled else "the device as the module serves it draws no group 'Faults'")  # fmt: skip
+
+
+def test_a_repeated_heading_draws_every_group_of_that_title_in_order(monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The schema's reading: a title names every rail group so headed, each drawn as the page draws it, a group the device serves none of dropped."""
+    from geecs_schemas import FamilyFile
+
+    from geecs_control_room import device_pages
+
+    doc = load_families()["easydriver"].model_dump(mode="json")
+    doc["panel"]["rail"][1]["title"] = doc["panel"]["rail"][0]["title"]
+    family = FamilyFile.model_validate(doc)
+    monkeypatch.setattr(device_pages, "load_families", lambda: {"easydriver": family})
+    roles = [_entry(r.name, r.type, r.writable, r.read_mode) | {"axis": None} for r in family.roles]  # fmt: skip
+    both = device_pages.group_panel({"family": "easydriver", "roles": roles}, "Output")
+    assert [g["roles"] for g in both.panel["rail"]] == [["output_sp", "current_sp"], ["reset"]]  # fmt: skip
+    served = [
+        e for e in roles if e["role"] != "reset"
+    ]  # the device omits the second group's one role
+    one = device_pages.group_panel({"family": "easydriver", "roles": served}, "Output")
+    assert [g["roles"] for g in one.panel["rail"]] == [["output_sp", "current_sp"]]

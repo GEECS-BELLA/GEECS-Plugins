@@ -140,7 +140,8 @@ deploy/
   (enum roles only). What a kind accepts is GEECS-Schemas' table, carried
   to the page as `data-fits`.
 - **A `group` widget is the device page's group.** `{device, group}` draws
-  that rail group (`settings`: the automatic layout, every group of it)
+  that rail group (every group so headed, in order, where a panel repeats a
+  heading; `settings`: the automatic layout, every group of it)
   with `_panel.html`'s `rail` and the panel's readings folded under it
   (under the device's first group widget only, per axis),
   from the module's device route read when the page is drawn
