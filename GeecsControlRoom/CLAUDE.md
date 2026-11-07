@@ -121,8 +121,9 @@ deploy/
   put route. A writing kind on a bare PV is drawn disabled.
 - **A screen's controls are the rail's.** Every widget but an annotation,
   a picture and an action button is `_panel.html`'s `control`
-  (`screens.spec_of`: the screen's label, units and precision over the
-  role's) filled and written by `device_rail.js` through `device_writes.js`,
+  (`screens.spec_of`: the screen's label and units over the role's, else the
+  record's EGU from Hare; its `precision` how a value is shown, `digits`,
+  never the record's precision a setpoint's settle is judged by) filled and written by `device_rail.js` through `device_writes.js`,
   one per device (the outcome on the widget's own line, its `confirm` note
   asked first in the rail's hazard dialog): a `setpoint` is the setpoint
   control (§ below), a `toggle` or `flipper` the rail's two-state pair
@@ -553,7 +554,7 @@ the counter probe and the mid-batch retry. The page scripts run under node (skip
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
 `test_directory_rules_js.py` / `test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
-`test_screen_rail_js.py` runs the real `device_rail.js` and `device_writes.js` over a fake screen (a widget's `confirm` note asks before any put, the pair's values and enum words, a select narrowed to a family role's choices, a bare PV's field disabled); `test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
+`test_screen_rail_js.py` runs the real `device_rail.js` and `device_writes.js` over a fake screen (a widget's `confirm` note asks before any put, the pair's values and enum words, a select narrowed to a family role's choices, a bare PV's field disabled, an unsent choice going back) and the real `screen.js` over a fake page (a widget's `precision` shown as `digits`, never the record's precision the settle is judged by; a readout's units from Hare); `test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
 by `frame.raw` over `test_images.py`'s fake CA (as int16, as aioca delivers it asked `DBR_SHORT`), its bytes checked on the
 wire, then decoded, transformed and levelled by `camera_rules.js` under node. A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script

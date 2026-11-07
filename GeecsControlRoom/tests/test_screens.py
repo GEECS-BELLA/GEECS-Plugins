@@ -286,3 +286,16 @@ def test_every_deployed_screen_draws_every_widget(tmp_path: Path) -> None:
         assert len(re.findall(r'<div class="field', page.text)) == len(controls), (
             path.name
         )  # every control the rail's
+
+
+def test_a_readout_without_units_of_its_own_takes_the_records(client: TestClient, settings: Settings) -> None:  # fmt: skip
+    """No widget or family units: a placeholder the rail fills from Hare's metadata (a gauge's Torr), as a setpoint's is."""
+    _screens(settings, 'title: T\ngroups: [{title: G, at: [1, 1], widgets: [{kind: readout, label: Gauge, bind: {pv: "x:u_a:p"}}, {kind: readout, label: Set, bind: {pv: "x:u_a:q"}, units: mbar}]}]\n')  # fmt: skip
+    page = client.get("/screens/sim_bench").text
+    assert (
+        '<label>Gauge <small data-egu="x:u_a:p" data-type="readback"></small></label>'
+        in page
+    )
+    assert (
+        "<label>Set <small>mbar</small></label>" in page
+    )  # the screen's own units win

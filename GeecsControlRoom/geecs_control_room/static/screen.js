@@ -45,13 +45,14 @@
     frame: () => watch(pv), meta: () => hare.meta(pv), word: () => R.judge({ hareUp: hareUp(), frame: watch(pv), bare: true }),
   });
   // A widget's page: its device's or its bare PV's; a deferred widget's role hidden from the controls when the
-  // module types it otherwise, its word the module's ("unknown role", "wrong kind"); its own precision shown.
+  // module types it otherwise, its word the module's ("unknown role", "wrong kind"); its own precision shown (`digits`).
   function pageOf(w) {
     if (w.page) return w.page;
     const base = w.dataset.pv ? bare(w.dataset.pv) : deviceOf(w.dataset.device);
     const fits = w.dataset.fits === undefined ? undefined : w.dataset.fits.split(" ").filter(Boolean);
     const digits = w.dataset.precision === undefined ? undefined : Number(w.dataset.precision);
-    const shown = (meta) => (digits === undefined ? meta : { ...meta, digits, precision: digits });
+    // the widget's digits are how a value is shown, never how it is judged: the record's precision stays (the settle tolerance)
+    const shown = (meta) => (digits === undefined ? meta : { ...meta, digits });
     return (w.page = {
       ...base,
       entry: (role, axis) => { const e = base.entry(role, axis); return R.misfit(e, fits) ? undefined : e; },

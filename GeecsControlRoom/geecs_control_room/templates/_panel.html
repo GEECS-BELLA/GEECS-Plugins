@@ -33,7 +33,7 @@
   <span class="sv" hidden><span class="k">set</span> <b class="mono">—</b> <span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>
   <span class="rb"><span class="k">now</span> <b class="mono">—</b> <span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>
   <span class="differs" hidden><span class="dot" data-state="degraded" aria-hidden="true"></span>differs</span></div>
-{% else %}<div class="field"><label>{{ label }}{% if units %} <small>{{ units }}</small>{% endif %}</label><span class="ro mono" data-ro="{{ spec.name }}"{{ ax }}>—</span><span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span></div>
+{% else %}<div class="field"><label>{{ label }} {% if units %}<small>{{ units }}</small>{% else %}<small data-egu="{{ spec.name }}" data-type="{{ spec.type }}"{{ ax }}></small>{% endif %}</label><span class="ro mono" data-ro="{{ spec.name }}"{{ ax }}>—</span><span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span></div>
 {% endif %}
 {%- endmacro %}
 
