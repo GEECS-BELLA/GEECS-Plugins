@@ -751,3 +751,21 @@ def test_an_overlap_record_after_a_missed_row_with_no_evidence_is_ambiguous() ->
     assert _flagged(table, "interval-ambiguous:cam") == [5, 6, 7, 8]
     assert _flagged(table, "missing:cam") == [4]
     assert table.extras["cam"] == (3, 4, 5, 6)
+
+
+@pytest.mark.parametrize("step", [1.0, 0.95, 1.05])
+def test_an_early_whole_period_step_cannot_become_the_reference(step) -> None:
+    """Shifted records outnumbering the true ones still read as moved."""
+    rows = _rows(100)
+    cam = _cam(rows)
+    stamps = cam.records.stamps + np.where(np.arange(100) >= 10, step, 0.0)
+    table = shot_table(
+        START, rows, [_device("cam", stamps, cam.counter, cam.witness_count)]
+    )
+    wrong = [
+        k
+        for k, i in enumerate(table.record_for_shot["cam"])
+        if i is not None and i != k
+    ]
+    assert len(wrong) == 89
+    assert all("clock-step:cam" in table.flags[k] for k in wrong)

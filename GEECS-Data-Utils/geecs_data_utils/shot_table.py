@@ -825,8 +825,11 @@ def _clock_step_audit(
     attribute a whole-period step moves records exactly as a missed edge
     does (one gap, then every record one row on, counters consistent), and
     it is not detected; with it, a step that moves fewer rows than the run
-    needs (the run's last one or two) reads as poll lag.  The flag never
-    moves a record.
+    needs (the run's last one or two) reads as poll lag, and one inside the
+    first :data:`CLOCK_STEP_LAG_RUN` rows becomes the reference (the run is
+    then flagged ``attribute-lag-systematic`` instead).  The reference is
+    the run's first stable lag (:func:`_reference_lag`), so a step later in
+    the run cannot redefine it.  The flag never moves a record.
     """
     threshold = max(CLOCK_STEP_SHARE * clock.period, 2.0 * clock.budget)
     timed = [
@@ -854,9 +857,9 @@ def _clock_step_audit(
         k, i = timed[j]
         return np.nan if attribute is None else clock.counts[k] - attribute[i]
 
-    lags = [lag(j) for j in np.flatnonzero(level_of == 0)]
-    finite = [x for x in lags if np.isfinite(x)]
-    reference = max(set(finite), key=finite.count) if finite else None
+    reference = _reference_lag(
+        [(timed[j][0], lag(j)) for j in np.flatnonzero(level_of == 0)]
+    )
     levels = {
         n: float(np.median(residuals[level_of == n][:CLOCK_STEP_LEVEL_FRAMES]))
         for n in set(level_of.tolist())
@@ -904,6 +907,29 @@ def _residual_levels(
         if not off or confirmed:
             window.append(float(residuals[j]))
     return level_of, steps
+
+
+def _reference_lag(lags: Sequence[tuple[int, float]]) -> float | None:
+    """The lag the run starts with: its first stable prefix's, never its majority's.
+
+    *lags* is ``(row, lag)`` in row order.  The reference is the lag of the
+    first :data:`CLOCK_STEP_LAG_RUN` adjacent rows that agree, so a step
+    later in the run, however many rows it moves, cannot redefine it; a
+    sporadic poll lag at the start does not either.  Without such a run,
+    the commonest lag; without any finite lag, ``None``.
+    """
+    run: list[tuple[int, float]] = []
+    for row, value in lags:
+        if not np.isfinite(value):
+            run = []
+            continue
+        if run and (value != run[-1][1] or row != run[-1][0] + 1):
+            run = []
+        run.append((row, value))
+        if len(run) >= CLOCK_STEP_LAG_RUN:
+            return value
+    finite = [value for _, value in lags if np.isfinite(value)]
+    return max(set(finite), key=finite.count) if finite else None
 
 
 def _lag_runs(
