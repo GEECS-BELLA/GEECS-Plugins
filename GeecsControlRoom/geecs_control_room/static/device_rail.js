@@ -1,5 +1,5 @@
 // A panel page's rail and readings strip, DOM only: the one copy for every page drawn from a panel
-// (_panel.html: the settables page in device.html, the trace page). Each control is enabled on the module's word
+// (_panel.html: the settables page in device.html, the trace page, the camera page; a screen's widgets too). Each control is enabled on the module's word
 // (camera_rules.js's `control`), written through device_writes.js (the module's put route, the operator's name,
 // sent once; a per-axis control's write carries its axis); each reading shows its value and the module's word; a
 // value with no family units takes the record's (Hare's EGU); a group whose `<ch>_present` reads 0 is hidden; each
@@ -103,7 +103,7 @@
       }
       for (const el of box.querySelectorAll("[data-egu]")) el.textContent = D.units(el.dataset.type, "", pg(el).meta(el.dataset.egu, axisOf(el)));
       const names = known();
-      for (const g of box.querySelectorAll(".panel-rail .group")) {
+      for (const g of box.querySelectorAll(".panel-rail .group[data-roles]")) { // a panel group: a page's own groups beside it carry none
         const present = D.presentRole(JSON.parse(g.dataset.roles), names);
         g.hidden = !!present && D.hidden(pg(g).frame(present, paneAxis(g)));
       }

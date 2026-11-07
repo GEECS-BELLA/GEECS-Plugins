@@ -754,3 +754,22 @@ async def test_a_select_and_a_valued_toggle_draw_the_rails_controls_and_write_th
     assert (status, body["outcome"]) == (200, "accepted") and room.env.hare.puts[-1][
         1
     ] == 1
+
+
+async def test_the_camera_page_draws_its_familys_panel_with_the_rails_controls(
+    room,
+) -> None:
+    """The camera's rail and readings are the family's panel, drawn by the shared macros; its camera ROI stays its own, out of the rail's reach."""
+    page = (await room.client.get("/device/camera/Cam1")).text
+    assert _groups(page) == [
+        ("Acquisition", ["acquire", "exposure", "period", "gain", "trigger_mode"]),
+        ("Crosshairs", ["crosshair1_use", "crosshair2_use", "crosshair1_x", "crosshair1_y", "crosshair2_x", "crosshair2_y"]),
+        ("Analysis ROI", ["roi_minx", "roi_miny", "roi_sizex", "roi_sizey"]),
+    ]  # fmt: skip
+    # a setting is the setpoint control; acquire the panel's Stop / Start pair
+    assert re.search(r'<div class="field setpoint"><label for="[^"]+">exposure <small>s</small></label><input type="number" id="[^"]+" data-role="exposure"', page)  # fmt: skip
+    assert re.findall(r'data-role="acquire" data-value="(\d)" data-pair aria-pressed="false" disabled>(\w+)<', page) == [("0", "Stop"), ("1", "Start")]  # fmt: skip
+    # the readings strip is the panel's; the camera ROI's fields carry no data-role, so the rail never writes them
+    assert re.findall(r'<div class="live" data-role="([^"]+)"', page)[:3] == ["state", "rate", "pixel_format"]  # fmt: skip
+    rail = re.search(r'<aside class="rail panel-rail">.*?</aside>', page, re.S).group(0)
+    assert 'data-roi-role="min_x"' in rail and 'data-role="min_x"' not in rail

@@ -11,31 +11,32 @@
   with the operator's name, sent once; a run-locked role is refused by the
   module while a run holds the camera (its outcome says so). The lineouts
   and histogram are the on-request arrays (/api/devices/<name>/arrays), read
-  only while the plots are open. Every word is the module's verdict. Its
-  rail is still hand-coded (not the panel's _panel.html): the camera moves
-  onto its family's panel and the shared rail in a slice of its own.
-#}{% extends "device.html" %}
-{% macro num(role, label, step="any") -%}
-<div class="field coord"><label for="c-{{ role }}">{{ label }}</label><input type="number" id="c-{{ role }}" data-role="{{ role }}" step="{{ step }}" disabled></div>
+  only while the plots are open. Every word is the module's verdict. The
+  rail and the readings strip are the family's `panel` (acquisition,
+  crosshairs, the analysis ROI; _panel.html, device_rail.js: the device
+  pages' one control set); the camera ROI (one draft of four fields applied
+  behind its dialog: it changes what scans save) and the display (this
+  viewer's own) are the camera's own.
+#}{% extends "device.html" %}{% import "_panel.html" as P %}
+{% macro roi(role, label) -%}
+<div class="field coord"><label for="c-{{ role }}">{{ label }}</label><input type="number" id="c-{{ role }}" data-roi-role="{{ role }}" step="1" disabled></div>
 {%- endmacro %}
+{% block head %}{{ super() }}<link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
 {% block kind_component %}
-{% set labels, units = {}, {} %}{% for r in device.roles %}{% set _ = labels.update({r.role: r.label or r.role}) %}{% endfor %}
-{% for _axis, rows in tables %}{% for r in rows %}{% set _ = units.update({r.name: r.units}) %}{% endfor %}{% endfor %}
 <div class="camera" id="camera" data-frame-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.jpg" data-raw-url="{{ root }}/api/devices/{{ name | urlencode }}/frame.raw" data-arrays-url="{{ root }}/api/devices/{{ name | urlencode }}/arrays">
-  <aside class="rail">
-    <section class="group">
-      <h4>Camera</h4>
-      <div class="row">{{ num("exposure", "exposure s") }}{{ num("period", "period s") }}</div>
-      <div class="row">{{ num("gain", "gain") }}
-        <div class="field coord"><label for="c-trigger_mode">trigger</label><select id="c-trigger_mode" data-role="trigger_mode" disabled></select></div></div>
+  <aside class="rail panel-rail">
+    {{ P.rail(panel, specs) }}
+    <section class="group roi-tools">
       <div class="row">
-        <button class="btn sm" type="button" data-role="acquire" data-value="1" disabled>Start</button>
-        <button class="btn sm" type="button" data-role="acquire" data-value="0" disabled>Stop</button>
-        <span class="dim mono" id="acquire-now"></span>
+        <button class="btn sm" type="button" id="roi-full" disabled>Analysis ROI: full frame</button>
+        <label class="dim"><input type="checkbox" id="roi-show" checked> show it</label>
       </div>
+      <div class="hint dim">Drag a crosshair's centre or the analysis ROI's edges on the image.</div>
+    </section>
+    <section class="group">
       <h4>Camera ROI</h4>
-      <div class="row">{{ num("min_x", "x", 1) }}{{ num("min_y", "y", 1) }}</div>
-      <div class="row">{{ num("size_x", "width", 1) }}{{ num("size_y", "height", 1) }}</div>
+      <div class="row">{{ roi("min_x", "x") }}{{ roi("min_y", "y") }}</div>
+      <div class="row">{{ roi("size_x", "width") }}{{ roi("size_y", "height") }}</div>
       <div class="row">
         <button class="btn sm" type="button" id="cam-roi-apply" disabled>Apply…</button>
         <button class="btn sm ghost" type="button" id="cam-roi-full" disabled>Full sensor</button>
@@ -63,34 +64,11 @@
       </div>
       <div class="hint dim" id="levels-hint">The 8-bit stream, stretched in this browser: nothing is written to the camera.</div>
     </section>
-
-    <section class="group">
-      <h4>Crosshairs</h4>
-      {% for n in (1, 2) %}
-      <div class="row crosshair" data-n="{{ n }}">
-        <label class="dim"><input type="checkbox" data-role="crosshair{{ n }}_use" disabled> {{ n }}</label>
-        {{ num("crosshair" ~ n ~ "_x", "x", 1) }}{{ num("crosshair" ~ n ~ "_y", "y", 1) }}
-      </div>
-      {% endfor %}
-      <h4>Analysis ROI</h4>
-      <div class="row">{{ num("roi_minx", "x", 1) }}{{ num("roi_miny", "y", 1) }}</div>
-      <div class="row">{{ num("roi_sizex", "width", 1) }}{{ num("roi_sizey", "height", 1) }}</div>
-      <div class="row">
-        <button class="btn sm" type="button" id="roi-full" disabled>Full frame</button>
-        <label class="dim"><input type="checkbox" id="roi-show" checked> show</label>
-      </div>
-      <div class="hint dim">Drag a crosshair's centre or the ROI's edges on the image.</div>
-    </section>
     <div class="out" id="write-out" data-state="unknown" role="status"></div>
   </aside>
 
   <div class="pane">
-    <div class="grid tight readings">
-      {% for role in ("state", "rate", "pixel_format", "cx", "cy", "sx", "sy", "max", "mean", "total", "raw_max", "capture", "lock", "owner") %}
-      <div class="live" data-role="{{ role }}"><span class="k">{{ labels.get(role, role) }}{% if units.get(role) %} <small>{{ units[role] }}</small>{% endif %}</span><span class="v">—</span>
-        <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span> <span class="word">unknown</span></span></div>
-      {% endfor %}
-    </div>
+    {{ P.readings(panel, specs) }}
     <div class="alarms" id="alarms"></div>
 
     <article class="panel image">

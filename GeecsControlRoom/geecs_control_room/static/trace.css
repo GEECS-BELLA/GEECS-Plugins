@@ -1,4 +1,4 @@
-/* The trace page (device_trace.html): camera.css's rail-and-pane layout, the
+/* The trace page (device_trace.html): device.css's rail-and-pane layout, the
    rail device.css's (.panel-rail, every panel page's), the plot (Plotly, the theme's template) filling the pane.
    Tokens only (GeecsWebTheme's guard). */
 .kit .device[data-kind="trace"]{max-width:none}

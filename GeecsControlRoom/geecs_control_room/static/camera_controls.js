@@ -1,10 +1,9 @@
-// The camera page's controls, DOM only: the acquisition controls (exposure,
-// period, gain, trigger mode, acquire), the camera ROI behind a confirm
-// dialog, the crosshairs and the analysis ROI by value, and the lineouts and
-// histogram (the on-request arrays, polled only while the plots are open).
-// Each control is a family role: filled from Hare, enabled on the module's
-// word (camera_rules.js's control), written through camera.js's write (the
-// module's put route, sent once, its outcome shown).
+// The camera page's controls, DOM only: the rail (the family's panel: acquisition, crosshairs, the analysis ROI)
+// is device_rail.js's, the device pages' one control set, written through camera.js's writes (one list at a time
+// for the page, shared with the image's edits); the camera ROI (one draft of four fields, applied behind its
+// dialog: it changes what scans save) and the lineouts and histogram (the on-request arrays, polled only while
+// the plots are open) are the camera's own. Each control is a family role: filled from Hare, enabled on the
+// module's word (camera_rules.js's control), written once through the module's put route, its outcome shown.
 (function () {
   "use strict";
   const P = window.GeecsDevicePage, R = window.GeecsCameraRules, V = window.GeecsCameraView;
@@ -14,44 +13,26 @@
   let roiDraft = false;
   // camera.js's write runs one list at a time for the page (the rail and the image's edits); null: refused, one runs
   const send = (pairs, confirmed = false) => V.write(pairs, confirmed);
+  // filled through camera.js's hooks (one refresh per animation frame, and a write's start and end), never on every PV update
+  const rail = window.GeecsDeviceRail.make({ ...P, on() {} }, $("camera"), { write: V.write, busy: V.busy });
 
-  // ---- every [data-role] control: filled unless focused (or a camera-ROI draft), enabled on the module's word
-  const controls = [...document.querySelectorAll("#camera .rail [data-role]")];
+  // ---- the camera ROI's four fields: filled unless focused or holding the draft, enabled on the module's word
   const CAM_ROI = ["min_x", "min_y", "size_x", "size_y"];
+  const roiFields = CAM_ROI.map((role) => $(`c-${role}`));
   function fill() {
-    for (const el of controls) {
-      const role = el.dataset.role, c = R.control(P.view(), P.entry(role), V.busy());
+    for (const el of roiFields) {
+      const role = el.dataset.roiRole, c = R.control(P.view(), P.entry(role), V.busy()), v = V.value(role);
       el.disabled = !c.enabled;
       el.title = c.why;
-      const v = V.value(role);
-      if (el.tagName === "BUTTON") continue;
-      if (el.type === "checkbox") { el.checked = !!v; continue; }
-      if (el.tagName === "SELECT") {
-        const choices = P.meta(role).enumChoices || [];
-        if (el.options.length !== choices.length) el.replaceChildren(...choices.map((t, i) => new Option(t, String(i))));
-        if (!focused(el) && typeof v === "number") el.value = String(v);
-        continue;
-      }
-      if (focused(el) || (roiDraft && CAM_ROI.includes(role)) || typeof v !== "number") continue;
-      el.value = Number.isInteger(v) ? v : Number(v.toPrecision(6));
+      if (!focused(el) && !roiDraft && typeof v === "number") el.value = String(v);
     }
-    $("acquire-now").textContent = R.fmt(P.frame("acquire"), P.meta("acquire"));
     const roiOk = (role) => R.control(P.view(), P.entry(role), V.busy()).enabled;
     $("cam-roi-apply").disabled = !roiOk("min_x");
     $("cam-roi-full").disabled = !roiOk("min_x") || !(V.value("max_x") > 0);
     $("roi-full").disabled = !roiOk("roi_minx") || !V.frameSize()[0]; // no full frame while the geometry is unknown
   }
-  V.hooks.push(fill);
-
-  const DRAFT = (el) => el.closest(".rail") && CAM_ROI.includes(el.dataset.role);
-  for (const el of controls) {
-    if (el.tagName === "BUTTON") { el.addEventListener("click", () => send([[el.dataset.role, Number(el.dataset.value)]])); continue; }
-    if (DRAFT(el)) { el.addEventListener("input", () => { roiDraft = true; $("cam-roi-revert").hidden = false; }); continue; }
-    el.addEventListener("change", () => {
-      const v = window.GeecsDeviceRules.writeValue({ type: el.type, tag: el.tagName, step: el.step, checked: el.checked, raw: el.value });
-      if (v !== null) send([[el.dataset.role, v]]);
-    });
-  }
+  V.hooks.push(fill, rail.fill); // a write's start and end: the controls disabled, then enabled
+  for (const el of roiFields) el.addEventListener("input", () => { roiDraft = true; $("cam-roi-revert").hidden = false; });
 
   // ---- the camera ROI: one draft of four fields, applied behind the dialog (it changes what scans save)
   const revert = () => { roiDraft = false; $("cam-roi-revert").hidden = true; fill(); };
