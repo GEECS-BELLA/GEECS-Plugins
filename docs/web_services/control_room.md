@@ -233,7 +233,15 @@ refused (`409 already_running`).
 
 A camera's page (`/device/camera/<name>`, from the home's camera picker)
 shows its image with the acquisition controls, crosshairs, the analysis ROI,
-the lineouts and the histogram beside it. By default the image is the IOC's
+the lineouts and the histogram beside it. Its controls are every device
+page's: **Acquisition** (Stop / Start, exposure, period, gain, trigger mode),
+**Crosshairs** and **Analysis ROI**, each setting with `set` and `now` under
+it (see [A setting and the numbers under it](#a-setting-and-the-numbers-under-it)),
+and the readings above the image. Two blocks are the camera's own: the
+**camera ROI**, whose four fields you edit together and apply behind a
+dialog (it changes what every scan with this camera saves), and the
+**display** (colour map, scale, levels), which is yours alone and writes
+nothing. By default the image is the IOC's
 MJPEG display stream: 8-bit and JPEG-compressed, good for watching a beam,
 too coarse for a camera's noise (a dark floor flattens to a few grey levels
 and a single bright pixel smears into a block).

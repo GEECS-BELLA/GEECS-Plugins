@@ -698,3 +698,26 @@ and one subscription per role on the device page (`device_source`'s
 `read`); the field at the widget's precision; one spec builder
 (`screens.role_spec`); an unsent choice goes back to the reading; a note-only
 ask is titled "Write?".
+
+### 2026-11-06 — vocabulary merge, PR 3: the camera page on the shared rail
+
+**Built.** `ad_camera_chain` gains a `panel` (Acquisition with acquire's
+Stop / Start, Crosshairs, Analysis ROI; the 14 readings it drew by hand),
+and the camera page draws it with `_panel.html`'s macros, filled and written
+by `device_rail.js` through `camera.js`'s own writes. Deleted: the
+hand-coded acquisition, crosshair and analysis-ROI fields, their fill and
+listeners in `camera_controls.js`, and the readings and alarm line in
+`camera.js`. Kept as the camera's own: the camera ROI (one draft of four
+fields behind its dialog; its fields renamed `data-roi-role`) and the
+display. The rail-and-pane grid, the readings strip, the operator field and
+the hazard dialog's styles move from `camera.css` to `device.css`. Also:
+`traces.trace_pvs` no longer looks a DB device's type up as a family (the
+module's `source` decides first, as `device_pages.resolve` does).
+
+**Review** (round 1: one medium, five low, a placement note; all fixed,
+confirmed in round 2) changed: the camera ROI can never land on a camera's
+rail (`device_pages.OWN_ROLES`: roles a kind's page draws itself, whatever
+the family's panel says or when it has none); the camera's rail is filled
+once per frame through `camera.js`'s hooks, not on every PV update; the
+rail's group selector is pinned under node; the analysis-ROI tools sit
+under their group; `GATEWAY` lives once, in `module_client.py`.

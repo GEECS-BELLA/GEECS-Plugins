@@ -43,7 +43,9 @@ const wheel2 = widget({ device: "Wheel", role: "pos2" }, [unread]);
 const field = el("INPUT", { type: "number", step: "any", dataset: { role: "x:u_a:b", readback: "x:u_a:b" } });
 const bare = widget({ pv: "x:u_a:b" }, [field], true);
 const all = [...pairs, narrowed, unread, field];
-const box = el("MAIN", { querySelectorAll: (sel) => (sel === ".field [data-role]" ? all : []) });
+// a page's own group beside the panel's (a camera's ROI, its display) carries no data-roles: the rail leaves it be
+const own = el("SECTION");
+const box = el("MAIN", { querySelectorAll: (sel) => (sel === ".field [data-role]" ? all : sel === ".panel-rail .group" ? [own] : []) });
 // the module's entries and Hare's values per device, as screen.js's pageOf answers them
 const DEV = {
   PLC: { roles: { "DO.Ch1|": { role: "DO.Ch1", pv: "plc:do1", writePv: "plc:do1:SP", writable: true, read: "monitor", verdict: null } },

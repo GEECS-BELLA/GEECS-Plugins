@@ -17,6 +17,7 @@ from geecs_control_room.device_pages import (
     KINDS,
     auto_panel,
     drawn_panel,
+    page_panel,
     registered,
 )
 from geecs_control_room.home import launcher
@@ -245,3 +246,27 @@ def test_a_device_draws_only_the_roles_it_serves_and_a_tweak_only_whole() -> Non
     # a group with none of its roles served is not drawn; a reading the device omits is not either
     gone = drawn_panel(motor, served - {"homf", "homr", "hls"})
     assert [g["title"] for g in gone["rail"]] == ["Move", "Speed"] and "hls" not in gone["readings"]  # fmt: skip
+
+
+@pytest.mark.parametrize("panel", ["none", "naming it"])
+def test_a_cameras_rail_never_carries_its_camera_roi(panel: str) -> None:
+    """The camera ROI is the camera page's own (one draft, behind its dialog): never a rail field, whatever the family's panel says."""
+    from geecs_schemas import FamilyFile
+
+    doc = load_families()["ad_camera_chain"].model_dump(mode="json")
+    if (
+        panel == "none"
+    ):  # a camera family with no panel: the automatic layout, every writable role
+        doc["panel"] = None
+    else:  # a panel that names the camera ROI in a rail group
+        doc["panel"]["rail"][0]["roles"] += ["min_x", "size_x"]
+    family = FamilyFile.model_validate(doc)
+    body = {
+        "roles": [
+            _entry(r.name, r.type, r.writable, r.read_mode) | {"axis": None}
+            for r in family.roles
+        ]
+    }
+    drawn = page_panel(body, family, [], kind="camera")
+    railed = {r for g in drawn["panel"]["rail"] for r in g["roles"]}
+    assert railed and not railed & {"min_x", "min_y", "size_x", "size_y"}

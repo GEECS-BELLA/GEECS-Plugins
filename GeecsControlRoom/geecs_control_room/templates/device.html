@@ -20,7 +20,7 @@
   device) is complete with no template of its own.
 #}{% extends "base.html" %}{% import "_panel.html" as P %}
 {% block title %}{{ name or kind }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css"><link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css">{% endblock %}
 {% block crumbs %}{% if kind in kinds %}<nav class="crumbs" aria-label="Breadcrumb"><span class="sep" aria-hidden="true">›</span>
   {% if name %}<a href="{{ root }}/device/{{ kind }}">{{ kind }}</a><span class="sep" aria-hidden="true">›</span><span class="mono" aria-current="page">{{ name }}</span>
   {% else %}<span aria-current="page">{{ kind }}</span>{% endif %}</nav>{% endif %}{% endblock %}

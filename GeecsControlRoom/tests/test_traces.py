@@ -227,3 +227,15 @@ async def test_the_array_is_asked_by_name_and_an_array_the_axis_does_not_draw_is
         r = await c.get(URL + "?y=count")
     assert r.status_code == 404 and r.json()["detail"] == "the axis wavelength draws no array 'count': it draws spectrum, processed"  # fmt: skip
     assert reads(env) == []  # refused before any read
+
+
+async def test_a_db_device_spelled_like_a_family_draws_no_trace() -> None:
+    """The source decides first: a DB device's family is its DB device type, never looked up as a family file (device_pages.resolve's rule)."""
+    env = scope()
+    env.source = (
+        "gateway"  # a GEECS DB device whose type happens to be named scope_contract
+    )
+    async with client(env) as c:
+        r = await c.get(URL)
+    assert r.status_code == 404 and "names no trace" in r.json()["detail"]
+    assert not [a for k, a in env.ca.calls if k == "floats"]  # nothing read over CA
