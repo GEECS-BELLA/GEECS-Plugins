@@ -7,6 +7,22 @@ coordinator runs the slices in order, one PR each into this branch, with the
 `master` is merged forward at least weekly. Promotion to `master` is the
 maintainer's merge.
 
+**The arc's record is its tracking issue** (CONTRIBUTING § "GitHub conduct"),
+opened on the maintainer's word when slice 0 starts: its body is the current
+plan, one comment per slice records what was planned, what review changed,
+what the lab found and what the next slice needs. This file is the design
+while the work is live; the dispositions below predate the issue and are
+also on #1301, and every later one goes on the issue, not here.
+
+**Exit checklist.** This file is deleted in the PR that completes or abandons
+the work it describes, and a promotion alone does not mean completion. Before
+the deletion: every invariant the code must keep goes into the docstring of
+the code that keeps it; the package rules into `GeecsConfigurator/CLAUDE.md`
+and the cross-package ones (the clones, the apply verbs, the tiers' home)
+into the root `CLAUDE.md`; operator and deployment guidance into `docs/` and
+the runbooks; outstanding work onto the tracking issue; the rationale stays
+in git history.
+
 ## Goal (the maintainer's framing, 2026-11-06)
 
 Operators have no path for a configuration change except an agent or a
@@ -83,8 +99,9 @@ is a later pass; this brief is the mechanics.
   disk**, while the preset itself travels inline. The archiver reads its
   policy when `onboard` runs; `onboard --dry-run` prints the plan and sends
   nothing, and `--policy PATH` names a file to read instead of the
-  experiment's. The Control Room reads screens and the home layout per
-  request.
+  experiment's. The CA gateway loads the derived-channel file at startup and
+  builds its PVs then. The Control Room reads screens and the home layout
+  per request.
 - **Action plans have two executors with different gates.** The Canopy
   module's executor (`POST /v1/actions/{name}/run`, polled at
   `/v1/actions/runs/{id}`) pre-checks every `set` against the operator
@@ -195,20 +212,32 @@ The store is `ConfigStore` generalized: every file kind, the same etag and
 atomic-write discipline, pydantic errors at field locations. It lives in the
 new package; the original is deleted when the analysis kinds move (slice 6).
 
-**The service owns its own clone** of the configs repo under its state
-directory on the services box, world-readable, because the Linux services
-read it (ruling 4). **Before serving a document** the service fetches and
-fast-forwards main under the one lock, so the etag the editor holds is of the
-current base. **On save**: the lock, fetch and fast-forward again; if the
-base moved under this document the answer is the store's existing 409 with
-the current document and the diff, and the operator re-applies their edit —
-**never an automatic merge** of a whole-document PUT; then validate, run the
-kind's dry run, write, commit with **the operator as the git author** ("Name
-via configurator") and the service as the committer, push, with a bounded
-retry on a concurrent push. Maintainer tier: the same up to the commit, on a
-branch, then a PR opened with the operator named in the body. The log of what
+**The service owns a bare repository and two kinds of checkout** under its
+state directory on the services box. The **live checkout** is the Linux
+services' configs root (ruling 4), world-readable, and holds **accepted
+commits of main only**: the service never writes a draft there and never
+checks a branch out there, so a consumer that reads a file per request
+(the device module reads the operator policy on every put) can never see a
+change before it is accepted. Every edit is staged in a **throwaway
+worktree** of its own: there the service fetches and fast-forwards, writes
+the draft, validates, runs the kind's dry run, commits with **the operator
+as the git author** ("Name via configurator") and the service as the
+committer, and pushes, with a bounded retry on a concurrent push; on success
+the live checkout fast-forwards to the new main and the worktree is removed;
+on a failed push (a non-fast-forward, the App unreachable) the worktree is
+removed, nothing reaches the live checkout, and the operator sees the error
+with their edit kept in the page. Maintainer tier: the same in its worktree,
+on a branch pushed to origin, then a PR opened with the operator named in
+the body; the branch never exists in the live checkout. **Before serving a
+document** the service fetches and fast-forwards the live checkout under the
+one lock, so the etag the editor holds is of the current base. **On save**,
+if the base moved under this document the answer is the store's existing 409
+with the current document and the diff, and the operator re-applies their
+edit — **never an automatic merge** of a whole-document PUT. The log of what
 was committed and whether it applied is the service's own table, served on a
-page.
+page, with four states a row can be in: *applied*, *queued* (until the
+worker is idle), *pending* (handed to the maintainer, named), *nothing to
+do*; a commit that landed is never written up as applied by that fact alone.
 
 **The credential is a GitHub App** on the org, installed on the configs repo
 alone with contents and pull-requests write; its private key lives in a
@@ -229,14 +258,16 @@ becomes the service's clone, so they read a clean checkout the moment it is
 pushed; and the share's clone becomes **read-only for humans and services**,
 because an uncommitted edit on it blocks the fast-forward. The writers above
 route through the service (presets in slice 3, the analysis kinds in
-slice 6). Shot offsets stay the worker's file: the worker's configs root is
-the service's clone, so it writes `shot_offsets.yaml` there uncommitted, and
-the service **reconciles** on a timer of seconds and before any fetch: it
-commits the worker's file, authored as the worker, and pushes; if main moved
-the same file meanwhile, the worker's measurement wins and the log says so.
-An operator's edit of shot offsets is an ordinary operator-tier commit; last
-wins. The edits already sitting on the share are committed once, by hand,
-before the switch.
+slice 6). Shot offsets are the one file written into the live checkout by
+someone else: the worker's configs root is that checkout, so
+`measure_shot_offsets` writes `shot_offsets.yaml` there uncommitted, and the
+service **reconciles** on a timer of seconds and before any fetch: it copies
+the worker's file into a staging worktree on top of main, commits it
+authored as the worker, pushes, and fast-forwards the live checkout, which
+then matches; if main moved the same file meanwhile, the worker's
+measurement wins and the log says so. An operator's edit of shot offsets is
+an ordinary operator-tier commit; last wins. The edits already sitting on
+the share are committed once, by hand, before the switch.
 
 **A merge on GitHub is an event too.** The service fetches main on a timer
 (a webhook later): a commit on main that did not come from the service, a
@@ -268,6 +299,12 @@ the verb per consumer and runs it after the push, or queues it:
   a subprocess in the archiver's venv on the box (the archiver has no HTTP
   API and gets none for this); the consequence is that the configurator is
   tied to the host that has the archiver installed, said in its deploy notes.
+- **Derived channels**: the CA gateway builds their PVs at startup, so the
+  apply is a gateway restart, which drops every client's PVs for seconds
+  and is never done during a scan. The service does not restart units: the
+  row is *pending*, named to the maintainer with the unit to restart, until
+  he says it was done. The same word, *pending*, covers every apply that is
+  a restart or a hand-off.
 - **Parameter tier**: an IOC restart on another host; not built in v1.
 
 The dry runs are the consumers' own answers, never re-implemented, and they
@@ -381,10 +418,12 @@ rest before slice 2. Nothing is built before 1 and 3.
    included. This reverses the direction #883 recorded (controls configs to
    the DB, no new YAML kind), which five kinds have already passed; close or
    retarget #883 when ruled.
-4. **The clones.** Linux services read the service's clone; the share's clone
-   is fast-forwarded after each push from the service's clone and is
-   read-only for humans and services; the uncommitted edits on it are
-   committed once by hand first.
+4. **The clones.** Linux services read the service's live checkout, which
+   holds accepted main commits only; the share's clone is fast-forwarded
+   after each push from the service's repository and is read-only for
+   humans and services; the uncommitted edits on it are committed once by
+   hand first; the portal's editor is read-only from the switch until it
+   moves onto the service.
 5. **Squirrel.** Setups do not use Canopy's presets; the module's preset
    routes stay as they are, on the module's executor. Two mechanisms for one
    thing is the thing to avoid later, not now.
@@ -418,9 +457,12 @@ rest before slice 2. Nothing is built before 1 and 3.
    queue client and `POST /api/environment/reopen` on the scanner (idle and
    empty, lock held, queue restarted); the archiver's `--dry-run --policy`
    subprocess; the scanner's `save_preset` routed through the service. The
-   deploy switch of the Linux configs root to the service clone (ruling 4):
-   site.env, Canopy's compose, the rendered config.ini, and the one-time
-   commit of the share's edits.
+   deploy switch of the Linux configs root to the service's live checkout
+   (ruling 4): site.env, Canopy's compose, the rendered config.ini, the
+   one-time commit of the share's edits, and **the portal's editor flipped
+   to its read-only mode** (its router's `read_only` switch makes every save
+   a 405) for the interval until slice 6, so no writer but the service and
+   the worker's shot offsets touches a checkout the service fast-forwards.
 4. **Setups, the engine.** `apply_setup` in GeecsBluesky with `md`; the
    scanner's setups routes with the hazard confirmations; the module reads
    `setups/`; the converter; `run_action` and `ActionPlanLibrary` deleted.
@@ -466,9 +508,10 @@ the maintainer has used it); Phoebus or any non-web editor.
 
 A slice ≤ ~700 changed lines (slice 1 may reach ~1,000 with the form renderer
 and its tests; say so in the body). Reviews bounded, a fresh verifier for
-fixes. No GitHub issues, no comments outside the lane PRs, no hosts, addresses
-or accounts in any committed file or PR body. The mockup is not cited in the
-repo.
+fixes. No unprompted follow-up issues; the arc's tracking issue is the one
+issue, with one comment per slice; comments elsewhere only on the lane PRs;
+no hosts, addresses or accounts in any committed file, issue or PR body. The
+mockup is not cited in the repo.
 
 ## Found along the way (not this arc's work)
 
@@ -530,3 +573,15 @@ commit on the branch:
 | 6 | The screens' dry run cited a roster route that does not exist | Screens have no dry run in v1; the render-time check stands |
 | 7 | A bare `tier` class attribute neither passes pydantic nor reaches `model_json_schema()` | `ClassVar` plus `model_config`'s `json_schema_extra` |
 | 8 | Two paraphrases in quotation marks | The editor's actual words; #883 described as a recorded direction, not a ruling |
+
+### 2026-11-07 — the maintainer's review on #1301 (GPT, four findings)
+
+| # | Finding | Disposition |
+|---|---|---|
+| P1 | The service's clone was both the live configs root and the place drafts and PR branches were written, so a draft operator policy was readable by the device module before its PR was approved | **Fixed.** A bare repository, a live checkout that holds accepted main commits only and is never written or branch-switched, and a throwaway staging worktree per edit; a failed push removes the worktree and nothing reaches the live checkout; the log's four states defined |
+| P2 | Derived channels were editable (maintainer tier) with no apply: the CA gateway builds their PVs at startup | **Fixed.** A derived-channels row: a gateway restart, never during a scan, recorded as *pending* and named to the maintainer; a landed commit is never written up as applied by that fact |
+| P2 | Between the root switch (slice 3) and the analysis kinds' move (slice 6) the portal's editor kept writing files into a checkout the service fast-forwards | **Fixed.** Slice 3 flips the portal's editor to its existing read-only mode for the interval; ruling 4 says so |
+| P2 | "No GitHub issues, no comments outside the lane PRs" contradicted CONTRIBUTING's tracking-issue rule | **Fixed.** The arc gets its tracking issue on the maintainer's word; the size rules allow it and its one comment per slice; later dispositions go there, not here |
+
+The review also asked for an explicit exit checklist; it is in the opening
+section.
