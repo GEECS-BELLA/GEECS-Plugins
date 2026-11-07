@@ -216,7 +216,10 @@ def test_a_clock_step_that_moves_records_flags_every_moved_row(attribute) -> Non
     table = shot_table(START, rows, [cam])
     assert table.record_for_shot["cam"][89:] == (89, None) + tuple(range(90, 99))
     assert _flagged(table, "missing:cam") == [91]
-    assert _flagged(table, "clock-step:cam") == list(range(92, 101))
+    # With the attribute the stretch's edge row before the gap is flagged
+    # too; without it the step's own row opens the stretch.
+    edge = [90] if attribute else []
+    assert _flagged(table, "clock-step:cam") == [*edge, *range(92, 101)]
     assert table.device_flags == {}
 
 
@@ -226,7 +229,7 @@ def test_a_whole_period_step_is_flagged_by_the_attribute(step) -> None:
     rows, cam = _stepped(step=step)
     table = shot_table(START, rows, [cam])
     assert table.record_for_shot["cam"][90:] == (None,) + tuple(range(90, 99))
-    assert _flagged(table, "clock-step:cam") == list(range(92, 101))
+    assert _flagged(table, "clock-step:cam") == [90, *range(92, 101)]
 
 
 def test_a_whole_period_step_without_the_attribute_is_not_detected() -> None:
@@ -257,8 +260,8 @@ def test_a_lone_late_record_is_no_clock_step() -> None:
         ((18, 19), (), []),  # at its end
         ((6,), (5,), []),  # a missed frame, then one poll lag
         ((7,), (5, 6), []),  # two missed, then one poll lag
-        ((5, 6, 7), (), [6, 7, 8]),  # a sustained run is a step
-        ((6, 7), (5,), [7, 8]),  # two after a gap: a forward step
+        ((5, 6, 7), (), [5, 6, 7, 8, 9]),  # a sustained run, edges and all
+        ((6, 7), (5,), [5, 7, 8, 9]),  # two after a gap: a forward step
     ],
 )
 def test_sporadic_poll_lag_is_no_clock_step_a_sustained_run_is(
@@ -818,3 +821,33 @@ def test_a_poll_lag_inside_a_moved_stretch_does_not_verify_its_row(step) -> None
         if i is not None and i != k
     ]
     assert wrong and all("clock-step:cam" in table.flags[k] for k in wrong)
+
+
+def test_a_poll_lag_on_a_backward_stretchs_last_row_is_flagged_with_it() -> None:
+    """The stretch's edge row, which its window reads as on the contract, is flagged."""
+    rows = _rows(100)
+    cam = _cam(rows)
+    attribute = cam.witness_count.copy()
+    attribute[47] -= 1
+    moved = (np.arange(100) >= 40) & (np.arange(100) <= 47)
+    stamps = cam.records.stamps + np.where(moved, -1.0, 0.0)
+    table = shot_table(START, rows, [_device("cam", stamps, cam.counter, attribute)])
+    wrong = [
+        k
+        for k, i in enumerate(table.record_for_shot["cam"])
+        if i is not None and i != k
+    ]
+    assert wrong and all("clock-step:cam" in table.flags[k] for k in wrong)
+
+
+def test_frequent_poll_lag_qualifies_the_run_instead_of_flagging_rows() -> None:
+    """A slow witness poll lags often; the attribute then audits no row."""
+    rows = _rows(100)
+    cam = _cam(rows)
+    attribute = cam.witness_count.copy()
+    attribute[np.random.default_rng(5).random(100) < 0.5] -= 1
+    table = shot_table(
+        START, rows, [_device("cam", cam.records.stamps, cam.counter, attribute)]
+    )
+    assert "attribute-lag-noisy" in table.device_flags["cam"]
+    assert _flagged(table, "clock-step:cam") == []

@@ -43,7 +43,8 @@ Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 witness attribute NaN all run), ``attribute-lag-systematic``,
-``required-unresolved``.  The audit never moves a record.
+``attribute-lag-noisy`` (poll lag too frequent to audit rows by: the
+attribute neither verifies nor flags a row), ``required-unresolved``.  The audit never moves a record.
 """
 
 from __future__ import annotations
@@ -120,6 +121,14 @@ CLOCK_STEP_LAG_RUN = 3
 WITNESS_CONTRACT_LAG = 0
 #: Timed rows a row's local lag is the lower median of (:func:`_local_lags`).
 CLOCK_STEP_LAG_WINDOW = 5
+#: Timed rows whose lag differs from both neighbours', as a share, past
+#: which the poll lag is too frequent for the row-by-row attribute reading
+#: (:func:`_lag_noisy`): the run is then ``attribute-lag-noisy``.  The
+#: measured 1.7 % isolates about that share; a tenth is about one record
+#: in nine lagging.
+CLOCK_STEP_NOISY_SHARE = 0.1
+#: ...over at least this many timed rows; a shorter run is never noisy.
+CLOCK_STEP_NOISY_MIN_ROWS = 50
 
 
 @dataclass(frozen=True)
@@ -519,8 +528,8 @@ class _RowClock:
         _audit(name, source, assigned, self.counts, self.epochs, self.loose, self.flags)
         if not attribute:
             return ()
-        _clock_step_audit(name, source, assigned, records, self)
-        return _attribute_audit(
+        noisy = _clock_step_audit(name, source, assigned, records, self)
+        return noisy + _attribute_audit(
             name, source, assigned, self.counts, self.loose, self.flags
         )
 
@@ -799,7 +808,7 @@ def _clock_step_audit(
     assigned: Sequence[int | None],
     records: np.ndarray,
     clock: _RowClock,
-) -> None:
+) -> tuple[str, ...]:
     """Flag a step in a synchronous device's residual, and every row it may have moved.
 
     The residual of a timed row (witnessed, not stamp-shared) is its
@@ -836,7 +845,16 @@ def _clock_step_audit(
     needs (the run's last one or two) reads as poll lag, and where poll lag
     is dense enough to put three of a window's five rows off the contract
     (measured: 1.7 % of records, so about one window in 20 000) a clean
-    stretch is flagged and a moved one can pass.  The reference is the
+    stretch is flagged and a moved one can pass.  A flagged stretch's edge
+    rows are flagged with it, the window reading them least surely.  The
+    reading assumes that measured rate, which depends on the witness IOC's
+    poll period: where too many rows lag apart from their neighbours
+    (:func:`_lag_noisy`) the attribute verifies and convicts no row, the
+    displaced levels are flagged whole, and the run is
+    ``attribute-lag-noisy``; a whole-period step is then not detected.
+    Between the measured rate and that bound (up to about 11 % of records
+    lagging) the row reading still runs and flags up to about 1 % of
+    correct rows; rows are over-flagged there rather than passed.  The reference is the
     contract, never the run's own lags, so a step anywhere in the run —
     its first rows, after a poll lag, over most of it — cannot become
     "normal"; a run filed one shot late from its start is *clock-step* on
@@ -855,7 +873,7 @@ def _clock_step_audit(
     ]
     residuals = np.array([records[i] - clock.stamps[k] for k, i in timed])
     if residuals.size < 2:
-        return
+        return ()
     level_of, steps = _residual_levels(residuals, threshold)
     first = residuals[level_of == 0]
     base = float(np.median(first[:CLOCK_STEP_LEVEL_FRAMES]))
@@ -878,24 +896,50 @@ def _clock_step_audit(
         for n in set(level_of.tolist())
     }
     lags = [lag(j) for j in range(len(timed))]
+    noisy = reference is not None and _lag_noisy(lags)
+    if noisy:
+        # Poll lag too frequent for a row's lag to say where its record is:
+        # the attribute verifies nothing and convicts nothing row by row.
+        reference = None
     local = _local_lags(lags)
     flagged = set(steps)
+    moved_rows: set[int] = set()
     for j in range(len(timed)):
         displaced = abs(levels[level_of[j]] - base) > threshold
         moved = reference is not None and local[j] != reference
-        if (
-            displaced
-            and (reference is None or moved)
-            or moved
-            and np.isfinite(local[j])
-        ):
+        if displaced and (reference is None or moved):
             flagged.add(j)
+        elif moved and np.isfinite(local[j]):
+            moved_rows.add(j)
     if reference is not None:
-        flagged.update(_lag_runs(timed, lags, reference, assigned))
+        moved_rows.update(_lag_runs(timed, lags, reference, assigned))
+    flagged.update(moved_rows)
+    flagged.update(_edges(flagged - set(steps) | moved_rows, lags, reference))
     for j in sorted(flagged):
         k = timed[j][0]
         if f"clock-step:{name}" not in clock.flags[k]:
             clock.flags[k].append(f"clock-step:{name}")
+    return ("attribute-lag-noisy",) if noisy else ()
+
+
+def _lag_noisy(lags: Sequence[float]) -> bool:
+    """Whether the witness attribute's poll lag is too frequent to audit rows by.
+
+    The row-by-row reading assumes the measured poll lag (1.7 % of records
+    one behind, at the witness IOC's 10 ms poll): sporadic, so a stretch of
+    lagging rows is a moved one.  A slower poll lags far more often.  A
+    poll lag is a row whose lag differs from both its neighbours'; a clock
+    step's edge is not one.  More than :data:`CLOCK_STEP_NOISY_SHARE` of at
+    least :data:`CLOCK_STEP_NOISY_MIN_ROWS` timed rows so isolated is that.
+    """
+    finite = [x for x in lags if np.isfinite(x)]
+    if len(finite) < CLOCK_STEP_NOISY_MIN_ROWS:
+        return False
+    isolated = sum(
+        finite[j] != finite[j - 1] and finite[j] != finite[j + 1]
+        for j in range(1, len(finite) - 1)
+    )
+    return isolated > CLOCK_STEP_NOISY_SHARE * len(finite)
 
 
 def _residual_levels(
@@ -926,6 +970,28 @@ def _residual_levels(
         if not off or confirmed:
             window.append(float(residuals[j]))
     return level_of, steps
+
+
+def _edges(core: set[int], lags: Sequence[float], reference: float | None) -> set[int]:
+    """The rows beside a flagged stretch, and beside a lag no poll explains.
+
+    A stretch's edge row is the one its window reads least surely (a poll
+    lag there can tip the median back to equal), and a short moved stretch
+    shows only as a lag off by more than a poll beside such a row, so both
+    neighbours of each are flagged with it.
+    """
+    if reference is not None:
+        core = core | {
+            j
+            for j, x in enumerate(lags)
+            if np.isfinite(x) and x not in (reference, reference + 1)
+        }
+    return {
+        j + d
+        for j in core
+        for d in (-1, 1)
+        if 0 <= j + d < len(lags) and j + d not in core
+    }
 
 
 def _local_lags(lags: Sequence[float]) -> list[float]:
