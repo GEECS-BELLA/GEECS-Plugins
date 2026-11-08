@@ -35,21 +35,23 @@ const node = (extra) => Object.assign({
 }, extra || {});
 const tiles = BINS.map((bin, i) => node({
   dataset: {index: String(MODE === "shots" ? i + 1 : i), bin, caption: `tile ${i}`},
-  img: {getAttribute: () => `/plot/api/images/tile.png?index=${i}&cmap=gray`},
+  img: {getAttribute: () => `/plot/api/images/tile.png?index=${i}&cmap=gray`,
+    dataset: {tile: `/plot/api/images/tile.png?index=${i}&cmap=gray`}},
 }));
 const els = {
-  "bigview": node({dataset: {mode: MODE, device: "UC_Cam", day: "2026-10-02", scan: "1", uid: "folder:x:1",
+  "bigview": node({dataset: {mode: MODE === "trace" ? "shots" : MODE, device: "UC_Cam", day: "2026-10-02", scan: "1", uid: "folder:x:1",
     shots: "5", cmap: "gray", inPortal: "true", portalRoot: "/portal"}}),
   "big-image": node(), "big-trace": node(), "big-note": node(), "big-caption": node(),
   "big-processing": node(), "big-processing-box": node({hidden: true}),
 };
-// One camera row (a trace device has none), its tiles inside it.
-const strip = node({dataset: {cam: "1", device: "UC_Cam"}});
+// One row, its tiles inside it: a camera's, or (MODE "trace") a scope's
+// trace row on a shots strip.
+const strip = node({dataset: {cam: "1", device: "UC_Cam", ...(MODE === "trace" ? {kind: "trace"} : {})}});
 strip.querySelectorAll = (sel) => (sel === ".tile" ? tiles : []);
 const document = {
   getElementById: (id) => els[id],
   querySelector: () => null,
-  querySelectorAll: (sel) => (sel === ".strip[data-cam]" ? (MODE === "trace" ? [] : [strip])
+  querySelectorAll: (sel) => (sel === ".strip[data-cam]" ? [strip]
     : sel === ".strip .tile img" ? tiles.map((t) => t.img) : []),
 };
 const location = {search: SEARCH};
@@ -153,17 +155,24 @@ assert.equal(tiles[2]["aria-current"], true);
     )
 
 
-def test_a_trace_device_draws_one_shot_from_the_trace_route(tmp_path: Path) -> None:
+def test_a_trace_row_draws_its_tile_from_the_strips_trace_route(tmp_path: Path) -> None:
+    """A trace row's tile opens as a zoomable figure from the strip's own
+    trace route (the tile's rows), never the portal's processing preview."""
     _run(
         tmp_path,
         "trace",
-        [],
+        ["1", "2", "3"],
         "",
         r"""
 await new Promise(setImmediate);
-assert.ok(fetched.some((u) => u.startsWith("/portal/api/run/folder%3Ax%3A1/trace?") && u.includes("shot=1")));
-assert.equal(els["big-caption"].textContent, "shot 1 of 5");
+assert.ok(fetched.includes("/plot/api/images/trace?index=0&cmap=gray"), fetched.join(" "));
+assert.equal(els["big-caption"].textContent, "tile 0");
+assert.equal(els["big-image"].hidden, true);
+assert.equal(els["big-trace"].hidden, false);
 assert.equal(drawn, 1);
 assert.ok(!fetched.some((u) => u.includes("/device?")), "no processing for traces");
+tiles[2]._on.click();
+await new Promise(setImmediate);
+assert.ok(fetched.includes("/plot/api/images/trace?index=2&cmap=gray"), fetched.join(" "));
 """,
     )

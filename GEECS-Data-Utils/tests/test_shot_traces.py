@@ -115,6 +115,14 @@ def test_a_file_with_no_waveform_says_so(scan_folder):
     assert found.reason == "the file holds no trace"
 
 
+def test_an_empty_first_file_does_not_hide_the_scope(scan_folder):
+    # an unarmed shot's stub sorting first: the probe reads past it
+    h5py.File(scan_folder / DEVICE / f"Scan040_{DEVICE}_001.dat", "w").close()
+    found = shot_traces.trace_device(scan_folder, DEVICE)
+    assert found.kind == "native"
+    assert found.channels
+
+
 def test_a_bin_averages_sample_by_sample(scan_folder):
     found = shot_traces.average_trace_rows(scan_folder, None, DEVICE, (1, 2, 3))
     np.testing.assert_allclose(found.result.data[:, 1], np.full(5, 2 * 0.5 + 1))

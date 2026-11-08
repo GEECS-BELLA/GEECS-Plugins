@@ -113,14 +113,33 @@ def scope_channels(path: Path) -> Optional[tuple[str, ...]]:
         return None
 
 
-def _first_file(device_dir: Path, ext: str) -> Optional[Path]:
-    """One file of *ext* in *device_dir* (the first listed), or ``None``."""
+#: How many of a device's files the probe reads for its channels before
+#: deciding it records none (an unarmed scope leaves empty stub files).
+_PROBE_FILES = 5
+
+
+def _files(device_dir: Path, ext: str) -> list[Path]:
+    """The files of *ext* in *device_dir*, sorted by name.
+
+    A listing's own order differs between file systems.
+    """
     try:
-        for entry in device_dir.iterdir():
-            if entry.is_file() and entry.suffix.lower() == f".{ext}":
-                return entry
+        return sorted(
+            entry
+            for entry in device_dir.iterdir()
+            if entry.is_file() and entry.suffix.lower() == f".{ext}"
+        )
     except OSError as exc:
         logger.warning("cannot list %s: %s", device_dir, exc)
+        return []
+
+
+def _channels(device_dir: Path, ext: str) -> Optional[tuple]:
+    """The scope's channels from the first of its files that names any."""
+    for sample in _files(device_dir, ext)[:_PROBE_FILES]:
+        channels = scope_channels(sample)
+        if channels:
+            return channels
     return None
 
 
@@ -131,8 +150,8 @@ def trace_device(
 
     The image ladder's probe (``shot_images.device_kind``) first: an
     array stack is a trace device; a device whose native files are an
-    extension in :data:`NATIVE_TRACE_EXTS` is one when its first file is
-    an NI-HWS waveform (its channels named from that file). Everything
+    extension in :data:`NATIVE_TRACE_EXTS` is one when one of its first files
+    (by name) is an NI-HWS waveform (its channels named from that file). Everything
     else is not (``kind == ""``).
     """
     probe = device_kind(scan_folder, device, devices=devices)
@@ -143,8 +162,7 @@ def trace_device(
         return TraceDevice("stack", content, channels=("",), path=probe.path)
     if probe.kind != "unrenderable" or probe.ext not in NATIVE_TRACE_EXTS:
         return TraceDevice()
-    sample = _first_file(scan_folder / device, probe.ext)
-    channels = scope_channels(sample) if sample is not None else None
+    channels = _channels(scan_folder / device, probe.ext)
     if not channels:
         return TraceDevice()
     return TraceDevice("native", "waveform", probe.ext, channels, probe.path)
