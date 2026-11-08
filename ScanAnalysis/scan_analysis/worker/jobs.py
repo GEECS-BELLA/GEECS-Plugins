@@ -22,9 +22,11 @@ once it closes, a finished task is never redone, and the watch's jobs line
 up with any other job.  One watch at a time; it lives until stopped, and a
 day whose ``scans/`` folder does not exist yet is waited for, not an error.
 
-A scan still being recorded is left out: only a scan with closed-run
-evidence (:func:`geecs_data_utils.data.sfile.run_closed_evidence`, its
-``ScanData`` table or s-file) is analysed.  Nothing here creates a scan
+A scan still being recorded is left out: only a scan whose s-file
+(``analysis/sNNN.txt``, the scanner's last write) exists and has not
+changed for :data:`SETTLE_SECONDS` is analysed (:func:`scan_is_settled`) —
+the ``ScanData`` table alone appears mid-write, and a task run over a
+half-written s-file would be recorded done and never looked at again.  Nothing here creates a scan
 folder; the day's ``scans/`` folder is listed, never made.
 """
 
@@ -45,7 +47,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from geecs_data_utils import ScanPaths, ScanTag
-from geecs_data_utils.data.sfile import run_closed_evidence
+from geecs_data_utils.data.sfile import sfile_path_for_scan
 
 from scan_analysis.task_queue import (
     analyzer_task_id,
@@ -69,6 +71,25 @@ __all__ = [
 
 #: How often a watch looks for newly closed scans (seconds).
 WATCH_POLL_SECONDS = 5.0
+
+#: How long a scan's s-file must sit unchanged before it is analysed (seconds).
+SETTLE_SECONDS = 10.0
+
+
+def scan_is_settled(scan_folder: Path, *, now: Optional[float] = None) -> bool:
+    """Whether the scan's s-file exists and has not changed for a while.
+
+    The scanner writes ``ScanDataScanNNN.txt`` and then the s-file, both in
+    place; the s-file's presence plus :data:`SETTLE_SECONDS` of quiet is the
+    evidence that both writes are over.  Read-only.
+    """
+    try:
+        sfile = sfile_path_for_scan(Path(scan_folder))
+        age = (time.time() if now is None else now) - sfile.stat().st_mtime
+    except (ValueError, OSError):  # not a canonical scan folder, or no s-file
+        return False
+    return age >= SETTLE_SECONDS
+
 
 #: Job states.  ``queued`` → ``running`` → ``done`` | ``cancelled`` | ``failed``
 #: (``failed`` is the job itself — an unknown group, a missing day — never a task).
@@ -491,7 +512,7 @@ class Worker:
             folder = ScanPaths.get_scan_folder_path(
                 tag=tag, base_directory=self.base_directory
             )
-            if run_closed_evidence(folder) is not None:
+            if scan_is_settled(folder):
                 closed.append(tag)
             else:
                 job.open_scans.append(tag.number)

@@ -97,6 +97,36 @@ def test_duplicate_column_names_refused():
         load_analysis_document(doc)
 
 
+def test_a_column_reading_itself_is_refused():
+    # converting a column in place would compound on every re-run
+    doc = column(name="Cam centroid_x")
+    with pytest.raises(ValidationError, match="reads itself"):
+        load_analysis_document(doc)
+
+
+def test_a_column_reading_a_later_one_is_refused():
+    doc = {
+        **JOB,
+        "columns": [
+            {"name": "B", "expr": "a + 1", "inputs": {"a": "A"}},
+            {"name": "A", "expr": "x * 2", "inputs": {"x": "Cam centroid_x"}},
+        ],
+    }
+    with pytest.raises(ValidationError, match="makes later"):
+        load_analysis_document(doc)
+
+
+def test_a_column_may_read_an_earlier_one():
+    doc = {
+        **JOB,
+        "columns": [
+            {"name": "A", "expr": "x * 2", "inputs": {"x": "Cam centroid_x"}},
+            {"name": "B", "expr": "a + 1", "inputs": {"a": "A"}},
+        ],
+    }
+    assert isinstance(load_analysis_document(doc), ScalarJob)
+
+
 def test_a_misspelt_kind_names_the_scalar_kind():
     with pytest.raises(ValidationError, match="scalar_columns"):
         load_analysis_document({**JOB, "kind": "scalar_column"})

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from datetime import date
@@ -9,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
+from geecs_data_utils.data.sfile import sfile_path_for_scan
 
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.task_queue import read_statuses
@@ -42,14 +44,25 @@ class FakeAnalyzer:
         pass
 
 
+def write_closed(folder: Path, *, age: float = 60.0) -> None:
+    """What the scanner leaves at the end of a run: the table, then the s-file."""
+    n = int(folder.name[len("Scan") :])
+    (folder / f"ScanDataScan{n:03d}.txt").write_text("Shotnumber\n1\n")
+    sfile = sfile_path_for_scan(folder)
+    sfile.parent.mkdir(parents=True, exist_ok=True)  # fixture acquisition
+    sfile.write_text("Shotnumber\n1\n")
+    then = time.time() - age
+    os.utime(sfile, (then, then))
+
+
 def build_day(base: Path, closed=(1, 2), open_=(3,)) -> None:
-    """A day's scan folders: closed ones carry their ScanData table."""
+    """A day's scan folders: closed ones carry their table and settled s-file."""
     for n in (*closed, *open_):
         tag = ScanTag(year=2026, month=3, day=10, number=n, experiment="Test")
         folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=base)
         folder.mkdir(parents=True)  # fixture acquisition
         if n in closed:
-            (folder / f"ScanDataScan{n:03d}.txt").write_text("Shotnumber\n1\n")
+            write_closed(folder)
 
 
 def make_worker(base: Path, analyzers: list) -> Worker:
@@ -117,9 +130,11 @@ def test_a_job_runs_records_and_a_second_skips_what_finished(tmp_path):
         assert again.already_done == 4
 
         redo = wait_finished(worker, worker.submit(spec(redo=True)).id)
-        # redo runs done and failed again; no_data stays a fact about the scan
+        # redo runs every finished task again, no_data included (often a
+        # typo in the job, which a redo after the fix must reach)
         assert sorted((t.scan, t.analyzer) for t in redo.tasks) == [
             (1, "A"),
+            (1, "B"),
             (2, "A"),
             (2, "B"),
         ]
@@ -188,7 +203,40 @@ def wait_for(condition, timeout=10.0):
 def close_scan(base: Path, n: int) -> None:
     tag = ScanTag(year=2026, month=3, day=10, number=n, experiment="Test")
     folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=base)
-    (folder / f"ScanDataScan{n:03d}.txt").write_text("Shotnumber\n1\n")
+    write_closed(folder)
+
+
+def test_a_scan_waits_for_its_s_file_to_settle(tmp_path):
+    from scan_analysis.worker.jobs import SETTLE_SECONDS, scan_is_settled
+
+    build_day(tmp_path, closed=(), open_=(1,))
+    tag = ScanTag(year=2026, month=3, day=10, number=1, experiment="Test")
+    folder = ScanPaths.get_scan_folder_path(tag=tag, base_directory=tmp_path)
+    # the ScanData table alone appears mid-write: not yet
+    (folder / "ScanDataScan001.txt").write_text("Shotnumber\n1\n")
+    assert not scan_is_settled(folder)
+    # the s-file just written: still not
+    write_closed(folder, age=0.0)
+    assert not scan_is_settled(folder)
+    assert scan_is_settled(folder, now=time.time() + SETTLE_SECONDS + 1)
+
+
+def test_redo_reaches_a_no_data_task(tmp_path):
+    build_day(tmp_path, closed=(1,), open_=())
+    a = FakeAnalyzer("A", no_data_on=(1,))
+    worker = make_worker(tmp_path, [a])
+    worker.start()
+    try:
+        wait_finished(worker, worker.submit(spec()).id)
+        assert statuses(tmp_path, 1) == {"A": "no_data"}
+        a.no_data_on.clear()  # the job's typo fixed
+        wait_finished(worker, worker.submit(spec()).id)
+        assert a.ran == [1]  # finished: not run again without redo
+        wait_finished(worker, worker.submit(spec(redo=True)).id)
+        assert a.ran == [1, 1]
+        assert statuses(tmp_path, 1) == {"A": "done"}
+    finally:
+        worker.stop()
 
 
 def test_a_watch_analyzes_each_scan_once_it_closes(tmp_path):

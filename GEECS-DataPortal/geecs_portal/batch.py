@@ -121,7 +121,7 @@ class WorkerLink:
         assert self.autostart is not None
         with self._lock:
             if self._started is None or self._started.poll() is not None:
-                port = urlparse(self.base_url).port or 8600
+                port = urlparse(self.base_url).port or 8800
                 log = Path(tempfile.gettempdir()) / "scan-analysis-worker.log"
                 command = [
                     sys.executable,

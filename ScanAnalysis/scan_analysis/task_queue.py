@@ -635,7 +635,10 @@ def build_worklist(
             eligible_for_rerun = analyzer_id not in skip_ids and (
                 only_ids is None or analyzer_id in only_ids
             )
-            if st and st.state == "done" and rerun_completed and eligible_for_rerun:
+            # no_data is a finished task too: often a typo in the job, which
+            # a redo after the fix must reach
+            finished = ("done", "no_data")
+            if st and st.state in finished and rerun_completed and eligible_for_rerun:
                 include = True
             if st and st.state == "failed" and rerun_failed and eligible_for_rerun:
                 include = True

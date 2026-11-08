@@ -117,7 +117,7 @@ def test_a_missing_input_is_no_data_with_a_hint(tmp_path, monkeypatch):
 def test_a_scanner_column_is_never_overwritten(tmp_path, monkeypatch):
     _, sfile = build_scan(tmp_path)
     before = sfile.read_bytes()
-    clash = {"name": "A", "expr": "a * 2", "inputs": {"a": "A"}}
+    clash = {"name": "A", "expr": "b * 2", "inputs": {"b": "B"}}
     with pytest.raises(ValueError, match="scanner's own columns"):
         run(monkeypatch, tmp_path, job(clash))
     assert sfile.read_bytes() == before
@@ -189,6 +189,20 @@ def test_a_job_without_conditions_writes_no_labels(tmp_path, monkeypatch):
     _, sfile = build_scan(tmp_path)
     run(monkeypatch, tmp_path, job(MM))
     assert not list((sfile.parent / "Scan012").glob("*_labels.json"))
+
+
+def test_a_condition_turned_formula_drops_its_old_labels(tmp_path, monkeypatch):
+    from geecs_data_utils.scan_conditions import read_condition_labels
+
+    _, sfile = build_scan(tmp_path)
+    analysis = sfile.parent / "Scan012"
+    run(monkeypatch, tmp_path, job(MM, {**TARGET, "inputs": {"x": "A"}}))
+    assert read_condition_labels(analysis)
+    # the same job, its condition now a formula of the same name
+    formula = {"name": "target", "expr": "x * 2", "inputs": {"x": "A"}}
+    run(monkeypatch, tmp_path, job(MM, formula))
+    assert not (analysis / "Scan012_Derived_labels.json").exists()
+    assert read_condition_labels(analysis) == {}
 
 
 def test_the_task_queue_runs_it_under_its_own_data_root(tmp_path):

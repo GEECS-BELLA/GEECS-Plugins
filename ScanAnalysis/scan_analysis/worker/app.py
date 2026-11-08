@@ -46,7 +46,8 @@ class JobRequest(BaseModel):
         None, description="Only these scan numbers; all when omitted."
     )
     redo: bool = Field(
-        False, description="Run again tasks that already finished or failed."
+        False,
+        description="Run again tasks that already finished: done, no_data or failed.",
     )
     experiment: Optional[str] = Field(
         None, description="The experiment folder; the worker's own when omitted."

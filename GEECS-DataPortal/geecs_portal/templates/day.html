@@ -194,7 +194,7 @@
       const rest = !rule.column ? "" : cond
         ? `<select data-k="op" aria-label="is or is not"><option value="is"${rule.op === "is" ? " selected" : ""}>is</option><option value="is_not"${rule.op === "is_not" ? " selected" : ""}>is not</option></select>
            <select data-k="label" aria-label="label"><option value="">pick a label…</option>${labels[rule.column].map((l) => `<option${l === rule.label ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`
-        : `<span class="hint">mean between</span><input data-k="low" type="number" step="any" placeholder="no lower limit" value="${rule.low ?? ""}"><span class="hint">and</span><input data-k="high" type="number" step="any" placeholder="no upper limit" value="${rule.high ?? ""}">`;
+        : `<span class="hint">mean between</span><input data-k="low" type="number" step="any" placeholder="no lower limit" value="${esc(rule.low)}"><span class="hint">and</span><input data-k="high" type="number" step="any" placeholder="no upper limit" value="${esc(rule.high)}">`;
       row.innerHTML = `${colSel} ${rest} <button type="button" class="btn sm ghost" data-drop aria-label="remove rule">✕</button>`;
       row.addEventListener("change", (e) => {
         const k = e.target.dataset.k;
@@ -252,7 +252,7 @@
     </fieldset>
     <div class="field"><label for="batch-scans">Scans</label>
       <input id="batch-scans" type="text" placeholder="all — or e.g. 5-12, 20" oninput="batchPlanSoon()"></div>
-    <label class="batch-redo"><input type="checkbox" id="batch-redo" onchange="batchPlan()"> redo scans already analyzed (and failed ones)</label>
+    <label class="batch-redo"><input type="checkbox" id="batch-redo" onchange="batchPlan()"> redo scans already analyzed (failed and no-data ones too)</label>
     <div class="row">
       <button class="btn primary" type="button" id="batch-run" onclick="batchRun()" disabled>Run</button>
       <span class="dim" id="batch-plan"></span>

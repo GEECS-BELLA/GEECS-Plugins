@@ -22,7 +22,7 @@ scan_analysis/
   task_queue.py                    # Task claiming, heartbeat, YAML status system (run_task: one task)
   worker/                          # the analysis worker (`worker` extra): jobs.py (Worker, a job = a group over a
                                    #   day's scans, run task by task through the queue), app.py (its HTTP API),
-                                   #   __main__.py (scan-analysis-worker, port 8600)
+                                   #   __main__.py (scan-analysis-worker, port 8800)
   config/
     loader.py                      # load_diagnostic(stem | path): one document, the config.ini root as the default tree
     diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | HimgJob)
@@ -501,7 +501,7 @@ figures) that the task queue records, or
 ## The analysis worker (`worker/`)
 
 `scan-analysis-worker --configs <tree> --experiment <name>` (the `worker`
-extra: fastapi + uvicorn; binds 127.0.0.1, port 8600 by default) is a
+extra: fastapi + uvicorn; binds 127.0.0.1, port 8800 by default) is a
 long-running service that batch-runs analysis groups. A **job** is one
 group over one day's scans (or a list of them), `redo` or not: when it
 starts it is expanded into the task queue's worklist (`build_worklist`,
@@ -509,9 +509,13 @@ redo = `rerun_completed` + `rerun_failed`) and run one task at a time
 through `task_queue.run_task` — the body of `run_worklist`'s loop, so the
 claims, heartbeats and status records are the queue's own and a finished
 task (done, no_data, failed) is skipped by the next job unless it asks to
-redo. A cancel stops before the next task. A scan with no closed-run
-evidence (`run_closed_evidence`: its `ScanData` table or s-file) is still
-recording and is left out (`open_scans`). Jobs run in order on one
+redo (`rerun_completed` covers `no_data` too — often a typo in the job,
+which a redo after the fix must reach). A cancel stops before the next
+task. A scan is analysed only once its s-file exists and has sat
+unchanged for `SETTLE_SECONDS` (`scan_is_settled`): the `ScanData` table
+appears mid-write, and a task run over a half-written s-file would be
+recorded done and never looked at again; the rest are still recording and
+left out (`open_scans`). Jobs run in order on one
 thread; the job list is in memory and the status records are the durable
 result. A job may name a subset of the group's analyzers (`analyzers`, by
 task id) and a `from_scan`. A **watch** (`Worker.watch(WatchSpec)`, the

@@ -180,7 +180,7 @@ def main() -> None:
         default="",
         help=(
             "the analysis worker's base URL (scan-analysis-worker, its own "
-            "service; a site value, e.g. http://127.0.0.1:8600): the day "
+            "service; a site value, e.g. http://127.0.0.1:8800): the day "
             "page's 'Analyze this day' panel runs analysis groups over a day "
             "through it. Empty hides the panel"
         ),

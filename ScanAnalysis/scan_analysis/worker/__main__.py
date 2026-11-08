@@ -2,7 +2,7 @@
 
 ::
 
-    scan-analysis-worker --configs <scan_analysis_configs> --experiment <name> [--port 8600]
+    scan-analysis-worker --configs <scan_analysis_configs> --experiment <name> [--port 8800]
 
 Binds 127.0.0.1 unless ``--host`` says otherwise (the API is
 unauthenticated).  The data root is the client ``config.ini``'s, as for
@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> None:
         help="the experiment folder a job names by default",
     )
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8600)
+    parser.add_argument("--port", type=int, default=8800)
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args(argv)
 

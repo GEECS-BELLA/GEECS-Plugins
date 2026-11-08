@@ -10,7 +10,7 @@ import pytest
 from geecs_portal.batch import AutoStart, WorkerLink, WorkerUnavailable
 from test_app import TEST_DAY, FakeCatalog, _client
 
-URL = "http://127.0.0.1:8600"
+URL = "http://127.0.0.1:8800"
 
 
 #: the fake worker's fixed answers, by (method, path)
@@ -108,11 +108,11 @@ def test_a_silent_worker_is_503_and_never_started_without_autostart():
 
 def test_autostart_only_for_this_hosts_address(tmp_path):
     auto = AutoStart(tmp_path, "Undulator")
-    assert WorkerLink("http://127.0.0.1:8600", autostart=auto).can_autostart
-    assert WorkerLink("http://localhost:8600/", autostart=auto).can_autostart
-    assert not WorkerLink("http://10.0.0.5:8600", autostart=auto).can_autostart
-    assert not WorkerLink("http://127.0.0.1:8600").can_autostart
-    remote = WorkerLink("http://10.0.0.5:8600", autostart=auto, client=down_client())
+    assert WorkerLink("http://127.0.0.1:8800", autostart=auto).can_autostart
+    assert WorkerLink("http://localhost:8800/", autostart=auto).can_autostart
+    assert not WorkerLink("http://10.0.0.5:8800", autostart=auto).can_autostart
+    assert not WorkerLink("http://127.0.0.1:8800").can_autostart
+    remote = WorkerLink("http://10.0.0.5:8800", autostart=auto, client=down_client())
     with pytest.raises(WorkerUnavailable):
         remote.call("GET", "/api/groups")
     assert remote._started is None

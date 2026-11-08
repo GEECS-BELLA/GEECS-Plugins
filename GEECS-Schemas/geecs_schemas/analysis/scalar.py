@@ -381,11 +381,26 @@ class ScalarJob(VersionedSchemaModel):
 
     @model_validator(mode="after")
     def _names_are_unique(self) -> "ScalarJob":
+        names = [column.name for column in self.columns]
         seen: set[str] = set()
-        for column in self.columns:
+        for place, column in enumerate(self.columns):
             if column.name in seen:
                 raise ValueError(f"column {column.name!r} is defined twice")
             seen.add(column.name)
+            # A column never reads itself (a re-run would apply the formula
+            # to its own last result) nor a column made after it (the first
+            # run has no value for it, a later one only a stale one).
+            for source in column.inputs.values():
+                if source == column.name:
+                    raise ValueError(
+                        f"column {column.name!r} reads itself: give the new "
+                        "column a name of its own"
+                    )
+                if source in names[place + 1 :]:
+                    raise ValueError(
+                        f"column {column.name!r} reads {source!r}, which this "
+                        "job makes later: move it after that column"
+                    )
         return self
 
     # The format-neutral names the analysis documents carry, so a host

@@ -237,12 +237,14 @@ class ScalarColumnsAnalyzer(ScanAnalyzer):
             raise ValueError(f"the s-file has no {KEY!r} column to merge on")
         available = [str(c) for c in table.columns]
         made: dict[str, np.ndarray] = {}
+        # an input is the s-file's, or a column made EARLIER in the job (the
+        # schema refuses a column reading itself or a later one)
         missing = [
             f"{column.name!r} needs {source!r}{_close_names(source, available)}"
-            for column in self.job.columns
+            for place, column in enumerate(self.job.columns)
             for source in column.inputs.values()
             if source not in table.columns
-            and source not in {c.name for c in self.job.columns}
+            and source not in {c.name for c in self.job.columns[:place]}
         ]
         if missing:
             raise DataUnavailableWarning(
@@ -305,16 +307,23 @@ class ScalarColumnsAnalyzer(ScanAnalyzer):
         return [f"wrote {len(names)} column(s) to {target}: {detail}"]
 
     def _write_labels(self) -> Optional[Path]:
-        """The condition columns' labels, beside the sidecar (none: no file)."""
+        """The condition columns' labels, beside the sidecar, rewritten every run.
+
+        A job with no condition columns removes its earlier labels file: a
+        column that was a condition and is now a formula must not have its
+        new numbers decoded as case labels.
+        """
         conditions = {c.name: c.labels for c in self.job.columns if c.is_condition}
         sidecar = self.scalar_sidecar_path()
-        if not conditions or sidecar is None:
+        if sidecar is None:
             return None
         scan_name = sidecar.name.split("_", 1)[0]
         job_id = getattr(self, "id", None) or self.job.device
-        return write_condition_labels(
-            labels_path(sidecar.parent, scan_name, job_id), job_id, conditions
-        )
+        path = labels_path(sidecar.parent, scan_name, job_id)
+        if not conditions:
+            path.unlink(missing_ok=True)  # this job's own file only
+            return None
+        return write_condition_labels(path, job_id, conditions)
 
     def cleanup(self) -> None:
         """Nothing is held between scans."""
