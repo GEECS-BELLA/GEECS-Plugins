@@ -507,3 +507,26 @@ class TestMergedScanCatalog:
         assert primary.loaded == []
         merged.load_run("uuid-7")
         assert primary.loaded == ["uuid-7"]
+
+
+class TestScannedParameter:
+    """The day list's "Scanned" column: what a scan stepped, and over what range."""
+
+    def test_a_folder_scan_names_its_alias_and_range(self, tmp_path):
+        _scan(tmp_path, 1)
+        (run,) = FolderScanCatalog(tmp_path).list_runs("Thomson", DAY)
+        assert run.scan_variable == "drive grating 2 trans"
+        assert run.scan_range == "500 → 1300, step 50"
+        assert "drive grating" in run.filter_text()
+
+    def test_a_noscan_names_nothing(self, tmp_path):
+        _scan(tmp_path, 1, parameter="Shotnumber", start=0, end=0, step=0)
+        (run,) = FolderScanCatalog(tmp_path).list_runs("Thomson", DAY)
+        assert run.scan_variable == "" and run.scan_range == ""
+
+    def test_a_bluesky_run_names_its_devices(self):
+        from geecs_data_utils.tiled_catalog import summary_from_metadata
+
+        start = {"motors": ["stage_x", "stage_y"], "scan_number": 4, "time": 1.0}
+        run = summary_from_metadata("u", start, None)
+        assert run.scan_variable == "stage_x × stage_y" and run.scan_range == ""

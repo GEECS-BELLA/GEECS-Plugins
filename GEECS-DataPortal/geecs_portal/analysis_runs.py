@@ -370,16 +370,25 @@ class AnalysisRunner:
                 job.error,
             )
         finally:
-            # Before the state flips: a run reported finished has given its
-            # memory back. Never let the release cost the record.
-            try:
-                release_memory()
-            except Exception:
-                logger.exception("releasing memory after %s failed", job.analyzer_id)
             root.removeHandler(capture)
             job.log = list(capture.lines)
             job.finished = time.time()
             job.state = final
+            # After the state flips: the page sees the run done as soon as its
+            # work is, not after a whole-process garbage collection (seconds in
+            # a portal holding image caches). The next job still waits for it —
+            # one worker thread — so no run starts on the last one's peak.
+            # Never let the release cost the record.
+            began = time.monotonic()
+            try:
+                release_memory()
+            except Exception:
+                logger.exception("releasing memory after %s failed", job.analyzer_id)
+            spent = time.monotonic() - began
+            if spent > 0.5:
+                logger.info(
+                    "released memory after %s in %.1f s", job.analyzer_id, spent
+                )
         if reraise is not None:
             raise reraise
 
@@ -454,9 +463,11 @@ def contained_artifact(analysis_folder: Path, relative: str) -> Optional[Path]:
         root = analysis_folder.resolve()
         candidate = (analysis_folder / relative).resolve()
         candidate.relative_to(root)
+        # a name the file system refuses (too long: a run's text label,
+        # never a file) is no file, not an error
+        return candidate if candidate.is_file() else None
     except (ValueError, OSError):
         return None
-    return candidate if candidate.is_file() else None
 
 
 #: Artifact types the artifact endpoint renders inline (raster only —

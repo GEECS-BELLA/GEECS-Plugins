@@ -19,7 +19,10 @@ scan_analysis/
   core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
   core_analyzer.py                 # CoreScanAnalyzer: the one analysis route behind the ScanAnalyzer contract
   route_compare.py                 # snapshot + compare two analysis trees (one equality rule); goldens on disk
-  task_queue.py                    # Task claiming, heartbeat, YAML status system
+  task_queue.py                    # Task claiming, heartbeat, YAML status system (run_task: one task)
+  worker/                          # the analysis worker (`worker` extra): jobs.py (Worker, a job = a group over a
+                                   #   day's scans, run task by task through the queue), app.py (its HTTP API),
+                                   #   __main__.py (scan-analysis-worker, port 8800)
   config/
     loader.py                      # load_diagnostic(stem | path): one document, the config.ini root as the default tree
     diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | HimgJob)
@@ -30,6 +33,7 @@ scan_analysis/
                                    #   haso_wavekit.py + _wavekit_worker.py (HasoWaveKit, WaveKit), wavekit_doctor.py (geecs-wavekit-doctor)
   analyzers/
     common/
+      scalar_columns.py                # the scalar-columns job (ScalarJob): formulas over s-file columns, merged back into the s-file
       himg_kinds.py                    # the .himg jobs (HimgJob documents), run out of process: HimgToStackAnalyzer (folder → capture stack),
                                        #   HimgCompactAnalyzer (verify, then DELETE the .himg — destructive), HimgRestoreAnalyzer (rebuild them)
 ```
@@ -309,6 +313,34 @@ the portal passes `True` only past its typed-scan-number check, the
 task queue's group loader (`load_analyzers_from_config`) skips such a
 job with a logged reason, and MCP's single-analyzer path is refused.
 
+The third document, a **scalar-columns job** (`geecs_schemas.analysis.ScalarJob`,
+`kind: scalar_columns`), becomes a `ScalarColumnsAnalyzer`: it reads the
+s-file the base class loads, evaluates each column's formula over every
+shot with numpy (in order, so a later column may read an earlier one;
+non-numeric cells and non-finite results are NaN), and writes the columns
+like a recipe's scalars — sidecar, then the locked s-file merge, a refused
+merge a failed run. A name that is one of the scanner's own columns
+(`ScanDataScanNNN.txt`'s header) is refused before anything is written,
+and an input column the s-file lacks makes the run `no_data`, naming the
+closest columns it has. The column functions (`SCALAR_REDUCTIONS`: `mean median std min max`) reduce
+one input over all of the scan's shots, missing ones skipped (`_over_shots`;
+NaN when none has a value), so `x - mean(x)` centres a column. A shot missing any of a column's inputs is NaN
+("unknown"), for a comparison too. Comparisons and `and`/`or`/`not` run
+element-wise (the tree is rewritten onto numpy's logical functions, a
+chain `a <= x <= b` into its pairs). A **condition** column (`cases`)
+stores the number of the first rule that holds (`otherwise` the next
+number) and its labels go to `analysis/ScanNNN/ScanNNN_<id>_labels.json`
+beside the sidecar (`geecs_data_utils.scan_conditions`, the one format),
+which the portal's Images page reads. Default `scan.priority` 1000, so in a group it runs
+after the recipes whose columns it reads. The editor gives it its own form
+(`/api/schema/scalar`, saved as an analyzer), **new scalar columns** and
+**new condition** buttons and a "How scalar columns work" help panel
+(`scalarHelp` in `editor.js`, open on a new job); no preview. Its input boxes offer a scan's s-file columns
+(a `<datalist>`) through the router's `columns=` host hook
+(`POST /api/columns {params}` → `{columns}`; 404 without the hook,
+`/api/list` carries `columns: bool`): in the portal's drawer the scan is
+the page's, on the full page a day + scan number typed into the form.
+
 `discover_analyzers` delegates to `geecs_data_utils.analysis_configs`; group
 lookup remains here because group aliases have different rules.
 
@@ -456,7 +488,8 @@ shows up in the add-select automatically.
 ```
 ScanAnalyzer  (base.py)
   ├── CoreScanAnalyzer  (core_analyzer.py) — every analysis document, on geecs_analysis
-  └── HimgToStackAnalyzer / HimgCompactAnalyzer / HimgRestoreAnalyzer  (common/himg_kinds.py)
+  ├── HimgToStackAnalyzer / HimgCompactAnalyzer / HimgRestoreAnalyzer  (common/himg_kinds.py)
+  └── ScalarColumnsAnalyzer  (common/scalar_columns.py)
 ```
 
 ### `ScanAnalyzer.run_analysis(scan_tag) -> Optional[list[Path | str]]`
@@ -464,6 +497,45 @@ ScanAnalyzer  (base.py)
 The main entry point. Returns a list of **display files** (paths to summary
 figures) that the task queue records, or
 `None` when there was nothing to analyze.
+
+## The analysis worker (`worker/`)
+
+`scan-analysis-worker --configs <tree> --experiment <name>` (the `worker`
+extra: fastapi + uvicorn; binds 127.0.0.1, port 8800 by default) is a
+long-running service that batch-runs analysis groups. A **job** is one
+group over one day's scans (or a list of them), `redo` or not: when it
+starts it is expanded into the task queue's worklist (`build_worklist`,
+redo = `rerun_completed` + `rerun_failed`) and run one task at a time
+through `task_queue.run_task` — the body of `run_worklist`'s loop, so the
+claims, heartbeats and status records are the queue's own and a finished
+task (done, no_data, failed) is skipped by the next job unless it asks to
+redo (`rerun_completed` covers `no_data` too — often a typo in the job,
+which a redo after the fix must reach). A cancel stops before the next
+task. A scan is analysed only once its s-file exists and has sat
+unchanged for `SETTLE_SECONDS` (`scan_is_settled`): the `ScanData` table
+appears mid-write, and a task run over a half-written s-file would be
+recorded done and never looked at again; the rest are still recording and
+left out (`open_scans`). Jobs run in order on one
+thread; the job list is in memory and the status records are the durable
+result. A job may name a subset of the group's analyzers (`analyzers`, by
+task id) and a `from_scan`. A **watch** (`Worker.watch(WatchSpec)`, the
+retired LiveWatch on this queue; one at a time, in memory) looks at its day
+every `WATCH_POLL_SECONDS` (5) and, when no job of its own is pending and a
+plan of its group's ticked analyzers over the closed scans from its start
+scan has tasks, submits that job (`origin: "watch"`) — so each scan is
+analysed once it closes and nothing is redone; a day with no `scans/`
+folder yet is waited for (the watch's `note`). `GET /health`,
+`GET /api/groups`, `POST /api/plan` (what a job would run, nothing
+written), `POST /api/jobs` (202), `GET /api/jobs`, `GET /api/jobs/{id}`,
+`POST /api/jobs/{id}/cancel`, `GET|POST /api/watch`, `POST /api/watch/stop`.
+The Data Portal's day page is one client (over HTTP alone); a trigger from
+the engine's run-stop document is a later step and would submit jobs like
+any client. **The data root reaches the analyzer**: `run_task(...,
+base_directory=)` sets `ScanAnalyzer.base_directory`, which
+`_handle_scan_tag` resolves the scan under — before 2026-11-05 a worker over
+another root wrote its status there but read and wrote the configured
+share (`test_the_task_queue_runs_it_under_its_own_data_root`). Tests:
+`tests/test_worker.py` (fake analyzers through the real queue).
 
 ## Task Queue System (`task_queue.py`)
 

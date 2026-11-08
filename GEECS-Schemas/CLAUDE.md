@@ -14,12 +14,22 @@ published JSON schemas and Markdown references through existing tooling.
 
 ## Analysis documents
 
-Two documents share `scan_analysis_configs/analyzers/`: the
+Three documents share `scan_analysis_configs/analyzers/`: the
 `AnalysisRecipe` (`analysis/recipe.py`, format 3, the analysis core's
-native shape) and the `HimgJob` (`analysis/himg.py`: the `.himg`
+native shape), the `HimgJob` (`analysis/himg.py`: the `.himg`
 data-management jobs, not analyses — a top-level `kind`, its own
-`schema_version: 1`). `load_analysis_document` reads a top-level `kind`
-as a job (a recipe has none), else validates a recipe, which refuses
+`schema_version: 1`) and the `ScalarJob` (`analysis/scalar.py`, `kind:
+scalar_columns`: new s-file columns, one formula each over existing
+columns, in the `restricted_expr` language — syntax checked at load, the
+function names in `SCALAR_FUNCTIONS` (shot by shot) and `SCALAR_REDUCTIONS`
+(`mean median std min max`: one input, over all the scan's shots — the
+one-input rule checked here), bound to numpy by the runner,
+comparisons and `and`/`or`/`not` allowed; or a **condition** instead of a
+formula, `cases` (`ScalarCase`: `when` + `label`, first match wins) +
+`otherwise`, stored as the case's number with `ScalarColumn.labels` the
+words; no device, so `data_folder` is empty). `load_analysis_document` reads a
+top-level `kind` starting `scalar` as a scalar job, any other `kind` as a
+`.himg` job (a recipe has none), else validates a recipe, which refuses
 another `schema_version` and the retired v2 layout (`analyzer:` +
 `image:`); every loader goes through it. `processing_1d` keeps only
 `Data1DType` / `Data1DLoading`, the line input's loading section. Every document carries

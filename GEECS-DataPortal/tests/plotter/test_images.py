@@ -326,6 +326,21 @@ class TestRoiAndZScale:
         ).json()
         assert body == {"zmin": 15.0, "zmax": 40.0, "tiles": 2}
 
+    def test_the_levels_are_over_the_tiles_shown(
+        self, client: TestClient, camera: Path
+    ) -> None:
+        # A one-row strip shows a few shots spread over the scan: only
+        # those are read for the shared scale (shots 1 and 2 here).
+        params = {**SCAN, "device": CAM, "strip": "shots", "roi": "1,1,6,4"}
+        body = client.get(
+            "/api/images/levels", params={**params, "shown": "1,2"}
+        ).json()
+        assert body == {"zmin": 10.0, "zmax": 20.0, "tiles": 2}
+        bins = {**params, "strip": "bins", "shown": "1"}  # the second bin alone
+        assert client.get("/api/images/levels", params=bins).json()["tiles"] == 1
+        bad = client.get("/api/images/levels", params={**params, "shown": "1,x"})
+        assert bad.status_code == 422
+
     def test_a_tile_on_fixed_levels(self, client: TestClient, camera: Path) -> None:
         params = {
             **SCAN,

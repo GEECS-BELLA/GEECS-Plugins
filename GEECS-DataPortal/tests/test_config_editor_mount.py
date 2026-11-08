@@ -72,6 +72,8 @@ class TestOptIn:
         assert 'id="cedrawer"' in page and "openConfigEditor" in page
         # the drawer switches documents and duplicates them without leaving the page
         assert 'id="cediag"' in page and "ceDuplicate" in page
+        # the full editor's links name this scan, so its column picker loads it
+        assert "/configs/?day=" in page and "&amp;scan=2" in page
 
     def test_editor_writes_land_in_the_tree_and_the_selector_sees_them(
         self, scan_folder, configs_tree
@@ -658,3 +660,40 @@ class TestLinePreview:
         r = self._post(client, doc, shot=2)
         assert r.status_code == 404, r.text
         assert len(seen) == 1
+
+
+class TestColumns:
+    """The scalar-columns form's picker: a scan's s-file header, read-only."""
+
+    def test_the_scans_sfile_columns_by_uid_or_by_day_and_number(
+        self, scan_folder, configs_tree
+    ):
+        sfile = scan_folder.parent.parent / "analysis" / "s2.txt"
+        sfile.parent.mkdir()
+        sfile.write_text("Shotnumber\tBin #\tcam centroid x\n1\t1\t3.5\n")
+        before = sfile.read_bytes()
+        client = _client(scan_folder, configs_tree, config_editor=True)
+        assert client.get("/configs/api/list").json()["columns"] is True
+        expected = ["Shotnumber", "Bin #", "cam centroid x"]
+        by_uid = client.post(
+            "/configs/api/columns", json={"params": {"uid": "uid-002"}}
+        )
+        assert by_uid.json()["columns"] == expected
+        by_day = client.post(
+            "/configs/api/columns", json={"params": {"day": "2026-07-13", "scan": 2}}
+        )
+        assert by_day.json()["columns"] == expected
+        assert sfile.read_bytes() == before
+
+    def test_the_error_ladder(self, scan_folder, configs_tree):
+        client = _client(scan_folder, configs_tree, config_editor=True)
+
+        def ask(params):
+            return client.post("/configs/api/columns", json={"params": params})
+
+        assert ask({"uid": "uid-002"}).status_code == 404  # no s-file yet
+        assert ask({"uid": "nope"}).status_code == 404
+        assert ask({"day": "2026-07-13", "scan": 9}).status_code == 404
+        assert ask({"day": "not a day", "scan": 2}).status_code == 400
+        assert ask({}).status_code == 400
+        assert not (scan_folder.parent.parent / "analysis").exists()

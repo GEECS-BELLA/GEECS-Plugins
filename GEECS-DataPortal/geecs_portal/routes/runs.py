@@ -63,7 +63,9 @@ def run_analysis_list(
     """The scan's analyzers: applicability, job record, files on disk.
 
     ``applicable`` = the diagnostic's data device (``scan.device``,
-    else its name) has a data folder in this scan. Every loadable
+    else its name) has a data folder in this scan; a scalar-columns job
+    reads the s-file alone, so it applies to every scan (a missing
+    input column is the run's ``no_data``, naming the column). Every loadable
     diagnostic is listed regardless, so a device-less one is still
     reachable; the tab collapses the inapplicable ones.
     """
@@ -91,7 +93,9 @@ def run_analysis_list(
             {
                 "id": name,
                 "device": info.device,
-                "applicable": info.device in devices or info.device in present,
+                "applicable": info.kind == "scalar"
+                or info.device in devices
+                or info.device in present,
                 "output_dir": info.output_name,
                 "destructive": info.destructive,
                 "job": job.to_json() if job is not None else None,

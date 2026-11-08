@@ -104,6 +104,19 @@ def test_two_cameras_are_two_rows_on_the_same_tiles(
     assert "2 cameras" in page
 
 
+def test_every_camera_has_its_own_filtered_picker(
+    client: TestClient, two_cameras: Path, settings_dir: Path
+) -> None:
+    post(client, scan=1, page="images", device=CAM, devf="Cam", addcam="1")
+    page = post(client, scan=1, page="images", **{"devf@2": "cam2"})
+    # each row's picker has its own filter box, saved under its own name
+    assert 'id="device-filter" name="devf" value="Cam"' in page
+    assert 'id="device@2-filter" name="devf@2" value="cam2"' in page
+    assert 'data-filter-for="device@2"' in page
+    saved = (settings_dir / "default.json").read_text()
+    assert '"device_filter": "cam2"' in saved
+
+
 def test_each_row_keeps_its_own_z_scale(client: TestClient, two_cameras: Path) -> None:
     post(client, scan=1, page="images", device=CAM, addcam="1")
     page = post(

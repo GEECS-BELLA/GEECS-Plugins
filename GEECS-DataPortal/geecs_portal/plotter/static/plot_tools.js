@@ -60,6 +60,10 @@ window.PlotTools = (function () {
   const filterColumns = Array.from(document.querySelectorAll("#filter-columns option"),
     (o) => ({ value: o.value, text: o.label || o.value }))
     .sort((a, b) => a.text.localeCompare(b.text, undefined, { sensitivity: "base", numeric: true }));
+  // A condition column's labels by stored number (a scalar-columns job's
+  // rules): its filter line picks a label instead of typing bounds.
+  let conditionLabels = {};
+  try { conditionLabels = JSON.parse(document.getElementById("filter-conditions")?.textContent || "{}"); } catch (_) { conditionLabels = {}; }
   // A new line to fill in: no column, no limits yet.
   const emptyLine = () => ({ column: "", mode: "within", low: null, high: null });
   function filterJson(model) {
@@ -119,13 +123,37 @@ window.PlotTools = (function () {
         mode.value = c.mode === "outside" ? "outside" : "within";
         // The column from a menu (a click, then typing jumps through it).
         const column = el("select", { class: "col", "aria-label": "column",
-          on: { change: (e) => { c.column = e.target.value; draftCount(); } } },
+          on: { change: (e) => {
+            const was = Boolean(conditionLabels[c.column]);
+            c.column = e.target.value;
+            // a condition column's line is a label menu, a number column's two bounds
+            if (was || conditionLabels[c.column]) { c.low = null; c.high = null; renderFilters(); } else draftCount();
+          } } },
           el("option", { value: "" }, "pick a column…"),
           ...filterColumns.map((o) => el("option", { value: o.value }, o.text)));
         if (c.column && !filterColumns.some((o) => o.value === c.column)) {
           column.append(el("option", { value: c.column }, `${c.column} (not in this scan)`));
         }
         column.value = c.column || "";
+        // A condition column: "is / is not" a label, stored as the label's
+        // number for both bounds (the filter itself is unchanged).
+        const labels = conditionLabels[c.column];
+        if (labels) {
+          const which = el("select", { "aria-label": "is or is not", on: { change: (e) => { c.mode = e.target.value; draftCount(); } } },
+            el("option", { value: "within" }, "is"), el("option", { value: "outside" }, "is not"));
+          which.value = c.mode === "outside" ? "outside" : "within";
+          const low = bound(c.low), high = bound(c.high);
+          const picked = low !== null && low === high && Number.isInteger(low) ? String(low) : "";
+          const label = el("select", { class: "val", "aria-label": "label",
+            on: { change: (e) => { const n = e.target.value === "" ? null : Number(e.target.value); c.low = n; c.high = n; draftCount(); } } },
+            el("option", { value: "" }, "pick a label…"),
+            ...labels.map((name, n) => el("option", { value: String(n) }, name)));
+          label.value = picked;
+          return el("div", { class: "frow" },
+            el("span", { class: "hint" }, "keep shots where"), column, which, label,
+            el("button", { type: "button", class: "x", "aria-label": "remove condition",
+              on: { click: () => { g.conditions.splice(ci, 1); renderFilters(); } } }, "✕"));
+        }
         return el("div", { class: "frow" },
           el("span", { class: "hint" }, "keep shots where"), column, el("span", { class: "hint" }, "is"),
           mode, number("low"), el("span", { class: "hint" }, "and"), number("high"),

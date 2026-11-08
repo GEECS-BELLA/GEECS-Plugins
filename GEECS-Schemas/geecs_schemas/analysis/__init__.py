@@ -14,6 +14,14 @@ from geecs_schemas.analysis.canonical import canonical_document
 from geecs_schemas.analysis.document import AnalysisDocument, load_analysis_document
 from geecs_schemas.analysis.himg import HimgJob, HimgJobKind, HimgJobRuntime
 from geecs_schemas.analysis.group import AnalysisGroup, AnalyzerRef
+from geecs_schemas.analysis.scalar import (
+    SCALAR_FUNCTIONS,
+    SCALAR_REDUCTIONS,
+    ScalarCase,
+    ScalarColumn,
+    ScalarJob,
+    ScalarJobRuntime,
+)
 from geecs_schemas.analysis.processing_1d import Data1DLoading, Data1DType
 from geecs_schemas.analysis.recipe import (
     CURRENT_RECIPE_VERSION,
@@ -58,6 +66,12 @@ __all__ = [
     "MeasureRef",
     "RecipeInput",
     "RecipeRuntime",
+    "SCALAR_FUNCTIONS",
+    "SCALAR_REDUCTIONS",
+    "ScalarCase",
+    "ScalarColumn",
+    "ScalarJob",
+    "ScalarJobRuntime",
     "ScalarFitSummary",
     "StepRef",
     "Summary",

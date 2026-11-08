@@ -403,7 +403,6 @@ def load_shot_array(  # noqa: C901, PLR0912
         return ShotArray(kind="missing", reason=kind.reason or "unknown device")
     if shot < 1:
         return ShotArray(kind="missing", reason="bad shot")
-    device_dir = scan_folder / device
 
     if kind.kind == "stack":
         stack = kind.path
@@ -449,28 +448,11 @@ def load_shot_array(  # noqa: C901, PLR0912
             reason=f"no renderer for .{kind.ext}",
         )
 
-    ext = kind.ext or "png"
-    try:
-        native = ScanPaths(folder=scan_folder).build_asset_path(
-            shot=shot if file_shot is None else file_shot, device=device, ext=ext
-        )
-    except ValueError as exc:
-        # A folder that exists but fails the canonical-layout validation
-        # (dev/scratch runs, or a share blip between probes) — degrade.
-        return ShotArray(kind="missing", path=scan_folder, reason=f"layout: {exc}")
-    cacheable = True
-    if not native.is_file():
-        if acq_timestamp is not None:
-            # Exact stat probe from the shared naming contract — direct
-            # stats bypass stale SMB listing caches, and a missing shot
-            # must read as missing, never as a neighbouring shot's image.
-            chosen = probe_native_file(device_dir, device, f".{ext}", acq_timestamp)
-        else:
-            chosen = _ordinal_native_file(device_dir, ext, shot)
-            cacheable = False  # listing-order join: never long-cache
-        if chosen is None:
-            return ShotArray(kind="missing", path=native, reason="file not found")
-        native = chosen
+    native, cacheable, reason = native_shot_file(
+        scan_folder, device, kind.ext or "png", shot, acq_timestamp, file_shot
+    )
+    if reason:
+        return ShotArray(kind="missing", path=native, reason=reason)
     try:
         array = read_imaq_image(native)
         if caching and cacheable:
@@ -484,6 +466,48 @@ def load_shot_array(  # noqa: C901, PLR0912
         )
     except Exception as exc:  # noqa: BLE001 — a corrupt file is a refusal
         return ShotArray(kind="missing", path=native, reason=f"read failed: {exc}")
+
+
+def native_shot_file(
+    scan_folder: Path,
+    device: str,
+    ext: str,
+    shot: int,
+    acq_timestamp: Optional[float] = None,
+    file_shot: Optional[int] = None,
+) -> tuple[Optional[Path], bool, str]:
+    """The native file holding one device shot: ``(path, cacheable, reason)``.
+
+    The legacy ``ScanNNN_<device>_SSS.<ext>`` name first, then the exact
+    timestamp probe (with *acq_timestamp*), else the listing-order file
+    (never long-cached: ``cacheable`` is ``False``). A shot with no file
+    has a *reason* (and, when known, the path looked for); a missing shot
+    reads as missing, never as a neighbouring shot's file. Shared by the
+    image and trace ladders (:func:`load_shot_array`,
+    ``io.shot_traces.load_row_trace``).
+    """
+    device_dir = scan_folder / device
+    try:
+        native = ScanPaths(folder=scan_folder).build_asset_path(
+            shot=shot if file_shot is None else file_shot, device=device, ext=ext
+        )
+    except ValueError as exc:
+        # A folder that exists but fails the canonical-layout validation
+        # (dev/scratch runs, or a share blip between probes) — degrade.
+        return scan_folder, False, f"layout: {exc}"
+    if native.is_file():
+        return native, True, ""
+    if acq_timestamp is not None:
+        # Exact stat probe from the shared naming contract — direct
+        # stats bypass stale SMB listing caches.
+        chosen = probe_native_file(device_dir, device, f".{ext}", acq_timestamp)
+        cacheable = True
+    else:
+        chosen = _ordinal_native_file(device_dir, ext, shot)
+        cacheable = False  # listing-order join: never long-cache
+    if chosen is None:
+        return native, False, "file not found"
+    return chosen, cacheable, ""
 
 
 def load_shot_image(

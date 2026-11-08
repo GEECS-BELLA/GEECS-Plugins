@@ -176,6 +176,26 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--analysis-worker-url",
+        default="",
+        help=(
+            "the analysis worker's base URL (scan-analysis-worker, its own "
+            "service; a site value, e.g. http://127.0.0.1:8800): the day "
+            "page's 'Analyze this day' panel runs analysis groups over a day "
+            "through it. Empty hides the panel"
+        ),
+    )
+    parser.add_argument(
+        "--analysis-worker-autostart",
+        action="store_true",
+        help=(
+            "development: when the worker URL is this host's and nothing "
+            "answers, start one (python -m scan_analysis.worker over "
+            "--processing-configs, left running when the portal stops). A "
+            "deployment runs the worker as its own unit instead"
+        ),
+    )
+    parser.add_argument(
         "--browser",
         default="default",
         help="open the portal once the server is up: 'default' (the system "
@@ -209,6 +229,16 @@ def main() -> None:
         else FolderScanCatalog()
     )
     catalog = CachingScanCatalog(source)
+    worker = None
+    if args.analysis_worker_url:
+        from geecs_portal.batch import AutoStart, WorkerLink
+
+        autostart = None
+        if args.analysis_worker_autostart:
+            if not args.processing_configs:
+                parser.error("--analysis-worker-autostart needs --processing-configs")
+            autostart = AutoStart(Path(args.processing_configs), args.experiment)
+        worker = WorkerLink(args.analysis_worker_url, autostart=autostart)
     app = create_app(
         catalog,
         default_experiment=args.experiment,
@@ -217,6 +247,7 @@ def main() -> None:
         ),
         config_editor=args.config_editor,
         logbook_url=args.logbook_url,
+        worker=worker,
         plotter=create_plotter(
             args.experiment,
             settings_dir=args.settings_dir,

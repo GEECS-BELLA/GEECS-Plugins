@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from geecs_portal.plotter import images
@@ -58,6 +57,8 @@ def test_the_strip_can_be_copied_or_saved_as_one_picture(
 ) -> None:
     page = post(client, scan=1, page="images", device=CAM)
     assert "data-strip-copy" in page and "data-strip-save" in page
+    # screen size by default; the switch asks for the pictures' own resolution
+    assert 'data-strip-full aria-pressed="false"' in page
     assert "strip_export.js" in page
     # The picture's title line and file name name the scan and the camera.
     assert 'data-title="Scan001 · ' in page
@@ -84,18 +85,6 @@ def test_without_a_set_the_images_page_asks_the_name_and_comes_back(
     assert 'id="ask-name"' in page and 'action="/images"' in page
 
 
-def test_a_trace_device_gets_the_big_view_one_shot_at_a_time(
-    client: TestClient, camera: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        images, "trace_kind", lambda folder, device, devices=None: "waveform"
-    )
-    page = post(client, scan=1, page="images", device="U_Haso")
-    assert 'data-mode="trace"' in page and 'id="big-trace"' in page
-    assert 'id="strip"' not in page
-    assert "waveforms, one shot at a time" in page
-
-
 def test_a_vendor_device_says_so(client: TestClient, camera: Path) -> None:
     page = post(client, scan=1, page="images", device="U_Haso")
     assert "a vendor format" in page and 'id="bigview"' not in page
@@ -108,3 +97,22 @@ def test_shot_tiles_carry_their_bin(share: Path, camera: Path) -> None:
     tiles = images.tiles(frame, "shots")
     assert [t.bin for t in tiles] == ["1", "1", "2", "2"]
     assert [t.bin for t in images.tiles(frame, "bins")] == ["1", "2"]
+
+
+def test_a_max_tile_width_caps_the_columns(client: TestClient, camera: Path) -> None:
+    import pytest
+
+    from geecs_portal.plotter.settings import PlotterSettings, SettingsError, merged
+
+    page = post(client, scan=1, page="images", device=CAM)
+    assert 'id="tilemax"' in page and 'placeholder="none"' in page
+    assert "minmax(0, 1fr)" in page  # no limit by default
+    page = post(client, scan=1, page="images", device=CAM, tilemax="240")
+    assert 'value="240"' in page and "minmax(0, 240px)" in page
+    # empty is no limit again; out of range is refused
+    assert (
+        merged(PlotterSettings(image_tile_max=240), {"tilemax": ""}).image_tile_max
+        is None
+    )
+    with pytest.raises(SettingsError, match="pixels"):
+        merged(PlotterSettings(), {"tilemax": "5"})

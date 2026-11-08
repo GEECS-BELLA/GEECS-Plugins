@@ -11,7 +11,12 @@ from fastapi import FastAPI, HTTPException
 from geecs_data_utils.io import shot_images
 
 from geecs_portal import resources
-from geecs_portal.routes.common import _acq_timestamp, _file_shot, _image_folder
+from geecs_portal.routes.common import (
+    _acq_timestamp,
+    _file_shot,
+    _image_folder,
+    _resolved_folder,
+)
 from geecs_portal.state import PortalState
 
 logger = logging.getLogger(__name__)
@@ -232,6 +237,48 @@ def _config_editor_preview(portal: PortalState, document: dict, params: dict) ->
     return resources.figure_png(figures[0], tight=True)
 
 
+def _config_editor_columns(portal: PortalState, params: dict) -> list[str]:
+    """The s-file column names of one scan — the scalar-columns form's picker.
+
+    The scan is ``uid`` (+ ``day``), as the scan page's drawer names it, or
+    ``day`` (``YYYY-MM-DD``) + ``scan`` (its number) in the portal's own
+    experiment, as the full-page editor asks.  The names are the s-file's
+    header as a scalar-columns job reads it (``analysis/sNNN.txt``); a scan
+    with no s-file yet is a ``LookupError``.  Reads one line; writes nothing.
+    """
+    from datetime import date
+
+    from geecs_data_utils.data.sfile import sfile_path_for_scan
+
+    uid = str(params.get("uid") or "")
+    day = str(params.get("day") or "")
+    if not uid:
+        try:
+            run_day = date.fromisoformat(day)
+            number = int(params.get("scan"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("name a scan: day (YYYY-MM-DD) and scan number") from exc
+        runs, error = portal.list_day(portal.default_experiment, run_day, "")
+        match = next((r for r in runs if r.scan_number == number), None)
+        if match is None:
+            raise LookupError(error or f"no scan {number} on {day}")
+        uid = match.uid
+    try:
+        detail = portal.load_run(uid)
+        _, folder = _resolved_folder(detail, day)
+    except HTTPException as exc:
+        raise LookupError(str(exc.detail)) from exc
+    if folder is None:
+        raise LookupError("the scan's folder is not on the share")
+    sfile = sfile_path_for_scan(folder)
+    try:
+        with sfile.open(encoding="utf-8", errors="replace") as handle:
+            header = handle.readline()
+    except OSError as exc:
+        raise LookupError(f"no s-file for this scan yet ({sfile.name})") from exc
+    return [name.strip() for name in header.rstrip("\r\n").split("\t") if name.strip()]
+
+
 def mount_config_editor(app: FastAPI, portal: PortalState) -> None:
     """Mount ``scan_analysis.config_editor`` at ``/configs`` over the processing tree."""
     try:
@@ -248,6 +295,7 @@ def mount_config_editor(app: FastAPI, portal: PortalState) -> None:
                     _config_editor_summary_preview, portal
                 ),
                 summary_shots_max=_SUMMARY_SHOTS_MAX,
+                columns=functools.partial(_config_editor_columns, portal),
                 theme_url="/theme",
             ),
             prefix="/configs",

@@ -5,6 +5,8 @@
   <a class="btn sm" href="{{ root }}/day/{{ prev_day }}?{{ qs() }}">&larr; {{ prev_day }}</a>
   <h1>{{ day.isoformat() }}</h1>
   <a class="btn sm" href="{{ root }}/day/{{ next_day }}?{{ qs() }}">{{ next_day }} &rarr;</a>
+  {% if batch %}<span class="spacer"></span>
+  <button class="btn" type="button" id="batch-open" onclick="openBatch(this)" title="run an analysis group over this day's scans on the analysis worker; finished ones are skipped unless you ask to redo them">Analyze this day…</button>{% endif %}
 </div>
 <div class="row">
   <form class="row" method="get" action="{{ root }}/go">
@@ -24,22 +26,40 @@
     <input type="hidden" name="experiment" value="{{ experiment }}">
     <div class="field day-filter">
       <label for="day-filter">Filter</label>
-      <input id="day-filter" type="search" name="filter" value="{{ filter }}" placeholder="scan number, mode, status, description, save set">
+      <input id="day-filter" type="search" name="filter" value="{{ filter }}" placeholder="scan number, mode, scanned parameter, status, description, save set">
     </div>
     <button class="btn" type="submit">Filter</button>
-    {% if filter %}<a class="btn ghost" href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}">clear</a>{% endif %}
+    {% if where %}<input type="hidden" name="where" value="{{ where }}">{% endif %}
+    {% if filter %}<a class="btn ghost" href="{{ root }}/day/{{ day.isoformat() }}?experiment={{ experiment | urlencode }}{% if where %}&amp;where={{ where | urlencode }}{% endif %}">clear</a>{% endif %}
   </form>
+  {% if rows and plot_page %}<button class="btn" type="button" id="plot-shown" title="Open the Plot page with the scans this list shows now (after the text filter and the scan filters): the lowest-numbered one as the main scan, the others added; more than {{ max_overlay }} are merged">Plot these scans</button>{% endif %}
+  {% if rows %}<button class="btn" type="button" id="scanf-open" title="Read each scan's s-file: show its conditions, and keep only the scans that meet rules on conditions (APL is in) or on a column's mean (charge between 10 and 20). Takes a few seconds on a busy day, so only when asked.">Conditions &amp; scan filters…</button>{% endif %}
 </div>
 {% if error %}
 <div class="state" data-state="error"><div class="t">The scans could not be listed</div><div class="m mono">{{ error }}</div></div>
 {% elif rows %}
+{# The scan filters (day_scans.py): rules on what each scan's s-file holds,
+   judged server-side by /api/day/{day}/scans, read only when asked. #}
+<section class="panel scanf" id="scanf" hidden aria-label="Scan filters">
+  <header><span class="eyebrow">Scan filters</span><span class="dim" id="scanf-status"></span></header>
+  <div class="body">
+    <p class="dim">Keep the scans that meet every rule. A <b>condition</b> (a scalar-columns job's rules, e.g. APL in/out) compares the scan's label; a scan whose shots disagree is kept and marked <i>mixed</i> when some shots match. A <b>number</b> compares the column's mean over the scan's shots. Scans without the column are hidden and counted.</p>
+    <div id="scanf-rules"></div>
+    <div class="row">
+      <button class="btn sm" type="button" id="scanf-add">+ Add rule</button>
+      <span class="spacer"></span>
+      <button class="btn sm ghost" type="button" id="scanf-clear">Clear rules</button>
+      <button class="btn sm primary" type="button" id="scanf-apply">Apply</button>
+    </div>
+  </div>
+</section>
 <div class="panel">
   <div class="tscroll">
   <table>
-    <thead><tr><th>Scan</th><th>Time</th><th>Mode</th><th>Description</th><th class="num">Shots</th><th>Status</th></tr></thead>
+    <thead><tr><th>Scan</th><th>Time</th><th>Mode</th><th>Scanned</th><th class="scanf-cond" hidden>Conditions</th><th>Description</th><th class="num">Shots</th><th>Status</th></tr></thead>
     <tbody>
     {% for run, time_text in rows %}
-    <tr>
+    <tr data-uid="{{ run.uid }}"{% if run.scan_number is not none %} data-scan="{{ run.scan_number }}"{% endif %}>
       <td class="id">
         {%- if plot_page and run.scan_number is not none -%}
         {# GEECSplotter opens a scan on its plot; the Plot page's tabs
@@ -51,6 +71,8 @@
       </td>
       <td class="mono">{{ time_text }}</td>
       <td>{{ run.mode }}</td>
+      <td class="scanned">{% if run.scan_variable %}{{ run.scan_variable }}{% if run.scan_range %} <span class="dim mono">{{ run.scan_range }}</span>{% endif %}{% endif %}</td>
+      <td class="scanf-cond" hidden></td>
       <td>{{ run.description }}</td>
       <td class="num">{{ run.shots if run.shots is not none else "" }}</td>
       <td><span class="chip" data-state="{{ run.exit_status | run_state }}">{{ run.exit_status or "unknown" }}</span></td>
@@ -62,5 +84,352 @@
 </div>
 {% else %}
 <div class="state" data-state="empty"><div class="t">{% if filter %}No scans match the filter.{% else %}No scans recorded for this day.{% endif %}</div></div>
+{% endif %}
+{% if rows and plot_page %}
+<script>
+// "Plot these scans": the rows this list shows now become the Plot page's
+// scans, saved into the viewer's own settings set (the name the Plot page
+// keeps in this browser; asked once when it has none), then the page opens.
+(function () {
+  const OWN_KEY = "geecs-portal:set", AUTHOR_KEY = "geecs-portal:author";
+  const SET_NAME = /^[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?$/;
+  const folded = (n) => n.trim().split(/\s+/).join(" ").toLowerCase();
+  const MAX_OVERLAY = {{ max_overlay | tojson }}, DAY = {{ day.isoformat() | tojson }};
+  function viewer() {
+    try {
+      for (const key of [OWN_KEY, AUTHOR_KEY]) {
+        const n = folded(localStorage.getItem(key) || "");
+        if (SET_NAME.test(n)) return n;
+      }
+    } catch (_) { /* no storage: asked */ }
+    const typed = folded(window.prompt("Your name (your own settings set on the Plot page):") || "");
+    if (!SET_NAME.test(typed)) return "";
+    try { localStorage.setItem(OWN_KEY, typed); } catch (_) { /* asked again next time */ }
+    return typed;
+  }
+  document.getElementById("plot-shown").addEventListener("click", () => {
+    const numbers = [...document.querySelectorAll("tr[data-scan]")]
+      .filter((tr) => !tr.hidden).map((tr) => Number(tr.dataset.scan)).sort((a, b) => a - b);
+    if (!numbers.length) { if (window.GeecsKit) window.GeecsKit.toast("No scans shown to plot"); return; }
+    const name = viewer();
+    if (!name) return;
+    const [main, ...rest] = numbers;
+    const fields = { day: DAY, scan: String(main), set: name, owner: name, page: "plot",
+      scans: rest.map((n) => `${DAY}:${n}`).join(",") };
+    if (numbers.length > MAX_OVERLAY) fields.multi = "merged";
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = {{ (root ~ "/plot/") | tojson }};
+    for (const [k, v] of Object.entries(fields)) {
+      const input = document.createElement("input");
+      input.type = "hidden"; input.name = k; input.value = v;
+      form.append(input);
+    }
+    document.body.append(form);
+    form.submit();
+  });
+})();
+</script>
+{% endif %}
+{% if rows and not error %}
+<script>
+// The scan filters: read each scan's s-file only when asked (the button, or
+// a link that carries rules), show its conditions, keep the scans that
+// meet every rule. The judging is the server's (/api/day/{day}/scans).
+(function () {
+  const ROOT_ = {{ root | tojson }}, DAY_ = {{ day.isoformat() | tojson }}, EXP_ = {{ experiment | tojson }};
+  const panel = document.getElementById("scanf"), list = document.getElementById("scanf-rules");
+  const status = document.getElementById("scanf-status");
+  const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+  let rules = [], loaded = null;
+  try { rules = JSON.parse({{ where | tojson }} || "[]"); } catch (_) { rules = []; }
+
+  async function load() {
+    status.textContent = " · reading the scans' s-files…";
+    const where = JSON.stringify(rules.filter(complete));
+    const url = `${ROOT_}/api/day/${DAY_}/scans?` + new URLSearchParams({ experiment: EXP_, where: rules.length ? where : "" });
+    const r = await fetch(url);
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { status.textContent = ` · ${body.detail || r.statusText}`; return; }
+    loaded = body;
+    show();
+  }
+  function complete(rule) {
+    return rule.column && (rule.op === "between" ? (rule.low !== null || rule.high !== null) : !!rule.label);
+  }
+  // Each row: its conditions, and hidden unless it meets the rules.
+  function show() {
+    document.querySelectorAll(".scanf-cond").forEach((c) => { c.hidden = false; });
+    const active = rules.filter(complete).length > 0;
+    const byUid = Object.fromEntries(loaded.runs.map((r) => [r.uid, r]));
+    for (const tr of document.querySelectorAll("tr[data-uid]")) {
+      const run = byUid[tr.dataset.uid];
+      const cell = tr.querySelector("td.scanf-cond");
+      const conds = run ? run.conditions : [];
+      cell.innerHTML = conds.map((c) => c.mixed
+        ? `<span title="${esc(c.detail)}">${esc(c.column)}: <span class="chip" data-state="degraded">mixed</span></span>`
+        : `${esc(c.column)}: <b>${esc(c.label)}</b>`).join(" · ") || '<span class="dim">—</span>';
+      const verdict = run ? run.verdict : "missing";
+      tr.hidden = active && (verdict === "fail" || verdict === "missing");
+      if (active && verdict === "mixed") cell.insertAdjacentHTML("beforeend", ' <span class="dim">(some shots)</span>');
+    }
+    const c = loaded.counts || {};
+    status.textContent = active
+      ? ` · ${(c.pass || 0) + (c.mixed || 0)} shown${c.mixed ? ` (${c.mixed} mixed)` : ""} · ${c.fail || 0} hidden${c.missing ? ` · ${c.missing} without the column` : ""}`
+      : ` · ${loaded.runs.length} scans read`;
+    drawRules();
+  }
+  // The rule editor: a column (conditions first), then its comparison.
+  function drawRules() {
+    const labels = loaded ? loaded.condition_labels : {};
+    const numbers = loaded ? loaded.columns.filter((c) => !(c in labels)) : [];
+    list.innerHTML = "";
+    rules.forEach((rule, i) => {
+      const row = document.createElement("div");
+      row.className = "row scanf-rule";
+      const cond = rule.column in labels;
+      const colSel = `<select data-k="column" aria-label="column"><option value="">pick a column…</option>
+        <optgroup label="conditions">${Object.keys(labels).map((c) => `<option${c === rule.column ? " selected" : ""}>${esc(c)}</option>`).join("")}</optgroup>
+        <optgroup label="numbers (the scan's mean)">${numbers.map((c) => `<option${c === rule.column ? " selected" : ""}>${esc(c)}</option>`).join("")}</optgroup></select>`;
+      const rest = !rule.column ? "" : cond
+        ? `<select data-k="op" aria-label="is or is not"><option value="is"${rule.op === "is" ? " selected" : ""}>is</option><option value="is_not"${rule.op === "is_not" ? " selected" : ""}>is not</option></select>
+           <select data-k="label" aria-label="label"><option value="">pick a label…</option>${labels[rule.column].map((l) => `<option${l === rule.label ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`
+        : `<span class="hint">mean between</span><input data-k="low" type="number" step="any" placeholder="no lower limit" value="${esc(rule.low)}"><span class="hint">and</span><input data-k="high" type="number" step="any" placeholder="no upper limit" value="${esc(rule.high)}">`;
+      row.innerHTML = `${colSel} ${rest} <button type="button" class="btn sm ghost" data-drop aria-label="remove rule">✕</button>`;
+      row.addEventListener("change", (e) => {
+        const k = e.target.dataset.k;
+        if (!k) return;
+        if (k === "column") {
+          rule.column = e.target.value;
+          const isCond = rule.column in labels;
+          Object.assign(rule, isCond ? { op: "is", label: "", low: null, high: null } : { op: "between", label: "", low: null, high: null });
+          drawRules();
+        } else if (k === "low" || k === "high") rule[k] = e.target.value === "" ? null : Number(e.target.value);
+        else rule[k] = e.target.value;
+      });
+      row.querySelector("[data-drop]").addEventListener("click", () => { rules.splice(i, 1); drawRules(); });
+      list.append(row);
+    });
+    if (!rules.length) list.innerHTML = '<div class="dim">no rules: every scan is shown</div>';
+  }
+  // The rules ride in the address (a link is the filtered day; the day arrows keep them).
+  function remember() {
+    const url = new URL(location.href);
+    const kept = rules.filter(complete).map((r) => (r.op === "between"
+      ? { column: r.column, op: r.op, ...(r.low !== null ? { low: r.low } : {}), ...(r.high !== null ? { high: r.high } : {}) }
+      : { column: r.column, op: r.op, label: r.label }));
+    if (kept.length) url.searchParams.set("where", JSON.stringify(kept)); else url.searchParams.delete("where");
+    history.replaceState(null, "", url);
+    for (const a of document.querySelectorAll('a[href*="/day/"]')) {
+      const link = new URL(a.href, location.href);
+      if (kept.length) link.searchParams.set("where", JSON.stringify(kept)); else link.searchParams.delete("where");
+      a.href = link.pathname + link.search;
+    }
+  }
+  function open() { panel.hidden = false; if (!loaded) load(); else drawRules(); }
+  document.getElementById("scanf-open").addEventListener("click", open);
+  document.getElementById("scanf-add").addEventListener("click", () => { rules.push({ column: "", op: "is", label: "", low: null, high: null }); drawRules(); });
+  document.getElementById("scanf-clear").addEventListener("click", () => { rules = []; remember(); load(); });
+  document.getElementById("scanf-apply").addEventListener("click", () => { remember(); load(); });
+  rules = rules.map((r) => ({ low: null, high: null, label: "", ...r }));
+  if (rules.length) open();  // a link that carries rules asks for them
+})();
+</script>
+{% endif %}
+{% if batch %}
+<aside class="drawer batchdrawer" id="batchdrawer" role="dialog" aria-modal="false" aria-labelledby="batchtitle" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="batchtitle">analyze {{ day.isoformat() }}</span>
+    <button class="btn sm" type="button" onclick="BATCH_DRAWER.close()">Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="batch-group">Analysis group</label>
+      <select id="batch-group" onchange="batchPlan()"><option value="">loading…</option></select></div>
+    <fieldset class="batch-members" id="batch-members-box" hidden>
+      <legend>Active analyzers</legend>
+      <div id="batch-members"></div>
+      <div class="dim">Untick one to leave it out. Run and Watch both use only the ticked ones, in the group's order.</div>
+    </fieldset>
+    <div class="field"><label for="batch-scans">Scans</label>
+      <input id="batch-scans" type="text" placeholder="all — or e.g. 5-12, 20" oninput="batchPlanSoon()"></div>
+    <label class="batch-redo"><input type="checkbox" id="batch-redo" onchange="batchPlan()"> redo scans already analyzed (failed and no-data ones too)</label>
+    <div class="row">
+      <button class="btn primary" type="button" id="batch-run" onclick="batchRun()" disabled>Run</button>
+      <span class="dim" id="batch-plan"></span>
+    </div>
+    <p class="err" id="batch-err" hidden></p>
+    <h3>Watch for new scans</h3>
+    <p class="dim">Like the old LiveWatch: the worker looks at this day every few seconds and analyzes each scan with the ticked analyzers <b>once the scan has finished</b> (its s-file has appeared). Scans already analyzed are skipped; nothing is redone. It keeps going when this page or the portal closes, until you stop it. One watch at a time: starting one replaces the last.</p>
+    <div class="row">
+      <label class="dim">from scan <input id="watch-from" type="number" min="0" placeholder="first" title="only scans numbered this or higher; empty: every scan of the day"></label>
+      <button class="btn" type="button" id="watch-start" onclick="watchStart()" disabled>Start watching</button>
+      <button class="btn" type="button" id="watch-stop" onclick="watchStop()" hidden>Stop watching</button>
+    </div>
+    <div id="watch-state" class="batch-watch dim">not watching</div>
+    <h3>Jobs</h3>
+    <div id="batch-jobs"><div class="dim">none yet</div></div>
+    <p class="dim">The worker is its own service: a job keeps running when this page or the portal closes. Each scan's results are recorded in its <span class="mono">analysis_status/</span> folder, which is how a later run knows what is done.</p>
+  </div>
+</aside>
+<script>
+const BATCH_DAY = {{ day.isoformat() | tojson }};
+const BATCH_ROOT = {{ root | tojson }};
+let BATCH_DRAWER = null, BATCH_GROUPS = [], BATCH_POLL = null, BATCH_PLAN_SEQ = 0, BATCH_MEMBERS_FOR = null, BATCH_WATCH = null;
+const bEsc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+async function batchApi(path, opts) {
+  const r = await fetch(`${BATCH_ROOT}/api/batch${path}`, Object.assign({ headers: { "Content-Type": "application/json" } }, opts || {}));
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { const d = body.detail; throw new Error(typeof d === "string" ? d : JSON.stringify(d || body)); }
+  return body;
+}
+function batchError(msg) { const e = document.getElementById("batch-err"); e.textContent = msg || ""; e.hidden = !msg; }
+// "5-12, 20" -> [5..12, 20]; null for all; throws on anything else
+function batchScans() {
+  const text = document.getElementById("batch-scans").value.trim();
+  if (!text) return null;
+  const out = [];
+  for (const part of text.split(/[ ,]+/).filter(Boolean)) {
+    const m = part.match(/^(\d+)(?:-(\d+))?$/);
+    if (!m) throw new Error(`"${part}" is not a scan number or range`);
+    const lo = Number(m[1]), hi = Number(m[2] || m[1]);
+    for (let n = Math.min(lo, hi); n <= Math.max(lo, hi); n++) out.push(n);
+  }
+  return out;
+}
+// the ticked analyzers: null when every member is ticked (the whole group)
+function batchTicked() {
+  const boxes = [...document.querySelectorAll("#batch-members input[type=checkbox]")];
+  const ticked = boxes.filter((b) => b.checked).map((b) => b.value);
+  return ticked.length === boxes.length ? null : ticked;
+}
+function batchNoneTicked() { const t = batchTicked(); return t !== null && t.length === 0; }
+function batchBody() {
+  return { day: BATCH_DAY, group: document.getElementById("batch-group").value, scans: batchScans(), redo: document.getElementById("batch-redo").checked, analyzers: batchTicked() };
+}
+// one checkbox per member of the picked group; ticks kept while the group stays
+function batchMembers(g, ticked) {
+  const box = document.getElementById("batch-members"), field = document.getElementById("batch-members-box");
+  const id = g ? g.id : null;
+  if (id === BATCH_MEMBERS_FOR && !ticked) return;
+  BATCH_MEMBERS_FOR = id;
+  field.hidden = !g;
+  if (!g) { box.innerHTML = ""; return; }
+  if (!g.members.length) { box.innerHTML = '<div class="dim">this group runs nothing</div>'; return; }
+  box.innerHTML = g.members.map((m) => `<label class="batch-member"><input type="checkbox" value="${bEsc(m)}"${!ticked || ticked.includes(m) ? " checked" : ""} onchange="batchPlan()"> <span class="mono">${bEsc(m)}</span></label>`).join("");
+}
+async function openBatch(opener) {
+  BATCH_DRAWER = BATCH_DRAWER || GeecsKit.drawer(document.getElementById("batchdrawer"));
+  BATCH_DRAWER.open(opener);
+  if (!BATCH_GROUPS.length) {
+    const sel = document.getElementById("batch-group");
+    try {
+      BATCH_GROUPS = (await batchApi("/groups")).groups;
+      sel.innerHTML = BATCH_GROUPS.length ? BATCH_GROUPS.map((g) => `<option value="${bEsc(g.id)}">${bEsc(g.id)}</option>`).join("") : '<option value="">no groups in the configs tree</option>';
+      batchError("");
+      // a watch on this day: open on its group and its ticks
+      const w = (await batchApi("/watch").catch(() => ({}))).watch;
+      if (w && w.day === BATCH_DAY && BATCH_GROUPS.some((g) => g.id === w.group)) {
+        sel.value = w.group;
+        batchMembers(BATCH_GROUPS.find((g) => g.id === w.group), w.analyzers);
+        if (w.from_scan) document.getElementById("watch-from").value = w.from_scan;
+      }
+      batchPlan();
+    } catch (e) { sel.innerHTML = '<option value="">—</option>'; batchError(e.message); }
+  }
+  batchRefresh();
+}
+let batchPlanTimer = null;
+function batchPlanSoon() { clearTimeout(batchPlanTimer); batchPlanTimer = setTimeout(batchPlan, 400); }
+async function batchPlan() {
+  const out = document.getElementById("batch-plan"), run = document.getElementById("batch-run");
+  const g = BATCH_GROUPS.find((x) => x.id === document.getElementById("batch-group").value);
+  batchMembers(g);
+  run.disabled = true;
+  document.getElementById("watch-start").disabled = !g || batchNoneTicked();
+  if (g && batchNoneTicked()) { out.textContent = "tick at least one analyzer"; return; }
+  let body;
+  try { body = batchBody(); } catch (e) { out.textContent = e.message; return; }
+  if (!body.group) { out.textContent = ""; return; }
+  const seq = ++BATCH_PLAN_SEQ;
+  out.textContent = "counting…";
+  try {
+    const plan = await batchApi("/plan", { method: "POST", body: JSON.stringify(body) });
+    if (seq !== BATCH_PLAN_SEQ) return;
+    const scans = new Set(plan.tasks.map((t) => t.scan)).size;
+    let text = `${plan.total} task${plan.total === 1 ? "" : "s"} to run over ${scans} scan${scans === 1 ? "" : "s"}`;
+    if (plan.already_done) text += ` · ${plan.already_done} already analyzed, skipped`;
+    if (plan.open_scans.length) text += ` · still recording, left out: ${plan.open_scans.join(", ")}`;
+    out.textContent = text;
+    run.disabled = plan.total === 0;
+    batchError("");
+  } catch (e) { if (seq === BATCH_PLAN_SEQ) { out.textContent = ""; batchError(e.message); } }
+}
+async function batchRun() {
+  document.getElementById("batch-run").disabled = true;
+  try {
+    await batchApi("/jobs", { method: "POST", body: JSON.stringify(batchBody()) });
+    batchError("");
+  } catch (e) { batchError(e.message); }
+  batchRefresh();
+}
+async function watchStart() {
+  const g = document.getElementById("batch-group").value, from = document.getElementById("watch-from").value;
+  try {
+    const r = await batchApi("/watch", { method: "POST", body: JSON.stringify({ day: BATCH_DAY, group: g, analyzers: batchTicked(), from_scan: from ? Number(from) : 0 }) });
+    batchError("");
+    watchShow(r.watch);
+  } catch (e) { batchError(e.message); }
+  batchRefresh();
+}
+async function watchStop() {
+  try { watchShow((await batchApi("/watch/stop", { method: "POST" })).watch); batchError(""); } catch (e) { batchError(e.message); }
+}
+function watchShow(w) {
+  BATCH_WATCH = w;
+  const box = document.getElementById("watch-state");
+  document.getElementById("watch-stop").hidden = !w;
+  document.getElementById("watch-start").textContent = w ? "Watch with these instead" : "Start watching";
+  if (!w) { box.innerHTML = "not watching"; return; }
+  const g = BATCH_GROUPS.find((x) => x.id === w.group);
+  const which = w.analyzers ? `${w.analyzers.length} of ${g ? g.members.length : "?"} analyzers (${w.analyzers.map(bEsc).join(", ")})` : "every analyzer in the group";
+  const look = w.last_check ? new Date(w.last_check * 1000).toLocaleTimeString() : "not yet";
+  const other = w.day !== BATCH_DAY ? ` <b>(another day — open ${bEsc(w.day)} to change it)</b>` : "";
+  box.innerHTML = `<span class="chip" data-state="running">watching</span> <span class="mono">${bEsc(w.day)}</span>${other} · ${bEsc(w.group)} · ${which}${w.from_scan ? ` · from Scan${String(w.from_scan).padStart(3, "0")}` : ""}<br>last look ${bEsc(look)} · ${w.jobs.length} job${w.jobs.length === 1 ? "" : "s"} so far${w.note ? ` · <span class="err">${bEsc(w.note)}</span>` : ""}`;
+}
+async function batchCancel(id) {
+  try { await batchApi(`/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }); } catch (e) { batchError(e.message); }
+  batchRefresh();
+}
+const BATCH_WORD = { queued: "queued", running: "running", done: "ok", cancelled: "degraded", failed: "failed" };
+function batchJobRow(j, detail) {
+  const c = j.counts || {}, finished = (c.done || 0) + (c.no_data || 0) + (c.failed || 0) + (c.skipped || 0);
+  const pct = j.total ? Math.round(100 * finished / j.total) : (j.state === "done" ? 100 : 0);
+  const parts = ["done", "no_data", "failed", "skipped", "cancelled"].filter((k) => c[k]).map((k) => `${c[k]} ${k.replace("_", " ")}`);
+  const now = j.current ? `now: Scan${String(j.current.scan).padStart(3, "0")} ${bEsc(j.current.analyzer)}` : "";
+  const scope = (j.scans ? `scans ${j.scans.length}` : j.from_scan ? `from Scan${String(j.from_scan).padStart(3, "0")}` : "all scans") + (j.analyzers ? ` · ${j.analyzers.length} analyzer${j.analyzers.length === 1 ? "" : "s"}` : "");
+  const origin = j.origin === "watch" ? ' <span class="dim mono" title="queued by the watch">· watch</span>' : "";
+  const failed = detail ? detail.tasks.filter((t) => t.state === "failed") : [];
+  const fails = failed.length ? `<details><summary>${failed.length} failed</summary><ul>${failed.map((t) => `<li><span class="mono">Scan${String(t.scan).padStart(3, "0")} ${bEsc(t.analyzer)}</span> <span class="err">${bEsc(t.error)}</span></li>`).join("")}</ul></details>` : "";
+  const cancel = (j.state === "queued" || j.state === "running") && !j.cancel_requested ? `<button class="btn sm" type="button" onclick="batchCancel('${bEsc(j.id)}')">Cancel</button>` : "";
+  return `<div class="panel batchjob"><div class="head"><span class="mono">${bEsc(j.day)}</span> <span>${bEsc(j.group)}</span>${origin} <span class="dim">${scope}${j.redo ? " · redo" : ""}</span>
+    <span class="chip" data-state="${BATCH_WORD[j.state] || "unknown"}">${bEsc(j.cancel_requested && j.state === "running" ? "cancelling" : j.state)}</span><span class="spacer"></span>${cancel}</div>
+    <div class="meter"><div class="track"><span class="fill" style="width:${pct}%"></span></div><div class="lbl"><span>${finished} / ${j.total}</span><span>${bEsc(now)}</span></div></div>
+    <div class="dim">${parts.join(" · ")}${j.error ? ` <span class="err">${bEsc(j.error)}</span>` : ""}</div>${fails}</div>`;
+}
+async function batchRefresh() {
+  clearTimeout(BATCH_POLL);
+  const box = document.getElementById("batch-jobs");
+  let jobs;
+  try { jobs = (await batchApi("/jobs")).jobs; } catch (e) { box.innerHTML = `<div class="err">${bEsc(e.message)}</div>`; return; }
+  try { watchShow((await batchApi("/watch")).watch); } catch (e) { /* the jobs said why */ }
+  // keep looking while the drawer is open and something may change
+  const again = () => { if (BATCH_DRAWER && document.getElementById("batchdrawer").dataset.open === "true") BATCH_POLL = setTimeout(batchRefresh, 2000); };
+  if (!jobs.length) { box.innerHTML = '<div class="dim">none yet</div>'; if (BATCH_WATCH) again(); return; }
+  const details = await Promise.all(jobs.map((j) => (j.counts && j.counts.failed) ? batchApi(`/jobs/${encodeURIComponent(j.id)}`).catch(() => null) : null));
+  box.innerHTML = jobs.map((j, i) => batchJobRow(j, details[i])).join("");
+  if (jobs.some((j) => j.state === "queued" || j.state === "running")) again();
+  else { if (BATCH_WATCH) again(); batchPlan(); }
+}
+</script>
 {% endif %}
 {% endblock %}
