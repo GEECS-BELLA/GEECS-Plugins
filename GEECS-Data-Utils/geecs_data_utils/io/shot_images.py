@@ -655,26 +655,70 @@ def average_rows(
         The image (a float average for several rows), or the refusal, its
         reason the last row's. ``cacheable`` only when every row's was.
     """
+    return average_scan_rows(
+        [ScanRows(scan_folder, frame, tuple(rows))], device, prepare, **load
+    )
+
+
+class ScanRows(NamedTuple):
+    """Some rows of one scan's table: what a pooled bin takes from that scan."""
+
+    scan_folder: Path
+    #: The scan's WHOLE per-shot table (``None``: rows by number alone).
+    frame: Optional["pd.DataFrame"]
+    #: 1-based rows of *frame*.
+    rows: tuple[int, ...]
+
+
+def average_scan_rows(
+    parts: Sequence[ScanRows],
+    device: str,
+    prepare: Optional[Callable[[np.ndarray], np.ndarray]] = None,
+    **load: object,
+) -> ShotArray:
+    """*device*'s pixels over rows of one or several scans: one image, or their average.
+
+    :func:`average_rows` across scans: a bin that pools the same setting
+    from two scans (``data.scan_merge.merged_bin_numbers``) names each
+    scan's rows, and every shot averages with equal weight. Each row is
+    read from its own scan's folder by its own scan's table, so a shot is
+    never another scan's; the refusals are :func:`average_rows`'.
+
+    Parameters
+    ----------
+    parts : sequence of ScanRows
+        Each scan's folder, table and rows.
+    device, prepare, **load
+        As :func:`average_rows` (``**load`` applies to every scan: pass a
+        cache only with a single scan).
+
+    Returns
+    -------
+    ShotArray
+    """
     arrays = []
     last = ShotArray(kind="missing", reason="no shots")
     cacheable = True
-    for row in rows:
-        found = load_row_array(scan_folder, frame, device, row, **load)
-        cacheable = cacheable and found.cacheable
-        if found.array is None:
-            if found.kind in ("vendor", "unrenderable"):
-                return found
-            last = found
-            continue
-        if prepare is not None:
-            found = replace(found, array=prepare(found.array))
-        arrays.append(found)
+    count = 0
+    for part in parts:
+        for row in part.rows:
+            found = load_row_array(part.scan_folder, part.frame, device, row, **load)
+            count += 1
+            cacheable = cacheable and found.cacheable
+            if found.array is None:
+                if found.kind in ("vendor", "unrenderable"):
+                    return found
+                last = found
+                continue
+            if prepare is not None:
+                found = replace(found, array=prepare(found.array))
+            arrays.append(found)
     if not arrays:
         return ShotArray(kind="missing", path=last.path, reason=last.reason)
     if len(arrays) == 1:
         return arrays[0]
     averaged = average_frames(
-        [a.array for a in arrays], label=f"{device} rows {rows[0]}-{rows[-1]}"
+        [a.array for a in arrays], label=f"{device} ({count} shots)"
     )
     if averaged is None:
         return ShotArray(kind="missing", reason="the shots' images differ in size")

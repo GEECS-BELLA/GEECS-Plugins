@@ -180,3 +180,18 @@ def test_reading_leaves_the_tree_untouched(scan_folder):
     shot_traces.average_trace_rows(scan_folder, None, DEVICE, (1, 2, 3, 9))
     shot_traces.load_row_trace(scan_folder, None, "nope", 1)
     assert sorted(p.relative_to(scan_folder) for p in scan_folder.rglob("*")) == before
+
+
+def test_a_pooled_bin_averages_shots_from_two_scans(scan_folder, tmp_path):
+    other = tmp_path / "Expt" / "Y2026" / "11-Nov" / "26_1104" / "scans" / "Scan002"
+    (other / DEVICE).mkdir(parents=True)
+    write_scope(
+        other / DEVICE / f"Scan002_{DEVICE}_001.dat", [np.full(5, 7.0), np.arange(5)]
+    )
+    parts = [
+        shot_traces.ScanRows(scan_folder, None, (1,)),
+        shot_traces.ScanRows(other, None, (1,)),
+    ]
+    found = shot_traces.average_trace_scan_rows(parts, DEVICE)
+    # Shot 1 of each: counts 1 and 7, volts 1.5 and 4.5 → 3.0.
+    np.testing.assert_allclose(found.result.data[:, 1], np.full(5, 3.0))

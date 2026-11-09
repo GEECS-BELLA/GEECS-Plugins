@@ -103,17 +103,26 @@ class TestMerged:
         assert fit["points"] == 5  # shot 3's NaN is left out
         assert fit["scan"] == ""
 
-    def test_bins_are_by_x_not_bin_number(self, client, two_days):
-        # Bin 1 is X=1 in Scan001 of the 2nd but both shots of bin 1 of the
-        # 3rd's are X=1 and 2: by Bin # they would mix two settings.
+    def test_bins_pool_each_scans_bins_by_x(self, client, two_days):
+        # Each scan's own bins (Bin #), placed by X: bin 1 of both scans is
+        # X=1 and bin 2 is X=2, so they pool into two bins.
         body = figure(client, scans="2026-10-03:1", multi="merged", view="bin")
         trace = body["figure"]["data"][0]
         assert trace["x"] == [1.0, 2.0]
         assert trace["y"] == [12.0, 35.0]  # medians of {10, 12, 20} and {30, 40}
-        assert "bin_col='U_Jet Position'" in body["code"]
+        assert "bin_col='Bin # (merged)'" in body["code"]
+        assert "with_merged_bins(frame, 'U_Jet Position', None)" in body["code"]
         assert points(rebuilt(body, two_days)["data"]) == points(body["figure"]["data"])
 
-    def test_binning_merged_scans_by_shot_number_is_refused(self, client, two_days):
+    def test_a_zero_tolerance_keeps_settings_apart_only_when_x_differs(
+        self, client, two_days
+    ):
+        # Both scans visit X=1 and 2 exactly, so even 0 pools them.
+        body = figure(client, scans="2026-10-03:1", multi="merged", view="bin", mtol=0)
+        assert body["figure"]["data"][0]["x"] == [1.0, 2.0]
+        assert "with_merged_bins(frame, 'U_Jet Position', 0.0)" in body["code"]
+
+    def test_merged_scans_bin_without_an_x_in_scan_order(self, client, two_days):
         response = client.get(
             "/api/figure",
             params={
@@ -125,8 +134,25 @@ class TestMerged:
                 "view": "bin",
             },
         )
-        assert response.status_code == 400
-        assert "pick an X" in response.json()["detail"]
+        assert response.status_code == 200, response.text
+        # No X to place them by: each scan's bins in turn, two per scan.
+        assert len(response.json()["figure"]["data"][0]["y"]) == 4
+
+    def test_a_negative_tolerance_is_refused(self, client, two_days):
+        response = client.get(
+            "/api/figure",
+            params={
+                "day": "2026-10-02",
+                "scan": 1,
+                "y": CHARGE,
+                "x": SCAN_VARIABLE,
+                "scans": "2026-10-03:1",
+                "multi": "merged",
+                "view": "bin",
+                "mtol": -1,
+            },
+        )
+        assert response.status_code == 422
 
     def test_a_shot_filter_can_name_the_scan(self, client, two_days):
         scan_one = json.dumps(

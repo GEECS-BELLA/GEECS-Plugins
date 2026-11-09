@@ -27,6 +27,12 @@ geecs_data_utils/
                                #   `scan` / `day`, the union of columns (NaN where
                                #   a scan lacks one), each shot keeping its own
                                #   number — so `Bin #` means nothing across scans
+                               #   on its own; merged_bin_numbers /
+                               #   with_merged_bins give the merged table one
+                               #   bin number (each scan's bins at their median
+                               #   X, the same setting pooled within a tolerance,
+                               #   default half the smallest step) as the
+                               #   in-memory `Bin # (merged)`
   data/image_prep.py           # subtract_background (image less a background
                                #   average, same size or a ValueError);
                                #   ImagePrep: one camera image's clean-ups, before

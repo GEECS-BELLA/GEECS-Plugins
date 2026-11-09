@@ -232,6 +232,7 @@ def figure_code(
     cfg: Optional[Any] = None,
     display: Optional[dict] = None,
     extra: Sequence[tuple[date, int]] = (),
+    pooled: Optional[tuple[Optional[str], Optional[float]]] = None,
 ) -> str:
     """The notebook snippet that rebuilds the frame, the fits and the figure.
 
@@ -265,6 +266,9 @@ def figure_code(
     extra : Sequence[tuple[datetime.date, int]], optional
         The scans merged with this one (the merged view): the frame is
         theirs and this one's together.
+    pooled : tuple, optional
+        ``(x, tolerance)`` when the merged view bins by the merged scans'
+        one bin number (``scan_merge.with_merged_bins``).
 
     Returns
     -------
@@ -305,6 +309,11 @@ def figure_code(
             "frame = scans.load_frame(run)\n"
         )
     )
+    if pooled is not None:
+        head += (
+            "from geecs_data_utils.data.scan_merge import with_merged_bins\n"
+            f"frame, _ = with_merged_bins(frame, {pooled[0]!r}, {pooled[1]!r})\n"
+        )
     filtering = filters is not None and bool(filters.active_groups())
     keep = (
         "from geecs_data_utils.data.row_filters import RowFilters, apply_filters\n"
@@ -538,6 +547,11 @@ def register(router: APIRouter, ctx: Context) -> None:
         oy: int = Query(
             default=1, ge=1, le=MAX_Y_LISTS, description="the Y list the overlay draws"
         ),
+        mtol: Optional[float] = Query(
+            default=None,
+            ge=0,
+            description="merged bins: pool two scans' bins this close in X; empty is half the smallest step",
+        ),
     ) -> JSONResponse:
         """The figure of ``y`` (and ``y2``, ``y3``) against ``x``, per shot or binned.
 
@@ -548,7 +562,8 @@ def register(router: APIRouter, ctx: Context) -> None:
 
         With ``scans``, every scan is read into one frame
         (``merge_scan_frames``: a shot filter can name ``scan``). ``merged``
-        plots it as one scan, binned by the X value rather than ``Bin #``;
+        plots it as one scan, binned by the merged scans' one bin number
+        (each scan's ``Bin #`` placed by X, pooled within ``mtol``);
         ``overlay`` draws Y list ``oy`` alone, a trace (and a fit, and
         bins) per scan, at most ``MAX_OVERLAY_SCANS`` of them.
         """
@@ -568,6 +583,7 @@ def register(router: APIRouter, ctx: Context) -> None:
             extra=extra,
             scan_view=multi,
             overlay_y=oy,
+            tolerance=mtol,
         )
 
     @router.get("/api/filter-count")
@@ -671,11 +687,15 @@ def _figure_response(
     extra: str = "",
     scan_view: str = "overlay",
     overlay_y: int = 1,
+    tolerance: Optional[float] = None,
 ) -> JSONResponse:
     """``/api/figure``'s answer: *axes* is ``(column or None, alias)`` per Y slot.
 
     *extra* names the scans beside this one; with any, *scan_view* says how
-    they are drawn (the overlay of Y list *overlay_y*, or merged).
+    they are drawn (the overlay of Y list *overlay_y*, or merged). Merged
+    and binned by ``Bin #``, the bins are the merged scans' one bin number
+    (``multi.merged_bins``: each scan's bins by X, pooled within
+    *tolerance*, ``None`` half the smallest step).
     """
     y = axes[0][0] or ""
     refs = _refs(day, scan, extra, overlay=scan_view == "overlay")
@@ -688,6 +708,10 @@ def _figure_response(
         cfg = analysis.parse_bincfg(bincfg) if view == "bin" else None
     except analysis.BadParam as bad:
         raise HTTPException(status_code=400, detail=str(bad)) from None
+    pooled = None
+    if cfg is not None and len(refs) > 1 and scan_view != "overlay":
+        frame, cfg, tol = _merged_bins(frame, cfg, x, tolerance)
+        pooled = (x or None, tolerance) if tol is not None else None
     kept = _kept(frame, flt)
     if len(refs) > 1 and scan_view == "overlay":
         slot = overlay_y - 1
@@ -706,8 +730,6 @@ def _figure_response(
             cfg=cfg,
             disp=disp,
         )
-    if cfg is not None and len(refs) > 1:
-        cfg = _merged_bins(cfg, x)
     # Each list keeps its slot (colour and axis): Y3 stays Y3 with Y2
     # off. Trailing off slots are dropped so a one-Y snippet stays bare.
     axes = list(axes)
@@ -781,6 +803,7 @@ def _figure_response(
             cfg=cfg,
             display=disp,
             extra=refs[1:],
+            pooled=pooled,
         ),
         fits=results,
         multi=scan_view if len(refs) > 1 else "",
@@ -831,10 +854,12 @@ def _refs(
     return refs
 
 
-def _merged_bins(cfg: Any, x: str) -> Any:  # BinningConfig in, BinningConfig out
+def _merged_bins(
+    frame: pd.DataFrame, cfg: Any, x: str, tolerance: Optional[float]
+) -> tuple[pd.DataFrame, Any, Optional[float]]:  # cfg: a BinningConfig
     """``multi.merged_bins``, its refusal a 400."""
     try:
-        return multi.merged_bins(cfg, x or None)
+        return multi.merged_bins(frame, cfg, x or None, tolerance)
     except ValueError as bad:
         raise HTTPException(status_code=400, detail=str(bad)) from None
 

@@ -10,6 +10,13 @@ A shot is a row of the scan's s-file, 1-based. A device that missed a shot
 (its row says so) gives no image for it, and is left out of its bin's
 average — never a neighbouring shot's image. Read-only, and lazy: each
 tile loads its own shots when the browser asks for it.
+
+Several scans (the set's extra scans) are a :class:`ScanSet`: their
+s-files merged (``scan_merge.merge_scan_frames``), a row of the merged
+frame a shot of one of them, and the bins the merged scans' one bin
+number (``scan_merge.with_merged_bins``: each scan's bins by X, the same
+setting pooled). Every loader here takes either one scan's folder with
+its s-file, or a ScanSet with its merged frame.
 """
 
 from __future__ import annotations
@@ -19,17 +26,25 @@ import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 
 import numpy as np
 import pandas as pd
-from geecs_data_utils.data.binning import bin_rows
+from geecs_data_utils.data.binning import BinningConfig, bin_rows
 from geecs_data_utils.data.row_filters import RowFilters, filter_mask
 from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep, subtract_background
 from geecs_data_utils.io import shot_images, shot_traces
 from geecs_data_utils.io.array1d import Data1DResult
+from geecs_data_utils.data.scan_merge import (
+    MERGED_BIN_COLUMN,
+    SCAN_BIN_COLUMN,
+    merge_scan_frames,
+    with_merged_bins,
+)
 from geecs_data_utils.io.display_png import window_levels
+from geecs_data_utils.io.shot_images import ScanRows
 
 #: The X-ray-hit filters as the rail names them, in its order; one per
 #: ``image_prep.HIT_FILTERS`` (the import-time check keeps the two in step).
@@ -96,6 +111,124 @@ class Tile:
     bin: str = ""
 
 
+@dataclass(frozen=True)
+class ScanPart:
+    """One scan of a :class:`ScanSet`: its folder, its s-file and its names."""
+
+    folder: Path
+    day: date
+    scan: int
+    frame: pd.DataFrame = field(compare=False, hash=False, repr=False)
+    #: ``"11-03 S005"``: the scan as a caption names it.
+    label: str = field(default="", compare=False)
+    #: The portal run's uid (the big view's processing preview opens it).
+    uid: str = field(default="", compare=False)
+
+
+@dataclass(frozen=True)
+class ScanSet:
+    """Several scans on one strip: their merged frame and its one bin number.
+
+    A row of :attr:`frame` (1-based) is a shot of one part; :meth:`split`
+    sends a tile's rows to their own scans. Identified by its parts (the
+    cache keys on it).
+    """
+
+    parts: tuple[ScanPart, ...]
+    #: ``merge_scan_frames`` over the parts, with :data:`MERGED_BIN_COLUMN`.
+    frame: pd.DataFrame = field(compare=False, hash=False, repr=False)
+    #: The column that bins the strip (the merged scans' one bin number).
+    bin_col: str = MERGED_BIN_COLUMN
+    #: Two scans' bins this close in X were pooled.
+    tolerance: float = field(default=0.0, compare=False)
+
+    @classmethod
+    def merged(
+        cls,
+        parts: tuple[ScanPart, ...],
+        x: Optional[str],
+        tolerance: Optional[float] = None,
+    ) -> "ScanSet":
+        """The parts merged, their bins numbered by *x* and pooled within *tolerance*.
+
+        ``None`` *tolerance* is half the smallest step of any one scan
+        (``scan_merge.default_bin_tolerance``).
+        """
+        merged = merge_scan_frames({(p.day, p.scan): p.frame for p in parts})
+        frame, tol = with_merged_bins(merged, x, tolerance)
+        return cls(parts, frame, MERGED_BIN_COLUMN, tol)
+
+    def _starts(self) -> list[int]:
+        """Each part's first row in :attr:`frame`, less one."""
+        starts, at = [], 0
+        for part in self.parts:
+            starts.append(at)
+            at += len(part.frame)
+        return starts
+
+    def locate(self, row: int) -> tuple[ScanPart, int]:
+        """The scan a merged *row* is a shot of, and its row there (both 1-based).
+
+        Raises
+        ------
+        NoImage
+            A row past the merged frame.
+        """
+        for part, start in zip(self.parts, self._starts()):
+            if start < row <= start + len(part.frame):
+                return part, row - start
+        raise NoImage(f"no shot {row} in these scans")
+
+    def split(self, rows: tuple[int, ...]) -> list[ScanRows]:
+        """*rows* of the merged frame as each scan's own rows, in scan order."""
+        found: dict[int, list[int]] = {}
+        for row in rows:
+            part, local = self.locate(row)
+            found.setdefault(self.parts.index(part), []).append(local)
+        return [
+            ScanRows(self.parts[i].folder, self.parts[i].frame, tuple(found[i]))
+            for i in sorted(found)
+        ]
+
+    def names(self) -> pd.Series:
+        """Each merged row's scan, as captions name it (``"11-03 S005"``)."""
+        labels = [p.label for p in self.parts for _ in range(len(p.frame))]
+        return pd.Series(labels, index=self.frame.index)
+
+
+#: Where a strip's shots come from: one scan's folder (with its s-file),
+#: or several scans (:class:`ScanSet`, with its merged frame).
+Source = Union[Path, ScanSet]
+
+
+def _parts(
+    source: Source, frame: pd.DataFrame, rows: tuple[int, ...]
+) -> list[ScanRows]:
+    """*rows* of *source* as each scan's folder, table and own rows."""
+    if isinstance(source, ScanSet):
+        return source.split(rows)
+    return [ScanRows(source, frame, rows)]
+
+
+def _source_key(source: Source) -> object:
+    """What names *source* in the cache: its folder, or its scans' folders."""
+    if isinstance(source, ScanSet):
+        return tuple(str(p.folder) for p in source.parts)
+    return str(source)
+
+
+def _source_stamp(source: Source, device: str) -> object:
+    """The device folders' modification times (``None``: the main one cannot be read).
+
+    Another scan without the device has ``None`` in its place: its rows
+    give no image, and a folder appearing there later changes the key.
+    """
+    if not isinstance(source, ScanSet):
+        return _folder_stamp(source, device)
+    stamps = tuple(_folder_stamp(p.folder, device) for p in source.parts)
+    return stamps if stamps[0] is not None else None
+
+
 def is_image_device(
     folder: Path, device: str, devices: Optional[list[str]] = None
 ) -> bool:
@@ -144,13 +277,17 @@ def devices(folder: Path) -> list[str]:
     return shot_images.image_devices(folder)
 
 
-def bins(frame: pd.DataFrame) -> list[tuple[object, tuple[int, ...]]]:
+def bins(
+    frame: pd.DataFrame, bin_col: str = SCAN_BIN_COLUMN
+) -> list[tuple[object, tuple[int, ...]]]:
     """Each bin's label and rows, in bin order (GEECSplotter's ``Bin #``).
 
     ``geecs_data_utils.data.binning.bin_rows`` over the whole s-file (its
     positions are the shot loaders' rows): the rows with an empty
     ``Bin #`` a bin of their own (last). A bin whose measurements are all
-    missing is still a tile, though the binned plot drops it.
+    missing is still a tile, though the binned plot drops it. Several
+    scans bin by their merged frame's one number (*bin_col*,
+    :attr:`ScanSet.bin_col`).
 
     Raises
     ------
@@ -158,9 +295,11 @@ def bins(frame: pd.DataFrame) -> list[tuple[object, tuple[int, ...]]]:
         The scan has no ``Bin #`` column.
     """
     try:
-        return bin_rows(frame)
+        if bin_col == SCAN_BIN_COLUMN:
+            return bin_rows(frame)
+        return bin_rows(frame, BinningConfig(bin_col=bin_col))
     except KeyError:
-        raise NoImage("this scan has no Bin # column") from None
+        raise NoImage(f"this scan has no {bin_col} column") from None
 
 
 def _parsed_filters(filters: str) -> RowFilters:
@@ -222,10 +361,12 @@ def shot_rows(frame: pd.DataFrame, filters: str) -> Optional[frozenset[int]]:
 
 
 def kept_bins(
-    frame: pd.DataFrame, keep: Optional[frozenset[int]] = None
+    frame: pd.DataFrame,
+    keep: Optional[frozenset[int]] = None,
+    bin_col: str = SCAN_BIN_COLUMN,
 ) -> list[tuple[object, tuple[int, ...]]]:
     """:func:`bins` with only the rows *keep* holds; a bin left empty goes."""
-    found = bins(frame)
+    found = bins(frame, bin_col)
     if keep is None:
         return found
     out = []
@@ -280,6 +421,8 @@ def tiles(
     shot_numbers: Optional[pd.Series] = None,
     pick_by: Optional[pd.Series] = None,
     keep: Optional[frozenset[int]] = None,
+    bin_col: str = SCAN_BIN_COLUMN,
+    scan_names: Optional[pd.Series] = None,
 ) -> list[Tile]:
     """The strip's tiles, in order (only the shots *keep* holds, when given).
 
@@ -309,6 +452,13 @@ def tiles(
         (or picks from) only those, a bin with none goes, and a shots
         strip shows only those. A bin tile's ``index`` is its place among
         the bins left.
+    bin_col : str, optional
+        The bin column: ``Bin #``, or several scans' one bin number
+        (:attr:`ScanSet.bin_col`).
+    scan_names : pandas.Series, optional
+        Several scans: each row's scan (:meth:`ScanSet.names`); a shot's
+        caption names it (``"11-03 S005 shot 3"``), a bin's how many
+        scans it pools (``"17.5 · 2 scans · 10 shots"``).
 
     Returns
     -------
@@ -317,11 +467,20 @@ def tiles(
 
     def shot_label(row: int) -> str:
         shot = row if shot_numbers is None else shot_numbers.iloc[row - 1]
-        return f"shot {_number(shot, f'? (row {row})')}"
+        named = f"shot {_number(shot, f'? (row {row})')}"
+        return named if scan_names is None else f"{scan_names.iloc[row - 1]} {named}"
+
+    def pooled(rows: tuple[int, ...]) -> str:
+        if scan_names is None:
+            return ""
+        count = len({scan_names.iloc[r - 1] for r in rows})
+        return (
+            f"{count} scans · " if count > 1 else f"{scan_names.iloc[rows[0] - 1]} · "
+        )
 
     if strip == "shots":
         out = []
-        bin_numbers = frame.get("Bin #")
+        bin_numbers = frame.get(bin_col)
         for row in range(1, len(frame) + 1):
             if keep is not None and row not in keep:
                 continue
@@ -333,7 +492,7 @@ def tiles(
             caption = f"{label} · {value}" if value else label
             out.append(Tile(row, (row,), caption, in_bin))
         return out
-    found = kept_bins(frame, keep)
+    found = kept_bins(frame, keep, bin_col)
     wheres = [_value(scan_values, rows) for _, rows in found]
     # A value two bins share (a scan back over its start, or medians alike
     # to 4 figures) names the bin too, so no two tiles read the same.
@@ -347,7 +506,7 @@ def tiles(
             caption = f"{where} · {shot_label(row)}"
             out.append(Tile(row, (row,), caption, _number(label, "")))
             continue
-        count = f"{len(rows)} shot{'s' if len(rows) != 1 else ''}"
+        count = f"{pooled(rows)}{len(rows)} shot{'s' if len(rows) != 1 else ''}"
         out.append(Tile(index, rows, f"{where} · {count}", _number(label, "")))
     return out
 
@@ -397,7 +556,7 @@ def background_array(background: Background, device: str) -> np.ndarray:
 
 
 def tile_array(
-    folder: Path,
+    folder: Source,
     frame: pd.DataFrame,
     device: str,
     rows: tuple[int, ...],
@@ -411,9 +570,11 @@ def tile_array(
     (``geecs_data_utils.data.image_prep``: X-ray hits out, then centred
     on its beam), so a bin's average is of subtracted, centred shots.
 
-    ``geecs_data_utils.io.shot_images.average_rows``: shots the device
-    missed, or whose file is missing or unreadable, are left out of the
-    average, never replaced by a neighbour's image.
+    ``geecs_data_utils.io.shot_images.average_scan_rows``: shots the
+    device missed, or whose file is missing or unreadable, are left out of
+    the average, never replaced by a neighbour's image. *folder* is one
+    scan's (*frame* its s-file) or a :class:`ScanSet` (*frame* its merged
+    frame), whose rows each come from their own scan.
 
     Raises
     ------
@@ -430,11 +591,9 @@ def tile_array(
                 raise NoImage(str(why)) from None
         return prep.apply(image)
 
-    found = shot_images.average_rows(
-        folder,
-        frame,
+    found = shot_images.average_scan_rows(
+        _parts(folder, frame, rows),
         device,
-        rows,
         prepare=prepare if (prep.active or back is not None) else None,
     )
     if found.array is None:
@@ -498,7 +657,7 @@ def _folder_stamp(folder: Path, device: str) -> Optional[int]:
 
 
 def kept_tile_array(
-    folder: Path,
+    folder: Source,
     frame: pd.DataFrame,
     device: str,
     rows: tuple[int, ...],
@@ -519,11 +678,11 @@ def kept_tile_array(
     NoImage
         As :func:`tile_array`.
     """
-    stamp = _folder_stamp(folder, device)
+    stamp = _source_stamp(folder, device)
     if stamp is None:
         return tile_array(folder, frame, device, rows, prep, background)
     key = (
-        str(folder),
+        _source_key(folder),
         device,
         rows,
         len(frame),
@@ -560,7 +719,7 @@ def _keep(key: tuple, value: object) -> None:
 
 
 def trace_tile(
-    folder: Path,
+    folder: Source,
     frame: pd.DataFrame,
     device: str,
     rows: tuple[int, ...],
@@ -568,38 +727,38 @@ def trace_tile(
 ) -> Data1DResult:
     """The tile's trace: one shot's, or its shots' sample-by-sample mean.
 
-    ``geecs_data_utils.io.shot_traces.average_trace_rows``: shots the
+    ``geecs_data_utils.io.shot_traces.average_trace_scan_rows``: shots the
     device missed, or whose file is missing or unreadable, are left out;
     a bin whose shots' x axes differ has no mean (nothing is resampled).
     Remembered as :func:`kept_tile_array` is, until the folder changes.
+    *folder* is one scan's, or a :class:`ScanSet`.
 
     Raises
     ------
     NoImage
         No shot of the tile has a trace, or the axes differ; the reason.
     """
-    probe = trace_device(folder, device)
+    parts = _parts(folder, frame, rows)
+    probes = [trace_device(p.scan_folder, device) for p in parts]
 
     def compute() -> Data1DResult:
-        found = shot_traces.average_trace_rows(
-            folder, frame, device, rows, channel, probe
-        )
+        found = shot_traces.average_trace_scan_rows(parts, device, channel, probes)
         if found.result is None:
             raise NoImage(found.reason or found.kind)
         found.result.data.flags.writeable = False  # shared between requests
         return found.result
 
-    stamp = _folder_stamp(folder, device)
+    stamp = _source_stamp(folder, device)
     if stamp is None:
         return compute()
-    key = ("trace", str(folder), device, rows, len(frame), stamp, channel)
+    key = ("trace", _source_key(folder), device, rows, len(frame), stamp, channel)
     found = _remembered(key, compute)
     assert isinstance(found, Data1DResult)
     return found
 
 
 def trace_levels(
-    folder: Path,
+    folder: Source,
     frame: pd.DataFrame,
     device: str,
     tiles: list[Tile],
@@ -657,7 +816,7 @@ def crop(pixels: np.ndarray, roi: Optional[Roi]) -> np.ndarray:
 
 
 def shared_levels(
-    folder: Path,
+    folder: Source,
     frame: pd.DataFrame,
     device: str,
     tiles: list[Tile],

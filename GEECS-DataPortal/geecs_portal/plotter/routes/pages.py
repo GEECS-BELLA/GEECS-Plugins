@@ -33,12 +33,17 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from geecs_data_utils.data.image_prep import ImagePrep
-from geecs_data_utils.data.scan_merge import SCAN_COLUMN
+from geecs_data_utils.data.scan_merge import (
+    SCAN_COLUMN,
+    default_bin_tolerance,
+    merge_scan_frames,
+)
 from geecs_data_utils.tiled_catalog import RunDetail
 
 from geecs_portal.plotter import figures, images, maps, multi, scans
 from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.routes.images import (
+    multi_query,
     prep_query,
     strip_axis,
     strip_code,
@@ -210,7 +215,7 @@ def _render(
         except HTTPException as missing:
             page["error"] = missing.detail
         else:
-            extras = _extra_runs(ctx, page) if page["page"] == "plot" else []
+            extras = _extra_runs(ctx, page)
             _fill(page, run, settings, ctx.experiment, ctx.logbook_send, extras)
     return ctx.templates.TemplateResponse(
         request,
@@ -452,6 +457,11 @@ def _page(
         "bg_scan": settings.image_bg.scan if settings.image_bg else None,
         "trace": "",
         "strip_code": "",
+        # Several scans merged: the tolerance saved (None: auto), the auto
+        # value, and on the Images page how they pooled.
+        "mtol": settings.merge_tolerance,
+        "auto_tol": "",
+        "pooled": None,
     }
 
 
@@ -485,7 +495,7 @@ def _fill(
     settings: PlotterSettings,
     experiment: str = "",
     logbook_send: bool = False,
-    extras: Sequence[tuple[date, int, pd.DataFrame]] = (),
+    extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]] = (),
 ) -> None:
     """Add the open scan's lists and the picks the settings resolve to.
 
@@ -495,14 +505,14 @@ def _fill(
     """
     frame = scans.load_frame(run)
     picks = scans.columns(frame)
-    if extras and page["tab"] == "xy":
-        frames = {"main": frame, **{(d, n): f for d, n, f in extras}}
+    if extras and page["tab"] in ("xy", "images"):
+        frames = {"main": frame, **{(d, n): f for d, n, f, _ in extras}}
         page["coverage"] = multi.column_coverage(frames)
         page["scan_total"] = len(frames)
         # A shot filter, or X, may name the scan itself.
         page["coverage"][SCAN_COLUMN] = len(frames)  # the merge tags every row
         picks = list(page["coverage"])
-        page["scans_text"] = ",".join(f"{d.isoformat()}:{n}" for d, n, _ in extras)
+        page["scans_text"] = ",".join(f"{d.isoformat()}:{n}" for d, n, _, _ in extras)
     page["columns"] = picks
     # the condition columns' labels, for the shot filters' label menu
     page["condition_labels"] = scans.condition_labels(run, frame)
@@ -560,12 +570,16 @@ def _fill(
         page["caption"] += f", {page['scan_total']} scans ({page['scan_view']})"
     if page["tab"] == "map":
         _fill_map(page, run, picks, settings)
+    if page["scans_text"]:
+        _fill_pooling(page, run, frame, settings, extras)
     if page["tab"] == "images":
         # After the picks: a strip of one shot per bin may pick by Y1.
-        _fill_images(page, run, frame, settings, experiment)
+        _fill_images(page, run, frame, settings, experiment, extras)
 
 
-def _extra_runs(ctx: Context, page: dict) -> list[tuple[date, int, pd.DataFrame]]:
+def _extra_runs(
+    ctx: Context, page: dict
+) -> list[tuple[date, int, pd.DataFrame, RunDetail]]:
     """The extra scans found on the share, with their frames; the rest marked missing."""
     found = []
     for chip in page["extra_scans"]:
@@ -574,7 +588,7 @@ def _extra_runs(ctx: Context, page: dict) -> list[tuple[date, int, pd.DataFrame]
         except HTTPException:
             chip["missing"] = True
             continue
-        found.append((chip["day"], chip["scan"], scans.load_frame(run)))
+        found.append((chip["day"], chip["scan"], scans.load_frame(run), run))
         # The figure colours the scans found, the main one first.
         chip["trace"] = len(found) + 1
     return found
@@ -610,8 +624,36 @@ def _fill_map(
     )
 
 
+def _fill_pooling(
+    page: dict,
+    run: RunDetail,
+    frame,
+    settings: PlotterSettings,
+    extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]],
+) -> None:
+    """The merged scans' pooling: the tolerance saved and the one it defaults to.
+
+    ``scan_merge.default_bin_tolerance`` over the merged frame by the X the
+    bins are placed by (the Plot page's X, the Images page's scan
+    variable): half the smallest step of any one scan.
+    """
+    page["mtol"] = settings.merge_tolerance
+    x = page["x"] if page["tab"] == "xy" else strip_axis(run, frame)[0]
+    merged = merge_scan_frames(
+        {(page["day"], page["scan"]): frame, **{(d, n): f for d, n, f, _ in extras}}
+    )
+    page["auto_tol"] = (
+        f"{default_bin_tolerance(merged, x):.4g}" if x and x in merged else "0"
+    )
+
+
 def _fill_images(
-    page: dict, run: RunDetail, frame, settings: PlotterSettings, experiment: str
+    page: dict,
+    run: RunDetail,
+    frame,
+    settings: PlotterSettings,
+    experiment: str,
+    extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]] = (),
 ) -> None:
     """Add the device list and one row per camera (``cams``), each with its tiles.
 
@@ -621,6 +663,12 @@ def _fill_images(
     bin by bin. The first row's values are also the page's own keys
     (``device``, ``tiles``, ...), which the big view and the notebook code
     read.
+
+    With the set's extra scans (*extras*, found on the share) the strip
+    is every scan's shots: an :class:`images.ScanSet`, its bins the merged
+    scans' one bin number (each scan's bins by the scan variable, the same
+    setting pooled within ``merge_tolerance``). The devices, conditions
+    and background are the open scan's.
     """
     folder = scans.scan_folder(run)
     devices = images.devices(folder)
@@ -635,8 +683,9 @@ def _fill_images(
     ]
     looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
     x, page["strip_x"] = strip_axis(run, frame, settings.x_alias)
+    source, frame = _strip_source(page, run, frame, folder, x, settings, extras)
     page["cams"] = cams = [
-        _camera_row(page, run, frame, settings, folder, devices, look, place, x)
+        _camera_row(page, run, frame, settings, folder, devices, look, place, x, source)
         for place, look in enumerate(looks, 1)
     ]
     # The shot filters keep the same shots here as on the Plot page.
@@ -666,10 +715,13 @@ def _fill_images(
     except images.NoImage:
         missing = []
     if missing:
-        # The Plot page may filter merged scans; here, one scan.
+        # The Plot page's filters may name columns these scans lack.
         page["filter_pass"] = (
             page["filter_pass"] + " · " if page["filter_pass"] else ""
-        ) + f"not in this scan, so left out: {', '.join(missing)}"
+        ) + (
+            f"not in {'these scans' if extras else 'this scan'}, "
+            f"so left out: {', '.join(missing)}"
+        )
     first = cams[0]
     page.update(
         device=first["device"],
@@ -690,6 +742,8 @@ def _fill_images(
             experiment,
             first["channel"],
             first["pick_by"],
+            _strip_refs(page, extras),
+            settings.merge_tolerance,
         )
     elif first["tiles"]:
         prep = ImagePrep(hits=first["hits"], centre=first["centre"])
@@ -701,7 +755,48 @@ def _fill_images(
             experiment,
             first["pick_by"],
             prep,
+            _strip_refs(page, extras),
+            settings.merge_tolerance,
         )
+
+
+def _strip_refs(
+    page: dict, extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]]
+) -> list[tuple[date, int]]:
+    """The strip's scans as the snippet names them, the open one first (none alone)."""
+    if not extras:
+        return []
+    return [(page["day"], page["scan"]), *((d, n) for d, n, _, _ in extras)]
+
+
+def _strip_source(
+    page: dict,
+    run: RunDetail,
+    frame,
+    folder,
+    x: Optional[str],
+    settings: PlotterSettings,
+    extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]],
+) -> tuple[images.Source, pd.DataFrame]:
+    """Where the strip's shots come from, and the frame its rows and bins are.
+
+    The open scan alone: its folder and s-file. With extra scans: every
+    scan as one :class:`images.ScanSet` (``page["pooled"]`` says how many
+    and the tolerance it pooled with).
+    """
+    if not extras:
+        return folder, frame
+    parts = (
+        multi.scan_part(run, frame, page["day"], page["scan"]),
+        *(multi.scan_part(r, f, d, n) for d, n, f, r in extras),
+    )
+    found = images.ScanSet.merged(parts, x or None, settings.merge_tolerance)
+    page["pooled"] = {
+        "scans": len(parts),
+        "tolerance": f"{found.tolerance:.4g}",
+        "auto": settings.merge_tolerance is None,
+    }
+    return found, found.frame
 
 
 def _first_look(settings: PlotterSettings) -> ImageCamera:
@@ -741,8 +836,13 @@ def _camera_row(
     look: ImageCamera,
     place: int,
     x: Optional[str],
+    source: Optional[images.Source] = None,
 ) -> dict:
     """One camera's row: its look, its problem or its tiles and URLs.
+
+    *frame* is the strip's (one scan's s-file, or several scans' merged,
+    *source* their :class:`images.ScanSet`); *folder* the open scan's, whose
+    devices are listed.
 
     A saved camera this scan has no folder for is kept (``kept``) so the
     next pick does not erase it. With none saved the row asks for one:
@@ -814,6 +914,9 @@ def _camera_row(
             filters=settings.shot_filters,
             bg=row["bg"],
             channel=row["channel"] if trace else None,
+            source=source,
+            extra=page["scans_text"],
+            mtol=settings.merge_tolerance,
         )
     except HTTPException as missing:
         row["problem"] = missing.detail
@@ -837,6 +940,7 @@ def _camera_row(
             **({"filters": settings.shot_filters} if settings.shot_filters else {}),
             **({"bg": row["bg"]} if row["bg"] else {}),
             **({"channel": row["channel"]} if trace else {}),
+            **multi_query(page["scans_text"], settings.merge_tolerance),
         }
     )
     return row
