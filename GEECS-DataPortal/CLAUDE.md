@@ -952,8 +952,11 @@ the columns line up.
 the strip is every scan's shots, always pooled (the Plot page's overlay /
 merged switch is the XY plot's): `images.ScanSet` (`multi.scan_set` /
 `multi.scan_part`) holds each scan's folder and s-file and their merged
-frame with the merged bin number above, ordered by the open scan's
-variable and pooled within `merge_tolerance`. A row of the merged frame is
+frame with the merged bin number above, placed by the strip's X and
+pooled within `merge_tolerance`. The strip's X is the Plot page's (the
+author, 2026-11-08: the scan variable while autofill is on, else the
+column picked; shot number gives no caption value): the captions' values
+and, pooled, where each scan's bins are placed — `bx=` on every URL. A row of the merged frame is
 a shot of one scan (`ScanSet.locate` / `split`), and every loader takes
 either one scan's folder or a ScanSet (`images.Source`), reading each shot
 from its own scan's folder by its own s-file (Data-Utils'

@@ -45,7 +45,6 @@ from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.routes.images import (
     multi_query,
     prep_query,
-    strip_axis,
     strip_code,
     strip_tiles,
     trace_code,
@@ -638,7 +637,7 @@ def _fill_pooling(
     variable): half the smallest step of any one scan.
     """
     page["mtol"] = settings.merge_tolerance
-    x = page["x"] if page["tab"] == "xy" else strip_axis(run, frame)[0]
+    x = page["x"]  # the Plot page's X, which the Images strip follows too
     merged = merge_scan_frames(
         {(page["day"], page["scan"]): frame, **{(d, n): f for d, n, f, _ in extras}}
     )
@@ -682,7 +681,10 @@ def _fill_images(
         for c in page["conditions"]
     ]
     looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
-    x, page["strip_x"] = strip_axis(run, frame, settings.x_alias)
+    # The strip's X is the Plot page's (the scan variable while autofill
+    # is on): the captions' values, and where pooled bins are placed.
+    x = page["x"]  # "": the shot number, so the captions carry no value
+    page["strip_x"] = page["xnames"].get(x, x) if x else ""
     source, frame = _strip_source(page, run, frame, folder, x, settings, extras)
     page["cams"] = cams = [
         _camera_row(page, run, frame, settings, folder, devices, look, place, x, source)
@@ -744,6 +746,7 @@ def _fill_images(
             first["pick_by"],
             _strip_refs(page, extras),
             settings.merge_tolerance,
+            x or "",
         )
     elif first["tiles"]:
         prep = ImagePrep(hits=first["hits"], centre=first["centre"])
@@ -757,6 +760,7 @@ def _fill_images(
             prep,
             _strip_refs(page, extras),
             settings.merge_tolerance,
+            x or "",
         )
 
 
@@ -940,7 +944,7 @@ def _camera_row(
             **({"filters": settings.shot_filters} if settings.shot_filters else {}),
             **({"bg": row["bg"]} if row["bg"] else {}),
             **({"channel": row["channel"]} if trace else {}),
-            **multi_query(page["scans_text"], settings.merge_tolerance),
+            **multi_query(page["scans_text"], settings.merge_tolerance, x or ""),
         }
     )
     return row

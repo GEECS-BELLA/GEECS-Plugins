@@ -204,15 +204,17 @@ def scan_set(
     refs: Sequence[ScanRef],
     tolerance: Optional[float] = None,
     *,
+    x: Optional[str] = None,
     experiment: str = "",
     base_path: Optional[Path] = None,
     catalog: Optional[FolderScanCatalog] = None,
 ) -> images.ScanSet:
     """The scans of *refs* (the open one first) as one strip's :class:`images.ScanSet`.
 
-    The bins are each scan's own, placed by the first scan's variable
-    (the strip's X) and pooled within *tolerance* (``None``: half the
-    smallest step), as the Images page shows them.
+    The bins are each scan's own, placed by *x* (the page's X; ``None``
+    the first scan's variable, ``""`` scan and bin order) and pooled
+    within *tolerance* (``None``: half the smallest step), as the Images
+    page shows them.
 
     Raises
     ------
@@ -231,5 +233,6 @@ def scan_set(
             raise LookupError(f"no Scan{number:03d} on {day.isoformat()}")
         first_run = first_run or run
         parts.append(scan_part(run, scans.load_frame(run), day, number))
-    x = scans.default_x(first_run, scans.columns(parts[0].frame)) if parts else ""
+    if x is None:
+        x = scans.default_x(first_run, scans.columns(parts[0].frame)) if parts else ""
     return images.ScanSet.merged(tuple(parts), x or None, tolerance)

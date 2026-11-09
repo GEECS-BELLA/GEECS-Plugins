@@ -180,3 +180,39 @@ def test_reading_several_scans_leaves_the_share_untouched(
         )
     after = sorted(str(p) for p in share.rglob("*") if EXPERIMENT in str(p))
     assert after == before
+
+
+def test_the_strip_follows_the_plot_pages_x(
+    client: TestClient, other: Path, share: Path
+) -> None:
+    # A column the plot's X is picked by hand (autofill off): the captions
+    # carry its values and the pooled bins are placed by it.
+    delay = "U_Delay"
+    for day, values in (
+        ("26_1002", [10.0, 10.0, 30.0, 30.0]),
+        ("26_1003", [20.0, 40.0]),
+    ):
+        path = share / EXPERIMENT / "Y2026" / "10-Oct" / day / "analysis" / "s1.txt"
+        frame = pd.read_csv(path, sep="\t")
+        frame[delay] = values
+        frame.to_csv(path, sep="\t", index=False)
+    page = post(
+        client,
+        scan=1,
+        page="images",
+        device=CAM,
+        scans=OTHER,
+        strip="bins",
+        x=delay,
+        xauto="false",
+        mtol="0",
+    )
+    # By the delay the four bins interleave the scans: 10, 20, 30, 40
+    # (a tolerance of 0: the default, half the step of 20, would pool pairs).
+    import re
+
+    captions = re.findall(r'data-caption="([^"]*)"', page)
+    assert len(captions) == 4, (captions, re.findall(r'class="m">([^<]*)', page))
+    assert "20 · 10-03 S001 · 1 shot" in captions
+    assert "bx=U_Delay" in page
+    assert f"vs {delay}" in page
