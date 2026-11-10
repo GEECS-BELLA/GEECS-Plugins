@@ -22,6 +22,16 @@ states:
     - {device: U_DG645, variable: Amplitude.Ch AB, value: '0.5'}
 """,
     "scanner_configs/experiments/Bench/shot_control_configurations/spare.yml": "schema_version: 2\nname: spare\n",
+    # a bare OFF: key, which YAML 1.1 reads as a boolean (the model maps it back)
+    "scanner_configs/experiments/Bench/shot_control_configurations/bare_off.yaml": """\
+schema_version: 2
+name: bare_off
+states:
+  OFF:
+    - {device: U_DG645, variable: Amplitude.Ch AB, value: '0.5'}
+  SCAN:
+    - {device: U_DG645, variable: Amplitude.Ch AB, value: '4.0'}
+""",
     # the legacy dialect (no schema_version), which the reader converts
     "scanner_configs/experiments/Bench/shot_control_configurations/legacy.yaml": """\
 device: U_DG645

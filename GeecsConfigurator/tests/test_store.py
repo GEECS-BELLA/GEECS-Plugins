@@ -19,6 +19,7 @@ def test_every_suffix_is_listed_and_ids_are_paths(root: Path) -> None:
     store = DocumentStore(root)
     assert store.experiments() == ["Bench", "Empty"]
     assert [e.id for e in store.list("trigger_profile", "Bench")] == [
+        "bare_off.yaml",
         "laser_off.yaml",
         "legacy.yaml",
         "spare.yml",

@@ -117,3 +117,42 @@ def test_the_page_and_the_service_diff_alike() -> None:
     assert [c["path"] for c in js[8]["changes"]] == [
         ["variables", "jet_z", "description"]
     ]
+
+
+def test_an_optional_union_keeps_its_variants_tier() -> None:
+    """Optional[A | B]: both diffs see the union under the null, and A's maintainer field."""
+    schema = {
+        "type": "object",
+        "tier": "operator",
+        "$defs": {
+            "A": {
+                "type": "object",
+                "properties": {
+                    "k": {"const": "a"},
+                    "v": {"type": "number", "tier": "maintainer"},
+                },
+                "required": ["k"],
+            },  # fmt: skip
+            "B": {
+                "type": "object",
+                "properties": {"k": {"const": "b"}, "w": {"type": "number"}},
+                "required": ["k"],
+            },  # fmt: skip
+        },
+        "properties": {
+            "x": {
+                "anyOf": [
+                    {"$ref": "#/$defs/A"},
+                    {"$ref": "#/$defs/B"},
+                    {"type": "null"},
+                ],
+                "default": None,
+            }
+        },  # fmt: skip
+    }
+    cases = [({"x": {"k": "a", "v": 1}}, {"x": {"k": "a", "v": 2}}), ({"x": None}, {"x": {"k": "a", "v": 1}})]  # fmt: skip
+    done = subprocess.run(["node", "-e", _HARNESS, str(static_dir() / "form.js")], input=json.dumps([[schema, b, a] for b, a in cases]), text=True, capture_output=True, timeout=30)  # fmt: skip
+    for (b, a), page in zip(cases, json.loads(done.stdout)):
+        service = diff_documents(b, a, schema)
+        assert [(c["path"], c["tier"]) for c in page["changes"]] == [(c.path, c.tier) for c in service]  # fmt: skip
+        assert page["tier"] == "maintainer"

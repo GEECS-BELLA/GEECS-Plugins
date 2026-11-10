@@ -132,3 +132,16 @@ def test_the_registry_has_every_reader(client: TestClient) -> None:
     for kind in ("native_devices", "panel_devices"):
         names = " ".join(c["name"] for c in kinds[kind]["consumers"])
         assert "Canopy's directory" in names and "archiver" in names and "Control Room" in names  # fmt: skip
+
+
+def test_an_unedited_file_with_a_bare_off_key_validates_and_diffs_empty(
+    client: TestClient,
+) -> None:
+    served = client.get(
+        "/api/documents/trigger_profile/bare_off.yaml?experiment=Bench"
+    ).json()
+    assert served["valid"] and set(served["document"]["states"]) == {"OFF", "SCAN"}
+    report = client.post("/api/validate/trigger_profile", json={"document": served["document"], "id": "bare_off.yaml"}).json()  # fmt: skip
+    assert report == {"ok": True, "errors": []}
+    d = client.post("/api/diff/trigger_profile/bare_off.yaml?experiment=Bench", json={"document": served["document"]}).json()  # fmt: skip
+    assert (d["changes"], d["tier"]) == ([], None)

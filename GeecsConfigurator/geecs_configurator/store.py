@@ -124,6 +124,13 @@ def _errors(exc: ValidationError) -> list[Error]:
     return [Error(loc=list(e["loc"]), msg=e["msg"]) for e in exc.errors()]
 
 
+def _odd_keys(value: Json) -> bool:
+    """Whether a parsed YAML value holds a mapping key that is not a string (a YAML 1.1 boolean or a number)."""
+    if isinstance(value, dict):
+        return any(not isinstance(k, str) or _odd_keys(v) for k, v in value.items())
+    return isinstance(value, list) and any(_odd_keys(v) for v in value)
+
+
 def _one_line(exc: BaseException) -> str:
     return " ".join(str(exc).split())[:240] or type(exc).__name__
 
@@ -268,6 +275,14 @@ class DocumentStore:
                     LEGACY,
                 )
             raw, note = profile.model_dump(mode="json"), LEGACY
+        if _odd_keys(raw):
+            # YAML 1.1 reads a bare OFF: / ON: key as a boolean, which JSON would serve as "false": the document is
+            # served as the model reads it (its own key normalization), so the page, validate and diff agree on an
+            # unedited file
+            try:
+                raw = SCHEMA_REGISTRY[kind].model_validate(raw).model_dump(mode="json", exclude_unset=True)  # fmt: skip
+            except ValidationError as exc:
+                return raw, _errors(exc), note
         return raw, self.validate(kind, raw, stem=path.stem).errors, note
 
     @staticmethod
@@ -357,9 +372,12 @@ def _unwrap(s: Json, root: Json) -> Json:
     union = s.get("anyOf") or s.get("oneOf")
     if union:
         rest = [m for m in union if _deref(m, root).get("type") != "null"]
-        if len(rest) == 1 and len(rest) < len(union):
+        if len(rest) < len(union):
             outer = {k: s[k] for k in ("title", "description", "default", "tier") if k in s}  # fmt: skip
-            return {**_deref(rest[0], root), **outer}
+            if len(rest) == 1:
+                return {**_deref(rest[0], root), **outer}
+            # Optional[A | B]: the union without its null, as form.js unwraps it
+            return {**{k: v for k, v in s.items() if k != "oneOf"}, "anyOf": rest}
     return s
 
 
