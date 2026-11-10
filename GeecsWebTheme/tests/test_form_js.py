@@ -294,3 +294,221 @@ def test_errors_are_drawn_at_the_field(mounted: dict) -> None:
 def test_read_only_offers_no_edit(mounted: dict) -> None:
     buttons, disabled = mounted["readOnly"]
     assert buttons == 0 and disabled
+
+
+# ---------------------------------------------------------------------------
+# The shapes behind review round 1 on #1311: an undiscriminated union, a
+# union with a structured member, an open object, a patternProperties map,
+# optional and nullable scalars, a maintainer field inside list items and
+# inside one variant, an unknown tier.
+
+SHAPES = {
+    "type": "object",
+    "tier": "operator",
+    "$defs": {
+        "Real": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "kind": {"enum": ["real"], "type": "string", "default": "real"},
+                "target": {"type": "string"},
+                "word": {"anyOf": [{"type": "string"}, {"type": "number"}]},
+            },
+            "required": ["target"],
+        },
+        "Pseudo": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "kind": {"enum": ["pseudo"], "type": "string"},
+                "expr": {"type": "string"},
+                "owner": {"type": "string", "tier": "maintainer"},
+            },
+            "required": ["kind", "expr"],
+        },
+        "Grant": {
+            "type": "object",
+            "properties": {
+                "who": {"type": "string"},
+                "scope": {"type": "string", "tier": "maintainer"},
+            },  # fmt: skip
+            "required": ["who"],
+        },
+        "Step": {
+            "type": "object",
+            "properties": {"step": {"type": "string"}},
+            "additionalProperties": True,
+        },
+    },
+    "properties": {
+        "variables": {
+            "type": "object",
+            "additionalProperties": {
+                "anyOf": [{"$ref": "#/$defs/Real"}, {"$ref": "#/$defs/Pseudo"}]
+            },
+        },  # fmt: skip
+        "range": {
+            "anyOf": [
+                {"type": "array", "items": {"type": "number"}},
+                {"type": "string"},
+            ]
+        },  # fmt: skip
+        "steps": {"type": "array", "items": {"$ref": "#/$defs/Step"}},
+        "roles": {
+            "type": "object",
+            "patternProperties": {"^[a-z]+$": {"type": "string"}},
+        },  # fmt: skip
+        "note": {"type": "string"},
+        "trigger": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
+        "count": {"type": "integer"},
+        "grants": {"type": "array", "items": {"$ref": "#/$defs/Grant"}},
+        "odd": {"type": "string", "tier": "wizard"},
+    },
+}
+
+SHAPES_DOC = {
+    "variables": {
+        "a": {"kind": "real", "target": "U_S1H:Current", "word": "4.0"},
+        "b": {"kind": "pseudo", "expr": "a * 2", "owner": "ops"},
+    },
+    "range": [3, 6],
+    "steps": [{"step": "roi", "x": 1, "corners": [1, 2], "label": "1"}],
+    "roles": {"cam": "camera"},
+    "trigger": None,
+    "grants": [{"who": "op", "scope": "all"}],
+}
+
+_SHAPES = r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const t = F.tree(S, D);
+const by = (n, k) => n.children.find((c) => String(c.key) === k);
+const vars = by(t, "variables");
+const step0 = by(t, "steps").items[0];
+const errs = [
+  { loc: ["variables", "a", "Real", "target"], msg: "missing" },
+  { loc: ["variables", "b", "Pseudo", "bogus"], msg: "extra" },
+  { loc: ["steps", 0, "corners", 1], msg: "deep" },
+  { loc: [], msg: "whole" },
+];
+console.log(JSON.stringify({
+  picked: vars.items.map((n) => [n.choice.prop, n.choice.tag, n.children.map((c) => c.key)]),
+  range: by(t, "range").kind, roles: [by(t, "roles").kind, by(t, "roles").items.map((n) => n.kind)],
+  stepKeys: step0.children.map((c) => [c.key, c.kind, c.extra]),
+  placed: F.placeErrors(t, errs),
+  refused: F.addItem(D, ["roles"], { type: "string" }, S, "cam") === D,
+  addedKey: F.addItem(D, ["roles"], { type: "string" }, S, "dog").roles,
+  unknown: [F.strictest("operator", "wizard"), F.strictest("wizard", "code"), F.diff(D, F.setAt(D, ["odd"], "x"), S).tier],
+  tiers: {
+    removeItem: F.diff(D, F.removeAt(D, ["grants", 0]), S).changes.map((c) => [c.path, c.op, c.tier]),
+    addItem: F.diff(D, F.addItem(D, ["grants"], S.$defs.Grant, S), S).tier,
+    switchVariant: F.diff(D, F.setAt(D, ["variables", "a"], { kind: "pseudo", expr: "1" }), S).changes.map((c) => [c.path, c.op, c.tier]),
+    insideVariant: F.diff(D, F.setAt(D, ["variables", "a", "target"], "U_S2V:Current"), S).changes.map((c) => [c.path, c.tier]),
+  },
+}));
+"""
+
+
+@pytest.fixture(scope="module")
+def shapes() -> dict:
+    return _node(_SHAPES, json.dumps([SHAPES, SHAPES_DOC]))
+
+
+def test_an_undiscriminated_union_is_picked_by_its_structure(shapes: dict) -> None:
+    # no discriminator and no const: the enum value and the closed key set pick the variant
+    assert shapes["picked"] == [[None, "Real", ["kind", "target", "word"]], [None, "Pseudo", ["kind", "expr", "owner"]]]  # fmt: skip
+
+
+def test_a_union_with_a_structured_member_is_json_and_maps_and_open_objects_show_every_key(shapes: dict) -> None:  # fmt: skip
+    assert shapes["range"] == "json"
+    assert shapes["roles"] == ["map", ["string"]]  # one patternProperties is a map
+    # an open object's undeclared keys are drawn, never hidden
+    assert shapes["stepKeys"] == [["step", "string", False], ["x", "any", True], ["corners", "any", True], ["label", "any", True]]  # fmt: skip
+
+
+def test_errors_walk_to_the_nearest_drawn_node(shapes: dict) -> None:
+    assert shapes["placed"] == {
+        "variables.a.target": "missing",  # the variant's class name skipped
+        "variables.b": "extra",  # a key never drawn: its nearest drawn node
+        "steps.0.corners": "deep",  # below a JSON value: the value
+        "": "whole",
+    }
+
+
+def test_an_existing_map_key_is_refused(shapes: dict) -> None:
+    assert shapes["refused"] is True
+    assert shapes["addedKey"] == {"cam": "camera", "dog": ""}
+
+
+def test_an_unknown_tier_ranks_strictest(shapes: dict) -> None:
+    assert shapes["unknown"] == ["wizard", "wizard", "wizard"]
+
+
+def test_a_whole_subtree_takes_the_strictest_tier_inside_it(shapes: dict) -> None:
+    t = shapes["tiers"]
+    assert t["removeItem"] == [[["grants", 0], "remove", "maintainer"]]
+    assert t["addItem"] == "maintainer"
+    assert t["switchVariant"] == [
+        [["variables", "a"], "change", "maintainer"]
+    ]  # Pseudo has a maintainer field
+    assert t["insideVariant"] == [[["variables", "a", "target"], "operator"]]
+
+
+_TOUCH = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const fire = (c, text) => { c.value = text; (c.on.input || c.on.change)({ target: c }); };
+const host = el("div"), form = F.mount(host, { schema: S, value: D });
+const controls = () => walk(host, (n) => ["INPUT", "SELECT", "TEXTAREA"].includes(n.tagName) && n.attrs.disabled === undefined && n.attrs["aria-label"] !== "new key");
+// every enabled control touched with the text it shows: nothing changes
+controls().forEach((c) => fire(c, c.tagName === "TEXTAREA" ? c.textContent : c.value));
+const out = { touched: controls().length, noop: [F.equal(form.value(), D), F.diff(D, form.value(), S).changes] };
+// type, then erase: the stored state comes back (absent stays absent, null stays null)
+["note", "trigger", "count"].forEach((p) => { const c = control(at(host, p)); fire(c, "7"); fire(c, ""); });
+out.erased = [form.value(), F.diff(D, form.value(), S).changes];
+// bad JSON: the field is invalid, the document keeps its last good value
+const range = control(at(host, "range"));
+fire(range, "[3, 6, ");
+out.badJson = [form.invalid(), form.value().range, range.attrs["aria-invalid"]];
+fire(range, "[3, 7]");
+out.goodJson = [form.invalid(), form.value().range];
+// errors draw: a banner at the top and on an item panel
+form.setErrors([{ loc: [], msg: "whole" }, { loc: ["grants", 0], msg: "bad grant" }]);
+out.banners = walk(host, (n) => n.attrs.class === "banner").map((n) => n.textContent);
+// an existing key in "new key" is refused at the control
+const keyIn = walk(at(host, "roles"), (n) => n.attrs["aria-label"] === "new key")[0];
+keyIn.value = "cam"; button(at(host, "roles"), "Add").on.click();
+out.keyRefused = [keyIn.attrs["aria-invalid"], Object.keys(form.value().roles)];
+console.log(JSON.stringify(out));
+"""
+)
+
+
+@pytest.fixture(scope="module")
+def touched() -> dict:
+    return _node(_TOUCH, json.dumps([SHAPES, SHAPES_DOC]))
+
+
+def test_a_no_op_touch_of_every_control_changes_nothing(touched: dict) -> None:
+    assert touched["touched"] > 10
+    assert touched["noop"] == [
+        True,
+        [],
+    ]  # the "4.0" word, [3, 6] and the step parameters survive
+
+
+def test_an_emptied_optional_returns_to_the_stored_state(touched: dict) -> None:
+    value, changes = touched["erased"]
+    assert changes == [] and value["trigger"] is None and "note" not in value and "count" not in value  # fmt: skip
+
+
+def test_json_that_does_not_parse_is_invalid_and_keeps_the_last_good_value(touched: dict) -> None:  # fmt: skip
+    assert touched["badJson"] == [["range"], [3, 6], "true"]
+    assert touched["goodJson"] == [[], [3, 7]]
+
+
+def test_errors_show_as_banners_and_existing_keys_are_refused(touched: dict) -> None:
+    assert touched["banners"] == ["whole", "bad grant"]
+    assert touched["keyRefused"] == ["true", ["cam"]]
