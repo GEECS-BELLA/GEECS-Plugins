@@ -107,8 +107,10 @@ def save_configuration(interlock: InterlockConstructor, path: str | Path) -> Non
         "format": "geecs-interlock",
         "version": 1,
         "experiment": interlock.exp_name,
-        "host": interlock.host,
-        "port": interlock.port,
+        # Network settings are environment-specific; keep them out of saved
+        # files (load_configuration ignores these and uses the live constructor's).
+        "host": "${SERVER_IP}",
+        "port": "${SERVER_PORT}",
         "devices": [
             {
                 "alias": alias,

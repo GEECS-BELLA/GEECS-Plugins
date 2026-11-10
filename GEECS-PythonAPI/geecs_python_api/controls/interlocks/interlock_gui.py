@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import threading
 from collections.abc import Callable, Iterable
@@ -2046,12 +2047,25 @@ def launch_interlock_gui(
 
 def launch_general_interlock_gui(
     host: str | None = None,
-    port: int = 5001,
+    port: int | None = None,
     staleness_timeout_ms: float = 5000,
     title: str = "GEECS Interlock Builder",
 ) -> None:
-    """Prompt for an experiment, then open a blank interlock builder GUI."""
-    bind_host = host or _local_bind_host()
+    """Prompt for an experiment, then open a blank interlock builder GUI.
+
+    ``host`` and ``port`` fall back to the ``SERVER_IP`` / ``SERVER_PORT``
+    environment variables (e.g. loaded from a ``.env`` file). The port must be
+    provided one way or the other; the host falls back to this machine's
+    outbound interface address.
+    """
+    bind_host = host or os.getenv("SERVER_IP") or _local_bind_host()
+    if port is None:
+        env_port = os.getenv("SERVER_PORT")
+        if not env_port:
+            raise ValueError(
+                "No interlock server port given: pass port= or set SERVER_PORT"
+            )
+        port = int(env_port)
     prompt = tk.Tk()
     prompt.title("Select GEECS experiment")
     prompt.geometry("460x170")

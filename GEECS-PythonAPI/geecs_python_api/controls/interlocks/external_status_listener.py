@@ -49,7 +49,7 @@ class ExternalStatusListener:
     """Background UDP listener that tracks the last-known state of an external signal.
 
     Usage:
-        listener = ExternalStatusListener(port=6001, name="stage-motion")
+        listener = ExternalStatusListener(port=UDP_PORT, name="stage-motion")
         listener.start()
         ...
         state = listener.get_state()  # True=unsafe, False=safe, None=no packet yet

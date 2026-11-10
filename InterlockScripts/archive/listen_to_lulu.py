@@ -1,8 +1,12 @@
 """Standalone raw-socket UDP broadcast listener (archived debug script)."""
 
+import os
 import socket
 
-SERVER_PORT = 5005
+from dotenv import load_dotenv
+
+load_dotenv()
+SERVER_PORT = int(os.environ["SERVER_PORT"])
 
 
 def main():

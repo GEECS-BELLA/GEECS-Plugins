@@ -28,7 +28,7 @@ class InterlockConstructor:
         self,
         exp_name: str,
         host: str = "0.0.0.0",
-        port: int = 5001,
+        port: int | None = None,
         staleness_timeout_ms: float = 5000,
     ):
         """
@@ -38,11 +38,16 @@ class InterlockConstructor:
         ----
             exp_name: Experiment name
             host: TCP server host (default '0.0.0.0' = all interfaces)
-            port: TCP server port (default 5001)
+            port: TCP server port (required; typically SERVER_PORT from .env)
             staleness_timeout_ms: Timeout for data staleness detection (default 5000ms).
                                  All interlocks automatically fail-safe if device data
                                  hasn't updated within this duration.
         """
+        if port is None:
+            raise ValueError(
+                "InterlockConstructor requires an explicit port "
+                "(e.g. SERVER_PORT from .env)"
+            )
         self.exp_name = exp_name
         self.host = host
         self.port = port
@@ -122,7 +127,7 @@ class InterlockConstructor:
             this constructor's start() is called).
 
         Example:
-            motion = interlock.add_external_listener(6001, name="stage-motion")
+            motion = interlock.add_external_listener(UDP_PORT, name="stage-motion")
             motion_check = ExternalStatusCheck(motion, label="stage moving")
             interlock.add_monitor("Stage Motion Interlock", motion_check)
         """

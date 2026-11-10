@@ -23,7 +23,11 @@ class InterlockServer:
         server.register_monitor("device1", my_custom_check, interval=0.5)
     """
 
-    def __init__(self, host="0.0.0.0", port=5001):
+    def __init__(self, host: str = "0.0.0.0", port: int | None = None):
+        if port is None:
+            raise ValueError(
+                "InterlockServer requires an explicit port (e.g. SERVER_PORT from .env)"
+            )
         self.host = host
         self.port = port
         self.interlock_flags: Dict[str, bool] = {}

@@ -37,7 +37,7 @@ from geecs_python_api.controls.interlocks import (
 logging.basicConfig(level=logging.INFO)
 
 # Create builder
-builder = InterlockBuilder('BELLA', host='127.0.0.1', port=5001)
+builder = InterlockBuilder('BELLA', host=SERVER_IP, port=SERVER_PORT)  # from .env
 
 # Register device
 cam1 = builder.add_device('cam1', 'CAM-PL1-TapeDrivePointing',

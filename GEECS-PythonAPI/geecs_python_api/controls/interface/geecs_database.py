@@ -184,6 +184,19 @@ class GeecsDatabase:
         }
         return exp_info
 
+    @staticmethod
+    def list_experiments() -> list[str]:
+        """Return experiment names available in the configured GEECS database."""
+        db = GeecsDatabase._get_db()
+        db_cursor = db.cursor(dictionary=True)
+        try:
+            db_cursor.execute(
+                f"SELECT name FROM {GeecsDatabase.name}.expt ORDER BY name;"
+            )
+            return [row["name"] for row in db_cursor.fetchall()]
+        finally:
+            GeecsDatabase._close_db(db, db_cursor)
+
     # --- Query helpers (private) --------------------------------------------
     @staticmethod
     def _find_exp_variables(db_cursor, exp_name: str = "Undulator") -> ExpDict:

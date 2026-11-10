@@ -6,7 +6,7 @@ review, not confirmed-dead code.
 
 - **`thing.ipynb`** — untracked scratch notebook, ad-hoc `CAM-2BL-Aegeaon`
   polling. No apparent production use.
-- **`listen_to_lulu.py`** — standalone raw-socket UDP listener on port 5005;
+- **`listen_to_lulu.py`** — standalone raw-socket UDP listener (port from `.env`);
   doesn't use the interlock library at all. Debug/exploration script.
 - **`dev_interlock.py`** — named "dev," structurally a near-duplicate of
   `tape_interlock.py` with the same camera device. Looks like a scratch

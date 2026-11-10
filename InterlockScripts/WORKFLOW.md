@@ -10,10 +10,10 @@ trees the interlock code needs.
 
 ## The two folders
 
-- **Deploy** — `C:\GEECS\Developers Version\source\GEECS-Plugins` (this
-  checkout). Whatever branch this is on is what's actually running at the
+- **Deploy** — `<repo-root>` (the main `GEECS-Plugins` checkout on the
+  control machine). Whatever branch this is on is what's actually running at the
   experiment. Only bring in changes here once they're tested.
-- **Dev** — `C:\GEECS\Developers Version\source\GEECS-Plugins\_dev-interlocks`,
+- **Dev** — `<repo-root>\_dev-interlocks`,
   on branch `dev/interlocks`. Edit, break, and commit freely here. It's a
   git worktree nested inside the deploy folder (ignored by git — see
   `.gitignore`), sparse-checked-out to only the trees the interlock code
@@ -57,7 +57,7 @@ Notes on the sparse-checkout set:
 - When a change is tested and you trust it, promote it to deploy:
 
   ```powershell
-  cd "C:\GEECS\Developers Version\source\GEECS-Plugins"
+  cd "<repo-root>"
   git merge dev/interlocks          # promote everything tested so far
   # or, for a single change:
   git cherry-pick <commit-hash>
@@ -71,5 +71,5 @@ Notes on the sparse-checkout set:
 If you ever want to tear it down:
 
 ```powershell
-git worktree remove "..\GEECS-Plugins-interlocks-dev"
+git worktree remove "_dev-interlocks"
 ```
