@@ -303,6 +303,21 @@
       </div>
     </section>
 
+    <section id="forms" class="group">
+      <h2>Forms drawn from a schema</h2>
+      <p class="dim"><code>form.js</code> (<code>GeecsForm.mount</code>) draws a document from its JSON
+        Schema with the kit's own parts. A field stricter than its document wears its tier;
+        a field the reader edited wears the accent edge until it is saved.</p>
+      <div class="grid tight">
+        <div class="field" data-changed="true"><label for="k-f1">Default sampling period<span class="req">*</span></label>
+          <input id="k-f1" value="1.0"><span class="err"></span><span class="hint">Seconds between samples.</span></div>
+        <div class="field"><label for="k-f2">Include setpoints<span class="tier" data-tier="maintainer">maintainer</span></label>
+          <select id="k-f2"><option>true</option><option>false</option></select><span class="err"></span></div>
+        <div class="field"><label for="k-f3">Template<span class="tier" data-tier="code">code</span></label>
+          <input id="k-f3" value="fastps" disabled><span class="err"></span></div>
+      </div>
+    </section>
+
     <section id="plots" class="group">
       <h2>Line plots</h2>
       <p class="dim">Every line plot on every surface (a trace, a lineout, a histogram, a

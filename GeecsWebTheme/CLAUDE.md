@@ -102,6 +102,21 @@ device-pages arc's next item; the portal's figures are below.
   sentinels resolved in the page) and load this bundle from its `/theme`
   mount; moving them onto `plot.js` is the portal's own change, not done.
 
+## Forms drawn from a schema: `form.js`
+
+Every editor of a GEECS-Schemas document draws with **`form.js`**
+(`window.GeecsForm`), the one copy, as `plot.js` is for plots: a JSON
+Schema with the `tier` annotations in, kit controls out (`.field`,
+`details.fold`, a `.panel` per list item), the edited document and its diff
+back. `mount(host, {schema, value, readOnly, onChange})`; `diff(before,
+after, schema)` gives every change at a field's path (a reordered list
+included) with the strictest tier on that path, and the strictest overall,
+which decides what a save does. The kit styles its two marks, `.tier` and
+`[data-changed="true"]`. A host never re-implements the rules; a service
+that diffs on its side (the configurator, whose diff a save trusts) holds
+its diff to this one by test. Pinned in
+`tests/test_form_js.py` under node.
+
 ## Adoption status (owner rulings, 2026-09-13)
 
 Theme = paint (tokens, palettes, picker); kit = furniture (shell,
