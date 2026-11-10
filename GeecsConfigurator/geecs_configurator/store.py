@@ -202,7 +202,12 @@ class DocumentStore:
         for doc_id, path in self._files(kind, experiment).items():
             try:
                 errors = self.validate(kind, self._raw(path), stem=path.stem).errors
-            except Exception as exc:  # noqa: BLE001 - a broken file is a row, not a crash
+            except (
+                yaml.YAMLError,
+                ValueError,
+                UnicodeDecodeError,
+                OSError,
+            ) as exc:  # a broken file is a row
                 errors = [Error(loc=[], msg=_one_line(exc))]
             out.append(Entry(id=doc_id, valid=not errors, error=errors[0].msg if errors else None))  # fmt: skip
         return out
