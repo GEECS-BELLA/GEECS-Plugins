@@ -248,11 +248,18 @@
     var t = list[i]; list[i] = list[j]; list[j] = t;
     return setAt(doc, path.slice(0, -1), list);
   }
-  // Switch a union to the variant `tag`: its defaults, keeping the fields the two variants share.
+  // Switch a union to the variant `tag`: its defaults, its fixed values (a const, a one-value enum) set, and the old
+  // value's fields the new variant declares kept, unless the new variant fixes them to something the old value fails:
+  // the result fits the chosen variant, never a hybrid of the two.
   function choose(doc, path, unionSchema, tag, root) {
     var vs = variants(unwrap(unionSchema, root).schema, root), v = vs.list.filter(function (x) { return x.tag === tag; })[0];
-    var next = defaultFor(v.schema, root), old = getAt(doc, path) || {};
-    Object.keys(v.schema.properties || {}).forEach(function (k) { if (k !== vs.prop && old[k] !== undefined) next[k] = old[k]; });
+    var next = defaultFor(v.schema, root), old = getAt(doc, path) || {}, props = v.schema.properties || {};
+    Object.keys(props).forEach(function (k) {
+      var p = deref(props[k], root);
+      if (p.const !== undefined) next[k] = p.const;
+      else if (p.enum && p.enum.length === 1) next[k] = p.enum[0];
+      else if (old[k] !== undefined && k !== vs.prop && !(p.enum && p.enum.indexOf(old[k]) < 0)) next[k] = old[k];
+    });
     if (vs.prop) next[vs.prop] = tag;
     return setAt(doc, path, next);
   }
@@ -288,8 +295,10 @@
   // whole subtree's add, remove, set, clear or variant switch, the strictest declared anywhere in its schema.
   function diff(before, after, schema) {
     var root = schema, changes = [];
-    function push(sc, b, a, path, tier) {
-      if (isObj(b) || Array.isArray(b) || isObj(a) || Array.isArray(a)) tier = strictest(tier, tierIn(sc, root));
+    // A whole subtree's change takes the strictest tier inside it: the schemas involved (for a union, the variants
+    // the two sides hold, not every variant).
+    function push(schemas, b, a, path, tier) {
+      if (isObj(b) || Array.isArray(b) || isObj(a) || Array.isArray(a)) schemas.forEach(function (x) { tier = strictest(tier, tierIn(x, root)); });
       changes.push({ path: path, op: b === undefined ? "add" : a === undefined ? "remove" : "change", before: b, after: a, tier: tier });
     }
     (function walk(s, b, a, path, tier) {
@@ -299,7 +308,7 @@
       var vs = variants(sc, root);
       if (vs) {
         var vb = isObj(b) && pick(vs, b, root), va = isObj(a) && pick(vs, a, root);
-        if (!vb || !va || vb.tag !== va.tag) return push(sc, b, a, path, tier);
+        if (!vb || !va || vb.tag !== va.tag) return push([vb, va].filter(Boolean).map(function (v) { return v.schema; }), b, a, path, tier);
         sc = va.schema;
       }
       if (isObj(b) && isObj(a)) {
@@ -309,7 +318,7 @@
       } else if (Array.isArray(b) && Array.isArray(a)) {
         for (var i = 0; i < Math.max(b.length, a.length); i++) walk(sc.items || {}, b[i], a[i], path.concat([i]), tier);
       } else {
-        push(sc, b, a, path, tier);
+        push([sc], b, a, path, tier);
       }
     })(schema, before, after, [], null);
     return { changes: changes, tier: changes.reduce(function (t, c) { return strictest(t, c.tier); }, null) };
@@ -318,17 +327,26 @@
   // Validation errors ({loc, msg}, pydantic's locations) by the drawn node they belong to: each location is walked
   // down the tree as far as it goes, a segment that is not a field of a chosen variant (its tag or class name) being
   // skipped, so every error lands at its nearest drawn node ("" is the document itself).
+  // An error naming a variant the union does not draw goes to the union's own banner, and is dropped when the drawn
+  // variant has errors of its own (pydantic reports every variant's failure; only the drawn one is the operator's).
   function placeErrors(t, errors) {
-    var out = {};
+    var out = {}, other = {}, drawn = {};
     (errors || []).forEach(function (e) {
-      var loc = Array.isArray(e.loc) ? e.loc : String(e.loc || "").split(".").filter(Boolean), n = t;
+      var loc = Array.isArray(e.loc) ? e.loc : String(e.loc || "").split(".").filter(Boolean), n = t, elsewhere = false;
       for (var i = 0; i < loc.length; i++) {
         var kids = (n.children || []).concat(n.items || []);
         var next = kids.filter(function (c) { return String(c.key) === String(loc[i]); })[0];
-        if (next) n = next; else if (!n.choice) break;
+        if (next) { n = next; continue; }
+        if (!n.choice) break;
+        if (String(loc[i]) !== String(n.choice.tag) && n.choice.tags.map(String).indexOf(String(loc[i])) >= 0) { elsewhere = true; break; }
+        if (String(loc[i]) === String(n.choice.tag)) drawn[pathKey(n.path)] = true;
       }
-      var key = pathKey(n.path);
-      out[key] = out[key] ? out[key] + "; " + e.msg : e.msg;
+      var key = pathKey(n.path), into = elsewhere ? other : out;
+      into[key] = into[key] ? into[key] + "; " + e.msg : e.msg;
+    });
+    Object.keys(other).forEach(function (key) {
+      var own = drawn[key] || Object.keys(out).some(function (k) { return k !== key && k.indexOf(key === "" ? "" : key + ".") === 0; });
+      if (!own) out[key] = out[key] ? out[key] + "; " + other[key] : other[key];
     });
     return out;
   }
@@ -353,15 +371,24 @@
     var schema = opts.schema, root = schema, original = clone(opts.original !== undefined ? opts.original : opts.value);
     var doc = clone(opts.value), errors = {}, bad = {}, ro = !!opts.readOnly;
     function changed(path) { return !equal(getAt(original, path), getAt(doc, path)); }
-    function update(next, redraw) { doc = next; if (redraw) draw(); if (opts.onChange) opts.onChange(clone(doc)); }
+    // A structural edit at `at` (a path) redraws, and forgets the unparsed text under it: those fields moved or went.
+    function update(next, at) {
+      doc = next;
+      if (at) {
+        var p = pathKey(at);
+        Object.keys(bad).forEach(function (k) { if (p === "" || k === p || k.indexOf(p + ".") === 0) delete bad[k]; });
+        draw();
+      }
+      if (opts.onChange) opts.onChange(clone(doc));
+    }
     function btn(label, onclick, title) { return ro ? null : h("button", { type: "button", class: "btn sm ghost", title: title, onclick: onclick, text: label }); }
 
     function control(n, id, err) {
       var dis = ro || n.kind === "const";
       var onIn = function (ev) {
         var c = ev.target, key = pathKey(n.path), next;
-        try { next = readBack(n, c.value, getAt(original, n.path)); delete bad[key]; } catch (e) { bad[key] = "not JSON: " + e.message; }
-        if (bad[key]) { c.setAttribute("aria-invalid", "true"); err.textContent = bad[key]; return; }
+        try { next = readBack(n, c.value, getAt(original, n.path)); delete bad[key]; } catch (e) { bad[key] = { text: c.value, msg: "not JSON: " + e.message }; }
+        if (bad[key]) { c.setAttribute("aria-invalid", "true"); err.textContent = bad[key].msg; return; }
         c.setAttribute("aria-invalid", "false"); err.textContent = "";
         update(setAt(doc, n.path, next));
         if (c.parentNode && c.parentNode.setAttribute) c.parentNode.setAttribute("data-changed", String(changed(n.path)));
@@ -371,7 +398,8 @@
         if (!n.required || n.value === undefined) choices = [""].concat(choices);
         return h("select", { id: id, disabled: dis, onchange: onIn }, choices.map(function (o) { return h("option", { value: o, selected: String(n.value ?? "") === o, text: o === "" ? unsetText(n) : o }); }));
       }
-      var text = n.kind === "const" ? String(n.constValue) : display(n.kind, n.value);
+      // unparsed text survives a redraw, so the field still shows what its error is about
+      var text = bad[pathKey(n.path)] ? bad[pathKey(n.path)].text : n.kind === "const" ? String(n.constValue) : display(n.kind, n.value);
       if (n.kind === "json" || (n.kind === "string" && (text.length > 60 || /description|expression/.test(String(n.key))))) {
         return h("textarea", { id: id, rows: n.kind === "json" ? Math.min(8, text.split("\n").length + 1) : 2, spellcheck: "false", disabled: dis, oninput: onIn, text: text });
       }
@@ -380,7 +408,7 @@
       return input;
     }
     function scalar(n, tools) {
-      var id = "gf-" + (++ids), key = pathKey(n.path), msg = bad[key] || errors[key], err = h("span", { class: "err", text: msg || "" }), c = control(n, id, err);
+      var id = "gf-" + (++ids), key = pathKey(n.path), msg = (bad[key] && bad[key].msg) || errors[key], err = h("span", { class: "err", text: msg || "" }), c = control(n, id, err);
       if (msg) c.setAttribute("aria-invalid", "true");
       return h("div", { class: "field", "data-path": key, "data-changed": String(changed(n.path)) }, [
         h("label", { for: id }, [document.createTextNode(n.label), n.required ? h("span", { class: "req", text: "*" }) : null, tierMark(n)]),
@@ -407,21 +435,21 @@
         if (!keyIn.value) return;
         var next = addItem(doc, n.path, n.itemSchema, root, keyIn.value);
         if (next === doc) { keyIn.setAttribute("aria-invalid", "true"); keyIn.setAttribute("title", "that key exists"); return; }
-        update(next, true);
+        update(next, n.path);
       })];
     }
     function draw1(n, inPanel) {
       var complex = ["object", "union", "array", "map"].indexOf(n.kind) >= 0;
-      var remove = n.extra ? btn("Remove", function () { update(removeAt(doc, n.path), true); }) : null;
+      var remove = n.extra ? btn("Remove", function () { update(removeAt(doc, n.path), n.path); }) : null;
       if (!complex) return { el: scalar(n, [remove]) };
-      if (n.unset) return { complex: true, el: fold(n, h("p", { class: "dim", text: "not set" }), [btn("Set", function () { update(setAt(doc, n.path, defaultFor(Object.assign({}, n.schema, { default: undefined }), root)), true); })]) };
-      var clear = n.nullable || (!n.required && !n.extra && n.path.length) ? btn("Clear", function () { update(n.nullable ? setAt(doc, n.path, null) : removeAt(doc, n.path), true); }) : null;
+      if (n.unset) return { complex: true, el: fold(n, h("p", { class: "dim", text: "not set" }), [btn("Set", function () { update(setAt(doc, n.path, defaultFor(Object.assign({}, n.schema, { default: undefined }), root)), n.path); })]) };
+      var clear = n.nullable || (!n.required && !n.extra && n.path.length) ? btn("Clear", function () { update(n.nullable ? setAt(doc, n.path, null) : removeAt(doc, n.path), n.path); }) : null;
       if (n.kind === "object" || n.kind === "union") {
         var kids = n.children.map(function (c) { return draw1(c); });
         if (n.choice) {
           var cid = "gf-" + (++ids);
           kids.unshift({ el: h("div", { class: "field" }, [h("label", { for: cid, text: n.choice.prop ? humanize(n.choice.prop) : "Variant" }),
-            h("select", { id: cid, disabled: ro, onchange: function (ev) { update(choose(doc, n.path, n.schema, ev.target.value, root), true); } },
+            h("select", { id: cid, disabled: ro, onchange: function (ev) { update(choose(doc, n.path, n.schema, ev.target.value, root), n.path); } },
               n.choice.tags.map(function (t) { return h("option", { value: t, selected: t === n.choice.tag, text: t }); }))]) });
         }
         var body = group(kids), tools = [clear, remove].concat(n.itemSchema && Object.keys(n.itemSchema).length ? keyAdder(n) : []);
@@ -431,9 +459,9 @@
       // an array or a map: one panel per item, its tools in the panel's header
       var items = n.items.map(function (it, i) {
         var last = n.items.length - 1, isList = n.kind === "array";
-        var tools = [isList && i > 0 ? btn("Up", function () { update(moveItem(doc, it.path, -1), true); }, "move up") : null,
-          isList && i < last ? btn("Down", function () { update(moveItem(doc, it.path, +1), true); }, "move down") : null,
-          btn("Remove", function () { update(removeAt(doc, it.path), true); })];
+        var tools = [isList && i > 0 ? btn("Up", function () { update(moveItem(doc, it.path, -1), n.path); }, "move up") : null,
+          isList && i < last ? btn("Down", function () { update(moveItem(doc, it.path, +1), n.path); }, "move down") : null,
+          btn("Remove", function () { update(removeAt(doc, it.path), n.path); })];
         var title = isList ? "#" + (i + 1) + (it.choice ? " · " + it.choice.tag : "") : String(it.key);
         var inner = draw1(it, true), complexItem = ["object", "union", "array", "map"].indexOf(it.kind) >= 0;
         return h("div", { class: "panel", "data-path": pathKey(it.path), "data-changed": String(changed(it.path)) }, [
@@ -441,7 +469,7 @@
           h("div", { class: "body" }, [complexItem ? banner(errors[pathKey(it.path)]) : null, inner.el]),
         ]);
       });
-      var addTools = n.kind === "array" ? [ro ? null : btn("Add", function () { update(addItem(doc, n.path, n.itemSchema, root), true); })] : keyAdder(n);
+      var addTools = n.kind === "array" ? [ro ? null : btn("Add", function () { update(addItem(doc, n.path, n.itemSchema, root), n.path); })] : keyAdder(n);
       return { complex: true, el: fold(n, h("div", { class: "group" }, items), addTools.concat([clear, remove])) };
     }
     function draw() {

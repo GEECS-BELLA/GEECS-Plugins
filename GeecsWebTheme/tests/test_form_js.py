@@ -363,6 +363,15 @@ SHAPES = {
         "count": {"type": "integer"},
         "grants": {"type": "array", "items": {"$ref": "#/$defs/Grant"}},
         "odd": {"type": "string", "tier": "wizard"},
+        "rows": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    {"type": "array", "items": {"type": "number"}},
+                    {"type": "string"},
+                ]
+            },
+        },  # fmt: skip
     },
 }
 
@@ -376,6 +385,7 @@ SHAPES_DOC = {
     "roles": {"cam": "camera"},
     "trigger": None,
     "grants": [{"who": "op", "scope": "all"}],
+    "rows": [[1], [2]],
 }
 
 _SHAPES = r"""
@@ -512,3 +522,72 @@ def test_json_that_does_not_parse_is_invalid_and_keeps_the_last_good_value(touch
 def test_errors_show_as_banners_and_existing_keys_are_refused(touched: dict) -> None:
     assert touched["banners"] == ["whole", "bad grant"]
     assert touched["keyRefused"] == ["true", ["cam"]]
+
+
+_ROUND2 = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const U = S.properties.variables.additionalProperties;
+const pickedTag = (doc, key) => F.tree(S, doc).children.find((c) => c.key === "variables").items.find((n) => n.key === key).choice.tag;
+const toPseudo = F.choose(D, ["variables", "a"], U, "Pseudo", S), toReal = F.choose(D, ["variables", "b"], U, "Real", S);
+const out = {
+  toPseudo: [toPseudo.variables.a, pickedTag(toPseudo, "a")],
+  toReal: [toReal.variables.b, pickedTag(toReal, "b")],
+  tiers: {
+    switchToPseudo: F.diff(D, toPseudo, S).tier, switchToReal: F.diff(D, toReal, S).tier,
+    addReal: F.diff(D, F.setAt(D, ["variables", "c"], { kind: "real", target: "X" }), S).tier,
+    addPseudo: F.diff(D, F.setAt(D, ["variables", "c"], { kind: "pseudo", expr: "1" }), S).tier,
+  },
+  otherAlone: F.placeErrors(F.tree(S, D), [{ loc: ["variables", "a", "Pseudo", "expr"], msg: "pseudo wants expr" }]),
+  otherDropped: F.placeErrors(F.tree(S, D), [{ loc: ["variables", "a", "Pseudo", "expr"], msg: "pseudo wants expr" }, { loc: ["variables", "a", "Real", "target"], msg: "bad target" }]),
+};
+const host = el("div"), form = F.mount(host, { schema: S, value: D });
+const fire = (c, text) => { c.value = text; c.textContent = text; c.on.input({ target: c }); };
+fire(control(at(host, "range")), "[1, ");
+button(at(host, "grants"), "Add").on.click();  // a redraw elsewhere
+const range = control(at(host, "range"));
+out.kept = [range.textContent, range.attrs["aria-invalid"], form.invalid()];
+fire(control(at(host, "rows.0")), "[oops");
+out.beforeRemove = form.invalid().sort();
+button(at(host, "rows.0"), "Remove").on.click();  // rows.0 is gone: its unparsed text with it
+out.afterRemove = [form.invalid(), form.value().rows];
+console.log(JSON.stringify(out));
+"""
+)
+
+
+@pytest.fixture(scope="module")
+def round2() -> dict:
+    return _node(_ROUND2, json.dumps([SHAPES, SHAPES_DOC]))
+
+
+def test_a_variant_switch_fits_the_chosen_variant_never_a_hybrid(round2: dict) -> None:
+    assert round2["toPseudo"] == [
+        {"kind": "pseudo", "expr": ""},
+        "Pseudo",
+    ]  # kind: "real" not carried
+    assert round2["toReal"] == [
+        {"kind": "real", "target": ""},
+        "Real",
+    ]  # expr, owner not carried
+
+
+def test_a_switch_takes_the_two_variants_tiers_an_add_the_fitted_ones(
+    round2: dict,
+) -> None:
+    assert round2["tiers"] == {"switchToPseudo": "maintainer", "switchToReal": "maintainer", "addReal": "operator", "addPseudo": "maintainer"}  # fmt: skip
+
+
+def test_an_error_for_an_undrawn_variant_goes_to_the_union_or_is_dropped(
+    round2: dict,
+) -> None:
+    assert round2["otherAlone"] == {"variables.a": "pseudo wants expr"}
+    assert round2["otherDropped"] == {"variables.a.target": "bad target"}
+
+
+def test_unparsed_text_survives_a_redraw_and_goes_with_its_field(round2: dict) -> None:
+    assert round2["kept"] == ["[1, ", "true", ["range"]]
+    assert round2["beforeRemove"] == ["range", "rows.0"]
+    assert round2["afterRemove"] == [["range"], [[2]]]
