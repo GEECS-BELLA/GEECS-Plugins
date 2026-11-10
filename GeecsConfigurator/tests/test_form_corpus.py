@@ -129,8 +129,12 @@ console.log(JSON.stringify(cases.map(([S, D, errs]) => {
   const host = el("div"), form = F.mount(host, { schema: S, value: D });
   if (errs) {
     form.setErrors(errs);
-    const shown = walk(host, (n) => n.attrs.class === "err" || n.attrs.class === "banner").map((n) => n.textContent).join(" | ");
-    return errs.filter((e) => shown.indexOf(e.msg) < 0).map((e) => e.loc.join("."));
+    // each message, by the data-path of the drawn node that shows it ("" for the document's banner)
+    const where = (n) => { for (let p = n.parentNode; p; p = p.parentNode) if (p.attrs && p.attrs["data-path"] !== undefined) return p.attrs["data-path"]; return ""; };
+    const shown = walk(host, (n) => n.attrs.class === "err" || n.attrs.class === "banner").filter((n) => n.textContent);
+    const at = {};
+    errs.forEach((e) => { const n = shown.find((x) => x.textContent.indexOf(e.msg) >= 0); if (n) at[e.msg] = where(n); });
+    return at;
   }
   const controls = walk(host, (n) => ["INPUT", "SELECT", "TEXTAREA"].includes(n.tagName) && n.attrs.disabled === undefined && n.attrs["aria-label"] !== "new key");
   controls.forEach((c) => { c.value = c.tagName === "TEXTAREA" ? c.textContent : c.value; (c.on.input || c.on.change)({ target: c }); });
@@ -175,17 +179,77 @@ def test_a_no_op_touch_of_every_control_changes_no_document() -> None:
     assert {k for k, name, _ in docs if name != "default"} >= {"setup", "scan_variables", "optimizer_config", "native_devices"}  # fmt: skip
 
 
-def test_every_pydantic_error_location_is_drawn() -> None:
-    cases, kinds = [], []
+def _drawn_at(
+    kind: str, raw: dict, extra: list[dict] | None = None
+) -> tuple[list[dict], dict]:
+    try:
+        SCHEMA_REGISTRY[kind].model_validate(raw)
+        errs = []
+    except ValidationError as exc:
+        errs = [{"loc": list(e["loc"]), "msg": f"{e['msg']} #{i}"} for i, e in enumerate(exc.errors())]  # fmt: skip
+    errs += extra or []
+    return errs, _node([[SCHEMA_REGISTRY[kind].model_json_schema(), raw, errs]])[0]
+
+
+def test_every_pydantic_error_is_drawn_unless_it_names_an_undrawn_variant() -> None:
+    total = 0
     for kind, raw in BROKEN.items():
-        with pytest.raises(ValidationError) as exc:
-            SCHEMA_REGISTRY[kind].model_validate(raw)
-        errs = [{"loc": list(e["loc"]), "msg": f"{e['msg']} #{i}"} for i, e in enumerate(exc.value.errors())]  # fmt: skip
-        cases.append([SCHEMA_REGISTRY[kind].model_json_schema(), raw, errs])
-        kinds.append((kind, len(errs)))
-    missing = _node(cases)
-    assert dict(zip([k for k, _ in kinds], missing)) == {k: [] for k, _ in kinds}
-    assert sum(n for _, n in kinds) >= 10
+        errs, at = _drawn_at(kind, raw)
+        missing = [".".join(map(str, e["loc"])) for e in errs if e["msg"] not in at]
+        # dropped only when the variable's drawn variant (ScanVariable) has errors of its own
+        assert [m for m in missing if ".PseudoScanVariable." not in m] == [], kind
+        total += len(errs)
+    assert total >= 10
+
+
+def test_errors_land_at_their_drawn_node() -> None:
+    errs, at = _drawn_at(
+        "setup", BROKEN["setup"], [{"loc": [], "msg": "the whole document"}]
+    )
+    by_loc = {".".join(map(str, e["loc"])): at.get(e["msg"]) for e in errs}
+    assert (
+        by_loc["steps.0.set.value.str"] == "steps.0.value"
+    )  # a union-of-scalars member's suffix
+    assert by_loc["steps.1.wait.seconds"] == "steps.1.seconds"  # a variant tag skipped
+    assert (
+        by_loc["steps.1.wait.bogus"] == "steps.1.bogus"
+    )  # an undeclared key is drawn, so its error is there
+    assert by_loc[""] == ""  # the document's own banner
+    # a list item's own error (a model validator's location) shows on the item's panel
+    errs, at = _drawn_at("archive_policy", BROKEN["archive_policy"], [{"loc": ["sampling_overrides", 0], "msg": "the override as a whole"}])  # fmt: skip
+    by_loc = {".".join(map(str, e["loc"])): at.get(e["msg"]) for e in errs}
+    assert by_loc["sampling_overrides.0"] == "sampling_overrides.0"
+    assert by_loc["sampling_overrides.0.match"] == "sampling_overrides.0.match"
+    # an undrawn variant's class name: alone (the drawn variant has none) it goes to the union's banner
+    pseudo = {"variables": {"a": {"kind": "pseudo", "mode": "relative", "targets": [{"target": "U_S3H:Current", "forward": "a"}]}}}  # fmt: skip
+    _, at = _drawn_at("scan_variables", pseudo, [{"loc": ["variables", "a", "ScanVariable", "target"], "msg": "a motor needs a target"}])  # fmt: skip
+    assert at == {"a motor needs a target": "variables.a"}
+
+
+_SWITCH = r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const U = S.properties.variables.additionalProperties;
+const tag = (doc) => F.tree(S, doc).children.find((c) => c.key === "variables").items[0].choice.tag;
+const there = F.choose(D, ["variables", "v"], U, "PseudoScanVariable", S), back = F.choose(there, ["variables", "v"], U, "ScanVariable", S);
+console.log(JSON.stringify([[there.variables.v, tag(there)], [back.variables.v, tag(back)]]));
+"""
+
+
+def test_a_scan_variable_switches_variant_and_back_without_a_hybrid() -> None:
+    schema = SCHEMA_REGISTRY["scan_variables"].model_json_schema()
+    doc = {"variables": {"v": {"target": "U_S1H:Current", "kind": "motor"}}}
+    done = subprocess.run(["node", "-e", _SWITCH, str(static_dir() / "form.js")], input=json.dumps([schema, doc]), text=True, capture_output=True, timeout=30)  # fmt: skip
+    (pseudo, pseudo_tag), (motor, motor_tag) = json.loads(done.stdout)
+    assert (pseudo["kind"], pseudo_tag, "target" in pseudo) == (
+        "pseudo",
+        "PseudoScanVariable",
+        False,
+    )
+    assert motor_tag == "ScanVariable" and motor.get("kind") != "pseudo"
+    assert not {"targets", "mode"} & set(
+        motor
+    )  # nothing of the pseudo variant carried back
 
 
 def test_the_script_knows_the_schemas_tiers() -> None:
