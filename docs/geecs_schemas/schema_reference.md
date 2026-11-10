@@ -1558,7 +1558,7 @@ One step that sets a device variable and waits for the device to finish.
 | `do` | `'set'` | yes | — | Step type. 'set' writes a value and waits for the device. |
 | `device` | `str` | yes | — | The device, e.g. 'U_S1H'. |
 | `variable` | `str` | yes | — | The variable, e.g. 'Current'. |
-| `value` | `str \| float \| int` | yes | — | The value to write: a number, or a word such as 'on'. |
+| `value` | `str \| int \| float` | yes | — | The value to write: a number, or a word such as 'on'. |
 
 ### SetupCheckStep
 
@@ -1569,7 +1569,7 @@ One step that reads a device variable and stops the setup on a mismatch.
 | `do` | `'check'` | yes | — | Step type. 'check' reads a variable and stops on a mismatch. |
 | `device` | `str` | yes | — | The device to read. |
 | `variable` | `str` | yes | — | The variable to read. |
-| `expected` | `str \| float \| int` | yes | — | The value the reading must match: a number or a word. |
+| `expected` | `str \| int \| float` | yes | — | The value the reading must match: a number or a word. |
 | `tolerance` | `float` | no | 0.0 | How far a numeric reading may be from 'expected' and still match. Only for a numeric 'expected'; a word matches exactly. |
 
 ### SetupApplyStep

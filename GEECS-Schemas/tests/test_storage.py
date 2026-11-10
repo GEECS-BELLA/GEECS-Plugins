@@ -1,12 +1,15 @@
 """The registry's file / not-a-file table and the tiers it is read with."""
 
+import importlib
 import typing
+from collections import Counter
 
 import pytest
 
 from geecs_schemas import (
     KIND_STORAGE,
     SCHEMA_REGISTRY,
+    STORAGE_ROOT_PATHS,
     TIERS,
     ArchivePolicy,
     FileStorage,
@@ -52,7 +55,52 @@ def test_every_file_kind_has_a_tier_and_a_place(kind):
     assert model.tier in TIERS
     assert storage.pattern.endswith(".yaml")
     assert "/" not in storage.pattern and ".." not in storage.folder
-    assert storage.root in ("experiment", "analysis")
+    assert storage.root in STORAGE_ROOT_PATHS
+    assert storage.suffixes[0] == ".yaml"
+    assert set(storage.suffixes) <= {".yaml", ".yml"}
+    assert storage.path_pattern().startswith(STORAGE_ROOT_PATHS[storage.root] + "/")
+
+
+def test_the_named_kinds_read_by_the_resolver_accept_yml():
+    """The resolver's named configs, the analysis trees and setups also read ``.yml``."""
+    accepting = sorted(k for k in FILE_KINDS if ".yml" in KIND_STORAGE[k].suffixes)
+    assert accepting == [
+        "analysis_group",
+        "analysis_recipe",
+        "himg_job",
+        "optimizer_config",
+        "preset",
+        "setup",
+        "trigger_profile",
+    ]
+
+
+def test_kinds_sharing_a_folder_name_the_loader_that_tells_them_apart():
+    """Two kinds in one folder each carry a dispatch loader, and it imports."""
+    places = Counter(
+        (s.root, s.folder) for s in KIND_STORAGE.values() if isinstance(s, FileStorage)
+    )
+    for kind in FILE_KINDS:
+        storage = KIND_STORAGE[kind]
+        shared = places[(storage.root, storage.folder)] > 1 and storage.folder
+        if not shared:
+            continue
+        assert storage.dispatch, kind
+        module, _, name = storage.dispatch.rpartition(".")
+        assert callable(getattr(importlib.import_module(module), name))
+    assert KIND_STORAGE["analysis_recipe"].dispatch == KIND_STORAGE["himg_job"].dispatch
+
+
+def test_path_pattern():
+    assert KIND_STORAGE["preset"].path_pattern() == (
+        "scanner_configs/experiments/<experiment>/presets/<name>.yaml"
+    )
+    assert KIND_STORAGE["home_layout"].path_pattern() == (
+        "scanner_configs/experiments/<experiment>/home.yaml"
+    )
+    assert KIND_STORAGE["analysis_group"].path_pattern() == (
+        "scan_analysis_configs/groups/**/<name>.yaml"
+    )
 
 
 @pytest.mark.parametrize("kind", sorted(SCHEMA_REGISTRY))

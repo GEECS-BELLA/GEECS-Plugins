@@ -23,18 +23,60 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Annotated, ClassVar, Literal, Union
+from pathlib import Path
+from typing import Annotated, ClassVar, Literal, SupportsFloat, Union, cast
 
-from pydantic import Field, model_validator
+from pydantic import (
+    AfterValidator,
+    BeforeValidator,
+    Field,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    model_validator,
+)
 
 from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
-from geecs_schemas.action_plan import ActionValue, WaitStep
+from geecs_schemas.action_plan import WaitStep
 
 #: Where an experiment's setups live: ``setups/<name>.yaml``, one per setup.
 SETUPS_FOLDER = "setups"
 
-#: A setup's name is its file stem: a plain word, no path separators.
+#: A setup's name is its file stem: a plain word, no path separators, and no
+#: ``.yaml`` / ``.yml`` of its own (that would name ``x.yaml.yaml``).
 _SETUP_NAME = r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$"
+
+#: The suffixes a setup file may carry, the written one first.
+_SETUP_SUFFIXES = (".yaml", ".yml")
+
+
+def _no_yaml_suffix(name: str) -> str:
+    if name.lower().endswith(_SETUP_SUFFIXES):
+        raise ValueError(
+            f"a setup's name is its file stem, without the suffix: {name!r}"
+        )
+    return name
+
+
+#: A setup's name, as its file stem and as an ``apply`` step names it.
+SetupName = Annotated[str, Field(pattern=_SETUP_NAME), AfterValidator(_no_yaml_suffix)]
+
+
+def _refuse_bool(value: object) -> object:
+    """Refuse a boolean: YAML reads an unquoted ``on`` / ``off`` / ``yes`` / ``no`` as one."""
+    if isinstance(value, bool):
+        raise ValueError(
+            f"{value!r} is how YAML reads an unquoted on/off/yes/no/true/false: "
+            "quote the word the device expects (value: 'on')"
+        )
+    return value
+
+
+#: A value written to or expected from a device: a word, an integer or a
+#: float, each kept as written (no coercion between them), never a boolean.
+SetupValue = Annotated[
+    Union[StrictStr, StrictInt, StrictFloat], BeforeValidator(_refuse_bool)
+]
 
 #: Relative float slack in a tolerance comparison, as the devices' own check
 #: has it: an exactly-on-tolerance reading otherwise loses to representation
@@ -50,7 +92,7 @@ class SetupSetStep(SchemaModel):
     )
     device: str = Field(min_length=1, description="The device, e.g. 'U_S1H'.")
     variable: str = Field(min_length=1, description="The variable, e.g. 'Current'.")
-    value: ActionValue = Field(
+    value: SetupValue = Field(
         description="The value to write: a number, or a word such as 'on'."
     )
 
@@ -66,7 +108,7 @@ class SetupCheckStep(SchemaModel):
     )
     device: str = Field(min_length=1, description="The device to read.")
     variable: str = Field(min_length=1, description="The variable to read.")
-    expected: ActionValue = Field(
+    expected: SetupValue = Field(
         description="The value the reading must match: a number or a word."
     )
     tolerance: float = Field(
@@ -94,9 +136,7 @@ class SetupApplyStep(SchemaModel):
     do: Literal["apply"] = Field(
         description="Step type. 'apply' runs another setup's steps here."
     )
-    setup: str = Field(
-        pattern=_SETUP_NAME, description="The other setup's name (its file stem)."
-    )
+    setup: SetupName = Field(description="The other setup's name (its file stem).")
 
 
 SetupStep = Annotated[
@@ -135,8 +175,7 @@ class Setup(VersionedSchemaModel):
 
     tier: ClassVar[Tier] = "operator"
 
-    name: str = Field(
-        pattern=_SETUP_NAME,
+    name: SetupName = Field(
         description="The setup's name, also its file stem, e.g. 'low_power'.",
     )
     description: str = Field("", description="What this state is and when to use it.")
@@ -196,11 +235,18 @@ def flatten_setup(
 
     Raises
     ------
+    ValueError
+        When a key of *setups* is not its setup's name.
     SetupNotFoundError
         When an ``apply`` step names a setup missing from *setups*.
     SetupCycleError
         When nested ``apply`` steps form a loop.
     """
+    for key, value in setups.items():
+        if key != value.name:
+            raise ValueError(
+                f"setup {value.name!r} is listed under another name, {key!r}"
+            )
     flattened: list[tuple[ConcreteSetupStep, str | None]] = []
 
     def _walk(current: Setup, origin: str | None, chain: tuple[str, ...]) -> None:
@@ -220,18 +266,19 @@ def flatten_setup(
 
 
 def setup_value_matches(
-    expected: ActionValue, actual: object, tolerance: float = 0.0
+    expected: str | int | float, actual: object, tolerance: float = 0.0
 ) -> bool:
     """Whether a reading *actual* matches a ``check``'s *expected*, as the confirm settable matches.
 
-    A numeric *expected* matches a reading that is a number, or a string that
-    parses as one, within *tolerance* (with a few ULPs of slack); a
-    non-finite reading never matches. A word *expected* matches only a
-    string reading equal to it: a numeric-looking word is still a word.
+    A numeric *expected* floats the reading (anything ``float()`` takes: a
+    number, a boolean, a numeric string) and matches within *tolerance*,
+    with a few ULPs of slack; a reading that does not float, or is not
+    finite, never matches. A word *expected* matches only a string reading
+    equal to it: a numeric-looking word is still a word.
 
     Parameters
     ----------
-    expected : str | float | int
+    expected : str | int | float
         The step's ``expected``.
     actual : object
         The value read back from the device.
@@ -245,14 +292,58 @@ def setup_value_matches(
     """
     if isinstance(expected, str):
         return isinstance(actual, str) and actual == expected
-    if isinstance(actual, bool) or not isinstance(actual, (int, float, str)):
-        return False
     try:
-        reading = float(actual)
-    except ValueError:
+        reading = float(cast(SupportsFloat, actual))  # whatever float() takes
+    except (TypeError, ValueError):
         return False
     target = float(expected)
     if not (math.isfinite(reading) and math.isfinite(target)):
         return False
     slack = _ULP_SLACK * max(abs(reading), abs(target))
     return abs(reading - target) <= tolerance + slack
+
+
+def load_setups(experiment_dir: str | Path) -> dict[str, Setup]:
+    """Read every setup of an experiment: ``<experiment_dir>/setups/<name>.yaml`` (or ``.yml``).
+
+    The one reader every executor and editor shares. A missing ``setups``
+    folder is no setups (it is never created here).
+
+    Parameters
+    ----------
+    experiment_dir : str or Path
+        The experiment's configs folder.
+
+    Returns
+    -------
+    dict of str to Setup
+        The setups by name, in file-name order.
+
+    Raises
+    ------
+    ValueError
+        When a file does not validate (``pydantic.ValidationError``), its
+        ``name`` is not its file stem, or two files share a stem.
+    """
+    folder = Path(experiment_dir) / SETUPS_FOLDER
+    if not folder.is_dir():
+        return {}
+    setups: dict[str, Setup] = {}
+    paths: dict[str, Path] = {}
+    for path in sorted(folder.iterdir()):
+        if path.suffix not in _SETUP_SUFFIXES or not path.is_file():
+            continue
+        if path.stem in paths:
+            raise ValueError(
+                f"two files name the setup {path.stem!r}: {paths[path.stem].name} "
+                f"and {path.name}; keep one"
+            )
+        setup = Setup.from_path(path)
+        if setup.name != path.stem:
+            raise ValueError(
+                f"{path.name} holds the setup {setup.name!r}; a setup's name is its "
+                "file stem, so rename the file or the setup"
+            )
+        paths[path.stem] = path
+        setups[setup.name] = setup
+    return setups

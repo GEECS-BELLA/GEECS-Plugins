@@ -142,10 +142,17 @@ from geecs_schemas.setup import (
     SetupNotFoundError,
     SetupSetStep,
     flatten_setup,
+    load_setups,
     setup_value_matches,
 )
 from geecs_schemas.shot_offsets import SHOT_OFFSETS_FILENAME, DeviceOffset, ShotOffsets
-from geecs_schemas.storage import KIND_STORAGE, FileStorage, KindStorage, NotAFile
+from geecs_schemas.storage import (
+    KIND_STORAGE,
+    STORAGE_ROOT_PATHS,
+    FileStorage,
+    KindStorage,
+    NotAFile,
+)
 from geecs_schemas.sweep import (
     AxisSweep,
     FermatSpiralSweep,
@@ -184,6 +191,7 @@ __all__ = [
     "TIERS",
     # storage (where each registered kind is kept)
     "KIND_STORAGE",
+    "STORAGE_ROOT_PATHS",
     "FileStorage",
     "NotAFile",
     "KindStorage",
@@ -315,6 +323,7 @@ __all__ = [
     "SetupNotFoundError",
     "SETUPS_FOLDER",
     "flatten_setup",
+    "load_setups",
     "setup_value_matches",
     "DeviceOffset",
     # log_entry

@@ -429,13 +429,6 @@ version: 2
 }
 
 
-#: Where each storage root sits in the configs repo, for the reference's file lines.
-_ROOT_PATHS = {
-    "experiment": "scanner_configs/experiments/<experiment>",
-    "analysis": "scan_analysis_configs",
-}
-
-
 def _kind_line(kind: str, model: type[BaseModel]) -> str:
     """The reference's line under a kind's heading: its tier and where it is kept.
 
@@ -458,10 +451,7 @@ def _kind_line(kind: str, model: type[BaseModel]) -> str:
         parts.append(f"Tier: `{tier}`")
     storage = KIND_STORAGE.get(kind)
     if isinstance(storage, FileStorage):
-        nested = "**/" if storage.nested else ""
-        folder = f"{storage.folder}/" if storage.folder else ""
-        path = f"{_ROOT_PATHS[storage.root]}/{folder}{nested}{storage.pattern}"
-        parts.append(f"File: `{path}`")
+        parts.append(f"File: `{storage.path_pattern()}`")
     elif storage is not None:
         parts.append(f"Not a file: {storage.reason}")
     return " · ".join(parts)

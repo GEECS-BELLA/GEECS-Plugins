@@ -109,10 +109,10 @@
               "type": "string"
             },
             {
-              "type": "number"
+              "type": "integer"
             },
             {
-              "type": "integer"
+              "type": "number"
             }
           ],
           "description": "The value the reading must match: a number or a word.",
@@ -163,10 +163,10 @@
               "type": "string"
             },
             {
-              "type": "number"
+              "type": "integer"
             },
             {
-              "type": "integer"
+              "type": "number"
             }
           ],
           "description": "The value to write: a number, or a word such as 'on'.",

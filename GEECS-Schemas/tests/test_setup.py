@@ -1,6 +1,9 @@
 """The setup document: steps, nested applies, and the check's comparison."""
 
+from decimal import Decimal
+
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from geecs_schemas import (
@@ -8,6 +11,7 @@ from geecs_schemas import (
     SetupCycleError,
     SetupNotFoundError,
     flatten_setup,
+    load_setups,
     setup_value_matches,
 )
 
@@ -78,7 +82,9 @@ def test_a_word_check_takes_no_tolerance():
         )
 
 
-@pytest.mark.parametrize("name", ["", "../x", "a/b", "low power"])
+@pytest.mark.parametrize(
+    "name", ["", "../x", "a/b", "low power", "x.yaml", "x.yml", "x.YAML"]
+)
 def test_the_name_is_a_file_stem(name):
     with pytest.raises(ValidationError):
         _setup(name, SET)
@@ -128,7 +134,9 @@ def test_flatten_refuses_an_unknown_setup():
         (2, 2.0, 0.0, True),
         (1.0, float("nan"), 1.0, False),
         (1.0, "on", 1.0, False),
-        (1.0, True, 1.0, False),  # a bool is not a number reading
+        (1, True, 0.0, True),  # floated, as the confirm settable floats it
+        (2, Decimal("2.0"), 0.0, True),  # any number float() takes
+        (1.0, None, 1.0, False),
         ("on", "on", 0.0, True),
         ("on", "ON", 0.0, False),  # a word matches exactly
         ("25", 25, 0.0, False),  # a numeric-looking word is still a word
@@ -137,3 +145,69 @@ def test_flatten_refuses_an_unknown_setup():
 )
 def test_check_comparison(expected, actual, tolerance, matches):
     assert setup_value_matches(expected, actual, tolerance) is matches
+
+
+@pytest.mark.parametrize("word", ["on", "off", "yes", "no", "true"])
+def test_an_unquoted_yaml_word_is_refused_with_the_fix(word):
+    """YAML 1.1 reads a bare on/off as a boolean; the step refuses it, never writes 1.0."""
+    step = yaml.safe_load(f"{{do: set, device: U_X, variable: State, value: {word}}}")
+    with pytest.raises(ValidationError, match="quote the word"):
+        _setup("s", step)
+    check = yaml.safe_load(
+        f"{{do: check, device: U_X, variable: State, expected: {word}}}"
+    )
+    with pytest.raises(ValidationError, match="quote the word"):
+        _setup("s", check)
+
+
+def test_values_keep_their_type():
+    """A quoted word, an int and a float each stay as written."""
+    doc = _setup(
+        "s",
+        {"do": "set", "device": "D", "variable": "V", "value": "on"},
+        {"do": "set", "device": "D", "variable": "V", "value": 2},
+        {"do": "set", "device": "D", "variable": "V", "value": 2.5},
+        {"do": "set", "device": "D", "variable": "V", "value": "2"},
+    )
+    assert [type(step.value) for step in doc.steps] == [str, int, float, str]
+
+
+def test_flatten_refuses_a_setup_listed_under_another_name():
+    a = _setup("a", SET)
+    with pytest.raises(ValueError, match="another name"):
+        flatten_setup(a, setups={"b": a})
+
+
+def _write(folder, filename, name):
+    (folder / filename).write_text(f"name: {name}\nsteps: [{{do: wait, seconds: 1}}]\n")
+
+
+def test_load_setups_reads_both_suffixes(tmp_path):
+    folder = tmp_path / "setups"
+    folder.mkdir()
+    _write(folder, "low_power.yaml", "low_power")
+    _write(folder, "high_power.yml", "high_power")
+    (folder / "notes.txt").write_text("not a setup")
+    assert sorted(load_setups(tmp_path)) == ["high_power", "low_power"]
+
+
+def test_load_setups_refuses_a_name_that_is_not_the_stem(tmp_path):
+    folder = tmp_path / "setups"
+    folder.mkdir()
+    _write(folder, "low_power.yaml", "lowpower")
+    with pytest.raises(ValueError, match="file stem"):
+        load_setups(tmp_path)
+
+
+def test_load_setups_refuses_a_stem_under_both_suffixes(tmp_path):
+    folder = tmp_path / "setups"
+    folder.mkdir()
+    _write(folder, "a.yaml", "a")
+    _write(folder, "a.yml", "a")
+    with pytest.raises(ValueError, match="two files"):
+        load_setups(tmp_path)
+
+
+def test_a_missing_setups_folder_is_empty_and_never_created(tmp_path):
+    assert load_setups(tmp_path) == {}
+    assert not (tmp_path / "setups").exists()
