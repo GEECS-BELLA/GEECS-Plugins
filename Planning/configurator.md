@@ -101,7 +101,14 @@ is a later pass; this brief is the mechanics.
   nothing, and `--policy PATH` names a file to read instead of the
   experiment's. The CA gateway loads the derived-channel file at startup and
   builds its PVs then. The Control Room reads screens and the home layout
-  per request.
+  per request. The device registry (`native_devices.yaml` with
+  `panel_devices.yaml`) has more readers than the worker: Canopy's directory
+  adapter reads both files on every directory call (Raccoon caches its
+  answers; how a change reaches that cache is not yet surveyed), the
+  archiver's registry pass reads them when `onboard` runs, and the Control
+  Room's device pages, home and screens see them through Canopy's module.
+  (Corrected on #1312's review; the configurator's `kinds.py` carries the
+  table.)
 - **Action plans have two executors with different gates.** The Canopy
   module's executor (`POST /v1/actions/{name}/run`, polled at
   `/v1/actions/runs/{id}`) pre-checks every `set` against the operator

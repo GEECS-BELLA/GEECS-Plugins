@@ -120,3 +120,15 @@ def test_settings(tmp_path: Path) -> None:
         Settings.from_env(
             {"GEECS_CONFIGS_ROOT": "/x", "GEECS_CONFIGURATOR_PORT": "web"}
         )
+
+
+def test_the_page_never_says_valid_past_the_schema_alone() -> None:
+    page = (Path(__file__).resolve().parents[1] / "geecs_configurator/static/configurator.js").read_text()  # fmt: skip
+    assert '"Valid."' not in page and "Schema-valid (the consumer's check: " in page
+
+
+def test_the_registry_has_every_reader(client: TestClient) -> None:
+    kinds = {k["kind"]: k for k in client.get("/api/kinds").json()}
+    for kind in ("native_devices", "panel_devices"):
+        names = " ".join(c["name"] for c in kinds[kind]["consumers"])
+        assert "Canopy's directory" in names and "archiver" in names and "Control Room" in names  # fmt: skip

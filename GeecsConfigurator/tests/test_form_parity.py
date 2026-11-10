@@ -25,6 +25,15 @@ console.log(JSON.stringify(cases.map(([s, b, a]) => (b === null ? F.tree(s, F.de
 """
 
 STEPS = [{"do": "set", "device": "A", "variable": "V", "value": 1.5}, {"do": "wait", "seconds": 2}]  # fmt: skip
+SCAN_VARS = {
+    "variables": {
+        "jet_z": {"target": "U_ESP_JetXYZ:Position.Axis 3", "kind": "motor"},
+        "pseudo": {
+            "kind": "pseudo",
+            "targets": [{"target": "U_S3H:Current", "forward": "pseudo * 1"}],
+        },  # fmt: skip
+    }
+}
 CASES = [
     ("setup", {"name": "x", "steps": STEPS}, {"name": "x", "steps": STEPS[::-1]}),
     (
@@ -53,6 +62,30 @@ CASES = [
         {"include_setpoints": False, "exclude": ["a"], "default_sampling_period": 2.0},
     ),  # fmt: skip
     ("archive_policy", {"exclude": ["a", "b"]}, {"exclude": ["b", "a"]}),
+    # type-strict: true is not 1, nested or not
+    ("archive_policy", {"include_setpoints": True}, {"include_setpoints": 1}),
+    ("archive_policy", {"include_status": False}, {"include_status": 0}),
+    (
+        "setup",
+        {"name": "x", "steps": STEPS},
+        {"name": "x", "steps": [STEPS[0], {"do": "wait", "seconds": True}]},
+    ),  # fmt: skip
+    # an undiscriminated union (ScanVariable | PseudoScanVariable): both walk into the variant
+    (
+        "scan_variables",
+        SCAN_VARS,
+        {
+            "variables": {
+                **SCAN_VARS["variables"],
+                "jet_z": {**SCAN_VARS["variables"]["jet_z"], "description": "the jet"},
+            }
+        },
+    ),  # fmt: skip
+    (
+        "scan_variables",
+        SCAN_VARS,
+        {"variables": {"jet_z": SCAN_VARS["variables"]["jet_z"]}},
+    ),  # fmt: skip
 ]
 
 
@@ -78,3 +111,9 @@ def test_the_page_and_the_service_diff_alike() -> None:
     assert (
         js[3]["tier"] == "maintainer" and js[4]["tier"] == "maintainer"
     )  # a reordered exclude list is the maintainer's
+    assert [c["path"] for c in js[5]["changes"]] == [
+        ["include_setpoints"]
+    ]  # true -> 1 is a change
+    assert [c["path"] for c in js[8]["changes"]] == [
+        ["variables", "jet_z", "description"]
+    ]

@@ -31,6 +31,11 @@ def _c(name: str, reads: str, apply: str = "nothing to do") -> Consumer:
     return Consumer(name=name, reads=reads, apply=apply)
 
 
+#: The device registry's other readers (native_devices.yaml and panel_devices.yaml are read together).
+_CANOPY_DIRECTORY = _c("Canopy's directory adapter", "both registry files on every directory call", "not yet surveyed (Raccoon caches the directory's answers)")  # fmt: skip
+_ARCHIVER_REGISTRY = _c("archiver (its registry pass)", "when onboard runs", "geecs-archiver onboard")  # fmt: skip
+_CONTROL_ROOM_VIA_CANOPY = _c("Control Room (device pages, home, screens)", "through Canopy's GEECS module, per request", "as Canopy's directory")  # fmt: skip
+
 #: Every file kind's readers (the brief's pickup survey and apply table).
 CONSUMERS: dict[str, list[Consumer]] = {
     "trigger_profile": [
@@ -41,7 +46,12 @@ CONSUMERS: dict[str, list[Consumer]] = {
         _c("worker", "at environment open", _REOPEN),
         _c("scanner", "on file change"),
     ],
-    "native_devices": [_c("worker", "at environment open", _REOPEN)],
+    "native_devices": [
+        _c("worker", "at environment open", _REOPEN),
+        _CANOPY_DIRECTORY,
+        _ARCHIVER_REGISTRY,
+        _CONTROL_ROOM_VIA_CANOPY,
+    ],
     "shot_offsets": [_c("worker", "at environment open", _REOPEN)],
     "preset": [_c("scanner", "per submit")],
     "optimizer_config": [_c("worker", _PER_REQUEST)],
@@ -53,13 +63,7 @@ CONSUMERS: dict[str, list[Consumer]] = {
     "operator_policy": [_c("Canopy's GEECS module", "per request, short cache")],
     "screen": [_c("Control Room", _PER_REQUEST)],
     "home_layout": [_c("Control Room", _PER_REQUEST)],
-    "panel_devices": [
-        _c(
-            "Canopy's directory, the Control Room, the archiver",
-            "not yet surveyed",
-            "not yet stated",
-        )  # fmt: skip
-    ],
+    "panel_devices": [_CANOPY_DIRECTORY, _ARCHIVER_REGISTRY, _CONTROL_ROOM_VIA_CANOPY],
     "derived_channels": [
         _c(
             "CA gateway",

@@ -14,7 +14,7 @@
     code: "nothing here: it changes by a pull request to GEECS-Plugins",
   };
   var $ = function (sel) { return document.querySelector(sel); };
-  var form, schema, stored;
+  var form, schema, stored, info;
 
   function el(tag, attrs, text) {
     var n = document.createElement(tag);
@@ -67,7 +67,8 @@
       $("#doc-path").textContent = got[1].path;
       form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: got[1].read_only, onChange: drawTier });
       if (got[1].errors.length) form.setErrors(got[1].errors);
-      var info = got[2].filter(function (k) { return k.kind === kind; })[0];
+      info = got[2].filter(function (k) { return k.kind === kind; })[0];
+      if (got[1].note) fill($("#result"), [el("div", { class: "banner" }, "This file is in the " + got[1].note + ": the form shows the converted profile; the file is unchanged.")]);
       fill($("#consumers"), info.consumers.map(function (c) { return line(c.name + ":", el("span", {}, "reads " + c.reads + "; apply: " + c.apply)); })
         .concat([line("Dry run:", el("span", {}, info.dry_run))]));
       drawTier();
@@ -77,7 +78,7 @@
     api("/api/validate/" + kind, { document: form.value(), id: id }).then(function (r) {
       var placed = form.setErrors(r.errors), list = el("ul");
       r.errors.forEach(function (e) { list.appendChild(el("li", {}, (Array.isArray(e.loc) ? e.loc.join(".") : e.loc) + ": " + e.msg)); });
-      fill($("#result"), [el("div", r.ok ? { class: "banner" } : { class: "banner", "data-state": "error" }, r.ok ? "Valid." : r.errors.length + " error(s); " + Object.keys(placed).length + " drawn at their fields."), r.ok ? null : list]);
+      fill($("#result"), [el("div", r.ok ? { class: "banner" } : { class: "banner", "data-state": "error" }, r.ok ? (info.dry_run === "none" ? "Schema-valid (this kind has no consumer check)." : "Schema-valid (the consumer's check: " + info.dry_run + ", not run yet).") : r.errors.length + " error(s); " + Object.keys(placed).length + " drawn at their fields."), r.ok ? null : list]);
     }).catch(fail);
   });
   $("#diff").addEventListener("click", function () {

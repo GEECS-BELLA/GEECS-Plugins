@@ -8,7 +8,7 @@ import pytest
 from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage
 
 from geecs_configurator.kinds import CONSUMERS, kinds
-from geecs_configurator.store import DocumentStore, NotFound, diff_documents
+from geecs_configurator.store import LEGACY, DocumentStore, NotFound, diff_documents
 
 
 def _tree(root: Path) -> set[str]:
@@ -20,6 +20,7 @@ def test_every_suffix_is_listed_and_ids_are_paths(root: Path) -> None:
     assert store.experiments() == ["Bench", "Empty"]
     assert [e.id for e in store.list("trigger_profile", "Bench")] == [
         "laser_off.yaml",
+        "legacy.yaml",
         "spare.yml",
     ]
     # a fixed-name file is one document
@@ -109,3 +110,46 @@ def test_every_file_kind_has_its_readers() -> None:
     )  # every registered kind, none silently missing
     assert listed["family_file"].storage == "code" and listed["scan_request"].reason
     assert all(listed[k].tier for k in files)
+
+
+def test_a_legacy_trigger_profile_is_shown_converted_never_invalid(root: Path) -> None:
+    store = DocumentStore(root)
+    rows = {e.id: e for e in store.list("trigger_profile", "Bench")}
+    assert (rows["legacy.yaml"].valid, rows["legacy.yaml"].note) == (True, LEGACY)
+    assert rows["laser_off.yaml"].note is None
+    doc = store.read("trigger_profile", "Bench", "legacy.yaml")
+    assert doc.note == LEGACY and doc.valid and doc.document["name"] == "legacy"
+    assert (
+        doc.document["states"]["SCAN"][0]["value"] == "4.0"
+        and "device: U_DG645" in doc.yaml
+    )
+
+
+def test_a_symlink_out_of_the_root_is_never_listed(root: Path, tmp_path_factory: pytest.TempPathFactory) -> None:  # fmt: skip
+    outside = tmp_path_factory.mktemp("outside") / "secret.yaml"
+    outside.write_text("name: secret\nsteps:\n  - {do: wait, seconds: 1}\n")
+    (root / "scanner_configs/experiments/Bench/setups/secret.yaml").symlink_to(outside)
+    store = DocumentStore(root)
+    assert "secret.yaml" not in [e.id for e in store.list("setup", "Bench")]
+    with pytest.raises(NotFound):
+        store.read("setup", "Bench", "secret.yaml")
+
+
+def test_an_unreadable_file_is_a_row_not_a_failure(root: Path) -> None:
+    for rel in ("scanner_configs/experiments/Bench/setups/low_power.yaml", "scan_analysis_configs/analyzers/Ns/compact.yaml"):  # fmt: skip
+        (root / rel).chmod(0)
+    try:
+        store = DocumentStore(root)
+        rows = {e.id: e for e in store.list("setup", "Bench")}
+        assert (
+            not rows["low_power.yaml"].valid
+            and "ermission" in rows["low_power.yaml"].error
+        )
+        doc = store.read("setup", "Bench", "low_power.yaml")
+        assert not doc.valid and doc.document == {}
+        # a shared folder's unreadable file shows under each kind it could be
+        assert "Ns/compact.yaml" in [e.id for e in store.list("himg_job", None)]
+        assert "Ns/compact.yaml" in [e.id for e in store.list("analysis_recipe", None)]
+    finally:
+        for rel in ("scanner_configs/experiments/Bench/setups/low_power.yaml", "scan_analysis_configs/analyzers/Ns/compact.yaml"):  # fmt: skip
+            (root / rel).chmod(0o644)

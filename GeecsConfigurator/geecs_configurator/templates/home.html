@@ -69,7 +69,7 @@
         {% if docs %}
         <nav class="picklist docs">
           {% for d in docs %}
-          <a href="{{ root }}/?experiment={{ experiment | urlencode }}&amp;kind={{ kind }}&amp;id={{ d.id | urlencode }}"{% if d.id == doc_id %} aria-current="page"{% endif %}>{{ d.id }}{% if not d.valid %}<span class="sub" title="{{ d.error }}">invalid</span>{% endif %}</a>
+          <a href="{{ root }}/?experiment={{ experiment | urlencode }}&amp;kind={{ kind }}&amp;id={{ d.id | urlencode }}"{% if d.id == doc_id %} aria-current="page"{% endif %}>{{ d.id }}{% if not d.valid %}<span class="sub" title="{{ d.error }}">invalid</span>{% elif d.note %}<span class="sub" title="{{ d.note }}">legacy</span>{% endif %}</a>
           {% endfor %}
         </nav>
         {% else %}

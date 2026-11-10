@@ -39,11 +39,16 @@ from geecs_schemas import (
     FileStorage,
     Setup,
 )
+from geecs_schemas.convert import SchemaConversionError, convert_shot_control
 from geecs_schemas.epics.family import FAMILIES_FOLDER, FAMILIES_PACKAGE
 from geecs_schemas.storage import NAMED, STORAGE_ROOT_PATHS
 from pydantic import BaseModel, ValidationError
 
 FAMILY = "family_file"
+#: How a trigger profile in the legacy dialect (no ``schema_version``) is shown: the reader converts it.
+LEGACY = "legacy dialect, converted by the reader"
+#: A shared folder's file whose kind cannot be read: listed under every kind of that folder.
+_UNKNOWN = "?"
 #: A JSON value or a JSON Schema fragment, as the API carries it.
 Json = Any
 
@@ -65,6 +70,7 @@ class Entry(BaseModel):
     id: str
     valid: bool
     error: str | None = None
+    note: str | None = None
 
 
 class Loaded(BaseModel):
@@ -81,6 +87,7 @@ class Loaded(BaseModel):
     errors: list[Error]
     tier: str | None
     read_only: bool
+    note: str | None = None
 
 
 class Report(BaseModel):
@@ -164,16 +171,15 @@ class DocumentStore:
         if not base.is_dir():
             return {}
         if storage.pattern != NAMED:
-            path = base / storage.pattern
-            return {path.name: path} if path.is_file() else {}
-        walk = base.rglob if storage.nested else base.glob
-        paths = sorted(
-            p for s in storage.suffixes for p in walk(f"*{s}") if p.is_file()
-        )
+            paths = [base / storage.pattern]
+        else:
+            walk = base.rglob if storage.nested else base.glob
+            paths = sorted(p for s in storage.suffixes for p in walk(f"*{s}"))
+        # a symlink out of the configs root is never listed, so never read
+        inside = self.root.resolve()
+        paths = [p for p in paths if p.is_file() and p.resolve().is_relative_to(inside)]
         if storage.dispatch:
-            paths = [
-                p for p in paths if self._declared_kind(storage.dispatch, p) == kind
-            ]
+            paths = [p for p in paths if self._declared_kind(storage.dispatch, p) in (kind, _UNKNOWN)]  # fmt: skip
         return {p.relative_to(base).as_posix(): p for p in paths}
 
     @staticmethod
@@ -188,56 +194,81 @@ class DocumentStore:
                 type(loader(raw if isinstance(raw, dict) else {})).__name__
             )
         except ValidationError as exc:
-            return by_model.get(exc.title)
-        except (yaml.YAMLError, UnicodeDecodeError):
-            return None
+            return by_model.get(exc.title, _UNKNOWN)
+        except (
+            yaml.YAMLError,
+            OSError,
+            ValueError,
+        ):  # unreadable or unparseable: shown under every kind of the folder
+            return _UNKNOWN
 
     # -------------------------------------------------------------- reading
 
     def list(self, kind: str, experiment: str | None) -> list[Entry]:
-        """Every document of a kind, valid or not (an invalid one carries its first error)."""
+        """Every document of a kind, valid or not (an invalid or unreadable one carries its first error)."""
         if kind == FAMILY:
             return [Entry(id=name, valid=True) for name in sorted(self._families())]
         out = []
         for doc_id, path in self._files(kind, experiment).items():
-            try:
-                errors = self.validate(kind, self._raw(path), stem=path.stem).errors
-            except (
-                yaml.YAMLError,
-                ValueError,
-                UnicodeDecodeError,
-                OSError,
-            ) as exc:  # a broken file is a row
-                errors = [Error(loc=[], msg=_one_line(exc))]
-            out.append(Entry(id=doc_id, valid=not errors, error=errors[0].msg if errors else None))  # fmt: skip
+            _, errors, note = self._load(kind, path)
+            out.append(Entry(id=doc_id, valid=not errors, error=errors[0].msg if errors else None, note=note))  # fmt: skip
         return out
 
     def read(self, kind: str, experiment: str | None, doc_id: str) -> Loaded:
-        """One document as it is on disk; a file that does not parse loads empty with the error."""
+        """One document as it is on disk; a file that does not read or parse loads empty with the error."""
+        note = None
         if kind == FAMILY:
             families = self._families()
             if doc_id not in families:
                 raise NotFound(f"no family file {doc_id!r}")
-            text = families[doc_id].read_text(encoding="utf-8")
-            raw, path, etag = json.loads(text), f"GEECS-Schemas package data: {FAMILIES_FOLDER}/{doc_id}", "package"  # fmt: skip
+            raw = json.loads(families[doc_id].read_text(encoding="utf-8"))
+            path, etag, text = f"GEECS-Schemas package data: {FAMILIES_FOLDER}/{doc_id}", "package", dump_yaml(raw)  # fmt: skip
+            errors = self.validate(kind, raw).errors
         else:
             files = self._files(kind, experiment)
             if doc_id not in files:
                 raise NotFound(f"no {kind} {doc_id!r}")
             file = files[doc_id]
-            text, path = file.read_text(encoding="utf-8", errors="replace"), file.relative_to(self.root).as_posix()  # fmt: skip
-            stat = file.stat()
-            etag = f"{stat.st_mtime_ns}-{stat.st_size}"
-        try:
-            raw = raw if kind == FAMILY else self._raw(files[doc_id])
-            errors = self.validate(kind, raw, stem=Path(doc_id).stem).errors
-        except (yaml.YAMLError, ValueError, UnicodeDecodeError) as exc:
-            raw, errors = {}, [Error(loc=[], msg=_one_line(exc))]
+            path = file.relative_to(self.root).as_posix()
+            try:
+                text, stat = file.read_text(encoding="utf-8", errors="replace"), file.stat()  # fmt: skip
+                etag = f"{stat.st_mtime_ns}-{stat.st_size}"
+            except OSError as exc:
+                text, etag = "", ""
+                raw, errors = {}, [Error(loc=[], msg=f"unreadable: {_one_line(exc)}")]
+            else:
+                raw, errors, note = self._load(kind, file)
         return Loaded(
             kind=kind, experiment=experiment, id=doc_id, path=path, document=raw, etag=etag,
-            yaml=text if kind != FAMILY else dump_yaml(raw), valid=not errors, errors=errors,
+            yaml=text, valid=not errors, errors=errors, note=note,
             tier="code" if kind == FAMILY else SCHEMA_REGISTRY[kind].tier, read_only=kind == FAMILY,
         )  # fmt: skip
+
+    def _load(self, kind: str, path: Path) -> tuple[dict[str, Json], list[Error], str | None]:  # fmt: skip
+        """A file as the document its readers see, its errors, and a note (a legacy dialect, converted)."""
+        try:
+            raw = self._raw(path)
+        except (yaml.YAMLError, OSError, ValueError) as exc:
+            return {}, [Error(loc=[], msg=_one_line(exc))], None
+        note = None
+        if kind == "trigger_profile" and "schema_version" not in raw:
+            # the reader's rule (the scanner's resolver): no schema_version is the legacy dialect, converted
+            try:
+                profile = convert_shot_control(raw, name=path.stem)
+            except (SchemaConversionError, ValueError) as exc:
+                return (
+                    raw,
+                    [Error(loc=[], msg=f"{LEGACY} failed: {_one_line(exc)}")],
+                    LEGACY,
+                )
+            if profile is None:
+                return (
+                    raw,
+                    [Error(loc=[], msg="the legacy profile names no device")],
+                    LEGACY,
+                )
+            raw, note = profile.model_dump(mode="json"), LEGACY
+        return raw, self.validate(kind, raw, stem=path.stem).errors, note
 
     @staticmethod
     def _raw(path: Path) -> dict[str, Json]:
@@ -279,15 +310,37 @@ class DocumentStore:
 
 # ------------------------------------------------------------------ the diff
 # The same rules as form.js's diff (tests/test_form_parity.py): $ref and an
-# optional resolve, a discriminated union follows the variant both sides
-# hold, a field's tier is the strictest declared on its path, and a list
-# compares index by index, so a reorder changes every index it moved.
+# optional resolve; a union of objects follows the variant both sides hold
+# (by its discriminator, else structurally); equality is type-strict (true is
+# not 1); a change's tier is the strictest declared on its path, and a whole
+# subtree added, removed or switched takes the strictest declared anywhere in
+# its schema; an unknown tier ranks strictest; a list compares index by index,
+# so a reorder changes every index it moved.
+
+_SCALARS = ("string", "number", "integer", "boolean", "null")
+
+
+def _rank(tier: str | None) -> int:
+    return -1 if not tier else TIERS.index(tier) if tier in TIERS else len(TIERS)
 
 
 def strictest(tiers: Any) -> str | None:  # Any: an iterable of tier names or None
-    """The most restricted tier named, or ``None``."""
+    """The most restricted tier named (an unknown one ranks strictest), or ``None``."""
     named = [t for t in tiers if t]
-    return max(named, key=TIERS.index) if named else None
+    return max(named, key=_rank) if named else None
+
+
+def same(a: Json, b: Json) -> bool:
+    """JSON equality, type-strict all the way down: ``true`` is not ``1``; key order is no difference."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
+    if isinstance(a, (dict, list)) or isinstance(b, (dict, list)):
+        return False
+    return type(a) is type(b) or (isinstance(a, (int, float)) and isinstance(b, (int, float))) if a == b else False  # fmt: skip
 
 
 def _deref(s: Json, root: Json) -> Json:
@@ -305,60 +358,131 @@ def _unwrap(s: Json, root: Json) -> Json:
     if union:
         rest = [m for m in union if _deref(m, root).get("type") != "null"]
         if len(rest) == 1 and len(rest) < len(union):
-            outer = {
-                k: s[k] for k in ("title", "description", "default", "tier") if k in s
-            }
+            outer = {k: s[k] for k in ("title", "description", "default", "tier") if k in s}  # fmt: skip
             return {**_deref(rest[0], root), **outer}
     return s
 
 
-def _variant(s: Json, root: Json, before: Json, after: Json) -> Json | None:
-    """The union's variant both sides hold; ``None`` when they differ (one change)."""
+def _extra(s: Json) -> Json:
+    """The schema of an object's undeclared keys (additionalProperties, one patternProperties, or {})."""
+    if isinstance(s.get("additionalProperties"), dict):
+        return s["additionalProperties"]
+    patterns = s.get("patternProperties") or {}
+    return next(iter(patterns.values())) if len(patterns) == 1 else {}
+
+
+def _variants(s: Json, root: Json) -> tuple[str | None, list[tuple[Json, Json]]] | None:
+    """A union of objects: (discriminator or None, [(tag, variant)]); ``None`` when a member is not an object."""
     members = [_deref(m, root) for m in s.get("oneOf") or s.get("anyOf") or []]
-    if not members or not all("properties" in m for m in members):
-        return s
+    if not members or not all(m.get("type") == "object" or "properties" in m for m in members):  # fmt: skip
+        return None
     prop = (s.get("discriminator") or {}).get("propertyName") or next(
         (
             k
-            for k in members[0]["properties"]
-            if all(m["properties"].get(k, {}).get("const") is not None for m in members)
+            for k in members[0].get("properties", {})
+            if all(
+                _deref(m.get("properties", {}).get(k), root).get("const") is not None
+                for m in members
+            )
         ),  # fmt: skip
         None,
     )
-    if prop is None or not isinstance(before, dict) or not isinstance(after, dict) or before.get(prop) != after.get(prop):  # fmt: skip
+
+    def tag(i: int, m: Json) -> Json:
+        if prop:
+            return _deref(m["properties"][prop], root).get("const")
+        return m.get("title") or f"option {i + 1}"
+
+    return prop, [(tag(i, m), m) for i, m in enumerate(members)]
+
+
+def _fits(v: Json, value: Json, root: Json) -> bool:
+    props = v.get("properties", {})
+    if not isinstance(value, dict) or any(
+        k not in value for k in v.get("required", [])
+    ):
+        return False
+    if v.get("additionalProperties") is False and any(k not in props for k in value):
+        return False
+    for k, p in props.items():
+        p = _deref(p, root)
+        if k in value and ("const" in p and not same(value[k], p["const"]) or "enum" in p and value[k] not in p["enum"]):  # fmt: skip
+            return False
+    return True
+
+
+def _pick(union: tuple[str | None, list[tuple[Json, Json]]], value: Json, root: Json) -> tuple[Json, Json]:  # fmt: skip
+    prop, members = union
+    if prop:
+        found = [
+            m
+            for m in members
+            if isinstance(value, dict) and same(m[0], value.get(prop))
+        ]
+    else:
+        found = [m for m in members if _fits(m[1], value, root)]
+    return (found or members)[0]
+
+
+def _tier_in(s: Json, root: Json, seen: tuple[str, ...] = ()) -> str | None:
+    """The strictest tier declared anywhere in a schema (every variant, item and entry)."""
+    if not isinstance(s, dict):
         return None
-    return next((m for m in members if m["properties"][prop].get("const") == after.get(prop)), members[0])  # fmt: skip
+    if "$ref" in s:
+        if s["$ref"] in seen:
+            return s.get("tier")
+        seen = (*seen, s["$ref"])
+    d = _deref(s, root)
+    kids = [*d.get("anyOf", []), *d.get("oneOf", []), *([d["items"]] if isinstance(d.get("items"), dict) else []),
+            *([d["additionalProperties"]] if isinstance(d.get("additionalProperties"), dict) else []),
+            *d.get("properties", {}).values(), *d.get("patternProperties", {}).values()]  # fmt: skip
+    return strictest([d.get("tier"), *(_tier_in(k, root, seen) for k in kids)])
+
+
+def _shared_variant(s: Json, b: Json, a: Json, root: Json) -> Json | None:
+    """The schema both sides are under: for a union of objects the variant both hold, ``None`` when they differ."""
+    union = _variants(s, root)
+    if union is None:
+        return s
+    vb = _pick(union, b, root) if isinstance(b, dict) else None
+    va = _pick(union, a, root) if isinstance(a, dict) else None
+    return va[1] if vb is not None and va is not None and same(vb[0], va[0]) else None
 
 
 def diff_documents(before: Json, after: Json, schema: Json) -> list[Change]:
-    """Every difference at a field's path, each with the strictest tier on that path."""
+    """Every difference at a field's path, each with its tier (see the rules above)."""
     changes: list[Change] = []
     missing = object()
+
+    def push(
+        s: Json, b: Json, a: Json, path: list[str | int], tier: str | None
+    ) -> None:
+        if any(isinstance(x, (dict, list)) for x in (b, a)):
+            tier = strictest([tier, _tier_in(s, schema)])
+        op = "add" if b is missing else "remove" if a is missing else "change"
+        changes.append(Change(path=path, op=op, before=None if b is missing else b, after=None if a is missing else a, tier=tier))  # fmt: skip
 
     def walk(
         s: Json, b: Json, a: Json, path: list[str | int], tier: str | None
     ) -> None:
         s = _unwrap(s, schema)
         tier = strictest([tier, s.get("tier")])
-        if b == a and isinstance(b, bool) == isinstance(a, bool):
+        if b is not missing and a is not missing and same(b, a):
             return
-        variant = _variant(s, schema, b, a)
-        op = "add" if b is missing else "remove" if a is missing else "change"
-        if variant is None:
-            changes.append(Change(path=path, op=op, before=None if b is missing else b, after=None if a is missing else a, tier=tier))  # fmt: skip
+        under = _shared_variant(s, b, a, schema)
+        if under is None:
+            push(s, b, a, path, tier)
             return
-        props, extra = (
-            variant.get("properties", {}),
-            variant.get("additionalProperties"),
-        )
+        s = under
         if isinstance(b, dict) and isinstance(a, dict):
+            props, extra = s.get("properties", {}), _extra(s)
             for k in [*b, *(k for k in a if k not in b)]:
-                walk(props.get(k) or (extra if isinstance(extra, dict) else {}), b.get(k, missing), a.get(k, missing), [*path, k], tier)  # fmt: skip
+                walk(props.get(k) or extra, b.get(k, missing), a.get(k, missing), [*path, k], tier)  # fmt: skip
         elif isinstance(b, list) and isinstance(a, list):
             for i in range(max(len(b), len(a))):
-                walk(variant.get("items", {}), b[i] if i < len(b) else missing, a[i] if i < len(a) else missing, [*path, i], tier)  # fmt: skip
+                walk(s.get("items", {}), b[i] if i < len(b) else missing, a[i] if i < len(a) else missing, [*path, i], tier)  # fmt: skip
         else:
-            changes.append(Change(path=path, op=op, before=None if b is missing else b, after=None if a is missing else a, tier=tier))  # fmt: skip
+            push(s, b, a, path, tier)
 
     walk(schema, before, after, [], None)
     return changes
