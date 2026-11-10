@@ -10,11 +10,11 @@ family role, or a DB device's GEECS variable name.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional, Union
+from typing import ClassVar, Literal, Optional, Union
 
 from pydantic import Field, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.epics.family import AnyRoleName, FamilyWord
 from geecs_schemas.epics.panel_devices import DeviceName
 
@@ -60,6 +60,8 @@ class OperatorPolicy(VersionedSchemaModel):
     ``hazards`` is the one home of the hazard confirm for DB-served devices
     (a native device's comes from its family file; both apply to both).
     """
+
+    tier: ClassVar[Tier] = "maintainer"
 
     schema_version: Literal[1] = Field(1, description=_VERSION)
     grants: list[OperatorGrant] = Field([], description="Nobody else writes.")

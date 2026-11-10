@@ -65,15 +65,21 @@ with settable variables can take part in a transition.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from enum import Enum
 
 from pydantic import model_validator, Field, field_validator
 
 from geecs_schemas._base import (
     SchemaModel,
+    Tier,
     VersionedSchemaModel,
     stale_schema_version,
 )
+
+#: Where an experiment's trigger profiles live: ``shot_control_configurations/<name>.yaml``.
+TRIGGER_PROFILES_FOLDER = "shot_control_configurations"
 
 
 class TriggerState(str, Enum):
@@ -238,6 +244,8 @@ class TriggerProfile(VersionedSchemaModel):
     docstring); a before-validator drops an empty v1 block, refuses a
     populated one, and normalizes ``schema_version`` ≤ 1 to 2.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     schema_version: int = Field(
         default=2,

@@ -5,9 +5,9 @@ UIs) render forms from JSON Schema, never from Python.  This module keeps a
 **registry** of the models published that way — :data:`EXPORTED_SCHEMAS`,
 artifact name → model — and renders one committed artifact per entry under
 ``docs/geecs_schemas/<name>.schema.json`` (on the published mkdocs site, so
-clients outside this repo fetch them by URL).  ``scan_request`` is the first
-entry: the queueserver funnel's one ``request`` parameter.  The named plans
-of Phase 2b add theirs as one line each.
+clients outside this repo fetch them by URL): every kind that is a file in
+the configs repo, plus the queueserver funnel's ``request`` parameter and
+its sub-models.
 
 Same discipline as :mod:`geecs_schemas.docgen` (the Markdown twin): a
 generator, committed artifacts, and a no-drift test
@@ -29,7 +29,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from geecs_schemas.analysis import AnalysisGroup, AnalysisRecipe
+from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage
 from geecs_schemas.scan_request import (
     ActionBindings,
     CaptureSettings,
@@ -38,30 +38,27 @@ from geecs_schemas.scan_request import (
 )
 
 #: The published JSON Schema contracts: artifact name → model.  Each entry
-#: renders to ``docs/geecs_schemas/<name>.schema.json``.  Add a line here
-#: and regenerate; the no-drift guard covers it from then on.
+#: renders to ``docs/geecs_schemas/<name>.schema.json``; the no-drift guard
+#: covers every entry.
 #:
-#: ``scan_request`` is the funnel plan's one parameter.  The four
-#: sub-models are the named plans' parameters (Phase 2b-ii):
-#: ``geecs_noscan_plan(capture, actions=...)``,
-#: ``geecs_scan_plan(axes, capture, actions=...)`` (``axes`` is a list of
-#: ``scan_axis`` objects), ``geecs_optimize_plan(optimization, capture,
-#: actions=...)`` — a generic client grafts one artifact per plan
-#: parameter.
-from .optimizer_config import OptimizerConfig
-
+#: Every kind that is a file in the configs repo (``KIND_STORAGE``'s file
+#: entries, by registry kind name) is published, so an editor drawing a form
+#: and an outside client see the same schema, tier annotations included.
+#: ``scan_request`` is the funnel plan's one parameter, and its three
+#: sub-models are the named plans' parameters (``geecs_noscan_plan(capture,
+#: actions=...)``, ``geecs_scan_plan(axes, capture, actions=...)`` with
+#: ``axes`` a list of ``scan_axis`` objects) — a generic client grafts one
+#: artifact per plan parameter.
 EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
-    "optimizer_config": OptimizerConfig,
+    **{
+        kind: SCHEMA_REGISTRY[kind]
+        for kind, storage in KIND_STORAGE.items()
+        if isinstance(storage, FileStorage)
+    },
     "scan_request": ScanRequest,
     "capture_settings": CaptureSettings,
     "action_bindings": ActionBindings,
     "scan_axis": ScanAxis,
-    # The analysis-config documents: what the web config editor renders
-    # its forms from.
-    "analysis_group": AnalysisGroup,
-    # The v3 recipe (the analysis core's native shape); steps/measure carry
-    # the core registry's vocabulary, which this artifact lists by name only.
-    "analysis_recipe": AnalysisRecipe,
 }
 
 #: Where the artifacts live, relative to the repo root.

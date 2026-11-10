@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "CapturedReadback": {
+      "additionalProperties": false,
+      "description": "One readback a captured value was read from.",
+      "properties": {
+        "device": {
+          "description": "The device read.",
+          "minLength": 1,
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "The variable read.",
+          "minLength": 1,
+          "title": "Variable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device",
+        "variable"
+      ],
+      "title": "CapturedReadback",
+      "type": "object"
+    },
+    "SetupApplyStep": {
+      "additionalProperties": false,
+      "description": "One step that applies another setup, inlined where it sits.",
+      "properties": {
+        "do": {
+          "const": "apply",
+          "description": "Step type. 'apply' runs another setup's steps here.",
+          "title": "Do",
+          "type": "string"
+        },
+        "setup": {
+          "description": "The other setup's name (its file stem).",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$",
+          "title": "Setup",
+          "type": "string"
+        }
+      },
+      "required": [
+        "do",
+        "setup"
+      ],
+      "title": "SetupApplyStep",
+      "type": "object"
+    },
+    "SetupCapture": {
+      "additionalProperties": false,
+      "description": "Where a setup's values came from: who captured them, when, from which readbacks.",
+      "properties": {
+        "by": {
+          "description": "The operator who captured it.",
+          "minLength": 1,
+          "title": "By",
+          "type": "string"
+        },
+        "at": {
+          "description": "When it was captured.",
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "readbacks": {
+          "description": "The readbacks the values were read from.",
+          "items": {
+            "$ref": "#/$defs/CapturedReadback"
+          },
+          "title": "Readbacks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "by",
+        "at"
+      ],
+      "title": "SetupCapture",
+      "type": "object"
+    },
+    "SetupCheckStep": {
+      "additionalProperties": false,
+      "description": "One step that reads a device variable and stops the setup on a mismatch.\n\nA number matches within ``tolerance``; a word matches exactly.",
+      "properties": {
+        "do": {
+          "const": "check",
+          "description": "Step type. 'check' reads a variable and stops on a mismatch.",
+          "title": "Do",
+          "type": "string"
+        },
+        "device": {
+          "description": "The device to read.",
+          "minLength": 1,
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "The variable to read.",
+          "minLength": 1,
+          "title": "Variable",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "The value the reading must match: a number or a word.",
+          "title": "Expected"
+        },
+        "tolerance": {
+          "default": 0.0,
+          "description": "How far a numeric reading may be from 'expected' and still match. Only for a numeric 'expected'; a word matches exactly.",
+          "minimum": 0,
+          "title": "Tolerance",
+          "type": "number"
+        }
+      },
+      "required": [
+        "do",
+        "device",
+        "variable",
+        "expected"
+      ],
+      "title": "SetupCheckStep",
+      "type": "object"
+    },
+    "SetupSetStep": {
+      "additionalProperties": false,
+      "description": "One step that sets a device variable and waits for the device to finish.",
+      "properties": {
+        "do": {
+          "const": "set",
+          "description": "Step type. 'set' writes a value and waits for the device.",
+          "title": "Do",
+          "type": "string"
+        },
+        "device": {
+          "description": "The device, e.g. 'U_S1H'.",
+          "minLength": 1,
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "The variable, e.g. 'Current'.",
+          "minLength": 1,
+          "title": "Variable",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "description": "The value to write: a number, or a word such as 'on'.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "do",
+        "device",
+        "variable",
+        "value"
+      ],
+      "title": "SetupSetStep",
+      "type": "object"
+    },
+    "WaitStep": {
+      "additionalProperties": false,
+      "description": "One step that simply pauses for a number of seconds.\n\nUse this to give hardware time to settle \u2014 for example waiting 3 seconds\nafter moving a shutter before checking that it arrived.",
+      "properties": {
+        "do": {
+          "const": "wait",
+          "description": "Step type. 'wait' pauses the plan for a fixed time.",
+          "title": "Do",
+          "type": "string"
+        },
+        "seconds": {
+          "description": "How long to pause, in seconds (must be greater than 0).",
+          "exclusiveMinimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "do",
+        "seconds"
+      ],
+      "title": "WaitStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A named device state: the steps that put the machine in it, in order.\n\nEach step is one of: ``set`` a device variable, ``wait`` some seconds,\n``check`` a readback, or ``apply`` another setup. Steps run strictly in\norder, top to bottom; a failed ``set`` or ``check`` stops the setup.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "description": "The setup's name, also its file stem, e.g. 'low_power'.",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "description": "What this state is and when to use it.",
+      "title": "Description",
+      "type": "string"
+    },
+    "steps": {
+      "description": "The steps to perform, in order from top to bottom.",
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "apply": "#/$defs/SetupApplyStep",
+            "check": "#/$defs/SetupCheckStep",
+            "set": "#/$defs/SetupSetStep",
+            "wait": "#/$defs/WaitStep"
+          },
+          "propertyName": "do"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/SetupSetStep"
+          },
+          {
+            "$ref": "#/$defs/WaitStep"
+          },
+          {
+            "$ref": "#/$defs/SetupCheckStep"
+          },
+          {
+            "$ref": "#/$defs/SetupApplyStep"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    },
+    "captured": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SetupCapture"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Where the values came from; absent for a hand-written setup."
+    }
+  },
+  "required": [
+    "name",
+    "steps"
+  ],
+  "tier": "operator",
+  "title": "Setup",
+  "type": "object"
+}

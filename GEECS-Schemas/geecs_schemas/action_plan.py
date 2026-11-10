@@ -43,11 +43,11 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Literal, Union
+from typing import Annotated, ClassVar, Literal, Union
 
 from pydantic import Field, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
 #: Where an experiment's library lives in its configs folder: ``action_library/actions.yaml``.
 ACTION_LIBRARY_FOLDER, ACTION_LIBRARY_FILENAME = "action_library", "actions.yaml"
@@ -211,6 +211,8 @@ class ActionPlanLibrary(VersionedSchemaModel):
     validator checks every nested ``run`` reference so a renamed plan cannot
     leave a dangling pointer behind.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     plans: dict[str, ActionPlan] = Field(
         description="All named plans, keyed by the name used to invoke them."

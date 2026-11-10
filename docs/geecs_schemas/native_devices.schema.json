@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AravisCamera": {
+      "additionalProperties": false,
+      "description": "A GigE Vision camera behind ADAravis, writing HDF5 through its IOC's own file plugin.",
+      "properties": {
+        "kind": {
+          "const": "aravis_camera",
+          "description": "Device kind: 'aravis_camera' (an areaDetector ADAravis camera).",
+          "title": "Kind",
+          "type": "string"
+        },
+        "template": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema.",
+          "title": "Template"
+        },
+        "trigger_source": {
+          "description": "Where each frame comes from. 'line0' / 'line1': the camera's hardware input on that line (a Basler's opto-isolated input is Line1, a FLIR Blackfly's Line0), wired to a timing-system output gated by the trigger box; the line must be one of the camera's own TriggerSource choices. 'software': the scan worker presses the camera's software trigger at each shot (exposed when the worker says go, not when the laser fires).",
+          "enum": [
+            "line0",
+            "line1",
+            "software"
+          ],
+          "title": "Trigger Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "trigger_source"
+      ],
+      "title": "AravisCamera",
+      "type": "object"
+    },
+    "EpicsMotor": {
+      "additionalProperties": false,
+      "description": "A positioner: one device, one EPICS motor record per axis.\n\nThe axes are the record names under the device's prefix\n(``<experiment>:<device>:<axis>``), so the entry still carries names\nonly; tolerance, units and limits live in the record (``.RDBD``,\n``.EGU``, ``.HLM``/``.LLM``), the one home for device facts.  Each axis\nbinds as a scan axis ``Device:axis`` (the same spelling as a DB\ndevice's settable), and the device as a whole is a per-row scalar\ndevice (every axis's readback).",
+      "properties": {
+        "kind": {
+          "const": "epics_motor",
+          "description": "Device kind: 'epics_motor' (EPICS motor records, one per axis).",
+          "title": "Kind",
+          "type": "string"
+        },
+        "template": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema.",
+          "title": "Template"
+        },
+        "axes": {
+          "description": "The axes, as the motor record names under the device's prefix (e.g. ['x', 'y', 'z'] for '<experiment>:<device>:x' \u2026). Each is a scan axis 'Device:axis'. The record owns the axis's limits, units and deadband.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Axes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "axes"
+      ],
+      "title": "EpicsMotor",
+      "type": "object"
+    },
+    "SetpointDevice": {
+      "additionalProperties": false,
+      "description": "A setpoint device: a supply's plain records (``NATIVE_DEVICES.md`` \u00a78).\n\nThe entry names the records under the device's prefix\n(``<experiment>:<device>:<record>``), since the worker has no DB rows to\nenumerate them: each settable is its readback record, written at its\nsetpoint record (``<record>:SP``, or the family's setpoint role for that\nreadback) and confirmed on the readback within its tolerance; readbacks\nare extra row columns; status bits are two-state records that fail a\nset when they read 1. Limits and units live in the records\n(``DRVH``/``DRVL``, ``EGU``), the one home for device facts.",
+      "properties": {
+        "kind": {
+          "const": "setpoint_device",
+          "description": "Device kind: 'setpoint_device' (a supply's plain records: setpoint, readback, status bits).",
+          "title": "Kind",
+          "type": "string"
+        },
+        "template": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema.",
+          "title": "Template"
+        },
+        "settables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SetpointSettable"
+          },
+          "description": "The settables, by readback record name under the device's prefix (e.g. {'current': {tolerance: 0.005}} for '<experiment>:<device>:current', written at 'current:SP'). Each is a scan axis 'Device:record' and an action's set target.",
+          "minProperties": 1,
+          "title": "Settables",
+          "type": "object"
+        },
+        "readbacks": {
+          "description": "Further numeric readback records, read into each row beside the settables' own (e.g. ['voltage']).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Readbacks",
+          "type": "array"
+        },
+        "status": {
+          "description": "Status bits, two-state records that read 1 when tripped (e.g. ['fault', 'interlock']): a set is refused while one reads 1 and fails if one rises while it waits.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Status",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "settables"
+      ],
+      "title": "SetpointDevice",
+      "type": "object"
+    },
+    "SetpointSettable": {
+      "additionalProperties": false,
+      "description": "One settable of a setpoint device: how close its readback must come, and how soon.",
+      "properties": {
+        "tolerance": {
+          "description": "How close the readback must come to the requested value for the set to be done, in the record's units (e.g. 0.005 for 5 mA on a supply in A). The one device fact a plain 'ao' record cannot hold.",
+          "exclusiveMinimum": 0,
+          "title": "Tolerance",
+          "type": "number"
+        },
+        "timeout": {
+          "default": 10.0,
+          "description": "Seconds the set waits for the readback to arrive within the tolerance after the write, before it fails. Size it for the slowest ramp plus the readback's scan period.",
+          "exclusiveMinimum": 0,
+          "title": "Timeout",
+          "type": "number"
+        }
+      },
+      "required": [
+        "tolerance"
+      ],
+      "title": "SetpointSettable",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The experiment's devices served by native EPICS IOCs, by GEECS device name.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "devices": {
+      "additionalProperties": {
+        "discriminator": {
+          "mapping": {
+            "aravis_camera": "#/$defs/AravisCamera",
+            "epics_motor": "#/$defs/EpicsMotor",
+            "setpoint_device": "#/$defs/SetpointDevice"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AravisCamera"
+          },
+          {
+            "$ref": "#/$defs/EpicsMotor"
+          },
+          {
+            "$ref": "#/$defs/SetpointDevice"
+          }
+        ]
+      },
+      "description": "GEECS device name (e.g. 'UC_ExampleCam') \u2192 its kind and settings. The IOC serves it under the derived prefix '<experiment>:<device>:'; the device must not also be enabled in the GEECS DB.",
+      "title": "Devices",
+      "type": "object"
+    }
+  },
+  "tier": "maintainer",
+  "title": "NativeDevices",
+  "type": "object"
+}

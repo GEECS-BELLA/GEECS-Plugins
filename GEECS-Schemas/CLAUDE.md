@@ -12,6 +12,34 @@ inherit the enclosing document's version. Export public vocabulary from
 not every nested model. Changes to registered documents also regenerate the
 published JSON schemas and Markdown references through existing tooling.
 
+## Tiers and storage
+
+A document kind that is a file people edit declares its `tier`
+(`_base.Tier`: operator, maintainer, parameter, sudo, code) as a
+`ClassVar` on its model, and only there: `VersionedSchemaModel`'s
+`model_config` stamps it into `model_json_schema()`, which is what an
+editor draws from. A field stricter than its document carries
+`json_schema_extra={"tier": ...}` on its `Field` (the archive policy's
+membership rules). A kind with no file has no tier (`None`); family files
+are `code`. `storage.py`'s `KIND_STORAGE` names every `SCHEMA_REGISTRY`
+kind exactly once: a `FileStorage` (root `experiment` or `analysis`, the
+folder, the file pattern) or a `NotAFile` with its reason. The folder and
+file names are constants beside each kind's model (`PRESETS_FOLDER`,
+`TRIGGER_PROFILES_FOLDER`, ...), the one copy every reader imports, the
+scanner's resolver included. A new document kind adds its registry
+entry, its tier, its storage row and, as a file kind, its published JSON
+schema (`schema_export` publishes every file kind); `tests/test_storage.py`
+fails until all four agree.
+
+## Setups
+
+`setup.py`: `Setup`, a named device state (`<experiment>/setups/<name>.yaml`,
+the file stem its name): ordered `set` / `wait` / `check` / `apply` steps and
+an optional `captured` record. A `check` matches as the confirm settable
+does (`setup_value_matches`: a number within `tolerance`, a word exactly);
+`flatten_setup` inlines `apply` steps and refuses unknown names and loops.
+It succeeds the action library, which stays until its executors move.
+
 ## Analysis documents
 
 Two documents share `scan_analysis_configs/analyzers/`: the

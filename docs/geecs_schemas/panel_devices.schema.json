@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "PanelDevice": {
+      "additionalProperties": false,
+      "description": "One device's panel data: its family and what differs from it on this device.",
+      "properties": {
+        "family": {
+          "description": "The record template the device instantiates (a family file's name).",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Family",
+          "type": "string"
+        },
+        "prefix": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\s:]+(:[^\\s:]+)*:$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The device's PV prefix, ending in ':', for a device on a bench IOC (not in native_devices.yaml). Absent: '<experiment>:<device>:'.",
+          "title": "Prefix"
+        },
+        "axes": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^\\S+$",
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A per-axis family's axes (the motor record names under the prefix), for a device the registry does not list.",
+          "title": "Axes"
+        },
+        "roles": {
+          "description": "Role \u2192 this device's own record suffix, where it differs from the family's (a supply's IOC names its own PVs).",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          },
+          "title": "Roles",
+          "type": "object"
+        },
+        "labels": {
+          "description": "Role \u2192 what this device's page calls it (a bit's label: 'chiller flow').",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "string"
+            }
+          },
+          "title": "Labels",
+          "type": "object"
+        },
+        "allow": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The family actions the page may take on this device (no homing for actuators on a mirror mount). Absent: every action.",
+          "title": "Allow"
+        },
+        "note": {
+          "default": "",
+          "description": "A line the device's page shows.",
+          "title": "Note",
+          "type": "string"
+        },
+        "omit": {
+          "description": "Family roles this device does not have or use (an unwired interlock): never read, never shown, and their actions are unavailable.",
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Omit",
+          "type": "array"
+        },
+        "hazard": {
+          "description": "Writable roles that need the hazard confirm on this device, beyond the family's own (one stage's move).",
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Hazard",
+          "type": "array"
+        },
+        "archive": {
+          "description": "Roles the archiver takes on this device beyond the family's own.",
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "Archive",
+          "type": "array"
+        },
+        "no_archive": {
+          "description": "Roles the family archives that the archiver leaves out on this device (a readback too noisy to keep); the page still shows them.",
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "title": "No Archive",
+          "type": "array"
+        },
+        "ioc": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The IOC serving the device, as its host's compose file names it (IOC_NAME, e.g. 'adtest-cam1'): the archiver keeps that IOC's devIocStats heartbeat. Absent: no heartbeat for it.",
+          "title": "Ioc"
+        }
+      },
+      "required": [
+        "family"
+      ],
+      "title": "PanelDevice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The experiment's devices with a panel: each one's family and per-device panel data.\n\n``<experiment>/panel_devices.yaml`` in the configs repository, read by\nthe native-device readers (module docstring). A device here may still be owned by the GEECS DB\n(a bench device): the scan worker reads ``native_devices.yaml``, never\nthis file.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "devices": {
+      "additionalProperties": {
+        "$ref": "#/$defs/PanelDevice"
+      },
+      "description": "GEECS device name \u2192 its family and panel data.",
+      "title": "Devices",
+      "type": "object"
+    }
+  },
+  "tier": "maintainer",
+  "title": "PanelDevices",
+  "type": "object"
+}

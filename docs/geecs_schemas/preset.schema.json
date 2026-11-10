@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "JsonValue": {},
+    "PlanCall": {
+      "additionalProperties": false,
+      "description": "The stock plan the preset runs, with its arguments.\n\n``detectors`` (the plan's first argument) is **not** listed here: the\nclient builds it from ``devices``.  ``args`` and ``kwargs`` are the\nrest of the stock signature \u2014 ``scan``'s ``[motor, start, stop, num]``,\n``count``'s ``{num: 100}`` \u2014 plus the GEECS keyword arguments the\nworker adds to every scan verb: ``shots_per_step`` (rows per position),\n``acquisition``, ``shot_period``.  The run-level fields\n``trigger_profile``, ``native_image_save`` and ``background_telemetry``\nare preset fields, never\nkwargs: the client refuses a copy here.",
+      "properties": {
+        "name": {
+          "description": "The stock bluesky plan to run, e.g. 'count', 'scan', 'list_scan', 'grid_scan' \u2014 one of the names the worker registers.",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "args": {
+          "description": "Positional arguments after the detectors, in the plan's own order \u2014 e.g. ['EMQ1 Current', 1.2, 1.7, 6] for scan (motor, start, stop, number of points). A scan variable is a string: 'Device:Variable' or a scan-variable catalog name.",
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "kwargs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Keyword arguments \u2014 e.g. {num: 100} for count, {shots_per_step: 10} for the scan verbs (rows recorded at every position).",
+          "title": "Kwargs",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PlanCall",
+      "type": "object"
+    },
+    "PresetDevice": {
+      "additionalProperties": false,
+      "description": "One device of the group: it records every shot of the scan.\n\n``essential`` (default on) means the scan waits for this device on\nevery shot \u2014 a shot is not complete without its reading.  Off means\nthe device streams what it produces for the run's duration (its\nframes through the camera server's file plugin, or \u2014 without one \u2014\nits readings and LabVIEW files for every shot it stamps, joined to the\nshots afterwards) and never holds a shot or aborts a run: the choice\nfor a slow or unreliable device whose data are welcome but not\nrequired (phase 2, GEECS-Plugins#807; 2026-09-26 for devices without a\nplugin).",
+      "properties": {
+        "device": {
+          "description": "GEECS device name exactly as it appears in the GEECS experiment database (MySQL), e.g. 'UC_ALineEbeam1'.",
+          "minLength": 1,
+          "title": "Device",
+          "type": "string"
+        },
+        "save_images": {
+          "default": true,
+          "description": "Save the device's images / non-scalar files (camera frames, traces) beside the scalar data. Off records the device's scalars only \u2014 its per-shot readings still land in every row; the frames stay off the disk. Meaningless for a scalar-only device (nothing to save either way).",
+          "title": "Save Images",
+          "type": "boolean"
+        },
+        "essential": {
+          "default": true,
+          "description": "Wait for this device on every shot (on, the default) \u2014 a shot is not complete without its reading. Off streams the device for the run's duration instead, at its own rate, joined to the shots by its timestamp: it never holds a shot or aborts the scan, so use it for a slow or unreliable device whose data are welcome but not required. The device needs a shot timestamp (acq_timestamp).",
+          "title": "Essential",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "device"
+      ],
+      "title": "PresetDevice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A saved scan: the device group plus the plan call.\n\nSubmitting a preset runs ``plan.name`` with the group as its detectors\nand ``plan.args`` / ``plan.kwargs`` as the rest \u2014 a single queue item.\nA preset without a ``plan`` is a device group waiting for one: it is\nlisted and editable but cannot be submitted as is.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "description": "The name clients use to pick this preset.",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "description": "What this scan is for \u2014 becomes the run's description (ScanStartInfo in the legacy ScanInfo file).",
+      "title": "Description",
+      "type": "string"
+    },
+    "trigger_profile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Name of the trigger profile driving the shots. Leave unset to use the experiment default (experiment_defaults.yaml).",
+      "title": "Trigger Profile"
+    },
+    "background": {
+      "default": false,
+      "description": "Flag this scan as a background measurement (metadata only: ScanMode 'background' in ScanInfo, 'background' in the run).",
+      "title": "Background",
+      "type": "boolean"
+    },
+    "native_image_save": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Whether cameras whose frames the PVA gateway's file plugin captures also write their LabVIEW per-shot files (PNGs) this scan. Leave unset for the experiment default (experiment_defaults.yaml). Off keeps the plugin's HDF5 stack as those cameras' only record. A device without a file plugin (no PVA stream, a proprietary format) always writes its native files whatever this says, and a scalars-only entry (save_images off) is unaffected.",
+      "title": "Native Image Save"
+    },
+    "background_telemetry": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Whether every other logged scalar of the experiment \u2014 the variables the GEECS experiment database marks for scan logging (expt_device_variable, get='yes') on the devices not in this scan \u2014 is read into every row as well, softly: from the gateway's monitor cache, never waited on; a device that does not answer when the scan starts is left out of that scan with a log line, and one the gateway marks INVALID reads NaN. Leave unset for the experiment default (experiment_defaults.yaml). Off records this scan's own devices alone.",
+      "title": "Background Telemetry"
+    },
+    "devices": {
+      "description": "The devices recording this scan, one entry per device. Every subscribed scalar of each is a column of every row; each entry chooses whether its images are saved. An empty list scans with the motors' readbacks only.",
+      "items": {
+        "$ref": "#/$defs/PresetDevice"
+      },
+      "title": "Devices",
+      "type": "array"
+    },
+    "plan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanCall"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The stock plan call this preset submits. Unset means a device group with no scan attached yet."
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "tier": "operator",
+  "title": "Preset",
+  "type": "object"
+}

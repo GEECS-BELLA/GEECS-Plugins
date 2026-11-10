@@ -26,7 +26,7 @@ from collections.abc import Mapping
 from functools import lru_cache
 from importlib import resources
 from types import MappingProxyType
-from typing import Annotated, Literal, Optional
+from typing import Annotated, ClassVar, Literal, Optional
 
 from pydantic import (
     AfterValidator,
@@ -37,7 +37,7 @@ from pydantic import (
     model_validator,
 )
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
 #: What kind of value a role carries, which is also the widget a page draws for it.
 RoleType = Literal[
@@ -485,6 +485,8 @@ class FamilyFile(VersionedSchemaModel):
     one file per template; read with :func:`load_families`. The order of
     ``roles`` is the page's order.
     """
+
+    tier: ClassVar[Tier] = "code"
 
     model_config = _FROZEN
 

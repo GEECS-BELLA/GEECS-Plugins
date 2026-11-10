@@ -47,11 +47,14 @@ future engine-side application.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import ClassVar, Optional
 
 from pydantic import Field
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
+
+#: An experiment's defaults file, at the top of its configs folder.
+EXPERIMENT_DEFAULTS_FILENAME = "experiment_defaults.yaml"
 
 
 class DefaultActions(SchemaModel):
@@ -88,6 +91,8 @@ class ExperimentDefaults(VersionedSchemaModel):
     scan names none, and default plans bracket the scan's own — defaults
     run first on setup and last on closeout.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     trigger_profile: Optional[str] = Field(
         None,

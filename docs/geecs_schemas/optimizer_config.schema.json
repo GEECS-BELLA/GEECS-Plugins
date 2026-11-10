@@ -342,6 +342,7 @@
     "measurements",
     "generator"
   ],
+  "tier": "operator",
   "title": "OptimizerConfig",
   "type": "object"
 }

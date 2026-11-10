@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "HazardRule": {
+      "additionalProperties": false,
+      "description": "These roles of these devices need the hazard confirm, as a family role with ``confirm: hazard`` does.",
+      "properties": {
+        "families": {
+          "default": [],
+          "description": "Every device of these.",
+          "items": {
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$",
+            "type": "string"
+          },
+          "title": "Families",
+          "type": "array"
+        },
+        "devices": {
+          "default": [],
+          "description": "These GEECS devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Devices",
+          "type": "array"
+        },
+        "roles": {
+          "description": "The roles a write confirms.",
+          "items": {
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Roles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "roles"
+      ],
+      "title": "HazardRule",
+      "type": "object"
+    },
+    "OperatorGrant": {
+      "additionalProperties": false,
+      "description": "Some operators may write some roles of some devices, named or by family.",
+      "properties": {
+        "families": {
+          "default": [],
+          "description": "Every device of these.",
+          "items": {
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$",
+            "type": "string"
+          },
+          "title": "Families",
+          "type": "array"
+        },
+        "devices": {
+          "default": [],
+          "description": "These GEECS devices.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Devices",
+          "type": "array"
+        },
+        "operators": {
+          "description": "Operators, by name.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Operators",
+          "type": "array"
+        },
+        "roles": {
+          "default": [],
+          "description": "Only these; empty: all allowed.",
+          "items": {
+            "minLength": 1,
+            "pattern": "^\\S(.*\\S)?$",
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "operators"
+      ],
+      "title": "OperatorGrant",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Which operators may write what (``<experiment>/operator_policy.yaml``); default deny.\n\nThe allow list, hazard confirm, run lock and bounds apply regardless.\n``hazards`` is the one home of the hazard confirm for DB-served devices\n(a native device's comes from its family file; both apply to both).",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "description": "Format version. Leave at 1.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "grants": {
+      "default": [],
+      "description": "Nobody else writes.",
+      "items": {
+        "$ref": "#/$defs/OperatorGrant"
+      },
+      "title": "Grants",
+      "type": "array"
+    },
+    "hazards": {
+      "default": [],
+      "description": "Roles that need the hazard confirm.",
+      "items": {
+        "$ref": "#/$defs/HazardRule"
+      },
+      "title": "Hazards",
+      "type": "array"
+    }
+  },
+  "tier": "maintainer",
+  "title": "OperatorPolicy",
+  "type": "object"
+}

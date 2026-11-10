@@ -33,7 +33,14 @@ from geecs_core.configs_repo import scanner_configs_base
 from geecs_schemas import (
     ActionPlan,
     ActionPlanLibrary,
+    EXPERIMENT_DEFAULTS_FILENAME,
     NATIVE_DEVICES_FILENAME,
+    OPTIMIZER_CONFIGS_FOLDER,
+    PRESETS_FOLDER,
+    SCAN_VARIABLES_FILENAME,
+    SCAN_VARIABLES_FOLDER,
+    SHOT_OFFSETS_FILENAME,
+    TRIGGER_PROFILES_FOLDER,
     ExperimentDefaults,
     NativeDevices,
     Preset,
@@ -47,8 +54,6 @@ from geecs_schemas.action_plan import ACTION_LIBRARY_FILENAME, ACTION_LIBRARY_FO
 from geecs_schemas.convert import convert_shot_control
 
 logger = logging.getLogger(__name__)
-
-SHOT_CONTROL_FOLDER = "shot_control_configurations"
 
 #: A preset file stem: a plain name, no path separators, no leading dot.
 _PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
@@ -144,11 +149,13 @@ class ConfigsRepoResolver:
         resolved lazily on first use.
     """
 
-    TRIGGER_FOLDER = SHOT_CONTROL_FOLDER
-    SCAN_VARIABLES_FOLDER = "scan_devices"
+    # The folder names are GEECS-Schemas' constants (the one home); these
+    # aliases keep the resolver's own spelling for its callers and tests.
+    TRIGGER_FOLDER = TRIGGER_PROFILES_FOLDER
+    SCAN_VARIABLES_FOLDER = SCAN_VARIABLES_FOLDER
     ACTION_FOLDER = ACTION_LIBRARY_FOLDER
-    PRESET_FOLDER = "presets"
-    OPTIMIZER_FOLDER = "optimizer_configs"
+    PRESET_FOLDER = PRESETS_FOLDER
+    OPTIMIZER_FOLDER = OPTIMIZER_CONFIGS_FOLDER
 
     def __init__(
         self, experiment: str, experiments_root: str | Path | None = None
@@ -440,7 +447,7 @@ class ConfigsRepoResolver:
         the previous read (SMB shares tick at 1–2 s) is served stale until
         the next tick or byte-count change.
         """
-        path = self._root / self.SCAN_VARIABLES_FOLDER / "scan_variables.yaml"
+        path = self._root / self.SCAN_VARIABLES_FOLDER / SCAN_VARIABLES_FILENAME
         try:
             st = path.stat()
         except (FileNotFoundError, NotADirectoryError):
@@ -538,18 +545,18 @@ class ConfigsRepoResolver:
             return {}
         return dict(self._action_library().plans)
 
-    DEFAULTS_FILE = "experiment_defaults.yaml"
-
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
         """Load ``<experiment>/experiment_defaults.yaml``; ``None`` if absent.
 
         No legacy dialect exists behind it (the legacy scanner kept these
         choices in GUI state).
         """
-        path = self._root / self.DEFAULTS_FILE
+        path = self._root / EXPERIMENT_DEFAULTS_FILENAME
         if not path.exists():
             return None
-        document = self._load_yaml(path, "experiment defaults", self.DEFAULTS_FILE)
+        document = self._load_yaml(
+            path, "experiment defaults", EXPERIMENT_DEFAULTS_FILENAME
+        )
         return ExperimentDefaults.model_validate(document)
 
     def resolve_native_devices(self) -> NativeDevices:
@@ -590,12 +597,10 @@ class ConfigsRepoResolver:
                 f"native device registry {path} is invalid: {exc}"
             ) from exc
 
-    SHOT_OFFSETS_FILE = "shot_offsets.yaml"
-
     @property
     def shot_offsets_path(self) -> Path:
         """Where this experiment's measured drain offsets live (written or not)."""
-        return self._root / self.SHOT_OFFSETS_FILE
+        return self._root / SHOT_OFFSETS_FILENAME
 
     def resolve_shot_offsets(self) -> ShotOffsets | None:
         """Load ``<experiment>/shot_offsets.yaml``; ``None`` if never measured.
@@ -619,7 +624,7 @@ class ConfigsRepoResolver:
         path = self.shot_offsets_path
         if not path.exists():
             return None
-        document = self._load_yaml(path, "shot offsets", self.SHOT_OFFSETS_FILE)
+        document = self._load_yaml(path, "shot offsets", SHOT_OFFSETS_FILENAME)
         return ShotOffsets.model_validate(document)
 
     def write_shot_offsets(self, offsets: ShotOffsets) -> Path:

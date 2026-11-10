@@ -1,0 +1,359 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Binding": {
+      "additionalProperties": false,
+      "description": "What a widget shows and writes: a device's role (on an axis), or a bare PV.",
+      "properties": {
+        "device": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The GEECS device name.",
+          "title": "Device"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "pattern": "^\\S(.*\\S)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The device family's role; a DB device's GEECS variable name.",
+          "title": "Role"
+        },
+        "axis": {
+          "anyOf": [
+            {
+              "pattern": "^\\S+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The axis, for a per-axis family (a motor's m1).",
+          "title": "Axis"
+        },
+        "pv": {
+          "anyOf": [
+            {
+              "pattern": "^\\S+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A bare PV, read only: a writing kind on one is drawn disabled.",
+          "title": "Pv"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "An action plan's name in the experiment's library: a button runs it.",
+          "title": "Action"
+        },
+        "group": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A rail group's title in the device's family panel, or 'settings' for the automatic layout: a group widget draws it.",
+          "title": "Group"
+        }
+      },
+      "title": "Binding",
+      "type": "object"
+    },
+    "Group": {
+      "additionalProperties": false,
+      "description": "A titled block of widgets on the screen's grid, worn in a kit colour token.",
+      "properties": {
+        "title": {
+          "description": "The group's heading.",
+          "title": "Title",
+          "type": "string"
+        },
+        "at": {
+          "description": "Its top-left grid cell: row, column (from 1).",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "At",
+          "type": "array"
+        },
+        "size": {
+          "default": [
+            1,
+            1
+          ],
+          "description": "Rows and columns it spans.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Size",
+          "type": "array"
+        },
+        "columns": {
+          "default": 1,
+          "description": "Widgets side by side inside it, filled row by row.",
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Columns",
+          "type": "integer"
+        },
+        "tone": {
+          "default": "slate",
+          "description": "Its colour, a kit token (never a literal).",
+          "enum": [
+            "accent",
+            "slate",
+            "muted",
+            "trace-1",
+            "trace-2",
+            "trace-3",
+            "trace-4"
+          ],
+          "title": "Tone",
+          "type": "string"
+        },
+        "widgets": {
+          "description": "Its controls, in order.",
+          "items": {
+            "$ref": "#/$defs/Widget"
+          },
+          "minItems": 1,
+          "title": "Widgets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "at",
+        "widgets"
+      ],
+      "title": "Group",
+      "type": "object"
+    },
+    "ToggleValues": {
+      "additionalProperties": false,
+      "description": "The two numbers a toggle writes to a numeric role (a LabVIEW boolean kept as a number).",
+      "properties": {
+        "on": {
+          "description": "Written to switch it on; a readback equal to it reads on.",
+          "title": "On",
+          "type": "number"
+        },
+        "off": {
+          "description": "Written to switch it off; a readback equal to it reads off. Any other readback reads unknown.",
+          "title": "Off",
+          "type": "number"
+        }
+      },
+      "required": [
+        "on",
+        "off"
+      ],
+      "title": "ToggleValues",
+      "type": "object"
+    },
+    "Widget": {
+      "additionalProperties": false,
+      "description": "One control: its kind, the label a person reads, and what it is bound to.",
+      "properties": {
+        "kind": {
+          "description": "The widget, one of the nine.",
+          "enum": [
+            "setpoint",
+            "toggle",
+            "flipper",
+            "button",
+            "select",
+            "readout",
+            "annotation",
+            "image",
+            "group"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "description": "Free text shown beside it (an annotation's text); empty: the role's label (a group's: its title).",
+          "title": "Label",
+          "type": "string"
+        },
+        "bind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Binding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What it shows and writes; none for an annotation or an image."
+        },
+        "indicators": {
+          "default": [],
+          "description": "A flipper's in and out indicators, in that order.",
+          "items": {
+            "$ref": "#/$defs/Binding"
+          },
+          "maxItems": 2,
+          "title": "Indicators",
+          "type": "array"
+        },
+        "confirm": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A hazard note the operator confirms before the write.",
+          "title": "Confirm"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ToggleValues"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A toggle's or flipper's on and off numbers: with them it binds a numeric setpoint role."
+        },
+        "units": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Units shown, where the record carries none.",
+          "title": "Units"
+        },
+        "precision": {
+          "anyOf": [
+            {
+              "maximum": 12,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Digits after the point.",
+          "title": "Precision"
+        },
+        "src": {
+          "anyOf": [
+            {
+              "pattern": "^[\\w-]+\\.(png|jpe?g|gif|webp|PNG|JPE?G|GIF|WEBP)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "An image's file name in the screens folder.",
+          "title": "Src"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Widget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A control GUI: a title and groups of widgets, drawn by one renderer.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "description": "Format version. Leave at 1.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "title": {
+      "description": "The screen's title.",
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "groups": {
+      "description": "Its groups, placed on the grid.",
+      "items": {
+        "$ref": "#/$defs/Group"
+      },
+      "minItems": 1,
+      "title": "Groups",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "groups"
+  ],
+  "tier": "operator",
+  "title": "Screen",
+  "type": "object"
+}

@@ -30,7 +30,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from geecs_schemas import SCHEMA_REGISTRY
+from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage
 
 # Marker line that prefixes the committed Markdown page so a reader (or a stray
 # editor) knows not to hand-edit it.  The no-drift test compares the file with
@@ -384,6 +384,23 @@ device: U_HasoLift               # the HASO device folder under scans/ScanNNN/
 output_name: HasoLift_compact    # the portal lists the job under this label
 scan: {priority: 6}
 """,
+    "setup": """\
+schema_version: 1
+# <experiment>/setups/low_power.yaml: one setup per file, the file stem its name.
+name: low_power
+description: Amp4 off, the jet at its standby pressure
+steps:
+  - {do: set, device: U_HP_Daq, variable: AnalogOutput.Channel 1, value: 0.5}
+  - {do: wait, seconds: 3}
+  - {do: check, device: U_HP_Daq, variable: AnalogInput.Channel 1, expected: 0.5,
+     tolerance: 0.02}               # a number matches within tolerance, a word exactly
+  - {do: apply, setup: shutters_closed}   # another setup, inlined here; loops refused
+captured:
+  by: A. Operator
+  at: "2026-11-07T18:02:00-08:00"
+  readbacks:
+    - {device: U_HP_Daq, variable: AnalogOutput.Channel 1}
+""",
     "log_entry": """\
 schema_version: 1
 entry_id: 7f3a9c2b1d04
@@ -410,6 +427,34 @@ updated_at: "2026-09-11T17:42:10+00:00"   # moves on every change; edited_at onl
 version: 2
 """,
 }
+
+
+def _kind_line(kind: str, model: type[BaseModel]) -> str:
+    """The reference's line under a kind's heading: its tier and where it is kept.
+
+    Parameters
+    ----------
+    kind : str
+        The registry kind.
+    model : type of pydantic.BaseModel
+        Its document model (``tier`` ClassVar, when declared).
+
+    Returns
+    -------
+    str
+        ``Tier: `operator` · File: `<path>``` or the not-a-file reason; empty
+        for a kind the storage table does not know (a test registry).
+    """
+    parts = []
+    tier = getattr(model, "tier", None)
+    if tier is not None:
+        parts.append(f"Tier: `{tier}`")
+    storage = KIND_STORAGE.get(kind)
+    if isinstance(storage, FileStorage):
+        parts.append(f"File: `{storage.path_pattern()}`")
+    elif storage is not None:
+        parts.append(f"Not a file: {storage.reason}")
+    return " · ".join(parts)
 
 
 def _type_name(annotation: Any) -> str:
@@ -574,6 +619,9 @@ def render_model_markdown(model: type[BaseModel], example: str | None = None) ->
     ]
     for name, field in model.model_fields.items():
         description = _escape_cell(" ".join((field.description or "").split()))
+        extra = field.json_schema_extra
+        if isinstance(extra, dict) and extra.get("tier"):
+            description = f"*Tier: {extra['tier']}.* {description}"
         required = "yes" if field.is_required() else "no"
         type_name = _escape_cell(_type_name(field.annotation))
         default = _escape_cell(_default_repr(field))
@@ -608,6 +656,9 @@ def render_reference(
     out: list[str] = ["# GEECS config schema reference", ""]
     for kind, model in registry.items():
         out += [f"## `{kind}`", ""]
+        kind_line = _kind_line(kind, model)
+        if kind_line:
+            out += [kind_line, ""]
         out.append(render_model_markdown(model, example=EXAMPLES.get(kind)))
         for nested in iter_nested_models(model):
             if nested is model or nested in documented:

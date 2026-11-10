@@ -12,9 +12,12 @@ from typing import Annotated, ClassVar, Literal, cast
 from gest_api.vocs import ContinuousVariable, VOCS
 from pydantic import Field, JsonValue, WithJsonSchema, field_validator, model_validator
 
-from ._base import SchemaModel, VersionedSchemaModel
+from ._base import SchemaModel, Tier, VersionedSchemaModel
 from .restricted_expr import ExpressionWhitelist, compile_expression
 from .scan_variables import split_device_variable
+
+#: Where an experiment's optimizer configs live: ``optimizer_configs/<name>.yaml``.
+OPTIMIZER_CONFIGS_FOLDER = "optimizer_configs"
 
 GENERATOR_NAMES = (
     "random",
@@ -227,6 +230,8 @@ class OptimizationRun(SchemaModel):
 
 class OptimizerConfig(VersionedSchemaModel):
     """An optimization: search space, live measurements, derived outputs and generator."""
+
+    tier: ClassVar[Tier] = "operator"
 
     CURRENT_SCHEMA_VERSION: ClassVar[int] = 1
     vocs: Annotated[VOCS, WithJsonSchema(_VOCS_SCHEMA)] = Field(
