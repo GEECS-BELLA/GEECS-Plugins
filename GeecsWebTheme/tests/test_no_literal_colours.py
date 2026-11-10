@@ -83,6 +83,7 @@ _SURFACES = [
     "GeecsWebTheme/geecs_web_theme/static/kit.html",
     "GeecsWebTheme/geecs_web_theme/static/kit.js",
     "GeecsWebTheme/geecs_web_theme/static/plot.js",
+    "GeecsWebTheme/geecs_web_theme/static/form.js",
     "GEECS-DataPortal/geecs_portal/templates/base.html",
     "GEECS-DataPortal/geecs_portal/templates/day.html",
     "GEECS-DataPortal/geecs_portal/templates/run.html",

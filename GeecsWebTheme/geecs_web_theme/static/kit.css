@@ -598,3 +598,18 @@ body.kit{
 .kit dialog.ack .qs label input{margin:3px 0 0}
 .kit dialog.ack .qs label .m{display:block;font-size:12px;color:var(--muted);margin-top:2px}
 .kit dialog.ack .qs label:has(input:checked){border-color:var(--ok);background:var(--ok-soft)}
+
+/* Forms drawn from a schema (form.js). A field stricter than its document
+   wears its tier, a word on a quiet edge (never colour alone); a field the
+   reader has edited wears the accent edge, so the unsaved change is visible
+   where it was made. The form's other parts are the kit's own: .field,
+   details.fold, .panel per list item, .grid.tight. */
+.kit .tier{
+  margin-left:6px;padding:0 6px;border:var(--bw) solid var(--rule);border-radius:var(--r);
+  font-family:var(--ff-mono);font-size:10px;letter-spacing:var(--tk);text-transform:uppercase;color:var(--slate);
+}
+.kit .tier[data-tier="maintainer"]{color:var(--warn);border-color:var(--warn)}
+.kit .tier[data-tier="parameter"], .kit .tier[data-tier="sudo"]{color:var(--crit);border-color:var(--crit)}
+.kit .tier[data-tier="code"]{border-style:dashed}
+.kit [data-changed="true"] > input, .kit [data-changed="true"] > select, .kit [data-changed="true"] > textarea{box-shadow:inset 3px 0 0 var(--accent)}
+.kit .panel[data-changed="true"]{border-color:var(--accent)}
