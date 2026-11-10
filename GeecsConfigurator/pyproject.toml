@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "geecs-configurator"
+version = "0.1.0"
+description = "One editor over every GEECS-Schemas document in the configs repository: the documents, their tiers and their consumers"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_configurator" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+fastapi = ">=0.110"
+uvicorn = ">=0.29"
+jinja2 = ">=3.1"
+pydantic = ">=2.7"
+pyyaml = ">=6.0"
+# The registry, the models, the tiers and the storage table.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+# configs_repo, for the configs root; never GeecsDb.
+geecs-core = { path = "../GEECS-Core", develop = true }
+# The kit, form.js and the FastAPI glue every surface shares. Imported, never copied.
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+httpx = ">=0.27"
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testing"] }
+
+[tool.poetry.scripts]
+geecs-configurator = "geecs_configurator.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

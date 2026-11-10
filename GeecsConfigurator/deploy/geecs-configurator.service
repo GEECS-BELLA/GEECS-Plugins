@@ -1,0 +1,34 @@
+# GeecsConfigurator - systemd unit TEMPLATE.
+#
+# Do not copy this file to /etc/systemd/system by hand. Render it from the
+# host's site.env with `deploy/render_units.sh` (or `deploy/bootstrap_host.sh`)
+# - see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
+# time; the settings (GEECS_CONFIGS_ROOT, GEECS_EXPERIMENT, the
+# GEECS_CONFIGURATOR_* keys) are read from the environment by the process.
+# Read-only for now: it reads the configs root and writes nothing.
+#
+# Upgrade:
+#   git -C <checkout> pull && poetry install && sudo systemctl restart geecs-configurator
+
+[Unit]
+Description=GeecsConfigurator (every configs-repo document, its tier and its readers)
+After=network-online.target remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+# Its own clone: the service that will commit to the configs repo moves with
+# no other service's pull (docs/platform/fleet_map.md, one clone per service).
+WorkingDirectory=@CHECKOUT_ROOT@/configurator-checkout/GeecsConfigurator
+# One process, one worker: the commit lock to come is per process.
+ExecStart=@POETRY@ run geecs-configurator $GEECS_CONFIGURATOR_EXTRA_ARGS
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+SyslogIdentifier=geecs-configurator
+
+[Install]
+WantedBy=multi-user.target
