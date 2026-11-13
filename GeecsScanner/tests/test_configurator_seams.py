@@ -137,7 +137,7 @@ def test_a_failed_close_is_a_refusal_and_never_opens() -> None:
     assert not service.reopening
 
 
-def test_mid_reopen_a_start_is_refused_with_the_reason_and_an_idle_item_waits_for_the_lock() -> None:  # fmt: skip
+def test_mid_reopen_every_queueing_verb_is_refused_and_the_lock_is_held() -> None:  # fmt: skip
     manager = _Recording()
     manager.gate.clear()  # the open blocks until released
     service = _service(manager)
@@ -152,15 +152,28 @@ def test_mid_reopen_a_start_is_refused_with_the_reason_and_an_idle_item_waits_fo
     with pytest.raises(ScannerError) as err:
         service.preflight({"name": "p", "devices": [], "plan": {"name": "count", "kwargs": {"num": 1}}})  # fmt: skip
     assert err.value.extra.get("reopening") is True
-    move = threading.Thread(target=lambda: service.move(_MoveIn()))
-    move.start()
-    move.join(0.3)
-    assert move.is_alive() and "submit:mv" not in manager.calls  # the lock is held
+    with pytest.raises(ScannerError) as err:
+        service.move(_MoveIn())  # refused at once, never queued after the wait
+    assert err.value.extra.get("reopening") is True
+    assert not service._lock.acquire(blocking=False)  # the reopen holds the lock
     manager.gate.set()
     done.join(5)
-    move.join(5)
-    assert manager.calls == ["close", "open", "submit:mv"]
+    assert manager.calls == ["close", "open"]
     assert not service.reopening
+
+
+def test_a_verb_that_began_before_a_reopen_and_reaches_the_lock_after_is_refused() -> (
+    None
+):
+    """A caller that waited out a reopen (and timed out) must never see its item run later."""
+    manager = _Recording()
+    service = _service(manager)
+    generation = service._reopen_guard()  # a move passes its guard ...
+    service.reopen_environment(ReopenIn())  # ... a reopen runs ...
+    with pytest.raises(ScannerError) as err:
+        service._check_generation(generation)  # ... and under the lock it is refused
+    assert err.value.extra.get("reopening") is True
+    service._check_generation(service._reopen_guard())  # a fresh one passes
 
 
 class _MoveIn:

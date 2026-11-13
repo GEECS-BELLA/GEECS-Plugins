@@ -451,8 +451,7 @@ class ScannerService:
     def submit(self, body: SubmitIn) -> SubmitOut:
         """Preflight, require every question acknowledged, stamp, queue."""
         preset = self._validate_preset(body.preset)
-        self._refuse_while_reopening()
-        generation = self._reopen_generation
+        generation = self._reopen_guard()
         catalog = self._catalog()
         report = self._run_preflight(preset, catalog)
         if report.refusal is not None:
@@ -479,9 +478,7 @@ class ScannerService:
         if scan_log_variables:
             md["geecs"]["scan_log_variables"] = scan_log_variables
         with self._lock:
-            if self._reopen_generation != generation:
-                # a reopen ran while this preflight did: it judged the configs before the apply
-                self._refuse_while_reopening(force=True)
+            self._check_generation(generation)  # a reopen ran while this preflight did
             result = self.client.submit_preset(
                 preset,
                 catalog=catalog,
@@ -548,7 +545,9 @@ class ScannerService:
         """Queue the recorded best physical positions after a run has finished."""
         from geecs_bluesky.qs_client.presets import scan_variable_reference
 
+        generation = self._reopen_guard()
         with self._lock:
+            self._check_generation(generation)
             self._require_idle("Set to best")
             result = self.optimization()
             if result.run_uid != body.run_uid:
@@ -840,9 +839,12 @@ class ScannerService:
         open: refused (``policy_refusal``) unless the manager answers, the
         environment exists and is idle, nothing runs **and nothing waits**
         (a closed environment is not idle; reopening one is the readiness
-        unit's work). A preflight or submit meanwhile is refused with
-        ``reopening``, and so is a submit whose preflight straddled a reopen
-        (the reopen generation moved: it was judged on the old configs).
+        unit's work). Every verb that queues (a preflight, a submit, a move,
+        an action, a calibration, Set to best) is refused with ``reopening``
+        meanwhile, and so is one that began before the reopen and reaches
+        the lock after it (the reopen generation moved: a submit's preflight
+        judged the old configs, and a caller timed out on the wait must never
+        see its item run later).
         The open waits for the manager **ready** (the queue client's
         ``environment_open``: the plan list settled, the readiness unit's
         rule). After it the queue is started if items wait (one added past
@@ -992,13 +994,24 @@ class ScannerService:
 
         return preset
 
+    def _reopen_guard(self) -> int:
+        """Before a verb that queues: the reopen generation (read first), refused while a reopen runs."""
+        generation = self._reopen_generation
+        self._refuse_while_reopening()
+        return generation
+
+    def _check_generation(self, generation: int) -> None:
+        """Under the lock: refuse when a reopen ran since :meth:`_reopen_guard` (a verb never queues after waiting one out)."""
+        if self._reopen_generation != generation:
+            self._refuse_while_reopening(force=True)
+
     def _refuse_while_reopening(self, *, force: bool = False) -> None:
         """A preflight during a reopen would read the environment closed; say why instead."""
         if force or self.reopening:
             raise ScannerError(
                 "policy_refusal",
                 "the worker environment is reopening to read a committed configuration "
-                "change; Start again in a minute",
+                "change; try again in a minute",
                 reopening=True,
             )
 
@@ -1029,7 +1042,9 @@ class ScannerService:
         self, name: str, args: list[Any], kwargs: dict[str, Any], *, what: str
     ) -> ItemOut:
         """Add a non-scan item while the manager is idle and nothing waits."""
+        generation = self._reopen_guard()
         with self._lock:
+            self._check_generation(generation)
             self._require_idle(what)
             result = self.client.submit_plan(name, args=args, kwargs=kwargs)
             if result.ok and name in ("mv", "run_action"):

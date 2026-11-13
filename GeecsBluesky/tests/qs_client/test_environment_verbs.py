@@ -52,59 +52,86 @@ def test_close_waits_until_the_manager_is_idle_with_no_environment():
     assert fake.status_payloads == []  # every intermediate state was waited out
 
 
-class _OpenFake(_EnvFake):
-    """The manager as the readiness rule reads it: raw requests, statuses and plan lists scripted."""
+class _Manager:
+    """The readiness unit's transport, scripted: ``(method, params) -> (msg, err)``; a failure is ``(None, err)``."""
 
-    def __init__(self, statuses: list[dict], plan_lists: list[list[str]]) -> None:
-        super().__init__()
-        self.statuses, self.plan_lists = statuses, plan_lists
+    def __init__(self, statuses: list[dict], plan_lists: list[list[str]], restore: tuple | None = None) -> None:  # fmt: skip
+        self.statuses, self.plan_lists, self.restore = statuses, plan_lists, restore
+        self.calls: list[str] = []
 
-    def send_request(self, *, method, params=None) -> dict:
-        self.calls.append((method,))
+    def __call__(self, method: str, params: dict | None) -> tuple[dict | None, str]:
+        self.calls.append(method)
         if method == "status":
-            return self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
+            return (
+                self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
+            ), ""
         if method == "plans_allowed":
             names = (
                 self.plan_lists.pop(0)
                 if len(self.plan_lists) > 1
                 else self.plan_lists[0]
             )
-            return {"success": True, "plans_allowed": {n: {} for n in names}}
-        return {"success": True, "msg": ""}
+            return {"success": True, "plans_allowed": {n: {} for n in names}}, ""
+        if method == "permissions_reload" and self.restore is not None:
+            return self.restore
+        return {"success": True, "msg": ""}, ""
 
 
 @pytest.fixture
-def no_poll_wait(monkeypatch):
-    monkeypatch.setattr("geecs_bluesky.qs_client.ready.POLL_S", 0)
+def transport(monkeypatch):
+    """The open goes over ready.zmq_request to the client's own control address (its per-method budgets)."""
+    from geecs_bluesky.qs_client import ready
+
+    monkeypatch.setattr(ready, "POLL_S", 0)
+    seen: dict = {}
+
+    def install(manager: _Manager) -> dict:
+        def zmq_request(addr: str):
+            seen["addr"] = addr
+            return manager
+
+        monkeypatch.setattr(ready, "zmq_request", zmq_request)
+        return seen
+
+    return install
 
 
-def test_open_waits_for_the_plan_list_not_merely_the_environment(no_poll_wait):
+def test_open_waits_for_the_plan_list_not_merely_the_environment(transport):
     """#838: the environment reads up before its plan list lands; ready is the plan list too."""
     from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 
-    fake = _OpenFake(
+    manager = _Manager(
         [_env(False), _env(False, "creating_environment", "initializing"), _env(True)],
         [[], list(GEECS_PLAN_NAMES)],
     )
-    ok, message = _client(fake).environment_open()
+    seen = transport(manager)
+    ok, message = _client(_EnvFake()).environment_open()
     assert ok, message
-    methods = [c[0] for c in fake.calls]
-    assert methods.count("environment_open") == 1
-    assert methods.count("plans_allowed") == 2  # re-read until settled
+    assert seen["addr"] == "tcp://x:1"  # the client's control address
+    assert manager.calls.count("environment_open") == 1
+    assert manager.calls.count("plans_allowed") == 2  # re-read until settled
 
 
-def test_a_plan_list_that_never_lands_is_restored_once_from_disk(no_poll_wait):
+def test_a_plan_list_that_never_lands_is_restored_once_from_disk(transport):
     from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 
-    fake = _OpenFake([_env(False), _env(True)], [[]] * 6 + [list(GEECS_PLAN_NAMES)])
-    ok, message = _client(fake).environment_open()
+    manager = _Manager([_env(False), _env(True)], [[]] * 6 + [list(GEECS_PLAN_NAMES)])
+    transport(manager)
+    ok, message = _client(_EnvFake()).environment_open()
     assert ok, message
-    assert [c[0] for c in fake.calls].count("permissions_reload") == 1
+    assert manager.calls.count("permissions_reload") == 1
 
 
-def test_an_open_that_settles_closed_names_the_startup_profile(no_poll_wait):
-    fake = _OpenFake([_env(False)], [[]])
-    ok, message = _client(fake).environment_open()
+def test_a_restore_that_times_out_is_a_failure_never_a_raise(transport):
+    manager = _Manager([_env(True)], [[]], restore=(None, "timeout during receive"))
+    transport(manager)
+    ok, message = _client(_EnvFake()).environment_open()
+    assert not ok and "restore from disk failed" in message
+
+
+def test_an_open_that_settles_closed_names_the_startup_profile(transport):
+    transport(_Manager([_env(False)], [[]]))
+    ok, message = _client(_EnvFake()).environment_open()
     assert not ok and "startup profile" in message
 
 

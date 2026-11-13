@@ -128,8 +128,11 @@ deploy/           the unit template + DEPLOYMENT.md
   lock, refused unless the environment is open and idle, nothing runs
   **and nothing waits** (a closed environment is the readiness unit's to
   open, never this route's); while it runs `StatusOut.reopening` is true,
-  a preflight or submit is refused with `reopening` (a submit already past
-  its preflight waits for the lock and queues after the open), and the
+  every verb that queues (preflight, submit, move, action, calibration,
+  Set to best) is refused with `reopening`, and so is one that began before
+  the reopen and reaches the lock after it (`_reopen_guard` /
+  `_check_generation`: never an item queued after its caller waited out a
+  reopen, never a scan on a preflight of the old configs), and the
   queue is started after the open if items wait. A failed open leaves the
   environment closed: `manager_unreachable`, the readiness unit's recovery.
 - **The dry run of an unsaved trigger profile** is

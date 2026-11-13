@@ -996,33 +996,20 @@ class ZmqQueueClient:
     ) -> tuple[bool, str]:
         """Open the worker environment and wait until the manager is ready: the readiness unit's own rule.
 
-        :func:`~geecs_bluesky.qs_client.ready.ensure_ready` over this
-        client's connection: open when closed, wait the open out (one that
-        collapses names the startup profile), then the plan list settled and,
-        if its download timed out, restored once from the worker's copy on
-        disk (GEECS-Plugins#838). An environment that reads up with an empty
-        plan list would refuse every submission.
+        :func:`~geecs_bluesky.qs_client.ready.ensure_ready` over the
+        readiness unit's own transport to this client's control address (one
+        bounded request per call, the restore given its longer budget): open
+        when closed, wait the open out (one that collapses names the startup
+        profile), then the plan list settled and, if its download timed out,
+        restored once from the worker's copy on disk (GEECS-Plugins#838). An
+        environment that reads up with an empty plan list would refuse every
+        submission.
         """
-        from bluesky_queueserver_api.comm_base import (
-            RequestFailedError,
-            RequestParameterError,
-        )
-
-        from geecs_bluesky.qs_client.ready import NotReady, ensure_ready
-
-        api = self._manager()
-
-        def request(
-            method: str, params: dict[str, Any] | None
-        ) -> tuple[dict[str, Any] | None, str]:
-            try:
-                return api.send_request(method=method, params=params or {}), ""
-            except (OSError, RequestFailedError, RequestParameterError) as exc:
-                return None, str(exc)
+        from geecs_bluesky.qs_client import ready
 
         try:
-            ensure_ready(request, timeout_s=timeout, log=logger.info)
-        except NotReady as exc:
+            ready.ensure_ready(ready.zmq_request(self._config.control_addr), timeout_s=timeout, log=logger.info)  # fmt: skip
+        except ready.NotReady as exc:
             return False, str(exc)
         return True, "environment open: ready"
 
