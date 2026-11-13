@@ -166,7 +166,7 @@ def committing(origin: Path, prs: FakePullRequests, tmp_path_factory: pytest.Tem
     """An app with the commit path on over origin (no timer: tests reconcile by hand; every read fetches)."""
     monkeypatch.setattr("geecs_configurator.app.FRESH_S", -1.0)
     state = tmp_path_factory.mktemp("service")
-    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(state), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
+    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(state), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
     with TestClient(create_app(Settings.from_env(env), pull_requests=prs)) as c:
         yield c
 

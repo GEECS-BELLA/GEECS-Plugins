@@ -71,6 +71,9 @@ class Saved(BaseModel):
 
     outcome: Literal["committed", "proposed", "nothing to do"]
     tier: str | None
+    #: The document's path below the configs root, and who saved it (the git author).
+    path: str = ""
+    author: str = ""
     changes: list[Change]
     commit: str | None = None
     branch: str | None = None
@@ -98,7 +101,7 @@ class PullRequests(Protocol):
     """Opens a pull request for a pushed branch (the GitHub App's; a fake in tests)."""
 
     def open(self, branch: str, title: str, body: str) -> PullRequest:
-        """Open a pull request from ``branch`` into main."""
+        """Open a pull request from ``branch`` into main; a ``RuntimeError`` when it cannot."""
         ...
 
 
@@ -165,7 +168,7 @@ class _Save:
             loaded = self._checked()
             draft, changes, notes = self._draft(loaded)
             if not changes:
-                return Saved(outcome="nothing to do", tier=None, changes=[], etag=loaded.etag, notes=notes)  # fmt: skip
+                return Saved(outcome="nothing to do", tier=None, changes=[], path=loaded.path, author=author.name, etag=loaded.etag, notes=notes)  # fmt: skip
             tier = strictest(c.tier for c in changes)
             data = _written(draft)
             message = f"{self.kind} {loaded.path}: saved by {author.name}\n\n{_summary(changes)}\n"  # fmt: skip
@@ -174,7 +177,7 @@ class _Save:
                 if sha is None:  # a concurrent commit already put these bytes on main
                     notes.append("main already held exactly these bytes; nothing was committed")  # fmt: skip
                 # the etag of what was committed, never of whatever a later fetch brought
-                return Saved(outcome="committed" if sha else "nothing to do", tier=tier, changes=changes, commit=sha, etag=content_etag(data), notes=notes)  # fmt: skip
+                return Saved(outcome="committed" if sha else "nothing to do", tier=tier, changes=changes, path=loaded.path, author=author.name, commit=sha, etag=content_etag(data), notes=notes)  # fmt: skip
             if tier == "maintainer":
                 return self._propose(prs, loaded, data, author, message, base, changes, notes)  # fmt: skip
             raise Refused(403, f"a {tier}-tier change is not saved from the editor")
@@ -217,10 +220,18 @@ class _Save:
         except GitError as exc:
             raise Refused(502, f"the branch was not pushed; nothing changed: {exc}") from exc  # fmt: skip
         body = f"Proposed by {author.name.removesuffix(VIA)} from the configurator (maintainer tier).\n\n{_summary(changes)}\n"  # fmt: skip
-        pr = prs.open(branch, f"{self.kind}: {loaded.path}", body)
+        try:
+            pr = prs.open(branch, f"{self.kind}: {loaded.path}", body)
+        except (
+            RuntimeError
+        ) as exc:  # the branch is pushed: the proposal stands, by its compare link
+            notes.append(
+                f"the pull request was not opened ({exc}); the branch is pushed"
+            )
+            pr = PullRequest(opened=False, url=None)
         if not pr.opened:
             notes.append("no pull request was opened (no credential for it): the maintainer opens one from the branch")  # fmt: skip
-        return Saved(outcome="proposed", tier="maintainer", changes=changes, commit=sha, branch=branch, pull_request=pr.url, etag=loaded.etag, notes=notes)  # fmt: skip
+        return Saved(outcome="proposed", tier="maintainer", changes=changes, path=loaded.path, author=author.name, commit=sha, branch=branch, pull_request=pr.url, etag=loaded.etag, notes=notes)  # fmt: skip
 
     def _commit(self, rel: str, data: bytes, author: Identity, message: str, base: str, draft: Json) -> str | None:  # fmt: skip
         """The operator-tier commit; a concurrent push that changed this file is the 409."""

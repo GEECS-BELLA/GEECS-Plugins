@@ -1,7 +1,8 @@
 {#
   The configurator's home: the catalogue in the rail, a kind's documents, and
-  the open document drawn by the theme's form.js. Read-only in this slice:
-  an edit in the page is validated and diffed, never saved.
+  the open document drawn by the theme's form.js. With the commit path on,
+  Save commits (or proposes) the edit as the operator named; off, the page
+  validates and diffs, never saves.
 #}<!doctype html>
 <html lang="en">
 <head>
@@ -13,7 +14,7 @@
 <link rel="stylesheet" href="{{ root }}/theme/kit.css">
 <link rel="stylesheet" href="{{ root }}/static/configurator.css">
 </head>
-<body class="kit" data-root="{{ root }}" data-kind="{{ kind }}" data-experiment="{{ experiment }}" data-id="{{ doc_id }}">
+<body class="kit" data-root="{{ root }}" data-kind="{{ kind }}" data-experiment="{{ experiment }}" data-id="{{ doc_id }}" data-commits="{{ 'on' if commits else 'off' }}">
 
 <header class="topbar">
   <div class="topbar-in">
@@ -25,6 +26,7 @@
       </select>
       {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
     </form>
+    <nav class="row"><a class="btn sm" href="{{ root }}/log">Log</a></nav>
     <div data-density-picker></div>
     <div data-theme-picker></div>
   </div>
@@ -45,7 +47,8 @@
   </aside>
 
   <main class="pane">
-    <div class="banner" data-state="denied"><strong>Read-only.</strong> Edits in this page are validated and diffed against the stored document, never saved. Saving arrives in a later slice.</div>
+    {% if not commits %}<div class="banner" data-state="denied"><strong>Read-only.</strong> Edits in this page are validated and diffed against the stored document, never saved: the commit path is not configured.</div>{% endif %}
+    <div id="stale" hidden></div>
 
     {% if not kind %}
     <section class="panel">
@@ -90,7 +93,13 @@
           <button class="btn" type="button" id="yaml">YAML</button>
           <span class="spacer"></span>
           <button class="btn ghost" type="button" id="reset">Discard edits</button>
-        </div></footer>
+        </div>
+        {% if commits %}<div class="save-row">
+          <label class="dim" for="operator">Operator</label>
+          <input class="btn" id="operator" autocomplete="name" placeholder="your name (the git author)">
+          <button class="btn primary" type="button" id="save">Save</button>
+          <span class="dim" id="save-says"></span>
+        </div>{% endif %}</footer>
       </section>
       <aside class="group">
         <section class="panel">

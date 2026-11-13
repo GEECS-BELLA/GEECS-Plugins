@@ -9,6 +9,10 @@ Layout under the state directory::
     staging/    one throwaway worktree per edit, removed when the edit ends
     inbox/      the worker's write root (shot offsets), see ``inbox.py``
 
+The bare repository's own ``refs/heads/<branch>`` is the **accepted** main:
+the commit the live checkout is at. The share's clone fast-forwards from it
+(:meth:`ConfigsRepository.fast_forward_share`), never from ``origin``.
+
 Rules (each pinned by ``tests/test_repository.py``):
 
 - **The live checkout holds accepted commits of main only.** Nothing writes
@@ -29,6 +33,14 @@ Rules (each pinned by ``tests/test_repository.py``):
   interleave.
 - **A push that reported failure but landed is a success**: after a failed
   push the fetched main is checked for the commit before anything else.
+- **The gate.** Every fast-forward asks ``accept(old, new)`` first (the
+  app's: the documents changed between the two validate); a refusal leaves
+  the live checkout where it was (:class:`Unaccepted`), whoever asked: a
+  timer, a read, a save. A commit is fetched, never applied, until main is
+  fixed. ``on_advanced(old, new)`` runs after every fast-forward (the log
+  and the share's fast-forward).
+- **Network commands carry the credential in the environment**
+  (``GIT_CONFIG_*``), never on a command line another user could read.
 
 Readers of the live checkout (the other Linux services, which take no lock)
 should treat a missing file as transient: a fast-forward rewrites a changed
@@ -74,6 +86,24 @@ class BaseMoved(GitError):
     """Main changed the edited file after the edit's base: the editor re-applies their edit."""
 
 
+class Unaccepted(GitError):
+    """Main holds a commit the gate refuses: fetched, never applied."""
+
+    def __init__(self, target: str, problems: list[str]):
+        super().__init__(
+            f"main at {target[:10]} is not applied: " + "; ".join(problems)
+        )
+        self.target, self.problems = target, problems
+
+
+#: The gate: the problems with moving from one commit to another (none: accepted).
+Accept = Callable[[str, str], list[str]]
+#: Called after the live checkout moved from one commit to another.
+Advanced = Callable[[str, str], None]
+#: The environment that authenticates a network git command (empty: git's own credential).
+Credential = Callable[[], Mapping[str, str]]
+
+
 @dataclass(frozen=True)
 class Identity:
     """A git name and e-mail."""
@@ -114,9 +144,11 @@ class ConfigsRepository:
         The branch the live checkout follows.
     committer : Identity
         The service, as the committer of every commit it makes.
+    credential, accept, on_advanced : callable, optional
+        The network credential, the gate and the advance hook (see the module docstring).
     """
 
-    def __init__(self, state_dir: Path, origin: str, branch: str, committer: Identity):
+    def __init__(self, state_dir: Path, origin: str, branch: str, committer: Identity, *, credential: Credential | None = None, accept: Accept | None = None, on_advanced: Advanced | None = None):  # fmt: skip
         self.state_dir = Path(state_dir)
         self.origin, self.branch, self.committer = origin, branch, committer
         self.bare = self.state_dir / "repo.git"
@@ -124,8 +156,10 @@ class ConfigsRepository:
         self.staging_dir = self.state_dir / "staging"
         self.inbox = self.state_dir / "inbox"
         self.lock = threading.RLock()
+        self.share_lock = threading.Lock()
         #: ``time.monotonic()`` of the last fetch that answered (0: none yet).
         self.fetched_at = 0.0
+        self.credential, self.accept, self.on_advanced = credential, accept, on_advanced
 
     # ----------------------------------------------------------------- git
 
@@ -146,10 +180,27 @@ class ConfigsRepository:
     def _remote_ref(self) -> str:
         return f"refs/remotes/origin/{self.branch}"
 
+    def _network(self) -> Mapping[str, str]:
+        """The credential's environment for a command that talks to origin; its failure is a :class:`GitError`."""
+        if not self.credential:
+            return {}
+        try:
+            return self.credential()
+        except Exception as exc:  # any credential failure (GitHub down, a bad key, an odd answer): origin unreachable
+            raise GitError(
+                f"no credential for origin: {type(exc).__name__}: {exc}"
+            ) from exc
+
     # --------------------------------------------------------------- setup
 
-    def ensure(self) -> None:
-        """Create what is missing (bare repository, live checkout, folders) and clear stale staging worktrees."""
+    def ensure(self, start_at: Callable[[], str | None] | None = None) -> None:
+        """Create what is missing (bare repository, live checkout, folders) and clear stale staging worktrees.
+
+        A new live checkout starts at ``start_at()`` (a commit already
+        accepted elsewhere, e.g. the share's) when it names one main contains,
+        else at main's tip unverified; the caller's next advance passes the
+        gate from there.
+        """
         with self.lock:
             self.state_dir.mkdir(parents=True, exist_ok=True)
             if not (self.bare / "HEAD").is_file():
@@ -166,7 +217,9 @@ class ConfigsRepository:
                     raise  # nothing to serve without a first fetch
                 logger.warning("origin did not answer at start; serving the last accepted main")  # fmt: skip
             if not (self.live / ".git").exists():
-                self.git("worktree", "add", "--detach", "--quiet", str(self.live), self._remote_ref())  # fmt: skip
+                start = (start_at() if start_at else None) or self._remote_ref()
+                self.git("worktree", "add", "--detach", "--quiet", str(self.live), start)  # fmt: skip
+            self.git("update-ref", f"refs/heads/{self.branch}", self.live_head())
             stale_lock = self.bare / "worktrees" / "live" / "index.lock"
             if stale_lock.exists():  # a kill mid-merge; no git of this process runs yet
                 logger.warning("removing a stale index.lock in the live checkout")
@@ -182,7 +235,7 @@ class ConfigsRepository:
     def fetch(self, timeout: float = GIT_TIMEOUT_S) -> None:
         """Fetch origin (every branch, pruned), giving up after ``timeout`` seconds."""
         with self.lock:
-            self.git("fetch", "--quiet", "--prune", "origin", timeout=timeout)
+            self.git("fetch", "--quiet", "--prune", "origin", timeout=timeout, env=self._network())  # fmt: skip
             self.fetched_at = time.monotonic()
 
     def remote_head(self) -> str:
@@ -204,8 +257,9 @@ class ConfigsRepository:
     def advance(self) -> str:
         """Fast-forward the live checkout to ``origin/<branch>``; :class:`GitError` (and no move) when it cannot.
 
-        It cannot when the checkout is dirty (something wrote into it) or
-        main was rewritten (the target is not ahead of it).
+        It cannot when the checkout is dirty (something wrote into it), main
+        was rewritten (the target is not ahead of it), or the gate refuses
+        (:class:`Unaccepted`).
         """
         with self.lock:
             target, here = self.remote_head(), self.live_head()
@@ -217,8 +271,56 @@ class ConfigsRepository:
                 raise GitError("the live checkout has local changes; it is never written, so it is not moved")  # fmt: skip
             if not self.is_ancestor(here, target):
                 raise GitError(f"main at {target[:10]} does not contain the live checkout's {here[:10]} (rewritten?); not moved")  # fmt: skip
+            problems = self.accept(here, target) if self.accept else []
+            if problems:
+                raise Unaccepted(target, problems)
             self.git("merge", "--ff-only", "--quiet", target, cwd=self.live)
+            self.git("update-ref", f"refs/heads/{self.branch}", target)
+            if self.on_advanced:
+                try:
+                    self.on_advanced(here, target)
+                except Exception:  # the hook's failure is its own (the log, the share), never the move's
+                    logger.exception("after the live checkout moved to %s", target[:10])
             return target
+
+    def commits(self, old: str, new: str) -> list[tuple[str, str, str, list[str]]]:
+        """The commits main gained in ``old..new`` (first parent: a merged pull request is one), oldest first.
+
+        Each is (sha, committer e-mail, author, changed paths).
+        """
+        out = []
+        for line in self.git("log", "--first-parent", "--reverse", "--format=%H%x1f%ce%x1f%an", f"{old}..{new}").splitlines():  # fmt: skip
+            sha, email, author = line.split("\x1f")
+            out.append((sha, email, author, self.changed(f"{sha}^", sha) if self.git("rev-list", "--parents", "-n1", sha).count(" ") else []))  # fmt: skip
+        return out
+
+    def changed(self, old: str, new: str) -> list[str]:
+        """The paths added, copied, modified or renamed between two commits (not deleted)."""
+        return self.git(
+            "diff", "--name-only", "--diff-filter=ACMR", old, new
+        ).splitlines()
+
+    def fast_forward_share(self, share: Path, timeout: float = GIT_TIMEOUT_S) -> str:
+        """Fast-forward the share's clone to the accepted main, from this bare repository (no credential).
+
+        The share's clone must be on ``<branch>`` with no edit in the way, and
+        not ahead of the accepted main: otherwise it stays where it was
+        (:class:`GitError`). It only reads the bare repository, so it holds
+        its own lock, never the repository's: a slow share delays no save.
+        """
+        with self.share_lock:
+            try:
+                on = self.git("symbolic-ref", "--short", "-q", "HEAD", cwd=share)
+            except GitError:
+                on = ""
+            if on != self.branch:
+                raise GitError(f"the share's clone is on {on or 'no branch (a detached HEAD)'}, not {self.branch!r}; not moved")  # fmt: skip
+            self.git("fetch", "--quiet", str(self.bare.resolve()), f"refs/heads/{self.branch}", cwd=share, timeout=timeout)  # fmt: skip
+            self.git("merge", "--ff-only", "--quiet", "FETCH_HEAD", cwd=share, timeout=timeout)  # fmt: skip
+            head, accepted = self.git("rev-parse", "HEAD", cwd=share), self.git("rev-parse", "FETCH_HEAD", cwd=share)  # fmt: skip
+            if head != accepted:
+                raise GitError(f"the share's clone is at {head[:10]}, ahead of the accepted main {accepted[:10]}; not moved")  # fmt: skip
+            return head
 
     def sync(self, timeout: float = GIT_TIMEOUT_S) -> str:
         """Fetch and fast-forward the live checkout; the commit it is at."""
@@ -268,7 +370,7 @@ class ConfigsRepository:
 
     def _push(self, tree: Path, ref: str) -> None:
         """Push the staging worktree's HEAD to ``ref`` on origin (the seam tests break)."""
-        self.git("push", "--quiet", "--porcelain", "origin", f"HEAD:{ref}", cwd=tree)
+        self.git("push", "--quiet", "--porcelain", "origin", f"HEAD:{ref}", cwd=tree, env=self._network())  # fmt: skip
 
     def file_changed(self, rel: str, old: str, new: str) -> bool:
         """Whether ``rel`` differs between two commits."""
@@ -337,6 +439,9 @@ class ConfigsRepository:
             return None
         if moved == base or not self.is_ancestor(base, moved):
             raise PushFailed(str(error)) from error
+        problems = self.accept(base, moved) if self.accept else []
+        if problems:  # never build on what is not applied
+            raise Unaccepted(moved, problems)
         if self.file_changed(rel, base, moved):
             if on_moved is not None:
                 self._catch_up()

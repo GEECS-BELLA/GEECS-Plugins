@@ -1,0 +1,67 @@
+# The configs repository's validate-on-push check: every document a push or
+# a pull request changes must validate against GEECS-Schemas, by the same rule
+# the configurator's gate applies before it fast-forwards its live checkout
+# (geecs_configurator.validation: only changed documents are checked, as their
+# readers read them; a document already invalid and untouched does not fail).
+#
+# This file lives in GEECS-Plugins (GeecsConfigurator/deploy/configs-repo/)
+# and is copied, unchanged, into the configs repository as
+#
+#     .github/workflows/validate.yml
+#
+# by whoever commits to the configs repo's main (the maintainer, or an agent
+# pushing as the maintainer). A copy that drifts from this file is a fork:
+# change it here, then copy it again.
+#
+# What it guards: a pull request shows a red check before its merge (make it
+# a required status check in the main ruleset to block the merge). A push
+# that bypasses the ruleset (the App, the maintainer) is checked after the
+# fact: the configurator's own gate is what keeps an invalid commit from
+# being applied, and this check names it on GitHub too.
+#
+# GEECS_PLUGINS_REF is the GEECS-Plugins branch the validator comes from:
+# feat/configurator while the configurator arc is unpromoted, master after.
+
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      GEECS_PLUGINS_REF: feat/configurator
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: configs
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: GEECS-BELLA/GEECS-Plugins
+          ref: ${{ env.GEECS_PLUGINS_REF }}
+          path: plugins
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the schemas (the validator needs nothing else)
+        run: pip install ./plugins/GEECS-Schemas pyyaml
+      - name: Validate the changed documents
+        working-directory: configs
+        env:
+          PYTHONPATH: ${{ github.workspace }}/plugins/GeecsConfigurator
+          BEFORE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -eo pipefail
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            BEFORE=$(git hash-object -t tree /dev/null)   # a new branch: every file is changed
+          fi
+          git diff -z --name-only --diff-filter=ACMR "$BEFORE" HEAD \
+            | xargs -0 python -m geecs_configurator.validation --root .
