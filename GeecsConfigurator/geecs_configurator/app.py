@@ -88,6 +88,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         stop.set()
+        if commit is not None:
+            # inside the unit's TimeoutStopSec: a share left mid-merge (index.lock) blocks every later fast-forward
+            commit.wait_share(timeout=10)
 
 
 def reconcile(app: FastAPI) -> list[inbox.Published]:

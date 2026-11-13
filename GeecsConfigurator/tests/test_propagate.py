@@ -83,6 +83,7 @@ def test_the_timer_alone_propagates_a_merge(origin: Path, other: Path, tmp_path:
 def test_a_foreign_commit_that_fails_validation_is_fetched_never_applied_and_logged_once(origin: Path, other: Path, tmp_path: Path) -> None:  # fmt: skip
     with _client(origin, tmp_path / "s") as c:
         cp = _commit(c)
+        cp.unverified_marker.unlink()  # the maintainer looked at main (a fresh start without a share)
         here = cp.repo.live_head()
         bad = push_change(other, f"{SETUPS}/low_power.yaml", INVALID, "an invalid push")
         cp.fetch()
@@ -255,6 +256,48 @@ def test_a_fresh_state_starts_from_the_share_and_never_applies_a_refused_main(or
         assert c.get("/healthz").json()["main"].startswith("unverified")
 
 
+def test_unverified_holds_across_accepted_changes_until_the_maintainer_clears_it(origin: Path, other: Path, share: Path, tmp_path: Path) -> None:  # fmt: skip
+    (share / ".git").rename(
+        share / ".git.off"
+    )  # unreadable at the first start (say, dubious ownership on the share)
+    with _client(origin, tmp_path / "s", share=share) as c:
+        cp = _commit(c)
+        (share / ".git.off").rename(
+            share / ".git"
+        )  # fixed by hand; the share is at main's commit, usable
+        held = git("rev-parse", "HEAD", cwd=share)
+        assert c.get("/healthz").json()["main"].startswith("unverified")
+        theirs = push_change(other, f"{SETUPS}/far.yaml", "name: far\nsteps:\n  - {do: wait, seconds: 1}\n", "a valid change")  # fmt: skip
+        cp.fetch()
+        cp.wait_share()
+        assert cp.repo.live_head() == theirs  # applied: it validated
+        assert (
+            c.get("/healthz").json()["main"].startswith("unverified")
+        )  # but the baseline is still unchecked
+        assert git("rev-parse", "HEAD", cwd=share) == held  # and the share held
+        cp.unverified_marker.unlink()  # the maintainer's word
+        assert c.get("/healthz").json()["main"] == "applied"
+
+
+def test_a_row_left_pending_before_its_commit_was_live_is_settled_when_it_is(committing: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    cp = committing.app.state.commit
+    doc = committing.get(f"/api/documents/setup/low_power.yaml{B}").json()
+    real = cp.repo._catch_up
+    monkeypatch.setattr(
+        cp.repo, "_catch_up", lambda: None
+    )  # the catch-up fetch after the push failed
+    saved = committing.put(f"/api/documents/setup/low_power.yaml{B}", json={"document": {**doc["document"], "description": "late"}, "etag": doc["etag"], "operator": "Ada"}).json()  # fmt: skip
+    assert saved["outcome"] == "committed"
+    (row,) = committing.get("/api/log").json()
+    assert row["state"] == "pending" and row["detail"].startswith(
+        "on main but not in the live checkout"
+    )
+    monkeypatch.setattr(cp.repo, "_catch_up", real)
+    cp.fetch()  # the timer brings it in
+    (row,) = committing.get("/api/log").json()
+    assert row["state"] == "nothing to do" and row["commit"] == saved["commit"]
+
+
 def test_one_merged_pull_request_is_one_row(origin: Path, other: Path, tmp_path: Path) -> None:  # fmt: skip
     with _client(origin, tmp_path / "s") as c:
         git("switch", "--quiet", "-c", "pr", cwd=other)
@@ -305,24 +348,23 @@ def test_a_refusal_clears_when_main_is_put_back(origin: Path, other: Path, tmp_p
 
 
 def test_the_validator_imports_nothing_the_configs_repo_ci_lacks(root: Path) -> None:
-    """The configs repo's workflow installs GEECS-Schemas and PyYAML alone (deploy/configs-repo/validate.yml)."""
+    """The configs repo's workflow installs GEECS-Schemas and PyYAML alone (deploy/configs-repo/validate.yml): an allowlist."""
     import subprocess
     import sys
 
-    blocker = (
+    allowed = {"geecs_configurator", "geecs_schemas", "gest_api", "yaml", "pydantic", "pydantic_core", "annotated_types", "typing_extensions", "typing_inspection", "cython_runtime"}  # fmt: skip
+    probe = (
         "import sys\n"
-        "class Block:\n"
-        "    def find_spec(self, name, path=None, target=None):\n"
-        "        if name.split('.')[0] in {'fastapi', 'starlette', 'httpx', 'jwt', 'cryptography', 'jinja2', 'uvicorn', 'geecs_core', 'geecs_web_theme'}:\n"
-        "            raise ImportError('the configs repo CI does not install ' + name)\n"
-        "sys.meta_path.insert(0, Block())\n"
         "from geecs_configurator.validation import main\n"
-        f"sys.exit(main(['--root', {str(root)!r}, '{SETUPS}/broken.yaml']))\n"
+        f"code = main(['--root', {str(root)!r}, '{SETUPS}/broken.yaml'])\n"
+        "print(sorted({m.split('.')[0] for m in sys.modules} - set(sys.stdlib_module_names)))\n"
+        "sys.exit(code)\n"
     )  # fmt: skip
-    done = subprocess.run(
-        [sys.executable, "-c", blocker], capture_output=True, text=True
-    )
+    done = subprocess.run([sys.executable, "-I", "-c", probe], capture_output=True, text=True)  # fmt: skip
     assert done.returncode == 1 and "invalid:" in done.stdout, done.stderr
+    loaded = eval(done.stdout.strip().splitlines()[-1])  # the probe's own printed list
+    extra = [m for m in loaded if m not in allowed and not m.startswith("_")]
+    assert extra == [], f"the configs repo's CI does not install: {extra}"
 
 
 def test_the_validate_cli_checks_changed_documents_only(root: Path) -> None:

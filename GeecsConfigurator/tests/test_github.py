@@ -190,6 +190,21 @@ def test_github_down_is_a_git_failure_everywhere_never_a_500(key: tuple[Path, by
         inbox.reset_backoff(repo)
 
 
+def test_a_bad_key_file_is_a_git_failure_too(key: tuple[Path, bytes], github: FakeGitHub, origin: Path, tmp_path: Path) -> None:  # fmt: skip
+    env = _app_env(origin, tmp_path / "s", key[0])
+    http = httpx.Client(transport=httpx.MockTransport(github))
+    with TestClient(create_app(Settings.from_env(env), http=http)) as c:
+        etag = c.get("/api/documents/setup/low_power.yaml?experiment=Bench").json()["etag"]  # fmt: skip
+    key[0].write_bytes(b"-----BEGIN PRIVATE KEY-----\nnot a key\n-----END PRIVATE KEY-----\n")  # a rotation gone wrong  # fmt: skip
+    with TestClient(
+        create_app(Settings.from_env(env), http=http)
+    ) as c:  # restarts, and serves
+        r = c.get("/api/documents/setup/low_power.yaml?experiment=Bench")
+        assert r.status_code == 200 and "no credential" in r.headers["X-Configs-Stale"]
+        saved = c.put("/api/documents/setup/low_power.yaml?experiment=Bench", json={"document": {**r.json()["document"], "description": "x"}, "etag": etag, "operator": "Ada"})  # fmt: skip
+        assert saved.status_code == 502
+
+
 def test_the_app_settings_come_together_or_not_at_all(origin: Path, tmp_path: Path, key: tuple[Path, bytes]) -> None:  # fmt: skip
     from geecs_configurator.settings import SettingsError
 

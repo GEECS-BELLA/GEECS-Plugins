@@ -39,6 +39,8 @@ from geecs_configurator.settings import Settings
 from geecs_configurator.store import DocumentStore
 
 logger = logging.getLogger(__name__)
+#: How a row whose commit was not yet live says so (re-answered when it is).
+NOT_LIVE = "on main but not in the live checkout"
 #: Seconds GitHub has to mint a token: under a read's fetch bound, so an unreachable API never outwaits it.
 MINT_TIMEOUT_S = 8.0
 
@@ -80,9 +82,14 @@ class CommitPath:
         self.share_error: str | None = None
         #: Why main is not applied (``None``: the live checkout is main).
         self.refused: str | None = None
-        #: The live checkout was first made at main's tip with no gate (no share to start from).
-        self.unverified = False
+        #: Present while the live checkout's first commit was never checked (see :meth:`start`).
+        self.unverified_marker = settings.state_dir / "UNVERIFIED"
         self._share_thread: threading.Thread | None = None
+
+    @property
+    def unverified(self) -> bool:
+        """Whether the live checkout's baseline was never checked (until the maintainer says it was)."""
+        return self.unverified_marker.exists()
 
     # ------------------------------------------------------------ the start
 
@@ -91,13 +98,17 @@ class CommitPath:
 
         A new live checkout starts at the share's commit when main contains
         it (accepted before, by hand), so main's newer changes pass the gate
-        like any other; with no such share it starts at main's tip,
-        **unverified**: said on the page, and the share is not moved, until an
-        advance passes the gate.
+        like any other. With no such share it starts at main's tip
+        **unverified**: the gate only ever checks what changed, so nothing
+        will check that baseline. The state is a marker file in the state
+        directory, said on the page and in ``/healthz``, and the share is not
+        moved while it is there; later advances never clear it. The
+        maintainer clears it (deletes the file) once main has been looked at.
         """
         fresh = not (self.repo.live / ".git").exists()
         self.repo.ensure(start_at=self._share_start)
-        self.unverified = fresh and self.repo.live_head() == self.repo.remote_head() and not self._started_at_share  # fmt: skip
+        if fresh and not self._started_at_share:
+            self.unverified_marker.write_text(f"{self.repo.live_head()}\nthe live checkout was first made at main's tip with no share to start from; nothing checked it\n")  # fmt: skip
         self.fetch()
         if not self.unverified:
             self.fast_forward_share()
@@ -140,7 +151,7 @@ class CommitPath:
         if self.refused and not current:
             return self.refused
         if self.unverified:
-            return "unverified: the live checkout was first made at main's tip with no gate; the next accepted change verifies it"  # fmt: skip
+            return f"unverified: the live checkout was first made at main's tip with no share to start from, and the gate checks only changes; once main has been looked at, the maintainer deletes {self.unverified_marker} (the share is held until then)"  # fmt: skip
         return "applied"
 
     # ------------------------------------------------------------ the gate
@@ -163,8 +174,9 @@ class CommitPath:
 
     def advanced(self, old: str, new: str) -> None:
         """Log the foreign commits just applied, then fast-forward the share's clone (off the repository's lock)."""
-        self.refused, self.unverified = None, False
+        self.refused = None
         known = validation.documents(self.store)
+        self._settle_pending(new)
         for sha, email, author, paths in self.repo.commits(old, new):
             if email == self.settings.committer_email:
                 continue  # the service's own: the save or the inbox logs it
@@ -173,9 +185,18 @@ class CommitPath:
                     kind = known[path][0]
                     answer = self.applier.apply(kind, path)
                     self.log.add(Row(source="merged", who=author, kind=kind, path=path, commit=sha, state=answer.state, detail=answer.detail))  # fmt: skip
-        if self.settings.share_clone is not None:
+        if self.settings.share_clone is not None and self.unverified:
+            self.share_error = self._share_held()
+        elif self.settings.share_clone is not None:
             self._share_thread = threading.Thread(target=self.fast_forward_share, name="configurator-share", daemon=True)  # fmt: skip
             self._share_thread.start()
+
+    def _settle_pending(self, new: str) -> None:
+        """Re-answer the service's own rows left ``pending`` because their commit was not live yet, now that it is."""
+        for row in self.log.rows(limit=10_000):
+            if row.source in ("saved", "published") and row.state == "pending" and row.detail.startswith(NOT_LIVE) and row.commit and self.repo.is_ancestor(row.commit, new):  # fmt: skip
+                answer = self.applier.apply(row.kind, row.path)
+                self.log.add(row.model_copy(update={"state": answer.state, "detail": answer.detail}))  # fmt: skip
 
     def wait_share(self, timeout: float = 30.0) -> None:
         """Wait for the share's last fast-forward (tests, and the start)."""
@@ -214,7 +235,7 @@ class CommitPath:
         except GitError:
             live = False
         if not live:
-            return Answer(state="pending", detail=f"on main but not in the live checkout: {self.main_state()}")  # fmt: skip
+            return Answer(state="pending", detail=f"{NOT_LIVE}: {self.main_state()}")
         return self.applier.apply(kind, path)
 
     # ------------------------------------------------------------ the timer

@@ -186,12 +186,10 @@ class ConfigsRepository:
             return {}
         try:
             return self.credential()
-        except (
-            RuntimeError,
-            OSError,
-            ValueError,
-        ) as exc:  # GitHub down, the key unreadable or malformed
-            raise GitError(f"no credential for origin: {exc}") from exc
+        except Exception as exc:  # any credential failure (GitHub down, a bad key, an odd answer): origin unreachable
+            raise GitError(
+                f"no credential for origin: {type(exc).__name__}: {exc}"
+            ) from exc
 
     # --------------------------------------------------------------- setup
 

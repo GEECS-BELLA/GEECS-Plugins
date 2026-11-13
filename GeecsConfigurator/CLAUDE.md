@@ -25,8 +25,10 @@ its design is `Planning/configurator.md`, its record the tracking issue
   once, and blocks every save, every inbox publish and every retry
   until main is fixed by PR: nothing of the service is built on it. A new
   live checkout starts at the share's commit (accepted before, by hand)
-  and passes the gate from there; with no share it starts unverified and
-  says so. A credential failure (GitHub down) is a git failure: stale
+  and passes the gate from there; with no usable share it starts
+  **unverified** (the `UNVERIFIED` marker in the state directory: the gate
+  checks only changes, so no advance clears it), says so, and holds the
+  share until the maintainer deletes the marker. A credential failure (GitHub down) is a git failure: stale
   reads, a 502 save, a backed-off inbox, never a 500.
 - **A landed commit is never "applied" by that fact.** A log row's state
   (`log.py`: applied / queued / pending / nothing to do) is the apply
