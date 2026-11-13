@@ -208,8 +208,8 @@ class PlotterSettings(BaseModel):
     #: steppers, the day picker and the Images page act on), from any days.
     #: The XY plot draws them all: each its own trace (``overlay``, one Y,
     #: at most ``MAX_OVERLAY_SCANS`` with the main one) or pooled into one
-    #: frame (``merged``, LabVIEW's "merge s files"). The 2-D map and the
-    #: Images page stay on the main scan.
+    #: frame (``merged``, LabVIEW's "merge s files"). The Images page pools
+    #: them onto one strip; the 2-D map stays on the main scan.
     extra_scans: list[ScanRef] = Field(default_factory=list)
     scan_view: str = "overlay"
     #: Which Y list the overlay draws (1-3); the others keep their picks.

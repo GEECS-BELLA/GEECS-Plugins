@@ -117,8 +117,9 @@ SCAN_BIN_COLUMN = "Bin #"
 class MergedBins:
     """The merged scans' bin numbers and the tolerance that pooled them."""
 
-    #: One number per row of the merged frame, from 1 in X order; NaN for
-    #: a row whose group has no X value (it bins on its own, last).
+    #: One number per row of the merged frame, from 1 in X order; a group
+    #: with no X value is a bin of its own, after the placed ones, in scan
+    #: and bin order (never pooled: nothing says two of them are one setting).
     numbers: "pd.Series"
     #: Groups whose median X differed by at most this were pooled.
     tolerance: float
@@ -199,7 +200,11 @@ def merged_bin_numbers(
         if anchor is None or median - anchor > tol:
             current, anchor = current + 1, median
         number[keys[i]] = float(current)
-    values = [number.get(k, np.nan) for k in rows]
+    for i, median in enumerate(medians):
+        if not np.isfinite(median):  # no X: its own bin, after the placed ones
+            current += 1
+            number[keys[i]] = float(current)
+    values = [number[k] for k in rows]
     return MergedBins(pd.Series(values, index=frame.index), tol)
 
 

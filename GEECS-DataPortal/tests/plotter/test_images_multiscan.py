@@ -216,3 +216,47 @@ def test_the_strip_follows_the_plot_pages_x(
     assert "20 · 10-03 S001 · 1 shot" in captions
     assert "bx=U_Delay" in page
     assert f"vs {delay}" in page
+
+
+def test_the_strip_listing_s_tiles_rebuild_its_own_pooling(
+    client: TestClient, other: Path
+) -> None:
+    """A listing asked for with ``bx=`` writes that ``bx`` into every tile URL.
+
+    Otherwise tile *i* of the listing names bin *i* of a differently
+    pooled set (the scan variable's) when the browser fetches it.
+    """
+    base = {"day": "2026-10-02", "scan": 1, "device": CAM, "scans": OTHER}
+    by_shot = client.get(
+        "/api/images/strip", params={**base, "strip": "bins", "bx": ""}
+    )
+    assert by_shot.status_code == 200, by_shot.text
+    urls = [tile["url"] for tile in by_shot.json()["tiles"]]
+    assert urls and all("bx=&" in u or u.endswith("bx=") for u in urls), urls
+
+
+def test_a_saved_bin_width_never_cuts_the_merged_bin_numbers() -> None:
+    """The merged numbers are bin identities: a width meant for X is dropped."""
+    from geecs_data_utils.data.binning import BinningConfig, bin_rows
+    from geecs_data_utils.data.scan_merge import merge_scan_frames
+
+    def scan(positions):
+        return pd.DataFrame(
+            {
+                "Shotnumber": range(1, 2 * len(positions) + 1),
+                "Bin #": [b for b in range(1, len(positions) + 1) for _ in "ab"],
+                "pos": [p for p in positions for _ in "ab"],
+            }
+        )
+
+    frame = merge_scan_frames(
+        {
+            (date(2026, 1, 1), 1): scan([1.0, 2.0, 3.0]),
+            (date(2026, 1, 1), 2): scan([1.0, 2.0, 3.0]),
+        }
+    )
+    pooled, cfg, _ = multi.merged_bins(
+        frame, BinningConfig(bin_col="Bin #", bin_width=2.0), "pos"
+    )
+    assert cfg.bin_width is None and cfg.bin_edges is None and cfg.quantile_bins is None
+    assert [len(rows) for _, rows in bin_rows(pooled, cfg)] == [4, 4, 4]

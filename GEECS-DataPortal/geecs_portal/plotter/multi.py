@@ -158,8 +158,10 @@ def merged_bins(
     different settings. Each scan's bins are kept together and placed at
     their median *x*, the same setting from two scans pooled
     (``geecs_data_utils.data.scan_merge.with_merged_bins``, within
-    *tolerance*; ``None`` is half the smallest step). Any other bin
-    column is kept as it is.
+    *tolerance*; ``None`` is half the smallest step). The numbers are
+    bin identities, so the config's numeric binning (width, edges,
+    quantiles) is dropped — the Images strip bins them the same way. Any
+    other bin column is kept as it is.
 
     Returns
     -------
@@ -176,7 +178,16 @@ def merged_bins(
     if cfg.bin_col != PER_SCAN_BIN:
         return frame, cfg, None
     pooled, tol = with_merged_bins(frame, x, tolerance)
-    return pooled, dataclasses.replace(cfg, bin_col=MERGED_BIN_COLUMN), tol
+    # The merged numbers are bin identities, never values to cut: a saved
+    # width, edges or quantile count (meant for X) would pool settings.
+    merged = dataclasses.replace(
+        cfg,
+        bin_col=MERGED_BIN_COLUMN,
+        bin_edges=None,
+        bin_width=None,
+        quantile_bins=None,
+    )
+    return pooled, merged, tol
 
 
 def column_coverage(frames: dict[Any, pd.DataFrame]) -> dict[str, int]:

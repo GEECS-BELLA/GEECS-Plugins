@@ -178,14 +178,21 @@ def test_a_tolerance_of_zero_keeps_the_scans_apart():
     assert found.numbers.tolist() == [1, 1, 2, 2, 4, 4, 3, 3, 5, 5]
 
 
-def test_a_bin_with_no_x_value_has_no_number():
+def test_each_bin_with_no_x_value_is_a_bin_of_its_own():
+    """A scan without the X column keeps its bins apart, after the placed ones.
+
+    One shared NaN would make binning average all of them as one setting.
+    """
     import numpy as np
+
+    from geecs_data_utils.data.binning import BinningConfig, bin_rows
 
     frame = _two_scans()
     frame.loc[frame["scan"] == 2, "pos"] = np.nan
-    numbers = merged_bin_numbers(frame, "pos").numbers
-    assert numbers.tolist()[:6] == [1, 1, 2, 2, 3, 3]
-    assert numbers.iloc[6:].isna().all()
+    pooled, _ = with_merged_bins(frame, "pos")
+    assert pooled[MERGED_BIN_COLUMN].tolist() == [1, 1, 2, 2, 3, 3, 4, 4, 5, 5]
+    groups = bin_rows(pooled, BinningConfig(bin_col=MERGED_BIN_COLUMN))
+    assert [len(rows) for _, rows in groups] == [2, 2, 2, 2, 2]
 
 
 def test_without_an_x_the_bins_follow_scan_and_bin_order():

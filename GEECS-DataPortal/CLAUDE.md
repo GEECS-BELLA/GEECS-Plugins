@@ -661,7 +661,7 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   added still loads ("not in this version"). A new model is a data-utils
   PR first (its curve and `CurveFit.formula` live there), then a `FITS`
   entry.
-- **Several scans** (the XY plot only; the author's design, 2026-10-29):
+- **Several scans** (the XY plot and the Images page; the author's design, 2026-10-29):
   the set's `extra_scans` (`[{day, scan}]`, from any day) beside the
   main `day`/`scan`, which the steppers, the day picker and the 2-D map
   act on alone (the Images page pools them, below); the link stays

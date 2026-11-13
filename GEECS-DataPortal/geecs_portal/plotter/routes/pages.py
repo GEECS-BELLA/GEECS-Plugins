@@ -633,8 +633,8 @@ def _fill_pooling(
     """The merged scans' pooling: the tolerance saved and the one it defaults to.
 
     ``scan_merge.default_bin_tolerance`` over the merged frame by the X the
-    bins are placed by (the Plot page's X, the Images page's scan
-    variable): half the smallest step of any one scan.
+    bins are placed by (the Plot page's X, which the Images strip follows
+    too): half the smallest step of any one scan.
     """
     page["mtol"] = settings.merge_tolerance
     x = page["x"]  # the Plot page's X, which the Images strip follows too
@@ -665,8 +665,8 @@ def _fill_images(
 
     With the set's extra scans (*extras*, found on the share) the strip
     is every scan's shots: an :class:`images.ScanSet`, its bins the merged
-    scans' one bin number (each scan's bins by the scan variable, the same
-    setting pooled within ``merge_tolerance``). The devices, conditions
+    scans' one bin number (each scan's bins placed by the Plot page's X,
+    the same setting pooled within ``merge_tolerance``). The devices, conditions
     and background are the open scan's.
     """
     folder = scans.scan_folder(run)

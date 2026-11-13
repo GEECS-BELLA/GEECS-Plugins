@@ -746,6 +746,7 @@ def register(router: APIRouter, ctx: Context) -> None:
             day=day,
             scan=scan,
             device=device,
+            x=bx,  # the tiles' URLs rebuild the set this listing was pooled by
             channel=channel if traces else None,
             source=got.source,
             extra=extra,
