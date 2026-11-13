@@ -7,3 +7,13 @@
 .kit .rail .picklist a .tier{margin-left:auto}
 .kit .editor aside p, .kit .editor aside ul{margin:0}
 .kit .picklist [aria-current="page"] .tier{color:inherit;border-color:currentColor}
+.kit .panel .body.legend{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px}
+.kit .legend .chip{flex:none}
+.kit .log td{vertical-align:top}
+.kit .log td.when{white-space:nowrap}
+.kit .log td.detail{min-width:14em}
+.kit .log td.doc{overflow-wrap:anywhere;min-width:16em}
+.kit .log td.who{min-width:9em}
+.kit .log td.st{white-space:nowrap}
+.kit .save-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.kit .save-row input{min-width:12em}

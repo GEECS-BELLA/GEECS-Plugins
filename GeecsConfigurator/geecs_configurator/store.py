@@ -219,6 +219,10 @@ class DocumentStore:
             pattern = pattern.replace("<experiment>", experiment)
         return self.root / pattern.rsplit("/", 1)[0].removesuffix("/**")
 
+    def files(self, kind: str, experiment: str | None) -> dict[str, Path]:
+        """The kind's documents: id -> path (what the listing lists; a missing folder is none)."""
+        return self._files(kind, experiment)
+
     def _files(self, kind: str, experiment: str | None) -> dict[str, Path]:
         storage, base = self._storage(kind), self.folder(kind, experiment)
         if not base.is_dir():

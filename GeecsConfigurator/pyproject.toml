@@ -19,6 +19,9 @@ geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 geecs-core = { path = "../GEECS-Core", develop = true }
 # The kit, form.js and the FastAPI glue every surface shares. Imported, never copied.
 geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] }
+# The GitHub App: an RS256 JWT for its installation tokens, and its REST calls.
+pyjwt = { version = ">=2.8", extras = ["crypto"] }
+httpx = ">=0.27"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
@@ -27,6 +30,7 @@ geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testin
 
 [tool.poetry.scripts]
 geecs-configurator = "geecs_configurator.__main__:main"
+geecs-configurator-validate = "geecs_configurator.validation:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

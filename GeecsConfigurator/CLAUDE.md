@@ -17,6 +17,22 @@ its design is `Planning/configurator.md`, its record the tracking issue
   in the inbox (`inbox.py`), claimed by rename and committed from there.
   Each rule is pinned against scratch bare repos (`tests/test_repository.py`,
   `test_save.py`, `test_inbox.py`).
+- **Nothing is applied that did not validate.** Every fast-forward of the
+  live checkout passes the gate (`service.CommitPath.accept`): the
+  documents changed since the live commit must validate
+  (`validation.problems`, the one rule the configs repo's CI runs too, from
+  `deploy/configs-repo/validate.yml`). A refused commit is fetched, logged
+  once, and blocks every save until main is fixed by PR.
+- **A landed commit is never "applied" by that fact.** A log row's state
+  (`log.py`: applied / queued / pending / nothing to do) is the apply
+  seam's answer; `NoApplier` never says applied (slice 3 implements it).
+- **The share follows the service, never origin**: it fast-forwards from
+  the bare repository's accepted `main`, needs no credential, and a share
+  that cannot move is shown, never forced.
+- **The App's token never leaves the process**: git gets it through
+  `GIT_CONFIG_*` in its environment, never argv; no route, page or commit
+  carries it. Tests use a fake GitHub (an httpx mock transport), never the
+  network.
 - **The save follows the served form**, and writes `.inf`/`.nan` as
   themselves: documents are answered through `app._served` (non-finite
   floats as `"Infinity"`/`"NaN"`), never FastAPI's default encoding, which

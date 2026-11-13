@@ -1,0 +1,68 @@
+{#
+  The commit log: every committed document, who committed it, and whether it
+  took effect. A row's state is the apply seam's answer, never "applied"
+  because the commit landed.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ settings.title }} — log</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/configurator.css">
+</head>
+<body class="kit">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="{{ root }}/">{{ settings.title }} <span class="sub">log</span></a>
+    <nav class="row"><a class="btn sm" href="{{ root }}/">Documents</a></nav>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell solo">
+<main class="pane">
+  {% if not commit %}
+  <div class="banner" data-state="denied"><strong>Read-only.</strong> The commit path is not configured, so nothing is committed and the log is empty.</div>
+  {% else %}
+  {% if commit.refused %}<div class="banner" data-state="error"><strong>Main is not applied.</strong> {{ commit.refused }}</div>{% endif %}
+  {% if commit.share_error %}<div class="banner" data-state="error"><strong>The share's clone is behind.</strong> {{ commit.share_error }}</div>{% endif %}
+  {% endif %}
+
+  <section class="panel">
+    <header><span class="eyebrow">Commit log</span><span class="dim">newest first; a state is what applying it did, never the commit itself</span></header>
+    <div class="body legend">
+      {% for s in states %}<span class="chip" data-state="{{ chip[s] }}">{{ s }}</span>{% endfor %}
+    </div>
+    {% if rows %}
+    <div class="tscroll"><table class="log">
+      <thead><tr><th>When (UTC)</th><th>Who</th><th>What</th><th>Document</th><th>Commit</th><th>State</th><th>Detail</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono when">{{ r.at | replace("T", " ") | replace("+00:00", "") }}</td>
+        <td class="who">{{ r.who }}</td>
+        <td>{{ r.source }}</td>
+        <td class="mono doc">{% if r.kind %}<span class="dim">{{ r.kind }}</span> {% endif %}{{ r.path }}</td>
+        <td class="mono">{% if r.link %}<a href="{{ r.link }}">{{ (r.commit or "")[:10] or "link" }}</a>{% else %}{{ (r.commit or "")[:10] }}{% endif %}</td>
+        <td class="st"><span class="chip" data-state="{{ chip[r.state] }}">{{ r.state }}</span></td>
+        <td class="dim detail">{{ r.detail }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}
+    <div class="state" data-state="empty"><span class="t">Nothing committed yet</span><span class="m">A save, a published measurement or a merged pull request shows here.</span></div>
+    {% endif %}
+  </section>
+</main>
+</div>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+</body>
+</html>

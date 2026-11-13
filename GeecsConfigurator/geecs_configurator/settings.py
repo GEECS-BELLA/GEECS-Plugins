@@ -16,6 +16,16 @@ over the configs root, as on a laptop. The commit identity
 (``_COMMITTER_NAME``, ``_COMMITTER_EMAIL``) and the inbox's author
 (``_INBOX_AUTHOR``) have neutral defaults; ``_GITHUB_REPO`` (``owner/name``)
 gives a proposed change its compare link.
+
+The **GitHub App** is on when ``_GITHUB_APP_ID``, ``_GITHUB_INSTALLATION_ID``
+and ``_GITHUB_APP_KEY_FILE`` (the private key, a secrets file beside
+site.env readable by the service account only) are all set; then
+``ORIGIN`` is the configs repo's HTTPS URL and the App pushes and opens the
+maintainer tier's pull requests. Unset, git's own credential (a deploy key)
+pushes and a proposal gives its compare link. ``_SHARE_CLONE`` is the
+share's clone, fast-forwarded from the service's repository after every
+accepted change; ``_FETCH_SECONDS`` (default 60; 0 = off) is how often
+main is fetched so a merge on GitHub takes effect.
 """
 
 from __future__ import annotations
@@ -52,6 +62,11 @@ class Settings:
     inbox_author: str = "GEECS worker via configurator"
     reconcile_seconds: float = 5.0
     github_repo: str = ""
+    fetch_seconds: float = 60.0
+    share_clone: Path | None = None
+    github_app_id: str = ""
+    github_installation_id: str = ""
+    github_app_key_file: Path | None = None
 
     @property
     def commits(self) -> bool:
@@ -79,8 +94,21 @@ class Settings:
             raise SettingsError(f"{_P}PORT is not a port: {port!r}")
         try:
             every = float(get("RECONCILE_SECONDS") or "5")
+            fetch_every = float(get("FETCH_SECONDS") or "60")
         except ValueError:
-            raise SettingsError(f"{_P}RECONCILE_SECONDS is not a number") from None
+            raise SettingsError(
+                f"{_P}RECONCILE_SECONDS and _FETCH_SECONDS are seconds"
+            ) from None
+        app = (
+            get("GITHUB_APP_ID"),
+            get("GITHUB_INSTALLATION_ID"),
+            get("GITHUB_APP_KEY_FILE"),
+        )
+        if any(app) and not all(app):
+            raise SettingsError(f"{_P}GITHUB_APP_ID, _GITHUB_INSTALLATION_ID and _GITHUB_APP_KEY_FILE are set together or not at all")  # fmt: skip
+        if all(app) and not (state and get("GITHUB_REPO")):
+            raise SettingsError(f"the GitHub App needs the commit path and {_P}GITHUB_REPO (owner/name)")  # fmt: skip
+        share = get("SHARE_CLONE")
         origins = tuple(o.strip().rstrip("/") for o in get("CORS_ORIGINS").split(",") if o.strip())  # fmt: skip
         return cls(
             configs_root=Path(root),
@@ -97,4 +125,9 @@ class Settings:
             inbox_author=get("INBOX_AUTHOR") or cls.inbox_author,
             reconcile_seconds=every,
             github_repo=get("GITHUB_REPO"),
+            fetch_seconds=fetch_every,
+            share_clone=Path(share) if share else None,
+            github_app_id=app[0],
+            github_installation_id=app[1],
+            github_app_key_file=Path(app[2]) if app[2] else None,
         )

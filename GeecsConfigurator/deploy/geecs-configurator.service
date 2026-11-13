@@ -7,8 +7,10 @@
 # GEECS_CONFIGURATOR_* keys) are read from the environment by the process.
 # Read-only unless GEECS_CONFIGURATOR_STATE_DIR and _ORIGIN are set: then it
 # keeps its bare repository, live checkout, staging worktrees and inbox in
-# the state directory below and commits to the configs repo (the service
-# account's git credential for origin is what pushes).
+# the state directory below and commits to the configs repo: as the GitHub
+# App when GEECS_CONFIGURATOR_GITHUB_APP_* name it (its key a secret file
+# under /etc/geecs/configurator/, readable by @SERVICE_USER@ alone), else with
+# the service account's own git credential (a deploy key).
 #
 # Upgrade:
 #   git -C <checkout> pull && poetry install && sudo systemctl restart geecs-configurator

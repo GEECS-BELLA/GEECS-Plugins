@@ -28,17 +28,14 @@ from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, NotAFile
 from pydantic import BaseModel
 from geecs_web_theme.web import ForwardedPrefixMiddleware, RevalidatingStaticFiles, make_templates, mount_theme  # fmt: skip
 
+import httpx
+
 from geecs_configurator import inbox
 from geecs_configurator.kinds import KindInfo, kinds
-from geecs_configurator.repository import ConfigsRepository, GitError, Identity
-from geecs_configurator.save import (
-    CompareLinkOnly,
-    PullRequests,
-    Refused,
-    Saved,
-    SaveRequest,
-    save,
-)
+from geecs_configurator.log import CHIP, STATES, Applier
+from geecs_configurator.repository import ConfigsRepository, GitError
+from geecs_configurator.save import CompareLinkOnly, PullRequests, Refused, Saved, SaveRequest, save  # fmt: skip
+from geecs_configurator.service import CommitPath
 from geecs_configurator.settings import Settings
 from geecs_configurator.store import Diff, DocumentStore, Entry, Loaded, NotFound, Report, dump_yaml  # fmt: skip
 
@@ -51,21 +48,17 @@ api = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings, pull_requests: PullRequests | None = None) -> FastAPI:  # fmt: skip
-    """Build the app over the settings' configs root (the live checkout when the commit path is on)."""
+def create_app(settings: Settings, pull_requests: PullRequests | None = None, *, http: httpx.Client | None = None, applier: Applier | None = None) -> FastAPI:  # fmt: skip
+    """Build the app over the settings' configs root (the live checkout when the commit path is on).
+
+    ``pull_requests``, ``http`` (the client to GitHub) and ``applier`` are
+    the seams tests fill with fakes.
+    """
     app = FastAPI(title=settings.title, lifespan=_lifespan)
     app.state.settings, app.state.store = settings, DocumentStore(settings.configs_root)
-    app.state.repo = (
-        ConfigsRepository(
-            settings.state_dir,
-            settings.origin,
-            settings.branch,
-            Identity(settings.committer_name, settings.committer_email),
-        )  # fmt: skip
-        if settings.commits and settings.state_dir is not None
-        else None
-    )
-    app.state.pull_requests = pull_requests or CompareLinkOnly(settings.github_repo, settings.branch)  # fmt: skip
+    commit = CommitPath(settings, pull_requests=pull_requests, http=http, applier=applier) if settings.commits else None  # fmt: skip
+    app.state.commit, app.state.repo = commit, commit.repo if commit else None
+    app.state.pull_requests = commit.pull_requests if commit else CompareLinkOnly(settings.github_repo, settings.branch)  # fmt: skip
     app.add_middleware(ForwardedPrefixMiddleware)
     if settings.cors_origins:
         app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])  # fmt: skip
@@ -73,45 +66,34 @@ def create_app(settings: Settings, pull_requests: PullRequests | None = None) ->
     app.mount("/static", RevalidatingStaticFiles(directory=str(_PKG / "static")), name="static")  # fmt: skip
     app.include_router(api)
     app.add_api_route("/", home, methods=["GET"], response_class=HTMLResponse)
+    app.add_api_route("/log", log_page, methods=["GET"], response_class=HTMLResponse)
     app.add_api_route("/healthz", healthz, methods=["GET"])
     return app
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """With the commit path on: set the repository up and run the inbox timer until shutdown."""
-    repo: ConfigsRepository | None = app.state.repo
+    """With the commit path on: set the repository up and run the timer (inbox, fetch) until shutdown."""
+    commit: CommitPath | None = app.state.commit
     stop = threading.Event()
-    if repo is not None:
-        repo.ensure()
-        inbox.prepare(repo, app.state.store.experiments())
-        every = app.state.settings.reconcile_seconds
-        if every > 0:
-            threading.Thread(target=_timer, args=(app, stop, every), name="configurator-inbox", daemon=True).start()  # fmt: skip
+    if commit is not None:
+        commit.repo.ensure()
+        inbox.prepare(commit.repo, app.state.store.experiments())
+        commit.fast_forward_share()  # a share behind the accepted main catches up at start
+        if (
+            app.state.settings.reconcile_seconds > 0
+            or app.state.settings.fetch_seconds > 0
+        ):
+            threading.Thread(target=commit.run, args=(stop,), name="configurator-timer", daemon=True).start()  # fmt: skip
     try:
         yield
     finally:
         stop.set()
 
 
-def _timer(app: FastAPI, stop: threading.Event, every: float) -> None:
-    while not stop.wait(every):
-        try:
-            reconcile(app)
-        except Exception:  # the timer outlives any one failure; the next tick retries
-            logger.exception("the inbox reconcile failed")
-
-
 def reconcile(app: FastAPI) -> list[inbox.Published]:
     """Publish what waits in the inbox (nothing to do, and no git, when it is empty)."""
-    repo: ConfigsRepository = app.state.repo
-    experiments = app.state.store.experiments()
-    if not inbox.pending(repo, experiments):
-        return []
-    author = Identity(
-        app.state.settings.inbox_author, app.state.settings.committer_email
-    )
-    return inbox.reconcile(repo, experiments, author)
+    return app.state.commit.reconcile()
 
 
 #: The serve path's bounds: how long a read waits for the lock, how long its fetch may take, and how
@@ -160,9 +142,35 @@ def _answer(call: Callable[[], T]) -> T:
 
 
 def healthz(request: Request) -> dict[str, str]:
-    """Up, and whether the configs root is there."""
+    """Up; whether the configs root is there; the commit path's state (main applied, the share current)."""
     found = request.app.state.settings.configs_root.is_dir()
-    return {"status": "ok", "configs_root": "found" if found else "missing", "commits": "on" if request.app.state.repo else "off"}  # fmt: skip
+    out = {"status": "ok", "configs_root": "found" if found else "missing", "commits": "on" if request.app.state.repo else "off"}  # fmt: skip
+    commit: CommitPath | None = request.app.state.commit
+    if commit is not None:
+        out["main"] = commit.refused or "applied"
+        out["share"] = "off" if commit.settings.share_clone is None else commit.share_error or "current"  # fmt: skip
+        out["credential"] = (
+            "GitHub App" if commit.credential else "git's own (deploy key)"
+        )
+    return out
+
+
+@api.get("/log")
+def log_rows(
+    request: Request, limit: int = 200
+) -> list[dict[str, Any]]:  # Any: the rows as JSON
+    """The commit log, newest first (empty when the commit path is off)."""
+    commit: CommitPath | None = request.app.state.commit
+    return [r.model_dump() for r in commit.log.rows(limit)] if commit else []
+
+
+def log_page(request: Request) -> HTMLResponse:
+    """The commit log: what was committed, by whom, and whether it took effect (the four states)."""
+    commit: CommitPath | None = request.app.state.commit
+    return _TEMPLATES.TemplateResponse(request, "log.html", {
+        "settings": request.app.state.settings, "rows": commit.log.rows() if commit else [], "commit": commit,
+        "states": STATES, "chip": CHIP,
+    })  # fmt: skip
 
 
 @api.get("/kinds")
@@ -225,6 +233,7 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
         saved = _answer(lambda: save(_store(request), repo, request.app.state.pull_requests, _file_kind(kind), experiment, doc_id, body, email=request.app.state.settings.committer_email))  # fmt: skip
     except Refused as exc:
         return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+    request.app.state.commit.saved(kind, saved)
     if saved.outcome != "nothing to do":
         inbox.reset_backoff(
             repo
@@ -274,4 +283,5 @@ def home(request: Request, experiment: str = "", kind: str = "", id: str = "") -
     return _TEMPLATES.TemplateResponse(request, "home.html", {
         "settings": settings, "experiments": known, "experiment": experiment, "catalogue": catalogue,
         "kind": kind, "docs": docs, "doc_id": id if id in {d.id for d in docs} else "",
+        "commits": request.app.state.repo is not None,
     })  # fmt: skip

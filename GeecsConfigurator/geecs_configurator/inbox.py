@@ -64,6 +64,7 @@ class Published:
 
     path: str
     outcome: str  # "committed", "nothing to do", "rejected", "failed"
+    kind: str = "shot_offsets"
     commit: str | None = None
     detail: str = ""
 
@@ -149,7 +150,7 @@ def _publish_one(repo: ConfigsRepository, rel: str, kind: str, author: Identity)
             rejected = repo.inbox / REJECTED / f"{_claimed_name(rel)}.{os.stat(incoming).st_mtime_ns}"  # fmt: skip
             os.replace(incoming, rejected)
             logger.error("%s from the inbox %s; kept as %s, not committed", rel, why, rejected.name)  # fmt: skip
-            return Published(rel, "rejected", detail=why)
+            return Published(rel, "rejected", kind=kind, detail=why)
         if claimed.exists():
             logger.info("%s: an unpublished older measurement is superseded by a newer one", rel)  # fmt: skip
         os.replace(incoming, claimed)
@@ -164,6 +165,8 @@ def _publish_one(repo: ConfigsRepository, rel: str, kind: str, author: Identity)
         logger.warning(
             "%s from the inbox was not published (kept, retried): %s", rel, exc
         )
-        return Published(rel, "failed", detail=str(exc))
+        return Published(rel, "failed", kind=kind, detail=str(exc))
     claimed.unlink()
-    return Published(rel, "committed" if sha else "nothing to do", commit=sha)
+    return Published(
+        rel, "committed" if sha else "nothing to do", kind=kind, commit=sha
+    )
