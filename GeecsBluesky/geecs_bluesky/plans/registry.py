@@ -947,6 +947,7 @@ def bind_plans(
 
 __all__ = [
     "ACQUISITION_MODES",
+    "DEVICE_LIST",
     "TriggerProfiles",
     "background_snapshot",
     "background_wrapper",
@@ -954,6 +955,7 @@ __all__ = [
     "liveness_gate",
     "native_image_save_wrapper",
     "refuse_native_run",
+    "require_plain_metadata",
     "resolve_background_telemetry",
     "resolve_native_image_save",
     "strict_plan",

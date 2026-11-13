@@ -267,9 +267,12 @@ def test_every_argument_of_every_geecs_plan_is_annotated(profiles) -> None:
     """No argument is left to the manager's convert-every-name default.
 
     ``mv`` is the stock stub (its ``*args`` are the movables) and is the one
-    exception.
+    exception.  Judged twice: on the signature, and on the manager's own
+    description of the plan — it drops an annotation it cannot rebuild and
+    then treats the argument as bare.
     """
-    for name, plan in bind_plans(profiles).items():
+    bound = bind_plans(profiles)
+    for name, plan in bound.items():
         if name == "mv":
             continue
         bare = [
@@ -278,6 +281,20 @@ def test_every_argument_of_every_geecs_plan_is_annotated(profiles) -> None:
             if p.annotation is inspect.Parameter.empty
         ]
         assert not bare, f"{name}: unannotated {bare}"
+    pytest.importorskip("bluesky_queueserver")
+    from bluesky_queueserver.manager.profile_ops import (
+        existing_plans_and_devices_from_nspace,
+    )
+
+    plans, *_ = existing_plans_and_devices_from_nspace(nspace=dict(bound))
+    assert set(plans) == set(bound)
+    for name, description in plans.items():
+        if name == "mv":
+            continue
+        dropped = [
+            p["name"] for p in description["parameters"] if "annotation" not in p
+        ]
+        assert not dropped, f"{name}: the manager reads {dropped} as unannotated"
 
 
 @pytest.mark.parametrize("name", ["count", "sweep", "optimize"])

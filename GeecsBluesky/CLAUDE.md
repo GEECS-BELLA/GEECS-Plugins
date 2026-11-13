@@ -51,16 +51,20 @@ Every bound scan verb takes, keyword-only, `trigger_profile`,
 `non_essential`, `shot_period` (the strict rep-rate throttle),
 `native_image_save` and `background_telemetry`; all ride in the start
 document (`EVENT_SCHEMA.md`).  Every GEECS-defined registered plan
-passes through `utils.resolve_annotations`: the manager evaluates a
-plan's annotations in its own namespace, so postponed (string)
-annotations fail at `queue add`.
+hands the manager resolved annotation objects — the calibration plans
+and `run_action` through `utils.resolve_annotations`, the bound stock
+plans through the signature `strict_plan` rebuilds, `optimize` through
+`inspect.signature(..., eval_str=True)`: the manager evaluates a plan's
+annotations in its own namespace, so postponed (string) annotations
+fail at `queue add`.
 
 **Every argument of every GEECS plan is annotated** (`mv`, the stock
 stub, excepted).  The manager turns each device and plan name inside an
 *unannotated* argument into the object, at any depth, so an argument
 left bare converts whatever text it carries: a preset named like a
 device once put the device into `md`.  The device lists say so
-(`registry.DEVICE_LIST`: `detectors`, `non_essential`), `md` is
+(`detectors` and `non_essential` are `Sequence[Readable]`, spelled
+`registry.DEVICE_LIST` for the bound stock plans), `md` is
 `dict[str, Any] | None`, and `strict_plan` refuses to bind a stock plan
 with a bare argument.  `md` is also checked before anything moves and
 before the claim (`registry.require_plain_metadata`): anything but text,
