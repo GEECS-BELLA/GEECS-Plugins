@@ -114,6 +114,23 @@ class TestMerged:
         assert "with_merged_bins(frame, 'U_Jet Position', None)" in body["code"]
         assert points(rebuilt(body, two_days)["data"]) == points(body["figure"]["data"])
 
+    def test_a_binned_fit_is_made_to_the_pooled_bin_means(self, client, two_days):
+        # The pooled bins (1, 12) and (2, 35): the line through them, 23 x - 11.
+        body = figure(
+            client,
+            scans="2026-10-03:1",
+            multi="merged",
+            view="bin",
+            yfit="polynomial",
+            yorder=1,
+        )
+        (fit,) = body["fits"]
+        assert fit["points"] == 2
+        values = {t["name"]: t["value"] for t in fit["terms"]}
+        assert values["c1"] == pytest.approx(23.0)
+        assert values["c0"] == pytest.approx(-11.0)
+        assert points(rebuilt(body, two_days)["data"]) == points(body["figure"]["data"])
+
     def test_a_zero_tolerance_keeps_settings_apart_only_when_x_differs(
         self, client, two_days
     ):
@@ -251,6 +268,23 @@ class TestOverlay:
         assert [t["y"] for t in data] == [[11.0, 30.0], [20.0, 40.0]]
         assert [t["x"] for t in data] == [[1.0, 2.0], [1.0, 2.0]]
         assert points(rebuilt(body, two_days)["data"]) == points(data)
+
+    def test_each_scans_bins_get_their_own_fit(self, client, two_days):
+        body = figure(
+            client, scans="2026-10-03:1", view="bin", yfit="polynomial", yorder=1
+        )
+        slopes = [
+            {t["name"]: t["value"] for t in f["terms"]}["c1"] for f in body["fits"]
+        ]
+        assert slopes == [pytest.approx(19.0), pytest.approx(20.0)]
+        assert [(f["scan"], f["trace"]) for f in body["fits"]] == [
+            ("10-02 S001", 1),
+            ("10-03 S001", 2),
+        ]
+        assert all("bin means" in f["notes"][0] for f in body["fits"])
+        assert body["figure"]["data"][-1]["line"]["color"] == "$tok:--trace-2"
+        assert "figures.fit_bins(" in body["code"]
+        assert points(rebuilt(body, two_days)["data"]) == points(body["figure"]["data"])
 
 
 class TestScans:

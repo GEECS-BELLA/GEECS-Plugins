@@ -552,7 +552,8 @@ design rules"). The rules that are the portal's own:
   live count from `/plot/api/filter-count`) narrow the shots before
   anything is drawn, the **binned view** (`xy_view`, `bin_config`: the
   scan page's `/binned` on this page's three-slot axes,
-  `plotter.figures.binned_figure`; no fit is made to bin centres), the
+  `plotter.figures.binned_figure`; a fit there is made to the bin means
+  drawn, below), the
   **display settings** (`display`: server-side through the portal's own
   helpers, the raw `layout` patch merged in the browser only) and the
   toolbar's **copy** and **send to the scan's log entry**, which posts to
@@ -651,6 +652,9 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   default). `plotter.figures.FITS` is the menu (LabVIEW's names, only the
   models data-utils has), `fit_columns` fits the drawn per-shot points,
   and `shots_figure(…, fits=)` draws each fit dashed on its slot's axis.
+  Binned (the author, 2026-11-12), `fit_bins` fits the bin means drawn,
+  unweighted, at their X (`binned_figure(…, fits=)`; in the overlay, each
+  scan's own bins), and the fit's table says so.
   `/plot/api/figure` returns the numbers as `fits` (each term
   `value ± stderr`, `api.plus_minus`), and the snippet rebuilds them. A
   fit name is stored as a plain string, so a set naming a fit a newer copy

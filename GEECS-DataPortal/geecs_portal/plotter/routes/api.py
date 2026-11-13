@@ -128,9 +128,9 @@ class FigureResponse(BaseModel):
     # The plotly figure JSON: the one free dict in a response (the brief).
     figure: dict[str, Any]
     code: str
-    #: One per Y list with a fit picked, in slot order (per-shot view only:
-    #: a fit is made to the shots, never to bin centres); in the overlay,
-    #: one per scan for its one Y.
+    #: One per Y list with a fit picked, in slot order: per shot, fitted
+    #: to the shots; binned, to the bin means drawn. In the overlay, one
+    #: per scan for its one Y.
     fits: list[FitResult] = []
     #: With extra scans: ``"overlay"`` or ``"merged"`` (``""`` for one
     #: scan), and each scan's legend name, the main one first.
@@ -216,6 +216,16 @@ def fit_result(
         scan=scan,
         trace=trace,
     )
+
+
+def _on_bins(result: FitResult) -> FitResult:
+    """Say on a binned view's fit that it was made to the bin means."""
+    if result.points:
+        result.notes = [
+            f"Fitted to the {result.points} bin means (unweighted).",
+            *result.notes,
+        ]
+    return result
 
 
 def figure_code(
@@ -324,7 +334,9 @@ def figure_code(
     )
     if cfg is not None:
         binned = head + keep + ("frame = kept\n" if filtering else "")
-        return binned + _binned_code(cfg, ys, drawn, x, x_label, y_labels, display_arg)
+        return binned + _binned_code(
+            cfg, ys, drawn, x, x_label, y_labels, display_arg, fits, orders
+        )
     # As the endpoint: columns are read off the whole scan, then cut to the
     # kept shots, so a filter that keeps none still draws (an empty plot).
     series = (
@@ -385,7 +397,7 @@ def overlay_code(
     """The overlay's snippet: the merged frame, split per scan, one Y drawn.
 
     *fit* (a ``figures.FITS`` key) is made per scan; given *cfg*, each
-    scan is binned on its own instead. The other parameters are
+    scan is binned on its own instead and its fit made to its bin means. The other parameters are
     :func:`figure_code`'s.
     """
     where = f", experiment={experiment!r}" if experiment else ""
@@ -393,6 +405,8 @@ def overlay_code(
     labels += f", y_label={y_label!r}" if y_label else ""
     display_arg = analysis.snippet_display(display)
     head = _merged_head(refs, where) + _filter_lines(filters)
+    fitted = bool(fit and fit != "none")
+    order_arg = f", orders=[{order}]" if fit == "polynomial" else ""
     if cfg is not None:
         non_default = {
             f.name: getattr(cfg, f.name)
@@ -405,9 +419,18 @@ def overlay_code(
             f"cfg = BinningConfig({kwargs})\n"
             "# each scan binned on its own: Bin # restarts in every scan\n"
             f"groups = multi.overlay_bins(kept, refs, cfg, {y!r}, {x!r})\n"
-            f"fig = figures.overlay_binned_figure(groups, {y!r}, bin_col={cfg.bin_col!r}"
-            f"{labels}{display_arg})\n"
+            + (
+                "# each scan's fit is made to its bin means drawn\n"
+                f"fits = [figures.fit_bins(bins, series, [{y!r}], [{fit!r}],"
+                f" x_values=x_values{order_arg})[0]\n"
+                "        for _, bins, series, x_values in groups]\n"
+                if fitted
+                else ""
+            )
+            + f"fig = figures.overlay_binned_figure(groups, {y!r}, bin_col={cfg.bin_col!r}"
+            f"{labels}{', fits=fits' if fitted else ''}{display_arg})\n"
             "fig.show()\n"
+            + ("for fit in filter(None, fits):\n    print(fit)\n" if fitted else "")
         )
     names = [y, x] if x else [y]
     x_arg = f", x={x!r}" if x else ""
@@ -439,8 +462,10 @@ def _binned_code(
     x_label: Optional[str],
     y_labels: Sequence[Optional[str]],
     display_arg: str,
+    fits: Sequence[Optional[str]] = (),
+    orders: Sequence[int] = (),
 ) -> str:
-    """The binned half of :func:`figure_code`: bin, place, draw."""
+    """The binned half of :func:`figure_code`: bin, place, fit the bin means, draw."""
     non_default = {
         f.name: getattr(cfg, f.name)
         for f in dataclasses.fields(cfg)
@@ -468,11 +493,25 @@ def _binned_code(
         place = f", x_values=x_centers, x_label={(x_label or x)!r}"
     y_arg = repr(ys[0]) if len(ys) == 1 else repr(list(ys))
     titled = f", y_labels={list(y_labels)!r}" if any(y_labels) else ""
+    fitting = ""
+    fit_arg = ""
+    if any(f and f != "none" for f in fits):
+        models = [f if f and f != "none" else None for f in fits]
+        order_arg = f", orders={list(orders)!r}" if "polynomial" in models else ""
+        at = ", x_values=x_centers" if x else ""
+        fitting = (
+            "# each fit is made to the bin means drawn\n"
+            f"fits = figures.fit_bins(jsonable_labels(result.frame.index), series,"
+            f" {list(ys)!r}, {models!r}{at}{order_arg})\n"
+        )
+        fit_arg = ", fits=fits"
     return (
         lines
+        + fitting
         + f"fig = figures.binned_figure(jsonable_labels(result.frame.index), series, {y_arg}"
-        f", bin_col={cfg.bin_col!r}{place}{titled}{display_arg})\n"
+        f", bin_col={cfg.bin_col!r}{place}{titled}{fit_arg}{display_arg})\n"
         "fig.show()\n"
+        + ("for fit in filter(None, fits):\n    print(fit)\n" if fitting else "")
     )
 
 
@@ -778,7 +817,14 @@ def _figure_response(
             if c and m != "none"
         ]
     else:
-        fig = _binned(kept, cfg, ys, drawn, x, x_label, y_labels, disp)
+        fig, made = _binned(
+            kept, cfg, ys, drawn, x, x_label, y_labels, disp, known, orders
+        )
+        results = [
+            _on_bins(fit_result(i + 1, c, m, fit))
+            for i, (c, m, fit) in enumerate(zip(ys, asked, made))
+            if c and m != "none" and (fit is not None or m not in figures.FITS)
+        ]
     body = FigureResponse(
         x=x,
         y=y,
@@ -797,7 +843,7 @@ def _figure_response(
             ctx.experiment,
             x_label,
             y_labels,
-            fits=known if cfg is None else (),
+            fits=known,
             orders=orders,
             filters=flt,
             cfg=cfg,
@@ -934,15 +980,39 @@ def _overlay_response(
                     for i, (label, one) in enumerate(zip(labels, made))
                 ]
         else:
+            binned = multi.overlay_bins(kept, refs, cfg, y, x or None)
+            made = [
+                figures.fit_bins(
+                    bins, series, [y], [known], x_values=x_values, orders=[order]
+                )[0]
+                for _, bins, series, x_values in binned
+            ]
             fig = figures.overlay_binned_figure(
-                multi.overlay_bins(kept, refs, cfg, y, x or None),
+                binned,
                 y,
                 bin_col=cfg.bin_col,
                 x_label=(x_label or x) if x else None,
                 y_label=y_label,
+                fits=made,
                 display=disp,
                 palette=figures.THEMED_PALETTE,
             )
+            if fit != "none":
+                results = [
+                    fit_result(slot + 1, y, fit, one, scan=label, trace=i + 1)
+                    if one is not None or fit not in figures.FITS
+                    else FitResult(
+                        slot=slot + 1,
+                        column=y,
+                        model=fit,
+                        label=figures.FITS.get(fit, fit),
+                        error="no bins of this column in this scan",
+                        scan=label,
+                        trace=i + 1,
+                    )
+                    for i, (label, one) in enumerate(zip(labels, made))
+                ]
+                results = [_on_bins(r) for r in results]
     except KeyError as missing:
         raise HTTPException(
             status_code=404,
@@ -967,7 +1037,7 @@ def _overlay_response(
             ctx.experiment,
             x_label,
             y_label,
-            fit=known if cfg is None else "none",
+            fit=known,
             order=order,
             filters=flt,
             cfg=cfg,
@@ -1040,8 +1110,13 @@ def _binned(
     x_label: Optional[str],
     y_labels: Sequence[Optional[str]],
     display: dict,
-) -> Any:  # a plotly Figure
+    models: Sequence[Optional[str]] = (),
+    orders: Sequence[int] = (),
+) -> tuple[Any, list[Optional[CurveFit]]]:  # a plotly Figure, the fits
     """The binned figure of the kept shots: the portal's ``/binned`` on this page's axes.
+
+    Each Y list with a fit in *models* is fitted to its bin means
+    (``figures.fit_bins``), the points drawn.
 
     Raises
     ------
@@ -1060,17 +1135,21 @@ def _binned(
         raise HTTPException(
             status_code=400, detail=f"binned view needs numeric columns: {bad}"
         ) from None
-    return figures.binned_figure(
-        analysis.jsonable_labels(result.frame.index),
+    bins = analysis.jsonable_labels(result.frame.index)
+    made = figures.fit_bins(bins, series, ys, models, x_values=x_centers, orders=orders)
+    fig = figures.binned_figure(
+        bins,
         series,
         ys,
         bin_col=cfg.bin_col,
         x_values=x_centers,
         x_label=(x_label or x) if x else None,
         y_labels=y_labels,
+        fits=made,
         display=display,
         palette=figures.THEMED_PALETTE,
     )
+    return fig, made
 
 
 def _changed(column: str, use_alias: bool) -> Optional[str]:
