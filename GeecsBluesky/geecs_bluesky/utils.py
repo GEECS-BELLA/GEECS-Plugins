@@ -136,10 +136,10 @@ def resolve_annotations(
     are immune only because that module does not postpone its annotations.
 
     So every GEECS-defined registered plan passes through here with a
-    mapping of parameter name → the resolved object.  A parameter the
-    mapping does not name loses its annotation entirely, which the manager
-    accepts (it is what ``strict_plan`` already does for the stock varargs:
-    an unannotated argument is whatever the manager resolves).
+    mapping of parameter name → the resolved object.  Mapping a parameter
+    to ``None`` drops its annotation, which the manager accepts but reads
+    as "convert every device and plan name inside this argument into the
+    object" — right for nothing but a stock vararg, so annotate instead.
 
     Parameters
     ----------
