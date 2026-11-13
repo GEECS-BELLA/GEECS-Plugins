@@ -272,7 +272,7 @@ one write, `measure_shot_offsets` saving `shot_offsets.yaml`, therefore
 lands elsewhere: the resolver gains a **write root** (site.env
 `GEECS_CONFIGS_WRITE_ROOT`, defaulting to the read root so a laptop behaves
 as today), and on the box it is the service's **inbox** directory. The
-service **reconciles** the inbox on a timer of seconds and before any fetch:
+service **reconciles** the inbox on a timer of seconds and before any save:
 it copies the file into a staging worktree on top of main, commits it
 authored as the worker, pushes, fast-forwards the clean live checkout, and
 removes the inbox file; the worker reads the committed offsets at its next

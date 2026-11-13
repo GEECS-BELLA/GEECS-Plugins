@@ -5,7 +5,10 @@
 # - see docs/platform/site_profile.md. @PLACEHOLDER@ holes are filled at render
 # time; the settings (GEECS_CONFIGS_ROOT, GEECS_EXPERIMENT, the
 # GEECS_CONFIGURATOR_* keys) are read from the environment by the process.
-# Read-only for now: it reads the configs root and writes nothing.
+# Read-only unless GEECS_CONFIGURATOR_STATE_DIR and _ORIGIN are set: then it
+# keeps its bare repository, live checkout, staging worktrees and inbox in
+# the state directory below and commits to the configs repo (the service
+# account's git credential for origin is what pushes).
 #
 # Upgrade:
 #   git -C <checkout> pull && poetry install && sudo systemctl restart geecs-configurator
@@ -23,7 +26,12 @@ EnvironmentFile=@SITE_ENV@
 # Its own clone: the service that will commit to the configs repo moves with
 # no other service's pull (docs/platform/fleet_map.md, one clone per service).
 WorkingDirectory=@CHECKOUT_ROOT@/configurator-checkout/GeecsConfigurator
-# One process, one worker: the commit lock to come is per process.
+# The commit path's home (GEECS_CONFIGURATOR_STATE_DIR=/var/lib/geecs-configurator):
+# world-readable, because the live checkout in it is the configs root the
+# Linux services read.
+StateDirectory=geecs-configurator
+StateDirectoryMode=0755
+# One process, one worker: the commit lock is per process.
 ExecStart=@POETRY@ run geecs-configurator $GEECS_CONFIGURATOR_EXTRA_ARGS
 Restart=on-failure
 RestartSec=5

@@ -65,11 +65,10 @@ def test_validate_diff_and_yaml_write_nothing(client: TestClient, root: Path) ->
         == "b: 1\na:\n- 2\n"
     )
     assert {p: p.stat().st_mtime_ns for p in root.rglob("*")} == before
-    assert not [
-        r
-        for r in client.app.routes
-        if {"PUT", "DELETE", "PATCH"} & set(getattr(r, "methods", ()))
-    ]
+    # the read-only service (no repository) refuses the save and writes nothing
+    put = client.put("/api/documents/archive_policy/archive_policy.yaml?experiment=Bench", json={"document": {}, "etag": "x", "operator": "Ada"})  # fmt: skip
+    assert put.status_code == 405
+    assert {p: p.stat().st_mtime_ns for p in root.rglob("*")} == before
 
 
 def test_cors_answers_the_configured_surfaces_only(client: TestClient) -> None:
@@ -120,6 +119,12 @@ def test_settings(tmp_path: Path) -> None:
         Settings.from_env(
             {"GEECS_CONFIGS_ROOT": "/x", "GEECS_CONFIGURATOR_PORT": "web"}
         )
+    # the commit path: both keys or neither; the configs root is then the live checkout
+    on = Settings.from_env({"GEECS_CONFIGS_ROOT": "/share", "GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path), "GEECS_CONFIGURATOR_ORIGIN": "git@host:org/configs.git"})  # fmt: skip
+    assert on.commits and on.configs_root == tmp_path / "live" and on.branch == "main"
+    assert not s.commits
+    with pytest.raises(SettingsError, match="together"):
+        Settings.from_env({"GEECS_CONFIGS_ROOT": "/x", "GEECS_CONFIGURATOR_ORIGIN": "o"})  # fmt: skip
 
 
 def test_the_page_never_says_valid_past_the_schema_alone() -> None:
