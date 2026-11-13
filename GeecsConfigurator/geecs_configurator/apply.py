@@ -206,6 +206,10 @@ class Archiver:
             return Answer(state="applied", detail=f"geecs-archiver onboard sent the plan ({_plan_line(output)}){drift}")  # fmt: skip
         if code == EXIT_USAGE:
             return Answer(state="pending", detail=f"geecs-archiver onboard refused ({_last_line(output)}); the maintainer's, by hand (--yes only if a mass pause is meant)")  # fmt: skip
+        if (
+            "nothing was sent" in output
+        ):  # a refusal no retry can clear (unresolved registry devices)
+            return Answer(state="pending", detail=f"geecs-archiver onboard refused ({_last_line(output)}); the maintainer fixes the registry, then runs it by hand")  # fmt: skip
         return Answer(state="queued", detail=f"geecs-archiver onboard did not complete (exit {code}: {_last_line(output)}); tried again")  # fmt: skip
 
 

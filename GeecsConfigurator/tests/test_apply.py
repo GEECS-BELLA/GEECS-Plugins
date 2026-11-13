@@ -386,7 +386,8 @@ def test_a_save_during_an_apply_pass_is_answered_busy_at_once(origin: Path, tmp_
 def test_a_plan_printed_then_nothing_sent_is_never_applied(tmp_path: Path, output: str) -> None:  # fmt: skip
     applier = ServiceApplier(tmp_path, archiver=Archiver("geecs-archiver", run=Run(1, output=output)))  # fmt: skip
     (answer,) = applier.settle([_row("archive_policy", POLICY)])
-    assert answer.state == "queued"
+    # a refusal no retry clears is the maintainer's; a crash is tried again
+    assert answer.state == ("pending" if "nothing was sent" in output else "queued")
 
 
 def test_a_pass_that_began_during_the_dry_run_answers_the_save_busy(origin: Path, tmp_path: Path) -> None:  # fmt: skip
