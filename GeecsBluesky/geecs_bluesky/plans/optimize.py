@@ -7,13 +7,13 @@ import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
 from collections import deque
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from pathlib import Path
 from time import time
 from typing import TYPE_CHECKING, Any
 
 from bluesky import plan_stubs as bps, preprocessors as bpp
-from bluesky.protocols import Movable
+from bluesky.protocols import Movable, Readable
 from bluesky.utils import Msg
 from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.native import refuse_native_cameras
@@ -153,17 +153,17 @@ def optimize_plan(  # noqa: C901, PLR0915
     """
 
     def optimize(  # noqa: C901, PLR0912, PLR0915
-        detectors,
+        detectors: Sequence[Readable],
         *,
         optimizer_config: str,
         max_iterations: int | None = None,
         shots_per_step: int | None = None,
         trigger_profile: str | None = None,
         shot_period: float | None = None,
-        non_essential=None,
+        non_essential: Sequence[Readable] | None = None,
         native_image_save: bool | None = None,
         background_telemetry: bool | None = None,
-        md=None,
+        md: dict[str, Any] | None = None,
     ):
         """Optimize a configured objective through strict acquisition.
 
@@ -200,12 +200,14 @@ def optimize_plan(  # noqa: C901, PLR0915
             background_wrapper,
             liveness_gate,
             native_image_save_wrapper,
+            require_plain_metadata,
             resolve_background_telemetry,
             resolve_native_image_save,
         )
         from geecs_bluesky.optimization.driver import XoptDriver
         from geecs_bluesky.optimization.measurements import compile_measurements
 
+        require_plain_metadata(md)
         if resolver is None or namespace is None:
             raise GeecsConfigurationError(
                 "optimize needs a configs resolver and device namespace"
@@ -580,7 +582,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             bpp.finalize_wrapper(prepared(), cleanup()), records
         )
 
-    # Device annotations are interpreted specially by the manager. Leave the list
-    # arguments unannotated, like the bound stock plans.
+    # Every argument is annotated: the manager resolves device names where
+    # the annotation says devices, and nowhere else (the metadata included).
     optimize.__signature__ = inspect.signature(optimize, eval_str=True)
     return optimize
