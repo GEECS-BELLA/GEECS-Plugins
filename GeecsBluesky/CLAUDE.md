@@ -552,6 +552,19 @@ being the batch's record (its stacks' datums best effort: the dead
 camera's count fails their trim and collect).  A gated step
 needs an essential triggered device (the clock).
 
+**Gated is frozen**: it refuses native cameras and does not
+read the witness, and it keeps alive what the strict shot table retired —
+`_rewind_plugins` (the batch's `truncate_to`; its `zero_count` at a fresh
+session, which strict's streams also call), the plugin's `Rewind`, the
+`shots` stream and the camera shot clock, the `ShotSampler`, the
+`non_essential` start key and `non_essential_wrapper`, and the gated
+refusal of `refuse_native_cameras` (`NOT_GATED`).  They go when gated is
+retired.  When the last LabVIEW device has migrated, the plugin's
+`Rewind` and the PVA file plugin go too, with the scan-mode refusal
+(`NOT_SCAN_MODE`, `native_scope.py`), the scan-mode announce, and
+`measure_shot_offsets_plan` and `check_shot_sync_plan`
+(`plans/calibration.py`): a stamped run carries its own offsets.
+
 A **LabVIEW-native saving device without a file plugin may be essential**
 in a gated run: the row is the stamp and its files follow by stamp,
 exactly as strict treats such a device — the plugin count is a
