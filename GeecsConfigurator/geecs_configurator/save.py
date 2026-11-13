@@ -46,8 +46,8 @@ import yaml
 from geecs_schemas import SCHEMA_REGISTRY
 from pydantic import BaseModel
 
-from geecs_configurator.repository import BaseMoved, ConfigsRepository, GitError, Identity, author_name  # fmt: skip
-from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
+from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, author_name  # fmt: skip
+from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
 
 #: The served form's answer is followed where the file as stored validates differently.
 FOLLOWS_SERVED = "the file as stored and its served form validate differently (a YAML value read as a date or a number where the schema wants text, say); the save follows the served form and writes it quoted"  # fmt: skip
@@ -168,11 +168,13 @@ class _Save:
                 return Saved(outcome="nothing to do", tier=None, changes=[], etag=loaded.etag, notes=notes)  # fmt: skip
             tier = strictest(c.tier for c in changes)
             data = _written(draft)
-            message = f"{self.kind} {loaded.path}: saved by {self.request.operator.strip()} via configurator\n\n{_summary(changes)}\n"  # fmt: skip
+            message = f"{self.kind} {loaded.path}: saved by {author.name}\n\n{_summary(changes)}\n"  # fmt: skip
             if tier == "operator":
                 sha = self._commit(loaded.path, data, author, message, base, draft)
-                etag = self.store.read(self.kind, self.experiment, self.doc_id).etag
-                return Saved(outcome="committed", tier=tier, changes=changes, commit=sha, etag=etag, notes=notes)  # fmt: skip
+                if sha is None:  # a concurrent commit already put these bytes on main
+                    notes.append("main already held exactly these bytes; nothing was committed")  # fmt: skip
+                # the etag of what was committed, never of whatever a later fetch brought
+                return Saved(outcome="committed" if sha else "nothing to do", tier=tier, changes=changes, commit=sha, etag=content_etag(data), notes=notes)  # fmt: skip
             if tier == "maintainer":
                 return self._propose(prs, loaded, data, author, message, base, changes, notes)  # fmt: skip
             raise Refused(403, f"a {tier}-tier change is not saved from the editor")
@@ -214,7 +216,7 @@ class _Save:
             sha = self.repo.push_branch(loaded.path, data, author=author, message=message, base=base, branch=branch)  # fmt: skip
         except GitError as exc:
             raise Refused(502, f"the branch was not pushed; nothing changed: {exc}") from exc  # fmt: skip
-        body = f"Proposed by {self.request.operator.strip()} from the configurator (maintainer tier).\n\n{_summary(changes)}\n"  # fmt: skip
+        body = f"Proposed by {author.name.removesuffix(VIA)} from the configurator (maintainer tier).\n\n{_summary(changes)}\n"  # fmt: skip
         pr = prs.open(branch, f"{self.kind}: {loaded.path}", body)
         if not pr.opened:
             notes.append("no pull request was opened (no credential for it): the maintainer opens one from the branch")  # fmt: skip

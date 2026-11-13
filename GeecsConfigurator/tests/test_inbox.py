@@ -91,6 +91,7 @@ def test_a_failed_publish_keeps_the_measurement_and_a_newer_one_supersedes_it(co
     assert not (repo.live / REL).exists() and list(repo.staging_dir.iterdir()) == []
     _deliver(repo, _offsets(0.2))  # a newer measurement before the next try
     hook.unlink()
+    inbox.reset_backoff(repo)  # the retry is due
     (published,) = reconcile(committing.app)
     assert published.outcome == "committed"
     assert [yaml.safe_load(v)["devices"]["CamB"]["offset_s"] for v in _history(origin)] == [0.2]  # the older never published after  # fmt: skip
@@ -105,9 +106,42 @@ def test_a_failed_publish_is_retried_when_nothing_newer_came(committing: TestCli
     _deliver(repo, _offsets(0.1))
     reconcile(committing.app)
     hook.unlink()
+    inbox.reset_backoff(repo)  # the retry is due
     assert [r.outcome for r in reconcile(committing.app)] == ["committed"]
     assert (repo.live / REL).read_bytes() == _offsets(0.1)
     _inbox_empty(repo)
+
+
+def test_an_invalid_newer_measurement_supersedes_nothing(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    repo = committing.app.state.repo
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    _deliver(repo, _offsets(0.1))
+    reconcile(committing.app)  # the push fails: the valid measurement stays claimed
+    _deliver(repo, b"reference: [not, valid\n")
+    hook.unlink()
+    inbox.reset_backoff(repo)
+    assert [r.outcome for r in reconcile(committing.app)] == ["rejected", "committed"]
+    assert (repo.live / REL).read_bytes() == _offsets(
+        0.1
+    )  # the last good calibration published
+    _inbox_empty(repo)
+
+
+def test_after_a_failed_publish_the_inbox_backs_off(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    repo = committing.app.state.repo
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    _deliver(repo, _offsets(0.1))
+    assert [r.outcome for r in reconcile(committing.app)] == ["failed"]
+    assert (
+        reconcile(committing.app) == []
+    )  # within the backoff: no git, the lock not taken
+    hook.unlink()
+    inbox.reset_backoff(repo)
+    assert [r.outcome for r in reconcile(committing.app)] == ["committed"]
 
 
 def test_the_measurement_wins_over_a_concurrent_edit_of_the_same_file(committing: TestClient, origin: Path, other: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip

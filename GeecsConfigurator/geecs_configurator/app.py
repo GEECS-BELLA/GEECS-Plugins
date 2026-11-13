@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -113,18 +114,21 @@ def reconcile(app: FastAPI) -> list[inbox.Published]:
     return inbox.reconcile(repo, experiments, author)
 
 
-def _refresh(app: FastAPI) -> str | None:
-    """Reconcile the inbox, then fetch and fast-forward the live checkout; why it is stale, or ``None``."""
-    repo: ConfigsRepository | None = app.state.repo
-    if repo is None:
-        return None
-    with repo.lock:
-        try:
-            reconcile(app)
-            repo.sync()
-        except (GitError, OSError) as exc:
-            logger.warning("serving the last accepted main: %s", exc)
-            return " ".join(str(exc).split())[:200]
+#: The serve path's bounds: how long a read waits for the lock, how long its fetch may take, and how
+#: recent a fetch makes another unnecessary (seconds). A read never waits on the network for long:
+#: past these it serves the last accepted main and says so.
+SERVE_WAIT_S, SERVE_FETCH_S, FRESH_S = 5.0, 10.0, 2.0
+
+
+def _refresh(app: FastAPI, repo: ConfigsRepository) -> str | None:
+    """Under the lock: reconcile the inbox, then fetch and fast-forward the live checkout; why it is stale, or ``None``."""
+    try:
+        reconcile(app)
+        if time.monotonic() - repo.fetched_at > FRESH_S:
+            repo.sync(timeout=SERVE_FETCH_S)
+    except (GitError, OSError) as exc:
+        logger.warning("serving the last accepted main: %s", exc)
+        return " ".join(str(exc).split())[:200]
     return None
 
 
@@ -191,10 +195,16 @@ def _served(model: BaseModel, status: int = 200, headers: dict[str, str] | None 
 @api.get("/documents/{kind}/{doc_id:path}", response_model=Loaded)
 def document(request: Request, kind: str, doc_id: str, experiment: str | None = None) -> Response:  # fmt: skip
     """One document as it is on main (fetched first when the commit path is on), with its etag, errors and tier."""
-    stale = _refresh(request.app)
-    repo = request.app.state.repo
-    with repo.lock if repo is not None else nullcontext():
+    repo: ConfigsRepository | None = request.app.state.repo
+    stale, locked = None, repo is not None and repo.lock.acquire(timeout=SERVE_WAIT_S)
+    try:
+        if repo is not None:
+            # busy (a long push or fetch): read the live checkout as it stands, never wait on the network
+            stale = _refresh(request.app, repo) if locked else "the repository is busy (a push or a fetch); serving the last accepted main"  # fmt: skip
         loaded = _answer(lambda: _store(request).read(_file_kind(kind), experiment, doc_id))  # fmt: skip
+    finally:
+        if locked and repo is not None:
+            repo.lock.release()
     return _served(loaded, headers={"X-Configs-Stale": stale} if stale else None)
 
 

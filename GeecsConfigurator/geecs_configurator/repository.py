@@ -27,6 +27,17 @@ Rules (each pinned by ``tests/test_repository.py``):
 - **One lock** (per process: the service runs one uvicorn worker) around
   every git operation, so a fetch, a fast-forward and a commit never
   interleave.
+- **A push that reported failure but landed is a success**: after a failed
+  push the fetched main is checked for the commit before anything else.
+
+Readers of the live checkout (the other Linux services, which take no lock)
+should treat a missing file as transient: a fast-forward rewrites a changed
+file by unlink and create, never by rename. A service killed mid-merge can
+leave the live checkout dirty; it is then never moved (saves answer 502)
+until someone restores it by hand: ``git -C <state>/live reset --hard`` and
+``git -C <state>/live clean -fd``, which drop only what nothing should have
+written there. A stale ``index.lock`` from such a kill is removed at start,
+when no git of this process can be running.
 """
 
 from __future__ import annotations
@@ -36,6 +47,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -74,7 +86,11 @@ class Identity:
         return f"{self.name} <{self.email}>"
 
 
-def author_name(operator: str, via: str = "via configurator") -> str:
+#: What follows the operator's name in a git author.
+VIA = " via configurator"
+
+
+def author_name(operator: str) -> str:
     """The git author for an operator: ``"Name via configurator"``; refuses a blank name.
 
     Characters git refuses in an ident (``<``, ``>``, newlines) are dropped.
@@ -82,7 +98,7 @@ def author_name(operator: str, via: str = "via configurator") -> str:
     name = " ".join(operator.replace("<", "").replace(">", "").split())
     if not name:
         raise ValueError("the operator's name is required")
-    return f"{name} {via}"
+    return f"{name}{VIA}"
 
 
 class ConfigsRepository:
@@ -108,21 +124,21 @@ class ConfigsRepository:
         self.staging_dir = self.state_dir / "staging"
         self.inbox = self.state_dir / "inbox"
         self.lock = threading.RLock()
+        #: ``time.monotonic()`` of the last fetch that answered (0: none yet).
+        self.fetched_at = 0.0
 
     # ----------------------------------------------------------------- git
 
-    def git(self, *args: str, cwd: Path | None = None, env: Mapping[str, str] | None = None) -> str:  # fmt: skip
+    def git(self, *args: str, cwd: Path | None = None, env: Mapping[str, str] | None = None, timeout: float = GIT_TIMEOUT_S) -> str:  # fmt: skip
         """Run one git command (never prompting) and return its stdout; :class:`GitError` on failure."""
         full = {**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})}
         try:
             done = subprocess.run(
                 ["git", *args], cwd=cwd or self.bare, env=full, capture_output=True,
-                text=True, timeout=GIT_TIMEOUT_S,
+                text=True, timeout=timeout,
             )  # fmt: skip
         except subprocess.TimeoutExpired as exc:
-            raise GitError(
-                f"git {args[0]}: timed out after {GIT_TIMEOUT_S:.0f} s"
-            ) from exc
+            raise GitError(f"git {args[0]}: timed out after {timeout:.0f} s") from exc
         if done.returncode:
             raise GitError(f"git {' '.join(args[:2])}: {done.stderr.strip() or done.stdout.strip()}")  # fmt: skip
         return done.stdout.strip()
@@ -151,6 +167,10 @@ class ConfigsRepository:
                 logger.warning("origin did not answer at start; serving the last accepted main")  # fmt: skip
             if not (self.live / ".git").exists():
                 self.git("worktree", "add", "--detach", "--quiet", str(self.live), self._remote_ref())  # fmt: skip
+            stale_lock = self.bare / "worktrees" / "live" / "index.lock"
+            if stale_lock.exists():  # a kill mid-merge; no git of this process runs yet
+                logger.warning("removing a stale index.lock in the live checkout")
+                stale_lock.unlink()
             self.staging_dir.mkdir(exist_ok=True)
             for stale in self.staging_dir.iterdir():
                 self._remove_worktree(stale)
@@ -159,10 +179,11 @@ class ConfigsRepository:
 
     # ------------------------------------------------------------ the live
 
-    def fetch(self) -> None:
-        """Fetch origin (every branch, pruned)."""
+    def fetch(self, timeout: float = GIT_TIMEOUT_S) -> None:
+        """Fetch origin (every branch, pruned), giving up after ``timeout`` seconds."""
         with self.lock:
-            self.git("fetch", "--quiet", "--prune", "origin")
+            self.git("fetch", "--quiet", "--prune", "origin", timeout=timeout)
+            self.fetched_at = time.monotonic()
 
     def remote_head(self) -> str:
         """The commit ``origin/<branch>`` names after the last fetch or push."""
@@ -199,10 +220,10 @@ class ConfigsRepository:
             self.git("merge", "--ff-only", "--quiet", target, cwd=self.live)
             return target
 
-    def sync(self) -> str:
+    def sync(self, timeout: float = GIT_TIMEOUT_S) -> str:
         """Fetch and fast-forward the live checkout; the commit it is at."""
         with self.lock:
-            self.fetch()
+            self.fetch(timeout)
             return self.advance()
 
     # ------------------------------------------------------------ staging
@@ -280,7 +301,8 @@ class ConfigsRepository:
             for _ in range(PUSH_TRIES):
                 with self.staging(base) as tree:
                     sha = self._commit(tree, rel, data, author, message)
-                    if sha is None:
+                    if sha is None:  # main already holds these bytes
+                        self._catch_up()
                         return None
                     try:
                         self._push(tree, f"refs/heads/{self.branch}")
@@ -290,23 +312,37 @@ class ConfigsRepository:
                         error = None
                 if error is None:
                     break
-                try:
-                    self.fetch()
-                    moved = self.remote_head()
-                except GitError as exc:
-                    raise PushFailed(f"the push failed and origin did not answer: {exc}") from exc  # fmt: skip
-                if moved == base or not self.is_ancestor(base, moved):
-                    raise PushFailed(str(error)) from error
-                if self.file_changed(rel, base, moved):
-                    if on_moved is not None:
-                        self._catch_up()
-                        on_moved(base, moved)
-                    logger.warning("%s changed on main while it was being pushed; the new bytes win", rel)  # fmt: skip
+                moved = self._after_rejected(sha, base, rel, error, on_moved)
+                if moved is None:  # it landed after all
+                    break
                 base = moved
             else:
                 raise PushFailed(f"main kept moving: {PUSH_TRIES} tries")
             self._catch_up()
             return sha
+
+    def _after_rejected(self, sha: str, base: str, rel: str, error: GitError, on_moved: Callable[[str, str], None] | None) -> str | None:  # fmt: skip
+        """After a push reported failure: ``None`` if it landed after all, else the new base to try again on.
+
+        :class:`PushFailed` when main did not move (a real failure) or was
+        rewritten; ``on_moved`` decides when main changed this file.
+        """
+        try:
+            self.fetch()
+            moved = self.remote_head()
+        except GitError as exc:
+            raise PushFailed(f"the push was not confirmed and origin did not answer, so whether it landed shows at the next fetch: {exc}") from exc  # fmt: skip
+        if self.is_ancestor(sha, moved):
+            logger.warning("the push of %s reported %s but landed", sha[:10], error)
+            return None
+        if moved == base or not self.is_ancestor(base, moved):
+            raise PushFailed(str(error)) from error
+        if self.file_changed(rel, base, moved):
+            if on_moved is not None:
+                self._catch_up()
+                on_moved(base, moved)
+            logger.warning("%s changed on main while it was being pushed; the new bytes win", rel)  # fmt: skip
+        return moved
 
     def _catch_up(self) -> None:
         try:

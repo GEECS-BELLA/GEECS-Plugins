@@ -9,19 +9,20 @@ the target), so a file at its path is always whole.
 
 A reconcile, per inbox file:
 
-1. **Claims it** by renaming it into ``.claimed/`` (atomic). A newer
-   measurement the worker writes meanwhile lands at the original path, a
-   new file, untouched by this publish.
+1. **Takes it** by renaming it into ``.claimed/`` as ``<name>.new``
+   (atomic). A newer measurement the worker writes meanwhile lands at the
+   original path, a new file, untouched by this publish.
 2. Checks it is a valid document of its kind; an invalid one is moved to
-   ``.rejected/`` (kept, logged) and never committed.
-3. Commits the worker's bytes in a staging worktree on top of main,
+   ``.rejected/`` (kept, logged), never committed, and supersedes nothing.
+3. A valid one becomes **the claim** (``<name>``), replacing an older claim
+   still waiting from a failed push: the newer measurement supersedes it,
+   so an older is never published after a newer.
+4. Commits the claim's bytes in a staging worktree on top of main,
    authored as the worker, and pushes: **the measurement wins** if main
    changed the same file meanwhile (logged). The live checkout
-   fast-forwards.
-4. Removes the claimed file. On a failed push it stays claimed; the next
-   reconcile publishes it, unless a newer measurement is waiting at the
-   original path, which supersedes it (the older is dropped, never
-   published after the newer).
+   fast-forwards, and the claim is removed. On a failed push it stays, and
+   the inbox backs off (5 s doubling to 5 min) before the next try, so an
+   unreachable origin does not hold the repository's lock every tick.
 
 It loops until the inbox is empty, so a measurement that arrived during a
 publish is published by the same reconcile, after the older one.
@@ -31,6 +32,8 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from pathlib import Path
 from dataclasses import dataclass
 
 import yaml
@@ -44,6 +47,15 @@ logger = logging.getLogger(__name__)
 #: The kinds the worker writes. Anything else in the inbox is left alone and logged.
 INBOX_KINDS = ("shot_offsets",)
 CLAIMED, REJECTED = ".claimed", ".rejected"
+#: After a failed publish: the first wait, and the most it doubles to (seconds).
+BACKOFF_S, BACKOFF_MAX_S = 5.0, 300.0
+#: Per inbox: (monotonic time before which no publish is tried, failures in a row).
+_backoff: dict[Path, tuple[float, int]] = {}
+
+
+def reset_backoff(repo: ConfigsRepository) -> None:
+    """Forget the failures: the next reconcile tries at once."""
+    _backoff.pop(repo.inbox, None)
 
 
 @dataclass(frozen=True)
@@ -104,6 +116,9 @@ def _valid(kind: str, data: bytes) -> str | None:
 def reconcile(repo: ConfigsRepository, experiments: list[str], author: Identity) -> list[Published]:  # fmt: skip
     """Publish every inbox file to main, oldest first, until the inbox is empty or a push fails."""
     out: list[Published] = []
+    until, failures = _backoff.get(repo.inbox, (0.0, 0))
+    if time.monotonic() < until:
+        return out
     with repo.lock:
         for rel, kind in inbox_paths(repo, experiments).items():
             while True:
@@ -112,28 +127,35 @@ def reconcile(repo: ConfigsRepository, experiments: list[str], author: Identity)
                     break
                 out.append(result)
                 if result.outcome == "failed":
+                    wait = min(BACKOFF_MAX_S, BACKOFF_S * 2**failures)
+                    _backoff[repo.inbox] = (time.monotonic() + wait, failures + 1)
                     return out
+    reset_backoff(repo)
     return out
 
 
 def _publish_one(repo: ConfigsRepository, rel: str, kind: str, author: Identity) -> Published | None:  # fmt: skip
     src, claimed = repo.inbox / rel, repo.inbox / CLAIMED / _claimed_name(rel)
-    if claimed.exists() and src.exists():
-        claimed.unlink()  # a newer measurement waits: the older is superseded
-        logger.info(
-            "%s: an unpublished older measurement is superseded by a newer one", rel
-        )
+    incoming = claimed.with_name(claimed.name + ".new")
+    if (
+        not incoming.exists() and src.exists()
+    ):  # a leftover .new (a crash) goes first: it is older
+        os.replace(src, incoming)
+    if incoming.exists():
+        why = _valid(kind, incoming.read_bytes())
+        if (
+            why is not None
+        ):  # rejected, superseding nothing: an older valid claim still publishes
+            rejected = repo.inbox / REJECTED / f"{_claimed_name(rel)}.{os.stat(incoming).st_mtime_ns}"  # fmt: skip
+            os.replace(incoming, rejected)
+            logger.error("%s from the inbox %s; kept as %s, not committed", rel, why, rejected.name)  # fmt: skip
+            return Published(rel, "rejected", detail=why)
+        if claimed.exists():
+            logger.info("%s: an unpublished older measurement is superseded by a newer one", rel)  # fmt: skip
+        os.replace(incoming, claimed)
     if not claimed.exists():
-        if not src.exists():
-            return None
-        os.replace(src, claimed)
+        return None
     data = claimed.read_bytes()
-    why = _valid(kind, data)
-    if why is not None:
-        rejected = repo.inbox / REJECTED / f"{_claimed_name(rel)}.{os.stat(claimed).st_mtime_ns}"  # fmt: skip
-        os.replace(claimed, rejected)
-        logger.error("%s from the inbox %s; kept as %s, not committed", rel, why, rejected.name)  # fmt: skip
-        return Published(rel, "rejected", detail=why)
     try:
         repo.fetch()
         base = repo.remote_head()

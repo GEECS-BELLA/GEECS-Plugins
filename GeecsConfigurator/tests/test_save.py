@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from geecs_configurator.repository import ConfigsRepository, GitError
 from geecs_configurator.save import CONVERTED, FOLLOWS_SERVED
+from geecs_configurator.store import content_etag
 
 B = "?experiment=Bench"
 SETUPS = "scanner_configs/experiments/Bench/setups"
@@ -208,6 +210,87 @@ def test_a_non_finite_float_is_never_written_as_null(committing: TestClient, ori
     assert [c["path"] for c in saved.json()["changes"]] == [["steps", 1, "seconds"]]
     text = git("show", f"main:{SETUPS}/far.yaml", cwd=origin)
     assert "value: .inf" in text and "null" not in text
+
+
+def test_the_answer_s_etag_is_of_what_was_committed_so_a_later_foreign_edit_is_409(committing: TestClient, origin: Path, other: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    doc = _get(committing, "setup", "low_power.yaml")
+    repo, real = _repo(committing), _repo(committing)._push
+
+    def push_then_theirs(
+        tree: Path, ref: str
+    ) -> None:  # their edit lands right after ours
+        real(tree, ref)
+        if ref.endswith("/main"):
+            monkeypatch.setattr(repo, "_push", real)
+            push_change(other, f"{SETUPS}/low_power.yaml", "name: low_power\ndescription: theirs\nsteps:\n  - {do: wait, seconds: 3}\n")  # fmt: skip
+
+    monkeypatch.setattr(repo, "_push", push_then_theirs)
+    mine = _slower(doc["document"])
+    first = _put(committing, "setup", "low_power.yaml", mine, doc["etag"]).json()
+    assert first["outcome"] == "committed"
+    committed = subprocess.run(["git", "show", f"{first['commit']}:{SETUPS}/low_power.yaml"], cwd=origin, capture_output=True, check=True).stdout  # fmt: skip
+    assert first["etag"] == content_etag(
+        committed
+    )  # ours, though live already holds theirs
+    again = _put(committing, "setup", "low_power.yaml", {**mine, "description": "mine"}, first["etag"])  # fmt: skip
+    assert again.status_code == 409  # never a silent reversion of theirs
+    assert "theirs" in git("show", f"main:{SETUPS}/low_power.yaml", cwd=origin)
+
+
+def test_a_push_that_reported_failure_but_landed_is_committed(committing: TestClient, origin: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    from geecs_configurator.repository import GitError as _GitError
+
+    doc = _get(committing, "setup", "low_power.yaml")
+    repo, real = _repo(committing), _repo(committing)._push
+
+    def lands_then_errors(tree: Path, ref: str) -> None:
+        real(tree, ref)
+        raise _GitError("git push: the connection dropped after the remote updated")
+
+    monkeypatch.setattr(repo, "_push", lands_then_errors)
+    r = _put(committing, "setup", "low_power.yaml", _slower(doc["document"]), doc["etag"])  # fmt: skip
+    assert r.status_code == 200 and r.json()["outcome"] == "committed"
+    assert (
+        r.json()["commit"] == git("rev-parse", "main", cwd=origin) == repo.live_head()
+    )
+    _no_staging(committing)
+
+
+def test_the_operator_s_name_is_one_clean_line_everywhere(committing: TestClient, origin: Path, prs: FakePullRequests) -> None:  # fmt: skip
+    doc = _get(committing, "setup", "low_power.yaml")
+    evil = "Ada\n\nCo-Authored-By: Mallory <m@x>"
+    _put(committing, "setup", "low_power.yaml", _slower(doc["document"]), doc["etag"], operator=evil)  # fmt: skip
+    message = git("log", "-1", "--format=%B", "main", cwd=origin)
+    assert "\nCo-Authored-By" not in message and message.splitlines()[0].endswith("saved by Ada Co-Authored-By: Mallory m@x via configurator")  # fmt: skip
+    policy = _get(committing, "archive_policy", "archive_policy.yaml")
+    _put(committing, "archive_policy", "archive_policy.yaml", {**policy["document"], "exclude": ["U_A:B"]}, policy["etag"], operator=evil)  # fmt: skip
+    assert "\nCo-Authored-By" not in prs.opened[-1][2]
+
+
+def test_a_busy_repository_serves_the_last_main_at_once(committing: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    monkeypatch.setattr("geecs_configurator.app.SERVE_WAIT_S", 0.5)
+    import threading
+    import time
+
+    import geecs_configurator.app as app_module
+
+    repo = _repo(committing)
+    held, release = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with repo.lock:
+            held.set()
+            release.wait(10)
+
+    threading.Thread(target=hold, daemon=True).start()
+    held.wait(5)
+    try:
+        start = time.monotonic()
+        r = committing.get(f"/api/documents/setup/low_power.yaml{B}")
+        assert r.status_code == 200 and "busy" in r.headers["X-Configs-Stale"]
+        assert time.monotonic() - start < app_module.SERVE_WAIT_S + 3
+    finally:
+        release.set()
 
 
 def test_an_unreachable_origin_serves_the_last_main_marked_stale_and_refuses_saves(committing: TestClient, tmp_path: Path) -> None:  # fmt: skip
