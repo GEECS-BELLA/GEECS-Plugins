@@ -77,9 +77,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     commit: CommitPath | None = app.state.commit
     stop = threading.Event()
     if commit is not None:
-        commit.repo.ensure()
+        commit.start()  # the repository, through the gate to main; the share caught up
         inbox.prepare(commit.repo, app.state.store.experiments())
-        commit.fast_forward_share()  # a share behind the accepted main catches up at start
         if (
             app.state.settings.reconcile_seconds > 0
             or app.state.settings.fetch_seconds > 0
@@ -147,7 +146,7 @@ def healthz(request: Request) -> dict[str, str]:
     out = {"status": "ok", "configs_root": "found" if found else "missing", "commits": "on" if request.app.state.repo else "off"}  # fmt: skip
     commit: CommitPath | None = request.app.state.commit
     if commit is not None:
-        out["main"] = commit.refused or "applied"
+        out["main"] = commit.main_state()
         out["share"] = "off" if commit.settings.share_clone is None else commit.share_error or "current"  # fmt: skip
         out["credential"] = (
             "GitHub App" if commit.credential else "git's own (deploy key)"
@@ -169,6 +168,7 @@ def log_page(request: Request) -> HTMLResponse:
     commit: CommitPath | None = request.app.state.commit
     return _TEMPLATES.TemplateResponse(request, "log.html", {
         "settings": request.app.state.settings, "rows": commit.log.rows() if commit else [], "commit": commit,
+        "main": commit.main_state() if commit else "applied",
         "states": STATES, "chip": CHIP,
     })  # fmt: skip
 

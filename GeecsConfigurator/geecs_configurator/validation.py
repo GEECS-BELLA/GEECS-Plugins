@@ -2,8 +2,10 @@
 
 One rule, two callers. The service's timer (and any fast-forward) asks it
 of every commit it would apply that it did not make; the configs repo's
-validate-on-push workflow runs it as ``geecs-configurator-validate`` on the
-paths a push changed. Only **changed** documents are checked: a document
+validate-on-push workflow runs it (``python -m geecs_configurator.validation``,
+with GEECS-Schemas and PyYAML alone installed: this module and ``store.py``
+import nothing else, pinned by ``tests/test_propagate.py``) on the paths a
+push changed. Only **changed** documents are checked: a document
 already invalid on main and untouched does not block (the deployed catalogue
 holds some), and a change that leaves one invalid does.
 

@@ -22,7 +22,12 @@ its design is `Planning/configurator.md`, its record the tracking issue
   documents changed since the live commit must validate
   (`validation.problems`, the one rule the configs repo's CI runs too, from
   `deploy/configs-repo/validate.yml`). A refused commit is fetched, logged
-  once, and blocks every save until main is fixed by PR.
+  once, and blocks every save, every inbox publish and every retry
+  until main is fixed by PR: nothing of the service is built on it. A new
+  live checkout starts at the share's commit (accepted before, by hand)
+  and passes the gate from there; with no share it starts unverified and
+  says so. A credential failure (GitHub down) is a git failure: stale
+  reads, a 502 save, a backed-off inbox, never a 500.
 - **A landed commit is never "applied" by that fact.** A log row's state
   (`log.py`: applied / queued / pending / nothing to do) is the apply
   seam's answer; `NoApplier` never says applied (slice 3 implements it).

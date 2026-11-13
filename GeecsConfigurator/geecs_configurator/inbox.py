@@ -158,8 +158,9 @@ def _publish_one(repo: ConfigsRepository, rel: str, kind: str, author: Identity)
         return None
     data = claimed.read_bytes()
     try:
-        repo.fetch()
-        base = repo.remote_head()
+        base = (
+            repo.sync()
+        )  # the accepted main: a publish never builds on a commit the gate refuses
         sha = repo.commit_file(rel, data, author=author, message=f"{kind} {rel}: measured by the worker, committed via configurator\n", base=base)  # fmt: skip
     except GitError as exc:
         logger.warning(

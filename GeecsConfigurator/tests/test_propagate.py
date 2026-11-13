@@ -124,6 +124,7 @@ def test_the_share_fast_forwards_from_the_service_never_from_origin(origin: Path
         doc = c.get(f"/api/documents/setup/low_power.yaml{B}").json()
         saved = c.put(f"/api/documents/setup/low_power.yaml{B}", json={"document": {**doc["document"], "description": "shared"}, "etag": doc["etag"], "operator": "Ada"}).json()  # fmt: skip
         assert saved["outcome"] == "committed"
+        cp.wait_share()  # the share moves off the repository's lock
         assert (
             git("rev-parse", "HEAD", cwd=share)
             == saved["commit"]
@@ -145,6 +146,7 @@ def test_an_edit_on_the_share_blocks_its_fast_forward_but_never_the_save(origin:
         doc = c.get(f"/api/documents/setup/low_power.yaml{B}").json()
         saved = c.put(f"/api/documents/setup/low_power.yaml{B}", json={"document": {**doc["document"], "description": "x"}, "etag": doc["etag"], "operator": "Ada"})  # fmt: skip
         assert saved.status_code == 200 and saved.json()["outcome"] == "committed"
+        _commit(c).wait_share()
         assert git("rev-parse", "HEAD", cwd=share) == before  # not moved, the edit kept
         assert (
             share / SETUPS / "low_power.yaml"
@@ -202,6 +204,125 @@ def test_the_home_page_has_save_only_with_the_commit_path(committing: TestClient
     off = client.get(f"/{B}&kind=setup&id=low_power.yaml").text
     assert 'id="save"' in on and 'id="operator"' in on and "Read-only." not in on
     assert 'id="save"' not in off and "Read-only." in off
+
+
+def test_nothing_of_the_service_lands_on_a_refused_main(origin: Path, other: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    from geecs_configurator import inbox
+
+    with _client(origin, tmp_path / "s") as c:
+        cp = _commit(c)
+        doc = c.get(f"/api/documents/setup/low_power.yaml{B}").json()
+        real, raced = cp.repo._push, []
+
+        def push(
+            tree: Path, ref: str
+        ) -> None:  # an invalid foreign commit lands between the sync and our push
+            if not raced:
+                raced.append(push_change(other, f"{SETUPS}/far.yaml", "name: far\nsteps: []\n", "invalid, past the ruleset"))  # fmt: skip
+            real(tree, ref)
+
+        monkeypatch.setattr(cp.repo, "_push", push)
+        saved = c.put(f"/api/documents/setup/low_power.yaml{B}", json={"document": {**doc["document"], "description": "mine"}, "etag": doc["etag"], "operator": "Ada"})  # fmt: skip
+        assert saved.status_code == 502 and "not applied" in saved.json()["detail"]
+        assert (
+            git("rev-parse", "main", cwd=origin) == raced[0]
+        )  # nothing of ours on top of it
+        assert not [r for r in c.get("/api/log").json() if r["source"] == "saved"]
+        # the inbox neither
+        (cp.repo.inbox / "scanner_configs/experiments/Bench/shot_offsets.yaml").write_text("schema_version: 1\nreference: A\ndevices:\n  A: {offset_s: 0.0}\n")  # fmt: skip
+        assert [p.outcome for p in cp.reconcile()] == ["failed"]
+        assert git("rev-parse", "main", cwd=origin) == raced[0]
+        refused = [r for r in c.get("/api/log").json() if r["source"] == "refused"]
+        assert (
+            len(refused) == 1 and refused[0]["who"] == "Seed"
+        )  # the author of the invalid change
+        inbox.reset_backoff(cp.repo)
+
+
+def test_a_fresh_state_starts_from_the_share_and_never_applies_a_refused_main(origin: Path, other: Path, share: Path, tmp_path: Path) -> None:  # fmt: skip
+    seed = git("rev-parse", "HEAD", cwd=share)
+    bad = push_change(other, f"{SETUPS}/far.yaml", "name: far\nsteps: []\n", "invalid, before the service existed")  # fmt: skip
+    with _client(origin, tmp_path / "s", share=share) as c:
+        cp = _commit(c)
+        cp.wait_share()
+        assert (
+            cp.repo.live_head() == seed and git("rev-parse", "HEAD", cwd=share) == seed
+        )
+        assert c.get("/healthz").json()["main"].startswith(f"main at {bad[:10]} is not applied")  # fmt: skip
+    with _client(
+        origin, tmp_path / "t"
+    ) as c:  # no share to start from: main's tip, said to be unverified
+        assert c.get("/healthz").json()["main"].startswith("unverified")
+
+
+def test_one_merged_pull_request_is_one_row(origin: Path, other: Path, tmp_path: Path) -> None:  # fmt: skip
+    with _client(origin, tmp_path / "s") as c:
+        git("switch", "--quiet", "-c", "pr", cwd=other)
+        for seconds in (5, 6):
+            (other / SETUPS / "low_power.yaml").write_text(f"name: low_power\nsteps:\n  - {{do: wait, seconds: {seconds}}}\n")  # fmt: skip
+            git("commit", "--quiet", "-am", f"wait {seconds}", cwd=other)
+        git("switch", "--quiet", "main", cwd=other)
+        git("merge", "--quiet", "--no-ff", "-m", "Merge pull request", "pr", cwd=other)
+        git("push", "--quiet", "origin", "HEAD:main", cwd=other)
+        _commit(c).fetch()
+        assert (
+            len([r for r in c.get("/api/log").json() if r["source"] == "merged"]) == 1
+        )
+
+
+def test_a_share_ahead_or_detached_is_never_reported_current(origin: Path, share: Path, tmp_path: Path) -> None:  # fmt: skip
+    (share / "README.md").write_text("pulled from origin by hand\n")
+    git("add", "-A", cwd=share)
+    git("commit", "--quiet", "-m", "ahead", cwd=share)
+    with _client(origin, tmp_path / "s", share=share) as c:
+        assert "ahead of the accepted main" in c.get("/healthz").json()["share"]
+        from geecs_configurator.repository import GitError
+
+        with pytest.raises(
+            GitError, match="ahead of the accepted main"
+        ):  # git's "Already up to date" is not current
+            _commit(c).repo.fast_forward_share(share)
+    git(
+        "reset", "--quiet", "--hard", "HEAD~1", cwd=share
+    )  # back at main's commit, then detached
+    git("switch", "--quiet", "--detach", cwd=share)
+    with _client(origin, tmp_path / "t", share=share) as c:
+        assert "detached" in c.get("/healthz").json()["share"]
+
+
+def test_a_refusal_clears_when_main_is_put_back(origin: Path, other: Path, tmp_path: Path) -> None:  # fmt: skip
+    with _client(origin, tmp_path / "s") as c:
+        cp = _commit(c)
+        here = cp.repo.live_head()
+        push_change(other, f"{SETUPS}/far.yaml", "name: far\nsteps: []\n", "invalid")
+        cp.fetch()
+        assert c.get("/healthz").json()["main"] != "applied"
+        git("push", "--quiet", "--force", "origin", f"{here}:main", cwd=other)
+        cp.fetch()
+        assert (
+            not c.get("/healthz").json()["main"].startswith("main at")
+        )  # unverified (no share), no longer refused
+
+
+def test_the_validator_imports_nothing_the_configs_repo_ci_lacks(root: Path) -> None:
+    """The configs repo's workflow installs GEECS-Schemas and PyYAML alone (deploy/configs-repo/validate.yml)."""
+    import subprocess
+    import sys
+
+    blocker = (
+        "import sys\n"
+        "class Block:\n"
+        "    def find_spec(self, name, path=None, target=None):\n"
+        "        if name.split('.')[0] in {'fastapi', 'starlette', 'httpx', 'jwt', 'cryptography', 'jinja2', 'uvicorn', 'geecs_core', 'geecs_web_theme'}:\n"
+        "            raise ImportError('the configs repo CI does not install ' + name)\n"
+        "sys.meta_path.insert(0, Block())\n"
+        "from geecs_configurator.validation import main\n"
+        f"sys.exit(main(['--root', {str(root)!r}, '{SETUPS}/broken.yaml']))\n"
+    )  # fmt: skip
+    done = subprocess.run(
+        [sys.executable, "-c", blocker], capture_output=True, text=True
+    )
+    assert done.returncode == 1 and "invalid:" in done.stdout, done.stderr
 
 
 def test_the_validate_cli_checks_changed_documents_only(root: Path) -> None:

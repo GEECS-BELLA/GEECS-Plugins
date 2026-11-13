@@ -162,6 +162,34 @@ def test_a_refused_pull_request_keeps_the_pushed_branch_and_says_so(key: tuple[P
     assert git("rev-parse", "--verify", saved["branch"], cwd=origin)
 
 
+def test_github_down_is_a_git_failure_everywhere_never_a_500(key: tuple[Path, bytes], github: FakeGitHub, origin: Path, tmp_path: Path) -> None:  # fmt: skip
+    from geecs_configurator import inbox
+    from geecs_configurator.app import reconcile
+
+    state = tmp_path / "s"
+    env = _app_env(origin, state, key[0])
+    with TestClient(create_app(Settings.from_env(env), http=httpx.Client(transport=httpx.MockTransport(github)))) as c:  # fmt: skip
+        etag = c.get("/api/documents/setup/low_power.yaml?experiment=Bench").json()["etag"]  # fmt: skip
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route to GitHub", request=request)
+
+    # a restart while GitHub's API is down: the live checkout on disk serves
+    with TestClient(create_app(Settings.from_env(env), http=httpx.Client(transport=httpx.MockTransport(down)))) as c:  # fmt: skip
+        r = c.get("/api/documents/setup/low_power.yaml?experiment=Bench")
+        assert r.status_code == 200 and "no credential" in r.headers["X-Configs-Stale"] and r.json()["etag"] == etag  # fmt: skip
+        doc = r.json()
+        saved = c.put("/api/documents/setup/low_power.yaml?experiment=Bench", json={"document": {**doc["document"], "description": "x"}, "etag": etag, "operator": "Ada"})  # fmt: skip
+        assert saved.status_code == 502 and "no credential" in saved.json()["detail"]
+        repo = c.app.state.repo
+        (repo.inbox / "scanner_configs/experiments/Bench/shot_offsets.yaml").write_text("schema_version: 1\nreference: A\ndevices:\n  A: {offset_s: 0.0}\n")  # fmt: skip
+        assert [p.outcome for p in reconcile(c.app)] == [
+            "failed"
+        ]  # kept, and backing off
+        assert reconcile(c.app) == []
+        inbox.reset_backoff(repo)
+
+
 def test_the_app_settings_come_together_or_not_at_all(origin: Path, tmp_path: Path, key: tuple[Path, bytes]) -> None:  # fmt: skip
     from geecs_configurator.settings import SettingsError
 

@@ -26,18 +26,21 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from pathlib import Path
 
 import httpx
 
 from geecs_configurator import inbox, validation
 from geecs_configurator.github import AppCredential, AppPullRequests
-from geecs_configurator.log import Applier, CommitLog, NoApplier, Row
+from geecs_configurator.log import Answer, Applier, CommitLog, NoApplier, Row
 from geecs_configurator.repository import ConfigsRepository, GitError, Identity
 from geecs_configurator.save import CompareLinkOnly, PullRequests, Saved
 from geecs_configurator.settings import Settings
 from geecs_configurator.store import DocumentStore
 
 logger = logging.getLogger(__name__)
+#: Seconds GitHub has to mint a token: under a read's fetch bound, so an unreachable API never outwaits it.
+MINT_TIMEOUT_S = 8.0
 
 
 class CommitPath:
@@ -54,7 +57,7 @@ class CommitPath:
                 settings.github_app_id,
                 settings.github_installation_id,
                 settings.github_app_key_file,
-                http or httpx.Client(timeout=20),
+                http or httpx.Client(timeout=MINT_TIMEOUT_S),
             )  # fmt: skip
             if settings.github_app_key_file is not None
             else None
@@ -77,6 +80,68 @@ class CommitPath:
         self.share_error: str | None = None
         #: Why main is not applied (``None``: the live checkout is main).
         self.refused: str | None = None
+        #: The live checkout was first made at main's tip with no gate (no share to start from).
+        self.unverified = False
+        self._share_thread: threading.Thread | None = None
+
+    # ------------------------------------------------------------ the start
+
+    def start(self) -> None:
+        """Set the repository up, then bring it through the gate to main (the service's start).
+
+        A new live checkout starts at the share's commit when main contains
+        it (accepted before, by hand), so main's newer changes pass the gate
+        like any other; with no such share it starts at main's tip,
+        **unverified**: said on the page, and the share is not moved, until an
+        advance passes the gate.
+        """
+        fresh = not (self.repo.live / ".git").exists()
+        self.repo.ensure(start_at=self._share_start)
+        self.unverified = fresh and self.repo.live_head() == self.repo.remote_head() and not self._started_at_share  # fmt: skip
+        self.fetch()
+        if not self.unverified:
+            self.fast_forward_share()
+        elif self.settings.share_clone is not None:
+            self.share_error = self._share_held()
+
+    def _share_held(self) -> str:
+        """Why the share is not moved while main is unverified (and whether it is ahead of what is served)."""
+        try:
+            head = self.repo.git(
+                "rev-parse", "HEAD", cwd=Path(self.settings.share_clone or ".")
+            )
+            if not self.repo.is_ancestor(head, self.repo.live_head()):
+                return f"the share's clone is at {head[:10]}, ahead of the accepted main or apart from it; not moved"
+        except GitError as exc:
+            return " ".join(str(exc).split())[:240]
+        return "held: main is unverified, so the share is not moved until a change passes the gate"
+
+    _started_at_share = False
+
+    def _share_start(self) -> str | None:
+        share = self.settings.share_clone
+        if share is None:
+            return None
+        try:
+            head = self.repo.git("rev-parse", "HEAD", cwd=Path(share))
+            if self.repo.is_ancestor(head, self.repo.remote_head()):
+                self._started_at_share = True
+                return head
+        except GitError:
+            pass
+        return None
+
+    def main_state(self) -> str:
+        """``applied``, or why not: a refused commit (cleared once main is the live commit again), or unverified."""
+        try:
+            current = self.repo.remote_head() == self.repo.live_head()
+        except GitError:
+            current = False
+        if self.refused and not current:
+            return self.refused
+        if self.unverified:
+            return "unverified: the live checkout was first made at main's tip with no gate; the next accepted change verifies it"  # fmt: skip
+        return "applied"
 
     # ------------------------------------------------------------ the gate
 
@@ -89,14 +154,16 @@ class CommitPath:
             found = validation.problems(tree, paths)
         if found:
             self.refused = f"main at {new[:10]} is not applied: " + "; ".join(found)
+            bad = [p.split(": ")[0] for p in found]
             if not self.log.has_commit(new, "refused"):
-                author = self.repo.git("log", "-1", "--format=%an", new)
-                self.log.add(Row(source="refused", who=author, kind=None, path="; ".join(p.split(":")[0] for p in found), commit=new, state="pending", detail="fetched, not applied: " + "; ".join(found) + ". The maintainer fixes main by pull request."))  # fmt: skip
+                # who made each failing path what it is: the newest commit in the range that touched it
+                authors = sorted({self.repo.git("log", "-1", "--format=%an", f"{old}..{new}", "--", p) for p in bad})  # fmt: skip
+                self.log.add(Row(source="refused", who=", ".join(a for a in authors if a) or "?", kind=None, path="; ".join(bad), commit=new, state="pending", detail="fetched, not applied: " + "; ".join(found) + ". The maintainer fixes main by pull request."))  # fmt: skip
         return found
 
     def advanced(self, old: str, new: str) -> None:
-        """Log the foreign commits just applied, then fast-forward the share's clone."""
-        self.refused = None
+        """Log the foreign commits just applied, then fast-forward the share's clone (off the repository's lock)."""
+        self.refused, self.unverified = None, False
         known = validation.documents(self.store)
         for sha, email, author, paths in self.repo.commits(old, new):
             if email == self.settings.committer_email:
@@ -106,7 +173,14 @@ class CommitPath:
                     kind = known[path][0]
                     answer = self.applier.apply(kind, path)
                     self.log.add(Row(source="merged", who=author, kind=kind, path=path, commit=sha, state=answer.state, detail=answer.detail))  # fmt: skip
-        self.fast_forward_share()
+        if self.settings.share_clone is not None:
+            self._share_thread = threading.Thread(target=self.fast_forward_share, name="configurator-share", daemon=True)  # fmt: skip
+            self._share_thread.start()
+
+    def wait_share(self, timeout: float = 30.0) -> None:
+        """Wait for the share's last fast-forward (tests, and the start)."""
+        if self._share_thread is not None:
+            self._share_thread.join(timeout)
 
     def fast_forward_share(self) -> None:
         """The share's clone to the accepted main; a refusal is kept for the page, never raised."""
@@ -126,10 +200,22 @@ class CommitPath:
     def saved(self, kind: str, saved: Saved) -> None:
         """Log a save that committed or proposed."""
         if saved.outcome == "committed":
-            answer = self.applier.apply(kind, saved.path)
+            answer = self._answer(kind, saved.path, saved.commit)
             self.log.add(Row(source="saved", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, state=answer.state, detail=answer.detail))  # fmt: skip
         elif saved.outcome == "proposed":
             self.log.add(Row(source="proposed", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, link=saved.pull_request, state="pending", detail=f"the maintainer's review (branch {saved.branch})"))  # fmt: skip
+
+    def _answer(self, kind: str | None, path: str, commit: str | None) -> Answer:
+        """The seam's answer for a commit the live checkout holds; ``pending`` (and no apply) for one it does not."""
+        try:
+            live = commit is not None and self.repo.is_ancestor(
+                commit, self.repo.live_head()
+            )
+        except GitError:
+            live = False
+        if not live:
+            return Answer(state="pending", detail=f"on main but not in the live checkout: {self.main_state()}")  # fmt: skip
+        return self.applier.apply(kind, path)
 
     # ------------------------------------------------------------ the timer
 
@@ -142,7 +228,7 @@ class CommitPath:
         results = inbox.reconcile(self.repo, experiments, author)
         for r in results:
             if r.outcome == "committed":
-                answer = self.applier.apply(r.kind, r.path)
+                answer = self._answer(r.kind, r.path, r.commit)
                 self.log.add(Row(source="published", who=self.settings.inbox_author, kind=r.kind, path=r.path, commit=r.commit, state=answer.state, detail=answer.detail))  # fmt: skip
         return results
 
