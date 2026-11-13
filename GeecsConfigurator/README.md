@@ -41,3 +41,7 @@ clones `configurator-checkout`, installs and prints the enable step. Site keys:
 `GEECS_CONFIGURATOR_PORT` (unset: not deployed), `_BIND`, `_CORS_ORIGINS`,
 `_EXTRA_ARGS`. The Control Room's launcher links to it through
 `GEECS_CONTROL_ROOM_CONFIG_EDITOR_URL`.
+
+The commit path (the GitHub App once per org; per services box its key, the
+experiments it owns, its state directory, the share's clone, the trial on a
+throwaway branch) is [DEPLOYMENT.md](DEPLOYMENT.md).

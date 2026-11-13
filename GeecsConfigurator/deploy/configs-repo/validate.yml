@@ -19,6 +19,12 @@
 # fact: the configurator's own gate is what keeps an invalid commit from
 # being applied, and this check names it on GitHub too.
 #
+# It judges every facility's documents. Each services box's gate judges only
+# the paths that box owns (GeecsConfigurator/DEPLOYMENT.md), so this check is
+# what names an invalid commit in a folder no box owns, or one whose box is
+# down. CODEOWNERS.example beside this file routes each pull request to the
+# facility whose folders it touches.
+#
 # GEECS_PLUGINS_REF is the GEECS-Plugins branch the validator comes from:
 # feat/configurator while the configurator arc is unpromoted, master after.
 

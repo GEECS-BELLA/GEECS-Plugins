@@ -74,7 +74,11 @@ def _claimed_name(rel: str) -> str:
 
 
 def inbox_paths(repo: ConfigsRepository, experiments: list[str]) -> dict[str, str]:
-    """Each inbox kind's file per experiment: path below the configs root -> kind."""
+    """Each inbox kind's file per experiment: path below the configs root -> kind.
+
+    ``experiments`` are the ones this box owns (``CommitPath.inbox_experiments``):
+    nothing else in the inbox is ever published.
+    """
     out = {}
     for kind in INBOX_KINDS:
         storage = KIND_STORAGE[kind]
@@ -95,11 +99,18 @@ def prepare(repo: ConfigsRepository, experiments: list[str]) -> None:
 
 
 def pending(repo: ConfigsRepository, experiments: list[str]) -> bool:
-    """Whether anything waits in the inbox (no git, no network: the timer's cheap check)."""
+    """Whether anything waits in the inbox for these experiments (no git, no network: the timer's cheap check).
+
+    A file of an experiment not named (another facility's, left from before
+    the box owned less) is not waiting: it is never published from here.
+    """
     claimed = repo.inbox / CLAIMED
     return any(
-        (repo.inbox / rel).is_file() for rel in inbox_paths(repo, experiments)
-    ) or (claimed.is_dir() and any(claimed.iterdir()))
+        (repo.inbox / rel).is_file()
+        or (claimed / _claimed_name(rel)).exists()
+        or (claimed / (_claimed_name(rel) + ".new")).exists()
+        for rel in inbox_paths(repo, experiments)
+    )
 
 
 def _valid(kind: str, data: bytes) -> str | None:

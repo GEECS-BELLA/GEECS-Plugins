@@ -26,6 +26,14 @@ pushes and a proposal gives its compare link. ``_SHARE_CLONE`` is the
 share's clone, fast-forwarded from the service's repository after every
 accepted change; ``_FETCH_SECONDS`` (default 60; 0 = off) is how often
 main is fetched so a merge on GitHub takes effect.
+
+**What this box owns** (``ownership.py``: one configs repo, many
+facilities): ``_EXPERIMENTS`` names the experiments whose folders it
+commits to, ``_ANALYSIS_FOLDERS`` the facility folders it commits to in the
+shared analysis tree (comma-separated folder names). With the commit path on,
+at least one of the two must name something: an empty pair is refused at
+start, never read as "everything". The experiment shown first defaults to the
+first owned one.
 """
 
 from __future__ import annotations
@@ -37,11 +45,24 @@ from pathlib import Path
 
 from geecs_core.configs_repo import EXPERIMENTS_SUBDIR, scanner_configs_base
 
+from geecs_configurator.ownership import Ownership, OwnershipError, parse_names
+
 _P = "GEECS_CONFIGURATOR_"
 
 
 class SettingsError(ValueError):
     """A required setting is missing or malformed."""
+
+
+def _ownership(experiments: str, analysis_folders: str, *, commits: bool) -> Ownership:
+    """What this box owns, from the two keys; refused empty when the commit path is on."""
+    try:
+        owned = Ownership(parse_names(experiments, _P + "EXPERIMENTS"), parse_names(analysis_folders, _P + "ANALYSIS_FOLDERS"))  # fmt: skip
+    except OwnershipError as exc:
+        raise SettingsError(str(exc)) from None
+    if commits and owned.empty:
+        raise SettingsError(f"the commit path needs what this services box owns: {_P}EXPERIMENTS (the experiments it commits to) and/or {_P}ANALYSIS_FOLDERS (its folders in the shared analysis tree); one configs repo serves many facilities, so an empty setting is never read as everything")  # fmt: skip
+    return owned
 
 
 @dataclass(frozen=True)
@@ -67,6 +88,7 @@ class Settings:
     github_app_id: str = ""
     github_installation_id: str = ""
     github_app_key_file: Path | None = None
+    ownership: Ownership = Ownership()
 
     @property
     def commits(self) -> bool:
@@ -108,11 +130,17 @@ class Settings:
             raise SettingsError(f"{_P}GITHUB_APP_ID, _GITHUB_INSTALLATION_ID and _GITHUB_APP_KEY_FILE are set together or not at all")  # fmt: skip
         if all(app) and not (state and get("GITHUB_REPO")):
             raise SettingsError(f"the GitHub App needs the commit path and {_P}GITHUB_REPO (owner/name)")  # fmt: skip
+        owned = _ownership(
+            get("EXPERIMENTS"), get("ANALYSIS_FOLDERS"), commits=bool(state)
+        )
         share = get("SHARE_CLONE")
         origins = tuple(o.strip().rstrip("/") for o in get("CORS_ORIGINS").split(",") if o.strip())  # fmt: skip
         return cls(
             configs_root=Path(root),
-            experiment=get("EXPERIMENT", "GEECS_EXPERIMENT"),
+            experiment=get("EXPERIMENT", "GEECS_EXPERIMENT")
+            or (
+                owned.experiments[0] if state and owned.experiments else ""
+            ),  # fmt: skip
             title=get("TITLE") or "Configurator",
             bind=get("BIND") or "127.0.0.1",
             port=int(port),
@@ -130,4 +158,5 @@ class Settings:
             github_app_id=app[0],
             github_installation_id=app[1],
             github_app_key_file=Path(app[2]) if app[2] else None,
+            ownership=owned,
         )

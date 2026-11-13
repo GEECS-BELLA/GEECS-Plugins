@@ -5,7 +5,9 @@ repository's live checkout: a document is served after a fetch and
 fast-forward under the repository's lock (the etag the editor holds is of
 the current base; an unreachable origin or a busy lock serves the last
 accepted main within seconds and says so in ``X-Configs-Stale``), ``PUT /api/documents/...`` saves
-(``save.py``), and a timer reconciles the inbox. Off, the service is
+(``save.py``), and a timer reconciles the inbox. Every experiment stays
+browsable; a document at a path this box does not own (``ownership.py``) is
+served ``read_only`` and its save is the 403. Off, the service is
 read-only and the save route answers 405. The API answers CORS for the
 surfaces that embed the editor (a site value), because the embedded editor
 runs in the host page's origin.
@@ -25,6 +27,7 @@ from fastapi import APIRouter, Body, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, NotAFile
+from geecs_schemas.storage import STORAGE_ROOT_PATHS
 from pydantic import BaseModel
 from geecs_web_theme.web import ForwardedPrefixMiddleware, RevalidatingStaticFiles, make_templates, mount_theme  # fmt: skip
 
@@ -78,7 +81,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     stop = threading.Event()
     if commit is not None:
         commit.start()  # the repository, through the gate to main; the share caught up
-        inbox.prepare(commit.repo, app.state.store.experiments())
+        inbox.prepare(commit.repo, commit.inbox_experiments())
         if (
             app.state.settings.reconcile_seconds > 0
             or app.state.settings.fetch_seconds > 0
@@ -151,6 +154,10 @@ def healthz(request: Request) -> dict[str, str]:
     if commit is not None:
         out["main"] = commit.main_state()
         out["share"] = "off" if commit.settings.share_clone is None else commit.share_error or "current"  # fmt: skip
+        out["owns"] = commit.ownership.describe()
+        missing = sorted(set(commit.ownership.experiments) - set(commit.store.experiments()))  # fmt: skip
+        if missing:  # a typo, or a case mismatch: owned names match folders exactly
+            out["owns"] += f" (no folder in the configs repo: {', '.join(missing)})"
         out["credential"] = (
             "GitHub App" if commit.credential else "git's own (deploy key)"
         )
@@ -219,6 +226,11 @@ def document(request: Request, kind: str, doc_id: str, experiment: str | None = 
             # busy (a long push or fetch): read the live checkout as it stands, never wait on the network
             stale = _refresh(repo) if locked else "the repository is busy (a push or a fetch); serving the last accepted main"  # fmt: skip
         loaded = _answer(lambda: _store(request).read(_file_kind(kind), experiment, doc_id))  # fmt: skip
+        commit: CommitPath | None = request.app.state.commit
+        if commit is not None and not commit.ownership.owns_file(_store(request).root, loaded.path):  # fmt: skip
+            loaded = loaded.model_copy(
+                update={"read_only": True}
+            )  # another box's: browsable, never saved here
     finally:
         if locked and repo is not None:
             repo.lock.release()
@@ -233,7 +245,7 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
         raise HTTPException(405, "read-only: the commit path is not configured")
     _reconcile_quietly(request.app)
     try:
-        saved = _answer(lambda: save(_store(request), repo, request.app.state.pull_requests, _file_kind(kind), experiment, doc_id, body, email=request.app.state.settings.committer_email))  # fmt: skip
+        saved = _answer(lambda: save(_store(request), repo, request.app.state.pull_requests, _file_kind(kind), experiment, doc_id, body, email=request.app.state.settings.committer_email, ownership=request.app.state.commit.ownership))  # fmt: skip
     except Refused as exc:
         return JSONResponse({"detail": exc.detail}, status_code=exc.status)
     request.app.state.commit.saved(kind, saved)
@@ -287,4 +299,20 @@ def home(request: Request, experiment: str = "", kind: str = "", id: str = "") -
         "settings": settings, "experiments": known, "experiment": experiment, "catalogue": catalogue,
         "kind": kind, "docs": docs, "doc_id": id if id in {d.id for d in docs} else "",
         "commits": request.app.state.repo is not None,
+        "not_owned": _not_owned(request.app.state.commit, catalogue, kind, experiment),
     })  # fmt: skip
+
+
+def _not_owned(commit: CommitPath | None, catalogue: list[KindInfo], kind: str, experiment: str) -> str:  # fmt: skip
+    """The page's word when what it shows is not this box's to save (empty when it is, or the commit path is off)."""
+    if commit is None:
+        return ""
+    own = commit.ownership
+    path = next((k.path for k in catalogue if k.kind == kind), None) or ""
+    if (
+        kind and "<experiment>" not in path
+    ):  # the shared analysis tree: owned per facility folder
+        return f"This box saves only in its own folders of the shared analysis tree ({', '.join(own.analysis_folders) or 'none'}); other documents here are read-only." if path.startswith(STORAGE_ROOT_PATHS["analysis"]) else ""  # fmt: skip
+    if experiment and experiment not in own.experiments:
+        return f"{experiment} is not this services box's: browsable here, saved from the box that owns it or by pull request. This box owns {own.describe()}."  # fmt: skip
+    return ""
