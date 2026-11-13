@@ -1,6 +1,6 @@
 // The camera page's viewer, DOM only: the frame loop, zoom and pan, this
 // viewer's colour map and levels, the crosshairs and analysis ROI drawn and
-// dragged over the image, and the live readings. The PVs and words are the
+// dragged over the image (the rail and the readings are device_rail.js's). The PVs and words are the
 // module's (window.GeecsDevicePage, from device.js), the values Hare's, every
 // write the module's put route.
 //
@@ -393,16 +393,10 @@
     $("fps").textContent = `${(shown.length / 2).toFixed(1)} new frames/s`;
   }, 500);
 
-  // ---- the readings, the image chip, the device's errors: the module's words, Hare's values
+  // ---- the image chip and the overlays on every change (the readings and the device's errors are the rail's)
   let queued = false;
   function refresh() {
     queued = false;
-    for (const el of box.querySelectorAll(".live[data-role]")) {
-      const role = el.dataset.role, word = P.entry(role) ? P.word(role) : "not served";
-      el.querySelector(".v").textContent = R.fmt(P.frame(role), P.meta(role));
-      el.querySelector(".word").textContent = word;
-      el.querySelector(".dot").dataset.state = KIT[word] || "unknown";
-    }
     // the transform changed under a held raw frame: drawn again with the new one (before the first, only said)
     if (raw && heldRaw && transformNow() !== rawState.transform) takeRaw(heldRaw);
     else if (raw && !heldRaw) rawState = { ...rawState, transform: transformNow() };
@@ -410,8 +404,6 @@
     const chip = R.imageChip(P.entry("image_counter") ? P.word("image_counter") : "unknown");
     $("image-state").textContent = chip.text;
     $("image-state").dataset.state = KIT[chip.word] || "unknown";
-    const bad = R.alarms(P.view());
-    $("alarms").textContent = bad.length ? `in error: ${bad.join(", ")}` : "";
     sized();
     draw();
     hooks.forEach((f) => f());

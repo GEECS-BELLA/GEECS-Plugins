@@ -11,14 +11,32 @@
 .kit .device table.roles td.ws{color:var(--muted)}
 .kit .device details.disc{margin-top:6px}
 .kit .hare{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
-/* The rail and readings of every page drawn from a panel (_panel.html: the settables page, the trace page),
-   in camera.css's rail-and-pane layout: short fields that wrap, a setpoint's readback under it, a tweak's
+/* Every device page's component: the rail beside the pane (the readings, then the camera's image or the trace's
+   plot), one column on a narrow window (class `camera`, the first page that had it). */
+.kit .camera{display:grid;grid-template-columns:270px minmax(0,1fr);gap:var(--gap);padding:var(--pad)}
+@media (max-width:900px){.kit .camera{grid-template-columns:minmax(0,1fr)}}
+.kit .camera .rail{position:static;max-height:none}
+.kit .camera .rail .hint{font-size:11.5px}
+.kit .camera .pane{display:flex;flex-direction:column;gap:var(--gap);min-width:0}
+.kit .camera .readings{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+.kit .camera .readings .live .v{font-size:15px}
+.kit .camera .readings .ws{font-size:10.5px;color:var(--muted)}
+/* The rail and readings of every page drawn from a panel (_panel.html: the settables, trace and camera pages),
+   in the rail-and-pane layout above: short fields that wrap, a setpoint's set / now under it, a tweak's
    step between its − and +, a grid group's cells. */
 .kit .device .settables{display:flex;flex-direction:column;gap:8px}
 .kit .panel-rail .group .row{flex-wrap:wrap;gap:8px}
 .kit .panel-rail .field{min-width:0;width:112px}
 .kit .panel-rail .field select,.kit .panel-rail .field input[type="number"],.kit .panel-rail .field input[type="text"]{width:100%}
-.kit .panel-rail .rb,.kit .panel-rail .ro{display:block;font-size:11px;min-height:1em}
+.kit .panel-rail .ro{display:block;font-size:11px;min-height:1em}
+/* A setpoint field: the setpoint (where it is a record of its own) and the measured value under it, each with
+   its word, and the `differs` mark once a write has settled outside the tolerance. */
+.kit .panel-rail .field.setpoint{width:148px}
+.kit .panel-rail .sv,.kit .panel-rail .rb,.kit .panel-rail .differs{display:flex;align-items:center;gap:4px;font-size:11px;min-height:1em;color:var(--muted);white-space:nowrap}
+.kit .panel-rail .sv[hidden],.kit .panel-rail .differs[hidden]{display:none}
+.kit .panel-rail .sv .k,.kit .panel-rail .rb .k{width:2.2em}
+.kit .panel-rail .sv b,.kit .panel-rail .rb b{font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.kit .panel-rail .differs{color:var(--warn);font-weight:600}
 /* A draft (typed, not yet written: Enter writes it, Esc drops it), marked like a screen's. */
 .kit .panel-rail input[data-draft]{border-color:var(--accent)}
 .kit .panel-rail .field.tweak{width:auto}
@@ -38,3 +56,6 @@
 .kit .device .out[data-state="failed"]{color:var(--crit)}
 .kit .device .alarms{color:var(--crit);font-size:11.5px}
 .kit .device .alarms:empty{display:none}
+/* The header's operator field and the hazard dialog's list of writes, on every device page. */
+.kit .operator{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.kit #hazard-dialog-text{white-space:pre-line}

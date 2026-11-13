@@ -197,6 +197,125 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
     assert not ok and "shots_per_step" in msg
 
 
+def _prepared(ns: dict, item: dict) -> dict:
+    """*item* as the manager hands it to the worker: validated, names resolved."""
+    from bluesky_queueserver.manager.profile_ops import (
+        existing_plans_and_devices_from_nspace,
+        prepare_plan,
+    )
+
+    plans, devices, plans_in_nspace, devices_in_nspace = (
+        existing_plans_and_devices_from_nspace(nspace=ns)
+    )
+    return prepare_plan(
+        {**item, "item_type": "plan", "user_group": "admin"},
+        plans_in_nspace=plans_in_nspace,
+        devices_in_nspace=devices_in_nspace,
+        allowed_plans={"admin": plans},
+        allowed_devices={"admin": devices},
+        nspace=ns,
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "kwargs"),
+    [
+        ("count", {"num": 2}),
+        ("sweep", {"sweep": None, "shots_per_step": 2}),
+        ("optimize", {"optimizer_config": "some_config"}),
+    ],
+)
+def test_metadata_naming_a_device_or_a_plan_stays_text(
+    RE, box, profiles, name, kwargs
+) -> None:
+    """A preset or description spelled like a device (or a plan) is still a string.
+
+    The manager turns every device and plan name inside an *unannotated*
+    argument into the object; a preset called ``UC_Cam`` then put the camera
+    itself into the start document, which the RunEngine cannot copy.
+    """
+    pytest.importorskip("bluesky_queueserver")
+    cam = _camera(RE, box, "UC_Cam")
+    ns = {"UC_Cam": cam, "U_S1H": Magnet(), **bind_plans(profiles)}
+    if "sweep" in kwargs:
+        kwargs = {**kwargs, "sweep": payload()}
+    md = {
+        "geecs": {"preset": "UC_Cam", "operator": "U_S1H.current"},
+        "description": "count",
+        "tags": ["UC_Cam", "sweep"],
+    }
+    expected = {
+        "geecs": {"preset": "UC_Cam", "operator": "U_S1H.current"},
+        "description": "count",
+        "tags": ["UC_Cam", "sweep"],
+    }
+    resolved = _prepared(
+        ns,
+        {
+            "name": name,
+            "args": [["UC_Cam"]],
+            "kwargs": {**kwargs, "md": md, "required": ["UC_Cam.scalars"]},
+        },
+    )
+    assert resolved["kwargs"]["md"] == expected
+    # the device lists are still resolved: names in, devices out
+    assert resolved["args"][0] == [cam]
+    assert resolved["kwargs"]["required"] == [cam.scalars]
+
+
+def test_every_argument_of_every_geecs_plan_is_annotated(profiles) -> None:
+    """No argument is left to the manager's convert-every-name default.
+
+    ``mv`` is the stock stub (its ``*args`` are the movables) and is the one
+    exception.  Judged twice: on the signature, and on the manager's own
+    description of the plan — it drops an annotation it cannot rebuild and
+    then treats the argument as bare.
+    """
+    bound = bind_plans(profiles)
+    for name, plan in bound.items():
+        if name == "mv":
+            continue
+        bare = [
+            p.name
+            for p in inspect.signature(plan).parameters.values()
+            if p.annotation is inspect.Parameter.empty
+        ]
+        assert not bare, f"{name}: unannotated {bare}"
+    pytest.importorskip("bluesky_queueserver")
+    from bluesky_queueserver.manager.profile_ops import (
+        existing_plans_and_devices_from_nspace,
+    )
+
+    plans, *_ = existing_plans_and_devices_from_nspace(nspace=dict(bound))
+    assert set(plans) == set(bound)
+    for name, description in plans.items():
+        if name == "mv":
+            continue
+        dropped = [
+            p["name"] for p in description["parameters"] if "annotation" not in p
+        ]
+        assert not dropped, f"{name}: the manager reads {dropped} as unannotated"
+
+
+@pytest.mark.parametrize("name", ["count", "sweep", "optimize"])
+def test_metadata_holding_an_object_is_refused_before_any_move(
+    RE, box, profiles, name
+) -> None:
+    """Anything but plain data in ``md`` refuses the run, naming where it sits."""
+    cam = _camera(RE, box, "UC_Cam")
+    plan = bind_plans(profiles)[name]
+    kwargs = {
+        "count": {"num": 1},
+        "sweep": {"sweep": payload()},
+        "optimize": {"optimizer_config": "some_config"},
+    }[name]
+    docs = DocCollector()
+    RE.subscribe(docs)
+    with pytest.raises(GeecsConfigurationError, match=r"md\['geecs'\]\['preset'\]"):
+        RE(plan([cam], md={"geecs": {"preset": cam}}, **kwargs))
+    assert box.puts == [] and not docs.docs["start"]
+
+
 # ----------------------------------------------------------------- running
 def test_bound_scan_runs_strict_with_shots_per_step_and_bins(RE, box, profiles):
     cam = _camera(RE, box, "UC_Cam")

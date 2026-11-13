@@ -1,15 +1,25 @@
 {#
   The ONE template every screen file renders through: groups on the grid,
-  each widget by kind. The binding travels as data-* (device, role, axis,
-  or a bare pv; data-deferred + data-fits for a DB device, whose role the
-  page judges by the module's word; data-action for a button that runs an
-  action plan); screen.js asks the module for the device's PVs and
-  verdicts, reads values from Hare, and writes through /api/…/put and
-  /api/actions/…/run only.
-#}{% extends "base.html" %}
+  each widget by kind. A widget's binding travels on its wrapper as data-*
+  (device, role, axis, or a bare pv; data-deferred + data-fits for a DB
+  device, whose role the page judges by the module's word; data-action for
+  a button that runs an action plan). Its control is the rail's
+  (_panel.html's `control`, screens.spec_of): a setpoint a field tracking
+  the setpoint with set / now / differs, a toggle or flipper the two-state
+  pair (its `values`, else 0 and 1), a select the enum's choices, a button a
+  command, a readout the value with its word; device_rail.js fills and
+  writes them through device_writes.js (the module's put route, the
+  operator's name, sent once). A `group` widget is a device's rail group
+  as its device page draws it (`rail`, the panel's readings folded under
+  it), from the module's device route read when the page is drawn
+  (`groups`: device_pages.embedded; a device's readings under its first
+  group widget only, per axis); the module silent, it says so and is
+  drawn on the next load. A flipper's lamps, the annotations, the
+  pictures and an action button are the screen's own (screen.js).
+#}{% extends "base.html" %}{% import "_panel.html" as P %}
 {% set s = loaded.screen %}
 {% set RO_PV = "A bare PV is read only: bind the device and its variable to write it." %}
-{% set WRITES = ("setpoint", "toggle", "flipper", "button") %}
+{% set WRITES = ("setpoint", "toggle", "flipper", "button", "select") %}
 {% set FOLD_AT = 3 %}{# more problems than this fold behind the cause (kit rung 0) #}
 {% set RETRY_S = 30 %}{# an undrawable screen (not a missing one) asks again: no script runs on it #}
 {% block title %}{{ s.title if s else name }}{% endblock %}
@@ -19,10 +29,10 @@
 <label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>
 <span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
 {% endblock %}
-{% macro bindattrs(b, role) -%}
+{% macro bindattrs(b) -%}
 {%- if b.pv %} data-pv="{{ b.pv }}"{% elif b.action %} data-action="{{ b.action }}"{% else %} data-device="{{ b.device }}" data-role="{{ b.role }}"{% if b.axis %} data-axis="{{ b.axis }}"{% endif %}{% endif -%}
-{%- if role %} data-type="{{ role.type }}"{% if role.confirm == "hazard" %} data-hazard="1"{% endif %}{% endif -%}
 {%- endmacro %}
+{% macro word() %}<span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>{% endmacro %}
 {% block body %}
 {% if not s %}
 <div class="shell solo"><main class="pane">
@@ -38,7 +48,7 @@
   </div>
 </main></div>
 {% else %}
-{% set stacks = loaded.stacks %}
+{% set stacks = loaded.stacks %}{% set read = namespace(devices=[]) %}{# a device's readings fold under its first group widget only #}
 <main class="screen" style="grid-template-columns: repeat({{ loaded.columns }}, minmax(17rem, 1fr))">
   {% for column in stacks or [range(s.groups | length)] %}{% if stacks %}<div class="scol">{% endif %}
   {% for gi in column %}{% set group = s.groups[gi] %}
@@ -49,28 +59,30 @@
     <p class="note">{{ w.label }}</p>
     {% elif w.kind == "image" %}
     <img class="pic" src="{{ root }}/screens/files/{{ w.src }}" alt="{{ w.label }}">
+    {% elif w.kind == "group" %}{% set b = w.bind %}{% set g = groups[(b.device, b.axis, b.group)] %}
+    {% if g.problem %}
+    <div class="w gw-missing" data-kind="group"><span class="lbl">{{ w.label or b.group }} · {{ b.device }}</span><span class="ws"><span class="dot" data-state="degraded" aria-hidden="true"></span><span class="word">not drawn</span></span><span class="m">{{ g.problem }}</span></div>
+    {% else %}{% set panel = g.panel %}
+    <div class="w" data-kind="group" data-device="{{ b.device }}"{% if b.axis %} data-axis="{{ b.axis }}"{% endif %}>
+      <div class="panel-rail"{% if b.axis %} data-axis-pane="{{ b.axis }}"{% endif %}>{{ P.rail(panel, g.specs, b.axis, "w-" ~ gi ~ "-" ~ loop.index, w.label) }}</div>
+      {% if panel.readings and (b.device, b.axis) not in read.devices %}{% set read.devices = read.devices + [(b.device, b.axis)] %}<details class="disc"><summary>Readings · {{ b.device }}{% if b.axis %} {{ b.axis }}{% endif %}</summary><div class="dbody">{{ P.readings(panel, g.specs, b.axis) }}</div></details>{% endif %}
+      <span class="out" aria-live="polite"></span>
+    </div>
+    {% endif %}
     {% else %}
-    <div class="w" data-kind="{{ w.kind }}"{{ bindattrs(w.bind, role) }}
+    <div class="w" data-kind="{{ w.kind }}"{{ bindattrs(w.bind) }}
       {%- if bound.deferred %} data-deferred="1" data-fits="{{ bound.fits | join(' ') }}"{% endif %}
-      {%- if bound.readback %} data-readback="{{ bound.readback.name }}"{% endif %}
       {%- if w.confirm %} data-confirm="{{ w.confirm }}"{% endif %}
       {%- if w.precision is not none %} data-precision="{{ w.precision }}"{% endif %}
-      {%- if w.units %} data-units="{{ w.units }}"{% endif %}
       {%- if w.bind.pv and w.kind in WRITES %} title="{{ RO_PV }}"{% endif %}>
-      {%- set name = w.label or (role.label if role else (w.bind.pv or w.bind.role or w.bind.action)) %}{% set off = " disabled" if w.bind.pv else "" %}
+      {%- if w.bind.action %}{% set name = w.label or w.bind.action %}
       <span class="lbl">{{ name }}</span>
-      {% if w.kind == "setpoint" %}
-      <input class="sp" spellcheck="false" aria-label="{{ name }}"{{ off }}><span class="bounds"></span>
-      {% elif w.kind in ("toggle", "flipper", "button") %}
-      <button class="btn sm act" type="button"{{ off }}>{{ name if w.kind == "button" else "…" }}</button>
-      {%- if w.bind.action %}<button class="btn sm stop" type="button" hidden>Stop</button>{% endif %}
-      {% else %}
-      <span class="v">—</span>
-      {% endif %}
-      {% if bound.readback %}<span class="rb" title="{{ bound.readback.label }}">—</span><span class="differs" hidden>differs</span>{% endif %}
-      {% for i in w.indicators %}{% set r = bound.indicators[loop.index0] %}<span class="ind"{{ bindattrs(i, r) }}>{{ r.label if r else ("in", "out")[loop.index0] }} <b>—</b></span>{% endfor %}
-      <span class="u"></span>
-      <span class="ws"><span class="dot" data-state="unknown" aria-hidden="true"></span><span class="word">unknown</span></span>
+      <button class="btn sm act" type="button">{{ name }}</button><button class="btn sm stop" type="button" hidden>Stop</button>{{ word() }}
+      {%- else %}{% set spec, id = spec_of(bound), "w-" ~ gi ~ "-" ~ loop.index %}
+      {{ P.control(spec, id, pair if w.kind in ("toggle", "flipper") else none, w.bind.axis, pair_values(bound)) }}
+      {%- for i in w.indicators %}{% set r = bound.indicators[loop.index0] %}<span class="ind"{{ bindattrs(i) }}>{{ r.label if r else ("in", "out")[loop.index0] }} <b>—</b></span>{% endfor %}
+      {%- if w.kind in ("toggle", "flipper", "select", "button") %}{{ word() }}{% endif %}
+      {%- endif %}
       <span class="out" aria-live="polite"></span>
     </div>
     {% endif %}
@@ -79,9 +91,10 @@
   {% endfor %}
   {% if stacks %}</div>{% endif %}{% endfor %}
 </main>
+{{ P.hazard_dialog() }}
 <dialog id="confirm" aria-labelledby="confirm-title">
   <div class="body">
-    <h4 id="confirm-title">Write?</h4>
+    <h4 id="confirm-title">Run?</h4>
     <p id="confirm-what" class="mono"></p>
     <p id="confirm-note"></p>
     <div class="row end">
@@ -93,4 +106,4 @@
 <script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if s %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/screen.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if s %}{% for f in ("screen_rules", "camera_rules", "device_rules", "device_source", "poller", "device_writes", "device_rail", "screen") %}<script src="{{ root }}/static/{{ f }}.js" defer></script>{% endfor %}{% endif %}{% endblock %}

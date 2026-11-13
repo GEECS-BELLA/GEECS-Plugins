@@ -41,20 +41,27 @@ geecs_control_room/
   static/home.js    the home's live half: polls the /api/home reads (the presets and the baseline
                     slowly), fills the device pickers, the directory's words and its filter, the presets
                     region (save dialog, diff drawer, restore confirm, the run on the row, the golden mark)
-  static/screen.js  the renderer's live half: PVs and verdicts from the module, values from Hare, writes
+  static/screen.js  the renderer's live half: the module's verdicts polled per device, each widget's page
+                    (its device's GeecsDeviceSource, or its bare PV's; a deferred widget's kind fits) under
+                    the ONE rail (device_rail.js) and device_writes.js (a group widget's controls and readings
+                    too), the words, a flipper's lamps, the action runs
   static/screen_rules.js, home_rules.js, directory_rules.js   the pages' rules, pure (verdict word,
-                    value shown, bounds, writable, differs, outcome state; the home lists' words; the
+                    misfit, value shown, bounds, outcome state; the home lists' words; the
                     directory's filter, row words and chip)
+  static/device_source.js   one device as a page reads it (entry, frame watched on first ask, meta, word,
+                    its write record as `target`): the device page's GeecsDevicePage and each device a screen binds
   static/device.js, device_rules.js   the device pages' live half (roles from the module per role and
                     axis, values from Hare) and its rules (picker options, a role row's word and units, the
                     rail's present-hiding, a control's written value, a pane's alarms)
-  static/device_rail.js   the ONE rail and readings strip of every page drawn from a panel (the settables
-                    page and the trace page): fill from Hare, enable on the module's word, write through
-                    device_writes.js (axis on a per-axis write); starts itself on the settables page
+  static/device_rail.js   the ONE rail and readings strip of every page drawn from a panel (the settables,
+                    trace and camera pages; a screen's widgets): fill from Hare, enable on the module's word, write through
+                    device_writes.js (axis on a per-axis write), the setpoint control (§ "The setpoint
+                    control" below); starts itself on the settables page
   static/device.css the device pages' layout
   static/camera.js, camera_controls.js, camera_rules.js, camera.css   the camera page (device_camera.html):
                     the viewer (frame loop, zoom/pan, colour map, levels), crosshairs and analysis ROI
-                    drawn and dragged, the acquisition controls and camera ROI (a dialog first), the
+                    drawn and dragged, the rail and readings (the family's panel, device_rail.js over
+                    camera.js's writes), its own camera ROI (one draft, a dialog first) and display, the
                     lineouts and histogram; the Raw toggle (frame.raw at 2 Hz, rotated / flipped by role
                     `transform` as TRANS1 would, levels per mode as fractions of the full scale);
                     device.js's GeecsDevicePage gives it the roles, values, words
@@ -114,6 +121,43 @@ deploy/
   such role, "wrong kind" when its type does not fit the kind, Hare's alarm
   rules where the module gives no verdict) and writes it through the same
   put route. A writing kind on a bare PV is drawn disabled.
+- **A screen's controls are the rail's.** Every widget but an annotation,
+  a picture and an action button is `_panel.html`'s `control`
+  (`screens.spec_of`: the screen's label and units over the role's, else the
+  record's EGU from Hare; its `precision` how a value is shown, `digits`,
+  never the record's precision a setpoint's settle is judged by) filled and written by `device_rail.js` through `device_writes.js`,
+  one per device (the outcome on the widget's own line, its `confirm` note
+  asked first in the rail's hazard dialog): a `setpoint` is the setpoint
+  control (§ below), a `toggle` or `flipper` the rail's two-state pair
+  (its `values`, else 0 and 1; labelled by the enum's own words, a bit's Off
+  / On; a reading that is neither presses neither), a `select` the rail's
+  select (the PV's choices, narrowed to a family role's `choices`), a
+  `button` a command, a `readout` the value with its word. A LabVIEW
+  variable's convention is the screen's word, never a DB type edit: a
+  boolean a VI keeps as a number is a `toggle` with `values: {on, off}`
+  (it binds a numeric setpoint role; the module's bounds gate still
+  applies), a choice the LabVIEW GUI showed as a number box a `select`
+  (enum roles only). What a kind accepts is GEECS-Schemas' table, carried
+  to the page as `data-fits`.
+- **A `group` widget is the device page's group.** `{device, group}` draws
+  that rail group (every group so headed, in order, where a panel repeats a
+  heading; `settings`: the automatic layout, every group of it)
+  with `_panel.html`'s `rail` and the panel's readings folded under it
+  (under the device's first group widget only, per axis),
+  from the module's device route read when the page is drawn
+  (`device_pages.embedded`: one read per device, concurrently, waiting
+  `EMBED_TIMEOUT_S`, never the poll's `READ_TIMEOUT_S`; handed to
+  `screens.router` by the app, since `device_pages` builds on `screens`)
+  through the device page's own classification (`unread`, `classify`,
+  `drawn_of`: one copy for both) on the bound axis; `settings` is the
+  automatic layout only where the page draws one (on a family panel it is a
+  title like any). Its controls
+  are any screen control's (the device's page and writes, the widget's
+  outcome line); a channel group hides by its own device's
+  `<ch>_present`. The module silent or refusing for that device, the widget
+  says why as the device page would ("not drawn"; "reload" only where asking
+  again may help) and the rest of the screen draws: never a 500, never a
+  blank.
 - **A button may name an action plan** (`bind: {action: <plan>}`, checked
   against the experiment's `action_library/actions.yaml`). The module runs
   it, every `set` through its gates; the page asks once (the plan's
@@ -341,33 +385,87 @@ computes the target), a `grid` group as compact cells. The family's
 hint, and a role the device's `allow` does not grant is drawn disabled with
 the module's word. A role's `text` and `units` come from the module's device
 route (a DB device's from the DB through the gateway source); a value with no
-units of its own shows the record's EGU from Hare. A number or text field is
-a **draft** once typed in, marked and kept when the field loses focus:
-Enter writes it, Esc drops it, so an arrow key or a spinner click on a
-motor's target never sends a move (the screen renderer's rule); a tweak's
-− / + while its step is a draft sends the step and then the press as one
-list, stopped at the first refusal, so the record never steps by a step the
-field no longer shows (`device_rules.tweakList`); a select, a checkbox or a
-button writes when chosen (`device_rules.commitKey`, `writeValue`).
+units of its own shows the record's EGU from Hare. A setpoint is the
+setpoint control (§ below: a field tracking the device's setpoint, a draft
+kept until a write of it is accepted, the two values under it, `differs`);
+a tweak's − / + while its step is a draft sends the step and then the press
+as one list, stopped at the first refusal, so the record never steps by a
+step the field no longer shows (`device_rules.tweakList`); a select, a
+checkbox or a button writes when chosen (`device_rules.commitKey`,
+`writeValue`).
 A device is classified by its roster `source` first: a gateway device's
 family is its DB device type, never looked up as a family file, even when
 it is spelled like one.
 
-The camera page keeps its hand-coded rail (`device_camera.html`,
-`camera_controls.js`, which writes on `change`, and its readings in
-`camera.js`) until it moves onto its family's panel and this rail. The
-screen renderer and this rail are two vocabularies today; the slice that
-merges them takes over, on this side, `_panel.html`'s `control` and
-`readings`, `device_rules.writeValue`, `device_writes.js` (with its hazard
-dialog) and the enable, format and hazard rules still in `camera_rules.js`
-(`control`, `fmt`, `pressed`, `hazards`); on the screen's side, the
-`setpoint` / `toggle` / `flipper` / `button` / `readout` widgets,
-`screen_rules.writable` / `show` / `misfit`, `screen.js`'s `asValue`,
-`write` and its `#confirm` dialog, and GEECS-Schemas `screens.py`'s `_FITS`
-(the kind ↔ role-type table this rail writes the other way round). An enum
-select has no widget kind yet; the merge adds one. The rail-and-pane grid
-still borrows `camera.css`'s `.camera` layout, which moves to `device.css`
-with it.
+The camera page draws its family's panel with the same macros
+(acquisition with acquire's Stop / Start, the crosshairs, the analysis
+ROI; the readings strip), filled and written by this rail through
+`camera.js`'s writes (one list at a time for the page, shared with the
+image's drags). Two blocks stay the camera's own: the camera ROI, one
+draft of four fields applied behind its dialog because it changes what
+scans save (its fields carry `data-roi-role`, never `data-role`, so the
+rail does not bind them), and the display (this viewer's colour map and
+levels). The rail skips a group without `data-roles` (a page's own group
+beside the panel's). The rail-and-pane grid (class `camera`) and the
+readings strip are `device.css`'s; `camera.css` is the camera page's alone.
+The screen renderer draws its controls with this rail too, and a `group`
+widget draws one of these panels' groups whole (§ "Rules that hold here").
+
+## The setpoint control
+
+The maintainer's rulings of 2026-11-06, from his operators' request to set a
+value and see it read back in the same interface (our LabVIEW GUIs do not
+track a setpoint: never cite them as precedent). One control: `_panel.html`'s
+`control` for a `setpoint` and `device_rail.js`'s `setpoint()`, its rules in
+`device_rules.js` with rows in `test_device_rules_js.py` and, over
+GeecsCanopy's own module, in `test_module_contract.py`.
+
+- **The field tracks the device's setpoint** whenever it holds no draft
+  and is not focused (a value landing under the caret, a DB device's
+  measured value at 5 Hz, would be typed into and written). The setpoint is the
+  role's **write record**, the module's `writePv`, read over Hare
+  (`GeecsDevicePage.target`: watched on first ask, judged as a bare PV, since
+  the module judges the role's own record): areaDetector's `X` beside the
+  `X_RBV` the role reads, the motor's `.VAL`, a supply's `current:SP`
+  (`device_rules.sources`). No family declares a setpoint record of its own:
+  the route already names it, a role keeps the meaning the archiver, presets
+  and Squirrel read, and a DB device needs no per-device data. One
+  exception: a DB device's write record is the gateway's `:SP`, the last put
+  the gateway forwarded (0 or empty until the first since the gateway
+  started; it never reads the device), so its field tracks the device's
+  value. Drop the exception if the gateway ever seeds `:SP` from the device.
+- **Both values beside the field where they are distinct records**: `set`
+  the setpoint record, `now` the measured one (the family's `readback`, else
+  the role's own record), each with its word; `now` alone where the two are
+  one record (a motor's speed).
+- **The draft** (a number or text field once typed in, marked) writes on
+  Enter, never as typed, so an arrow key or a spinner click on a motor's
+  target never sends a move; Esc drops it. It survives a blur, a refusal, an
+  unsent write (no operator, the hazard not confirmed, another write in
+  flight) and a value that is no number, and clears only when a write of it
+  is accepted (`device_rules.accepted`, the one test of the module's answer,
+  which `device_writes.js` stops on; `device_rules.keepsDraft`): one rule for
+  a field's Enter and a tweak's step. The field is disabled while its write
+  runs, so a kept draft is focused again after, for Esc or a fix, unless
+  focus went elsewhere meanwhile (the operator's name, asked for).
+- **`differs`, after a write settles.** An accepted write of a setpoint (or
+  its tweak's press) arms the field; the mark is judged `SETTLE_MS` (1 s)
+  after the acceptance and, for a setpoint with `settled_by` (the motor's
+  `dmov`), only while that done flag reads 1 (`device_rules.mark`); it stands
+  while the measured value is outside the tolerance of the setpoint and
+  clears, disarming, when they agree (`device_rules.disarms`: verified
+  agreement, or nothing to judge). While the module is silent (a failed
+  device poll: no route entry) the mark is hidden and the field stays armed
+  (`device_rules.settleMark`), so the mark returns with the route; pinned by
+  running `device_rail.js` itself over a fake page in
+  `test_device_rules_js.py`. The tolerance is the role's `tolerance`
+  (a number: the family's, or a DB device's DB `tolerance`, its
+  set-convergence criterion, which GeecsCanopy's gateway source puts on the
+  role and the module's route serves), else its `tolerance_by` role's value
+  (the motor's `rdbd`, the record's own retry deadband), else one unit in the last digit of the
+  measured record's precision (Hare's meta), else exact (a whole number, or
+  no precision). The page judges its own writes only: another client's
+  write, or one made before the page loaded, arms nothing; a reload disarms.
 
 ## The trace
 
@@ -483,7 +581,7 @@ the counter probe and the mid-batch retry. The page scripts run under node (skip
 npm, no jsdom): `test_hare_js.py` with a fake socket, `test_poller_js.py`
 with a fake fetch, and `test_screen_rules_js.py` / `test_home_rules_js.py` /
 `test_directory_rules_js.py` / `test_device_rules_js.py` / `test_camera_rules_js.py` as tables, one row per rule (`tests/_node.py` is the harness);
-`test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
+`test_screen_rail_js.py` runs the real `device_rail.js` and `device_writes.js` over a fake screen (a widget's `confirm` note asks before any put, the pair's values and enum words, a select narrowed to a family role's choices, a bare PV's field disabled, an unsent choice going back) and the real `screen.js` over a fake page (a widget's `precision` shown as `digits`, never the record's precision the settle is judged by; the rail filling a readout's units from Hare, whose placeholder `test_screens.py` pins in the template); `test_raw_page.py` drives the raw path end to end: a 600×600 dark floor with one hot pixel served
 by `frame.raw` over `test_images.py`'s fake CA (as int16, as aioca delivers it asked `DBR_SHORT`), its bytes checked on the
 wire, then decoded, transformed and levelled by `camera_rules.js` under node. A rule a
 page needs goes in a `*_rules.js` file with a row here; the page script

@@ -157,19 +157,24 @@ picker's, and the device's name the page you are on.
 
 ## A screen
 
-![A screen: the simulator bench](assets/control_room_04_screen.png)
+![A screen: the HTU Control Center (a bench of its own bindings), light theme](assets/control_room_21_screen_control_center.png)
 
 A screen is a grid of titled groups, each a column of widgets. Every
-widget shows a label, the value, and a status dot with its word.
+widget shows a label, the value, and a status dot with its word. Its
+controls are the device pages' own, so a setting works the same on a
+screen as on its device's page.
 
-- A **setpoint** shows an input with the limits beside it
-  (`[-5 … 5]`) and the readback under it (`rb 0.001`). When setpoint and
-  readback disagree at the precision shown, the readback says `differs`.
-- A **toggle** shows the current state as a button; pressing it writes the
-  other state.
+- A **setpoint** is a setting: the field shows the device's setpoint, with
+  `set` and `now` under it and `differs` after a write that did not land
+  (see [A setting and the numbers under it](#a-setting-and-the-numbers-under-it));
+  hover over the field for its limits.
+- A **toggle** is a pair of buttons, off and on (or the device's own two
+  words); the pressed one is what the device reads, and pressing the other
+  writes it. When the device reads neither, neither is pressed.
 - A **flipper** is a toggle with its in and out indicators.
+- A **select** is a list of the device's own choices; choosing one writes it.
 - A **button** sends a command (a jog, a reset) or runs an action.
-- A **readout** is read-only.
+- A **readout** is read-only, with its word.
 - Text notes and pictures are part of the layout only.
 
 A writing widget is greyed out when the module says the role is not
@@ -178,8 +183,9 @@ a raw PV rather than a device role (those are read-only by design).
 
 ### Writing
 
-Type a value and press Enter (a setpoint), or press the toggle or button.
-The widget shows `sending`, then the module's answer:
+Type a value and press Enter (a setpoint: what you typed stays until the
+device takes it), choose an option, or press a toggle's other button or a
+button. The widget shows `sending`, then the module's answer:
 
 - `accepted`: the write was made and journaled.
 - `denied · <code>`: a rule stopped it before anything was sent (see
@@ -227,7 +233,15 @@ refused (`409 already_running`).
 
 A camera's page (`/device/camera/<name>`, from the home's camera picker)
 shows its image with the acquisition controls, crosshairs, the analysis ROI,
-the lineouts and the histogram beside it. By default the image is the IOC's
+the lineouts and the histogram beside it. Its controls are every device
+page's: **Acquisition** (Stop / Start, exposure, period, gain, trigger mode),
+**Crosshairs** and **Analysis ROI**, each setting with `set` and `now` under
+it (see [A setting and the numbers under it](#a-setting-and-the-numbers-under-it)),
+and the readings above the image. Two blocks are the camera's own: the
+**camera ROI**, whose four fields you edit together and apply behind a
+dialog (it changes what every scan with this camera saves), and the
+**display** (colour map, scale, levels), which is yours alone and writes
+nothing. By default the image is the IOC's
 MJPEG display stream: 8-bit and JPEG-compressed, good for watching a beam,
 too coarse for a camera's noise (a dark floor flattens to a few grey levels
 and a single bright pixel smears into a block).
@@ -310,8 +324,9 @@ family file, never from the page.
 
 - **The rail** is the family's control groups (for a scope: Acquisition,
   Trigger, one group per channel). Each control is drawn by what it is: a
-  choice is a list of the record's own choices, a setting a number with
-  `now …` (what the device holds) under it, written when you press Enter,
+  choice is a list of the record's own choices, a setting a number field
+  showing the device's setpoint with two numbers under it (see
+  [A setting and the numbers under it](#a-setting-and-the-numbers-under-it)),
   a switch a checkbox. Acquire
   is a **Stop / Start** pair; the highlighted one is what the device is
   doing now. Every
@@ -360,8 +375,10 @@ registry or the database, never a new page.
 - **The rail.** Its groups come from the device's family when the family
   has a panel. A motor has Move, Home and Speed; a supply has Output and
   Faults. Each control is drawn by what it is, as on the trace page:
-  - A setting is a number with `now …` under it, the value the device
-    holds. A text setting is a text field.
+  - A setting is a number field showing the device's setpoint, with
+    `set` and `now` under it (see
+    [A setting and the numbers under it](#a-setting-and-the-numbers-under-it)).
+    A text setting is a text field.
   - A choice is a list of the record's own choices.
   - A switch is a checkbox, or a pair of buttons such as a supply's
     **Off / On**.
@@ -379,9 +396,8 @@ registry or the database, never a new page.
   voltage, output, and the fault and interlock bits.
 - **Writes** go through the same path as a screen's, with your name from
   the header and sent once. A number or text field writes when you press
-  **Enter**; until then what you typed is kept, its border marked, and
-  **Esc** drops it and shows the device's value again, so an arrow key or
-  the field's little arrows never move a motor on their own. A step typed
+  **Enter** (the next section says what happens to what you typed), so an
+  arrow key or the field's little arrows never move a motor on their own. A step typed
   in the tweak's box and not yet written is sent first when you press
   **−** or **+**. A list, a checkbox or a button writes
   when you choose it. A hazard asks first (a supply's output, a motor's
@@ -408,6 +424,51 @@ loads; if the module does not answer, the directory says so and lists
 the registry's devices alone.
 
 ![The motor's page, dark theme](assets/control_room_16_settables_motor_dark.png)
+
+## A setting and the numbers under it
+
+Every setting on a device page (an integration time, a motor's target, a
+supply's current) is drawn the same way.
+
+![A spectrometer's integration time after a write of 20 s that the device read back as 10 s: set 20, now 10, differs (light theme)](assets/control_room_19_setpoint_differs_light.png)
+
+- **The field shows the device's setpoint**, and follows it while you are
+  not in it: if someone else changes it, the field changes too. To change
+  it, click in, type over it and press **Enter**. While the field has the
+  cursor it holds still, so nothing arriving from the device lands in what
+  you are typing.
+- **What you type is kept until the device takes it.** The field's border
+  is marked while it holds your value. It stays when you click away, when
+  the write is refused (out of bounds, not permitted, no operator name in
+  the header) and when another write is still in flight, so you can fix it
+  and press Enter again. It is cleared when the module accepts the write;
+  the field then shows the setpoint again. **Esc** drops what you typed.
+- **`set`** under the field is the setpoint the device holds now: what you
+  (or anyone) last wrote. It is shown where the setpoint is a record of
+  its own (a camera or spectrometer parameter, a motor's target, a
+  supply's current setpoint, a GEECS device's setpoint PV).
+- **`now`** is the measured value: what the device reports it is actually
+  using or where it actually is (the integration time the spectrometer
+  used, the motor's position, the supply's output current). Where the
+  setpoint and the measured value are one and the same record (a motor's
+  speed), only `now` is shown.
+- Each carries its word (`live`, `stale`, …) like every reading.
+- **`differs`** appears after a write of yours has settled (a second after
+  the module accepted it, and for a motor once it has stopped moving) when
+  `now` is further from `set` than the device's tolerance: the motor's
+  retry deadband, a GEECS device's tolerance from the GEECS database, else
+  one step in the last digit the device shows. It
+  means the device did not get where you asked (a value it clamped, a
+  motor that stopped short, a supply still ramping). It goes away when the
+  two agree again. While the page cannot reach the module it is hidden,
+  with every word `unknown`, and it comes back if the two still differ
+  once the page hears from the module again. The page only marks writes made from it: a reload, or a
+  write from another screen, starts with no mark.
+- **A GEECS device** (one LabVIEW serves): the field shows the device's
+  value, and `set` is the last value written through the gateway since it
+  started, which reads 0 until the first write.
+
+![The same, dark theme, after a write of 30 s](assets/control_room_20_setpoint_differs_dark.png)
 
 ## When a write is refused
 

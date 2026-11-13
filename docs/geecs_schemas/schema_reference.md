@@ -799,6 +799,8 @@ One record of the template, by what it does for a page.
 | `locked` | `bool` | no | False | Refused while a run holds the device (the run lock), or while the lock cannot be read: what a scan saves. |
 | `settled_by` | `str (optional)` | no | None | A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag. |
 | `readback` | `str (optional)` | no | None | A setpoint's readback, shown beside it (a motor's .RBV beside .VAL). |
+| `tolerance` | `float (optional)` | no | None | On a setpoint: how far its measured value may sit from the setpoint, in the role's units, before a page marks them as differing once a write has settled. Absent: 'tolerance_by', else the record's precision (one unit in the last digit shown), else exact. |
+| `tolerance_by` | `str (optional)` | no | None | On a setpoint: the readback whose value is that tolerance, where the record keeps one (the motor record's retry deadband, RDBD). |
 | `fresh_by` | `str (optional)` | no | None | The counter role whose advance makes this value fresh (the producing plugin's ArrayCounter_RBV): statistics post only on change, so a steady value is judged by its producer. Absent: fresh while connected. |
 | `computed_by` | `str (optional)` | no | None | The flag that must be on for the value to be computed at all (ComputeCentroid): with it off the value reads 'off', not fresh. |
 | `text` | `'string' \| 'char_array' (optional)` | no | None | Read as text: a string record, or a char-array record longer than a string's 40 characters. Enums are read by state name regardless. |
@@ -1049,11 +1051,12 @@ One control: its kind, the label a person reads, and what it is bound to.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'readout' \| 'annotation' \| 'image'` | yes | — | The widget, one of the seven. |
-| `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label. |
+| `kind` | `'setpoint' \| 'toggle' \| 'flipper' \| 'button' \| 'select' \| 'readout' \| 'annotation' \| 'image' \| 'group'` | yes | — | The widget, one of the nine. |
+| `label` | `str` | no | '' | Free text shown beside it (an annotation's text); empty: the role's label (a group's: its title). |
 | `bind` | `Binding (optional)` | no | None | What it shows and writes; none for an annotation or an image. |
 | `indicators` | `list[Binding]` | no | [] | A flipper's in and out indicators, in that order. |
 | `confirm` | `str (optional)` | no | None | A hazard note the operator confirms before the write. |
+| `values` | `ToggleValues (optional)` | no | None | A toggle's or flipper's on and off numbers: with them it binds a numeric setpoint role. |
 | `units` | `str (optional)` | no | None | Units shown, where the record carries none. |
 | `precision` | `int (optional)` | no | None | Digits after the point. |
 | `src` | `str (optional)` | no | None | An image's file name in the screens folder. |
@@ -1069,6 +1072,16 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
 | `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
 | `action` | `str (optional)` | no | None | An action plan's name in the experiment's library: a button runs it. |
+| `group` | `str (optional)` | no | None | A rail group's title in the device's family panel, or 'settings' for the automatic layout: a group widget draws it. |
+
+### ToggleValues
+
+The two numbers a toggle writes to a numeric role (a LabVIEW boolean kept as a number).
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `on` | `float` | yes | — | Written to switch it on; a readback equal to it reads on. |
+| `off` | `float` | yes | — | Written to switch it off; a readback equal to it reads off. Any other readback reads unknown. |
 
 ## `home_layout`
 

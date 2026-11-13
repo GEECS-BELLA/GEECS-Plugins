@@ -62,13 +62,14 @@ is a complete worked example.
 
 ### Bindings
 
-A widget's `bind` is exactly one of three forms:
+A widget's `bind` is exactly one of four forms:
 
 | Form | Example | Meaning |
 |---|---|---|
 | Device role | `{device: eztest1, role: current_sp}` | A role from the device's family file. On a per-axis family (a motor), add `axis: m1`. On a LabVIEW device served through the gateway, the role is the GEECS variable name: `{device: U_PLC, role: DO.Ch1}`. |
 | Bare PV | `{pv: "x:u_plc:di_ch5"}` | A PV by name, **read only**: a writing widget bound to one is drawn disabled. For a value that belongs to no device role (a timestamp, a derived channel). |
 | Action | `{action: bench_park}` | A plan in `action_library/actions.yaml`. Only a `button` may bind one. |
+| Device group | `{device: eztest1, group: Output}` | A rail group of the device's page, by its title in the family's `panel` (`axis:` on a per-axis family), or `settings` for the automatic layout of a device whose family has none (every LabVIEW device served through the gateway). Only a `group` may bind one. |
 
 Name the device by its GEECS name, never by its PV; the PV comes from the
 module.
@@ -78,16 +79,27 @@ module.
 Every widget has a `kind` and a `label` (empty: the role's own label).
 Optional fields: `units` (when the record carries none), `precision`
 (digits after the point, 0–12) and `confirm` (a hazard note the operator
-confirms before a write; writing kinds only).
+confirms before a write; writing kinds only). A writing widget is drawn
+with the device pages' own controls (one set for both, the device rail's),
+so a setting looks and behaves the same on a screen as on its device's
+page.
 
-**setpoint**: an input with the role's readback beside it. Takes a writable
-`setpoint` role.
+**setpoint**: the device page's setting: a field that shows the device's
+setpoint, with `set` and `now` under it and `differs` after a write that did
+not land (the operator's view: [A setting and the numbers under
+it](../web_services/control_room.md#a-setting-and-the-numbers-under-it)).
+Takes a writable `setpoint` role.
 
 ```yaml
 - {kind: setpoint, label: Exposure, bind: {device: UC_VisaEBeam6, role: exposure}, units: s, precision: 4}
 ```
 
-**toggle**: a two-state switch. Takes a writable `bit` or `enum` role.
+**toggle**: a pair of buttons, off then on; the one the record reads is
+pressed, and pressing the other writes it. Labelled by the enum's own two
+words (a bit: Off / On). Takes a writable `bit` or `enum` role. With
+`values: {on: <n>, off: <n>}` it writes those numbers to a numeric
+`setpoint` role instead (a LabVIEW boolean kept as a number); a reading that
+is neither number presses neither button.
 
 ```yaml
 - kind: toggle
@@ -97,8 +109,8 @@ confirms before a write; writing kinds only).
 ```
 
 **flipper**: a toggle with up to two indicators, in then out. Takes a
-writable `bit` or `enum` role; each indicator is a binding that can be
-read.
+writable `bit` or `enum` role (or `values`, as a toggle); each indicator is
+a binding that can be read.
 
 ```yaml
 - kind: flipper
@@ -115,7 +127,15 @@ writable `command` or `bit` role, or `{action: …}`.
 - {kind: button, label: Park, bind: {action: bench_park}}
 ```
 
-**readout**: a read-only value. Takes a `readback`, `setpoint`, `counter`,
+**select**: a list of the enum's own choices (narrowed to the family role's
+`choices` when it has them); choosing one writes it. Takes a writable `enum`
+role (a filter wheel's position).
+
+```yaml
+- {kind: select, label: Coarse filters, bind: {device: U_FilterWheel, role: "pos.Channel0"}}
+```
+
+**readout**: a read-only value with its word. Takes a `readback`, `setpoint`, `counter`,
 `bit` or `enum` role, or a bare PV.
 
 ```yaml
@@ -135,6 +155,30 @@ binding.
 ```yaml
 - {kind: image, src: chicane_layout.png}
 ```
+
+**group**: a whole group of a device's page, drawn as that page draws it:
+every control of the group, and the device's readings folded under it
+(**Readings · device**; under the first group widget of each device only). Binds a device and a group: a title from the
+family's `panel` (a supply's `Output`, a motor's `Move` on an axis, a
+scope's `Trigger`), or `settings` for a device laid out automatically (a
+LabVIEW device's writable variables, its read-only ones the readings). The
+`label`, when given, replaces the group's title. It takes no `units`,
+`precision` or `confirm`: its controls take theirs from the device, and a
+hazard role asks as on the device's page. The screen refuses a group the
+family's panel does not have (and lists the ones it does), and one whose
+roles the device's `omit` leaves empty. Use it where a
+screen wants what the device page already lays out; bind single roles where
+it wants a few of them in its own order.
+
+```yaml
+- {kind: group, bind: {device: eztest1, group: Output}}
+- {kind: group, label: Stage X, bind: {device: SimMotor1, group: Move, axis: m1}}
+- {kind: group, label: Plunger PLC, bind: {device: U_PLC, group: settings}}
+```
+
+The group is read from the module when the page is drawn: should the module
+not answer for that device, the widget says so and the rest of the screen
+draws; reload the page to draw it.
 
 ## The home's launcher: `home.yaml`
 

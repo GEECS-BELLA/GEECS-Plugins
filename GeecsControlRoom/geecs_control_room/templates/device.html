@@ -20,7 +20,7 @@
   device) is complete with no template of its own.
 #}{% extends "base.html" %}{% import "_panel.html" as P %}
 {% block title %}{{ name or kind }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css"><link rel="stylesheet" href="{{ root }}/static/camera.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ root }}/static/device.css">{% endblock %}
 {% block crumbs %}{% if kind in kinds %}<nav class="crumbs" aria-label="Breadcrumb"><span class="sep" aria-hidden="true">›</span>
   {% if name %}<a href="{{ root }}/device/{{ kind }}">{{ kind }}</a><span class="sep" aria-hidden="true">›</span><span class="mono" aria-current="page">{{ name }}</span>
   {% else %}<span aria-current="page">{{ kind }}</span>{% endif %}</nav>{% endif %}{% endblock %}
@@ -108,4 +108,4 @@
 </main>
 <script type="application/json" id="kit-state">{{ kit_state | tojson }}</script>
 {% endblock %}
-{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/device_rules.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/device.js" defer></script>{% if device %}<script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/device_rail.js" defer></script>{% endif %}{% endblock %}
+{% block scripts %}<script src="{{ root }}/static/screen_rules.js" defer></script><script src="{{ root }}/static/camera_rules.js" defer></script><script src="{{ root }}/static/device_rules.js" defer></script><script src="{{ root }}/static/device_source.js" defer></script><script src="{{ root }}/static/poller.js" defer></script><script src="{{ root }}/static/device.js" defer></script>{% if device %}<script src="{{ root }}/static/device_writes.js" defer></script><script src="{{ root }}/static/device_rail.js" defer></script>{% endif %}{% endblock %}

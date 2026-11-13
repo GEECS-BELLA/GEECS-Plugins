@@ -36,6 +36,7 @@ from geecs_control_room.app import create_app
 from geecs_control_room.images import Images
 from geecs_control_room.module_client import ModuleClient
 from geecs_control_room.settings import Settings
+from tests._node import call_all, needs_node
 from tests.test_images import FakeCa
 
 #: Every field screen.js reads from a role of /api/devices/{name}.
@@ -487,7 +488,9 @@ def _db_devices() -> list:
 
     # a DB device type that is also an installed family's name: still a DB device, by its source
     collides = [
-        var("Position", "position", "setpoint", True, limits=(0.0, 10.0)),
+        var(
+            "Position", "position", "setpoint", True, limits=(0.0, 10.0), tolerance=0.05
+        ),
         status,
     ]
     return [resolved("U_PLC", "PLC Digital Output", plc), resolved("U_Wheel", "Thorlabs FW102C", wheel), resolved("DBMotor", "motor_record", collides)]  # fmt: skip
@@ -571,7 +574,10 @@ async def test_a_db_device_is_laid_out_automatically_and_written_through_the_mod
     assert _groups(wheel) == [("Settings", ["Position", "Comment"])]
     assert re.search(r'<select id="c-1-1" data-role="Position" disabled>', wheel)
     # a text setting is a text field from the first draw (the module says so), and the DB's units are shown
-    assert '<input type="text" id="c-1-2" data-role="Comment" disabled>' in wheel
+    assert (
+        '<input type="text" id="c-1-2" data-role="Comment" data-readback="Comment" disabled>'
+        in wheel
+    )
     assert re.search(
         r'data-role="Temperature"><span class="k">Temperature <small>degC</small>',
         wheel,
@@ -590,6 +596,39 @@ async def test_a_db_device_is_laid_out_automatically_and_written_through_the_mod
     assert '<a href="/device/settables/U_Wheel">U_Wheel</a>' in home
 
 
+async def test_a_screens_group_widget_draws_a_devices_rail_group_as_its_page_does(db_room) -> None:  # fmt: skip
+    (db_room.env.folder / "screens").mkdir()
+    (db_room.env.folder / "screens" / "s.yaml").write_text(
+        "title: S\ngroups:\n  - {title: G, at: [1, 1], widgets: [\n"
+        "      {kind: group, bind: {device: ps1, group: Output}},\n"
+        "      {kind: group, label: Stage, bind: {device: Mot1, group: Move, axis: m2}},\n"
+        "      {kind: group, bind: {device: U_PLC, group: settings}},\n"
+        "      {kind: group, bind: {device: ps1, group: Faults}}]}\n"
+    )
+    page = (await db_room.client.get("/screens/s")).text
+    # the family's group (the screen's label over its title), the motor's on the bound axis, a DB device's automatic layout
+    plc = [f"DO.Ch{i}" for i in range(1, 6)]
+    assert _groups(page) == [("Output", ["output_sp", "current_sp"]), ("Stage", ["val", "twv", "twf", "twr", "stop"]), ("Settings (grid)", plc), ("Faults", ["reset"])]  # fmt: skip
+    supply = (await db_room.client.get("/device/supply/ps1")).text
+    motor = (await db_room.client.get("/device/motor/Mot1")).text
+    assert (
+        _groups(supply)[0] == _groups(page)[0]
+        and _groups(motor)[0][1] == _groups(page)[1][1]
+    )  # as the device pages draw them
+    assert 'data-role="output_sp" data-value="0" data-pair aria-pressed="false" disabled>Off</button>' in page  # fmt: skip
+    assert 'data-role="twr" data-axis="m2" data-step="twv" data-value="1"' in page and 'data-axis="m1"' not in page  # fmt: skip
+    # each device's readings (per axis) folded under its first group widget only; every id on the page once
+    assert re.findall(r"<summary>Readings · ([\w ]+)</summary>", page) == ["ps1", "Mot1 m2", "U_PLC"]  # fmt: skip
+    assert 'class="live" data-role="hls" data-axis="m2"' in page and 'class="live" data-role="DI.Ch1"' in page  # fmt: skip
+    ids = re.findall(r' id="([^"]+)"', page)
+    assert len(ids) == len(set(ids))
+    # each widget is its device's (polled, written through the module's put route as any screen control)
+    assert re.findall(r'<div class="w" data-kind="group" data-device="(\w+)"', page) == ["ps1", "Mot1", "U_PLC", "ps1"]  # fmt: skip
+    await _meta(db_room, "U_PLC", "DO.Ch2", None, {"enumChoices": ["off", "on"]})
+    status, answer = await put(db_room, "U_PLC", role="DO.Ch2", value=1)
+    assert status == 200 and answer["outcome"] == "accepted", json.dumps(answer)
+
+
 async def test_a_db_device_is_classified_by_its_source_never_by_its_type_name(
     db_room,
 ) -> None:
@@ -597,5 +636,173 @@ async def test_a_db_device_is_classified_by_its_source_never_by_its_type_name(
     page = await db_room.client.get("/device/settables/DBMotor")
     assert page.status_code == 200 and "Laid out automatically" in page.text
     assert _groups(page.text) == [("Settings", ["Position"])]
+    # its DB tolerance reaches the field through the module's route: `differs` is judged within it
+    assert re.search(
+        r'data-role="Position" step="any" data-readback="Position" data-tol="0.05"',
+        page.text,
+    )
     wrong = await db_room.client.get("/device/motor/DBMotor")
     assert wrong.status_code == 422 and "/device/settables/DBMotor" in wrong.text
+
+
+# ---- the setpoint control over the module's own answers (device_rules.js under node)
+
+
+async def _roles(room, device: str) -> dict:
+    """The module's route entries for ``device`` by (role, axis)."""
+    body = (await room.client.get(f"/api/devices/{device}")).json()
+    return {(r["role"], r["axis"]): r for r in body["roles"]}
+
+
+@needs_node
+async def test_a_setpoint_field_tracks_the_write_record_the_module_names(room) -> None:
+    cam, mot, ps = (await _roles(room, "Cam1")), (await _roles(room, "Mot1")), (await _roles(room, "ps1"))  # fmt: skip
+    exposure = cam[("exposure", None)]
+    assert exposure["pv"].endswith("AcquireTime_RBV") and exposure["writePv"].endswith("AcquireTime")  # fmt: skip
+    got = call_all("device_rules.js", [
+        ("sources", [exposure, "exposure", False]),  # the field tracks AcquireTime, the _RBV beside it
+        ("sources", [mot[("val", "m1")], "rbv", False]),  # .VAL, .RBV beside it
+        ("sources", [mot[("velo", "m1")], "velo", False]),  # one record
+        ("sources", [ps[("current_sp", None)], "current", False]),  # current:SP, current beside it
+    ])  # fmt: skip
+    assert got == [{"field": "write", "set": True}, {"field": "self", "set": True}, {"field": "self", "set": False}, {"field": "self", "set": True}]  # fmt: skip
+
+
+@needs_node
+async def test_an_accepted_write_clears_the_draft_and_a_refusal_keeps_it(room) -> None:
+    await _meta(
+        room, "ps1", "current_sp", None, {"controlLow": 0.0, "controlHigh": 10.0}
+    )
+    answers = [
+        (await put(room, "ps1", role="current_sp", value=2.0))[1],
+        (await put(room, "ps1", role="current_sp", value=11.0))[1],  # out of bounds
+        (await put(room, "ps1", role="reset", value=1, operator="bob"))[
+            1
+        ],  # not permitted
+    ]
+    assert [a["outcome"] for a in answers] == ["accepted", "refused", "denied"]
+    oks = call_all("device_rules.js", [("accepted", [a]) for a in answers])
+    assert call_all("device_rules.js", [("keepsDraft", [ok]) for ok in oks]) == [
+        False,
+        True,
+        True,
+    ]
+
+
+@needs_node
+async def test_a_settled_mismatch_is_flagged_and_cleared_when_they_agree(room) -> None:
+    await _meta(
+        room, "ps1", "current_sp", None, {"controlLow": 0.0, "controlHigh": 10.0}
+    )
+    roles = await _roles(room, "ps1")
+    sp_pv, mv_pv = (
+        roles[("current_sp", None)]["writePv"],
+        roles[("current", None)]["pv"],
+    )
+    status, answer = await put(room, "ps1", role="current_sp", value=5.0)
+    assert (status, answer["outcome"]) == (200, "accepted")
+    sp = (await room.env.hare.get(sp_pv))[
+        "value"
+    ]  # the setpoint record holds the write
+    [tol] = call_all(
+        "device_rules.js", [("tolerance", [{"precision": 2}])]
+    )  # the record's PREC 2
+    marks = call_all("device_rules.js", [
+        ("mark", [{"armedAt": 0, "now": 500, "sp": sp, "mv": 4.0, "tol": tol}]),  # not settled yet
+        ("mark", [{"armedAt": 0, "now": 1000, "sp": sp, "mv": 4.0, "tol": tol}]),  # settled: the supply sits at 4 A
+        ("mark", [{"armedAt": 0, "now": 3000, "sp": sp, "mv": 4.996, "tol": tol}]),  # within 0.01: agrees
+    ])  # fmt: skip
+    assert (sp, tol, marks) == (5.0, 0.01, ["waiting", "differs", "agrees"])
+    assert mv_pv != sp_pv
+    # the module's route fails one poll (the page keeps no entry), then answers again: the arming survives the silence
+    room.broken.add("/devices/ps1")
+    silent = await room.client.get("/api/devices/ps1")
+    room.broken.clear()
+    back = await room.client.get("/api/devices/ps1")
+    assert (
+        silent.status_code >= 500 and back.status_code == 200
+    )  # device.js: a 5xx is the module silent
+    known = [False, any(r["role"] == "current_sp" for r in back.json()["roles"])]
+    judged = {"set": True, "armedAt": 0, "now": 9000, "sp": sp, "mv": 4.0, "tol": tol}
+    states = call_all(
+        "device_rules.js", [("settleMark", [judged | {"known": k}]) for k in known]
+    )
+    assert states == ["waiting", "differs"]
+    assert call_all("device_rules.js", [("disarms", [x]) for x in states]) == [
+        False,
+        False,
+    ]
+
+
+@needs_node
+async def test_a_motor_is_judged_by_done_moving_within_its_deadband(room) -> None:
+    await _meta(room, "Mot1", "val", "m1", {"controlLow": -10.0, "controlHigh": 10.0})
+    roles = await _roles(room, "Mot1")
+    status, answer = await put(room, "Mot1", role="val", axis="m1", value=3.0)
+    assert (status, answer["outcome"]) == (200, "accepted"), json.dumps(answer)
+    hare = room.env.hare
+    hare.values[roles[("rdbd", "m1")]["pv"]] = live(0.01)
+    sp = (await hare.get(roles[("val", "m1")]["writePv"]))["value"]
+    rdbd = (await hare.get(roles[("rdbd", "m1")]["pv"]))["value"]
+    rules = call_all("device_rules.js", [("tolerance", [{"by": rdbd, "precision": 4}]), ("done", [live(0)]), ("done", [live(1)])])  # fmt: skip
+    tol, moving, stopped = rules
+    marks = call_all("device_rules.js", [
+        ("mark", [{"armedAt": 0, "now": 5000, "isDone": moving, "sp": sp, "mv": 1.2, "tol": tol}]),  # DMOV 0: waiting
+        ("mark", [{"armedAt": 0, "now": 9000, "isDone": stopped, "sp": sp, "mv": 2.95, "tol": tol}]),  # stopped short
+        ("mark", [{"armedAt": 0, "now": 9000, "isDone": stopped, "sp": sp, "mv": 2.995, "tol": tol}]),  # inside RDBD
+    ])  # fmt: skip
+    assert (sp, tol, marks) == (3.0, 0.01, ["waiting", "differs", "agrees"])
+
+
+async def test_a_select_and_a_valued_toggle_draw_the_rails_controls_and_write_through_the_put_route(room) -> None:  # fmt: skip
+    (room.env.folder / "screens").mkdir()
+    (room.env.folder / "screens" / "s.yaml").write_text(
+        "title: S\ngroups:\n  - {title: G, at: [1, 1], widgets: [\n"
+        "      {kind: select, bind: {device: Cam1, role: transform}},\n"
+        "      {kind: select, bind: {device: Cam1, role: crosshair1_shape}},\n"
+        "      {kind: toggle, bind: {device: ps1, role: current_sp}, values: {on: 2, off: 0}}]}\n"
+    )
+    page = (await room.client.get("/screens/s")).text
+    # the rail's select (the family's narrowing on it) and the rail's two-state pair writing the toggle's numbers
+    assert re.search(
+        r'<select id="w-[^"]+" data-role="transform"[^>]*disabled></select>', page
+    )
+    assert (
+        'data-role="crosshair1_shape" data-choices="[&#34;Cross&#34;, &#34;Rectangle&#34;]"'
+        in page
+    )
+    assert re.findall(r'data-role="current_sp" data-value="([^"]+)" data-pair aria-pressed', page) == ["0.0", "2.0"]  # fmt: skip
+    roles = {r["role"]: r for r in (await room.client.get("/api/devices/Cam1")).json()["roles"]}  # fmt: skip
+    assert roles["transform"]["type"] == "enum" and roles["transform"]["writable"]
+    sp = next(r["pv"] for r in (await room.client.get("/api/devices/ps1")).json()["roles"] if r["role"] == "current_sp")  # fmt: skip
+    room.env.hare.meta[sp] = {"controlLow": 0.0, "controlHigh": 5.0}
+    room.env.hare.meta[roles["transform"]["writePv"] or roles["transform"]["pv"]] = {"enumChoices": ["None", "Rot90"]}  # fmt: skip
+    status, body = await put(
+        room, "ps1", role="current_sp", value=2.0
+    )  # the pair's "On"
+    assert (status, body["outcome"]) == (200, "accepted")
+    status, body = await put(
+        room, "Cam1", role="transform", value=1
+    )  # the option, by index
+    assert (status, body["outcome"]) == (200, "accepted") and room.env.hare.puts[-1][
+        1
+    ] == 1
+
+
+async def test_the_camera_page_draws_its_familys_panel_with_the_rails_controls(
+    room,
+) -> None:
+    """The camera's rail and readings are the family's panel, drawn by the shared macros; its camera ROI stays its own, out of the rail's reach."""
+    page = (await room.client.get("/device/camera/Cam1")).text
+    assert _groups(page) == [
+        ("Acquisition", ["acquire", "exposure", "period", "gain", "trigger_mode"]),
+        ("Crosshairs", ["crosshair1_use", "crosshair2_use", "crosshair1_x", "crosshair1_y", "crosshair2_x", "crosshair2_y"]),
+        ("Analysis ROI", ["roi_minx", "roi_miny", "roi_sizex", "roi_sizey"]),
+    ]  # fmt: skip
+    # a setting is the setpoint control; acquire the panel's Stop / Start pair
+    assert re.search(r'<div class="field setpoint"><label for="[^"]+">exposure <small>s</small></label><input type="number" id="[^"]+" data-role="exposure"', page)  # fmt: skip
+    assert re.findall(r'data-role="acquire" data-value="(\d)" data-pair aria-pressed="false" disabled>(\w+)<', page) == [("0", "Stop"), ("1", "Start")]  # fmt: skip
+    # the readings strip is the panel's; the camera ROI's fields carry no data-role, so the rail never writes them
+    assert re.findall(r'<div class="live" data-role="([^"]+)"', page)[:3] == ["state", "rate", "pixel_format"]  # fmt: skip
+    rail = re.search(r'<aside class="rail panel-rail">.*?</aside>', page, re.S).group(0)
+    assert 'data-roi-role="min_x"' in rail and 'data-role="min_x"' not in rail

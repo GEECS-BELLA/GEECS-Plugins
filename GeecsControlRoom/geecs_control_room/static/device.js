@@ -67,14 +67,8 @@
   // and meta, and its word; on(f) calls f after every change. Assigned before the component's deferred scripts run.
   const listeners = [];
   const changed = () => listeners.forEach((f) => f());
-  // `axis`: a per-axis family's axis (a motor's m1); omitted for every other device.
-  const entry = (role, axis) => view && view.roles[S.key(role, axis)];
-  const frameOf = (role, axis) => { const e = entry(role, axis); return e && D.watched(e) ? wire[e.pv] : undefined; };
-  window.GeecsDevicePage = {
-    name, root, on: (f) => listeners.push(f), view: () => view, entry, frame: frameOf,
-    meta: (role, axis) => { const e = entry(role, axis); return e && e.pv ? hare.meta(e.pv) : {}; },
-    word: (role, axis) => D.rowWord({ hareUp: hareState === "open", frame: frameOf(role, axis), view, entry: entry(role, axis) }),
-  };
+  const source = window.GeecsDeviceSource.make({ name, root, hare, view: () => view, hareUp: () => hareState === "open", wire, changed, read: (pv) => wire[pv] });  // the rows watch every role
+  window.GeecsDevicePage = { ...source, on: (f) => listeners.push(f) };
 
   function draw(tr) {
     const entry = entryOf(tr), pv = D.watched(entry) ? entry.pv : null;

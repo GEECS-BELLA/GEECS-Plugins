@@ -17,6 +17,7 @@ from geecs_control_room.device_pages import (
     KINDS,
     auto_panel,
     drawn_panel,
+    page_panel,
     registered,
 )
 from geecs_control_room.home import launcher
@@ -245,3 +246,69 @@ def test_a_device_draws_only_the_roles_it_serves_and_a_tweak_only_whole() -> Non
     # a group with none of its roles served is not drawn; a reading the device omits is not either
     gone = drawn_panel(motor, served - {"homf", "homr", "hls"})
     assert [g["title"] for g in gone["rail"]] == ["Move", "Speed"] and "hls" not in gone["readings"]  # fmt: skip
+
+
+@pytest.mark.parametrize("panel", ["none", "naming it"])
+def test_a_cameras_rail_never_carries_its_camera_roi(panel: str) -> None:
+    """The camera ROI is the camera page's own (one draft, behind its dialog): never a rail field, whatever the family's panel says."""
+    from geecs_schemas import FamilyFile
+
+    doc = load_families()["ad_camera_chain"].model_dump(mode="json")
+    if (
+        panel == "none"
+    ):  # a camera family with no panel: the automatic layout, every writable role
+        doc["panel"] = None
+    else:  # a panel that names the camera ROI in a rail group
+        doc["panel"]["rail"][0]["roles"] += ["min_x", "size_x"]
+    family = FamilyFile.model_validate(doc)
+    body = {
+        "roles": [
+            _entry(r.name, r.type, r.writable, r.read_mode) | {"axis": None}
+            for r in family.roles
+        ]
+    }
+    drawn = page_panel(body, family, [], kind="camera")
+    railed = {r for g in drawn["panel"]["rail"] for r in g["roles"]}
+    assert railed and not railed & {"min_x", "min_y", "size_x", "size_y"}
+
+
+@pytest.mark.parametrize("titled", [False, True])
+def test_a_group_widget_reads_settings_as_the_automatic_layout_only_where_the_page_draws_one(monkeypatch: pytest.MonkeyPatch, titled: bool) -> None:  # fmt: skip
+    """``settings`` is every group of an automatic layout; on a family panel it is a title like any (a rail group named so is drawn)."""
+    from geecs_schemas import FamilyFile
+
+    from geecs_control_room import device_pages
+
+    doc = load_families()["easydriver"].model_dump(mode="json")
+    if titled:
+        doc["panel"]["rail"][0]["title"] = "settings"
+    else:
+        doc["panel"] = None
+    family = FamilyFile.model_validate(doc)
+    monkeypatch.setattr(device_pages, "load_families", lambda: {"easydriver": family})
+    body = {"family": "easydriver", "roles": [_entry(r.name, r.type, r.writable, r.read_mode) | {"axis": None} for r in family.roles]}  # fmt: skip
+    got = device_pages.group_panel(body, "settings")
+    assert got.problem is None and got.panel is not None
+    want = [doc["panel"]["rail"][0]["roles"]] if titled else [g["roles"] for g in auto_panel(body["roles"])["rail"]]  # fmt: skip
+    assert [g["roles"] for g in got.panel["rail"]] == want
+    assert device_pages.group_panel(body, "Faults").problem == (None if titled else "the device as the module serves it draws no group 'Faults'")  # fmt: skip
+
+
+def test_a_repeated_heading_draws_every_group_of_that_title_in_order(monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The schema's reading: a title names every rail group so headed, each drawn as the page draws it, a group the device serves none of dropped."""
+    from geecs_schemas import FamilyFile
+
+    from geecs_control_room import device_pages
+
+    doc = load_families()["easydriver"].model_dump(mode="json")
+    doc["panel"]["rail"][1]["title"] = doc["panel"]["rail"][0]["title"]
+    family = FamilyFile.model_validate(doc)
+    monkeypatch.setattr(device_pages, "load_families", lambda: {"easydriver": family})
+    roles = [_entry(r.name, r.type, r.writable, r.read_mode) | {"axis": None} for r in family.roles]  # fmt: skip
+    both = device_pages.group_panel({"family": "easydriver", "roles": roles}, "Output")
+    assert [g["roles"] for g in both.panel["rail"]] == [["output_sp", "current_sp"], ["reset"]]  # fmt: skip
+    served = [
+        e for e in roles if e["role"] != "reset"
+    ]  # the device omits the second group's one role
+    one = device_pages.group_panel({"family": "easydriver", "roles": served}, "Output")
+    assert [g["roles"] for g in one.panel["rail"]] == [["output_sp", "current_sp"]]

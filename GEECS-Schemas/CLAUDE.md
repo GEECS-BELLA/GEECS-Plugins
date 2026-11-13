@@ -86,7 +86,7 @@ package, so it rebuilds Canopy's image at deploy.
 
 `screens.py`: `Screen`, a control GUI as a document (`<experiment>/screens/<name>.yaml`,
 drawn by GeecsControlRoom): titled groups on a grid, each a kit colour
-token (`GroupTone`, never a literal), of widgets of exactly seven kinds
+token (`GroupTone`, never a literal), of widgets of exactly nine kinds
 (`WidgetKind`), each a free label and a `Binding` (device + family role +
 axis, or a bare PV). No expressions, scripts or conditions, ever. What
 depends on the families and instance data (the role exists, the kind fits
@@ -97,7 +97,18 @@ it by the module's word. A device in neither the files nor the roster is
 refused. A bare PV is read only; it may carry a writing kind or a flipper's
 indicators, drawn disabled. A button may bind `{action: <plan>}` instead,
 a plan in the experiment's action library (`resolve_screen(...,
-actions=<the plan names>)` refuses another).
+actions=<the plan names>)` refuses another). A `select` binds an enum
+role only; a toggle or flipper with `values: {on, off}` (`ToggleValues`)
+also binds a numeric setpoint role (a LabVIEW boolean kept as a number).
+A `group` binds `{device, group}` (and an axis on a per-axis family) and
+nothing else does: a rail group's title in the family's `panel`, or
+`AUTO_GROUP` (`settings`) for a family without a panel and for a DB device
+(deferred: its one group). It takes no units, precision or confirm (its
+controls are the device's); `resolve_screen` checks the title against the
+installed families (a repeated heading names every group so headed) and
+refuses a group the device serves none of (`omit`; for `settings`, no
+writable role), and the renderer draws the group as the
+device page does.
 
 ## Action plans
 

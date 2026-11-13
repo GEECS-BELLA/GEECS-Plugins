@@ -23,6 +23,10 @@ PUT_TIMEOUT_S, READ_TIMEOUT_S = 45.0, 1.4
 RUN_TIMEOUT_S = 10.0
 
 
+#: The device route's ``source`` of a GEECS DB device (the CA gateway's): its family is its DB device type, never a family file.
+GATEWAY = "gateway"
+
+
 class ModuleUnavailable(Exception):
     """The module could not be reached, or answered with something that is not JSON."""
 
@@ -60,9 +64,9 @@ class ModuleClient:
         """The roster: ``{experiment, devices: [{name, family, axes, state}]}``."""
         return await self.get("/devices")
 
-    async def device(self, name: str) -> tuple[int, Any]:
-        """One device: its state, heartbeat and every role with its verdict."""
-        return await self.get(f"/devices/{quote(name, safe='')}")
+    async def device(self, name: str, timeout: float | None = None) -> tuple[int, Any]:  # fmt: skip
+        """One device: its state, heartbeat and every role with its verdict (``timeout``: the read's own)."""
+        return await self.get(f"/devices/{quote(name, safe='')}", timeout=timeout)
 
     async def journal(self, entries: int = 50) -> tuple[int, Any]:
         """The newest journal rows, oldest first."""

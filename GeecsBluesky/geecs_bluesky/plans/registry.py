@@ -19,7 +19,7 @@ from typing import Any
 import bluesky.plan_stubs as bps
 import bluesky.plans as bp
 import bluesky.preprocessors as bpp
-from bluesky.protocols import Triggerable
+from bluesky.protocols import Readable, Triggerable
 from bluesky.utils import Msg
 from geecs_schemas.trigger_profile import TriggerState
 
@@ -657,6 +657,7 @@ def strict_plan(  # noqa: C901, PLR0915
     hook = hooks[0]
 
     def plan(*args: Any, **kwargs: Any):  # noqa: C901, PLR0912, PLR0915
+        require_plain_metadata(kwargs.get("md"))
         trigger_profile = kwargs.pop("trigger_profile", None)
         shots_per_step = int(kwargs.pop("shots_per_step", 1))
         acquisition = str(kwargs.pop("acquisition", "strict") or "strict")
@@ -893,13 +894,27 @@ def strict_plan(  # noqa: C901, PLR0915
     # annotates each element as a ``(motor, points)`` tuple while taking
     # them flat) and the manager validates a queue item against them, so a
     # bound plan drops them: a vararg is whatever the manager resolves.
+    # Every other argument is annotated: the manager turns each device and
+    # plan name inside an unannotated one into the object, metadata included.
     parameters = [
         p.replace(annotation=Parameter.empty)
         if p.kind is Parameter.VAR_POSITIONAL
+        else p.replace(annotation=_ARGUMENT_ANNOTATIONS[p.name])
+        if p.annotation is Parameter.empty and p.name in _ARGUMENT_ANNOTATIONS
         else p
         for p in signature.parameters.values()
         if p.name not in _HOOKS
     ]
+    bare = [
+        p.name
+        for p in parameters
+        if p.annotation is Parameter.empty and p.kind is not Parameter.VAR_POSITIONAL
+    ]
+    if bare:
+        raise ValueError(
+            f"{stock.__name__}: no annotation for {', '.join(bare)} — the manager "
+            "would convert every device and plan name inside it into the object"
+        )
     parameters.append(
         Parameter(
             "trigger_profile",
@@ -919,8 +934,14 @@ def strict_plan(  # noqa: C901, PLR0915
             "acquisition", Parameter.KEYWORD_ONLY, default="strict", annotation=str
         )
     )
-    # Devices, like ``detectors``: the manager resolves names in any argument.
-    parameters.append(Parameter("required", Parameter.KEYWORD_ONLY, default=None))
+    parameters.append(
+        Parameter(
+            "required",
+            Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=DEVICE_LIST | None,
+        )
+    )
     parameters.append(
         Parameter(
             "shot_period",
@@ -949,6 +970,62 @@ def strict_plan(  # noqa: C901, PLR0915
     plan.__name__ = plan.__qualname__ = stock.__name__
     plan.__doc__ = _geecs_doc(stock, hook)
     return plan
+
+
+#: A device-list argument as the manager reads it: names in, devices out,
+#: and only there.
+DEVICE_LIST = Sequence[Readable]
+
+#: The annotation a bound stock plan's argument gets when the stock plan
+#: gives it none.
+_ARGUMENT_ANNOTATIONS: dict[str, Any] = {
+    "detectors": DEVICE_LIST,
+    "md": dict[str, Any] | None,
+}
+
+
+def require_plain_metadata(md: Any) -> None:
+    """Refuse run metadata holding anything but plain data, naming where it sits.
+
+    The start document carries text, numbers, booleans, ``None``, and lists
+    and string-keyed dicts of those.  Anything else — a device, a plan —
+    cannot be copied or recorded by the RunEngine, which would fail the run
+    after its scan number is claimed; refusing here costs no claim and no
+    move.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        Naming the first offending entry (``md['geecs']['preset']``) and
+        its type.
+    """
+
+    def walk(value: Any, where: str) -> None:
+        if value is None or isinstance(value, (str, bool, int, float)):
+            return
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if not isinstance(key, str):
+                    raise GeecsConfigurationError(
+                        f"{where} has the key {key!r} ({type(key).__name__}): "
+                        "run metadata keys are text"
+                    )
+                walk(item, f"{where}[{key!r}]")
+            return
+        if isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                walk(item, f"{where}[{index}]")
+            return
+        raise GeecsConfigurationError(
+            f"{where} is a {type(value).__name__}, not plain data: run metadata "
+            "carries text, numbers, lists and dicts only"
+        )
+
+    if md is not None and not isinstance(md, Mapping):
+        raise GeecsConfigurationError(
+            f"md is a {type(md).__name__}: run metadata is a dict"
+        )
+    walk(md, "md")
 
 
 def _has_delay(delay: Any) -> bool:
@@ -1098,6 +1175,7 @@ def bind_plans(
 
 __all__ = [
     "ACQUISITION_MODES",
+    "DEVICE_LIST",
     "TriggerProfiles",
     "background_snapshot",
     "background_wrapper",
@@ -1105,6 +1183,7 @@ __all__ = [
     "liveness_gate",
     "native_image_save_wrapper",
     "refuse_native_run",
+    "require_plain_metadata",
     "resolve_background_telemetry",
     "resolve_native_image_save",
     "run_witness",

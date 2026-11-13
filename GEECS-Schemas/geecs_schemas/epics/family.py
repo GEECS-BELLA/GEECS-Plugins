@@ -217,6 +217,23 @@ class Role(SchemaModel):
         None,
         description="A setpoint's readback, shown beside it (a motor's .RBV beside .VAL).",
     )
+    tolerance: Optional[float] = Field(
+        None,
+        ge=0,
+        description=(
+            "On a setpoint: how far its measured value may sit from the setpoint, "
+            "in the role's units, before a page marks them as differing once a "
+            "write has settled. Absent: 'tolerance_by', else the record's "
+            "precision (one unit in the last digit shown), else exact."
+        ),
+    )
+    tolerance_by: Optional[RoleName] = Field(
+        None,
+        description=(
+            "On a setpoint: the readback whose value is that tolerance, where the "
+            "record keeps one (the motor record's retry deadband, RDBD)."
+        ),
+    )
     fresh_by: Optional[RoleName] = Field(
         None,
         description=(
@@ -331,6 +348,14 @@ class Role(SchemaModel):
                 raise ValueError(
                     f"role {self.name!r}: {set_} apply to writable roles only"
                 )
+        if (
+            self.tolerance is not None or self.tolerance_by
+        ) and self.type != "setpoint":
+            raise ValueError(f"role {self.name!r}: only a setpoint has a tolerance")
+        if self.tolerance is not None and self.tolerance_by:
+            raise ValueError(
+                f"role {self.name!r}: a tolerance is a number or a role, not both"
+            )
         if self.fault and self.type != "bit":
             raise ValueError(f"role {self.name!r}: only a bit is a fault")
         if self.limits is not None and not self.limits[0] < self.limits[1]:
@@ -565,8 +590,8 @@ class FamilyFile(VersionedSchemaModel):
 
 
 def _check_links(role: Role, by_name: Mapping[str, Role]) -> None:
-    """Refuse a link naming no role, an unmonitored one, or a freshness source that is no counter."""
-    for link in ("settled_by", "readback", "fresh_by", "computed_by"):
+    """Refuse a link naming no role, an unmonitored one, a freshness source that is no counter, or a tolerance that is no readback."""
+    for link in ("settled_by", "readback", "fresh_by", "computed_by", "tolerance_by"):
         target = getattr(role, link)
         if target is None:
             continue
@@ -578,6 +603,11 @@ def _check_links(role: Role, by_name: Mapping[str, Role]) -> None:
         if link == "fresh_by" and other.type != "counter":
             raise ValueError(
                 f"role {role.name!r}: fresh_by names a counter, not "
+                f"{other.type} {target!r}"
+            )
+        if link == "tolerance_by" and other.type != "readback":
+            raise ValueError(
+                f"role {role.name!r}: tolerance_by names a readback, not "
                 f"{other.type} {target!r}"
             )
 

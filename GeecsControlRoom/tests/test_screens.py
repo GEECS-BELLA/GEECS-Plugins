@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from geecs_web_theme import STATES
 
@@ -41,7 +42,8 @@ def test_the_example_draws_every_widget_bound(client: TestClient, settings: Sett
     assert r.status_code == 200
     widgets = re.findall(r'<div class="w"[^>]*>', r.text)
     assert len(widgets) == 21 and all("data-device=" in w for w in widgets)
-    assert 'data-readback="rbv"' in r.text and 'data-hazard="1"' in r.text
+    # the rail's controls: a motor's target with its readback; a hazard role asks behind the rail's dialog
+    assert 'data-readback="rbv"' in r.text and 'id="hazard-dialog"' in r.text
     assert set(re.findall(r'data-tone="([^"]+)"', r.text)) == {"trace-1", "trace-2", "trace-3", "accent"}  # fmt: skip
 
 
@@ -122,15 +124,22 @@ def test_a_bare_pv_is_drawn_read_only_with_its_lamps_and_columns(client: TestCli
     assert (
         page.count('title="A bare PV is read only') == 2
     )  # the flipper and the setpoint
-    # disabled in the HTML itself, not only once screen.js has run
-    assert re.search(r'<input class="sp"[^>]*aria-label="Jet X" disabled>', page)
-    assert re.search(r'<button class="btn sm act" type="button" disabled>', page)
+    # disabled in the HTML itself, not only once screen.js has run: the rail's field and the flipper's pair
+    assert re.search(
+        r'<label for="(w-[^"]+)">Jet X .*?<input type="number" id="\1"[^>]* disabled>',
+        page,
+        re.S,
+    )
+    assert re.search(r'data-pair data-enum-label aria-pressed="false" disabled>', page)
 
 
 def test_an_unlabelled_db_control_is_named_by_its_pv(client: TestClient, settings: Settings) -> None:  # fmt: skip
     _screens(settings, 'title: T\ngroups: [{title: G, at: [1, 1], widgets: [{kind: setpoint, bind: {pv: "x:u_a:b"}}, {kind: button, bind: {pv: "x:u_a:go"}}]}]\n')  # fmt: skip
     page = client.get("/screens/sim_bench").text
-    assert 'aria-label="x:u_a:b" disabled>' in page and ">x:u_a:go</button>" in page
+    assert (
+        re.search(r'<label for="w-[^"]+">x:u_a:b ', page)
+        and ">x:u_a:go</button>" in page
+    )
 
 
 def test_every_device_an_indicator_names_is_polled() -> None:
@@ -142,8 +151,10 @@ def test_every_device_an_indicator_names_is_polled() -> None:
 def test_the_dense_layout_rules_hold() -> None:
     """Narrow cells: labels shrink and wrap, inputs fit the cell, notes keep their line breaks."""
     css = (Path(__file__).resolve().parents[1] / "geecs_control_room" / "static" / "screen.css").read_text()  # fmt: skip
-    assert ".kit .w .lbl{flex:1 1 6rem;min-width:0;overflow-wrap:anywhere" in css
-    assert "max-width:100%" in css.split(".kit .w .sp{", 1)[1].split("}", 1)[0]
+    assert (
+        ".kit .w .field>label{flex:1 1 4.5rem;min-width:0;overflow-wrap:anywhere" in css
+    )
+    assert "max-width:100%" in css.split(".kit .w .field>input{", 1)[1].split("}", 1)[0]
     assert (
         "white-space:pre-line"
         in css.split(".kit .sgroup .note{", 1)[1].split("}", 1)[0]
@@ -231,3 +242,114 @@ def test_an_undrawable_screen_asks_again_and_a_missing_one_does_not(settings: Se
         refused, missing = c.get("/screens/sim_bench"), c.get("/screens/nope")
     assert refused.status_code == 422 and 'http-equiv="refresh" content="30"' in refused.text  # fmt: skip
     assert missing.status_code == 404 and "http-equiv" not in missing.text
+
+
+def _configs_checkout() -> Path | None:
+    """The sibling GEECS-Plugins-Configs checkout (``GEECS_PLUGINS_CONFIGS`` first), as GEECS-Schemas' corpus tests find it."""
+    import os
+
+    override = os.environ.get("GEECS_PLUGINS_CONFIGS")
+    candidates = [Path(override)] if override else [p / "GEECS-Plugins-Configs" for p in Path(__file__).resolve().parents]  # fmt: skip
+    return next((c for c in candidates if (c / "scanner_configs").is_dir()), None)
+
+
+def test_every_deployed_screen_draws_every_widget(tmp_path: Path) -> None:
+    """The configs repo's screens (the HTU Control Center) drawn whole: no refusal, one control per bound widget (skips without the checkout)."""
+    import yaml
+
+    repo = _configs_checkout()
+    if repo is None:
+        import pytest
+
+        pytest.skip("sibling GEECS-Plugins-Configs checkout not found")
+    for path in sorted((repo / "scanner_configs" / "experiments").glob("*/screens/*.yaml")):  # fmt: skip
+        experiment, doc = path.parent.parent.name, yaml.safe_load(path.read_text())
+        widgets = [w for g in doc["groups"] for w in g["widgets"]]
+        names = sorted({b["device"] for w in widgets for b in [w.get("bind") or {}, *w.get("indicators", [])] if b.get("device")})  # fmt: skip
+        folder = tmp_path / "scanner_configs" / "experiments" / experiment / "screens"
+        folder.mkdir(parents=True, exist_ok=True)
+        shutil.copy(
+            path, folder / path.name
+        )  # the screen alone: its devices are the roster's (DB devices)
+
+        roster = {"devices": [{"name": n, "source": "gateway"} for n in names]}
+
+        def answer(request: httpx.Request, roster: dict = roster) -> httpx.Response:
+            return httpx.Response(200, json=roster)
+
+        settings = Settings(experiment=experiment, configs_root=tmp_path, canopy_url="http://canopy.test", read_key="k")  # fmt: skip
+        app = create_app(settings, ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer)))  # fmt: skip
+        page = TestClient(app).get(f"/screens/{path.stem}")
+        assert page.status_code == 200, (path.name, page.text[-600:])
+        bound = [w for w in widgets if w["kind"] not in ("annotation", "image")]
+        assert len(re.findall(r'<div class="w"', page.text)) == len(bound), path.name
+        controls = [w for w in bound if not (w.get("bind") or {}).get("action")]
+        assert len(re.findall(r'<div class="field', page.text)) == len(controls), (
+            path.name
+        )  # every control the rail's
+
+
+def test_a_readout_without_units_of_its_own_takes_the_records(client: TestClient, settings: Settings) -> None:  # fmt: skip
+    """No widget or family units: a placeholder the rail fills from Hare's metadata (a gauge's Torr), as a setpoint's is."""
+    _screens(settings, 'title: T\ngroups: [{title: G, at: [1, 1], widgets: [{kind: readout, label: Gauge, bind: {pv: "x:u_a:p"}}, {kind: readout, label: Set, bind: {pv: "x:u_a:q"}, units: mbar}]}]\n')  # fmt: skip
+    page = client.get("/screens/sim_bench").text
+    assert (
+        '<label>Gauge <small data-egu="x:u_a:p" data-type="readback"></small></label>'
+        in page
+    )
+    assert (
+        "<label>Set <small>mbar</small></label>" in page
+    )  # the screen's own units win
+
+
+@pytest.mark.parametrize(
+    "status, says",
+    [
+        (503, "The module did not answer: busy; reload the screen to draw it"),
+        (404, "U_PLC is not on the module&#39;s roster: check the screen&#39;s device name, or why the module has not loaded it"),
+        (403, "The module refused this display&#39;s read: busy"),
+    ],
+)  # fmt: skip
+def test_a_group_whose_device_the_module_did_not_give_says_why_and_the_screen_draws(settings: Settings, status: int, says: str) -> None:  # fmt: skip
+    """The module silent or refusing for an embedded device: that widget says why as the device page would (reload only where asking again may help), never a 500 or a blank."""
+    reads: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/devices"):
+            return httpx.Response(200, json={"devices": [{"name": "U_PLC", "source": "gateway"}]})  # fmt: skip
+        reads.append(request.url.path)
+        return httpx.Response(status, json={"detail": "busy"})
+
+    _screens(settings, "title: T\ngroups: [{title: G, at: [1, 1], widgets: [{kind: group, bind: {device: U_PLC, group: settings}}, {kind: group, label: Again, bind: {device: U_PLC, group: settings}}, {kind: toggle, bind: {device: U_PLC, role: DO.Ch1}}]}]\n")  # fmt: skip
+    module = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(answer))  # fmt: skip
+    with TestClient(create_app(settings, module)) as c:
+        r = c.get("/screens/sim_bench")
+    assert r.status_code == 200 and reads == [
+        "/geecs/v1/devices/U_PLC"
+    ]  # one read per device, however many widgets
+    assert r.text.count(says) == 2 and (status == 503) == ("reload" in r.text)
+    assert '<div class="w gw-missing" data-kind="group"><span class="lbl">Again · U_PLC</span>' in r.text  # fmt: skip
+    assert (
+        'data-kind="group" data-device' not in r.text
+    )  # never polled or written: nothing drawn to write
+    assert (
+        'data-device="U_PLC" data-role="DO.Ch1"' in r.text
+    )  # the rest of the screen drawn
+
+
+def test_a_group_widgets_read_waits_past_the_polls_timeout() -> None:
+    """A page draw reads once: it waits EMBED_TIMEOUT_S, not the 2 s poll's READ_TIMEOUT_S (a module reload tick runs past it)."""
+    import asyncio
+
+    from geecs_control_room.device_pages import EMBED_TIMEOUT_S, embedded
+    from geecs_control_room.module_client import READ_TIMEOUT_S
+
+    asked: list = []
+
+    class Module:
+        async def device(self, name: str, timeout: float | None = None):
+            asked.append(timeout)
+            return 404, {}
+
+    asyncio.run(embedded(Module(), [("U_PLC", None, "settings")]))
+    assert asked == [EMBED_TIMEOUT_S] and EMBED_TIMEOUT_S > 2 * READ_TIMEOUT_S

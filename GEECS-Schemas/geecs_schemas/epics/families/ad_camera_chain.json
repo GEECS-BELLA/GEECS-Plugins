@@ -90,5 +90,14 @@
     {"name": "size_y", "suffix": "cam1:SizeY_RBV", "type": "setpoint", "label": "camera ROI height", "writable": true, "write": "cam1:SizeY", "level": "expert", "limits": [1, 65535], "integer": true, "units": "px", "locked": true, "archive": true, "autosaved": true},
     {"name": "max_x", "suffix": "cam1:MaxSizeX_RBV", "type": "readback", "label": "sensor width", "units": "px", "level": "expert"},
     {"name": "max_y", "suffix": "cam1:MaxSizeY_RBV", "type": "readback", "label": "sensor height", "units": "px", "level": "expert"}
-  ]
+  ],
+  "panel": {
+    "rail": [
+      {"title": "Acquisition", "roles": ["acquire", "exposure", "period", "gain", "trigger_mode"]},
+      {"title": "Crosshairs", "roles": ["crosshair1_use", "crosshair2_use", "crosshair1_x", "crosshair1_y", "crosshair2_x", "crosshair2_y"]},
+      {"title": "Analysis ROI", "roles": ["roi_minx", "roi_miny", "roi_sizex", "roi_sizey"]}
+    ],
+    "readings": ["state", "rate", "pixel_format", "cx", "cy", "sx", "sy", "max", "mean", "total", "raw_max", "capture", "lock", "owner"],
+    "buttons": {"acquire": ["Stop", "Start"]}
+  }
 }
