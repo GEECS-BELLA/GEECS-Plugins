@@ -24,6 +24,7 @@ def build_service(
     demo: bool,
     demo_period: float,
     portal_url: str = "",
+    configurator_url: str = "",
 ):
     """Assemble the service for real or demo mode."""
     from geecs_scanner.service import StreamCache, ScannerService
@@ -35,15 +36,17 @@ def build_service(
             DemoReadback,
             DemoResolver,
             DemoLoggedVariables,
+            DemoPresets,
             DemoSettables,
             demo_preflight,
         )
         from geecs_scanner.service.scan_log_list import MemoryListStore, ScanLogList
 
         client = DemoQueueClient(streams, period=demo_period, user=identity)
+        resolver = DemoResolver()
         return ScannerService(
             client,
-            DemoResolver(),
+            resolver,
             experiment=experiment or "Demo",
             identity=identity,
             streams=streams,
@@ -56,10 +59,12 @@ def build_service(
                 MemoryListStore(["U_Hexapod:ypos", "U_S1H:current"])
             ),
             logged_variables=DemoLoggedVariables(),
+            presets=DemoPresets(resolver),
         )
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.qs_client import make_queue_client
 
+    from geecs_scanner.service.preset_saver import ConfiguratorPresets
     from geecs_scanner.service.scan_log_list import (
         FILE_NAME,
         FileListStore,
@@ -78,6 +83,9 @@ def build_service(
         version=__version__,
         portal_url=portal_url,
         scan_log_list=ScanLogList(FileListStore(default_state_dir() / FILE_NAME)),
+        presets=ConfiguratorPresets(configurator_url, experiment)
+        if configurator_url
+        else None,
     )
 
 
@@ -108,6 +116,13 @@ def main() -> None:
         "behind the front door it is the /portal prefix); empty hides them",
     )
     parser.add_argument(
+        "--configurator-url",
+        default="",
+        help="the configurator as this process reaches it (a site value, e.g. "
+        "http://127.0.0.1:8800): Save as preset commits through it; empty = "
+        "presets are not saved from this scanner",
+    )
+    parser.add_argument(
         "--demo",
         action="store_true",
         help="serve over an in-memory manager that runs scans by itself; contacts nothing",
@@ -133,6 +148,7 @@ def main() -> None:
         demo=args.demo,
         demo_period=args.demo_period,
         portal_url=args.portal_url,
+        configurator_url=args.configurator_url,
     )
     app = create_app(service, root_path=args.root_path)
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())

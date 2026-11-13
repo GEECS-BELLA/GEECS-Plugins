@@ -770,7 +770,14 @@ CLI parses Python literals not JSON).
 kwargs={"trigger_profile": "HTU-NoGas"})`) or a saved preset
 (`submit_preset(preset)` → `presets.expand_preset`: device bindings,
 `Device:Variable` / catalog names into `U_S1H.current`, a sweep's
-trajectory payload, the provenance `md`).  The package import stays light
+trajectory payload, the provenance `md`).  `environment_close` /
+`environment_open` each wait until the manager settles (an open that
+falls back to closed is a failure naming the startup profile) and carry no
+idle check of their own: the caller decides when a reopen is safe (the
+scanner's reopen route, idle and empty, under its lock); `queue_start`
+starts what waits.  `run_trigger_profile_preflight` is the worker's checks
+of an unsaved trigger profile, and `run_submit_preflight(...,
+trigger_profile=)` checks a preset under one.  The package import stays light
 (PEP 562-lazy device re-exports; `bluesky-queueserver-api` behind the
 `qs-client` extra).  One-shot blocking CA reads go through
 `devices/ca/oneshot.py` (one persistent reader loop, never a per-call
@@ -974,7 +981,15 @@ command) and never imports the gateway (circular).
   device-server, file-plugin (`geecs_pva_plugin_data_base_path`, UNC, as
   the camera servers' plugin service sees it) and Tiled-host roots through
   `read_config_entry` (`data_paths`); the configs-repo root through
-  `geecs_core.configs_repo.scanner_configs_base`.
+  `geecs_core.configs_repo.scanner_configs_base`.  The worker's one write
+  into the configs tree (`write_shot_offsets`) goes under the **write
+  root**, `GEECS_CONFIGS_WRITE_ROOT` in site.env
+  (`scanner_configs_write_base`; unset = the read root, a laptop's case):
+  on the services box the configurator's inbox, which commits the file,
+  because the live checkout the worker reads is never written (git
+  refuses to fast-forward over an uncommitted file).  Its readers wait
+  out a fast-forward rewriting a file (`configs_repo.settled_exists`)
+  rather than read a missing registry as "none".
 - `[tiled] uri / api_key`: `geecs_data_utils.tiled_catalog`.
 - `[Experiment] expt`: `GeecsPathsConfig`.
 - `[Database]`: `GeecsDb`.

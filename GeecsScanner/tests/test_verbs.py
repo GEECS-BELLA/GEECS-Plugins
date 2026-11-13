@@ -199,7 +199,9 @@ def test_save_preset_writes_then_refuses_to_overwrite_unless_asked(
 ) -> None:
     doc = dict(preset_doc)
     doc["description"] = "saved from the page"
-    r = client.post("/api/configs/presets/jet_v2", json={"preset": doc})
+    r = client.post(
+        "/api/configs/presets/jet_v2", json={"preset": doc, "operator": "Op"}
+    )
     assert r.status_code == 200, r.text
     assert r.json()["name"] == "jet_v2" and r.json()["path"].endswith("jet_v2.yaml")
     assert "commit" in r.json()["message"]
@@ -207,11 +209,14 @@ def test_save_preset_writes_then_refuses_to_overwrite_unless_asked(
     saved = client.get("/api/configs/presets/jet_v2").json()
     assert saved["name"] == "jet_v2"  # the URL names the file, not the body
     assert saved["description"] == "saved from the page"
-    r = client.post("/api/configs/presets/jet_v2", json={"preset": doc})
+    r = client.post(
+        "/api/configs/presets/jet_v2", json={"preset": doc, "operator": "Op"}
+    )
     assert r.status_code == 409 and r.json()["error"]["exists"] is True
     doc["description"] = "second"
     r = client.post(
-        "/api/configs/presets/jet_v2", json={"preset": doc, "overwrite": True}
+        "/api/configs/presets/jet_v2",
+        json={"preset": doc, "overwrite": True, "operator": "Op"},
     )
     assert r.status_code == 200
     assert client.get("/api/configs/presets/jet_v2").json()["description"] == "second"
@@ -221,10 +226,14 @@ def test_save_preset_exists_is_decided_from_the_listing_not_a_message(
     client: TestClient, preset_doc: dict
 ) -> None:
     """The page's replace dialog keys on 409 + exists; that must not hang on the resolver's wording."""
-    r = client.post("/api/configs/presets/eb_align_1hz", json={"preset": preset_doc})
+    r = client.post(
+        "/api/configs/presets/eb_align_1hz",
+        json={"preset": preset_doc, "operator": "Op"},
+    )
     assert r.status_code == 409 and r.json()["error"]["exists"] is True
     r = client.post(
-        "/api/configs/presets/eb_align_1hz.yaml", json={"preset": preset_doc}
+        "/api/configs/presets/eb_align_1hz.yaml",
+        json={"preset": preset_doc, "operator": "Op"},
     )
     assert r.status_code == 409  # the suffix names the same file
 
@@ -232,12 +241,17 @@ def test_save_preset_exists_is_decided_from_the_listing_not_a_message(
 def test_save_preset_refuses_an_invalid_document(
     client: TestClient, preset_doc: dict
 ) -> None:
-    r = client.post("/api/configs/presets/bad", json={"preset": {"devices": "nope"}})
+    r = client.post(
+        "/api/configs/presets/bad",
+        json={"preset": {"devices": "nope"}, "operator": "Op"},
+    )
     assert r.status_code == 400
     assert r.json()["error"]["kind"] == "invalid_request"
     assert "bad" not in client.get("/api/configs/presets").json()["names"]
     # a name that is only a suffix strips to nothing and is refused, not written as ''
-    r = client.post("/api/configs/presets/.yaml", json={"preset": preset_doc})
+    r = client.post(
+        "/api/configs/presets/.yaml", json={"preset": preset_doc, "operator": "Op"}
+    )
     assert r.status_code == 400 and "not a file name" in r.json()["error"]["message"]
     assert "" not in client.get("/api/configs/presets").json()["names"]
 
@@ -260,7 +274,7 @@ def test_save_cannot_overwrite_with_schema_invalid_sweep(client, preset_doc):
     }
     response = client.post(
         "/api/configs/presets/jet_pressure_sweep",
-        json={"preset": preset_doc, "overwrite": True},
+        json={"preset": preset_doc, "overwrite": True, "operator": "Op"},
     )
     assert response.status_code == 400
     assert "equal point counts" in str(response.json())
@@ -275,6 +289,6 @@ def test_save_valid_sweep_does_not_require_preview(client, preset_doc, monkeypat
 
     monkeypatch.setattr(trajectory, "preview", no_preview)
     response = client.post(
-        "/api/configs/presets/no_preview", json={"preset": preset_doc}
+        "/api/configs/presets/no_preview", json={"preset": preset_doc, "operator": "Op"}
     )
     assert response.status_code == 200, response.text

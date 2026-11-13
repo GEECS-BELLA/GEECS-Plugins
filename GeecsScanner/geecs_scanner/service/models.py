@@ -59,6 +59,41 @@ class StatusOut(BaseModel):
     tiled_writer: TiledWriterOut = Field(
         description="The Tiled writer's heartbeat verdict (the page's chip); shown, never a gate"
     )
+    reopening: bool = Field(
+        default=False,
+        description="The worker environment is being reopened (POST /api/environment/reopen)",
+    )
+
+
+class ReopenIn(BaseModel):
+    """The body of ``POST /api/environment/reopen``: who asks, and why (logged)."""
+
+    operator: str = ""
+    reason: str = ""
+
+
+class ReopenOut(BaseModel):
+    """A completed reopen: the environment is up and idle again."""
+
+    ok: bool
+    message: str
+    queue_started: bool = Field(
+        default=False,
+        description="Items waited after the open, so the queue was started",
+    )
+    seconds: float = 0.0
+
+
+class TriggerProfilePreflightIn(BaseModel):
+    """The body of ``POST /api/preflight/trigger-profile``: an unsaved profile, and optionally a preset to check it under."""
+
+    document: dict[str, Any] = Field(
+        description="A geecs_schemas.TriggerProfile document"
+    )
+    preset: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="A preset run under the draft profile (the full preflight); omitted, the profile's own checks",
+    )
 
 
 class QueueRow(BaseModel):
@@ -352,14 +387,19 @@ class SavePresetIn(BaseModel):
 
     preset: dict[str, Any] = Field(description="A geecs_schemas.Preset document")
     overwrite: bool = False
+    operator: str = Field(
+        default="",
+        description="Who saves: the commit's author (required by the configurator)",
+    )
 
 
 class SavePresetOut(BaseModel):
-    """A written preset."""
+    """A saved preset: committed to the configs repo's main by the configurator."""
 
     name: str
     path: str
     message: str
+    commit: Optional[str] = None
 
 
 class ScanLogOut(BaseModel):

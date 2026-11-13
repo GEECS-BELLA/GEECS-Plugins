@@ -70,6 +70,17 @@ _RECV_TIMEOUT_S = 2.0
 #: engine's pause-latency floor), so this must cover the slowest move.
 _STOP_PAUSE_TIMEOUT_S = 120.0
 
+#: How long the environment verbs wait for the manager to settle (seconds):
+#: a close is quick; an open imports the startup profile and builds the
+#: device namespace from the GEECS DB (the readiness unit's budget).
+ENVIRONMENT_CLOSE_TIMEOUT_S = 120.0
+ENVIRONMENT_OPEN_TIMEOUT_S = 600.0
+#: Poll interval while an environment verb waits, and how many settled
+#: closed polls after an open request mean the open failed (the first polls
+#: may still read the pre-open state).
+_ENVIRONMENT_POLL_S = 1.0
+_OPEN_CLOSED_GRACE = 3
+
 
 @dataclass(frozen=True)
 class QserverConfig:
@@ -480,6 +491,30 @@ class QueueClient(Protocol):
         """
         ...
 
+    def environment_close(
+        self, *, timeout: float = ENVIRONMENT_CLOSE_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Close the worker environment and wait until it is closed; ``(ok, message)``.
+
+        No idle check of its own: the caller decides when a close is safe
+        (the scanner's reopen holds its lock and requires idle and empty).
+        """
+        ...
+
+    def environment_open(
+        self, *, timeout: float = ENVIRONMENT_OPEN_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Open the worker environment and wait until it is up and idle; ``(ok, message)``.
+
+        An open that settles back to closed (the startup profile failed to
+        import) is ``(False, ...)`` naming the worker's journal.
+        """
+        ...
+
+    def queue_start(self) -> tuple[bool, str]:
+        """Start the queue (its waiting items run in order); ``(ok, message)``."""
+        ...
+
     def allowed_plan_names(self) -> list[str]:
         """Return the plan names the manager will accept from this client.
 
@@ -580,6 +615,22 @@ class StubQueueClient:
         return False, _STUB_MESSAGE
 
     def clear_queue(self) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
+
+    def environment_close(
+        self, *, timeout: float = ENVIRONMENT_CLOSE_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
+
+    def environment_open(
+        self, *, timeout: float = ENVIRONMENT_OPEN_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
+
+    def queue_start(self) -> tuple[bool, str]:
         """Refuse with the missing-config message."""
         return False, _STUB_MESSAGE
 
@@ -895,11 +946,86 @@ class ZmqQueueClient:
 
     def clear_queue(self) -> tuple[bool, str]:
         """Remove every queued item (the explicit recovery verb)."""
+        return self._call_verb("queue_clear", "queue cleared")
+
+    def _call_verb(self, verb: str, done: str) -> tuple[bool, str]:
+        """One argument-less manager verb by name: ``(True, done)``, or ``(False, the error)``."""
         try:
-            self._manager().queue_clear()
-            return True, "queue cleared"
+            getattr(self._manager(), verb)()
         except Exception as exc:  # noqa: BLE001 — manager call, error reply
             return False, str(exc)
+        return True, done
+
+    #: The pause between polls while an environment verb waits (a seam tests set to 0).
+    _environment_poll_s = _ENVIRONMENT_POLL_S
+
+    def _wait(
+        self, settled: Callable[[QueueStatus], Optional[str]], timeout: float, what: str
+    ) -> tuple[bool, str]:
+        """Poll ``status`` until *settled* answers ``""`` (done) or a reason (failed), or the deadline."""
+        deadline = time.monotonic() + timeout
+        last = QueueStatus()
+        while True:
+            last = self.status()
+            if last.connected:
+                verdict = settled(last)
+                if verdict is not None:
+                    return (verdict == "", verdict or f"{what}: done")
+            if time.monotonic() >= deadline:
+                return False, (
+                    f"{what}: not settled within {timeout:.0f} s "
+                    f"(manager_state={last.manager_state!r}, "
+                    f"worker_environment_state={last.worker_environment_state!r}"
+                    f"{', ' + last.detail if last.detail else ''})"
+                )
+            time.sleep(self._environment_poll_s)
+
+    def environment_close(
+        self, *, timeout: float = ENVIRONMENT_CLOSE_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Close the worker environment, then wait for the manager idle with none."""
+        ok, why = self._call_verb("environment_close", "")
+        if not ok:
+            return False, f"environment close refused: {why}"
+
+        def closed(st: QueueStatus) -> Optional[str]:
+            return "" if not st.worker_exists and st.manager_state == "idle" else None
+
+        return self._wait(closed, timeout, "environment close")
+
+    def environment_open(
+        self, *, timeout: float = ENVIRONMENT_OPEN_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Open the worker environment, then wait for it up with the manager and worker idle."""
+        ok, why = self._call_verb("environment_open", "")
+        if not ok:
+            return False, f"environment open refused: {why}"
+        closed_polls = 0
+
+        def up(st: QueueStatus) -> Optional[str]:
+            nonlocal closed_polls
+            if (
+                st.worker_exists
+                and st.manager_state == "idle"
+                and st.worker_environment_state == "idle"
+            ):
+                return ""
+            if not st.worker_exists and st.manager_state == "idle":
+                closed_polls += 1  # the first polls may read the state before the open
+                if closed_polls > _OPEN_CLOSED_GRACE:
+                    return (
+                        "the worker environment is closed after 'environment open': "
+                        "the startup profile failed to import (journalctl -u geecs-qserver)"
+                    )
+            else:
+                closed_polls = 0
+            return None
+
+        return self._wait(up, timeout, "environment open")
+
+    def queue_start(self) -> tuple[bool, str]:
+        """Start the queue."""
+        return self._call_verb("queue_start", "queue started")
 
     def allowed_plan_names(self) -> list[str]:
         """The manager's ``plans_allowed`` for this client's user group.

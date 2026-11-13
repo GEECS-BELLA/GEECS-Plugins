@@ -579,3 +579,65 @@ class TestNativeCamera:
             preset, "TestExp", client=_FakeQueueClient(devices=self.TREE)
         )
         assert report.refusal and "no essential triggered device" in report.refusal
+
+
+class TestInlineTriggerProfile:
+    """A draft profile checked by the worker's own rules before it is saved (the configurator's dry run)."""
+
+    def test_the_inline_document_replaces_the_one_on_disk(self, engine, monkeypatch):
+        calls = TestTriggerProfileLiveness._probed(monkeypatch)
+        on_disk = _FakeResolver({"HTU-LaserOFF": _profile("HTU-LaserOFF")})
+        draft = _profile("HTU-LaserOFF", device="U_DG645_New")
+        run_submit_preflight(
+            _preset(trigger_profile="HTU-LaserOFF"),
+            "Undulator",
+            resolver=on_disk,
+            trigger_profile=draft,
+        )
+        assert calls == [["UC_Cam1", "UC_Cam2", "U_DG645_New", "U_Shutter"]]
+
+    def test_a_scan_mode_draft_refuses_a_gated_preset(self, engine):
+        draft = _profile().model_copy(update={"use_scan_mode": True})
+        preset = _preset(plan={"name": "count", "kwargs": {"num": 2, "acquisition": "gated"}})  # fmt: skip
+        report = run_submit_preflight(
+            preset,
+            "Undulator",
+            resolver=_FakeResolver(),
+            trigger_profile=draft,
+            client=_FakeQueueClient(
+                devices=[
+                    "UC_Cam1",
+                    "UC_Cam1.acq_timestamp",
+                    "UC_Cam2",
+                    "UC_Cam2.scalars",
+                    "UC_Cam2.acq_timestamp",
+                ]
+            ),  # fmt: skip
+        )
+        assert report.refusal and "scan mode" in report.refusal
+
+    def test_the_profile_alone_probes_every_device_it_writes(self, engine, monkeypatch):
+        from geecs_bluesky.qs_client import run_trigger_profile_preflight
+
+        calls = TestTriggerProfileLiveness._probed(monkeypatch)
+        report = run_trigger_profile_preflight(
+            _profile().model_dump(mode="json"), "Undulator"
+        )
+        assert report.refusal is None
+        assert report.outcomes[0] == ("validate", "passed", "")
+        assert calls == [["U_DG645_ShotControl", "U_Shutter"]]
+        assert [q.check for q in report.questions] == ["gateway_liveness"]
+
+    def test_a_profile_the_worker_cannot_build_is_refused(self, engine, monkeypatch):
+        from geecs_bluesky.qs_client import run_trigger_profile_preflight
+
+        calls = TestTriggerProfileLiveness._probed(monkeypatch)
+        report = run_trigger_profile_preflight({"name": "empty", "states": {}}, "X")
+        assert report.refusal and "names no trigger device" in report.refusal
+        assert calls == []  # refused before any read
+
+    def test_a_document_that_does_not_validate_is_refused(self, engine):
+        from geecs_bluesky.qs_client import run_trigger_profile_preflight
+
+        report = run_trigger_profile_preflight({"states": "nonsense"}, "X")
+        assert report.refusal and report.outcomes == []

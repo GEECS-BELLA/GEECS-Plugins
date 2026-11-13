@@ -219,6 +219,24 @@ class DocumentStore:
             pattern = pattern.replace("<experiment>", experiment)
         return self.root / pattern.rsplit("/", 1)[0].removesuffix("/**")
 
+    def new_path(self, kind: str, experiment: str | None, doc_id: str) -> str:
+        """Where a new document ``doc_id`` of ``kind`` goes, below the root; :class:`NotFound` for an id the kind cannot hold.
+
+        A named kind takes a plain file name with one of its suffixes (a
+        nested kind may add folders), a single-file kind only its one name;
+        never a path out of the kind's folder.
+        """
+        storage, base = self._storage(kind), self.folder(kind, experiment)
+        parts = doc_id.split("/")
+        plain = all(p and p not in (".", "..") and not p.startswith(".") for p in parts)
+        if storage.pattern == NAMED:
+            ok = plain and (storage.nested or len(parts) == 1) and doc_id.endswith(tuple(storage.suffixes))  # fmt: skip
+        else:
+            ok = doc_id == storage.pattern
+        if not ok:
+            raise NotFound(f"{doc_id!r} is not a new {kind} document's name (suffixes: {', '.join(storage.suffixes)})")  # fmt: skip
+        return (base / doc_id).relative_to(self.root).as_posix()
+
     def files(self, kind: str, experiment: str | None) -> dict[str, Path]:
         """The kind's documents: id -> path (what the listing lists; a missing folder is none)."""
         return self._files(kind, experiment)

@@ -73,6 +73,7 @@ def run_submit_preflight(
     client: Any | None = None,
     catalog: Optional[Mapping[str, Any]] = None,
     resolver: Any | None = None,
+    trigger_profile: Any | None = None,
 ) -> PreflightReport:
     """Run every pre-submit check; return findings for the client to render.
 
@@ -100,6 +101,9 @@ def run_submit_preflight(
         (``resolve_trigger_profile`` / ``resolve_experiment_defaults``).
         ``None`` builds the experiment's configs-repo resolver from the
         shared config for the duration of the check.
+    trigger_profile : geecs_schemas.TriggerProfile, optional
+        An unsaved trigger-profile document, checked in place of the one
+        the preset names on disk (the configurator's dry run of a draft).
 
     Returns
     -------
@@ -129,7 +133,11 @@ def run_submit_preflight(
         return report
 
     # -- scan mode (the worker's rule, mirrored for the client's report) ----
-    profile = _resolve_trigger_profile(preset, experiment, resolver)
+    profile = (
+        trigger_profile
+        if trigger_profile is not None
+        else _resolve_trigger_profile(preset, experiment, resolver)
+    )
     refusal = scan_mode_refusal(item, profile)
     if refusal is not None:
         report.refusal = refusal
@@ -141,13 +149,47 @@ def run_submit_preflight(
         if device not in devices:
             devices.append(device)
     if devices:
-        try:
-            _check_liveness(report, devices, experiment)
-        except Exception as exc:  # noqa: BLE001 — preflight fails open
-            logger.warning("liveness preflight failed: %s", exc)
-            report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
+        _liveness_fail_open(report, devices, experiment)
 
     return report
+
+
+def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) -> PreflightReport:  # fmt: skip
+    """The worker's own checks of a trigger-profile document, unsaved; nothing is queued.
+
+    The configurator's dry run of a draft: ``validate`` is the schema and
+    the adapter the worker builds the trigger box from
+    (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`),
+    a hard refusal; ``gateway_liveness`` reads each device the profile
+    writes, a question (fail-open), as a scan's preflight does. Never raises.
+    """
+    from pydantic import ValidationError
+
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+    from geecs_schemas import TriggerProfile
+
+    report = PreflightReport()
+    try:
+        profile = TriggerProfile.model_validate(dict(document))
+        from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
+
+        devices = list(trigger_writes_from_profile(profile).devices)
+    except (ValidationError, GeecsConfigurationError, TypeError, ValueError) as exc:
+        report.refusal = str(exc)
+        return report
+    report.outcomes.append(("validate", "passed", ""))
+    if devices:
+        _liveness_fail_open(report, devices, experiment)
+    return report
+
+
+def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str) -> None:  # fmt: skip
+    """:func:`_check_liveness`, recorded ``skipped`` (never raised) when the probe itself fails."""
+    try:
+        _check_liveness(report, devices, experiment)
+    except Exception as exc:  # noqa: BLE001 — preflight fails open
+        logger.warning("liveness preflight failed: %s", exc)
+        report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
 
 
 def _make_default_resolver(experiment: str) -> Any:
