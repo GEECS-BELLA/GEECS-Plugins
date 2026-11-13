@@ -7,6 +7,10 @@ checkout, then:
 - refuses a blank operator (422), a read-only document (405), and a
   document with no etag (422: a file that did not read or parse, so the
   editor never showed it and there is nothing to save over);
+- saves a **new** document when asked to (``create``): its id must be a
+  name the kind's folder holds (:meth:`DocumentStore.new_path`), its
+  baseline is empty, and a file already there is the 409 (two creates of
+  one name: the second re-applies over the first);
 - answers **409** with the current document and the draft's diff against
   it when the etag is not the current file's (the base moved), and again
   when a concurrent push changed the file while the save was pushed: the
@@ -47,7 +51,7 @@ from geecs_schemas import SCHEMA_REGISTRY
 from pydantic import BaseModel
 
 from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, author_name  # fmt: skip
-from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
+from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
 
 #: The served form's answer is followed where the file as stored validates differently.
 FOLLOWS_SERVED = "the file as stored and its served form validate differently (a YAML value read as a date or a number where the schema wants text, say); the save follows the served form and writes it quoted"  # fmt: skip
@@ -62,6 +66,8 @@ class SaveRequest(BaseModel):
     operator: str
     #: The operator confirms rewriting a legacy-dialect file in the current schema.
     convert_legacy: bool = False
+    #: A new document: no file may be there yet (the etag is then ignored; one there is a 409).
+    create: bool = False
 
 
 class Saved(BaseModel):
@@ -145,7 +151,10 @@ class _Save:
 
     def conflict(self, reason: str, draft: Json) -> Refused:
         """The 409: the document as it now is, and what the draft changes in it."""
-        current = self.store.read(self.kind, self.experiment, self.doc_id)
+        try:
+            current = self.store.read(self.kind, self.experiment, self.doc_id)
+        except NotFound:  # created on main, not yet in the live checkout
+            return Refused(409, {"reason": reason, "current": None, "diff": []})
         served = self.store.served(current)
         changes = diff_documents(served, restore_nonfinite(draft, served), self.schema)
         return Refused(409, {
@@ -165,7 +174,7 @@ class _Save:
                 base = self.repo.sync()
             except GitError as exc:
                 raise Refused(502, f"the configs repo could not be brought current, so the base cannot be checked: {exc}") from exc  # fmt: skip
-            loaded = self._checked()
+            loaded = self._new() if self.request.create else self._checked()
             draft, changes, notes = self._draft(loaded)
             if not changes:
                 return Saved(outcome="nothing to do", tier=None, changes=[], path=loaded.path, author=author.name, etag=loaded.etag, notes=notes)  # fmt: skip
@@ -181,6 +190,18 @@ class _Save:
             if tier == "maintainer":
                 return self._propose(prs, loaded, data, author, message, base, changes, notes)  # fmt: skip
             raise Refused(403, f"a {tier}-tier change is not saved from the editor")
+
+    def _new(self) -> Loaded:
+        """A document that does not exist yet: an empty baseline at the kind's path; one already there is the 409."""
+        try:
+            self.store.read(self.kind, self.experiment, self.doc_id)
+        except NotFound:
+            pass
+        else:
+            raise self.conflict("the document already exists; open it and save over it", self.request.document)  # fmt: skip
+        rel = self.store.new_path(self.kind, self.experiment, self.doc_id)
+        tier = SCHEMA_REGISTRY[self.kind].tier
+        return Loaded(kind=self.kind, experiment=self.experiment, id=self.doc_id, path=rel, document={}, etag="", yaml="", valid=True, errors=[], tier=tier, read_only=False)  # fmt: skip
 
     def _checked(self) -> Loaded:
         """The stored document, once the save may go over it: writable, readable, the served base, confirmed."""
@@ -208,7 +229,10 @@ class _Save:
         if loaded.note == LEGACY:
             changes.insert(0, Change(path=[], op="convert", tier=tier_in(self.schema, self.schema)))  # fmt: skip
             notes.append(CONVERTED)
-        elif loaded.valid != self.store.validate(self.kind, served, stem=stem).ok:
+        elif (
+            not self.request.create
+            and loaded.valid != self.store.validate(self.kind, served, stem=stem).ok
+        ):
             notes.append(FOLLOWS_SERVED)
         return draft, changes, notes
 

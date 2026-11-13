@@ -17,7 +17,6 @@ The client seam expands a preset into a plan queue item
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Protocol, runtime_checkable, TYPE_CHECKING
 
@@ -29,7 +28,11 @@ if TYPE_CHECKING:
 
 from geecs_bluesky._fs import replace_text
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_core.configs_repo import scanner_configs_base
+from geecs_core.configs_repo import (
+    scanner_configs_base,
+    scanner_configs_write_base,
+    settled_exists,
+)
 from geecs_schemas import (
     ActionPlan,
     ActionPlanLibrary,
@@ -55,9 +58,6 @@ from geecs_schemas.convert import convert_shot_control
 
 logger = logging.getLogger(__name__)
 
-#: A preset file stem: a plain name, no path separators, no leading dot.
-_PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
-
 
 # ---------------------------------------------------------------------------
 # ConfigResolver protocol
@@ -67,10 +67,9 @@ _PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 def _write_yaml_atomically(path: Path, document: dict) -> None:
     """Write *document* as YAML to *path*, atomically and fsynced (:func:`replace_text`).
 
-    The one write primitive of this module (``write_shot_offsets``,
-    ``write_preset``): a reader — the worker reopening its environment,
-    another host's resolver, the scanner listing presets — never sees a
-    half-written file.
+    The one write primitive of this module (``write_shot_offsets``): a
+    reader — the configurator claiming the file from its inbox, another
+    host's resolver — never sees a half-written file.
     """
     replace_text(path, yaml.safe_dump(document, sort_keys=False))
 
@@ -147,6 +146,12 @@ class ConfigsRepoResolver:
         Override for the experiments root (tests); defaults to the
         production resolution (:func:`geecs_core.configs_repo.scanner_configs_base`),
         resolved lazily on first use.
+    experiments_write_root :
+        Where the one write (:meth:`write_shot_offsets`) lands: defaults to
+        *experiments_root* when that is given, else the production write
+        root (:func:`geecs_core.configs_repo.scanner_configs_write_base`:
+        ``GEECS_CONFIGS_WRITE_ROOT``, the configurator's inbox on the box,
+        else the read root). Reads never look there.
     """
 
     # The folder names are GEECS-Schemas' constants (the one home); these
@@ -158,11 +163,20 @@ class ConfigsRepoResolver:
     OPTIMIZER_FOLDER = OPTIMIZER_CONFIGS_FOLDER
 
     def __init__(
-        self, experiment: str, experiments_root: str | Path | None = None
+        self,
+        experiment: str,
+        experiments_root: str | Path | None = None,
+        *,
+        experiments_write_root: str | Path | None = None,
     ) -> None:
         self._experiment = experiment
         self._experiments_root = (
             Path(experiments_root) if experiments_root is not None else None
+        )
+        self._experiments_write_root = (
+            Path(experiments_write_root)
+            if experiments_write_root is not None
+            else self._experiments_root
         )
         # (mtime_ns, size) of the catalog file the cached document came from.
         self._scan_variables_cache: tuple[tuple[int, int], ScanVariables] | None = None
@@ -193,15 +207,15 @@ class ConfigsRepoResolver:
         """
         base = self._root / folder
         path = base / f"{stem}.yaml"
-        if not path.exists():
+        if not settled_exists(path):
             twin = base / f"{stem}.yml"
-            if twin.exists():
+            if settled_exists(twin):
                 return twin
         return path
 
     def _load_yaml(self, path: Path, kind: str, name: str) -> dict:
         """Load one YAML mapping, failing loudly with the config kind/name."""
-        if not path.exists():
+        if not settled_exists(path):
             raise GeecsConfigurationError(
                 f"{kind} {name!r} not found for experiment "
                 f"{self._experiment!r}: no file at {path}"
@@ -264,8 +278,8 @@ class ConfigsRepoResolver:
     def resolve_preset(self, name: str) -> Preset:
         """Load preset *name* as a validated :class:`~geecs_schemas.Preset`.
 
-        One YAML per name under ``presets/`` — :meth:`write_preset` writes
-        them; the queue client's ``submit_preset`` reads them here so the
+        One YAML per name under ``presets/`` — saved through the
+        configurator (the scanner posts to it); the queue client's ``submit_preset`` reads them here so the
         folder layout keeps one owner.
 
         Raises
@@ -279,70 +293,6 @@ class ConfigsRepoResolver:
         path = self._named_yaml_path(self.PRESET_FOLDER, stem)
         document = self._load_yaml(path, "preset", name)
         return Preset.model_validate(document)
-
-    def preset_path(self, name: str) -> Path:
-        """The file preset *name* lives in (``presets/<name>.yaml`` or its ``.yml`` twin)."""
-        return self._named_yaml_path(self.PRESET_FOLDER, self._strip_yaml_suffix(name))
-
-    def write_preset(self, preset: Preset, *, overwrite: bool = False) -> Path:
-        """Save *preset* as ``presets/<preset.name>.yaml``; the file round-trips through :meth:`resolve_preset`.
-
-        The scanner's "Save as preset" writes here, so the folder keeps
-        one owner.  Atomic like :meth:`write_shot_offsets`, same mode rules,
-        same "the configs repo is a git checkout — committing is a human
-        act" contract: the path is returned so the caller can say which
-        file now differs from the tree.
-
-        Parameters
-        ----------
-        preset : Preset
-            The validated document.  Its ``name`` is the file stem and must
-            be a plain file name: letters, digits, ``_``, ``-`` and ``.``
-            (no separators, no leading dot).  A ``.yaml`` / ``.yml`` suffix
-            is stripped — the stem is the preset's name in the document too.
-        overwrite : bool, default False
-            Replace an existing preset of that name.  Off by default so a
-            typo in the name cannot silently replace a curated preset.
-
-        Raises
-        ------
-        GeecsConfigurationError
-            A name that is not a file stem, the experiment folder missing
-            (never created here — see :meth:`write_shot_offsets`), or an
-            existing preset without *overwrite*.
-        """
-        name = preset.name
-        while name != self._strip_yaml_suffix(name):
-            name = self._strip_yaml_suffix(name)
-        if name != preset.name:
-            # ``jet.yaml`` is the file, ``jet`` the preset: the document's
-            # name must be what ``list_presets`` says and ``resolve_preset``
-            # is asked for.
-            preset = preset.model_copy(update={"name": name})
-        if not _PRESET_STEM.fullmatch(name):
-            raise GeecsConfigurationError(
-                f"preset name {name!r} is not a file name: use letters, digits, "
-                "'_', '-' and '.', no separators"
-            )
-        folder = self._root / self.PRESET_FOLDER
-        if not self._root.is_dir():
-            raise GeecsConfigurationError(
-                f"cannot write preset {name!r} for experiment {self._experiment!r}: "
-                f"no configs folder at {self._root} (check the configs root and "
-                "that the share is mounted)"
-            )
-        path = self.preset_path(name)
-        if path.exists() and not overwrite:
-            raise GeecsConfigurationError(
-                f"preset {name!r} already exists at {path}; pass overwrite=True "
-                "to replace it"
-            )
-        # The presets folder itself may be absent in a fresh experiment; the
-        # experiment folder above it is the thing never created here.
-        folder.mkdir(exist_ok=True)
-        _write_yaml_atomically(path, preset.model_dump(mode="json"))
-        logger.info("preset %r written to %s", name, path)
-        return path
 
     @property
     def analysis_config_dir(self) -> Path:
@@ -449,6 +399,9 @@ class ConfigsRepoResolver:
         """
         path = self._root / self.SCAN_VARIABLES_FOLDER / SCAN_VARIABLES_FILENAME
         try:
+            settled_exists(
+                path
+            )  # a fast-forward mid-rewrite of the catalogue is waited out
             st = path.stat()
         except (FileNotFoundError, NotADirectoryError):
             # ``Path.exists`` read both as "missing"; keep that message.
@@ -541,7 +494,9 @@ class ConfigsRepoResolver:
         unreadable or legacy-dialect file **raises** (a listing that read
         empty would hide the regeneration a legacy file needs).
         """
-        if not (self._root / self.ACTION_FOLDER / ACTION_LIBRARY_FILENAME).exists():
+        if not settled_exists(
+            self._root / self.ACTION_FOLDER / ACTION_LIBRARY_FILENAME
+        ):
             return {}
         return dict(self._action_library().plans)
 
@@ -552,7 +507,7 @@ class ConfigsRepoResolver:
         choices in GUI state).
         """
         path = self._root / EXPERIMENT_DEFAULTS_FILENAME
-        if not path.exists():
+        if not settled_exists(path):
             return None
         document = self._load_yaml(
             path, "experiment defaults", EXPERIMENT_DEFAULTS_FILENAME
@@ -585,7 +540,7 @@ class ConfigsRepoResolver:
             raise GeecsConfigurationError(
                 f"configs directory {path.parent.parent} is not reachable"
             )
-        if not path.exists():
+        if not settled_exists(path):
             return NativeDevices()
         try:
             document = self._load_yaml(
@@ -601,6 +556,23 @@ class ConfigsRepoResolver:
     def shot_offsets_path(self) -> Path:
         """Where this experiment's measured drain offsets live (written or not)."""
         return self._root / SHOT_OFFSETS_FILENAME
+
+    @property
+    def shot_offsets_write_path(self) -> Path:
+        """Where :meth:`write_shot_offsets` writes: the same file under the write root.
+
+        The read path itself unless ``GEECS_CONFIGS_WRITE_ROOT`` names
+        another root (the configurator's inbox on the services box, which
+        commits the file to main; the worker reads it back from the live
+        checkout at its next environment open).
+        """
+        root = self._experiments_write_root or scanner_configs_write_base()
+        if root is None:
+            raise GeecsConfigurationError(
+                "cannot resolve where to write: set GEECS_CONFIGS_WRITE_ROOT, or the "
+                "configs root (config.ini [Paths] scanner_config_root_path)"
+            )
+        return root / self._experiment / SHOT_OFFSETS_FILENAME
 
     def resolve_shot_offsets(self) -> ShotOffsets | None:
         """Load ``<experiment>/shot_offsets.yaml``; ``None`` if never measured.
@@ -622,7 +594,7 @@ class ConfigsRepoResolver:
             a tight rep rate with nothing in the log to say why.
         """
         path = self.shot_offsets_path
-        if not path.exists():
+        if not settled_exists(path):
             return None
         document = self._load_yaml(path, "shot offsets", SHOT_OFFSETS_FILENAME)
         return ShotOffsets.model_validate(document)
@@ -639,10 +611,12 @@ class ConfigsRepoResolver:
         checkout, and a file only the service account could read would
         block the very review this write exists to invite.
 
-        The configs repo is a **git checkout**, usually on the data share.
-        This writes the working tree only: committing and pushing is a
-        human act, and the caller logs the path so the operator knows there
-        is an uncommitted change to review.
+        It writes to :attr:`shot_offsets_write_path`.  On the services box
+        that is the configurator's inbox, which commits the file to the
+        configs repo's main as the worker (the live checkout the worker
+        reads is never written: git refuses to fast-forward over an
+        uncommitted file); elsewhere it is the read path, a working-tree
+        change to review and commit.
 
         Returns
         -------
@@ -656,7 +630,7 @@ class ConfigsRepoResolver:
             misconfigured or unreachable, and creating the tree here would
             plant an experiment folder in the wrong place.
         """
-        path = self.shot_offsets_path
+        path = self.shot_offsets_write_path
         if not path.parent.is_dir():
             raise GeecsConfigurationError(
                 f"cannot write shot offsets for experiment {self._experiment!r}: "

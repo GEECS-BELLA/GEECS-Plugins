@@ -159,6 +159,26 @@ def demo_presets() -> list[Any]:
     ]
 
 
+class DemoPresets:
+    """The configurator, in memory: a save lands in the demo resolver's presets (no commit)."""
+
+    def __init__(self, resolver: "DemoResolver") -> None:
+        self._resolver = resolver
+        self.saves: list[tuple[str, str]] = []  # (name, operator)
+
+    def save(self, name: str, document: dict[str, Any], *, operator: str, overwrite: bool) -> Any:  # fmt: skip
+        """Keep the document under its name (one there only with *overwrite*); the path is where the configurator would commit it."""
+        from geecs_schemas import Preset
+
+        from geecs_scanner.service.preset_saver import SavedPreset, exists_refusal
+
+        if name in self._resolver._presets and not overwrite:
+            raise exists_refusal(name)
+        self._resolver._presets[name] = Preset.model_validate(document)
+        self.saves.append((name, operator))
+        return SavedPreset(path=f"demo/presets/{name}.yaml", commit=None, message=f"preset {name!r} kept in memory (demo: the configurator would commit it)")  # fmt: skip
+
+
 class DemoResolver:
     """An in-memory stand-in for ``ConfigsRepoResolver``."""
 
@@ -200,33 +220,6 @@ class DemoResolver:
             generator={"name": "random"},
             run={"shots_per_step": 5, "max_iterations": 10},
         )
-
-    def write_preset(self, preset: Any, *, overwrite: bool = False) -> Path:
-        """Keep *preset* in memory under its name; the path is where the real one would go."""
-        from geecs_bluesky.exceptions import GeecsConfigurationError
-
-        name = preset.name
-        while name.endswith((".yaml", ".yml")):
-            name = name.rsplit(".", 1)[0]
-        if not name or not name[0].isalnum() and name[0] != "_":
-            # The real resolver's _PRESET_STEM rule, in the double too.
-            raise GeecsConfigurationError(
-                f"preset name {preset.name!r} is not a file name: use letters, "
-                "digits, '_', '-' and '.', no separators"
-            )
-        if name != preset.name:
-            preset = preset.model_copy(update={"name": name})
-        if preset.name in self._presets and not overwrite:
-            raise GeecsConfigurationError(
-                f"preset {preset.name!r} already exists at {self.preset_path(preset.name)}; "
-                "pass overwrite=True to replace it"
-            )
-        self._presets[preset.name] = preset
-        return self.preset_path(preset.name)
-
-    def preset_path(self, name: str) -> Path:
-        """Where the real resolver would write *name*."""
-        return Path("demo") / "presets" / f"{name}.yaml"
 
     def action_plan_registry(self) -> dict[str, Any]:
         """Three action plans: one plain, one nesting another, one broken on purpose."""
@@ -356,8 +349,9 @@ def demo_preflight(
     client: Any = None,
     catalog: Any = None,
     resolver: Any = None,
+    trigger_profile: Any = None,
 ) -> Any:
-    """Validate by the real expansion; ask one fixed question."""
+    """Validate by the real expansion; ask one fixed question (an inline trigger profile changes nothing here)."""
     from geecs_bluesky.qs_client import (
         PreflightQuestion,
         PreflightReport,
@@ -457,6 +451,25 @@ class DemoQueueClient:
                 if self._running is None
                 else "executing_plan",
             )
+
+    #: How many environment reopens the demo manager went through (tests read it).
+    reopens = 0
+
+    def environment_close(self, *, timeout: float = 0.0) -> tuple[bool, str]:
+        """Nothing to close in memory: done."""
+        return True, "environment close: done"
+
+    def environment_open(self, *, timeout: float = 0.0) -> tuple[bool, str]:
+        """Nothing to open in memory: counted, done."""
+        self.reopens += 1
+        return True, "environment open: done"
+
+    def queue_start(self) -> tuple[bool, str]:
+        """Start the next waiting item, if any."""
+        with self._lock:
+            if self._running is None and self._queue:
+                self._start_next()
+        return True, "queue started"
 
     def readiness(self, expected_plans: str | Sequence[str] | None = None) -> Any:
         """Always ready."""

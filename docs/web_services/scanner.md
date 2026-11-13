@@ -57,7 +57,9 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   **strict** (fire between trigger and wait, one row per shot) or
   **gated** (the trigger box in SCAN, cameras count a batch). Press
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
-  The current form can be saved back as a preset (**Save as preset…**).
+  The current form can be saved back as a preset (**Save as preset…**):
+  the configurator commits it to the configs repo under the operator's
+  name (fill in the operator field first).
 - **Queue** — three sections, each one folding: **Ongoing** (the running
   item), **Waiting** (in execution order, each with **Remove**) and
   **History** (newest first, with the scan number and who started it);

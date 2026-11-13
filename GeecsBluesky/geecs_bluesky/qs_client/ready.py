@@ -101,7 +101,7 @@ class NotReady(RuntimeError):
     """The manager is not (or could not be made) ready; message says why."""
 
 
-def _zmq_request(control_addr: str) -> Request:
+def zmq_request(control_addr: str) -> Request:
     """The real transport: one bounded request per call, socket per call."""
     from bluesky_queueserver.manager.comms import zmq_single_request
 
@@ -376,7 +376,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     logger.info("asserting readiness of the manager at %s", control_addr)
     try:
         ensure_ready(
-            _zmq_request(control_addr),
+            zmq_request(control_addr),
             user_group=args.user_group,
             timeout_s=args.timeout,
         )

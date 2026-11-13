@@ -34,6 +34,8 @@ from geecs_scanner.service.models import (
     ProgressOut,
     QueueOut,
     ReadbackOut,
+    ReopenIn,
+    ReopenOut,
     SavePresetIn,
     SavePresetOut,
     ScanLogListIn,
@@ -44,6 +46,7 @@ from geecs_scanner.service.models import (
     StatusOut,
     SubmitIn,
     SubmitOut,
+    TriggerProfilePreflightIn,
     VerbIn,
     VerbOut,
 )
@@ -161,8 +164,18 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
 
     @router.post("/api/configs/presets/{name}", response_model=SavePresetOut)
     def save_preset(name: str, body: SavePresetIn) -> SavePresetOut:
-        """Write a preset document to the configs tree (the URL names the file)."""
+        """Save a preset (the URL names the file): a commit to main, through the configurator."""
         return service.save_preset(name, body)
+
+    @router.post("/api/preflight/trigger-profile", response_model=PreflightOut)
+    def preflight_trigger_profile(body: TriggerProfilePreflightIn) -> PreflightOut:
+        """The worker's checks of an unsaved trigger profile (the configurator's dry run); queues nothing."""
+        return service.preflight_trigger_profile(body)
+
+    @router.post("/api/environment/reopen", response_model=ReopenOut)
+    def reopen_environment(body: ReopenIn | None = None) -> ReopenOut:
+        """Close and reopen the worker environment (it re-reads its configs); idle and empty only."""
+        return service.reopen_environment(body or ReopenIn())
 
     @router.get("/api/scan-variables", response_model=list[ScanVariableOut])
     def scan_variables(response: Response) -> list[ScanVariableOut]:

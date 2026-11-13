@@ -30,6 +30,7 @@ geecs_scanner/
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
     actions.py    the action-plan preview: flatten nested runs over the schema models
     scanlog.py    read the run's scan.log from the folder the start document names
+    preset_saver.py "Save as preset": a PUT to the configurator (stdlib HTTP), which commits it
     scan_log_list.py the shared scan-log list (state-dir JSON, optimistic save) + the picker's logged variables
     settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
     readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
@@ -112,10 +113,32 @@ deploy/           the unit template + DEPLOYMENT.md
   `DELETE /api/queue/{uid}` removes one waiting item; the running uid is
   `policy_refusal`, an unknown one `not_found`. The many-waiting-items
   limit was the client's posture, never the manager's.
-- **Writes go through the resolver.** "Save as preset" calls
-  `ConfigsRepoResolver.write_preset` (atomic, refuses overwrite unless asked,
-  never creates the experiment folder); the scanner never opens a file in
-  the configs tree itself. Committing the new YAML is a human act.
+- **The scanner never writes the configs tree.** "Save as preset" asks
+  the configurator (`service/preset_saver.py`, `--configurator-url`, a
+  site value) over HTTP with the standard library's client: it reads the
+  preset's etag (none: a create), `PUT`s the whole document with the
+  operator (required), and the configurator commits it to main as the
+  operator's. No configurator configured, no save (the answer says so);
+  the demo keeps saves in memory (`DemoPresets`). Nothing of the
+  configurator is imported: a peer service.
+- **The environment reopen is the configurator's apply**
+  (`reopen_environment`, `POST /api/environment/reopen`): the worker reads
+  trigger profiles, the scan-variable catalogue, the native-device
+  registry and the shot offsets only at environment open. Under the one
+  lock, refused unless the environment is open and idle, nothing runs
+  **and nothing waits** (a closed environment is the readiness unit's to
+  open, never this route's); while it runs `StatusOut.reopening` is true,
+  every verb that queues (preflight, submit, move, action, calibration,
+  Set to best) is refused with `reopening`, and so is one that began before
+  the reopen and reaches the lock after it (`_reopen_guard` /
+  `_check_generation`: never an item queued after its caller waited out a
+  reopen, never a scan on a preflight of the old configs), and the
+  queue is started after the open if items wait. A failed open leaves the
+  environment closed: `manager_unreachable`, the readiness unit's recovery.
+- **The dry run of an unsaved trigger profile** is
+  `POST /api/preflight/trigger-profile` (`run_trigger_profile_preflight`,
+  or the full preflight of a given preset under the draft): the worker's
+  own checks, never re-implemented here; it queues nothing.
 - **scan.log is read where the start document says.** `scan_folder` in the
   start document is the run's folder on this host; `service/scanlog.py`
   reads `<folder>/scan.log` from an offset and never creates anything. The

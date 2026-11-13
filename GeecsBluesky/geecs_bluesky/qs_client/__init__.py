@@ -48,6 +48,7 @@ from geecs_bluesky.qs_client.submit_preflight import (
     PreflightReport,
     build_submission_record,
     run_submit_preflight,
+    run_trigger_profile_preflight,
 )
 
 __all__ = [
@@ -70,4 +71,5 @@ __all__ = [
     "PreflightReport",
     "build_submission_record",
     "run_submit_preflight",
+    "run_trigger_profile_preflight",
 ]

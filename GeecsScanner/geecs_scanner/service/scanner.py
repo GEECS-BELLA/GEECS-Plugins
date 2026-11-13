@@ -69,6 +69,8 @@ from geecs_scanner.service.models import (
     QueueRow,
     LoggedVariablesOut,
     ReadbackOut,
+    ReopenIn,
+    ReopenOut,
     SavePresetIn,
     SavePresetOut,
     ScanLogListIn,
@@ -80,6 +82,7 @@ from geecs_scanner.service.models import (
     SubmitIn,
     SubmitOut,
     TiledWriterOut,
+    TriggerProfilePreflightIn,
     VerbIn,
     VerbOut,
 )
@@ -156,6 +159,7 @@ class ScannerService:
         heartbeat_path: Optional[Path] = None,
         scan_log_list: Any = None,
         logged_variables: Any = None,
+        presets: Any = None,
     ) -> None:
         self.client = client
         self.resolver = resolver
@@ -171,7 +175,17 @@ class ScannerService:
         self._heartbeat_path = heartbeat_path
         self._scan_log_list = scan_log_list
         self._logged_variables = logged_variables
+        if presets is None:
+            from geecs_scanner.service.preset_saver import NoConfigurator
+
+            presets = NoConfigurator()
+        #: Where "Save as preset" goes (the configurator; :mod:`.preset_saver`).
+        self._presets = presets
         self._lock = threading.Lock()
+        #: Set while :meth:`reopen_environment` closes and reopens the environment.
+        self._reopening = threading.Event()
+        #: Counts reopens begun: a submit whose preflight straddled one is refused (it was judged on the old configs).
+        self._reopen_generation = 0
 
     # ----------------------------------------------------- settables + readback
 
@@ -261,6 +275,7 @@ class ScannerService:
             experiment=self.experiment,
             identity=self.identity,
             tiled_writer=self.tiled_writer(),
+            reopening=self.reopening,
         )
 
     def trajectory(
@@ -414,16 +429,10 @@ class ScannerService:
     def preflight(self, preset_doc: Mapping[str, Any]) -> PreflightOut:
         """Validate and pre-check a preset document; submit nothing."""
         preset = self._validate_preset(preset_doc)
+        self._refuse_while_reopening()
         catalog = self._catalog()
         report = self._run_preflight(preset, catalog)
-        out = PreflightOut(
-            refusal=report.refusal,
-            questions=[PreflightQuestionOut(**vars(q)) for q in report.questions],
-            outcomes=[
-                PreflightOutcomeOut(check=c, result=r, detail=d)
-                for c, r, d in report.outcomes
-            ],
-        )
+        out = _preflight_out(report)
         if report.refusal is None:
             item = self._expand(preset, catalog)
             summary = summarize_item(
@@ -442,6 +451,7 @@ class ScannerService:
     def submit(self, body: SubmitIn) -> SubmitOut:
         """Preflight, require every question acknowledged, stamp, queue."""
         preset = self._validate_preset(body.preset)
+        generation = self._reopen_guard()
         catalog = self._catalog()
         report = self._run_preflight(preset, catalog)
         if report.refusal is not None:
@@ -468,6 +478,7 @@ class ScannerService:
         if scan_log_variables:
             md["geecs"]["scan_log_variables"] = scan_log_variables
         with self._lock:
+            self._check_generation(generation)  # a reopen ran while this preflight did
             result = self.client.submit_preset(
                 preset,
                 catalog=catalog,
@@ -534,7 +545,9 @@ class ScannerService:
         """Queue the recorded best physical positions after a run has finished."""
         from geecs_bluesky.qs_client.presets import scan_variable_reference
 
+        generation = self._reopen_guard()
         with self._lock:
+            self._check_generation(generation)
             self._require_idle("Set to best")
             result = self.optimization()
             if result.run_uid != body.run_uid:
@@ -732,21 +745,35 @@ class ScannerService:
         return out
 
     def save_preset(self, name: str, body: SavePresetIn) -> SavePresetOut:
-        """Write a preset document to the configs tree as ``presets/<name>.yaml``.
+        """Save a preset as ``presets/<name>.yaml``: a commit to main, through the configurator.
 
-        The URL's *name* is the file stem and wins over the document's; the
-        write is the resolver's (one owner of the folder).  Committing the
-        new file is a human act — the answer names the path.
+        The URL's *name* is the file stem and wins over the document's. The
+        scanner never writes the configs tree: the configurator validates,
+        commits as the operator (required) and fast-forwards the checkout
+        this service reads (:mod:`.preset_saver`).
         """
-        doc = dict(body.preset)
-        doc["name"] = name
-        preset = self._validate_preset(doc)
-        # The 409 is decided here, from the listing, so the page's "replace?"
-        # dialog does not hang on the wording of the resolver's refusal; the
-        # resolver still refuses underneath (the backstop for a race).
+        import re
+
         stem = name
         while stem.endswith((".yaml", ".yml")):
             stem = stem.rsplit(".", 1)[0]
+        if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", stem):
+            raise ScannerError(
+                "invalid_request",
+                f"preset name {stem!r} is not a file name: use letters, digits, "
+                "'_', '-' and '.', no separators",
+            )
+        if not body.operator.strip():
+            raise ScannerError(
+                "invalid_request",
+                "enter your name (the operator) first: a saved preset is a commit under it",
+            )
+        doc = dict(body.preset)
+        doc["name"] = stem
+        preset = self._validate_preset(doc)
+        # The 409 is decided here, from the listing, so the page's "replace?"
+        # dialog does not hang on the wording of a refusal; the configurator
+        # refuses a create over an existing file underneath (a race's backstop).
         try:
             existing = set(self.resolver.list_presets())
         except Exception:  # noqa: BLE001 — a listing never raises in the real resolver
@@ -757,14 +784,129 @@ class ScannerService:
                 f"preset {stem!r} already exists; replace it or pick another name",
                 exists=True,
             )
-        try:
-            path = self.resolver.write_preset(preset, overwrite=body.overwrite)
-        except Exception as exc:
-            raise ScannerError("invalid_request", str(exc)) from exc
+        saved = self._presets.save(stem, preset.model_dump(mode="json"), operator=body.operator.strip(), overwrite=body.overwrite)  # fmt: skip
         return SavePresetOut(
-            name=path.stem,
-            path=str(path),
-            message=f"preset {path.stem!r} written to {path} — review and commit it in the configs repo",
+            name=stem, path=saved.path, message=saved.message, commit=saved.commit
+        )
+
+    # ------------------------------------------------------- configurator
+
+    def preflight_trigger_profile(
+        self, body: TriggerProfilePreflightIn
+    ) -> PreflightOut:
+        """The worker's checks of an unsaved trigger profile (the configurator's dry run); nothing is queued.
+
+        Without a preset: the profile's own checks (the schema, the adapter
+        the worker builds the trigger box from, its devices' liveness).
+        With one: the full preflight of that preset under the draft profile.
+        """
+        if body.preset is None:
+            from geecs_bluesky.qs_client import run_trigger_profile_preflight
+
+            report = run_trigger_profile_preflight(body.document, self.experiment)
+            return _preflight_out(report)
+        from geecs_schemas import TriggerProfile
+        from pydantic import ValidationError
+
+        try:
+            profile = TriggerProfile.model_validate(body.document)
+        except ValidationError as exc:
+            return PreflightOut(refusal=f"the trigger profile is not valid: {exc}")
+        preset = self._validate_preset(body.preset)
+        fn = self._preflight or _default_preflight()
+        report = fn(
+            preset,
+            self.experiment,
+            client=self.client,
+            catalog=self._catalog(),
+            resolver=self.resolver,
+            trigger_profile=profile,
+        )
+        return _preflight_out(report)
+
+    @property
+    def reopening(self) -> bool:
+        """Whether a reopen is in progress (the status chip's "reopening")."""
+        return self._reopening.is_set()
+
+    def reopen_environment(self, body: ReopenIn) -> ReopenOut:
+        """Close and reopen the worker environment, so it re-reads its configs; idle and empty only.
+
+        The worker reads trigger profiles, the scan-variable catalogue, the
+        native-device registry and the shot offsets at environment open, and
+        a reopen is the only reload (the configurator's apply). Under the one
+        lock, so no verb of this service lands between the check and the
+        open: refused (``policy_refusal``) unless the manager answers, the
+        environment exists and is idle, nothing runs **and nothing waits**
+        (a closed environment is not idle; reopening one is the readiness
+        unit's work). Every verb that queues (a preflight, a submit, a move,
+        an action, a calibration, Set to best) is refused with ``reopening``
+        meanwhile, and so is one that began before the reopen and reaches
+        the lock after it (the reopen generation moved: a submit's preflight
+        judged the old configs, and a caller timed out on the wait must never
+        see its item run later).
+        The open waits for the manager **ready** (the queue client's
+        ``environment_open``: the plan list settled, the readiness unit's
+        rule). After it the queue is started if items wait (one added past
+        this service, which could not start a queue with no environment).
+        A close refused (another client started a plan) is
+        ``policy_refusal``: nothing changed. An open that did not come up
+        ready is ``manager_unreachable``: it may still be opening, and one
+        left closed is the readiness unit's to reopen.
+        """
+        import time
+
+        with self._lock:
+            snap = self.client.status()
+            if not snap.connected:
+                raise ScannerError("manager_unreachable", snap.detail or "manager not answering")  # fmt: skip
+            if not snap.worker_exists or snap.worker_environment_state != "idle":
+                raise ScannerError(
+                    "policy_refusal",
+                    "a reopen needs the worker environment open and idle; it is "
+                    f"{snap.worker_environment_state or 'closed'} — the readiness unit opens a closed one",
+                    worker_environment_state=snap.worker_environment_state,
+                )
+            if snap.re_state not in (None, "idle") or snap.manager_state != "idle":
+                raise ScannerError(
+                    "policy_refusal",
+                    f"a reopen is idle-only: a plan is {snap.re_state or snap.manager_state}",
+                    re_state=snap.re_state,
+                )
+            if snap.items_in_queue:
+                raise ScannerError(
+                    "policy_refusal",
+                    f"a reopen is idle-only: {snap.items_in_queue} item(s) wait in the queue",
+                    items_in_queue=snap.items_in_queue,
+                )
+            logger.info(
+                "reopening the worker environment for %s (%s)",
+                body.operator or "an unnamed caller",
+                body.reason or "no reason given",
+            )
+            start = time.monotonic()
+            self._reopen_generation += 1
+            self._reopening.set()
+            try:
+                ok, message = self.client.environment_close()
+                if not ok:
+                    raise ScannerError("policy_refusal", f"the environment did not close, so nothing changed (another client may have started a plan): {message}")  # fmt: skip
+                ok, message = self.client.environment_open()
+                if not ok:
+                    raise ScannerError("manager_unreachable", f"the environment did not come up ready: {message} (it may still be opening; one left closed is the readiness unit's to reopen)")  # fmt: skip
+                after = self.client.status()
+                started = False
+                if after.items_in_queue:
+                    started, why = self.client.queue_start()
+                    if not started:
+                        logger.warning("queue start after the reopen refused: %s", why)
+            finally:
+                self._reopening.clear()
+        return ReopenOut(
+            ok=True,
+            message="the worker environment reopened: it reads the configs repo as committed",
+            queue_started=started,
+            seconds=round(time.monotonic() - start, 1),
         )
 
     # --------------------------------------------------------------- verbs
@@ -852,17 +994,41 @@ class ScannerService:
 
         return preset
 
+    def _reopen_guard(self) -> int:
+        """Before a verb that queues: the reopen generation (read first), refused while a reopen runs."""
+        generation = self._reopen_generation
+        self._refuse_while_reopening()
+        return generation
+
+    def _check_generation(self, generation: int) -> None:
+        """Under the lock: refuse when a reopen ran since :meth:`_reopen_guard` (a verb never queues after waiting one out)."""
+        if self._reopen_generation != generation:
+            self._refuse_while_reopening(force=True)
+
+    def _refuse_while_reopening(self, *, force: bool = False) -> None:
+        """A preflight during a reopen would read the environment closed; say why instead."""
+        if force or self.reopening:
+            raise ScannerError(
+                "policy_refusal",
+                "the worker environment is reopening to read a committed configuration "
+                "change; try again in a minute",
+                reopening=True,
+            )
+
     def _run_preflight(self, preset: Any, catalog: Mapping[str, Any]) -> Any:
         fn = self._preflight or _default_preflight()
         # No lock: the preflight reads the manager and the gateway itself
         # (a couple of seconds of CA reads); a status poll must not wait on it.
-        return fn(
+        report = fn(
             preset,
             self.experiment,
             client=self.client,
             catalog=catalog,
             resolver=self.resolver,
         )
+        if report.refusal is not None:
+            self._refuse_while_reopening()  # a reopen began mid-check: the real reason
+        return report
 
     def _expand(self, preset: Any, catalog: Mapping[str, Any]) -> Any:
         from geecs_bluesky.qs_client import expand_preset
@@ -876,7 +1042,9 @@ class ScannerService:
         self, name: str, args: list[Any], kwargs: dict[str, Any], *, what: str
     ) -> ItemOut:
         """Add a non-scan item while the manager is idle and nothing waits."""
+        generation = self._reopen_guard()
         with self._lock:
+            self._check_generation(generation)
             self._require_idle(what)
             result = self.client.submit_plan(name, args=args, kwargs=kwargs)
             if result.ok and name in ("mv", "run_action"):
@@ -940,6 +1108,18 @@ class ScannerService:
             return [scan_variable_reference(n) for n in names]
         except Exception as exc:
             raise ScannerError("invalid_request", str(exc)) from exc
+
+
+def _preflight_out(report: Any) -> PreflightOut:
+    """A ``PreflightReport`` as the API answers it (no plan call)."""
+    return PreflightOut(
+        refusal=report.refusal,
+        questions=[PreflightQuestionOut(**vars(q)) for q in report.questions],
+        outcomes=[
+            PreflightOutcomeOut(check=c, result=r, detail=d)
+            for c, r, d in report.outcomes
+        ],
+    )
 
 
 def _row(

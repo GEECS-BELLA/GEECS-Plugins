@@ -364,85 +364,50 @@ def test_a_share_that_refuses_chmod_still_gets_the_calibration(repo, monkeypatch
     assert list(path.parent.glob(".*tmp")) == []
 
 
-def _preset(name: str = "s1h_steer", **overrides):
-    from geecs_schemas import Preset
+def test_the_measurement_lands_under_the_write_root_never_the_read_root(tmp_path):
+    """On the box the read root is the configurator's live checkout, which is never written.
 
-    doc = {
-        "name": name,
-        "description": "steer S1H",
-        "trigger_profile": "HTU-LaserOFF",
-        "devices": [{"device": "UC_Amp4_IR_input", "save_images": True}],
-        "plan": {
-            "name": "scan",
-            "args": ["S1H current", 0.0, 0.2, 3],
-            "kwargs": {"shots_per_step": 3, "acquisition": "strict"},
-        },
-    }
-    doc.update(overrides)
-    return Preset.model_validate(doc)
+    The write root mirrors the configs tree (the configurator's inbox); the
+    read path is untouched, so the live checkout stays clean for its
+    fast-forwards and the worker reads the committed file back from it.
+    """
+    from geecs_schemas import DeviceOffset, ShotOffsets
 
-
-def test_write_preset_round_trips_through_resolve_and_listing(repo):
-    resolver = ConfigsRepoResolver("TestExp", repo)
-    path = resolver.write_preset(_preset())
-    assert (
-        path == repo / "TestExp" / ConfigsRepoResolver.PRESET_FOLDER / "s1h_steer.yaml"
+    (tmp_path / "live" / "TestExp").mkdir(parents=True)
+    (tmp_path / "inbox" / "TestExp").mkdir(parents=True)
+    resolver = ConfigsRepoResolver(
+        "TestExp",
+        tmp_path / "live",
+        experiments_write_root=tmp_path / "inbox",
     )
-    assert "s1h_steer" in resolver.list_presets()
-    again = resolver.resolve_preset("s1h_steer")
-    assert again.plan.args == ["S1H current", 0.0, 0.2, 3]
-    assert again.trigger_profile == "HTU-LaserOFF"
-    assert yaml.safe_load(path.read_text())["schema_version"] == 1
-    assert [p.name for p in path.parent.glob(".*tmp")] == []
+    document = ShotOffsets(reference="a", devices={"a": DeviceOffset(offset_s=0.0)})
+    path = resolver.write_shot_offsets(document)
+    assert path == tmp_path / "inbox" / "TestExp" / "shot_offsets.yaml"
+    assert not resolver.shot_offsets_path.exists()
+    assert resolver.resolve_shot_offsets() is None  # read from the live checkout
 
 
-def test_write_preset_refuses_to_replace_unless_asked(repo):
+def test_the_write_root_comes_from_the_site_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(tmp_path / "live"))
+    monkeypatch.setenv("GEECS_CONFIGS_WRITE_ROOT", str(tmp_path / "inbox"))
+    resolver = ConfigsRepoResolver("TestExp")
+    expected = tmp_path / "inbox" / "scanner_configs" / "experiments" / "TestExp"
+    assert resolver.shot_offsets_write_path == expected.resolve() / "shot_offsets.yaml"
+    assert (
+        resolver.shot_offsets_path.parent == (tmp_path / "live" / "TestExp").resolve()
+    )
+
+
+def test_a_missing_inbox_folder_is_refused_not_created(tmp_path):
+    """The worker never creates the inbox's experiment folder (the configurator does, at start)."""
     from geecs_bluesky.exceptions import GeecsConfigurationError
+    from geecs_schemas import DeviceOffset, ShotOffsets
 
-    resolver = ConfigsRepoResolver("TestExp", repo)
-    # Amp4In exists in the fixture (as an empty document).
-    before = resolver.preset_path("Amp4In").read_text()
-    with pytest.raises(GeecsConfigurationError, match="already exists"):
-        resolver.write_preset(_preset("Amp4In"))
-    assert resolver.preset_path("Amp4In").read_text() == before
-    resolver.write_preset(_preset("Amp4In"), overwrite=True)
-    assert resolver.resolve_preset("Amp4In").description == "steer S1H"
-
-
-def test_write_preset_refuses_a_name_that_is_not_a_file_stem(repo):
-    from geecs_bluesky.exceptions import GeecsConfigurationError
-
-    resolver = ConfigsRepoResolver("TestExp", repo)
-    for bad in ("../escape", "a/b", ".hidden", "", "with space"):
-        with pytest.raises(GeecsConfigurationError, match="not a file name"):
-            resolver.write_preset(_preset(bad))
-    assert not (repo / "escape.yaml").exists()
-
-
-def test_write_preset_refuses_a_missing_experiment_folder(tmp_path):
-    """Same rule as write_shot_offsets: never plant an experiment folder."""
-    from geecs_bluesky.exceptions import GeecsConfigurationError
-
-    resolver = ConfigsRepoResolver("NoSuchExp", tmp_path)
+    (tmp_path / "live" / "TestExp").mkdir(parents=True)
+    resolver = ConfigsRepoResolver(
+        "TestExp", tmp_path / "live", experiments_write_root=tmp_path / "inbox"
+    )
+    document = ShotOffsets(reference="a", devices={"a": DeviceOffset(offset_s=0.0)})
     with pytest.raises(GeecsConfigurationError, match="no configs folder"):
-        resolver.write_preset(_preset())
-    assert not (tmp_path / "NoSuchExp").exists()
-
-
-def test_write_preset_creates_only_the_presets_folder(tmp_path):
-    """A fresh experiment has the folder but no presets/ yet; that one is fine to add."""
-    (tmp_path / "Fresh").mkdir()
-    resolver = ConfigsRepoResolver("Fresh", tmp_path)
-    path = resolver.write_preset(_preset())
-    assert path.parent == tmp_path / "Fresh" / "presets"
-    assert resolver.list_presets() == ["s1h_steer"]
-
-
-def test_write_preset_strips_a_yaml_suffix_into_the_document(repo):
-    resolver = ConfigsRepoResolver("TestExp", repo)
-    path = resolver.write_preset(_preset("jet.yaml.yaml"))
-    assert path.name == "jet.yaml"
-    assert (
-        "jet" in resolver.list_presets() and "jet.yaml" not in resolver.list_presets()
-    )
-    assert resolver.resolve_preset("jet").name == "jet"
+        resolver.write_shot_offsets(document)
+    assert not (tmp_path / "inbox").exists()

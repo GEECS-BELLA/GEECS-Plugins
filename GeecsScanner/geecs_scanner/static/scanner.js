@@ -109,7 +109,11 @@
     if (!st) return;
     var running = st.re_state === "running" || st.re_state === "paused";
     var runWord = st.re_state === "paused" ? K.paused : K.running;
-    if (!st.connected) {
+    if (st.reopening) {
+      // the configurator's apply: the worker re-reads the configs; a Start waits for it
+      setChip($("chip-manager"), K.running, "manager", "the worker environment is reopening (a committed configuration change)");
+      setChip($("now-chip"), K.running, "reopening");
+    } else if (!st.connected) {
       setChip($("chip-manager"), K.failed, "manager", st.detail || "not answering");
       setChip($("now-chip"), K.failed, "unreachable");
     } else if (st.readiness !== "ready") {
@@ -1232,7 +1236,7 @@
   ["pname", "pdesc"].forEach(function (id) { $(id).addEventListener("input", renderPresetYaml); });
   function savePreset(overwrite) {
     var preset = presetForSave();
-    post("/api/configs/presets/" + encodeURIComponent(preset.name), { preset: preset, overwrite: overwrite })
+    post("/api/configs/presets/" + encodeURIComponent(preset.name), { preset: preset, overwrite: overwrite, operator: operator() })
       .then(function (out) {
         $("preset-saved").textContent = out.message;
         return api("/api/configs/presets").then(function (r) {
