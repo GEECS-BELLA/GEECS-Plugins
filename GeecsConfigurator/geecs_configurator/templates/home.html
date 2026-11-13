@@ -1,0 +1,119 @@
+{#
+  The configurator's home: the catalogue in the rail, a kind's documents, and
+  the open document drawn by the theme's form.js. Read-only in this slice:
+  an edit in the page is validated and diffed, never saved.
+#}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ settings.title }}{% if kind %} — {{ kind }}{% endif %}</title>
+<script src="{{ root }}/theme/theme-boot.js"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css">
+<link rel="stylesheet" href="{{ root }}/static/configurator.css">
+</head>
+<body class="kit" data-root="{{ root }}" data-kind="{{ kind }}" data-experiment="{{ experiment }}" data-id="{{ doc_id }}">
+
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="{{ root }}/?experiment={{ experiment | urlencode }}">{{ settings.title }} <span class="sub">{{ experiment or "no experiment" }}</span></a>
+    <form class="row" method="get" action="{{ root }}/">
+      <label class="dim" for="experiment">Experiment</label>
+      <select class="btn sm" id="experiment" name="experiment" onchange="this.form.submit()">
+        {% for e in experiments %}<option value="{{ e }}"{% if e == experiment %} selected{% endif %}>{{ e }}</option>{% endfor %}
+      </select>
+      {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+    </form>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="rail">
+    {% for storage, heading in [("file", "Configs repo"), ("code", "Package data")] %}
+    <div>
+      <h4>{{ heading }}</h4>
+      <nav class="picklist">
+        {% for k in catalogue if k.storage == storage %}
+        <a href="{{ root }}/?experiment={{ experiment | urlencode }}&amp;kind={{ k.kind }}"{% if k.kind == kind %} aria-current="page"{% endif %}>{{ k.kind }}<span class="tier" data-tier="{{ k.tier }}">{{ k.tier }}</span></a>
+        {% endfor %}
+      </nav>
+    </div>
+    {% endfor %}
+  </aside>
+
+  <main class="pane">
+    <div class="banner" data-state="denied"><strong>Read-only.</strong> Edits in this page are validated and diffed against the stored document, never saved. Saving arrives in a later slice.</div>
+
+    {% if not kind %}
+    <section class="panel">
+      <header><span class="eyebrow">Every registered kind</span></header>
+      <div class="tscroll"><table>
+        <thead><tr><th>Kind</th><th>Kept</th><th>Tier</th><th>Where, or why not a file</th><th>Read by</th></tr></thead>
+        <tbody>
+        {% for k in catalogue %}
+        <tr><td class="id">{% if k.storage != "not-a-file" %}<a href="{{ root }}/?experiment={{ experiment | urlencode }}&amp;kind={{ k.kind }}">{{ k.kind }}</a>{% else %}{{ k.kind }}{% endif %}</td>
+          <td>{{ k.storage }}</td><td>{% if k.tier %}<span class="tier" data-tier="{{ k.tier }}">{{ k.tier }}</span>{% endif %}</td>
+          <td class="mono">{{ k.path or k.reason }}</td>
+          <td>{% for c in k.consumers %}{{ c.name }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </section>
+    {% else %}
+    <section class="panel">
+      <header><span class="eyebrow">{{ kind }}</span><span class="dim">{{ docs | length }} document{{ "" if docs | length == 1 else "s" }}</span></header>
+      <div class="body">
+        {% if docs %}
+        <nav class="picklist docs">
+          {% for d in docs %}
+          <a href="{{ root }}/?experiment={{ experiment | urlencode }}&amp;kind={{ kind }}&amp;id={{ d.id | urlencode }}"{% if d.id == doc_id %} aria-current="page"{% endif %}>{{ d.id }}{% if not d.valid %}<span class="sub" title="{{ d.error }}">invalid</span>{% elif d.note %}<span class="sub" title="{{ d.note }}">legacy</span>{% endif %}</a>
+          {% endfor %}
+        </nav>
+        {% else %}
+        <div class="state" data-state="empty"><span class="t">No documents</span><span class="m">Nothing of this kind is in {{ experiment or "the configs root" }}.</span></div>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if doc_id %}
+    <div class="editor">
+      <section class="panel">
+        <header><span class="eyebrow" id="doc-title">{{ doc_id }}</span><span class="mono dim" id="doc-path"></span></header>
+        <div class="body" id="form"><div class="state" data-state="loading"><span class="t">Loading</span><div class="bar"><i></i></div></div></div>
+        <footer><div class="row">
+          <button class="btn primary" type="button" id="validate">Validate</button>
+          <button class="btn" type="button" id="diff">Diff against stored</button>
+          <button class="btn" type="button" id="yaml">YAML</button>
+          <span class="spacer"></span>
+          <button class="btn ghost" type="button" id="reset">Discard edits</button>
+        </div></footer>
+      </section>
+      <aside class="group">
+        <section class="panel">
+          <header><span class="eyebrow">Tier</span></header>
+          <div class="body" id="tier"></div>
+        </section>
+        <section class="panel">
+          <header><span class="eyebrow">Read by</span></header>
+          <div class="body" id="consumers"></div>
+        </section>
+        <section class="panel">
+          <header><span class="eyebrow">Result</span></header>
+          <div class="body" id="result"><p class="dim">Validate, diff or render the document as edited.</p></div>
+        </section>
+      </aside>
+    </div>
+    {% endif %}
+  </main>
+</div>
+
+<script src="{{ root }}/theme/theme.js" defer></script>
+<script src="{{ root }}/theme/kit.js" defer></script>
+<script src="{{ root }}/theme/form.js" defer></script>
+<script src="{{ root }}/static/configurator.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+/* The configurator's page rules. Colour comes from the theme's tokens only; the kit owns the rest. */
+.kit .editor{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:var(--gap);align-items:start}
+@media (max-width:1100px){.kit .editor{grid-template-columns:minmax(0,1fr)}}
+.kit .picklist.docs{max-height:220px;overflow:auto}
+.kit .changes{display:flex;flex-direction:column;gap:4px;font-family:var(--ff-mono);font-size:12px}
+.kit .changes .was{color:var(--muted);text-decoration:line-through}
+.kit .rail .picklist a .tier{margin-left:auto}
+.kit .editor aside p, .kit .editor aside ul{margin:0}
+.kit .picklist [aria-current="page"] .tier{color:inherit;border-color:currentColor}

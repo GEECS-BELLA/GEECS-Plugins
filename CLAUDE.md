@@ -25,6 +25,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. **Line plots** on every surface are Plotly through its `plot.js` template (tokens read at run time) and the one vendored `plotly-cartesian-<version>.min.js` beside it; images stay each surface's own. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk the portal's and the editor's templates too. **Read its `CLAUDE.md` before building a new web surface** |
 | `GeecsLogbook/` | The logbook (successor to LogMaker4GoogleDocs): two books in one store — the **scans** book, a day-document view over scan folders, and the **ops** book, routine operations read by month — its own web service (`geecs-logbook`, port 8400, unit + `StateDirectory` of its own; the Data Portal links to it and no longer mounts it). A day is a **query**, not a document — no daily job, no template stamping. Derived scan facts are rendered per request and stored nowhere; human commentary lives in the unit's state directory and is mirrored as markdown into `{experiment}/logbook/`, a tree of its own outside the data tree. Notes cite each other by permalink (`/entry/{id}`), stored relative in the body so no mount prefix ever reaches the record |
 | `GeecsControlRoom/` | The operator surfaces over Canopy (`Planning/operator_surfaces.md`): the experiment's home, the **Control Room**, and the **screens renderer** — a control GUI is a screen file in the configs repo (`<experiment>/screens/`) drawn by one renderer, never code per screen (`geecs-control-room`, port 8700). FastAPI + Jinja on the kit, plain JS, no build step. A client of Canopy, never part of it: live values from Hare's WebSocket with a display **read** key, verdicts from the GEECS module's device route, every write through the module's put route with the operator's name, sent once. A screen binds, groups, confirms and calls; it never computes. The device pages (`/device/<kind>/<name>`, one page per kind) are drawn the same way; a camera's frame and its lineout arrays, and a trace page's array over its axis (one page for every such device, its rail from the family's `panel`), which Hare does not carry, are read over Channel Access by this server (aioca), read only, at the PVs the module's device route names |
+| `GeecsConfigurator/` | One editor over every GEECS-Schemas document in the configs repo (`geecs-configurator`, port 8800; the configurator arc, `Planning/configurator.md`): the catalogue of every registered kind with its storage, tier and readers, every document of every file kind drawn from its schema by the theme's `form.js`, validate, diff with the strictest changed tier, YAML. **Read-only** so far; the commit path, dry runs and setups arrive in its later slices. A thin HTTP client of the other services, imported by nothing |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs — being replaced by `GeecsLogbook/` |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
@@ -293,6 +294,11 @@ GeecsControlRoom     →  GEECS-Schemas (the screen document, the family
                         logbook. GeecsCanopy is a DEV-ONLY
                         path dep: the contract test drives the module's
                         own routes in process (geecs_canopy.testing)
+GeecsConfigurator    →  GEECS-Schemas (the registry, the models, the tiers,
+                        the storage table), GEECS-Core (configs_repo for
+                        the root; never GeecsDb), GeecsWebTheme (web extra:
+                        the kit, form.js, the glue). Every other service it
+                        asks over HTTP; nothing imports it
 ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, GEECS-Schemas,
                         (+ fastapi/jinja2 via the
                         `editor` extra — scan_analysis.config_editor,
@@ -460,7 +466,7 @@ Every package has a `CHANGELOG.md` following
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
 `GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-MCP/`, `GEECS-DataPortal/`,
 `GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`,
-`GeecsArchiver/`, `GeecsCanopy/`, `GeecsControlRoom/`
+`GeecsArchiver/`, `GeecsCanopy/`, `GeecsControlRoom/`, `GeecsConfigurator/`
 (`scripts/doc_audit.py` checks this list and the repository map above
 against the packages on disk).
 
