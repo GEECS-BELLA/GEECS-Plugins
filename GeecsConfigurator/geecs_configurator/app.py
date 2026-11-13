@@ -3,8 +3,8 @@
 With the commit path on (``Settings.commits``) the configs root is the
 repository's live checkout: a document is served after a fetch and
 fast-forward under the repository's lock (the etag the editor holds is of
-the current base; an unreachable origin serves the last accepted main and
-says so in ``X-Configs-Stale``), ``PUT /api/documents/...`` saves
+the current base; an unreachable origin or a busy lock serves the last
+accepted main within seconds and says so in ``X-Configs-Stale``), ``PUT /api/documents/...`` saves
 (``save.py``), and a timer reconciles the inbox. Off, the service is
 read-only and the save route answers 405. The API answers CORS for the
 surfaces that embed the editor (a site value), because the embedded editor
@@ -120,12 +120,18 @@ def reconcile(app: FastAPI) -> list[inbox.Published]:
 SERVE_WAIT_S, SERVE_FETCH_S, FRESH_S = 5.0, 10.0, 2.0
 
 
-def _refresh(app: FastAPI, repo: ConfigsRepository) -> str | None:
-    """Under the lock: reconcile the inbox, then fetch and fast-forward the live checkout; why it is stale, or ``None``."""
+def _refresh(repo: ConfigsRepository) -> str | None:
+    """Under the lock: fetch (bounded, skipped when recent) and fast-forward the live checkout; why it is stale, or ``None``.
+
+    The inbox is not published here: its push takes the full git timeout,
+    and a read must not; the timer and the save publish it. The live
+    checkout never holds the inbox's files, so a fetch first is harmless.
+    """
     try:
-        reconcile(app)
         if time.monotonic() - repo.fetched_at > FRESH_S:
             repo.sync(timeout=SERVE_FETCH_S)
+        else:  # a recent fetch: no network, but main may be ahead of live (a fetch then a failed push)
+            repo.advance()
     except (GitError, OSError) as exc:
         logger.warning("serving the last accepted main: %s", exc)
         return " ".join(str(exc).split())[:200]
@@ -200,7 +206,7 @@ def document(request: Request, kind: str, doc_id: str, experiment: str | None = 
     try:
         if repo is not None:
             # busy (a long push or fetch): read the live checkout as it stands, never wait on the network
-            stale = _refresh(request.app, repo) if locked else "the repository is busy (a push or a fetch); serving the last accepted main"  # fmt: skip
+            stale = _refresh(repo) if locked else "the repository is busy (a push or a fetch); serving the last accepted main"  # fmt: skip
         loaded = _answer(lambda: _store(request).read(_file_kind(kind), experiment, doc_id))  # fmt: skip
     finally:
         if locked and repo is not None:
@@ -219,6 +225,10 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
         saved = _answer(lambda: save(_store(request), repo, request.app.state.pull_requests, _file_kind(kind), experiment, doc_id, body, email=request.app.state.settings.committer_email))  # fmt: skip
     except Refused as exc:
         return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+    if saved.outcome != "nothing to do":
+        inbox.reset_backoff(
+            repo
+        )  # origin answered: a waiting measurement need not wait out its backoff
     return _served(saved)
 
 

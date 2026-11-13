@@ -267,6 +267,17 @@ def test_the_operator_s_name_is_one_clean_line_everywhere(committing: TestClient
     assert "\nCo-Authored-By" not in prs.opened[-1][2]
 
 
+def test_a_read_inside_the_fresh_window_still_fast_forwards(committing: TestClient, other: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    repo = _repo(committing)
+    push_change(other, f"{SETUPS}/low_power.yaml", "name: low_power\ndescription: fetched\nsteps:\n  - {do: wait, seconds: 3}\n")  # fmt: skip
+    repo.fetch()  # main is ahead of live (a fetch, then no advance)
+    monkeypatch.setattr("geecs_configurator.app.FRESH_S", 60.0)
+    assert (
+        _get(committing, "setup", "low_power.yaml")["document"]["description"]
+        == "fetched"
+    )
+
+
 def test_a_busy_repository_serves_the_last_main_at_once(committing: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
     monkeypatch.setattr("geecs_configurator.app.SERVE_WAIT_S", 0.5)
     import threading

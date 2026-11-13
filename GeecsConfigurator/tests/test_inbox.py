@@ -173,9 +173,29 @@ def test_an_invalid_inbox_file_is_set_aside_never_committed(committing: TestClie
     _inbox_empty(repo)
 
 
-def test_serving_a_document_publishes_the_inbox_first(committing: TestClient, origin: Path) -> None:  # fmt: skip
+def test_a_save_publishes_the_inbox_first_and_a_read_never_does(committing: TestClient, origin: Path) -> None:  # fmt: skip
     repo = committing.app.state.repo
     _deliver(repo, _offsets(0.4))
-    doc = committing.get("/api/documents/shot_offsets/shot_offsets.yaml?experiment=Bench").json()  # fmt: skip
-    assert doc["document"]["devices"]["CamB"]["offset_s"] == 0.4
+    committing.get("/api/documents/setup/low_power.yaml?experiment=Bench")
+    assert (repo.inbox / REL).exists()  # a read never pushes
+    doc = committing.get("/api/documents/setup/low_power.yaml?experiment=Bench").json()
+    committing.put("/api/documents/setup/low_power.yaml?experiment=Bench", json={"document": {**doc["document"], "description": "x"}, "etag": doc["etag"], "operator": "Ada"})  # fmt: skip
+    assert (repo.live / REL).read_bytes() == _offsets(0.4)
     _inbox_empty(repo)
+
+
+def test_a_successful_save_ends_the_inbox_backoff(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    repo = committing.app.state.repo
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    _deliver(repo, _offsets(0.1))
+    reconcile(committing.app)  # fails: backing off
+    hook.unlink()
+    assert reconcile(committing.app) == []
+    doc = committing.get("/api/documents/setup/low_power.yaml?experiment=Bench").json()
+    saved = committing.put("/api/documents/setup/low_power.yaml?experiment=Bench", json={"document": {**doc["document"], "description": "x"}, "etag": doc["etag"], "operator": "Ada"}).json()  # fmt: skip
+    assert saved["outcome"] == "committed"
+    assert [r.outcome for r in reconcile(committing.app)] == [
+        "committed"
+    ]  # no wait left
