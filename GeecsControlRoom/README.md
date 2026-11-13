@@ -70,6 +70,10 @@ copy, + 4 MB gzip; 36 MB while the frame was read as int32).
   `dc build` and a `geecs-canopy` restart (`GeecsCanopy/DEPLOYMENT.md`) come
   before the Control Room's restart; until then the raw view answers 404
   (the module names no `raw_frame` role).
+- **A screen schema change deploys in order**: the Control Room's env,
+  then Canopy's image, then the first screen file that uses it in the
+  configs repo. An older Canopy refuses a widget kind its copy of
+  GEECS-Schemas lacks (`kind: group` in a preset's screen scope, #1306).
 
 `EPICS_CA_MAX_ARRAY_BYTES` need
 not be set for the raw frame (`/api/devices/{name}/frame.raw`, a 2592×2048

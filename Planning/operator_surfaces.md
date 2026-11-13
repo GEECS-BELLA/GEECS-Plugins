@@ -163,30 +163,7 @@ action hands the same facts to the facility assistant through GEECS-MCP.
 
 ## 6. Device-type front panels
 
-**Camera.** The LabVIEW GUI's features map almost one to one onto the
-areaDetector chain the native camera already runs and the Control Room's
-camera page renders (GeecsPanels' camera page before it, deleted 2026-11-06): ROI (ROI plugin), exposure, gain, trigger mode and delay,
-rate (`ArrayRate_RBV`), last update (freshness by the STAT counter), max
-counts against a saturation level (the raw STAT0 maximum), two named
-crosshairs with target, size, colour and "set to centroid" (the overlay
-plugin, built), centroid, sigma, max, mean, total (the statistics plugin),
-mean and histogram and lineout plots, colour table and autoscale (client
-side), the save toggle (the scanner's save set), device errors (alarms).
-Three real gaps, each a decision rather than a page: a **spatial low-pass
-filter** and **perspective correction** are not stock plugins (an analysis
-step offline, or a custom plugin in the IOC chain); **FWHM and 45° second
-moments** are not statistics-plugin outputs (derive from sigma x, y, xy and
-the profiles, in the module or a derived channel). Background subtraction
-and rotate/flip exist as plugins and are an IOC-chain decision. The
-Analysis tab's per-shot trends are what Vole, Canopy's live buffer, is for.
-
-**Scope.** The LabVIEW panel only shows traces; the Control Room's trace page
-over the picoscope contract (ported from GeecsPanels' scope page, deleted
-2026-11-06) is the better front panel.
-
-**Motor, supply.** Built as the Control Room's settables page from the family
-files (device pages slice 5): the drill-down's device page and the
-inspector's rich view. GeecsPanels' pages were deleted in slice 6.
+Moved to `GeecsControlRoom/CLAUDE.md` § "The device pages" on 2026-11-13.
 
 ## 7. The renderer stack: decided by a falsifiable first slice
 

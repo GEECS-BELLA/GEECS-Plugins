@@ -3,8 +3,8 @@
 The operator surfaces over Canopy (`Planning/operator_surfaces.md`): the
 experiment's home, the **Control Room**, and the **screens renderer** —
 a control GUI is a screen file in the configs repo drawn by one renderer,
-never code per screen. FastAPI + Jinja on the kit, plain JavaScript, no
-build step (§7: the first slice decides whether that stays).
+never code per screen — and the **device pages** (§ "The device pages").
+FastAPI + Jinja on the kit, plain JavaScript, no build step.
 
 ## Layout
 
@@ -237,6 +237,75 @@ deploy/
   colour (this package's templates and static files are in
   `GeecsWebTheme/tests/test_no_literal_colours.py`'s `_SURFACES`); status
   is a dot and a word.
+
+## The device pages
+
+One front panel per **data shape**, for any device of that shape: the
+camera page (an image), the trace page (an array over a calibrated axis)
+and the settables page (everything else: a motor, a supply, every GEECS DB
+device). The kind word in `/device/<kind>/<name>` maps to a family `kind`
+and a template in `device_pages.KINDS`, the one table; the registry join
+(`native_devices.yaml` + `panel_devices.yaml` by device name, a device's
+family from its panel entry, else its native entry) is `catalogue`, the
+pickers' and the directory's one reader. Adding a device is a registry
+row; a new family of an existing kind is its family file; only a new data
+shape is a template and a row in `KINDS`.
+
+- **The picker** (`/device/<kind>`) lists the kind's registry devices (the
+  roster's DB devices for `settables`) in a kit select, each with the
+  module's state word, and takes a free-text name for a device the files do
+  not list; the form works without script (a 303 to the page). A device the
+  two files give different families is no kind's: it is left out and named
+  in the picker's note (the module's join rule).
+- **Resolution is one read of the module's device route**; the page never
+  derives a PV and is never blank or a 500. Not on the roster (404), a
+  refused read (401/403), a family of another kind (a link to the right
+  kind) or no page for the family: the kit's `denied` pane, saying which;
+  another 4xx: `error`; the module unreachable or a 5xx: `stale` with a 503,
+  the page asking again until it answers. An unknown kind word is a 404
+  pane naming the kinds.
+- **Every page's rail and readings strip are a panel**: the family's
+  `panel`, else `auto_panel` (§ "The settables page"), drawn with
+  `_panel.html`'s macros and filled by `device_rail.js`. A kind's own
+  roles stay off the rail whatever the family says (`OWN_ROLES`: the
+  camera ROI, behind its dialog). The role tables (operator roles open,
+  `expert` folded) sit under the panel on every page.
+- **The image and the arrays** are this server's CA reads, read only
+  (§ "Rules that hold here", "A client of Canopy, never a part of it");
+  arrays are polled, never streamed (SSE was the prototype's), each read
+  shared and held on its producing plugin's counter.
+- **A page never computes a verdict.** Units are the family's (a camera's
+  exposure in s). A run-locked role is drawn enabled: the module refuses
+  it (423) and its outcome says why. Not on any page, each the module's
+  to give if wanted: a saturation verdict (the page shows the raw maximum
+  and the pixel format), "crosshair to centroid" (crosshairs are set by
+  value), a run-lock override, a decoded `.MSTA` or supply state word, a
+  refusal at a setpoint's `HIHI`/`LOLO` (the module's bounds are the drive
+  limits; the IOC's `IVOA` refuses until then). An IOC restart
+  (`<IOC>:SysReset`) is not offered; if it is, it is a production-only
+  control behind a confirm, never for a bench instance (geecs-epics
+  `docs/architecture.md`, "Operating an IOC").
+
+**The camera page shows what the areaDetector chain serves.** The LabVIEW
+camera GUI's features map almost one to one onto the chain: the ROI (the
+driver's camera ROI, and the analysis ROI of the ROI plugin), exposure,
+gain, trigger mode and delay, the rate (`ArrayRate_RBV`), the last update
+(freshness by the STAT counter), the maximum against saturation (the raw
+STAT0 maximum), two named crosshairs (the overlay plugin), centroid, sigma,
+max, mean and total (the statistics plugin), the lineouts and the
+histogram, the colour table and autoscale (client side), the save toggle
+(the scanner's save set, not a page control) and device errors (alarms).
+A feature with no role in `ad_camera_chain` (the trigger delay, today) is
+added to the family, never to the page. Three gaps are
+decisions, not pages, and are not built: a **spatial low-pass filter** and
+**perspective correction** are no stock plugin (an offline analysis step,
+or a custom plugin in the IOC chain); **FWHM and the 45° second moments**
+are no statistics-plugin output (derivable from sigma x, y, xy and the
+profiles, in the module or a derived channel). Background subtraction and
+rotate/flip exist as plugins: whether a camera runs them is the IOC
+chain's decision. Per-shot trends are Vole's (Canopy's live buffer), never
+a page's. A LabVIEW scope panel only showed traces; the trace page is its
+successor (§ "The trace").
 
 ## The raw frame
 
