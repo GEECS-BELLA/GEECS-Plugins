@@ -98,7 +98,11 @@ deploy/
   binds) and `panel_devices.yaml` (panel data) stay two documents, joined
   by device name here; a device in both names one family in both, which
   only a reader of both can enforce (`native.py`). Folding them is a push-2
-  decision.
+  decision. Both, and the operator policy, are read through
+  `geecs_core.configs_repo.settled_exists`: the configs root may be the
+  configurator's live checkout, which a fast-forward rewrites by unlink and
+  create, so a file missing mid-rewrite is never read as "none" (the
+  compose mounts that checkout's git dir at its host path for the lock).
 - **The GEECS DB is transitional.** It enters Canopy in `gateway.py` alone
   (`elementType=gateway`), with the gateway's own read-only queries and a
   read-only MySQL user from the secrets file, never a `config.ini`. It is

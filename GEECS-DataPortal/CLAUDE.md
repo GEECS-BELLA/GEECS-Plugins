@@ -24,7 +24,10 @@ extending this package.
   the `--processing-configs` tree: it writes analysis-config YAML into
   **that tree only** (the share copy of the configs repo, uncommitted —
   same standing as the scanner's preset writes), never the scans tree
-  (pinned in `tests/test_config_editor_mount.py`).  Its preview
+  (pinned in `tests/test_config_editor_mount.py`). Once the configs root
+  is the configurator's live checkout, which nothing may write,
+  `--config-editor-read-only` serves it read-only (every save a 405) until
+  the analysis kinds move onto the configurator.  Its preview
   renders the *unsaved* document on the scan page's current shot through
   `geecs_portal.processing.render_document_as_run` — ScanAnalysis'
   `core_preview.preview_frame`, the analysis sink's own per-frame call

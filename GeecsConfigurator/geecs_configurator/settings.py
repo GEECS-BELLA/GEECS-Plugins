@@ -26,11 +26,21 @@ pushes and a proposal gives its compare link. ``_SHARE_CLONE`` is the
 share's clone, fast-forwarded from the service's repository after every
 accepted change; ``_FETCH_SECONDS`` (default 60; 0 = off) is how often
 main is fetched so a merge on GitHub takes effect.
+
+**The applies and dry runs** reach the consumers: ``_SCANNER_URL`` (the
+scanner as this process reaches it: the worker's environment reopen, the
+trigger-profile dry run, readbacks; one URL is the served experiment's,
+``Exp=url,Exp2=url`` names each experiment instance's scanner) and ``_ARCHIVER_COMMAND`` (the
+archiver's CLI in its own environment, whitespace-split: onboard and its
+dry run). Unset, those applies are handed to the maintainer (pending) and
+those dry runs say they did not run. ``_APPLY_SECONDS`` (default 30; 0 =
+off) is how often the queued applies are tried.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +48,28 @@ from pathlib import Path
 from geecs_core.configs_repo import EXPERIMENTS_SUBDIR, scanner_configs_base
 
 _P = "GEECS_CONFIGURATOR_"
+
+
+def _named_scanners(raw: str) -> dict[str, str] | None:
+    """``Exp=url,Exp2=url`` as a mapping, or ``None`` when no part names an experiment (one plain URL)."""
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    named = [re.fullmatch(r"([A-Za-z0-9_.-]+)=(https?://\S+)", p) for p in parts]
+    if not any(named):
+        return None
+    if not all(named):
+        raise SettingsError(f"{_P}SCANNER_URL names an experiment for some parts but not every one: {raw!r}")  # fmt: skip
+    return {m.group(1): m.group(2).rstrip("/") for m in named if m}
+
+
+def _check_scanner_url(scanner: str, experiment: str) -> None:
+    """Refuse a ``_SCANNER_URL`` that names some experiments but not all, or one URL with no served experiment."""
+    if not scanner:
+        return
+    named = _named_scanners(scanner)
+    if named is None and not experiment:
+        raise SettingsError(f"{_P}SCANNER_URL as one URL is the served experiment's: set GEECS_EXPERIMENT, or name each (Exp=url,Exp2=url)")  # fmt: skip
+    if named is None and "," in scanner:
+        raise SettingsError(f"{_P}SCANNER_URL is one URL, or Exp=url for every part: {scanner!r}")  # fmt: skip
 
 
 class SettingsError(ValueError):
@@ -67,6 +99,19 @@ class Settings:
     github_app_id: str = ""
     github_installation_id: str = ""
     github_app_key_file: Path | None = None
+    scanner_url: str = ""
+    archiver_command: str = ""
+    apply_seconds: float = 30.0
+
+    def scanner_urls(self) -> dict[str, str]:
+        """Each experiment's scanner: ``_SCANNER_URL`` is one URL (the served experiment's) or ``Exp=url,Exp2=url``."""
+        raw = self.scanner_url
+        if not raw:
+            return {}
+        named = _named_scanners(raw)
+        if named is not None:
+            return named
+        return {self.experiment: raw.rstrip("/")} if self.experiment else {}
 
     @property
     def commits(self) -> bool:
@@ -95,9 +140,10 @@ class Settings:
         try:
             every = float(get("RECONCILE_SECONDS") or "5")
             fetch_every = float(get("FETCH_SECONDS") or "60")
+            apply_every = float(get("APPLY_SECONDS") or "30")
         except ValueError:
             raise SettingsError(
-                f"{_P}RECONCILE_SECONDS and _FETCH_SECONDS are seconds"
+                f"{_P}RECONCILE_SECONDS, _FETCH_SECONDS and _APPLY_SECONDS are seconds"
             ) from None
         app = (
             get("GITHUB_APP_ID"),
@@ -109,6 +155,7 @@ class Settings:
         if all(app) and not (state and get("GITHUB_REPO")):
             raise SettingsError(f"the GitHub App needs the commit path and {_P}GITHUB_REPO (owner/name)")  # fmt: skip
         share = get("SHARE_CLONE")
+        _check_scanner_url(get("SCANNER_URL"), get("EXPERIMENT", "GEECS_EXPERIMENT"))
         origins = tuple(o.strip().rstrip("/") for o in get("CORS_ORIGINS").split(",") if o.strip())  # fmt: skip
         return cls(
             configs_root=Path(root),
@@ -130,4 +177,7 @@ class Settings:
             github_app_id=app[0],
             github_installation_id=app[1],
             github_app_key_file=Path(app[2]) if app[2] else None,
+            scanner_url=get("SCANNER_URL").rstrip("/"),
+            archiver_command=get("ARCHIVER_COMMAND"),
+            apply_seconds=apply_every,
         )

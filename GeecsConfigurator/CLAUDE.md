@@ -32,7 +32,34 @@ its design is `Planning/configurator.md`, its record the tracking issue
   reads, a 502 save, a backed-off inbox, never a 500.
 - **A landed commit is never "applied" by that fact.** A log row's state
   (`log.py`: applied / queued / pending / nothing to do) is the apply
-  seam's answer; `NoApplier` never says applied (slice 3 implements it).
+  seam's answer (`apply.ServiceApplier`), and applied is the consumer's
+  own answer: the scanner's reopen returned, the archiver's onboard sent
+  its plan. `apply()` blocks on nothing (work is answered queued);
+  `CommitPath.settle_queued` does the work on its own thread every
+  `APPLY_SECONDS`, one reopen and one onboard per pass, **holding the
+  repository's lock** so no fast-forward rewrites a file while the worker
+  or the archiver reads it. A busy worker keeps a row queued; a restart,
+  a mass-pause guard or a reader not surveyed is pending, named. A row's
+  state is the least finished of its readers', and each reader's own is
+  kept on the row (`Row.readers`): a pass retries only the readers still
+  queued, so a worker is never reopened again for a row whose onboard
+  waits. The archiver's onboard is applied only when it printed its plan
+  (a crash exits 1 like drift). Each experiment has its own scanner
+  (`SCANNER_URL` as `Exp=url,…`); a row of an experiment without one is
+  never applied by another's reopen. A save while a pass runs is answered
+  503 at once, never kept waiting on the lock.
+- **Dry runs are the consumers' own** (`apply.py`): the scanner's
+  `POST /api/preflight/trigger-profile` and `geecs-archiver onboard
+  --dry-run --policy <draft>` over a temporary file, never re-implemented
+  here. A consumer's refusal is the save's 422 (before any git); a check
+  that could not run is a note on the save, never a refusal (the
+  archiver's mass-pause guard is a fact about the plan, not the draft).
+- **The scanner is reached over HTTP, the archiver as a subprocess**
+  (`SCANNER_URL`, `ARCHIVER_COMMAND`); unset, their applies are the
+  maintainer's (pending) and their dry runs say they did not run. The
+  contract tests mount the scanner's demo app (a dev-only dependency) and
+  drive the scanner's own preset saver against this app. The configs-root
+  switch is `DEPLOYMENT.md`.
 - **The share follows the service, never origin**: it fast-forwards from
   the bare repository's accepted `main`, needs no credential, and a share
   that cannot move is shown, never forced.
