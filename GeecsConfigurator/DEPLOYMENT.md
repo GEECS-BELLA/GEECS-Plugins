@@ -63,11 +63,16 @@ Then wait for the configurator's next fetch (`GEECS_CONFIGURATOR_FETCH_SECONDS`,
 GEECS_CONFIGURATOR_SHARE_CLONE=<the share's configs clone, the old GEECS_CONFIGS_ROOT>
 GEECS_CONFIGS_ROOT=<STATE_DIR>/live
 GEECS_CONFIGS_WRITE_ROOT=<STATE_DIR>/inbox
-GEECS_CONFIGURATOR_SCANNER_URL=http://127.0.0.1:<the scanner's port>
+GEECS_CONFIGURATOR_SCANNER_URL=<experiment>=http://127.0.0.1:<its scanner's port>,<instance experiment>=http://127.0.0.1:<its scanner's port>
 GEECS_CONFIGURATOR_ARCHIVER_COMMAND=<checkout root>/archiver-checkout/GeecsArchiver/.venv/bin/geecs-archiver
 GEECS_SCANNER_EXTRA_ARGS=<as before> --configurator-url http://127.0.0.1:<GEECS_CONFIGURATOR_PORT>
 GEECS_PORTAL_EXTRA_ARGS=<as before> --config-editor-read-only
 ```
+
+`GEECS_CONFIGURATOR_SCANNER_URL` names each experiment's scanner (an instance's
+scanner is on its slot's port, `deploy/experiment.sh list`): a document of an
+experiment with no scanner named is never applied by another's reopen; its row
+stays pending, named. One plain URL is the served experiment's alone.
 
 The worker, the scanner and the configurator run as the one service account,
 which reads `<STATE_DIR>` (mode 0755) and writes the inbox (the configurator
@@ -102,10 +107,10 @@ read the device registry or the operator policy as missing mid-rewrite.
 
 ```
 sudo systemctl restart geecs-configurator
-sudo systemctl restart geecs-qserver geecs-qserver-ready geecs-scanner geecs-data-portal geecs-canopy geecs-control-room
+sudo systemctl restart geecs-qserver geecs-qserver-ready geecs-scanner geecs-data-portal geecs-logbook geecs-canopy geecs-control-room
 ```
 
-(Experiment instances: their `@<Instance>` units too.)
+(Experiment instances: their `@<Instance>` units too, the logbook's included.)
 
 ## 6. Check
 
@@ -134,6 +139,19 @@ device. From a browser on the configurator's page:
 4. The refusal: start a scan, then save another amplitude change. Expected:
    the row stays **queued** ("waits for the worker idle and empty") until the
    scan ends, then applies.
+
+## After the switch
+
+- **Nothing writes the live checkout.** An untracked or edited file there
+  stops its every fast-forward (`/healthz` and `/log` say so) until it is
+  removed by hand. A new experiment's folder goes into the configs repo by
+  pull request; then restart `geecs-configurator` (it creates the inbox
+  folder at start). `deploy/experiment.sh up` refuses to scaffold into the
+  live checkout and says so.
+- **A save during an apply pass is answered busy** (503, `Retry-After: 60`):
+  the pass holds the repository while the worker reopens (a minute or
+  more). Nothing was saved; save again. The scanner's Save as preset shows
+  the same message.
 
 ## Rollback
 

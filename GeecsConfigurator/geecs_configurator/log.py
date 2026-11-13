@@ -29,7 +29,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Sequence
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -60,13 +60,30 @@ class Row(BaseModel):
     link: str | None = None
     state: State
     detail: str = ""
+    readers: dict[str, "Reader"] = {}
 
 
-class Answer(BaseModel):
-    """The apply seam's answer for one committed document."""
+class Reader(BaseModel):
+    """One reader's part of a row: its own state and word."""
 
     state: State
     detail: str = ""
+
+
+class Answer(BaseModel):
+    """The apply seam's answer for one committed document (the least finished reader's state, every reader's own)."""
+
+    state: State
+    detail: str = ""
+    #: Each reader's own answer, by the consumer's name: a later pass retries only the readers still queued.
+    readers: dict[str, Reader] = {}
+
+    def row_fields(self) -> dict[str, Any]:  # Any: a row's field values
+        """The fields a log row takes from this answer."""
+        return {"state": self.state, "detail": self.detail, "readers": self.readers}
+
+
+Row.model_rebuild()  # its readers are Reader, defined after it
 
 
 class Applier(Protocol):
@@ -76,17 +93,20 @@ class Applier(Protocol):
         """The state of the committed ``path`` of ``kind`` now: fast, blocking on nothing; work is answered ``queued``."""
         ...
 
-    def settle(self, rows: Sequence[tuple[str | None, str]]) -> list[Answer]:
-        """Do the queued work for these committed rows (blocking, off every request); each row's state after."""
+    def settle(self, rows: Sequence[Row]) -> list[Answer]:
+        """Do the queued work for these committed rows (blocking, off every request); each row's state after.
+
+        A reader a row already holds as done is never redone (``Row.readers``).
+        """
         ...
 
 
 class NoApplier:
     """No applies: ``nothing to do`` where every reader reads per request, else ``pending`` with the apply named."""
 
-    def settle(self, rows: Sequence[tuple[str | None, str]]) -> list[Answer]:
+    def settle(self, rows: Sequence[Row]) -> list[Answer]:
         """Nothing is done: each row as :meth:`apply` answers it."""
-        return [self.apply(kind, path) for kind, path in rows]
+        return [self.apply(r.kind, r.path) for r in rows]
 
     def apply(self, kind: str | None, path: str) -> Answer:
         """The state a committed document is in while nothing applies it."""

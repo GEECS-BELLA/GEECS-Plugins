@@ -87,6 +87,8 @@ class CommitPath:
         self.unverified_marker = settings.state_dir / "UNVERIFIED"
         self._share_thread: threading.Thread | None = None
         self._settle_thread: threading.Thread | None = None
+        #: Set while a settle pass holds the repository (a save is then answered "busy" at once, never kept waiting).
+        self.settling = threading.Event()
 
     @property
     def unverified(self) -> bool:
@@ -186,7 +188,7 @@ class CommitPath:
                 if path in known:
                     kind = known[path][0]
                     answer = self.applier.apply(kind, path)
-                    self.log.add(Row(source="merged", who=author, kind=kind, path=path, commit=sha, state=answer.state, detail=answer.detail))  # fmt: skip
+                    self.log.add(Row(source="merged", who=author, kind=kind, path=path, commit=sha, **answer.row_fields()))  # fmt: skip
         if self.settings.share_clone is not None and self.unverified:
             self.share_error = self._share_held()
         elif self.settings.share_clone is not None:
@@ -198,7 +200,7 @@ class CommitPath:
         for row in self.log.rows(limit=10_000):
             if row.source in ("saved", "published") and row.state == "pending" and row.detail.startswith(NOT_LIVE) and row.commit and self.repo.is_ancestor(row.commit, new):  # fmt: skip
                 answer = self.applier.apply(row.kind, row.path)
-                self.log.add(row.model_copy(update={"state": answer.state, "detail": answer.detail}))  # fmt: skip
+                self.log.add(row.model_copy(update=answer.row_fields()))  # fmt: skip
 
     def wait_share(self, timeout: float = 30.0) -> None:
         """Wait for the share's last fast-forward (tests, and the start)."""
@@ -224,7 +226,7 @@ class CommitPath:
         """Log a save that committed or proposed."""
         if saved.outcome == "committed":
             answer = self._answer(kind, saved.path, saved.commit)
-            self.log.add(Row(source="saved", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, state=answer.state, detail=answer.detail))  # fmt: skip
+            self.log.add(Row(source="saved", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, **answer.row_fields()))  # fmt: skip
         elif saved.outcome == "proposed":
             self.log.add(Row(source="proposed", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, link=saved.pull_request, state="pending", detail=f"the maintainer's review (branch {saved.branch})"))  # fmt: skip
 
@@ -252,7 +254,7 @@ class CommitPath:
         for r in results:
             if r.outcome == "committed":
                 answer = self._answer(r.kind, r.path, r.commit)
-                self.log.add(Row(source="published", who=self.settings.inbox_author, kind=r.kind, path=r.path, commit=r.commit, state=answer.state, detail=answer.detail))  # fmt: skip
+                self.log.add(Row(source="published", who=self.settings.inbox_author, kind=r.kind, path=r.path, commit=r.commit, **answer.row_fields()))  # fmt: skip
         return results
 
     def settle_queued(self) -> int:
@@ -268,11 +270,15 @@ class CommitPath:
         rows = [r for r in self.log.rows(limit=10_000) if r.state == "queued"]
         if not rows:
             return 0
-        with self.repo.lock:
-            answers = self.applier.settle([(r.kind, r.path) for r in rows])
+        self.settling.set()
+        try:
+            with self.repo.lock:
+                answers = self.applier.settle(rows)
+        finally:
+            self.settling.clear()
         for row, answer in zip(rows, answers):
             if (answer.state, answer.detail) != (row.state, row.detail):
-                self.log.add(row.model_copy(update={"state": answer.state, "detail": answer.detail}))  # fmt: skip
+                self.log.add(row.model_copy(update=answer.row_fields()))  # fmt: skip
         return len(rows)
 
     def _settle_in_background(self) -> None:

@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from geecs_configurator.apply import ScannerClient, ServiceApplier
+from geecs_configurator.log import Row
 
 B = "?experiment=Bench"
 
@@ -33,6 +34,10 @@ def scanner(tmp_path: Path) -> Any:
         yield client, manager
 
 
+def _row(kind: str, path: str) -> Row:
+    return Row(source="saved", who="Ada", kind=kind, path=path, state="queued")
+
+
 def _client(scanner: Any) -> ScannerClient:
     http, _ = scanner
     return ScannerClient(str(http.base_url), http)
@@ -41,8 +46,8 @@ def _client(scanner: Any) -> ScannerClient:
 def test_the_reopen_applies_through_the_scanners_route(
     scanner: Any, tmp_path: Path
 ) -> None:
-    applier = ServiceApplier(tmp_path, scanner=_client(scanner))
-    (answer,) = applier.settle([("trigger_profile", "scanner_configs/experiments/Demo/shot_control_configurations/x.yaml")])  # fmt: skip
+    applier = ServiceApplier(tmp_path, scanners={"Demo": _client(scanner)})
+    (answer,) = applier.settle([_row("trigger_profile", "scanner_configs/experiments/Demo/shot_control_configurations/x.yaml")])  # fmt: skip
     assert answer.state == "applied", answer.detail
     assert scanner[1].reopens == 1
 
@@ -50,8 +55,8 @@ def test_the_reopen_applies_through_the_scanners_route(
 def test_a_busy_scanner_keeps_the_apply_queued(scanner: Any, tmp_path: Path) -> None:
     http, manager = scanner
     manager._queue.append({"name": "count", "args": [], "kwargs": {}, "item_uid": "w"})
-    applier = ServiceApplier(tmp_path, scanner=_client(scanner))
-    (answer,) = applier.settle([("scan_variables", "scanner_configs/experiments/Demo/scan_devices/scan_variables.yaml")])  # fmt: skip
+    applier = ServiceApplier(tmp_path, scanners={"Demo": _client(scanner)})
+    (answer,) = applier.settle([_row("scan_variables", "scanner_configs/experiments/Demo/scan_devices/scan_variables.yaml")])  # fmt: skip
     assert answer.state == "queued" and "idle" in answer.detail and manager.reopens == 0
 
 

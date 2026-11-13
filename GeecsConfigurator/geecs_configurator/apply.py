@@ -21,8 +21,9 @@ module turns a verb into what the service does about it:
 
 :meth:`ServiceApplier.apply` is fast and blocks on nothing: a verb with
 work is answered **queued**; :meth:`ServiceApplier.settle` does the work
-(the service's apply thread, off every request). One settle pass reopens at
-most once and onboards at most once for all the rows it was given, and the
+(the service's apply thread, off every request), retrying only the readers a
+row still holds as queued. One settle pass reopens each experiment's worker at
+most once and onboards each at most once for all the rows it was given, and the
 service holds the repository's lock through it, so no fast-forward rewrites
 a file while the worker or the archiver reads it. A row's state is the
 least finished of its readers': queued, then pending, then applied, then
@@ -49,7 +50,7 @@ import httpx
 from pydantic import BaseModel
 
 from geecs_configurator.kinds import CONSUMERS, ONBOARD, REOPEN
-from geecs_configurator.log import Answer
+from geecs_configurator.log import Answer, Reader, Row
 from geecs_configurator.store import Json, dump_yaml
 
 logger = logging.getLogger(__name__)
@@ -161,60 +162,76 @@ class Archiver:
         self.command = shlex.split(command)
         self._run = run or _run
 
-    def _onboard(self, experiment: str, policy: Path, *extra: str) -> tuple[int, str]:
-        argv = [*self.command, "onboard", "--experiment", experiment, "--policy", str(policy), *extra]  # fmt: skip
+    def _onboard(self, experiment: str, policy: Path | None, *extra: str) -> tuple[int, str]:  # fmt: skip
+        """One ``onboard``; no ``--policy`` when there is no file, so the archiver uses its own default."""
+        argv = [*self.command, "onboard", "--experiment", experiment, *(["--policy", str(policy)] if policy else []), *extra]  # fmt: skip
         try:
             return self._run(argv, ARCHIVER_TIMEOUT_S)
         except (OSError, subprocess.SubprocessError) as exc:
             return EXIT_UNREACHABLE, f"the archiver's command did not run: {exc}"
 
     def dry_run(self, experiment: str, document: Json) -> DryRun:
-        """``onboard --dry-run --policy <draft>``: the plan the unsaved policy would send; nothing is sent."""
+        """``onboard --dry-run --policy <draft>``: the plan the unsaved policy would send; nothing is sent.
+
+        Never a refusal: the draft has already passed the schema the archiver
+        loads it with, so what the archiver says (its plan, its mass-pause
+        guard, a missing appliance URL) is information about the plan, shown
+        on the save.
+        """
         with tempfile.TemporaryDirectory(prefix="configurator-draft-") as tmp:
             draft = Path(tmp) / "archive_policy.yaml"
             draft.write_text(dump_yaml(document), encoding="utf-8")
             code, output = self._onboard(experiment, draft, "--dry-run")
         out = output[-4000:]
-        if code in (EXIT_OK, EXIT_DRIFT):
+        if _planned(code, output):
             drift = "; drift exists already (never-connected or unresolved PVs, not the draft's)" if code == EXIT_DRIFT else ""  # fmt: skip
-            return DryRun(kind="archive_policy", by="archiver", ran=True, output=out, detail=f"the plan the draft would send{drift}")  # fmt: skip
-        if (
-            code == EXIT_USAGE and "refusing to pause" in output
-        ):  # the mass-pause guard: a fact about the plan, not the draft's fault
-            return DryRun(kind="archive_policy", by="archiver", ran=True, output=out, detail=_one_line(next((ln for ln in output.splitlines() if "refusing to pause" in ln), "")))  # fmt: skip
-        if code == EXIT_USAGE:
-            return DryRun(kind="archive_policy", by="archiver", ran=True, refusal=_last_line(output) or "the archiver refused the draft", output=out)  # fmt: skip
+            return DryRun(kind="archive_policy", by="archiver", ran=True, output=out, detail=f"{_plan_line(output)}{drift}")  # fmt: skip
+        guard = next(
+            (ln for ln in output.splitlines() if "refusing to pause" in ln), ""
+        )
+        if code == EXIT_USAGE and guard:  # the mass-pause guard: a fact about the plan
+            return DryRun(kind="archive_policy", by="archiver", ran=True, output=out, detail=_one_line(guard))  # fmt: skip
         return DryRun(kind="archive_policy", by="archiver", ran=False, output=out, detail=f"the archiver could not plan (exit {code}): {_last_line(output)}")  # fmt: skip
 
-    def onboard(self, experiment: str, policy: Path) -> Answer:
-        """Reconcile the appliance with the committed policy; the row's state for this reader."""
+    def onboard(self, experiment: str, policy: Path | None) -> Answer:
+        """Reconcile the appliance with the committed policy; this reader's state.
+
+        Applied only when the archiver printed its plan (exit 0, or 1 for
+        drift it reports): a crash also exits 1 and sends nothing, so it is
+        queued and tried again, never applied.
+        """
         code, output = self._onboard(experiment, policy, "--wait", "0")
-        if code == EXIT_OK:
-            return Answer(
-                state="applied",
-                detail=f"geecs-archiver onboard sent the plan: {_first_line(output)}",
-            )
-        if code == EXIT_DRIFT:
-            return Answer(state="applied", detail=f"geecs-archiver onboard sent the plan; drift remains (see its output): {_first_line(output)}")  # fmt: skip
+        if _planned(code, output):
+            drift = "; drift remains (see its output)" if code == EXIT_DRIFT else ""
+            return Answer(state="applied", detail=f"geecs-archiver onboard sent the plan ({_plan_line(output)}){drift}")  # fmt: skip
         if code == EXIT_USAGE:
-            return Answer(state="pending", detail=f"geecs-archiver onboard refused ({_last_line(output)}); the maintainer runs it by hand (--yes, if the pause is meant)")  # fmt: skip
-        return Answer(state="queued", detail=f"geecs-archiver onboard did not reach the appliance (exit {code}: {_last_line(output)}); tried again")  # fmt: skip
+            return Answer(state="pending", detail=f"geecs-archiver onboard refused ({_last_line(output)}); the maintainer's, by hand (--yes only if a mass pause is meant)")  # fmt: skip
+        return Answer(state="queued", detail=f"geecs-archiver onboard did not complete (exit {code}: {_last_line(output)}); tried again")  # fmt: skip
 
 
-def _first_line(text: str) -> str:
-    return _one_line(next((ln for ln in text.splitlines() if ln.strip()), ""))
+def _planned(code: int, output: str) -> bool:
+    """Whether onboard got as far as its plan: exit 0 or 1 **and** its ``plan:`` line (a traceback also exits 1)."""
+    return code in (EXIT_OK, EXIT_DRIFT) and bool(_plan_line(output))
+
+
+def _plan_line(output: str) -> str:
+    return _one_line(next((ln for ln in output.splitlines() if "plan:" in ln), ""))
 
 
 def _last_line(text: str) -> str:
     return _one_line(next((ln for ln in reversed(text.splitlines()) if ln.strip()), ""))
 
 
-def _least_finished(answers: list[Answer]) -> Answer:
-    """One state for a row: the least finished reader's, every reader's word in the detail."""
+def _least_finished(answers: dict[str, Answer]) -> Answer:
+    """One state for a row: the least finished reader's; every reader's own kept, its word in the detail."""
     if not answers:
         return Answer(state="pending", detail="no reader known")
-    state = min((a.state for a in answers), key=_ORDER.index)
-    return Answer(state=state, detail="; ".join(a.detail for a in answers if a.detail))
+    state = min((a.state for a in answers.values()), key=_ORDER.index)
+    detail = "; ".join(f"{name}: {a.detail}" for name, a in answers.items() if a.detail)
+    readers = {
+        name: Reader(state=a.state, detail=a.detail) for name, a in answers.items()
+    }
+    return Answer(state=state, detail=detail, readers=readers)
 
 
 class ServiceApplier:
@@ -224,75 +241,104 @@ class ServiceApplier:
     ----------
     live : Path
         The live checkout (the configs root the readers read).
-    scanner : ScannerClient, optional
-        The scanner, for the reopen; ``None``: those rows are pending, named.
+    scanners : mapping, optional
+        Each experiment's scanner (its worker's reopen, its dry runs); a row
+        of an experiment with none is pending for its reopen, named.
     archiver : Archiver, optional
-        The archiver's CLI, for onboard; ``None``: those rows are pending, named.
+        The archiver's CLI, for onboard; ``None``: those readers are pending, named.
     """
 
-    def __init__(self, live: Path, scanner: ScannerClient | None = None, archiver: Archiver | None = None):  # fmt: skip
-        self.live, self.scanner, self.archiver = Path(live), scanner, archiver
+    def __init__(self, live: Path, scanners: dict[str, ScannerClient] | None = None, archiver: Archiver | None = None):  # fmt: skip
+        self.live, self.scanners, self.archiver = (
+            Path(live),
+            dict(scanners or {}),
+            archiver,
+        )
 
-    def _reader(self, verb: str) -> Answer:
-        """The fast answer for one reader's verb."""
+    def _reader(self, verb: str, experiment: str) -> Answer:
+        """The fast answer for one reader's verb, for a document of ``experiment``."""
         if verb == "nothing to do":
             return Answer(state="nothing to do", detail="")
-        if verb == REOPEN and self.scanner is not None:
+        if verb == REOPEN and experiment in self.scanners:
             return Answer(state="queued", detail="the worker reopens its environment when idle and empty")  # fmt: skip
-        if verb == ONBOARD and self.archiver is not None:
+        if verb == ONBOARD and self.archiver is not None and experiment:
             return Answer(state="queued", detail="geecs-archiver onboard runs on the service's next apply pass")  # fmt: skip
-        configured = {REOPEN: "no scanner configured (GEECS_CONFIGURATOR_SCANNER_URL)", ONBOARD: "no archiver command configured (GEECS_CONFIGURATOR_ARCHIVER_COMMAND)"}  # fmt: skip
+        configured = {REOPEN: f"no scanner configured for {experiment or 'it'} (GEECS_CONFIGURATOR_SCANNER_URL)", ONBOARD: "no archiver command configured (GEECS_CONFIGURATOR_ARCHIVER_COMMAND)"}  # fmt: skip
         why = f": {configured[verb]}" if verb in configured else ""
         return Answer(state="pending", detail=f"the maintainer's: {verb}{why}")
 
     def apply(self, kind: str | None, path: str) -> Answer:
         """The row's state now; work is queued for :meth:`settle`, never done here."""
-        consumers = CONSUMERS.get(kind or "", [])
-        answer = _least_finished([self._reader(c.apply) for c in consumers])
+        experiment = _experiment_of(path)
+        answer = _least_finished({c.name: self._reader(c.apply, experiment) for c in CONSUMERS.get(kind or "", [])})  # fmt: skip
         if answer.state == "nothing to do":
             answer.detail = "every reader reads it per request"
         return answer
 
-    def settle(self, rows: Sequence[tuple[str | None, str]]) -> list[Answer]:
+    def settle(self, rows: Sequence[Row]) -> list[Answer]:
         """Do the queued work for these rows (committed, live); each row's state after it.
 
-        One reopen and one onboard per experiment at most, for all the rows.
-        Blocking: the service's apply thread calls it, holding the
+        Only a reader the row still holds as queued is retried (a reader
+        already applied is never redone: a worker reopened while the
+        appliance was down is not reopened again for it). At most one
+        reopen per experiment and one onboard per experiment, for all the
+        rows. Blocking: the service's apply thread calls it, holding the
         repository's lock so nothing moves the live checkout meanwhile.
         """
-        verbs = {c.apply for kind, _ in rows for c in CONSUMERS.get(kind or "", [])}
-        reopened: Answer | None = None
-        if REOPEN in verbs and self.scanner is not None:
-            names = ", ".join(sorted({p.rsplit("/", 1)[-1] for k, p in rows if any(c.apply == REOPEN for c in CONSUMERS.get(k or "", []))}))  # fmt: skip
-            reopened = self.scanner.reopen(f"configurator: {names}")
-        onboarded: dict[str, Answer] = {}
+        work: dict[str, Answer] = {}  # "<verb>\0<experiment>" -> this pass's one answer
+        reasons = self._reopen_reasons(rows)
+
+        def done(verb: str, experiment: str) -> Answer:
+            key = f"{verb}\0{experiment}"
+            if key not in work:
+                work[key] = self._do(verb, experiment, reasons.get(experiment, []))
+            return work[key]
+
         out = []
-        for kind, path in rows:
-            answers = []
-            for consumer in CONSUMERS.get(kind or "", []):
-                if consumer.apply == REOPEN and reopened is not None:
-                    answers.append(reopened)
-                elif consumer.apply == ONBOARD and self.archiver is not None:
-                    experiment = _experiment_of(path)
-                    if experiment not in onboarded:
-                        policy = self.live / _policy_path(experiment)
-                        onboarded[experiment] = self.archiver.onboard(
-                            experiment, policy
-                        )
-                    answers.append(onboarded[experiment])
-                else:
-                    answers.append(self._reader(consumer.apply))
+        for row in rows:
+            experiment = _experiment_of(row.path)
+            answers: dict[str, Answer] = {}
+            for c in CONSUMERS.get(row.kind or "", []):
+                held = row.readers.get(c.name)
+                if held is not None and held.state != "queued":
+                    answers[c.name] = Answer(state=held.state, detail=held.detail)
+                    continue
+                fresh = self._reader(c.apply, experiment)
+                answers[c.name] = done(c.apply, experiment) if fresh.state == "queued" else fresh  # fmt: skip
             out.append(_least_finished(answers))
         return out
 
+    def _do(self, verb: str, experiment: str, names: list[str]) -> Answer:
+        """The work of one queued verb for one experiment: the reopen, or the onboard."""
+        if verb == REOPEN:
+            return self.scanners[experiment].reopen(f"configurator: {', '.join(sorted(set(names)))}")  # fmt: skip
+        policy = self.live / _policy_path(experiment)
+        return self.archiver.onboard(experiment, policy if policy.is_file() else None)  # type: ignore[union-attr]  # fmt: skip
+
+    def _reopen_reasons(self, rows: Sequence[Row]) -> dict[str, list[str]]:
+        """Per experiment, the files its reopen is for (the reason the scanner logs)."""
+        out: dict[str, list[str]] = {}
+        for row in rows:
+            for c in CONSUMERS.get(row.kind or "", []):
+                if c.apply == REOPEN and self._still_queued(row, c.name):
+                    out.setdefault(_experiment_of(row.path), []).append(row.path.rsplit("/", 1)[-1])  # fmt: skip
+        return out
+
+    @staticmethod
+    def _still_queued(row: Row, reader: str) -> bool:
+        """Whether this reader of the row has work left (a row from before readers were kept: all of them)."""
+        held = row.readers.get(reader)
+        return held is None or held.state == "queued"
+
     def dry_run(self, kind: str, experiment: str | None, document: Json) -> DryRun:
         """The kind's consumer check of an unsaved draft (``kinds.DRY_RUNS``), or ``ran=False`` saying why not."""
-        if kind == "trigger_profile" and self.scanner is not None:
-            return self.scanner.trigger_profile_dry_run(document)
+        scanner = self.scanners.get(experiment or "")
+        if kind == "trigger_profile" and scanner is not None:
+            return scanner.trigger_profile_dry_run(document)
         if kind == "archive_policy" and self.archiver is not None and experiment:
             return self.archiver.dry_run(experiment, document)
         if kind in ("trigger_profile", "archive_policy"):
-            return DryRun(kind=kind, by="none", ran=False, detail="its consumer is not configured here")  # fmt: skip
+            return DryRun(kind=kind, by="none", ran=False, detail=f"its consumer is not configured here for {experiment or 'this experiment'}")  # fmt: skip
         return DryRun(kind=kind, by="none", ran=False, detail="no consumer check for this kind")  # fmt: skip
 
 
@@ -303,10 +349,7 @@ def _experiment_of(path: str) -> str:
 
 
 def _policy_path(experiment: str) -> str:
+    """The experiment's archive policy below the configs root (GEECS-Schemas' storage table)."""
     from geecs_schemas import KIND_STORAGE
 
-    return (
-        KIND_STORAGE["archive_policy"]
-        .path_pattern()
-        .replace("<experiment>", experiment)
-    )  # type: ignore[union-attr]
+    return KIND_STORAGE["archive_policy"].path_pattern().replace("<experiment>", experiment)  # type: ignore[union-attr]  # fmt: skip

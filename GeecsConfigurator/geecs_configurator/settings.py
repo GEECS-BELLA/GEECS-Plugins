@@ -29,7 +29,8 @@ main is fetched so a merge on GitHub takes effect.
 
 **The applies and dry runs** reach the consumers: ``_SCANNER_URL`` (the
 scanner as this process reaches it: the worker's environment reopen, the
-trigger-profile dry run, readbacks) and ``_ARCHIVER_COMMAND`` (the
+trigger-profile dry run, readbacks; one URL is the served experiment's,
+``Exp=url,Exp2=url`` names each experiment instance's scanner) and ``_ARCHIVER_COMMAND`` (the
 archiver's CLI in its own environment, whitespace-split: onboard and its
 dry run). Unset, those applies are handed to the maintainer (pending) and
 those dry runs say they did not run. ``_APPLY_SECONDS`` (default 30; 0 =
@@ -79,6 +80,16 @@ class Settings:
     archiver_command: str = ""
     apply_seconds: float = 30.0
 
+    def scanner_urls(self) -> dict[str, str]:
+        """Each experiment's scanner: ``_SCANNER_URL`` is one URL (the served experiment's) or ``Exp=url,Exp2=url``."""
+        raw = self.scanner_url
+        if not raw:
+            return {}
+        if "=" not in raw:
+            return {self.experiment: raw.rstrip("/")} if self.experiment else {}
+        pairs = (p.split("=", 1) for p in raw.split(",") if "=" in p)
+        return {e.strip(): u.strip().rstrip("/") for e, u in pairs if e.strip() and u.strip()}  # fmt: skip
+
     @property
     def commits(self) -> bool:
         """Whether the commit path is on (a state directory and an origin)."""
@@ -121,6 +132,12 @@ class Settings:
         if all(app) and not (state and get("GITHUB_REPO")):
             raise SettingsError(f"the GitHub App needs the commit path and {_P}GITHUB_REPO (owner/name)")  # fmt: skip
         share = get("SHARE_CLONE")
+        if (
+            get("SCANNER_URL")
+            and "=" not in get("SCANNER_URL")
+            and not get("EXPERIMENT", "GEECS_EXPERIMENT")
+        ):
+            raise SettingsError(f"{_P}SCANNER_URL as one URL is the served experiment's: set GEECS_EXPERIMENT, or name each (Exp=url,Exp2=url)")  # fmt: skip
         origins = tuple(o.strip().rstrip("/") for o in get("CORS_ORIGINS").split(",") if o.strip())  # fmt: skip
         return cls(
             configs_root=Path(root),

@@ -67,7 +67,7 @@ def create_app(settings: Settings, pull_requests: PullRequests | None = None, *,
     #: The consumers: the dry runs (always) and, with the commit path, the applies.
     consumers = ServiceApplier(
         settings.configs_root,
-        scanner=ScannerClient(settings.scanner_url, consumer_http) if settings.scanner_url else None,
+        scanners={e: ScannerClient(url, consumer_http) for e, url in settings.scanner_urls().items()},
         archiver=Archiver(settings.archiver_command, run=archiver_run) if settings.archiver_command else None,
     )  # fmt: skip
     app.state.consumers = consumers
@@ -247,6 +247,9 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
     repo = request.app.state.repo
     if repo is None:
         raise HTTPException(405, "read-only: the commit path is not configured")
+    if request.app.state.commit.settling.is_set():
+        # an apply pass holds the repository (a reopen takes a minute or more): say so now, never keep the save waiting
+        return JSONResponse({"detail": "the configurator is applying a committed change (the worker reopens); nothing was saved: save again in a minute"}, status_code=503, headers={"Retry-After": "60"})  # fmt: skip
     # The consumer's own check of the draft first (kinds.DRY_RUNS): a refusal is the save's refusal.
     check: DryRun = request.app.state.consumers.dry_run(kind, experiment, body.document)
     if check.refusal is not None:
@@ -293,9 +296,14 @@ def dry_run(request: Request, kind: str, experiment: str | None = None, document
 
 
 @api.get("/readback")
-def readback(request: Request, variable: str) -> JSONResponse:
-    """One live readback of ``Device:Variable``, through the scanner (the form's current value)."""
-    scanner: ScannerClient | None = request.app.state.consumers.scanner
+def readback(
+    request: Request, variable: str, experiment: str | None = None
+) -> JSONResponse:
+    """One live readback of ``Device:Variable``, through the experiment's scanner (the form's current value)."""
+    settings: Settings = request.app.state.settings
+    scanner: ScannerClient | None = request.app.state.consumers.scanners.get(
+        experiment or settings.experiment
+    )
     if scanner is None:
         raise HTTPException(
             503, "no scanner configured (GEECS_CONFIGURATOR_SCANNER_URL)"

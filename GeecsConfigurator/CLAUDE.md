@@ -40,7 +40,14 @@ its design is `Planning/configurator.md`, its record the tracking issue
   repository's lock** so no fast-forward rewrites a file while the worker
   or the archiver reads it. A busy worker keeps a row queued; a restart,
   a mass-pause guard or a reader not surveyed is pending, named. A row's
-  state is the least finished of its readers'.
+  state is the least finished of its readers', and each reader's own is
+  kept on the row (`Row.readers`): a pass retries only the readers still
+  queued, so a worker is never reopened again for a row whose onboard
+  waits. The archiver's onboard is applied only when it printed its plan
+  (a crash exits 1 like drift). Each experiment has its own scanner
+  (`SCANNER_URL` as `Exp=url,…`); a row of an experiment without one is
+  never applied by another's reopen. A save while a pass runs is answered
+  503 at once, never kept waiting on the lock.
 - **Dry runs are the consumers' own** (`apply.py`): the scanner's
   `POST /api/preflight/trigger-profile` and `geecs-archiver onboard
   --dry-run --policy <draft>` over a temporary file, never re-implemented

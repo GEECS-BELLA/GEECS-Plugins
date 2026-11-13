@@ -16,9 +16,17 @@ from fastapi.testclient import TestClient
 
 from geecs_configurator.app import create_app
 from geecs_configurator.apply import Archiver, ScannerClient, ServiceApplier
+from geecs_configurator.log import Reader, Row
 from geecs_configurator.settings import Settings
 
 B = "?experiment=Bench"
+
+
+def _row(kind: str, path: str, **readers: str) -> Row:
+    """A committed row, queued, with any readers it already holds (name -> state)."""
+    return Row(source="saved", who="Ada", kind=kind, path=path, state="queued", readers={n: Reader(state=s) for n, s in readers.items()})  # type: ignore[misc]  # fmt: skip
+
+
 PROFILE = "scanner_configs/experiments/Bench/shot_control_configurations/laser_off.yaml"
 POLICY = "scanner_configs/experiments/Bench/archiver/archive_policy.yaml"
 
@@ -123,8 +131,8 @@ def test_an_unreachable_scanner_keeps_the_row_queued(
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
 
-    applier = ServiceApplier(tmp_path, scanner=ScannerClient("http://scanner.test", httpx.Client(transport=httpx.MockTransport(down))))  # fmt: skip
-    (answer,) = applier.settle([("trigger_profile", PROFILE)])
+    applier = ServiceApplier(tmp_path, scanners={"Bench": ScannerClient("http://scanner.test", httpx.Client(transport=httpx.MockTransport(down)))})  # fmt: skip
+    (answer,) = applier.settle([_row("trigger_profile", PROFILE)])
     assert answer.state == "queued" and "did not answer" in answer.detail
 
 
@@ -172,8 +180,8 @@ def test_a_reader_still_pending_keeps_the_row_pending_after_the_reopen(
 ) -> None:
     """native_devices: the worker reopens, the archiver onboards, Canopy's cache is not surveyed: pending, every word named."""
     run = Run(0)
-    applier = ServiceApplier(tmp_path, scanner=ScannerClient("http://s.test", _http(Scanner())), archiver=Archiver("geecs-archiver", run=run))  # fmt: skip
-    (answer,) = applier.settle([("native_devices", "scanner_configs/experiments/Bench/native_devices.yaml")])  # fmt: skip
+    applier = ServiceApplier(tmp_path, scanners={"Bench": ScannerClient("http://s.test", _http(Scanner()))}, archiver=Archiver("geecs-archiver", run=run))  # fmt: skip
+    (answer,) = applier.settle([_row("native_devices", "scanner_configs/experiments/Bench/native_devices.yaml")])  # fmt: skip
     assert answer.state == "pending"
     assert "reopened" in answer.detail and "onboard" in answer.detail and "not yet surveyed" in answer.detail  # fmt: skip
 
@@ -189,8 +197,10 @@ def test_a_reader_still_pending_keeps_the_row_pending_after_the_reopen(
 )
 def test_the_archive_policys_onboard_answers_by_exit_code(tmp_path: Path, code: int, state: str, word: str) -> None:  # fmt: skip
     run = Run(code)
+    (tmp_path / POLICY).parent.mkdir(parents=True)
+    (tmp_path / POLICY).write_text("include_setpoints: true\n")
     applier = ServiceApplier(tmp_path, archiver=Archiver("poetry run geecs-archiver", run=run))  # fmt: skip
-    (answer,) = applier.settle([("archive_policy", POLICY)])
+    (answer,) = applier.settle([_row("archive_policy", POLICY)])
     assert (answer.state, word in answer.detail) == (state, True)
     assert run.argv == [["poetry", "run", "geecs-archiver", "onboard", "--experiment", "Bench", "--policy", str(tmp_path / POLICY), "--wait", "0"]]  # fmt: skip
 
@@ -198,14 +208,14 @@ def test_the_archive_policys_onboard_answers_by_exit_code(tmp_path: Path, code: 
 def test_one_pass_onboards_once_for_many_rows(tmp_path: Path) -> None:
     run = Run(0)
     applier = ServiceApplier(tmp_path, archiver=Archiver("geecs-archiver", run=run))
-    applier.settle([("archive_policy", POLICY), ("archive_policy", POLICY), ("panel_devices", "scanner_configs/experiments/Bench/panel_devices.yaml")])  # fmt: skip
+    applier.settle([_row("archive_policy", POLICY), _row("archive_policy", POLICY), _row("panel_devices", "scanner_configs/experiments/Bench/panel_devices.yaml")])  # fmt: skip
     assert len(run.argv) == 1
 
 
 def test_a_per_request_kind_is_nothing_to_do(tmp_path: Path) -> None:
-    applier = ServiceApplier(tmp_path, scanner=ScannerClient("http://s.test", _http(Scanner())))  # fmt: skip
+    applier = ServiceApplier(tmp_path, scanners={"Bench": ScannerClient("http://s.test", _http(Scanner()))})  # fmt: skip
     assert applier.apply("setup", "x.yaml").state == "nothing to do"
-    (answer,) = applier.settle([("setup", "x.yaml")])
+    (answer,) = applier.settle([_row("setup", "x.yaml")])
     assert answer.state == "nothing to do"
 
 
@@ -259,12 +269,18 @@ def test_the_archivers_dry_run_reads_the_draft_from_a_temporary_file(
 @pytest.mark.parametrize(
     ("code", "output", "refused", "ran"),
     [
-        (2, "geecs-archiver: cannot load a configuration document: bad", True, True),
+        (2, "geecs-archiver: no appliance URL (set GEECS_ARCHIVER_URL)", False, False),
         (2, "refusing to pause or abort 300 PVs (> 50) without --yes", False, True),
         (3, "geecs-archiver: unreachable", False, False),
+        (
+            1,
+            "Traceback (most recent call last):\nmysql.connector.errors.InterfaceError",
+            False,
+            False,
+        ),
     ],
 )
-def test_the_archivers_dry_run_refuses_only_a_bad_draft(tmp_path: Path, code: int, output: str, refused: bool, ran: bool) -> None:  # fmt: skip
+def test_the_archivers_dry_run_never_refuses_and_runs_only_with_a_plan(tmp_path: Path, code: int, output: str, refused: bool, ran: bool) -> None:  # fmt: skip
     applier = ServiceApplier(tmp_path, archiver=Archiver("geecs-archiver", run=Run(code, output=output)))  # fmt: skip
     out = applier.dry_run("archive_policy", "Bench", {})
     assert (out.refusal is not None, out.ran) == (refused, ran)
@@ -274,7 +290,7 @@ def test_a_dry_run_that_could_not_run_is_noted_never_a_refusal(origin: Path, tmp
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
 
-    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_APPLY_SECONDS": "0", "GEECS_CONFIGURATOR_SCANNER_URL": "http://scanner.test"}  # fmt: skip
+    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_APPLY_SECONDS": "0", "GEECS_CONFIGURATOR_SCANNER_URL": "http://scanner.test", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
     with TestClient(create_app(Settings.from_env(env), consumer_http=httpx.Client(transport=httpx.MockTransport(down)))) as c:  # fmt: skip
         r = _save_profile(c)
         assert r.status_code == 200 and any(
@@ -288,3 +304,70 @@ def test_the_readback_goes_through_the_scanner(origin: Path, tmp_path: Path) -> 
         assert r.status_code == 200 and r.json()["value"] == 4.0
     with _app(origin, tmp_path / "t") as c:
         assert c.get("/api/readback", params={"variable": "A:B"}).status_code == 503
+
+
+# ------------------------------------------------------------ review round 1
+
+NATIVE = "scanner_configs/experiments/Bench/native_devices.yaml"
+
+
+def test_a_reader_already_applied_is_never_redone_while_another_waits(tmp_path: Path) -> None:  # fmt: skip
+    """The worker reopened; the appliance is down: the next pass retries the onboard alone, never the reopen."""
+    scanner, run = Scanner(), Run(3, output="geecs-archiver: appliance unreachable")
+    applier = ServiceApplier(tmp_path, scanners={"Bench": ScannerClient("http://s.test", _http(scanner))}, archiver=Archiver("geecs-archiver", run=run))  # fmt: skip
+    (first,) = applier.settle([_row("native_devices", NATIVE)])
+    assert first.state == "queued" and first.readers["worker"].state == "applied"
+    assert first.readers["archiver (its registry pass)"].state == "queued"
+    row = Row(source="saved", who="Ada", kind="native_devices", path=NATIVE, **first.row_fields())  # fmt: skip
+    (second,) = applier.settle([row])
+    assert (
+        scanner.reopen_calls() == 1 and len(run.argv) == 2
+    )  # the onboard again, the reopen not
+    assert second.readers["worker"].state == "applied"
+
+
+def test_an_archiver_crash_is_never_applied(tmp_path: Path) -> None:
+    """A traceback exits 1 like drift, but sends nothing: no plan line, no applied."""
+    run = Run(1, output="Traceback (most recent call last):\nmysql.connector.errors.InterfaceError: 2003")  # fmt: skip
+    applier = ServiceApplier(tmp_path, archiver=Archiver("geecs-archiver", run=run))
+    (answer,) = applier.settle([_row("archive_policy", POLICY)])
+    assert answer.state == "queued" and "did not complete" in answer.detail
+
+
+def test_without_a_policy_file_onboard_uses_the_archivers_default(
+    tmp_path: Path,
+) -> None:
+    run = Run(0)
+    applier = ServiceApplier(tmp_path, archiver=Archiver("geecs-archiver", run=run))
+    applier.settle([_row("native_devices", NATIVE)])
+    assert "--policy" not in run.argv[0]
+
+
+def test_another_experiments_reopen_is_its_own_scanners_or_the_maintainers(tmp_path: Path) -> None:  # fmt: skip
+    """One scanner per experiment: a PulsedWire row never reads applied off the main worker's reopen."""
+    main, bench = Scanner(), Scanner()
+    other = "scanner_configs/experiments/PulsedWire/shot_control_configurations/laser_off.yaml"
+    applier = ServiceApplier(tmp_path, scanners={"Bench": ScannerClient("http://main.test", _http(main))})  # fmt: skip
+    (answer,) = applier.settle([_row("trigger_profile", other)])
+    assert answer.state == "pending" and "PulsedWire" in answer.detail and main.reopen_calls() == 0  # fmt: skip
+    applier = ServiceApplier(tmp_path, scanners={"Bench": ScannerClient("http://main.test", _http(main)), "PulsedWire": ScannerClient("http://pw.test", _http(bench))})  # fmt: skip
+    (answer,) = applier.settle([_row("trigger_profile", other)])
+    assert answer.state == "applied" and bench.reopen_calls() == 1 and main.reopen_calls() == 0  # fmt: skip
+
+
+def test_the_scanner_url_names_each_experiments_scanner() -> None:
+    from geecs_configurator.settings import Settings as S
+
+    one = S(configs_root=Path("."), experiment="Bench", scanner_url="http://a:8300/")
+    assert one.scanner_urls() == {"Bench": "http://a:8300"}
+    many = S(configs_root=Path("."), scanner_url="Bench=http://a:8300, PulsedWire=http://a:8310")  # fmt: skip
+    assert many.scanner_urls() == {"Bench": "http://a:8300", "PulsedWire": "http://a:8310"}  # fmt: skip
+
+
+def test_a_save_during_an_apply_pass_is_answered_busy_at_once(origin: Path, tmp_path: Path) -> None:  # fmt: skip
+    with _app(origin, tmp_path / "s", Scanner()) as c:
+        head = c.app.state.repo.remote_head()
+        c.app.state.commit.settling.set()
+        r = _save_profile(c)
+        assert r.status_code == 503 and r.headers["Retry-After"] == "60"
+        assert c.app.state.repo.remote_head() == head

@@ -311,6 +311,11 @@ up)
     say "configs ($EXPT)"
     EXPERIMENTS_ROOT="$GEECS_CONFIGS_ROOT/scanner_configs/experiments"
     if [ -d "$EXPERIMENTS_ROOT/$EXPT" ]; then echo "  $EXPERIMENTS_ROOT/$EXPT exists — left as it is"
+    elif [ -f "$GEECS_CONFIGS_ROOT/.git" ]; then
+        # The configurator's live checkout (a worktree): nothing writes it — an
+        # untracked file stops its every fast-forward (GeecsConfigurator/DEPLOYMENT.md).
+        echo "  the configs root is the configurator's live checkout: add $EXPT's folder to the configs repo by pull request, then restart geecs-configurator (its inbox folder) and rerun" >&2
+        exit 1
     elif [ "$DRY" -eq 1 ]; then echo "  [dry] python -m geecs_bluesky.config_scaffold '$EXPT' --experiments-root '$EXPERIMENTS_ROOT'"
     else in_engine "$GEECS_POETRY" run python -m geecs_bluesky.config_scaffold "$EXPT" --experiments-root "$EXPERIMENTS_ROOT" | sed 's/^/  /'; fi
 
