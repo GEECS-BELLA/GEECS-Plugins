@@ -32,6 +32,11 @@ states:
   SCAN:
     - {device: U_DG645, variable: Amplitude.Ch AB, value: '4.0'}
 """,
+    # a malformed legacy profile: the converter meets a list where it wants a mapping
+    "scanner_configs/experiments/Bench/shot_control_configurations/malformed.yaml": "device: A\nvariables: [bad]\n",
+    # unquoted YAML timestamps: a datetime and a date, served to the browser as text
+    "scanner_configs/experiments/Bench/setups/stamped.yaml": "name: stamped\nsteps:\n  - {do: wait, seconds: 1}\ncaptured: {by: operator, at: 2026-11-10T00:00:00}\n",
+    "scanner_configs/experiments/Bench/setups/dated.yaml": "name: dated\nsteps:\n  - {do: wait, seconds: 1}\ncaptured: {by: operator, at: 2026-11-10}\n",
     # the legacy dialect (no schema_version), which the reader converts
     "scanner_configs/experiments/Bench/shot_control_configurations/legacy.yaml": """\
 device: U_DG645

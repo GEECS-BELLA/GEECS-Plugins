@@ -145,3 +145,35 @@ def test_an_unedited_file_with_a_bare_off_key_validates_and_diffs_empty(
     assert report == {"ok": True, "errors": []}
     d = client.post("/api/diff/trigger_profile/bare_off.yaml?experiment=Bench", json={"document": served["document"]}).json()  # fmt: skip
     assert (d["changes"], d["tier"]) == ([], None)
+
+
+def test_a_malformed_legacy_profile_is_one_invalid_row_never_a_500(
+    client: TestClient,
+) -> None:
+    listing = client.get("/api/documents/trigger_profile?experiment=Bench")
+    assert listing.status_code == 200
+    rows = {r["id"]: r for r in listing.json()}
+    assert not rows["malformed.yaml"]["valid"] and "has no attribute" in rows["malformed.yaml"]["error"]  # fmt: skip
+    assert all(
+        r["valid"] for i, r in rows.items() if i != "malformed.yaml"
+    )  # the others intact
+    read = client.get("/api/documents/trigger_profile/malformed.yaml?experiment=Bench")
+    assert (
+        read.status_code == 200 and not read.json()["valid"] and read.json()["errors"]
+    )
+    assert (
+        client.get(
+            "/?experiment=Bench&kind=trigger_profile&id=malformed.yaml"
+        ).status_code
+        == 200
+    )
+
+
+@pytest.mark.parametrize("doc_id", ["stamped.yaml", "dated.yaml"])
+def test_a_served_document_with_a_yaml_timestamp_diffs_empty_and_validates_as_the_file(client: TestClient, doc_id: str) -> None:  # fmt: skip
+    served = client.get(f"/api/documents/setup/{doc_id}?experiment=Bench").json()
+    assert isinstance(served["document"]["captured"]["at"], str) and served["valid"]
+    d = client.post(f"/api/diff/setup/{doc_id}?experiment=Bench", json={"document": served["document"]}).json()  # fmt: skip
+    assert (d["changes"], d["tier"]) == ([], None)
+    report = client.post("/api/validate/setup", json={"document": served["document"], "id": doc_id}).json()  # fmt: skip
+    assert report == {"ok": True, "errors": []}

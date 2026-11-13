@@ -22,6 +22,7 @@ def test_every_suffix_is_listed_and_ids_are_paths(root: Path) -> None:
         "bare_off.yaml",
         "laser_off.yaml",
         "legacy.yaml",
+        "malformed.yaml",
         "spare.yml",
     ]
     # a fixed-name file is one document

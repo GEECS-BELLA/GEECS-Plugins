@@ -47,6 +47,9 @@ from pydantic import BaseModel, ValidationError
 FAMILY = "family_file"
 #: How a trigger profile in the legacy dialect (no ``schema_version``) is shown: the reader converts it.
 LEGACY = "legacy dialect, converted by the reader"
+#: What the legacy converter raises on a document whose shape it assumes (``.items()`` on a list):
+#: one file's error, never the listing's.
+_MALFORMED = (TypeError, AttributeError, KeyError, IndexError)
 #: A shared folder's file whose kind cannot be read: listed under every kind of that folder.
 _UNKNOWN = "?"
 #: A JSON value or a JSON Schema fragment, as the API carries it.
@@ -262,7 +265,7 @@ class DocumentStore:
             # the reader's rule (the scanner's resolver): no schema_version is the legacy dialect, converted
             try:
                 profile = convert_shot_control(raw, name=path.stem)
-            except (SchemaConversionError, ValueError) as exc:
+            except (SchemaConversionError, ValueError, *_MALFORMED) as exc:
                 return (
                     raw,
                     [Error(loc=[], msg=f"{LEGACY} failed: {_one_line(exc)}")],
@@ -316,10 +319,17 @@ class DocumentStore:
         return Report(ok=True, errors=[])
 
     def diff(self, kind: str, experiment: str | None, doc_id: str, draft: Json) -> Diff:
-        """What ``draft`` changes in the stored document, with each change's tier."""
+        """What ``draft`` changes in the stored document, with each change's tier.
+
+        The baseline is the document exactly as the read route serves it (``Loaded``'s own JSON
+        serialization, the one the API answers with), not the YAML-loaded values: an unquoted YAML
+        timestamp loads as a datetime and is served as text, so posting the served document back
+        must diff empty.
+        """
         loaded = self.read(kind, experiment, doc_id)
         schema = SCHEMA_REGISTRY[kind].model_json_schema()
-        changes = diff_documents(loaded.document, draft, schema)
+        served = loaded.model_dump(mode="json")["document"]
+        changes = diff_documents(served, draft, schema)
         return Diff(changes=changes, tier=strictest(c.tier for c in changes), etag=loaded.etag)  # fmt: skip
 
 
