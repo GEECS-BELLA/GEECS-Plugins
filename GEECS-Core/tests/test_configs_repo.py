@@ -134,6 +134,37 @@ def test_a_file_missing_mid_rewrite_is_waited_for(tmp_path: Path) -> None:
     assert configs_repo.settled_exists(target)
 
 
+def test_a_file_there_but_mid_rewrite_is_read_after_it(tmp_path: Path) -> None:
+    """Unlink, create, write: a reader that finds the file must not read it half written."""
+    import threading
+
+    live, lock = _worktree(tmp_path)
+    target = live / "Exp" / "native_devices.yaml"
+    target.write_text("devi", encoding="utf-8")  # the new file, partly written
+    lock.write_text("", encoding="utf-8")
+
+    def finish() -> None:
+        target.write_text("devices: {}\n", encoding="utf-8")
+        lock.unlink()
+
+    threading.Timer(0.2, finish).start()
+    assert configs_repo.settled_exists(target)
+    assert target.read_text(encoding="utf-8") == "devices: {}\n"
+
+
+def test_a_stale_lock_is_never_waited_on(tmp_path: Path) -> None:
+    import os
+    import time
+
+    live, lock = _worktree(tmp_path)
+    lock.write_text("", encoding="utf-8")
+    old = time.time() - configs_repo.STALE_LOCK_S - 5
+    os.utime(lock, (old, old))  # a crashed operation's
+    start = time.monotonic()
+    assert not configs_repo.settled_exists(live / "Exp" / "absent.yaml")
+    assert time.monotonic() - start < 0.5
+
+
 def test_a_rewrite_that_outlasts_the_wait_reads_as_missing(tmp_path: Path) -> None:
     live, lock = _worktree(tmp_path)
     lock.write_text("", encoding="utf-8")

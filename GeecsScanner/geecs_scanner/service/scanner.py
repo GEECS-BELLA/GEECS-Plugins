@@ -184,6 +184,8 @@ class ScannerService:
         self._lock = threading.Lock()
         #: Set while :meth:`reopen_environment` closes and reopens the environment.
         self._reopening = threading.Event()
+        #: Counts reopens begun: a submit whose preflight straddled one is refused (it was judged on the old configs).
+        self._reopen_generation = 0
 
     # ----------------------------------------------------- settables + readback
 
@@ -450,6 +452,7 @@ class ScannerService:
         """Preflight, require every question acknowledged, stamp, queue."""
         preset = self._validate_preset(body.preset)
         self._refuse_while_reopening()
+        generation = self._reopen_generation
         catalog = self._catalog()
         report = self._run_preflight(preset, catalog)
         if report.refusal is not None:
@@ -476,6 +479,9 @@ class ScannerService:
         if scan_log_variables:
             md["geecs"]["scan_log_variables"] = scan_log_variables
         with self._lock:
+            if self._reopen_generation != generation:
+                # a reopen ran while this preflight did: it judged the configs before the apply
+                self._refuse_while_reopening(force=True)
             result = self.client.submit_preset(
                 preset,
                 catalog=catalog,
@@ -779,7 +785,7 @@ class ScannerService:
                 f"preset {stem!r} already exists; replace it or pick another name",
                 exists=True,
             )
-        saved = self._presets.save(stem, preset.model_dump(mode="json"), operator=body.operator.strip())  # fmt: skip
+        saved = self._presets.save(stem, preset.model_dump(mode="json"), operator=body.operator.strip(), overwrite=body.overwrite)  # fmt: skip
         return SavePresetOut(
             name=stem, path=saved.path, message=saved.message, commit=saved.commit
         )
@@ -834,12 +840,17 @@ class ScannerService:
         open: refused (``policy_refusal``) unless the manager answers, the
         environment exists and is idle, nothing runs **and nothing waits**
         (a closed environment is not idle; reopening one is the readiness
-        unit's work). A scan submitted meanwhile waits for the lock and is
-        queued after the open, and a preflight run meanwhile is refused
-        with the reason. After the open the queue is started if items wait
-        (one added past this service, which could not start a queue with no
-        environment). A failed open is ``manager_unreachable``: the
-        environment is then closed, the readiness unit's recovery.
+        unit's work). A preflight or submit meanwhile is refused with
+        ``reopening``, and so is a submit whose preflight straddled a reopen
+        (the reopen generation moved: it was judged on the old configs).
+        The open waits for the manager **ready** (the queue client's
+        ``environment_open``: the plan list settled, the readiness unit's
+        rule). After it the queue is started if items wait (one added past
+        this service, which could not start a queue with no environment).
+        A close refused (another client started a plan) is
+        ``policy_refusal``: nothing changed. An open that did not come up
+        ready is ``manager_unreachable``: it may still be opening, and one
+        left closed is the readiness unit's to reopen.
         """
         import time
 
@@ -872,14 +883,15 @@ class ScannerService:
                 body.reason or "no reason given",
             )
             start = time.monotonic()
+            self._reopen_generation += 1
             self._reopening.set()
             try:
                 ok, message = self.client.environment_close()
                 if not ok:
-                    raise ScannerError("manager_unreachable", f"the environment did not close: {message}")  # fmt: skip
+                    raise ScannerError("policy_refusal", f"the environment did not close, so nothing changed (another client may have started a plan): {message}")  # fmt: skip
                 ok, message = self.client.environment_open()
                 if not ok:
-                    raise ScannerError("manager_unreachable", f"the environment did not reopen (it is closed now; the readiness unit's recovery): {message}")  # fmt: skip
+                    raise ScannerError("manager_unreachable", f"the environment did not come up ready: {message} (it may still be opening; one left closed is the readiness unit's to reopen)")  # fmt: skip
                 after = self.client.status()
                 started = False
                 if after.items_in_queue:
@@ -980,9 +992,9 @@ class ScannerService:
 
         return preset
 
-    def _refuse_while_reopening(self) -> None:
+    def _refuse_while_reopening(self, *, force: bool = False) -> None:
         """A preflight during a reopen would read the environment closed; say why instead."""
-        if self.reopening:
+        if force or self.reopening:
             raise ScannerError(
                 "policy_refusal",
                 "the worker environment is reopening to read a committed configuration "

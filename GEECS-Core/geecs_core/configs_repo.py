@@ -85,6 +85,8 @@ def scanner_configs_write_base(config_path: Path | None = None) -> Path | None:
 
 #: How long a reader waits out a checkout rewriting a file (seconds), and how often it looks.
 SETTLE_WAIT_S, SETTLE_POLL_S = 2.0, 0.05
+#: A lock older than this (seconds) is a crashed operation's: a fast-forward of a configs checkout takes well under a second.
+STALE_LOCK_S = 30.0
 
 
 def _index_lock(path: Path) -> Path | None:
@@ -103,27 +105,33 @@ def _index_lock(path: Path) -> Path | None:
 
 
 def settled_exists(path: Path, *, wait_s: float = SETTLE_WAIT_S) -> bool:
-    """Whether *path* exists, a checkout's rewrite of it waited out.
+    """Whether *path* exists once a rewrite of its checkout has finished; read it after this.
 
-    A fast-forward rewrites a changed file by unlink and create, so a reader
-    of a checkout the configurator moves can find a file missing for a
-    moment. A missing file is believed only once no git operation holds the
-    checkout's ``index.lock`` (or after *wait_s*); a missing file outside
-    any rewrite costs a few ``stat`` calls, never a wait.
+    A fast-forward rewrites a changed file by unlink, create and write, so a
+    reader of a checkout the configurator moves can find a file missing, or
+    there but partly written, for a moment. While a git operation holds the
+    checkout's ``index.lock`` this waits (at most *wait_s*), so the answer
+    and the read that follows see the file after it. A lock older than
+    :data:`STALE_LOCK_S` is a crashed operation's, never waited on. Outside
+    a checkout, or with no lock, it costs one ``stat`` more.
     """
     path = Path(path)
-    if path.exists():
-        return True
     try:
         lock = _index_lock(path)
     except OSError:
-        return False
+        lock = None
     deadline = time.monotonic() + wait_s
-    while lock is not None and lock.exists() and time.monotonic() < deadline:
+    while lock is not None and _held(lock) and time.monotonic() < deadline:
         time.sleep(SETTLE_POLL_S)
-        if path.exists():
-            return True
     return path.exists()
+
+
+def _held(lock: Path) -> bool:
+    """A live operation's lock: there, and younger than :data:`STALE_LOCK_S`."""
+    try:
+        return time.time() - lock.stat().st_mtime < STALE_LOCK_S
+    except OSError:  # gone
+        return False
 
 
 def experiment_config_path(

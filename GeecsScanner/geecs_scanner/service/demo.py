@@ -166,12 +166,14 @@ class DemoPresets:
         self._resolver = resolver
         self.saves: list[tuple[str, str]] = []  # (name, operator)
 
-    def save(self, name: str, document: dict[str, Any], *, operator: str) -> Any:
-        """Keep the document under its name; the path is where the configurator would commit it."""
+    def save(self, name: str, document: dict[str, Any], *, operator: str, overwrite: bool) -> Any:  # fmt: skip
+        """Keep the document under its name (one there only with *overwrite*); the path is where the configurator would commit it."""
         from geecs_schemas import Preset
 
-        from geecs_scanner.service.preset_saver import SavedPreset
+        from geecs_scanner.service.preset_saver import SavedPreset, exists_refusal
 
+        if name in self._resolver._presets and not overwrite:
+            raise exists_refusal(name)
         self._resolver._presets[name] = Preset.model_validate(document)
         self.saves.append((name, operator))
         return SavedPreset(path=f"demo/presets/{name}.yaml", commit=None, message=f"preset {name!r} kept in memory (demo: the configurator would commit it)")  # fmt: skip

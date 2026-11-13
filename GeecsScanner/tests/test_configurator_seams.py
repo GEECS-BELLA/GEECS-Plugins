@@ -127,13 +127,13 @@ def test_items_added_past_the_scanner_during_the_reopen_start_the_queue() -> Non
     assert out.queue_started and manager.calls == ["close", "open", "start"]
 
 
-def test_a_failed_close_is_unreachable_and_never_opens() -> None:
+def test_a_failed_close_is_a_refusal_and_never_opens() -> None:
     manager = _Recording()
     manager.environment_close = lambda **_: (False, "refused")  # type: ignore[method-assign]
     service = _service(manager)
     with pytest.raises(ScannerError) as err:
         service.reopen_environment(ReopenIn())
-    assert err.value.kind == "manager_unreachable" and "open" not in manager.calls
+    assert err.value.kind == "policy_refusal" and "open" not in manager.calls
     assert not service.reopening
 
 
@@ -231,12 +231,12 @@ def _preset_doc(name: str) -> dict:
 def test_a_new_preset_is_a_create_and_an_existing_one_saves_over_its_etag() -> None:
     fake = _Configurator()
     saver = ConfiguratorPresets("http://cfg.test/", "Demo", send=fake)
-    out = saver.save("new", _preset_doc("new"), operator="Ada")
+    out = saver.save("new", _preset_doc("new"), operator="Ada", overwrite=False)
     method, url, body = fake.requests[-1]
     assert (method, url) == ("PUT", "http://cfg.test/api/documents/preset/new.yaml?experiment=Demo")  # fmt: skip
     assert body["create"] is True and body["etag"] == "" and body["operator"] == "Ada"
     assert "abcdef1234" in out.message and out.commit == "abcdef1234567"
-    saver.save("old", _preset_doc("old"), operator="Ada")
+    saver.save("old", _preset_doc("old"), operator="Ada", overwrite=True)
     _, _, body = fake.requests[-1]
     assert body["create"] is False and body["etag"] == "e-old"
 
@@ -248,7 +248,7 @@ def test_a_new_preset_is_a_create_and_an_existing_one_saves_over_its_etag() -> N
 def test_the_configurators_refusals_keep_their_meaning(status: int, kind: str) -> None:
     saver = ConfiguratorPresets("http://cfg.test", "Demo", send=_Configurator(status, {"detail": "no"}))  # fmt: skip
     with pytest.raises(ScannerError) as err:
-        saver.save("new", _preset_doc("new"), operator="Ada")
+        saver.save("old", _preset_doc("old"), operator="Ada", overwrite=True)
     assert err.value.kind == kind
 
 
@@ -257,7 +257,7 @@ def test_an_unreachable_configurator_is_said_so() -> None:
         raise OSError("connection refused")
 
     with pytest.raises(ScannerError) as err:
-        ConfiguratorPresets("http://cfg.test", "Demo", send=down).save("n", {}, operator="A")  # fmt: skip
+        ConfiguratorPresets("http://cfg.test", "Demo", send=down).save("n", {}, operator="A", overwrite=False)  # fmt: skip
     assert err.value.kind == "manager_unreachable"
 
 
@@ -271,3 +271,40 @@ def test_without_a_configurator_nothing_is_saved_and_the_answer_says_why() -> No
 def test_a_save_needs_an_operator(client: TestClient, preset_doc: dict) -> None:
     r = client.post("/api/configs/presets/jet_v3", json={"preset": preset_doc})
     assert r.status_code == 400 and "operator" in r.json()["error"]["message"]
+
+
+def test_without_overwrite_a_preset_the_configurator_holds_is_never_replaced() -> None:
+    """The scanner's own checkout may lag main: the configurator's answer decides, and nothing is sent."""
+    fake = _Configurator()
+    saver = ConfiguratorPresets("http://cfg.test", "Demo", send=fake)
+    with pytest.raises(ScannerError) as err:
+        saver.save("old", _preset_doc("old"), operator="Ada", overwrite=False)
+    assert err.value.kind == "policy_refusal" and err.value.extra["exists"] is True
+    assert [m for m, _, _ in fake.requests] == ["GET"]  # the listing only, no PUT
+
+
+def test_a_create_that_lost_a_race_is_the_exists_refusal() -> None:
+    saver = ConfiguratorPresets("http://cfg.test", "Demo", send=_Configurator(409, {"detail": {"reason": "the document already exists"}}))  # fmt: skip
+    with pytest.raises(ScannerError) as err:
+        saver.save("new", _preset_doc("new"), operator="Ada", overwrite=False)
+    assert err.value.extra.get("exists") is True
+
+
+def test_a_submit_whose_preflight_straddled_a_reopen_is_refused(manager: DemoQueueClient, streams: Any, tmp_path: Any) -> None:  # fmt: skip
+    """Judged on the configs before the apply: refused with the reason, never queued."""
+    from geecs_scanner.service.demo import DemoResolver, demo_preflight
+    from geecs_scanner.service.models import SubmitIn
+
+    service: ScannerService
+
+    def preflight_during_a_reopen(*args: Any, **kwargs: Any) -> Any:
+        report = demo_preflight(*args, **kwargs)
+        service.reopen_environment(ReopenIn())  # a reopen runs while this preflight did
+        return report
+
+    service = ScannerService(manager, DemoResolver(), experiment="Demo", identity="t", streams=streams, preflight=preflight_during_a_reopen, heartbeat_path=tmp_path / "hb.json")  # fmt: skip
+    doc = {"name": "p", "devices": [{"device": "UC_ALineEBeam3"}], "plan": {"name": "count", "kwargs": {"num": 1}}}  # fmt: skip
+    with pytest.raises(ScannerError) as err:
+        service.submit(SubmitIn(preset=doc, acknowledged=["gateway_liveness"]))
+    assert err.value.extra.get("reopening") is True
+    assert manager.reopens == 1 and service.queue().waiting == [] and service.queue().running is None  # fmt: skip

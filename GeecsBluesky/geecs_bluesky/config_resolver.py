@@ -399,6 +399,9 @@ class ConfigsRepoResolver:
         """
         path = self._root / self.SCAN_VARIABLES_FOLDER / SCAN_VARIABLES_FILENAME
         try:
+            settled_exists(
+                path
+            )  # a fast-forward mid-rewrite of the catalogue is waited out
             st = path.stat()
         except (FileNotFoundError, NotADirectoryError):
             # ``Path.exists`` read both as "missing"; keep that message.

@@ -52,25 +52,59 @@ def test_close_waits_until_the_manager_is_idle_with_no_environment():
     assert fake.status_payloads == []  # every intermediate state was waited out
 
 
-def test_open_waits_for_the_worker_idle_not_merely_existing():
-    fake = _EnvFake()
-    fake.status_payloads = [
-        _env(False),  # a poll before the manager took the request
-        _env(False, "creating_environment", "initializing"),
-        _env(True, "creating_environment", "initializing"),
-        _env(True, "idle", "initializing"),
-        _env(True),
-    ]
-    ok, message = _env_client(fake).environment_open()
+class _OpenFake(_EnvFake):
+    """The manager as the readiness rule reads it: raw requests, statuses and plan lists scripted."""
+
+    def __init__(self, statuses: list[dict], plan_lists: list[list[str]]) -> None:
+        super().__init__()
+        self.statuses, self.plan_lists = statuses, plan_lists
+
+    def send_request(self, *, method, params=None) -> dict:
+        self.calls.append((method,))
+        if method == "status":
+            return self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
+        if method == "plans_allowed":
+            names = (
+                self.plan_lists.pop(0)
+                if len(self.plan_lists) > 1
+                else self.plan_lists[0]
+            )
+            return {"success": True, "plans_allowed": {n: {} for n in names}}
+        return {"success": True, "msg": ""}
+
+
+@pytest.fixture
+def no_poll_wait(monkeypatch):
+    monkeypatch.setattr("geecs_bluesky.qs_client.ready.POLL_S", 0)
+
+
+def test_open_waits_for_the_plan_list_not_merely_the_environment(no_poll_wait):
+    """#838: the environment reads up before its plan list lands; ready is the plan list too."""
+    from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+
+    fake = _OpenFake(
+        [_env(False), _env(False, "creating_environment", "initializing"), _env(True)],
+        [[], list(GEECS_PLAN_NAMES)],
+    )
+    ok, message = _client(fake).environment_open()
     assert ok, message
-    assert fake.calls[0] == ("environment_open",)
-    assert fake.status_payloads == []
+    methods = [c[0] for c in fake.calls]
+    assert methods.count("environment_open") == 1
+    assert methods.count("plans_allowed") == 2  # re-read until settled
 
 
-def test_an_open_that_settles_closed_names_the_startup_profile():
-    fake = _EnvFake()
-    fake.status_payloads = [_env(False)] * 5
-    ok, message = _env_client(fake).environment_open()
+def test_a_plan_list_that_never_lands_is_restored_once_from_disk(no_poll_wait):
+    from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
+
+    fake = _OpenFake([_env(False), _env(True)], [[]] * 6 + [list(GEECS_PLAN_NAMES)])
+    ok, message = _client(fake).environment_open()
+    assert ok, message
+    assert [c[0] for c in fake.calls].count("permissions_reload") == 1
+
+
+def test_an_open_that_settles_closed_names_the_startup_profile(no_poll_wait):
+    fake = _OpenFake([_env(False)], [[]])
+    ok, message = _client(fake).environment_open()
     assert not ok and "startup profile" in message
 
 

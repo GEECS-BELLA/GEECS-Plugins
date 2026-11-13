@@ -47,15 +47,20 @@ class SavedPreset:
 class PresetSaver(Protocol):
     """Saves one preset document (the configurator; an in-memory double in the demo)."""
 
-    def save(self, name: str, document: dict[str, Any], *, operator: str) -> SavedPreset:  # fmt: skip
-        """Save *document* as preset *name*, created or replaced; a :class:`ScannerError` when refused."""
+    def save(self, name: str, document: dict[str, Any], *, operator: str, overwrite: bool) -> SavedPreset:  # fmt: skip
+        """Save *document* as preset *name*: created, or replaced only with *overwrite*; a :class:`ScannerError` when refused.
+
+        One already there without *overwrite* is ``policy_refusal`` with
+        ``exists=True`` (the page's "replace?" dialog), decided by the
+        configurator, whatever this scanner's own checkout lists.
+        """
         ...
 
 
 class NoConfigurator:
     """No configurator configured: every save is refused, saying how to configure one."""
 
-    def save(self, name: str, document: dict[str, Any], *, operator: str) -> SavedPreset:  # fmt: skip
+    def save(self, name: str, document: dict[str, Any], *, operator: str, overwrite: bool) -> SavedPreset:  # fmt: skip
         """Refuse: the scanner does not write the configs tree itself."""
         raise ScannerError(
             "policy_refusal",
@@ -110,6 +115,8 @@ class ConfiguratorPresets:
     def _existing(self, name: str) -> Optional[str]:
         """The configurator's id of preset *name* (``name.yaml`` or its ``.yml`` twin), or ``None``."""
         status, listing = self._call("GET", f"documents/{KIND}")
+        if status == 404:
+            raise ScannerError("invalid_request", f"the configurator has no preset folder for experiment {self.experiment!r}: {_detail(listing)}")  # fmt: skip
         if status != 200 or not isinstance(listing, list):
             raise ScannerError("manager_unreachable", f"the configurator's preset list answered {status}: {_detail(listing)}")  # fmt: skip
         ids = [str(e.get("id")) for e in listing if isinstance(e, dict)]
@@ -118,9 +125,11 @@ class ConfiguratorPresets:
                 return f"{name}{suffix}"
         return None
 
-    def save(self, name: str, document: dict[str, Any], *, operator: str) -> SavedPreset:  # fmt: skip
-        """Read the current etag (none: create), then save the whole document over it."""
+    def save(self, name: str, document: dict[str, Any], *, operator: str, overwrite: bool) -> SavedPreset:  # fmt: skip
+        """A create (refused over a file that is there), or, with *overwrite*, the whole document over its current etag."""
         doc_id = self._existing(name)
+        if doc_id is not None and not overwrite:
+            raise exists_refusal(name)
         etag = ""
         if doc_id is not None:
             status, current = self._call("GET", f"documents/{KIND}/{urllib.parse.quote(doc_id)}")  # fmt: skip
@@ -135,15 +144,24 @@ class ConfiguratorPresets:
             path = str(saved.get("path") or target)
             if saved.get("outcome") == "committed":
                 message = f"preset {name!r} committed to the configs repo's main ({str(commit)[:10]}) as {operator}'s"  # fmt: skip
-            else:
+            elif saved.get("outcome") == "nothing to do":
                 message = f"preset {name!r} is unchanged: main already holds exactly this document"  # fmt: skip
+            else:
+                message = f"preset {name!r}: {saved.get('outcome')} ({saved.get('pull_request') or 'no link'})"  # fmt: skip
             return SavedPreset(path=path, commit=commit, message=message)
         reason = _detail(saved)
+        if status == 409 and doc_id is None:  # created meanwhile by someone else
+            raise exists_refusal(name)
         if status == 409:
             raise ScannerError("conflict", f"preset {name!r} changed while it was saved; reload it and save again ({reason})")  # fmt: skip
-        if status in (400, 403, 405, 422, 428):
+        if status in (400, 403, 404, 405, 422, 428):
             raise ScannerError("invalid_request", f"the configurator refused preset {name!r}: {reason}")  # fmt: skip
         raise ScannerError("manager_unreachable", f"the configurator did not save preset {name!r} ({status}): {reason}")  # fmt: skip
+
+
+def exists_refusal(name: str) -> ScannerError:
+    """The refusal of a save over a preset that is there without overwrite (the page's "replace?" dialog keys on ``exists``)."""
+    return ScannerError("policy_refusal", f"preset {name!r} already exists; replace it or pick another name", exists=True)  # fmt: skip
 
 
 def _detail(payload: Any) -> str:  # Any: a JSON answer of any shape

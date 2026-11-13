@@ -75,11 +75,8 @@ _STOP_PAUSE_TIMEOUT_S = 120.0
 #: device namespace from the GEECS DB (the readiness unit's budget).
 ENVIRONMENT_CLOSE_TIMEOUT_S = 120.0
 ENVIRONMENT_OPEN_TIMEOUT_S = 600.0
-#: Poll interval while an environment verb waits, and how many settled
-#: closed polls after an open request mean the open failed (the first polls
-#: may still read the pre-open state).
+#: Poll interval while the close waits.
 _ENVIRONMENT_POLL_S = 1.0
-_OPEN_CLOSED_GRACE = 3
 
 
 @dataclass(frozen=True)
@@ -504,10 +501,11 @@ class QueueClient(Protocol):
     def environment_open(
         self, *, timeout: float = ENVIRONMENT_OPEN_TIMEOUT_S
     ) -> tuple[bool, str]:
-        """Open the worker environment and wait until it is up and idle; ``(ok, message)``.
+        """Open the worker environment and wait until the manager is ready; ``(ok, message)``.
 
-        An open that settles back to closed (the startup profile failed to
-        import) is ``(False, ...)`` naming the worker's journal.
+        Ready is :func:`readiness_verdict`'s: the plan list too, not the
+        environment alone. An open that settles back to closed (the startup
+        profile failed to import) is ``(False, ...)`` naming the worker's journal.
         """
         ...
 
@@ -996,32 +994,37 @@ class ZmqQueueClient:
     def environment_open(
         self, *, timeout: float = ENVIRONMENT_OPEN_TIMEOUT_S
     ) -> tuple[bool, str]:
-        """Open the worker environment, then wait for it up with the manager and worker idle."""
-        ok, why = self._call_verb("environment_open", "")
-        if not ok:
-            return False, f"environment open refused: {why}"
-        closed_polls = 0
+        """Open the worker environment and wait until the manager is ready: the readiness unit's own rule.
 
-        def up(st: QueueStatus) -> Optional[str]:
-            nonlocal closed_polls
-            if (
-                st.worker_exists
-                and st.manager_state == "idle"
-                and st.worker_environment_state == "idle"
-            ):
-                return ""
-            if not st.worker_exists and st.manager_state == "idle":
-                closed_polls += 1  # the first polls may read the state before the open
-                if closed_polls > _OPEN_CLOSED_GRACE:
-                    return (
-                        "the worker environment is closed after 'environment open': "
-                        "the startup profile failed to import (journalctl -u geecs-qserver)"
-                    )
-            else:
-                closed_polls = 0
-            return None
+        :func:`~geecs_bluesky.qs_client.ready.ensure_ready` over this
+        client's connection: open when closed, wait the open out (one that
+        collapses names the startup profile), then the plan list settled and,
+        if its download timed out, restored once from the worker's copy on
+        disk (GEECS-Plugins#838). An environment that reads up with an empty
+        plan list would refuse every submission.
+        """
+        from bluesky_queueserver_api.comm_base import (
+            RequestFailedError,
+            RequestParameterError,
+        )
 
-        return self._wait(up, timeout, "environment open")
+        from geecs_bluesky.qs_client.ready import NotReady, ensure_ready
+
+        api = self._manager()
+
+        def request(
+            method: str, params: dict[str, Any] | None
+        ) -> tuple[dict[str, Any] | None, str]:
+            try:
+                return api.send_request(method=method, params=params or {}), ""
+            except (OSError, RequestFailedError, RequestParameterError) as exc:
+                return None, str(exc)
+
+        try:
+            ensure_ready(request, timeout_s=timeout, log=logger.info)
+        except NotReady as exc:
+            return False, str(exc)
+        return True, "environment open: ready"
 
     def queue_start(self) -> tuple[bool, str]:
         """Start the queue."""
