@@ -371,3 +371,58 @@ def test_a_save_during_an_apply_pass_is_answered_busy_at_once(origin: Path, tmp_
         r = _save_profile(c)
         assert r.status_code == 503 and r.headers["Retry-After"] == "60"
         assert c.app.state.repo.remote_head() == head
+
+
+# ------------------------------------------------------------ review round 2
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "Bench: 120 PVs; plan: 3 to archive\nrefusing to change the appliance while 1 registry device(s) are unresolved (nothing was sent; fix the registry)",  # fmt: skip
+        "Bench: 120 PVs; plan: 3 to archive\nTraceback (most recent call last):\nMgmtTimeout",
+    ],
+)
+def test_a_plan_printed_then_nothing_sent_is_never_applied(tmp_path: Path, output: str) -> None:  # fmt: skip
+    applier = ServiceApplier(tmp_path, archiver=Archiver("geecs-archiver", run=Run(1, output=output)))  # fmt: skip
+    (answer,) = applier.settle([_row("archive_policy", POLICY)])
+    assert answer.state == "queued"
+
+
+def test_a_pass_that_began_during_the_dry_run_answers_the_save_busy(origin: Path, tmp_path: Path) -> None:  # fmt: skip
+    class Starting(Scanner):
+        def __call__(self, request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/preflight/trigger-profile":
+                c.app.state.commit.settling.set()  # the timer's pass starts meanwhile
+            return super().__call__(request)
+
+    with _app(origin, tmp_path / "s", Starting()) as c:
+        head = c.app.state.repo.remote_head()
+        assert _save_profile(c).status_code == 503
+        assert c.app.state.repo.remote_head() == head
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            "http://a:8300/?x=1",
+            {"Bench": "http://a:8300/?x=1"},
+        ),  # one URL, an "=" in its query
+        (
+            "Bench=http://a:8300,PulsedWire=http://a:8310",
+            {"Bench": "http://a:8300", "PulsedWire": "http://a:8310"},
+        ),  # fmt: skip
+    ],
+)
+def test_the_scanner_url_is_one_url_or_every_part_named(value: str, expected: dict) -> None:  # fmt: skip
+    env = {"GEECS_CONFIGURATOR_CONFIGS_ROOT": ".", "GEECS_EXPERIMENT": "Bench", "GEECS_CONFIGURATOR_SCANNER_URL": value}  # fmt: skip
+    assert Settings.from_env(env).scanner_urls() == expected
+
+
+def test_a_scanner_url_naming_only_some_experiments_is_refused() -> None:
+    from geecs_configurator.settings import SettingsError
+
+    env = {"GEECS_CONFIGURATOR_CONFIGS_ROOT": ".", "GEECS_EXPERIMENT": "Bench", "GEECS_CONFIGURATOR_SCANNER_URL": "Bench=http://a,http://b"}  # fmt: skip
+    with pytest.raises(SettingsError, match="not every one"):
+        Settings.from_env(env)

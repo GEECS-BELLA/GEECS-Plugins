@@ -249,11 +249,13 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
         raise HTTPException(405, "read-only: the commit path is not configured")
     if request.app.state.commit.settling.is_set():
         # an apply pass holds the repository (a reopen takes a minute or more): say so now, never keep the save waiting
-        return JSONResponse({"detail": "the configurator is applying a committed change (the worker reopens); nothing was saved: save again in a minute"}, status_code=503, headers={"Retry-After": "60"})  # fmt: skip
+        return _busy()
     # The consumer's own check of the draft first (kinds.DRY_RUNS): a refusal is the save's refusal.
     check: DryRun = request.app.state.consumers.dry_run(kind, experiment, body.document)
     if check.refusal is not None:
         return JSONResponse({"detail": {"reason": f"the {check.by}'s dry run refused the draft: {check.refusal}", "dry_run": check.model_dump()}}, status_code=422)  # fmt: skip
+    if request.app.state.commit.settling.is_set():  # a pass began during the dry run
+        return _busy()
     _reconcile_quietly(request.app)
     try:
         saved = _answer(lambda: save(_store(request), repo, request.app.state.pull_requests, _file_kind(kind), experiment, doc_id, body, email=request.app.state.settings.committer_email))  # fmt: skip
@@ -271,6 +273,11 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
             repo
         )  # origin answered: a waiting measurement need not wait out its backoff
     return _served(saved)
+
+
+def _busy() -> JSONResponse:
+    """A save while an apply pass holds the repository: answered at once (nothing saved), never kept waiting."""
+    return JSONResponse({"detail": "the configurator is applying a committed change (the worker reopens); nothing was saved: save again in a minute"}, status_code=503, headers={"Retry-After": "60"})  # fmt: skip
 
 
 def _reconcile_quietly(app: FastAPI) -> None:

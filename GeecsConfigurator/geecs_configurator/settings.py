@@ -40,6 +40,7 @@ off) is how often the queued applies are tried.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +48,28 @@ from pathlib import Path
 from geecs_core.configs_repo import EXPERIMENTS_SUBDIR, scanner_configs_base
 
 _P = "GEECS_CONFIGURATOR_"
+
+
+def _named_scanners(raw: str) -> dict[str, str] | None:
+    """``Exp=url,Exp2=url`` as a mapping, or ``None`` when no part names an experiment (one plain URL)."""
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    named = [re.fullmatch(r"([A-Za-z0-9_.-]+)=(https?://\S+)", p) for p in parts]
+    if not any(named):
+        return None
+    if not all(named):
+        raise SettingsError(f"{_P}SCANNER_URL names an experiment for some parts but not every one: {raw!r}")  # fmt: skip
+    return {m.group(1): m.group(2).rstrip("/") for m in named if m}
+
+
+def _check_scanner_url(scanner: str, experiment: str) -> None:
+    """Refuse a ``_SCANNER_URL`` that names some experiments but not all, or one URL with no served experiment."""
+    if not scanner:
+        return
+    named = _named_scanners(scanner)
+    if named is None and not experiment:
+        raise SettingsError(f"{_P}SCANNER_URL as one URL is the served experiment's: set GEECS_EXPERIMENT, or name each (Exp=url,Exp2=url)")  # fmt: skip
+    if named is None and "," in scanner:
+        raise SettingsError(f"{_P}SCANNER_URL is one URL, or Exp=url for every part: {scanner!r}")  # fmt: skip
 
 
 class SettingsError(ValueError):
@@ -85,10 +108,10 @@ class Settings:
         raw = self.scanner_url
         if not raw:
             return {}
-        if "=" not in raw:
-            return {self.experiment: raw.rstrip("/")} if self.experiment else {}
-        pairs = (p.split("=", 1) for p in raw.split(",") if "=" in p)
-        return {e.strip(): u.strip().rstrip("/") for e, u in pairs if e.strip() and u.strip()}  # fmt: skip
+        named = _named_scanners(raw)
+        if named is not None:
+            return named
+        return {self.experiment: raw.rstrip("/")} if self.experiment else {}
 
     @property
     def commits(self) -> bool:
@@ -132,12 +155,7 @@ class Settings:
         if all(app) and not (state and get("GITHUB_REPO")):
             raise SettingsError(f"the GitHub App needs the commit path and {_P}GITHUB_REPO (owner/name)")  # fmt: skip
         share = get("SHARE_CLONE")
-        if (
-            get("SCANNER_URL")
-            and "=" not in get("SCANNER_URL")
-            and not get("EXPERIMENT", "GEECS_EXPERIMENT")
-        ):
-            raise SettingsError(f"{_P}SCANNER_URL as one URL is the served experiment's: set GEECS_EXPERIMENT, or name each (Exp=url,Exp2=url)")  # fmt: skip
+        _check_scanner_url(get("SCANNER_URL"), get("EXPERIMENT", "GEECS_EXPERIMENT"))
         origins = tuple(o.strip().rstrip("/") for o in get("CORS_ORIGINS").split(",") if o.strip())  # fmt: skip
         return cls(
             configs_root=Path(root),

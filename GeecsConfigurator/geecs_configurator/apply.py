@@ -210,8 +210,14 @@ class Archiver:
 
 
 def _planned(code: int, output: str) -> bool:
-    """Whether onboard got as far as its plan: exit 0 or 1 **and** its ``plan:`` line (a traceback also exits 1)."""
-    return code in (EXIT_OK, EXIT_DRIFT) and bool(_plan_line(output))
+    """Whether onboard got past its plan: exit 0 or 1, its ``plan:`` line, and nothing after it that sent nothing.
+
+    Exit 1 is the archiver's drift code, but a traceback exits 1 too, before
+    or after the plan line, and the unresolved-registry guard prints the
+    plan, refuses ("nothing was sent") and exits 1.
+    """
+    stopped = "Traceback (most recent call last)" in output or "nothing was sent" in output  # fmt: skip
+    return code in (EXIT_OK, EXIT_DRIFT) and bool(_plan_line(output)) and not stopped
 
 
 def _plan_line(output: str) -> str:
