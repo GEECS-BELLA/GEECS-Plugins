@@ -249,3 +249,59 @@ def test_a_text_file_that_is_not_columns_is_not_a_trace(tmp_path):
     (folder / "ONECOL" / "Scan001_ONECOL_001.txt").write_text("1\n2\n3\n")
     assert shot_traces.trace_device(folder, "NOTES").kind == ""
     assert shot_traces.trace_device(folder, "ONECOL").kind == ""
+
+
+@pytest.mark.parametrize("text_first", [True, False])
+def test_a_camera_with_text_sidecars_stays_a_camera(tmp_path, monkeypatch, text_first):
+    """ScanAnalysis' FROG sidecar (``_retrieved_lineouts.tsv``) never outvotes frames.
+
+    Whatever order the share lists them in, a folder with images infers
+    the image extension, so the camera is never drawn as a trace.
+    """
+    from pathlib import Path
+
+    from geecs_data_utils.io import shot_images
+    from geecs_data_utils.scan_paths import infer_device_dir_ext
+
+    folder = tmp_path / "Expt" / "Y2026" / "11-Nov" / "26_1112" / "scans" / "Scan002"
+    device = folder / "CAM-FROG"
+    device.mkdir(parents=True)
+    for shot in range(1, 11):
+        stem = f"Scan002_CAM-FROG_{shot:03d}"
+        (device / f"{stem}.png").write_bytes(b"\x89PNG")
+        (device / f"{stem}_retrieved_lineouts.tsv").write_text(
+            "1\t2\t3\t4\n5\t6\t7\t8\n"
+        )
+    listing = Path.iterdir
+
+    def ordered(self):
+        entries = sorted(listing(self), key=lambda p: (p.suffix != ".tsv", p.name))
+        return iter(entries if text_first else entries[::-1])
+
+    monkeypatch.setattr(Path, "iterdir", ordered)
+    assert infer_device_dir_ext(device) == "png"
+    assert shot_images.device_kind(folder, "CAM-FROG").kind == "native"
+    assert shot_traces.trace_device(folder, "CAM-FROG").kind == ""
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",  # empty
+        "1\t2\n",  # one row
+        "1\t2\t3\t4\n5\t6\t7\t8\n",  # a sidecar's four columns
+        "1\t2\t3\n4\t5\t6\n7\t8\t9\n",  # a matrix
+    ],
+)
+def test_only_two_columns_are_a_text_trace(tmp_path, text):
+    path = tmp_path / "f.txt"
+    path.write_text(text)
+    assert shot_traces.read_text_trace(path) is None
+
+
+def test_a_header_names_the_columns_even_index(tmp_path):
+    path = tmp_path / "f.txt"
+    path.write_text("Index\tcounts\n0\t5\n1\t7\n")
+    found = shot_traces.read_text_trace(path)
+    assert found is not None
+    np.testing.assert_allclose(found.data, [[0, 5], [1, 7]])

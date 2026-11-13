@@ -49,11 +49,18 @@ VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
 # infer its real extension, not default to "png". Note: in a folder MIXING
 # vendor and renderable files, the first-`max_files` count decides — the
 # same iterdir-order nondeterminism that always applied to `himg`.
-# Text files (a spectrometer's wavelength/counts columns) count too: a
-# folder of them otherwise inferred "png" and its shots read as missing.
-_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms", "txt", "tsv"} | set(
-    VENDOR_ONLY_EXTS
-)
+_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY_EXTS)
+
+#: Text files: a device's own format only when the folder holds no other
+#: accepted file (a spectrometer's wavelength/counts columns, which
+#: otherwise inferred "png" and read as missing). Analysis writes text
+#: sidecars beside a camera's frames (the FROG ``_retrieved_lineouts.tsv``),
+#: so a text file never outvotes an image, whatever the listing order.
+_TEXT_EXTS = frozenset({"txt", "tsv"})
+
+#: How many text files the inference reads past before deciding the folder
+#: is text alone (a sidecar folder interleaves them with its frames).
+_TEXT_PEEK = 50
 
 
 # module‐level logger
@@ -819,7 +826,8 @@ def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
     callers holding a device directory directly (no canonical-layout
     validation required — a gallery tier probe must classify a vendor
     device even inside a non-canonical dev/scratch scan folder).  Counts
-    only ``_ACCEPTABLE_EXTS`` members; ``"png"`` when nothing matches.
+    only ``_ACCEPTABLE_EXTS`` members, and a text extension (``_TEXT_EXTS``)
+    only when none of those is found; ``"png"`` when nothing matches.
 
     Parameters
     ----------
@@ -838,16 +846,26 @@ def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
     if not device_dir.exists():
         return "png"
     counts: Counter = Counter()
+    texts: Counter = Counter()
     seen = 0
     for f in device_dir.iterdir():
-        if f.is_file():
-            ext = f.suffix.lower().lstrip(".")
-            if ext in _ACCEPTABLE_EXTS:
-                counts[ext] += 1
-                seen += 1
-                if seen >= max_files:
-                    break
-    return counts.most_common(1)[0][0] if counts else "png"
+        ext = f.suffix.lower().lstrip(".")
+        if ext not in _ACCEPTABLE_EXTS and ext not in _TEXT_EXTS:
+            continue
+        if not f.is_file():
+            continue
+        if ext in _TEXT_EXTS:
+            texts[ext] += 1
+            if not counts and sum(texts.values()) >= _TEXT_PEEK:
+                break  # text alone, as far as it is worth looking
+            continue
+        counts[ext] += 1
+        seen += 1
+        if seen >= max_files:
+            break
+    if counts:
+        return counts.most_common(1)[0][0]
+    return texts.most_common(1)[0][0] if texts else "png"
 
 
 #: How often an unresolved data root is looked for again (seconds): a

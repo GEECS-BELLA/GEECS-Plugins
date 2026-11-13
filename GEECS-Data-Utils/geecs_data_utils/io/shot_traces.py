@@ -75,12 +75,13 @@ class TraceDevice:
     """What a device's traces are, from one probe: no trace is read.
 
     ``kind`` is ``"stack"`` (an array capture stack), ``"native"`` (per-shot
-    scope files) or ``""`` (no traces: a camera, a vendor format, an
-    unknown name).
+    files: scope waveforms, or x/y text columns) or ``""`` (no traces: a
+    camera, a vendor format, an unknown name).
     """
 
     kind: str = ""
-    #: ``"lineout"`` / ``"waveform"`` for a stack, ``"waveform"`` for a scope file.
+    #: ``"lineout"`` / ``"waveform"`` for a stack, ``"waveform"`` for a scope
+    #: file, ``"lineout"`` for text columns.
     content: str = ""
     #: The native files' extension (``"dat"``, ``"txt"``); ``""`` for a stack.
     ext: str = ""
@@ -151,20 +152,50 @@ def _channels(device_dir: Path, ext: str) -> Optional[tuple]:
     return None
 
 
+def _two_columns(path: Path) -> bool:
+    """Whether *path* starts as x/y columns: two lines of exactly two numbers.
+
+    The fields are tab-separated; one header line before them is allowed.
+    Anything else (prose, an empty file, a single row, one column, a
+    sidecar's four, a 2-D matrix saved as text) is not an x/y trace, and is
+    refused before the reader sees it.
+    """
+    rows = 0
+    try:
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            for number, line in enumerate(handle):
+                fields = line.strip().split("\t")
+                if fields == [""]:
+                    continue
+                try:
+                    [float(v) for v in fields]
+                except ValueError:
+                    if number == 0:
+                        continue  # a header
+                    return False
+                if len(fields) != 2:
+                    return False
+                rows += 1
+                if rows == 2:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
 def read_text_trace(path: Path) -> Optional[Data1DResult]:
     """*path* as x/y text columns (tab-separated, x first); ``None`` if it is not.
 
-    It is when it has at least two columns, two rows and a row with both
-    numbers finite; a header line, if any, names the columns.
+    It is when it opens as two columns (:func:`_two_columns`) and has a
+    row with both numbers finite; a header line, if any, names the columns.
     """
+    if not _two_columns(path):
+        return None
     try:
         result = read_1d_data(path, Data1DConfig(data_type=Data1DType.TSV))
     except (OSError, RuntimeError, TypeError, ValueError):
         return None
-    data = result.data
-    if result.x_label == "Index" or data.ndim != 2 or data.shape[0] < 2:
-        return None  # one column (its index is no x) or a single row
-    if not np.isfinite(data).all(axis=1).any():
+    if not np.isfinite(result.data).all(axis=1).any():
         return None
     return result
 
