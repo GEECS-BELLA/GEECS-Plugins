@@ -205,18 +205,8 @@ class _Save:
             raise Refused(403, f"a {tier}-tier change is not saved from the editor")
 
     def _owned(self) -> None:
-        """The 403 for a path this box does not own (by name and as it resolves), before any other answer."""
-        if self.request.create:
-            rel = self.store.new_path(self.kind, self.experiment, self.doc_id)
-        else:
-            loaded = self.store.read(self.kind, self.experiment, self.doc_id)
-            if (
-                loaded.read_only
-            ):  # package data, not in the configs repo: the 405 says so
-                return
-            rel = loaded.path
-        if not self.ownership.owns_file(self.store.root, rel):
-            raise Refused(403, self.ownership.why_not(rel))
+        """The 403 for a path this box does not own, checked again on the synced checkout."""
+        check_owned(self.store, self.ownership, self.kind, self.experiment, self.doc_id, create=self.request.create)  # fmt: skip
 
     def _new(self) -> Loaded:
         """A document that does not exist yet: an empty baseline at the kind's path; one already there is the 409."""
@@ -300,6 +290,24 @@ class _Save:
             raise Refused(403, str(exc)) from exc
         except GitError as exc:
             raise Refused(502, f"the push failed; nothing changed: {exc}") from exc
+
+
+def check_owned(store: DocumentStore, ownership: Ownership, kind: str, experiment: str | None, doc_id: str, *, create: bool) -> None:  # fmt: skip
+    """:class:`Refused` (403) when the document's path is not this box's (by name and as it resolves).
+
+    The save route asks it before the consumer's dry run, and the save again
+    under the lock. A read-only kind (package data, not in the configs repo)
+    passes: its save is the 405.
+    """
+    if create:
+        rel = store.new_path(kind, experiment, doc_id)
+    else:
+        loaded = store.read(kind, experiment, doc_id)
+        if loaded.read_only:
+            return
+        rel = loaded.path
+    if not ownership.owns_file(store.root, rel):
+        raise Refused(403, ownership.why_not(rel))
 
 
 def save(

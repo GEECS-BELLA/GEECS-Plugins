@@ -230,8 +230,10 @@ def _config_editor_preview(portal: PortalState, document: dict, params: dict) ->
     return resources.figure_png(figures[0], tight=True)
 
 
-def mount_config_editor(app: FastAPI, portal: PortalState) -> None:
-    """Mount ``scan_analysis.config_editor`` at ``/configs`` over the processing tree."""
+def mount_config_editor(
+    app: FastAPI, portal: PortalState, *, read_only: bool = False
+) -> None:
+    """Mount ``scan_analysis.config_editor`` at ``/configs`` over the processing tree (``read_only``: every save a 405)."""
     try:
         from scan_analysis.config_editor import create_editor_router
         from scan_analysis.config_store import ConfigStore
@@ -246,6 +248,7 @@ def mount_config_editor(app: FastAPI, portal: PortalState) -> None:
                     _config_editor_summary_preview, portal
                 ),
                 summary_shots_max=_SUMMARY_SHOTS_MAX,
+                read_only=read_only,
                 theme_url="/theme",
             ),
             prefix="/configs",

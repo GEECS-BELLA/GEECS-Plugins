@@ -4,8 +4,9 @@ Storage and tier come from GEECS-Schemas (``KIND_STORAGE``, each model's
 ``tier``), never restated here. What this module adds is the service's own
 column: each file kind's **consumers** (who reads it, when, and the apply
 verb that makes a committed change take effect) and its **dry run** (the
-consumer's own check, run on an unsaved draft). Applies and dry runs run in
-later slices; the table says now what they will be. Pinned to the file
+consumer's own check, run on an unsaved draft). The applier (``apply.py``)
+and the dry-run route key on these words; the later slices' rows say
+which slice wires them. Pinned to the file
 kinds by ``tests/test_store.py``.
 """
 
@@ -14,8 +15,9 @@ from __future__ import annotations
 from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage, NotAFile
 from pydantic import BaseModel
 
-#: The worker reopens its environment to see these (the queue idle and empty).
-_REOPEN = "environment reopen (when the queue is idle and empty)"
+#: The worker reopens its environment to see these (the queue idle and empty); the applier keys on these words.
+REOPEN = "environment reopen (when the queue is idle and empty)"
+ONBOARD = "geecs-archiver onboard"
 _PER_REQUEST = "per request"
 
 
@@ -33,26 +35,26 @@ def _c(name: str, reads: str, apply: str = "nothing to do") -> Consumer:
 
 #: The device registry's other readers (native_devices.yaml and panel_devices.yaml are read together).
 _CANOPY_DIRECTORY = _c("Canopy's directory adapter", "both registry files on every directory call", "not yet surveyed (Raccoon caches the directory's answers)")  # fmt: skip
-_ARCHIVER_REGISTRY = _c("archiver (its registry pass)", "when onboard runs", "geecs-archiver onboard")  # fmt: skip
+_ARCHIVER_REGISTRY = _c("archiver (its registry pass)", "when onboard runs", ONBOARD)  # fmt: skip
 _CONTROL_ROOM_VIA_CANOPY = _c("Control Room (device pages, home, screens)", "through Canopy's GEECS module, per request", "as Canopy's directory")  # fmt: skip
 
 #: Every file kind's readers (the brief's pickup survey and apply table).
 CONSUMERS: dict[str, list[Consumer]] = {
     "trigger_profile": [
-        _c("worker", "at environment open", _REOPEN),
+        _c("worker", "at environment open", REOPEN),
         _c("scanner preflight", "per submit, by name"),
     ],
     "scan_variables": [
-        _c("worker", "at environment open", _REOPEN),
+        _c("worker", "at environment open", REOPEN),
         _c("scanner", "on file change"),
     ],
     "native_devices": [
-        _c("worker", "at environment open", _REOPEN),
+        _c("worker", "at environment open", REOPEN),
         _CANOPY_DIRECTORY,
         _ARCHIVER_REGISTRY,
         _CONTROL_ROOM_VIA_CANOPY,
     ],
-    "shot_offsets": [_c("worker", "at environment open", _REOPEN)],
+    "shot_offsets": [_c("worker", "at environment open", REOPEN)],
     "preset": [_c("scanner", "per submit")],
     "optimizer_config": [_c("worker", _PER_REQUEST)],
     "experiment_defaults": [_c("worker", "per plan")],
@@ -71,7 +73,7 @@ CONSUMERS: dict[str, list[Consumer]] = {
             "gateway restart: pending, the maintainer's, never during a scan",
         )  # fmt: skip
     ],
-    "archive_policy": [_c("archiver", "when onboard runs", "geecs-archiver onboard")],
+    "archive_policy": [_c("archiver", "when onboard runs", ONBOARD)],
     "setup": [_c("worker and Canopy's GEECS module", "per apply")],
     "analysis_recipe": [_c("ScanAnalysis (the portal's runs)", "per run")],
     "himg_job": [_c("ScanAnalysis (the portal's runs)", "per run")],
@@ -80,8 +82,8 @@ CONSUMERS: dict[str, list[Consumer]] = {
 
 #: The consumer's own check of an unsaved draft, and the slice that wires it.
 DRY_RUNS: dict[str, str] = {
-    "trigger_profile": "the scanner's preflight with the draft inline (slice 3)",
-    "archive_policy": "geecs-archiver onboard --dry-run --policy <draft> (slice 3)",
+    "trigger_profile": "the scanner's preflight with the draft inline",
+    "archive_policy": "geecs-archiver onboard --dry-run --policy <draft>",
     "setup": "the scanner's settables check the targets (slice 4)",
     "analysis_recipe": "the portal's validate, bound to the analysis core (slice 6)",
     "analysis_group": "the portal's validate (slice 6)",

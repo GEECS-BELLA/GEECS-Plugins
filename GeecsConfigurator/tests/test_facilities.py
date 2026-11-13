@@ -16,7 +16,7 @@ from conftest import git, push_change
 from fastapi.testclient import TestClient
 
 from geecs_configurator.app import create_app
-from geecs_configurator.log import Answer
+from geecs_configurator.log import Answer, Row
 from geecs_configurator.ownership import Ownership, OwnershipError, parse_names
 from geecs_configurator.repository import ConfigsRepository, Identity, NotWritable
 from geecs_configurator.service import CommitPath
@@ -35,10 +35,15 @@ class Recorder:
 
     def __init__(self) -> None:
         self.asked: list[str] = []
+        self.settled: list[str] = []
 
     def apply(self, kind: str | None, path: str) -> Answer:
         self.asked.append(path)
         return Answer(state="queued", detail="faked")
+
+    def settle(self, rows: list[Row]) -> list[Answer]:
+        self.settled.extend(r.path for r in rows)
+        return [Answer(state="applied", detail="faked") for _ in rows]
 
 
 def _seed_other(clone: Path) -> str:
@@ -318,3 +323,31 @@ def test_the_inbox_publishes_only_the_owned_experiments(box: TestClient, origin:
     head = git("rev-parse", "main", cwd=origin)
     assert cp.reconcile() == [] and git("rev-parse", "main", cwd=origin) == head
     assert foreign.exists()  # left alone, never published from this box
+
+
+def test_settle_never_sees_another_facilitys_row(box: TestClient, other: Path) -> None:  # fmt: skip
+    cp, recorder = _cp(box), box.app.state.recorder
+    ours = push_change(other, f"{OURS}/low_power.yaml", SETUP.format(name="low_power", text="merged"), "Bench's merge")  # fmt: skip
+    cp.fetch()  # queued by the recorder's apply
+    # a queued row of another facility's path, as a log from before the box owned less would hold
+    cp.log.add(Row(source="merged", who="Seed", kind="setup", path=f"{THEIRS}/theirs.yaml", commit=ours, state="queued"))  # fmt: skip
+    assert cp.settle_queued() == 1
+    assert recorder.settled == [f"{OURS}/low_power.yaml"]
+
+
+def test_a_foreign_save_is_refused_before_the_dry_run(origin: Path, other: Path, tmp_path: Path) -> None:  # fmt: skip
+    _seed_other(other)
+    ran: list[list[str]] = []
+
+    def run(argv: object, timeout: float) -> tuple[int, str]:
+        ran.append(list(argv))  # type: ignore[call-overload]
+        return 0, "plan: 1 to archive"
+
+    env = {**OWNED, "GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_APPLY_SECONDS": "0", "GEECS_CONFIGURATOR_ARCHIVER_COMMAND": "geecs-archiver"}  # fmt: skip
+    with TestClient(create_app(Settings.from_env(env), archiver_run=run)) as c:
+        r = _put(c, "archive_policy", "archive_policy.yaml", OQ, {"include_setpoints": False})  # fmt: skip
+        assert (
+            r.status_code == 403 and ran == []
+        )  # no consumer is asked about another box's draft
+        assert _put(c, "archive_policy", "archive_policy.yaml", B, {"include_setpoints": False}).status_code != 403  # fmt: skip
+        assert ran  # this box's own draft reaches the dry run

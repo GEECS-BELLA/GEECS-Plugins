@@ -20,7 +20,8 @@ wires the pieces the other modules keep apart:
   answer, and the share's clone is fast-forwarded from the service's
   repository;
 - the **timer**: the inbox every ``reconcile_seconds``, a fetch every
-  ``fetch_seconds`` (how a merge on GitHub takes effect with nobody in the
+  ``fetch_seconds``, the queued applies every ``apply_seconds`` on a
+  thread of their own (:meth:`CommitPath.settle_queued`) (how a merge on GitHub takes effect with nobody in the
   editor);
 - the **credential**: the GitHub App's installation token for git and its
   pull requests when the App is configured, else git's own (a deploy key)
@@ -96,6 +97,9 @@ class CommitPath:
         #: Present while the live checkout's first commit was never checked (see :meth:`start`).
         self.unverified_marker = settings.state_dir / "UNVERIFIED"
         self._share_thread: threading.Thread | None = None
+        self._settle_thread: threading.Thread | None = None
+        #: Set while a settle pass holds the repository (a save is then answered "busy" at once, never kept waiting).
+        self.settling = threading.Event()
 
     @property
     def unverified(self) -> bool:
@@ -216,7 +220,7 @@ class CommitPath:
                 if path in known:
                     kind = known[path][0]
                     answer = self.applier.apply(kind, path)
-                    self.log.add(Row(source="merged", who=author, kind=kind, path=path, commit=sha, state=answer.state, detail=answer.detail))  # fmt: skip
+                    self.log.add(Row(source="merged", who=author, kind=kind, path=path, commit=sha, **answer.row_fields()))  # fmt: skip
         if self.settings.share_clone is not None and self.unverified:
             self.share_error = self._share_held()
         elif self.settings.share_clone is not None:
@@ -226,9 +230,9 @@ class CommitPath:
     def _settle_pending(self, new: str) -> None:
         """Re-answer the service's own rows left ``pending`` because their commit was not live yet, now that it is."""
         for row in self.log.rows(limit=10_000):
-            if row.source in ("saved", "published") and row.state == "pending" and row.detail.startswith(NOT_LIVE) and row.commit and self.repo.is_ancestor(row.commit, new):  # fmt: skip
+            if row.source in ("saved", "published") and row.state == "pending" and self.ownership.owns(row.path) and row.detail.startswith(NOT_LIVE) and row.commit and self.repo.is_ancestor(row.commit, new):  # fmt: skip
                 answer = self.applier.apply(row.kind, row.path)
-                self.log.add(row.model_copy(update={"state": answer.state, "detail": answer.detail}))  # fmt: skip
+                self.log.add(row.model_copy(update=answer.row_fields()))  # fmt: skip
 
     def wait_share(self, timeout: float = 30.0) -> None:
         """Wait for the share's last fast-forward (tests, and the start)."""
@@ -254,7 +258,7 @@ class CommitPath:
         """Log a save that committed or proposed."""
         if saved.outcome == "committed":
             answer = self._answer(kind, saved.path, saved.commit)
-            self.log.add(Row(source="saved", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, state=answer.state, detail=answer.detail))  # fmt: skip
+            self.log.add(Row(source="saved", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, **answer.row_fields()))  # fmt: skip
         elif saved.outcome == "proposed":
             self.log.add(Row(source="proposed", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, link=saved.pull_request, state="pending", detail=f"the maintainer's review (branch {saved.branch})"))  # fmt: skip
 
@@ -282,13 +286,54 @@ class CommitPath:
         for r in results:
             if r.outcome == "committed":
                 answer = self._answer(r.kind, r.path, r.commit)
-                self.log.add(Row(source="published", who=self.settings.inbox_author, kind=r.kind, path=r.path, commit=r.commit, state=answer.state, detail=answer.detail))  # fmt: skip
+                self.log.add(Row(source="published", who=self.settings.inbox_author, kind=r.kind, path=r.path, commit=r.commit, **answer.row_fields()))  # fmt: skip
         return results
 
     def inbox_experiments(self) -> list[str]:
         """The experiments whose worker writes this box publishes: the owned ones the repo has a folder for."""
         there = set(self.store.experiments())
         return [e for e in self.ownership.experiments if e in there]
+
+    def settle_queued(self) -> int:
+        """Do the queued applies (one pass, the applier's :meth:`~log.Applier.settle`); how many rows were tried.
+
+        Only rows already queued when the pass begins: their commits are in
+        the live checkout, so the reopen or onboard that follows reads them.
+        The repository's lock is held through the pass, so no fast-forward
+        rewrites a file while the worker or the archiver reads it (a save or
+        a publish waits for it; a read serves the last accepted main after
+        its bounded wait). A row whose answer changed gets a newer line.
+        """
+        # owned rows only: the log holds no other (a row left from before the box owned less is never applied here)
+        rows = [r for r in self.log.rows(limit=10_000) if r.state == "queued" and self.ownership.owns(r.path)]  # fmt: skip
+        if not rows:
+            return 0
+        self.settling.set()
+        try:
+            with self.repo.lock:
+                answers = self.applier.settle(rows)
+        finally:
+            self.settling.clear()
+        for row, answer in zip(rows, answers):
+            if (answer.state, answer.detail) != (row.state, row.detail):
+                self.log.add(row.model_copy(update=answer.row_fields()))  # fmt: skip
+        return len(rows)
+
+    def _settle_in_background(self) -> None:
+        """Start a settle pass on its own thread unless one is running (a reopen takes a minute)."""
+        if self._settle_thread is not None and self._settle_thread.is_alive():
+            return
+
+        def run() -> None:
+            try:
+                self.settle_queued()
+            except (
+                Exception
+            ):  # the thread outlives any one failure; the next pass retries
+                logger.exception("the configurator's apply pass")
+
+        self._settle_thread = threading.Thread(target=run, name="configurator-apply", daemon=True)  # fmt: skip
+        self._settle_thread.start()
 
     def fetch(self) -> None:
         """Fetch and apply what main gained (the gate decides); a failure waits for the next tick."""
@@ -299,12 +344,13 @@ class CommitPath:
 
     def run(self, stop: threading.Event) -> None:
         """The timer: the inbox every ``reconcile_seconds``, a fetch every ``fetch_seconds``, until ``stop``."""
-        every, fetch_every = (
+        every, fetch_every, apply_every = (
             self.settings.reconcile_seconds,
             self.settings.fetch_seconds,
+            self.settings.apply_seconds,
         )
-        tick = min(t for t in (every, fetch_every) if t > 0)
-        last_fetch = time.monotonic()
+        tick = min(t for t in (every, fetch_every, apply_every) if t > 0)
+        last_fetch = last_apply = time.monotonic()
         while not stop.wait(tick):
             try:
                 if every > 0:
@@ -312,6 +358,9 @@ class CommitPath:
                 if fetch_every > 0 and time.monotonic() - last_fetch >= fetch_every:
                     last_fetch = time.monotonic()
                     self.fetch()
+                if apply_every > 0 and time.monotonic() - last_apply >= apply_every:
+                    last_apply = time.monotonic()
+                    self._settle_in_background()
             except (
                 Exception
             ):  # the timer outlives any one failure; the next tick retries

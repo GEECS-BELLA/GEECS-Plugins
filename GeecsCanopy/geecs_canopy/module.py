@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from geecs_core.configs_repo import EXPERIMENTS_SUBDIR
+from geecs_core.configs_repo import EXPERIMENTS_SUBDIR, settled_exists
 from geecs_schemas import (
     ACTION_LIBRARY_FILENAME,
     ACTION_LIBRARY_FOLDER,
@@ -192,7 +192,11 @@ class Module:
         path = self.settings.folder / OPERATOR_POLICY_FILENAME
 
         def read() -> OperatorPolicy:
-            return OperatorPolicy.from_path(path) if path.exists() else OperatorPolicy()
+            return (
+                OperatorPolicy.from_path(path)
+                if settled_exists(path)
+                else OperatorPolicy()
+            )
 
         return await asyncio.wait_for(asyncio.to_thread(read), _READ_TIMEOUT_S)
 
