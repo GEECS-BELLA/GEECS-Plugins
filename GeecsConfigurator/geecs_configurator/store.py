@@ -10,12 +10,14 @@ reads a file as. Family files are package data, shown read-only as ``code``.
 Rules:
 
 - **Read only.** Nothing here writes, renames or deletes, and nothing
-  creates a directory: a missing folder is no documents. (The commit path,
-  with its own rules, is the next slice's.)
+  creates a directory: a missing folder is no documents. Saving is
+  ``save.py``'s, through the repository's staging worktrees.
 - A document's id is its path below the kind's folder (``laser_off.yaml``,
   ``Undulator/UC_TopView.yaml``); only an id the listing holds is ever read,
   so a request cannot name a path outside the tree.
-- The etag (mtime and size) is what a later save will present; validation
+- The etag is a hash of the file's bytes, what a save presents; a file
+  that does not read or parse has none (``""``), and a save over it is
+  refused. validation
   errors carry pydantic's locations, which the form places at its fields.
 - :func:`diff` is the service's statement of what a draft changes and the
   strictest tier among the changes, the rule ``form.js`` draws live in the
@@ -24,8 +26,10 @@ Rules:
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
+import math
 from collections.abc import Callable, Mapping
 from importlib import resources
 from pathlib import Path
@@ -42,7 +46,7 @@ from geecs_schemas import (
 from geecs_schemas.convert import SchemaConversionError, convert_shot_control
 from geecs_schemas.epics.family import FAMILIES_FOLDER, FAMILIES_PACKAGE
 from geecs_schemas.storage import NAMED, STORAGE_ROOT_PATHS
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 FAMILY = "family_file"
 #: How a trigger profile in the legacy dialect (no ``schema_version``) is shown: the reader converts it.
@@ -54,6 +58,10 @@ _MALFORMED = (TypeError, AttributeError, KeyError, IndexError)
 _UNKNOWN = "?"
 #: A JSON value or a JSON Schema fragment, as the API carries it.
 Json = Any
+#: How a non-finite float is served (JSON has no spelling for it, and ``null`` would be written back as ``null``).
+NONFINITE = {"Infinity": math.inf, "-Infinity": -math.inf, "NaN": math.nan}
+#: Every model the API answers with a document in it serves ``.inf``/``.nan`` as these strings.
+SERVE_CONFIG = ConfigDict(ser_json_inf_nan="strings")
 
 
 class NotFound(LookupError):
@@ -79,6 +87,8 @@ class Entry(BaseModel):
 class Loaded(BaseModel):
     """A document as it is on disk, with the etag a save will present."""
 
+    model_config = SERVE_CONFIG
+
     kind: str
     experiment: str | None
     id: str
@@ -103,6 +113,8 @@ class Report(BaseModel):
 class Change(BaseModel):
     """One difference between the stored document and a draft, at a field's path."""
 
+    model_config = SERVE_CONFIG
+
     path: list[str | int]
     op: str
     before: Json = None
@@ -112,6 +124,8 @@ class Change(BaseModel):
 
 class Diff(BaseModel):
     """What a draft changes, and the strictest tier among the changes (what saving it would do)."""
+
+    model_config = SERVE_CONFIG
 
     changes: list[Change]
     tier: str | None
@@ -132,6 +146,35 @@ def _odd_keys(value: Json) -> bool:
     if isinstance(value, dict):
         return any(not isinstance(k, str) or _odd_keys(v) for k, v in value.items())
     return isinstance(value, list) and any(_odd_keys(v) for v in value)
+
+
+def content_etag(data: bytes) -> str:
+    """The etag of a file's bytes: the same bytes, the same etag, wherever and whenever they were written."""
+    return hashlib.sha256(data).hexdigest()[:20]
+
+
+def _unparsed(path: Path) -> bool:
+    """Whether a file does not read as a YAML mapping (empty is an empty mapping)."""
+    try:
+        DocumentStore._raw(path)
+    except (yaml.YAMLError, OSError, ValueError):
+        return True
+    return False
+
+
+def restore_nonfinite(draft: Json, stored: Json) -> Json:
+    """``draft`` with each served ``"Infinity"``/``"-Infinity"``/``"NaN"`` turned back into the float it was.
+
+    Only where the stored document holds a non-finite float at the same
+    path, so a string a field means as text is never touched.
+    """
+    if isinstance(draft, str) and isinstance(stored, float) and not math.isfinite(stored):  # fmt: skip
+        return NONFINITE.get(draft, draft)
+    if isinstance(draft, dict) and isinstance(stored, dict):
+        return {k: restore_nonfinite(v, stored.get(k)) for k, v in draft.items()}
+    if isinstance(draft, list) and isinstance(stored, list):
+        return [restore_nonfinite(v, stored[i] if i < len(stored) else None) for i, v in enumerate(draft)]  # fmt: skip
+    return draft
 
 
 def _one_line(exc: BaseException) -> str:
@@ -241,13 +284,15 @@ class DocumentStore:
             file = files[doc_id]
             path = file.relative_to(self.root).as_posix()
             try:
-                text, stat = file.read_text(encoding="utf-8", errors="replace"), file.stat()  # fmt: skip
-                etag = f"{stat.st_mtime_ns}-{stat.st_size}"
+                data = file.read_bytes()
             except OSError as exc:
                 text, etag = "", ""
                 raw, errors = {}, [Error(loc=[], msg=f"unreadable: {_one_line(exc)}")]
             else:
+                text = data.decode("utf-8", errors="replace")
                 raw, errors, note = self._load(kind, file)
+                # a file that does not parse has no etag: there is nothing the editor showed to save over
+                etag = "" if _unparsed(file) else content_etag(data)
         return Loaded(
             kind=kind, experiment=experiment, id=doc_id, path=path, document=raw, etag=etag,
             yaml=text, valid=not errors, errors=errors, note=note,
@@ -318,6 +363,11 @@ class DocumentStore:
             return Report(ok=False, errors=[Error(loc=["name"], msg=msg)])
         return Report(ok=True, errors=[])
 
+    @staticmethod
+    def served(loaded: Loaded) -> Json:
+        """The document as the read route serves it (a YAML date as text), non-finite floats kept as floats."""
+        return loaded.model_dump(mode="json")["document"]
+
     def diff(self, kind: str, experiment: str | None, doc_id: str, draft: Json) -> Diff:
         """What ``draft`` changes in the stored document, with each change's tier.
 
@@ -328,8 +378,8 @@ class DocumentStore:
         """
         loaded = self.read(kind, experiment, doc_id)
         schema = SCHEMA_REGISTRY[kind].model_json_schema()
-        served = loaded.model_dump(mode="json")["document"]
-        changes = diff_documents(served, draft, schema)
+        served = self.served(loaded)
+        changes = diff_documents(served, restore_nonfinite(draft, served), schema)
         return Diff(changes=changes, tier=strictest(c.tier for c in changes), etag=loaded.etag)  # fmt: skip
 
 
@@ -359,6 +409,13 @@ def same(a: Json, b: Json) -> bool:
     """JSON equality, type-strict all the way down: ``true`` is not ``1``; key order is no difference."""
     if isinstance(a, bool) or isinstance(b, bool):
         return type(a) is type(b) and a == b
+    if (
+        isinstance(a, float)
+        and isinstance(b, float)
+        and math.isnan(a)
+        and math.isnan(b)
+    ):
+        return True
     if isinstance(a, dict) and isinstance(b, dict):
         return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
     if isinstance(a, list) and isinstance(b, list):
@@ -452,7 +509,7 @@ def _pick(union: tuple[str | None, list[tuple[Json, Json]]], value: Json, root: 
     return (found or members)[0]
 
 
-def _tier_in(s: Json, root: Json, seen: tuple[str, ...] = ()) -> str | None:
+def tier_in(s: Json, root: Json, seen: tuple[str, ...] = ()) -> str | None:
     """The strictest tier declared anywhere in a schema (every variant, item and entry)."""
     if not isinstance(s, dict):
         return None
@@ -464,7 +521,7 @@ def _tier_in(s: Json, root: Json, seen: tuple[str, ...] = ()) -> str | None:
     kids = [*d.get("anyOf", []), *d.get("oneOf", []), *([d["items"]] if isinstance(d.get("items"), dict) else []),
             *([d["additionalProperties"]] if isinstance(d.get("additionalProperties"), dict) else []),
             *d.get("properties", {}).values(), *d.get("patternProperties", {}).values()]  # fmt: skip
-    return strictest([d.get("tier"), *(_tier_in(k, root, seen) for k in kids)])
+    return strictest([d.get("tier"), *(tier_in(k, root, seen) for k in kids)])
 
 
 def _shared_variant(s: Json, b: Json, a: Json, root: Json) -> Json | None:
@@ -486,7 +543,7 @@ def diff_documents(before: Json, after: Json, schema: Json) -> list[Change]:
         s: Json, b: Json, a: Json, path: list[str | int], tier: str | None
     ) -> None:
         if any(isinstance(x, (dict, list)) for x in (b, a)):
-            tier = strictest([tier, _tier_in(s, schema)])
+            tier = strictest([tier, tier_in(s, schema)])
         op = "add" if b is missing else "remove" if a is missing else "change"
         changes.append(Change(path=path, op=op, before=None if b is missing else b, after=None if a is missing else a, tier=tier))  # fmt: skip
 
