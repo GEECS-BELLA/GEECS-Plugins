@@ -49,7 +49,11 @@ VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
 # infer its real extension, not default to "png". Note: in a folder MIXING
 # vendor and renderable files, the first-`max_files` count decides — the
 # same iterdir-order nondeterminism that always applied to `himg`.
-_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY_EXTS)
+# Text files (a spectrometer's wavelength/counts columns) count too: a
+# folder of them otherwise inferred "png" and its shots read as missing.
+_ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms", "txt", "tsv"} | set(
+    VENDOR_ONLY_EXTS
+)
 
 
 # module‐level logger

@@ -195,3 +195,57 @@ def test_a_pooled_bin_averages_shots_from_two_scans(scan_folder, tmp_path):
     found = shot_traces.average_trace_scan_rows(parts, DEVICE)
     # Shot 1 of each: counts 1 and 7, volts 1.5 and 4.5 → 3.0.
     np.testing.assert_allclose(found.result.data[:, 1], np.full(5, 3.0))
+
+
+SPECTRUM = "SPEC-PL1-Thorlabs"
+
+
+@pytest.fixture()
+def spectra(tmp_path):
+    """A scan folder of per-shot spectrometer text files (shot 2 missed).
+
+    Each is what the Thorlabs VI writes: two tab-separated columns,
+    wavelength and counts, no header, CRLF line ends.
+    """
+    folder = tmp_path / "Expt" / "Y2026" / "11-Nov" / "26_1112" / "scans" / "Scan007"
+    device = folder / SPECTRUM
+    device.mkdir(parents=True)
+    for shot in (1, 3):
+        lines = [f"{500 + i * 0.5:.3f}\t{shot * i:.3f}" for i in range(4)]
+        (device / f"Scan007_{SPECTRUM}_{shot:03d}.txt").write_bytes(
+            ("\r\n".join(lines) + "\r\n").encode()
+        )
+    return folder
+
+
+def test_a_folder_of_text_columns_is_a_trace_device(spectra):
+    # Before, the folder probe ignored .txt and fell back to "png", so the
+    # Images page asked for a picture and said "file not found".
+    probe = shot_traces.trace_device(spectra, SPECTRUM)
+    assert (probe.kind, probe.content, probe.ext, probe.channels) == (
+        "native",
+        "lineout",
+        "txt",
+        ("",),
+    )
+
+
+def test_a_text_shot_reads_wavelength_against_counts(spectra):
+    found = shot_traces.load_row_trace(spectra, None, SPECTRUM, 3)
+    assert found.kind == "native"
+    np.testing.assert_allclose(found.result.data[:, 0], [500, 500.5, 501, 501.5])
+    np.testing.assert_allclose(found.result.data[:, 1], [0, 3, 6, 9])
+
+
+def test_a_text_shot_with_no_file_is_refused(spectra):
+    assert shot_traces.load_row_trace(spectra, None, SPECTRUM, 2).kind == "missing"
+
+
+def test_a_text_file_that_is_not_columns_is_not_a_trace(tmp_path):
+    folder = tmp_path / "Expt" / "Y2026" / "11-Nov" / "26_1112" / "scans" / "Scan001"
+    (folder / "NOTES").mkdir(parents=True)
+    (folder / "NOTES" / "Scan001_NOTES_001.txt").write_text("aligned the beam\n")
+    (folder / "ONECOL").mkdir()
+    (folder / "ONECOL" / "Scan001_ONECOL_001.txt").write_text("1\n2\n3\n")
+    assert shot_traces.trace_device(folder, "NOTES").kind == ""
+    assert shot_traces.trace_device(folder, "ONECOL").kind == ""

@@ -1,14 +1,17 @@
 """A scan's trace devices: (scan folder, device, row) → x-vs-y, one row at a time.
 
 The trace twin of :mod:`geecs_data_utils.io.shot_images`' row loaders.
-A device records traces in one of two ways:
+A device records traces in one of three ways:
 
 - an **array capture stack** (the PVA gateway's file plugin: lineouts and
   waveforms, ``shot_images.stack_content``), one channel;
 - **per-shot native scope files**: an NI-HWS waveform HDF5 (what the
   LeCroy and Tektronix scope VIs save, ``ScanNNN_<device>_SSS.dat``),
   read by :func:`~geecs_data_utils.io.array1d.read_1d_data` as
-  ``tek_scope_hdf5``, one channel of the file's several (``trace_index``).
+  ``tek_scope_hdf5``, one channel of the file's several (``trace_index``);
+- **per-shot text columns**: a tab-separated ``.txt`` / ``.tsv`` file of
+  numbers, x then y (a spectrometer's wavelength and counts), header or
+  none, read as ``tsv``; one channel.
 
 Each comes back as a :class:`~geecs_data_utils.io.shot_images.ShotTrace`
 (an Nx2 :class:`~geecs_data_utils.io.array1d.Data1DResult`, or the
@@ -58,6 +61,10 @@ logger = logging.getLogger(__name__)
 #: an HDF5 file with the NI-HWS ``wfm_group0`` group is taken as one.
 NATIVE_TRACE_EXTS = frozenset({"dat"})
 
+#: Native per-shot text extensions that may hold x/y columns. Only a file
+#: of at least two tab-separated numeric columns is taken as a trace.
+TEXT_TRACE_EXTS = frozenset({"txt", "tsv"})
+
 #: How close two shots' x values must be to share an axis (relative to
 #: the axis' span): float rounding in a stored start and increment, no more.
 _SAME_AXIS_RTOL = 1e-9
@@ -75,7 +82,7 @@ class TraceDevice:
     kind: str = ""
     #: ``"lineout"`` / ``"waveform"`` for a stack, ``"waveform"`` for a scope file.
     content: str = ""
-    #: The native files' extension (``"dat"``); ``""`` for a stack.
+    #: The native files' extension (``"dat"``, ``"txt"``); ``""`` for a stack.
     ext: str = ""
     #: The channels' names, in ``trace_index`` order (one, unnamed, for a stack).
     channels: tuple[str, ...] = ()
@@ -144,6 +151,31 @@ def _channels(device_dir: Path, ext: str) -> Optional[tuple]:
     return None
 
 
+def read_text_trace(path: Path) -> Optional[Data1DResult]:
+    """*path* as x/y text columns (tab-separated, x first); ``None`` if it is not.
+
+    It is when it has at least two columns, two rows and a row with both
+    numbers finite; a header line, if any, names the columns.
+    """
+    try:
+        result = read_1d_data(path, Data1DConfig(data_type=Data1DType.TSV))
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return None
+    data = result.data
+    if result.x_label == "Index" or data.ndim != 2 or data.shape[0] < 2:
+        return None  # one column (its index is no x) or a single row
+    if not np.isfinite(data).all(axis=1).any():
+        return None
+    return result
+
+
+def _text_device(device_dir: Path, ext: str) -> bool:
+    """Whether one of the device's first files (by name) is a text trace."""
+    return any(
+        read_text_trace(f) is not None for f in _files(device_dir, ext)[:_PROBE_FILES]
+    )
+
+
 def trace_device(
     scan_folder: Path, device: str, devices: Optional[list[str]] = None
 ) -> TraceDevice:
@@ -152,8 +184,10 @@ def trace_device(
     The image ladder's probe (``shot_images.device_kind``) first: an
     array stack is a trace device; a device whose native files are an
     extension in :data:`NATIVE_TRACE_EXTS` is one when one of its first files
-    (by name) is an NI-HWS waveform (its channels named from that file). Everything
-    else is not (``kind == ""``).
+    (by name) is an NI-HWS waveform (its channels named from that file), and
+    one in :data:`TEXT_TRACE_EXTS` when one of its first files is x/y columns
+    (:func:`read_text_trace`; one unnamed channel). Everything else is not
+    (``kind == ""``).
     """
     probe = device_kind(scan_folder, device, devices=devices)
     if probe.kind == "stack":
@@ -161,6 +195,10 @@ def trace_device(
         if content == "image":
             return TraceDevice()
         return TraceDevice("stack", content, channels=("",), path=probe.path)
+    if probe.kind == "unrenderable" and probe.ext in TEXT_TRACE_EXTS:
+        if not _text_device(scan_folder / device, probe.ext):
+            return TraceDevice()
+        return TraceDevice("native", "lineout", probe.ext, ("",), probe.path)
     if probe.kind != "unrenderable" or probe.ext not in NATIVE_TRACE_EXTS:
         return TraceDevice()
     channels = _channels(scan_folder / device, probe.ext)
@@ -224,6 +262,18 @@ def load_row_trace(
     )
     if reason:
         return ShotTrace(kind="missing", path=path, reason=reason)
+    return _read_native(path, probe.ext, channel)
+
+
+def _read_native(path: Path, ext: str, channel: int) -> ShotTrace:
+    """One native trace file: text columns, or one channel of a scope file."""
+    if ext in TEXT_TRACE_EXTS:
+        result = read_text_trace(path)
+        if result is None:
+            return ShotTrace(
+                kind="missing", path=path, reason="the file holds no x/y columns"
+            )
+        return ShotTrace(kind="native", result=result, content="lineout", path=path)
     config = Data1DConfig(data_type=Data1DType.TEK_SCOPE_HDF5, trace_index=channel)
     try:
         result = read_1d_data(path, config)

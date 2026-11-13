@@ -138,7 +138,10 @@ geecs_data_utils/
                                #   row — trace_device (array stack, or
                                #   per-shot NI-HWS scope files: the LeCroy
                                #   .dat, read as tek_scope_hdf5, channels
-                               #   named from the file), load_row_trace (a
+                               #   named from the file; or per-shot .txt /
+                               #   .tsv x/y columns — a spectrometer's
+                               #   wavelength and counts, read as tsv,
+                               #   one channel), load_row_trace (a
                                #   missed row is refused, never a
                                #   neighbour's), average_traces (sample by
                                #   sample on ONE shared x axis, else None —
