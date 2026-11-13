@@ -67,8 +67,9 @@ package derives from its tokens. Images are each surface's own for now: the
 Control Room's canvas frame viewer is right for 16-bit frames and stays, and
 the Data Portal is bound by nothing about images while it evolves.
 Adoption: the Control Room's trace page draws through it (2026-11-05); the
-camera page's lineouts and histogram are still its own canvas drawing, the
-device-pages arc's next item; the portal's figures are below.
+camera page's lineouts and histogram are still its own canvas drawing (owed:
+onto `plot.js`, `decimate` moving here from `trace_rules.js` if the camera
+needs it); the portal's figures are below.
 
 - **One vendored bundle**, `static/plotly-cartesian-<version>.min.js`
   (MIT, the version in the file name): the official `cartesian` dist bundle

@@ -248,8 +248,9 @@ and a template in `device_pages.KINDS`, the one table; the registry join
 (`native_devices.yaml` + `panel_devices.yaml` by device name, a device's
 family from its panel entry, else its native entry) is `catalogue`, the
 pickers' and the directory's one reader. Adding a device is a registry
-row; a new family of an existing kind is its family file; only a new data
-shape is a template and a row in `KINDS`.
+row; a new family of an existing family kind is its family file; a new
+family kind is a row in `KINDS` (a template only for a new data shape:
+`motor` and `supply` are two rows on `device.html`).
 
 - **The picker** (`/device/<kind>`) lists the kind's registry devices (the
   roster's DB devices for `settables`) in a kit select, each with the
@@ -268,12 +269,15 @@ shape is a template and a row in `KINDS`.
   `panel`, else `auto_panel` (§ "The settables page"), drawn with
   `_panel.html`'s macros and filled by `device_rail.js`. A kind's own
   roles stay off the rail whatever the family says (`OWN_ROLES`: the
-  camera ROI, behind its dialog). The role tables (operator roles open,
-  `expert` folded) sit under the panel on every page.
+  camera ROI, behind its dialog). The role tables sit folded under the
+  panel on every page (operator roles first, `expert` in a nested
+  disclosure).
 - **The image and the arrays** are this server's CA reads, read only
   (§ "Rules that hold here", "A client of Canopy, never a part of it");
-  arrays are polled, never streamed (SSE was the prototype's), each read
-  shared and held on its producing plugin's counter.
+  they are polled, never streamed (SSE was the prototype's), each read
+  shared: the JPEG, the raw frame and a trace held on the producing
+  plugin's counter (§ "The JPEG", "The raw frame", "The trace"), the
+  camera's plot arrays at most every 0.5 s.
 - **A page never computes a verdict.** Units are the family's (a camera's
   exposure in s). A run-locked role is drawn enabled: the module refuses
   it (423) and its outcome says why. Not on any page, each the module's
@@ -283,8 +287,8 @@ shape is a template and a row in `KINDS`.
   refusal at a setpoint's `HIHI`/`LOLO` (the module's bounds are the drive
   limits; the IOC's `IVOA` refuses until then). An IOC restart
   (`<IOC>:SysReset`) is not offered; if it is, it is a production-only
-  control behind a confirm, never for a bench instance (geecs-epics
-  `docs/architecture.md`, "Operating an IOC").
+  control behind a confirm, never for a bench instance (geecs-epics'
+  architecture page, "Operating an IOC").
 
 **The camera page shows what the areaDetector chain serves.** The LabVIEW
 camera GUI's features map almost one to one onto the chain: the ROI (the
