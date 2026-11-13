@@ -174,6 +174,22 @@ layout; delete-when-executed is the whole discipline):
   view to `docs/web_services/control_room.md` § "Raw view". The brief's
   § Status (the red team's dispositions) is in #1271's body; the hardware
   proof is owed after the deploy.
+- **2026-11-13**, device-pages arc (GeecsControlRoom's device pages,
+  slices 1–7 on `master`: the picker and the camera, trace and settables
+  pages, the home's device directory, GeecsPanels deleted, the vocabulary
+  merge) — `device_pages.md` deleted in slice 7, and
+  `operator_surfaces.md` §6 folded into `GeecsControlRoom/CLAUDE.md`
+  § "The device pages" (its number kept as a one-line stub: the file's
+  sections are cited by number). Most rules had moved in their own PRs
+  (§ "The settables page", "The setpoint control", "The trace", the raw
+  frame and the JPEG; the panel fields in GEECS-Schemas' `epics/family.py`
+  docstrings; the Plotly rule in `GeecsWebTheme/CLAUDE.md`); this PR
+  moved the rest: the kind table, the picker, the resolution panes,
+  `OWN_ROLES`, what a page never computes and the restart rule to
+  § "The device pages", and the screen-schema deploy order to
+  `GeecsControlRoom/README.md` § Deploy. The brief's § Status is in this
+  PR's body. Kept: `operator_surfaces.md` (§11 open) and `configurator.md`
+  (arc live).
 - **2026-11-13**, shot-synchronization arc (#1278, on `feat/shot-sync`) —
   `shot_synchronization.md` deleted ahead of the promotion PR (#1296). The
   model was already where it is enforced: the strict slot, fly mode and
