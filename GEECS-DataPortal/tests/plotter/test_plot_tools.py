@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from geecs_portal.plotter import figures
@@ -80,8 +81,24 @@ def test_the_binned_view_draws_each_bins_median_and_error_bars(
     trace = body["figure"]["data"][0]
     assert trace["y"] == [11.0, 30.0]
     assert trace["mode"] == "markers+lines" and "error_y" in trace
-    assert body["fits"] == []  # fits are made to shots, never to bin centres
+    assert body["fits"] == []  # no fit picked
     assert body["view"] == "bin"
+
+
+def test_a_binned_fit_is_made_to_the_bin_means_drawn(client: TestClient) -> None:
+    """Bins (1, 11) and (2, 30): the line through them is 19 x - 8."""
+    body = _figure(client, view="bin", x=SCAN_VARIABLE, yfit="polynomial", yorder=1)
+    (fit,) = body["fits"]
+    assert fit["points"] == 2
+    values = {t["name"]: t["value"] for t in fit["terms"]}
+    assert values["c0"] == pytest.approx(-8.0)
+    assert values["c1"] == pytest.approx(19.0)
+    assert "bin means" in fit["notes"][0]
+    dashed = [
+        t for t in body["figure"]["data"] if t.get("line", {}).get("dash") == "dash"
+    ]
+    assert len(dashed) == 1
+    assert "figures.fit_bins(" in body["code"] and "fits=fits" in body["code"]
 
 
 def test_bins_are_placed_at_the_x_columns_mean(client: TestClient) -> None:

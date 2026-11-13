@@ -409,6 +409,20 @@ class TestRows:
         found = average_rows(scan_folder, None, "U_HasoWFS", (1, 2))
         assert found.kind == "vendor"
 
+    def test_rows_of_two_scans_average_with_equal_weight(self, scan_folder, tmp_path):
+        from geecs_data_utils.io.shot_images import ScanRows, average_scan_rows
+
+        other = tmp_path / "Expt" / "Y2026" / "07-Jul" / "26_0713" / "scans" / "Scan001"
+        (other / "UC_TestCam").mkdir(parents=True)
+        Image.fromarray(np.full((8, 10), 300, dtype=np.uint16)).save(
+            other / "UC_TestCam" / "Scan001_UC_TestCam_001.png"
+        )
+        parts = [ScanRows(scan_folder, None, (1, 2)), ScanRows(other, None, (1,))]
+        averaged = average_scan_rows(parts, "UC_TestCam")
+        # Two shots at 0 off the block and one at 300: 100 there.
+        assert averaged.array[0, 0] == pytest.approx(100.0)
+        assert averaged.array[3, 4] == pytest.approx((40_000 * 2 + 300) / 3)
+
 
 class TestDisplayPng:
     def test_flat_image_renders_black_not_crash(self):

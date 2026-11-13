@@ -552,7 +552,8 @@ design rules"). The rules that are the portal's own:
   live count from `/plot/api/filter-count`) narrow the shots before
   anything is drawn, the **binned view** (`xy_view`, `bin_config`: the
   scan page's `/binned` on this page's three-slot axes,
-  `plotter.figures.binned_figure`; no fit is made to bin centres), the
+  `plotter.figures.binned_figure`; a fit there is made to the bin means
+  drawn, below), the
   **display settings** (`display`: server-side through the portal's own
   helpers, the raw `layout` patch merged in the browser only) and the
   toolbar's **copy** and **send to the scan's log entry**, which posts to
@@ -651,16 +652,20 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   default). `plotter.figures.FITS` is the menu (LabVIEW's names, only the
   models data-utils has), `fit_columns` fits the drawn per-shot points,
   and `shots_figure(…, fits=)` draws each fit dashed on its slot's axis.
+  Binned (the author, 2026-11-12), `fit_bins` fits the bin means drawn,
+  unweighted, at their X (`binned_figure(…, fits=)`; in the overlay, each
+  scan's own bins), and the fit's table says so.
   `/plot/api/figure` returns the numbers as `fits` (each term
   `value ± stderr`, `api.plus_minus`), and the snippet rebuilds them. A
   fit name is stored as a plain string, so a set naming a fit a newer copy
   added still loads ("not in this version"). A new model is a data-utils
   PR first (its curve and `CurveFit.formula` live there), then a `FITS`
   entry.
-- **Several scans** (the XY plot only; the author's design, 2026-10-29):
+- **Several scans** (the XY plot and the Images page; the author's design, 2026-10-29):
   the set's `extra_scans` (`[{day, scan}]`, from any day) beside the
-  main `day`/`scan`, which the steppers, the day picker, the 2-D map and
-  the Images page act on alone; the link stays `?day=&scan=&set=`. The
+  main `day`/`scan`, which the steppers, the day picker and the 2-D map
+  act on alone (the Images page pools them, below); the link stays
+  `?day=&scan=&set=`. The
   rail's Scans group is a chip per scan and **Add scan…**, the kit's
   `GeecsKit.picker` over `/plot/api/day` (the plotter's folder catalog).
   `/plot/api/figure?scans=YYYY-MM-DD:N,…` reads every scan into one frame
@@ -671,9 +676,15 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   default) draws one Y list (`overlay_y`), a trace, a fit and bins per
   scan, coloured `--trace-1..8` by its place in the list, at most
   `MAX_OVERLAY_SCANS` (8); **merged** (LabVIEW's "merge s files") plots
-  the pooled frame as one scan, Y1–Y3, one fit per Y, and bins by the X
-  value where the bin column is `Bin #` (it restarts in every scan:
-  `plotter.multi.merged_bins`; X = shot # is refused). The pick lists
+  the pooled frame as one scan, Y1–Y3, one fit per Y, and where the bin
+  column is `Bin #` (it restarts in every scan) bins by the merged scans'
+  one bin number (the author, 2026-11-08: `plotter.multi.merged_bins` →
+  `geecs_data_utils.data.scan_merge.with_merged_bins`: each scan's own
+  bins kept together and placed at their median X, the same setting from
+  two scans pooled within `merge_tolerance` — the rail's "Pool bins
+  within" box, `mtol`, empty for half the smallest step of any one scan —
+  into the in-memory column `Bin # (merged)`; `Bin #` itself is left as
+  each scan wrote it; with X = shot # the bins follow scan and bin order). The pick lists
   are the union of the scans' columns, a column some lack marked "in 2
   of 3 scans". `plotter/multi.py` holds the frame and the groups the
   route and the snippet share; the `code` rebuilds either view.
@@ -758,8 +769,8 @@ they left open is here, for Sam at the promotion PR to `master`.
 - **Still to build** (the author's lists): clicking a plot point to open
   its shot, several cameras in one layout, GIF export; deferred: gauss
   prop, peak/valley, xcorr-aligned bin averages, a trace waterfall;
-  several scans on the 2-D map and the Images page (the XY plot has
-  them: "Several scans", above); and the strip honouring the shot filters.
+  several scans on the 2-D map (the XY plot and the Images page have
+  them).
 
 ## Adding an analysis tab (the checklist)
 
@@ -940,6 +951,30 @@ the place (`cmap@2`, `roi@3`, `settings.camera_field`), parsed in
 is one `.strip[data-cam]` (`id="strip"`, then `strip@2`, ...); a row on
 one scale keeps its bar in an end column every stacked row reserves, so
 the columns line up.
+
+**Several scans** (the author, 2026-11-08): with the set's extra scans
+the strip is every scan's shots, always pooled (the Plot page's overlay /
+merged switch is the XY plot's): `images.ScanSet` (`multi.scan_set` /
+`multi.scan_part`) holds each scan's folder and s-file and their merged
+frame with the merged bin number above, placed by the strip's X and
+pooled within `merge_tolerance`. The strip's X is the Plot page's (the
+author, 2026-11-08: the scan variable while autofill is on, else the
+column picked; shot number gives no caption value): the captions' values
+and, pooled, where each scan's bins are placed — `bx=` on every URL. A row of the merged frame is
+a shot of one scan (`ScanSet.locate` / `split`), and every loader takes
+either one scan's folder or a ScanSet (`images.Source`), reading each shot
+from its own scan's folder by its own s-file (Data-Utils'
+`shot_images.average_scan_rows`, `shot_traces.average_trace_scan_rows`:
+every shot equal weight, a scan without the device left out). Captions
+name the scan (`11-03 S005 shot 12`; a bin `17.5 · 2 scans · 10 shots`);
+every tile and levels URL carries `scans=` and `mtol=`, so each route
+rebuilds the same rows (`routes.images.opened_scans`). The devices,
+conditions and background are the open scan's; a shot filter can name
+`scan`; the scalars are over every scan's kept shots. A shot tile carries
+its own scan's uid, day and row, so the big view's processing preview
+opens that scan; a 2-D map link's `?bin=` names the open scan's bins and
+is ignored while scans are pooled. The rail's Scans group is the Plot
+page's (`scans_group` macro), with the tolerance box and no overlay limit.
 
 **Trace rows** (the author, 2026-11-03): a device that records traces
 (`images.trace_device` → `geecs_data_utils.io.shot_traces.trace_device`:

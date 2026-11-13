@@ -208,8 +208,8 @@ class PlotterSettings(BaseModel):
     #: steppers, the day picker and the Images page act on), from any days.
     #: The XY plot draws them all: each its own trace (``overlay``, one Y,
     #: at most ``MAX_OVERLAY_SCANS`` with the main one) or pooled into one
-    #: frame (``merged``, LabVIEW's "merge s files"). The 2-D map and the
-    #: Images page stay on the main scan.
+    #: frame (``merged``, LabVIEW's "merge s files"). The Images page pools
+    #: them onto one strip; the 2-D map stays on the main scan.
     extra_scans: list[ScanRef] = Field(default_factory=list)
     scan_view: str = "overlay"
     #: Which Y list the overlay draws (1-3); the others keep their picks.
@@ -278,6 +278,10 @@ class PlotterSettings(BaseModel):
     )
     image_scalar_stat: str = "mean_std"
     image_scalar_filter: str = ""
+    #: Several scans merged: two scans' bins whose median X is at most this
+    #: far apart are one bin (the Plot page's merged binned view and the
+    #: Images page); ``None`` is half the smallest step of any one scan.
+    merge_tolerance: Optional[float] = Field(default=None, ge=0)
     #: The XY plot per shot or binned (each bin's centre and error bars).
     xy_view: str = "shot"
     #: The plot's shot filters, the bin settings and the plot cosmetics,
@@ -545,6 +549,7 @@ FORM_FIELDS = {
     "channel": "image_channel",
     "scalstat": "image_scalar_stat",
     "tilemax": "image_tile_max",
+    "mtol": "merge_tolerance",
     "scalf": "image_scalar_filter",
     "view": "xy_view",
     "filters": "shot_filters",
@@ -810,7 +815,18 @@ _PARSERS: dict[str, Callable[[str], object]] = {
     "image_centre": _centre_value,
     "image_bg": _bg_value,
     "image_tile_max": lambda text: _tile_max_value(text),
+    "merge_tolerance": lambda text: _tolerance_value(text),
 }
+
+
+def _tolerance_value(text: str) -> Optional[float]:
+    """The merge tolerance box: a number, 0 or more; empty is the default (half a step)."""
+    if not text.strip():
+        return None
+    number = float(text)
+    if not (math.isfinite(number) and number >= 0):
+        raise ValueError("must be a number, 0 or more (empty: half the smallest step)")
+    return number
 
 
 def _text_value(key: str, value: str) -> object:

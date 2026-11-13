@@ -39,6 +39,7 @@ from geecs_data_utils.io.array1d import (
     read_1d_data,
 )
 from geecs_data_utils.io.shot_images import (
+    ScanRows,
     ShotTrace,
     device_kind,
     load_shot_trace,
@@ -290,16 +291,55 @@ def average_trace_rows(
         The trace (``kind`` the rows'), or the refusal: the last row's
         reason when no row had a trace.
     """
-    if probe is None:
-        probe = trace_device(scan_folder, device)
+    return average_trace_scan_rows(
+        [ScanRows(scan_folder, frame, tuple(rows))],
+        device,
+        channel,
+        probes=None if probe is None else [probe],
+    )
+
+
+def average_trace_scan_rows(
+    parts: Sequence[ScanRows],
+    device: str,
+    channel: int = 0,
+    probes: Optional[Sequence[TraceDevice]] = None,
+) -> ShotTrace:
+    """*device*'s trace over rows of one or several scans: one trace, or their mean.
+
+    :func:`average_trace_rows` across scans (a pooled bin's rows, per
+    scan): each shot is read from its own scan's folder, and the mean is
+    still sample by sample on one shared x axis, or refused.
+
+    Parameters
+    ----------
+    parts : sequence of ScanRows
+        Each scan's folder, table and rows.
+    device : str
+        The device folder (in every scan).
+    channel : int
+        The scope channel.
+    probes : sequence of TraceDevice, optional
+        :func:`trace_device` per part, already made.
+
+    Returns
+    -------
+    ShotTrace
+    """
     found: list[ShotTrace] = []
     last = ShotTrace(kind="missing", reason="no shots")
-    for row in rows:
-        one = load_row_trace(scan_folder, frame, device, row, channel, probe)
-        if one.result is None:
-            last = one
-            continue
-        found.append(one)
+    for i, part in enumerate(parts):
+        probe = (
+            probes[i] if probes is not None else trace_device(part.scan_folder, device)
+        )
+        for row in part.rows:
+            one = load_row_trace(
+                part.scan_folder, part.frame, device, row, channel, probe
+            )
+            if one.result is None:
+                last = one
+                continue
+            found.append(one)
     if not found:
         return ShotTrace(kind="missing", path=last.path, reason=last.reason)
     mean = average_traces([t.result for t in found if t.result is not None])

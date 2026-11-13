@@ -38,7 +38,8 @@
 
   // ---- where to start: the map's bin, else this tab's last pick ----
   function start() {
-    const wanted = new URLSearchParams(location.search).get("bin");
+    // A map cell names the open scan's bin; pooled scans number their own.
+    const wanted = d.multi === "true" ? null : new URLSearchParams(location.search).get("bin");
     if (wanted !== null) {
       const i = tiles.findIndex((t) => t.dataset.bin === wanted);
       if (i >= 0) return i;
@@ -77,14 +78,17 @@
   }
 
   // ---- drawing one ----
-  function shotUrl(row) {
+  function shotUrl(tile) {
     // The colour map as it is now (the rail changes it without a reload).
     const field = strip && strip.dataset.cam !== "1" ? `cmap@${strip.dataset.cam}` : "cmap";
     const cmap = (document.querySelector(`[name="${field}"]`) || {}).value || d.cmap;
-    const query = new URLSearchParams({ device: device(), shot: String(row), day: d.day });
+    // A shot of another scan (pooled scans) opens that scan, at its own row.
+    const uid = tile.dataset.uid || d.uid;
+    const row = tile.dataset.row || tile.dataset.index;
+    const query = new URLSearchParams({ device: device(), shot: String(row), day: tile.dataset.day || d.day });
     query.set("display", JSON.stringify({ cmap }));
     query.set("processing", processing.value);
-    return `${d.portalRoot}/run/${encodeURIComponent(d.uid)}/image.png?${query}`;
+    return `${d.portalRoot}/run/${encodeURIComponent(uid)}/image.png?${query}`;
   }
   async function why(url) {
     // A missed shot or a bad file answers with its reason; say it.
@@ -104,7 +108,7 @@
     // The tile's picture, drawn with a colour bar beside it.
     // (without the tile's slim bar: the big view draws its own, with axes)
     const own = (thumb.getAttribute("src") || "").replace(/&cbar=true/, "");
-    const src = processed ? shotUrl(tile.dataset.index) : own && `${own}&bar=true`;
+    const src = processed ? shotUrl(tile) : own && `${own}&bar=true`;
     if (!src) {
       // A shared z scale: the strip's levels are still being read; the
       // tile's picture arriving redraws this (the observer below).

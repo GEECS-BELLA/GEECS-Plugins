@@ -217,7 +217,8 @@
     const dayBox = document.getElementById("scans-day");
     const hint = document.getElementById("scans-hint");
     const main = `${form.elements.day.value}:${Number(form.elements.scan.value)}`;
-    const overlay = form.elements.multi.value === "overlay";
+    // The overlay's limit is the Plot page's; the Images page pools any number.
+    const overlay = form.elements.multi.value === "overlay" && form.elements.page?.value !== "images";
     const MAX_OVERLAY = Number(scansOpen.dataset.maxOverlay) || 8;  // settings.MAX_OVERLAY_SCANS
     let listed = { day: "", scans: [], error: "" };
     const key = (n) => `${listed.day}:${n}`;

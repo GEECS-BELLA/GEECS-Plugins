@@ -14,7 +14,13 @@ from geecs_data_utils.data.row_filters import (
     RowFilters,
     apply_filters,
 )
-from geecs_data_utils.data.scan_merge import merge_scan_frames
+from geecs_data_utils.data.scan_merge import (
+    MERGED_BIN_COLUMN,
+    default_bin_tolerance,
+    merge_scan_frames,
+    merged_bin_numbers,
+    with_merged_bins,
+)
 
 D1 = date(2026, 10, 26)
 D2 = date(2026, 10, 27)
@@ -135,3 +141,84 @@ def test_multi_level_columns_are_refused():
     frame = pd.DataFrame([[1.0]], columns=pd.MultiIndex.from_tuples([("dev", "x")]))
     with pytest.raises(ValueError, match="multi-level"):
         merge_scan_frames({(D1, 1): frame})
+
+
+# --- one bin number across merged scans -------------------------------------
+
+
+def _binned_scan(xs, bins):
+    import pandas as pd
+
+    return pd.DataFrame({"Bin #": bins, "pos": xs, "Shotnumber": range(1, len(xs) + 1)})
+
+
+def _two_scans():
+    from datetime import date
+
+    # Scan 1 steps 1, 2, 3 (a readback that wobbles); scan 2 steps 2, 4.
+    a = _binned_scan([1.0, 1.01, 2.0, 1.98, 3.0, 3.02], [1, 1, 2, 2, 3, 3])
+    b = _binned_scan([2.03, 1.99, 4.0, 4.01], [1, 1, 2, 2])
+    return merge_scan_frames({(date(2026, 11, 3), 5): a, (date(2026, 11, 4), 2): b})
+
+
+def test_the_same_setting_in_two_scans_is_one_bin():
+    found = merged_bin_numbers(_two_scans(), "pos")
+    # Bins at 1, 2 (scan 1's bin 2 and scan 2's bin 1, pooled), 3, 4.
+    assert found.numbers.tolist() == [1, 1, 2, 2, 3, 3, 2, 2, 4, 4]
+    assert found.tolerance == pytest.approx(0.985 / 2)
+
+
+def test_the_default_tolerance_is_half_the_smallest_step():
+    assert default_bin_tolerance(_two_scans(), "pos") == pytest.approx(0.985 / 2)
+
+
+def test_a_tolerance_of_zero_keeps_the_scans_apart():
+    found = merged_bin_numbers(_two_scans(), "pos", tolerance=0.0)
+    # 2.0 (scan 1) and 2.01 (scan 2) now differ: five bins, still by X.
+    assert found.numbers.tolist() == [1, 1, 2, 2, 4, 4, 3, 3, 5, 5]
+
+
+def test_each_bin_with_no_x_value_is_a_bin_of_its_own():
+    """A scan without the X column keeps its bins apart, after the placed ones.
+
+    One shared NaN would make binning average all of them as one setting.
+    """
+    import numpy as np
+
+    from geecs_data_utils.data.binning import BinningConfig, bin_rows
+
+    frame = _two_scans()
+    frame.loc[frame["scan"] == 2, "pos"] = np.nan
+    pooled, _ = with_merged_bins(frame, "pos")
+    assert pooled[MERGED_BIN_COLUMN].tolist() == [1, 1, 2, 2, 3, 3, 4, 4, 5, 5]
+    groups = bin_rows(pooled, BinningConfig(bin_col=MERGED_BIN_COLUMN))
+    assert [len(rows) for _, rows in groups] == [2, 2, 2, 2, 2]
+
+
+def test_without_an_x_the_bins_follow_scan_and_bin_order():
+    found = merged_bin_numbers(_two_scans(), None)
+    assert found.numbers.tolist() == [1, 1, 2, 2, 3, 3, 4, 4, 5, 5]
+
+
+def test_a_scan_without_bin_numbers_is_one_group():
+    from datetime import date
+
+    import pandas as pd
+
+    a = _binned_scan([1.0, 2.0], [1, 2])
+    b = pd.DataFrame({"pos": [5.0, 5.1], "Shotnumber": [1, 2]})
+    merged = merge_scan_frames({(date(2026, 1, 1), 1): a, (date(2026, 1, 1), 2): b})
+    assert merged_bin_numbers(merged, "pos").numbers.tolist() == [1, 2, 3, 3]
+
+
+def test_a_negative_tolerance_is_refused():
+    with pytest.raises(ValueError, match="0 or more"):
+        merged_bin_numbers(_two_scans(), "pos", tolerance=-1)
+
+
+def test_with_merged_bins_adds_a_column_and_keeps_bin():
+    frame = _two_scans()
+    out, tolerance = with_merged_bins(frame, "pos")
+    assert MERGED_BIN_COLUMN in out and MERGED_BIN_COLUMN not in frame
+    assert out["Bin #"].tolist() == frame["Bin #"].tolist()
+    assert tolerance == pytest.approx(0.985 / 2)

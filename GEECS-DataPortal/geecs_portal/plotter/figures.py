@@ -4,7 +4,8 @@ The Plot page's figures: up to three Y columns against one X on
 GEECSplotter's axis ladder (``_y_axes``), per shot or binned. The palette,
 the page serializer, the display cosmetics and the binned trace are the
 portal's (``geecs_portal.figures``), imported, so the two cannot drift;
-the layout (no legend, the ladder) is this page's own. The fits (:func:`fit_columns`, the ``fits`` of :func:`shots_figure`) are
+the layout (no legend, the ladder) is this page's own. The fits (:func:`fit_columns` on the shots, :func:`fit_bins` on the bin
+means; the ``fits`` of :func:`shots_figure` and :func:`binned_figure`) are
 the plotter's own: GEECSplotter's Fit menu, the numbers from
 ``geecs_data_utils.data.curve_fit``.
 
@@ -196,6 +197,92 @@ def fit_columns(
     return fits
 
 
+def _numbers(values: Sequence) -> list[float]:
+    """*values* as floats, NaN for anything that is not a number (a text bin label)."""
+    out = []
+    for value in values:
+        try:
+            out.append(float(value))
+        except (TypeError, ValueError):
+            out.append(float("nan"))
+    return out
+
+
+def fit_bins(
+    bins: Sequence,
+    series: Mapping[str, Mapping[str, Sequence]],
+    y: Sequence[Optional[str]],
+    models: Sequence[Optional[str]],
+    *,
+    x_values: Optional[Sequence] = None,
+    orders: Sequence[int] = (),
+) -> list[Optional[CurveFit]]:
+    """Fit each Y slot's bin means against the bins' X: the binned view's Fit.
+
+    The points fitted are the points :func:`binned_figure` draws: each
+    bin's centre at its X position (``x_values``), or at its label when
+    none is given. Unweighted, like :func:`fit_columns`; the error bars do
+    not enter the fit.
+
+    Parameters
+    ----------
+    bins, series, x_values
+        As :func:`binned_figure`.
+    y : Sequence[str or None]
+        The Y slots (``None`` is a list that is off).
+    models, orders
+        As :func:`fit_columns`.
+
+    Returns
+    -------
+    list of CurveFit or None
+        One per slot, ``None`` where no fit was asked for, the list is off
+        or ``bin_frame`` dropped the column.
+    """
+    ys = list(y)
+    positions = _numbers(x_values if x_values is not None else bins)
+    picked = list(models) + [None] * (len(ys) - len(models))
+    degrees = list(orders) + [2] * (len(ys) - len(orders))
+    fits: list[Optional[CurveFit]] = []
+    for name, model, order in zip(ys, picked, degrees):
+        column = series.get(name) if name else None
+        if column is None or model in (None, "none"):
+            fits.append(None)
+            continue
+        fits.append(
+            fit_curve(positions, _numbers(column["center"]), model, order=order)
+        )
+    return fits
+
+
+def _add_fit_curves(
+    fig: go.Figure,
+    drawn: Sequence[tuple[int, str, str]],
+    fits: Sequence[Optional[CurveFit]],
+    display: Optional[Mapping],
+    palette: Palette,
+) -> None:
+    """Each fit made, dashed in its slot's colour on its slot's axis."""
+    for i, _, title in drawn:
+        fit = fits[i] if i < len(fits) else None
+        if fit is None or not fit.ok:
+            continue
+        curve_x, curve_y = fit.curve(FIT_POINTS)
+        fig.add_scatter(
+            x=curve_x.tolist(),
+            y=curve_y.tolist(),
+            mode="lines",
+            name=f"{title}: {FITS.get(fit.model, fit.model)} fit",
+            line={
+                "color": trace_color(display, i, palette),
+                "dash": "dash",
+                "width": 2,
+            },
+            hoverinfo="skip",
+            yaxis="y" if i == 0 else f"y{i + 1}",
+        )
+
+
 def shots_figure(
     series: Mapping[str, Sequence],
     y: Union[str, Sequence[str]],
@@ -269,24 +356,7 @@ def shots_figure(
             },
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
-    for i, _, title in drawn:
-        fit = fits[i] if i < len(fits) else None
-        if fit is None or not fit.ok:
-            continue
-        curve_x, curve_y = fit.curve(FIT_POINTS)
-        fig.add_scatter(
-            x=curve_x.tolist(),
-            y=curve_y.tolist(),
-            mode="lines",
-            name=f"{title}: {FITS.get(fit.model, fit.model)} fit",
-            line={
-                "color": trace_color(display, i, palette),
-                "dash": "dash",
-                "width": 2,
-            },
-            hoverinfo="skip",
-            yaxis="y" if i == 0 else f"y{i + 1}",
-        )
+    _add_fit_curves(fig, drawn, fits, display, palette)
     layout = base_layout(palette)
     layout["xaxis"]["title"] = {"text": (x_label or x) if x else "shot #"}
     del layout["yaxis"]
@@ -305,6 +375,7 @@ def binned_figure(
     x_values: Optional[Sequence] = None,
     x_label: Optional[str] = None,
     y_labels: Sequence[Optional[str]] = (),
+    fits: Sequence[Optional[CurveFit]] = (),
     display: Optional[Mapping] = None,
     palette: Palette = NOTEBOOK_PALETTE,
 ) -> go.Figure:
@@ -329,6 +400,8 @@ def binned_figure(
         Per-bin X positions, aligned one-to-one with ``bins``.
     x_label : str, optional
         The X title for ``x_values``.
+    fits : Sequence[CurveFit or None], optional
+        One per Y slot (:func:`fit_bins`): each fit made is drawn dashed.
     y_labels, display, palette
         As :func:`shots_figure`.
 
@@ -354,6 +427,7 @@ def binned_figure(
             display=display,
             yaxis="y" if i == 0 else f"y{i + 1}",
         )
+    _add_fit_curves(fig, drawn, fits, display, palette)
     layout = base_layout(palette)
     layout["xaxis"]["title"] = {
         "text": (x_label or bin_col) if x_values is not None else bin_col
@@ -450,6 +524,7 @@ def overlay_binned_figure(
     bin_col: str = "Bin #",
     x_label: Optional[str] = None,
     y_label: Optional[str] = None,
+    fits: Sequence[Optional[CurveFit]] = (),
     display: Optional[Mapping] = None,
     palette: Palette = NOTEBOOK_PALETTE,
 ) -> go.Figure:
@@ -466,6 +541,9 @@ def overlay_binned_figure(
         The X title when the bins are placed by their labels.
     x_label : str, optional
         The X title when they are placed by an X column.
+    fits : Sequence[CurveFit or None], optional
+        One per scan (:func:`fit_bins` on its bins), drawn dashed in its
+        scan's colour.
     y_label, display, palette
         As :func:`overlay_figure`.
 
@@ -478,15 +556,29 @@ def overlay_binned_figure(
     placed = False
     for i, (label, bins, series, x_values) in enumerate(groups):
         placed = placed or x_values is not None
+        colour = trace_color(None, i, palette)
         add_binned_trace(
             fig,
             list(x_values) if x_values is not None else list(bins),
             series.get(y),
             name=label,
-            colour=trace_color(None, i, palette),
+            colour=colour,
             display=display,
             yaxis="y",
         )
+        fit = fits[i] if i < len(fits) else None
+        if fit is not None and fit.ok:
+            curve_x, curve_y = fit.curve(FIT_POINTS)
+            fig.add_scatter(
+                x=curve_x.tolist(),
+                y=curve_y.tolist(),
+                mode="lines",
+                name=f"{label}: {FITS.get(fit.model, fit.model)} fit",
+                legendgroup=label,
+                showlegend=False,
+                line={"color": colour, "dash": "dash", "width": 2},
+                hoverinfo="skip",
+            )
     x_title = (x_label or bin_col) if placed else bin_col
     fig.update_layout(_overlay_layout(palette, display, x_title, y_label or y))
     return fig

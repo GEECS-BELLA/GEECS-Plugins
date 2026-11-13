@@ -10,18 +10,22 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional, Sequence
 from urllib.parse import urlencode
+
+import pandas as pd
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from geecs_data_utils.data.image_prep import HIT_FILTERS, ImagePrep
+from geecs_data_utils.data.scan_merge import SCAN_BIN_COLUMN
 from geecs_data_utils.io.display_png import colour_bar_png, safe_cmap, to_display_png
 from pydantic import BaseModel
 
-from geecs_portal.plotter import images, scans
+from geecs_portal.plotter import images, multi, scans
 from geecs_portal.plotter.routes import Context
 from geecs_portal.plotter.routes.api import NO_CACHE
 from geecs_portal.plotter.settings import SettingsError, roi_value, scan_refs
@@ -46,6 +50,11 @@ class TileModel(BaseModel):
     bin: str = ""
     #: The tile's PNG, relative to the app (``api/images/tile.png?…``).
     url: str
+    #: Several scans, a shot tile: its own scan's run uid, day and row
+    #: there (the big view's processing preview opens that scan).
+    uid: str = ""
+    day: str = ""
+    row: int = 0
 
 
 class LevelsResponse(BaseModel):
@@ -105,10 +114,16 @@ def tile_url(
     filters: str = "",
     bg: str = "",
     channel: Optional[int] = None,
+    extra: str = "",
+    mtol: Optional[float] = None,
+    binx: Optional[str] = None,
 ) -> str:
     """A tile's PNG URL, relative to the app root; the page adds the display.
 
     A trace device's tile names its scope *channel* (``None``: a camera).
+    Several scans name the others (*extra*, ``YYYY-MM-DD:N,…``) and the
+    pooling tolerance (*mtol*, empty: the default), so the route rebuilds
+    the same merged rows and bins.
 
     A bin's one shot (``pick``) is a shot tile: its index is its row. A
     bin carries the shot filters (*filters*, the set's JSON): its index is
@@ -122,7 +137,60 @@ def tile_url(
         query["bg"] = bg  # the background scan (YYYY-MM-DD:N) taken off each shot
     if channel is not None:
         query["channel"] = channel
+    query.update(multi_query(extra, mtol, binx))
     return f"api/images/tile.png?{urlencode({**query, **prep_query(prep)})}"
+
+
+def multi_query(
+    extra: str, mtol: Optional[float], x: Optional[str] = None
+) -> dict[str, object]:
+    """The several-scans half of a tile's or the levels' URL (nothing for one scan).
+
+    *x* is the column the pooled bins are placed by (the page's X; ``""``
+    the shot number), so every route pools the bins the page shows.
+    """
+    if not extra:
+        return {}
+    query: dict[str, object] = {"scans": extra}
+    if mtol is not None:
+        query["mtol"] = mtol
+    if x is not None:
+        query["bx"] = x
+    return query
+
+
+def scan_set(
+    ctx: Context,
+    day: date,
+    number: int,
+    extra: str,
+    mtol: Optional[float],
+    binx: Optional[str] = None,
+) -> Optional[images.ScanSet]:
+    """The open scan with *extra* (``YYYY-MM-DD:N,…``) as one :class:`images.ScanSet`.
+
+    ``multi.scan_set``: the bins ordered by *binx* (the page's X; ``None``
+    the open scan's variable, ``""`` scan and bin order) and pooled within
+    *mtol* (``None``: half the smallest step). ``None`` with no other scan; a 422 for text that is not scans
+    or a negative *mtol*, a 404 naming a scan that is not on the share.
+    """
+    if not extra:
+        return None
+    try:
+        refs = [(r.day, r.scan) for r in scan_refs(extra)]
+    except SettingsError as bad:
+        raise HTTPException(status_code=422, detail=f"scans={extra!r}: {bad}") from None
+    refs = [(day, number), *(r for r in refs if r != (day, number))]
+    if len(refs) == 1:
+        return None
+    try:
+        return multi.scan_set(
+            refs, mtol, x=binx, experiment=ctx.experiment, catalog=ctx.catalog
+        )
+    except LookupError as missing:
+        raise HTTPException(status_code=404, detail=str(missing)) from None
+    except ValueError as bad:
+        raise HTTPException(status_code=422, detail=f"mtol={mtol!r}: {bad}") from None
 
 
 def parse_rows(text: str) -> list[images.Tile]:
@@ -188,8 +256,15 @@ def strip_tiles(
     filters: str = "",
     bg: str = "",
     channel: Optional[int] = None,
+    source: Optional[images.Source] = None,
+    extra: str = "",
+    mtol: Optional[float] = None,
 ) -> list[TileModel]:
     """The strip's tiles with their URLs; captions carry the scan variable's value.
+
+    With several scans (*source* an :class:`images.ScanSet`, *frame* its
+    merged frame) the tiles are its rows and its one bin number, each
+    caption names its scan, and the URLs carry *extra* and *mtol*.
 
     Only the shots the shot filters keep (*filters*, the set's JSON; a 422
     when they cannot apply here).
@@ -208,9 +283,17 @@ def strip_tiles(
         else None
     )
     keep = keep_rows(frame, filters)
+    many = source if isinstance(source, images.ScanSet) else None
     try:
         found = images.tiles(
-            frame, strip, values, scans.shot_axis(frame), pick_by=by, keep=keep
+            frame,
+            strip,
+            values,
+            scans.shot_axis(frame),
+            pick_by=by,
+            keep=keep,
+            bin_col=many.bin_col if many else SCAN_BIN_COLUMN,
+            scan_names=many.names() if many else None,
         )
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
@@ -220,10 +303,30 @@ def strip_tiles(
             rows=list(t.rows),
             caption=t.caption,
             bin=t.bin,
-            url=tile_url(day, scan, device, strip, t.index, prep, filters, bg, channel),
+            url=tile_url(
+                day,
+                scan,
+                device,
+                strip,
+                t.index,
+                prep,
+                filters,
+                bg,
+                channel,
+                extra if many else "",
+                mtol,
+                x if many else None,
+            ),
+            **(_own_scan(many, t) if many and strip != "bins" else {}),
         )
         for t in found
     ]
+
+
+def _own_scan(many: images.ScanSet, tile: images.Tile) -> dict[str, object]:
+    """A shot tile's own scan: its uid, day and row there (the big view's preview)."""
+    part, row = many.locate(tile.rows[0])
+    return {"uid": part.uid, "day": part.day.isoformat(), "row": row}
 
 
 def strip_code(
@@ -234,18 +337,22 @@ def strip_code(
     experiment: str,
     pick_by: str = "",
     prep: ImagePrep = ImagePrep(),
+    refs: Sequence[tuple[date, int]] = (),
+    mtol: Optional[float] = None,
+    binx: Optional[str] = None,
 ) -> str:
-    """The notebook snippet that loads each tile's pixels as the page does."""
-    where = f", experiment={experiment!r}" if experiment else ""
+    """The notebook snippet that loads each tile's pixels as the page does.
+
+    With *refs* (the open scan and the others) the strip is their
+    ``multi.scan_set``, pooled within *mtol*.
+    """
     by = f", pick_by=frame[{pick_by!r}]" if strip == "pick" and pick_by else ""
     return (
         "from datetime import date\n"
         "from geecs_data_utils.data.image_prep import ImagePrep\n"
-        "from geecs_portal.plotter import images, scans\n\n"
-        f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
-        "frame, folder = scans.load_frame(run), scans.scan_folder(run)\n"
-        f"prep = ImagePrep(hits={prep.hits!r}, centre={prep.centre!r})\n"
-        f"for tile in images.tiles(frame, {strip!r}{by}):\n"
+        + _code_head(day, scan, experiment, refs, mtol, binx)
+        + f"prep = ImagePrep(hits={prep.hits!r}, centre={prep.centre!r})\n"
+        f"for tile in images.tiles(frame, {strip!r}{by}{_code_bins(refs)}):\n"
         "    try:\n"
         f"        pixels = images.tile_array(folder, frame, {device!r}, tile.rows, prep)\n"
         "    except images.NoImage as why:\n"
@@ -288,7 +395,11 @@ def keep_rows(frame, filters: str) -> Optional[frozenset[int]]:
 
 
 def tile_rows(
-    frame, strip: str, index: int, keep: Optional[frozenset[int]] = None
+    frame,
+    strip: str,
+    index: int,
+    keep: Optional[frozenset[int]] = None,
+    bin_col: str = SCAN_BIN_COLUMN,
 ) -> tuple[int, ...]:
     """The rows a tile shows: the shot's row, or the bin's (by position).
 
@@ -302,7 +413,7 @@ def tile_rows(
     if strip in ("shots", "pick"):
         return (index,)
     try:
-        found = images.kept_bins(frame, keep)
+        found = images.kept_bins(frame, keep, bin_col)
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
     if not 0 <= index < len(found):
@@ -416,16 +527,16 @@ def trace_code(
     experiment: str,
     channel: int,
     pick_by: str = "",
+    refs: Sequence[tuple[date, int]] = (),
+    mtol: Optional[float] = None,
+    binx: Optional[str] = None,
 ) -> str:
-    """The notebook snippet that loads each trace tile as the page does."""
-    where = f", experiment={experiment!r}" if experiment else ""
+    """The notebook snippet that loads each trace tile as the page does (*refs*: as :func:`strip_code`)."""
     by = f", pick_by=frame[{pick_by!r}]" if strip == "pick" and pick_by else ""
     return (
         "from datetime import date\n"
-        "from geecs_portal.plotter import images, scans\n\n"
-        f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
-        "frame, folder = scans.load_frame(run), scans.scan_folder(run)\n"
-        f"for tile in images.tiles(frame, {strip!r}{by}):\n"
+        + _code_head(day, scan, experiment, refs, mtol, binx)
+        + f"for tile in images.tiles(frame, {strip!r}{by}{_code_bins(refs)}):\n"
         "    try:\n"
         f"        trace = images.trace_tile(folder, frame, {device!r}, tile.rows, {channel})\n"
         "    except images.NoImage as why:\n"
@@ -434,6 +545,40 @@ def trace_code(
         "    x, y = trace.data[:, 0], trace.data[:, 1]  # a bin: its shots' mean\n"
         "    print(tile.caption, len(x), y.min(), y.max())\n"
     )
+
+
+def _code_head(
+    day: date,
+    scan: int,
+    experiment: str,
+    refs: Sequence[tuple[date, int]],
+    mtol: Optional[float],
+    binx: Optional[str] = None,
+) -> str:
+    """A strip snippet's opening: one scan's frame and folder, or the scans' set."""
+    where = f", experiment={experiment!r}" if experiment else ""
+    if len(refs) > 1:
+        listed = ", ".join(
+            f"(date({d.year}, {d.month}, {d.day}), {n})" for d, n in refs
+        )
+        return (
+            "from geecs_portal.plotter import images, multi\n\n"
+            f"refs = [{listed}]\n"
+            f"folder = multi.scan_set(refs, {mtol!r}, x={binx!r}{where})\n"
+            "frame = folder.frame\n"
+        )
+    return (
+        "from geecs_portal.plotter import images, scans\n\n"
+        f"run = scans.find_scan(date({day.year}, {day.month}, {day.day}), {scan}{where})\n"
+        "frame, folder = scans.load_frame(run), scans.scan_folder(run)\n"
+    )
+
+
+def _code_bins(refs: Sequence[tuple[date, int]]) -> str:
+    """The strip snippet's ``tiles`` arguments for several scans (their bins, their names)."""
+    if len(refs) > 1:
+        return ", bin_col=folder.bin_col, scan_names=folder.names()"
+    return ""
 
 
 def _axis_title(label: Optional[str], units: Optional[str]) -> str:
@@ -518,6 +663,36 @@ def opened_scan(ctx: Context, day: date, scan: int):
     return run, scans.load_frame(run), scans.scan_folder(run)
 
 
+@dataclass(frozen=True)
+class Opened:
+    """A strip's scans as a route opens them: the open one, and any others."""
+
+    run: Any  # the open scan's RunDetail
+    #: Its s-file, or every scan's merged (rows and bins are its).
+    frame: pd.DataFrame
+    #: The open scan's folder (its device list and kind).
+    folder: Path
+    #: Where tiles load from: *folder*, or the :class:`images.ScanSet`.
+    source: images.Source
+    bin_col: str = SCAN_BIN_COLUMN
+
+
+def opened_scans(
+    ctx: Context,
+    day: date,
+    scan: int,
+    extra: str = "",
+    mtol: Optional[float] = None,
+    binx: Optional[str] = None,
+) -> Opened:
+    """:func:`opened_scan` with the set's other scans (*extra*) merged in."""
+    run, frame, folder = opened_scan(ctx, day, scan)
+    found = scan_set(ctx, day, scan, extra, mtol, binx)
+    if found is None:
+        return Opened(run, frame, folder, folder)
+    return Opened(run, found.frame, folder, found, found.bin_col)
+
+
 def picture_device(folder: Path, device: str) -> bool:
     """Whether *device* records traces; a 404 when it has no pictures either."""
     if images.is_image_device(folder, device):
@@ -534,9 +709,6 @@ def register(router: APIRouter, ctx: Context) -> None:
     register_traces(router, ctx)
     register_scalars(router, ctx)
 
-    def opened(day: date, scan: int):
-        return opened_scan(ctx, day, scan)
-
     @router.get("/api/images/devices", response_model=DevicesResponse)
     def api_devices(day: date, scan: int) -> JSONResponse:
         """The scan's device folders (each is checked for pictures when picked)."""
@@ -551,18 +723,34 @@ def register(router: APIRouter, ctx: Context) -> None:
         device: str,
         strip: Strip = Query(default="bins", description="a tile per bin or per shot"),
         channel: int = Query(default=0, ge=0, description="a scope's channel"),
+        extra: str = Query(
+            default="",
+            alias="scans",
+            description="more scans: YYYY-MM-DD:N, comma-separated",
+        ),
+        mtol: Optional[float] = Query(
+            default=None, ge=0, description="pool two scans' bins this close in X"
+        ),
+        bx: Optional[str] = Query(
+            default=None,
+            description="the column pooled bins are placed by; empty: none",
+        ),
     ) -> JSONResponse:
         """The device's tiles, in order, each with its PNG URL."""
-        run, frame, folder = opened(day, scan)
-        traces = picture_device(folder, device)
+        got = opened_scans(ctx, day, scan, extra, mtol, bx)
+        traces = picture_device(got.folder, device)
         tiles = strip_tiles(
-            run,
-            frame,
+            got.run,
+            got.frame,
             strip,
             day=day,
             scan=scan,
             device=device,
+            x=bx,  # the tiles' URLs rebuild the set this listing was pooled by
             channel=channel if traces else None,
+            source=got.source,
+            extra=extra,
+            mtol=mtol,
         )
         code = (
             trace_code(day, scan, device, strip, ctx.experiment, channel)
@@ -595,6 +783,18 @@ def register(router: APIRouter, ctx: Context) -> None:
             default="",
             description="the tiles on screen, their indices comma-separated; empty is all",
         ),
+        extra: str = Query(
+            default="",
+            alias="scans",
+            description="more scans: YYYY-MM-DD:N, comma-separated",
+        ),
+        mtol: Optional[float] = Query(
+            default=None, ge=0, description="pool two scans' bins this close in X"
+        ),
+        bx: Optional[str] = Query(
+            default=None,
+            description="the column pooled bins are placed by; empty: none",
+        ),
     ) -> JSONResponse:
         """One black and white over the tiles shown (the "shared" z scale).
 
@@ -605,22 +805,27 @@ def register(router: APIRouter, ctx: Context) -> None:
         the tiles on screen (one row spread over the scan shows a few), so a
         hidden tile is never read for the scale.
         """
-        run, frame, folder = opened(day, scan)
-        traces = picture_device(folder, device)
+        got = opened_scans(ctx, day, scan, extra, mtol, bx)
+        traces = picture_device(got.folder, device)
         prep = parse_prep(hits, centre)
+        frame = got.frame
         keep = None if rows else keep_rows(frame, filters)
         try:
-            found = parse_rows(rows) if rows else images.tiles(frame, strip, keep=keep)
+            found = (
+                parse_rows(rows)
+                if rows
+                else images.tiles(frame, strip, keep=keep, bin_col=got.bin_col)
+            )
             found = shown_tiles(found, shown)
             if traces:
                 # A trace row's shared y range: its lowest to highest sample.
                 lo, hi, count = images.trace_levels(
-                    folder, frame, device, found, channel
+                    got.source, frame, device, found, channel
                 )
                 body = LevelsResponse(zmin=lo, zmax=hi, tiles=count)
                 return JSONResponse(body.model_dump(), headers=NO_CACHE)
             zmin, zmax, count = images.shared_levels(
-                folder,
+                got.source,
                 frame,
                 device,
                 found,
@@ -664,6 +869,18 @@ def register(router: APIRouter, ctx: Context) -> None:
             description="a background scan, YYYY-MM-DD:N: its average off each shot",
         ),
         channel: int = Query(default=0, ge=0, description="a scope's channel"),
+        extra: str = Query(
+            default="",
+            alias="scans",
+            description="more scans: YYYY-MM-DD:N, comma-separated",
+        ),
+        mtol: Optional[float] = Query(
+            default=None, ge=0, description="pool two scans' bins this close in X"
+        ),
+        bx: Optional[str] = Query(
+            default=None,
+            description="the column pooled bins are placed by; empty: none",
+        ),
     ) -> Response:
         """One tile's PNG: the shot's image, or the bin's average, in its ROI.
 
@@ -675,17 +892,18 @@ def register(router: APIRouter, ctx: Context) -> None:
         brightest pixel. A tile with no image (the device missed every shot of it,
         or its files are not there) is a 404 naming why.
         """
-        _, frame, folder = opened(day, scan)
-        traces = picture_device(folder, device)
+        got = opened_scans(ctx, day, scan, extra, mtol, bx)
+        traces = picture_device(got.folder, device)
+        frame = got.frame
         keep = keep_rows(frame, filters) if strip == "bins" else None
-        rows = tile_rows(frame, strip, index, keep)
+        rows = tile_rows(frame, strip, index, keep, got.bin_col)
         levels = (zmin, zmax) if zmin is not None and zmax is not None else None
         if traces:
-            png = trace_tile_png(folder, frame, device, rows, channel, levels)
+            png = trace_tile_png(got.source, frame, device, rows, channel, levels)
             return Response(png, media_type="image/png", headers=NO_CACHE)
         prep = parse_prep(hits, centre)
         png = tile_png(
-            folder,
+            got.source,
             frame,
             device,
             rows,
@@ -728,8 +946,23 @@ def register_scalars(router: APIRouter, ctx: Context) -> None:
             default="mean_std", description="mean_std | median_iqr | mean_stderr"
         ),
         filters: str = Query(default="", description="the set's shot filters (JSON)"),
+        extra: str = Query(
+            default="",
+            alias="scans",
+            description="more scans: YYYY-MM-DD:N, comma-separated",
+        ),
+        mtol: Optional[float] = Query(
+            default=None, ge=0, description="pool two scans' bins this close in X"
+        ),
+        bx: Optional[str] = Query(
+            default=None,
+            description="the column pooled bins are placed by; empty: none",
+        ),
     ) -> JSONResponse:
-        """The Images page's scan scalars: each column over the shots the strip shows."""
+        """The Images page's scan scalars: each column over the shots the strip shows.
+
+        With ``scans``, over every scan's shots together.
+        """
         try:
             columns = json.loads(cols)
             if not (
@@ -744,7 +977,7 @@ def register_scalars(router: APIRouter, ctx: Context) -> None:
             raise HTTPException(
                 status_code=400, detail=f"stat: one of {', '.join(scans.SCALAR_STATS)}"
             )
-        _run, frame, _folder = opened_scan(ctx, day, scan)
+        frame = opened_scans(ctx, day, scan, extra, mtol, bx).frame
         keep = keep_rows(frame, filters)
         body = scans.scan_scalars(frame, keep, columns, stat)
         body["code"] = scalars_code(day, scan, columns, stat, filters, ctx.experiment)
@@ -765,19 +998,32 @@ def register_traces(router: APIRouter, ctx: Context) -> None:
         filters: str = Query(
             default="", description="the shot filters (JSON): a bin's shots"
         ),
+        extra: str = Query(
+            default="",
+            alias="scans",
+            description="more scans: YYYY-MM-DD:N, comma-separated",
+        ),
+        mtol: Optional[float] = Query(
+            default=None, ge=0, description="pool two scans' bins this close in X"
+        ),
+        bx: Optional[str] = Query(
+            default=None,
+            description="the column pooled bins are placed by; empty: none",
+        ),
     ) -> JSONResponse:
         """A trace tile as a figure (the big view): the shot's trace, or the bin's mean.
 
         The same rows and refusals as its ``tile.png``; a figure, not a
         PNG, so the big view zooms and reads values off.
         """
-        _, frame, folder = opened_scan(ctx, day, scan)
-        if not picture_device(folder, device):
+        got = opened_scans(ctx, day, scan, extra, mtol, bx)
+        if not picture_device(got.folder, device):
             raise HTTPException(status_code=404, detail=f"{device!r} records no traces")
+        frame = got.frame
         keep = keep_rows(frame, filters) if strip == "bins" else None
-        rows = tile_rows(frame, strip, index, keep)
+        rows = tile_rows(frame, strip, index, keep, got.bin_col)
         try:
-            trace = images.trace_tile(folder, frame, device, rows, channel)
+            trace = images.trace_tile(got.source, frame, device, rows, channel)
         except images.NoImage as why:
             raise HTTPException(status_code=404, detail=str(why)) from None
         body = TraceResponse(

@@ -109,6 +109,75 @@
               {% if c.zscale == "fixed" %}<span class="hint level-problem" id="level-warning{{ c.sfx }}" role="alert"{% if c.zmin is none or c.zmax is none or c.zmax > c.zmin %} hidden{% endif %}>{{ 'Y high must be above y low: each tile draws its own range until it is.' if c.trace else 'White must be above black: every tile draws flat until it is.' }}</span>{% endif %}
               {% if c.zscale == "shared" and c.tiles %}<span class="hint mono" data-shared-for="{{ k }}" aria-live="polite">reading the tiles shown…</span>{% endif %}
 {%- endmacro %}
+{# The set's scans (the Plot page's and the Images page's rail). #}
+{%- macro scans_group() %}
+        {# The set's scans: the main one (the steppers and the day above act
+           on it; the map shows it alone) and a chip per other scan, from
+           any day. On the XY plot several are drawn a trace per scan (one
+           Y list, at most max_overlay scans) or merged into one dataset
+           (LabVIEW's "merge s files"); the Images page always pools them.
+           Merged bins are each scan's own, placed by X, the same setting
+           from two scans one bin (within the tolerance box). #}
+        <details class="disc rail-group" id="scans-group"{% if extra_scans %} open{% endif %}>
+          <summary>Scans <span class="hint">· {{ scan_total }}</span></summary>
+          <div class="dbody">
+              <div class="fchip"><span class="swatch t1" aria-hidden="true"{% if not (extra_scans and scan_view == 'overlay' and tab != 'images') %} hidden{% endif %}></span><span class="n">{{ main_label }}</span><span class="hint">main</span></div>
+            {% for e in extra_scans %}
+              <div class="fchip">
+                {# Its trace colour: its place among the scans found (the figure's order). #}
+                <span class="swatch t{{ e.trace }}" aria-hidden="true"{% if tab == 'images' or scan_view != 'overlay' or e.missing or e.trace > max_overlay %} hidden{% endif %}></span>
+                <span class="n">{{ e.label }}</span>
+                {% if e.missing %}<span class="hint level-problem">not on the share</span>{% endif %}
+                <button type="button" class="x" data-scan-remove="{{ e.text }}" aria-label="remove {{ e.label }}">✕</button>
+              </div>
+            {% endfor %}
+            <div class="row">
+              <button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer" data-max-overlay="{{ max_overlay }}">Add scan…</button>
+              {% if extra_scans %}<button class="btn sm ghost" type="button" data-scans-clear title="Remove every added scan; the main scan stays">Remove all</button>{% endif %}
+            </div>
+            {% if extra_scans %}
+              <div class="field">
+                {% if tab == "images" %}
+                  <span class="hint">Every scan's shots on one strip: each scan's bins placed by the Plot page's X, the same setting from two scans one bin. A shot's caption names its scan; a shot filter can name <span class="mono">scan</span>.</span>
+                {% else %}
+                <div class="row">
+                  <span class="hint">Scans drawn</span>
+                  <span class="spacer"></span>
+                  <div class="seg" role="group" aria-label="Several scans: a trace per scan, or merged">
+                    <button type="button" data-toggle-for="multi" data-value="overlay" aria-pressed="{{ 'true' if scan_view == 'overlay' else 'false' }}">overlay</button>
+                    <button type="button" data-toggle-for="multi" data-value="merged" aria-pressed="{{ 'true' if scan_view == 'merged' else 'false' }}">merged</button>
+                  </div>
+                </div>
+                {% if scan_view == "overlay" %}
+                  {% if ycount > 1 %}
+                  <div class="row">
+                    <span class="hint">Overlay draws</span>
+                    <span class="spacer"></span>
+                    <div class="seg" role="group" aria-label="The Y list the overlay draws">
+                      {% for n in range(1, ycount + 1) %}<button type="button" data-toggle-for="oy" data-value="{{ n }}" aria-pressed="{{ 'true' if overlay_y == n else 'false' }}">Y{{ '' if n == 1 else n }}</button>{% endfor %}
+                    </div>
+                  </div>
+                  {% endif %}
+                  <span class="hint">A trace per scan, one Y; each scan fitted and binned on its own.{% if scan_total > max_overlay %} <span class="level-problem">The overlay draws at most {{ max_overlay }} scans: remove some, or merge.</span>{% endif %}</span>
+                {% else %}
+                  <span class="hint">Every scan's shots as one dataset: the fits use them all. Binned, each scan's bins are placed by X and the same setting from two scans is one bin (Bin # restarts in every scan). A shot filter can name <span class="mono">scan</span>.</span>
+                {% endif %}
+              {% endif %}
+                {% if tab == "images" or scan_view == "merged" %}
+                <div class="row">
+                  <label class="hint" for="mtol">Pool bins within</label>
+                  <span class="spacer"></span>
+                  <input id="mtol" name="mtol" type="text" inputmode="decimal" class="narrow-number" value="{{ mtol if mtol is not none else '' }}"
+                         placeholder="auto: {{ auto_tol }}" data-submit-on-change aria-describedby="mtol-hint"
+                         title="Two scans' bins whose median X is at most this far apart are one bin. Empty: half the smallest step of any one scan ({{ auto_tol }}). 0 pools only equal settings.">
+                </div>
+                <span class="hint" id="mtol-hint">{% if mtol is none %}Auto: half the smallest step, {{ auto_tol }}.{% else %}Typed; empty it for the auto value ({{ auto_tol }}).{% endif %}</span>
+                {% endif %}
+              </div>
+            {% endif %}
+          </div>
+        </details>
+{%- endmacro %}
 {# One Y row: its colour, its Fit menu and alias toggle on one line, its
    picker under them. #}
 {%- macro y_field(key, label, picked, names, alias, filter_text, trace, fit, order, kept="") %}
@@ -144,7 +213,7 @@
 {%- macro big_view(mode) %}
             <section class="group bigview" id="bigview" aria-label="Big view" data-mode="{{ mode }}" data-device="{{ device }}"
                      data-day="{{ day }}" data-scan="{{ scan }}" data-uid="{{ uid }}" data-shots="{{ shots }}" data-cmap="{{ cmap }}"
-                     data-in-portal="{{ 'true' if in_portal else 'false' }}" data-portal-root="{{ portal_root }}"
+                     data-in-portal="{{ 'true' if in_portal else 'false' }}" data-portal-root="{{ portal_root }}" data-multi="{{ 'true' if pooled else 'false' }}"
                      data-logbook-send="{{ 'true' if logbook_send else 'false' }}">
               <div class="row bigbar">
                 <button class="btn sm" type="button" data-big-step="-1" aria-label="Previous">‹</button>
@@ -350,6 +419,7 @@
             </div>
           </div>
         </details>
+        {{ scans_group() }}
         {# The scan scalars: s-file columns summarized over the shots the strip
            shows, listed under the scan's conditions (and in the copied grid).
            None by default; one statistic for all. A pick adds one (scaladd),
@@ -412,56 +482,7 @@
           </div>
         </details>
         {% else %}
-        {# The scans on the XY plot: the main one (the steppers and the day
-           above act on it; the map and the Images page show it alone) and
-           a chip per other scan, from any day. Several are drawn a trace
-           per scan (one Y list, at most max_overlay scans) or merged into
-           one dataset (LabVIEW's "merge s files"). #}
-        <details class="disc rail-group" id="scans-group"{% if extra_scans %} open{% endif %}>
-          <summary>Scans <span class="hint">· {{ scan_total }}</span></summary>
-          <div class="dbody">
-              <div class="fchip"><span class="swatch t1" aria-hidden="true"{% if not (extra_scans and scan_view == 'overlay') %} hidden{% endif %}></span><span class="n">{{ main_label }}</span><span class="hint">main</span></div>
-            {% for e in extra_scans %}
-              <div class="fchip">
-                {# Its trace colour: its place among the scans found (the figure's order). #}
-                <span class="swatch t{{ e.trace }}" aria-hidden="true"{% if scan_view != 'overlay' or e.missing or e.trace > max_overlay %} hidden{% endif %}></span>
-                <span class="n">{{ e.label }}</span>
-                {% if e.missing %}<span class="hint level-problem">not on the share</span>{% endif %}
-                <button type="button" class="x" data-scan-remove="{{ e.text }}" aria-label="remove {{ e.label }}">✕</button>
-              </div>
-            {% endfor %}
-            <div class="row">
-              <button class="btn sm" type="button" id="scans-open" data-drawer-open="scans-drawer" data-max-overlay="{{ max_overlay }}">Add scan…</button>
-              {% if extra_scans %}<button class="btn sm ghost" type="button" data-scans-clear title="Remove every added scan; the main scan stays">Remove all</button>{% endif %}
-            </div>
-            {% if extra_scans %}
-              <div class="field">
-                <div class="row">
-                  <span class="hint">Scans drawn</span>
-                  <span class="spacer"></span>
-                  <div class="seg" role="group" aria-label="Several scans: a trace per scan, or merged">
-                    <button type="button" data-toggle-for="multi" data-value="overlay" aria-pressed="{{ 'true' if scan_view == 'overlay' else 'false' }}">overlay</button>
-                    <button type="button" data-toggle-for="multi" data-value="merged" aria-pressed="{{ 'true' if scan_view == 'merged' else 'false' }}">merged</button>
-                  </div>
-                </div>
-                {% if scan_view == "overlay" %}
-                  {% if ycount > 1 %}
-                  <div class="row">
-                    <span class="hint">Overlay draws</span>
-                    <span class="spacer"></span>
-                    <div class="seg" role="group" aria-label="The Y list the overlay draws">
-                      {% for n in range(1, ycount + 1) %}<button type="button" data-toggle-for="oy" data-value="{{ n }}" aria-pressed="{{ 'true' if overlay_y == n else 'false' }}">Y{{ '' if n == 1 else n }}</button>{% endfor %}
-                    </div>
-                  </div>
-                  {% endif %}
-                  <span class="hint">A trace per scan, one Y; each scan fitted and binned on its own.{% if scan_total > max_overlay %} <span class="level-problem">The overlay draws at most {{ max_overlay }} scans: remove some, or merge.</span>{% endif %}</span>
-                {% else %}
-                  <span class="hint">Every scan's shots as one dataset: the fits use them all, and bins are by X (Bin # restarts in every scan). A shot filter can name <span class="mono">scan</span>.</span>
-                {% endif %}
-              </div>
-            {% endif %}
-          </div>
-        </details>
+        {{ scans_group() }}
         {# One picker per axis, each with its own substring filter (LabVIEW's
            par listboxes): typing filters, a click or Enter picks, a
            double-click copies a row into the filter. #}
@@ -617,7 +638,7 @@
         <header>
           <span class="eyebrow">Scan{{ '%03d' % scan }} · {{ day }}</span>
           {% set n_tiles = (shown_tiles[0].tiles | length) if shown_tiles else 0 %}
-          {% set strip_line %}{% if many %}{{ cams | length }} cameras{% else %}{{ device or device_kept }}{% endif %}{% if shown_tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if shown_tiles %} · {{ n_tiles }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if not many and not trace and (hits != 'none' or centre is not none) %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% endif %}{% if bg and shown_tiles and (cams | selectattr('bg') | list) %} · minus background Scan{{ '%03d' % bg_scan }}{% endif %}{% endset %}
+          {% set strip_line %}{% if many %}{{ cams | length }} cameras{% else %}{{ device or device_kept }}{% endif %}{% if shown_tiles and strip_x %} vs {{ strip_x }}{% endif %}{% if pooled and shown_tiles %} · {{ pooled.scans }} scans pooled{% endif %}{% if shown_tiles %} · {{ n_tiles }} {{ 'bins' if strip == 'bins' else 'bins, one shot each' if strip == 'pick' else 'shots' }}{% if not many and not trace and (hits != 'none' or centre is not none) %} · {{ ('hits removed' if hits != 'none' else '') ~ (', ' if hits != 'none' and centre is not none else '') ~ ('centred' if centre is not none else '') }}{% endif %}{% endif %}{% if bg and shown_tiles and (cams | selectattr('bg') | list) %} · minus background Scan{{ '%03d' % bg_scan }}{% endif %}{% endset %}
           <span class="dim">{{ strip_line }}</span>
           {% if shown_tiles %}
             {# The rows as one PNG (strip_export.js): copied, or saved to disk. #}
@@ -677,7 +698,7 @@
                        data-levels-url="{{ root }}/{{ c.levels_url }}" data-full-url="{{ root }}/{{ c.tiles[0].url }}"
                        style="{% if lay == 'row' %}grid-auto-columns: {% if tile_max %}min({{ tile_max }}px, calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }})){% else %}calc((100% - {{ cols - 1 }} * var(--gap)) / {{ cols }}){% endif %}{% else %}grid-template-columns: repeat({{ cols }}, minmax(0, {{ (tile_max ~ 'px') if tile_max else '1fr' }})){% endif %}">
                     {% for t in c.tiles %}
-                      <figure class="tile" data-index="{{ t.index }}" data-bin="{{ t.bin }}" data-caption="{{ t.caption }}">
+                      <figure class="tile" data-index="{{ t.index }}" data-bin="{{ t.bin }}" data-caption="{{ t.caption }}"{% if t.uid %} data-uid="{{ t.uid }}" data-day="{{ t.day }}" data-row="{{ t.row }}"{% endif %}>
                         <img loading="lazy" alt="{{ c.device }} {{ t.caption }}" data-tile="{{ root }}/{{ t.url }}"
                              {% if c.zscale != "shared" %}src="{{ root }}/{{ t.url }}&amp;{{ c.display_query }}"{% endif %}>
                         <figcaption class="hint">{{ t.caption }}</figcaption>
@@ -811,7 +832,7 @@
           <div id="plot" class="plot" data-day="{{ day }}" data-scan="{{ scan }}" data-uid="{{ uid }}"
                data-portal-root="{{ portal_root }}" data-logbook-send="{{ 'true' if logbook_send else 'false' }}"
                data-slots="{{ slots | join(',') }}" data-caption="{{ caption }}"
-               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;y2={{ y2 | urlencode }}&amp;y3={{ y3 | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}&amp;y2alias={{ y2alias | lower }}&amp;y3alias={{ y3alias | lower }}&amp;yfit={{ yfit | urlencode }}&amp;y2fit={{ y2fit | urlencode }}&amp;y3fit={{ y3fit | urlencode }}&amp;yorder={{ yorder }}&amp;y2order={{ y2order }}&amp;y3order={{ y3order }}&amp;view={{ view }}&amp;filters={{ filters | urlencode }}&amp;bincfg={{ bincfg | urlencode }}&amp;display={{ display | urlencode }}&amp;scans={{ scans_text | urlencode }}&amp;multi={{ scan_view }}&amp;oy={{ overlay_y }}"
+               data-figure-url="{{ root }}/api/figure?day={{ day }}&amp;scan={{ scan }}&amp;x={{ x | urlencode }}&amp;y={{ y | urlencode }}&amp;y2={{ y2 | urlencode }}&amp;y3={{ y3 | urlencode }}&amp;xalias={{ xalias | lower }}&amp;yalias={{ yalias | lower }}&amp;y2alias={{ y2alias | lower }}&amp;y3alias={{ y3alias | lower }}&amp;yfit={{ yfit | urlencode }}&amp;y2fit={{ y2fit | urlencode }}&amp;y3fit={{ y3fit | urlencode }}&amp;yorder={{ yorder }}&amp;y2order={{ y2order }}&amp;y3order={{ y3order }}&amp;view={{ view }}&amp;filters={{ filters | urlencode }}&amp;bincfg={{ bincfg | urlencode }}&amp;display={{ display | urlencode }}&amp;scans={{ scans_text | urlencode }}&amp;multi={{ scan_view }}&amp;oy={{ overlay_y }}{% if mtol is not none %}&amp;mtol={{ mtol }}{% endif %}"
                data-scans="{{ scans_text }}"></div>
           {# The fits' numbers, filled from the figure response by plotter.js. #}
           <div id="fits" class="fits"></div>
