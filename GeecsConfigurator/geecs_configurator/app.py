@@ -31,7 +31,14 @@ from geecs_web_theme.web import ForwardedPrefixMiddleware, RevalidatingStaticFil
 import httpx
 
 from geecs_configurator import inbox
-from geecs_configurator.kinds import KindInfo, kinds
+from geecs_configurator.apply import (
+    Archiver,
+    DryRun,
+    Run,
+    ScannerClient,
+    ServiceApplier,
+)
+from geecs_configurator.kinds import DRY_RUNS, KindInfo, kinds
 from geecs_configurator.log import CHIP, STATES, Applier
 from geecs_configurator.repository import ConfigsRepository, GitError
 from geecs_configurator.save import CompareLinkOnly, PullRequests, Refused, Saved, SaveRequest, save  # fmt: skip
@@ -48,15 +55,23 @@ api = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings, pull_requests: PullRequests | None = None, *, http: httpx.Client | None = None, applier: Applier | None = None) -> FastAPI:  # fmt: skip
+def create_app(settings: Settings, pull_requests: PullRequests | None = None, *, http: httpx.Client | None = None, applier: Applier | None = None, consumer_http: httpx.Client | None = None, archiver_run: Run | None = None) -> FastAPI:  # fmt: skip
     """Build the app over the settings' configs root (the live checkout when the commit path is on).
 
-    ``pull_requests``, ``http`` (the client to GitHub) and ``applier`` are
-    the seams tests fill with fakes.
+    ``pull_requests``, ``http`` (the client to GitHub), ``applier``,
+    ``consumer_http`` (the client to the scanner) and ``archiver_run`` (the
+    archiver's subprocess) are the seams tests fill with fakes.
     """
     app = FastAPI(title=settings.title, lifespan=_lifespan)
     app.state.settings, app.state.store = settings, DocumentStore(settings.configs_root)
-    commit = CommitPath(settings, pull_requests=pull_requests, http=http, applier=applier) if settings.commits else None  # fmt: skip
+    #: The consumers: the dry runs (always) and, with the commit path, the applies.
+    consumers = ServiceApplier(
+        settings.configs_root,
+        scanner=ScannerClient(settings.scanner_url, consumer_http) if settings.scanner_url else None,
+        archiver=Archiver(settings.archiver_command, run=archiver_run) if settings.archiver_command else None,
+    )  # fmt: skip
+    app.state.consumers = consumers
+    commit = CommitPath(settings, pull_requests=pull_requests, http=http, applier=applier or consumers) if settings.commits else None  # fmt: skip
     app.state.commit, app.state.repo = commit, commit.repo if commit else None
     app.state.pull_requests = commit.pull_requests if commit else CompareLinkOnly(settings.github_repo, settings.branch)  # fmt: skip
     app.add_middleware(ForwardedPrefixMiddleware)
@@ -82,6 +97,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         if (
             app.state.settings.reconcile_seconds > 0
             or app.state.settings.fetch_seconds > 0
+            or app.state.settings.apply_seconds > 0
         ):
             threading.Thread(target=commit.run, args=(stop,), name="configurator-timer", daemon=True).start()  # fmt: skip
     try:
@@ -231,11 +247,21 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
     repo = request.app.state.repo
     if repo is None:
         raise HTTPException(405, "read-only: the commit path is not configured")
+    # The consumer's own check of the draft first (kinds.DRY_RUNS): a refusal is the save's refusal.
+    check: DryRun = request.app.state.consumers.dry_run(kind, experiment, body.document)
+    if check.refusal is not None:
+        return JSONResponse({"detail": {"reason": f"the {check.by}'s dry run refused the draft: {check.refusal}", "dry_run": check.model_dump()}}, status_code=422)  # fmt: skip
     _reconcile_quietly(request.app)
     try:
         saved = _answer(lambda: save(_store(request), repo, request.app.state.pull_requests, _file_kind(kind), experiment, doc_id, body, email=request.app.state.settings.committer_email))  # fmt: skip
     except Refused as exc:
         return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+    if (
+        kind in DRY_RUNS and not check.ran and check.by != "none"
+    ):  # asked, and it could not answer
+        saved.notes.append(f"the dry run did not run: {check.detail}")
+    elif check.questions:
+        saved.notes.append("the dry run asked: " + "; ".join(q.get("title", "") for q in check.questions))  # fmt: skip
     request.app.state.commit.saved(kind, saved)
     if saved.outcome != "nothing to do":
         inbox.reset_backoff(
@@ -256,6 +282,29 @@ def _reconcile_quietly(app: FastAPI) -> None:
 def validate(request: Request, kind: str, document: Draft = Body(embed=True), id: str | None = Body(None, embed=True)) -> Report:  # fmt: skip
     """Validate a draft without writing it; ``id`` adds the setup's name-is-its-stem rule."""
     return _answer(lambda: _store(request).validate(kind, document, stem=Path(id).stem if id else None))  # fmt: skip
+
+
+@api.post("/dry-run/{kind}", response_model=DryRun)
+def dry_run(request: Request, kind: str, experiment: str | None = None, document: Draft = Body(embed=True)) -> DryRun:  # fmt: skip
+    """The kind's consumer check of an unsaved draft (``ran: false`` with the reason when there is none here)."""
+    if kind not in SCHEMA_REGISTRY:
+        raise HTTPException(404, f"no kind {kind!r}")
+    return request.app.state.consumers.dry_run(kind, experiment, document)
+
+
+@api.get("/readback")
+def readback(request: Request, variable: str) -> JSONResponse:
+    """One live readback of ``Device:Variable``, through the scanner (the form's current value)."""
+    scanner: ScannerClient | None = request.app.state.consumers.scanner
+    if scanner is None:
+        raise HTTPException(
+            503, "no scanner configured (GEECS_CONFIGURATOR_SCANNER_URL)"
+        )
+    try:
+        status, body = scanner.readback(variable)
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(502, f"the scanner did not answer: {exc}") from exc
+    return JSONResponse(body, status_code=status)
 
 
 @api.post("/diff/{kind}/{doc_id:path}", response_model=Diff)

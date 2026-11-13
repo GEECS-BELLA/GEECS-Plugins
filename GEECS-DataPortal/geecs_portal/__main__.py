@@ -52,6 +52,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--config-editor-read-only",
+        action="store_true",
+        help=(
+            "serve the config editor read-only (every save a 405): set when the "
+            "configs root is the configurator's checkout, until the analysis "
+            "kinds move onto the configurator"
+        ),
+    )
+    parser.add_argument(
         "--root-path",
         default="",
         help=(
@@ -102,6 +111,7 @@ def main() -> None:
             Path(args.processing_configs) if args.processing_configs else None
         ),
         config_editor=args.config_editor,
+        config_editor_read_only=args.config_editor_read_only,
         logbook_url=args.logbook_url,
     )
     uvicorn.run(

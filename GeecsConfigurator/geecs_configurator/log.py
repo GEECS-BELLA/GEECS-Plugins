@@ -5,17 +5,17 @@ the service applied or refused), kept as JSON lines in the state directory
 and served on ``/log``. A row's ``state`` is one of four words:
 
 - **applied**: the document's consumers have taken it up;
-- **queued**: the apply waits for a moment (the worker idle and empty);
+- **queued**: the apply waits for a moment: the service's next apply pass, the worker idle and empty;
 - **pending**: handed to someone named (the maintainer: a pull request, a
   restart, a refused commit to fix by PR);
 - **nothing to do**: every reader reads per request.
 
 **A landed commit is never written up as applied by that fact alone**: the
-state is the apply seam's answer (:class:`Applier`). The seam is slice 3's
-to implement (the worker's reopen, the archiver's onboard); until then
-:class:`NoApplier` answers ``nothing to do`` where every consumer reads per
-request and ``pending`` (the apply named) everywhere else, never
-``applied``.
+state is the apply seam's answer (:class:`Applier`; the service's is
+``apply.ServiceApplier``: the worker's reopen, the archiver's onboard).
+:class:`NoApplier` (no consumer configured) answers ``nothing to do``
+where every consumer reads per request and ``pending`` (the apply named)
+everywhere else, never ``applied``.
 
 Rows are appended; a later line with the same ``id`` replaces the earlier
 (how an apply will move a row from ``queued`` to ``applied``).
@@ -28,6 +28,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -69,15 +70,23 @@ class Answer(BaseModel):
 
 
 class Applier(Protocol):
-    """Makes a committed document take effect, or says when it will (slice 3 implements it)."""
+    """Makes a committed document take effect, or says when it will (``apply.ServiceApplier``)."""
 
     def apply(self, kind: str | None, path: str) -> Answer:
-        """Apply (or queue, or hand off) the committed ``path`` of ``kind``; never claims what it did not do."""
+        """The state of the committed ``path`` of ``kind`` now: fast, blocking on nothing; work is answered ``queued``."""
+        ...
+
+    def settle(self, rows: Sequence[tuple[str | None, str]]) -> list[Answer]:
+        """Do the queued work for these committed rows (blocking, off every request); each row's state after."""
         ...
 
 
 class NoApplier:
-    """No apply yet: ``nothing to do`` where every reader reads per request, else ``pending`` with the apply named."""
+    """No applies: ``nothing to do`` where every reader reads per request, else ``pending`` with the apply named."""
+
+    def settle(self, rows: Sequence[tuple[str | None, str]]) -> list[Answer]:
+        """Nothing is done: each row as :meth:`apply` answers it."""
+        return [self.apply(kind, path) for kind, path in rows]
 
     def apply(self, kind: str | None, path: str) -> Answer:
         """The state a committed document is in while nothing applies it."""
@@ -87,7 +96,7 @@ class NoApplier:
             return Answer(
                 state="nothing to do", detail="every reader reads it per request"
             )
-        return Answer(state="pending", detail=f"not applied: {'; '.join(verbs) or 'no reader known'} (applies arrive in slice 3)")  # fmt: skip
+        return Answer(state="pending", detail=f"not applied: {'; '.join(verbs) or 'no reader known'} ")  # fmt: skip
 
 
 class CommitLog:

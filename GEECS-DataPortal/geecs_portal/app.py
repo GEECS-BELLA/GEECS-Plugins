@@ -119,6 +119,7 @@ def create_app(
     processing_config_dir: Optional[Path] = None,
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
     config_editor: bool = False,
+    config_editor_read_only: bool = False,
     logbook_url: str = "",
     logbook_client: Optional[httpx.Client] = None,
 ) -> FastAPI:
@@ -172,6 +173,11 @@ def create_app(
         shot. A **write verb** (it saves YAML into the configs tree) and
         therefore explicit opt-in — ``--config-editor`` on the CLI; nothing
         without ``processing_config_dir`` and the ``analysis`` extra.
+    config_editor_read_only : bool, default False
+        Serve the editor read-only (its router's ``read_only``: every save a
+        405): the interval between the configs-root switch, when the share's
+        checkout is fast-forwarded by the configurator and must not be
+        written, and the analysis kinds' move onto the configurator.
     """
     # The analysis-run worker outlives requests: built
     # before the app so the lifespan can refuse new runs and log any
@@ -242,6 +248,6 @@ def create_app(
         )
 
     if config_editor and processing_config_dir is not None:
-        mount_config_editor(app, portal)
+        mount_config_editor(app, portal, read_only=config_editor_read_only)
 
     return app

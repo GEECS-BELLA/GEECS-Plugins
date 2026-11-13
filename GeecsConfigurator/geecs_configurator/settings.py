@@ -26,6 +26,14 @@ pushes and a proposal gives its compare link. ``_SHARE_CLONE`` is the
 share's clone, fast-forwarded from the service's repository after every
 accepted change; ``_FETCH_SECONDS`` (default 60; 0 = off) is how often
 main is fetched so a merge on GitHub takes effect.
+
+**The applies and dry runs** reach the consumers: ``_SCANNER_URL`` (the
+scanner as this process reaches it: the worker's environment reopen, the
+trigger-profile dry run, readbacks) and ``_ARCHIVER_COMMAND`` (the
+archiver's CLI in its own environment, whitespace-split: onboard and its
+dry run). Unset, those applies are handed to the maintainer (pending) and
+those dry runs say they did not run. ``_APPLY_SECONDS`` (default 30; 0 =
+off) is how often the queued applies are tried.
 """
 
 from __future__ import annotations
@@ -67,6 +75,9 @@ class Settings:
     github_app_id: str = ""
     github_installation_id: str = ""
     github_app_key_file: Path | None = None
+    scanner_url: str = ""
+    archiver_command: str = ""
+    apply_seconds: float = 30.0
 
     @property
     def commits(self) -> bool:
@@ -95,9 +106,10 @@ class Settings:
         try:
             every = float(get("RECONCILE_SECONDS") or "5")
             fetch_every = float(get("FETCH_SECONDS") or "60")
+            apply_every = float(get("APPLY_SECONDS") or "30")
         except ValueError:
             raise SettingsError(
-                f"{_P}RECONCILE_SECONDS and _FETCH_SECONDS are seconds"
+                f"{_P}RECONCILE_SECONDS, _FETCH_SECONDS and _APPLY_SECONDS are seconds"
             ) from None
         app = (
             get("GITHUB_APP_ID"),
@@ -130,4 +142,7 @@ class Settings:
             github_app_id=app[0],
             github_installation_id=app[1],
             github_app_key_file=Path(app[2]) if app[2] else None,
+            scanner_url=get("SCANNER_URL").rstrip("/"),
+            archiver_command=get("ARCHIVER_COMMAND"),
+            apply_seconds=apply_every,
         )

@@ -14,7 +14,8 @@ wires the pieces the other modules keep apart:
   answer, and the share's clone is fast-forwarded from the service's
   repository;
 - the **timer**: the inbox every ``reconcile_seconds``, a fetch every
-  ``fetch_seconds`` (how a merge on GitHub takes effect with nobody in the
+  ``fetch_seconds``, the queued applies every ``apply_seconds`` on a
+  thread of their own (:meth:`CommitPath.settle_queued`) (how a merge on GitHub takes effect with nobody in the
   editor);
 - the **credential**: the GitHub App's installation token for git and its
   pull requests when the App is configured, else git's own (a deploy key)
@@ -85,6 +86,7 @@ class CommitPath:
         #: Present while the live checkout's first commit was never checked (see :meth:`start`).
         self.unverified_marker = settings.state_dir / "UNVERIFIED"
         self._share_thread: threading.Thread | None = None
+        self._settle_thread: threading.Thread | None = None
 
     @property
     def unverified(self) -> bool:
@@ -253,6 +255,42 @@ class CommitPath:
                 self.log.add(Row(source="published", who=self.settings.inbox_author, kind=r.kind, path=r.path, commit=r.commit, state=answer.state, detail=answer.detail))  # fmt: skip
         return results
 
+    def settle_queued(self) -> int:
+        """Do the queued applies (one pass, the applier's :meth:`~log.Applier.settle`); how many rows were tried.
+
+        Only rows already queued when the pass begins: their commits are in
+        the live checkout, so the reopen or onboard that follows reads them.
+        The repository's lock is held through the pass, so no fast-forward
+        rewrites a file while the worker or the archiver reads it (a save or
+        a publish waits for it; a read serves the last accepted main after
+        its bounded wait). A row whose answer changed gets a newer line.
+        """
+        rows = [r for r in self.log.rows(limit=10_000) if r.state == "queued"]
+        if not rows:
+            return 0
+        with self.repo.lock:
+            answers = self.applier.settle([(r.kind, r.path) for r in rows])
+        for row, answer in zip(rows, answers):
+            if (answer.state, answer.detail) != (row.state, row.detail):
+                self.log.add(row.model_copy(update={"state": answer.state, "detail": answer.detail}))  # fmt: skip
+        return len(rows)
+
+    def _settle_in_background(self) -> None:
+        """Start a settle pass on its own thread unless one is running (a reopen takes a minute)."""
+        if self._settle_thread is not None and self._settle_thread.is_alive():
+            return
+
+        def run() -> None:
+            try:
+                self.settle_queued()
+            except (
+                Exception
+            ):  # the thread outlives any one failure; the next pass retries
+                logger.exception("the configurator's apply pass")
+
+        self._settle_thread = threading.Thread(target=run, name="configurator-apply", daemon=True)  # fmt: skip
+        self._settle_thread.start()
+
     def fetch(self) -> None:
         """Fetch and apply what main gained (the gate decides); a failure waits for the next tick."""
         try:
@@ -262,12 +300,13 @@ class CommitPath:
 
     def run(self, stop: threading.Event) -> None:
         """The timer: the inbox every ``reconcile_seconds``, a fetch every ``fetch_seconds``, until ``stop``."""
-        every, fetch_every = (
+        every, fetch_every, apply_every = (
             self.settings.reconcile_seconds,
             self.settings.fetch_seconds,
+            self.settings.apply_seconds,
         )
-        tick = min(t for t in (every, fetch_every) if t > 0)
-        last_fetch = time.monotonic()
+        tick = min(t for t in (every, fetch_every, apply_every) if t > 0)
+        last_fetch = last_apply = time.monotonic()
         while not stop.wait(tick):
             try:
                 if every > 0:
@@ -275,6 +314,9 @@ class CommitPath:
                 if fetch_every > 0 and time.monotonic() - last_fetch >= fetch_every:
                     last_fetch = time.monotonic()
                     self.fetch()
+                if apply_every > 0 and time.monotonic() - last_apply >= apply_every:
+                    last_apply = time.monotonic()
+                    self._settle_in_background()
             except (
                 Exception
             ):  # the timer outlives any one failure; the next tick retries

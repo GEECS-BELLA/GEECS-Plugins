@@ -27,6 +27,11 @@ httpx = ">=0.27"
 pytest = ">=8.0"
 httpx = ">=0.27"
 geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testing"] }
+# The scanner, DEV-ONLY: the contract tests mount its demo app, so a route the
+# configurator calls (the reopen, the trigger-profile dry run, the readback,
+# Save as preset's calls back here) breaks this suite in the same PR. Never
+# imported by the package (the configurator-edges contract).
+geecs-scanner = { path = "../GeecsScanner", develop = true }
 
 [tool.poetry.scripts]
 geecs-configurator = "geecs_configurator.__main__:main"

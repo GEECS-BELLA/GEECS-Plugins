@@ -32,6 +32,8 @@ root can be browsed), `_BIND` (127.0.0.1), `_PORT` (8800), `_CORS_ORIGINS`
 | `POST /api/validate/{kind}` | `{document, id?}` → errors at pydantic locations |
 | `POST /api/diff/{kind}/{id}?experiment=` | `{document}` → the changes against the stored one, each with its tier, and the strictest |
 | `POST /api/yaml` | `{document}` → its YAML |
+| `POST /api/dry-run/{kind}?experiment=` | `{document}` → the kind's consumer check of the unsaved draft (the scanner's trigger-profile preflight, the archiver's `onboard --dry-run --policy`), or `ran: false` and why; a save runs it first and a refusal is its 422 |
+| `GET /api/readback?variable=` | one live readback of `Device:Variable`, through the scanner |
 
 ## Deploy
 
@@ -39,5 +41,5 @@ A unit template (`deploy/geecs-configurator.service`) rendered from site.env
 by `deploy/render_units.sh`; `deploy/bootstrap_host.sh --only configurator`
 clones `configurator-checkout`, installs and prints the enable step. Site keys:
 `GEECS_CONFIGURATOR_PORT` (unset: not deployed), `_BIND`, `_CORS_ORIGINS`,
-`_EXTRA_ARGS`. The Control Room's launcher links to it through
+`_EXTRA_ARGS`. The applies and dry runs: `_SCANNER_URL`, `_ARCHIVER_COMMAND`, `_APPLY_SECONDS`; the configs-root switch is `DEPLOYMENT.md`. The Control Room's launcher links to it through
 `GEECS_CONTROL_ROOM_CONFIG_EDITOR_URL`.

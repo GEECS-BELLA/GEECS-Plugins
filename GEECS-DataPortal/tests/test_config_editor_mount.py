@@ -93,6 +93,22 @@ class TestOptIn:
         assert [s["step"] for s in on_disk["steps"]] == ["roi"]
         assert "UC_Crop" in client.get("/api/run/uid-002").json()["processing_options"]
 
+    def test_read_only_refuses_every_save_and_writes_nothing(
+        self, scan_folder, configs_tree
+    ):
+        """The interval after the configs-root switch: the configurator's checkout is never written."""
+        client = _client(
+            scan_folder, configs_tree, config_editor=True, config_editor_read_only=True
+        )
+        path = configs_tree / "analyzers" / "HTU" / "UC_Crop.yaml"
+        before = path.read_text()
+        loaded = client.get("/configs/api/analyzers/UC_Crop").json()
+        r = client.put(
+            "/configs/api/analyzers/HTU/UC_Crop",
+            json={"document": loaded["document"], "etag": loaded["etag"]},
+        )
+        assert r.status_code == 405 and path.read_text() == before
+
     def test_nothing_touches_the_scan_folder(self, scan_folder, configs_tree):
         client = _client(scan_folder, configs_tree, config_editor=True)
         before = set(scan_folder.rglob("*"))
