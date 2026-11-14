@@ -143,6 +143,39 @@ def _value(RE, signal) -> Any:
 
 def test_the_namespace_is_its_settable_factory(namespace) -> None:
     assert isinstance(namespace, SettableFactory)
+    assert (
+        namespace.get_settable("U_148_PLC", "DO.Ch9") is namespace["U_148_PLC"].do_ch9
+    )
+    assert (
+        namespace.get_readable("U_148_PLC", "DI.Ch17") is namespace["U_148_PLC"].di_ch17
+    )
+    with pytest.raises(GeecsConfigurationError, match="not settable"):
+        namespace.get_settable("U_148_PLC", "DI.Ch17")
+    with pytest.raises(GeecsConfigurationError, match="no served scalar variable"):
+        namespace.get_readable("U_148_PLC", "Nope")
+    with pytest.raises(GeecsConfigurationError, match="no device"):
+        namespace.get_settable("U_Missing", "X")
+
+
+def test_native_save_controls_are_refused_by_name() -> None:
+    roster = DeviceRoster(
+        experiment="TestExp",
+        variables={
+            "UC_Cam": [
+                row("MeanCounts"),
+                row("trigger", settable=True, choices="on,off"),
+                row("save", settable=True, choices="on,off"),
+                row("localsavingpath", settable=True, choices="path"),
+            ]
+        },
+        subscribed={"UC_Cam": ["MeanCounts"]},
+    )
+    ns = GeecsNamespace(roster, file_plugin_hosts=None)
+    assert ns["UC_Cam"].native_save
+    with pytest.raises(GeecsConfigurationError, match="native saving"):
+        ns.get_settable("UC_Cam", "localsavingpath")
+    with pytest.raises(GeecsConfigurationError, match="native saving"):
+        ns.get_settable("UC_Cam", "save")
 
 
 def test_a_setup_sets_and_checks_in_order_and_opens_no_run(RE, namespace, commands) -> None:  # fmt: skip

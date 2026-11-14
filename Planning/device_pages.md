@@ -179,7 +179,7 @@ own, so each is the module's to give or is dropped:
 - the supply's **HIHI/LOLO pre-refusal** (GeecsPanels refuses a setpoint at or
   past `HIHI`/`LOLO` when that severity is INVALID; the module's bounds are the
   drive limits only): OWED to the module's gates (`gates._bounds`), where every
-  page and action plan gets it; until then the IOC's `IVOA` is the refusal;
+  page and setup gets it; until then the IOC's `IVOA` is the refusal;
 - GeecsPanels' bench file (`allow`, `note`, bench supplies), `--scope
   NAME=PREFIX`, `--read-only` and its own CA writes: the module's policy and
   `panel_devices.yaml` replace them.

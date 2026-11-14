@@ -135,7 +135,7 @@ def test_expired_best_is_refused_and_reported(
         service.set_optimization_best(SetBestIn(run_uid="run"))
 
 
-@pytest.mark.parametrize("plan", ["mv", "run_action"])
+@pytest.mark.parametrize("plan", ["mv", "apply_setup"])
 def test_non_run_item_invalidates_best(service, manager, completed_best, plan):
     service._queue_item(
         plan, ["U_S1H.current", 0.0] if plan == "mv" else ["test"], {}, what="test"

@@ -57,7 +57,10 @@ def test_idle_only_items_refuse_while_a_plan_runs_or_waits(
     _start_a_scan(client, preset_doc)
     for path, body in (
         ("/api/move", {"variable": "S1H current", "value": 0}),
-        ("/api/actions/close_shutters/run", {}),
+        (
+            "/api/setups/shutters_closed/apply",
+            {"operator": "ada", "acknowledged": ["*"]},
+        ),
         ("/api/calibration/check", {"devices": ["UC_ALineEBeam3", "U_ICT"]}),
         ("/api/calibration/measure", {"devices": ["UC_ALineEBeam3", "U_ICT"]}),
     ):
@@ -90,53 +93,6 @@ def test_idle_only_items_refuse_while_a_plan_runs_or_waits(
     assert r.status_code == 409
     assert r.json()["error"]["items_in_queue"] == 1
     assert "clear the queue" in r.json()["error"]["message"]
-
-
-# --------------------------------------------------------------- actions
-
-
-def test_actions_list_and_preview_inline_nested_runs(client: TestClient) -> None:
-    rows = {a["name"]: a for a in client.get("/api/actions").json()}
-    assert (
-        rows["close_shutters"]["steps"] == 4
-        and rows["close_shutters"]["problem"] is None
-    )
-    assert rows["experiment_closeout"]["steps"] == 5
-    assert rows["experiment_closeout"]["nested"] == ["close_shutters"]
-    assert "no_such_plan" in rows["broken_reference"]["problem"]
-    d = client.get("/api/actions/experiment_closeout").json()
-    assert [s["do"] for s in d["steps"]] == ["set", "set", "set", "wait", "check"]
-    assert [s["from_plan"] for s in d["steps"]] == [None] + ["close_shutters"] * 4
-    assert d["steps"][0]["text"] == "set U_S1H:current = 0.0"
-    assert d["steps"][1]["text"] == "set U_148_PLC:shutter1 = 'off'"
-    assert d["steps"][3]["text"] == "wait 2 s"
-    assert d["writes"] == 3
-    assert client.get("/api/actions/no_such").status_code == 404
-    r = client.get("/api/actions/broken_reference")
-    assert r.status_code == 400 and "no_such_plan" in r.json()["error"]["message"]
-    # a loop: the library validator lets it through, the flatten must not
-    assert (
-        "in a loop" in rows["loop_a"]["problem"]
-        and "in a loop" in rows["loop_b"]["problem"]
-    )
-    r = client.get("/api/actions/loop_a")
-    assert r.status_code == 400 and "in a loop" in r.json()["error"]["message"]
-    assert client.post("/api/actions/loop_a/run").status_code == 400
-
-
-def test_run_action_queues_run_action_and_refuses_an_unresolvable_one(
-    client: TestClient, manager: DemoQueueClient
-) -> None:
-    r = client.post("/api/actions/experiment_closeout/run", json={"operator": "sam"})
-    assert r.status_code == 200, r.text
-    assert r.json()["plan"] == "run_action"
-    assert r.json()["summary"] == "action experiment_closeout"
-    manager.step()
-    done = client.get("/api/queue").json()["finished"][0]
-    assert done["plan"] == "run_action" and "ran to completion" in done["detail"]
-    assert client.post("/api/actions/broken_reference/run").status_code == 400
-    assert client.post("/api/actions/nope/run").status_code == 404
-    assert client.get("/api/status").json()["items_in_queue"] == 0
 
 
 # ----------------------------------------------------------- calibration

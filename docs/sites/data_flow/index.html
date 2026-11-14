@@ -339,7 +339,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <g class="n" data-id="schemas" tabindex="0" role="button" aria-label="GEECS-Schemas: open details">
     <rect class="node-contract" x="580" y="612" width="600" height="44" rx="6"/>
     <text class="t-title" x="594" y="630">GEECS-Schemas</text>
-    <text class="t-sub" x="594" y="646">the typed contract this half shares: ScanRequest · save sets · scan variables · trigger profiles · action plans · analysis configs</text>
+    <text class="t-sub" x="594" y="646">the typed contract this half shares: ScanRequest · save sets · scan variables · trigger profiles · setups · analysis configs</text>
     <circle class="st st-hardening" cx="1170" cy="622" r="4"/>
   </g>
   <text class="t-sub" x="30" y="630">Two sources of truth, one per half.</text>
@@ -603,7 +603,7 @@ const INFO = {
   "name": "GEECS Scanner",
   "role": "The operator front end. A web page on the worker host; replaced the PySide6 GEECS-Console (deleted 2026-09-14).",
   "status": "hardening",
-  "does": "Where an operator picks or composes a scan, submits it to the queue, watches it live, moves a device, runs an action plan, and checks the shot-offset calibration. It owns no engine.",
+  "does": "Where an operator picks or composes a scan, submits it to the queue, watches it live, moves a device, applies a setup, and checks the shot-offset calibration. It owns no engine.",
   "how": [
    "A FastAPI service on port 8300 over `geecs_bluesky.qs_client`: a pure-Python service layer answers every verb as a Pydantic model; a JSON API and a Server-Sent-Events stream sit on top; one Jinja page on the GEECS surface kit renders it.",
    "The submission document is a preset (device group, plan call, trigger profile). The scanner expands it with the same `expand_preset` every client uses and binds no device itself; preflight questions must be acknowledged before a submit.",
@@ -738,7 +738,7 @@ const INFO = {
  "name": "GEECS-Schemas",
  "role": "The typed vocabulary for describing a scan and an analysis. Pydantic only, importable from anywhere.",
  "status": "hardening",
- "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, action plans, derived channels, and now the analysis configs. Scanner, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is. (GEECS-MCP no longer imports them: since geecs-mcp 0.10.0 it is an HTTP client of the scanner, the portal and the logbook, and the services validate every document it passes through.)",
+ "does": "Defines, as versioned Pydantic models, every config kind the platform runs on: the ScanRequest itself, save sets, scan variables, trigger profiles, setups, derived channels, and now the analysis configs. Scanner, engine, portal, ScanAnalysis and the docs generator all import the same models, so they cannot disagree about what a scan is. (GEECS-MCP no longer imports them: since geecs-mcp 0.10.0 it is an HTTP client of the scanner, the portal and the logbook, and the services validate every document it passes through.)",
  "how": [
   "Configs are schemas; YAML is just their serialization. The configs repo holds the YAML, this package holds the meaning.",
   "Declare intent, derive mechanics. Device facts such as limits, units and enum choices live in the GEECS DB and are never repeated in YAML. Unknown keys fail loudly (`extra=\"forbid\"`).",

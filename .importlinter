@@ -383,7 +383,6 @@ forbidden_modules =
     geecs_bluesky.callbacks
     geecs_bluesky.preprocessors
     geecs_bluesky.db_runtime
-    geecs_bluesky.actions.compiler
     geecs_bluesky.optimization.driver
     geecs_bluesky.optimization.generators
     geecs_bluesky.optimization.measurements
@@ -416,11 +415,10 @@ forbidden_modules =
 # ---------------------------------------------------------------------------
 
 [importlinter:contract:bluesky-client-side-is-light]
-name = GeecsBluesky's client-side modules (qs_client, actions.steps, optimization.events, plan_names, native_scope, log_markers, utils) never import bluesky, ophyd-async, aioca or xopt
+name = GeecsBluesky's client-side modules (qs_client, optimization.events, plan_names, native_scope, log_markers, utils) never import bluesky, ophyd-async, aioca or xopt
 type = forbidden
 source_modules =
     geecs_bluesky.qs_client
-    geecs_bluesky.actions.steps
     geecs_bluesky.optimization.events
     geecs_bluesky.plan_names
     geecs_bluesky.native_scope

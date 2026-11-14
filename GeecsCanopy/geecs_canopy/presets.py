@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import yaml
-from geecs_schemas import SCREENS_DIRNAME, JournalEntry, Screen, SetStep
+from geecs_schemas import SCREENS_DIRNAME, JournalEntry, Screen, SetupSetStep
 from pydantic import ValidationError
 
 from geecs_canopy.actions import Executor, Run, split_variable
@@ -96,6 +96,11 @@ def same(saved: Any, live: Any, abs_tol: float, rel_tol: float) -> bool:
     if is_number(saved) and is_number(live):
         return abs(saved - live) <= max(abs_tol, rel_tol * abs(saved)) or math.isclose(saved, live)  # fmt: skip
     return saved == live
+
+
+def _setup_value(saved: Any) -> Any:
+    """A saved value as a setup step takes it: a boolean as its integer (a step refuses ``True``, YAML's ``on``)."""
+    return int(saved) if isinstance(saved, bool) else saved
 
 
 @dataclass
@@ -301,5 +306,5 @@ class Presets:
         if not chosen:
             counts = ", ".join(f"{sum(r.word == w for r in rows)} {w}" for w in (SAME, *_COUNTED) if any(r.word == w for r in rows))  # fmt: skip
             raise Refusal(409, "nothing_to_restore", f"no row in scope differs from its saved value ({counts or 'no rows in scope'})")  # fmt: skip
-        steps = [SetStep(do="set", device=r.entry.device, variable=r.entry.role, value=r.saved) for r in chosen if r.entry]  # fmt: skip
+        steps = [SetupSetStep(do="set", device=r.entry.device, variable=r.entry.role, value=_setup_value(r.saved)) for r in chosen if r.entry]  # fmt: skip
         return await self.actions.submit(f"restore:{snapshot_id}", steps, operator, confirm, key_name)  # fmt: skip

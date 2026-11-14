@@ -17,7 +17,7 @@ Every page's header carries a **Docs** link back to its page here.
     ---
 
     Run scans. Pick a preset or compose a scan, start it, watch it shot
-    by shot, pause or stop it; move a device, run an action plan, check
+    by shot, pause or stop it; move a device, apply a setup, check
     shot-offset calibration.
 
     [:octicons-arrow-right-24: GEECS Scanner](scanner.md)

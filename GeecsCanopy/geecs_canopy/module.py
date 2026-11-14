@@ -27,12 +27,10 @@ from typing import Any
 import yaml
 from geecs_core.configs_repo import EXPERIMENTS_SUBDIR, settled_exists
 from geecs_schemas import (
-    ACTION_LIBRARY_FILENAME,
-    ACTION_LIBRARY_FOLDER,
     OPERATOR_POLICY_FILENAME,
-    ActionPlanLibrary,
     OperatorPolicy,
-    load_action_library,
+    Setup,
+    load_setups,
 )
 
 from geecs_canopy.freshness import Tracker, watched_pvs
@@ -82,8 +80,8 @@ class DevicesUnavailable(Exception):
     """The device documents cannot be read or do not validate."""
 
 
-class LibraryUnavailable(Exception):
-    """The experiment's action library cannot be read or does not validate."""
+class SetupsUnavailable(Exception):
+    """The experiment's setups cannot be read or do not validate."""
 
 
 class Module:
@@ -110,8 +108,8 @@ class Module:
         self._watched: set[str] = set()
         self._tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
-        self._library_at, self._library = -math.inf, ActionPlanLibrary(plans={})
-        self._library_error: str | None = None
+        self._setups_at, self._setups = -math.inf, dict[str, Setup]()
+        self._setups_error: str | None = None
 
     async def start(self) -> None:
         """Read and subscribe the devices (the DB's too), so judging starts before the first request."""
@@ -200,18 +198,15 @@ class Module:
 
         return await asyncio.wait_for(asyncio.to_thread(read), _READ_TIMEOUT_S)
 
-    async def action_library(self) -> ActionPlanLibrary:
-        """The experiment's action library (none: empty), re-read at most every ``reload_s``; raise ``LibraryUnavailable`` while it does not validate."""
-        if self._clock() - self._library_at >= self.settings.reload_s:
-            self._library_at = self._clock()
-            path = (
-                self.settings.folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME
-            )
-            reading = asyncio.to_thread(load_action_library, path)
+    async def setups(self) -> dict[str, Setup]:
+        """The experiment's setups by name (no ``setups/``: none), re-read at most every ``reload_s``; raise ``SetupsUnavailable`` while one does not validate."""
+        if self._clock() - self._setups_at >= self.settings.reload_s:
+            self._setups_at = self._clock()
+            reading = asyncio.to_thread(load_setups, self.settings.folder)
             try:
-                self._library, self._library_error = await asyncio.wait_for(reading, _READ_TIMEOUT_S), None  # fmt: skip
+                self._setups, self._setups_error = await asyncio.wait_for(reading, _READ_TIMEOUT_S), None  # fmt: skip
             except (OSError, ValueError, TimeoutError, yaml.YAMLError) as exc:
-                self._library_error = f"{path.name} does not validate: {exc}"
-        if self._library_error is not None:
-            raise LibraryUnavailable(self._library_error)
-        return self._library
+                self._setups_error = f"the setups do not validate: {exc}"
+        if self._setups_error is not None:
+            raise SetupsUnavailable(self._setups_error)
+        return self._setups

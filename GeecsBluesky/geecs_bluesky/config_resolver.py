@@ -5,10 +5,8 @@ production implementation over the real configs-repo layout
 (``scanner_configs/experiments/<Experiment>/``).  A YAML file carrying a
 ``schema_version`` key loads as the new schema directly; trigger profiles
 without one are converted from their legacy dialect via
-:mod:`geecs_schemas.convert`.  Presets, scan-variable catalogs and action
-libraries are new-schema only (the legacy save elements, scan presets and
-action libraries were regenerated once as ``Preset`` and
-``ActionPlanLibrary`` documents; no converter remains for them).
+:mod:`geecs_schemas.convert`.  Presets, scan-variable catalogs and setups
+are new-schema only (no converter remains for them).
 
 The client seam expands a preset into a plan queue item
 (:mod:`geecs_bluesky.qs_client.presets`).
@@ -35,8 +33,6 @@ from geecs_core.configs_repo import (
     settled_exists,
 )
 from geecs_schemas import (
-    ActionPlan,
-    ActionPlanLibrary,
     EXPERIMENT_DEFAULTS_FILENAME,
     NATIVE_DEVICES_FILENAME,
     OPERATOR_POLICY_FILENAME,
@@ -60,7 +56,6 @@ from geecs_schemas import (
     ShotOffsets,
     TriggerProfile,
 )
-from geecs_schemas.action_plan import ACTION_LIBRARY_FILENAME, ACTION_LIBRARY_FOLDER
 from geecs_schemas.convert import convert_shot_control
 from geecs_schemas.setup import load_setups
 
@@ -101,10 +96,6 @@ class ConfigResolver(Protocol):
         """Return the scan-variable entry called *name*."""
         ...
 
-    def resolve_action_plan(self, name: str) -> ActionPlan:
-        """Return the action plan called *name*."""
-        ...
-
     def resolve_shot_offsets(self) -> ShotOffsets | None:
         """Return the measured drain offsets, or ``None`` if never measured.
 
@@ -118,9 +109,8 @@ class ConfigResolver(Protocol):
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
         """Return the experiment's defaults, or ``None`` if none are declared.
 
-        Defaults apply where the request is silent (default trigger
-        profile; default setup/closeout plans prepended); what was applied
-        is recorded for provenance (see the client-side preset expansion,
+        Defaults apply where the request is silent (the default trigger
+        profile); what was applied is recorded for provenance (see the client-side preset expansion,
         :mod:`geecs_bluesky.qs_client.presets`).
         Resolvers without this method are tolerated (no defaults).
         """
@@ -138,8 +128,8 @@ class ConfigsRepoResolver:
     - ``shot_control_configurations/<name>.yaml`` — trigger profiles
     - ``scan_devices/scan_variables.yaml`` — the scan-variable catalog
       (new schema only)
-    - ``action_library/actions.yaml`` — the action-plan library (new
-      schema only; the legacy ``actions:`` dialect is refused)
+    - ``setups/<name>.yaml`` — setups (``geecs_schemas.Setup``), read
+      fresh for each item
     - ``optimizer_configs/<name>.yaml`` — validated native ``OptimizerConfig``
       documents, read fresh for each request.
 
@@ -169,7 +159,6 @@ class ConfigsRepoResolver:
     # aliases keep the resolver's own spelling for its callers and tests.
     TRIGGER_FOLDER = TRIGGER_PROFILES_FOLDER
     SCAN_VARIABLES_FOLDER = SCAN_VARIABLES_FOLDER
-    ACTION_FOLDER = ACTION_LIBRARY_FOLDER
     PRESET_FOLDER = PRESETS_FOLDER
     OPTIMIZER_FOLDER = OPTIMIZER_CONFIGS_FOLDER
 
@@ -462,55 +451,6 @@ class ConfigsRepoResolver:
                 f"{sorted(catalog.variables)}"
             ) from None
 
-    def _action_library(self) -> ActionPlanLibrary:
-        """Load the experiment's action-plan library — from disk on every call.
-
-        Not cached: the worker holds one resolver for its lifetime and
-        ``run_action`` resolves through it, so a plan edited by hand in
-        ``actions.yaml`` must be what the next queue item runs.  One small
-        YAML per item.
-        """
-        path = self._root / self.ACTION_FOLDER / ACTION_LIBRARY_FILENAME
-        document = self._load_yaml(path, "action library", "actions")
-        if not document:
-            # An empty file (a fresh experiment's placeholder) is an empty
-            # library.  ``_load_yaml`` maps YAML ``None`` to ``{}``, so a
-            # literal ``{}`` reads the same way here.
-            return ActionPlanLibrary(plans={})
-        # A legacy 'actions:' document is refused by the schema itself
-        # (ActionPlanLibrary's before-validator names the regeneration).
-        return ActionPlanLibrary.model_validate(document)
-
-    def resolve_action_plan(self, name: str) -> ActionPlan:
-        """Look up the action plan *name* in the experiment library.
-
-        Raises
-        ------
-        GeecsConfigurationError
-            Unknown name (the error lists the known plans).
-        """
-        library = self._action_library()
-        try:
-            return library.plans[name]
-        except KeyError:
-            raise GeecsConfigurationError(
-                f"action plan {name!r} is not in the {self._experiment!r} "
-                f"action library. Known plans: {sorted(library.plans)}"
-            ) from None
-
-    def action_plan_registry(self) -> dict[str, ActionPlan]:
-        """Return every named plan visible to nested ``run`` steps (the library).
-
-        Empty when the experiment has no ``actions.yaml`` at all; an
-        unreadable or legacy-dialect file **raises** (a listing that read
-        empty would hide the regeneration a legacy file needs).
-        """
-        if not settled_exists(
-            self._root / self.ACTION_FOLDER / ACTION_LIBRARY_FILENAME
-        ):
-            return {}
-        return dict(self._action_library().plans)
-
     # ------------------------------------------------------------------
     # Setups (``setups/<name>.yaml``, read from disk on every call)
     # ------------------------------------------------------------------
@@ -518,7 +458,7 @@ class ConfigsRepoResolver:
     def setups(self) -> dict[str, Setup]:
         """Every setup of the experiment by name; no ``setups`` folder is none.
 
-        Not cached, like the action library: an item applies what is
+        Not cached: an item applies what is
         committed when it runs. One unreadable file refuses them all
         (an ``apply`` step may name any of them).
 

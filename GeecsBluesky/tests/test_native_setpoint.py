@@ -28,9 +28,9 @@ from bluesky.utils import FailedStatus
 from ophyd_async.core import callback_on_mock_put, get_mock_put, set_mock_value
 
 from geecs_schemas import NativeDevices
-from geecs_schemas.action_plan import ActionPlan
+from geecs_schemas import Setup
 
-from geecs_bluesky.actions.compiler import compile_action_plan
+from geecs_bluesky.plans.apply_setup import apply_setup_plan
 from geecs_bluesky.devices import native_setpoint
 from geecs_bluesky.devices.native_setpoint import NativeSetpoint, NativeSetpointDevice
 from geecs_bluesky.exceptions import (
@@ -115,7 +115,7 @@ def test_each_settable_is_a_child_found_like_a_settable() -> None:
     assert current.status_fault.source == "ca://testexp:u_vs1h:fault"
     assert current.status_interlock.source == "ca://testexp:u_vs1h:interlock"
     # Every lookup a CaMotor child answers to — the DB's spelling ``Current``
-    # (an action library's ``variable: Current``) included.
+    # (a setup's ``variable: Current``) included.
     for spelling in ("current", "Current", "CURRENT"):
         assert ns.variable("U_VS1H", spelling) is current
         assert ns.get_settable("U_VS1H", spelling) is current
@@ -365,9 +365,7 @@ def test_the_set_reads_the_records_not_the_monitor_cache(RE) -> None:
     assert calls and all(c is False for c in calls)
 
 
-def test_mv_and_an_action_step_set_the_supply_and_a_refusal_is_named(
-    RE, caplog
-) -> None:
+def test_mv_and_a_setup_step_set_the_supply_and_a_refusal_is_named(RE, caplog) -> None:
     """``{do: set, device: U_VS1H, variable: Current, value: 0}`` — the configs' own step."""
     ns = GeecsNamespace(
         ROSTER, file_plugin_hosts=None, native_devices=_registry(U_VS1H=SUPPLY)
@@ -379,14 +377,23 @@ def test_mv_and_an_action_step_set_the_supply_and_a_refusal_is_named(
     set_mock_value(supply.current.readback, 1.0)
     _follows(supply.current)
     RE(_mv_named(supply.current, 3.0))
-    plan = ActionPlan.model_validate(
+    zero = Setup.model_validate(
         {
+            "name": "zero",
             "steps": [
                 {"do": "set", "device": "U_VS1H", "variable": "Current", "value": 0}
-            ]
+            ],
         }
     )
-    RE(compile_action_plan(plan, registry={}, settables=ns))
+
+    class _OneSetup:
+        def resolve_setup(self, name):
+            return zero, {"zero": zero}
+
+        def setup_repo_path(self, name):
+            return "setups/zero.yaml"
+
+    RE(apply_setup_plan(_OneSetup(), ns)("zero"))
     assert _run(RE, supply.current.readback.get_value) == 0.0
     with caplog.at_level(logging.ERROR, logger=native_setpoint.__name__):
         with pytest.raises(FailedStatus) as caught:

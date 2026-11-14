@@ -1,33 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$defs": {
-    "DefaultActions": {
-      "additionalProperties": false,
-      "description": "The action plans every scan of the experiment runs by default.\n\nThese bracket whatever the scan itself asks for: default setup runs\nfirst, then the scan's own plans; default closeout runs last, after the\nscan's own \u2014 teardown mirrors setup.",
-      "properties": {
-        "setup": {
-          "description": "Names of action plans to run before every scan, ahead of any setup plans the scan itself lists.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Setup",
-          "type": "array"
-        },
-        "closeout": {
-          "description": "Names of action plans to run after every scan, after any closeout plans the scan itself lists (teardown mirrors setup: these are the outermost bracket).",
-          "items": {
-            "type": "string"
-          },
-          "title": "Closeout",
-          "type": "array"
-        }
-      },
-      "title": "DefaultActions",
-      "type": "object"
-    }
-  },
   "additionalProperties": false,
-  "description": "Per-experiment fallbacks applied where a scan request is silent.\n\nDeclares the trigger profile and routine action plans most scans share,\nso individual scan requests stay short.  Defaults never override what a\nscan says explicitly: a default trigger profile applies only when the\nscan names none, and default plans bracket the scan's own \u2014 defaults\nrun first on setup and last on closeout.",
+  "description": "Per-experiment fallbacks applied where a scan request is silent.\n\nDeclares the trigger profile most scans share, so individual presets\nstay short.  Defaults never override what a scan says explicitly: a\ndefault trigger profile applies only when the scan names none.",
   "properties": {
     "schema_version": {
       "default": 1,
@@ -53,10 +27,6 @@
       "description": "Whether cameras whose frames the PVA gateway's file plugin captures also write their LabVIEW per-shot files (PNGs) when a scan does not say (the preset's 'native_image_save' unset). On by default: the dual-write is the rollout's parity evidence until PNG retirement (GEECS-Plugins#738). Set false to run the experiment on the plugin's HDF5 stacks alone; a device without a file plugin always keeps its native files. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment.",
       "title": "Native Image Save",
       "type": "boolean"
-    },
-    "actions": {
-      "$ref": "#/$defs/DefaultActions",
-      "description": "Action plans every scan runs by default \u2014 setup plans run first (before the scan's own), closeout plans run last (after the scan's own)."
     },
     "apply_db_scan_defaults": {
       "default": true,

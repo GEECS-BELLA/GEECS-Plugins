@@ -50,7 +50,7 @@
         <a href="#submit">New scan</a>
         <a href="#queue">Queue</a>
         <a href="#devices">Devices</a>
-        <a href="#actions">Actions</a>
+        <a href="#setups">Setups</a>
         <a href="#calib">Calibration</a>
       </nav>
     </div>
@@ -288,30 +288,30 @@
         <footer class="eyebrow">readback = what the device reports over the gateway, not the setpoint · the request stores the canonical Device:Variable</footer>
       </section>
 
-      <section id="actions" class="panel" aria-labelledby="a-h">
+      <section id="setups" class="panel" aria-labelledby="a-h">
         <header>
-          <span class="eyebrow" id="a-h">actions</span>
-          <span class="chip" data-state="unknown" id="act-chip">disarmed</span>
+          <span class="eyebrow" id="a-h">setups</span>
+          <span class="chip" data-state="unknown" id="setup-chip">disarmed</span>
         </header>
         <div class="body">
           <div class="fields">
-            <div class="field wide"><label for="action">action plan</label><select id="action"></select><span class="hint" id="actions-note">Loading the action library…</span></div>
+            <div class="field wide"><label for="setup">setup</label><select id="setup"></select><span class="hint" id="setups-note">Loading the setups…</span></div>
           </div>
-          <div class="group" id="action-preview-group" hidden>
+          <div class="group" id="setup-preview-group" hidden>
             <div class="row">
-              <span class="eyebrow" id="action-preview-title">preview</span>
+              <span class="eyebrow" id="setup-preview-title">preview</span>
               <span class="spacer"></span>
-              <span class="dim note" id="action-writes"></span>
+              <span class="dim note" id="setup-writes"></span>
             </div>
-            <ol class="well steps" id="action-steps"></ol>
+            <ol class="well steps" id="setup-steps"></ol>
           </div>
         </div>
         <footer>
           <div class="row">
-            <span class="dim note">Arm, then Run — a <code>run_action</code> queue item, idle only. Arming is never remembered.</span>
+            <span class="dim note">Arm, then Apply — an <code>apply_setup</code> queue item, idle only; its writes and hazard steps are confirmed first. Arming is never remembered.</span>
             <span class="spacer"></span>
-            <button class="btn sm" type="button" id="act-arm" disabled>Arm</button>
-            <button class="btn sm primary" type="button" id="act-run" disabled>Run</button>
+            <button class="btn sm" type="button" id="setup-arm" disabled>Arm</button>
+            <button class="btn sm primary" type="button" id="setup-apply" disabled>Apply</button>
           </div>
         </footer>
       </section>

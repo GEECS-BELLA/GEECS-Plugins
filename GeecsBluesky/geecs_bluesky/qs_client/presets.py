@@ -21,7 +21,7 @@ The manager passes an unknown device name through to the plan, so the
 expansion records every reference (:attr:`QueueItem.references`) for the
 preflight to check against the manager's device tree
 (:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`).
-A preset must name a scan verb; ``mv`` and ``run_action`` go through
+A preset must name a scan verb; ``mv`` and ``apply_setup`` go through
 ``submit_plan``.
 """
 
@@ -59,9 +59,9 @@ RUN_LEVEL_FIELDS: tuple[str, ...] = (
 )
 
 
-#: The plans a preset may name: the scan verbs.  ``mv`` and ``run_action``
+#: The plans a preset may name: the scan verbs.  ``mv`` and ``apply_setup``
 #: are queue items of their own (``submit_plan("mv", ["U_S1H.current",
-#: 0.0])``, ``submit_plan("run_action", ["Amp4_DUMP_HP"])``), never a
+#: 0.0])``, ``submit_plan("apply_setup", ["Amp4_DUMP_HP"])``), never a
 #: preset — neither takes a detector list.
 PRESET_PLAN_NAMES: tuple[str, ...] = tuple(
     n for n in GEECS_PLAN_NAMES if n not in NON_SCAN_PLAN_NAMES

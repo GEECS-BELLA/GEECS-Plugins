@@ -72,7 +72,7 @@
             }
           ],
           "default": null,
-          "description": "An action plan's name in the experiment's library: a button runs it.",
+          "description": "A setup's name (its file stem in setups/): a button applies it.",
           "title": "Action"
         },
         "group": {

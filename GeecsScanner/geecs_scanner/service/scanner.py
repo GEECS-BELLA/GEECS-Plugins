@@ -21,8 +21,7 @@ deliberately not here):
 - **Idle-only items** (a manual move, an action, a calibration) refuse
   while a plan runs **or anything waits**: the queue is started, so an
   item added behind a running or waiting scan would run by itself the
-  moment that scan ends — the surprise GEECS-MCP's ``run_action`` refuses
-  for the same reason.  The check and the add happen under the one lock.
+  moment that scan ends.  The check and the add happen under the one lock.
 - **Append behind a started queue only.**  ``append`` adds behind the
   waiting items while the queue is started; while it is stopped a failed
   item may sit at its front and an add would restart the queue and re-run
@@ -47,8 +46,6 @@ from typing import Any, Optional
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.trajectory import TrajectoryOut
 from geecs_scanner.service.models import (
-    ActionDetailOut,
-    ActionOut,
     CalibrationDeviceOut,
     CalibrationIn,
     CalibrationOut,
@@ -102,7 +99,6 @@ CONFIG_KINDS: dict[str, str] = {
     "trigger_profiles": "list_trigger_profiles",
     "optimizer_configs": "list_optimizer_configs",
     "scan_variables": "scan_variable_catalog",
-    "actions": "action_plan_registry",
     "setups": "setups",
 }
 
@@ -369,7 +365,7 @@ class ScannerService:
             ) from exc
         if kind == "scan_variables":
             names = sorted(result.variables)
-        elif kind in ("actions", "setups"):
+        elif kind == "setups":
             names = sorted(result)
         else:
             names = list(result)
@@ -635,57 +631,6 @@ class ScannerService:
         out.reference = reference
         return out
 
-    def actions(self) -> list[ActionOut]:
-        """The action library as the picklist shows it: name, step count, nested names."""
-        registry = self._action_registry()
-        out: list[ActionOut] = []
-        for name in sorted(registry):
-            plan = registry[name]
-            nested = [str(s.plan) for s in plan.steps if str(s.do) == "run"]
-            try:
-                from geecs_scanner.service.actions import flatten
-
-                steps, problem = len(flatten(name, plan, registry)), None
-            except ScannerError as exc:
-                steps, problem = len(plan.steps), exc.message
-            out.append(
-                ActionOut(
-                    name=name,
-                    description=str(getattr(plan, "description", "") or ""),
-                    steps=steps,
-                    nested=nested,
-                    problem=problem,
-                )
-            )
-        return out
-
-    def action(self, name: str) -> ActionDetailOut:
-        """The preview: every concrete step *name* would run, nested plans inlined."""
-        from geecs_scanner.service.actions import flatten
-
-        registry = self._action_registry()
-        plan = registry.get(name)
-        if plan is None:
-            raise ScannerError(
-                "not_found",
-                f"no action plan {name!r} in the library",
-                actions=sorted(registry),
-            )
-        steps = flatten(name, plan, registry)
-        return ActionDetailOut(
-            name=name,
-            description=str(getattr(plan, "description", "") or ""),
-            steps=steps,
-            writes=sum(1 for s in steps if s.do == "set"),
-        )
-
-    def run_action(self, name: str, body: VerbIn) -> ItemOut:
-        """Queue ``run_action(name)`` while nothing runs or waits; the preview must resolve first."""
-        self.action(name)  # not_found / an unresolvable nested run → refused here
-        if body.force:
-            logger.info("run_action %r forced by %s", name, body.operator or "unknown")
-        return self._queue_item("run_action", [name], {}, what=f"action {name!r}")
-
     # ------------------------------------------------------------ setups
 
     def setups(self) -> list[SetupOut]:
@@ -791,6 +736,9 @@ class ScannerService:
                 "enter your name (the operator) first: a setup is applied under it",
             )
         generation = self._reopen_guard()
+        # Refused before its questions: an operator never confirms writes that
+        # cannot be queued. The check that counts is repeated under the lock.
+        self._require_idle(f"setup {name!r}")
         flat = self._flattened(name)
         found = hazards(flat, resolver=self.resolver, db_families=self._db_families())
         asked = questions(flat, found)
@@ -1205,7 +1153,7 @@ class ScannerService:
             self._check_generation(generation)
             self._require_idle(what)
             result = self.client.submit_plan(name, args=args, kwargs=kwargs)
-            if result.ok and name in ("mv", "run_action", "apply_setup"):
+            if result.ok and name in ("mv", "apply_setup"):
                 self.streams.invalidate_optimization(
                     "hardware changed after this optimization"
                 )
@@ -1242,14 +1190,6 @@ class ScannerService:
                 "and it would run right after them — clear the queue first",
                 items_in_queue=snap.items_in_queue,
             )
-
-    def _action_registry(self) -> dict[str, Any]:
-        try:
-            return dict(self.resolver.action_plan_registry())
-        except Exception as exc:
-            raise ScannerError(
-                "internal_error", f"the action library could not be read: {exc}"
-            ) from exc
 
     def _setups(self) -> dict[str, Any]:
         try:

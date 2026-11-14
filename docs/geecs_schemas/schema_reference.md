@@ -170,7 +170,6 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 | `mode` | `ScanRequestMode` | yes | — | What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything. |
 | `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan. |
 | `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, trigger_profile=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, the telemetry toggle and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
-| `actions` | `ActionBindings` | no | ActionBindings(setup=[], per_step=[], closeout=[]) | Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout). |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
 
@@ -191,10 +190,6 @@ capture:
   acquisition: free_run
   save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
   trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_ebeam]
-  per_step: []
-  closeout: []
 description: "jet z scan with probe"
 # v1 documents (the capture fields flat at the top level) still validate —
 # they are lifted into this shape automatically.
@@ -238,16 +233,6 @@ How shots are taken and what gets recorded — the capture concern.
 | `save_sets` | `list[str]` | no | empty | Names of the save sets — reusable named device groups — recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping. |
 | `background_telemetry` | `bool (optional)` | no | None | Also log every other live experiment device as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger. |
-
-### ActionBindings
-
-Which named action plans run around (and inside) the scan.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `setup` | `list[str]` | no | empty | Plans to run once before the scan starts. |
-| `per_step` | `list[str]` | no | empty | Plans to run between scan steps — after each move, before the shots at that position. |
-| `closeout` | `list[str]` | no | empty | Plans to run once after the scan finishes (even on abort). |
 
 ## `scan_variables`
 
@@ -370,111 +355,6 @@ One device variable set during a state transition.
 | `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'Trigger.Source'. |
 | `value` | `str` | yes | — | The value to send, exactly as the device expects it — a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges'). |
 
-## `action_plan`
-
-Not a file: a sub-document: one plan inside the action library's file
-
-### ActionPlan
-
-An ordered checklist of steps the scanner runs for you.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `steps` | `list[SetStep \| WaitStep \| CheckStep \| RunPlanStep]` | yes | — | The steps to perform, in order from top to bottom. |
-| `description` | `str` | no | '' | Optional note to your future self about what this plan does and when to use it. |
-
-Example:
-
-```yaml
-schema_version: 1
-description: "Zero the pressure voltage and confirm the PLC output"
-steps:
-  - do: set
-    device: U_HP_Daq
-    variable: AnalogOutput.Channel 1
-    value: 0
-  - do: wait
-    seconds: 3
-  - do: check
-    device: U_148_PLC
-    variable: DI.Ch17
-    expected: "off"
-  - do: run
-    plan: close_gaia_internal_shutters
-```
-
-### SetStep
-
-One step that sets a device variable to a value.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'set'` | yes | — | Step type. 'set' writes a value to a device variable. |
-| `device` | `str` | yes | — | Name of the device to command, e.g. 'U_148_PLC'. |
-| `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'DO.Ch9'. |
-| `value` | `str \| float \| int` | yes | — | The value to write — a number, or a word the device understands such as 'on' or 'off'. |
-| `wait_for_execution` | `bool` | no | True | Wait for the device to confirm the change before moving to the next step. Leave on unless you know the step is fire-and-forget. |
-
-### WaitStep
-
-One step that simply pauses for a number of seconds.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'wait'` | yes | — | Step type. 'wait' pauses the plan for a fixed time. |
-| `seconds` | `float` | yes | — | How long to pause, in seconds (must be greater than 0). |
-
-### CheckStep
-
-One step that reads a device variable and verifies its value.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'check'` | yes | — | Step type. 'check' reads a device variable and stops the plan with an error if the value is not what you expected. |
-| `device` | `str` | yes | — | Name of the device to read, e.g. 'U_GaiaSVEReader'. |
-| `variable` | `str` | yes | — | Which variable on the device to read, e.g. 'InternalShutterA'. |
-| `expected` | `str \| float \| int` | yes | — | The value the reading must match for the plan to continue — a number or a word such as 'on'. |
-
-### RunPlanStep
-
-One step that runs another named action plan.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'run'` | yes | — | Step type. 'run' executes another named plan from the library. |
-| `plan` | `str` | yes | — | Name of the plan to run, as listed in the action library. |
-
-## `action_plan_library`
-
-Tier: `operator` · File: `scanner_configs/experiments/<experiment>/action_library/actions.yaml`
-
-### ActionPlanLibrary
-
-The collection of all named action plans for an experiment.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `plans` | `dict[str, ActionPlan]` | yes | — | All named plans, keyed by the name used to invoke them. |
-
-Example:
-
-```yaml
-schema_version: 1
-plans:
-  zero_pressure_voltage:
-    steps:
-      - do: set
-        device: U_HP_Daq
-        variable: AnalogOutput.Channel 1
-        value: 0
-  experiment_closeout:
-    steps:
-      - do: run
-        plan: zero_pressure_voltage
-```
-
 ## `experiment_defaults`
 
 Tier: `operator` · File: `scanner_configs/experiments/<experiment>/experiment_defaults.yaml`
@@ -488,7 +368,6 @@ Per-experiment fallbacks applied where a scan request is silent.
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile to use when a scan doesn't name one. Leave unset if scans must always choose explicitly. |
 | `native_image_save` | `bool` | no | True | Whether cameras whose frames the PVA gateway's file plugin captures also write their LabVIEW per-shot files (PNGs) when a scan does not say (the preset's 'native_image_save' unset). On by default: the dual-write is the rollout's parity evidence until PNG retirement (GEECS-Plugins#738). Set false to run the experiment on the plugin's HDF5 stacks alone; a device without a file plugin always keeps its native files. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
-| `actions` | `DefaultActions` | no | DefaultActions(setup=[], closeout=[]) | Action plans every scan runs by default — setup plans run first (before the scan's own), closeout plans run last (after the scan's own). |
 | `apply_db_scan_defaults` | `bool` | no | True | RESERVED AND NOT HONORED. The DB's scan start/end writes (MySQL table expt_device_variable: rows with set='yes', their startvalue/endvalue) are applied by the DEVICE itself on the ScanStart/ScanEnd commands of GEECS scan mode, never by the engine: under a trigger profile with use_scan_mode they take effect exactly as under Master Control, and without one they do not. This flag changes neither. Kept for a possible future engine-side application. This is the set-side only: the get-side 'db_scalars' (standard telemetry) and 'background_telemetry' are separate and remain active. |
 | `background_telemetry` | `bool` | no | True | Read every logged scalar of the experiment that is not in a scan's device group — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — into every row of the scan as well, the way Master Control did: softly, from the gateway's monitor cache, never waited on. A device that does not answer when the scan starts is left out of that scan with a log line (and named in the run's start document), one the gateway marks INVALID reads NaN; nothing here can stall or fail a scan. On by default so no data is silently lost; a preset can override it with its own 'background_telemetry'. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
 | `description` | `str` | no | '' | Optional note about what these defaults are for. |
@@ -497,24 +376,11 @@ Example:
 
 ```yaml
 schema_version: 1
-# applied only where a scan request is silent: defaults run first,
-# then the scan's own
+# applied only where a scan request is silent
 trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_checklist]
-  closeout: [experiment_closeout]
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 ```
-
-### DefaultActions
-
-The action plans every scan of the experiment runs by default.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `setup` | `list[str]` | no | empty | Names of action plans to run before every scan, ahead of any setup plans the scan itself lists. |
-| `closeout` | `list[str]` | no | empty | Names of action plans to run after every scan, after any closeout plans the scan itself lists (teardown mirrors setup: these are the outermost bracket). |
 
 ## `derived_channels`
 
@@ -1091,7 +957,7 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `role` | `str (optional)` | no | None | The device family's role; a DB device's GEECS variable name. |
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
 | `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
-| `action` | `str (optional)` | no | None | An action plan's name in the experiment's library: a button runs it. |
+| `action` | `str (optional)` | no | None | A setup's name (its file stem in setups/): a button applies it. |
 | `group` | `str (optional)` | no | None | A rail group's title in the device's family panel, or 'settings' for the automatic layout: a group widget draws it. |
 
 ### ToggleValues
@@ -1559,6 +1425,15 @@ One step that sets a device variable and waits for the device to finish.
 | `device` | `str` | yes | — | The device, e.g. 'U_S1H'. |
 | `variable` | `str` | yes | — | The variable, e.g. 'Current'. |
 | `value` | `str \| int \| float` | yes | — | The value to write: a number, or a word such as 'on'. |
+
+### WaitStep
+
+One step that simply pauses for a number of seconds.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'wait'` | yes | — | Step type. 'wait' pauses for a fixed time. |
+| `seconds` | `float` | yes | — | How long to pause, in seconds (must be greater than 0). |
 
 ### SetupCheckStep
 

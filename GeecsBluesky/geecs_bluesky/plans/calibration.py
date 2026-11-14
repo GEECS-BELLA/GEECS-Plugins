@@ -844,7 +844,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         across devices, averaged over the shots, is the calibration.
 
         No run is opened and nothing is claimed: a queue item like
-        ``run_action``, not a scan.  The box returns to STANDBY on every path
+        ``apply_setup``, not a scan.  The box returns to STANDBY on every path
         that unwinds the plan except ``RE.halt()``, which skips finalizers.
 
         The measurement is **reported** by default and stored only with

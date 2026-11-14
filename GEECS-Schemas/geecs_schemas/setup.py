@@ -48,11 +48,10 @@ from pydantic import (
 )
 
 from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
-from geecs_schemas.action_plan import WaitStep
 
 if TYPE_CHECKING:
     from geecs_schemas.epics import NativeDevices
-    from geecs_schemas.epics.family import FamilyFile
+    from geecs_schemas.epics.family import FamilyFile, Role
     from geecs_schemas.epics.operations import OperatorPolicy
     from geecs_schemas.epics.panel_devices import PanelDevices
 
@@ -99,6 +98,22 @@ SetupValue = Annotated[
 #: has it: an exactly-on-tolerance reading otherwise loses to representation
 #: error (``|1.20 - 1.15| == 0.050000000000000044``).
 _ULP_SLACK = 4 * 2.220446049250313e-16
+
+
+class WaitStep(SchemaModel):
+    """One step that simply pauses for a number of seconds.
+
+    Use this to give hardware time to settle — for example waiting 3 seconds
+    after moving a shutter before checking that it arrived.
+    """
+
+    do: Literal["wait"] = Field(
+        description="Step type. 'wait' pauses for a fixed time."
+    )
+    seconds: float = Field(
+        gt=0,
+        description="How long to pause, in seconds (must be greater than 0).",
+    )
 
 
 class SetupSetStep(SchemaModel):
@@ -366,6 +381,33 @@ def load_setups(experiment_dir: str | Path) -> dict[str, Setup]:
     return setups
 
 
+def step_variable(role: str, axis: str | None) -> str:
+    """A step's ``variable`` for *role* on *axis*: ``<role>``, or ``<axis>.<role>`` on a per-axis device.
+
+    The one grammar of a step's variable on a native device (the device
+    module writes and reads it; :func:`split_step_variable` reads it back).
+    """
+    return f"{axis}.{role}" if axis else role
+
+
+def split_step_variable(
+    variable: str, *, axes: Sequence[str], roles: Sequence[Role]
+) -> tuple[str, str | None]:
+    """``(role name, axis)`` a step's *variable* names on a device with *axes* and *roles*.
+
+    On a per-axis device ``<axis>.<role>`` names that role on that axis and a
+    bare axis names its setpoint (the setpoint role with a readback);
+    anything else names the role *variable* itself, with no axis.
+    """
+    axis, dot, rest = variable.partition(".")
+    if axis not in axes:
+        return variable, None
+    if dot:
+        return rest, axis
+    setpoint = next((r.name for r in roles if r.type == "setpoint" and r.readback), "")
+    return setpoint, axis
+
+
 def setup_digest(steps: Sequence[tuple[ConcreteSetupStep, str | None]]) -> str:
     """The SHA-256 of a flattened setup: what it will do, nested setups included.
 
@@ -433,26 +475,32 @@ def _family_roles(
     native: NativeDevices | None,
     panels: PanelDevices | None,
     db_families: Mapping[str, str] | None,
-) -> tuple[str | None, FamilyFile | None, dict[str, bool]]:
-    """``(family, family file, folded role -> hazard)`` of *device*; ``(None, None, {})`` when unknown."""
+) -> tuple[str | None, FamilyFile | None, dict[str, bool], list[str]]:
+    """``(family, family file, folded role -> hazard, axes)`` of *device*; unknown: ``(None, None, {}, [])``."""
+    entry = _by_fold(native.devices if native is not None else None, device)
+    native_axes = list(getattr(entry, "axes", None) or [])
     panel = _by_fold(panels.devices if panels is not None else None, device)
     if panel is not None:
         family = families.get(panel.family)
         roles = panel.resolve(family) if family is not None else []
-        return panel.family, family, {_fold(r.name): r.confirm == "hazard" for r in roles}  # fmt: skip
-    entry = _by_fold(native.devices if native is not None else None, device)
+        hazards = {_fold(r.name): r.confirm == "hazard" for r in roles}
+        return panel.family, family, hazards, list(panel.axes or native_axes)
     if entry is not None:
         name = entry.family_template
         family = families.get(name)
         roles = family.roles if family is not None else []
-        return name, family, {_fold(r.name): r.confirm == "hazard" for r in roles}
-    return _by_fold(db_families, device), None, {}
+        hazards = {_fold(r.name): r.confirm == "hazard" for r in roles}
+        return name, family, hazards, native_axes
+    return _by_fold(db_families, device), None, {}, []
 
 
-def _role_candidates(variable: str, family: FamilyFile | None) -> set[str]:
+def _role_candidates(
+    variable: str, family: FamilyFile | None, axes: Sequence[str] = ()
+) -> set[str]:
     """Every role a step's *variable* may name on a device of *family*, folded.
 
-    The variable itself and the part after an axis (``m1.val``); a role
+    The role :func:`split_step_variable` reads (the module's grammar), then
+    wider: the variable itself and the part after an axis (``m1.val``); a role
     whose name or record suffix it is (the worker names a supply's settable
     by its readback record); a bare axis's setpoint; and every role whose
     readback is one of those (the setpoint a readback's set is written at).
@@ -463,6 +511,9 @@ def _role_candidates(variable: str, family: FamilyFile | None) -> set[str]:
     words = {_fold(variable)} | ({_fold(rest)} if dot and rest else set())
     if family is None:
         return words
+    role, _axis = split_step_variable(variable, axes=axes, roles=family.roles)
+    if role:
+        words.add(_fold(role))
     matched = {
         r.name
         for r in family.roles
@@ -517,10 +568,10 @@ def setup_hazards(
     for index, (step, _origin) in enumerate(steps, 1):
         if not isinstance(step, SetupSetStep):
             continue
-        family_name, family, roles = _family_roles(
+        family_name, family, roles, axes = _family_roles(
             step.device, families, native, panels, db_families
         )
-        candidates = _role_candidates(step.variable, family)
+        candidates = _role_candidates(step.variable, family, axes)
         reasons = [
             f"the family role {role!r} asks for the hazard confirm"
             for role in sorted(candidates)

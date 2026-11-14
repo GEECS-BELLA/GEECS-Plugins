@@ -13,7 +13,7 @@ Corpus layout (regenerated 2026-09-10, GEECS-Plugins#807 phase 1 PR 2)::
       presets/                       # Preset documents (new schema only; no converter)
       scan_devices/                  # scan_variables.yaml (new schema only; no converter)
       shot_control_configurations/   # trigger configs (incl. laser-on/off pairs)
-      action_library/                # actions.yaml (ActionPlanLibrary, new schema only; no converter)
+      setups/                        # Setup documents, one per file (converted once from the action library)
       optimizer_configs/             # Xopt optimizer configs (Undulator only)
       aux_configs/                   # visa plunger lookup (app data; no converter)
 """
@@ -31,7 +31,6 @@ from geecs_schemas import (
     SCAN_VARIABLES_FILENAME,
     SCAN_VARIABLES_FOLDER,
     TRIGGER_PROFILES_FOLDER,
-    ActionPlanLibrary,
     Preset,
     ScanVariables,
 )
@@ -122,25 +121,24 @@ class TestFullCorpus:
                     converted += 1
         assert converted >= 8 and no_device >= 2
 
-    def test_every_action_library_validates(self):
-        """Every deployed action library is a new-schema ``ActionPlanLibrary``.
+    def test_every_setup_validates_and_the_action_library_is_gone(self):
+        """Every experiment's setups load and flatten; no action library is left.
 
-        There is no action-library converter any more (0.22.0): the corpus
-        was regenerated once, and the legacy ``assigned_actions.yaml``
-        (the old GUI's pinned-button list) went with it.
+        The action library was converted once into one setup per plan
+        (``setups/<name>.yaml``); a library still on disk is a file no
+        reader reads.
         """
-        libraries = {}
+        from geecs_schemas import flatten_setup, load_setups
+
+        found = {}
         for experiment in experiments():
-            actions = experiment / "action_library" / "actions.yaml"
-            if actions.exists():
-                document = yaml.safe_load(actions.read_text())
-                assert "actions" not in document, f"{experiment.name}: legacy dialect"
-                libraries[experiment.name] = ActionPlanLibrary.model_validate(document)
-            assert not (
-                experiment / "action_library" / "assigned_actions.yaml"
-            ).exists()
-        assert set(libraries) >= {"Undulator", "Thomson"}
-        assert libraries["Undulator"].plans
+            assert not (experiment / "action_library").exists(), experiment.name
+            setups = load_setups(experiment)
+            for setup in setups.values():
+                flatten_setup(setup, setups=setups)
+            if setups:
+                found[experiment.name] = setups
+        assert set(found) >= {"Undulator", "Thomson"}
 
     def test_every_optimizer_config_validates(self):
         from geecs_schemas import OptimizerConfig

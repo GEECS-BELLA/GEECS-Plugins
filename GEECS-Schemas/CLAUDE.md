@@ -45,8 +45,14 @@ the hazard confirm from the device module's two sources (a family role's
 `confirm: hazard`, as `panel_devices.yaml` amends it, and the operator
 policy's `hazards` by device or family), reading a step's variable widely
 (role name, record suffix, axis, the setpoint a readback is written at) and
-asking whenever a device's family cannot be told. It succeeds the action
-library, which stays until its executors move.
+asking whenever a device's family cannot be told. `step_variable` /
+`split_step_variable` are the one grammar of a step's variable on a native
+device (`<role>`, `<axis>.<role>`, a bare axis its setpoint): the device
+module's executor writes and reads by it, and `setup_hazards` starts from
+it before widening to the worker's spellings. Setups succeeded the action
+library (`action_library/actions.yaml`, converted once, one setup per plan),
+and with it went `ExperimentDefaults.actions` and the scan request's action
+bindings, which named plans nothing executed.
 
 ## Analysis documents
 
@@ -131,9 +137,9 @@ GEECS variable name, and `resolve_screen(..., deferred=<the module's roster>)`
 binds it without a `Role` (`Bound.deferred`, `Bound.fits`): the page judges
 it by the module's word. A device in neither the files nor the roster is
 refused. A bare PV is read only; it may carry a writing kind or a flipper's
-indicators, drawn disabled. A button may bind `{action: <plan>}` instead,
-a plan in the experiment's action library (`resolve_screen(...,
-actions=<the plan names>)` refuses another). A `select` binds an enum
+indicators, drawn disabled. A button may bind `{action: <setup>}` instead,
+a setup of the experiment (`resolve_screen(...,
+actions=<the setup names>)` refuses another). A `select` binds an enum
 role only; a toggle or flipper with `values: {on, off}` (`ToggleValues`)
 also binds a numeric setpoint role (a LabVIEW boolean kept as a number).
 A `group` binds `{device, group}` (and an axis on a per-axis family) and
@@ -145,17 +151,6 @@ installed families (a repeated heading names every group so headed) and
 refuses a group the device serves none of (`omit`; for `settings`, no
 writable role), and the renderer draws the group as the
 device page does.
-
-## Action plans
-
-`action_plan.py`: `ActionPlanLibrary` (`action_library/actions.yaml`) and
-the one step library both executors share, GeecsBluesky's compiler in a
-scan and GeecsCanopy's module from a screen button: `flatten` (nested
-`run` steps inlined, unknown names and loops refused) and `values_match`
-(a `check`'s legacy comparison), and `load_action_library` (a missing or
-empty file is the empty library). The order and the comparison change
-here, once; how a `set` waits is each executor's (the module's gate
-always waits; `wait_for_execution` is honoured in a scan).
 
 ## Home layout
 

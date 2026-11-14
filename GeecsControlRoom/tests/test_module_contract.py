@@ -162,13 +162,13 @@ async def test_a_device_route_that_fails_is_unread(room) -> None:
     assert (await room.client.get("/api/devices/Cam1")).json()["code"] == "module_unreachable"  # fmt: skip
 
 
-async def test_a_button_runs_an_action_plan_and_the_page_reads_its_run(room) -> None:
+async def test_a_button_applies_a_setup_and_the_page_reads_its_run(room) -> None:
     folder = room.env.folder
     room.env.hare.meta["bench:ps1:current:SP"] = {"controlLow": 0.0, "controlHigh": 5.0}
-    (folder / "action_library").mkdir()
-    (folder / "action_library" / "actions.yaml").write_text(
-        "plans:\n  park:\n    description: park it\n    steps:\n"
-        "      - {do: set, device: ps1, variable: current_sp, value: 1.0}\n"
+    (folder / "setups").mkdir()
+    (folder / "setups" / "park.yaml").write_text(
+        "name: park\ndescription: park it\nsteps:\n"
+        "  - {do: set, device: ps1, variable: current_sp, value: 1.0}\n"
     )
     (folder / "screens").mkdir()
     (folder / "screens" / "s.yaml").write_text(

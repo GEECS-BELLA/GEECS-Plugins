@@ -58,10 +58,6 @@ CONSUMERS: dict[str, list[Consumer]] = {
     "preset": [_c("scanner", "per submit")],
     "optimizer_config": [_c("worker", _PER_REQUEST)],
     "experiment_defaults": [_c("worker", "per plan")],
-    "action_plan_library": [
-        _c("Canopy's GEECS module", "per request, short cache"),
-        _c("worker", "per call"),
-    ],
     "operator_policy": [_c("Canopy's GEECS module", "per request, short cache")],
     "screen": [_c("Control Room", _PER_REQUEST)],
     "home_layout": [_c("Control Room", _PER_REQUEST)],
@@ -74,7 +70,10 @@ CONSUMERS: dict[str, list[Consumer]] = {
         )  # fmt: skip
     ],
     "archive_policy": [_c("archiver", "when onboard runs", ONBOARD)],
-    "setup": [_c("worker and Canopy's GEECS module", "per apply")],
+    "setup": [
+        _c("worker", "per apply (the scanner queues it)"),
+        _c("Canopy's GEECS module", "per request, short cache (a screen button)"),
+    ],
     "analysis_recipe": [_c("ScanAnalysis (the portal's runs)", "per run")],
     "himg_job": [_c("ScanAnalysis (the portal's runs)", "per run")],
     "analysis_group": [_c("ScanAnalysis (the portal's runs)", "per run")],
@@ -84,7 +83,7 @@ CONSUMERS: dict[str, list[Consumer]] = {
 DRY_RUNS: dict[str, str] = {
     "trigger_profile": "the scanner's preflight with the draft inline",
     "archive_policy": "geecs-archiver onboard --dry-run --policy <draft>",
-    "setup": "the scanner's settables check the targets (slice 4)",
+    "setup": "the scanner's preview: the flattened steps and the hazard confirms (GET /api/setups/{name})",
     "analysis_recipe": "the portal's validate, bound to the analysis core (slice 6)",
     "analysis_group": "the portal's validate (slice 6)",
 }

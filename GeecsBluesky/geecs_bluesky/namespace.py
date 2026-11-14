@@ -987,7 +987,7 @@ class GeecsNamespace:
         return self.variable(device, variable) if sep else self[device]
 
     # The action compiler's SettableFactory (actions/compiler.py): an
-    # action plan's (device, variable) is the child the namespace already
+    # setup step's (device, variable) is the child the namespace already
     # built — the Movable for a settable, the readback signal otherwise.
     def get_settable(self, device: str, variable: str) -> Movable:
         """The Movable child for a ``set`` step; loud when the variable is read-only."""
@@ -998,13 +998,13 @@ class GeecsNamespace:
             raise GeecsConfigurationError(
                 f"device namespace: {device}:{variable} is owned by the detector's "
                 "native saving (opened and closed by the run) — not settable "
-                "from an action plan"
+                "from a setup"
             )
         child = self._child_for_step(device, variable)
         if not isinstance(child, Movable):
             raise GeecsConfigurationError(
                 f"device namespace: {device}:{variable} is not settable (the "
-                "gateway serves it read-only) — an action plan cannot set it"
+                "gateway serves it read-only) — a setup cannot set it"
             )
         return child
 

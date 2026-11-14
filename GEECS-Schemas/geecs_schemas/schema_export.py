@@ -31,7 +31,6 @@ from pydantic import BaseModel
 
 from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage
 from geecs_schemas.scan_request import (
-    ActionBindings,
     CaptureSettings,
     ScanAxis,
     ScanRequest,
@@ -57,7 +56,6 @@ EXPORTED_SCHEMAS: dict[str, type[BaseModel]] = {
     },
     "scan_request": ScanRequest,
     "capture_settings": CaptureSettings,
-    "action_bindings": ActionBindings,
     "scan_axis": ScanAxis,
 }
 

@@ -158,8 +158,9 @@ def test_with_the_db_silent_a_family_rule_still_asks(client: TestClient, service
 def test_the_apply_is_idle_only(client: TestClient, manager: DemoQueueClient, preset_doc: dict) -> None:  # fmt: skip
     r = client.post("/api/submit", json={"preset": preset_doc, "acknowledged": ["gateway_liveness"]})  # fmt: skip
     assert r.status_code == 200, r.text
-    r = _apply_all(client)
+    r = _apply(client)  # refused before its questions: they could not be queued
     assert r.status_code == 409 and "idle-only" in r.json()["error"]["message"]
+    assert "needs_acknowledgement" not in r.json()["error"]
 
 
 def test_a_reopen_that_ran_while_the_apply_was_judged_refuses_it(client: TestClient, service: ScannerService, manager: DemoQueueClient) -> None:  # fmt: skip

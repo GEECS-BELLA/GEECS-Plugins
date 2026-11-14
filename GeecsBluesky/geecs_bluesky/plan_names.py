@@ -17,13 +17,12 @@ from __future__ import annotations
 
 #: The registered plans that are not scans: a queue item naming one opens
 #: no run and claims no scan number, so a preset cannot name them
-#: (``qs_client.presets.PRESET_PLAN_NAMES``).  ``mv``, ``run_action`` and
-#: ``apply_setup`` take no detector list; the calibration plans take one but no positions
+#: (``qs_client.presets.PRESET_PLAN_NAMES``).  ``mv`` and ``apply_setup``
+#: take no detector list; the calibration plans take one but no positions
 #: and write no data; ``release_scan_mode`` ends GEECS scan mode on the
 #: devices of a run that never ended it (a halt skips the finalizers).
 NON_SCAN_PLAN_NAMES: tuple[str, ...] = (
     "mv",
-    "run_action",
     "apply_setup",
     "measure_shot_offsets",
     "check_shot_sync",

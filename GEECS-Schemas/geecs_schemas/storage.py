@@ -20,7 +20,6 @@ from typing import Literal, Union
 from pydantic import ConfigDict, Field
 
 from geecs_schemas._base import SchemaModel
-from geecs_schemas.action_plan import ACTION_LIBRARY_FILENAME, ACTION_LIBRARY_FOLDER
 from geecs_schemas.analysis.document import ANALYZERS_FOLDER
 from geecs_schemas.analysis.group import GROUPS_FOLDER
 from geecs_schemas.archive_policy import ARCHIVE_POLICY_FILENAME, ARCHIVER_CONFIG_FOLDER
@@ -146,7 +145,6 @@ KIND_STORAGE: dict[str, KindStorage] = {
     "preset": _experiment(PRESETS_FOLDER, suffixes=YAML_SUFFIXES),
     "scan_variables": _experiment(SCAN_VARIABLES_FOLDER, SCAN_VARIABLES_FILENAME),
     "trigger_profile": _experiment(TRIGGER_PROFILES_FOLDER, suffixes=YAML_SUFFIXES),
-    "action_plan_library": _experiment(ACTION_LIBRARY_FOLDER, ACTION_LIBRARY_FILENAME),
     "experiment_defaults": _experiment("", EXPERIMENT_DEFAULTS_FILENAME),
     "derived_channels": _experiment(GATEWAY_CONFIG_FOLDER, DERIVED_CHANNELS_FILENAME),
     "archive_policy": _experiment(ARCHIVER_CONFIG_FOLDER, ARCHIVE_POLICY_FILENAME),
@@ -162,9 +160,6 @@ KIND_STORAGE: dict[str, KindStorage] = {
     "analysis_group": _analysis(GROUPS_FOLDER),
     "scan_request": NotAFile(
         reason="a plan parameter: built per submit from a preset, never saved"
-    ),
-    "action_plan": NotAFile(
-        reason="a sub-document: one plan inside the action library's file"
     ),
     "journal_entry": NotAFile(
         reason="a database row: the device module's record of a write attempt"

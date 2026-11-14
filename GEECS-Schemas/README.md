@@ -2,13 +2,13 @@
 
 Versioned Pydantic models for every GEECS scanner config — presets (the
 saved scan: device group + plan call), scan requests, scan variables,
-trigger profiles, and action plans — plus converters from the legacy YAML
+trigger profiles, and setups — plus converters from the legacy YAML
 dialects still in use (shot control).
-Scan-variable catalogs, presets and action libraries have no converter:
-they are authored new-schema only (the legacy scan-device pair was retired
-2026-09, GEECS-Plugins#779; the save elements and scan presets were
-regenerated as presets once, #807; the action libraries were regenerated
-as `ActionPlanLibrary` documents once, 0.22.0).
+Scan-variable catalogs and presets have no converter: they are authored
+new-schema only (the legacy scan-device pair was retired 2026-09,
+GEECS-Plugins#779; the save elements and scan presets were regenerated as
+presets once, #807). The action library is gone: each plan was converted
+once into a setup (`setups/<name>.yaml`).
 
 **Configs are schemas; YAML is just serialization.** This package is the
 schema layer of the target architecture. It depends on **Pydantic and gest-api**, so the engine, the GUI, scripts, and docs tooling can all import the
@@ -84,9 +84,8 @@ independently:
 | `scan_request` | `ScanRequest` | `ScanConfig`, GUI submission state (the MCP's funnel contract until it is rewired onto presets; the web scanner submits presets) |
 | `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` — retired 2026-09: catalogs are authored new-schema only, there is no converter |
 | `trigger_profile` | `TriggerProfile` | shot-control configs (one profile per operating condition); states are machine states holding *ordered, multi-device* write lists |
-| `action_plan` | `ActionPlan` | one entry of the action library |
-| `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` — regenerated once from the legacy `actions:` dialect (0.22.0) and authored new-schema only since; there is no converter |
-| `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan request is silent; defaults run first, then the scan's own |
+| `setup` | `Setup` | `action_library/actions.yaml`, one file per named device state (`setups/<name>.yaml`): `set` / `wait` / `check` / `apply` steps |
+| `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan is silent |
 | `analysis_recipe` | `AnalysisRecipe` | the analysis recipe (`scan_analysis_configs/analyzers/<ns>/<id>.yaml`) — format 3: `input`, ordered `steps` and a `measure` (registry references the analysis core binds), `figure`, `summaries`, `scan`. The retired v2 diagnostic (`analyzer:` + `image:`) is refused |
 | `himg_job` | `HimgJob` | a `.himg` data-management job in the same tree (top-level `kind:`) |
 | `analysis_group` | `AnalysisGroup` | analysis groups (`scan_analysis_configs/groups/<ns>/<name>.yaml`) — unchanged shape plus the `schema_version` stamp |
@@ -96,12 +95,11 @@ models for generic tooling.
 
 Supporting models: `ScanAxis` (a step scan sweeps one axis or several — a
 multi-axis request is an outer-product grid, first axis outermost/slowest;
-schema-side only in M1), `PositionRange` / `PositionList`, `ActionBindings`
-(setup / **per_step** / closeout slots), `OptimizerConfig` (GEST VOCS, measurements and derived outputs),
+schema-side only in M1), `PositionRange` / `PositionList`, `OptimizerConfig` (GEST VOCS, measurements and derived outputs),
 `PresetDevice` / `PlanCall` (the preset's device group — `device`,
 `save_images` — and its stock plan call), `ScanVariable` /
-`PseudoScanVariable`, `TriggerWrite` / `TriggerState`, `DefaultActions`, and
-the four action step types.
+`PseudoScanVariable`, `TriggerWrite` / `TriggerState`, and the setup's
+step types.
 
 The analysis documents live in the `geecs_schemas.analysis` subpackage:
 `recipe` (`AnalysisRecipe` and its parts), `processing_1d`

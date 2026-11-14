@@ -31,7 +31,6 @@ def test_the_table_names_exactly_the_registry_kinds():
 def test_the_non_file_kinds():
     """The kinds that are not configs-repo files, each with its reason."""
     assert NOT_FILES == [
-        "action_plan",
         "family_file",
         "journal_entry",
         "log_entry",
