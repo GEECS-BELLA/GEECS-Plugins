@@ -4,6 +4,19 @@ All notable changes to `geecs-logbook` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.14.0] - 2026-11-14
+
+### Added
+
+- Each scan's card shows its scan-log list with each variable's value from
+  the s-file's first row (#1126).
+- The day page's "Look up a variable" panel: any column the day's scans
+  recorded, by scan, with changes highlighted and the columns in the URL;
+  columns are added through a drawer picker (#1126, #1128).
+
+### Changed
+
+- Static files ask the browser to revalidate on every load (#1128).
 
 ## [0.13.0] - 2026-10-22
 

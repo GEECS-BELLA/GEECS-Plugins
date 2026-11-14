@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.48.1] - 2026-11-14
+
+### Fixed
+
+- A timed-out WaveKit or FROG worker under Wine kills its whole process
+  group, so no Windows interpreter is left running (#1242).
+- `geecs-wavekit-doctor` accepts float32 rounding differences within a
+  stated tolerance and reports the largest difference of every comparison
+  that is not exact (#1242).
+
 ## [1.48.0] - 2026-10-22
 
 ### Removed

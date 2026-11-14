@@ -4,6 +4,17 @@ All notable changes to `geecs-scanner` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.16.0] - 2026-11-14
+
+### Changed
+
+- The device table's `essential` column is `required`, and presets are
+  written with `required` (#1296).
+- The preview expands a preset with the worker's device tree when a device
+  is not required, so conditions are never marked required, as at submit
+  (#1296).
+- The shot period stays editable for every acquisition mode but gated
+  (#1296).
 
 ## [0.15.0] - 2026-11-04
 

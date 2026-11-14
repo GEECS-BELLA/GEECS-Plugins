@@ -5,6 +5,41 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.0] - 2026-11-14
+
+### Added
+
+- Family files (`geecs_schemas.epics.family`): a device family's records
+  as roles, with the shipped families for the camera chain, motor record,
+  supplies and scopes; `PanelDevices` (`panel_devices.yaml`) and the
+  `OperatorPolicy` and journal documents (#1185).
+- The screen document and the home layout for GeecsControlRoom (#1196);
+  screen bindings to a DB device's variables and action buttons, hazard
+  rules, and the action-step library with `flatten_action_steps` (#1214);
+  a screen's select, valued toggle and rail group widgets (#1304, #1306).
+- The native-device registry gains the `epics_motor` (#1142),
+  `setpoint_device` (#1270) and `witness` (#1296) kinds, and
+  `trigger_source: line0` for cameras (#1129).
+- A family's `panel` (rail groups, readings, buttons), a role's `axis_of`
+  and `channels_by`, a role's `show_while`, tweak and grid hints, and the
+  motor's and supplies' panels (#1288, #1294, #1298, #1305).
+- The spectrometer contract's family file (#1291), the camera chain's raw
+  frame roles (#1272) and `FullScale` role (#1245), and a setpoint role's
+  `tolerance` / `tolerance_by` (#1302).
+- An operator policy grant may name every operator, `operators: ["*"]`
+  (#1330).
+
+### Changed
+
+- A preset device's `essential` is renamed `required`; the old name is
+  refused with a message naming the new one (#1296).
+- The scope's capture is fresh by its array counter (#1289), and the array
+  detectors' readings open with state, connected and status (#1297).
+
+### Removed
+
+- The camera family's `frame_rate` role (#1254).
+
 ## [0.45.0] - 2026-10-22
 
 ### Added
