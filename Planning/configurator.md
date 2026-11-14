@@ -288,6 +288,24 @@ merged maintainer-tier PR above all, fast-forwards the service's clone, then
 the share's, then runs the kind's apply and logs it, so a merged grant or
 registry change takes effect without anyone opening the editor.
 
+**One configs repo, many facilities: a box owns its experiments** (slice
+2c). Several facilities share the configs repo and the App, each with its
+own services box and its own private key on the App. A box owns the
+experiments its site.env names (`GEECS_CONFIGURATOR_EXPERIMENTS`) and its
+facility folders in the shared analysis tree (`_ANALYSIS_FOLDERS`; the tree
+keeps one folder per facility, so ownership there is by folder, never the
+whole tree). A commit path that owns nothing refuses to start. Saves,
+proposals and inbox publishes are made only at owned paths (403 otherwise);
+reads list every experiment, with foreign documents served read-only. The
+gate judges owned documents only, so another facility's commit, valid or
+not, fast-forwards unjudged (its own box and the repo's `validate` check
+judge it), and one facility's invalid commit never locks another's
+operators out. The log and the apply seam see owned paths only. Who owns
+what is enforced on each box and mirrored for humans by the repo's
+`CODEOWNERS`; the App, one identity for every box, cannot enforce it on
+GitHub, so a box's key is its whole authority and is revoked alone. The
+deploy steps are `GeecsConfigurator/DEPLOYMENT.md`.
+
 ### Apply, per kind
 
 An apply is what makes a committed document take effect. The service knows

@@ -79,6 +79,8 @@
   Promise.all([api("/api/schema/" + kind), load(), api("/api/kinds")])
     .then(function (got) {
       schema = got[0]; stored = got[1].document; etag = got[1].etag; readOnly = got[1].read_only;
+      // a read-only kind, or a document another facility's box owns: no save row
+      var saveRow = $(".save-row"); if (saveRow && readOnly) saveRow.hidden = true;
       $("#doc-path").textContent = got[1].path;
       form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: got[1].read_only, onChange: drawTier });
       if (got[1].errors.length) form.setErrors(got[1].errors);

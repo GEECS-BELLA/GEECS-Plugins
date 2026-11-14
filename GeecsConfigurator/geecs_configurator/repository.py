@@ -86,6 +86,10 @@ class BaseMoved(GitError):
     """Main changed the edited file after the edit's base: the editor re-applies their edit."""
 
 
+class NotWritable(GitError):
+    """A commit at a path this service may not write (another box's, or through a symbolic link)."""
+
+
 class Unaccepted(GitError):
     """Main holds a commit the gate refuses: fetched, never applied."""
 
@@ -146,9 +150,13 @@ class ConfigsRepository:
         The service, as the committer of every commit it makes.
     credential, accept, on_advanced : callable, optional
         The network credential, the gate and the advance hook (see the module docstring).
+    writable : callable, optional
+        ``writable(rel)``: whether this service may commit at ``rel`` (what
+        the box owns, ``ownership.py``); a commit elsewhere is refused before
+        anything is written. ``None``: anywhere.
     """
 
-    def __init__(self, state_dir: Path, origin: str, branch: str, committer: Identity, *, credential: Credential | None = None, accept: Accept | None = None, on_advanced: Advanced | None = None):  # fmt: skip
+    def __init__(self, state_dir: Path, origin: str, branch: str, committer: Identity, *, credential: Credential | None = None, accept: Accept | None = None, on_advanced: Advanced | None = None, writable: Callable[[str], bool] | None = None):  # fmt: skip
         self.state_dir = Path(state_dir)
         self.origin, self.branch, self.committer = origin, branch, committer
         self.bare = self.state_dir / "repo.git"
@@ -160,6 +168,7 @@ class ConfigsRepository:
         #: ``time.monotonic()`` of the last fetch that answered (0: none yet).
         self.fetched_at = 0.0
         self.credential, self.accept, self.on_advanced = credential, accept, on_advanced
+        self.writable = writable
 
     # ----------------------------------------------------------------- git
 
@@ -295,9 +304,9 @@ class ConfigsRepository:
         return out
 
     def changed(self, old: str, new: str) -> list[str]:
-        """The paths added, copied, modified or renamed between two commits (not deleted)."""
+        """The paths added, copied, modified, renamed or changed in type (a file become a link, or back) between two commits (not deleted)."""
         return self.git(
-            "diff", "--name-only", "--diff-filter=ACMR", old, new
+            "diff", "--name-only", "--diff-filter=ACMRT", old, new
         ).splitlines()
 
     def fast_forward_share(self, share: Path, timeout: float = GIT_TIMEOUT_S) -> str:
@@ -349,9 +358,18 @@ class ConfigsRepository:
 
     def _commit(self, tree: Path, rel: str, data: bytes, author: Identity, message: str) -> str | None:  # fmt: skip
         """Write ``data`` at ``rel`` in a staging worktree and commit it; ``None`` when it changes nothing."""
+        if self.writable is not None and not self.writable(rel):
+            raise NotWritable(f"{rel!r} is not this service's to commit")
         target = tree / PurePosixPath(rel)
         if not target.resolve().is_relative_to(tree.resolve()):
             raise GitError(f"{rel!r} is outside the repository")
+        here = tree
+        for part in PurePosixPath(
+            rel
+        ).parts:  # never written through a link: it would write another path
+            here = here / part
+            if here.is_symlink():
+                raise NotWritable(f"{rel!r} passes through a symbolic link ({here.relative_to(tree).as_posix()}); not written")  # fmt: skip
         # inside a staging worktree of the configs repo: never a scan folder
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)

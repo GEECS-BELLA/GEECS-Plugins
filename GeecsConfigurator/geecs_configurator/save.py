@@ -4,6 +4,12 @@ A save is a whole document over the version the editor was served (its
 etag). Under the repository's lock it fetches and fast-forwards the live
 checkout, then:
 
+- refuses (**403**) a document at a path this services box does not own
+  (``ownership.py``: another facility's experiment, a folder of the shared
+  analysis tree it was not given, a path through a symbolic link out of an
+  owned folder), whatever its tier: neither a commit nor a proposal is made,
+  and this answer comes before any check of the document (a read-only kind,
+  package data, keeps its 405);
 - refuses a blank operator (422), a read-only document (405), and a
   document with no etag (422: a file that did not read or parse, so the
   editor never showed it and there is nothing to save over);
@@ -50,7 +56,8 @@ import yaml
 from geecs_schemas import SCHEMA_REGISTRY
 from pydantic import BaseModel
 
-from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, author_name  # fmt: skip
+from geecs_configurator.ownership import Ownership
+from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, author_name  # fmt: skip
 from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
 
 #: The served form's answer is followed where the file as stored validates differently.
@@ -144,8 +151,13 @@ def _written(draft: Json) -> bytes:
 class _Save:
     """One save's state; :meth:`run` is :func:`save`."""
 
-    def __init__(self, store: DocumentStore, repo: ConfigsRepository, kind: str, experiment: str | None, doc_id: str, request: SaveRequest):  # fmt: skip
-        self.store, self.repo, self.request = store, repo, request
+    def __init__(self, store: DocumentStore, repo: ConfigsRepository, kind: str, experiment: str | None, doc_id: str, request: SaveRequest, ownership: Ownership):  # fmt: skip
+        self.store, self.repo, self.request, self.ownership = (
+            store,
+            repo,
+            request,
+            ownership,
+        )
         self.kind, self.experiment, self.doc_id = kind, experiment, doc_id
         self.schema = SCHEMA_REGISTRY[kind].model_json_schema()
 
@@ -174,6 +186,7 @@ class _Save:
                 base = self.repo.sync()
             except GitError as exc:
                 raise Refused(502, f"the configs repo could not be brought current, so the base cannot be checked: {exc}") from exc  # fmt: skip
+            self._owned()
             loaded = self._new() if self.request.create else self._checked()
             draft, changes, notes = self._draft(loaded)
             if not changes:
@@ -190,6 +203,10 @@ class _Save:
             if tier == "maintainer":
                 return self._propose(prs, loaded, data, author, message, base, changes, notes)  # fmt: skip
             raise Refused(403, f"a {tier}-tier change is not saved from the editor")
+
+    def _owned(self) -> None:
+        """The 403 for a path this box does not own, checked again on the synced checkout."""
+        check_owned(self.store, self.ownership, self.kind, self.experiment, self.doc_id, create=self.request.create)  # fmt: skip
 
     def _new(self) -> Loaded:
         """A document that does not exist yet: an empty baseline at the kind's path; one already there is the 409."""
@@ -241,6 +258,8 @@ class _Save:
         branch = _branch_name(self.kind, self.doc_id)
         try:
             sha = self.repo.push_branch(loaded.path, data, author=author, message=message, base=base, branch=branch)  # fmt: skip
+        except NotWritable as exc:
+            raise Refused(403, str(exc)) from exc
         except GitError as exc:
             raise Refused(502, f"the branch was not pushed; nothing changed: {exc}") from exc  # fmt: skip
         body = f"Proposed by {author.name.removesuffix(VIA)} from the configurator (maintainer tier).\n\n{_summary(changes)}\n"  # fmt: skip
@@ -267,8 +286,28 @@ class _Save:
             return self.repo.commit_file(rel, data, author=author, message=message, base=base, on_moved=moved)  # fmt: skip
         except BaseMoved as exc:
             raise self.conflict(str(exc), draft) from exc
+        except NotWritable as exc:
+            raise Refused(403, str(exc)) from exc
         except GitError as exc:
             raise Refused(502, f"the push failed; nothing changed: {exc}") from exc
+
+
+def check_owned(store: DocumentStore, ownership: Ownership, kind: str, experiment: str | None, doc_id: str, *, create: bool) -> None:  # fmt: skip
+    """:class:`Refused` (403) when the document's path is not this box's (by name and as it resolves).
+
+    The save route asks it before the consumer's dry run, and the save again
+    under the lock. A read-only kind (package data, not in the configs repo)
+    passes: its save is the 405.
+    """
+    if create:
+        rel = store.new_path(kind, experiment, doc_id)
+    else:
+        loaded = store.read(kind, experiment, doc_id)
+        if loaded.read_only:
+            return
+        rel = loaded.path
+    if not ownership.owns_file(store.root, rel):
+        raise Refused(403, ownership.why_not(rel))
 
 
 def save(
@@ -281,6 +320,9 @@ def save(
     request: SaveRequest,
     *,
     email: str,
+    ownership: Ownership,
 ) -> Saved:
     """Save one document as its tier says (the module docstring); :class:`Refused` when it will not."""
-    return _Save(store, repo, kind, experiment, doc_id, request).run(prs, email)
+    return _Save(store, repo, kind, experiment, doc_id, request, ownership).run(
+        prs, email
+    )

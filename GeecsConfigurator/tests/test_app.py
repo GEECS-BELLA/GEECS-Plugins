@@ -120,7 +120,7 @@ def test_settings(tmp_path: Path) -> None:
             {"GEECS_CONFIGS_ROOT": "/x", "GEECS_CONFIGURATOR_PORT": "web"}
         )
     # the commit path: both keys or neither; the configs root is then the live checkout
-    on = Settings.from_env({"GEECS_CONFIGS_ROOT": "/share", "GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path), "GEECS_CONFIGURATOR_ORIGIN": "git@host:org/configs.git"})  # fmt: skip
+    on = Settings.from_env({"GEECS_CONFIGS_ROOT": "/share", "GEECS_CONFIGURATOR_EXPERIMENTS": "Bench", "GEECS_CONFIGURATOR_ANALYSIS_FOLDERS": "Ns", "GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path), "GEECS_CONFIGURATOR_ORIGIN": "git@host:org/configs.git"})  # fmt: skip
     assert on.commits and on.configs_root == tmp_path / "live" and on.branch == "main"
     assert not s.commits
     with pytest.raises(SettingsError, match="together"):

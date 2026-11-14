@@ -48,6 +48,7 @@
 
   <main class="pane">
     {% if not commits %}<div class="banner" data-state="denied"><strong>Read-only.</strong> Edits in this page are validated and diffed against the stored document, never saved: the commit path is not configured.</div>{% endif %}
+    {% if not_owned %}<div class="banner" data-state="denied"><strong>Read-only here.</strong> {{ not_owned }}</div>{% endif %}
     <div id="stale" hidden></div>
 
     {% if not kind %}
