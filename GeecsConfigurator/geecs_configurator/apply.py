@@ -210,6 +210,14 @@ class PortalClient:
         r.raise_for_status()
         return r.json()
 
+    def blank(self, kind: str, params: dict[str, str]) -> tuple[int, Json]:
+        """The portal's new-document draft (``/api/analysis/blank``): its status and JSON body; raises when it does not answer, or not as itself."""
+        r = self.http.get(f"{self.base_url}/api/analysis/blank/{kind}", params=params, timeout=SCHEMA_TIMEOUT_S)  # fmt: skip
+        body = r.json()
+        if not isinstance(body, dict):
+            raise ValueError(f"the portal's answer is not its blank's: {_one_line(r.text, 120)}")  # fmt: skip
+        return r.status_code, body
+
 
 #: ``(argv, timeout) -> (exit code, combined output)``: the subprocess seam tests replace.
 Run = Callable[[Sequence[str], float], tuple[int, str]]

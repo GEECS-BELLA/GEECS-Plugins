@@ -17,8 +17,16 @@
  *     preview,     // optional: function (document) — the host's Preview button. Returning a promise of an
  *                  //   Element (or text) shows it in the drawer under the buttons; a rejection shows its message
  *     toolbar,     // optional: an Element of the host's, drawn beside the buttons (a shot number, a name field)
- *     onSaved,     // optional: function (answer) — after a save the configurator accepted
+ *     onSaved,     // optional: function (answer, id) — after a save, copy or delete the configurator accepted
+ *     draft,       // optional: a new document's draft (from GeecsConfigurator.create): nothing is read at `id`, and
+ *                  //   the first Save is the save route's create there
  *   })  ->  { close(), value() }
+ *
+ *   GeecsConfigurator.create({ api, kind, experiment, operator, preview, toolbar, onSaved })
+ *     A new document of a kind the catalogue says starts blank (/api/kinds `blank`): the drawer asks its name,
+ *     the folder (this box's, /api/folders/<kind>) and, for a recipe, its data folder and frame kind (the
+ *     schema's input kinds, and what each requires beyond its kind), then opens the configurator's draft
+ *     (/api/blank/<kind>/<folder>/<name>.yaml: the portal's, which already binds) with open({..., draft}).
  *
  * What a save does is the configurator's, exactly as on its own page (saveFlow below is that page's save
  * too): the kind's dry run first (a refusal stops it there, its errors drawn at their fields), then
@@ -77,6 +85,7 @@
   //   o.saved(answer)                a 200: the page takes the new etag (and, committed, the new baseline)
   //   o.noOperator()                 optional: the page points at its operator field
   //   o.reload(current)              optional: a 409's "Load the current document" (drops the edit)
+  //   o.create()                     optional: true while the document is not yet a file (the PUT creates it)
   function saveFlow(o) {
     function show(kids) { fill(o.status, kids); }
     function outcomes(d) {
@@ -133,7 +142,7 @@
       show([el("p", { class: "dim" }, "Saving…")]);
       var doc = o.value();
       o.call("PUT", "/api/documents/" + o.kind + "/" + o.docId().split("/").map(encodeURIComponent).join("/") + o.query(),
-        { document: doc, etag: o.etag(), operator: who, convert_legacy: !!convert }).then(function (r) {
+        { document: doc, etag: o.etag(), operator: who, convert_legacy: !!convert, create: !!(o.create && o.create()) }).then(function (r) {
         o.button.disabled = false;
         var b = r.body || {}, d = b.detail;
         if (r.status === 200) {
@@ -318,9 +327,9 @@
   }
 
   function open(opts) {
-    if (!opts || !opts.api || !opts.kind || !opts.id) throw new Error("GeecsConfigurator.open needs api, kind and id");
+    if (!opts || opts.api == null || !opts.kind || !opts.id) throw new Error("GeecsConfigurator.open needs api, kind and id");
     var base = String(opts.api).replace(/\/$/, ""), query = "?experiment=" + encodeURIComponent(opts.experiment || "");
-    var d = drawer(), host = bodyEl, key = JSON.stringify([base, opts.kind, opts.experiment || "", opts.id, opts.fields || null]);
+    var d = drawer(), host = bodyEl, key = JSON.stringify([base, opts.kind, opts.experiment || "", opts.id, opts.fields || null, opts.draft ? "new" : ""]);
     // the same document again: the drawer as it was left, the edit in it kept
     if (current && current.key === key) { show(d); return current.handle; }
     var call = caller(base);
@@ -329,6 +338,7 @@
     var self = null;
     function open_() { return current !== null && current === self; }
     var form = null, schema = null, stored = null, etag = "", info = null, docId = opts.id, fields = opts.fields || null;
+    var isNew = !!opts.draft;  // not yet a file: the first save creates it
     var status = el("div"), previewBox = el("div", { class: "group" });
     // a host that previews wants room for the picture beside the form
     d.style && (d.style.width = opts.preview ? "min(980px, 96vw)" : "");
@@ -364,30 +374,32 @@
       });
     }
 
-    titleEl.textContent = opts.kind + " · " + opts.id;
+    titleEl.textContent = opts.kind + " · " + opts.id + (isNew ? " (new)" : "");
     fill(host, [el("div", { class: "state", "data-state": "loading" }, "Loading " + opts.id + "…")]);
     show(d);
+    // a new document: its draft as the stored one, no etag; nothing is read at its id
+    var served = isNew ? function () { return Promise.resolve({ status: 200, body: { document: opts.draft, etag: "", read_only: false } }); } : function () { return call("GET", docPath()); };
 
     // a bare name: the kind's document whose stem it is
-    var found = /\.ya?ml$/i.test(docId) ? Promise.resolve(docId) : call("GET", "/api/documents/" + opts.kind + query).then(function (r) {
+    var found = (isNew || /\.ya?ml$/i.test(docId)) ? Promise.resolve(docId) : call("GET", "/api/documents/" + opts.kind + query).then(function (r) {
       var hit = byStem((Array.isArray(r.body) ? r.body : []).map(function (e) { return e.id; }), docId);
       if (!hit) throw new Error("no " + opts.kind + " named " + docId + " in " + (opts.experiment || "the configs repo"));
       return hit;
     });
     found.then(function (id) {
       docId = id;
-      return Promise.all([call("GET", "/api/schema/" + opts.kind), call("GET", docPath()), call("GET", "/api/kinds")]);
+      return Promise.all([call("GET", "/api/schema/" + opts.kind), served(), call("GET", "/api/kinds")]);
     }).then(function (got) {
       if (!open_()) return;  // another document was opened meanwhile: the drawer is its
       if (got[1].status !== 200) throw new Error(got[1].status + " " + why(got[1].body));
       schema = got[0].body; stored = got[1].body.document; etag = got[1].body.etag;
       info = (got[2].body || []).filter(function (k) { return k.kind === opts.kind; })[0] || { dry_run: "none" };
-      titleEl.textContent = opts.kind + " · " + docId;
+      titleEl.textContent = opts.kind + " · " + docId + (isNew ? " (new)" : "");
       var formHost = el("div", { class: "group" }), readOnly = !!got[1].body.read_only;
       form = GeecsForm.mount(formHost, { schema: limit(schema, fields), value: pick(stored, fields), readOnly: readOnly, onChange: edited });
       var tools = el("div", { class: "row end" }), saveBtn = null;
       if (opts.toolbar) tools.appendChild(opts.toolbar);
-      tools.appendChild(el("a", { class: "btn ghost", href: base + "/" + query + "&kind=" + encodeURIComponent(opts.kind) + "&id=" + encodeURIComponent(docId), target: "_blank", rel: "noopener" }, "Open in the configurator"));
+      if (!isNew) tools.appendChild(el("a", { class: "btn ghost", href: base + "/" + query + "&kind=" + encodeURIComponent(opts.kind) + "&id=" + encodeURIComponent(docId), target: "_blank", rel: "noopener" }, "Open in the configurator"));
       if (opts.preview) tools.appendChild(button("Preview", "", preview));
       if (!readOnly) {
         saveBtn = button("Save", "primary", function () { save(false, false); });
@@ -395,23 +407,29 @@
         var save = saveFlow({
           call: call, kind: opts.kind, query: function () { return query; }, docId: function () { return docId; },
           form: function () { return form; }, value: value, etag: function () { return etag; }, operator: operator,
-          dryRun: function () { return info.dry_run; }, button: saveBtn, status: status,
-          saved: function (b, doc) { etag = b.etag; if (b.outcome === "committed") stored = doc; if (opts.onSaved) opts.onSaved(b); },
+          dryRun: function () { return info.dry_run; }, button: saveBtn, status: status, create: function () { return isNew; },
+          saved: function (b, doc) {
+            etag = b.etag;
+            if (b.outcome === "committed") stored = doc;
+            if (opts.onSaved) opts.onSaved(b, docId);
+            // created: the drawer opens the file as stored (its copy and delete), while it still shows this draft
+            if (isNew && b.outcome === "committed" && open_()) open(Object.assign({}, opts, { draft: null, note: "Created " + docId + " as " + b.author + "." }));
+          },
         });
       }
       var more = null;
-      if (!readOnly && named(info)) {  // copy or delete: rung 0, closed until asked
+      if (!readOnly && !isNew && named(info)) {  // new, copy or delete: rung 0, closed until asked
         more = el("details", { class: "disc" });
-        more.appendChild(el("summary", {}, "Copy or delete"));
+        more.appendChild(el("summary", {}, info.blank ? "New, copy or delete" : "Copy or delete"));
         var row = more.appendChild(el("div", { class: "row" })), newName = el("input", { class: "btn sm", placeholder: "new name", "aria-label": "the copy's name" });
         var ctx = { call: call, kind: opts.kind, query: function () { return query; }, docId: function () { return docId; }, value: value, etag: function () { return etag; }, operator: operator, status: status };  // prettier-ignore
         // the host hears of every accepted copy and delete; the drawer follows only while it still shows this document
         var copy = copyFlow(Object.assign({}, ctx, { copied: function (newId, b) {
-          if (opts.onSaved) opts.onSaved(b);
+          if (opts.onSaved) opts.onSaved(b, newId);
           if (open_()) open(Object.assign({}, opts, { id: newId, note: "Saved as a copy of " + docId + " by " + b.author + "." }));
         } }));
         var remove = deleteFlow(Object.assign({}, ctx, { host: d.parentNode || document.body, deleted: function (b) {
-          if (opts.onSaved) opts.onSaved(b);
+          if (opts.onSaved) opts.onSaved(b, docId);
           if (!open_()) return;
           current = null; form = null;  // the document is gone: opened again, it asks again
           fill(host, [status]);
@@ -420,8 +438,10 @@
         row.appendChild(button("Save as a copy", "", function () { copy(newName.value); }));
         row.appendChild(el("span", { class: "spacer" }));
         row.appendChild(button("Delete…", "danger", function () { remove(); }));
+        if (info.blank) more.appendChild(el("div", { class: "row" })).appendChild(button(newLabel(opts.kind), "", function () { create(Object.assign({}, opts, { id: null, draft: null, note: null })); }));
       }
-      fill(host, [readOnly ? banner("Read-only here: " + (got[1].body.path || docId) + " is not saved from this configurator.", "denied") : null,
+      var fresh = isNew ? banner("New: nothing is written until Save, which creates " + docId + " (its dry run, its tier, its name unique)." + (opts.source && opts.source !== "portal" ? " Drafted from " + opts.source + "." : ""), opts.source && opts.source !== "portal" ? "stale" : null) : null;
+      fill(host, [fresh, readOnly ? banner("Read-only here: " + (got[1].body.path || docId) + " is not saved from this configurator.", "denied") : null,
         fields ? el("p", { class: "dim" }, "Showing " + fields.join(", ") + "; the rest of the document is kept as it is.") : null, tools, more, status, previewBox, formHost]);
       if (opts.note) fill(status, [banner(opts.note)]);
     }).catch(function (e) {
@@ -435,7 +455,106 @@
     return handle;
   }
 
+  // ---- a new document --------------------------------------------------------------------------
+  function newLabel(kind) { return "New " + kind.replace(/^analysis_/, "") + "…"; }
+
+  // What a recipe's start form asks beyond its name, read off the kind's schema: each input kind (the
+  // discriminator's mapping), and for each the enumerated fields it requires beyond `kind` (a trace's
+  // loading.data_type). [{kind, fields: [{path: [...], label, options, description}]}]
+  function startChoices(schema) {
+    var input = ((schema || {}).properties || {}).input || {}, map = (input.discriminator || {}).mapping || {}, defs = (schema || {}).$defs || {};
+    function def(ref) { return ref ? defs[String(ref).split("/").pop()] || null : null; }
+    return Object.keys(map).map(function (k) {
+      var d = def(map[k]) || {}, fields = [];
+      (d.required || []).forEach(function (f) {
+        if (f === "kind") return;
+        var p = (d.properties || {})[f] || {}, sub = def(p.$ref);
+        (sub && sub.required || []).forEach(function (g) {
+          var q = (sub.properties || {})[g] || {}, e = def(q.$ref) || q;
+          if (e.enum) fields.push({ path: [f, g], label: f + "." + g, options: e.enum, description: q.description || e.description || "" });
+        });
+      });
+      return { kind: k, fields: fields };
+    });
+  }
+  function nest(path, value, into) { var o = into; path.slice(0, -1).forEach(function (p) { o = o[p] = o[p] || {}; }); o[path[path.length - 1]] = value; return into; }
+
+  function create(opts) {
+    if (!opts || opts.api == null || !opts.kind) throw new Error("GeecsConfigurator.create needs api and kind");
+    var base = String(opts.api).replace(/\/$/, ""), call = caller(base), d = drawer(), host = bodyEl;
+    var self = { key: JSON.stringify(["new", base, opts.kind, opts.experiment || ""]), handle: { close: function () { var kit = typeof window !== "undefined" && window.GeecsKit; if (kit) kit.closeDrawer(); }, value: function () { return null; } } };
+    function open_() { return current === self; }
+    current = self;
+    titleEl.textContent = opts.kind + " · new";
+    fill(host, [el("div", { class: "state", "data-state": "loading" }, "Asking where a new " + opts.kind + " may go…")]);
+    show(d);
+    function field(label, input, hint) {
+      var f = el("label", { class: "field" });
+      f.appendChild(el("span", { class: "lbl" }, label)); f.appendChild(input);
+      if (hint) f.appendChild(el("span", { class: "hint" }, hint));
+      return f;
+    }
+    function select(options, aria) {
+      var s = el("select", { class: "btn sm", "aria-label": aria });
+      options.forEach(function (o, i) { var opt = el("option", i === 0 ? { value: o, selected: "" } : { value: o }, o); s.appendChild(opt); });
+      if (options.length) s.value = options[0];
+      return s;
+    }
+    Promise.all([call("GET", "/api/folders/" + opts.kind), call("GET", "/api/schema/" + opts.kind)]).then(function (got) {
+      if (!open_()) return;
+      if (got[0].status !== 200) throw new Error(got[0].status + " " + why(got[0].body));
+      var folders = Array.isArray(got[0].body) ? got[0].body : [], status = el("div");
+      if (!folders.length) { fill(host, [el("div", { class: "state", "data-state": "denied" }, "Nothing new is saved here: this configurator owns no folder of the " + opts.kind + " tree (or its commit path is off).")]); return; }
+      var name = el("input", { class: "btn sm", autocomplete: "off", placeholder: "UC_Name", "aria-label": "the new document's name" });
+      var folder = select(folders, "the folder");
+      var kids = [el("p", { class: "dim" }, "A new " + opts.kind.replace(/^analysis_/, "") + ": its name is its file's stem, unique across the tree a run loads it from. Nothing is written until you save the draft."),
+        field("name", name, "letters, digits, _ . -"), field("folder", folder, "this box's folders")];
+      var device = null, input = null, extra = el("div", { class: "group" }), extras = [], choices = [];
+      if (opts.kind === "analysis_recipe") {
+        choices = startChoices(got[1].body);
+        device = el("input", { class: "btn sm", autocomplete: "off", placeholder: "the name", "aria-label": "the data folder" });
+        input = select(choices.map(function (c) { return c.kind; }), "the frame kind");
+        var drawExtra = function () {
+          var c = choices.filter(function (x) { return x.kind === input.value; })[0] || { fields: [] };
+          extras = c.fields.map(function (f) { return { path: f.path, el: select(f.options, f.label) }; });
+          fill(extra, extras.map(function (x, i) { return field(c.fields[i].label, x.el, c.fields[i].description); }));
+        };
+        input.addEventListener("change", drawExtra);
+        drawExtra();
+        kids.push(field("device", device, "the data folder its frames are read from (the name when empty)"), field("frames", input, "what the input reads: the default measure for those frames is chosen"), extra);
+      }
+      var go = button("Open the draft", "primary", function () {
+        var stem = String(name.value || "").trim().replace(/\.ya?ml$/i, "");
+        if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(stem)) { fill(status, [banner("A new name is letters, digits, _ . -", "error")]); return; }
+        var id = folder.value + "/" + stem + ".yaml", q = [];
+        if (input) {
+          var fields = {};
+          extras.forEach(function (x) { nest(x.path, x.el.value, fields); });
+          q.push("input=" + encodeURIComponent(input.value), "device=" + encodeURIComponent(String(device.value || "").trim()));
+          if (extras.length) q.push("fields=" + encodeURIComponent(JSON.stringify(fields)));
+        }
+        go.disabled = true;
+        fill(status, [el("p", { class: "dim" }, "Drafting " + id + "…")]);
+        call("GET", "/api/blank/" + opts.kind + "/" + id.split("/").map(encodeURIComponent).join("/") + (q.length ? "?" + q.join("&") : "")).then(function (r) {
+          go.disabled = false;
+          if (!open_()) return;  // the drawer moved on while it was drafted
+          if (r.status !== 200) { fill(status, [banner("No draft (" + r.status + "): " + why(r.body), "error")]); return; }
+          open(Object.assign({}, opts, { id: id, draft: r.body.document, source: r.body.source }));
+        }).catch(function (e) { go.disabled = false; if (open_()) fill(status, [banner(String(e.message || e), "error")]); });
+      });
+      kids.push(el("div", { class: "row end" }).appendChild(go).parentNode, status);
+      fill(host, kids);
+    }).catch(function (e) {
+      if (!open_()) return;
+      current = null;
+      fill(host, [el("div", { class: "state", "data-state": "error" }, "The configurator did not answer: " + (e.message || e))]);
+    });
+    return self.handle;
+  }
+
   out.open = open;
+  out.create = create;
+  out.startChoices = startChoices;
   out.saveFlow = saveFlow;
   out.deleteFlow = deleteFlow;
   out.copyFlow = copyFlow;

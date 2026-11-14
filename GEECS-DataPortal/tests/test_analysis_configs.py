@@ -164,6 +164,49 @@ class TestValidate:
         assert {p: p.read_bytes() for p in configs_tree.rglob("*") if p.is_file()} == before  # fmt: skip
 
 
+class TestBlank:
+    """The new-document draft: it validates as served, and nothing is written."""
+
+    def test_each_input_kind_opens_on_a_draft_that_binds(self, scan_folder, configs_tree):  # fmt: skip
+        from geecs_analysis.recipe import input_kinds
+
+        client = _client(scan_folder, configs_tree)
+        before = {p: p.read_bytes() for p in configs_tree.rglob("*") if p.is_file()}
+        for kind in input_kinds():
+            params = {"name": "UC_New", "input": kind, **({"fields": '{"loading": {"data_type": "tsv"}}'} if kind == "line" else {})}  # fmt: skip
+            r = client.get("/api/analysis/blank/analysis_recipe", params=params)
+            assert r.status_code == 200, r.text
+            doc = r.json()["document"]
+            assert doc["output_name"] == "UC_New" and doc["input"]["kind"] == kind and doc["steps"] == []  # fmt: skip
+            assert _validate(client, "analysis_recipe", doc, "HTT/UC_New.yaml").json() == {"ok": True, "errors": []}  # fmt: skip
+        assert {p: p.read_bytes() for p in configs_tree.rglob("*") if p.is_file()} == before  # fmt: skip
+
+    def test_a_blank_under_a_held_stem_is_refused_at_validate(self, scan_folder, configs_tree):  # fmt: skip
+        client = _client(scan_folder, configs_tree)
+        doc = client.get("/api/analysis/blank/analysis_recipe", params={"name": "UC_Crop", "input": "camera"}).json()["document"]  # fmt: skip
+        out = _validate(client, "analysis_recipe", doc, "HTT/UC_Crop.yaml").json()
+        assert not out["ok"] and "HTU/UC_Crop.yaml" in out["errors"][0]["msg"]
+
+    def test_what_a_blank_lacks_is_named(self, scan_folder, configs_tree):
+        client = _client(scan_folder, configs_tree)
+        line = client.get("/api/analysis/blank/analysis_recipe", params={"name": "L", "input": "line"})  # fmt: skip
+        assert line.status_code == 422 and "loading" in line.json()["detail"]
+        assert client.get("/api/analysis/blank/analysis_recipe", params={"name": "T", "input": "telescope"}).status_code == 422  # fmt: skip
+        assert client.get("/api/analysis/blank/analysis_recipe", params={"name": "L", "input": "line", "fields": "[1]"}).status_code == 422  # fmt: skip
+
+    def test_a_group_is_empty_and_a_job_has_no_blank(self, scan_folder, configs_tree):
+        client = _client(scan_folder, configs_tree)
+        group = client.get("/api/analysis/blank/analysis_group", params={"name": "g2"}).json()["document"]  # fmt: skip
+        assert group == {"name": "g2", "analyzers": []}
+        assert _validate(client, "analysis_group", group).json()["ok"]
+        assert client.get("/api/analysis/blank/himg_job", params={"name": "j"}).status_code == 404  # fmt: skip
+        assert client.get("/api/analysis/blank/preset", params={"name": "p"}).status_code == 404  # fmt: skip
+
+    def test_off_without_the_configs_tree(self):
+        client = TestClient(create_app(FakeCatalog()))
+        assert client.get("/api/analysis/blank/analysis_recipe", params={"name": "x", "input": "camera"}).status_code == 404  # fmt: skip
+
+
 class TestRunPageMount:
     def test_edit_opens_the_configurators_embedded_editor(self, scan_folder, configs_tree):  # fmt: skip
         client = _client(

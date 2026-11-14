@@ -183,6 +183,28 @@ its design is `Planning/configurator.md`, its record the tracking issue
   while its own document is still the one open; the host's `onSaved`
   hears it either way. Pinned by `tests/test_delete.py`,
   `test_document_actions_js.py` and `test_embed_switch_js.py`.
+- **A new document starts from its consumer's blank.** A kind the
+  catalogue marks `blank` (`kinds.BLANKS`: recipes and groups; a `.himg`
+  job and every other kind are copied, never started blank) is created from
+  a draft: `GET /api/blank/{kind}/{folder}/{name}.yaml` refuses first (not
+  a stem 422, a folder this box does not own 403, a file there or, in the
+  analyzers tree, another file's stem 409, no commit path 405), then relays
+  the portal's `/api/analysis/blank` (a recipe that already binds: the
+  registry's default measure for the input's frames), the portal's 422 its
+  own; with the portal unset or silent the schema's fewest fields (no
+  measure chosen), `source` saying why. `GET /api/folders/{kind}` lists
+  where: this box's facility folders and the owned subfolders that hold the
+  kind. Nothing is written until Save, which is the save route's create
+  (dry run, tier, stem rule, ownership). In the browser
+  `GeecsConfigurator.create` draws the start form in the drawer (name,
+  folder, and for a recipe its data folder and frame kind with what each
+  kind requires, read off the schema: `startChoices`) and opens the draft
+  with `open({..., draft})`: no read at the id, the first Save a create, the
+  file opened as stored once committed. Entry points: the page's "New
+  recipe…" / "New group…" and the drawer's "New, copy or delete". Pinned
+  by `tests/test_new_document.py`, `test_contract_portal.py` (every frame
+  kind's draft binds and commits; a taken stem refused) and
+  `test_new_document_js.py`.
 - **One save flow.** `embed.js`'s `saveFlow` is the save of an existing
   document in the browser: the embedded drawer and this service's own page
   (`configurator.js`, which loads `embed.js` first) both save through it,
