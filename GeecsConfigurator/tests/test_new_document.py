@@ -52,7 +52,9 @@ def test_a_silent_portal_falls_back_with_its_reason(origin: Path, tmp_path_facto
 
 
 def test_what_refuses_a_new_document_before_any_draft(committing: TestClient) -> None:
-    ask = lambda doc_id, **params: committing.get(f"/api/blank/analysis_recipe/{doc_id}", params={"input": "camera", **params})  # noqa: E731  # fmt: skip
+    def ask(doc_id: str, **params: str):  # type: ignore[no-untyped-def]
+        return committing.get(f"/api/blank/analysis_recipe/{doc_id}", params={"input": "camera", **params})  # fmt: skip
+
     assert ask("Ns/recipe.yaml").status_code == 409  # a file already there
     assert (
         ask("Ns/deeper/compact.yaml").status_code == 409

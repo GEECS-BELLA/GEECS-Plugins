@@ -278,6 +278,8 @@ def measure(
     shot_scalars = tuple(shot_scalars)
     _check_measure_fields(spec, input_field, tables, shot_scalars)
     channels = tuple(channels)
+    if default and (service or input_field or channels or tables or shot_scalars):
+        raise ValueError("A default measure is a plain one: a new recipe binds nothing for it (no service, frame input, channel, table or shot scalar)")  # fmt: skip
     if channels and (
         ndim != {1} or not all(channels) or len(set(channels)) != len(channels)
     ):

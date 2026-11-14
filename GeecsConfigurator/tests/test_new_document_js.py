@@ -54,10 +54,12 @@ const settle = () => new Promise((r) => setTimeout(r, 5));
 global.GeecsForm = require(process.argv[1]);
 const G = require(process.argv[2]);
 const C = JSON.parse(require("fs").readFileSync(0, "utf8"));
-const sent = [];
+const sent = [], held = [];
+let hold = null;  // (method, url) -> true: the answer waits in `held` until released
 global.fetch = (url, init) => {
   const method = (init && init.method) || "GET", body = init && init.body ? JSON.parse(init.body) : undefined;
   sent.push([method, decodeURIComponent(url), body]);
+  if (hold && hold(method, decodeURIComponent(url))) { const go = global.fetch.bind(null, url, init); return new Promise((resolve) => held.push(() => { hold = null; resolve(go()); })); }
   if (method === "PUT") return Promise.resolve({ status: 200, text: () => Promise.resolve(JSON.stringify({ outcome: "committed", author: "Ada via configurator", etag: "e1", tier: "operator", changes: [], path: "x" })) });
   const [status, out] = C.answers[method + " " + decodeURIComponent(url)] || [404, { detail: "unknown " + url }];
   return Promise.resolve({ status, text: () => Promise.resolve(JSON.stringify(out)) });
@@ -86,6 +88,27 @@ global.fetch = (url, init) => {
   out.put = sent.filter((s) => s[0] === "PUT").map((s) => [s[1], s[2]]);
   out.heard = heard;
   out.reopened = sent.filter((s) => s[0] === "GET" && s[1].indexOf("/api/documents/analysis_recipe/Ns/UC_New.yaml") >= 0).length;
+  // late answers: the drawer moved to another document before the blank, or the create, answered
+  const title = () => walk(document.body.children[0], (n) => n.attrs.id === "geecs-configurator-title")[0].textContent;
+  const startDraft = async () => {
+    G.create({ api: C.api, kind: "analysis_recipe", experiment: "", operator: "Ada", onSaved: (b, id) => heard.push([b.outcome, id]) }); await settle();
+    const d = document.body.children[0];
+    byLabel(d, "the new document's name").value = "UC_New";
+    const f = byLabel(d, "the frame kind"); f.value = "line"; f.on.change(); byLabel(d, "loading.data_type").value = "tsv";
+    button(d, "Open the draft")[0].on.click(); await settle();
+  };
+  const other = { api: C.api, kind: "analysis_recipe", experiment: "", id: "Ns/Elsewhere.yaml", operator: "Ada" };
+  hold = (m, u) => m === "GET" && u.indexOf("/api/blank/") >= 0;
+  await startDraft();
+  G.open(other); await settle(); held.shift()(); await settle();
+  out.lateBlank = title();
+  heard.length = 0;
+  await startDraft();
+  hold = (m) => m === "PUT";
+  button(document.body.children[0], "Save")[0].on.click(); await settle();
+  const again = button(document.body.children[0], "Save"); if (again.length > 1) again.slice(-1)[0].on.click(); await settle();
+  G.open(Object.assign({}, other, { id: "Ns/Elsewhere2.yaml" })); await settle(); held.shift()(); await settle();
+  out.lateCreate = [title(), heard.slice()];
   // the configurator's own page passes its root, "" when served at /: a same-origin api
   out.sameOrigin = (() => { try { G.create({ api: "", kind: "analysis_recipe" }); return true; } catch (e) { return String(e); } })();
   console.log(JSON.stringify(out));
@@ -125,7 +148,17 @@ def test_a_new_recipe_from_the_start_form_is_the_save_routes_create(committing: 
     done = subprocess.run(["node", "-e", _HARNESS, str(static_dir() / "form.js"), str(_EMBED)], input=json.dumps(stdin), text=True, capture_output=True, timeout=30)  # fmt: skip
     assert done.returncode == 0, done.stderr
     ran = json.loads(done.stdout)
-    assert dict(ran["choices"]) == {"camera": [], "line": ["loading.data_type"]}
+    # the required format of a trace, then each kind's optional enumerated fields (a stack's `format`)
+    assert dict(ran["choices"]) == {
+        "camera": ["format"],
+        "line": ["loading.data_type", "format", "storage_dtype"],
+    }
+    # a late answer never replaces the document opened since: the blank's, and the create's (the host still hears it)
+    assert ran["lateBlank"] == "analysis_recipe · Ns/Elsewhere.yaml"
+    assert ran["lateCreate"] == [
+        "analysis_recipe · Ns/Elsewhere2.yaml",
+        [["committed", "Ns/UC_New.yaml"]],
+    ]
     assert (
         ran["folders"] == ["Ns"]
         and ran["badName"]

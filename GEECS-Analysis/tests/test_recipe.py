@@ -124,6 +124,29 @@ def test_a_blank_names_what_its_input_lacks_and_refuses_an_unknown_kind():
         blank_recipe("telescope", name="T")
 
 
+def test_every_trace_format_drafts_a_blank_that_binds():
+    """The start form offers every file format; the capture stack also names its format (the input's own rule)."""
+    from geecs_schemas.analysis.processing_1d import Data1DType
+
+    from geecs_analysis.recipe import blank_recipe
+
+    for data_type in Data1DType:
+        fields: dict = {"loading": {"data_type": data_type.value}}
+        if data_type.value == "pva_stack":
+            with pytest.raises(RecipeError, match="format"):
+                blank_recipe("line", name="L", input_fields=fields)
+            fields["format"] = "device_hdf5"
+        doc = blank_recipe("line", name="L", input_fields=fields)
+        assert binding_errors(AnalysisRecipe.model_validate(doc)) == []
+
+
+def test_a_default_measure_is_a_plain_one():
+    from geecs_analysis.registry import measure
+
+    with pytest.raises(ValueError, match="plain one"):
+        measure(AnalysisRecipe, ndim={1}, default=True, service="frog")  # type: ignore[type-var]
+
+
 def test_a_second_default_measure_for_a_dimensionality_is_refused():
     from geecs_analysis.registry import measure
 
