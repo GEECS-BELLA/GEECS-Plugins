@@ -38,7 +38,15 @@ the file stem its name): ordered `set` / `wait` / `check` / `apply` steps and
 an optional `captured` record. A `check` matches as the confirm settable
 does (`setup_value_matches`: a number within `tolerance`, a word exactly);
 `flatten_setup` inlines `apply` steps and refuses unknown names and loops.
-It succeeds the action library, which stays until its executors move.
+`setup_digest` hashes the flattened steps (nested setups included): the
+scanner sends the digest its operator confirmed and the worker refuses a
+setup whose digest moved. `setup_hazards` names the `set` steps that need
+the hazard confirm from the device module's two sources (a family role's
+`confirm: hazard`, as `panel_devices.yaml` amends it, and the operator
+policy's `hazards` by device or family), reading a step's variable widely
+(role name, record suffix, axis, the setpoint a readback is written at) and
+asking whenever a device's family cannot be told. It succeeds the action
+library, which stays until its executors move.
 
 ## Analysis documents
 

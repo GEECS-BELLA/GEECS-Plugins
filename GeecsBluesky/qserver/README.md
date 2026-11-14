@@ -62,12 +62,17 @@ qserver queue add plan '{"name": "count", "args": [["U_S1H"], 3], "item_type": "
 qserver queue add plan '{"name": "sweep", "args": [["U_S1H"]], "kwargs": {"sweep": {"trajectory": {"kind": "axes", "axes": [{"kind": "range", "axis": "U_S1H.current", "start": -1, "stop": 1, "num": 5}]}}}, "item_type": "plan"}'
 qserver queue add plan '{"name": "mv", "args": ["U_S1H.current", 0.0], "item_type": "plan"}'
 qserver queue add plan '{"name": "run_action", "args": ["Amp4_DUMP_HP"], "item_type": "plan"}'
+qserver queue add plan '{"name": "apply_setup", "args": ["low_power"], "item_type": "plan"}'
 qserver queue start
 ```
 
 `run_action` runs a named plan from the experiment's action library
 (`action_library/actions.yaml`, read from disk on every item) as plain
 stubs over the same devices: no run is opened, nothing is claimed.
+`apply_setup` does the same for a setup (`setups/<name>.yaml`); the web
+scanner's apply route queues it with the operator's confirmations in `md`
+(`EVENT_SCHEMA.md`), which a hand-queued item lacks, so its digest is not
+checked.
 
 The `qserver` CLI parses that argument as a **Python literal, not JSON**:
 `null` / `true` / `false` are rejected with an unhelpful "Error occurred

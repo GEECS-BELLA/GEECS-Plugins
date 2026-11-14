@@ -20,11 +20,21 @@ before anything is written.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, ClassVar, Literal, SupportsFloat, Union, cast
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    ClassVar,
+    Literal,
+    SupportsFloat,
+    Union,
+    cast,
+)
 
 from pydantic import (
     AfterValidator,
@@ -38,6 +48,12 @@ from pydantic import (
 
 from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.action_plan import WaitStep
+
+if TYPE_CHECKING:
+    from geecs_schemas.epics import NativeDevices
+    from geecs_schemas.epics.family import FamilyFile
+    from geecs_schemas.epics.operations import OperatorPolicy
+    from geecs_schemas.epics.panel_devices import PanelDevices
 
 #: Where an experiment's setups live: ``setups/<name>.yaml``, one per setup.
 SETUPS_FOLDER = "setups"
@@ -347,3 +363,164 @@ def load_setups(experiment_dir: str | Path) -> dict[str, Setup]:
         paths[path.stem] = path
         setups[setup.name] = setup
     return setups
+
+
+def setup_digest(steps: Sequence[tuple[ConcreteSetupStep, str | None]]) -> str:
+    """The SHA-256 of a flattened setup: what it will do, nested setups included.
+
+    Two readers that flatten the same files get the same digest, and any
+    edit that changes a value, a step or its order (in the setup or in one it
+    applies) changes it. An executor compares the digest it was handed with
+    the one it computes before the first write, so what an operator
+    confirmed is what runs.
+
+    Parameters
+    ----------
+    steps : sequence of (step, from_setup)
+        :func:`flatten_setup`'s answer.
+
+    Returns
+    -------
+    str
+        The hex digest.
+    """
+    canonical = [
+        {"from": origin, **step.model_dump(mode="json")} for step, origin in steps
+    ]
+    text = json.dumps(canonical, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+class SetupHazard(SchemaModel):
+    """A ``set`` step that needs the hazard confirm, and why."""
+
+    index: int = Field(description="The step's number in the flattened setup, from 1.")
+    device: str = Field(description="The device written.")
+    variable: str = Field(description="The variable written.")
+    value: SetupValue = Field(description="The value written.")
+    reasons: list[str] = Field(description="Why it needs the confirm, one line each.")
+
+
+def _family_roles(
+    device: str,
+    families: Mapping[str, FamilyFile],
+    native: NativeDevices | None,
+    panels: PanelDevices | None,
+    db_families: Mapping[str, str] | None,
+) -> tuple[str | None, FamilyFile | None, dict[str, bool]]:
+    """``(family, family file, role -> hazard)`` of *device*; ``(None, None, {})`` when unknown."""
+    if panels is not None and device in panels.devices:
+        panel = panels.devices[device]
+        family = families.get(panel.family)
+        roles = panel.resolve(family) if family is not None else []
+        return panel.family, family, {r.name: r.confirm == "hazard" for r in roles}
+    if native is not None and device in native.devices:
+        name = native.devices[device].family_template
+        family = families.get(name)
+        roles = family.roles if family is not None else []
+        return name, family, {r.name: r.confirm == "hazard" for r in roles}
+    if db_families is not None and device in db_families:
+        return db_families[device], None, {}
+    return None, None, {}
+
+
+def _role_candidates(variable: str, family: FamilyFile | None) -> set[str]:
+    """Every role a step's *variable* may name on a device of *family*.
+
+    The variable itself and the part after an axis (``m1.val``); a role
+    whose name or record suffix it is (the worker names a supply's settable
+    by its readback record); a bare axis's setpoint; and every role whose
+    readback is one of those (the setpoint a readback's set is written at).
+    Deliberately wide: asking about a role that is not the one written
+    costs a question, while missing the hazardous one costs the confirm.
+    """
+    words = {variable}
+    _, dot, rest = variable.partition(".")
+    if dot and rest:
+        words.add(rest)
+    if family is None:
+        return words
+    matched = {r.name for r in family.roles if r.name in words or r.suffix in words}
+    if family.per_axis and not dot:
+        matched |= {r.name for r in family.roles if r.type == "setpoint" and r.readback}
+    matched |= {r.name for r in family.roles if r.readback in matched}
+    return words | matched
+
+
+def setup_hazards(
+    steps: Sequence[tuple[ConcreteSetupStep, str | None]],
+    *,
+    policy: OperatorPolicy,
+    families: Mapping[str, FamilyFile],
+    native: NativeDevices | None = None,
+    panels: PanelDevices | None = None,
+    db_families: Mapping[str, str] | None = None,
+) -> list[SetupHazard]:
+    """The ``set`` steps of a flattened setup that need the hazard confirm.
+
+    The same two sources the device module's gate reads: a family role with
+    ``confirm: hazard`` (as the device has it: ``panel_devices.yaml``'s
+    ``hazard`` added), and the operator policy's ``hazards`` (by device, or
+    by family: a native device's family template, a DB device's device
+    type). It fails toward asking: a device whose family cannot be told
+    (in neither device file, and the DB's types unavailable or silent on
+    it) is a hazard whenever the policy names any of its candidate roles
+    for any family.
+
+    Parameters
+    ----------
+    steps : sequence of (step, from_setup)
+        :func:`flatten_setup`'s answer.
+    policy : OperatorPolicy
+        The experiment's ``operator_policy.yaml`` (an absent file: an empty policy).
+    families : Mapping[str, FamilyFile]
+        The installed families (:func:`geecs_schemas.epics.family.load_families`).
+    native, panels : NativeDevices, PanelDevices, optional
+        The experiment's two device files.
+    db_families : Mapping[str, str], optional
+        DB device name to its device type; ``None`` when the DB did not answer.
+
+    Returns
+    -------
+    list of SetupHazard
+        In step order.
+    """
+    found: list[SetupHazard] = []
+    for index, (step, _origin) in enumerate(steps, 1):
+        if not isinstance(step, SetupSetStep):
+            continue
+        family_name, family, roles = _family_roles(
+            step.device, families, native, panels, db_families
+        )
+        candidates = _role_candidates(step.variable, family)
+        reasons = [
+            f"the family role {role!r} asks for the hazard confirm"
+            for role in sorted(candidates)
+            if roles.get(role)
+        ]
+        for rule in policy.hazards:
+            named = sorted(candidates & set(rule.roles))
+            if not named:
+                continue
+            if step.device in rule.devices or (
+                family_name is not None and family_name in rule.families
+            ):
+                reasons.append(
+                    f"the operator policy's hazards name {step.device} {named[0]!r}"
+                )
+            elif family_name is None and rule.families:
+                reasons.append(
+                    f"the operator policy's hazards name {named[0]!r} for the families "
+                    f"{sorted(rule.families)}, and the family of {step.device} is unknown"
+                )
+        if reasons:
+            found.append(
+                SetupHazard(
+                    index=index,
+                    device=step.device,
+                    variable=step.variable,
+                    value=step.value,
+                    reasons=list(dict.fromkeys(reasons)),
+                )
+            )
+    return found

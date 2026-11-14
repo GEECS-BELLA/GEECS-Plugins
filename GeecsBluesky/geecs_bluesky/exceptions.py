@@ -39,6 +39,8 @@ __all__ = [
     "PseudoComponentsDisagreeError",
     "PseudoRestorePendingError",
     "ActionCheckFailedError",
+    "SetupCheckFailedError",
+    "SetupStepFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
     "failure_cause_text",
@@ -325,6 +327,74 @@ class GeecsScanModeError(GeecsError):
     def __init__(self, message: str, devices: Sequence[str] = ()) -> None:
         self.devices = tuple(devices)
         super().__init__(message)
+
+
+# ---------------------------------------------------------------------------
+# Setup errors — apply_setup (plans/apply_setup)
+# ---------------------------------------------------------------------------
+
+
+class SetupCheckFailedError(GeecsError):
+    """A setup's ``check`` step read a value that does not match its ``expected``.
+
+    The match is :func:`geecs_schemas.setup_value_matches` (a number within
+    the step's ``tolerance``, a word exactly); the setup stops here.
+    """
+
+    def __init__(
+        self,
+        device: str,
+        variable: str,
+        expected: object,
+        actual: object,
+        tolerance: float,
+    ) -> None:
+        self.device = device
+        self.variable = variable
+        self.expected = expected
+        self.actual = actual
+        self.tolerance = tolerance
+        slack = f" (within {tolerance:g})" if tolerance else ""
+        super().__init__(
+            f"check {device}:{variable} read {actual!r}, expected {expected!r}{slack}"
+        )
+
+
+class SetupStepFailedError(GeecsError):
+    """A setup stopped at one step: what it was, and which writes already took effect.
+
+    ``written`` lists the numbers of the ``set`` steps that completed
+    before the failing one; they are not undone. The message is the
+    manager's history line for the item, so it names the setup, the step
+    and the partial state first.
+    """
+
+    def __init__(
+        self,
+        setup: str,
+        index: int,
+        total: int,
+        step: str,
+        written: Sequence[int],
+        cause: str,
+    ) -> None:
+        self.setup = setup
+        self.index = index
+        self.total = total
+        self.step = step
+        self.written = tuple(written)
+        self.cause = cause
+        done = (
+            "nothing was written before it"
+            if not self.written
+            else "the writes of steps "
+            + ", ".join(map(str, self.written))
+            + " took effect and are not undone"
+        )
+        super().__init__(
+            f"setup {setup!r} stopped at step {index} of {total} ({step}); "
+            f"{done}: {cause}"
+        )
 
 
 # ---------------------------------------------------------------------------

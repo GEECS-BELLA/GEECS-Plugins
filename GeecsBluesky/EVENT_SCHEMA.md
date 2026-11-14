@@ -38,6 +38,24 @@ adds:
 Every run the worker opens claims a scan number; a run without one is not a
 GEECS scan.
 
+## Queue items that open no run: `apply_setup`
+
+`apply_setup(name, md=...)` emits no documents, so its `md` is not a
+start document's: it rides in the queue item's `kwargs` (the manager's
+queue and history keep it) and in the worker's log line for the item.
+The web scanner sends:
+
+| Key | Meaning |
+|---|---|
+| `geecs.operator` | Who applied it (the scanner's queue rows read it, as for a scan) |
+| `geecs.setup.name` | The setup's name; a different `name` argument refuses the item |
+| `geecs.setup.path` | The file as the configs repository names it (`scanner_configs/experiments/<experiment>/setups/<file>`) |
+| `geecs.setup.commit` | The configs checkout's commit when the client read it; `null` when it could not tell |
+| `geecs.setup.digest` | `geecs_schemas.setup_digest` of the flattened steps the operator confirmed; the worker refuses the item, before any write, when the setup's digest differs when it runs |
+| `geecs.submission` | The `SubmissionRecord`: each question the operator acknowledged (the setup's writes, each hazard confirm) as `continued` |
+
+Only `digest` and `name` are read by the worker; the rest is provenance.
+
 ## Predetermined moving scans: `sweep`
 
 The public moving plan is `sweep`; `count` remains motionless and `optimize`
