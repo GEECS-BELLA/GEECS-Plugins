@@ -8,8 +8,8 @@ binding names a GEECS device and a role (and an axis), or a bare PV. On a
 device the GEECS DB serves, the role is its GEECS variable name. A bare PV
 is read-only, for anything servable (a timestamp, a derived channel): a
 writing kind on one is drawn disabled; a write binds ``{device, role}``.
-A button may instead name an action plan (``{action: <plan>}``) from the
-experiment's action library: the device module runs it, step by step
+A button may instead name a setup (``{action: <setup>}``) from the
+experiment's ``setups/``: the device module applies it, step by step
 through its gates; the screen only calls it. A ``group`` widget binds
 ``{device, group}``: the device's rail group of that title (its family's
 ``panel``), or ``settings`` for the automatic layout a device without a
@@ -94,7 +94,7 @@ class Binding(SchemaModel):
         None, description="The axis, for a per-axis family (a motor's m1)."
     )
     pv: Optional[Suffix] = Field(None, description="A bare PV, read only: a writing kind on one is drawn disabled.")  # fmt: skip
-    action: Optional[str] = Field(None, min_length=1, description="An action plan's name in the experiment's library: a button runs it.")  # fmt: skip
+    action: Optional[str] = Field(None, min_length=1, description="A setup's name (its file stem in setups/): a button applies it.")  # fmt: skip
     group: Optional[str] = Field(None, min_length=1, description=f"A rail group's title in the device's family panel, or '{AUTO_GROUP}' for the automatic layout: a group widget draws it.")  # fmt: skip
 
     @model_validator(mode="after")
@@ -350,9 +350,9 @@ def _bind_group(
 
 
 def _unplanned(widget: Widget, actions: Collection[str], where: str) -> list[str]:
-    """A button naming a plan the library does not hold."""
-    plan = widget.bind.action if widget.bind else None
-    return [f"{where}: no action plan {plan!r} in the library"] if plan and plan not in actions else []  # fmt: skip
+    """A button naming a setup the experiment does not have."""
+    name = widget.bind.action if widget.bind else None
+    return [f"{where}: no setup {name!r} in setups/"] if name and name not in actions else []  # fmt: skip
 
 
 def resolve(
@@ -368,7 +368,7 @@ def resolve(
     ``deferred``: the devices the module lists (its roster); one that
     neither device file names is bound without a role, for the page to
     judge by the module's device route. A device in neither is refused.
-    ``actions``: the plan names in the experiment's library; a button
+    ``actions``: the setup names of the experiment (``setups/``); a button
     naming another is refused.
     """
     known = native or NativeDevices.model_validate({})

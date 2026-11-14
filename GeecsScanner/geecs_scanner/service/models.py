@@ -288,7 +288,7 @@ class MoveIn(BaseModel):
 
 
 class ItemOut(BaseModel):
-    """A queued non-scan item: a move, an action, a calibration."""
+    """A queued non-scan item: a move, a setup, a calibration."""
 
     item_uid: Optional[str] = None
     message: str = ""
@@ -298,45 +298,6 @@ class ItemOut(BaseModel):
     reference: Optional[str] = Field(
         default=None, description="For a move: the device reference the item carries"
     )
-
-
-class ActionOut(BaseModel):
-    """One action plan as the picklist shows it."""
-
-    name: str
-    description: str = ""
-    steps: int = Field(description="Concrete steps after nested runs are inlined")
-    nested: list[str] = Field(
-        default_factory=list, description="Plans this one runs by name"
-    )
-    problem: Optional[str] = Field(
-        default=None, description="Why it cannot run (unknown nested plan, a loop)"
-    )
-
-
-class ActionStepOut(BaseModel):
-    """One flattened step of an action plan."""
-
-    do: str
-    device: Optional[str] = None
-    variable: Optional[str] = None
-    value: Optional[Any] = None
-    expected: Optional[Any] = None
-    seconds: Optional[float] = None
-    wait: Optional[bool] = None
-    from_plan: Optional[str] = Field(
-        default=None, description="The nested plan this step was inlined from"
-    )
-    text: str
-
-
-class ActionDetailOut(BaseModel):
-    """``GET /api/actions/{name}``: the preview — what running it would do, in order."""
-
-    name: str
-    description: str = ""
-    steps: list[ActionStepOut]
-    writes: int = Field(description="How many steps write to hardware")
 
 
 class SetupOut(BaseModel):

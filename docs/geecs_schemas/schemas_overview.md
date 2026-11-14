@@ -57,11 +57,11 @@ generator, a gas-jet controller, a shutter), not just one. Each operating
 condition — laser on, laser off, no gas — is its own profile file, and a
 scan names the one it wants.
 
-**Action plans — "what happens automatically around the scan?"**
-Named checklists of steps — set a variable, wait, check a readback, run
-another plan. A scan request points at them in three slots: `setup` (before
-the scan), `per_step` (between positions), and `closeout` (after, even on
-abort).
+**Setups — "put the machine in a named state."**
+Named checklists of steps — set a variable, wait, check a readback, apply
+another setup — one file per setup in `setups/`. A setup is applied as its
+own queue item (the scanner's Setups panel, or a Control Room button),
+never from inside a scan; a scan request names none.
 
 ## Required devices vs background telemetry
 
@@ -134,23 +134,20 @@ flowchart LR
     SV["Scan variables<br/><i>what 'jet_z' actually moves</i>"]
     SS["Save set<br/><i>the required devices</i>"]
     TP["Trigger profile<br/><i>how shots are fired</i>"]
-    AP["Action plans<br/><i>setup / per-step / closeout</i>"]
     SCAN(("the scan"))
 
     SR -- "axes: jet_z, ..." --> SV
     SR -- "capture.save_sets: [baseline, ...]" --> SS
     SR -- "capture.trigger_profile: htu" --> TP
-    SR -- "actions: [...]" --> AP
     SV --> SCAN
     SS --> SCAN
     TP --> SCAN
-    AP --> SCAN
 ```
 
 When you press Start, the scan request is the only thing submitted. The
 scanner looks up the names it contains: the scan variable tells it what to
 move, the save set tells it what to record, the trigger profile tells it how
-to gate shots, and the action plans run at their slots. Change what a name
+to gate shots. Change what a name
 *means* (say, add a camera to the save set) and every preset using that name
 picks up the change; change the *request* and nothing else is touched.
 
@@ -158,8 +155,8 @@ picks up the change; change the *request* and nothing else is touched.
 
 Submitting a request kicks off a short, predictable sequence. First a
 *resolver* turns every name in the request into the real thing: it opens the
-experiment's config folder, finds the save set, trigger profile, scan
-variable, and action plans you named, and checks each one — a new-style file
+experiment's config folder, finds the save set, trigger profile and scan
+variable you named, and checks each one — a new-style file
 is read directly, an old-style file is converted on the fly (your existing
 configs work as-is; nothing needs rewriting first). If a name doesn't exist
 or a file doesn't validate, the submission fails right there with a message
@@ -169,12 +166,7 @@ pieces: it connects the save set's devices, puts the trigger device under
 the profile's control, creates the scan variable's mover, and hands
 everything to the scan plan, which sweeps the positions (or just collects
 shots, or lets the optimizer steer) and records the data with the same run
-discipline as any other scan. Action plans run at their slots automatically:
-setup plans (the experiment's defaults first, then each required device's
-ritual, then the scan's own) run once before the first step, per-step plans
-run at every position right after the move and before the shots, and
-closeout plans run once at the end — in the reverse order, and even if the
-scan was aborted partway. If the request lists several axes, the scan
+discipline as any other scan. If the request lists several axes, the scan
 visits every combination as a grid — the first axis is the slow outer loop —
 taking the usual batch of shots at each grid point and recording every
 axis's position in every data row. A pseudo (composite) scan variable —

@@ -344,3 +344,51 @@ def test_a_policy_hazard_is_asked_whatever_the_spelling(device, variable):
     assert len(_hazards(step, policy=by_name)) == 1
     found = _hazards(step, policy=by_type, db_families={"U_Laser": "LaserCtl"})
     assert len(found) == 1 and "unknown" not in found[0].reasons[0]
+
+
+def test_the_converted_fixture_setups_load_and_flatten():
+    """The action library's Amp4_DUMP_HP, converted once: it applies the other two."""
+    from pathlib import Path
+
+    setups = load_setups(Path(__file__).parent / "fixtures")
+    assert set(setups) == {
+        "Amp4_DUMP_HP",
+        "close_gaia_internal_shutters",
+        "open_gaia_internal_shutters",
+    }
+    steps = flatten_setup(setups["Amp4_DUMP_HP"], setups=setups)
+    origins = {origin for _, origin in steps}
+    assert origins == {
+        None,
+        "close_gaia_internal_shutters",
+        "open_gaia_internal_shutters",
+    }
+
+
+def test_the_step_variable_grammar_round_trips():
+    """One grammar for a step's variable on a native device: <role>, or <axis>.<role>."""
+    from geecs_schemas import split_step_variable, step_variable
+
+    roles = load_families()["motor_record"].roles
+    axes = ["x", "y"]
+    assert split_step_variable("x", axes=axes, roles=roles) == ("val", "x")
+    assert split_step_variable("y.rbv", axes=axes, roles=roles) == ("rbv", "y")
+    assert split_step_variable("Current", axes=axes, roles=roles) == ("Current", None)
+    for role, axis in (("rbv", "y"), ("Current", None)):
+        assert split_step_variable(
+            step_variable(role, axis), axes=axes, roles=roles
+        ) == (role, axis)
+
+
+@pytest.mark.parametrize("variable", ["m1", "m1.val", "M1.VAL"])
+def test_an_axis_step_finds_the_hazard_on_its_setpoint(variable):
+    """A bare axis names its setpoint (the module's grammar), ``<axis>.<role>`` that role."""
+    native = _native({"U_Stage": {"kind": "epics_motor", "axes": ["m1", "m2"]}})
+    panels = PanelDevices.model_validate(
+        {"devices": {"U_Stage": {"family": "motor_record", "hazard": ["val"]}}}
+    )
+    step = {"do": "set", "device": "U_Stage", "variable": variable, "value": 1.0}
+    found = _hazards(step, native=native, panels=panels)
+    assert [h.index for h in found] == [1] and "'val'" in found[0].reasons[0]
+    quiet = {**step, "variable": "m1.velo"}
+    assert _hazards(quiet, native=native, panels=panels) == []

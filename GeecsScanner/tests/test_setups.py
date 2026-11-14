@@ -127,8 +127,9 @@ def test_an_acknowledgement_never_covers_another_version_of_the_setup(client: Te
 
 
 def test_the_apply_refuses_without_an_operator_and_on_a_bad_setup(client: TestClient) -> None:  # fmt: skip
-    r = client.post("/api/setups/low_power/apply", json={"operator": "  "})
-    assert r.status_code == 400 and "operator" in r.json()["error"]["message"]
+    for nobody in ("  ", ""):  # the page sends "" for an empty box, never null
+        r = client.post("/api/setups/low_power/apply", json={"operator": nobody})
+        assert r.status_code == 400 and "operator" in r.json()["error"]["message"]
     assert _apply(client, "nope").status_code == 404
     assert _apply(client, "loop_a").status_code == 400
 
@@ -158,8 +159,9 @@ def test_with_the_db_silent_a_family_rule_still_asks(client: TestClient, service
 def test_the_apply_is_idle_only(client: TestClient, manager: DemoQueueClient, preset_doc: dict) -> None:  # fmt: skip
     r = client.post("/api/submit", json={"preset": preset_doc, "acknowledged": ["gateway_liveness"]})  # fmt: skip
     assert r.status_code == 200, r.text
-    r = _apply_all(client)
+    r = _apply(client)  # refused before its questions: they could not be queued
     assert r.status_code == 409 and "idle-only" in r.json()["error"]["message"]
+    assert "needs_acknowledgement" not in r.json()["error"]
 
 
 def test_a_reopen_that_ran_while_the_apply_was_judged_refuses_it(client: TestClient, service: ScannerService, manager: DemoQueueClient) -> None:  # fmt: skip

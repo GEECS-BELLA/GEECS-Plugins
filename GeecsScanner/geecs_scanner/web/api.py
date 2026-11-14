@@ -18,8 +18,6 @@ from starlette.concurrency import run_in_threadpool
 
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.models import (
-    ActionDetailOut,
-    ActionOut,
     CalibrationIn,
     CalibrationOut,
     ConfigListOut,
@@ -265,23 +263,6 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
     def move(body: MoveIn) -> ItemOut:
         """One manual move as an ``mv`` queue item; refused unless idle."""
         return service.move(body)
-
-    @router.get("/api/actions", response_model=list[ActionOut])
-    def actions(response: Response) -> list[ActionOut]:
-        """The action library: names, step counts, nested plans."""
-        response.headers.update(_NO_CACHE)
-        return service.actions()
-
-    @router.get("/api/actions/{name}", response_model=ActionDetailOut)
-    def action(name: str, response: Response) -> ActionDetailOut:
-        """The preview: every step the action would run, nested plans inlined."""
-        response.headers.update(_NO_CACHE)
-        return service.action(name)
-
-    @router.post("/api/actions/{name}/run", response_model=ItemOut)
-    def run_action(name: str, body: VerbIn | None = None) -> ItemOut:
-        """Queue ``run_action(name)``; refused unless idle."""
-        return service.run_action(name, body or VerbIn())
 
     @router.get("/api/setups", response_model=list[SetupOut])
     def setups(response: Response) -> list[SetupOut]:

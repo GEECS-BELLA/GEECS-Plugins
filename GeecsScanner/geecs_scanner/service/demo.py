@@ -56,8 +56,6 @@ def _nonrun_report(item: dict) -> str:
             f"{args[i]} = {args[i + 1]}" for i in range(0, len(args) - 1, 2)
         )
         return f"moved {pairs}"
-    if name == "run_action":
-        return f"action {args[0]!r} ran to completion" if args else "action ran"
     if name == "apply_setup":
         return f"setup {args[0]!r} applied" if args else "setup applied"
     n = len(args[0]) if args and isinstance(args[0], list) else 0
@@ -223,73 +221,6 @@ class DemoResolver:
             run={"shots_per_step": 5, "max_iterations": 10},
         )
 
-    def action_plan_registry(self) -> dict[str, Any]:
-        """Three action plans: one plain, one nesting another, one broken on purpose."""
-        from geecs_schemas import ActionPlan
-
-        return {
-            "close_shutters": ActionPlan.model_validate(
-                {
-                    "description": "Close both shutters and confirm",
-                    "steps": [
-                        {
-                            "do": "set",
-                            "device": "U_148_PLC",
-                            "variable": "shutter1",
-                            "value": "off",
-                        },
-                        {
-                            "do": "set",
-                            "device": "U_148_PLC",
-                            "variable": "shutter2",
-                            "value": "off",
-                        },
-                        {"do": "wait", "seconds": 2},
-                        {
-                            "do": "check",
-                            "device": "U_148_PLC",
-                            "variable": "shutter1",
-                            "expected": "off",
-                        },
-                    ],
-                }
-            ),
-            "experiment_closeout": ActionPlan.model_validate(
-                {
-                    "description": "Zero the steering magnets, then close the shutters",
-                    "steps": [
-                        {
-                            "do": "set",
-                            "device": "U_S1H",
-                            "variable": "current",
-                            "value": 0.0,
-                        },
-                        {"do": "run", "plan": "close_shutters"},
-                    ],
-                }
-            ),
-            "broken_reference": ActionPlan.model_validate(
-                {
-                    "description": "Runs a plan that is not in the library",
-                    "steps": [{"do": "run", "plan": "no_such_plan"}],
-                }
-            ),
-            # The library validator refuses unknown names but not loops;
-            # the shared flatten is the one guard, exercised here.
-            "loop_a": ActionPlan.model_validate(
-                {
-                    "description": "Runs loop_b",
-                    "steps": [{"do": "run", "plan": "loop_b"}],
-                }
-            ),
-            "loop_b": ActionPlan.model_validate(
-                {
-                    "description": "Runs loop_a",
-                    "steps": [{"do": "run", "plan": "loop_a"}],
-                }
-            ),
-        }
-
     def setups(self) -> dict[str, Any]:
         """Four setups: one nesting another, one writing a hazard role, one in a loop."""
         from geecs_schemas import Setup
@@ -379,10 +310,6 @@ class DemoResolver:
         from geecs_schemas import PanelDevices
 
         return PanelDevices()
-
-    def resolve_action_plan(self, name: str) -> Any:
-        """One plan, or ``KeyError``."""
-        return self.action_plan_registry()[name]
 
     @property
     def shot_offsets_path(self) -> Path:

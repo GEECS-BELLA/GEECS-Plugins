@@ -96,7 +96,7 @@ can then load the s-file via Data Utils for ad-hoc exploration.
 
 **[GEECS Scanner](web_services/scanner.md)** — the operator front end
 for collecting data, in a browser: pick or compose a scan, submit it to the
-Bluesky queueserver, watch it live, move devices and run action plans. The
+Bluesky queueserver, watch it live, move devices and apply setups. The
 engine underneath (GeecsBluesky) is equally usable headlessly.
 
 **[Analysis](analysis/index.md)** — per-image processing in the analysis

@@ -64,7 +64,7 @@ facility value, and the bootstrap that stands a host up from it.
 
     SLAC's Canopy as the display backend, with the GEECS device module
     inside it: the one path for an operator's write (policy, hazard
-    confirm, run lock, limits, journal), action plans and presets. How to
+    confirm, run lock, limits, journal), setups and presets. How to
     write the Control Room's screens, its launcher and the write policy.
 
     [:octicons-arrow-right-24: Authoring screens and policy](../geecs_canopy/authoring.md)

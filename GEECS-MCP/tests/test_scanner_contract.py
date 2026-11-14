@@ -87,8 +87,10 @@ class TestReads:
         missing = _j(await run(tools._list_scan_configs, "presets", "nope"))
         assert missing["ok"] is False
         assert missing["error_kind"] == "not_found"
-        by_name = _j(await run(tools._list_scan_configs, "actions", "x"))
+        by_name = _j(await run(tools._list_scan_configs, "setups", "x"))
         assert by_name["error_kind"] == "invalid_request"
+        setups = _j(await run(tools._list_scan_configs, "setups", None))
+        assert setups["ok"] is True and "low_power" in setups["names"]
 
     async def test_devices_are_the_bare_names_a_preset_takes(self, wired) -> None:
         out = _j(await run(tools._list_scan_configs, "devices", None))

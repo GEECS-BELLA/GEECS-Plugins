@@ -15,7 +15,7 @@ plan parameters): both concepts survive, folded into one document.  What
 did **not** survive, deliberately: per-scalar selection (every subscribed
 scalar of every device in the run is recorded, and the s-file carries all
 of them), and setup/closeout rituals and the ``SaveRole`` enum (an
-explicit action plan is its own queue item).  What phase 2 added
+explicit setup is its own queue item).  What phase 2 added
 (GEECS-Plugins#807): ``essential`` on each
 device — an essential device is waited on every shot, a non-essential
 one streams for the run (its frames, or one record per shot it stamps)

@@ -87,7 +87,7 @@ def test_bound_plans_keep_the_stock_signature_minus_the_hook(profiles) -> None:
     assert bound["mv"].__wrapped__ is bps.mv  # the stock stub, its failure named
     assert inspect.signature(bound["mv"]) == inspect.signature(bps.mv)
     assert bound["mv"].__name__ == "mv"
-    assert list(inspect.signature(bound["run_action"]).parameters) == ["name"]
+    assert list(inspect.signature(bound["apply_setup"]).parameters) == ["name", "md"]
     for name in GEECS_PLAN_NAMES:
         if name in (*NON_SCAN_PLAN_NAMES, *NATIVE_SCAN_PLAN_NAMES):
             continue
@@ -173,7 +173,6 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
         ("count", [["UC_Cam"], 3], {"trigger_profile": "HTU-Test"}),
         ("count", [["UC_Cam.scalars"]], {"num": 2}),
         ("sweep", [["UC_Cam"]], {"sweep": payload(), "shots_per_step": 4}),
-        ("run_action", ["Amp4_DUMP_HP"], {}),
         (
             "apply_setup",
             ["low_power"],

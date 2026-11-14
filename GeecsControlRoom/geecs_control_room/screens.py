@@ -5,8 +5,8 @@
 ``panel_devices.yaml`` and ``native_devices.yaml``, and the module's roster
 (read at most every ``ROSTER_TTL_S``): a device only the module lists (a
 DB device) is bound deferred, its roles judged on the page by the module's
-device route. A button may name an action plan, checked against the
-experiment's library and run by the module. A group widget draws a
+device route. A button may name a setup, checked against the
+experiment's ``setups/`` and applied by the module. A group widget draws a
 device's rail group as its device page does: the server reads the module's
 device route for it when it draws the page (``device_pages.embedded``,
 handed in by the app, since that module builds on this one). The page reads live values
@@ -31,8 +31,6 @@ import yaml
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
 from geecs_schemas import (
-    ACTION_LIBRARY_FILENAME,
-    ACTION_LIBRARY_FOLDER,
     NATIVE_DEVICES_FILENAME,
     PANEL_DEVICES_FILENAME,
     SCREENS_DIRNAME,
@@ -42,11 +40,11 @@ from geecs_schemas import (
     Role,
     Screen,
     ScreenError,
-    load_action_library,
     load_families,
+    load_setups,
     resolve_screen,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.settings import Settings
@@ -120,16 +118,17 @@ def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loade
     try:
         screen = Screen.from_path(path)
         panel, native = registry(folder)
-        plans: set[str] = set()
-        library = folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME
+        setups: set[str] = set()
         runs = any(w.bind and w.bind.action for g in screen.groups for w in g.widgets)
-        if runs:  # a button names a plan: the module's library holds it
-            plans = set(load_action_library(library).plans)
-        bound = resolve_screen(screen, load_families(), panel, native, deferred, plans)
+        if runs:  # a button names a setup: the experiment's setups/ holds it
+            setups = set(load_setups(folder))
+        bound = resolve_screen(screen, load_families(), panel, native, deferred, setups)
         return Loaded(screen, bound)
     except ScreenError as exc:
         return Loaded(problems=exc.problems, status=422)
-    except (ValidationError, yaml.YAMLError, OSError) as exc:
+    except (ValueError, yaml.YAMLError, OSError) as exc:
+        # ValueError covers pydantic's ValidationError and load_setups' own
+        # refusals (a name that is not its file stem, two files of one stem)
         return Loaded(problems=[str(exc)], status=422)
 
 

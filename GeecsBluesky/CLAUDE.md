@@ -35,7 +35,6 @@ readiness check asserts the manager lists them all.
 | `sweep` | `plans/sweep.py`: a `geecs_schemas.Sweep` trajectory through stock `scan_nd`, bound strict | yes |
 | `optimize` | `plans/optimize.py`: native Xopt ask/tell, one bin per iteration | yes |
 | `mv` | the stock stub with its failure named | no |
-| `run_action` | a named plan from the experiment's `actions.yaml`, compiled to stubs over the namespace | no |
 | `apply_setup` | `plans/apply_setup.py`: a named setup (`setups/<name>.yaml`) as plain stubs over the namespace; refused before the first write when its digest differs from the one the client's `md` says was confirmed; a failure names the step and the writes already made | no |
 | `measure_shot_offsets`, `check_shot_sync` | the once-run calibration and its preflight (`plans/calibration.py`) | no |
 | `release_scan_mode` | `plans/scan_mode.py`: end GEECS scan mode on the devices of a run that never ended it (a halt skips the finalizers) | no |
@@ -44,8 +43,8 @@ The moving stock verbs (`scan`, `list_scan`, `rel_scan`, …) are **not**
 registered: `sweep` is the one moving plan, and it uses `scan_nd`
 internally.  A preset can name only the three scan plans
 (`qs_client.presets.PRESET_PLAN_NAMES`); the utilities take no detector
-list or no positions.  `run_action` is compiled from
-`geecs_bluesky.actions.steps` (the same walk the scanner previews with).
+list or no positions.  `apply_setup` walks a setup with
+`geecs_schemas.flatten_setup`, the walk the scanner previews with.
 
 Every bound scan verb takes, keyword-only, `trigger_profile`,
 `shots_per_step`, `acquisition` (`strict` default, or `gated`),
@@ -108,7 +107,6 @@ geecs_bluesky/
                             #   binder), liveness_gate, TriggerProfiles, background_wrapper
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
-  actions/compiler.py       # ActionPlan → plan stubs over the same SettableFactory
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
@@ -122,7 +120,7 @@ geecs_bluesky/
                             #   the package), progress.py (ProgressStream: the live-run
                             #   RunProgress every client renders, row streams = callbacks')
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs,
-                            #   actions, setups, optimizer configs, analysis diagnostics,
+                            #   setups, optimizer configs, analysis diagnostics,
                             #   the operator policy and panel devices (the hazard sources)
   tiled/integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
                             #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
@@ -144,7 +142,6 @@ geecs_bluesky/
   native_scope.py           # a native camera's refused run shapes, worded once for the
                             #   worker's bind and the client's expansion
   log_markers.py            # log-line strings clients parse from the manager's text stream
-  actions/steps.py          # flatten_action_steps: GEECS-Schemas' walk, raising this package's errors
   utils.py                  # safe_name, identifier_name, resolve_annotations
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```

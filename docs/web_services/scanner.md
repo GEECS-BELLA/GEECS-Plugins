@@ -75,9 +75,11 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   setpoint) with the reading's age; enter a value and **Move** queues a
   single move. Moves run only while the queue is idle — the panel's chip
   says `idle`, `a plan is running` or `items wait in the queue`.
-- **Actions** — the experiment's action library: pick a plan, preview
-  every step (nested plans inlined), **Arm**, then **Run**. Arming is never
-  remembered — it is asked for on every run. Idle only.
+- **Setups** — the experiment's setups (named device states): pick one,
+  preview every step (nested setups inlined, hazard steps marked), **Arm**,
+  then **Apply**. The scanner then asks you to confirm the setup's writes
+  and each hazard step before it queues one `apply_setup` item. Arming is
+  never remembered — it is asked for on every apply. Idle only.
 - **Calibration** — the stored per-device shot offsets, with **Check** and
   **Measure** verbs over the devices in the New scan table and the chosen
   trigger profile. Idle only.

@@ -397,7 +397,7 @@ operator is `invalid_request`. Where it lands:
 | Service | Field | Note |
 |---|---|---|
 | scanner submit | `SubmitIn.operator` → `md.geecs.operator` on the run | `SubmissionRecord.client` stays the scanner's own identity (`geecs-scanner <version>`) — the record names the service that queued it; the operator field names who |
-| scanner move / verbs | `MoveIn.operator`, `VerbIn.operator` | `ScannerService.move` never reads `body.operator` today (the verbs log it only on `force`); a two-line scanner change stamps `md.geecs.operator` on idle-only items (move, action, calibration) — proposed in §9 |
+| scanner move / verbs | `MoveIn.operator`, `VerbIn.operator` | `ScannerService.move` never reads `body.operator` today (the verbs log it only on `force`); a two-line scanner change stamps `md.geecs.operator` on idle-only items (move, setup, calibration) — proposed in §9 |
 | logbook | `author` on create; `author` on each portal send (its `editor` on the append) | ≤120 chars; the entry's `kind: agent_analysis` + `status: draft` is the machine-readable half |
 
 `operator` is an argument rather than a config value because it names a

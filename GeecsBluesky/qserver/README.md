@@ -61,18 +61,15 @@ namespace devices — a queue item names a plan and its devices by name:
 qserver queue add plan '{"name": "count", "args": [["U_S1H"], 3], "item_type": "plan"}'
 qserver queue add plan '{"name": "sweep", "args": [["U_S1H"]], "kwargs": {"sweep": {"trajectory": {"kind": "axes", "axes": [{"kind": "range", "axis": "U_S1H.current", "start": -1, "stop": 1, "num": 5}]}}}, "item_type": "plan"}'
 qserver queue add plan '{"name": "mv", "args": ["U_S1H.current", 0.0], "item_type": "plan"}'
-qserver queue add plan '{"name": "run_action", "args": ["Amp4_DUMP_HP"], "item_type": "plan"}'
 qserver queue add plan '{"name": "apply_setup", "args": ["low_power"], "item_type": "plan"}'
 qserver queue start
 ```
 
-`run_action` runs a named plan from the experiment's action library
-(`action_library/actions.yaml`, read from disk on every item) as plain
-stubs over the same devices: no run is opened, nothing is claimed.
-`apply_setup` does the same for a setup (`setups/<name>.yaml`); the web
-scanner's apply route queues it with the operator's confirmations in `md`
-(`EVENT_SCHEMA.md`), which a hand-queued item lacks, so its digest is not
-checked.
+`apply_setup` applies a setup (`setups/<name>.yaml`, read from disk on
+every item) as plain stubs over the same devices: no run is opened, nothing
+is claimed. The web scanner's apply route queues it with the operator's
+confirmations in `md` (`EVENT_SCHEMA.md`), which a hand-queued item lacks,
+so its digest is not checked.
 
 The `qserver` CLI parses that argument as a **Python literal, not JSON**:
 `null` / `true` / `false` are rejected with an unhelpful "Error occurred
@@ -116,15 +113,14 @@ Opt out with `QS_DOC_PROXY=OFF` (launcher) plus `QS_DOC_PUBLISH_ADDR=OFF`
 (worker). The stream is best-effort: a worker without it still runs scans
 correctly — only live GUI progress is lost.
 
-## Manual moves and action plans
+## Manual moves and setups
 
 A manual move is a queue item of the stock `mv` plan (above): idle-only
-ordering and queue provenance for free; an action plan is a `run_action`
-item.  Nothing goes through `function_execute` (it needs an idle manager,
-see Troubleshooting); a step preview is client-side
-(`geecs_bluesky.actions.steps.flatten_action_steps`, the same walk the
-worker's compiler executes); the web scanner's actions panel queues
-`run_action` items over it.
+ordering and queue provenance for free; a setup is an `apply_setup` item.
+Nothing goes through `function_execute` (it needs an idle manager, see
+Troubleshooting); a step preview is client-side
+(`geecs_schemas.flatten_setup`, the same walk the worker executes); the web
+scanner's setups panel queues `apply_setup` items through its apply route.
 
 ## Troubleshooting
 

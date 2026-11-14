@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(not node_available(), reason="node is not instal
 
 _FIXTURES = Path(__file__).resolve().parents[2] / "GEECS-Schemas/tests/fixtures"
 #: GEECS-Schemas' fixture folders, by the kind their files are.
-_FIXTURE_KINDS = {"optimizer_configs": "optimizer_config", "actions": "action_plan_library", "groups": "analysis_group"}  # fmt: skip
+_FIXTURE_KINDS = {"optimizer_configs": "optimizer_config", "setups": "setup", "groups": "analysis_group"}  # fmt: skip
 
 SYNTHETIC = {
     "setup": {

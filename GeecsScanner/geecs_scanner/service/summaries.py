@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 #: Items whose summary takes no acquisition or LabVIEW-files suffix.
-_NOT_SCANS = ("mv", "run_action", "apply_setup")
+_NOT_SCANS = ("mv", "apply_setup")
 
 #: Manager ``exit_status`` → (the word a chip shows, the kit state it wears).
 EXIT_WORDS: dict[str, tuple[str, str]] = {
@@ -192,8 +192,6 @@ def summarize_item(item: dict) -> ItemSummary:  # noqa: C901, PLR0912, PLR0915
                 f"{rest[i]} → {_fmt(rest[i + 1])}" for i in range(0, len(rest) - 1, 2)
             ]
             summary.text = "move " + ", ".join(pairs)
-        elif name == "run_action":
-            summary.text = f"action {rest[0]}" if rest else "action"
         elif name == "apply_setup":
             summary.text = f"setup {rest[0]}" if rest else "setup"
         elif name in ("measure_shot_offsets", "check_shot_sync"):

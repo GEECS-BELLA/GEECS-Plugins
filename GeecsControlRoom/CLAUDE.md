@@ -158,10 +158,10 @@ deploy/
   says why as the device page would ("not drawn"; "reload" only where asking
   again may help) and the rest of the screen draws: never a 500, never a
   blank.
-- **A button may name an action plan** (`bind: {action: <plan>}`, checked
-  against the experiment's `action_library/actions.yaml`). The module runs
-  it, every `set` through its gates; the page asks once (the plan's
-  description and its hazard steps) when it writes a hazard role, sends
+- **A button may name a setup** (`bind: {action: <setup>}`, checked
+  against the experiment's `setups/`). The module applies it, every `set`
+  through its gates; the page asks once (the setup's description and its
+  hazard steps) when it writes a hazard role, sends
   the run once, and shows the module's run (`running 2/5`, `failed · step
   3 · out_of_bounds`) with Stop while it runs. A sequence is never
   scripted in a screen.

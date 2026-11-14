@@ -2,10 +2,10 @@
 
 Configs are schemas; YAML is just serialization.  This package is the single
 home of the models: presets (the saved scan: device group +
-plan call), scan requests, scan variables, trigger profiles, action plans,
+plan call), scan requests, scan variables, trigger profiles,
 setups (named device states) and gateway derived channels — plus converters from the legacy YAML
-dialects still in use (``geecs_schemas.convert``; scan variables, presets
-and action libraries have none, GEECS-Plugins#779 / #807) and a Markdown
+dialects still in use (``geecs_schemas.convert``; scan variables and presets
+have none, GEECS-Plugins#779 / #807) and a Markdown
 reference generator (``geecs_schemas.docgen``).
 
 It depends on Pydantic and GEST (the lightweight VOCS model), so anything — engine, GUI, scripts, docs
@@ -18,23 +18,6 @@ from geecs_schemas.analysis import (
     AnalysisRecipe,
     AnalyzerRef,
     HimgJob,
-)
-from geecs_schemas.action_plan import (
-    ACTION_LIBRARY_FILENAME,
-    ACTION_LIBRARY_FOLDER,
-    ActionPlan,
-    ActionPlanCycleError,
-    ActionPlanLibrary,
-    ActionPlanNotFoundError,
-    ActionStep,
-    CheckStep,
-    ConcreteStep,
-    RunPlanStep,
-    SetStep,
-    WaitStep,
-    flatten_action_steps,
-    load_action_library,
-    values_match,
 )
 from geecs_schemas.archive_policy import (
     ARCHIVE_POLICY_FILENAME,
@@ -103,7 +86,6 @@ from geecs_schemas.home_layout import (
 )
 from geecs_schemas.experiment_defaults import (
     EXPERIMENT_DEFAULTS_FILENAME,
-    DefaultActions,
     ExperimentDefaults,
 )
 from geecs_schemas.preset import PRESETS_FOLDER, PlanCall, Preset, PresetDevice
@@ -119,7 +101,6 @@ from geecs_schemas.log_entry import (
 )
 from geecs_schemas.scan_request import (
     AcquisitionMode,
-    ActionBindings,
     CaptureSettings,
     PositionList,
     PositionRange,
@@ -142,11 +123,14 @@ from geecs_schemas.setup import (
     SetupHazard,
     SetupNotFoundError,
     SetupSetStep,
+    WaitStep,
     flatten_setup,
     load_setups,
     setup_digest,
     setup_hazards,
     setup_value_matches,
+    split_step_variable,
+    step_variable,
 )
 from geecs_schemas.shot_offsets import SHOT_OFFSETS_FILENAME, DeviceOffset, ShotOffsets
 from geecs_schemas.storage import (
@@ -202,7 +186,6 @@ __all__ = [
     "ScanRequest",
     "ScanRequestMode",
     "AcquisitionMode",
-    "ActionBindings",
     "CaptureSettings",
     "PositionRange",
     "ScanAxis",
@@ -290,23 +273,6 @@ __all__ = [
     # experiment_defaults
     "ExperimentDefaults",
     "EXPERIMENT_DEFAULTS_FILENAME",
-    "DefaultActions",
-    # action_plan
-    "ACTION_LIBRARY_FILENAME",
-    "ACTION_LIBRARY_FOLDER",
-    "ActionPlanCycleError",
-    "ActionPlanNotFoundError",
-    "ConcreteStep",
-    "flatten_action_steps",
-    "load_action_library",
-    "values_match",
-    "ActionPlan",
-    "ActionPlanLibrary",
-    "ActionStep",
-    "SetStep",
-    "WaitStep",
-    "CheckStep",
-    "RunPlanStep",
     # analysis
     "AnalysisGroup",
     "AnalysisRecipe",
@@ -331,6 +297,9 @@ __all__ = [
     "setup_digest",
     "setup_hazards",
     "setup_value_matches",
+    "split_step_variable",
+    "step_variable",
+    "WaitStep",
     "DeviceOffset",
     # log_entry
     "LogEntry",
@@ -373,8 +342,6 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "scan_request": ScanRequest,
     "scan_variables": ScanVariables,
     "trigger_profile": TriggerProfile,
-    "action_plan": ActionPlan,
-    "action_plan_library": ActionPlanLibrary,
     "experiment_defaults": ExperimentDefaults,
     "derived_channels": DerivedChannels,
     "archive_policy": ArchivePolicy,

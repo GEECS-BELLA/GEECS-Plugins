@@ -189,13 +189,13 @@ def test_start_gate_needs_a_valid_form_not_a_loaded_preset() -> None:
     assert got["paused"]["start"] is True and "paused" in got["paused"]["title"], got
 
 
-def test_presets_and_actions_are_dropdowns(client: TestClient) -> None:
-    """PR 5a: the rail's preset picklist and the actions picklist became selects."""
+def test_presets_and_setups_are_dropdowns(client: TestClient) -> None:
+    """The rail's preset picklist and the setups picklist are selects."""
     html = client.get("/").text
-    assert '<select id="preset"' in html and '<select id="action">' in html
+    assert '<select id="preset"' in html and '<select id="setup">' in html
     assert 'id="presets"' not in html and 'id="actions-list"' not in html
-    # the preview the action dropdown drives is still there
-    assert 'id="action-steps"' in html
+    # the preview the setup dropdown drives
+    assert 'id="setup-steps"' in html
 
 
 def test_move_panel_carries_the_kit_live_row(client: TestClient) -> None:
@@ -300,7 +300,7 @@ def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
         'id="sweep-message"',
         'id="shots-hint"',
         'id="presets-note"',
-        'id="actions-note"',
+        'id="setups-note"',
         'id="mv-hint"',
         'id="devq-hint"',
         '<span class="hint">seconds</span>',

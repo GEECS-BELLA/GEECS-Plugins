@@ -33,7 +33,7 @@ geecs_canopy/
   freshness.py   Tracker (internal broker client) and the verdicts
   gates.py       put_role: policy, allow, hazard, run lock, bounds, Hare, journal;
                  Refusal (the module's HTTP refusal) and settles() (the one rule)
-  actions.py     Executor: the experiment's ActionPlanLibrary run for an operator
+  actions.py     Executor: the experiment's setups applied for an operator
                  (pre-check every step, then each set through put_role, rows
                  carrying the run's id); the last 100 runs in memory
   squirrel.py    SquirrelClient (Squirrel's REST, the service write key), derive():
@@ -123,8 +123,9 @@ deploy/
   rows included, goes through `gates.put_role`, and no put reaches Hare without its
   `attempted` journal row; each request then leaves one outcome row naming
   it in `attempt` (unless the journal cannot take one). An operator
-  sequence is an action plan (GEECS-Schemas' `ActionPlanLibrary`, the file
-  the worker reads; one step library, two executors), run by `actions.py`
+  sequence is a setup (GEECS-Schemas' `Setup`, `setups/<name>.yaml`, the
+  file the worker's `apply_setup` reads; one document, two executors, one
+  step-variable grammar: `split_step_variable`), applied by `actions.py`
   from a screen button: never by Bluesky, never scripted in a screen.
   Verdicts follow `Planning/operator_surfaces.md` §3 and these rules, each
   pinned by a test in `tests/test_module.py`: freshness is the producing

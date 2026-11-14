@@ -32,8 +32,7 @@ user_groups:
   # Operator group: queue submission is restricted to the plans the startup
   # profile registers (geecs_bluesky.plan_names.GEECS_PLAN_NAMES — count,
   # sweep and optimize over the device namespace, plus mv for a manual
-  # move, run_action for a named action plan, apply_setup for a named
-  # setup, and the two once-run
+  # move, apply_setup for a named setup, and the two once-run
   # shot-offset plans (measure_shot_offsets, check_shot_sync), and
   # release_scan_mode (end GEECS scan mode on the devices of a run that
   # never ended it); tests/test_deploy_templates.py pins this line to that
@@ -41,7 +40,7 @@ user_groups:
   # #807).
   operator:
     allowed_plans:
-      - ":^(count|sweep|optimize|mv|run_action|apply_setup|measure_shot_offsets|check_shot_sync|release_scan_mode)$"
+      - ":^(count|sweep|optimize|mv|apply_setup|measure_shot_offsets|check_shot_sync|release_scan_mode)$"
     forbidden_plans:
       - null
     # Devices are nouns in the namespace (#807 phase 1): a plan argument may

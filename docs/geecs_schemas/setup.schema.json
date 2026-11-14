@@ -188,7 +188,7 @@
       "properties": {
         "do": {
           "const": "wait",
-          "description": "Step type. 'wait' pauses the plan for a fixed time.",
+          "description": "Step type. 'wait' pauses for a fixed time.",
           "title": "Do",
           "type": "string"
         },

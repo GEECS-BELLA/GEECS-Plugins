@@ -162,13 +162,13 @@ async def test_a_device_route_that_fails_is_unread(room) -> None:
     assert (await room.client.get("/api/devices/Cam1")).json()["code"] == "module_unreachable"  # fmt: skip
 
 
-async def test_a_button_runs_an_action_plan_and_the_page_reads_its_run(room) -> None:
+async def test_a_button_applies_a_setup_and_the_page_reads_its_run(room) -> None:
     folder = room.env.folder
     room.env.hare.meta["bench:ps1:current:SP"] = {"controlLow": 0.0, "controlHigh": 5.0}
-    (folder / "action_library").mkdir()
-    (folder / "action_library" / "actions.yaml").write_text(
-        "plans:\n  park:\n    description: park it\n    steps:\n"
-        "      - {do: set, device: ps1, variable: current_sp, value: 1.0}\n"
+    (folder / "setups").mkdir()
+    (folder / "setups" / "park.yaml").write_text(
+        "name: park\ndescription: park it\nsteps:\n"
+        "  - {do: set, device: ps1, variable: current_sp, value: 1.0}\n"
     )
     (folder / "screens").mkdir()
     (folder / "screens" / "s.yaml").write_text(
@@ -806,3 +806,18 @@ async def test_the_camera_page_draws_its_familys_panel_with_the_rails_controls(
     assert re.findall(r'<div class="live" data-role="([^"]+)"', page)[:3] == ["state", "rate", "pixel_format"]  # fmt: skip
     rail = re.search(r'<aside class="rail panel-rail">.*?</aside>', page, re.S).group(0)
     assert 'data-roi-role="min_x"' in rail and 'data-role="min_x"' not in rail
+
+
+async def test_a_misnamed_setup_file_is_the_screens_422_never_a_500(room) -> None:
+    """``load_setups`` refuses a file whose ``name`` is not its stem with a plain ValueError."""
+    folder = room.env.folder
+    (folder / "setups").mkdir()
+    (folder / "setups" / "parking.yaml").write_text(
+        "name: park\nsteps:\n  - {do: wait, seconds: 1}\n"
+    )
+    (folder / "screens").mkdir()
+    (folder / "screens" / "s.yaml").write_text(
+        "title: S\ngroups:\n  - {title: G, at: [1, 1], widgets: [{kind: button, label: Park, bind: {action: park}}]}\n"  # fmt: skip
+    )
+    page = await room.client.get("/screens/s")
+    assert page.status_code == 422 and "file stem" in page.text

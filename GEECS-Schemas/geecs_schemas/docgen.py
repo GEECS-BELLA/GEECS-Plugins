@@ -76,10 +76,6 @@ capture:
   acquisition: free_run
   save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
   trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_ebeam]
-  per_step: []
-  closeout: []
 description: "jet z scan with probe"
 # v1 documents (the capture fields flat at the top level) still validate —
 # they are lifted into this shape automatically.
@@ -143,45 +139,10 @@ states:
     - {device: U_DG645_ShotControl, variable: Trigger.ExecuteSingleShot,
        value: "on"}
 """,
-    "action_plan": """\
-schema_version: 1
-description: "Zero the pressure voltage and confirm the PLC output"
-steps:
-  - do: set
-    device: U_HP_Daq
-    variable: AnalogOutput.Channel 1
-    value: 0
-  - do: wait
-    seconds: 3
-  - do: check
-    device: U_148_PLC
-    variable: DI.Ch17
-    expected: "off"
-  - do: run
-    plan: close_gaia_internal_shutters
-""",
-    "action_plan_library": """\
-schema_version: 1
-plans:
-  zero_pressure_voltage:
-    steps:
-      - do: set
-        device: U_HP_Daq
-        variable: AnalogOutput.Channel 1
-        value: 0
-  experiment_closeout:
-    steps:
-      - do: run
-        plan: zero_pressure_voltage
-""",
     "experiment_defaults": """\
 schema_version: 1
-# applied only where a scan request is silent: defaults run first,
-# then the scan's own
+# applied only where a scan request is silent
 trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_checklist]
-  closeout: [experiment_closeout]
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 """,

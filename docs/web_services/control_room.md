@@ -205,11 +205,11 @@ naming the device, the role and the value, with the hazard note. **Write**
 sends it with your confirmation; **Cancel** sends nothing (`unsent · not
 confirmed`).
 
-### Action buttons
+### Setup buttons
 
-A button may run an **action plan** from the experiment's action library: a
-fixed sequence of sets, waits and checks (park a stage, close the
-shutters). Pressing it asks once when the plan writes a hazardous role,
+A button may apply a **setup** from the experiment's `setups/`: a fixed
+sequence of sets, waits and checks (park a stage, close the shutters).
+Pressing it asks once when the setup writes a hazardous role,
 then the module runs it step by step, every set through the same checks as
 a single write. The button's word follows the run:
 
@@ -499,6 +499,6 @@ driving it does not stop a write from here.
 
 ## Where to next
 
-- Writing a screen, the home's launcher, an action plan or the write
+- Writing a screen, the home's launcher, a setup or the write
   policy: [Authoring screens and policy](../geecs_canopy/authoring.md).
 - Running scans: [GEECS Scanner](scanner.md).

@@ -212,9 +212,9 @@ def test_a_preset_cannot_name_mv() -> None:
         expand_preset(_preset(plan={"name": "mv", "args": ["U_S1H:Current", 0.0]}))
 
 
-def test_a_preset_cannot_name_run_action() -> None:
-    with pytest.raises(GeecsConfigurationError, match="submit_plan\\('run_action'"):
-        expand_preset(_preset(plan={"name": "run_action", "args": ["Amp4_DUMP_HP"]}))
+def test_a_preset_cannot_name_apply_setup() -> None:
+    with pytest.raises(GeecsConfigurationError, match="submit_plan\\('apply_setup'"):
+        expand_preset(_preset(plan={"name": "apply_setup", "args": ["Amp4_DUMP_HP"]}))
 
 
 # ------------------------------------------------------------- phase 2b

@@ -28,7 +28,6 @@ geecs_scanner/
     streams.py    StreamCache: qs_client ProgressStream + the console ring + optimization record
     demo.py       DemoQueueClient / DemoResolver / demo_preflight — a manager in memory
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
-    actions.py    the action-plan preview: flatten nested runs over the schema models
     setups.py     setups: the preview, the hazard confirms (geecs_schemas.setup_hazards),
                   the apply's questions and the item's md
     scanlog.py    read the run's scan.log from the folder the start document names
@@ -100,13 +99,15 @@ deploy/           the unit template + DEPLOYMENT.md
 - **The demo is sample content**, chosen by a flag; nothing in it is a
   default for a deployment.
 
-- **Idle-only items.** A move (`mv`), an action (`run_action`), a setup
-  (`apply_setup`) and the two calibration plans are queue items that run by themselves the moment they
+- **Idle-only items.** A move (`mv`), a setup (`apply_setup`) and the two
+  calibration plans are queue items that run by themselves the moment they
   are added, so the service refuses them unless the manager is idle **and
   nothing waits** — the check and the add happen under the one lock. The
-  action preview flattens nested `run` steps over the schema models in
-  `service/actions.py` (never the worker's compiler: `geecs_bluesky.plans`
-  is off limits); an unresolvable plan cannot be run.
+  setup preview flattens nested `apply` steps with GEECS-Schemas'
+  `flatten_setup` (never the worker's plans: `geecs_bluesky.plans` is off
+  limits); an unresolvable setup cannot be applied. The page's Setups panel
+  relays the apply's questions into the same acknowledgement dialog a
+  scan's preflight uses.
 - **Append only behind a started queue** (#1281). Add to Queue posts
   `append: true`: the client adds behind the waiting items while the
   queue is started, and while it is stopped (a failed item may sit at the

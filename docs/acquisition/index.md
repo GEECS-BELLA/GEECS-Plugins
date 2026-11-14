@@ -12,7 +12,7 @@ scan folder and a structured Tiled run.
 
     The operator front end, in a browser: pick a preset or compose a
     scan, submit it to the Bluesky queueserver, watch it live, move a
-    device, run an action plan. The same presets it submits can be
+    device, apply a setup. The same presets it submits can be
     queued headlessly from your own scripts. Its operator page lives
     under [Web Services](../web_services/index.md), beside the Data
     Portal and the Logbook.
