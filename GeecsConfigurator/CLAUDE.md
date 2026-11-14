@@ -100,7 +100,8 @@ its design is `Planning/configurator.md`, its record the tracking issue
 - **Setups on the surface are the scanner's** (`setups.py`, the page's
   `static/setups.js`). Capture reads (`POST /api/setups/capture`: one
   `GET /api/readback` per variable through the experiment's scanner, a
-  numeric read that fails read again as a word) and answers a draft;
+  reading the scanner flags `not_numeric` read again as a word; one that did
+  not answer stays unread) and answers a draft;
   nothing is written to a device, and the draft is saved through the one
   save route (`PUT` with `create`), so its author, tier and ownership are
   the save's. The diff and the apply are relayed status and body as the

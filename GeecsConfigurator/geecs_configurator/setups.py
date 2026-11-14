@@ -5,9 +5,9 @@ this module adds no rule of its own:
 
 - **Capture reads, never writes.** It asks the experiment's scanner for one
   readback per ``Device:Variable`` (``GET /api/readback``, the path the
-  scanner's own diff reads; a variable whose numeric read fails, for any
-  reason the scanner gives, is read again as a word, so no wording of the
-  scanner's is relied on) and answers a draft ``Setup``: one ``set`` step per value read,
+  scanner's own diff reads; a variable the scanner says answered with
+  something not a number, its ``not_numeric`` flag, is read again as a
+  word; one that did not answer stays unread, never a word) and answers a draft ``Setup``: one ``set`` step per value read,
   ``captured`` naming the operator, the time and the readbacks. Nothing is
   written, to a device or to the configs repo: the draft is saved through
   the one save route (``PUT /api/documents/setup/<name>.yaml`` with
@@ -100,7 +100,7 @@ def _read(
     """One readback through the scanner: ``(value, "")``, or ``(None, why not)``."""
     try:
         status, body = scanner.readback(variable)
-        if status == 200 and not body.get("ok"):  # not a number, or not answering: as a word (a dead PV fails again)  # fmt: skip
+        if status == 200 and body.get("not_numeric"):  # it answered, with a word: never on no answer (a slow numeric channel stays unread)  # fmt: skip
             status, body = scanner.readback(variable, word=True)
     except (httpx.HTTPError, ValueError) as exc:
         return None, f"the scanner did not answer: {' '.join(str(exc).split())[:200]}"

@@ -151,8 +151,10 @@ deploy/           the unit template + DEPLOYMENT.md
   preset's settings (not its plan, which is this form's), with this page's
   operator; the configurator saves and commits it. The form here is not
   reloaded: a save says to load the preset again. `/api/readback` takes
-  `word` (read as text), which the configurator's capture uses for a
-  variable that is not a number.
+  `word` (read as text) and answers `not_numeric` when the gateway gave a
+  value that is not a number (never for no answer); the configurator's
+  capture re-reads such a variable as a word, keyed on the flag, never on
+  the detail's wording (free text for a person).
 - **The environment reopen is the configurator's apply**
   (`reopen_environment`, `POST /api/environment/reopen`): the worker reads
   trigger profiles, the scan-variable catalogue, the native-device

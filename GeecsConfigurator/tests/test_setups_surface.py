@@ -41,10 +41,14 @@ class FakeScanner:
         path, q = request.url.path, request.url.params
         if path == "/api/readback":
             name, word = q["variable"], q.get("word") == "true"
-            if word and name in self.words:
-                return httpx.Response(200, json={"variable": name, "ok": True, "text": self.words[name]})  # fmt: skip
-            if name in self.words:
-                return httpx.Response(200, json={"variable": name, "ok": False, "detail": "any words the scanner chooses"})  # fmt: skip
+            if word and (
+                name in self.words or name == "U_Slow:X"
+            ):  # a slow numeric channel answers its second read
+                return httpx.Response(200, json={"variable": name, "ok": True, "text": self.words.get(name, "1.250")})  # fmt: skip
+            if (
+                name in self.words
+            ):  # the flag, never the wording, says "read it as a word"
+                return httpx.Response(200, json={"variable": name, "ok": False, "detail": "any words the scanner chooses", "not_numeric": True})  # fmt: skip
             if name in self.readings:
                 return httpx.Response(200, json={"variable": name, "ok": True, "value": self.readings[name]})  # fmt: skip
             return httpx.Response(200, json={"variable": name, "ok": False, "detail": "no answer from the gateway"})  # fmt: skip
@@ -82,7 +86,7 @@ def committing_surface(origin: Path, fake: FakeScanner, tmp_path_factory: pytest
         yield c
 
 
-CAPTURE = {"name": "warm", "description": "as it is now", "operator": "Ada", "variables": ["U_PS:Current", "U_PLC:shutter1", "U_Gone:X", "nonsense"]}  # fmt: skip
+CAPTURE = {"name": "warm", "description": "as it is now", "operator": "Ada", "variables": ["U_PS:Current", "U_PLC:shutter1", "U_Gone:X", "U_Slow:X", "nonsense"]}  # fmt: skip
 
 
 # ------------------------------------------------------------------ capture
@@ -105,7 +109,11 @@ def test_capture_reads_every_variable_and_writes_nothing(surface: TestClient, fa
     ]
     captured = out["document"]["captured"]
     assert captured["by"] == "Ada" and captured["readbacks"] == [{"device": "U_PS", "variable": "Current"}, {"device": "U_PLC", "variable": "shutter1"}]  # fmt: skip
-    assert [u["variable"] for u in out["unread"]] == ["U_Gone:X", "nonsense"]
+    assert [u["variable"] for u in out["unread"]] == [
+        "U_Gone:X",
+        "U_Slow:X",
+        "nonsense",
+    ]  # a silent numeric read is never re-read as a word
     # a read, only: every request to the scanner was a GET of its readback
     assert {(m, p) for m, p, _ in fake.seen} == {("GET", "/api/readback")}
 
