@@ -248,7 +248,6 @@ def run_view(
                 else "plot"
             ),
             "analysis_enabled": analysis_enabled,
-            "config_editor": portal.config_editor_enabled and analysis_enabled,
             "configurator": portal.configurator_url if analysis_enabled else "",
             "devices": devices,
             "sel_device": sel_device,

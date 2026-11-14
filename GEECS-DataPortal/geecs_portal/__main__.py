@@ -43,24 +43,6 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--config-editor",
-        action="store_true",
-        help=(
-            "mount the analysis config editor at /configs over the "
-            "--processing-configs tree (a WRITE verb: saves YAML into that "
-            "tree; live preview on the scan page). Needs the analysis extra."
-        ),
-    )
-    parser.add_argument(
-        "--config-editor-read-only",
-        action="store_true",
-        help=(
-            "serve the config editor read-only (every save a 405): set when the "
-            "configs root is the configurator's checkout, until the analysis "
-            "kinds move onto the configurator"
-        ),
-    )
-    parser.add_argument(
         "--configurator-browser-url",
         default="",
         help=(
@@ -120,8 +102,6 @@ def main() -> None:
         processing_config_dir=(
             Path(args.processing_configs) if args.processing_configs else None
         ),
-        config_editor=args.config_editor,
-        config_editor_read_only=args.config_editor_read_only,
         logbook_url=args.logbook_url,
         configurator_url=args.configurator_browser_url,
     )

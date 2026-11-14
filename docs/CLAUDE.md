@@ -74,7 +74,7 @@ page links back to the docs root. `docs/sites/README.md` carries the
 rules and the page table; add a row when you add a page.
 
 If you find yourself wanting to document a workflow that spans two packages
-(say, "configure analysis in the config editor then run from the data portal"), it
+(say, "configure analysis in the configurator then run from the data portal"), it
 belongs under `tutorials/`, not under either constituent package.
 
 ## Building & previewing locally

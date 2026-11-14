@@ -50,7 +50,6 @@ from geecs_portal.routes import (
     runs,
 )
 from geecs_portal.routes.common import _root
-from geecs_portal.routes.config_editor import mount_config_editor
 from geecs_portal.state import PortalState
 
 logger = logging.getLogger(__name__)
@@ -126,8 +125,6 @@ def create_app(
     default_experiment: str = "",
     processing_config_dir: Optional[Path] = None,
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
-    config_editor: bool = False,
-    config_editor_read_only: bool = False,
     logbook_url: str = "",
     logbook_client: Optional[httpx.Client] = None,
     configurator_url: str = "",
@@ -184,18 +181,6 @@ def create_app(
         and dry run, which is this portal's ``/api/analysis/validate``).
         The configurator lists this portal's origin in its CORS origins.
         Empty (the default): no edit button for the configurator.
-    config_editor : bool, default False
-        Mount the analysis config editor (``scan_analysis.config_editor``)
-        at ``/configs`` over the same ``processing_config_dir`` tree, with a
-        live preview of the document under edit on the scan page's current
-        shot. A **write verb** (it saves YAML into the configs tree) and
-        therefore explicit opt-in — ``--config-editor`` on the CLI; nothing
-        without ``processing_config_dir`` and the ``analysis`` extra.
-    config_editor_read_only : bool, default False
-        Serve the editor read-only (its router's ``read_only``: every save a
-        405): the interval between the configs-root switch, when the share's
-        checkout is fast-forwarded by the configurator and must not be
-        written, and the analysis kinds' move onto the configurator.
     """
     # The analysis-run worker outlives requests: built
     # before the app so the lifespan can refuse new runs and log any
@@ -222,9 +207,8 @@ def create_app(
     )
     # The shared palette every GEECS web surface draws from, and the
     # vendored Plotly bundle beside it (the theme's, one copy for every
-    # surface: still no npm, no CDN). Mounted here because the portal is
-    # the host: the config editor is a router inside this app, so one
-    # mount serves both and a viewer's choice follows them between pages.
+    # surface: still no npm, no CDN); the run page's embedded configurator
+    # editor loads the theme's kit.js and form.js from here too.
     from geecs_web_theme import static_dir as _theme_dir
 
     app.mount(
@@ -265,8 +249,5 @@ def create_app(
             "— the processing selector is disabled",
             processing_config_dir,
         )
-
-    if config_editor and processing_config_dir is not None:
-        mount_config_editor(app, portal, read_only=config_editor_read_only)
 
     return app
