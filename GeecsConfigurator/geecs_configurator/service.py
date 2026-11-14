@@ -180,11 +180,13 @@ class CommitPath:
         judged when what the link reaches changed (:meth:`_owned_changes`).
         """
         changed = self.repo.changed(old, new)
-        if not changed:
+        # a deleted owned document another still names (judged at the new commit, where it is gone)
+        deleted = [p for p in self.repo.deleted(old, new) if self.ownership.owns(p)]
+        if not changed and not deleted:
             return []
         with self.repo.staging(new) as tree:
-            paths = self._owned_changes(tree, new, changed)
-            found = validation.problems(tree, paths) if paths else []
+            paths = self._owned_changes(tree, new, changed) if changed else []
+            found = validation.problems(tree, paths, deleted) if paths or deleted else []  # fmt: skip
         if found:
             self.refused = f"main at {new[:10]} is not applied: " + "; ".join(found)
             bad = [p.split(": ")[0] for p in found]
@@ -251,7 +253,7 @@ class CommitPath:
     def _settle_pending(self, new: str) -> None:
         """Re-answer the service's own rows left ``pending`` because their commit was not live yet, now that it is."""
         for row in self.log.rows(limit=10_000):
-            if row.source in ("saved", "published") and row.state == "pending" and self.ownership.owns(row.path) and row.detail.startswith(NOT_LIVE) and row.commit and self.repo.is_ancestor(row.commit, new):  # fmt: skip
+            if row.source in ("saved", "deleted", "published") and row.state == "pending" and self.ownership.owns(row.path) and row.detail.startswith(NOT_LIVE) and row.commit and self.repo.is_ancestor(row.commit, new):  # fmt: skip
                 answer = self.applier.apply(row.kind, row.path)
                 self.log.add(row.model_copy(update=answer.row_fields()))  # fmt: skip
 
@@ -279,9 +281,9 @@ class CommitPath:
         """Log a save that committed or proposed."""
         if saved.outcome == "committed":
             answer = self._answer(kind, saved.path, saved.commit)
-            self.log.add(Row(source="saved", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, **answer.row_fields()))  # fmt: skip
+            self.log.add(Row(source="deleted" if saved.deleted else "saved", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, **answer.row_fields()))  # fmt: skip
         elif saved.outcome == "proposed":
-            self.log.add(Row(source="proposed", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, link=saved.pull_request, state="pending", detail=f"the maintainer's review (branch {saved.branch})"))  # fmt: skip
+            self.log.add(Row(source="proposed", who=saved.author, kind=kind, path=saved.path, commit=saved.commit, link=saved.pull_request, state="pending", detail=f"{'a delete, ' if saved.deleted else ''}the maintainer's review (branch {saved.branch})"))  # fmt: skip
 
     def _answer(self, kind: str | None, path: str, commit: str | None) -> Answer:
         """The seam's answer for a commit the live checkout holds; ``pending`` (and no apply) for one it does not."""

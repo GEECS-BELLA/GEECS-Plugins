@@ -105,7 +105,9 @@ revoke it the same way (below).
 4. **Commit the check and the owners** to the configs repo's main (as a
    maintainer):
    - `deploy/configs-repo/validate.yml` from this package, unchanged, as
-     `.github/workflows/validate.yml`. The check judges every changed document
+     `.github/workflows/validate.yml` (copy it again whenever it changes here;
+     since the delete it also refuses a deleted document another still
+     names). The check judges every changed document
      on every push and pull request, whichever facility it belongs to;
    - `deploy/configs-repo/CODEOWNERS.example`, filled in, as
      `.github/CODEOWNERS`: each facility's folders to that facility's

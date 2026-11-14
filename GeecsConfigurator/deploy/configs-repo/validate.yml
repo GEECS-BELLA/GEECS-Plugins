@@ -2,7 +2,8 @@
 # a pull request changes must validate against GEECS-Schemas, by the same rule
 # the configurator's gate applies before it fast-forwards its live checkout
 # (geecs_configurator.validation: only changed documents are checked, as their
-# readers read them; a document already invalid and untouched does not fail).
+# readers read them; a document already invalid and untouched does not fail),
+# and no deleted document may still be named by another (a group its recipe).
 #
 # This file lives in GEECS-Plugins (GeecsConfigurator/deploy/configs-repo/)
 # and is copied, unchanged, into the configs repository as
@@ -69,5 +70,7 @@ jobs:
           if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             BEFORE=$(git hash-object -t tree /dev/null)   # a new branch: every file is changed
           fi
-          git diff -z --name-only --diff-filter=ACMRT "$BEFORE" HEAD \
-            | xargs -0 python -m geecs_configurator.validation --root .
+          # changed documents must validate; a deleted one must be named by no other
+          mapfile -d '' changed < <(git diff -z --name-only --diff-filter=ACMRT "$BEFORE" HEAD)
+          mapfile -d '' deleted < <(git diff -z --name-only --diff-filter=D "$BEFORE" HEAD)
+          python -m geecs_configurator.validation --root . "${changed[@]}" --deleted "${deleted[@]}"

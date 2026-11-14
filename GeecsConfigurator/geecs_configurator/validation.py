@@ -19,12 +19,20 @@ converter, a setup's name against its stem.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
-from geecs_schemas import KIND_STORAGE, FileStorage
+from geecs_schemas import (
+    KIND_STORAGE,
+    REFERS_TO,
+    SCHEMA_REGISTRY,
+    FileStorage,
+    references,
+)
 from geecs_schemas.analysis.document import ANALYZERS_FOLDER
+from pydantic import ValidationError
 
 from geecs_configurator.store import DocumentStore, NotFound
 
@@ -72,17 +80,87 @@ def stem_twins(store: DocumentStore, rel: str) -> list[str]:
     return sorted(_run_by_stem(documents(store)).get(PurePosixPath(rel).stem, set()) - {rel})  # fmt: skip
 
 
-def problems(root: Path, paths: Iterable[str]) -> list[str]:
+def _pattern(kind: str) -> re.Pattern[str] | None:
+    """A named kind's path pattern as a regex (``exp`` and ``name`` groups, every suffix); ``None`` for a single-file kind."""
+    storage = KIND_STORAGE[kind]
+    if not isinstance(storage, FileStorage) or "<name>" not in storage.path_pattern():
+        return None
+    text = re.escape(storage.path_pattern()).replace(r"\*\*/", "(?:.+/)?").replace("<experiment>", "(?P<exp>[^/]+)")  # fmt: skip
+    suffixes = "|".join(re.escape(s) for s in storage.suffixes)
+    return re.compile(text.replace(r"<name>\.yaml", f"(?P<name>[^/]+)(?:{suffixes})") + "$")  # fmt: skip
+
+
+def _same_namespace(a: str, b: str) -> bool:
+    """Whether a name of kind ``a`` and one of kind ``b`` are looked up in one folder (recipes and ``.himg`` jobs share one)."""
+    return KIND_STORAGE[a].path_pattern() == KIND_STORAGE[b].path_pattern()  # type: ignore[union-attr]
+
+
+def referrers(store: DocumentStore, kind: str, experiment: str | None, name: str, *, known: dict[str, tuple[str, str | None, str]] | None = None, besides: str = "") -> list[str]:  # fmt: skip
+    """The documents that name ``name`` of ``kind`` (``geecs_schemas.references``), their paths below the root.
+
+    A name is looked up in the same experiment (an analysis group's across
+    the analyzers tree). A referrer that does not validate names nothing
+    this can read, so it is not listed. ``besides``: a path never listed
+    (the document itself).
+    """
+    out = []
+    for path, (k, exp, doc_id) in (known if known is not None else documents(store)).items():  # fmt: skip
+        if path == besides or not any(_same_namespace(t, kind) for t in REFERS_TO.get(k, ())):  # fmt: skip
+            continue
+        if "<experiment>" in KIND_STORAGE[kind].path_pattern() and exp != experiment:  # type: ignore[union-attr]  # fmt: skip
+            continue
+        loaded = store.read(k, exp, doc_id)
+        try:
+            model = SCHEMA_REGISTRY[k].model_validate(loaded.document)
+        except ValidationError:
+            continue
+        if loaded.valid and any(_same_namespace(rk, kind) and rn == name for rk, rn in references(model)):  # fmt: skip
+            out.append(path)
+    return sorted(out)
+
+
+def still_named(path: str, names: list[str]) -> str:
+    """Why a delete is refused, in words (the names are listed beside it)."""
+    one = len(names) == 1
+    return f"{path} is still named by {len(names)} document{'' if one else 's'}; change {'it' if one else 'them'} first"  # fmt: skip
+
+
+def _deleted_problems(store: DocumentStore, known: dict[str, tuple[str, str | None, str]], deleted: Iterable[str]) -> list[str]:  # fmt: skip
+    """A deleted document another still names: the reader of that name would break."""
+    out = []
+    for rel in deleted:
+        for kind in KIND_STORAGE:
+            pattern = _pattern(kind)
+            hit = pattern.match(rel) if pattern else None
+            if hit is None or not any(_same_namespace(t, kind) for ts in REFERS_TO.values() for t in ts):  # fmt: skip
+                continue
+            experiment, name = hit.groupdict().get("exp"), hit.group("name")
+            # the name may still answer (another suffix, another folder of the analyzers tree)
+            if any(_same_namespace(k, kind) and exp == experiment and PurePosixPath(p).stem == name for p, (k, exp, _) in known.items()):  # fmt: skip
+                continue
+            names = referrers(store, kind, experiment, name, known=known)
+            if names:
+                out.append(f"{rel}: deleted, but {', '.join(names)} still name{'s' if len(names) == 1 else ''} it")  # fmt: skip
+            break
+    return out
+
+
+def problems(
+    root: Path, paths: Iterable[str], deleted: Iterable[str] = ()
+) -> list[str]:
     """``"<path>: <first error>"`` for each changed path that is a document and does not validate.
 
     A changed document of the analyzers tree whose file stem another file
     there also has is a problem too: the loader refuses a tree with two
     (every run by name fails), whichever box or pull request brought it.
+    And a ``deleted`` path that held a document another still names (a
+    group its recipe, a preset its trigger profile): the reader of that
+    name would break, however the delete was made.
     """
     store = DocumentStore(root)
     known = documents(store)
     stems = _run_by_stem(known)
-    out = []
+    out = _deleted_problems(store, known, deleted)
     for path in paths:
         if path in known:
             kind, experiment, doc_id = known[path]
@@ -108,11 +186,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "paths", nargs="*", help="the paths the push changed, relative to the root"
     )
+    parser.add_argument(
+        "--deleted",
+        nargs="*",
+        default=[],
+        help="the paths the push deleted: refused while another document still names one",
+    )
     args = parser.parse_args(argv)
-    found = problems(args.root, args.paths)
+    found = problems(args.root, args.paths, args.deleted)
     for line in found:
         print(f"invalid: {line}")
-    print(f"{len(args.paths)} changed path(s), {len(found)} invalid document(s)")
+    print(f"{len(args.paths)} changed and {len(args.deleted)} deleted path(s), {len(found)} problem(s)")  # fmt: skip
     return 1 if found else 0
 
 

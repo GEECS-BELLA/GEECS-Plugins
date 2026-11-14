@@ -133,6 +133,7 @@ from geecs_schemas.setup import (
     step_variable,
 )
 from geecs_schemas.shot_offsets import SHOT_OFFSETS_FILENAME, DeviceOffset, ShotOffsets
+from geecs_schemas.references import REFERS_TO, references
 from geecs_schemas.storage import (
     KIND_STORAGE,
     STORAGE_ROOT_PATHS,
@@ -176,6 +177,9 @@ __all__ = [
     "VersionedSchemaModel",
     "Tier",
     "TIERS",
+    # references (which documents name which)
+    "REFERS_TO",
+    "references",
     # storage (where each registered kind is kept)
     "KIND_STORAGE",
     "STORAGE_ROOT_PATHS",

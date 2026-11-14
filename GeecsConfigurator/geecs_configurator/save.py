@@ -50,6 +50,13 @@ checkout, then:
   the committer); ``maintainer`` pushes a branch and opens a pull request
   through :class:`PullRequests` (the live checkout never sees the branch);
   any other tier is not saved from the editor (403).
+
+A **delete** (:func:`delete`) is this save with the file removed (``git rm``)
+instead of written: the same lock, base, etag, ownership and author; the
+tier of everything it removes; only a document of a folder of named files
+(:func:`deletable`; a kind's one file is a 405); refused (422, the
+``referrers`` listed) while another document names it
+(:func:`geecs_configurator.validation.referrers`).
 """
 
 from __future__ import annotations
@@ -61,13 +68,13 @@ from pathlib import PurePosixPath
 from typing import Any, Literal, Protocol
 
 import yaml
-from geecs_schemas import SCHEMA_REGISTRY
+from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage
 from pydantic import BaseModel
 
 from geecs_configurator import yaml_edit
 from geecs_configurator.ownership import Ownership
 from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, author_name  # fmt: skip
-from geecs_configurator.validation import stem_twins
+from geecs_configurator.validation import referrers, stem_twins, still_named
 from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
 
 #: The served form's answer is followed where the file as stored validates differently.
@@ -107,6 +114,21 @@ class Saved(BaseModel):
     pull_request: str | None = None
     etag: str
     notes: list[str] = []
+    #: The file was removed (committed or proposed), not written.
+    deleted: bool = False
+
+
+class DeleteRequest(BaseModel):
+    """A delete of the document as it was served (its etag), by the operator, the git author."""
+
+    etag: str
+    operator: str
+
+
+def deletable(kind: str) -> bool:
+    """Whether a kind's documents may be deleted from the editor: one of a folder of named files, never a kind's one file."""
+    storage = KIND_STORAGE.get(kind)
+    return isinstance(storage, FileStorage) and "<name>" in storage.path_pattern()
 
 
 class Refused(Exception):
@@ -165,14 +187,19 @@ def _dumped(draft: Json) -> bytes:
 class _Save:
     """One save's state; :meth:`run` is :func:`save`."""
 
-    def __init__(self, store: DocumentStore, repo: ConfigsRepository, kind: str, experiment: str | None, doc_id: str, request: SaveRequest, ownership: Ownership):  # fmt: skip
+    def __init__(self, store: DocumentStore, repo: ConfigsRepository, kind: str, experiment: str | None, doc_id: str, request: SaveRequest, ownership: Ownership, *, deleting: bool = False):  # fmt: skip
         self.store, self.repo, self.request, self.ownership = (
             store,
             repo,
             request,
             ownership,
         )
-        self.kind, self.experiment, self.doc_id = kind, experiment, doc_id
+        self.kind, self.experiment, self.doc_id, self.deleting = (
+            kind,
+            experiment,
+            doc_id,
+            deleting,
+        )
         self.schema = SCHEMA_REGISTRY[kind].model_json_schema()
 
     def conflict(self, reason: str, draft: Json) -> Refused:
@@ -201,6 +228,8 @@ class _Save:
             except GitError as exc:
                 raise Refused(502, f"the configs repo could not be brought current, so the base cannot be checked: {exc}") from exc  # fmt: skip
             self._owned()
+            if self.deleting:
+                return self._delete(prs, author, base)
             loaded = self._new() if self.request.create else self._checked()
             draft, changes, notes = self._draft(loaded)
             if not changes:
@@ -217,6 +246,31 @@ class _Save:
             if tier == "maintainer":
                 return self._propose(prs, loaded, data, author, message, base, changes, notes)  # fmt: skip
             raise Refused(403, f"a {tier}-tier change is not saved from the editor")
+
+    def _delete(self, prs: PullRequests, author: Identity, base: str) -> Saved:
+        """The file removed, as its tier says: a commit to main, or a pull request; refused while another document names it."""
+        if not deletable(self.kind):
+            raise Refused(405, f"a {self.kind} is one file its readers expect; it is not deleted from the editor")  # fmt: skip
+        loaded = self._checked(deleting=True)
+        names = referrers(self.store, self.kind, self.experiment, PurePosixPath(self.doc_id).stem, besides=loaded.path)  # fmt: skip
+        if names:
+            raise Refused(
+                422, {"reason": still_named(loaded.path, names), "referrers": names}
+            )
+        # what a save that removed every field would change: its tier is the delete's
+        changes = diff_documents(self.store.served(loaded), {}, self.schema)
+        tier = strictest(c.tier for c in changes) or SCHEMA_REGISTRY[self.kind].tier
+        changes.insert(0, Change(path=[], op="delete", tier=tier))
+        message = f"{self.kind} {loaded.path}: deleted by {author.name}\n\nThe file stays in git's history.\n"  # fmt: skip
+        if tier == "operator":
+            sha = self._commit(loaded.path, None, author, message, base, {})
+            if sha is None:
+                return Saved(outcome="nothing to do", tier=None, changes=[], path=loaded.path, author=author.name, etag="", notes=["the file was already gone from main"])  # fmt: skip
+            return Saved(outcome="committed", tier=tier, changes=changes, path=loaded.path, author=author.name, commit=sha, etag="", deleted=True)  # fmt: skip
+        if tier == "maintainer":
+            proposed = self._propose(prs, loaded, None, author, message, base, changes, [])  # fmt: skip
+            return proposed.model_copy(update={"deleted": True})
+        raise Refused(403, f"a {tier}-tier document is not deleted from the editor")
 
     def _written(self, loaded: Loaded, draft: Json, notes: list[str]) -> bytes:
         """The bytes a draft is written as: the stored text with only what changed rewritten.
@@ -262,7 +316,7 @@ class _Save:
         tier = SCHEMA_REGISTRY[self.kind].tier
         return Loaded(kind=self.kind, experiment=self.experiment, id=self.doc_id, path=rel, document={}, etag="", yaml="", valid=True, errors=[], tier=tier, read_only=False)  # fmt: skip
 
-    def _checked(self) -> Loaded:
+    def _checked(self, *, deleting: bool = False) -> Loaded:
         """The stored document, once the save may go over it: writable, readable, the served base, confirmed."""
         loaded = self.store.read(self.kind, self.experiment, self.doc_id)
         if loaded.read_only:
@@ -271,11 +325,10 @@ class _Save:
             raise Refused(422, "the stored document did not read or parse, so there is nothing to save over; fix the file by hand")  # fmt: skip
         if self.request.etag != loaded.etag:
             raise self.conflict("the document changed since it was served", self.request.document)  # fmt: skip
-        if loaded.note == LEGACY and not self.request.convert_legacy:
+        if loaded.note == LEGACY and not self.request.convert_legacy and not deleting:
             raise Refused(428, "the file is the legacy dialect: saving rewrites it whole in the current schema; confirm with convert_legacy")  # fmt: skip
-        self._no_twin(
-            loaded.path
-        )  # a twin another box or a direct commit put on main since
+        if not deleting:  # a twin another box or a direct commit put on main since
+            self._no_twin(loaded.path)
         return loaded
 
     def _no_twin(self, rel: str) -> None:
@@ -377,3 +430,20 @@ def save(
     return _Save(store, repo, kind, experiment, doc_id, request, ownership).run(
         prs, email
     )
+
+
+def delete(
+    store: DocumentStore,
+    repo: ConfigsRepository,
+    prs: PullRequests,
+    kind: str,
+    experiment: str | None,
+    doc_id: str,
+    request: DeleteRequest,
+    *,
+    email: str,
+    ownership: Ownership,
+) -> Saved:
+    """Delete one document as its tier says (a commit, or a pull request); :class:`Refused` while another names it."""
+    as_save = SaveRequest(document={}, etag=request.etag, operator=request.operator)
+    return _Save(store, repo, kind, experiment, doc_id, as_save, ownership, deleting=True).run(prs, email)  # fmt: skip

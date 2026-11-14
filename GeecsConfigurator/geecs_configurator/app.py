@@ -46,7 +46,8 @@ from geecs_configurator.apply import (
 from geecs_configurator.kinds import DRY_RUNS, KindInfo, kinds
 from geecs_configurator.log import CHIP, STATES, Applier
 from geecs_configurator.repository import ConfigsRepository, GitError
-from geecs_configurator.save import CompareLinkOnly, check_owned, PullRequests, Refused, Saved, SaveRequest, save  # fmt: skip
+from geecs_configurator.save import CompareLinkOnly, DeleteRequest, check_owned, deletable, delete, PullRequests, Refused, Saved, SaveRequest, save  # fmt: skip
+from geecs_configurator.validation import referrers, still_named
 from geecs_configurator.service import CommitPath
 from geecs_configurator.settings import Settings
 from geecs_configurator.store import Diff, DocumentStore, Entry, Loaded, NotFound, Report, dump_yaml  # fmt: skip
@@ -83,7 +84,7 @@ def create_app(settings: Settings, pull_requests: PullRequests | None = None, *,
     app.state.pull_requests = commit.pull_requests if commit else CompareLinkOnly(settings.github_repo, settings.branch)  # fmt: skip
     app.add_middleware(ForwardedPrefixMiddleware)
     if settings.cors_origins:
-        app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET", "POST", "PUT"], allow_headers=["Content-Type"])  # fmt: skip
+        app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type"])  # fmt: skip
     mount_theme(app)
     app.mount("/static", RevalidatingStaticFiles(directory=str(_PKG / "static")), name="static")  # fmt: skip
     app.include_router(api)
@@ -316,6 +317,51 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
         inbox.reset_backoff(
             repo
         )  # origin answered: a waiting measurement need not wait out its backoff
+    return _served(saved)
+
+
+class DeleteCheck(BaseModel):
+    """What a delete would do, asked before it: the file, whether its kind is deleted from here, and who names it."""
+
+    path: str
+    deletable: bool
+    referrers: list[str]
+    reason: str = ""
+
+
+@api.post("/delete-check/{kind}/{doc_id:path}", response_model=DeleteCheck)
+def delete_check(request: Request, kind: str, doc_id: str, experiment: str | None = None) -> DeleteCheck:  # fmt: skip
+    """The delete's dry run: the file it removes and every document that names it (any one refuses the delete)."""
+    store, repo = _store(request), request.app.state.repo
+    if repo is not None and repo.lock.acquire(
+        timeout=SERVE_WAIT_S
+    ):  # the referrers as main has them now
+        try:
+            _refresh(repo)
+        finally:
+            repo.lock.release()
+    loaded = _answer(lambda: store.read(_file_kind(kind), experiment, doc_id))
+    if not deletable(kind):
+        return DeleteCheck(path=loaded.path, deletable=False, referrers=[], reason=f"a {kind} is one file its readers expect; it is not deleted from the editor")  # fmt: skip
+    names = referrers(store, kind, experiment, Path(doc_id).stem, besides=loaded.path)  # fmt: skip
+    reason = still_named(loaded.path, names) if names else ""
+    return DeleteCheck(path=loaded.path, deletable=not names, referrers=names, reason=reason)  # fmt: skip
+
+
+@api.delete("/documents/{kind}/{doc_id:path}", response_model=Saved)
+def delete_document(request: Request, kind: str, doc_id: str, body: DeleteRequest, experiment: str | None = None) -> Response:  # fmt: skip
+    """Delete a document as it was served (its etag): a commit or a pull request as its tier says, the operator the git author."""
+    repo = request.app.state.repo
+    if repo is None:
+        raise HTTPException(405, "read-only: the commit path is not configured")
+    if request.app.state.commit.settling.is_set():
+        return _busy()
+    try:
+        _answer(lambda: check_owned(_store(request), request.app.state.commit.ownership, _file_kind(kind), experiment, doc_id, create=False))  # fmt: skip
+        saved = _answer(lambda: delete(_store(request), repo, request.app.state.pull_requests, kind, experiment, doc_id, body, email=request.app.state.settings.committer_email, ownership=request.app.state.commit.ownership))  # fmt: skip
+    except Refused as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+    request.app.state.commit.saved(kind, saved)
     return _served(saved)
 
 
