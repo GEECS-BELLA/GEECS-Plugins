@@ -315,3 +315,32 @@ def test_checks_and_waits_are_never_hazards():
         native=native,
     )
     assert found == []
+
+
+@pytest.mark.parametrize(
+    ("device", "variable"),
+    [("U_PS", "output"), ("U_PS", "Output"), ("u_ps", "output"), ("U_PS", "OUTPUT_SP")],
+)
+def test_a_family_hazard_is_asked_whatever_the_spelling_the_worker_accepts(device, variable):  # fmt: skip
+    """The worker binds a device and a variable case-folded, so the hazard rule does too."""
+    native = _native({"U_PS": SUPPLY})
+    step = {"do": "set", "device": device, "variable": variable, "value": 1}
+    assert [h.index for h in _hazards(step, native=native)] == [1]
+
+
+@pytest.mark.parametrize(
+    ("device", "variable"),
+    [
+        ("U_Laser", "Shutter"),
+        ("U_Laser", "shutter"),
+        ("u_laser", "Shutter"),
+        ("U_LASER", "SHUTTER"),
+    ],  # fmt: skip
+)
+def test_a_policy_hazard_is_asked_whatever_the_spelling(device, variable):
+    by_name = {"hazards": [{"devices": ["U_Laser"], "roles": ["Shutter"]}]}
+    by_type = {"hazards": [{"families": ["LaserCtl"], "roles": ["Shutter"]}]}
+    step = {"do": "set", "device": device, "variable": variable, "value": "closed"}
+    assert len(_hazards(step, policy=by_name)) == 1
+    found = _hazards(step, policy=by_type, db_families={"U_Laser": "LaserCtl"})
+    assert len(found) == 1 and "unknown" not in found[0].reasons[0]

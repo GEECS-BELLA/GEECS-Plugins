@@ -32,6 +32,7 @@ from typing import (
     ClassVar,
     Literal,
     SupportsFloat,
+    TypeVar,
     Union,
     cast,
 )
@@ -391,6 +392,10 @@ def setup_digest(steps: Sequence[tuple[ConcreteSetupStep, str | None]]) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+#: A value looked up by a folded name (:func:`_by_fold`).
+_T = TypeVar("_T")
+
+
 class SetupHazard(SchemaModel):
     """A ``set`` step that needs the hazard confirm, and why."""
 
@@ -401,6 +406,27 @@ class SetupHazard(SchemaModel):
     reasons: list[str] = Field(description="Why it needs the confirm, one line each.")
 
 
+def _fold(name: str) -> str:
+    """A name as the worker binds it: GEECS's normalization (case and punctuation folded).
+
+    The worker finds ``U_S1H`` / ``current`` and ``u_s1h`` / ``Current``
+    alike, so a hazard rule must match every spelling the worker accepts.
+    """
+    from geecs_schemas.epics import _normalised
+
+    return _normalised(name)
+
+
+def _by_fold(mapping: Mapping[str, _T] | None, name: str) -> _T | None:
+    """``mapping``'s value for the key that folds to ``_fold(name)``; ``None`` when none does."""
+    if mapping is None:
+        return None
+    if name in mapping:
+        return mapping[name]
+    wanted = _fold(name)
+    return next((v for k, v in mapping.items() if _fold(k) == wanted), None)
+
+
 def _family_roles(
     device: str,
     families: Mapping[str, FamilyFile],
@@ -408,24 +434,23 @@ def _family_roles(
     panels: PanelDevices | None,
     db_families: Mapping[str, str] | None,
 ) -> tuple[str | None, FamilyFile | None, dict[str, bool]]:
-    """``(family, family file, role -> hazard)`` of *device*; ``(None, None, {})`` when unknown."""
-    if panels is not None and device in panels.devices:
-        panel = panels.devices[device]
+    """``(family, family file, folded role -> hazard)`` of *device*; ``(None, None, {})`` when unknown."""
+    panel = _by_fold(panels.devices if panels is not None else None, device)
+    if panel is not None:
         family = families.get(panel.family)
         roles = panel.resolve(family) if family is not None else []
-        return panel.family, family, {r.name: r.confirm == "hazard" for r in roles}
-    if native is not None and device in native.devices:
-        name = native.devices[device].family_template
+        return panel.family, family, {_fold(r.name): r.confirm == "hazard" for r in roles}  # fmt: skip
+    entry = _by_fold(native.devices if native is not None else None, device)
+    if entry is not None:
+        name = entry.family_template
         family = families.get(name)
         roles = family.roles if family is not None else []
-        return name, family, {r.name: r.confirm == "hazard" for r in roles}
-    if db_families is not None and device in db_families:
-        return db_families[device], None, {}
-    return None, None, {}
+        return name, family, {_fold(r.name): r.confirm == "hazard" for r in roles}
+    return _by_fold(db_families, device), None, {}
 
 
 def _role_candidates(variable: str, family: FamilyFile | None) -> set[str]:
-    """Every role a step's *variable* may name on a device of *family*.
+    """Every role a step's *variable* may name on a device of *family*, folded.
 
     The variable itself and the part after an axis (``m1.val``); a role
     whose name or record suffix it is (the worker names a supply's settable
@@ -434,17 +459,19 @@ def _role_candidates(variable: str, family: FamilyFile | None) -> set[str]:
     Deliberately wide: asking about a role that is not the one written
     costs a question, while missing the hazardous one costs the confirm.
     """
-    words = {variable}
     _, dot, rest = variable.partition(".")
-    if dot and rest:
-        words.add(rest)
+    words = {_fold(variable)} | ({_fold(rest)} if dot and rest else set())
     if family is None:
         return words
-    matched = {r.name for r in family.roles if r.name in words or r.suffix in words}
+    matched = {
+        r.name
+        for r in family.roles
+        if _fold(r.name) in words or _fold(r.suffix) in words
+    }
     if family.per_axis and not dot:
         matched |= {r.name for r in family.roles if r.type == "setpoint" and r.readback}
     matched |= {r.name for r in family.roles if r.readback in matched}
-    return words | matched
+    return words | {_fold(name) for name in matched}
 
 
 def setup_hazards(
@@ -462,10 +489,11 @@ def setup_hazards(
     ``confirm: hazard`` (as the device has it: ``panel_devices.yaml``'s
     ``hazard`` added), and the operator policy's ``hazards`` (by device, or
     by family: a native device's family template, a DB device's device
-    type). It fails toward asking: a device whose family cannot be told
-    (in neither device file, and the DB's types unavailable or silent on
-    it) is a hazard whenever the policy names any of its candidate roles
-    for any family.
+    type). Every name is compared folded (:func:`_fold`), because the
+    worker binds a step's device and variable whatever their case. It fails
+    toward asking: a device whose family cannot be told (in neither device
+    file, and the DB's types unavailable or silent on it) is a hazard
+    whenever the policy names any of its candidate roles for any family.
 
     Parameters
     ----------
@@ -498,12 +526,14 @@ def setup_hazards(
             for role in sorted(candidates)
             if roles.get(role)
         ]
+        device = _fold(step.device)
         for rule in policy.hazards:
-            named = sorted(candidates & set(rule.roles))
+            named = sorted(r for r in rule.roles if _fold(r) in candidates)
             if not named:
                 continue
-            if step.device in rule.devices or (
-                family_name is not None and family_name in rule.families
+            if device in {_fold(d) for d in rule.devices} or (
+                family_name is not None
+                and _fold(family_name) in {_fold(f) for f in rule.families}
             ):
                 reasons.append(
                     f"the operator policy's hazards name {step.device} {named[0]!r}"
