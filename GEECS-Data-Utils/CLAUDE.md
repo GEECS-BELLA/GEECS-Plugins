@@ -388,9 +388,9 @@ this package and must never depend on GeecsBluesky or a GUI package).
 - **`shot_join`** — the one home of the rule that joins a run's per-frame
   stream columns onto its shot rows (`FrameColumns`,
   `join_frames_to_shots`, `row_windows`, `shot_clock_column`,
-  `frame_columns_from_attributes`, `SHOTS_STREAM`) — and a non-essential
+  `frame_columns_from_attributes`, `SHOTS_STREAM`) — and a streamed
   device's **event** stream onto them the same way
-  (`frame_columns_from_events`, `non_essential_stream`: one event per stamp
+  (`frame_columns_from_events`, `device_stream`: one event per stamp
   a triggered device without a plugin published, NaN on the rows it
   missed).  Pure arithmetic over
   arrays — no I/O, no Bluesky, no pandas — because two callers must agree
@@ -408,14 +408,37 @@ this package and must never depend on GeecsBluesky or a GUI package).
   invariant to window arithmetic, which two rows published a fraction of a
   millisecond apart defeated.  A frame no row claims is
   an **orphan**: it stays in the stack and in Tiled and is left out of the
-  s-file — one s-file row per essential shot, always.
+  s-file — one s-file row per row of the run, always.
+- **`shot_table`** — the shared reader helper of both run layouts
+  (`GeecsBluesky/EVENT_SCHEMA.md`): `shot_table(start, rows,
+  devices)` assigns each per-shot device's records (`DeviceRecords`) to
+  the rows and flags them; `frame_for(table, device, shot)` gives
+  `(stream, index)` or `None`. Both layouts: an old run (no `layout` key)
+  reproduces today's s-file join (strict `primary` stacks positional,
+  everything else through `shot_join`); a `shot-table/1` run is timed on
+  `witness_stamp` (or `fire_stamp` intervals when unwitnessed), counters
+  and the witness attribute only audit. Plain inputs, no I/O; the
+  adapters are the readers' (`tiled_export.read_device_records` for a
+  Tiled run, GeecsBluesky's callback buffer for the live one, both through
+  `device_records`: `stream_meta`, the counter, `WitnessCount`). The
+  Tiled reader takes a stream's bare `NDArrayUniqueId` / `WitnessCount`
+  parts, an attribute stream's or an event stream's (a native camera's)
+  alike; the live readers get them from the stack file.  Which parts a
+  native's HDF writer publishes is the worker's (the stock data logic
+  declares only the NDAttributes of an inline XML); a plugin stack has no
+  per-frame counter at all. And
+  `per_shot_event_streams(start)` is the one event-stream gate
+  (`per_shot_streams`, or a gated or earlier strict run's `non_essential`).
+  `shot_join.to_labview_epoch` is the one Unix → LabVIEW conversion of a
+  row clock, and `shot_join.clock_stamps(rows, column)` the stamps every
+  `shot_clock_column` caller times against.
 - **`tiled_export`** — the legacy scalar files of a Bluesky run, live
   (`write_scalar_files` from the documents, what the worker calls) or
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s
   events when it has them and the per-shot `shots` events otherwise (a
-  gated run), and `join_frame_columns` appends every datum-only stream's
-  per-frame columns (and every non-essential event stream's, named by the
-  start document's `non_essential`) before `geecs_scalar_headers` renames and orders them
+  gated run), and `join_frame_columns` appends, through `shot_table`,
+  every datum-only stream's per-frame columns (and every per-shot event
+  stream's, `per_shot_event_streams`) before `geecs_scalar_headers` renames and orders them
   — one projection for both shapes of run.  `read_frame_columns` reads a
   stream's 1-D attribute arrays **by name** and never the frame stack
   itself (the #834/#836 lesson).

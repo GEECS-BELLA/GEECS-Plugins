@@ -281,7 +281,7 @@ def run_plot(
     detail = portal.load_run(uid)
     if detail.data is None:
         raise HTTPException(status_code=404, detail="run has no event rows")
-    frame = detail.data.head(_PLOT_MAX_ROWS)
+    frame = detail.scalars().head(_PLOT_MAX_ROWS)
     y_series = schema_map.numeric_series(frame, y)
     if y_series is None:
         raise HTTPException(status_code=404, detail=f"no plottable column {y!r}")

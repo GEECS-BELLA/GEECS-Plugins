@@ -43,6 +43,9 @@ _DEMO_DEVICES = [
     "U_S1H",
     "U_Hexapod",
 ]
+#: The demo devices with a shot stamp (per-shot devices); the rest are
+#: conditions, never ``required`` (``expand_preset``'s ``device_tree``).
+_DEMO_TRIGGERED = {"UC_ALineEBeam3", "UC_TC_Phosphor", "UC_UndulatorRad2", "U_ICT"}
 
 #: Queue items that open no run — the worker's own tuple.
 from geecs_bluesky.plan_names import NON_SCAN_PLAN_NAMES as _NON_RUN_PLANS  # noqa: E402
@@ -80,14 +83,14 @@ def demo_presets() -> list[Any]:
                     {
                         "device": "UC_ALineEBeam3",
                         "save_images": True,
-                        "essential": True,
+                        "required": True,
                     },
                     {
                         "device": "UC_TC_Phosphor",
                         "save_images": True,
-                        "essential": False,
+                        "required": False,
                     },
-                    {"device": "U_ICT", "save_images": False, "essential": True},
+                    {"device": "U_ICT", "save_images": False, "required": True},
                 ],
                 "plan": {
                     "name": "sweep",
@@ -121,12 +124,12 @@ def demo_presets() -> list[Any]:
                     {
                         "device": "UC_ALineEBeam3",
                         "save_images": True,
-                        "essential": True,
+                        "required": True,
                     },
                     {
                         "device": "UC_UndulatorRad2",
                         "save_images": True,
-                        "essential": True,
+                        "required": True,
                     },
                 ],
                 "plan": {
@@ -146,7 +149,7 @@ def demo_presets() -> list[Any]:
                     {
                         "device": "UC_ALineEBeam3",
                         "save_images": True,
-                        "essential": True,
+                        "required": True,
                     },
                 ],
                 "plan": {
@@ -490,6 +493,8 @@ class DemoQueueClient:
                 f"{d}.ypos",
                 f"{d}.jet_pressure",
             ]
+            if d in _DEMO_TRIGGERED:
+                names.append(f"{d}.acq_timestamp")
         return names
 
     def submit_plan(

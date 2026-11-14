@@ -59,6 +59,7 @@ from geecs_schemas.epics import (
     NativeDevices,
     SetpointDevice,
     SetpointSettable,
+    Witness,
 )
 from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
@@ -206,6 +207,7 @@ __all__ = [
     "EpicsMotor",
     "SetpointDevice",
     "SetpointSettable",
+    "Witness",
     "DETECTOR_KINDS",
     "NATIVE_DEVICES_FILENAME",
     "SETPOINT_SUFFIX",

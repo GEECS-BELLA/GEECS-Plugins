@@ -1,50 +1,28 @@
-"""Strict single-shot acquisition as the stock ``take_reading`` hook.
+"""The strict shot's shared helpers: the fire-and-await, the liveness, the bin.
 
-``bps.one_shot`` (``bp.count``'s ``per_shot``) and ``bps.one_nd_step`` (the
-scan plans' ``per_step``) take a ``take_reading`` callable whose default is
-``bps.trigger_and_read``.  A GEECS camera acquires only when the trigger box
-fires, so the one thing GEECS changes is **where the fire goes**: between
-the triggers and the wait.  :func:`geecs_take_reading` is
-``trigger_and_read`` with that one difference plus the bounded retake:
-free-running edges are not an exact substitute for a fired shot, and a
-missed frame keeps its row and adds one.
-
-Everything else is the stock plan: ``bp.list_scan(dets, motor, points,
-per_step=geecs_per_step(shot_control))`` moves, checkpoints, rewinds and
-records run metadata exactly as it does for any other detector.
-
-Under a scan-mode trigger profile (``scan_mode=`` a
-:class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`) the fire gains
-one line in front of it: the shot's announce — the run-wide shot number
-and its save path pushed to the devices, which acquire on it — and a
-box-less profile skips the fire itself.  The order is ``trigger,
-announce, fire, wait``: the announce lands after every detector's stamp
-baseline and before the shot exists, like the fire.
+The strict slot itself is :mod:`geecs_bluesky.plans.on_demand`.  Here:
+:func:`fire_and_await_shot` (trigger every triggerable, fire between the
+triggers and the wait, report the ones that missed — the shot-offset
+calibration's shot), the confirmed-down read and the plugin's refusal
+reasons the slot reports, :func:`name_failed_status`, and
+:class:`BinCounter`, the ``bin_number`` column.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from collections.abc import Sequence
 from typing import Any, Callable
 
 import bluesky.plan_stubs as bps
-from bluesky.preprocessors import contingency_wrapper, rewindable_wrapper
 from bluesky.protocols import Triggerable
-from bluesky.utils import FailedStatus, all_safe_rewind, separate_devices, short_uid
-from geecs_schemas.trigger_profile import TriggerState
-from ophyd_async.core import StandardDetector
+from bluesky.utils import FailedStatus, short_uid
 
-from geecs_bluesky.devices.ca._view import ScalarsView, geecs_device_name
+from geecs_bluesky.devices.ca._view import geecs_device_name
 from geecs_bluesky.devices.ca.liveness import read_disconnected
-from geecs_bluesky.devices.detector import STRICT_TRIGGER_INFO, GeecsDetector
-from geecs_bluesky.devices.scan_mode import ANNOUNCE
 from geecs_bluesky.exceptions import (
-    GeecsConfigurationError,
     GeecsDeviceDownError,
-    GeecsFrameCountReadError,
     GeecsTriggerTimeoutError,
     failure_cause_text,
 )
@@ -103,57 +81,6 @@ def plugin_reasons(devices: Sequence[Any]):
         yield from bps.wait_for([collect])
         reasons.append("; ".join(found))
     return reasons
-
-
-def refuse_free_running_cameras(devices: Sequence[Any]):
-    """Plan: fail a complete shot on which a gateway plugin camera holds more than one frame.
-
-    Strict records one frame per camera per shot.  A camera that is not in
-    trigger mode free-runs, and its plugin counts every frame it pushes, so
-    by the row it holds several where every triggered camera holds one;
-    bluesky would then refuse the row with a datum-width error that names
-    neither the device nor the cause.  Checked before the row is recorded,
-    so the failure (the scan-end message) names each such camera and the
-    frames it holds.  Only a :class:`GeecsDetector` is checked: a
-    ``NativeCamera`` puts itself in trigger mode at its first prepare.
-    The counts are read in one gather; a read that fails is named.
-
-    Raises
-    ------
-    GeecsConfigurationError
-        Naming every camera that holds more than one frame for the shot.
-    GeecsFrameCountReadError
-        A camera's frame count could not be read.
-    """
-    cameras = [d for d in devices if isinstance(d, GeecsDetector) and d.plugin_backed]
-    if not cameras:
-        return
-    counts: list[int | BaseException] = []
-
-    async def read_counts() -> None:
-        counts.extend(
-            await asyncio.gather(
-                *(cam.frames_since_last_datum() for cam in cameras),
-                return_exceptions=True,
-            )
-        )
-
-    yield from bps.wait_for([read_counts])
-    extra: list[str] = []
-    for cam, count in zip(cameras, counts or [None] * len(cameras), strict=True):
-        if not isinstance(count, int):
-            label = geecs_name(cam)
-            raise GeecsFrameCountReadError(
-                label, f"{label}: frame count unreadable before the row: {count!r}"
-            )
-        if count > 1:
-            extra.append(f"{geecs_name(cam)} ({count} frames)")
-    if extra:
-        raise GeecsConfigurationError(
-            f"more than one frame for one shot from {', '.join(extra)} — the "
-            "camera is not waiting for the trigger (free-running?): put it in "
-            "trigger mode (or the shot was replayed after an immediate pause)"
-        )
 
 
 def _device_named(devices: Sequence[Any], device_name: str) -> Any | None:
@@ -296,216 +223,6 @@ def fire_and_await_shot(devices: Sequence[Any], fire: Callable):  # noqa: C901
     return missed
 
 
-def geecs_take_reading(  # noqa: C901, PLR0915
-    shot_control: Any,
-    *,
-    max_refires: int = 2,
-    name: str = "primary",
-    shot_period: float | None = None,
-    scan_mode: Any | None = None,
-) -> Callable[[Sequence[Any]], Any]:
-    """Return a ``take_reading`` that fires the trigger box between trigger and wait.
-
-    A missed frame does not void the row: the
-    row is saved with every scalar the shot produced — the missing device's
-    columns empty (``NaN``, stamp included) — and **one more shot** is
-    taken for the step, up to *max_refires* extra shots, until a complete
-    row exists.  The partial row carries **no frames**: the RunEngine
-    bundler requires one datum per external key per event, all of one
-    width, so a frame from a device that delivered cannot be referenced by
-    a row where another device has none.  Before the next shot every
-    plugin-backed device is therefore rewound to the last frame a document
-    referenced
-    (:meth:`~geecs_bluesky.devices.detector.GeecsDetector.discard_uncollected`,
-    through the stock ``wait_for`` stub) — the delivered device's
-    uncollected frame and any late frame of the missed one alike.  If the
-    quota is exhausted the step fails loudly, naming the devices; the
-    partial rows already saved stay — their scalars are data.
-
-    Parameters
-    ----------
-    shot_control :
-        The :class:`~geecs_bluesky.devices.shot_control.ShotControl` device;
-        the fire is ``bps.mv(shot_control, "SINGLESHOT")``.
-    max_refires :
-        Extra shots after an incomplete one (see :func:`fire_and_await_shot`).
-    name :
-        Event stream name.
-    shot_period :
-        The deliberate rep-rate throttle (GEECS-Plugins#840): seconds between
-        fires — before each fire the plan sleeps for the remainder of the
-        period since the previous fire of this plan (the first shot is not
-        delayed).  ``None`` fires as fast as the shot allows (the laser's
-        rate at short exposures).  Strict only.
-    scan_mode :
-        The run's :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`
-        under a scan-mode profile: every attempt announces its shot
-        (``mv(scan_mode, ANNOUNCE)`` — the next run-wide shot number and
-        its path, pushed to the devices) right before the fire, and a
-        box-less profile (``shot_control.boxless``) fires nothing — the
-        announce is the shot.  An announce that fails propagates like a
-        refused fire: another shot cannot help.  ``None`` is the plain
-        strict shot.
-
-    Returns
-    -------
-    callable
-        ``take_reading(devices)`` — a plan yielding one complete event row
-        (and any partial rows before it).
-    """
-    if shot_period is not None and shot_period <= 0:
-        raise ValueError(f"shot_period must be positive seconds, got {shot_period}")
-    last_fire: dict[str, float | None] = {"at": None}
-    boxless = bool(getattr(shot_control, "boxless", False))
-
-    def throttle():
-        """Sleep the remainder of the shot period — BEFORE the detectors are triggered.
-
-        The sleep must precede ``trigger``: an armed detector's count /
-        stamp wait runs on its own budget (``exposure_timeout``), and a
-        sleep between the triggers and the fire longer than that budget
-        times the shot out before it is fired.
-        """
-        if shot_period is not None and last_fire["at"] is not None:
-            remaining = shot_period - (time.monotonic() - last_fire["at"])
-            if remaining > 0:
-                yield from bps.sleep(remaining)
-
-    def fire():
-        last_fire["at"] = time.monotonic()
-        if scan_mode is not None:
-            # The shot's number and path reach the devices before the fire
-            # (Master Control's ~70 ms spacing is the put's own latency here).
-            yield from bps.mv(scan_mode, ANNOUNCE)
-        if not boxless:
-            yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
-
-    def take_reading(devices: Sequence[Any]):  # noqa: C901
-        devices = separate_devices(devices)
-        # A scalars view (``X.scalars``) beside the owner's own scanned child
-        # (``X.current``): siblings to separate_devices, but the view already
-        # reads the child's readback — keep one copy of the column.
-        views = [d for d in devices if isinstance(d, ScalarsView)]
-        devices = [d for d in devices if not any(v.covers(d) for v in views)]
-        rewindable = all_safe_rewind(devices)
-
-        def record_row():
-            yield from bps.create(name)
-
-            def read_plan():
-                ret: dict[str, Any] = {}
-                for obj in devices:
-                    reading = yield from bps.read(obj)
-                    if reading is not None:
-                        ret.update(reading)
-                return ret
-
-            def standard_path():
-                yield from bps.save()
-
-            def exception_path(exp):
-                yield from bps.drop()
-                raise exp
-
-            return (
-                yield from contingency_wrapper(
-                    read_plan(), except_plan=exception_path, else_plan=standard_path
-                )
-            )
-
-        def inner():
-            # A GEECS detector is edge-triggered only, so the implicit
-            # prepare inside trigger() (INTERNAL) would be refused; prepare
-            # it for one externally triggered event.  Idempotent per
-            # detector: the providers are reused and the edge setup is a
-            # no-op, so repeating it per shot costs a few soft-signal awaits.
-            group = short_uid("prepare")
-            detectors = [d for d in devices if isinstance(d, StandardDetector)]
-            for det in detectors:
-                yield from bps.prepare(
-                    det, STRICT_TRIGGER_INFO, group=group, wait=False
-                )
-            if detectors:
-                yield from bps.wait(group=group)
-            # The run's first arm of a plugin camera: the plugin's count PV
-            # still reads the previous session's total until a frame lands,
-            # so a shot that baselined on it would wait for N+1 while the
-            # frame posts 1 — zero it inside the fresh session and prepare
-            # again on 0.  Keyed to the plugin session (``count_zeroed`` is
-            # cleared by stage/unstage), not to this closure: a reused hook
-            # zeroes again on its next run.
-            fresh = [
-                d
-                for d in detectors
-                if getattr(d, "plugin_backed", False)
-                and not getattr(d, "count_zeroed", True)
-            ]
-            if fresh:
-                yield from bps.wait_for([d.zero_count for d in fresh])
-                group = short_uid("prepare-zeroed")
-                for det in fresh:
-                    yield from bps.prepare(
-                        det, STRICT_TRIGGER_INFO, group=group, wait=False
-                    )
-                yield from bps.wait(group=group)
-            attempts = max_refires + 1
-            for attempt in range(1, attempts + 1):
-                yield from throttle()
-                missed = yield from fire_and_await_shot(devices, fire)
-                if missed:
-                    # The partial row carries no frames (one same-width datum
-                    # per external key per event, or none): rewind every
-                    # plugin before the row is read, so no datum is collected.
-                    guards = [
-                        d.discard_uncollected
-                        for d in devices
-                        if getattr(d, "plugin_backed", False)
-                    ]
-                    if guards:
-                        yield from bps.wait_for(guards)
-                else:
-                    yield from refuse_free_running_cameras(devices)
-                ret = yield from record_row()
-                if not missed:
-                    return ret
-                labels = [
-                    getattr(d, "_geecs_device_name", None) or d.name for d in missed
-                ]
-                names = ", ".join(labels)
-                # A plugin that refused the frames says so only in its
-                # WriteMessage: name it beside the device.
-                reasons = yield from plugin_reasons(missed)
-                described = ", ".join(
-                    f"{label} ({reason})" if reason else label
-                    for label, reason in zip(labels, reasons, strict=True)
-                )
-                if attempt == attempts:
-                    cause = (
-                        "a file plugin refused what its camera pushed — see its message"
-                        if any(reasons)
-                        else "known camera frame-drop intermittency, ~1% observed "
-                        "— or a device that stopped acquiring"
-                    )
-                    raise GeecsTriggerTimeoutError(
-                        names,
-                        STRICT_TRIGGER_INFO.exposure_timeout,
-                        f"no complete row after {attempts} shot(s): no frame from "
-                        f"{described} (partial rows kept; {cause})",
-                    )
-                logger.warning(
-                    "shot %d of %d incomplete: no frame from %s — row kept with "
-                    "empty columns and no frames, taking another shot",
-                    attempt,
-                    attempts,
-                    described,
-                )
-            return None  # pragma: no cover - the loop returns or raises
-
-        return (yield from rewindable_wrapper(inner(), rewindable))
-
-    return take_reading
-
-
 class BinCounter:
     """The ``bin_number`` column: which step of the scan a row belongs to.
 
@@ -534,69 +251,3 @@ class BinCounter:
         return {
             self.name: {"source": "plan:bin_number", "dtype": "integer", "shape": []}
         }
-
-
-def _row_extras(bins: BinCounter, scan_mode: Any | None) -> list[Any]:
-    """The plan-side readables of every row: the bin counter, and the announce under scan mode."""
-    return [bins] if scan_mode is None else [bins, scan_mode]
-
-
-def geecs_per_shot(shot_control: Any, **kwargs: Any) -> Callable[..., Any]:
-    """``bp.count(..., per_shot=geecs_per_shot(shot_control))``.
-
-    A count is one bin: every row carries ``bin_number = 1``.
-    """
-    take_reading = geecs_take_reading(shot_control, **kwargs)
-    bins = BinCounter()
-    bins.value = 1
-    extras = _row_extras(bins, kwargs.get("scan_mode"))
-
-    def per_shot(detectors: Sequence[Any], take_reading_: Any = None):
-        return (yield from name_failed_status(take_reading([*detectors, *extras])))
-
-    per_shot.__name__ = per_shot.__qualname__ = "geecs_per_shot"
-    return per_shot
-
-
-def geecs_per_step(
-    shot_control: Any, *, shots_per_step: int = 1, **kwargs: Any
-) -> Callable[..., Any]:
-    """``bp.scan(..., per_step=geecs_per_step(shot_control))`` (any N-d scan plan).
-
-    ``bps.one_nd_step`` with two GEECS additions: *shots_per_step* shots at
-    every position (the legacy "Shots per step", each a strict single shot
-    with its own row) and the ``bin_number`` column counting the steps.
-    Each row reads the detectors, the step's motors and the bin counter,
-    exactly as the stock step reads detectors and motors.
-
-    Parameters
-    ----------
-    shot_control :
-        The trigger box device (see :func:`geecs_take_reading`).
-    shots_per_step :
-        Rows per position; at least 1.
-    """
-    if shots_per_step < 1:
-        raise ValueError(f"shots_per_step must be >= 1, got {shots_per_step}")
-    take_reading = geecs_take_reading(shot_control, **kwargs)
-    bins = BinCounter()
-    extras = _row_extras(bins, kwargs.get("scan_mode"))
-
-    def one_step(detectors: Sequence[Any], step: Any, pos_cache: Any):
-        motors = list(step.keys())
-        yield from bps.move_per_step(step, pos_cache)
-        bins.value += 1
-        for _ in range(shots_per_step):
-            # A checkpoint per shot, as the stock count has: the scanner's
-            # Pause (a deferred pause) lands after the shot in progress,
-            # not at the end of the step: pause means pause in every mode.
-            yield from bps.checkpoint()
-            yield from take_reading([*detectors, *motors, *extras])
-
-    def per_step(
-        detectors: Sequence[Any], step: Any, pos_cache: Any, take_reading_: Any = None
-    ):
-        return (yield from name_failed_status(one_step(detectors, step, pos_cache)))
-
-    per_step.__name__ = per_step.__qualname__ = "geecs_per_step"
-    return per_step

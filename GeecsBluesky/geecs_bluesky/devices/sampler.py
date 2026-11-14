@@ -19,7 +19,7 @@ readbacks, ``bin_number``) is recorded by this software device:
 - **Stream.**  ``collect`` yields only ``shots`` rows whose frame every gate
   already holds, so a row once out is never discarded.
 
-:class:`StampStream` is the non-essential counterpart: one event per stamp
+:class:`StampStream` is the streamed counterpart: one event per stamp
 of a triggered device without a plugin, in its own ``<name>_stream``.
 Members are read from monitor caches; nothing here touches Channel Access.
 """
@@ -461,16 +461,15 @@ class ShotSampler:
 
 
 class StampStream:
-    """One event per stamp a non-essential device publishes, for the whole run.
+    """One event per stamp a streamed device publishes, for the whole run.
 
-    The non-essential **stream** of a device with no file plugin: a
-    *triggered* device — a camera or a wavefront
-    sensor saving its own LabVIEW files, a scalar device with a stamp (a
-    power supply, a gauge) — listed ``non_essential`` is a nice-to-have
-    diagnostic that must never hold up acquisition.  Sampling it at the
-    row would either wait for it (its write time back in the rep rate) or
-    record the previous shot.  So it gets its own event stream instead, the shape a
-    non-essential plugin camera's ``<name>_stream`` already has: this
+    The **stream** of a device with no file plugin: a *triggered* device —
+    a camera or a wavefront sensor saving its own LabVIEW files, a scalar
+    device with a stamp (a power supply, a gauge) — in a shot-table run
+    (every per-shot device) or a gated run's devices not required.
+    Sampling it at the row would either wait for it (its write time back in
+    the rep rate) or record the previous shot.  So it gets its own event
+    stream instead, the shape a plugin camera's ``<name>_stream`` has: this
     small software device (``Flyable`` + ``EventCollectable``) subscribes
     to the device's ``acq_timestamp`` at ``kickoff`` and, **the moment**
     each new stamp arrives, records one event — the stamp itself, the
@@ -488,26 +487,31 @@ class StampStream:
     Parameters
     ----------
     device :
-        The non-essential device: a :class:`GeecsDetector` without a file
+        The streamed device: a :class:`GeecsDetector` without a file
         plugin, or a detector's ``.scalars`` view (scalars and stamp only,
-        no files).
+        no files) — or a plugin camera's gateway stamp, for a *companion*.
+    name :
+        The stream object's name; the device's own by default.  A plugin
+        camera's **companion** (optimize's per-shot camera stamp, beside the
+        camera's own datum-only stream) takes another, so the two streams
+        never share a name.
     """
 
     parent = None
 
-    def __init__(self, device: Any) -> None:
+    def __init__(self, device: Any, *, name: str | None = None) -> None:
         owner = owner_of(device)
         if not isinstance(owner, GeecsDetector):
             raise TypeError(
                 f"{getattr(device, 'name', device)!r} has no shot stamp: a "
-                "non-essential stream records a triggered device"
+                "device stream records a triggered device"
             )
         self._device = device
         self._owner = owner
         # The DEVICE's name: the descriptor's configuration and object_keys
         # are keyed by the collect object's name, and the join looks the
         # drain offset up under the device's (``<name>-drain_offset``).
-        self.name = owner.name
+        self.name = owner.name if name is None else name
         self._stamp: SignalR[float] = owner.acq_timestamp
         self._readers = [(d, r) for _, d, r in _readers_for(device)]
         self._events: list[PartialEvent] = []
@@ -517,10 +521,15 @@ class StampStream:
         self._subscribed = False
         #: Events recorded this run (the close's WARNING when it stays 0).
         self.published = 0
+        #: Stamps queued and not yet recorded.
+        self.pending = 0
+        #: Stamps that arrived but could not be recorded (a failed read):
+        #: settled, never coming — a waiter counts them with ``published``.
+        self.failed = 0
 
     @property
     def device(self) -> Any:
-        """The non-essential device this stream records (as listed)."""
+        """The device this stream records (as listed)."""
         return self._device
 
     @property
@@ -546,7 +555,7 @@ class StampStream:
         async def do() -> None:
             await self._stop()
             self._events = []
-            self.published = 0
+            self.published = self.pending = self.failed = 0
             self._last = await self._stamp.get_value()
             self._queue = asyncio.Queue()
             self._stamp.subscribe_reading(self._on_stamp)
@@ -571,6 +580,7 @@ class StampStream:
         if value is None or value <= 0 or value == self._last:
             return  # the subscribe echo, the gateway's placeholder, or a repeat
         self._last = value
+        self.pending += 1
         self._queue.put_nowait(float(value))
 
     async def _record(self) -> None:
@@ -582,7 +592,9 @@ class StampStream:
                 readings = await merge_gathered_dicts(
                     read() for _, read in self._readers
                 )
-            except Exception as exc:  # noqa: BLE001 - a non-essential never fails
+            except Exception as exc:  # noqa: BLE001 - a stream never fails
+                self.pending -= 1
+                self.failed += 1
                 logger.warning(
                     "%s: stamp %s not recorded (%s: %s)",
                     self.name,
@@ -603,6 +615,7 @@ class StampStream:
                 )
             )
             self.published += 1
+            self.pending -= 1
 
     async def _stop(self) -> None:
         if self._subscribed:

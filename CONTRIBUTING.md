@@ -190,6 +190,16 @@ layout; delete-when-executed is the whole discipline):
   `GeecsControlRoom/README.md` § Deploy. The brief's § Status is in this
   PR's body. Kept: `operator_surfaces.md` (§11 open) and `configurator.md`
   (arc live).
+- **2026-11-13**, shot-synchronization arc (#1278, on `feat/shot-sync`) —
+  `shot_synchronization.md` deleted ahead of the promotion PR (#1296). The
+  model was already where it is enforced: the strict slot, fly mode and
+  the witness in `GeecsBluesky/CLAUDE.md` § "Acquisition", the shot table
+  and its flags in `GeecsBluesky/EVENT_SCHEMA.md`, the native stream path
+  in `NATIVE_DEVICES.md`, the join's rules in the
+  `geecs_data_utils.shot_table` docstrings (the clock-step audit's limits
+  among them). What gated keeps alive until it is retired, and what goes
+  when the last LabVIEW device migrates, moved to `GeecsBluesky/CLAUDE.md`
+  ("Gated is frozen"). The open questions are on #1278.
 
 ## Every PR that changes a package
 

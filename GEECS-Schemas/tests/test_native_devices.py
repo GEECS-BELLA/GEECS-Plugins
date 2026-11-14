@@ -10,6 +10,7 @@ from geecs_schemas import (
     EpicsMotor,
     REGISTRY_KIND_FAMILIES,
     NativeDevices,
+    FamilyFile,
     SetpointDevice,
     load_families,
 )
@@ -264,3 +265,56 @@ def test_each_kind_defaults_to_a_family_of_its_own_kind() -> None:
     assert {kind: families[t].kind for kind, t in REGISTRY_KIND_FAMILIES.items()} == {
         kind: kind for kind in REGISTRY_KIND_FAMILIES
     }
+
+
+# ---- the witness ------------------------------------------------------------
+
+
+def test_a_witness_defaults_its_counter_and_domain_and_round_trips() -> None:
+    from geecs_schemas import Witness
+
+    doc = {"schema_version": 1, "devices": {"daqtest1": {"kind": "witness"}}}
+    registry = NativeDevices.model_validate(doc)
+    witness = registry.devices["daqtest1"]
+    assert isinstance(witness, Witness)
+    assert (witness.counter, witness.domain) == ("Counter1", "main")
+    assert witness.family_template == "witness_counter"
+    family = load_families()["witness_counter"]
+    assert witness.records(family) == ("Counter1Counts", "WitnessEpoch")
+    assert "witness" not in DETECTOR_KINDS
+    assert NativeDevices.model_validate(registry.model_dump(mode="json")) == registry
+
+
+@pytest.mark.parametrize(
+    "entry, why",
+    [
+        ({"kind": "witness", "counter": "Counter 1"}, "pattern"),
+        ({"kind": "witness", "domain": "Main Gate"}, "pattern"),
+        ({"kind": "witness", "counter": "Counter2"}, "counts at 'Counter1Counts'"),
+        ({"kind": "witness", "edges": 1}, "Extra inputs"),
+    ],
+)
+def test_a_bad_witness_is_refused(entry, why) -> None:
+    with pytest.raises(ValidationError, match=why):
+        NativeDevices.model_validate({"devices": {"daqtest1": entry}})
+
+
+def test_a_witness_family_needs_a_count_and_a_string_epoch() -> None:
+    family = load_families()["witness_counter"].model_dump(mode="json")
+    family["roles"][1].pop("text")  # the epoch read as a number
+    tiny = {"witness_counter": FamilyFile.model_validate(family)}
+    with pytest.raises(ValidationError, match="string 'epoch' role"):
+        NativeDevices.model_validate(
+            {"devices": {"daqtest1": {"kind": "witness"}}}, context={"families": tiny}
+        )
+
+
+def test_two_witnesses_of_one_domain_are_refused_naming_both() -> None:
+    devices = {
+        "U_WitnessA": {"kind": "witness"},
+        "U_WitnessB": {"kind": "witness", "domain": "main"},
+    }
+    with pytest.raises(ValidationError, match="U_WitnessA.*U_WitnessB.*one witness"):
+        NativeDevices.model_validate({"devices": devices})
+    devices["U_WitnessB"]["domain"] = "probe"
+    assert len(NativeDevices.model_validate({"devices": devices}).devices) == 2

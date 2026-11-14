@@ -99,7 +99,8 @@ def sweep_plan(namespace: Mapping[str, Any]) -> Callable:
                 first[-1],
                 first[1] - first[0] if len(first) > 1 else 0.0,
             ],
-            detectors=[d.name for d in detectors],
+            # A shot-table run lists its streamed devices here (the binder).
+            detectors=metadata.get("detectors") or [d.name for d in detectors],
             motors=[m.name for m in motors],
             num_points=len(trajectory),
             num_intervals=len(trajectory) - 1,
