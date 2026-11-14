@@ -175,14 +175,15 @@ class CommitPath:
         """The owned documents changed in ``old..new`` that do not validate at ``new`` (logged once per head).
 
         Only owned paths are judged: a commit touching other facilities'
-        paths alone is accepted unread. An owned document that is a symbolic
-        link is judged when the file it points at changed.
+        paths alone is accepted unread. An owned document read through a
+        symbolic link (a file, a folder, the experiment folder itself) is
+        judged when what the link reaches changed (:meth:`_owned_changes`).
         """
         changed = self.repo.changed(old, new)
         if not changed:
             return []
         with self.repo.staging(new) as tree:
-            paths = self._judged(tree, new, changed)
+            paths = self._owned_changes(tree, new, changed)
             found = validation.problems(tree, paths) if paths else []
         if found:
             self.refused = f"main at {new[:10]} is not applied: " + "; ".join(found)
@@ -193,16 +194,32 @@ class CommitPath:
                 self.log.add(Row(source="refused", who=", ".join(a for a in authors if a) or "?", kind=None, path="; ".join(bad), commit=new, state="pending", detail="fetched, not applied: " + "; ".join(found) + ". The maintainer fixes main by pull request."))  # fmt: skip
         return found
 
-    def _judged(self, tree: Path, new: str, changed: list[str]) -> list[str]:
-        """The owned paths among ``changed``, and every owned symbolic link at ``new`` that resolves to one of ``changed``."""
+    def _owned_changes(self, tree: Path, rev: str, changed: list[str]) -> list[str]:
+        """What ``changed`` changed of this box's: the owned paths, and every owned document that reaches a changed file through a link.
+
+        A link may be a file, a folder below an owned folder, or the owned
+        folder itself (``experiments/<owned> -> <another>``): the document
+        is read through it, so a change to its target is a change to it.
+        ``tree`` is a checkout at ``rev``. The gate judges these, and the log
+        and the apply seam take them up: the two never disagree.
+        """
         paths = self.ownership.owned(changed)
+        prefixes = set(self.ownership.prefixes())
+        links = [
+            path for meta, _, path in (line.partition("\t") for line in self.repo.git("ls-tree", "-r", "-z", rev).split("\0"))
+            if meta.startswith("120000") and (self.ownership.owns(path) or path in prefixes or any(p.startswith(path + "/") for p in prefixes))
+        ]  # fmt: skip
+        if not links:
+            return paths
         moved, base = set(changed), tree.resolve()
-        for line in self.repo.git("ls-tree", "-r", "-z", new).split("\0"):
-            meta, _, path = line.partition("\t")
-            if not meta.startswith("120000") or path in paths or not self.ownership.owns(path):  # fmt: skip
+        relinked = [
+            link for link in links if link in moved
+        ]  # a link made or retargeted: everything below it changed
+        for path in validation.documents(DocumentStore(tree)):
+            if path in paths or not self.ownership.owns(path):
                 continue
             target = (tree / path).resolve()
-            if target.is_relative_to(base) and target.relative_to(base).as_posix() in moved:  # fmt: skip
+            if (target.is_relative_to(base) and target.relative_to(base).as_posix() in moved) or any(path.startswith(link + "/") for link in relinked):  # fmt: skip
                 paths.append(path)
         return paths
 
@@ -214,9 +231,8 @@ class CommitPath:
         for sha, email, author, paths in self.repo.commits(old, new):
             if email == self.settings.committer_email:
                 continue  # the service's own: the save or the inbox logs it
-            for path in self.ownership.owned(
-                paths
-            ):  # another facility's: not this box's row, never applied here
+            # another facility's paths: not this box's row, never applied here (the live checkout is at ``new``)
+            for path in self._owned_changes(self.repo.live, new, paths):
                 if path in known:
                     kind = known[path][0]
                     answer = self.applier.apply(kind, path)

@@ -9,6 +9,7 @@ not, fast-forward unjudged and are never logged or applied here.
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -351,3 +352,52 @@ def test_a_foreign_save_is_refused_before_the_dry_run(origin: Path, other: Path,
         )  # no consumer is asked about another box's draft
         assert _put(c, "archive_policy", "archive_policy.yaml", B, {"include_setpoints": False}).status_code != 403  # fmt: skip
         assert ran  # this box's own draft reaches the dry run
+
+
+def _link(
+    clone: Path, target: str, at: str, message: str, *, replace: bool = False
+) -> str:
+    """Commit a symbolic link ``at -> target`` (``replace``: the folder there removed first) and push it."""
+    git("pull", "--quiet", "--ff-only", cwd=clone)
+    if replace:
+        shutil.rmtree(clone / at)
+    (clone / at).parent.mkdir(parents=True, exist_ok=True)
+    os.symlink(target, clone / at)
+    git("add", "-A", cwd=clone)
+    git("commit", "--quiet", "-m", message, cwd=clone)
+    git("push", "--quiet", "origin", "HEAD:main", cwd=clone)
+    return git("rev-parse", "HEAD", cwd=clone)
+
+
+def test_a_folder_link_carries_its_targets_changes_to_the_gate_and_the_log(box: TestClient, other: Path) -> None:  # fmt: skip
+    cp, recorder = _cp(box), box.app.state.recorder
+    linked = _link(other, "../Other/setups", OURS, "Bench's setups are Other's", replace=True)  # fmt: skip
+    cp.fetch()
+    assert cp.repo.live_head() == linked
+    assert (
+        f"{OURS}/theirs.yaml" in recorder.asked
+    )  # the link made Other's setup Bench's: judged and logged
+    here = cp.repo.live_head()
+    push_change(other, f"{THEIRS}/theirs.yaml", INVALID.format(name="theirs"), "Other's file, Bench's document")  # fmt: skip
+    cp.fetch()
+    assert cp.repo.live_head() == here  # judged as Bench's, refused
+    recorder.asked.clear()
+    fixed = push_change(other, f"{THEIRS}/theirs.yaml", SETUP.format(name="theirs", text="fixed"), "fixed")  # fmt: skip
+    cp.fetch()
+    # logged and applied as Bench's (once per commit of the range: the refused one and its fix)
+    assert cp.repo.live_head() == fixed and set(recorder.asked) == {
+        f"{OURS}/theirs.yaml"
+    }
+
+
+def test_an_owned_experiment_that_is_a_link_is_judged_through_it(origin: Path, other: Path, tmp_path: Path) -> None:  # fmt: skip
+    _seed_other(other)
+    _link(other, "Other", f"{EXP}/Mine", "Mine is Other")
+    env = {"GEECS_CONFIGURATOR_EXPERIMENTS": "Mine", "GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0"}  # fmt: skip
+    with TestClient(create_app(Settings.from_env(env))) as c:
+        cp = _cp(c)
+        cp.unverified_marker.unlink()
+        here = cp.repo.live_head()
+        push_change(other, f"{THEIRS}/theirs.yaml", INVALID.format(name="theirs"), "Other's file, read as Mine's")  # fmt: skip
+        cp.fetch()
+        assert cp.repo.live_head() == here

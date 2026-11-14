@@ -41,9 +41,12 @@ What follows from that:
   `validate` check judge it. So facility B's invalid commit never blocks
   facility A's saves, while A's own invalid commit still blocks A until main is
   fixed by pull request. A commit that touches both is judged on A's paths
-  alone.
-- **The log.** It records owned paths only. Another facility's commits get no
-  row and never reach the apply seam: they are that facility's box's business.
+  alone. An owned document read through a symbolic link (a file, a folder,
+  or the experiment folder itself) is A's: a change to the link's target is
+  judged as A's.
+- **The log.** It records owned paths only, the same set the gate judged
+  (links included). Another facility's commits get no row and never reach
+  the apply seam.
 - **The share.** The share's clone is a whole-repo checkout. It fast-forwards
   to the accepted main whoever moved main, including commits that touched
   other facilities only.
@@ -51,6 +54,14 @@ What follows from that:
 Each experiment is owned by exactly one box. No box can check what another
 box claims, so the maintainer keeps the list (the `CODEOWNERS` below is the
 same list for humans).
+
+The boundary is the files, not what reads them. The analysis readers resolve
+recipes by stem across the whole shared tree: two facilities' folders holding
+the same stem fail the lookup, and a group may name another facility's
+recipe. Another facility's commit to its own folder can still break this
+box's analysis that way, and this box's gate does not stop it (it judges this
+box's files only). Keep stems unique across facilities, and have each
+facility's groups name its own recipes.
 
 The App is one identity for every box, so GitHub cannot stop a box from
 pushing outside its folders. That limit is enforced on each box, from its
@@ -177,11 +188,16 @@ As root on the box, with `<service account>` the account the units run as.
 
 ### Revoking a box's key
 
-On the App's page, delete that box's private key. That box can no longer mint
-a token: its saves answer 502 and its inbox backs off. The other boxes, each
-with its own key, are untouched. Then remove
-`/etc/geecs/configurator/github-app.pem` from the box. To give the box a new
-key, repeat step 1. Nothing else on the box changes.
+On the App's page, delete that box's private key. That box can no longer
+mint a token, and the other boxes, each with its own key, are untouched. A
+token already minted is **not** revoked with the key: the service reuses its
+token for up to an hour, so for up to an hour the box (or whoever copied the
+key and minted a token) can still push. When that hour matters (a stolen
+key), stop the box's service and wait out the hour, or suspend the App's
+installation on the configs repo, which stops every box at once, until the
+hour has passed. After that, the box's saves answer 502 and its inbox backs
+off. Then remove `/etc/geecs/configurator/github-app.pem` from the box. To
+give the box a new key, repeat step 1. Nothing else on the box changes.
 
 ## Switching the configs root
 
@@ -306,10 +322,10 @@ sudo systemctl restart geecs-qserver geecs-qserver-ready geecs-scanner geecs-dat
   scan.
 - The portal's `/configs/` page says read-only; a save there answers 405.
 
-### The acceptance this switch enables (OWED, on the PulsedWire bench instance)
+### The acceptance this switch enables (OWED, on a bench experiment instance)
 
-Laser off, nothing of the instance running or queued; never an Undulator
-device. From a browser on the configurator's page:
+Laser off, nothing of the instance running or queued; never a production
+experiment's device. From a browser on the configurator's page:
 
 1. Open the laser-off trigger profile, change one amplitude, enter the
    operator's name, Save. Expected: the log (`/log`) shows a `saved` row by
