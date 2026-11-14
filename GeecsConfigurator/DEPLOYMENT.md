@@ -292,6 +292,10 @@ GEECS_CONFIGURATOR_CORS_ORIGINS=<the origins already there>,http://<this host>:<
 GEECS_CONTROL_ROOM_CONFIG_EDITOR_URL=http://<this host>:<GEECS_CONFIGURATOR_PORT>
 ```
 
+The configurator's setup capture needs a scanner of the same promotion (its
+readback's `not_numeric` flag): against an older scanner every word-valued
+variable is listed unread. Deploy the two together.
+
 `CORS_ORIGINS` is the whole list (comma-separated): add to it, never replace it.
 Each experiment instance's scanner (`geecs-scanner@<Instance>`) reads the same
 `GEECS_SCANNER_EXTRA_ARGS`, so it carries the flag too; its origin (its slot's
