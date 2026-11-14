@@ -367,6 +367,20 @@ def test_the_validator_imports_nothing_the_configs_repo_ci_lacks(root: Path) -> 
     assert extra == [], f"the configs repo's CI does not install: {extra}"
 
 
+def test_a_second_analyzers_document_with_a_stem_already_there_is_refused(root: Path) -> None:  # fmt: skip
+    """Runs load a diagnostic by stem across every facility folder: a second ``compact`` breaks them all."""
+    from geecs_configurator.validation import problems
+
+    twin = "scan_analysis_configs/analyzers/Far/compact.yml"
+    (root / twin).parent.mkdir(parents=True)
+    (root / twin).write_text("kind: himg_compact\ndevice: CamZ\n", encoding="utf-8")
+    found = problems(root, [twin])
+    assert len(found) == 1 and "analyzers/Ns/compact.yaml" in found[0]
+    # an untouched pair is the tree's, not this change's; a group of the same stem is not run by stem
+    (root / "scan_analysis_configs/groups/compact.yaml").write_text("name: compact\nanalyzers: []\n", encoding="utf-8")  # fmt: skip
+    assert problems(root, ["scan_analysis_configs/groups/compact.yaml", "README.md"]) == []  # fmt: skip
+
+
 def test_the_validate_cli_checks_changed_documents_only(root: Path) -> None:
     assert (
         validate_main(["--root", str(root), f"{SETUPS}/low_power.yaml", "README.md"])

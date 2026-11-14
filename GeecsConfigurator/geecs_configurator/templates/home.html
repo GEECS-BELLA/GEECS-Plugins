@@ -101,7 +101,6 @@
         </div>
         {% if commits %}<div class="save-row">
           <button class="btn primary" type="button" id="save" title="The operator (top right) is the git author">Save</button>
-          <span class="dim" id="save-says"></span>
         </div>{% endif %}</footer>
       </section>
       <aside class="group">
@@ -173,6 +172,7 @@
 <script src="{{ root }}/theme/theme.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ root }}/theme/form.js" defer></script>
+<script src="{{ root }}/static/embed.js" defer></script>
 <script src="{{ root }}/static/configurator.js" defer></script>
 {% if kind == "setup" %}<script src="{{ root }}/static/setups.js" defer></script>{% endif %}
 </body>

@@ -61,6 +61,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--configurator-browser-url",
+        default="",
+        help=(
+            "the configurator as the browser reaches it (a site value, e.g. "
+            "http://<services host>:8800): the Analysis tab's edit opens the "
+            "document in its embedded editor, with this portal's preview; the "
+            "configurator lists this portal's origin in its CORS origins"
+        ),
+    )
+    parser.add_argument(
         "--root-path",
         default="",
         help=(
@@ -113,6 +123,7 @@ def main() -> None:
         config_editor=args.config_editor,
         config_editor_read_only=args.config_editor_read_only,
         logbook_url=args.logbook_url,
+        configurator_url=args.configurator_browser_url,
     )
     uvicorn.run(
         app,

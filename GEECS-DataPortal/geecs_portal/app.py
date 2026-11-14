@@ -40,7 +40,15 @@ from geecs_data_utils.tiled_catalog import ScanCatalog
 
 from geecs_portal import analysis_runs
 from geecs_portal.cache import ShotDataCache
-from geecs_portal.routes import browse, images, logbook, pages, plot_api, runs
+from geecs_portal.routes import (
+    analysis_configs,
+    browse,
+    images,
+    logbook,
+    pages,
+    plot_api,
+    runs,
+)
 from geecs_portal.routes.common import _root
 from geecs_portal.routes.config_editor import mount_config_editor
 from geecs_portal.state import PortalState
@@ -122,6 +130,7 @@ def create_app(
     config_editor_read_only: bool = False,
     logbook_url: str = "",
     logbook_client: Optional[httpx.Client] = None,
+    configurator_url: str = "",
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
 
@@ -166,6 +175,15 @@ def create_app(
         (the default) makes one per send; tests inject a client over an
         in-process logbook so the whole conversation runs without a
         socket.
+    configurator_url : str, optional
+        The configurator as the browser reaches it (a site value). The
+        Analysis tab's **edit** opens a recipe, ``.himg`` job or group in
+        the configurator's embedded editor (its ``static/embed.js``), with
+        this portal's preview of the unsaved recipe on the page's scan; the
+        save is the configurator's (the operator as git author, its tier
+        and dry run, which is this portal's ``/api/analysis/validate``).
+        The configurator lists this portal's origin in its CORS origins.
+        Empty (the default): no edit button for the configurator.
     config_editor : bool, default False
         Mount the analysis config editor (``scan_analysis.config_editor``)
         at ``/configs`` over the same ``processing_config_dir`` tree, with a
@@ -231,9 +249,10 @@ def create_app(
             logbook_base if logbook_base.startswith(("http://", "https://")) else ""
         ),
         logbook_client=logbook_client,
+        configurator_url=configurator_url.rstrip("/"),
     )
     app.state.portal = portal
-    for family in (plot_api, runs, logbook, browse, pages, images):
+    for family in (plot_api, runs, logbook, browse, pages, images, analysis_configs):
         app.include_router(family.router)
 
     if processing_config_dir is not None and not portal.processing_names():

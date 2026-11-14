@@ -115,92 +115,27 @@
   });
   $("#reset").addEventListener("click", function () { form.reset(); drawTier(); fill($("#result"), [el("p", { class: "dim" }, "Edits discarded.")]); });
 
-  // ---- Save (the commit path on): the consumer's dry run of the edit first, then the commit as the operator.
+  // ---- Save (the commit path on): the embed's one save flow (embed.js), into this page's result panel.
   var saveBtn = $("#save");
   if (!saveBtn) return;
-  function says(text) { $("#save-says").textContent = text; }
   function remount(doc) {
     stored = doc.document; etag = doc.etag;
     form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: doc.read_only, onChange: drawTier });
     drawTier();
   }
-  function changeList(changes) {
-    var list = el("div", { class: "changes" });
-    changes.forEach(function (c) {
-      var row = el("div", {}, (c.path.join(".") || "(the whole file)") + " " + c.op + " ");
-      if (c.op === "change") { row.appendChild(el("span", { class: "was" }, JSON.stringify(c.before))); row.appendChild(document.createTextNode(" → " + JSON.stringify(c.after) + " ")); }
-      row.appendChild(tierMark(c.tier)); list.appendChild(row);
-    });
-    return list;
-  }
-  // The kind's consumer check of the edit before any commit: a refusal stops the save here, and what the
-  // consumer said (the archiver's plan, the preflight's questions, or why it could not run) is shown first.
-  function dryRunFirst(convert) {
-    saveBtn.disabled = true; says("Asking the consumer's dry run…");
-    api("/api/dry-run/" + kind + query, { document: form.value() }).then(function (d) {
-      saveBtn.disabled = false;
-      if (d.refusal) {
-        fill($("#result"), [el("div", { class: "banner", "data-state": "error" }, "The " + d.by + "'s dry run refused your edit: " + d.refusal + ". Nothing was saved; your edit is still in the form."), outcomeList(d)]);
-        says("Not saved."); return;
-      }
-      if (d.by === "none") { save(convert, true); return; }  // no consumer check here: nothing to show
-      var go = el("button", { class: "btn primary", type: "button" }, d.ran ? "Save" : "Save without it");
-      go.addEventListener("click", function () { save(convert, true); });
-      var kids = [el("div", d.ran ? { class: "banner" } : { class: "banner", "data-state": "stale" }, d.ran ? "The " + d.by + "'s dry run of your edit: " + (d.detail || "no objection") + "." : "The " + d.by + "'s dry run did not run: " + d.detail + "."), outcomeList(d)];
-      (d.questions || []).forEach(function (q) { kids.push(el("p", { class: "dim" }, "It asks: " + (q.title || q.check) + (q.message ? " (" + q.message + ")" : ""))); });
-      if (d.output) { var det = el("details", { class: "disc" }); det.appendChild(el("summary", {}, "Its output")); det.appendChild(el("pre", { class: "well" }, d.output)); kids.push(det); }
-      kids.push(go);
-      fill($("#result"), kids); says("Check the dry run, then save.");
-    }).catch(function (err) { saveBtn.disabled = false; fail(err); says("Not saved."); });
-  }
-  function outcomeList(d) {
-    if (!d.outcomes || !d.outcomes.length) return null;
-    var ul = el("ul", { class: "dim" });
-    d.outcomes.forEach(function (o) { ul.appendChild(el("li", {}, (o.check || "") + ": " + (o.result || "") + (o.detail ? " (" + o.detail + ")" : ""))); });
-    return ul;
-  }
-  function save(convert, checked) {
-    var name = operator.value.trim();
-    if (!name) { operator.focus(); says("Your name is the git author: type it first."); return; }
-    try { localStorage.setItem(OPERATOR_KEY, name); } catch (e) { /* not remembered */ }
-    if (!checked && info.dry_run !== "none") { dryRunFirst(convert); return; }
-    saveBtn.disabled = true; says("Saving…");
-    fetch(root + docPath, { method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ document: form.value(), etag: etag, operator: name, convert_legacy: !!convert }) })
-      .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
-      .then(function (r) {
-        var b = r.body, d = b.detail;
-        if (r.status === 200) {
-          etag = b.etag; if (b.outcome === "committed") stored = form.value(); drawTier();  // a proposal leaves main, and so the baseline, as it was
-          var head = b.outcome === "committed" ? "Committed " + (b.commit || "").slice(0, 10) + " to main as " + b.author + "."
-            : b.outcome === "proposed" ? "Proposed for the maintainer's review on " + b.branch + "." : "Nothing to do: the stored document already says this.";
-          var kids = [el("div", { class: "banner" }, head)];
-          if (b.pull_request) { var a = el("a", { href: b.pull_request }, b.pull_request); var p = el("p", {}, "Pull request: "); p.appendChild(a); kids.push(p); }
-          (b.notes || []).forEach(function (n) { kids.push(el("p", { class: "dim" }, n)); });
-          kids.push(el("p", { class: "dim" }, "Whether it took effect: the log."));
-          fill($("#result"), kids); says("");
-        } else if (r.status === 409) {
-          var keep = el("button", { class: "btn", type: "button" }, "Load the current document (drops your edit)");
-          keep.addEventListener("click", function () { remount(d.current); fill($("#result"), [el("p", { class: "dim" }, "Loaded the current document: re-apply your edit.")]); });
-          fill($("#result"), [el("div", { class: "banner", "data-state": "error" }, "Changed since you opened it: " + d.reason + ". Nothing was saved; your edit is still in the form."),
-            el("p", {}, "What your edit would change in the document as it is now:"), changeList(d.diff), keep]);
-          says("Not saved.");
-        } else if (r.status === 428) {
-          var go = el("button", { class: "btn primary", type: "button" }, "Convert and save");
-          go.addEventListener("click", function () { save(true, true); });  // its dry run was shown before this
-          fill($("#result"), [el("div", { class: "banner", "data-state": "stale" }, "This file is in the legacy dialect. Saving rewrites the whole file in the current schema, as the form shows it; the scanner reads either."), go]);
-          says("Confirm the conversion.");
-        } else if (r.status === 422 && d && d.errors) {
-          form.setErrors(d.errors);
-          fill($("#result"), [el("div", { class: "banner", "data-state": "error" }, d.errors.length + " error(s); nothing was saved.")]);
-          says("Not saved.");
-        } else {
-          fill($("#result"), [el("div", { class: "banner", "data-state": "error" }, (typeof d === "string" ? d : JSON.stringify(d)) + " Your edit is still in the form.")]);
-          says("Not saved.");
-        }
-      })
-      .catch(fail)
-      .then(function () { saveBtn.disabled = false; });
-  }
+  var save = GeecsConfigurator.saveFlow({
+    call: GeecsConfigurator.caller(root), kind: kind, query: function () { return query; }, docId: function () { return id; },
+    form: function () { return form; }, value: function () { return form.value(); }, etag: function () { return etag; },
+    operator: function () {
+      var name = operator.value.trim();
+      if (name) { try { localStorage.setItem(OPERATOR_KEY, name); } catch (e) { /* not remembered */ } }
+      return name;
+    },
+    noOperator: function () { operator.focus(); },
+    dryRun: function () { return info.dry_run; }, button: saveBtn, status: $("#result"),
+    // a proposal leaves main, and so the baseline, as it was
+    saved: function (b, doc) { etag = b.etag; if (b.outcome === "committed") stored = doc; drawTier(); },
+    reload: remount,
+  });
   saveBtn.addEventListener("click", function () { save(false, false); });
 })();

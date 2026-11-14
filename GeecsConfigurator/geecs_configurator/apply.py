@@ -49,6 +49,8 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from geecs_schemas import KIND_STORAGE, FileStorage
+
 from geecs_configurator.kinds import CONSUMERS, ONBOARD, REOPEN
 from geecs_configurator.log import Answer, Reader, Row
 from geecs_configurator.store import Json, dump_yaml
@@ -74,6 +76,9 @@ class DryRun(BaseModel):
     refusal: str | None = None  # the consumer refuses the draft: the save is refused
     outcomes: list[dict[str, str]] = []
     questions: list[dict[str, str]] = []
+    errors: list[
+        dict[str, Any]
+    ] = []  # Any: a refusal's errors, each at its field (loc parts, msg)
     output: str = ""
     detail: str = ""
 
@@ -153,6 +158,57 @@ def _error_message(r: httpx.Response) -> str:
     if isinstance(error, dict):
         return _one_line(error.get("message", ""))
     return _one_line(body.get("detail", body) if isinstance(body, dict) else body)
+
+
+#: The analysis kinds the portal checks (its ``/api/analysis/validate``) and draws (``/api/analysis/schema``):
+#: every file kind GEECS-Schemas keeps in the analysis root.
+ANALYSIS_KINDS = tuple(k for k, s in KIND_STORAGE.items() if isinstance(s, FileStorage) and s.root == "analysis")  # fmt: skip
+#: How long the page's form waits for the portal's schema before drawing the document's own (seconds).
+SCHEMA_TIMEOUT_S = 5.0
+
+
+class PortalClient:
+    """The data portal's analysis routes (``GEECS_CONFIGURATOR_PORTAL_URL``): the analysis documents' consumer.
+
+    The portal runs recipes, ``.himg`` jobs and groups, so its answer is the
+    check: a recipe bound to the analysis core's registry, a stem the loader
+    would refuse, a group's references. This service never imports the core.
+    """
+
+    def __init__(self, base_url: str, http: httpx.Client | None = None):
+        self.base_url = base_url.rstrip("/")
+        self.http = http or httpx.Client(timeout=30.0)
+
+    def dry_run(self, kind: str, document: Json, doc_id: str | None) -> DryRun:
+        """The portal's validate of an unsaved draft; its errors are the refusal, each at its field."""
+        body = {"document": document, **({"id": doc_id} if doc_id else {})}
+        try:
+            r = self.http.post(f"{self.base_url}/api/analysis/validate/{kind}", json=body, timeout=30.0)  # fmt: skip
+        except httpx.HTTPError as exc:
+            return DryRun(kind=kind, by="portal", ran=False, detail=f"the portal did not answer: {_one_line(exc)}")  # fmt: skip
+        if r.status_code != 200:
+            return DryRun(kind=kind, by="portal", ran=False, detail=f"the portal answered {r.status_code}: {_error_message(r)}")  # fmt: skip
+        try:
+            out = r.json()
+        except ValueError:
+            out = None
+        if not isinstance(out, dict) or not isinstance(
+            out.get("errors", []), list
+        ):  # not the portal's answer (a proxy page, the wrong port)
+            return DryRun(kind=kind, by="portal", ran=False, detail=f"the portal's answer is not its validate's: {_one_line(r.text, 120)}")  # fmt: skip
+        errors = out.get("errors") or []
+        if out.get("ok"):
+            return DryRun(kind=kind, by="portal", ran=True, detail="binds to the analysis core" if kind == "analysis_recipe" else "loads as a run loads it")  # fmt: skip
+        refusal = "; ".join(f"{'.'.join(str(p) for p in e.get('loc') or []) or '(the document)'}: {e.get('msg', '')}" for e in errors) or "invalid"  # fmt: skip
+        return DryRun(kind=kind, by="portal", ran=True, refusal=_one_line(refusal, 600), errors=errors)  # fmt: skip
+
+    def schema(self, kind: str) -> Json:
+        """The kind's form as the portal binds it (a recipe's steps and measure: the registry's); raises on no answer."""
+        r = self.http.get(
+            f"{self.base_url}/api/analysis/schema/{kind}", timeout=SCHEMA_TIMEOUT_S
+        )
+        r.raise_for_status()
+        return r.json()
 
 
 #: ``(argv, timeout) -> (exit code, combined output)``: the subprocess seam tests replace.
@@ -267,13 +323,16 @@ class ServiceApplier:
         of an experiment with none is pending for its reopen, named.
     archiver : Archiver, optional
         The archiver's CLI, for onboard; ``None``: those readers are pending, named.
+    portal : PortalClient, optional
+        The data portal, for the analysis documents' dry run; ``None``: they have none here.
     """
 
-    def __init__(self, live: Path, scanners: dict[str, ScannerClient] | None = None, archiver: Archiver | None = None):  # fmt: skip
-        self.live, self.scanners, self.archiver = (
+    def __init__(self, live: Path, scanners: dict[str, ScannerClient] | None = None, archiver: Archiver | None = None, portal: PortalClient | None = None):  # fmt: skip
+        self.live, self.scanners, self.archiver, self.portal = (
             Path(live),
             dict(scanners or {}),
             archiver,
+            portal,
         )
 
     def _reader(self, verb: str, experiment: str) -> Answer:
@@ -351,15 +410,22 @@ class ServiceApplier:
         held = row.readers.get(reader)
         return held is None or held.state == "queued"
 
-    def dry_run(self, kind: str, experiment: str | None, document: Json) -> DryRun:
-        """The kind's consumer check of an unsaved draft (``kinds.DRY_RUNS``), or ``ran=False`` saying why not."""
+    def dry_run(self, kind: str, experiment: str | None, document: Json, doc_id: str | None = None) -> DryRun:  # fmt: skip
+        """The kind's consumer check of an unsaved draft (``kinds.DRY_RUNS``), or ``ran=False`` saying why not.
+
+        ``doc_id`` is the document's id (below its kind's folder): the portal
+        refuses a recipe whose stem another file of the analyzers tree holds.
+        """
         scanner = self.scanners.get(experiment or "")
         if kind == "trigger_profile" and scanner is not None:
             return scanner.trigger_profile_dry_run(document)
         if kind == "archive_policy" and self.archiver is not None and experiment:
             return self.archiver.dry_run(experiment, document)
-        if kind in ("trigger_profile", "archive_policy"):
-            return DryRun(kind=kind, by="none", ran=False, detail=f"its consumer is not configured here for {experiment or 'this experiment'}")  # fmt: skip
+        if kind in ANALYSIS_KINDS and self.portal is not None:
+            return self.portal.dry_run(kind, document, doc_id)
+        if kind in ("trigger_profile", "archive_policy", *ANALYSIS_KINDS):
+            where = "GEECS_CONFIGURATOR_PORTAL_URL" if kind in ANALYSIS_KINDS else experiment or "this experiment"  # fmt: skip
+            return DryRun(kind=kind, by="none", ran=False, detail=f"its consumer is not configured here ({where})" if kind in ANALYSIS_KINDS else f"its consumer is not configured here for {where}")  # fmt: skip
         return DryRun(kind=kind, by="none", ran=False, detail="no consumer check for this kind")  # fmt: skip
 
 

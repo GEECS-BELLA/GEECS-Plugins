@@ -102,6 +102,8 @@ class PortalState:
     #: by tests so the conversation runs against an in-process logbook.
     logbook_client: Optional[httpx.Client] = None
     config_editor_enabled: bool = False  # set when the editor router mounts
+    #: The configurator as the browser reaches it: the run page's embedded editor ("" = none).
+    configurator_url: str = ""
     # (fingerprint → valid names): re-validated only when the tree
     # changes — discovery lists every YAML stem, but legacy flat camera
     # configs in the same tree don't LOAD as diagnostics, and offering

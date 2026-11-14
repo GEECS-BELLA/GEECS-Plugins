@@ -38,6 +38,8 @@ from geecs_configurator.apply import (
     Archiver,
     DryRun,
     Run,
+    ANALYSIS_KINDS,
+    PortalClient,
     ScannerClient,
     ServiceApplier,
 )
@@ -58,11 +60,12 @@ api = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings, pull_requests: PullRequests | None = None, *, http: httpx.Client | None = None, applier: Applier | None = None, consumer_http: httpx.Client | None = None, archiver_run: Run | None = None) -> FastAPI:  # fmt: skip
+def create_app(settings: Settings, pull_requests: PullRequests | None = None, *, http: httpx.Client | None = None, applier: Applier | None = None, consumer_http: httpx.Client | None = None, archiver_run: Run | None = None, portal_http: httpx.Client | None = None) -> FastAPI:  # fmt: skip
     """Build the app over the settings' configs root (the live checkout when the commit path is on).
 
     ``pull_requests``, ``http`` (the client to GitHub), ``applier``,
-    ``consumer_http`` (the client to the scanner) and ``archiver_run`` (the
+    ``consumer_http`` (the client to the scanner), ``portal_http`` (to the
+    portal) and ``archiver_run`` (the
     archiver's subprocess) are the seams tests fill with fakes.
     """
     app = FastAPI(title=settings.title, lifespan=_lifespan)
@@ -72,6 +75,7 @@ def create_app(settings: Settings, pull_requests: PullRequests | None = None, *,
         settings.configs_root,
         scanners={e: ScannerClient(url, consumer_http) for e, url in settings.scanner_urls().items()},
         archiver=Archiver(settings.archiver_command, run=archiver_run) if settings.archiver_command else None,
+        portal=PortalClient(settings.portal_url, portal_http) if settings.portal_url else None,
     )  # fmt: skip
     app.state.consumers = consumers
     commit = CommitPath(settings, pull_requests=pull_requests, http=http, applier=applier or consumers) if settings.commits else None  # fmt: skip
@@ -213,11 +217,32 @@ def experiments(request: Request) -> list[str]:
 
 
 @api.get("/schema/{kind}")
-def schema(kind: str) -> dict[str, Any]:  # Any: a JSON Schema
-    """The kind's JSON Schema, the document's and the stricter fields' tiers in it."""
+def schema(request: Request, kind: str) -> JSONResponse:
+    """The kind's JSON Schema, the document's and the stricter fields' tiers in it.
+
+    An analysis kind's form is its consumer's: the portal's schema, where a
+    recipe's steps and measure are the analysis core's registry (the step
+    list, each step's parameters typed). Without a portal, or when it does
+    not answer, the document's own schema is served and
+    ``X-Schema-Source`` says why (a step is then typed as a name and its
+    parameters as written).
+    """
     if kind not in SCHEMA_REGISTRY:
         raise HTTPException(404, f"no kind {kind!r}")
-    return SCHEMA_REGISTRY[kind].model_json_schema()
+    portal: PortalClient | None = request.app.state.consumers.portal
+    if kind in ANALYSIS_KINDS:
+        if portal is None:
+            source = (
+                "geecs-schemas (no portal configured: GEECS_CONFIGURATOR_PORTAL_URL)"
+            )
+        else:
+            try:
+                return JSONResponse(portal.schema(kind), headers={"X-Schema-Source": "portal"})  # fmt: skip
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("the portal's %s schema did not answer: %s", kind, exc)
+                source = f"geecs-schemas (the portal did not answer: {' '.join(str(exc).split())[:200]})"  # fmt: skip
+        return JSONResponse(SCHEMA_REGISTRY[kind].model_json_schema(), headers={"X-Schema-Source": source.encode("ascii", "replace").decode()})  # fmt: skip
+    return JSONResponse(SCHEMA_REGISTRY[kind].model_json_schema())
 
 
 @api.get("/documents/{kind}")
@@ -268,7 +293,9 @@ def save_document(request: Request, kind: str, doc_id: str, body: SaveRequest, e
     except Refused as exc:
         return JSONResponse({"detail": exc.detail}, status_code=exc.status)
     # The consumer's own check of the draft first (kinds.DRY_RUNS): a refusal is the save's refusal.
-    check: DryRun = request.app.state.consumers.dry_run(kind, experiment, body.document)
+    check: DryRun = request.app.state.consumers.dry_run(
+        kind, experiment, body.document, doc_id
+    )
     if check.refusal is not None:
         return JSONResponse({"detail": {"reason": f"the {check.by}'s dry run refused the draft: {check.refusal}", "dry_run": check.model_dump()}}, status_code=422)  # fmt: skip
     if request.app.state.commit.settling.is_set():  # a pass began during the dry run
@@ -312,11 +339,11 @@ def validate(request: Request, kind: str, document: Draft = Body(embed=True), id
 
 
 @api.post("/dry-run/{kind}", response_model=DryRun)
-def dry_run(request: Request, kind: str, experiment: str | None = None, document: Draft = Body(embed=True)) -> DryRun:  # fmt: skip
-    """The kind's consumer check of an unsaved draft (``ran: false`` with the reason when there is none here)."""
+def dry_run(request: Request, kind: str, experiment: str | None = None, id: str | None = None, document: Draft = Body(embed=True)) -> DryRun:  # fmt: skip
+    """The kind's consumer check of an unsaved draft (``ran: false`` with the reason when there is none here); ``id`` names the document."""
     if kind not in SCHEMA_REGISTRY:
         raise HTTPException(404, f"no kind {kind!r}")
-    return request.app.state.consumers.dry_run(kind, experiment, document)
+    return request.app.state.consumers.dry_run(kind, experiment, document, id)
 
 
 @api.get("/readback")
@@ -368,12 +395,17 @@ def home(request: Request, experiment: str = "", kind: str = "", id: str = "") -
         "settings": settings, "experiments": known, "experiment": experiment, "catalogue": catalogue,
         "kind": kind, "docs": docs, "doc_id": id if id in {d.id for d in docs} else "",
         "commits": request.app.state.repo is not None, "scanner": experiment in request.app.state.consumers.scanners, "applies": setups.applies_for(settings, experiment),
-        "not_owned": _not_owned(request.app.state.commit, catalogue, kind, experiment),
+        "not_owned": _not_owned(request.app.state.commit, catalogue, kind, experiment, store.folder(kind, experiment) / id if id in {d.id for d in docs} else None),
     })  # fmt: skip
 
 
-def _not_owned(commit: CommitPath | None, catalogue: list[KindInfo], kind: str, experiment: str) -> str:  # fmt: skip
-    """The page's word when what it shows is not this box's to save (empty when it is, or the commit path is off)."""
+def _not_owned(commit: CommitPath | None, catalogue: list[KindInfo], kind: str, experiment: str, opened: Path | None = None) -> str:  # fmt: skip
+    """The page's word when what it shows is not this box's to save (empty when it is, or the commit path is off).
+
+    In the shared analysis tree ownership is per facility folder: the word
+    stands over the listing, and over an open document only when that
+    document is another facility's.
+    """
     if commit is None:
         return ""
     own = commit.ownership
@@ -381,7 +413,11 @@ def _not_owned(commit: CommitPath | None, catalogue: list[KindInfo], kind: str, 
     if (
         kind and "<experiment>" not in path
     ):  # the shared analysis tree: owned per facility folder
-        return f"This box saves only in its own folders of the shared analysis tree ({', '.join(own.analysis_folders) or 'none'}); other documents here are read-only." if path.startswith(STORAGE_ROOT_PATHS["analysis"]) else ""  # fmt: skip
+        if not path.startswith(STORAGE_ROOT_PATHS["analysis"]):
+            return ""
+        if opened is not None and own.owns_file(commit.store.root, opened.relative_to(commit.store.root).as_posix()):  # fmt: skip
+            return ""
+        return f"This box saves only in its own folders of the shared analysis tree ({', '.join(own.analysis_folders) or 'none'}); other documents here are read-only."  # fmt: skip
     if experiment and experiment not in own.experiments:
         return f"{experiment} is not this services box's: browsable here, saved from the box that owns it or by pull request. This box owns {own.describe()}."  # fmt: skip
     return ""

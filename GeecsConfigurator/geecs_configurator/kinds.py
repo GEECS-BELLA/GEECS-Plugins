@@ -5,8 +5,7 @@ Storage and tier come from GEECS-Schemas (``KIND_STORAGE``, each model's
 column: each file kind's **consumers** (who reads it, when, and the apply
 verb that makes a committed change take effect) and its **dry run** (the
 consumer's own check, run on an unsaved draft). The applier (``apply.py``)
-and the dry-run route key on these words; the later slices' rows say
-which slice wires them. Pinned to the file
+and the dry-run route key on these words. Pinned to the file
 kinds by ``tests/test_store.py``.
 """
 
@@ -79,13 +78,14 @@ CONSUMERS: dict[str, list[Consumer]] = {
     "analysis_group": [_c("ScanAnalysis (the portal's runs)", "per run")],
 }
 
-#: The consumer's own check of an unsaved draft, and the slice that wires it.
+#: The consumer's own check of an unsaved draft.
 DRY_RUNS: dict[str, str] = {
     "trigger_profile": "the scanner's preflight with the draft inline",
     "archive_policy": "geecs-archiver onboard --dry-run --policy <draft>",
     "setup": "the scanner's preview: the flattened steps and the hazard confirms (GET /api/setups/{name})",
-    "analysis_recipe": "the portal's validate, bound to the analysis core (slice 6)",
-    "analysis_group": "the portal's validate (slice 6)",
+    "analysis_recipe": "the portal's validate: the recipe bound to the analysis core's registry, its stem unique in the analyzers tree",
+    "himg_job": "the portal's validate: the job's stem unique in the analyzers tree",
+    "analysis_group": "the portal's validate: a run can load it (every reference names a diagnostic that loads, none twice)",
 }
 
 

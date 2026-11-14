@@ -110,6 +110,54 @@ def compile_recipe(
     return _camera_recipe(recipe, analysis, common)
 
 
+def binding_errors(recipe: AnalysisRecipe) -> list[dict]:
+    """Why the recipe does not bind to the registry, each error at its field; ``[]`` when it binds.
+
+    An editor's view of :func:`compile_recipe` (file backgrounds allowed: a
+    scan run loads them). Each error is ``{"loc": [part, ...], "msg": str}``
+    with ``loc`` the document's field path (``["steps", 1, "sigma"]``):
+    pydantic's locations name the union variant (``steps.0.roi.bounds``),
+    and the variant is dropped. An error the core raises in words is placed
+    on the field its message names: the measure, the stitched input, the
+    inputs, or the step by name.
+    """
+    try:
+        compile_recipe(recipe, allow_file_backgrounds=True)
+    except RecipeError as exc:
+        cause = exc.__cause__
+        if isinstance(cause, ValidationError):
+            out = []
+            for err in cause.errors():
+                loc = list(err["loc"])
+                if loc[:1] == ["steps"] and len(loc) > 2 and isinstance(loc[2], str):
+                    del loc[2]
+                elif loc[:1] == ["measure"] and len(loc) > 1:
+                    del loc[1]
+                out.append({"loc": loc, "msg": err["msg"]})
+            return out
+        message = str(exc)
+        return [{"loc": _binding_location(message, recipe), "msg": message}]
+    return []
+
+
+def _binding_location(message: str, recipe: AnalysisRecipe) -> list:
+    """The field a binding error points at, read off the core's own message."""
+    if message.startswith("measure "):
+        return ["measure"]
+    if "stitched line input" in message:
+        return ["input"]
+    if "input" in message:
+        # Frame and table bindings: declared under inputs, used by a step
+        # or the measure; every mismatch names an input.
+        return ["inputs"]
+    if message.startswith("step "):
+        name = message.split("'")[1] if "'" in message else ""
+        index = next((i for i, s in enumerate(recipe.steps) if s.step == name), None)
+        if index is not None:
+            return ["steps", index]
+    return ["steps"]
+
+
 def _line_recipe(source: LineInput, analysis: Analysis, common: dict) -> CompiledRecipe:
     """The compiled line recipe: the source's scaling and the measure's channels."""
     try:
@@ -324,6 +372,7 @@ __all__ = [
     "RECIPE_REFERENCE_URL",
     "AnalysisDocument",
     "RecipeError",
+    "binding_errors",
     "compile_document",
     "compile_recipe",
     "figure_of",

@@ -225,8 +225,12 @@ After the switch:
 - the worker writes its one file (`shot_offsets.yaml`) into the inbox
   (`GEECS_CONFIGS_WRITE_ROOT`), and the configurator commits it;
 - the scanner saves presets through the configurator (`--configurator-url`);
-- the portal's analysis config editor is read-only until slice 6 moves the
-  analysis kinds onto the configurator.
+- the analysis documents (recipes, `.himg` jobs, groups) are saved through
+  the configurator: the portal's Analysis tab opens them in its embedded
+  editor (`--configurator-browser-url`), with the portal's preview, and the
+  configurator's dry run of them is the portal's validate
+  (`GEECS_CONFIGURATOR_PORTAL_URL`); the portal's old `/configs` editor is
+  read-only (`--config-editor-read-only`) until it is deleted.
 
 `<STATE_DIR>` is `GEECS_CONFIGURATOR_STATE_DIR` (the unit's
 `StateDirectory`, `/var/lib/geecs-configurator`).
@@ -291,6 +295,27 @@ GEECS_SCANNER_EXTRA_ARGS=<as before> --configurator-browser-url http://<this hos
 GEECS_CONFIGURATOR_CORS_ORIGINS=<the origins already there>,http://<this host>:<the scanner's port>
 GEECS_CONTROL_ROOM_CONFIG_EDITOR_URL=http://<this host>:<GEECS_CONFIGURATOR_PORT>
 ```
+
+The analysis documents' dry run and a recipe's form are the portal's
+(`/api/analysis/validate`, `/api/analysis/schema`: the recipe bound to the
+analysis core's registry, a stem unique across the shared analyzers tree, a
+group's references). The configurator reaches the portal as this process does;
+the portal's run page embeds the editor, so it needs the configurator as the
+browser reaches it, and its origin joins the CORS list:
+
+```
+GEECS_CONFIGURATOR_PORTAL_URL=http://127.0.0.1:<the portal's port>
+GEECS_PORTAL_EXTRA_ARGS=<as before> --configurator-browser-url http://<this host>:<GEECS_CONFIGURATOR_PORT>
+GEECS_CONFIGURATOR_CORS_ORIGINS=<the origins already there>,http://<this host>:<the portal's port>
+```
+
+Unset `PORTAL_URL`, the analysis documents save with no consumer check (their
+schema alone) and a recipe's form types a step as a name and its parameters as
+written; a portal that does not answer is a note on the save, never a refusal.
+The portal reads `<STATE_DIR>/live` (its `--processing-configs` is
+`GEECS_CONFIGS_ROOT`), so its check judges a draft against main as accepted.
+The two deploy together: an older portal has no `/api/analysis` routes, and the
+configurator's dry run then says it did not run.
 
 The configurator's setup capture needs a scanner of the same promotion (its
 readback's `not_numeric` flag): against an older scanner every word-valued

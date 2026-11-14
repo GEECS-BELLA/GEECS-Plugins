@@ -45,7 +45,7 @@ from geecs_schemas.analysis import (
 )
 from pydantic import BaseModel, ValidationError
 
-from geecs_analysis.recipe import RecipeError, compile_recipe, recipe_schema
+from geecs_analysis.recipe import binding_errors, recipe_schema
 
 __all__ = [
     "ConfigStore",
@@ -206,50 +206,11 @@ def _errors(exc: ValidationError) -> list[dict[str, str]]:
 
 
 def _binding_errors(recipe: AnalysisRecipe) -> list[dict[str, str]]:
-    """Bind a recipe to the analysis core's registry; errors carry form locations.
-
-    The schema validates a recipe's frame; the core refuses unknown step or
-    measure names, unknown parameters, a step or measure that does not
-    process the input's frames, and frame or table inputs no step or measure uses.
-    Refused here, a recipe that would fail at run time is never written.
-    Pydantic's locations name the union variant (``steps.0.roi.bounds``);
-    the variant is dropped so the location matches the form's field path.
-    """
-    try:
-        compile_recipe(recipe, allow_file_backgrounds=True)
-    except RecipeError as exc:
-        cause = exc.__cause__
-        if isinstance(cause, ValidationError):
-            out = []
-            for err in cause.errors():
-                loc = list(err["loc"])
-                if loc[:1] == ["steps"] and len(loc) > 2 and isinstance(loc[2], str):
-                    del loc[2]
-                elif loc[:1] == ["measure"] and len(loc) > 1:
-                    del loc[1]
-                out.append({"loc": ".".join(str(p) for p in loc), "msg": err["msg"]})
-            return out
-        message = str(exc)
-        return [{"loc": _binding_location(message, recipe), "msg": message}]
-    return []
-
-
-def _binding_location(message: str, recipe: AnalysisRecipe) -> str:
-    """The form field a binding error points at, read off the core's message."""
-    if message.startswith("measure "):
-        return "measure"
-    if "stitched line input" in message:
-        return "input"
-    if "input" in message:
-        # Frame and table bindings: declared under inputs, used by a step
-        # or the measure; every mismatch names an input.
-        return "inputs"
-    if message.startswith("step "):
-        name = message.split("'")[1] if "'" in message else ""
-        index = next((i for i, s in enumerate(recipe.steps) if s.step == name), None)
-        if index is not None:
-            return f"steps.{index}"
-    return "steps"
+    """The core's binding errors (:func:`geecs_analysis.recipe.binding_errors`) at dotted form locations."""
+    return [
+        {"loc": ".".join(str(p) for p in e["loc"]), "msg": e["msg"]}
+        for e in binding_errors(recipe)
+    ]
 
 
 def dump_yaml(document: Mapping[str, Any]) -> str:

@@ -67,6 +67,7 @@ from pydantic import BaseModel
 from geecs_configurator import yaml_edit
 from geecs_configurator.ownership import Ownership
 from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, author_name  # fmt: skip
+from geecs_configurator.validation import stem_twins
 from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
 
 #: The served form's answer is followed where the file as stored validates differently.
@@ -257,6 +258,7 @@ class _Save:
         else:
             raise self.conflict("the document already exists; open it and save over it", self.request.document)  # fmt: skip
         rel = self.store.new_path(self.kind, self.experiment, self.doc_id)
+        self._no_twin(rel)
         tier = SCHEMA_REGISTRY[self.kind].tier
         return Loaded(kind=self.kind, experiment=self.experiment, id=self.doc_id, path=rel, document={}, etag="", yaml="", valid=True, errors=[], tier=tier, read_only=False)  # fmt: skip
 
@@ -271,7 +273,16 @@ class _Save:
             raise self.conflict("the document changed since it was served", self.request.document)  # fmt: skip
         if loaded.note == LEGACY and not self.request.convert_legacy:
             raise Refused(428, "the file is the legacy dialect: saving rewrites it whole in the current schema; confirm with convert_legacy")  # fmt: skip
+        self._no_twin(
+            loaded.path
+        )  # a twin another box or a direct commit put on main since
         return loaded
+
+    def _no_twin(self, rel: str) -> None:
+        """The gate's stem rule before any commit: never push a document the gate on main then refuses (which blocks this box)."""
+        twins = stem_twins(self.store, rel)
+        if twins:
+            raise Refused(422, {"errors": [{"loc": [], "msg": f"its stem is also {twins[0]}'s; diagnostic stems are unique across the analyzers tree"}]})  # fmt: skip
 
     def _draft(self, loaded: Loaded) -> tuple[Json, list[Change], list[str]]:
         """The draft as it will be written, validated; its changes against the served form; the notes."""
