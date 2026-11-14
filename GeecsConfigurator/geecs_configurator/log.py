@@ -52,7 +52,7 @@ class Row(BaseModel):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds"))  # fmt: skip
     #: saved (an operator commit), proposed (a pull request), published (the inbox), merged (a foreign commit applied), refused (one that failed the gate)
-    source: Literal["saved", "proposed", "published", "merged", "refused"]
+    source: Literal["saved", "deleted", "proposed", "published", "merged", "refused"]
     who: str
     kind: str | None
     path: str

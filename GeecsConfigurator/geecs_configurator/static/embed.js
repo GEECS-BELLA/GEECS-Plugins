@@ -41,7 +41,7 @@
     return n;
   }
   function fill(host, kids) { host.textContent = ""; kids.forEach(function (k) { if (k) host.appendChild(k); }); }
-  function banner(text, state) { return el("div", state ? { class: "banner", "data-state": state } : { class: "banner" }, text); }
+  function banner(text, state) { var b = el("div", state ? { class: "banner", "data-state": state } : { class: "banner" }, text); b.style && (b.style.overflowWrap = "anywhere"); return b; }
   function button(text, cls, onclick) { var b = el("button", { class: "btn " + (cls || ""), type: "button" }, text); b.addEventListener("click", onclick); return b; }
   function why(b) {
     var d = b && b.detail;
@@ -165,6 +165,102 @@
     }
     return save;
   }
+
+  // ---- delete and copy: the save's mechanics, the same callers --------------------------------------
+  //
+  // deleteFlow(o) -> start(). Asks the delete's dry run (/api/delete-check: the file and every document
+  // that names it; a named document is refused, its referrers listed, and no dialog opens), then the kit's
+  // <dialog> (rung 3), whose Delete waits for the document's name typed, and says the file stays in git's
+  // history; then DELETE with the etag served and the operator, as its tier says (a commit or a proposal).
+  // o: call, kind, query(), docId(), etag(), operator(), noOperator?, status, host (the element the dialog
+  // is drawn in: a .kit one), deleted(answer).
+  function deleteFlow(o) {
+    function show(kids) { fill(o.status, kids); }
+    function refusedBy(names, reason) {
+      var ul = el("ul", { class: "mono", style: "margin:0;padding-left:1.2em;overflow-wrap:anywhere" });
+      names.forEach(function (n) { ul.appendChild(el("li", {}, n)); });
+      show([banner("Not deleted: " + reason, "error"), names.length ? el("p", {}, "Named by:") : null, names.length ? ul : null]);
+    }
+    function ask(check) {
+      var name = o.docId().split("/").pop().replace(/\.ya?ml$/i, "");
+      var d = el("dialog", { "aria-labelledby": "geecs-configurator-delete-title" }), body = d.appendChild(el("div", { class: "body" }));
+      body.appendChild(el("h4", { id: "geecs-configurator-delete-title" }, "Delete " + name + "?"));
+      body.appendChild(el("p", {}, check.path + " is removed from main as " + o.operator() + ", as its tier says. Nothing names it. The file stays in git's history; a commit can bring it back."));
+      var label = body.appendChild(el("label", { class: "field" }));
+      label.appendChild(el("span", { class: "lbl" }, "Type " + name + " to confirm"));
+      var typed = label.appendChild(el("input", { class: "btn", autocomplete: "off", "aria-label": "the document's name" }));
+      var row = body.appendChild(el("div", { class: "row end" }));
+      var keep = row.appendChild(button("Keep it", "", function () { close(); }));
+      var go = row.appendChild(button("Delete " + name, "danger", function () { if (typed.value.trim() === name) { close(); send(); } }));
+      keep.setAttribute("autofocus", "");
+      go.disabled = true;
+      typed.addEventListener("input", function () { go.disabled = typed.value.trim() !== name; });
+      function close() { if (d.close) d.close(); if (d.parentNode) d.parentNode.removeChild(d); }
+      d.addEventListener("close", function () { if (d.parentNode) d.parentNode.removeChild(d); });  // Esc too: never a second dialog behind this one
+      o.host.appendChild(d);
+      var kit = typeof window !== "undefined" && window.GeecsKit;
+      if (kit && kit.confirm) kit.confirm(d).open(); else if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+      return d;
+    }
+    function send() {
+      show([el("p", { class: "dim" }, "Deleting…")]);
+      o.call("DELETE", "/api/documents/" + o.kind + "/" + o.docId().split("/").map(encodeURIComponent).join("/") + o.query(), { etag: o.etag(), operator: o.operator() }).then(function (r) {
+        var b = r.body || {}, d = b.detail;
+        if (r.status === 200) {
+          show([banner(b.outcome === "committed" ? "Deleted " + b.path + " from main as " + b.author + " (" + (b.commit || "").slice(0, 10) + "). It stays in git's history." : b.outcome === "proposed" ? "The delete is proposed for the maintainer's review on " + b.branch + "." : "Nothing to do: " + ((b.notes || [])[0] || "the file was already gone"))]);
+          if (o.deleted) o.deleted(b);
+        } else if (r.status === 422 && d && d.referrers) {
+          refusedBy(d.referrers, d.reason);
+        } else {
+          show([banner("Not deleted (" + r.status + "): " + why(b), "error")]);
+        }
+      }).catch(function (e) { show([banner(String(e.message || e), "error")]); });
+    }
+    return function start() {
+      if (!o.operator()) { show([banner("Type your name first (the operator field): it is the git author.", "error")]); if (o.noOperator) o.noOperator(); return null; }
+      return o.call("POST", "/api/delete-check/" + o.kind + "/" + o.docId().split("/").map(encodeURIComponent).join("/") + o.query()).then(function (r) {
+        var c = r.body || {};
+        if (r.status !== 200) { show([banner("The delete's check did not answer (" + r.status + "): " + why(c), "error")]); return null; }
+        if (!c.deletable) { refusedBy(c.referrers || [], c.reason); return null; }
+        return ask(c);
+      });
+    };
+  }
+
+  // copyFlow(o) -> copy(name). Saves the document as it stands in the form under a new name in the same
+  // folder: a new file, never over one (the save route's create: its dry run, its tier, its stem rule). A
+  // document whose `name` is its stem gets the new one; a recipe gets the new name as its `output_name` too,
+  // so the copy writes its own columns and folders. o: call, kind, query(), docId(), value(), operator(),
+  // noOperator?, status, copied(newId, answer).
+  function copyFlow(o) {
+    function show(kids) { fill(o.status, kids); }
+    return function copy(name) {
+      name = String(name || "").trim().replace(/\.ya?ml$/i, "");
+      var who = o.operator();
+      if (!who) { show([banner("Type your name first (the operator field): it is the git author.", "error")]); if (o.noOperator) o.noOperator(); return null; }
+      if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) { show([banner("A new name is letters, digits, _ . -", "error")]); return null; }
+      var parts = o.docId().split("/"), stem = parts.pop().replace(/\.ya?ml$/i, ""), newId = parts.concat([name + ".yaml"]).join("/");
+      var doc = JSON.parse(JSON.stringify(o.value()));
+      if (doc.name === stem) doc.name = name;
+      if (o.kind === "analysis_recipe" || o.kind === "himg_job") doc.output_name = name;  // its own columns and folders (a job: its label)
+      show([el("p", { class: "dim" }, "Saving a copy as " + newId + "…")]);
+      return o.call("PUT", "/api/documents/" + o.kind + "/" + newId.split("/").map(encodeURIComponent).join("/") + o.query(), { document: doc, etag: "", operator: who, create: true }).then(function (r) {
+        var b = r.body || {}, d = b.detail;
+        if (r.status === 200) {
+          show([banner(b.outcome === "committed" ? "Saved a copy as " + newId + " (" + b.author + ")." : "The copy is proposed for the maintainer's review on " + b.branch + ".")]);
+          if (o.copied) o.copied(newId, b);
+        } else if (r.status === 422 && d && d.dry_run && d.dry_run.refusal) {
+          show([banner("Not copied: the " + d.dry_run.by + "'s dry run refused it: " + d.dry_run.refusal, "error")]);
+        } else if (r.status === 422 && d && d.errors) {
+          show([banner("Not copied: " + d.errors.map(function (e) { return e.msg; }).join("; "), "error")]);
+        } else {
+          show([banner("Not copied (" + r.status + "): " + why(b), "error")]);
+        }
+      });
+    };
+  }
+  //: Whether a kind's documents can be copied and deleted here: the service's word (/api/kinds `deletable`).
+  function named(info) { return !!(info && info.deletable); }
 
   // ---- the drawer --------------------------------------------------------------------------------
 
@@ -299,8 +395,26 @@
           saved: function (b, doc) { etag = b.etag; if (b.outcome === "committed") stored = doc; if (opts.onSaved) opts.onSaved(b); },
         });
       }
+      var more = null;
+      if (!readOnly && named(info)) {  // copy or delete: rung 0, closed until asked
+        more = el("details", { class: "disc" });
+        more.appendChild(el("summary", {}, "Copy or delete"));
+        var row = more.appendChild(el("div", { class: "row" })), newName = el("input", { class: "btn sm", placeholder: "new name", "aria-label": "the copy's name" });
+        var ctx = { call: call, kind: opts.kind, query: function () { return query; }, docId: function () { return docId; }, value: value, etag: function () { return etag; }, operator: operator, status: status };  // prettier-ignore
+        var copy = copyFlow(Object.assign({}, ctx, { copied: function (newId, b) { if (opts.onSaved) opts.onSaved(b); open(Object.assign({}, opts, { id: newId, note: "Saved as a copy of " + docId + " by " + b.author + "." })); } }));
+        var remove = deleteFlow(Object.assign({}, ctx, { host: d.parentNode || document.body, deleted: function (b) {
+          current = null; form = null;  // the document is gone: opened again, it asks again
+          fill(host, [status]);
+          if (opts.onSaved) opts.onSaved(b);
+        } }));
+        row.appendChild(newName);
+        row.appendChild(button("Save as a copy", "", function () { copy(newName.value); }));
+        row.appendChild(el("span", { class: "spacer" }));
+        row.appendChild(button("Delete…", "danger", function () { remove(); }));
+      }
       fill(host, [readOnly ? banner("Read-only here: " + (got[1].body.path || docId) + " is not saved from this configurator.", "denied") : null,
-        fields ? el("p", { class: "dim" }, "Showing " + fields.join(", ") + "; the rest of the document is kept as it is.") : null, tools, status, previewBox, formHost]);
+        fields ? el("p", { class: "dim" }, "Showing " + fields.join(", ") + "; the rest of the document is kept as it is.") : null, tools, more, status, previewBox, formHost]);
+      if (opts.note) fill(status, [banner(opts.note)]);
     }).catch(function (e) {
       if (!current || current.key !== key) return;  // another document was opened meanwhile
       current = null;  // opened again, it asks again
@@ -314,6 +428,9 @@
 
   out.open = open;
   out.saveFlow = saveFlow;
+  out.deleteFlow = deleteFlow;
+  out.copyFlow = copyFlow;
+  out.named = named;
   out.caller = caller;
   out.limit = limit;
   out.merge = merge;

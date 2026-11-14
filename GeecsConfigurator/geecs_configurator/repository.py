@@ -306,8 +306,14 @@ class ConfigsRepository:
     def changed(self, old: str, new: str) -> list[str]:
         """The paths added, copied, modified, renamed or changed in type (a file become a link, or back) between two commits (not deleted)."""
         return self.git(
-            "diff", "--name-only", "--diff-filter=ACMRT", old, new
+            "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", old, new
         ).splitlines()
+
+    def deleted(self, old: str, new: str) -> list[str]:
+        """The paths deleted between two commits."""
+        return self.git(
+            "diff", "--name-only", "--no-renames", "--diff-filter=D", old, new
+        ).splitlines()  # a rename is a delete and an add
 
     def fast_forward_share(self, share: Path, timeout: float = GIT_TIMEOUT_S) -> str:
         """Fast-forward the share's clone to the accepted main, from this bare repository (no credential).
@@ -356,8 +362,8 @@ class ConfigsRepository:
         finally:
             self._remove_worktree(path)
 
-    def _commit(self, tree: Path, rel: str, data: bytes, author: Identity, message: str) -> str | None:  # fmt: skip
-        """Write ``data`` at ``rel`` in a staging worktree and commit it; ``None`` when it changes nothing."""
+    def _commit(self, tree: Path, rel: str, data: bytes | None, author: Identity, message: str) -> str | None:  # fmt: skip
+        """Write ``data`` at ``rel`` in a staging worktree (``None``: remove the file) and commit it; ``None`` when it changes nothing."""
         if self.writable is not None and not self.writable(rel):
             raise NotWritable(f"{rel!r} is not this service's to commit")
         target = tree / PurePosixPath(rel)
@@ -370,10 +376,17 @@ class ConfigsRepository:
             here = here / part
             if here.is_symlink():
                 raise NotWritable(f"{rel!r} passes through a symbolic link ({here.relative_to(tree).as_posix()}); not written")  # fmt: skip
-        # inside a staging worktree of the configs repo: never a scan folder
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        self.git("add", "--", rel, cwd=tree)
+        if (
+            data is None
+        ):  # a delete: the file leaves the tree, and stays in git's history
+            if not target.is_file():
+                return None
+            self.git("rm", "--quiet", "--", rel, cwd=tree)
+        else:
+            # inside a staging worktree of the configs repo: never a scan folder
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            self.git("add", "--", rel, cwd=tree)
         try:
             self.git("diff", "--cached", "--quiet", cwd=tree)
             return None
@@ -401,7 +414,7 @@ class ConfigsRepository:
     def commit_file(
         self,
         rel: str,
-        data: bytes,
+        data: bytes | None,
         *,
         author: Identity,
         message: str,
@@ -473,7 +486,7 @@ class ConfigsRepository:
         except GitError as exc:
             logger.warning("the live checkout did not catch up: %s", exc)
 
-    def push_branch(self, rel: str, data: bytes, *, author: Identity, message: str, base: str, branch: str) -> str | None:  # fmt: skip
+    def push_branch(self, rel: str, data: bytes | None, *, author: Identity, message: str, base: str, branch: str) -> str | None:  # fmt: skip
         """Commit on ``base`` and push to a new branch on origin; the live checkout is not touched."""
         with self.lock, self.staging(base) as tree:
             sha = self._commit(tree, rel, data, author, message)

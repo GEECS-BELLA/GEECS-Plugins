@@ -101,6 +101,12 @@
         </div>
         {% if commits %}<div class="save-row">
           <button class="btn primary" type="button" id="save" title="The operator (top right) is the git author">Save</button>
+          <span class="spacer"></span>
+          <span class="row" id="copy-delete" hidden>
+            <input class="btn sm" id="copy-name" placeholder="new name" aria-label="the copy's name">
+            <button class="btn" type="button" id="copy" title="A new file beside this one, with the form as it stands">Save as a copy</button>
+            <button class="btn danger" type="button" id="delete" title="Removes the file from main; it stays in git's history">Delete…</button>
+          </span>
         </div>{% endif %}</footer>
       </section>
       <aside class="group">

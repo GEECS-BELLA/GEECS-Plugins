@@ -94,6 +94,7 @@
       form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: got[1].read_only, onChange: drawTier });
       if (got[1].errors.length) form.setErrors(got[1].errors);
       info = got[2].filter(function (k) { return k.kind === kind; })[0];
+      var copyDelete = $("#copy-delete"); if (copyDelete) copyDelete.hidden = !!readOnly || !GeecsConfigurator.named(info);  // a folder of named files only
       if (got[1].note) fill($("#result"), [el("div", { class: "banner" }, "This file is in the " + got[1].note + ": the form shows the converted profile; the file is unchanged.")]);
       fill($("#consumers"), info.consumers.map(function (c) { return line(c.name + ":", el("span", {}, "reads " + c.reads + "; apply: " + c.apply)); })
         .concat([line("Dry run:", el("span", {}, info.dry_run))]));
@@ -123,19 +124,30 @@
     form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: doc.read_only, onChange: drawTier });
     drawTier();
   }
-  var save = GeecsConfigurator.saveFlow({
+  function who() {
+    var name = operator.value.trim();
+    if (name) { try { localStorage.setItem(OPERATOR_KEY, name); } catch (e) { /* not remembered */ } }
+    return name;
+  }
+  var ctx = {
     call: GeecsConfigurator.caller(root), kind: kind, query: function () { return query; }, docId: function () { return id; },
-    form: function () { return form; }, value: function () { return form.value(); }, etag: function () { return etag; },
-    operator: function () {
-      var name = operator.value.trim();
-      if (name) { try { localStorage.setItem(OPERATOR_KEY, name); } catch (e) { /* not remembered */ } }
-      return name;
-    },
-    noOperator: function () { operator.focus(); },
-    dryRun: function () { return info.dry_run; }, button: saveBtn, status: $("#result"),
+    value: function () { return form.value(); }, etag: function () { return etag; }, operator: who,
+    noOperator: function () { operator.focus(); }, status: $("#result"),
+  };
+  var save = GeecsConfigurator.saveFlow(Object.assign({}, ctx, {
+    form: function () { return form; }, dryRun: function () { return info.dry_run; }, button: saveBtn,
     // a proposal leaves main, and so the baseline, as it was
     saved: function (b, doc) { etag = b.etag; if (b.outcome === "committed") stored = doc; drawTier(); },
     reload: remount,
-  });
+  }));
   saveBtn.addEventListener("click", function () { save(false, false); });
+  // ---- Copy and delete: the embed's flows too, so the drawer and this page ask and send the same.
+  var page = function (docId) { return root + "/" + query + "&kind=" + encodeURIComponent(kind) + (docId ? "&id=" + encodeURIComponent(docId) : ""); };
+  var copy = GeecsConfigurator.copyFlow(Object.assign({}, ctx, { copied: function (newId) { setTimeout(function () { location.href = page(newId); }, 1200); } }));
+  var remove = GeecsConfigurator.deleteFlow(Object.assign({}, ctx, { host: document.body, deleted: function (b) {
+    saveBtn.disabled = true; $("#copy-delete").hidden = true;
+    if (b.outcome === "committed") form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: true });
+  } }));
+  $("#copy").addEventListener("click", function () { copy($("#copy-name").value); });
+  $("#delete").addEventListener("click", function () { remove(); });
 })();

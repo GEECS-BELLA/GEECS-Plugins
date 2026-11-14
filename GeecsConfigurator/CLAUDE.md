@@ -155,6 +155,28 @@ its design is `Planning/configurator.md`, its record the tracking issue
   shown whatever order they resolve in, an edit marks a shown preview stale,
   and a dry run answered for an earlier draft asks again rather than letting
   its Save save the edit (`tests/test_embed_stale_js.py`).
+- **Delete and copy are the save's.** A delete (`DELETE /api/documents/...`,
+  `save.delete`) is a `git rm` through the same repository mechanics: the
+  etag served, the operator the author, the tier of everything it removes
+  (a commit, or a proposal), the facility 403, a `deleted` row on `/log`.
+  Only a document of a folder of named files is deleted (`validation.deletable`, served as the catalogue's `deletable`);
+  a kind's one file (the archive policy, `home.yaml`) is a 405. It is
+  refused while any document names it (`validation.referrers`, over
+  GEECS-Schemas' `references` table: a group its recipe, an optimize preset its
+  optimizer config and that its diagnostics, a preset or the
+  defaults a trigger profile, a setup or a screen button a setup, the home
+  layout a screen), referrers listed, no force; `POST /api/delete-check`
+  is the same answer asked first. The gate refuses a delete made around
+  the configurator the same way (`validation.problems(..., deleted)`, the
+  live gate's deleted owned paths and the configs repo's CI `--deleted`; a
+  rename is a delete and an add there, `--no-renames`).
+  In the browser `embed.js`'s `deleteFlow` asks the check, then the kit's
+  `<dialog>` whose Delete waits for the name typed; `copyFlow` saves the
+  form as a new document beside it (the save route's `create`: its dry run,
+  tier and stem rule), the stem-named `name` renamed and a recipe's
+  `output_name` set to the new name. Both the drawer ("Copy or delete") and
+  this service's page use them. Pinned by `tests/test_delete.py` and
+  `test_document_actions_js.py`.
 - **One save flow.** `embed.js`'s `saveFlow` is the save of an existing
   document in the browser: the embedded drawer and this service's own page
   (`configurator.js`, which loads `embed.js` first) both save through it,
