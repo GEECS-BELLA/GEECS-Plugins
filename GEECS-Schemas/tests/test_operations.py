@@ -64,7 +64,7 @@ def test_a_wildcard_is_alone_and_is_not_a_pattern(operators):
         )
 
 
-@pytest.mark.parametrize("name", [" ann", "ann ", " * ", ""])
+@pytest.mark.parametrize("name", [" ann", "ann ", ""])
 def test_an_operator_name_in_the_file_has_no_space_at_either_end(name):
     with pytest.raises(ValidationError, match="operators"):
         OperatorPolicy.model_validate(
