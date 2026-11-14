@@ -258,7 +258,28 @@ device missed is simply absent from its stream.  Three shapes:
 - a **plugin-backed** camera, or a **native camera** (its own HDF
   writer): a datum stream (its stack), no events; declared at its first
   frame (or at the close), so its descriptor reads the geometry the
-  writer settled on;
+  writer settled on.  A plugin camera's per-frame attributes are keys
+  `<name>-hdf-<variable>-<suffix>`, its stamp
+  `…-frame_acq_timestamp` (Unix s).  A **native camera** declares,
+  beside the frames key `<name>`, the writer's built-in per-frame
+  attributes under their **bare** names (`devices/native.BUILTIN_ATTRIBUTES`;
+  unique within the run because the stream is the camera's own), each a
+  dataset of `/entry/instrument/NDAttributes/` in the same file, with one
+  value per frame and the same datum indices as the frames:
+
+  | Key | dtype | Meaning |
+  |---|---|---|
+  | `NDArrayEpicsTSSec` | `<u4` | The frame's EPICS timestamp, whole seconds since the **EPICS epoch** (1990-01-01 UTC) |
+  | `NDArrayEpicsTSnSec` | `<u4` | Its nanoseconds |
+  | `NDArrayUniqueId` | `<i4` | The writer's frame counter (the counter audit's) |
+
+  The frame's stamp is Unix `sec + 631152000 + nsec·1e-9`
+  (`geecs_data_utils.io.scan_stack.epics_timestamp_to_unix`; LabVIEW:
+  + `LABVIEW_EPOCH_OFFSET`), the IOC host's clock.  `WitnessCount` is not
+  declared, even where the IOC writes it (not every IOC does, and a
+  declared dataset the file lacks fails the stream's read).  A native
+  camera's stream recorded before 2026-11-14 declares the frames key
+  alone;
 - a **triggered device without a plugin** (a LabVIEW-native
   saver, a scalar device with a stamp, or a detector's `.scalars` view):
   **one event per stamp the device published** while the run was open,
