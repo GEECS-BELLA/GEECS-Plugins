@@ -152,7 +152,7 @@
           show(kids409);
         } else if (r.status === 428) {
           show([banner("This file is in the legacy dialect. Saving rewrites the whole file in the current schema, as the form shows it; its reader reads either.", "stale"),
-            button("Convert and save", "primary", function () { save(true, true); })]);  // its dry run was shown before this
+            button("Convert and save", "primary", function () { if (JSON.stringify(o.value()) === JSON.stringify(doc)) save(true, true); else dryRunFirst(true); })]);  // its dry run was shown for this draft; an edit since asks again
         } else if (r.status === 422 && d && d.dry_run && d.dry_run.refusal) {
           refused(d.dry_run);
         } else if (r.status === 422 && d && d.errors) {
@@ -246,9 +246,10 @@
     }
     function edited() { if (drawn !== null && JSON.stringify(value()) !== drawn) markStale(); }
     function preview() {
-      var draft = value(), mine = ++previews, of = JSON.stringify(draft);
+      var draft = value(), of = JSON.stringify(draft);
       var got = opts.preview(draft);
-      if (!got || typeof got.then !== "function") return;
+      if (!got || typeof got.then !== "function") return;  // a host that draws by itself: nothing to wait for or drop
+      var mine = ++previews;
       drawn = null;
       previewBox.setAttribute("data-stale", "false");
       fill(previewBox, [el("div", { class: "state", "data-state": "loading" }, "Rendering the preview…")]);
