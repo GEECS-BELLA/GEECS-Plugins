@@ -431,6 +431,9 @@ async def test_the_trace_page_draws_a_spectrometer_through_the_same_template(roo
         assert (saturated["verdict"], device["state"]) == words, frame
     # a STAT1 reading is fresh by the plugin's counter AND computed by its flag: with the
     # centroid off while spectra keep coming, the held centroid reads 'off', never 'live'
+    room.env.clock[0] += (
+        10  # the counters framed above age out: these frames carry the freshness
+    )
     room.env.hare.on_frame({roles["stat_counter"]["pv"]: live(1), roles["compute_centroid"]["pv"]: live(0), roles["compute_statistics"]["pv"]: live(1), roles["centroid_index"]["pv"]: live(25.0), roles["total"]["pv"]: live(4.0e6)})  # fmt: skip
     room.env.hare.on_frame({roles["stat_counter"]["pv"]: live(2)})
     by_role = {r["role"]: r["verdict"] for r in (await room.client.get("/api/devices/cct1")).json()["roles"]}  # fmt: skip
