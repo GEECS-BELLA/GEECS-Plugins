@@ -159,15 +159,17 @@ its design is `Planning/configurator.md`, its record the tracking issue
   `save.delete`) is a `git rm` through the same repository mechanics: the
   etag served, the operator the author, the tier of everything it removes
   (a commit, or a proposal), the facility 403, a `deleted` row on `/log`.
-  Only a document of a folder of named files is deleted (`save.deletable`);
+  Only a document of a folder of named files is deleted (`validation.deletable`, served as the catalogue's `deletable`);
   a kind's one file (the archive policy, `home.yaml`) is a 405. It is
   refused while any document names it (`validation.referrers`, over
-  GEECS-Schemas' `references` table: a group its recipe, a preset or the
+  GEECS-Schemas' `references` table: a group its recipe, an optimize preset its
+  optimizer config and that its diagnostics, a preset or the
   defaults a trigger profile, a setup or a screen button a setup, the home
   layout a screen), referrers listed, no force; `POST /api/delete-check`
   is the same answer asked first. The gate refuses a delete made around
   the configurator the same way (`validation.problems(..., deleted)`, the
-  live gate's deleted owned paths and the configs repo's CI `--deleted`).
+  live gate's deleted owned paths and the configs repo's CI `--deleted`; a
+  rename is a delete and an add there, `--no-renames`).
   In the browser `embed.js`'s `deleteFlow` asks the check, then the kit's
   `<dialog>` whose Delete waits for the name typed; `copyFlow` saves the
   form as a new document beside it (the save route's `create`: its dry run,

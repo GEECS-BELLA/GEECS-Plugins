@@ -54,7 +54,7 @@ checkout, then:
 A **delete** (:func:`delete`) is this save with the file removed (``git rm``)
 instead of written: the same lock, base, etag, ownership and author; the
 tier of everything it removes; only a document of a folder of named files
-(:func:`deletable`; a kind's one file is a 405); refused (422, the
+(:func:`geecs_configurator.validation.deletable`; a kind's one file is a 405); refused (422, the
 ``referrers`` listed) while another document names it
 (:func:`geecs_configurator.validation.referrers`).
 """
@@ -68,13 +68,13 @@ from pathlib import PurePosixPath
 from typing import Any, Literal, Protocol
 
 import yaml
-from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage
+from geecs_schemas import SCHEMA_REGISTRY
 from pydantic import BaseModel
 
 from geecs_configurator import yaml_edit
 from geecs_configurator.ownership import Ownership
 from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, author_name  # fmt: skip
-from geecs_configurator.validation import referrers, stem_twins, still_named
+from geecs_configurator.validation import deletable, referrers, stem_twins, still_named
 from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
 
 #: The served form's answer is followed where the file as stored validates differently.
@@ -123,12 +123,6 @@ class DeleteRequest(BaseModel):
 
     etag: str
     operator: str
-
-
-def deletable(kind: str) -> bool:
-    """Whether a kind's documents may be deleted from the editor: one of a folder of named files, never a kind's one file."""
-    storage = KIND_STORAGE.get(kind)
-    return isinstance(storage, FileStorage) and "<name>" in storage.path_pattern()
 
 
 class Refused(Exception):

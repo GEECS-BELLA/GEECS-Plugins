@@ -46,8 +46,8 @@ from geecs_configurator.apply import (
 from geecs_configurator.kinds import DRY_RUNS, KindInfo, kinds
 from geecs_configurator.log import CHIP, STATES, Applier
 from geecs_configurator.repository import ConfigsRepository, GitError
-from geecs_configurator.save import CompareLinkOnly, DeleteRequest, check_owned, deletable, delete, PullRequests, Refused, Saved, SaveRequest, save  # fmt: skip
-from geecs_configurator.validation import referrers, still_named
+from geecs_configurator.save import CompareLinkOnly, DeleteRequest, check_owned, delete, PullRequests, Refused, Saved, SaveRequest, save  # fmt: skip
+from geecs_configurator.validation import deletable, referrers, still_named
 from geecs_configurator.service import CommitPath
 from geecs_configurator.settings import Settings
 from geecs_configurator.store import Diff, DocumentStore, Entry, Loaded, NotFound, Report, dump_yaml  # fmt: skip
@@ -341,6 +341,10 @@ def delete_check(request: Request, kind: str, doc_id: str, experiment: str | Non
         finally:
             repo.lock.release()
     loaded = _answer(lambda: store.read(_file_kind(kind), experiment, doc_id))
+    if (
+        not loaded.etag
+    ):  # the save's own rule: what did not read or parse is not saved, or deleted, over
+        return DeleteCheck(path=loaded.path, deletable=False, referrers=[], reason=f"{loaded.path} did not read or parse, so the editor never showed it; fix or remove it by hand (a pull request)")  # fmt: skip
     if not deletable(kind):
         return DeleteCheck(path=loaded.path, deletable=False, referrers=[], reason=f"a {kind} is one file its readers expect; it is not deleted from the editor")  # fmt: skip
     names = referrers(store, kind, experiment, Path(doc_id).stem, besides=loaded.path)  # fmt: skip

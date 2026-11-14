@@ -61,6 +61,9 @@ const call = (method, path, body) => { sent.push([method, path, body]);
   go.on.click(); await settle();
   out.deleteSent = sent.filter((s) => s[0] === "DELETE").map((s) => [s[1], s[2]]);
   out.deleted = [deleted.length, host.children.length, status.textContent.includes("stays in git's history")];
+  // dismissed with Esc (the dialog's own close): it leaves the page, so a later one is the only one
+  await G.deleteFlow(Object.assign(ctx("setup", "high.yaml", {}), { host, deleted: (b) => deleted.push(b) }))();
+  (host.children[0].on.close || (() => {}))(); out.escaped = host.children.length;
   // copy: a create at the new name, the stem-named field renamed, a recipe's output_name set
   await G.copyFlow(Object.assign(ctx("setup", "high.yaml", { name: "high", steps: [] }), { copied: (id) => copied.push(id) }))("low");
   await G.copyFlow(Object.assign(ctx("analysis_recipe", "HTU/UC_Top.yaml", { device: "UC_Top", output_name: "UC_Top" }), { copied: (id) => copied.push(id) }))("UC_Top_roi");
@@ -96,6 +99,7 @@ def test_the_delete_sends_the_served_etag_and_the_operator(ran: dict) -> None:
         0,
         True,
     ]  # the host told, the dialog gone, the answer shown
+    assert ran["escaped"] == 0  # a dialog dismissed with Esc leaves the page too
 
 
 def test_a_copy_is_a_create_at_the_new_name_renamed_as_its_kind_needs(

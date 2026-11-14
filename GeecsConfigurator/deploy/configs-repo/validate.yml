@@ -71,6 +71,6 @@ jobs:
             BEFORE=$(git hash-object -t tree /dev/null)   # a new branch: every file is changed
           fi
           # changed documents must validate; a deleted one must be named by no other
-          mapfile -d '' changed < <(git diff -z --name-only --diff-filter=ACMRT "$BEFORE" HEAD)
-          mapfile -d '' deleted < <(git diff -z --name-only --diff-filter=D "$BEFORE" HEAD)
+          mapfile -d '' changed < <(git diff -z --name-only --no-renames --diff-filter=ACMRT "$BEFORE" HEAD)
+          mapfile -d '' deleted < <(git diff -z --name-only --no-renames --diff-filter=D "$BEFORE" HEAD)
           python -m geecs_configurator.validation --root . "${changed[@]}" --deleted "${deleted[@]}"

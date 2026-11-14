@@ -306,12 +306,14 @@ class ConfigsRepository:
     def changed(self, old: str, new: str) -> list[str]:
         """The paths added, copied, modified, renamed or changed in type (a file become a link, or back) between two commits (not deleted)."""
         return self.git(
-            "diff", "--name-only", "--diff-filter=ACMRT", old, new
+            "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", old, new
         ).splitlines()
 
     def deleted(self, old: str, new: str) -> list[str]:
         """The paths deleted between two commits."""
-        return self.git("diff", "--name-only", "--diff-filter=D", old, new).splitlines()
+        return self.git(
+            "diff", "--name-only", "--no-renames", "--diff-filter=D", old, new
+        ).splitlines()  # a rename is a delete and an add
 
     def fast_forward_share(self, share: Path, timeout: float = GIT_TIMEOUT_S) -> str:
         """Fast-forward the share's clone to the accepted main, from this bare repository (no credential).

@@ -196,6 +196,7 @@
       go.disabled = true;
       typed.addEventListener("input", function () { go.disabled = typed.value.trim() !== name; });
       function close() { if (d.close) d.close(); if (d.parentNode) d.parentNode.removeChild(d); }
+      d.addEventListener("close", function () { if (d.parentNode) d.parentNode.removeChild(d); });  // Esc too: never a second dialog behind this one
       o.host.appendChild(d);
       var kit = typeof window !== "undefined" && window.GeecsKit;
       if (kit && kit.confirm) kit.confirm(d).open(); else if (d.showModal) d.showModal(); else d.setAttribute("open", "");
@@ -241,7 +242,7 @@
       var parts = o.docId().split("/"), stem = parts.pop().replace(/\.ya?ml$/i, ""), newId = parts.concat([name + ".yaml"]).join("/");
       var doc = JSON.parse(JSON.stringify(o.value()));
       if (doc.name === stem) doc.name = name;
-      if (o.kind === "analysis_recipe") doc.output_name = name;
+      if (o.kind === "analysis_recipe" || o.kind === "himg_job") doc.output_name = name;  // its own columns and folders (a job: its label)
       show([el("p", { class: "dim" }, "Saving a copy as " + newId + "…")]);
       return o.call("PUT", "/api/documents/" + o.kind + "/" + newId.split("/").map(encodeURIComponent).join("/") + o.query(), { document: doc, etag: "", operator: who, create: true }).then(function (r) {
         var b = r.body || {}, d = b.detail;
@@ -258,8 +259,8 @@
       });
     };
   }
-  //: Whether a kind's documents can be copied and deleted here: a folder of named files (its path has <name>).
-  function named(info) { return !!(info && info.path && info.path.indexOf("<name>") >= 0); }
+  //: Whether a kind's documents can be copied and deleted here: the service's word (/api/kinds `deletable`).
+  function named(info) { return !!(info && info.deletable); }
 
   // ---- the drawer --------------------------------------------------------------------------------
 

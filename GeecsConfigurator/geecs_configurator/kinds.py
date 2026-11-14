@@ -12,6 +12,8 @@ kinds by ``tests/test_store.py``.
 from __future__ import annotations
 
 from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage, NotAFile
+
+from geecs_configurator.validation import deletable
 from pydantic import BaseModel
 
 #: The worker reopens its environment to see these (the queue idle and empty); the applier keys on these words.
@@ -100,6 +102,8 @@ class KindInfo(BaseModel):
     reason: str | None
     consumers: list[Consumer]
     dry_run: str
+    #: Its documents are named files of a folder: copied and deleted from the editor (``validation.deletable``).
+    deletable: bool = False
 
 
 def kinds() -> list[KindInfo]:
@@ -120,6 +124,7 @@ def kinds() -> list[KindInfo]:
                 reason=storage.reason if isinstance(storage, NotAFile) else None,
                 consumers=CONSUMERS.get(kind, []),
                 dry_run=DRY_RUNS.get(kind, "none"),
+                deletable=deletable(kind),
             )
         )
     order = {"file": 0, "code": 1, "not-a-file": 2}

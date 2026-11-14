@@ -1,6 +1,8 @@
 """Which documents name which: the references one configs-repo document makes to another, by name.
 
-A document names another by its file stem: a preset or the experiment
+A document names another by its file stem: a preset names an optimizer
+config (its plan's ``optimizer_config``), an optimizer config the
+diagnostics it measures, a preset or the experiment
 defaults name a trigger profile, a setup's ``apply`` step names another
 setup, a screen's button names a setup, the home layout names screens, an
 analysis group names diagnostics (recipes or ``.himg`` jobs, by stem across
@@ -25,13 +27,15 @@ from pydantic import BaseModel
 from geecs_schemas.analysis import AnalysisGroup
 from geecs_schemas.experiment_defaults import ExperimentDefaults
 from geecs_schemas.home_layout import HomeLayout
+from geecs_schemas.optimizer_config import DiagnosticMeasurement, OptimizerConfig
 from geecs_schemas.preset import Preset
 from geecs_schemas.screens import Screen
 from geecs_schemas.setup import Setup, SetupApplyStep
 
 #: The kinds a kind's documents may name (a referrer kind -> the kinds it names).
 REFERS_TO: dict[str, tuple[str, ...]] = {
-    "preset": ("trigger_profile",),
+    "preset": ("trigger_profile", "optimizer_config"),
+    "optimizer_config": ("analysis_recipe", "himg_job"),
     "experiment_defaults": ("trigger_profile",),
     "setup": ("setup",),
     "screen": ("setup",),
@@ -61,6 +65,14 @@ def references(document: BaseModel) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     if isinstance(document, (Preset, ExperimentDefaults)) and document.trigger_profile:
         out.append(("trigger_profile", document.trigger_profile))
+    if isinstance(
+        document, Preset
+    ):  # an optimize preset names its optimizer config in the plan's kwargs
+        name = document.plan.kwargs.get("optimizer_config")
+        if isinstance(name, str) and name:
+            out.append(("optimizer_config", name))
+    elif isinstance(document, OptimizerConfig):
+        out += [("analysis_recipe", m.diagnostic) for m in document.measurements.values() if isinstance(m, DiagnosticMeasurement)]  # fmt: skip
     elif isinstance(document, Setup):
         out += [("setup", s.setup) for s in document.steps if isinstance(s, SetupApplyStep)]  # fmt: skip
     elif isinstance(document, Screen):

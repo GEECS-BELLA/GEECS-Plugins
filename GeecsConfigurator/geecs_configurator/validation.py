@@ -80,11 +80,18 @@ def stem_twins(store: DocumentStore, rel: str) -> list[str]:
     return sorted(_run_by_stem(documents(store)).get(PurePosixPath(rel).stem, set()) - {rel})  # fmt: skip
 
 
+def deletable(kind: str) -> bool:
+    """Whether a kind's documents are named files of a folder (deleted from the editor, named by others); never a kind's one file."""
+    storage = KIND_STORAGE.get(kind)
+    return isinstance(storage, FileStorage) and "<name>" in storage.path_pattern()
+
+
 def _pattern(kind: str) -> re.Pattern[str] | None:
     """A named kind's path pattern as a regex (``exp`` and ``name`` groups, every suffix); ``None`` for a single-file kind."""
-    storage = KIND_STORAGE[kind]
-    if not isinstance(storage, FileStorage) or "<name>" not in storage.path_pattern():
+    if not deletable(kind):
         return None
+    storage = KIND_STORAGE[kind]
+    assert isinstance(storage, FileStorage)
     text = re.escape(storage.path_pattern()).replace(r"\*\*/", "(?:.+/)?").replace("<experiment>", "(?P<exp>[^/]+)")  # fmt: skip
     suffixes = "|".join(re.escape(s) for s in storage.suffixes)
     return re.compile(text.replace(r"<name>\.yaml", f"(?P<name>[^/]+)(?:{suffixes})") + "$")  # fmt: skip

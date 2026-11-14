@@ -80,6 +80,12 @@ def test_a_stale_etag_and_a_blank_operator_delete_nothing(committing: TestClient
 
 def test_the_read_only_service_answers_the_check_and_refuses_the_delete(client: TestClient) -> None:  # fmt: skip
     assert client.post(f"/api/delete-check/trigger_profile/laser_off.yaml{B}").json()["deletable"] is True  # fmt: skip
+    # a file that did not read or parse: never shown, so never deleted from here (the save's own rule)
+    broken = client.post(f"/api/delete-check/setup/broken.yaml{B}").json()
+    assert broken["deletable"] is False and "did not read or parse" in broken["reason"]
+    # the page and the drawer read which kinds are named files from the catalogue
+    flags = {k["kind"]: k["deletable"] for k in client.get("/api/kinds").json()}
+    assert (flags["setup"], flags["analysis_recipe"], flags["archive_policy"], flags["home_layout"]) == (True, True, False, False)  # fmt: skip
     assert client.request("DELETE", f"/api/documents/trigger_profile/laser_off.yaml{B}", json={"etag": "x", "operator": "Ada"}).status_code == 405  # fmt: skip
 
 
@@ -98,6 +104,18 @@ def test_the_gate_refuses_a_delete_made_around_the_configurator(root: Path) -> N
         "schema_version: 2\nname: laser_off\n"
     )
     assert problems(root, [], [f"{PROFILES}/laser_off.yaml"]) == []
+
+
+def test_a_rename_is_a_delete_to_the_live_gate(committing: TestClient, origin: Path, other: Path) -> None:  # fmt: skip
+    """Moving a named document away (git mv) while another still names it is refused like its delete."""
+    push_change(other, f"{SETUPS}/composite.yaml", "name: composite\nsteps:\n  - {do: apply, setup: dated}\n", "a setup that applies another")  # fmt: skip
+    committing.get(f"/api/documents/setup/dated.yaml{B}")
+    git("mv", f"{SETUPS}/dated.yaml", f"{SETUPS}/dated_old.yaml", cwd=other)
+    git("commit", "--quiet", "-m", "rename dated around the configurator", cwd=other)
+    git("push", "--quiet", "origin", "HEAD:main", cwd=other)
+    committing.get(f"/api/documents/setup/low_power.yaml{B}")
+    main = committing.get("/healthz").json()["main"]
+    assert "dated.yaml: deleted, but" in main and "composite.yaml" in main
 
 
 def test_the_live_gate_refuses_a_delete_pushed_past_the_configurator(committing: TestClient, origin: Path, other: Path) -> None:  # fmt: skip

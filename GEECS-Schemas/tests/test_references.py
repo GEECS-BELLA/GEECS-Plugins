@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from geecs_schemas import (
@@ -75,6 +77,21 @@ def test_each_referrer_names_what_it_reads(kind: str, raw: dict, named: list) ->
 def test_a_screen_names_the_setups_its_buttons_apply() -> None:
     screen = _doc("screen", {"title": "S", "groups": [{"title": "G", "at": [1, 1], "widgets": [{"kind": "button", "label": "Go", "bind": {"action": "high_power"}}]}]})  # fmt: skip
     assert references(screen) == [("setup", "high_power")]
+
+
+def test_an_optimize_preset_names_its_optimizer_config_and_that_its_diagnostics() -> (
+    None
+):
+    import yaml
+
+    preset = _doc("preset", {"name": "o", "devices": [], "plan": {"name": "optimize", "kwargs": {"optimizer_config": "bax_alignment_S1V"}}})  # fmt: skip
+    assert references(preset) == [("optimizer_config", "bax_alignment_S1V")]
+    fixture = (
+        Path(__file__).parent / "fixtures/optimizer_configs/bax_alignment_S1V.yaml"
+    )
+    config = _doc("optimizer_config", yaml.safe_load(fixture.read_text()))
+    named = references(config)
+    assert named and all(kind == "analysis_recipe" for kind, _ in named)
 
 
 def test_a_document_naming_nothing_names_nothing() -> None:
