@@ -253,11 +253,11 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
 
     @router.get("/api/readback", response_model=ReadbackOut)
     async def readback(
-        variable: str, response: Response, units: str = ""
+        variable: str, response: Response, units: str = "", word: bool = False
     ) -> ReadbackOut:
-        """One live reading of ``Device:Variable`` over the gateway — the readback, not ``:SP``."""
+        """One live reading of ``Device:Variable`` over the gateway — the readback, not ``:SP``; ``word`` reads it as text."""
         response.headers.update(_NO_CACHE)
-        return await service.readback(variable, units=units)
+        return await service.readback(variable, units=units, word=word)
 
     @router.post("/api/move", response_model=ItemOut)
     def move(body: MoveIn) -> ItemOut:

@@ -97,3 +97,31 @@ its design is `Planning/configurator.md`, its record the tracking issue
   (the `configurator-edges` contract). Nothing in the repo imports it.
 - **One uvicorn worker** (the commit lock is per process). CORS
   answers only the origins in `GEECS_CONFIGURATOR_CORS_ORIGINS`.
+- **Setups on the surface are the scanner's** (`setups.py`, the page's
+  `static/setups.js`). Capture reads (`POST /api/setups/capture`: one
+  `GET /api/readback` per variable through the experiment's scanner, a
+  reading that is not a number read again as a word) and answers a draft;
+  nothing is written to a device, and the draft is saved through the one
+  save route (`PUT` with `create`), so its author, tier and ownership are
+  the save's. The diff and the apply are relayed status and body as the
+  scanner answered; the apply's `acknowledged` goes on as the page sent it
+  and this service never answers a question; an experiment this box does
+  not own is a 403 before the scanner is asked. The page applies the
+  setup as committed: Apply waits while the form holds an edit. Pinned by
+  `tests/test_setups_surface.py` (a recording fake scanner and the
+  scanner's demo app).
+- **A save on the page asks the kind's dry run first** (`/api/dry-run`):
+  a refusal stops it there; what the consumer said, or why it could not
+  run, is shown with a Save to confirm; a kind with no check saves at
+  once. The save route runs the dry run again: the page's is for the
+  operator to see.
+- **The embedded editor's mount contract is `static/embed.js`**
+  (`GeecsConfigurator.open({api, kind, experiment, id, fields, operator,
+  preview, onSaved})`, its docstring the contract): a host loads its own
+  `/theme/kit.js` and `/theme/form.js` and this script from the
+  configurator, never the package, and its origin goes in `CORS_ORIGINS`.
+  The operator is the host's, asked on every save, stored nowhere here;
+  `fields` limits what is drawn and the rest is saved as stored; the save
+  is the page's (dry run, etag, 409/422/428). Pinned under node against
+  this app's own answers (`tests/test_embed_js.py`). Hosts: the scanner's
+  preset mini.

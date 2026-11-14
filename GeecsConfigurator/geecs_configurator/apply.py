@@ -124,12 +124,23 @@ class ScannerClient:
         out = r.json()
         return DryRun(kind="trigger_profile", by="scanner", ran=True, refusal=out.get("refusal"), outcomes=out.get("outcomes") or [], questions=out.get("questions") or [])  # fmt: skip
 
-    def readback(
-        self, variable: str
-    ) -> tuple[int, Any]:  # Any: the scanner's JSON, passed through
-        """One live readback of ``Device:Variable`` through the scanner (the form's current value)."""
-        r = self.http.get(f"{self.base_url}/api/readback", params={"variable": variable}, timeout=10.0)  # fmt: skip
+    def readback(self, variable: str, *, word: bool = False) -> tuple[int, Any]:  # Any: the scanner's JSON, passed through  # fmt: skip
+        """One live readback of ``Device:Variable`` through the scanner; ``word`` reads it as text (an enum's state)."""
+        params = {"variable": variable, **({"word": "true"} if word else {})}
+        r = self.http.get(f"{self.base_url}/api/readback", params=params, timeout=10.0)  # fmt: skip
         return r.status_code, r.json()
+
+    def relay(self, method: str, path: str, body: Any = None) -> tuple[int, Any]:  # Any: the scanner's JSON, passed through  # fmt: skip
+        """One scanner route; its status and JSON body as they came.
+
+        The body goes as given and nothing is added to it: an apply's
+        ``acknowledged`` is the operator's answer, never this service's.
+        """
+        r = self.http.request(method, f"{self.base_url}{path}", json=body, timeout=30.0)  # fmt: skip
+        try:
+            return r.status_code, r.json()
+        except ValueError:
+            return r.status_code, {"detail": _one_line(r.text)}
 
 
 def _error_message(r: httpx.Response) -> str:

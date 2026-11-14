@@ -282,6 +282,18 @@ scanner is on its slot's port, `deploy/experiment.sh list`): a document of an
 experiment with no scanner named is never applied by another's reopen; its row
 stays pending, named. One plain URL is the served experiment's alone.
 
+The scanner's preset panel embeds the editor (Edit preset…) and the Control
+Room links documents into it: both need the configurator's URL **as the browser
+reaches it**, and the scanner's origin in the configurator's CORS list:
+
+```
+GEECS_SCANNER_EXTRA_ARGS=<as before> --configurator-browser-url http://<this host>:<GEECS_CONFIGURATOR_PORT>
+GEECS_CONFIGURATOR_CORS_ORIGINS=http://<this host>:<the scanner's port>
+GEECS_CONTROL_ROOM_CONFIG_EDITOR_URL=http://<this host>:<GEECS_CONFIGURATOR_PORT>
+```
+
+Unset, the scanner shows no Edit preset… and the Control Room no Edit links.
+
 The worker, the scanner and the configurator run as the one service account,
 which reads `<STATE_DIR>` (mode 0755) and writes the inbox (the configurator
 creates each owned experiment's folder there at its start; a new experiment needs

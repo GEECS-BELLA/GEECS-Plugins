@@ -461,11 +461,25 @@
     if (name) selectPreset(name);
   });
 
+  // The preset mini: the loaded preset's settings (not its plan, which is this form's) in the configurator's
+  // embedded editor, with this page's operator; the configurator commits it as theirs. The form here is not
+  // reloaded: a save says to load the preset again.
+  var CONFIGURATOR = (document.body.dataset.configurator || "").replace(/\/$/, "");
+  var PRESET_FIELDS = ["description", "trigger_profile", "background", "native_image_save", "background_telemetry", "devices"];
+  if ($("btn-edit-preset")) $("btn-edit-preset").addEventListener("click", function () {
+    if (!S.loadedName) return;
+    if (!window.GeecsConfigurator) { showError("The configurator's editor did not load from " + CONFIGURATOR + "."); return; }
+    var name = S.loadedName;
+    window.GeecsConfigurator.open({ api: CONFIGURATOR, kind: "preset", experiment: document.body.dataset.experiment, id: name, fields: PRESET_FIELDS,
+      operator: operator, onSaved: function (b) { if (b.outcome !== "nothing to do") $("presets-note").textContent = "Preset " + name + " saved; load it again to use the change."; } });
+  });
+
   function selectPreset(name) {
     S.presetName = name;  // claimed now, so a slower default cannot override the pick
     api("/api/configs/presets/" + encodeURIComponent(name)).then(function (doc) {
       if (S.presetName !== name) return;  // a later click won
       S.presetDoc = doc; S.loadedName = name;  // the LISTING name: a document's inner name need not match its file
+      if ($("btn-edit-preset")) { $("btn-edit-preset").disabled = false; $("btn-edit-preset").title = "Edit preset " + name + "'s settings in the configurator"; }
       $("preset-name").textContent = "preset " + name;
       $("devices-eyebrow").textContent = "devices · preset " + name;
       fillFormFromPreset(doc);

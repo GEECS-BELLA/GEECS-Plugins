@@ -143,6 +143,16 @@ deploy/           the unit template + DEPLOYMENT.md
   operator's. No configurator configured, no save (the answer says so);
   the demo keeps saves in memory (`DemoPresets`). Nothing of the
   configurator is imported: a peer service.
+- **The preset mini is the configurator's embedded editor.** With
+  `--configurator-browser-url` (a site value: the configurator as the
+  browser reaches it), "Edit preset…" opens the loaded preset in the
+  configurator's drawer (`GeecsConfigurator.open`, its `embed.js` loaded
+  from that URL beside this process's `/theme/form.js`) limited to the
+  preset's settings (not its plan, which is this form's), with this page's
+  operator; the configurator saves and commits it. The form here is not
+  reloaded: a save says to load the preset again. `/api/readback` takes
+  `word` (read as text), which the configurator's capture uses for a
+  variable that is not a number.
 - **The environment reopen is the configurator's apply**
   (`reopen_environment`, `POST /api/environment/reopen`): the worker reads
   trigger profiles, the scan-variable catalogue, the native-device

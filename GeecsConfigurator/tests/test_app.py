@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from geecs_web_theme import PANE_STATES, STATES
 from geecs_web_theme.testing import bare_url_for_calls, inline_scripts, javascript_syntax_error, node_available, unknown_data_states  # fmt: skip
 
+from geecs_configurator.app import create_app
 from geecs_configurator.settings import Settings, SettingsError
 
 _TEMPLATES = sorted((Path(__file__).resolve().parents[1] / "geecs_configurator/templates").glob("*.html"))  # fmt: skip
@@ -69,6 +70,27 @@ def test_validate_diff_and_yaml_write_nothing(client: TestClient, root: Path) ->
     put = client.put("/api/documents/archive_policy/archive_policy.yaml?experiment=Bench", json={"document": {}, "etag": "x", "operator": "Ada"})  # fmt: skip
     assert put.status_code == 405
     assert {p: p.stat().st_mtime_ns for p in root.rglob("*")} == before
+
+
+@pytest.mark.parametrize("script", sorted((Path(__file__).resolve().parents[1] / "geecs_configurator/static").glob("*.js")), ids=lambda p: p.name)  # fmt: skip
+def test_static_scripts_parse(script: Path) -> None:
+    if not node_available():  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available")
+    assert javascript_syntax_error(script.read_text(encoding="utf-8")) is None
+
+
+def test_the_setup_page_carries_capture_the_live_panel_and_the_dialog(root: Path) -> None:  # fmt: skip
+    """With a scanner for the experiment: capture, the diff, Apply and the acknowledgement dialog; without one, said."""
+    with TestClient(create_app(Settings(configs_root=root, experiment="Bench", scanner_url="http://scanner.test"))) as c:  # fmt: skip
+        page = c.get("/?experiment=Bench&kind=setup&id=low_power.yaml").text
+        assert all(f'id="{i}"' in page for i in ("drw-capture", "live-diff", "live-apply", "dlg-ack", "do-apply", "operator"))  # fmt: skip
+        assert "/static/setups.js" in page and c.get("/static/setups.js").status_code == 200  # fmt: skip
+        # capture saves through the commit path: off here, so the button says why
+        assert 'disabled title="Capture is off here: the commit path is not configured"' in page  # fmt: skip
+    with TestClient(create_app(Settings(configs_root=root, experiment="Bench"))) as c:
+        page = c.get("/?experiment=Bench&kind=setup&id=low_power.yaml").text
+        assert 'data-state="denied"' in page and 'id="live-apply"' not in page
+        assert "setups.js" not in c.get("/?experiment=Bench&kind=preset").text
 
 
 def test_cors_answers_the_configured_surfaces_only(client: TestClient) -> None:

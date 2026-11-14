@@ -7,6 +7,14 @@
   "use strict";
   var body = document.body, root = body.dataset.root || "", kind = body.dataset.kind, id = body.dataset.id;
   var query = "?experiment=" + encodeURIComponent(body.dataset.experiment || "");
+  var OPERATOR_KEY = "geecs.configurator.operator", operator = document.getElementById("operator");
+  // The operator, typed once and remembered in this browser; a host passes its own (data-operator).
+  if (operator) {
+    try { operator.value = body.dataset.operator || localStorage.getItem(OPERATOR_KEY) || ""; } catch (e) { /* no storage: type it */ }
+    operator.addEventListener("change", function () { try { localStorage.setItem(OPERATOR_KEY, operator.value.trim()); } catch (e) { /* not remembered */ } });
+  }
+  //: What the setups surface (setups.js) asks of this page: the operator, and whether the form holds an unsaved edit.
+  window.GeecsConfiguratorPage = { operator: function () { return operator ? operator.value.trim() : ""; }, dirty: function () { return false; } };
   if (!kind || !id) return;
   //: What saving a change of each tier will do (the commit path arrives in a later slice).
   var ACTION = {
@@ -18,7 +26,7 @@
   };
   var $ = function (sel) { return document.querySelector(sel); };
   var form, schema, stored, info, etag, readOnly;
-  var OPERATOR_KEY = "geecs.configurator.operator";
+  window.GeecsConfiguratorPage.dirty = function () { return !form || GeecsForm.diff(stored, form.value(), schema).changes.length > 0; };
 
   function el(tag, attrs, text) {
     var n = document.createElement(tag);
@@ -106,10 +114,9 @@
   });
   $("#reset").addEventListener("click", function () { form.reset(); drawTier(); fill($("#result"), [el("p", { class: "dim" }, "Edits discarded.")]); });
 
-  // ---- Save (the commit path on): the operator passed in by a host, else typed here and remembered.
-  var operator = $("#operator"), saveBtn = $("#save");
+  // ---- Save (the commit path on): the consumer's dry run of the edit first, then the commit as the operator.
+  var saveBtn = $("#save");
   if (!saveBtn) return;
-  try { operator.value = body.dataset.operator || localStorage.getItem(OPERATOR_KEY) || ""; } catch (e) { /* no storage: type it */ }
   function says(text) { $("#save-says").textContent = text; }
   function remount(doc) {
     stored = doc.document; etag = doc.etag;
@@ -125,10 +132,37 @@
     });
     return list;
   }
-  function save(convert) {
+  // The kind's consumer check of the edit before any commit: a refusal stops the save here, and what the
+  // consumer said (the archiver's plan, the preflight's questions, or why it could not run) is shown first.
+  function dryRunFirst(convert) {
+    saveBtn.disabled = true; says("Asking the consumer's dry run…");
+    api("/api/dry-run/" + kind + query, { document: form.value() }).then(function (d) {
+      saveBtn.disabled = false;
+      if (d.refusal) {
+        fill($("#result"), [el("div", { class: "banner", "data-state": "error" }, "The " + d.by + "'s dry run refused your edit: " + d.refusal + ". Nothing was saved; your edit is still in the form."), outcomeList(d)]);
+        says("Not saved."); return;
+      }
+      if (d.by === "none") { save(convert, true); return; }  // no consumer check here: nothing to show
+      var go = el("button", { class: "btn primary", type: "button" }, d.ran ? "Save" : "Save without it");
+      go.addEventListener("click", function () { save(convert, true); });
+      var kids = [el("div", d.ran ? { class: "banner" } : { class: "banner", "data-state": "stale" }, d.ran ? "The " + d.by + "'s dry run of your edit: " + (d.detail || "no objection") + "." : "The " + d.by + "'s dry run did not run: " + d.detail + "."), outcomeList(d)];
+      (d.questions || []).forEach(function (q) { kids.push(el("p", { class: "dim" }, "It asks: " + (q.title || q.check) + (q.message ? " (" + q.message + ")" : ""))); });
+      if (d.output) { var det = el("details", { class: "disc" }); det.appendChild(el("summary", {}, "Its output")); det.appendChild(el("pre", { class: "well" }, d.output)); kids.push(det); }
+      kids.push(go);
+      fill($("#result"), kids); says("Check the dry run, then save.");
+    }).catch(function (err) { saveBtn.disabled = false; fail(err); says("Not saved."); });
+  }
+  function outcomeList(d) {
+    if (!d.outcomes || !d.outcomes.length) return null;
+    var ul = el("ul", { class: "dim" });
+    d.outcomes.forEach(function (o) { ul.appendChild(el("li", {}, (o.check || "") + ": " + (o.result || "") + (o.detail ? " (" + o.detail + ")" : ""))); });
+    return ul;
+  }
+  function save(convert, checked) {
     var name = operator.value.trim();
     if (!name) { operator.focus(); says("Your name is the git author: type it first."); return; }
     try { localStorage.setItem(OPERATOR_KEY, name); } catch (e) { /* not remembered */ }
+    if (!checked && info.dry_run !== "none") { dryRunFirst(convert); return; }
     saveBtn.disabled = true; says("Saving…");
     fetch(root + docPath, { method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ document: form.value(), etag: etag, operator: name, convert_legacy: !!convert }) })
@@ -152,7 +186,7 @@
           says("Not saved.");
         } else if (r.status === 428) {
           var go = el("button", { class: "btn primary", type: "button" }, "Convert and save");
-          go.addEventListener("click", function () { save(true); });
+          go.addEventListener("click", function () { save(true, true); });  // its dry run was shown before this
           fill($("#result"), [el("div", { class: "banner", "data-state": "stale" }, "This file is in the legacy dialect. Saving rewrites the whole file in the current schema, as the form shows it; the scanner reads either."), go]);
           says("Confirm the conversion.");
         } else if (r.status === 422 && d && d.errors) {
@@ -167,5 +201,5 @@
       .catch(fail)
       .then(function () { saveBtn.disabled = false; });
   }
-  saveBtn.addEventListener("click", function () { save(false); });
+  saveBtn.addEventListener("click", function () { save(false, false); });
 })();

@@ -27,6 +27,7 @@
       {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
     </form>
     <nav class="row"><a class="btn sm" href="{{ root }}/log">Log</a></nav>
+    {% if commits or (kind == "setup" and scanner) %}<label class="dim">Operator <input class="btn sm" id="operator" autocomplete="name" placeholder="your name"></label>{% endif %}
     <div data-density-picker></div>
     <div data-theme-picker></div>
   </div>
@@ -68,7 +69,10 @@
     </section>
     {% else %}
     <section class="panel">
-      <header><span class="eyebrow">{{ kind }}</span><span class="dim">{{ docs | length }} document{{ "" if docs | length == 1 else "s" }}</span></header>
+      <header><span class="eyebrow">{{ kind }}</span><span class="dim">{{ docs | length }} document{{ "" if docs | length == 1 else "s" }}</span>
+        {% if kind == "setup" %}{% set why = "the commit path is not configured" if not commits else ("no scanner configured for " ~ experiment) if not scanner else "not this box's experiment" if not_owned else "" %}
+        <span class="spacer"></span><button class="btn sm" type="button" id="capture-open"{% if why %} disabled title="Capture is off here: {{ why }}"{% else %} data-drawer-open="drw-capture"{% endif %}>Capture from live…</button>{% endif %}
+      </header>
       <div class="body">
         {% if docs %}
         <nav class="picklist docs">
@@ -96,9 +100,7 @@
           <button class="btn ghost" type="button" id="reset">Discard edits</button>
         </div>
         {% if commits %}<div class="save-row">
-          <label class="dim" for="operator">Operator</label>
-          <input class="btn" id="operator" autocomplete="name" placeholder="your name (the git author)">
-          <button class="btn primary" type="button" id="save">Save</button>
+          <button class="btn primary" type="button" id="save" title="The operator (top right) is the git author">Save</button>
           <span class="dim" id="save-says"></span>
         </div>{% endif %}</footer>
       </section>
@@ -117,13 +119,61 @@
         </section>
       </aside>
     </div>
+    {% if kind == "setup" %}
+    {# The committed setup against the machine now, and its apply as one scanner queue item (setups.js). #}
+    <section class="panel" id="live" data-scanner="{{ 'on' if scanner else 'off' }}" data-owned="{{ 'no' if not_owned else 'yes' }}">
+      <header><span class="eyebrow">Live · {{ experiment }}</span><span class="dim" id="live-note">The setup as committed, not your unsaved edit.</span></header>
+      <div class="body" id="live-body">
+        {% if not scanner %}<div class="state" data-state="denied"><span class="t">No scanner</span><span class="m">No scanner is configured for {{ experiment }} (GEECS_CONFIGURATOR_SCANNER_URL): the diff and the apply are the scanner's.</span></div>
+        {% else %}<p class="dim">Diff reads every <code>set</code> step's readback through the scanner; nothing is written.</p>{% endif %}
+      </div>
+      {% if scanner %}<footer><div class="row">
+        <button class="btn" type="button" id="live-diff">Diff against live</button>
+        <span class="spacer"></span>
+        <span class="dim" id="apply-says"></span>
+        <button class="btn primary" type="button" id="live-apply"{% if not_owned %} disabled title="Not this box's experiment"{% endif %}>Apply…</button>
+      </div></footer>{% endif %}
+    </section>
+    {% endif %}
     {% endif %}
   </main>
 </div>
+
+{% if kind == "setup" %}
+<aside class="drawer" id="drw-capture" role="dialog" aria-modal="false" aria-labelledby="drw-capture-title" aria-hidden="true" data-open="false">
+  <header>
+    <span class="eyebrow" id="drw-capture-title">capture a setup from live readbacks</span>
+    <button class="btn sm ghost" type="button" data-drawer-close>Close</button>
+  </header>
+  <div class="body">
+    <div class="field"><label for="cap-name">name<span class="req">*</span></label><input id="cap-name" placeholder="low_power" autocomplete="off"><span class="hint">The file stem: letters, digits, _ - . only.</span></div>
+    <div class="field"><label for="cap-desc">description</label><textarea id="cap-desc" rows="2"></textarea></div>
+    <div class="field"><label for="cap-pick">add a variable</label><input id="cap-pick" list="cap-settables" placeholder="Device:Variable" autocomplete="off"><datalist id="cap-settables"></datalist><span class="hint" id="cap-pick-hint">The scanner's settables, or any Device:Variable.</span></div>
+    <div class="field"><label for="cap-vars">variables, one per line, in step order</label><textarea id="cap-vars" rows="6" spellcheck="false"></textarea></div>
+    <div class="row"><button class="btn" type="button" id="cap-read">Read the readbacks</button><span class="dim">Reads only: nothing is written to a device.</span></div>
+    <div id="cap-result"></div>
+    <div class="row end">
+      <button class="btn" type="button" data-drawer-close>Cancel</button>
+      <button class="btn primary" type="button" id="cap-save" disabled>Save as a new setup</button>
+    </div>
+  </div>
+</aside>
+
+<dialog id="dlg-ack" class="ack" aria-labelledby="dlg-ack-title">
+  <div class="body">
+    <h4 id="dlg-ack-title">The scanner asks</h4>
+    <p>Each item is a question, not a refusal; tick it to apply with it on record.</p>
+    <ul class="qs" id="ack-list"></ul>
+    <p class="dim">The scanner checks every answer against the setup as committed; an edited setup asks again.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-apply" disabled>Apply</button></div>
+  </div>
+</dialog>
+{% endif %}
 
 <script src="{{ root }}/theme/theme.js" defer></script>
 <script src="{{ root }}/theme/kit.js" defer></script>
 <script src="{{ root }}/theme/form.js" defer></script>
 <script src="{{ root }}/static/configurator.js" defer></script>
+{% if kind == "setup" %}<script src="{{ root }}/static/setups.js" defer></script>{% endif %}
 </body>
 </html>
