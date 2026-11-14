@@ -49,6 +49,8 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from geecs_schemas import KIND_STORAGE, FileStorage
+
 from geecs_configurator.kinds import CONSUMERS, ONBOARD, REOPEN
 from geecs_configurator.log import Answer, Reader, Row
 from geecs_configurator.store import Json, dump_yaml
@@ -158,8 +160,11 @@ def _error_message(r: httpx.Response) -> str:
     return _one_line(body.get("detail", body) if isinstance(body, dict) else body)
 
 
-#: The analysis kinds the portal checks (its ``/api/analysis/validate``) and draws (``/api/analysis/schema``).
-ANALYSIS_KINDS = ("analysis_recipe", "himg_job", "analysis_group")
+#: The analysis kinds the portal checks (its ``/api/analysis/validate``) and draws (``/api/analysis/schema``):
+#: every file kind GEECS-Schemas keeps in the analysis root.
+ANALYSIS_KINDS = tuple(k for k, s in KIND_STORAGE.items() if isinstance(s, FileStorage) and s.root == "analysis")  # fmt: skip
+#: How long the page's form waits for the portal's schema before drawing the document's own (seconds).
+SCHEMA_TIMEOUT_S = 5.0
 
 
 class PortalClient:
@@ -183,16 +188,25 @@ class PortalClient:
             return DryRun(kind=kind, by="portal", ran=False, detail=f"the portal did not answer: {_one_line(exc)}")  # fmt: skip
         if r.status_code != 200:
             return DryRun(kind=kind, by="portal", ran=False, detail=f"the portal answered {r.status_code}: {_error_message(r)}")  # fmt: skip
-        out = r.json()
+        try:
+            out = r.json()
+        except ValueError:
+            out = None
+        if not isinstance(out, dict) or not isinstance(
+            out.get("errors", []), list
+        ):  # not the portal's answer (a proxy page, the wrong port)
+            return DryRun(kind=kind, by="portal", ran=False, detail=f"the portal's answer is not its validate's: {_one_line(r.text, 120)}")  # fmt: skip
         errors = out.get("errors") or []
         if out.get("ok"):
-            return DryRun(kind=kind, by="portal", ran=True, detail="binds to the analysis core" if kind == "analysis_recipe" else "valid as the portal loads it")  # fmt: skip
+            return DryRun(kind=kind, by="portal", ran=True, detail="binds to the analysis core" if kind == "analysis_recipe" else "loads as a run loads it")  # fmt: skip
         refusal = "; ".join(f"{'.'.join(str(p) for p in e.get('loc') or []) or '(the document)'}: {e.get('msg', '')}" for e in errors) or "invalid"  # fmt: skip
         return DryRun(kind=kind, by="portal", ran=True, refusal=_one_line(refusal, 600), errors=errors)  # fmt: skip
 
     def schema(self, kind: str) -> Json:
         """The kind's form as the portal binds it (a recipe's steps and measure: the registry's); raises on no answer."""
-        r = self.http.get(f"{self.base_url}/api/analysis/schema/{kind}", timeout=30.0)
+        r = self.http.get(
+            f"{self.base_url}/api/analysis/schema/{kind}", timeout=SCHEMA_TIMEOUT_S
+        )
         r.raise_for_status()
         return r.json()
 

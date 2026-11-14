@@ -93,6 +93,15 @@ def test_without_an_answer_the_form_is_the_documents_own_schema_and_says_why(roo
         assert (dry["by"], dry["ran"], dry["refusal"]) == ("portal", False, None)
 
 
+def test_an_answer_that_is_not_the_portals_is_a_dry_run_that_did_not_run(root: Path) -> None:  # fmt: skip
+    """Something else on the portal's URL (a proxy page, the wrong port) is a note on the save, never a 500."""
+    page = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html>sign in</html>")), base_url=PORTAL)  # fmt: skip
+    settings = Settings(configs_root=root, experiment="Bench", portal_url=PORTAL)
+    with TestClient(create_app(settings, portal_http=page)) as client:
+        dry = client.post("/api/dry-run/analysis_recipe?id=Ns/UC_Crop.yaml", json={"document": {}})  # fmt: skip
+        assert dry.status_code == 200 and (dry.json()["ran"], dry.json()["refusal"]) == (False, None)  # fmt: skip
+
+
 def test_the_dry_run_is_the_portals_validate(browsing: TestClient) -> None:
     doc = _stored(browsing)["document"]
     ok = browsing.post("/api/dry-run/analysis_recipe?id=Ns/UC_Crop.yaml", json={"document": doc}).json()  # fmt: skip
@@ -104,7 +113,9 @@ def test_the_dry_run_is_the_portals_validate(browsing: TestClient) -> None:
 
 def test_a_group_naming_no_diagnostic_is_refused(browsing: TestClient) -> None:
     bad = browsing.post("/api/dry-run/analysis_group?id=base.yaml", json={"document": {"name": "base", "analyzers": ["UC_Crop", "nope"]}}).json()  # fmt: skip
-    assert bad["errors"] == [{"loc": ["analyzers", 1, "ref"], "msg": "unknown diagnostic 'nope'"}]  # fmt: skip
+    assert [(e["loc"], "'nope'" in e["msg"]) for e in bad["errors"]] == [
+        (["analyzers", 1, "ref"], True)
+    ]  # the loader's own message
 
 
 def test_a_save_the_portal_refuses_never_commits(committing: TestClient, origin: Path) -> None:  # fmt: skip

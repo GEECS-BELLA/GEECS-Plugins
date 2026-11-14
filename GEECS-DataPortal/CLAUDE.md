@@ -393,10 +393,13 @@ dry run of a draft, never written: the model, a recipe's
 for a recipe or job with an `id` (below `analyzers/`) a stem another file
 of the tree holds (the loader, `discover_diagnostics`, refuses duplicates
 across every facility folder, so a duplicate would break every run by
-name), for a group every reference naming a diagnostic. `POST
+name), for a group the loader's own resolution (`resolve_group`: every
+reference names a diagnostic that loads, none twice). `POST
 /api/analysis/preview` / `/preview/summary` draw an unsaved recipe on this
 scan (the routes the old editor's previews called, below; the same
-functions). With `--configurator-browser-url` (`configurator` in the page
+functions; they exist wherever the processing feature does, unauthenticated
+like the run verb, and a preview may start a measure's service, the FROG
+DLL or WaveKit, and reads at most 8 shots). With `--configurator-browser-url` (`configurator` in the page
 and the `/api/run/{uid}` payload; `kind` on each run listing row) the
 Analysis tab's **edit** opens the document in the configurator's embedded
 editor (`openInConfigurator` in `run.html`: the theme's `kit.js` and

@@ -31,28 +31,32 @@ from geecs_portal.state import PortalState, get_state
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-#: The analysis kinds this portal checks: GEECS-Schemas' registry names.
-KINDS = ("analysis_recipe", "himg_job", "analysis_group")
 #: A draft as JSON: validated by its kind's model, never trusted here.
 Json = dict[str, Any]  # Any: the draft before validation
 
 
-def _models() -> dict[str, Any]:  # Any: the kind's pydantic model class
-    from geecs_schemas.analysis import AnalysisGroup, AnalysisRecipe, HimgJob
+def _kinds() -> dict[str, Any]:  # Any: the kind's storage row (a FileStorage)
+    """The analysis kinds this portal checks: every file kind GEECS-Schemas keeps in the analysis root.
 
-    return {
-        "analysis_recipe": AnalysisRecipe,
-        "himg_job": HimgJob,
-        "analysis_group": AnalysisGroup,
-    }
+    Imported here, not at module load: GEECS-Schemas comes with the
+    ``analysis`` extra, which the route's gate has already checked.
+    """
+    from geecs_schemas import KIND_STORAGE, FileStorage
+
+    return {k: s for k, s in KIND_STORAGE.items() if isinstance(s, FileStorage) and s.root == "analysis"}  # fmt: skip
 
 
 def _kind(kind: str) -> str:
-    if kind not in KINDS:
-        raise HTTPException(
-            404, f"no analysis kind {kind!r} (one of {', '.join(KINDS)})"
-        )
+    kinds = _kinds()
+    if kind not in kinds:
+        raise HTTPException(404, f"no analysis kind {kind!r} (one of {', '.join(kinds)})")  # fmt: skip
     return kind
+
+
+def _model(kind: str) -> Any:  # Any: the kind's pydantic model class
+    from geecs_schemas import SCHEMA_REGISTRY
+
+    return SCHEMA_REGISTRY[kind]
 
 
 def _root(portal: PortalState) -> Path:
@@ -102,39 +106,45 @@ def _stem_errors(root: Path, doc_id: str | None) -> list[Json]:
 
 
 def _ref_errors(root: Path, group: Any) -> list[Json]:  # Any: an AnalysisGroup
-    """A group's references that name no diagnostic in the tree."""
-    from geecs_data_utils.analysis_configs import discover_diagnostics
+    """Why a run could not load the group: the loader's own resolution (``resolve_group``), never a copy of it.
+
+    It refuses a reference no diagnostic answers to, a reference given
+    twice, and a referenced diagnostic that does not load; the error is
+    placed on the reference it names, else on the list.
+    """
+    from scan_analysis.config.analysis_group_loader import discover_analyzers, resolve_group  # fmt: skip
 
     try:
-        known = set(discover_diagnostics(root))
-    except FileNotFoundError:
-        known = set()
-    except ValueError as exc:
-        return [{"loc": [], "msg": str(exc)}]
-    return [
-        {"loc": ["analyzers", i, "ref"], "msg": f"unknown diagnostic {ref.ref!r}"}
-        for i, ref in enumerate(group.analyzers)
-        if ref.ref not in known
-    ]
+        resolve_group(group, discover_analyzers(root))
+    except FileNotFoundError:  # no analyzers/ folder: every reference is unknown
+        return [{"loc": ["analyzers", i, "ref"], "msg": f"unknown diagnostic {ref.ref!r}"} for i, ref in enumerate(group.analyzers)]  # fmt: skip
+    except (ValueError, KeyError, OSError) as exc:
+        msg = str(exc).split(". Known IDs:")[0]
+        named = [i for i, ref in enumerate(group.analyzers) if f"'{ref.ref}'" in msg]
+        return [{"loc": ["analyzers", named[-1], "ref"] if named else ["analyzers"], "msg": msg}]  # fmt: skip
+    return []
 
 
 def validate_document(root: Path, kind: str, document: Json, doc_id: str | None = None) -> Json:  # fmt: skip
     """The consumer's check of a draft: ``{"ok", "errors": [{"loc": [...], "msg"}]}``; nothing is written."""
+    from geecs_schemas.analysis import AnalysisGroup, AnalysisRecipe
+    from geecs_schemas.analysis.document import ANALYZERS_FOLDER
     from pydantic import ValidationError
 
     try:
-        model = _models()[kind].model_validate(document)
+        model = _model(kind).model_validate(document)
     except ValidationError as exc:
         errors = [{"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()]
         return {"ok": False, "errors": errors}
-    if kind == "analysis_group":
-        errors = _ref_errors(root, model)
-    else:
-        errors = _stem_errors(root, doc_id)
-        if kind == "analysis_recipe":
-            from geecs_analysis.recipe import binding_errors
+    errors = []
+    if isinstance(model, AnalysisRecipe):
+        from geecs_analysis.recipe import binding_errors
 
-            errors = binding_errors(model) + errors
+        errors += binding_errors(model)
+    if isinstance(model, AnalysisGroup):
+        errors += _ref_errors(root, model)
+    if _kinds()[kind].folder == ANALYZERS_FOLDER:  # run by stem: unique across the tree
+        errors += _stem_errors(root, doc_id)
     return {"ok": not errors, "errors": errors}
 
 
@@ -146,7 +156,7 @@ def analysis_schema(kind: str, portal: PortalState = Depends(get_state)) -> JSON
         from geecs_analysis.recipe import recipe_schema
 
         return JSONResponse(recipe_schema())
-    return JSONResponse(_models()[kind].model_json_schema())
+    return JSONResponse(_model(kind).model_json_schema())
 
 
 @router.post("/api/analysis/validate/{kind}")

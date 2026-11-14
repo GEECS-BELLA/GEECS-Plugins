@@ -31,7 +31,9 @@ its design is `Planning/configurator.md`, its record the tracking issue
   `DEPLOYMENT.md`. Pinned by `tests/test_facilities.py`.
 - **Nothing is applied that did not validate.** Every fast-forward of the
   live checkout passes the gate (`service.CommitPath.accept`): the
-  documents changed since the live commit must validate
+  documents changed since the live commit must validate, and a changed
+  document of the analyzers tree must not share its stem with another file
+  there (a run loads it by stem, across every facility folder)
   (`validation.problems`, the one rule the configs repo's CI runs too, from
   `deploy/configs-repo/validate.yml`). A refused commit is fetched, logged
   once, and blocks every save, every inbox publish and every retry
@@ -147,8 +149,9 @@ its design is `Planning/configurator.md`, its record the tracking issue
   preset mini; the portal's Analysis tab (its `preview` a promise of the
   unsaved recipe drawn on the scan, its `toolbar` the shot and the name; a
   page off the kit gets the drawer in a `.kit` wrapper of its own).
-- **One save flow.** `embed.js`'s `saveFlow` is the only save in the
-  browser: the embedded drawer and this service's own page
+- **One save flow.** `embed.js`'s `saveFlow` is the save of an existing
+  document in the browser: the embedded drawer and this service's own page
   (`configurator.js`, which loads `embed.js` first) both save through it,
   each with its own elements and document state. A change to what a save
-  asks, sends or shows is made there once.
+  asks, sends or shows is made there once. (Saving a captured setup as a new
+  document is the setups surface's own `PUT` with `create`, `setups.js`.)

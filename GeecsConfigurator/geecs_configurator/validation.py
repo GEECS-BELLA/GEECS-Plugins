@@ -21,9 +21,10 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Iterable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from geecs_schemas import KIND_STORAGE, FileStorage
+from geecs_schemas.analysis.document import ANALYZERS_FOLDER
 
 from geecs_configurator.store import DocumentStore, NotFound
 
@@ -48,19 +49,38 @@ def documents(store: DocumentStore) -> dict[str, tuple[str, str | None, str]]:
     return out
 
 
+def _run_by_stem(known: dict[str, tuple[str, str | None, str]]) -> dict[str, set[str]]:
+    """The analyzers tree's documents by file stem: a run loads one by its stem, across every facility folder."""
+    out: dict[str, set[str]] = {}
+    for path, (kind, _, _) in known.items():
+        storage = KIND_STORAGE[kind]
+        if isinstance(storage, FileStorage) and storage.root == "analysis" and storage.folder == ANALYZERS_FOLDER:  # fmt: skip
+            out.setdefault(PurePosixPath(path).stem, set()).add(path)
+    return out
+
+
 def problems(root: Path, paths: Iterable[str]) -> list[str]:
-    """``"<path>: <first error>"`` for each changed path that is a document and does not validate."""
+    """``"<path>: <first error>"`` for each changed path that is a document and does not validate.
+
+    A changed document of the analyzers tree whose file stem another file
+    there also has is a problem too: the loader refuses a tree with two
+    (every run by name fails), whichever box or pull request brought it.
+    """
     store = DocumentStore(root)
     known = documents(store)
+    stems = _run_by_stem(known)
     out = []
     for path in paths:
         if path in known:
             kind, experiment, doc_id = known[path]
             loaded = store.read(kind, experiment, doc_id)
+            twins = sorted(stems.get(PurePosixPath(path).stem, set()) - {path})
             if not loaded.valid:
                 out.append(
                     f"{path}: {loaded.errors[0].msg if loaded.errors else 'invalid'}"
                 )
+            elif twins and path in stems.get(PurePosixPath(path).stem, set()):
+                out.append(f"{path}: its stem is also {twins[0]}'s; diagnostic stems are unique across the analyzers tree")  # fmt: skip
     return out
 
 

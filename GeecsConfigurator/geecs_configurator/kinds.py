@@ -85,7 +85,7 @@ DRY_RUNS: dict[str, str] = {
     "setup": "the scanner's preview: the flattened steps and the hazard confirms (GET /api/setups/{name})",
     "analysis_recipe": "the portal's validate: the recipe bound to the analysis core's registry, its stem unique in the analyzers tree",
     "himg_job": "the portal's validate: the job's stem unique in the analyzers tree",
-    "analysis_group": "the portal's validate: every reference names a diagnostic in the tree",
+    "analysis_group": "the portal's validate: a run can load it (every reference names a diagnostic that loads, none twice)",
 }
 
 

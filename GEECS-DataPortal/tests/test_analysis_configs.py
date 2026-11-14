@@ -148,7 +148,9 @@ class TestValidate:
         client = _client(scan_folder, configs_tree)
         assert _validate(client, "analysis_group", {"name": "g", "analyzers": ["UC_Crop"]}).json()["ok"]  # fmt: skip
         out = _validate(client, "analysis_group", {"name": "g", "analyzers": ["UC_Crop", "nope"]}).json()  # fmt: skip
-        assert out == {"ok": False, "errors": [{"loc": ["analyzers", 1, "ref"], "msg": "unknown diagnostic 'nope'"}]}  # fmt: skip
+        assert out["ok"] is False and [(e["loc"], "'nope'" in e["msg"]) for e in out["errors"]] == [(["analyzers", 1, "ref"], True)]  # fmt: skip
+        twice = _validate(client, "analysis_group", {"name": "g", "analyzers": ["UC_Crop", "UC_Crop"]}).json()  # fmt: skip
+        assert twice["ok"] is False and twice["errors"][0]["loc"] == ["analyzers", 1, "ref"] and "duplicate" in twice["errors"][0]["msg"]  # fmt: skip
 
     def test_validate_writes_nothing(self, scan_folder, configs_tree):
         before = {p: p.read_bytes() for p in configs_tree.rglob("*") if p.is_file()}
