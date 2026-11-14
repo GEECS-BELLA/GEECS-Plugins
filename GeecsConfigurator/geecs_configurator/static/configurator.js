@@ -154,12 +154,13 @@
   var copySent = null, deleteSent = null;
   function editedSince(sent) { return JSON.stringify(form.value()) !== JSON.stringify(sent); }
   var copy = GeecsConfigurator.copyFlow(Object.assign({}, ctx, { copied: function (newId) {
-    if (!editedSince(copySent)) { setTimeout(function () { location.href = page(newId); }, 1200); return; }
+    // checked again when it goes: an edit typed while the note shows is kept too
+    if (!editedSince(copySent)) { setTimeout(function () { if (!editedSince(copySent)) location.href = page(newId); }, 1200); return; }
     var p = el("p", {}, "You edited this document while the copy saved: those edits are still in the form, unsaved. The copy: ");
     p.appendChild(el("a", { href: page(newId) }, newId)); $("#result").appendChild(p);
   } }));
   var remove = GeecsConfigurator.deleteFlow(Object.assign({}, ctx, { host: document.body, deleted: function (b) {
-    if (b.outcome !== "committed") return;
+    if (b.outcome === "proposed") return;  // the file is still on main
     saveBtn.disabled = true; $("#copy-delete").hidden = true;
     var later = editedSince(deleteSent);  // the file is gone; an edit made since is kept in view (YAML exports it), never reset
     form = GeecsForm.mount($("#form"), { schema: schema, value: later ? form.value() : stored, readOnly: true });

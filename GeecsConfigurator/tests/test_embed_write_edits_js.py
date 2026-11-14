@@ -98,6 +98,17 @@ global.fetch = (url, init) => {
     await pressSave();
     const put = sent.filter((s) => s[0] === "PUT").slice(-1)[0];
     out.saveAfterDelete = [put[2].create, put[2].etag, put[2].document.description]; });
+  // with no edit since, each write's answer follows it: the copy opens, the deleted form is gone
+  await run("copyUnedited", async () => { await reopen();
+    walk(drawer(), (n) => n.tagName === "INPUT" && n.attrs["aria-label"] === "the copy's name")[0].value = "low_copy2";
+    button(drawer(), "Save as a copy")[0].on.click(); await settle(); await release();
+    out.copyUnedited = [title(), heard.slice(-1)[0]]; });
+  await run("deleteUnedited", async () => { await reopen();
+    button(drawer(), "Delete…")[0].on.click(); await settle();
+    const dlg = walk(document.body, (n) => n.tagName === "DIALOG").slice(-1)[0];
+    const typed = walk(dlg, (n) => n.tagName === "INPUT")[0]; typed.value = "low_power"; typed.on.input();
+    button(dlg, "Delete low_power")[0].on.click(); await settle(); await release();
+    out.deleteUnedited = [field() ? "form kept" : "form gone", heard.slice(-1)[0]]; });
   console.log(JSON.stringify(out));
 })().catch((e) => { console.error(e); process.exit(1); });
 """
@@ -142,3 +153,12 @@ def test_an_edit_made_while_a_delete_was_on_its_way_stays_as_a_new_document(ran:
         "",
         "later, the delete",
     ]  # Save creates it again, with the edit
+
+
+def test_with_no_edit_since_the_answer_is_followed(ran: dict) -> None:
+    """The other half of each comparison: an unedited copy opens the copy, an unedited delete clears the form."""
+    assert ran["copyUnedited"] == ["setup · low_copy2.yaml", ["committed", "low_copy2.yaml", False]]  # fmt: skip
+    assert ran["deleteUnedited"] == [
+        "form gone",
+        ["committed", "low_power.yaml", False],
+    ]

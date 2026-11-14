@@ -445,7 +445,7 @@
         var copy = copyFlow(Object.assign({}, ctx, { copied: function (newId, b) {
           var later = edited_since(copySent);
           if (opts.onSaved) opts.onSaved(b, newId, { unsaved: later });
-          if (!open_()) return;
+          if (!open_() || b.outcome !== "committed") return;  // a proposed copy is not on main yet: nothing to open
           if (!later) { open(Object.assign({}, opts, { id: newId, note: "Saved as a copy of " + docId + " by " + b.author + "." })); return; }
           status.appendChild(banner("You edited " + docId + " while the copy saved: those edits are still in this form, unsaved; the copy is " + newId + ".", "stale"));
         } }));
@@ -453,14 +453,15 @@
           var later = edited_since(deleteSent);
           if (opts.onSaved) opts.onSaved(b, docId, { unsaved: later });
           if (!open_()) return;
-          if (later && b.outcome === "committed") {
+          var gone = b.outcome !== "proposed";  // committed, or "nothing to do": the file is not on main
+          if (later && gone) {
             // the file is gone, the edit is not: the form becomes a new document at the same id (Save creates it again)
             isNew = true; etag = ""; titleEl.textContent = opts.kind + " · " + docId + " (new)";
             if (more && more.parentNode) more.parentNode.removeChild(more);
             status.appendChild(banner("You edited the form while it was deleted: those edits are still in it, unsaved; Save creates " + docId + " again with them.", "stale"));
             return;
           }
-          if (b.outcome !== "committed") return;  // a proposal: the file is still on main, the form as it is
+          if (!gone) return;  // a proposal: the file is still on main, the form as it is
           current = null; form = null;  // the document is gone: opened again, it asks again
           fill(host, [status]);
         } }));
