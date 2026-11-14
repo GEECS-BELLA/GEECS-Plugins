@@ -155,6 +155,26 @@ def test_the_launcher_disables_what_is_missing_with_the_reason(settings: Setting
     assert launcher(s).state == "empty"
 
 
+def test_the_launcher_opens_the_configurator_on_this_experiments_documents(settings: Settings, module: ModuleClient) -> None:  # fmt: skip
+    """The config editor link, Edit layout and a screen's Edit screen: links to the configurator, never its API."""
+    assert settings.editor_url("screen", "x.yaml") == ""  # not configured: no link
+    s = Settings(**{**settings.__dict__, "links": {"config_editor": "http://cfg.test:8800/"}})  # fmt: skip
+    assert s.editor_url() == "http://cfg.test:8800/?experiment=Bench"
+    assert s.editor_url("screen", "sim bench.yaml") == "http://cfg.test:8800/?experiment=Bench&kind=screen&id=sim+bench.yaml"  # fmt: skip
+    folder = s.experiment_dir
+    (folder / "screens").mkdir(parents=True)
+    (folder / "home.yaml").write_text("links: [config_editor]\n")
+    assert [e.href for e in launcher(s).links] == [
+        "http://cfg.test:8800/?experiment=Bench"
+    ]
+    with TestClient(create_app(s, module)) as c:
+        assert 'href="http://cfg.test:8800/?experiment=Bench&amp;kind=home_layout&amp;id=home.yaml"' in c.get("/").text  # fmt: skip
+        assert 'href="http://cfg.test:8800/?experiment=Bench&amp;kind=screen&amp;id=nope.yaml"' in c.get("/screens/nope").text  # fmt: skip
+    again = ModuleClient("http://canopy.test", "k", transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"devices": []})))  # fmt: skip
+    with TestClient(create_app(settings, again)) as c:
+        assert "Edit layout" not in c.get("/").text and "Edit screen" not in c.get("/screens/nope").text  # fmt: skip
+
+
 def test_settings_read_the_links_the_scanner_pair_included() -> None:
     env = {
         "GEECS_EXPERIMENT": "Bench",

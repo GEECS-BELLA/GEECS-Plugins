@@ -72,6 +72,8 @@ def test_the_trigger_profile_dry_run_is_the_scanners(scanner: Any, monkeypatch: 
 def test_the_readback_is_the_scanners(scanner: Any) -> None:
     status, body = _client(scanner).readback("U_S1H:current")
     assert status == 200 and "value" in body
+    # the capture's word re-read keys on this flag (setups._read): renamed there, every word goes unread
+    assert body["not_numeric"] is False
 
 
 def test_save_as_preset_commits_through_the_configurators_route(committing: TestClient, origin: Path) -> None:  # fmt: skip

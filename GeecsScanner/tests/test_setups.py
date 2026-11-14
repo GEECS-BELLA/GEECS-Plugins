@@ -74,6 +74,13 @@ def test_the_diff_reads_each_write_target_as_a_number_or_a_word(client: TestClie
     assert d["digest"] == client.get("/api/setups/low_power").json()["digest"]
 
 
+def test_the_readback_reads_a_word_when_asked(client: TestClient) -> None:
+    """The configurator's capture reads a word-valued variable as one (``word``)."""
+    r = client.get("/api/readback", params={"variable": "U_148_PLC:shutter1", "word": "true"})  # fmt: skip
+    assert r.json()["text"] == "off" and r.json()["value"] is None
+    assert client.get("/api/readback", params={"variable": "U_148_PLC:shutter1"}).json()["text"] is None  # fmt: skip
+
+
 # ----------------------------------------------------------------- apply
 
 

@@ -23,7 +23,7 @@
    absolute http:// URL is a mixed-content block. #}
 <link rel="stylesheet" href="{{ url_for('scanner_static', path='scanner.css').path }}">
 </head>
-<body class="kit" data-root="{{ root }}" data-experiment="{{ experiment }}" data-identity="{{ identity }}" data-portal="{{ portal }}">
+<body class="kit" data-root="{{ root }}" data-experiment="{{ experiment }}" data-identity="{{ identity }}" data-portal="{{ portal }}" data-configurator="{{ configurator }}">
 
 <header class="topbar">
   <div class="topbar-in">
@@ -228,6 +228,7 @@
           <span class="dim note" id="preset-name"></span>
           <span class="dim note" id="presets-note"></span>
           <select id="preset" class="preset-load" aria-label="Load a preset"><option value="" disabled selected>Loading presets…</option></select>
+          {% if configurator %}<button class="btn" type="button" id="btn-edit-preset" disabled title="Load a preset to edit its settings in the configurator">Edit preset…</button>{% endif %}
           <button class="btn" type="button" data-drawer-open="drw-preset" id="btn-save-preset" disabled>Save as preset…</button>
           <label class="dim note" title="Ask for the scan title (the description) before each Start; remembered in this browser"><input type="checkbox" id="confirm-title" checked> confirm title</label>
           <button class="btn" type="button" id="btn-append" disabled title="Append to the end of the queue; no title dialog">Add to Queue</button>
@@ -506,5 +507,8 @@
 <script src="{{ url_for('scanner_static', path='sweep-composer.js').path }}" defer></script>
 <script src="{{ url_for('scanner_static', path='scanner.js').path }}" defer></script>
 <script src="{{ url_for('scanner_static', path='scan-log-list.js').path }}" defer></script>
+{% if configurator %}{# the embedded editor (the configurator's mount contract): the theme's form.js from this process, embed.js from the configurator #}
+<script src="{{ root }}/theme/form.js" defer></script>
+<script src="{{ configurator }}/static/embed.js" defer></script>{% endif %}
 </body>
 </html>

@@ -198,6 +198,23 @@ def test_presets_and_setups_are_dropdowns(client: TestClient) -> None:
     assert 'id="setup-steps"' in html
 
 
+def test_the_preset_mini_is_the_configurators_embedded_editor(client: TestClient, service) -> None:  # fmt: skip
+    """Edit preset… loads the configurator's embed.js and the theme's form.js; no configurator, no button."""
+    html = client.get("/").text
+    assert 'id="btn-edit-preset"' not in html and "embed.js" not in html
+    service.configurator_browser_url = "http://configurator.example:8800"
+    html = client.get("/").text
+    assert 'id="btn-edit-preset"' in html
+    assert (
+        '<script src="http://configurator.example:8800/static/embed.js" defer>' in html
+    )
+    assert '<script src="/theme/form.js" defer>' in html
+    assert 'data-configurator="http://configurator.example:8800"' in html
+    script = (Path(__file__).resolve().parents[1] / "geecs_scanner/static/scanner.js").read_text()  # fmt: skip
+    # the contract's call: the loaded preset, its settings only, this page's operator
+    assert 'GeecsConfigurator.open({ api: CONFIGURATOR, kind: "preset"' in script and "operator: operator" in script  # fmt: skip
+
+
 def test_move_panel_carries_the_kit_live_row(client: TestClient) -> None:
     """PR 5b: the picked variable's readback sits in a kit .live row, hidden until a pick."""
     html = client.get("/").text

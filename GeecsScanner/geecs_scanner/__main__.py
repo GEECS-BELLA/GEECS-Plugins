@@ -25,6 +25,7 @@ def build_service(
     demo_period: float,
     portal_url: str = "",
     configurator_url: str = "",
+    configurator_browser_url: str = "",
 ):
     """Assemble the service for real or demo mode."""
     from geecs_scanner.service import StreamCache, ScannerService
@@ -54,6 +55,7 @@ def build_service(
             preflight=demo_preflight,
             version=__version__,
             portal_url=portal_url,
+            configurator_browser_url=configurator_browser_url,
             settables=DemoSettables(),
             readback=DemoReadback(client),
             scan_log_list=ScanLogList(
@@ -84,6 +86,7 @@ def build_service(
         streams=streams,
         version=__version__,
         portal_url=portal_url,
+        configurator_browser_url=configurator_browser_url,
         scan_log_list=ScanLogList(FileListStore(default_state_dir() / FILE_NAME)),
         presets=ConfiguratorPresets(configurator_url, experiment)
         if configurator_url
@@ -125,6 +128,13 @@ def main() -> None:
         "presets are not saved from this scanner",
     )
     parser.add_argument(
+        "--configurator-browser-url",
+        default="",
+        help="the configurator as the browser reaches it (a site value): the preset "
+        "panel's Edit preset opens its embedded editor (the configurator lists this "
+        "scanner's origin in GEECS_CONFIGURATOR_CORS_ORIGINS); empty hides it",
+    )
+    parser.add_argument(
         "--demo",
         action="store_true",
         help="serve over an in-memory manager that runs scans by itself; contacts nothing",
@@ -151,6 +161,7 @@ def main() -> None:
         demo_period=args.demo_period,
         portal_url=args.portal_url,
         configurator_url=args.configurator_url,
+        configurator_browser_url=args.configurator_browser_url,
     )
     app = create_app(service, root_path=args.root_path)
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower())

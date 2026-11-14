@@ -559,6 +559,10 @@ class ReadbackOut(BaseModel):
         default=None, description="Now minus the reading's stamp"
     )
     detail: str = ""
+    not_numeric: bool = Field(
+        default=False,
+        description="The gateway answered, with a value that is not a number: read it as a word (never set for no answer)",
+    )
 
 
 class OptimizationOut(BaseModel):

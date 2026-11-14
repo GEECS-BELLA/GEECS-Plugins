@@ -272,7 +272,7 @@ def router(settings: Settings, embed: Embed) -> APIRouter:
             loaded.cause = f"the module's roster is incomplete ({error}): a DB device cannot be bound"  # fmt: skip
         keys = group_keys(loaded)
         groups = await embed(request.app.state.module, keys) if keys else {}
-        context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE, "spec_of": spec_of, "pair_values": pair_values, "pair": PAIR, "groups": groups}  # fmt: skip
+        context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE, "spec_of": spec_of, "pair_values": pair_values, "pair": PAIR, "groups": groups, "edit_url": settings.editor_url("screen", f"{name}.yaml")}  # fmt: skip
         templates = request.app.state.templates
         return templates.TemplateResponse(
             request, "screen.html", context, status_code=loaded.status
