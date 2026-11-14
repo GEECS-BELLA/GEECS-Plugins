@@ -10,7 +10,7 @@ from its package data. Nothing here reads the GEECS DB.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +24,8 @@ from geecs_schemas import (
     NativeDevices,
     PanelDevices,
     Role,
+    SetpointDevice,
+    SetpointSettable,
     load_families,
 )
 
@@ -133,6 +135,8 @@ class NativeSource:
         prefix = panel.prefix if panel is not None and panel.prefix else derived
         family = self.families[template]
         roles = panel.resolve(family) if panel is not None else family.roles
+        if isinstance(entry, SetpointDevice):
+            roles = _with_tolerances(roles, entry.settables)
         axes: list[str] = []
         if family.per_axis:
             axes = entry.axes if isinstance(entry, EpicsMotor) else (panel.axes or [])
@@ -146,6 +150,30 @@ class NativeSource:
             name, template, prefix, tuple(axes), tuple(roles), tuple(actions), ioc,
             frozenset(writable),
         )  # fmt: skip
+
+
+def _with_tolerances(
+    roles: Iterable[Role], settables: Mapping[str, SetpointSettable]
+) -> list[Role]:
+    """Each settable's registry tolerance on the setpoint role written for it.
+
+    The registry holds one tolerance per settable, by its readback record:
+    how close the readback must come for a scan's set to be done. A page
+    judges a settled write by the same number, so a device has one.
+    """
+    roles = list(roles)
+    by_record = {r.suffix: r.name for r in roles}
+    tolerance = {
+        by_record[record]: settable.tolerance
+        for record, settable in settables.items()
+        if record in by_record
+    }
+    return [
+        r.model_copy(update={"tolerance": tolerance[r.readback], "tolerance_by": None})
+        if r.type == "setpoint" and r.readback in tolerance
+        else r
+        for r in roles
+    ]
 
 
 def _listed(device: Resolved) -> Device:

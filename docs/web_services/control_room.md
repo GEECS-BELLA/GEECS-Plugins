@@ -456,9 +456,10 @@ supply's current) is drawn the same way.
 - **`differs`** appears after a write of yours has settled (a second after
   the module accepted it, and for a motor once it has stopped moving) when
   `now` is further from `set` than the device's tolerance: the motor's
-  retry deadband, a native supply's from its family (5 mA for an
-  EasyDriver, 10 mA for a FAST-PS), a GEECS device's tolerance from the
-  GEECS database, else one step in the last digit the device shows. It
+  retry deadband, a registered supply's set tolerance from the device
+  registry (the number a scan's set is confirmed with), a GEECS device's
+  tolerance from the GEECS database, else one step in the last digit the
+  device shows. It
   means the device did not get where you asked (a value it clamped, a
   motor that stopped short, a supply still ramping). It goes away when the
   two agree again. While the page cannot reach the module it is hidden,

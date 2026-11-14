@@ -5,7 +5,7 @@ import math
 
 import httpx
 import pytest
-from geecs_schemas import JournalEntry
+from geecs_schemas import JournalEntry, load_families
 
 from geecs_canopy import canopy_surface
 from geecs_canopy.gates import PutRequest, put_role
@@ -119,6 +119,22 @@ async def test_a_never_processed_record_is_unknown_not_error(env):
     body, by_role = await roles(env, "ps1")
     assert by_role[("current_sp", None)]["verdict"] == "unknown"  # UDF: no value yet
     assert by_role[("current", None)]["verdict"] == "live"
+
+
+async def test_a_registered_supplys_setpoint_carries_the_registrys_tolerance(env):
+    registry = env.folder / "native_devices.yaml"
+    registry.write_text(
+        registry.read_text()
+        + "  ps2:\n    kind: setpoint_device\n    settables:\n      current: {tolerance: 0.005}\n"
+    )
+    _, registered = await roles(env, "ps2")
+    # the number a scan's set is confirmed with is the one a page judges a write by
+    assert registered[("current_sp", None)]["tolerance"] == 0.005
+    assert registered[("current", None)]["tolerance"] is None
+    _, bench = await roles(env, "ps1")  # outside the registry: no settable, no number
+    assert bench[("current_sp", None)]["tolerance"] is None
+    # the installed family is shared process-wide and stays as packaged
+    assert load_families()["easydriver"].role("current_sp").tolerance is None
 
 
 async def test_nan_travels_as_null(env):

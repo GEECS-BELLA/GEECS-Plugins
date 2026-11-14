@@ -194,7 +194,8 @@ class SetpointSettable(SchemaModel):
         description=(
             "How close the readback must come to the requested value for the "
             "set to be done, in the record's units (e.g. 0.005 for 5 mA on a "
-            "supply in A). The one device fact a plain 'ao' record cannot hold."
+            "supply in A). The one device fact a plain 'ao' record cannot hold; "
+            "a page marks a settled write as differing by the same number."
         ),
     )
     timeout: PositiveFloat = Field(

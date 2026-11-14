@@ -532,9 +532,12 @@ GeecsCanopy's own module, in `test_module_contract.py`.
   (`device_rules.settleMark`), so the mark returns with the route; pinned by
   running `device_rail.js` itself over a fake page in
   `test_device_rules_js.py`. The tolerance is the role's `tolerance`
-  (a number: the family's, or a DB device's DB `tolerance`, its
-  set-convergence criterion, which GeecsCanopy's gateway source puts on the
-  role and the module's route serves), else its `tolerance_by` role's value
+  (a number the module's route serves: a registered supply's set tolerance
+  from the device registry, `native_devices.yaml`'s `settables`, the number
+  a scan's set is confirmed with, put on the setpoint role by GeecsCanopy's
+  native source; a DB device's DB `tolerance`, its set-convergence
+  criterion, by its gateway source; a family's own where it states one),
+  else its `tolerance_by` role's value
   (the motor's `rdbd`, the record's own retry deadband), else one unit in the last digit of the
   measured record's precision (Hare's meta), else exact (a whole number, or
   no precision). The page judges its own writes only: another client's

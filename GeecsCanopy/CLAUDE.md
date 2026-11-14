@@ -98,7 +98,10 @@ deploy/
   binds) and `panel_devices.yaml` (panel data) stay two documents, joined
   by device name here; a device in both names one family in both, which
   only a reader of both can enforce (`native.py`). Folding them is a push-2
-  decision.
+  decision. A registered setpoint device's `settables` tolerance (how close
+  the readback must come for a scan's set to be done) is put on the setpoint
+  role the settable is written at, so the route serves one number per
+  device for a scan and a page alike; no family file states a supply's.
 - **The GEECS DB is transitional.** It enters Canopy in `gateway.py` alone
   (`elementType=gateway`), with the gateway's own read-only queries and a
   read-only MySQL user from the secrets file, never a `config.ini`. It is

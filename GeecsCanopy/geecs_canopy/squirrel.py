@@ -69,7 +69,8 @@ class Entry:
 def derive(devices: Iterable[Resolved]) -> dict[str, Entry]:
     """Every writable, non-command role of every device, by setpoint address.
 
-    Tolerance is 0 (exact) until the family role or the DB row carries one.
+    Tolerance is 0 (exact): carrying a role's own (the registry's, a DB
+    row's) into the registry is owed.
     A ``command`` is a family role's word: a DB device's settables are all
     setpoints or enums to the gateway source, so a LabVIEW "button" variable
     is a registry row too (the DB has no mark to exclude it by).

@@ -727,7 +727,7 @@ One settable of a setpoint device: how close its readback must come, and how soo
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `tolerance` | `float` | yes | — | How close the readback must come to the requested value for the set to be done, in the record's units (e.g. 0.005 for 5 mA on a supply in A). The one device fact a plain 'ao' record cannot hold. |
+| `tolerance` | `float` | yes | — | How close the readback must come to the requested value for the set to be done, in the record's units (e.g. 0.005 for 5 mA on a supply in A). The one device fact a plain 'ao' record cannot hold; a page marks a settled write as differing by the same number. |
 | `timeout` | `float` | no | 10.0 | Seconds the set waits for the readback to arrive within the tolerance after the write, before it fails. Size it for the slowest ramp plus the readback's scan period. |
 
 ### Witness
