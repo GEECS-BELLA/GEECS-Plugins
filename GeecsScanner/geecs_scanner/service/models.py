@@ -412,7 +412,15 @@ class SetupDiffRow(BaseModel):
     reading: Optional[Any] = Field(default=None, description="The readback now")
     ok: bool = Field(default=False, description="Whether the readback answered")
     will_change: Optional[bool] = Field(
-        default=None, description="Whether the readback differs; null when unread"
+        default=None,
+        description=(
+            "Whether the readback differs from the value exactly (a word by equality); "
+            "null when unread. A set step carries no tolerance, so a noisy readback "
+            "differs: read 'difference'"
+        ),
+    )
+    difference: Optional[float] = Field(
+        default=None, description="Reading minus value, for a number read as one"
     )
     detail: str = ""
 

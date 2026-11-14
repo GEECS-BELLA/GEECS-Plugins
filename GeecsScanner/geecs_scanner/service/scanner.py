@@ -760,6 +760,8 @@ class ScannerService:
                     reading.text if reading.text is not None else reading.value
                 )
                 row.will_change = not setup_value_matches(step.value, row.reading)
+                if reading.value is not None and not isinstance(step.value, str):
+                    row.difference = reading.value - float(step.value)
             rows.append(row)
         return SetupDiffOut(
             name=name,

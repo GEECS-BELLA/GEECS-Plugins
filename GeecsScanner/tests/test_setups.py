@@ -67,6 +67,8 @@ def test_the_diff_reads_each_write_target_as_a_number_or_a_word(client: TestClie
     rows = {r["variable"]: r for r in d["rows"]}
     assert rows["current"]["reading"] == 0.0 and rows["current"]["will_change"] is False
     assert rows["Jet pressure"]["will_change"] is True
+    assert rows["Jet pressure"]["difference"] == -2.0  # read 0.0, writes 2.0
+    assert rows["shutter1"]["difference"] is None  # a word has none
     assert rows["shutter1"]["reading"] == "off"  # read as a word
     assert (d["changes"], d["unread"]) == (1, 0)
     assert d["digest"] == client.get("/api/setups/low_power").json()["digest"]
