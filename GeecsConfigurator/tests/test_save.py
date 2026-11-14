@@ -11,7 +11,9 @@ from conftest import FakePullRequests, files_of, git, push_change
 from fastapi.testclient import TestClient
 
 from geecs_configurator.repository import ConfigsRepository, GitError
-from geecs_configurator.save import CONVERTED, FOLLOWS_SERVED
+from test_yaml_edit import GOLDEN, NEW_VARIABLE
+
+from geecs_configurator.save import CONVERTED, FOLLOWS_SERVED, REWRITTEN
 from geecs_configurator.store import content_etag
 
 B = "?experiment=Bench"
@@ -193,7 +195,14 @@ def test_where_file_and_served_form_disagree_the_save_follows_the_served_form(co
     )
     saved = _put(committing, "setup", "dated_text.yaml", _slower(doc["document"]), doc["etag"]).json()  # fmt: skip
     assert saved["outcome"] == "committed" and FOLLOWS_SERVED in saved["notes"]
+    assert not any(
+        n.startswith(REWRITTEN) for n in saved["notes"]
+    )  # spliced, quoted in place
     text = git("show", f"main:{SETUPS}/dated_text.yaml", cwd=origin)
+    assert (
+        text
+        == "name: dated_text\ndescription: '2026-11-10'\nsteps:\n  - {do: wait, seconds: 9}"
+    )
     assert (
         "description: '2026-11-10'" in text
     )  # written quoted: the file now reads as validated
@@ -323,3 +332,47 @@ def test_refusals_before_any_git(committing: TestClient, client: TestClient) -> 
     assert invalid.status_code == 422 and invalid.json()["detail"]["errors"][0]["loc"] == ["steps"]  # fmt: skip
     # the read-only service (no repository) has no save
     assert client.put(f"/api/documents/setup/low_power.yaml{B}", json={"document": {}, "etag": "x", "operator": "Ada"}).status_code == 405  # fmt: skip
+
+
+VARIABLES = "scanner_configs/experiments/Bench/scan_devices/scan_variables.yaml"
+
+
+@pytest.mark.parametrize("nl", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_a_save_changes_only_the_text_of_what_changed(committing: TestClient, origin: Path, other: Path, nl: str) -> None:  # fmt: skip
+    golden = GOLDEN.replace("\n", nl)
+    push_change(other, VARIABLES, golden, "a hand-written file")
+    doc = _get(committing, "scan_variables", "scan_variables.yaml")
+    unchanged = _put(committing, "scan_variables", "scan_variables.yaml", doc["document"], doc["etag"]).json()  # fmt: skip
+    assert unchanged["outcome"] == "nothing to do"
+    draft = {**doc["document"], "variables": {**doc["document"]["variables"], "temp_test": NEW_VARIABLE}}  # fmt: skip
+    saved = _put(committing, "scan_variables", "scan_variables.yaml", draft, doc["etag"]).json()  # fmt: skip
+    assert saved["outcome"] == "committed" and saved["notes"] == []
+    written = subprocess.run(["git", "show", f"main:{VARIABLES}"], cwd=origin, capture_output=True, check=True).stdout  # fmt: skip
+    added = ["  temp_test:", "    target: U_ESP_JetXYZ:Positions.Axis1", "    kind: motor", "    description: test of the new configurator", ""]  # fmt: skip
+    assert written == (golden + nl.join(added)).encode(
+        "utf-8"
+    )  # the added lines, nothing else
+    assert git("diff", "--numstat", "main~1", "main", cwd=origin).split()[:2] == ["4", "0"]  # fmt: skip
+
+
+def test_an_untouched_bare_off_key_is_kept_as_written(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    doc = _get(committing, "trigger_profile", "bare_off.yaml")
+    draft = doc["document"]
+    draft["states"]["SCAN"][0]["value"] = "5.0"
+    saved = _put(committing, "trigger_profile", "bare_off.yaml", draft, doc["etag"]).json()  # fmt: skip
+    assert saved["outcome"] == "committed", saved
+    text = git("show", "main:scanner_configs/experiments/Bench/shot_control_configurations/bare_off.yaml", cwd=origin)  # fmt: skip
+    assert "\n  OFF:\n" in text and "value: '5.0'}" in text
+    assert _get(committing, "trigger_profile", "bare_off.yaml")["document"] == draft
+
+
+def test_a_change_that_cannot_be_placed_in_the_text_is_written_whole_and_says_so(committing: TestClient, origin: Path, other: Path) -> None:  # fmt: skip
+    push_change(other, f"{SETUPS}/aliased.yaml", "name: aliased\nsteps:\n  - &w {do: wait, seconds: 1}\n  - *w\n")  # fmt: skip
+    doc = _get(committing, "setup", "aliased.yaml")
+    saved = _put(committing, "setup", "aliased.yaml", _slower(doc["document"]), doc["etag"]).json()  # fmt: skip
+    assert saved["outcome"] == "committed" and any(n.startswith(REWRITTEN) for n in saved["notes"])  # fmt: skip
+    again = _get(committing, "setup", "aliased.yaml")
+    assert again["valid"] and [s["seconds"] for s in again["document"]["steps"]] == [
+        9,
+        9,
+    ]
