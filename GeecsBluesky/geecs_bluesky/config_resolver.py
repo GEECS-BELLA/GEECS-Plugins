@@ -302,9 +302,8 @@ class ConfigsRepoResolver:
 
     def optimizer_config_path(self, name: str) -> Path:
         """Return the optimizer config path; its seed dumps resolve relative to it."""
-        stem = yaml_stem(
-            name
-        )  # the references table reads a preset's optimizer config through it too
+        # the references table reads a preset's optimizer config through yaml_stem too
+        stem = yaml_stem(name)
         if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
             raise GeecsConfigurationError("optimizer config must be a file stem")
         return self._named_yaml_path(self.OPTIMIZER_FOLDER, stem)
