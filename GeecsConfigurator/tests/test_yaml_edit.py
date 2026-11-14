@@ -160,6 +160,14 @@ def test_a_list_item_s_first_keys_removed_together_leave_the_next_on_the_dash_s_
     )
 
 
+def test_a_list_item_replaced_by_a_mapping_sharing_no_key_is_rewritten_in_place() -> (
+    None
+):
+    text = "summaries:\n- kind: image_grid  # grid\n  panel_size: [6, 6]\n- kind: average\n"
+    out = patch(text, {"summaries": [{"k": "v", "n": [1, 2]}, {"kind": "average"}]})
+    assert out == "summaries:\n- k: v\n  n:\n  - 1\n  - 2\n- kind: average\n"
+
+
 def test_an_unedited_lowercase_boolean_key_stays_where_and_as_it_is() -> None:
     text = "states:\n  off:\n  - {device: A, value: '0.5'}\n  SCAN:\n  - {device: B, value: '1'}\n"
     draft = {"states": {"OFF": [{"device": "A", "value": "0.5"}], "SCAN": [{"device": "B", "value": "2"}]}}  # fmt: skip

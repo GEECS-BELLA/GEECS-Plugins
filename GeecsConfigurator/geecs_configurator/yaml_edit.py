@@ -294,7 +294,7 @@ class _Patch:
             return
         if id(node) in self.shared:
             raise Unpatchable("a change inside an anchored node that is aliased")
-        if isinstance(node, yaml.MappingNode) and isinstance(new, dict) and node.value and new:  # fmt: skip
+        if isinstance(node, yaml.MappingNode) and isinstance(new, dict) and node.value and new and (slot is None or self._shares_a_key(node, new)):  # fmt: skip
             self._mapping(node, new)
         elif isinstance(node, yaml.SequenceNode) and isinstance(new, list) and node.value and new:  # fmt: skip
             self._sequence(node, new)
@@ -302,6 +302,10 @@ class _Patch:
             raise Unpatchable("the whole document changes shape")
         else:
             self._replace(node, new, slot)
+
+    def _shares_a_key(self, node: yaml.MappingNode, new: dict[str, Json]) -> bool:
+        """Whether the draft keeps any of the mapping's keys (none kept: the mapping is rewritten whole in its slot)."""
+        return any(name in new for name in self._as_drafted(self._keys(node), new))
 
     # a slot: (start, end, column, flow) — the text that is the value, and the
     # column its owner (the key, or the list's dash) stands at; flow when the
