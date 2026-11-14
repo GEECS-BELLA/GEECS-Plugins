@@ -121,6 +121,7 @@ _SURFACES = [
     "GeecsControlRoom/geecs_control_room/static/device_rail.js",
     "GeecsControlRoom/geecs_control_room/static/device_rules.js",
     "GeecsConfigurator/geecs_configurator/templates/home.html",
+    "GeecsConfigurator/geecs_configurator/templates/log.html",
     "GeecsConfigurator/geecs_configurator/static/configurator.css",
     "GeecsConfigurator/geecs_configurator/static/configurator.js",
     "GeecsConfigurator/geecs_configurator/static/setups.js",

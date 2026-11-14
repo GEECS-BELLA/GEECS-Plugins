@@ -84,7 +84,7 @@ CONSUMERS: dict[str, list[Consumer]] = {
 DRY_RUNS: dict[str, str] = {
     "trigger_profile": "the scanner's preflight with the draft inline",
     "archive_policy": "geecs-archiver onboard --dry-run --policy <draft>",
-    "setup": "the scanner's preview: the flattened steps and the hazard confirms (GET /api/setups/{name})",
+    "setup": "none on a draft: the scanner checks a setup as committed (the page's Live panel: its diff against the readbacks, and the apply's hazard confirms)",
     "analysis_recipe": "the portal's validate: the recipe bound to the analysis core's registry, its stem unique in the analyzers tree",
     "himg_job": "the portal's validate: the job's stem unique in the analyzers tree",
     "analysis_group": "the portal's validate: a run can load it (every reference names a diagnostic that loads, none twice)",
