@@ -77,6 +77,14 @@ compile and run v3 recipes through it.
   folds differing camera axes index-wise — the legacy average's `nanmean`
   over each shot's axis — where every other measure's are refused; while
   none has moved the first result's axes are kept.
+- A frame dimensionality's **default measure** is declared at
+  registration (`@measure(..., default=True)`: `beam` for images, `line`
+  for traces; a second default for an ndim is refused at import), and
+  `registry.default_measure(ndim)` is the one lookup. A new recipe starts
+  from it (`recipe.blank_recipe(input_kind, name=...)`: its input, no
+  steps, that measure, validated and compiled; the input kinds and their
+  ndim are the schema's, `recipe.input_kinds()`), so an editor never lists
+  a measure by hand. Pinned for every input kind by `tests/test_recipe.py`.
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.

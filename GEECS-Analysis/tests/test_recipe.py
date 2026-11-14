@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from geecs_analysis.recipe import (
     RecipeError,
+    binding_errors,
     compile_recipe,
     figure_of,
     recipe_schema,
@@ -86,6 +87,51 @@ def test_binding_errors_are_at_the_documents_field(patch, loc):
     errors = binding_errors(recipe(**patch))
     assert errors and errors[0]["loc"][: len(loc)] == loc, errors
     assert binding_errors(recipe(steps=[{"step": "median", "kernel": 3}])) == []
+
+
+def _blank_input_fields(kind: str) -> dict:
+    """What an input kind needs beyond its kind, read off the schema (a trace's loading format)."""
+    from geecs_schemas.analysis.processing_1d import Data1DType
+
+    return {"loading": {"data_type": next(iter(Data1DType)).value}} if kind == "line" else {}  # fmt: skip
+
+
+def test_every_frame_kind_has_one_default_measure_and_its_blank_binds():
+    """A new recipe opens on a draft that compiles: for each input kind, its frames' default measure, no steps."""
+    from geecs_analysis.recipe import blank_recipe, input_kinds
+    from geecs_analysis.registry import default_measure, measure_definitions
+
+    kinds = input_kinds()
+    assert set(kinds.values()) == {1, 2}
+    for ndim in {1, 2}:
+        assert sum(1 for d in measure_definitions() if d.default and ndim in d.ndim) == 1  # fmt: skip
+    for kind, ndim in kinds.items():
+        doc = blank_recipe(kind, name="New_one", input_fields=_blank_input_fields(kind))
+        recipe = AnalysisRecipe.model_validate(doc)
+        assert binding_errors(recipe) == [] and recipe.steps == []
+        assert (doc["output_name"], doc["device"], recipe.measure.kind) == ("New_one", "New_one", default_measure(ndim).spec.model_fields["kind"].default)  # fmt: skip
+        compile_recipe(
+            recipe
+        )  # no frame inputs: it compiles even for a host that loads none
+
+
+def test_a_blank_names_what_its_input_lacks_and_refuses_an_unknown_kind():
+    from geecs_analysis.recipe import blank_recipe
+
+    with pytest.raises(RecipeError, match="loading"):
+        blank_recipe("line", name="L")
+    with pytest.raises(RecipeError, match="no input kind"):
+        blank_recipe("telescope", name="T")
+
+
+def test_a_second_default_measure_for_a_dimensionality_is_refused():
+    from geecs_analysis.registry import measure
+
+    with pytest.raises(ValueError, match="second default"):
+
+        @measure(AnalysisRecipe, ndim={2}, default=True)  # type: ignore[type-var]
+        def _(frame, spec):  # pragma: no cover - never registered
+            return None
 
 
 def test_frame_inputs_need_a_loading_host_and_camera_frames():
