@@ -22,7 +22,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-LogTriage/` | Scan-log triage, stage 1 of an auto-debugger pipeline: walks a day's `scan.log` files, fingerprints and classifies the errors (bug candidate / config / hardware / operator) into a `TriageReport` JSON document; deterministic, no LLM, no GitHub writes — the `/triage` skill runs it |
 | `GeecsScanner/` | The web scanner console (FastAPI, port 8300 on the worker host): submit, watch and stop scans from a browser over `geecs_bluesky.qs_client` — the third surface on the GEECS surface kit and the operator front end (it replaced the PySide6 GEECS-Console, deleted 2026-09-14). A service layer (`geecs_scanner.service`: pure Python, every answer a Pydantic model) under a JSON API + an SSE stream that reduces the worker's pickled document stream to JSON; a `--demo` manager for development (#869) |
 | `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the `ScanCatalog` layer in GEECS-Data-Utils |
-| `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. **Line plots** on every surface are Plotly through its `plot.js` template (tokens read at run time) and the one vendored `plotly-cartesian-<version>.min.js` beside it; images stay each surface's own. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk the portal's and the editor's templates too. **Read its `CLAUDE.md` before building a new web surface** |
+| `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. **Line plots** on every surface are Plotly through its `plot.js` template (tokens read at run time) and the one vendored `plotly-cartesian-<version>.min.js` beside it; images stay each surface's own. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk every surface's templates too. **Read its `CLAUDE.md` before building a new web surface** |
 | `GeecsLogbook/` | The logbook (successor to LogMaker4GoogleDocs): two books in one store — the **scans** book, a day-document view over scan folders, and the **ops** book, routine operations read by month — its own web service (`geecs-logbook`, port 8400, unit + `StateDirectory` of its own; the Data Portal links to it and no longer mounts it). A day is a **query**, not a document — no daily job, no template stamping. Derived scan facts are rendered per request and stored nowhere; human commentary lives in the unit's state directory and is mirrored as markdown into `{experiment}/logbook/`, a tree of its own outside the data tree. Notes cite each other by permalink (`/entry/{id}`), stored relative in the body so no mount prefix ever reaches the record |
 | `GeecsControlRoom/` | The operator surfaces over Canopy (`Planning/operator_surfaces.md`): the experiment's home, the **Control Room**, and the **screens renderer** — a control GUI is a screen file in the configs repo (`<experiment>/screens/`) drawn by one renderer, never code per screen (`geecs-control-room`, port 8700). FastAPI + Jinja on the kit, plain JS, no build step. A client of Canopy, never part of it: live values from Hare's WebSocket with a display **read** key, verdicts from the GEECS module's device route, every write through the module's put route with the operator's name, sent once. A screen binds, groups, confirms and calls; it never computes. The device pages (`/device/<kind>/<name>`, one page per kind) are drawn the same way; a camera's frame and its lineout arrays, and a trace page's array over its axis (one page for every such device, its rail from the family's `panel`), which Hare does not carry, are read over Channel Access by this server (aioca), read only, at the PVs the module's device route names |
 | `GeecsConfigurator/` | One editor over every GEECS-Schemas document in the configs repo (`geecs-configurator`, port 8800; the configurator arc, `Planning/configurator.md`): the catalogue of every registered kind with its storage, tier and readers, every document of every file kind drawn from its schema by the theme's `form.js`, validate, diff with the strictest changed tier, YAML. **Read-only** so far; the commit path, dry runs and setups arrive in its later slices. A thin HTTP client of the other services, imported by nothing |
@@ -248,11 +248,13 @@ GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         (+ GEECS-Analysis + ScanAnalysis +
                         GEECS-Schemas, optional via
                         the `analysis` extra — core processing/preview of
-                        recipes, and the
+                        recipes, the analysis documents' schema and
+                        validate the configurator asks over HTTP, and the
                         Analysis tab's direct ScanAnalyzer runs)
                         GeecsWebTheme (the shared palette; the portal
-                        mounts it at /theme for itself and the config
-                        editor inside this app). Never imports GeecsLogbook
+                        mounts it at /theme, and the run page's embedded
+                        configurator editor loads kit.js and form.js
+                        from it). Never imports GeecsLogbook
                         — the logbook is a peer service reached over HTTP
                         alone (--logbook-url): the run page links to it,
                         and the Plot tab POSTs a rendered plot into the
@@ -299,13 +301,10 @@ GeecsConfigurator    →  GEECS-Schemas (the registry, the models, the tiers,
                         the root; never GeecsDb), GeecsWebTheme (web extra:
                         the kit, form.js, the glue). Every other service it
                         asks over HTTP; nothing imports it
-ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, GEECS-Schemas,
-                        (+ fastapi/jinja2 via the
-                        `editor` extra — scan_analysis.config_editor,
-                        the web config editor router the portal mounts
-                        at /configs, its one host;
-                        + GeecsWebTheme via that same extra — the theme
-                        has no dependencies, so the edge is one-way)
+ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, GEECS-Schemas
+                        (no web code: the analysis documents are edited
+                        in the configurator, checked and previewed by
+                        the portal)
 GEECS-MCP            →  (NO runtime intra-repo edge — the
                         `mcp-is-a-client` import contract: an httpx
                         client of GeecsScanner's, GEECS-DataPortal's and

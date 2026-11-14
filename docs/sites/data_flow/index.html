@@ -694,13 +694,13 @@ const INFO = {
   "name": "Data Portal",
   "role": "Zero-install scan browsing in any browser on the lab network.",
   "status": "hardening",
-  "does": "Day, then scan, then metadata, scalar plots and images, with an Analysis tab that can run a configured ScanAnalyzer on demand and, when enabled, the analysis config editor mounted at /configs. Read-only otherwise.",
+  "does": "Day, then scan, then metadata, scalar plots and images, with an Analysis tab that can run a configured ScanAnalyzer on demand and opens a recipe in the configurator to edit, with a preview on the scan. Read-only otherwise.",
   "how": [
    "FastAPI with server-rendered templates, no build chain, on port 8200 on the worker host.",
    "Reads through the `ScanCatalog` seam and reads images from the share. A JSON API mirrors every page so scripts and agents can read what a browser shows.",
-   "Its two write paths are explicit opt-ins: an analysis run executes one analyzer on a worker thread without joining the file-based analysis queue, and the config editor edits the configs repo checkout the worker reads."
+   "Its write paths are explicit opt-ins: an analysis run executes one analyzer on a worker thread without joining the file-based analysis queue, and a plot is sent to the logbook. The analysis recipes are saved by the configurator; the portal checks and previews them."
   ],
-  "now": "Deployed and verified 2026-09-03. The browsing JSON API landed 2026-09-02 and the config editor drawer on 2026-09-06.",
+  "now": "Deployed and verified 2026-09-03. The browsing JSON API landed 2026-09-02; recipes are edited in the configurator since its slice 6.",
   "next": [
    "A portal-side cache for full-day listings at a full day's scan count.",
    "Absorb the LabVIEW GEECSplotter features (keep, adapt or drop rulings still pending).",
@@ -767,7 +767,7 @@ const INFO = {
   "how": [
    "YAML recipes in the configs repo load into the v3 `AnalysisRecipe` model; the core compiles each one and ScanAnalysis runs it over the scan's shots, then folds the results into averages, bins and summary figures.",
    "The data portal runs analysis explicitly. The existing queue retains per-scan status files, claims and heartbeats for MCP compatibility; automatic watching and Google Docs uploads are retired.",
-   "The portal config editor previews unsaved recipes before an explicit save and run."
+   "The portal previews unsaved recipes, edited in the configurator, before an explicit save and run."
   ],
   "now": "Every analysis runs on the GEECS-Analysis core from v3 recipes; the legacy ImageAnalysis wrappers were retired on 2026-10-16. Portal runs are the operational endpoint. A future automatic analysis service is not yet designed.",
   "next": [

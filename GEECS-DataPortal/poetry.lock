@@ -709,7 +709,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-analysis"
-version = "0.29.0"
+version = "0.29.1"
 description = "Pure frame processing and unified GEECS analysis"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -765,9 +765,9 @@ url = "../GEECS-Data-Utils"
 [[package]]
 name = "geecs-schemas"
 version = "0.45.0"
-description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
+description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, setups) plus legacy-YAML converters."
 optional = true
-python-versions = ">=3.11,<3.12"
+python-versions = ">=3.11,<3.13"
 groups = ["main"]
 markers = "extra == \"analysis\""
 files = []
@@ -783,7 +783,7 @@ url = "../GEECS-Schemas"
 
 [[package]]
 name = "geecs-web-theme"
-version = "0.6.1"
+version = "0.7.0"
 description = "One palette vocabulary for every GEECS web surface: tokens, themes, and the picker"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -3063,9 +3063,6 @@ h5py = "^3.8.0"
 matplotlib = "^3.9.2"
 pandas = "^2.2.3"
 pyyaml = "^6.0.2"
-
-[package.extras]
-editor = ["fastapi (>=0.110)", "geecs-web-theme @ file:///GEECS-Plugins/GeecsWebTheme", "jinja2 (>=3.1)"]
 
 [package.source]
 type = "directory"

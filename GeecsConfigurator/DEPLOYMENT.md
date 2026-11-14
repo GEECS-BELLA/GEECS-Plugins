@@ -229,8 +229,7 @@ After the switch:
   the configurator: the portal's Analysis tab opens them in its embedded
   editor (`--configurator-browser-url`), with the portal's preview, and the
   configurator's dry run of them is the portal's validate
-  (`GEECS_CONFIGURATOR_PORTAL_URL`); the portal's old `/configs` editor is
-  read-only (`--config-editor-read-only`) until it is deleted.
+  (`GEECS_CONFIGURATOR_PORTAL_URL`); the portal itself writes no configs.
 
 `<STATE_DIR>` is `GEECS_CONFIGURATOR_STATE_DIR` (the unit's
 `StateDirectory`, `/var/lib/geecs-configurator`).
@@ -278,7 +277,6 @@ GEECS_CONFIGS_WRITE_ROOT=<STATE_DIR>/inbox
 GEECS_CONFIGURATOR_SCANNER_URL=<experiment>=http://127.0.0.1:<its scanner's port>,<instance experiment>=http://127.0.0.1:<its scanner's port>
 GEECS_CONFIGURATOR_ARCHIVER_COMMAND=<checkout root>/archiver-checkout/GeecsArchiver/.venv/bin/geecs-archiver
 GEECS_SCANNER_EXTRA_ARGS=<as before> --configurator-url http://127.0.0.1:<GEECS_CONFIGURATOR_PORT>
-GEECS_PORTAL_EXTRA_ARGS=<as before> --config-editor-read-only
 ```
 
 `GEECS_CONFIGURATOR_SCANNER_URL` names each experiment's scanner (an instance's
@@ -373,7 +371,6 @@ sudo systemctl restart geecs-qserver geecs-qserver-ready geecs-scanner geecs-dat
 - The scanner's `/api/status` → `readiness: "ready"`.
 - `git -C <STATE_DIR>/live status --short` prints nothing, now and after a
   scan.
-- The portal's `/configs/` page says read-only; a save there answers 405.
 
 ### The acceptance this switch enables (OWED, on a bench experiment instance)
 
@@ -410,8 +407,9 @@ experiment's device. From a browser on the configurator's page:
 ### Rollback
 
 Put back `GEECS_CONFIGS_ROOT` (the share's clone), empty
-`GEECS_CONFIGS_WRITE_ROOT`, drop `--configurator-url` and
-`--config-editor-read-only`, restore `config.ini`'s two paths, re-render and
+`GEECS_CONFIGS_WRITE_ROOT`, drop `--configurator-url`,
+restore `config.ini`'s two paths, re-render and
 restart as in steps 4 and 5. The share's clone is current with main, so
 nothing is lost; presets then cannot be saved from the scanner until the
-switch is redone.
+switch is redone, and the analysis documents are edited in the share's clone
+and committed by hand (the portal has no editor of its own).

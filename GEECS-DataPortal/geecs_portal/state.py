@@ -101,7 +101,6 @@ class PortalState:
     #: The client the plot send uses (``None`` = one per send); injected
     #: by tests so the conversation runs against an in-process logbook.
     logbook_client: Optional[httpx.Client] = None
-    config_editor_enabled: bool = False  # set when the editor router mounts
     #: The configurator as the browser reaches it: the run page's embedded editor ("" = none).
     configurator_url: str = ""
     # (fingerprint → valid names): re-validated only when the tree

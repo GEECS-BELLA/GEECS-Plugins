@@ -8,7 +8,7 @@ s-file. Run analysis explicitly from the data portal or Python.
 
 The fastest way to see it in action is the
 [Analysis tutorial](../tutorials/analysis.md), which walks the canonical
-config editor → preview → explicit run loop end to end.
+edit → preview → explicit run loop end to end.
 
 ---
 
@@ -37,8 +37,8 @@ products. For running a recipe on a scan from Python, see
 ### From the data portal
 
 Select a completed scan and open its **Analysis** tab to run a configured
-diagnostic. Use **edit configs** to edit and preview an unsaved document
-before saving. The editor remains part of the portal.
+diagnostic. Use a recipe's **edit** to open it in the configurator, preview the
+unsaved recipe on the scan, and save it to the configs repository.
 
 Automatic watching and Google Docs uploads have been retired. The existing
 queue/status API remains available for explicit MCP runs; a future automatic
@@ -82,7 +82,7 @@ becomes a `CoreScanAnalyzer` on the `geecs_analysis` core (the legacy
 were retired in 2026-10; their outputs are pinned as the core's goldens).
 
 Authoring these YAMLs by hand is fine;
-the **[config editor](../tutorials/analysis.md)** is the friendlier path.
+the **[configurator, opened from the portal](../tutorials/analysis.md)** is the friendlier path.
 
 ---
 
@@ -170,7 +170,7 @@ readable at the tag `legacy-analysis-final`.
 ## See also
 
 - The [Analysis tutorial](../tutorials/analysis.md) — the no-Python
-  config editor → preview → explicit run path.
+  edit → preview → explicit run path.
 - [Data Utils overview](../geecs_data_utils/overview.md) — `ScanTag` and
   `ScanPaths`, the path-resolution primitives this package uses.
 - [API Reference](api/base.md) — the `ScanAnalyzer` base class surface.

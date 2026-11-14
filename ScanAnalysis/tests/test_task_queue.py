@@ -755,7 +755,6 @@ class RefuseRetired(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, RefuseRetired())
 from geecs_data_utils import ScanTag, ScanPaths
 from scan_analysis.config import create_scan_analyzer
-from scan_analysis.config_store import ConfigStore
 from scan_analysis.task_queue import run_worklist, read_statuses
 base = Path(sys.argv[1])
 tag = ScanTag(year=2025, month=1, day=1, number=42, experiment='Test')

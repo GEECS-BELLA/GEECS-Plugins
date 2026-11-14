@@ -128,16 +128,15 @@ the theme without being on the kit.
 | GeecsLogbook | yes | yes | yes (0.10.0) |
 | GeecsScanner (web console, its branch) | yes | yes | yes |
 | GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) — one exception: its `/theme` mount (which also serves the vendored Plotly bundle) uses `RevalidatingStaticFiles` (#1128), so a deploy is not hidden behind a cached asset. That is not the glue adoption below; the middleware copy and `root` processor stay until then |
-| ScanAnalysis config editor (`/configs`) | yes | no | no |
 
 **Portal onto the kit is deliberately LAST** — after the Qt console's
 deletion (done 2026-09-14) and once HTU is quiet — because it is the kit's acceptance test: the
 run page uses plots, tabs and toasts, which the kit does not have yet,
 so that adoption will grow the kit rather than just consume it. Take the
 portal's glue copy (`_ForwardedPrefixMiddleware`, its own `root`
-context processor) out in the same change. The config editor follows the
-portal (it is a router inside it); it never gets a kit pass of its own.
-Do not start either early to "tidy up".
+context processor) out in the same change. (The run page's
+embedded configurator drawer is already on the kit, in a `.kit` wrapper of its own.)
+Do not start it early to "tidy up".
 
 ## The FastAPI glue and the template guards
 

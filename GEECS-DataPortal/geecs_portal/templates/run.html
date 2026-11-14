@@ -1,28 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Scan {{ summary.scan_number or uid[:8] }} — GEECS Data Portal{% endblock %}
 {% block head %}
-{% if config_editor %}<link rel="stylesheet" href="{{ root }}/configs/static/editor.css?v={{ portal_version | urlencode }}">{% endif %}
 {# the configurator's embedded editor draws on the kit, inside a .kit wrapper of its own: this page is not on the kit #}
 {% if configurator %}<link rel="stylesheet" href="{{ root }}/theme/kit.css?v={{ portal_version | urlencode }}">{% endif %}
 <style>
   main { max-width: none; margin: 0; padding: 0; }
-  /* the config editor drawer: slides over the page from the right */
-  .cedrawer { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: min(1120px, 92vw);
-              background: var(--paper); border-left: 1px solid var(--rule); z-index: 20;
-              box-shadow: -12px 0 30px rgba(0,0,0,0.45); flex-direction: column; }
-  .cedrawer.on { display: flex; }
-  .cedrawer .cehead { display: flex; gap: 0.7rem; align-items: center; padding: 0.5rem 0.9rem;
-                      background: var(--surface); border-bottom: 1px solid var(--rule); font-size: 13px; flex-wrap: wrap; }
-  .cedrawer .cehead .t { font-weight: 600; color: var(--accent); margin-right: auto; }
-  .cedrawer .cehead select, .cedrawer .cehead input { background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule); border-radius: 3px; padding: 0.15rem 0.4rem; font: inherit; font-size: 12px; }
-  .cedrawer .cehead input { width: 5rem; }
-  .cedrawer .cebody { flex: 1; min-height: 0; padding: 0.6rem 0.9rem; display: flex; flex-direction: column; overflow: hidden; }
-  /* the mount wrapper is the flex item; the editor grid fills it and its panes scroll */
-  .cedrawer .cebody #ceditor { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .cedrawer .cebody .ce { flex: 1 1 auto; min-height: 0; height: auto; }
-  .cedrawer .cehead .grp { color: var(--muted); font-size: 11px; }
-  .cedrawer .cehead .dup { display: flex; gap: 0.3rem; align-items: center; }
-  .cedrawer .cehead .dup input { width: 9rem; }
   .frame { display: grid; grid-template-columns: 17rem minmax(0, 1fr); min-height: calc(100vh - 3rem); }
   .rail { background: var(--surface); border-right: 1px solid var(--rule);
           padding: 0.9rem; display: flex; flex-direction: column; gap: 1rem; }
@@ -390,7 +372,7 @@
           <span class="mono">analysis/Scan{{ "%03d" | format(scan_number) }}/</span> and its
           columns into the s-file (existing columns are overwritten); the Plot tab picks
           them up on reload.</span>
-        <span class="right">{% if configurator %}<a href="{{ configurator }}/?kind=analysis_recipe" target="_blank" rel="noopener" title="the configurator: browse, create and edit recipes, .himg jobs and groups">configurator ↗</a> · {% elif config_editor %}<a href="{{ root }}/configs/" target="_blank" title="the full editor: browse, create and edit diagnostics and groups">edit configs ↗</a> · {% endif %}<a href="#" onclick="refreshAnalysis(true);return false;">refresh</a></span>
+        <span class="right">{% if configurator %}<a href="{{ configurator }}/?kind=analysis_recipe" target="_blank" rel="noopener" title="the configurator: browse, create and edit recipes, .himg jobs and groups">configurator ↗</a> · {% endif %}<a href="#" onclick="refreshAnalysis(true);return false;">refresh</a></span>
       </div>
       <div id="analysisList"><div class="plotmsg">loading analyzers…</div></div>
       <dialog id="confirmdlg" aria-labelledby="confirmtitle">
@@ -411,21 +393,6 @@
   </div>
 </div>
 
-{% if config_editor %}
-<!-- config editor drawer: edit a diagnostic next to the scan, preview on the current shot -->
-<div class="cedrawer" id="cedrawer">
-  <div class="cehead">
-    <span class="t" id="cetitle">edit recipe</span>
-    <label class="dim">recipe
-      <select id="cediag" title="switch the recipe under edit; recipes for this scan's devices are listed first"></select></label>
-    <span class="dup"><input id="cedup" placeholder="new id" title="copy the open recipe under this id (same namespace, same device); the copy's output_name is set to the new id so the two write distinct columns and folders; Save then writes it (a read-only .himg job cannot be copied here)"><button class="act" onclick="ceDuplicate()">duplicate as</button></span>
-    <label class="dim" title="the preview reads this shot of the recipe's own device">shot <input type="number" id="ceshot" min="1" value="{{ shot }}"></label>
-    <a href="{{ root }}/configs/" target="_blank">full editor ↗</a>
-    <button class="act" onclick="closeConfigEditor()">close</button>
-  </div>
-  <div class="cebody"><div id="ceditor"></div></div>
-</div>
-{% endif %}
 <!-- filters popup -->
 <div class="overlay" id="modal-filters" onclick="if(event.target===this)closeModals()">
   <div class="modal">
@@ -923,7 +890,6 @@ function api(path, params) {
 
 // ---------------- the analysis tab (ScanAnalysis runs) ----------------
 const ANALYSIS_ENABLED = {{ analysis_enabled | tojson }};
-const CONFIG_EDITOR = {{ config_editor | tojson }};
 const SHOT = {{ shot | tojson }};
 
 // ---------------- the configurator's embedded editor ----------------
@@ -1023,92 +989,6 @@ function openInConfigurator(id, kind) {
   })).catch((e) => alert(`The configurator's editor did not load (${CONFIGURATOR}): ${e.message}`));
 }
 
-// ---------------- config editor drawer ----------------
-// The editor script (served by the mounted router) renders the form; this
-// page supplies the preview parameters — this scan and the drawer's shot;
-// the device is the recipe's own, never picked here — and refreshes the
-// analyzer list / shot image after a save.
-let CE = null;
-const CE_TITLE = "edit recipe";
-function cePreviewParams() {
-  const shot = document.getElementById("ceshot");
-  return { uid: UID, day: DAY, shot: Number(shot.value) || 1 };
-}
-function openConfigEditor(id) {
-  if (!CONFIG_EDITOR) return;
-  const drawer = document.getElementById("cedrawer");
-  drawer.classList.add("on");
-  const ensure = CE ? Promise.resolve() : new Promise((resolve, reject) => {
-    if (window.ConfigEditor) return resolve();
-    const script = document.createElement("script");
-    script.src = `${ROOT}/configs/static/editor.js?v=${encodeURIComponent(VERSION)}`;
-    script.onload = resolve; script.onerror = () => reject(new Error("editor script failed to load"));
-    document.head.appendChild(script);
-  }).then(() => {
-    CE = ConfigEditor.mount(document.getElementById("ceditor"), {
-      base: `${ROOT}/configs`,
-      layout: "drawer",
-      preview: { params: cePreviewParams, label: "preview (unsaved document, current shot)" },
-      onSaved: (saved) => {
-        refreshAnalysis(true);
-        CE.reloadListing().then(ceFillDiagnostics);
-        document.getElementById("cetitle").textContent = CE_TITLE;
-        // the Images tab's processed view keys the diagnostic by name; a
-        // save changes it — re-fetch the shot image if it is showing it
-        const img = document.getElementById("shotimg");
-        if (img && S.processing === saved.id) img.src = img.src.replace(/([&?])_=\d+/, "") + `&_=${Date.now()}`;
-      },
-    });
-    document.getElementById("ceshot").addEventListener("change", () => CE && CE.refreshPreview());
-    document.getElementById("cediag").addEventListener("change", (e) => ceSwitch(e.target.value));
-  });
-  ensure.then(() => { document.getElementById("cetitle").textContent = CE_TITLE; return CE.open("analyzer", id); })
-        .then(() => CE.ready.then(() => ceFillDiagnostics(CE.listing())))
-        .catch((e) => { document.getElementById("ceditor").innerHTML = `<div class="plotmsg">${esc(e.message)}</div>`; });
-}
-// The drawer's recipe switcher: every loadable recipe, the ones whose data
-// device recorded in this scan first (the Analysis tab's applicability
-// test), the rest below — several recipes per device is the normal case.
-function ceFillDiagnostics(listing) {
-  const sel = document.getElementById("cediag");
-  if (!sel || !listing) return;
-  const current = CE && CE.current().id;
-  const mine = listing.analyzers.filter(a => SCAN_DEVICES.has(a.device));
-  const others = listing.analyzers.filter(a => !SCAN_DEVICES.has(a.device));
-  sel.innerHTML = "";
-  const group = (label, items) => {
-    if (!items.length) return;
-    const og = document.createElement("optgroup"); og.label = label;
-    for (const a of items) { const o = document.createElement("option"); o.value = a.id; o.textContent = a.valid ? a.id : `${a.id} (invalid)`; og.appendChild(o); }
-    sel.appendChild(og);
-  };
-  group("in this scan", mine);
-  group("other devices", others);
-  if (current) sel.value = current;
-}
-function ceSwitch(id) {
-  if (!CE || !id || id === CE.current().id) return;
-  if (CE.isDirty() && !confirm("Discard unsaved changes and open " + id + "?")) { document.getElementById("cediag").value = CE.current().id; return; }
-  document.getElementById("cetitle").textContent = CE_TITLE;
-  CE.open("analyzer", id).then(() => ceFillDiagnostics(CE.listing()));
-}
-function ceDuplicate() {
-  const input = document.getElementById("cedup");
-  const id = (input.value || "").trim();
-  if (!CE || !id) return;
-  const cur = CE.current();
-  // a variant recipe for the same device (the editor gives the copy its
-  // own output_name); retarget it by editing its device field
-  CE.duplicate(cur.namespace, id).then((copied) => {
-    if (!copied) return;  // a read-only document (a .himg job): nothing was copied
-    document.getElementById("cetitle").textContent = `${id} (new — Save to create)`;
-    input.value = "";
-  });
-}
-function closeConfigEditor() {
-  if (CE && CE.isDirty() && !confirm("Discard unsaved changes in the config editor?")) return;
-  document.getElementById("cedrawer").classList.remove("on");
-}
 let ANALYSIS_TIMER = null;   // poll handle while a run is active
 let ANALYSIS_OPEN = {};      // analyzer id -> log <details> open state (survives re-render)
 
@@ -1183,7 +1063,7 @@ function renderAnalyzer(a, anyRunning) {
   // into JS-in-attribute source (a quote in the id would end the
   // attribute — the #765 review's dead-button finding).
   const edit = CONFIGURATOR ? `<button class="act" data-id="${escAttr(a.id)}" data-kind="${escAttr(a.kind)}" onclick="openInConfigurator(this.dataset.id, this.dataset.kind)" title="edit this document in the configurator, with a preview of the unsaved recipe on this scan">edit</button> `
-    : CONFIG_EDITOR ? `<button class="act" data-id="${escAttr(a.id)}" onclick="openConfigEditor(this.dataset.id)" title="edit this diagnostic's YAML with a live preview on the current shot">edit</button> ` : "";
+    : "";
   const button = `${edit}<button class="act" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}${a.destructive ? "…" : ""}</button>`;
   // the data device only when it says something the recipe id does not
   const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";

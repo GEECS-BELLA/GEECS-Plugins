@@ -5004,9 +5004,6 @@ matplotlib = "^3.9.2"
 pandas = "^2.2.3"
 pyyaml = "^6.0.2"
 
-[package.extras]
-editor = ["fastapi (>=0.110)", "geecs-web-theme @ file:///GEECS-Plugins/GeecsWebTheme", "jinja2 (>=3.1)"]
-
 [package.source]
 type = "directory"
 url = "../ScanAnalysis"

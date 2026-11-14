@@ -118,7 +118,7 @@ arguments**. It does not expand in `WorkingDirectory=`, `User=`,
 |---|---|---|
 | `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@`, `@PORTAL_MEMORY_HIGH@`, `@PORTAL_MEMORY_MAX@`; the instance templates' `@EXPERIMENTS_DIR@` (`GEECS_EXPERIMENTS_DIR`, default `/etc/geecs/experiments`) and `@INSTANCE_CHECKOUT_ROOT@` (`GEECS_INSTANCE_CHECKOUT_ROOT`, default `GEECS_CHECKOUT_ROOT`) |
 | `${VARIABLE}` | at start, by systemd from `site.env` | `--experiment ${GEECS_EXPERIMENT}`, `--doc-addr ${GEECS_QS_DOC_ADDR}`, `--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"` (quoted: substituted as one argument, spaces survive) |
-| `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS`, `$GEECS_LOGBOOK_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--config-editor` and `--logbook-url`) |
+| `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS`, `$GEECS_LOGBOOK_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--logbook-url` and `--configurator-browser-url`) |
 
 Values that services read from the environment directly (the EPICS
 addressing, `TZ`, `QS_EXPERIMENT`) need no hole at all — `EnvironmentFile=`

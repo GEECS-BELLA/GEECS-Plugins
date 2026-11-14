@@ -13,7 +13,7 @@ sense of what's in it, start here.
 
     Every processing step, measure and summary a recipe can use, with
     worked figures, the parameters of each, and what every scalar written
-    to the s-file means. The config editor's **reference ↗** links land
+    to the s-file means. The recipe form's **reference ↗** links land
     here.
 
     [:octicons-arrow-right-24: Recipe reference](../sites/analysis_recipes/index.html) ·
@@ -55,7 +55,7 @@ sense of what's in it, start here.
 
 New to the analysis side? The cross-package
 [Analysis tutorial](../tutorials/analysis.md) walks the end-to-end path:
-build a recipe in the portal's config editor, preview it on a shot, run it
+build a recipe in the configurator from the portal, preview it on a shot, run it
 over a scan. The
 [analysis without the portal](examples/analysis_without_the_portal.ipynb)
 notebook does the same from Python on a real scan, and shows how to try a
