@@ -493,10 +493,10 @@
 <dialog id="dlg-ack" class="ack" aria-labelledby="dlg-ack-title">
   <div class="body">
     <h4 id="dlg-ack-title">Preflight found things to acknowledge</h4>
-    <p>The request is valid and the worker is ready. Each item is a question, not a refusal; tick it to continue with it on record.</p>
+    <p>Each item is a question, not a refusal; tick it to continue with it on record.</p>
     <ul class="qs" id="ack-list"></ul>
-    <p class="dim note">Acknowledged checks are stamped <code>continued</code> in the submission record that rides with the run.</p>
-    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-submit" disabled>Submit to queue</button></div>
+    <p class="dim note">Acknowledged checks are stamped <code>continued</code> in the submission record that rides with the queue item.</p>
+    <div class="row end"><button class="btn" type="button" data-dialog-close autofocus>Cancel</button><button class="btn primary" type="button" id="do-submit" disabled>Queue it</button></div>
   </div>
 </dialog>
 

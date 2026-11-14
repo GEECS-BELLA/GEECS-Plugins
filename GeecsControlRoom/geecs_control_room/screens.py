@@ -44,7 +44,7 @@ from geecs_schemas import (
     load_setups,
     resolve_screen,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.settings import Settings
@@ -126,7 +126,9 @@ def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loade
         return Loaded(screen, bound)
     except ScreenError as exc:
         return Loaded(problems=exc.problems, status=422)
-    except (ValidationError, yaml.YAMLError, OSError) as exc:
+    except (ValueError, yaml.YAMLError, OSError) as exc:
+        # ValueError covers pydantic's ValidationError and load_setups' own
+        # refusals (a name that is not its file stem, two files of one stem)
         return Loaded(problems=[str(exc)], status=422)
 
 

@@ -1098,7 +1098,7 @@
   // The server asks (its writes, each hazard step); the page relays the
   // questions into the acknowledgement dialog and sends back what was ticked.
   function applySetup(name, acknowledged) {
-    post("/api/setups/" + encodeURIComponent(name) + "/apply", { operator: operator(), acknowledged: acknowledged })
+    post("/api/setups/" + encodeURIComponent(name) + "/apply", { operator: operator() || "", acknowledged: acknowledged })
       .then(itemQueued)
       .catch(function (e) {
         if (e.status === 409 && e.payload.needs_acknowledgement) {

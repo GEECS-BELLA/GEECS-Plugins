@@ -127,8 +127,9 @@ def test_an_acknowledgement_never_covers_another_version_of_the_setup(client: Te
 
 
 def test_the_apply_refuses_without_an_operator_and_on_a_bad_setup(client: TestClient) -> None:  # fmt: skip
-    r = client.post("/api/setups/low_power/apply", json={"operator": "  "})
-    assert r.status_code == 400 and "operator" in r.json()["error"]["message"]
+    for nobody in ("  ", ""):  # the page sends "" for an empty box, never null
+        r = client.post("/api/setups/low_power/apply", json={"operator": nobody})
+        assert r.status_code == 400 and "operator" in r.json()["error"]["message"]
     assert _apply(client, "nope").status_code == 404
     assert _apply(client, "loop_a").status_code == 400
 

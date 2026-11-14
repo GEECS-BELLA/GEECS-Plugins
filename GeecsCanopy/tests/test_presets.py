@@ -204,3 +204,15 @@ async def test_without_squirrel_the_routes_say_so(tmp_path):
     )
     r = await client.get("/v1/presets")
     assert (r.status_code, r.json()["code"]) == (503, "squirrel_unconfigured")
+
+
+def test_a_saved_boolean_restores_as_its_integer_a_setup_step_takes() -> None:
+    """A setup step refuses a boolean (YAML's on/off); a restore writes its integer."""
+    from geecs_schemas import SetupSetStep
+
+    from geecs_canopy.presets import _setup_value
+
+    assert _setup_value(True) == 1 and type(_setup_value(True)) is int
+    assert _setup_value(False) == 0 and _setup_value(2.5) == 2.5 and _setup_value("on") == "on"  # fmt: skip
+    step = SetupSetStep(do="set", device="ps1", variable="output_sp", value=_setup_value(True))  # fmt: skip
+    assert step.value == 1

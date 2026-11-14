@@ -986,8 +986,8 @@ class GeecsNamespace:
         device, sep, variable = target.partition(":")
         return self.variable(device, variable) if sep else self[device]
 
-    # The action compiler's SettableFactory (actions/compiler.py): an
-    # setup step's (device, variable) is the child the namespace already
+    # apply_setup's SettableFactory (plans/apply_setup.py): a setup
+    # step's (device, variable) is the child the namespace already
     # built — the Movable for a settable, the readback signal otherwise.
     def get_settable(self, device: str, variable: str) -> Movable:
         """The Movable child for a ``set`` step; loud when the variable is read-only."""

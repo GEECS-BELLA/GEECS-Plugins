@@ -475,32 +475,28 @@ def _family_roles(
     native: NativeDevices | None,
     panels: PanelDevices | None,
     db_families: Mapping[str, str] | None,
-) -> tuple[str | None, FamilyFile | None, dict[str, bool], list[str]]:
-    """``(family, family file, folded role -> hazard, axes)`` of *device*; unknown: ``(None, None, {}, [])``."""
-    entry = _by_fold(native.devices if native is not None else None, device)
-    native_axes = list(getattr(entry, "axes", None) or [])
+) -> tuple[str | None, FamilyFile | None, dict[str, bool]]:
+    """``(family, family file, folded role -> hazard)`` of *device*; unknown: ``(None, None, {})``."""
     panel = _by_fold(panels.devices if panels is not None else None, device)
     if panel is not None:
         family = families.get(panel.family)
         roles = panel.resolve(family) if family is not None else []
-        hazards = {_fold(r.name): r.confirm == "hazard" for r in roles}
-        return panel.family, family, hazards, list(panel.axes or native_axes)
+        return panel.family, family, {_fold(r.name): r.confirm == "hazard" for r in roles}  # fmt: skip
+    entry = _by_fold(native.devices if native is not None else None, device)
     if entry is not None:
         name = entry.family_template
         family = families.get(name)
         roles = family.roles if family is not None else []
-        hazards = {_fold(r.name): r.confirm == "hazard" for r in roles}
-        return name, family, hazards, native_axes
-    return _by_fold(db_families, device), None, {}, []
+        return name, family, {_fold(r.name): r.confirm == "hazard" for r in roles}
+    return _by_fold(db_families, device), None, {}
 
 
-def _role_candidates(
-    variable: str, family: FamilyFile | None, axes: Sequence[str] = ()
-) -> set[str]:
+def _role_candidates(variable: str, family: FamilyFile | None) -> set[str]:
     """Every role a step's *variable* may name on a device of *family*, folded.
 
-    The role :func:`split_step_variable` reads (the module's grammar), then
-    wider: the variable itself and the part after an axis (``m1.val``); a role
+    A superset of what :func:`split_step_variable` (the module's grammar)
+    reads, so every role either executor writes is asked about: the
+    variable itself and the part after an axis (``m1.val``); a role
     whose name or record suffix it is (the worker names a supply's settable
     by its readback record); a bare axis's setpoint; and every role whose
     readback is one of those (the setpoint a readback's set is written at).
@@ -511,9 +507,6 @@ def _role_candidates(
     words = {_fold(variable)} | ({_fold(rest)} if dot and rest else set())
     if family is None:
         return words
-    role, _axis = split_step_variable(variable, axes=axes, roles=family.roles)
-    if role:
-        words.add(_fold(role))
     matched = {
         r.name
         for r in family.roles
@@ -568,10 +561,10 @@ def setup_hazards(
     for index, (step, _origin) in enumerate(steps, 1):
         if not isinstance(step, SetupSetStep):
             continue
-        family_name, family, roles, axes = _family_roles(
+        family_name, family, roles = _family_roles(
             step.device, families, native, panels, db_families
         )
-        candidates = _role_candidates(step.variable, family, axes)
+        candidates = _role_candidates(step.variable, family)
         reasons = [
             f"the family role {role!r} asks for the hazard confirm"
             for role in sorted(candidates)

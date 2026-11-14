@@ -806,3 +806,18 @@ async def test_the_camera_page_draws_its_familys_panel_with_the_rails_controls(
     assert re.findall(r'<div class="live" data-role="([^"]+)"', page)[:3] == ["state", "rate", "pixel_format"]  # fmt: skip
     rail = re.search(r'<aside class="rail panel-rail">.*?</aside>', page, re.S).group(0)
     assert 'data-roi-role="min_x"' in rail and 'data-role="min_x"' not in rail
+
+
+async def test_a_misnamed_setup_file_is_the_screens_422_never_a_500(room) -> None:
+    """``load_setups`` refuses a file whose ``name`` is not its stem with a plain ValueError."""
+    folder = room.env.folder
+    (folder / "setups").mkdir()
+    (folder / "setups" / "parking.yaml").write_text(
+        "name: park\nsteps:\n  - {do: wait, seconds: 1}\n"
+    )
+    (folder / "screens").mkdir()
+    (folder / "screens" / "s.yaml").write_text(
+        "title: S\ngroups:\n  - {title: G, at: [1, 1], widgets: [{kind: button, label: Park, bind: {action: park}}]}\n"  # fmt: skip
+    )
+    page = await room.client.get("/screens/s")
+    assert page.status_code == 422 and "file stem" in page.text

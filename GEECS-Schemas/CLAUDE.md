@@ -48,8 +48,8 @@ policy's `hazards` by device or family), reading a step's variable widely
 asking whenever a device's family cannot be told. `step_variable` /
 `split_step_variable` are the one grammar of a step's variable on a native
 device (`<role>`, `<axis>.<role>`, a bare axis its setpoint): the device
-module's executor writes and reads by it, and `setup_hazards` starts from
-it before widening to the worker's spellings. Setups succeeded the action
+module's executor writes and reads by it, and `setup_hazards` reads a
+step's variable as a superset of it (the worker's spellings too). Setups succeeded the action
 library (`action_library/actions.yaml`, converted once, one setup per plan),
 and with it went `ExperimentDefaults.actions` and the scan request's action
 bindings, which named plans nothing executed.
