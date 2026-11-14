@@ -150,7 +150,11 @@ its design is `Planning/configurator.md`, its record the tracking issue
   this app's own answers (`tests/test_embed_js.py`). Hosts: the scanner's
   preset mini; the portal's Analysis tab (its `preview` a promise of the
   unsaved recipe drawn on the scan, its `toolbar` the shot and the name; a
-  page off the kit gets the drawer in a `.kit` wrapper of its own).
+  page off the kit gets the drawer in a `.kit` wrapper of its own). What
+  the drawer shows answers the draft in it: the latest Preview's picture is
+  shown whatever order they resolve in, an edit marks a shown preview stale,
+  and a dry run answered for an earlier draft asks again rather than letting
+  its Save save the edit (`tests/test_embed_stale_js.py`).
 - **One save flow.** `embed.js`'s `saveFlow` is the save of an existing
   document in the browser: the embedded drawer and this service's own page
   (`configurator.js`, which loads `embed.js` first) both save through it,

@@ -99,21 +99,30 @@
       errorsAt(d.errors);
       show([banner("The " + d.by + "'s dry run refused your edit: " + d.refusal + ". Nothing was saved; your edit is still in the form.", "error"), outcomes(d)]);
     }
+    // A dry run answers for the draft it was asked about: an answer to an older ask is dropped, and its
+    // Save goes on only while the form still holds that draft (an edit since asks again).
+    var asks = 0;
     function dryRunFirst(convert) {
       o.button.disabled = true;
       var path = "/api/dry-run/" + o.kind + o.query() + "&id=" + encodeURIComponent(o.docId());
-      o.call("POST", path, { document: o.value() }).then(function (r) {
+      var mine = ++asks, asked = JSON.stringify(o.value());
+      o.call("POST", path, { document: JSON.parse(asked) }).then(function (r) {
+        if (mine !== asks) return;  // a later ask is the one shown
         o.button.disabled = false;
         var d = r.body || {};
+        if (JSON.stringify(o.value()) !== asked) { dryRunFirst(convert); return; }  // edited while it ran
         if (r.status !== 200) { show([banner("The dry run did not answer: " + why(d), "error")]); return; }
         if (d.refusal) { refused(d); return; }
         if (d.by === "none") { save(convert, true); return; }  // no consumer check here: nothing to show
         var kids = [banner(d.ran ? "The " + d.by + "'s dry run of your edit: " + (d.detail || "no objection") + "." : "The " + d.by + "'s dry run did not run: " + d.detail + ".", d.ran ? null : "stale"), outcomes(d)];
         (d.questions || []).forEach(function (q) { kids.push(el("p", { class: "dim" }, "It asks: " + (q.title || q.check) + (q.message ? " (" + q.message + ")" : ""))); });
         if (d.output) { var det = el("details", { class: "disc" }); det.appendChild(el("summary", {}, "Its output")); det.appendChild(el("pre", { class: "well" }, d.output)); kids.push(det); }
-        kids.push(button(d.ran ? "Save" : "Save without it", "primary", function () { save(convert, true); }));
+        kids.push(button(d.ran ? "Save" : "Save without it", "primary", function () {
+          if (JSON.stringify(o.value()) !== asked) { dryRunFirst(convert); return; }  // this answer is for an earlier draft
+          save(convert, true);
+        }));
         show(kids);
-      }).catch(function (e) { o.button.disabled = false; show([banner(String(e.message || e), "error")]); });
+      }).catch(function (e) { if (mine === asks) { o.button.disabled = false; show([banner(String(e.message || e), "error")]); } });
     }
     function save(convert, checked) {
       var who = o.operator();
@@ -227,13 +236,31 @@
     function docPath() { return "/api/documents/" + opts.kind + "/" + docId.split("/").map(encodeURIComponent).join("/") + query; }
     function operator() { var o = typeof opts.operator === "function" ? opts.operator() : opts.operator; return String(o || "").trim(); }
     function value() { return form ? merge(stored, form.value(), fields) : null; }
+    // A preview shows the draft it was drawn from, or says it does not: an older request's answer is
+    // dropped (the latest Preview wins, whatever order they resolve in), and an edit after it marks it stale.
+    var previews = 0, drawn = null;  // drawn: the draft the shown preview is of
+    function markStale() {
+      if (drawn === null || previewBox.getAttribute("data-stale") === "true") return;
+      previewBox.setAttribute("data-stale", "true");
+      previewBox.insertBefore(banner("This preview is of an earlier edit: press Preview again.", "stale"), previewBox.firstChild);
+    }
+    function edited() { if (drawn !== null && JSON.stringify(value()) !== drawn) markStale(); }
     function preview() {
-      var got = opts.preview(value());
+      var draft = value(), mine = ++previews, of = JSON.stringify(draft);
+      var got = opts.preview(draft);
       if (!got || typeof got.then !== "function") return;
+      drawn = null;
+      previewBox.setAttribute("data-stale", "false");
       fill(previewBox, [el("div", { class: "state", "data-state": "loading" }, "Rendering the preview…")]);
       got.then(function (node) {
+        if (mine !== previews) return;  // a later Preview is the one shown
+        drawn = of;
         fill(previewBox, [typeof node === "string" ? el("p", {}, node) : node]);
-      }, function (e) { fill(previewBox, [banner("No preview: " + (e && e.message || e), "error")]); });
+        edited();  // edited while it rendered
+      }, function (e) {
+        if (mine !== previews) return;
+        fill(previewBox, [banner("No preview: " + (e && e.message || e), "error")]);
+      });
     }
 
     titleEl.textContent = opts.kind + " · " + opts.id;
@@ -256,7 +283,7 @@
       info = (got[2].body || []).filter(function (k) { return k.kind === opts.kind; })[0] || { dry_run: "none" };
       titleEl.textContent = opts.kind + " · " + docId;
       var formHost = el("div", { class: "group" }), readOnly = !!got[1].body.read_only;
-      form = GeecsForm.mount(formHost, { schema: limit(schema, fields), value: pick(stored, fields), readOnly: readOnly });
+      form = GeecsForm.mount(formHost, { schema: limit(schema, fields), value: pick(stored, fields), readOnly: readOnly, onChange: edited });
       var tools = el("div", { class: "row end" }), saveBtn = null;
       if (opts.toolbar) tools.appendChild(opts.toolbar);
       tools.appendChild(el("a", { class: "btn ghost", href: base + "/" + query + "&kind=" + encodeURIComponent(opts.kind) + "&id=" + encodeURIComponent(docId), target: "_blank", rel: "noopener" }, "Open in the configurator"));
