@@ -10,9 +10,9 @@ family role, or a DB device's GEECS variable name.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import Field, model_validator
+from pydantic import Field, StringConstraints, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 from geecs_schemas.epics.family import AnyRoleName, FamilyWord
@@ -21,6 +21,10 @@ from geecs_schemas.epics.panel_devices import DeviceName
 #: The policy's file name in the experiment's configs folder.
 OPERATOR_POLICY_FILENAME = "operator_policy.yaml"
 _VERSION = "Format version. Leave at 1."
+#: In a grant's ``operators``, alone: every operator who gives a name.
+ANY_OPERATOR = "*"
+#: An operator's name as a policy file writes it: no space at either end.
+OperatorName = Annotated[str, StringConstraints(pattern=r"^\S(.*\S)?$")]
 
 
 class _Scope(SchemaModel):
@@ -41,10 +45,36 @@ class _Scope(SchemaModel):
 
 
 class OperatorGrant(_Scope):
-    """Some operators may write some roles of some devices, named or by family."""
+    """Some operators may write some roles of some devices, named or by family.
 
-    operators: list[str] = Field(min_length=1, description="Operators, by name.")
+    ``operators: ["*"]`` grants every operator who gives a name: the write is
+    still journalled under that name, and the allow list, hazard confirm, run
+    lock and bounds still apply.
+    """
+
+    operators: list[OperatorName] = Field(
+        min_length=1,
+        description='Operators, by name; or ["*"] alone: every named operator.',
+    )
     roles: list[AnyRoleName] = Field([], description="Only these; empty: all allowed.")
+
+    @model_validator(mode="after")
+    def _names_or_everyone(self) -> "OperatorGrant":
+        stars = [o for o in self.operators if ANY_OPERATOR in o]
+        if stars and self.operators != [ANY_OPERATOR]:
+            raise ValueError(
+                f"operators is names or [{ANY_OPERATOR!r}] alone, and "
+                f"{ANY_OPERATOR!r} is not a pattern: {stars}"
+            )
+        return self
+
+    def names(self, operator: str) -> bool:
+        """Whether the grant names this operator, or every operator and this one gave a name."""
+        if self.operators == [ANY_OPERATOR]:
+            name = operator.strip()
+            visible = any(c.isprintable() and not c.isspace() for c in name)
+            return visible and name != ANY_OPERATOR
+        return operator in self.operators
 
 
 class HazardRule(_Scope):
@@ -68,7 +98,7 @@ class OperatorPolicy(VersionedSchemaModel):
     def permits(self, operator: str, device: str, family: str, role: str) -> bool:
         """Whether a grant names this operator, this device or its family, and this role."""
         return any(
-            operator in g.operators
+            g.names(operator)
             and g.covers(device, family)
             and (not g.roles or role in g.roles)
             for g in self.grants
