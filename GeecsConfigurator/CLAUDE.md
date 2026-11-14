@@ -175,8 +175,14 @@ its design is `Planning/configurator.md`, its record the tracking issue
   form as a new document beside it (the save route's `create`: its dry run,
   tier and stem rule), the stem-named `name` renamed and a recipe's
   `output_name` set to the new name. Both the drawer ("Copy or delete") and
-  this service's page use them. Pinned by `tests/test_delete.py` and
-  `test_document_actions_js.py`.
+  this service's page use them. A reference is compared as its reader
+  resolves it (`geecs_schemas.READ_AS`: an optimizer config through the
+  worker's resolver's `yaml_stem`, every other name as its literal stem).
+  The drawer is shared, so an answer that arrives after another document
+  was opened in it (a delete, a copy, the load) touches the drawer only
+  while its own document is still the one open; the host's `onSaved`
+  hears it either way. Pinned by `tests/test_delete.py`,
+  `test_document_actions_js.py` and `test_embed_switch_js.py`.
 - **One save flow.** `embed.js`'s `saveFlow` is the save of an existing
   document in the browser: the embedded drawer and this service's own page
   (`configurator.js`, which loads `embed.js` first) both save through it,

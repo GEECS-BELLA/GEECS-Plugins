@@ -55,6 +55,7 @@ from geecs_schemas import (
     ScanVariableSpec,
     ShotOffsets,
     TriggerProfile,
+    yaml_stem,
 )
 from geecs_schemas.convert import convert_shot_control
 from geecs_schemas.setup import load_setups
@@ -191,13 +192,6 @@ class ConfigsRepoResolver:
             )
         return root / self._experiment
 
-    @staticmethod
-    def _strip_yaml_suffix(name: str) -> str:
-        for suffix in (".yaml", ".yml"):
-            if name.endswith(suffix):
-                return name[: -len(suffix)]
-        return name
-
     def _named_yaml_path(self, folder: str, stem: str) -> Path:
         """The config file for *stem* in *folder*: ``.yaml``, else its ``.yml`` twin.
 
@@ -289,7 +283,7 @@ class ConfigsRepoResolver:
         pydantic.ValidationError
             A document that is not a valid ``Preset``.
         """
-        stem = self._strip_yaml_suffix(name)
+        stem = yaml_stem(name)
         path = self._named_yaml_path(self.PRESET_FOLDER, stem)
         document = self._load_yaml(path, "preset", name)
         return Preset.model_validate(document)
@@ -308,7 +302,8 @@ class ConfigsRepoResolver:
 
     def optimizer_config_path(self, name: str) -> Path:
         """Return the optimizer config path; its seed dumps resolve relative to it."""
-        stem = self._strip_yaml_suffix(name)
+        # the references table reads a preset's optimizer config through yaml_stem too
+        stem = yaml_stem(name)
         if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
             raise GeecsConfigurationError("optimizer config must be a file stem")
         return self._named_yaml_path(self.OPTIMIZER_FOLDER, stem)
@@ -371,7 +366,7 @@ class ConfigsRepoResolver:
         GeecsConfigurationError
             Missing file, or a profile that names no trigger device.
         """
-        stem = self._strip_yaml_suffix(name)
+        stem = yaml_stem(name)
         path = self._named_yaml_path(self.TRIGGER_FOLDER, stem)
         document = self._load_yaml(path, "trigger profile", name)
         if "schema_version" in document:

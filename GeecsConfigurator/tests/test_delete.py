@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import geecs_schemas
+import pytest
 from conftest import git, push_change
 from fastapi.testclient import TestClient
 
@@ -13,6 +15,8 @@ from geecs_configurator.validation import problems
 B = "?experiment=Bench"
 SETUPS = "scanner_configs/experiments/Bench/setups"
 PROFILES = "scanner_configs/experiments/Bench/shot_control_configurations"
+PRESETS = "scanner_configs/experiments/Bench/presets"
+OPTIMIZERS = "scanner_configs/experiments/Bench/optimizer_configs"
 
 
 def _delete(
@@ -104,6 +108,28 @@ def test_the_gate_refuses_a_delete_made_around_the_configurator(root: Path) -> N
         "schema_version: 2\nname: laser_off\n"
     )
     assert problems(root, [], [f"{PROFILES}/laser_off.yaml"]) == []
+
+
+@pytest.mark.parametrize("spelled", ["align", "align.yaml", "align.yml"])
+def test_an_optimizer_config_is_named_as_the_worker_resolves_it(root: Path, client: TestClient, spelled: str) -> None:  # fmt: skip
+    """A preset's plan may name ``align.yaml``: the worker's resolver strips the suffix and loads ``align``, so that holds it."""
+    config = (Path(geecs_schemas.__file__).parents[1] / "tests/fixtures/optimizer_configs/bax_alignment_S1V.yaml").read_text()  # fmt: skip
+    (root / OPTIMIZERS).mkdir(parents=True)
+    (root / f"{OPTIMIZERS}/align.yaml").write_text(config)
+    (root / PRESETS).mkdir(parents=True)
+    (root / f"{PRESETS}/opt.yaml").write_text(f"schema_version: 1\nname: opt\ndevices: []\nplan: {{name: optimize, kwargs: {{optimizer_config: {spelled}}}}}\n")  # fmt: skip
+    check = client.post(f"/api/delete-check/optimizer_config/align.yaml{B}").json()
+    assert (check["deletable"], check["referrers"]) == (False, [f"{PRESETS}/opt.yaml"])
+    (root / f"{OPTIMIZERS}/align.yaml").unlink()
+    found = problems(root, [], [f"{OPTIMIZERS}/align.yaml"])
+    assert len(found) == 1 and "presets/opt.yaml" in found[0]
+
+
+def test_a_trigger_profile_is_named_by_its_literal_stem(root: Path, client: TestClient) -> None:  # fmt: skip
+    """The worker keys its trigger profiles by stem: a preset naming ``laser_off.yaml`` does not run with ``laser_off``, so it does not hold it."""
+    (root / PRESETS).mkdir(parents=True)
+    (root / f"{PRESETS}/jet.yaml").write_text("schema_version: 1\nname: jet\ntrigger_profile: laser_off.yaml\ndevices: []\nplan: {name: count, kwargs: {}}\n")  # fmt: skip
+    assert client.post(f"/api/delete-check/trigger_profile/laser_off.yaml{B}").json()["referrers"] == []  # fmt: skip
 
 
 def test_a_rename_is_a_delete_to_the_live_gate(committing: TestClient, origin: Path, other: Path) -> None:  # fmt: skip
