@@ -72,6 +72,8 @@
       <header><span class="eyebrow">{{ kind }}</span><span class="dim">{{ docs | length }} document{{ "" if docs | length == 1 else "s" }}</span>
         {% if kind == "setup" %}{% set why = "the commit path is not configured" if not commits else ("no scanner configured for " ~ experiment) if not scanner else "not this box's experiment" if not_owned else "" %}
         <span class="spacer"></span><button class="btn sm" type="button" id="capture-open"{% if why %} disabled title="Capture is off here: {{ why }}"{% else %} data-drawer-open="drw-capture"{% endif %}>Capture from live…</button>{% endif %}
+        {% set info = catalogue | selectattr("kind", "equalto", kind) | first %}{% if commits and info and info.blank %}
+        <span class="spacer"></span><button class="btn sm" type="button" id="new-doc" title="Starts from {{ info.blank }}; nothing is written until Save">New {{ kind | replace("analysis_", "") }}…</button>{% endif %}
       </header>
       <div class="body">
         {% if docs %}

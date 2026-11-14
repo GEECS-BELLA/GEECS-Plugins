@@ -10,6 +10,8 @@ imports happen here.
 
 from __future__ import annotations
 
+from typing import Union, get_args, get_origin
+
 from geecs_schemas.analysis import AnalysisDocument, AnalysisRecipe
 from geecs_schemas.analysis.recipe import LineInput
 from pydantic import ValidationError
@@ -26,6 +28,7 @@ from geecs_analysis.engine.compiled import (
 from geecs_analysis.pipeline import measure_input, measure_tables, shot_scalar_columns
 from geecs_analysis.registry import (
     definition,
+    default_measure,
     definitions,
     measure_definition,
     measure_definitions,
@@ -108,6 +111,44 @@ def compile_recipe(
     if isinstance(recipe.input, LineInput):
         return _line_recipe(recipe.input, analysis, common)
     return _camera_recipe(recipe, analysis, common)
+
+
+def input_kinds() -> dict[str, int]:
+    """The recipe's input kinds and the frame dimensionality each reads (``{"camera": 2, "line": 1}``), from the schema's union."""
+    union = get_args(AnalysisRecipe.model_fields["input"].annotation)
+    models = get_args(union[0]) if union and get_origin(union[0]) is Union else union
+    return {m.model_fields["kind"].default: m.ndim for m in models}
+
+
+def blank_recipe(input_kind: str, *, name: str, device: str | None = None, input_fields: dict | None = None) -> dict:  # fmt: skip
+    """The fewest-part recipe that binds for a new document: its input, no steps, the registry's default measure.
+
+    ``name`` is the recipe's stem and its ``output_name`` (its own columns and
+    folders); ``device`` the data folder (the name when not given);
+    ``input_fields`` what the input kind requires beyond its kind (a trace's
+    ``loading``). The measure is the one the registry declares the default
+    for the input's frames (:func:`geecs_analysis.registry.default_measure`).
+    Validated and bound here, so what an editor opens already compiles.
+    :class:`RecipeError` names what is missing or unknown.
+    """
+    kinds = input_kinds()
+    if input_kind not in kinds:
+        raise RecipeError(f"no input kind {input_kind!r} (one of {', '.join(kinds)})")
+    measure = default_measure(kinds[input_kind]).spec.model_fields["kind"].default
+    document = {
+        "schema_version": 3,
+        "device": device or name,
+        "output_name": name,
+        "input": {"kind": input_kind, **(input_fields or {})},
+        "steps": [],
+        "measure": {"kind": measure},
+    }
+    try:
+        recipe = AnalysisRecipe.model_validate(document)
+    except ValidationError as exc:
+        raise RecipeError(f"a {input_kind} input as chosen does not validate: {exc.errors()[0]['loc']} {exc.errors()[0]['msg']}") from exc  # fmt: skip
+    compile_recipe(recipe, allow_file_backgrounds=True)
+    return document
 
 
 def binding_errors(recipe: AnalysisRecipe) -> list[dict]:
@@ -373,6 +414,8 @@ __all__ = [
     "AnalysisDocument",
     "RecipeError",
     "binding_errors",
+    "blank_recipe",
+    "input_kinds",
     "compile_document",
     "compile_recipe",
     "figure_of",

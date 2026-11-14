@@ -91,6 +91,13 @@ DRY_RUNS: dict[str, str] = {
 }
 
 
+#: What a new document of the kind opens on (``blank.py``; the kinds without one are copied, never started blank).
+BLANKS: dict[str, str] = {
+    "analysis_recipe": "the portal's blank: the input, no steps, the analysis core's default measure for its frames",
+    "analysis_group": "an empty group",
+}
+
+
 class KindInfo(BaseModel):
     """One registered kind as the API lists it."""
 
@@ -104,6 +111,8 @@ class KindInfo(BaseModel):
     dry_run: str
     #: Its documents are named files of a folder: copied and deleted from the editor (``validation.deletable``).
     deletable: bool = False
+    #: What a new document opens on, ``""`` when the kind has no blank (``BLANKS``).
+    blank: str = ""
 
 
 def kinds() -> list[KindInfo]:
@@ -125,6 +134,7 @@ def kinds() -> list[KindInfo]:
                 consumers=CONSUMERS.get(kind, []),
                 dry_run=DRY_RUNS.get(kind, "none"),
                 deletable=deletable(kind),
+                blank=BLANKS.get(kind, ""),
             )
         )
     order = {"file": 0, "code": 1, "not-a-file": 2}

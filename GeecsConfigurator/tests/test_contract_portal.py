@@ -10,6 +10,7 @@ package never imports it.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -146,3 +147,48 @@ def test_a_recipe_the_portal_accepts_is_committed_as_the_operator(committing: Te
     assert (
         git("log", "-1", "--format=%an", "main", cwd=origin) == "Ada via configurator"
     )
+
+
+def _blank_fields(kind: str) -> str:
+    """What the start form sends for an input kind beyond its kind: a trace's file format (the schema's first)."""
+    from geecs_schemas.analysis.processing_1d import Data1DType
+
+    return json.dumps({"loading": {"data_type": next(iter(Data1DType)).value}}) if kind == "line" else ""  # fmt: skip
+
+
+def test_a_new_recipe_opens_on_the_portals_blank_and_saves_through_the_create(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    """For every frame kind the core reads: the draft binds as opened (the registry's default measure), and its create commits."""
+    from geecs_analysis.recipe import input_kinds
+    from geecs_analysis.registry import default_measure
+
+    for kind, ndim in input_kinds().items():
+        name = f"UC_New_{kind}"
+        r = committing.get(f"/api/blank/analysis_recipe/Ns/{name}.yaml", params={"input": kind, "fields": _blank_fields(kind)})  # fmt: skip
+        assert r.status_code == 200, r.text
+        doc = r.json()["document"]
+        assert r.json()["source"] == "portal" and (doc["output_name"], doc["steps"]) == (name, [])  # fmt: skip
+        assert doc["measure"]["kind"] == default_measure(ndim).spec.model_fields["kind"].default  # fmt: skip
+        dry = committing.post(f"/api/dry-run/analysis_recipe?id=Ns/{name}.yaml", json={"document": doc}).json()  # fmt: skip
+        assert (dry["ran"], dry["refusal"]) == (True, None)
+        saved = committing.put(f"/api/documents/analysis_recipe/Ns/{name}.yaml", json={"document": doc, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
+        assert saved.status_code == 200 and saved.json()["outcome"] == "committed", saved.text  # fmt: skip
+    assert "Ns/UC_New_camera.yaml" in git("ls-tree", "-r", "--name-only", "main", cwd=origin)  # fmt: skip
+
+
+def test_a_blank_under_a_stem_the_tree_holds_is_refused_and_never_commits(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    """Asked first (409, nothing drafted); a draft saved there anyway is the save's refusal, before any commit."""
+    head = git("rev-parse", "main", cwd=origin)
+    asked = committing.get("/api/blank/analysis_recipe/Ns/more/UC_Crop.yaml", params={"input": "camera"})  # fmt: skip
+    assert asked.status_code == 409 and "Ns/UC_Crop.yaml" in asked.json()["detail"]
+    doc = committing.get("/api/blank/analysis_recipe/Ns/UC_Other.yaml", params={"input": "camera"}).json()["document"]  # fmt: skip
+    r = committing.put("/api/documents/analysis_recipe/Ns/more/UC_Crop.yaml", json={"document": {**doc, "output_name": "UC_Crop"}, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
+    assert r.status_code == 422
+    assert git("rev-parse", "main", cwd=origin) == head
+
+
+def test_the_portals_refusal_of_a_blank_is_the_answer(committing: TestClient) -> None:
+    """An input kind the core does not know, or a trace without its format: the portal's words, no fallback draft."""
+    unknown = committing.get("/api/blank/analysis_recipe/Ns/T.yaml", params={"input": "telescope"})  # fmt: skip
+    assert unknown.status_code == 422 and "telescope" in unknown.json()["detail"]
+    lacking = committing.get("/api/blank/analysis_recipe/Ns/L.yaml", params={"input": "line"})  # fmt: skip
+    assert lacking.status_code == 422 and "loading" in lacking.json()["detail"]

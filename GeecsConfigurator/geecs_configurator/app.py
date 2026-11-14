@@ -20,7 +20,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, TypeVar
 
 from fastapi import APIRouter, Body, FastAPI, HTTPException, Request, Response
@@ -28,12 +28,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, NotAFile
 from geecs_schemas.storage import STORAGE_ROOT_PATHS
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from geecs_web_theme.web import ForwardedPrefixMiddleware, RevalidatingStaticFiles, make_templates, mount_theme  # fmt: skip
 
 import httpx
 
-from geecs_configurator import inbox, setups
+from geecs_configurator import blank, inbox, setups
 from geecs_configurator.apply import (
     Archiver,
     DryRun,
@@ -43,7 +43,7 @@ from geecs_configurator.apply import (
     ScannerClient,
     ServiceApplier,
 )
-from geecs_configurator.kinds import DRY_RUNS, KindInfo, kinds
+from geecs_configurator.kinds import BLANKS, DRY_RUNS, KindInfo, kinds
 from geecs_configurator.log import CHIP, STATES, Applier
 from geecs_configurator.repository import ConfigsRepository, GitError
 from geecs_configurator.save import CompareLinkOnly, DeleteRequest, check_owned, delete, PullRequests, Refused, Saved, SaveRequest, save  # fmt: skip
@@ -244,6 +244,86 @@ def schema(request: Request, kind: str) -> JSONResponse:
                 source = f"geecs-schemas (the portal did not answer: {' '.join(str(exc).split())[:200]})"  # fmt: skip
         return JSONResponse(SCHEMA_REGISTRY[kind].model_json_schema(), headers={"X-Schema-Source": source.encode("ascii", "replace").decode()})  # fmt: skip
     return JSONResponse(SCHEMA_REGISTRY[kind].model_json_schema())
+
+
+@api.get("/folders/{kind}")
+def new_folders(request: Request, kind: str) -> list[str]:
+    """Where a new document of a kind with a blank may go: this box's folders of its tree (none with the commit path off)."""
+    if kind not in BLANKS:
+        raise HTTPException(404, f"no blank {kind}: a new one is a copy of another")
+    commit: CommitPath | None = request.app.state.commit
+    return blank.folders(_store(request), commit.ownership, kind) if commit else []
+
+
+@api.get("/blank/{kind}/{doc_id:path}")
+def new_document(request: Request, kind: str, doc_id: str, input: str = "", device: str = "", fields: str = "") -> JSONResponse:  # fmt: skip
+    """A new document's draft at ``doc_id``, for the editor to open: nothing is written (Save is the save route's create).
+
+    The portal's blank when it answers (a recipe that already binds: the
+    registry's default measure for the input's frames); its refusal (an
+    unknown input kind, a field it lacks) is this route's. When the portal
+    is unset or silent, the schema's fewest fields, ``source`` saying why.
+    Refused first: a name that is not a stem (422), a path this box does not
+    own (403), a name already a file's or, in the analyzers tree, another
+    file's stem (409).
+    """
+    name = _new_place(request, kind, doc_id)
+    try:
+        parsed = blank.parse_fields(fields)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    portal: PortalClient | None = request.app.state.consumers.portal
+    source = "geecs-schemas (no portal configured: GEECS_CONFIGURATOR_PORTAL_URL); no measure is chosen"  # fmt: skip
+    if portal is not None:
+        answered = _portal_blank(portal, kind, {"name": name, "input": input, "device": device, "fields": fields})  # fmt: skip
+        if isinstance(answered, JSONResponse):
+            return answered
+        source = answered
+    try:
+        document = blank.schema_blank(kind, name, input, device, parsed)
+    except ValidationError as exc:
+        raise HTTPException(422, f"no draft: {exc.errors()[0]['loc']} {exc.errors()[0]['msg']}") from exc  # fmt: skip
+    return JSONResponse({"document": document, "source": source})
+
+
+def _new_place(request: Request, kind: str, doc_id: str) -> str:
+    """The new document's name, once ``doc_id`` may be created here (a blank kind, the commit path, owned, free); else the HTTP refusal."""
+    if kind not in BLANKS:
+        raise HTTPException(404, f"no blank {kind}: a new one is a copy of another")
+    commit: CommitPath | None = request.app.state.commit
+    if commit is None:
+        raise HTTPException(405, "read-only: the commit path is not configured")
+    store, name = _store(request), PurePosixPath(doc_id).stem
+    if not blank.NAME.fullmatch(name):
+        raise HTTPException(422, "a new name is letters, digits, _ . - (it is the file's stem)")  # fmt: skip
+    try:
+        check_owned(store, commit.ownership, kind, None, doc_id, create=True)
+        why = blank.taken(store, kind, doc_id)
+    except NotFound as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Refused as exc:
+        raise HTTPException(exc.status, exc.detail) from exc
+    if why:
+        raise HTTPException(409, why)
+    return name
+
+
+def _portal_blank(
+    portal: PortalClient, kind: str, params: dict[str, str]
+) -> JSONResponse | str:
+    """The portal's draft or its refusal as the answer; when it does not answer, why (the fallback's ``source``)."""
+    try:
+        status, body = portal.blank(kind, params)
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("the portal's %s blank did not answer: %s", kind, exc)
+        return f"geecs-schemas (the portal did not answer: {' '.join(str(exc).split())[:200]}); no measure is chosen"  # fmt: skip
+    if status == 200 and isinstance(body.get("document"), dict):
+        return JSONResponse({"document": body["document"], "source": "portal"})
+    if (
+        status == 422
+    ):  # the portal's refusal of what was asked (an input kind it does not know, a field it lacks)
+        return JSONResponse({"detail": body.get("detail", body)}, status_code=422)
+    return f"geecs-schemas (the portal answered {status}: {' '.join(str(body.get('detail', '')).split())[:200]}); no measure is chosen"  # fmt: skip
 
 
 @api.get("/documents/{kind}")

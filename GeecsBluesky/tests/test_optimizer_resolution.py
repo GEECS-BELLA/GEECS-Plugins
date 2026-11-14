@@ -131,3 +131,20 @@ def test_optimizer_listing_preserves_root_and_io_failures(
         monkeypatch.setattr(Path, "iterdir", unreadable)
     with pytest.raises((RuntimeError, FileNotFoundError, PermissionError)):
         resolver.optimizer_config_listing()
+
+
+@pytest.mark.parametrize("spelled", ["align", "align.yaml", "align.yml"])
+def test_the_references_table_reads_an_optimizer_config_as_this_resolver_does(
+    tmp_path, spelled
+):
+    """A delete check and the configs gate hold the file the worker loads for a preset's ``optimizer_config``."""
+    from geecs_schemas import READ_AS
+
+    resolver = ConfigsRepoResolver("Test", tmp_path)
+    assert resolver.optimizer_config_path(spelled) == resolver.optimizer_config_path(
+        READ_AS["optimizer_config"](spelled)
+    )
+    assert (
+        READ_AS["optimizer_config"](spelled)
+        == resolver.optimizer_config_path(spelled).stem
+    )

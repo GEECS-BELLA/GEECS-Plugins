@@ -17,6 +17,7 @@ names, the configurator's.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
@@ -149,6 +150,51 @@ def validate_document(root: Path, kind: str, document: Json, doc_id: str | None 
     if _kinds()[kind].folder == ANALYZERS_FOLDER:  # run by stem: unique across the tree
         errors += _stem_errors(root, doc_id)
     return {"ok": not errors, "errors": errors}
+
+
+@router.get("/api/analysis/blank/{kind}")
+def analysis_blank(
+    kind: str,
+    name: str,
+    input: str = "",
+    device: str = "",
+    fields: str = "",
+    portal: PortalState = Depends(get_state),
+) -> JSONResponse:
+    """A new document of ``kind`` that already validates: the starting draft an editor opens, never written here.
+
+    A recipe is ``geecs_analysis.recipe.blank_recipe``: the ``input`` kind
+    (its frames), no steps, the registry's default measure for those frames,
+    ``output_name`` the name; ``fields`` (a JSON object) is what the input
+    kind requires beyond its kind, e.g. a trace's ``{"loading": {"data_type":
+    "tsv"}}``. A group is an empty list of analyzers. A ``.himg`` job
+    has no blank: its kind is the decision (one of them deletes files).
+    """
+    _root(portal)
+    _kind(kind)
+    if kind == "analysis_group":
+        from pydantic import ValidationError
+
+        document: Json = {"name": name, "analyzers": []}
+        try:
+            _model(kind).model_validate(document)
+        except ValidationError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return JSONResponse({"document": document})
+    if kind != "analysis_recipe":
+        raise HTTPException(404, f"no blank {kind}: its kind is the operator's decision (one of them deletes files)")  # fmt: skip
+    from geecs_analysis.recipe import RecipeError, blank_recipe
+
+    try:
+        input_fields = json.loads(fields) if fields else {}
+    except ValueError as exc:
+        raise HTTPException(422, f"fields is not JSON: {exc}") from exc
+    if not isinstance(input_fields, dict):
+        raise HTTPException(422, "fields is a JSON object (the input's fields beyond its kind)")  # fmt: skip
+    try:
+        return JSONResponse({"document": blank_recipe(input, name=name, device=device or None, input_fields=input_fields)})  # fmt: skip
+    except RecipeError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/api/analysis/schema/{kind}")
