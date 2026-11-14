@@ -90,3 +90,19 @@ class DbSettables:
         """The cached list, or one DB read to fill it; a failed read is reported, not cached."""
         items, detail = self._read.get()
         return SettablesOut(items=items or [], source="db", detail=detail)
+
+
+class DbDeviceTypes:
+    """Each enabled device of the experiment and its device type, from the GEECS DB, read once and kept."""
+
+    def __init__(self, experiment: str, *, db: Any = None) -> None:
+        self._read = CachedDbRead(
+            lambda db: dict(db.get_experiment_device_types(experiment)),
+            what="device types",
+            db=db,
+        )
+
+    def by_device(self) -> dict[str, str] | None:
+        """``{device: devicetype}``, or ``None`` when the DB did not answer (not cached)."""
+        types, _detail = self._read.get()
+        return types

@@ -58,6 +58,8 @@ def _nonrun_report(item: dict) -> str:
         return f"moved {pairs}"
     if name == "run_action":
         return f"action {args[0]!r} ran to completion" if args else "action ran"
+    if name == "apply_setup":
+        return f"setup {args[0]!r} applied" if args else "setup applied"
     n = len(args[0]) if args and isinstance(args[0], list) else 0
     if name == "check_shot_sync":
         return f"{n} devices in tolerance (spread 0.008 s)"
@@ -287,6 +289,96 @@ class DemoResolver:
                 }
             ),
         }
+
+    def setups(self) -> dict[str, Any]:
+        """Four setups: one nesting another, one writing a hazard role, one in a loop."""
+        from geecs_schemas import Setup
+
+        docs = [
+            {
+                "name": "shutters_closed",
+                "description": "Both shutters closed, and confirmed",
+                "steps": [
+                    {
+                        "do": "set",
+                        "device": "U_148_PLC",
+                        "variable": "shutter1",
+                        "value": "off",
+                    },
+                    {
+                        "do": "set",
+                        "device": "U_148_PLC",
+                        "variable": "shutter2",
+                        "value": "off",
+                    },
+                    {"do": "wait", "seconds": 2},
+                    {
+                        "do": "check",
+                        "device": "U_148_PLC",
+                        "variable": "shutter1",
+                        "expected": "off",
+                    },
+                ],
+                "captured": {
+                    "by": "demo",
+                    "at": "2026-11-01T09:00:00-07:00",
+                    "readbacks": [
+                        {"device": "U_148_PLC", "variable": "shutter1"},
+                        {"device": "U_148_PLC", "variable": "shutter2"},
+                    ],
+                },
+            },
+            {
+                "name": "low_power",
+                "description": "Steering zeroed, jet low, shutters closed",
+                "steps": [
+                    {
+                        "do": "set",
+                        "device": "U_S1H",
+                        "variable": "current",
+                        "value": 0.0,
+                    },
+                    {
+                        "do": "set",
+                        "device": "U_HP_Daq",
+                        "variable": "Jet pressure",
+                        "value": 2.0,
+                    },
+                    {"do": "apply", "setup": "shutters_closed"},
+                ],
+            },
+            {"name": "loop_a", "steps": [{"do": "apply", "setup": "loop_b"}]},
+            {"name": "loop_b", "steps": [{"do": "apply", "setup": "loop_a"}]},
+        ]
+        return {d["name"]: Setup.model_validate(d) for d in docs}
+
+    def setup_repo_path(self, name: str) -> str:
+        """Where the real resolver would say the file is."""
+        return f"scanner_configs/experiments/Demo/setups/{name}.yaml"
+
+    def configs_commit(self) -> str | None:
+        """The demo tree is not a checkout."""
+        return None
+
+    def resolve_operator_policy(self) -> Any:
+        """One hazard rule: the jet pressure of the DAQ device type."""
+        from geecs_schemas import OperatorPolicy
+
+        return OperatorPolicy.model_validate(
+            {"hazards": [{"families": ["DemoDaq"], "roles": ["Jet pressure"]}]}
+        )
+
+    def resolve_native_devices(self) -> Any:
+        """No native devices in the demo."""
+        from geecs_schemas import NativeDevices
+
+        return NativeDevices()
+
+    def resolve_panel_devices(self) -> Any:
+        """No panel devices in the demo."""
+        from geecs_schemas import PanelDevices
+
+        return PanelDevices()
 
     def resolve_action_plan(self, name: str) -> Any:
         """One plan, or ``KeyError``."""
@@ -932,8 +1024,10 @@ class DemoReadback:
         self._manager = manager
         self._clock = clock
 
-    async def read(self, device: str, variable: str, *, units: str = "") -> Any:
-        """The value of the last finished ``mv`` naming this variable, else 0."""
+    async def read(
+        self, device: str, variable: str, *, units: str = "", word: bool = False
+    ) -> Any:
+        """The value of the last finished ``mv`` naming this variable, else 0 (``"off"`` as a word)."""
         from geecs_bluesky.qs_client.presets import scan_variable_reference
 
         from geecs_scanner.service.models import ReadbackOut
@@ -947,6 +1041,8 @@ class DemoReadback:
                     if args[i] == reference:
                         value = float(args[i + 1])
         now = self._clock()
+        if word:
+            return ReadbackOut(variable=f"{device}:{variable}", pv=f"demo:{reference}", ok=True, text="off", units=units, timestamp=now, age_s=0.0)  # fmt: skip
         return ReadbackOut(
             variable=f"{device}:{variable}",
             pv=f"demo:{reference}",
@@ -956,3 +1052,11 @@ class DemoReadback:
             timestamp=now,
             age_s=0.0,
         )
+
+
+class DemoDeviceTypes:
+    """The demo's DB device types: the jet's DAQ is the one the policy names."""
+
+    def by_device(self) -> dict[str, str]:
+        """``{device: devicetype}``."""
+        return {"U_HP_Daq": "DemoDaq", "U_S1H": "Magnet", "U_148_PLC": "PLC"}

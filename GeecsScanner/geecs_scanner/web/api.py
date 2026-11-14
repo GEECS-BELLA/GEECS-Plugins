@@ -38,6 +38,10 @@ from geecs_scanner.service.models import (
     ReopenOut,
     SavePresetIn,
     SavePresetOut,
+    SetupApplyIn,
+    SetupDetailOut,
+    SetupDiffOut,
+    SetupOut,
     ScanLogListIn,
     ScanLogListOut,
     ScanLogOut,
@@ -278,6 +282,29 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
     def run_action(name: str, body: VerbIn | None = None) -> ItemOut:
         """Queue ``run_action(name)``; refused unless idle."""
         return service.run_action(name, body or VerbIn())
+
+    @router.get("/api/setups", response_model=list[SetupOut])
+    def setups(response: Response) -> list[SetupOut]:
+        """The experiment's setups: names, step counts, nested setups, who captured them."""
+        response.headers.update(_NO_CACHE)
+        return service.setups()
+
+    @router.get("/api/setups/{name}", response_model=SetupDetailOut)
+    def setup(name: str, response: Response) -> SetupDetailOut:
+        """The preview: every step applying it would run, its digest and hazard confirms."""
+        response.headers.update(_NO_CACHE)
+        return service.setup(name)
+
+    @router.get("/api/setups/{name}/diff", response_model=SetupDiffOut)
+    async def setup_diff(name: str, response: Response) -> SetupDiffOut:
+        """Its writes against the live readbacks; nothing written."""
+        response.headers.update(_NO_CACHE)
+        return await service.setup_diff(name)
+
+    @router.post("/api/setups/{name}/apply", response_model=ItemOut)
+    def apply_setup(name: str, body: SetupApplyIn | None = None) -> ItemOut:
+        """Queue ``apply_setup(name)``: operator required, questions acknowledged, idle only."""
+        return service.apply_setup(name, body or SetupApplyIn())
 
     @router.get("/api/calibration", response_model=CalibrationOut)
     def calibration(response: Response) -> CalibrationOut:

@@ -28,8 +28,10 @@ CA_TIMEOUT_S = 1.5
 class ReadbackSource(Protocol):
     """Where a readback comes from: the gateway in production, the fake manager in demo."""
 
-    async def read(self, device: str, variable: str, *, units: str = "") -> ReadbackOut:
-        """The current value of ``device:variable`` and how old it is."""
+    async def read(
+        self, device: str, variable: str, *, units: str = "", word: bool = False
+    ) -> ReadbackOut:
+        """The current value of ``device:variable`` and how old it is; *word* reads it as text."""
 
 
 def parse_device_variable(name: str) -> tuple[str, str]:
@@ -57,15 +59,32 @@ class CaReadback:
 
         return pv_name(self._experiment, device, variable)
 
-    async def read(self, device: str, variable: str, *, units: str = "") -> ReadbackOut:
-        """One ``caget`` of the readback PV; ``ok`` is false when the gateway does not answer."""
+    async def read(
+        self, device: str, variable: str, *, units: str = "", word: bool = False
+    ) -> ReadbackOut:
+        """One ``caget`` of the readback PV; ``ok`` is false when the gateway does not answer.
+
+        With *word*, the reading is the PV as a string (an enum's state
+        name) in ``text``, ``value`` unset: a setup that writes a word is
+        compared with one.
+        """
         from aioca import FORMAT_TIME, caget
 
         pv = self.pv(device, variable)
         out = ReadbackOut(variable=f"{device}:{variable}", pv=pv, units=units, ok=False)
-        result = await caget(pv, format=FORMAT_TIME, timeout=self._timeout, throw=False)
+        extra = {}
+        if word:
+            from aioca import DBR_STRING
+
+            extra["datatype"] = DBR_STRING
+        result = await caget(
+            pv, format=FORMAT_TIME, timeout=self._timeout, throw=False, **extra
+        )
         if not getattr(result, "ok", False):
             out.detail = f"{pv}: no answer from the gateway within {self._timeout:g} s"
+            return out
+        if word:
+            out.text, out.ok = str(result), True
             return out
         try:
             out.value = float(result)
