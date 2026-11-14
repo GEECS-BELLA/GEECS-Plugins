@@ -461,6 +461,28 @@ def test_a_stream_collects_the_frames_written_and_none_skipped(
     assert not _locked(RE, cam)
 
 
+def test_an_attribute_the_layout_already_lists_is_declared_once(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """An inline XML naming a built-in: one resource per key, never two concatenated."""
+    cam, _ = _camera(RE, tmp_path, source=NativeTriggerSource.LINE1)
+    set_mock_value(
+        cam.driver.nd_attributes_file,
+        '<Attributes><Attribute name="NDArrayUniqueId" type="PARAM" '
+        'source="ARRAY_COUNTER" datatype="INT"/></Attributes>',
+    )
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    set_mock_value(cam.hdf.num_captured, 1)
+    _run(RE, lambda: cam.kickoff())
+    _run(RE, lambda: cam.complete())
+    docs = _run(RE, lambda: _collect(cam))
+    keys = [d["data_key"] for n, d in docs if n == "stream_resource"]
+    assert sorted(keys) == sorted(
+        ["adtest_cam1", *(name for name, _ in native.BUILTIN_ATTRIBUTES)]
+    )
+
+
 def test_a_frame_before_the_kickoff_stays_in_the_stream(
     RE: RunEngine, tmp_path: Path
 ) -> None:
