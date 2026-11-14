@@ -75,3 +75,13 @@ def test_a_new_analyzers_document_whose_stem_is_taken_is_refused_before_any_comm
     assert git("rev-parse", "main", cwd=origin) == head
     ok = committing.put("/api/documents/himg_job/Ns/more/fresh.yaml", json={"document": job, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
     assert ok.status_code == 200 and ok.json()["outcome"] == "committed", ok.text
+
+
+def test_an_edit_of_a_document_whose_stem_main_now_holds_twice_is_refused_before_any_commit(committing: TestClient, origin: Path, other: Path) -> None:  # fmt: skip
+    """A twin another facility's box (or a direct commit) put on main: editing this box's copy is refused cleanly, never pushed to block the box."""
+    push_change(other, "scan_analysis_configs/analyzers/Other/compact.yaml", "kind: himg_compact\ndevice: CamO\n", "Other's compact")  # fmt: skip
+    served = committing.get("/api/documents/himg_job/Ns/compact.yaml").json()
+    head = git("rev-parse", "main", cwd=origin)
+    r = committing.put("/api/documents/himg_job/Ns/compact.yaml", json={"document": {**served["document"], "device": "CamB"}, "etag": served["etag"], "operator": "Ada"})  # fmt: skip
+    assert r.status_code == 422 and "Other/compact.yaml" in r.text
+    assert git("rev-parse", "main", cwd=origin) == head

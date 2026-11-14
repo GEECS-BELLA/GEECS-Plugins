@@ -33,8 +33,8 @@ its design is `Planning/configurator.md`, its record the tracking issue
   live checkout passes the gate (`service.CommitPath.accept`): the
   documents changed since the live commit must validate, and a changed
   document of the analyzers tree must not share its stem with another file
-  there (a run loads it by stem, across every facility folder; a save that
-  creates one is refused before any commit, `validation.stem_twins`, so a
+  there (a run loads it by stem, across every facility folder; a save of
+  such a document is refused before any commit, `validation.stem_twins`, so a
   save with no portal to ask never pushes what this gate refuses)
   (`validation.problems`, the one rule the configs repo's CI runs too, from
   `deploy/configs-repo/validate.yml`). A refused commit is fetched, logged
