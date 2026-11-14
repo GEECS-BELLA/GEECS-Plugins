@@ -57,6 +57,8 @@ from ophyd_async.core import (
     SignalRW,
     StandardDetector,
     StreamableDataProvider,
+    StreamResourceDataProvider,
+    StreamResourceInfo,
     StrictEnum,
     TriggerInfo,
     TriggerableCommand,
@@ -74,7 +76,13 @@ from ophyd_async.epics.adcore import (
 )
 from ophyd_async.epics.core import PvSuffix, epics_signal_rw
 
-from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp_to_unix
+from geecs_data_utils.io.scan_stack import (
+    ATTRIBUTES_GROUP,
+    EPICS_TS_NSEC,
+    EPICS_TS_SEC,
+    LABVIEW_EPOCH_OFFSET,
+    epics_timestamp_to_unix,
+)
 
 from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.ca.liveness import down_natives
@@ -434,6 +442,19 @@ class NativeAcquireLogic(DetectorAcquireLogic):
             await release_run_lock(self.run_lock, self.session)
 
 
+#: The per-frame attributes NDFileHDF5 writes into every stack whatever the
+#: layout lists — the frame's EPICS stamp pair (the join's clock) and its
+#: unique id (the counter audit's) — with their dtypes in the written file.
+BUILTIN_ATTRIBUTES: tuple[tuple[str, str], ...] = (
+    (EPICS_TS_SEC, "<u4"),
+    (EPICS_TS_NSEC, "<u4"),
+    ("NDArrayUniqueId", "<i4"),
+)
+#: NDFileHDF5's chunk length for an NDAttribute dataset (the stock logic's).
+NDATTRIBUTE_CHUNK = 16384
+HDF5_MIMETYPE = "application/x-hdf5"
+
+
 @dataclass
 class NativeHdfDataLogic(ADHDFDataLogic):
     """The stock HDF data logic, keeping the IOC's layout and SWMR off.
@@ -447,14 +468,41 @@ class NativeHdfDataLogic(ADHDFDataLogic):
     """
 
     async def prepare_unbounded(self, datakey_name: str) -> StreamableDataProvider:
-        """The stock prepare, then the IOC's layout and SWMR off restored."""
+        """The stock prepare, then the IOC's layout and SWMR off restored.
+
+        The stream also declares the writer's built-in per-frame attributes
+        (:data:`BUILTIN_ATTRIBUTES`), under their bare names: the stock logic
+        declares only the attributes an inline XML lists, and without the
+        EPICS stamp pair a reader of the run in Tiled cannot time the
+        camera's frames (the live s-file reads them from the stack itself).
+        """
         layout = await self.writer.xml_file_name.get_value()
         provider = await super().prepare_unbounded(datakey_name)
         await asyncio.gather(
             self.writer.xml_file_name.set(layout),
             self.writer.swmr_mode.set(False),
         )
-        return provider
+        if not isinstance(provider, StreamResourceDataProvider):
+            return provider
+        declared = {resource.data_key for resource in provider.resources}
+        builtins = [
+            StreamResourceInfo(
+                data_key=name,
+                shape=(),
+                chunk_shape=(NDATTRIBUTE_CHUNK,),
+                dtype_numpy=dtype,
+                parameters={"dataset": f"{ATTRIBUTES_GROUP}/{name}"},
+            )
+            for name, dtype in BUILTIN_ATTRIBUTES
+            if name not in declared
+        ]
+        return StreamResourceDataProvider(
+            uri=provider.uri,
+            resources=[*provider.resources, *builtins],
+            mimetype=HDF5_MIMETYPE,
+            collections_written_signal=provider.collections_written_signal,
+            flush_signal=provider.flush_signal,
+        )
 
 
 class _StampProvider(ReadableDataProvider):
