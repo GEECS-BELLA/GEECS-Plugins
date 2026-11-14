@@ -344,7 +344,7 @@ class _Patch:
 
     def _mapping(self, node: yaml.MappingNode, new: dict[str, Json]) -> None:
         flow = bool(node.flow_style)
-        keys = self._keys(node)
+        keys = self._as_drafted(self._keys(node), new)
         pairs = list(keys.items())
         for name, (k, v) in pairs:
             if name in new:
@@ -353,12 +353,31 @@ class _Patch:
         added = [name for name in new if name not in keys]
         if len(gone) == len(pairs) and not added:
             raise Unpatchable("every key removed")
+        covered: set[int] = set()
         for i in gone:
-            self._delete_pair(node, pairs, i, flow)
+            if i not in covered:
+                covered |= self._delete_pair(node, pairs, i, flow, set(gone))
         if added:
             self._add_pairs(node, pairs, {n: new[n] for n in added}, flow)
 
-    def _delete_pair(self, node: yaml.MappingNode, pairs: list[tuple[str, tuple[yaml.Node, yaml.Node]]], i: int, flow: bool) -> None:  # fmt: skip
+    def _as_drafted(self, keys: dict[str, tuple[yaml.Node, yaml.Node]], new: dict[str, Json]) -> dict[str, tuple[yaml.Node, yaml.Node]]:  # fmt: skip
+        """``keys`` with a key that is not text (YAML 1.1's ``off:``) named as the draft spells it, case aside.
+
+        The model serves a bare ``off:`` as ``"OFF"``; matched by its
+        spelling alone, an unedited ``off:`` would be removed and re-added.
+        """
+        out = {}
+        for name, (k, v) in keys.items():
+            if name not in new and not isinstance(self.value(k), str):
+                drafted = [
+                    d for d in new if d not in keys and d.lower() == name.lower()
+                ]
+                name = drafted[0] if len(drafted) == 1 else name
+            out[name] = (k, v)
+        return out
+
+    def _delete_pair(self, node: yaml.MappingNode, pairs: list[tuple[str, tuple[yaml.Node, yaml.Node]]], i: int, flow: bool, gone: set[int]) -> set[int]:  # fmt: skip
+        """Delete pair ``i``; the indices this deletion also removed (the run of gone keys after a list item's first)."""
         k, v = pairs[i][1]
         if id(v) in self.shared:
             raise Unpatchable("an anchored or aliased node removed")
@@ -369,13 +388,19 @@ class _Patch:
                 self.edits.append(_Edit(self._content_end(pairs[i - 1][1][1]), self._content_end(v), ""))  # fmt: skip
             else:
                 raise Unpatchable("a flow mapping emptied")
-            return
+            return set()
         if self._first_on_line(k.start_mark.index):
             self.edits.append(_Edit(self._line_start(k.start_mark.index), self._line_end(self._content_end(v)), ""))  # fmt: skip
-        elif i + 1 < len(pairs):  # the first key on a list item's line ("- a: 1")
-            self.edits.append(_Edit(k.start_mark.index, pairs[i + 1][1][0].start_mark.index, ""))  # fmt: skip
-        else:
-            raise Unpatchable("a list item's only key removed")
+            return set()
+        # the first key on a list item's line ("- a: 1"): the next kept key takes its place on the dash's line
+        kept = next((j for j in range(i + 1, len(pairs)) if j not in gone), None)
+        if kept is None:
+            raise Unpatchable("a list item's every key removed")
+        for j in range(i + 1, kept):
+            if id(pairs[j][1][1]) in self.shared:
+                raise Unpatchable("an anchored or aliased node removed")
+        self.edits.append(_Edit(k.start_mark.index, pairs[kept][1][0].start_mark.index, ""))  # fmt: skip
+        return set(range(i + 1, kept))
 
     def _add_pairs(self, node: yaml.MappingNode, pairs: list[tuple[str, tuple[yaml.Node, yaml.Node]]], added: dict[str, Json], flow: bool) -> None:  # fmt: skip
         last_v = pairs[-1][1][1]

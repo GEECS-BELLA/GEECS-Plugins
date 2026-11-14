@@ -149,6 +149,23 @@ def test_a_bare_yaml_1_1_boolean_key_is_kept_as_written() -> None:
     assert out.startswith("states:\n  OFF:\n    - {device: A, value: '0.5'}\n")
 
 
+def test_a_list_item_s_first_keys_removed_together_leave_the_next_on_the_dash_s_line() -> (
+    None
+):
+    text = "l:\n- a: 1  # first\n  b: 2\n  c: 3\n- a: 4\n"
+    assert patch(text, {"l": [{"c": 3}, {"a": 4}]}) == "l:\n- c: 3\n- a: 4\n"
+    assert (
+        patch(text, {"l": [{"b": 2, "c": 3}, {"a": 4}]})
+        == "l:\n- b: 2\n  c: 3\n- a: 4\n"
+    )
+
+
+def test_an_unedited_lowercase_boolean_key_stays_where_and_as_it_is() -> None:
+    text = "states:\n  off:\n  - {device: A, value: '0.5'}\n  SCAN:\n  - {device: B, value: '1'}\n"
+    draft = {"states": {"OFF": [{"device": "A", "value": "0.5"}], "SCAN": [{"device": "B", "value": "2"}]}}  # fmt: skip
+    assert patch(text, draft) == text.replace("value: '1'", "value: '2'")
+
+
 def test_a_non_finite_float_is_written_as_itself() -> None:
     assert patch("v: 1.0\n", {"v": float("inf")}) == "v: .inf\n"
 

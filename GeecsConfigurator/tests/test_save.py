@@ -9,10 +9,9 @@ import pytest
 import yaml
 from conftest import FakePullRequests, files_of, git, push_change
 from fastapi.testclient import TestClient
-
-from geecs_configurator.repository import ConfigsRepository, GitError
 from test_yaml_edit import GOLDEN, NEW_VARIABLE
 
+from geecs_configurator.repository import ConfigsRepository, GitError
 from geecs_configurator.save import CONVERTED, FOLLOWS_SERVED, REWRITTEN
 from geecs_configurator.store import content_etag
 
