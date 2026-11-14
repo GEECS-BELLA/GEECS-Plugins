@@ -198,7 +198,7 @@ def test_software_shot_presses_once_and_stamps_the_row(
     assert len(presses) == 3
     expected = float(epics_timestamp_to_unix(SEC, NSEC)) + LABVIEW_EPOCH_OFFSET
     assert readings[0]["adtest_cam1-acq_timestamp"]["value"] == expected
-    datums = [doc for name, doc in docs if name == "stream_datum"]
+    datums = _frame_datums(docs)
     # One frame per shot, contiguous from frame 0 (what Tiled's consolidator reads).
     assert sum(d["indices"]["stop"] - d["indices"]["start"] for d in datums) == 3
     assert datums[0]["indices"]["start"] == 0
@@ -434,13 +434,24 @@ def test_a_stream_collects_the_frames_written_and_none_skipped(
 
     keys, docs = _run(RE, run)
     assert len(presses) == 5  # one press each, nothing pending fired again
-    assert list(keys) == ["adtest_cam1"]  # datum-only: no stamp column
+    # Datum-only, no event column: the frames, then the writer's built-in
+    # per-frame attributes under their bare names, so a reader of the run
+    # in Tiled has the EPICS stamp pair to time the frames by.
+    builtins = [name for name, _ in native.BUILTIN_ATTRIBUTES]
+    assert list(keys) == ["adtest_cam1", *builtins]
+    resources = [doc for name, doc in docs if name == "stream_resource"]
+    assert {r["data_key"]: r["parameters"]["dataset"] for r in resources} == {
+        "adtest_cam1": "/entry/data/data",
+        **{name: f"/entry/instrument/NDAttributes/{name}" for name in builtins},
+    }
+    assert {r["uri"] for r in resources} == {resources[0]["uri"]}  # one file
     datums = [doc for name, doc in docs if name == "stream_datum"]
-    assert [d["indices"] for d in datums] == [
-        {"start": 0, "stop": 2},
-        {"start": 2, "stop": 4},
-    ]
-    assert [name for name, _ in docs].count("stream_resource") == 1
+    by_resource: dict[str, list] = {}
+    for d in datums:
+        by_resource.setdefault(d["stream_resource"], []).append(d["indices"])
+    assert len(by_resource) == len(resources)
+    for indices in by_resource.values():  # every dataset: the same frames
+        assert indices == [{"start": 0, "stop": 2}, {"start": 2, "stop": 4}]
     with pytest.raises(GeecsConfigurationError, match="never triggered"):
         _run(RE, lambda: cam.trigger())
     assert len(presses) == 5
@@ -461,9 +472,7 @@ def test_a_frame_before_the_kickoff_stays_in_the_stream(
     _run(RE, lambda: cam.kickoff())
     _run(RE, lambda: cam.complete())
     docs = _run(RE, lambda: _collect(cam))
-    assert [d["indices"] for n, d in docs if n == "stream_datum"] == [
-        {"start": 0, "stop": 1}
-    ]
+    assert [d["indices"] for d in _frame_datums(docs)] == [{"start": 0, "stop": 1}]
 
 
 def test_a_frame_during_the_kickoff_does_not_fail_it(
@@ -488,6 +497,20 @@ def test_a_frame_during_the_kickoff_does_not_fail_it(
 
 async def _collect(cam: NativeCamera) -> list:
     return [doc async for doc in cam.collect_asset_docs()]
+
+
+def _frame_datums(docs: list, key: str = "adtest_cam1") -> list[dict]:
+    """The stream datums of the frames dataset (*key*), not of its attribute datasets."""
+    frames = {
+        doc["uid"]
+        for name, doc in docs
+        if name == "stream_resource" and doc["data_key"] == key
+    }
+    return [
+        doc
+        for name, doc in docs
+        if name == "stream_datum" and doc["stream_resource"] in frames
+    ]
 
 
 def test_a_press_outside_trigger_presses_once(RE: RunEngine, tmp_path: Path) -> None:
