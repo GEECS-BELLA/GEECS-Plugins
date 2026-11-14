@@ -568,7 +568,7 @@ has no simulator for either.
 | `GEECS_CONTROL_ROOM_TITLE` | the page title (default "Control Room") |
 | `GEECS_CONTROL_ROOM_SCANNER_URL` | the scanner as this process reaches it (the strip); unset: "not configured" |
 | `GEECS_CONTROL_ROOM_SCANNER_BROWSER_URL` | the scanner link as the browser reaches it; unset: the above |
-| `GEECS_CONTROL_ROOM_PORTAL_URL`, `_LOGBOOK_URL`, `_CONFIG_EDITOR_URL` | the launcher's links (browser URLs); unset: a disabled entry |
+| `GEECS_CONTROL_ROOM_PORTAL_URL`, `_LOGBOOK_URL`, `_CONFIG_EDITOR_URL` | the launcher's links (browser URLs); unset: a disabled entry. The config editor's is the configurator's home: its launcher entry opens on this experiment, and the launcher's Edit layout and a screen's Edit screen open `home.yaml` and the screen's file there (`Settings.editor_url`: links only, never its API) |
 
 ## Testing
 

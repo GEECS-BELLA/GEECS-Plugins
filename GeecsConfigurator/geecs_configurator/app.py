@@ -33,7 +33,7 @@ from geecs_web_theme.web import ForwardedPrefixMiddleware, RevalidatingStaticFil
 
 import httpx
 
-from geecs_configurator import inbox
+from geecs_configurator import inbox, setups
 from geecs_configurator.apply import (
     Archiver,
     DryRun,
@@ -83,6 +83,7 @@ def create_app(settings: Settings, pull_requests: PullRequests | None = None, *,
     mount_theme(app)
     app.mount("/static", RevalidatingStaticFiles(directory=str(_PKG / "static")), name="static")  # fmt: skip
     app.include_router(api)
+    app.include_router(setups.router)
     app.add_api_route("/", home, methods=["GET"], response_class=HTMLResponse)
     app.add_api_route("/log", log_page, methods=["GET"], response_class=HTMLResponse)
     app.add_api_route("/healthz", healthz, methods=["GET"])
@@ -366,7 +367,7 @@ def home(request: Request, experiment: str = "", kind: str = "", id: str = "") -
     return _TEMPLATES.TemplateResponse(request, "home.html", {
         "settings": settings, "experiments": known, "experiment": experiment, "catalogue": catalogue,
         "kind": kind, "docs": docs, "doc_id": id if id in {d.id for d in docs} else "",
-        "commits": request.app.state.repo is not None,
+        "commits": request.app.state.repo is not None, "scanner": experiment in request.app.state.consumers.scanners, "applies": setups.applies_for(settings, experiment),
         "not_owned": _not_owned(request.app.state.commit, catalogue, kind, experiment),
     })  # fmt: skip
 

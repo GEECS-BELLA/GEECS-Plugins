@@ -107,6 +107,7 @@ async def test_ca_readback_reports_a_silent_gateway(monkeypatch) -> None:
     _fake_aioca(monkeypatch, _CaNothing())
     out = await CaReadback("Undulator").read("U_S1H", "Current")
     assert out.ok is False and out.value is None and "no answer" in out.detail
+    assert out.not_numeric is False  # no answer is never "read it as a word"
 
 
 @pytest.mark.anyio
@@ -117,7 +118,7 @@ async def test_ca_readback_refuses_a_non_numeric_answer(monkeypatch) -> None:
 
     _fake_aioca(monkeypatch, _Str("OFF"))
     out = await CaReadback("Undulator").read("U_PLC", "shutter1")
-    assert out.ok is False and "not a number" in out.detail
+    assert out.ok is False and "not a number" in out.detail and out.not_numeric is True
 
 
 @pytest.fixture

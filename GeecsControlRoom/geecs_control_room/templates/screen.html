@@ -26,6 +26,7 @@
 {% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">
 {%- if not loaded.screen and loaded.status != 404 %}<meta http-equiv="refresh" content="{{ RETRY_S }}">{% endif %}{% endblock %}
 {% block header %}
+{% if edit_url %}<a class="btn ghost sm" href="{{ edit_url }}" target="_blank" rel="noopener" title="Open this screen's file in the configurator">Edit screen</a>{% endif %}
 <label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>
 <span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
 {% endblock %}

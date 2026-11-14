@@ -133,6 +133,9 @@ class ScannerService:
         backend injects a fast one.
     portal_url : str, optional
         The Data Portal's base URL, for the run-page links; empty hides them.
+    configurator_browser_url : str, optional
+        The configurator as the browser reaches it: "Edit preset…" opens its
+        embedded editor; empty hides the button.
     settables : SettablesSource, optional
         The movable panel's list of numeric settables; defaults to the
         GEECS DB (:class:`~geecs_scanner.service.settables.DbSettables`).
@@ -160,6 +163,7 @@ class ScannerService:
         preflight: Optional[PreflightFn] = None,
         version: str = "",
         portal_url: str = "",
+        configurator_browser_url: str = "",
         settables: Any = None,
         readback: Any = None,
         heartbeat_path: Optional[Path] = None,
@@ -176,6 +180,8 @@ class ScannerService:
         self.version = version
         #: Where the Data Portal answers (a site value, injected); "" hides the links.
         self.portal_url = portal_url.rstrip("/")
+        #: The configurator as the browser reaches it (a site value): the preset panel's embedded editor; "" hides it.
+        self.configurator_browser_url = configurator_browser_url.rstrip("/")
         self._preflight = preflight
         self._settables = settables
         self._readback = readback
@@ -233,8 +239,10 @@ class ScannerService:
             self._logged_variables = DbLoggedVariables(self.experiment)
         return self._logged_variables.logged_variables()
 
-    async def readback(self, variable: str, *, units: str = "") -> ReadbackOut:
-        """The live value of one ``Device:Variable`` — the readback, not the setpoint.
+    async def readback(
+        self, variable: str, *, units: str = "", word: bool = False
+    ) -> ReadbackOut:
+        """The live value of one ``Device:Variable`` — the readback, not the setpoint (``word``: as text, an enum's state).
 
         The service's one ``async`` method: it runs on the web app's event
         loop with ``/api/events``, so it takes no lock and reads no DB —
@@ -247,7 +255,7 @@ class ScannerService:
             from geecs_scanner.service.readback import CaReadback
 
             self._readback = CaReadback(self.experiment)
-        return await self._readback.read(device, var, units=units)
+        return await self._readback.read(device, var, units=units, word=word)
 
     # ------------------------------------------------------------- reads
 

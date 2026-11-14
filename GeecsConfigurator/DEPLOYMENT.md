@@ -282,6 +282,27 @@ scanner is on its slot's port, `deploy/experiment.sh list`): a document of an
 experiment with no scanner named is never applied by another's reopen; its row
 stays pending, named. One plain URL is the served experiment's alone.
 
+The scanner's preset panel embeds the editor (Edit preset…) and the Control
+Room links documents into it: both need the configurator's URL **as the browser
+reaches it**, and the scanner's origin in the configurator's CORS list:
+
+```
+GEECS_SCANNER_EXTRA_ARGS=<as before> --configurator-browser-url http://<this host>:<GEECS_CONFIGURATOR_PORT>
+GEECS_CONFIGURATOR_CORS_ORIGINS=<the origins already there>,http://<this host>:<the scanner's port>
+GEECS_CONTROL_ROOM_CONFIG_EDITOR_URL=http://<this host>:<GEECS_CONFIGURATOR_PORT>
+```
+
+The configurator's setup capture needs a scanner of the same promotion (its
+readback's `not_numeric` flag): against an older scanner every word-valued
+variable is listed unread. Deploy the two together.
+
+`CORS_ORIGINS` is the whole list (comma-separated): add to it, never replace it.
+Each experiment instance's scanner (`geecs-scanner@<Instance>`) reads the same
+`GEECS_SCANNER_EXTRA_ARGS`, so it carries the flag too; its origin (its slot's
+port) joins the list. Unset, a scanner shows no Edit preset… and the Control
+Room no Edit links; a scanner whose origin is missing from the list opens the
+drawer and fails its first read (the browser's console names CORS).
+
 The worker, the scanner and the configurator run as the one service account,
 which reads `<STATE_DIR>` (mode 0755) and writes the inbox (the configurator
 creates each owned experiment's folder there at its start; a new experiment needs

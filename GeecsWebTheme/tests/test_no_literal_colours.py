@@ -125,6 +125,8 @@ _SURFACES = [
     "GeecsConfigurator/geecs_configurator/templates/home.html",
     "GeecsConfigurator/geecs_configurator/static/configurator.css",
     "GeecsConfigurator/geecs_configurator/static/configurator.js",
+    "GeecsConfigurator/geecs_configurator/static/setups.js",
+    "GeecsConfigurator/geecs_configurator/static/embed.js",
 ]
 
 #: Selectors whose rules may carry a literal, each with its reason. This is

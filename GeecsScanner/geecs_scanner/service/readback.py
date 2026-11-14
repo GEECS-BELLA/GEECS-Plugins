@@ -89,7 +89,7 @@ class CaReadback:
         try:
             out.value = float(result)
         except (TypeError, ValueError):
-            out.detail = f"{pv}: not a number ({result!r})"
+            out.detail, out.not_numeric = f"{pv}: not a number ({result!r})", True
             return out
         # The CA metadata stamp: the gateway's last update of the channel (a
         # channel it has never updated carries its creation time, so the age
