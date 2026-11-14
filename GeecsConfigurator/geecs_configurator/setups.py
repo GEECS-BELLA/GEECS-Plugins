@@ -5,8 +5,9 @@ this module adds no rule of its own:
 
 - **Capture reads, never writes.** It asks the experiment's scanner for one
   readback per ``Device:Variable`` (``GET /api/readback``, the path the
-  scanner's own diff reads; a variable that is not a number is read again
-  as a word) and answers a draft ``Setup``: one ``set`` step per value read,
+  scanner's own diff reads; a variable whose numeric read fails, for any
+  reason the scanner gives, is read again as a word, so no wording of the
+  scanner's is relied on) and answers a draft ``Setup``: one ``set`` step per value read,
   ``captured`` naming the operator, the time and the readbacks. Nothing is
   written, to a device or to the configs repo: the draft is saved through
   the one save route (``PUT /api/documents/setup/<name>.yaml`` with
@@ -33,6 +34,7 @@ from geecs_schemas import Setup
 from pydantic import BaseModel, Field, ValidationError
 
 from geecs_configurator.apply import ScannerClient
+from geecs_configurator.settings import Settings
 
 router = APIRouter(prefix="/api")
 
@@ -75,10 +77,20 @@ def _scanner(request: Request, experiment: str | None) -> tuple[str, ScannerClie
     return exp, scanner
 
 
+def applies_for(settings: Settings, experiment: str) -> bool:
+    """Whether this box applies ``experiment``'s setups: one it owns (``GEECS_CONFIGURATOR_EXPERIMENTS``).
+
+    A box that names what it owns applies only those, whether or not its
+    commit path is on; a read-only box naming nothing (the commit path
+    refuses to start so) applies through the scanners its site names alone.
+    """
+    owned = settings.ownership.experiments
+    return experiment in owned if owned else not settings.commits
+
+
 def _owned(request: Request, experiment: str) -> None:
-    """403 for an experiment another services box owns (no check with the commit path off: nothing is owned)."""
-    commit = request.app.state.commit
-    if commit is not None and experiment not in commit.ownership.experiments:
+    """403 for an experiment this box does not apply (:func:`applies_for`), before the scanner is asked."""
+    if not applies_for(request.app.state.settings, experiment):
         raise HTTPException(403, f"{experiment} is not this services box's: its setups are applied from the box that owns it")  # fmt: skip
 
 
@@ -88,7 +100,7 @@ def _read(
     """One readback through the scanner: ``(value, "")``, or ``(None, why not)``."""
     try:
         status, body = scanner.readback(variable)
-        if status == 200 and not body.get("ok") and "not a number" in (body.get("detail") or ""):  # fmt: skip
+        if status == 200 and not body.get("ok"):  # not a number, or not answering: as a word (a dead PV fails again)  # fmt: skip
             status, body = scanner.readback(variable, word=True)
     except (httpx.HTTPError, ValueError) as exc:
         return None, f"the scanner did not answer: {' '.join(str(exc).split())[:200]}"

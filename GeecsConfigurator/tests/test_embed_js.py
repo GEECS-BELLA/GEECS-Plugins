@@ -56,8 +56,10 @@ global.fetch = (url, init) => {
   seen.push([method, url, body]);
   const key = method + " " + url;
   const [status, out] = key in C.answers ? C.answers[key] : url.endsWith("/api/kinds") ? [200, kinds] : [404, { detail: "unknown " + key }];
-  return Promise.resolve({ status, text: () => Promise.resolve(JSON.stringify(out)) });
+  const answer = { status, text: () => Promise.resolve(JSON.stringify(out)) };
+  return url === hold.url ? hold.until.then(() => answer) : Promise.resolve(answer);
 };
+const hold = { url: null, until: null };
 (async () => {
   const out = {}, previews = [], saved = [];
   let who = "";
@@ -90,6 +92,14 @@ global.fetch = (url, init) => {
   button(document.body.children[0], "Save").on.click(); await settle();
   out.refused = [seen.slice(n).filter((s) => s[0] !== "GET").map((s) => s[0]), document.body.children[0].textContent.includes("refused your edit")];
   out.drawers = document.body.children.length;
+  // a slow document overtaken by another opened meanwhile: the drawer shows the later one
+  let release; hold.until = new Promise((r) => { release = r; });
+  hold.url = C.api + "/api/documents/setup/low_power.yaml?experiment=Bench";
+  G.open(Object.assign({}, opts, { id: "low_power.yaml", fields: ["name"] })); await settle();
+  G.open(Object.assign({}, opts, { id: "far.yaml", fields: ["name"] })); await settle();
+  release(); await settle();
+  const nameBox = walk(walk(document.body.children[0], (n) => n.attrs["data-path"] === "name")[0], (n) => n.tagName === "INPUT")[0];
+  out.race = nameBox.value;
   console.log(JSON.stringify(out));
 })().catch((e) => { console.error(e); process.exit(1); });
 """
@@ -98,7 +108,7 @@ global.fetch = (url, init) => {
 def _answers(client: TestClient) -> dict:
     """The app's own answers for what the embed reads, keyed as the stub's fetch sees them."""
     out = {}
-    for path in ("/api/documents/setup" + Q, "/api/schema/setup", "/api/documents/setup/low_power.yaml" + Q):  # fmt: skip
+    for path in ("/api/documents/setup" + Q, "/api/schema/setup", "/api/documents/setup/low_power.yaml" + Q, "/api/documents/setup/far.yaml" + Q):  # fmt: skip
         r = client.get(path)
         assert r.status_code == 200, path
         out[f"GET {API}{path}"] = [200, r.json()]
@@ -165,3 +175,7 @@ def test_the_same_document_reopens_as_left_in_one_drawer(ran: dict) -> None:
 
 def test_a_dry_run_refusal_stops_the_save(ran: dict) -> None:
     assert ran["refused"] == [["POST"], True]
+
+
+def test_a_slow_document_never_overwrites_the_one_opened_after_it(ran: dict) -> None:
+    assert ran["race"] == "far"

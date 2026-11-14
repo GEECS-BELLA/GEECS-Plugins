@@ -151,6 +151,7 @@
   function apply(acknowledged) {
     var who = page.operator();
     if (!who) { says("Type your name (top right): the apply is queued as yours."); return; }
+    if (!page.ready()) { says("The setup did not load here: reload the page before applying it."); return; }
     if (page.dirty()) { says("Save or discard your edit first: the scanner applies the setup as committed."); return; }
     $("#live-apply").disabled = true; says("Asking the scanner…");
     call("POST", setupPath + "/apply" + query, { operator: who, acknowledged: acknowledged }).then(function (r) {

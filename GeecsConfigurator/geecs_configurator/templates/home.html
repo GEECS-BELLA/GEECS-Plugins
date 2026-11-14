@@ -121,7 +121,7 @@
     </div>
     {% if kind == "setup" %}
     {# The committed setup against the machine now, and its apply as one scanner queue item (setups.js). #}
-    <section class="panel" id="live" data-scanner="{{ 'on' if scanner else 'off' }}" data-owned="{{ 'no' if not_owned else 'yes' }}">
+    <section class="panel" id="live" data-scanner="{{ 'on' if scanner else 'off' }}" data-applies="{{ 'yes' if applies else 'no' }}">
       <header><span class="eyebrow">Live · {{ experiment }}</span><span class="dim" id="live-note">The setup as committed, not your unsaved edit.</span></header>
       <div class="body" id="live-body">
         {% if not scanner %}<div class="state" data-state="denied"><span class="t">No scanner</span><span class="m">No scanner is configured for {{ experiment }} (GEECS_CONFIGURATOR_SCANNER_URL): the diff and the apply are the scanner's.</span></div>
@@ -131,7 +131,7 @@
         <button class="btn" type="button" id="live-diff">Diff against live</button>
         <span class="spacer"></span>
         <span class="dim" id="apply-says"></span>
-        <button class="btn primary" type="button" id="live-apply"{% if not_owned %} disabled title="Not this box's experiment"{% endif %}>Apply…</button>
+        <button class="btn primary" type="button" id="live-apply"{% if not applies %} disabled title="Not this box's experiment: its setups are applied from the box that owns it"{% endif %}>Apply…</button>
       </div></footer>{% endif %}
     </section>
     {% endif %}

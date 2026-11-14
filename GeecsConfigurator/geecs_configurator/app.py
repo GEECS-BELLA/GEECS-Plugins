@@ -367,7 +367,7 @@ def home(request: Request, experiment: str = "", kind: str = "", id: str = "") -
     return _TEMPLATES.TemplateResponse(request, "home.html", {
         "settings": settings, "experiments": known, "experiment": experiment, "catalogue": catalogue,
         "kind": kind, "docs": docs, "doc_id": id if id in {d.id for d in docs} else "",
-        "commits": request.app.state.repo is not None, "scanner": experiment in request.app.state.consumers.scanners,
+        "commits": request.app.state.repo is not None, "scanner": experiment in request.app.state.consumers.scanners, "applies": setups.applies_for(settings, experiment),
         "not_owned": _not_owned(request.app.state.commit, catalogue, kind, experiment),
     })  # fmt: skip
 

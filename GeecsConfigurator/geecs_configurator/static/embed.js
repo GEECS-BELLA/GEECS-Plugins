@@ -117,6 +117,7 @@
       docId = id;
       return Promise.all([call("GET", "/api/schema/" + opts.kind), call("GET", docPath()), call("GET", "/api/kinds")]);
     }).then(function (got) {
+      if (!current || current.key !== key) return;  // another document was opened meanwhile: the drawer is its
       if (got[1].status !== 200) throw new Error(got[1].status + " " + why(got[1].body));
       schema = got[0].body; stored = got[1].body.document; etag = got[1].body.etag;
       info = (got[2].body || []).filter(function (k) { return k.kind === opts.kind; })[0] || { dry_run: "none" };
@@ -129,7 +130,8 @@
       fill(host, [readOnly ? banner("Read-only here: " + (got[1].body.path || docId) + " is not saved from this configurator.", "denied") : null,
         fields ? el("p", { class: "dim" }, "Showing " + fields.join(", ") + "; the rest of the document is kept as it is.") : null, tools, status, formHost]);
     }).catch(function (e) {
-      if (current && current.key === key) current = null;  // opened again, it asks again
+      if (!current || current.key !== key) return;  // another document was opened meanwhile
+      current = null;  // opened again, it asks again
       fill(host, [el("div", { class: "state", "data-state": "error" }, "The configurator did not serve " + opts.id + ": " + (e.message || e))]);
     });
 

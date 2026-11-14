@@ -44,7 +44,7 @@ class FakeScanner:
             if word and name in self.words:
                 return httpx.Response(200, json={"variable": name, "ok": True, "text": self.words[name]})  # fmt: skip
             if name in self.words:
-                return httpx.Response(200, json={"variable": name, "ok": False, "detail": f"pv: not a number ('{self.words[name]}')"})  # fmt: skip
+                return httpx.Response(200, json={"variable": name, "ok": False, "detail": "any words the scanner chooses"})  # fmt: skip
             if name in self.readings:
                 return httpx.Response(200, json={"variable": name, "ok": True, "value": self.readings[name]})  # fmt: skip
             return httpx.Response(200, json={"variable": name, "ok": False, "detail": "no answer from the gateway"})  # fmt: skip
@@ -171,6 +171,22 @@ def test_another_boxs_experiment_is_never_applied_from_here(committing_surface: 
     r = committing_surface.post("/api/setups/low_power/apply?experiment=Empty", json={"operator": "Ada"})  # fmt: skip
     assert r.status_code == 403 and "not this services box's" in r.text
     assert fake.seen == []
+
+
+def test_a_read_only_box_naming_what_it_owns_applies_only_those(root: Path, fake: FakeScanner) -> None:  # fmt: skip
+    """No commit path, but EXPERIMENTS named: the other scanner its site names is never reached; the page's Apply is off."""
+    other = root / "scanner_configs/experiments/Empty/setups"
+    other.mkdir(parents=True)
+    (other / "low_power.yaml").write_text(
+        "name: low_power\nsteps:\n  - {do: wait, seconds: 1}\n"
+    )
+    env = {"GEECS_CONFIGS_ROOT": str(root), "GEECS_EXPERIMENT": "Bench", "GEECS_CONFIGURATOR_EXPERIMENTS": "Bench", "GEECS_CONFIGURATOR_SCANNER_URL": f"Bench={SCANNER},Empty={SCANNER}"}  # fmt: skip
+    with _app(Settings.from_env(env), fake) as c:
+        assert c.post("/api/setups/low_power/apply?experiment=Empty", json={"operator": "Ada"}).status_code == 403  # fmt: skip
+        assert fake.seen == []
+        assert c.post(f"/api/setups/low_power/apply{B}", json={"operator": "Ada"}).status_code == 409  # its questions  # fmt: skip
+        page = c.get("/?experiment=Empty&kind=setup&id=low_power.yaml").text
+        assert 'id="live-apply" disabled' in page
 
 
 def test_a_silent_scanner_is_a_502(root: Path) -> None:

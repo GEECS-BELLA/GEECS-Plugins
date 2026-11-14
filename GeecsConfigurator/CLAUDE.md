@@ -100,13 +100,14 @@ its design is `Planning/configurator.md`, its record the tracking issue
 - **Setups on the surface are the scanner's** (`setups.py`, the page's
   `static/setups.js`). Capture reads (`POST /api/setups/capture`: one
   `GET /api/readback` per variable through the experiment's scanner, a
-  reading that is not a number read again as a word) and answers a draft;
+  numeric read that fails read again as a word) and answers a draft;
   nothing is written to a device, and the draft is saved through the one
   save route (`PUT` with `create`), so its author, tier and ownership are
   the save's. The diff and the apply are relayed status and body as the
   scanner answered; the apply's `acknowledged` goes on as the page sent it
   and this service never answers a question; an experiment this box does
-  not own is a 403 before the scanner is asked. The page applies the
+  not own (`setups.applies_for`: a box naming its experiments applies only
+  those, commit path or not) is a 403 before the scanner is asked. The page applies the
   setup as committed: Apply waits while the form holds an edit. Pinned by
   `tests/test_setups_surface.py` (a recording fake scanner and the
   scanner's demo app).

@@ -14,7 +14,7 @@
     operator.addEventListener("change", function () { try { localStorage.setItem(OPERATOR_KEY, operator.value.trim()); } catch (e) { /* not remembered */ } });
   }
   //: What the setups surface (setups.js) asks of this page: the operator, and whether the form holds an unsaved edit.
-  window.GeecsConfiguratorPage = { operator: function () { return operator ? operator.value.trim() : ""; }, dirty: function () { return false; } };
+  window.GeecsConfiguratorPage = { operator: function () { return operator ? operator.value.trim() : ""; }, ready: function () { return false; }, dirty: function () { return false; } };
   if (!kind || !id) return;
   //: What saving a change of each tier will do (the commit path arrives in a later slice).
   var ACTION = {
@@ -26,7 +26,8 @@
   };
   var $ = function (sel) { return document.querySelector(sel); };
   var form, schema, stored, info, etag, readOnly;
-  window.GeecsConfiguratorPage.dirty = function () { return !form || GeecsForm.diff(stored, form.value(), schema).changes.length > 0; };
+  window.GeecsConfiguratorPage.ready = function () { return !!form; };
+  window.GeecsConfiguratorPage.dirty = function () { return !!form && GeecsForm.diff(stored, form.value(), schema).changes.length > 0; };
 
   function el(tag, attrs, text) {
     var n = document.createElement(tag);

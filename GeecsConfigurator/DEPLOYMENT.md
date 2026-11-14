@@ -288,11 +288,16 @@ reaches it**, and the scanner's origin in the configurator's CORS list:
 
 ```
 GEECS_SCANNER_EXTRA_ARGS=<as before> --configurator-browser-url http://<this host>:<GEECS_CONFIGURATOR_PORT>
-GEECS_CONFIGURATOR_CORS_ORIGINS=http://<this host>:<the scanner's port>
+GEECS_CONFIGURATOR_CORS_ORIGINS=<the origins already there>,http://<this host>:<the scanner's port>
 GEECS_CONTROL_ROOM_CONFIG_EDITOR_URL=http://<this host>:<GEECS_CONFIGURATOR_PORT>
 ```
 
-Unset, the scanner shows no Edit preset… and the Control Room no Edit links.
+`CORS_ORIGINS` is the whole list (comma-separated): add to it, never replace it.
+Each experiment instance's scanner (`geecs-scanner@<Instance>`) reads the same
+`GEECS_SCANNER_EXTRA_ARGS`, so it carries the flag too; its origin (its slot's
+port) joins the list. Unset, a scanner shows no Edit preset… and the Control
+Room no Edit links; a scanner whose origin is missing from the list opens the
+drawer and fails its first read (the browser's console names CORS).
 
 The worker, the scanner and the configurator run as the one service account,
 which reads `<STATE_DIR>` (mode 0755) and writes the inbox (the configurator
