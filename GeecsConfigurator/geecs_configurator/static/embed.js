@@ -17,7 +17,9 @@
  *     preview,     // optional: function (document) — the host's Preview button. Returning a promise of an
  *                  //   Element (or text) shows it in the drawer under the buttons; a rejection shows its message
  *     toolbar,     // optional: an Element of the host's, drawn beside the buttons (a shot number, a name field)
- *     onSaved,     // optional: function (answer, id) — after a save, copy or delete the configurator accepted
+ *     onSaved,     // optional: function (answer, id, {unsaved}) — after a save, copy or delete the configurator
+ *                  //   accepted; `unsaved` when the form was edited after it was sent (a host must not navigate
+ *                  //   away then: those edits are only in the form)
  *     draft,       // optional: a new document's draft (from GeecsConfigurator.create): nothing is read at `id`, and
  *                  //   the first Save is the save route's create there
  *   })  ->  { close(), value() }
@@ -84,7 +86,8 @@
   //   o.operator()                   the git author (the host's), "" when not given
   //   o.dryRun()                     the kind's dry-run word from /api/kinds ("none": no consumer check)
   //   o.button, o.status             the Save button (disabled while asking) and where the answers go
-  //   o.saved(answer)                a 200: the page takes the new etag (and, committed, the new baseline)
+  //   o.saved(answer, doc)           a 200: the page takes the new etag (and, committed, the new baseline:
+  //                                  `doc`, what was sent — never the form's later edits, which stay in it)
   //   o.noOperator()                 optional: the page points at its operator field
   //   o.reload(current)              optional: a 409's "Load the current document" (drops the edit)
   //   o.create()                     optional: true while the document is not yet a file (the PUT creates it)
@@ -148,6 +151,7 @@
         o.button.disabled = false;
         var b = r.body || {}, d = b.detail;
         if (r.status === 200) {
+          var later = JSON.stringify(o.value()) !== JSON.stringify(doc);  // edited while it was on its way
           o.saved(b, doc);
           var head = b.outcome === "committed" ? "Committed " + (b.commit || "").slice(0, 10) + " to main as " + b.author + "."
             : b.outcome === "proposed" ? "Proposed for the maintainer's review on " + b.branch + "." : "Nothing to do: the stored document already says this.";
@@ -155,6 +159,7 @@
           if (b.pull_request) { var p = el("p", {}, "Pull request: "); p.appendChild(el("a", { href: b.pull_request, target: "_blank", rel: "noopener" }, b.pull_request)); kids.push(p); }
           (b.notes || []).forEach(function (n) { kids.push(el("p", { class: "dim" }, n)); });
           kids.push(el("p", { class: "dim" }, "Whether it took effect: the configurator's log."));
+          if (later) kids.push(banner("You edited the form while it saved: those edits are still in it, unsaved.", "stale"));
           show(kids);
         } else if (r.status === 409) {
           var kids409 = [banner("Changed since it was opened: " + why(b) + ". Nothing was saved; your edit is still in the form.", "error")];
@@ -340,7 +345,7 @@
     var self = null;
     function open_() { return current !== null && current === self; }
     var form = null, schema = null, stored = null, etag = "", info = null, docId = opts.id, fields = opts.fields || null;
-    var isNew = !!opts.draft;  // not yet a file: the first save creates it
+    var isNew = !!opts.draft, fresh = null;  // not yet a file: the first save creates it (`fresh` says so)
     var status = el("div"), previewBox = el("div", { class: "group" });
     // a host that previews wants room for the picture beside the form
     d.style && (d.style.width = opts.preview ? "min(980px, 96vw)" : "");
@@ -348,6 +353,8 @@
     function docPath() { return "/api/documents/" + opts.kind + "/" + docId.split("/").map(encodeURIComponent).join("/") + query; }
     function operator() { var o = typeof opts.operator === "function" ? opts.operator() : opts.operator; return String(o || "").trim(); }
     function value() { return form ? merge(stored, form.value(), fields) : null; }
+    // Whether the form holds an edit made after `sent` (a write's document) went: a write's answer never replaces it.
+    function edited_since(sent) { return !!form && JSON.stringify(value()) !== JSON.stringify(sent); }
     // A preview shows the draft it was drawn from, or says it does not: an older request's answer is
     // dropped (the latest Preview wins, whatever order they resolve in), and an edit after it marks it stale.
     var previews = 0, drawn = null;  // drawn: the draft the shown preview is of
@@ -413,10 +420,16 @@
           saved: function (b, doc) {
             etag = b.etag;
             if (b.outcome === "committed") stored = doc;
-            if (opts.onSaved) opts.onSaved(b, docId);
-            // created: the drawer opens the file as stored (its copy and delete), while it still shows this draft
-            // ("nothing to do": main already holds these bytes, so the file is there too)
-            if (isNew && b.outcome !== "proposed" && open_()) open(Object.assign({}, opts, { draft: null, note: "Created " + docId + " as " + b.author + "." }));
+            // ("nothing to do" on a create: main already holds these bytes, so the file is there too)
+            var created = isNew && b.outcome !== "proposed", later = edited_since(doc);
+            if (created) { isNew = false; stored = doc; }
+            if (opts.onSaved) opts.onSaved(b, docId, { unsaved: later });
+            if (!created || !open_()) return;
+            // created: the drawer opens the file as stored (its copy and delete) unless the form was edited
+            // since; then this form becomes the file's, its later edits kept and unsaved
+            if (!later) { open(Object.assign({}, opts, { draft: null, note: "Created " + docId + " as " + b.author + "." })); return; }
+            titleEl.textContent = opts.kind + " · " + docId;
+            if (fresh && fresh.parentNode) fresh.parentNode.removeChild(fresh);
           },
         });
       }
@@ -426,24 +439,38 @@
         more.appendChild(el("summary", {}, info.blank ? "New, copy or delete" : "Copy or delete"));
         var row = more.appendChild(el("div", { class: "row" })), newName = el("input", { class: "btn sm", placeholder: "new name", "aria-label": "the copy's name" });
         var ctx = { call: call, kind: opts.kind, query: function () { return query; }, docId: function () { return docId; }, value: value, etag: function () { return etag; }, operator: operator, status: status };  // prettier-ignore
-        // the host hears of every accepted copy and delete; the drawer follows only while it still shows this document
+        // the host hears of every accepted copy and delete; the drawer follows only while it still shows this
+        // document, and never over an edit made after the copy or the delete was asked (it stays, unsaved)
+        var copySent = null, deleteSent = null;
         var copy = copyFlow(Object.assign({}, ctx, { copied: function (newId, b) {
-          if (opts.onSaved) opts.onSaved(b, newId);
-          if (open_()) open(Object.assign({}, opts, { id: newId, note: "Saved as a copy of " + docId + " by " + b.author + "." }));
+          var later = edited_since(copySent);
+          if (opts.onSaved) opts.onSaved(b, newId, { unsaved: later });
+          if (!open_()) return;
+          if (!later) { open(Object.assign({}, opts, { id: newId, note: "Saved as a copy of " + docId + " by " + b.author + "." })); return; }
+          status.appendChild(banner("You edited " + docId + " while the copy saved: those edits are still in this form, unsaved; the copy is " + newId + ".", "stale"));
         } }));
         var remove = deleteFlow(Object.assign({}, ctx, { host: d.parentNode || document.body, deleted: function (b) {
-          if (opts.onSaved) opts.onSaved(b, docId);
+          var later = edited_since(deleteSent);
+          if (opts.onSaved) opts.onSaved(b, docId, { unsaved: later });
           if (!open_()) return;
+          if (later && b.outcome === "committed") {
+            // the file is gone, the edit is not: the form becomes a new document at the same id (Save creates it again)
+            isNew = true; etag = ""; titleEl.textContent = opts.kind + " · " + docId + " (new)";
+            if (more && more.parentNode) more.parentNode.removeChild(more);
+            status.appendChild(banner("You edited the form while it was deleted: those edits are still in it, unsaved; Save creates " + docId + " again with them.", "stale"));
+            return;
+          }
+          if (b.outcome !== "committed") return;  // a proposal: the file is still on main, the form as it is
           current = null; form = null;  // the document is gone: opened again, it asks again
           fill(host, [status]);
         } }));
         row.appendChild(newName);
-        row.appendChild(button("Save as a copy", "", function () { copy(newName.value); }));
+        row.appendChild(button("Save as a copy", "", function () { copySent = value(); copy(newName.value); }));
         row.appendChild(el("span", { class: "spacer" }));
-        row.appendChild(button("Delete…", "danger", function () { remove(); }));
+        row.appendChild(button("Delete…", "danger", function () { deleteSent = value(); remove(); }));
         if (info.blank) more.appendChild(el("div", { class: "row" })).appendChild(button(newLabel(opts.kind), "", function () { create(Object.assign({}, opts, { id: null, draft: null, note: null, fields: null })); }));
       }
-      var fresh = isNew ? banner("New: nothing is written until Save, which creates " + docId + " (its dry run, its tier, its name unique)." + (opts.source && opts.source !== "portal" ? " Drafted from " + opts.source + "." : ""), opts.source && opts.source !== "portal" ? "stale" : null) : null;
+      fresh = isNew ? banner("New: nothing is written until Save, which creates " + docId + " (its dry run, its tier, its name unique)." + (opts.source && opts.source !== "portal" ? " Drafted from " + opts.source + "." : ""), opts.source && opts.source !== "portal" ? "stale" : null) : null;
       fill(host, [fresh, readOnly ? banner("Read-only here: " + (got[1].body.path || docId) + " is not saved from this configurator.", "denied") : null,
         fields ? el("p", { class: "dim" }, "Showing " + fields.join(", ") + "; the rest of the document is kept as it is.") : null, tools, more, status, previewBox, formHost]);
       if (opts.note) fill(status, [banner(opts.note)]);

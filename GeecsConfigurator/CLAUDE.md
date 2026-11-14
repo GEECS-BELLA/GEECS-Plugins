@@ -183,6 +183,16 @@ its design is `Planning/configurator.md`, its record the tracking issue
   while its own document is still the one open; the host's `onSaved`
   hears it either way. Pinned by `tests/test_delete.py`,
   `test_document_actions_js.py` and `test_embed_switch_js.py`.
+- **A write's answer never takes an edit made after the write was sent.**
+  The form stays editable while a save, convert-and-save, create, copy or
+  delete is on its way, so every completion compares the form with what it
+  sent: a later edit stays in the form, the drawer says it is unsaved, and
+  the host hears it (`onSaved(answer, id, {unsaved})`; the configurator's
+  page does not navigate then). A create edited since becomes the file's
+  form in place (its next Save a save over it); a copy keeps the drawer on
+  the source; a delete keeps the form as a new document at the same id
+  (Save creates it again). Pinned per write by
+  `tests/test_embed_write_edits_js.py` and `test_new_document_js.py`.
 - **A new document starts from its consumer's blank.** A kind the
   catalogue marks `blank` (`kinds.BLANKS`: recipes and groups; a `.himg`
   job and every other kind are copied, never started blank) is created from

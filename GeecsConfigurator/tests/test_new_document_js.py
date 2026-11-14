@@ -86,7 +86,7 @@ global.fetch = (url, init) => {
   button(drawer, "Save")[0].on.click(); await settle();
   const confirm = button(drawer, "Save"); if (confirm.length > 1) confirm.slice(-1)[0].on.click(); await settle();
   out.put = sent.filter((s) => s[0] === "PUT").map((s) => [s[1], s[2]]);
-  out.heard = heard;
+  out.heard = heard.slice();
   out.reopened = sent.filter((s) => s[0] === "GET" && s[1].indexOf("/api/documents/analysis_recipe/Ns/UC_New.yaml") >= 0).length;
   // late answers: the drawer moved to another document before the blank, or the create, answered
   const title = () => walk(document.body.children[0], (n) => n.attrs.id === "geecs-configurator-title")[0].textContent;
@@ -114,6 +114,28 @@ global.fetch = (url, init) => {
   const again = button(document.body.children[0], "Save"); if (again.length > 1) again.slice(-1)[0].on.click(); await settle();
   G.open(Object.assign({}, other, { id: "Ns/Elsewhere2.yaml" })); await settle(); held.shift()(); await settle();
   out.lateCreate = [title(), heard.slice()];
+  // an edit made while the create was on its way: the form becomes the file's, the edit kept and unsaved
+  heard.length = 0;
+  let unsaved = null;
+  G.create({ api: C.api, kind: "analysis_recipe", experiment: "", operator: "Ada", onSaved: (b, id, how) => { heard.push([b.outcome, id]); unsaved = !!(how && how.unsaved); } }); await settle();
+  { const d = document.body.children[0];
+    byLabel(d, "the new document's name").value = "UC_New";
+    const f = byLabel(d, "the frame kind"); f.value = "line"; f.on.change(); byLabel(d, "loading.data_type").value = "tsv";
+    button(d, "Open the draft")[0].on.click(); await settle(); }
+  hold = (m) => m === "PUT";
+  button(document.body.children[0], "Save")[0].on.click(); await settle();
+  const confirmNew = button(document.body.children[0], "Save"); if (confirmNew.length > 1) confirmNew.slice(-1)[0].on.click(); await settle();
+  const deviceBox = walk(document.body.children[0], (n) => n.attrs["data-path"] === "device")[0];
+  const device = walk(deviceBox, (n) => n.tagName === "INPUT")[0];
+  device.value = "UC_Later"; device.on.input({ target: device });
+  const reads = sent.filter((x) => x[0] === "GET" && x[1].indexOf("/api/documents/analysis_recipe/Ns/UC_New.yaml") >= 0).length;
+  held.shift()(); await settle();
+  const now = walk(walk(document.body.children[0], (n) => n.attrs["data-path"] === "device")[0] || el("x"), (n) => n.tagName === "INPUT")[0];
+  out.createEdit = [title(), now ? now.value : null, unsaved, sent.filter((x) => x[0] === "GET" && x[1].indexOf("/api/documents/analysis_recipe/Ns/UC_New.yaml") >= 0).length - reads, document.body.children[0].textContent.includes("still in it, unsaved")];
+  button(document.body.children[0], "Save")[0].on.click(); await settle();
+  const thenSave = button(document.body.children[0], "Save"); if (thenSave.length > 1) thenSave.slice(-1)[0].on.click(); await settle();
+  const last = sent.filter((x) => x[0] === "PUT").slice(-1)[0][2];
+  out.createThenSave = [last.create, last.etag, last.document.device];
   // the configurator's own page passes its root, "" when served at /: a same-origin api
   out.sameOrigin = (() => { try { G.create({ api: "", kind: "analysis_recipe" }); return true; } catch (e) { return String(e); } })();
   console.log(JSON.stringify(out));
@@ -164,6 +186,19 @@ def test_a_new_recipe_from_the_start_form_is_the_save_routes_create(committing: 
         0,
     ]  # no start form drawn over it
     assert ran["lateBlank"] == "analysis_recipe · Ns/Elsewhere.yaml"
+    # an edit made while the create was on its way stays: no reopen over it, said unsaved, the host told
+    assert ran["createEdit"] == [
+        "analysis_recipe · Ns/UC_New.yaml",
+        "UC_Later",
+        True,
+        0,
+        True,
+    ]
+    assert ran["createThenSave"] == [
+        False,
+        "e1",
+        "UC_Later",
+    ]  # its next Save is a save over the created file
     assert ran["lateCreate"] == [
         "analysis_recipe · Ns/Elsewhere2.yaml",
         [["committed", "Ns/UC_New.yaml"]],
