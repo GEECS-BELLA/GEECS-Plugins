@@ -199,27 +199,32 @@ class CommitPath:
 
         A link may be a file, a folder below an owned folder, or the owned
         folder itself (``experiments/<owned> -> <another>``): the document
-        is read through it, so a change to its target is a change to it.
+        is read through it, so a change to its target is a change to it, and
+        any link made or retargeted in the range (a chain may pass through
+        another facility's) re-judges every owned document read through one.
+        A deleted target is not seen (deletions are never judged).
         ``tree`` is a checkout at ``rev``. The gate judges these, and the log
         and the apply seam take them up: the two never disagree.
         """
         paths = self.ownership.owned(changed)
         prefixes = set(self.ownership.prefixes())
-        links = [
+        every_link = {
             path for meta, _, path in (line.partition("\t") for line in self.repo.git("ls-tree", "-r", "-z", rev).split("\0"))
-            if meta.startswith("120000") and (self.ownership.owns(path) or path in prefixes or any(p.startswith(path + "/") for p in prefixes))
-        ]  # fmt: skip
+            if meta.startswith("120000")
+        }  # fmt: skip
+        links = [p for p in every_link if self.ownership.owns(p) or p in prefixes or any(q.startswith(p + "/") for q in prefixes)]  # fmt: skip
         if not links:
             return paths
         moved, base = set(changed), tree.resolve()
-        relinked = [
-            link for link in links if link in moved
-        ]  # a link made or retargeted: everything below it changed
+        # a link made or retargeted anywhere (another facility's link in a chain an owned link follows, too):
+        # every owned document read through a link is judged again, since where it leads may have changed
+        relinked = bool(moved & every_link)
         for path in validation.documents(DocumentStore(tree)):
             if path in paths or not self.ownership.owns(path):
                 continue
             target = (tree / path).resolve()
-            if (target.is_relative_to(base) and target.relative_to(base).as_posix() in moved) or any(path.startswith(link + "/") for link in relinked):  # fmt: skip
+            through_link = target != base / path
+            if (target.is_relative_to(base) and target.relative_to(base).as_posix() in moved) or (relinked and through_link):  # fmt: skip
                 paths.append(path)
         return paths
 

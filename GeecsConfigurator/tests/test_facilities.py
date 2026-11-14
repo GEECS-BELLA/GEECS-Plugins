@@ -401,3 +401,25 @@ def test_an_owned_experiment_that_is_a_link_is_judged_through_it(origin: Path, o
         push_change(other, f"{THEIRS}/theirs.yaml", INVALID.format(name="theirs"), "Other's file, read as Mine's")  # fmt: skip
         cp.fetch()
         assert cp.repo.live_head() == here
+
+
+def test_a_retargeted_link_in_another_facilitys_folder_is_judged_through_the_chain(box: TestClient, other: Path) -> None:  # fmt: skip
+    cp = _cp(box)
+    push_change(other, f"{THEIRS}/target.yaml", SETUP.format(name="chained", text="good"), "Other's file")  # fmt: skip
+    push_change(other, f"{THEIRS}/bad.yaml", INVALID.format(name="chained"), "Other's own invalid file (unjudged here)")  # fmt: skip
+    _link(other, "target.yaml", f"{THEIRS}/current.yaml", "Other's alias")
+    chained = _link(other, "../../Other/setups/current.yaml", f"{OURS}/chained.yaml", "Bench reads Other's alias")  # fmt: skip
+    cp.fetch()
+    assert (
+        cp.repo.live_head() == chained
+    )  # Bench's chained.yaml -> Other's current.yaml -> target.yaml: valid
+    git("pull", "--quiet", "--ff-only", cwd=other)
+    os.unlink(other / THEIRS / "current.yaml")
+    os.symlink("bad.yaml", other / THEIRS / "current.yaml")
+    git("add", "-A", cwd=other)
+    git("commit", "--quiet", "-m", "Other retargets its alias only", cwd=other)
+    git("push", "--quiet", "origin", "HEAD:main", cwd=other)
+    cp.fetch()
+    assert (
+        cp.repo.live_head() == chained
+    )  # Bench's document now reads an invalid file: judged, refused

@@ -63,6 +63,11 @@ box's analysis that way, and this box's gate does not stop it (it judges this
 box's files only). Keep stems unique across facilities, and have each
 facility's groups name its own recipes.
 
+Symbolic links across facilities' folders are best avoided. A change that
+reaches an owned document through a link is judged as the box's own, but a
+**deleted** target is not seen: deletions are never judged, so the owned
+document silently disappears from the box's listing.
+
 The App is one identity for every box, so GitHub cannot stop a box from
 pushing outside its folders. That limit is enforced on each box, from its
 site.env. A box's key is its whole authority: guard it like a deploy key and
@@ -192,10 +197,10 @@ On the App's page, delete that box's private key. That box can no longer
 mint a token, and the other boxes, each with its own key, are untouched. A
 token already minted is **not** revoked with the key: the service reuses its
 token for up to an hour, so for up to an hour the box (or whoever copied the
-key and minted a token) can still push. When that hour matters (a stolen
-key), stop the box's service and wait out the hour, or suspend the App's
-installation on the configs repo, which stops every box at once, until the
-hour has passed. After that, the box's saves answer 502 and its inbox backs
+key and minted a token) can still push. For a stolen key, suspend the
+App's installation on the configs repo until the hour has passed: only that
+stops a token the thief already minted, and it stops every box meanwhile.
+For a box merely retired, stopping its service is enough. After that, the box's saves answer 502 and its inbox backs
 off. Then remove `/etc/geecs/configurator/github-app.pem` from the box. To
 give the box a new key, repeat step 1. Nothing else on the box changes.
 
