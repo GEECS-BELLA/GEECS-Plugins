@@ -59,6 +59,19 @@ def _run_by_stem(known: dict[str, tuple[str, str | None, str]]) -> dict[str, set
     return out
 
 
+def stem_twins(store: DocumentStore, rel: str) -> list[str]:
+    """The other analyzers-tree files with ``rel``'s stem, when ``rel`` (below the root) is one the tree runs by stem."""
+    storage = next((s for s in KIND_STORAGE.values() if isinstance(s, FileStorage) and s.root == "analysis" and s.folder == ANALYZERS_FOLDER), None)  # fmt: skip
+    folder = (
+        storage.path_pattern().rsplit("/", 1)[0].removesuffix("/**")
+        if storage
+        else None
+    )
+    if folder is None or not rel.startswith(folder + "/"):
+        return []
+    return sorted(_run_by_stem(documents(store)).get(PurePosixPath(rel).stem, set()) - {rel})  # fmt: skip
+
+
 def problems(root: Path, paths: Iterable[str]) -> list[str]:
     """``"<path>: <first error>"`` for each changed path that is a document and does not validate.
 

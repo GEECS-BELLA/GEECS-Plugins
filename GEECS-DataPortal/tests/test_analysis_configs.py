@@ -151,6 +151,12 @@ class TestValidate:
         assert out["ok"] is False and [(e["loc"], "'nope'" in e["msg"]) for e in out["errors"]] == [(["analyzers", 1, "ref"], True)]  # fmt: skip
         twice = _validate(client, "analysis_group", {"name": "g", "analyzers": ["UC_Crop", "UC_Crop"]}).json()  # fmt: skip
         assert twice["ok"] is False and twice["errors"][0]["loc"] == ["analyzers", 1, "ref"] and "duplicate" in twice["errors"][0]["msg"]  # fmt: skip
+        named_like_a_ref = _validate(client, "analysis_group", {"name": "UC_Crop", "analyzers": ["nope", "UC_Crop"]}).json()  # fmt: skip
+        assert named_like_a_ref["errors"][0]["loc"] == [
+            "analyzers",
+            0,
+            "ref",
+        ]  # the group's own quoted name is not a reference
 
     def test_validate_writes_nothing(self, scan_folder, configs_tree):
         before = {p: p.read_bytes() for p in configs_tree.rglob("*") if p.is_file()}

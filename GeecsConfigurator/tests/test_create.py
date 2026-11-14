@@ -64,3 +64,14 @@ def test_an_invalid_new_document_is_422_and_a_blank_operator_too(committing: Tes
 def test_without_create_a_missing_document_is_still_404(committing: TestClient) -> None:
     r = committing.put(f"/api/documents/preset/jet.yaml{B}", json={"document": PRESET, "etag": "x", "operator": "Ada"})  # fmt: skip
     assert r.status_code == 404
+
+
+def test_a_new_analyzers_document_whose_stem_is_taken_is_refused_before_any_commit(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    """The gate's stem rule at the save: with no portal to ask, a save never pushes what main's gate refuses (which would block the box)."""
+    head = git("rev-parse", "main", cwd=origin)
+    job = {"kind": "himg_to_stack", "device": "CamQ"}
+    r = committing.put("/api/documents/himg_job/Ns/more/compact.yaml", json={"document": job, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
+    assert r.status_code == 422 and "Ns/compact.yaml" in r.text
+    assert git("rev-parse", "main", cwd=origin) == head
+    ok = committing.put("/api/documents/himg_job/Ns/more/fresh.yaml", json={"document": job, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
+    assert ok.status_code == 200 and ok.json()["outcome"] == "committed", ok.text

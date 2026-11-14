@@ -120,7 +120,10 @@ def _ref_errors(root: Path, group: Any) -> list[Json]:  # Any: an AnalysisGroup
         return [{"loc": ["analyzers", i, "ref"], "msg": f"unknown diagnostic {ref.ref!r}"} for i, ref in enumerate(group.analyzers)]  # fmt: skip
     except (ValueError, KeyError, OSError) as exc:
         msg = str(exc).split(". Known IDs:")[0]
-        named = [i for i, ref in enumerate(group.analyzers) if f"'{ref.ref}'" in msg]
+        about = msg.removeprefix(
+            f"Group '{group.name}'"
+        )  # the group's own name is quoted too
+        named = [i for i, ref in enumerate(group.analyzers) if f"'{ref.ref}'" in about]
         return [{"loc": ["analyzers", named[-1], "ref"] if named else ["analyzers"], "msg": msg}]  # fmt: skip
     return []
 

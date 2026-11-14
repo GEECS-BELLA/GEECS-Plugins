@@ -67,6 +67,7 @@ from pydantic import BaseModel
 from geecs_configurator import yaml_edit
 from geecs_configurator.ownership import Ownership
 from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, author_name  # fmt: skip
+from geecs_configurator.validation import stem_twins
 from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
 
 #: The served form's answer is followed where the file as stored validates differently.
@@ -257,6 +258,10 @@ class _Save:
         else:
             raise self.conflict("the document already exists; open it and save over it", self.request.document)  # fmt: skip
         rel = self.store.new_path(self.kind, self.experiment, self.doc_id)
+        # the gate's stem rule, before any commit: never push what the gate on main would refuse
+        twins = stem_twins(self.store, rel)
+        if twins:
+            raise Refused(422, {"errors": [{"loc": [], "msg": f"its stem is also {twins[0]}'s; diagnostic stems are unique across the analyzers tree"}]})  # fmt: skip
         tier = SCHEMA_REGISTRY[self.kind].tier
         return Loaded(kind=self.kind, experiment=self.experiment, id=self.doc_id, path=rel, document={}, etag="", yaml="", valid=True, errors=[], tier=tier, read_only=False)  # fmt: skip
 
