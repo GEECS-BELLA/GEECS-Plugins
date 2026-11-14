@@ -407,17 +407,33 @@ async def test_the_trace_page_draws_a_spectrometer_through_the_same_template(roo
     assert asked[:3] == [roles["proc_counter"]["pv"], (roles["processed"]["pv"],), roles["proc_counter"]["pv"]]  # fmt: skip
     unknown = await room.client.get("/api/devices/cct1/trace?y=wavelength")
     assert unknown.status_code == 404 and unknown.json()["detail"] == "the axis wavelength draws no array 'wavelength': it draws spectrum, processed"  # fmt: skip
-    # Saturated_RBV is an enum reading, but its alarm is the IOC's (MAJOR on the CCT), and the
-    # module's rule stands: a MAJOR role is in error, and so is the device while it reads so
+    # Saturated_RBV is an enum reading and its alarm is the IOC's: MINOR on the CCT (a clipped
+    # spectrum is a warning about the data), so on a live device the role and the device stay
+    # live while it reads Saturated. The module's rule stands for an IOC that serves it MAJOR:
+    # the role is in error, and so is the device while it reads so, and both recover with it
     await asyncio.sleep(0)  # the module subscribes as a task
-    room.env.hare.on_frame(
-        {roles["saturated"]["pv"]: live(1, severity="MAJOR", alarmStatus=1)}
+    monitored = [r["pv"] for r in roles.values() if r["read"] == "monitor"]
+    for count in (
+        1,
+        2,
+    ):  # every monitored role framed, the counters advancing: a live device
+        room.env.hare.on_frame({pv: live(count) for pv in monitored})
+    assert (await room.client.get("/api/devices/cct1")).json()["state"] == "live"
+    rows = (
+        (live(1, severity="MINOR", alarmStatus=1), ("live", "live")),
+        (live(1, severity="MAJOR", alarmStatus=1), ("error", "error")),
+        (live(0), ("live", "live")),
     )
-    device = (await room.client.get("/api/devices/cct1")).json()
-    saturated = next(r for r in device["roles"] if r["role"] == "saturated")
-    assert (saturated["verdict"], device["state"]) == ("error", "error")
+    for frame, words in rows:
+        room.env.hare.on_frame({roles["saturated"]["pv"]: frame})
+        device = (await room.client.get("/api/devices/cct1")).json()
+        saturated = next(r for r in device["roles"] if r["role"] == "saturated")
+        assert (saturated["verdict"], device["state"]) == words, frame
     # a STAT1 reading is fresh by the plugin's counter AND computed by its flag: with the
     # centroid off while spectra keep coming, the held centroid reads 'off', never 'live'
+    room.env.clock[0] += (
+        10  # the counters framed above age out: these frames carry the freshness
+    )
     room.env.hare.on_frame({roles["stat_counter"]["pv"]: live(1), roles["compute_centroid"]["pv"]: live(0), roles["compute_statistics"]["pv"]: live(1), roles["centroid_index"]["pv"]: live(25.0), roles["total"]["pv"]: live(4.0e6)})  # fmt: skip
     room.env.hare.on_frame({roles["stat_counter"]["pv"]: live(2)})
     by_role = {r["role"]: r["verdict"] for r in (await room.client.get("/api/devices/cct1")).json()["roles"]}  # fmt: skip
