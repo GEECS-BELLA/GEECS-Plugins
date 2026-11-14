@@ -98,6 +98,11 @@ global.fetch = (url, init) => {
     button(d, "Open the draft")[0].on.click(); await settle();
   };
   const other = { api: C.api, kind: "analysis_recipe", experiment: "", id: "Ns/Elsewhere.yaml", operator: "Ada" };
+  // the start form's own answer (folders, schema) after another document was opened
+  hold = (m, u) => m === "GET" && u.indexOf("/api/folders/") >= 0;
+  G.create({ api: C.api, kind: "analysis_recipe", experiment: "", operator: "Ada" }); await settle();
+  G.open(Object.assign({}, other, { id: "Ns/Elsewhere0.yaml" })); await settle(); held.shift()(); await settle();
+  out.lateStart = [title(), button(document.body.children[0], "Open the draft").length];
   hold = (m, u) => m === "GET" && u.indexOf("/api/blank/") >= 0;
   await startDraft();
   G.open(other); await settle(); held.shift()(); await settle();
@@ -154,6 +159,10 @@ def test_a_new_recipe_from_the_start_form_is_the_save_routes_create(committing: 
         "line": ["loading.data_type", "format", "storage_dtype"],
     }
     # a late answer never replaces the document opened since: the blank's, and the create's (the host still hears it)
+    assert ran["lateStart"] == [
+        "analysis_recipe · Ns/Elsewhere0.yaml",
+        0,
+    ]  # no start form drawn over it
     assert ran["lateBlank"] == "analysis_recipe · Ns/Elsewhere.yaml"
     assert ran["lateCreate"] == [
         "analysis_recipe · Ns/Elsewhere2.yaml",
