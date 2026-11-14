@@ -4,7 +4,7 @@
   "kind": "setpoint_device",
   "description": "A CAEN FAST-PS supply behind StreamDevice (geecs-epics services/fpstest1, fastps.template): the ramped current setpoint, the regulation loop, two external interlocks.",
   "roles": [
-    {"name": "current_sp", "suffix": "current_ramp:SP", "type": "setpoint", "label": "current setpoint", "writable": true, "readback": "current", "fields": ["DRVH", "DRVL", "HIHI", "LOLO", "HHSV", "LLSV", "EGU", "PREC", "SEVR", "STAT"], "archive": true},
+    {"name": "current_sp", "suffix": "current_ramp:SP", "type": "setpoint", "label": "current setpoint", "writable": true, "readback": "current", "tolerance": 0.01, "fields": ["DRVH", "DRVL", "HIHI", "LOLO", "HHSV", "LLSV", "EGU", "PREC", "SEVR", "STAT"], "archive": true},
     {"name": "current", "suffix": "current", "type": "readback", "label": "current", "fields": ["EGU", "PREC", "SEVR", "STAT"], "archive": true},
     {"name": "voltage", "suffix": "voltage", "type": "readback", "label": "voltage", "fields": ["EGU", "PREC"], "archive": true},
     {"name": "output_sp", "suffix": "enable_output:SP", "type": "bit", "label": "output", "writable": true, "readback": "output", "confirm": "hazard", "fields": ["SEVR", "STAT"], "archive": true},

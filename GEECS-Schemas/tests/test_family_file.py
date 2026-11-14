@@ -694,6 +694,20 @@ def test_the_two_array_detector_families_share_their_vocabulary() -> None:
         assert (scope.role(name).type, scope.role(name).suffix) == (spec.role(name).type, spec.role(name).suffix), name  # fmt: skip
 
 
+def test_a_setpoint_with_a_measured_readback_states_its_tolerance() -> None:
+    # without one a page falls back to the last digit the readback shows (the EasyDriver's
+    # current: 0.01 mA), under the supply's own noise, so every write would read "differs"
+    for name, family in load_families().items():
+        for r in family.roles:
+            if r.type == "setpoint" and r.readback:
+                assert r.tolerance is not None or r.tolerance_by, f"{name}: {r.name}"
+    families = load_families()
+    # a tenth of the GEECS DB's set-convergence tolerance for the same hardware, in A
+    assert families["easydriver"].role("current_sp").tolerance == 0.005
+    assert families["fastps"].role("current_sp").tolerance == 0.01
+    assert families["motor_record"].role("val").tolerance_by == "rdbd"
+
+
 def test_a_setpoints_tolerance_is_a_number_or_a_readback() -> None:
     doc = tiny()
     role(doc, "level_sp")["tolerance"] = 0.5
