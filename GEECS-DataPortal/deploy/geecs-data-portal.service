@@ -44,8 +44,9 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # come from GEECS_PORTAL_EXTRA_ARGS in site.env (unquoted: systemd splits
 # it on whitespace and an unset key adds nothing) — the reference profile
 # sets --logbook-url there, the base URL of the logbook service (its own
-# unit, geecs-logbook, port 8400) the run page links to, and
-# --configurator-browser-url, the configurator the Analysis tab's edit opens.
+# unit, geecs-logbook, port 8400) the run page links to; a site running the
+# configurator adds --configurator-browser-url, the configurator the Analysis
+# tab's edit opens (GeecsConfigurator/DEPLOYMENT.md).
 ExecStart=@POETRY@ run geecs-data-portal --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
 # No StateDirectory: the portal writes nothing durable. The logbook's
 # entries, which lived in /var/lib/geecs-data-portal while the logbook was
