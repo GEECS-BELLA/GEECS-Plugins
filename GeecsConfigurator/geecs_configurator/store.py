@@ -324,14 +324,27 @@ class DocumentStore:
     def _load(self, kind: str, path: Path) -> tuple[dict[str, Json], list[Error], str | None]:  # fmt: skip
         """A file as the document its readers see, its errors, and a note (a legacy dialect, converted)."""
         try:
-            raw = self._raw(path)
-        except (yaml.YAMLError, OSError, ValueError) as exc:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, ValueError) as exc:
+            return {}, [Error(loc=[], msg=_one_line(exc))], None
+        return self.load_text(kind, text, stem=path.stem)
+
+    def load_text(self, kind: str, text: str, *, stem: str) -> tuple[dict[str, Json], list[Error], str | None]:  # fmt: skip
+        """YAML text as the document its readers see (a file named ``stem``), its errors, and a note.
+
+        The one reading: a file read here and the text a save is about to
+        write are read alike, so the save can check its text reads back as
+        the draft.
+        """
+        try:
+            raw = self._parse(text)
+        except (yaml.YAMLError, ValueError) as exc:
             return {}, [Error(loc=[], msg=_one_line(exc))], None
         note = None
         if kind == "trigger_profile" and "schema_version" not in raw:
             # the reader's rule (the scanner's resolver): no schema_version is the legacy dialect, converted
             try:
-                profile = convert_shot_control(raw, name=path.stem)
+                profile = convert_shot_control(raw, name=stem)
             except (SchemaConversionError, ValueError, *_MALFORMED) as exc:
                 return (
                     raw,
@@ -353,11 +366,15 @@ class DocumentStore:
                 raw = SCHEMA_REGISTRY[kind].model_validate(raw).model_dump(mode="json", exclude_unset=True)  # fmt: skip
             except ValidationError as exc:
                 return raw, _errors(exc), note
-        return raw, self.validate(kind, raw, stem=path.stem).errors, note
+        return raw, self.validate(kind, raw, stem=stem).errors, note
 
     @staticmethod
     def _raw(path: Path) -> dict[str, Json]:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return DocumentStore._parse(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _parse(text: str) -> dict[str, Json]:
+        data = yaml.safe_load(text)
         if data is None:
             return {}
         if not isinstance(data, dict):

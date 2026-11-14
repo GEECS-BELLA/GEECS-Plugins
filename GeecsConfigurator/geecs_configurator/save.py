@@ -37,6 +37,14 @@ checkout, then:
   ``notes``;
 - writes a non-finite float as ``.inf``/``.nan``, never ``null`` (served as
   ``"Infinity"``/``"NaN"``, turned back where the stored document held one);
+- **changes only the text of what changed** (:mod:`yaml_edit`): the draft
+  is spliced into the stored text, so every untouched byte (a folded block,
+  a quote, a comment, a blank line, the indentation, the line ending) is
+  the file's own and an unchanged draft is "nothing to do". The text must
+  read back as the draft, as the store reads a file, before any commit; a
+  change it cannot place in the text alone (a merge key, an aliased anchor
+  changed) writes the file whole and says so in ``notes``, as do a new
+  document and a legacy-dialect conversion;
 - acts by the strictest tier among the changes: ``operator`` commits to
   main (the operator the git author, "Name via configurator"; the service
   the committer); ``maintainer`` pushes a branch and opens a pull request
@@ -56,6 +64,7 @@ import yaml
 from geecs_schemas import SCHEMA_REGISTRY
 from pydantic import BaseModel
 
+from geecs_configurator import yaml_edit
 from geecs_configurator.ownership import Ownership
 from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, author_name  # fmt: skip
 from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
@@ -63,6 +72,10 @@ from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore
 #: The served form's answer is followed where the file as stored validates differently.
 FOLLOWS_SERVED = "the file as stored and its served form validate differently (a YAML value read as a date or a number where the schema wants text, say); the save follows the served form and writes it quoted"  # fmt: skip
 CONVERTED = "the legacy-dialect file is rewritten whole in the current schema"
+#: A save that could not change only what changed (the file's layout is then the dump's).
+REWRITTEN = (
+    "the file is rewritten whole: the change could not be placed in its text alone"
+)
 
 
 class SaveRequest(BaseModel):
@@ -140,8 +153,8 @@ def _summary(changes: list[Change]) -> str:
     return "\n".join(lines + ([f"- … {len(changes) - 40} more"] if len(changes) > 40 else []))  # fmt: skip
 
 
-def _written(draft: Json) -> bytes:
-    """The YAML a draft is written as; refuses one that would not read back as itself."""
+def _dumped(draft: Json) -> bytes:
+    """The draft as a whole new file; refuses one that would not read back as itself."""
     text = dump_yaml(draft)
     if not same(yaml.safe_load(text), draft):
         raise Refused(500, "the document does not read back as itself from YAML; nothing was saved")  # fmt: skip
@@ -192,7 +205,7 @@ class _Save:
             if not changes:
                 return Saved(outcome="nothing to do", tier=None, changes=[], path=loaded.path, author=author.name, etag=loaded.etag, notes=notes)  # fmt: skip
             tier = strictest(c.tier for c in changes)
-            data = _written(draft)
+            data = self._written(loaded, draft, notes)
             message = f"{self.kind} {loaded.path}: saved by {author.name}\n\n{_summary(changes)}\n"  # fmt: skip
             if tier == "operator":
                 sha = self._commit(loaded.path, data, author, message, base, draft)
@@ -203,6 +216,33 @@ class _Save:
             if tier == "maintainer":
                 return self._propose(prs, loaded, data, author, message, base, changes, notes)  # fmt: skip
             raise Refused(403, f"a {tier}-tier change is not saved from the editor")
+
+    def _written(self, loaded: Loaded, draft: Json, notes: list[str]) -> bytes:
+        """The bytes a draft is written as: the stored text with only what changed rewritten.
+
+        A new document and a legacy-dialect conversion are written whole. Any
+        other save splices the draft into the stored text
+        (:func:`yaml_edit.patch`), first keeping every untouched date as it
+        is, then, when that would not validate as the file reads (the
+        served-form rule), writing each date the draft holds as text quoted.
+        The text must read back as the draft, as the store reads a file;
+        when no splice does, the file is written whole and the answer says so.
+        """
+        if self.request.create or loaded.note == LEGACY:
+            return _dumped(draft)
+        stem = PurePosixPath(self.doc_id).stem
+        why = "it did not read back as the draft"
+        for strict_dates in (False, True):
+            try:
+                text = yaml_edit.patch(loaded.yaml, draft, strict_dates=strict_dates)
+            except yaml_edit.Unpatchable as exc:
+                why = str(exc)
+                break
+            raw, errors, note = self.store.load_text(self.kind, text, stem=stem)
+            if not errors and note is None and same(yaml_edit.served(raw), yaml_edit.served(draft)):  # fmt: skip
+                return text.encode("utf-8")
+        notes.append(f"{REWRITTEN} ({why})")
+        return _dumped(draft)
 
     def _owned(self) -> None:
         """The 403 for a path this box does not own, checked again on the synced checkout."""

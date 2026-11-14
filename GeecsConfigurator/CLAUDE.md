@@ -93,6 +93,14 @@ its design is `Planning/configurator.md`, its record the tracking issue
   themselves: documents are answered through `app._served` (non-finite
   floats as `"Infinity"`/`"NaN"`), never FastAPI's default encoding, which
   serves `null` and so would write it back.
+- **A save changes only the text of what changed.** The configs repo is
+  hand-written and reviewed as diffs, so a save never re-dumps a file: it
+  splices the draft into the stored text (`yaml_edit.py`, over PyYAML's
+  node marks: the resolver the store reads with), keeping every untouched
+  byte, and checks the text reads back as the draft before the commit.
+  Only a new document, a legacy-dialect conversion and a change the splice
+  cannot place exactly are written whole (the last with a note). Pinned by
+  `tests/test_yaml_edit.py` and `test_save.py`.
 - **Storage and tiers are GEECS-Schemas'.** The file list comes from
   `KIND_STORAGE` (`path_pattern()`, every suffix, a shared folder split by
   its `dispatch` loader); the tier is the model's `tier` and a stricter
