@@ -40,7 +40,9 @@
  */
 (function (out) {
   "use strict";
-  var drawerEl = null, titleEl = null, bodyEl = null, current = null;  // current: {key, handle}, the document in the drawer
+  var drawerEl = null, titleEl = null, bodyEl = null, current = null;
+  //: A new document's name: its file's stem (a copy's and a new document's; the service's blank.NAME).
+  var NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;  // current: {key, handle}, the document in the drawer
 
   function el(tag, attrs, text) {
     var n = document.createElement(tag);
@@ -247,7 +249,7 @@
       name = String(name || "").trim().replace(/\.ya?ml$/i, "");
       var who = o.operator();
       if (!who) { show([banner("Type your name first (the operator field): it is the git author.", "error")]); if (o.noOperator) o.noOperator(); return null; }
-      if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) { show([banner("A new name is letters, digits, _ . -", "error")]); return null; }
+      if (!NAME.test(name)) { show([banner("A new name is letters, digits, _ . -", "error")]); return null; }
       var parts = o.docId().split("/"), stem = parts.pop().replace(/\.ya?ml$/i, ""), newId = parts.concat([name + ".yaml"]).join("/");
       var doc = JSON.parse(JSON.stringify(o.value()));
       if (doc.name === stem) doc.name = name;
@@ -438,7 +440,7 @@
         row.appendChild(button("Save as a copy", "", function () { copy(newName.value); }));
         row.appendChild(el("span", { class: "spacer" }));
         row.appendChild(button("Delete…", "danger", function () { remove(); }));
-        if (info.blank) more.appendChild(el("div", { class: "row" })).appendChild(button(newLabel(opts.kind), "", function () { create(Object.assign({}, opts, { id: null, draft: null, note: null })); }));
+        if (info.blank) more.appendChild(el("div", { class: "row" })).appendChild(button(newLabel(opts.kind), "", function () { create(Object.assign({}, opts, { id: null, draft: null, note: null, fields: null })); }));
       }
       var fresh = isNew ? banner("New: nothing is written until Save, which creates " + docId + " (its dry run, its tier, its name unique)." + (opts.source && opts.source !== "portal" ? " Drafted from " + opts.source + "." : ""), opts.source && opts.source !== "portal" ? "stale" : null) : null;
       fill(host, [fresh, readOnly ? banner("Read-only here: " + (got[1].body.path || docId) + " is not saved from this configurator.", "denied") : null,
@@ -459,20 +461,32 @@
   function newLabel(kind) { return "New " + kind.replace(/^analysis_/, "") + "…"; }
 
   // What a recipe's start form asks beyond its name, read off the kind's schema: each input kind (the
-  // discriminator's mapping), and for each the enumerated fields it requires beyond `kind` (a trace's
-  // loading.data_type). [{kind, fields: [{path: [...], label, options, description}]}]
+  // discriminator's mapping), for each the enumerated fields it requires beyond `kind` (a trace's
+  // loading.data_type), then its own optional enumerated fields, unset unless chosen (a frame stack's
+  // `format`, which one trace format requires). [{kind, fields: [{path, label, options, optional, description}]}]
   function startChoices(schema) {
     var input = ((schema || {}).properties || {}).input || {}, map = (input.discriminator || {}).mapping || {}, defs = (schema || {}).$defs || {};
     function def(ref) { return ref ? defs[String(ref).split("/").pop()] || null : null; }
+    function enumOf(p) {
+      var e = def(p.$ref) || p;
+      if (e.enum) return e.enum;
+      var alt = (p.anyOf || []).map(function (a) { return def(a.$ref) || a; }).filter(function (a) { return a.enum; })[0];
+      return alt ? alt.enum : null;
+    }
     return Object.keys(map).map(function (k) {
-      var d = def(map[k]) || {}, fields = [];
-      (d.required || []).forEach(function (f) {
+      var d = def(map[k]) || {}, props = d.properties || {}, required = d.required || [], fields = [];
+      required.forEach(function (f) {
         if (f === "kind") return;
-        var p = (d.properties || {})[f] || {}, sub = def(p.$ref);
+        var sub = def((props[f] || {}).$ref);
         (sub && sub.required || []).forEach(function (g) {
-          var q = (sub.properties || {})[g] || {}, e = def(q.$ref) || q;
-          if (e.enum) fields.push({ path: [f, g], label: f + "." + g, options: e.enum, description: q.description || e.description || "" });
+          var q = (sub.properties || {})[g] || {}, e = enumOf(q);
+          if (e) fields.push({ path: [f, g], label: f + "." + g, options: e, optional: false, description: q.description || "" });
         });
+      });
+      Object.keys(props).forEach(function (f) {
+        if (f === "kind" || required.indexOf(f) >= 0) return;
+        var e = enumOf(props[f]);
+        if (e) fields.push({ path: [f], label: f, options: [""].concat(e), optional: true, description: props[f].description || "" });
       });
       return { kind: k, fields: fields };
     });
@@ -496,7 +510,7 @@
     }
     function select(options, aria) {
       var s = el("select", { class: "btn sm", "aria-label": aria });
-      options.forEach(function (o, i) { var opt = el("option", i === 0 ? { value: o, selected: "" } : { value: o }, o); s.appendChild(opt); });
+      options.forEach(function (o, i) { var opt = el("option", i === 0 ? { value: o, selected: "" } : { value: o }, o === "" ? "(not set)" : o); s.appendChild(opt); });
       if (options.length) s.value = options[0];
       return s;
     }
@@ -525,11 +539,11 @@
       }
       var go = button("Open the draft", "primary", function () {
         var stem = String(name.value || "").trim().replace(/\.ya?ml$/i, "");
-        if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(stem)) { fill(status, [banner("A new name is letters, digits, _ . -", "error")]); return; }
+        if (!NAME.test(stem)) { fill(status, [banner("A new name is letters, digits, _ . -", "error")]); return; }
         var id = folder.value + "/" + stem + ".yaml", q = [];
         if (input) {
           var fields = {};
-          extras.forEach(function (x) { nest(x.path, x.el.value, fields); });
+          extras.forEach(function (x) { if (x.el.value !== "") nest(x.path, x.el.value, fields); });
           q.push("input=" + encodeURIComponent(input.value), "device=" + encodeURIComponent(String(device.value || "").trim()));
           if (extras.length) q.push("fields=" + encodeURIComponent(JSON.stringify(fields)));
         }

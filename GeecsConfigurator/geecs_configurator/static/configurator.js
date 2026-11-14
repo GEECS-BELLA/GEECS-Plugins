@@ -19,7 +19,8 @@
   var newDoc = document.getElementById("new-doc");
   if (newDoc) newDoc.addEventListener("click", function () {
     GeecsConfigurator.create({ api: root, kind: kind, experiment: body.dataset.experiment || "", operator: function () { return window.GeecsConfiguratorPage.operator(); },
-      onSaved: function (b, docId) { if (b.outcome === "committed" && docId) location.href = root + "/" + query + "&kind=" + encodeURIComponent(kind) + "&id=" + encodeURIComponent(docId); } });
+      // the created document opens here, unless the open one holds an unsaved edit (the drawer shows the new one)
+      onSaved: function (b, docId) { if (b.outcome === "committed" && docId && !window.GeecsConfiguratorPage.dirty()) location.href = root + "/" + query + "&kind=" + encodeURIComponent(kind) + "&id=" + encodeURIComponent(docId); } });
   });
   if (!kind || !id) return;
   //: What saving a change of each tier will do (the commit path arrives in a later slice).
