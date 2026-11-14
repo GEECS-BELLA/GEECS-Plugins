@@ -150,7 +150,7 @@ def test_without_an_app_a_proposal_gives_the_compare_link(origin: Path, tmp_path
     from geecs_configurator.app import create_app
     from geecs_configurator.settings import Settings
 
-    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_GITHUB_REPO": "org/configs"}  # fmt: skip
+    env = {"GEECS_CONFIGURATOR_EXPERIMENTS": "Bench", "GEECS_CONFIGURATOR_ANALYSIS_FOLDERS": "Ns", "GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_GITHUB_REPO": "org/configs"}  # fmt: skip
     with TestClient(create_app(Settings.from_env(env))) as c:
         doc = _get(c, "archive_policy", "archive_policy.yaml")
         saved = _put(c, "archive_policy", "archive_policy.yaml", {**doc["document"], "exclude": ["U_A:B"]}, doc["etag"]).json()  # fmt: skip

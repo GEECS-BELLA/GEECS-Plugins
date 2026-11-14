@@ -3,14 +3,20 @@
 :class:`CommitPath` is what the app holds when the commit path is on. It
 wires the pieces the other modules keep apart:
 
+- **what this box owns** (:class:`ownership.Ownership`, from settings): one
+  configs repo serves many facilities, each with its own box. Commits are
+  made at owned paths only; the gate and the log look at owned paths only;
 - the **gate** (``accept``): before the live checkout moves past a commit
-  it did not make, the documents that changed must validate
-  (:func:`validation.problems`, the configs repo's CI check too). A refused
+  it did not make, the **owned** documents that changed must validate
+  (:func:`validation.problems`, the configs repo's CI check too); another
+  facility's documents fast-forward unjudged (its box and the configs
+  repo's CI judge them), so its invalid commit never stops this box. A refused
   commit is logged once (``refused``, ``pending``: the maintainer fixes main
   by pull request) and never applied; every fast-forward stops there until
   main is fixed;
 - the **advance hook**: each foreign commit applied (a merged pull request,
-  a maintainer's push) is logged per document, its state the apply seam's
+  a maintainer's push) is logged per **owned** document (another facility's
+  are not this box's record, and never reach the apply seam), its state the apply seam's
   answer, and the share's clone is fast-forwarded from the service's
   repository;
 - the **timer**: the inbox every ``reconcile_seconds``, a fetch every
@@ -34,6 +40,7 @@ import httpx
 from geecs_configurator import inbox, validation
 from geecs_configurator.github import AppCredential, AppPullRequests
 from geecs_configurator.log import Answer, Applier, CommitLog, NoApplier, Row
+from geecs_configurator.ownership import Ownership
 from geecs_configurator.repository import ConfigsRepository, GitError, Identity
 from geecs_configurator.save import CompareLinkOnly, PullRequests, Saved
 from geecs_configurator.settings import Settings
@@ -54,7 +61,10 @@ class CommitPath:
             raise ValueError(
                 "the commit path needs a state directory (Settings.commits)"
             )
+        if settings.ownership.empty:
+            raise ValueError("the commit path needs what this box owns (Settings.ownership): an empty set is never everything")  # fmt: skip
         self.settings = settings
+        self.ownership: Ownership = settings.ownership
         self.credential = (
             AppCredential(
                 settings.github_app_id,
@@ -70,6 +80,7 @@ class CommitPath:
             Identity(settings.committer_name, settings.committer_email),
             credential=self.credential.git_env if self.credential else None,
             accept=self.accept, on_advanced=self.advanced,
+            writable=self.ownership.owns,  # by name; the commit itself refuses a path through a link
         )  # fmt: skip
         self.store = DocumentStore(self.repo.live)
         self.log = CommitLog(settings.state_dir / "log.jsonl")
@@ -161,12 +172,19 @@ class CommitPath:
     # ------------------------------------------------------------ the gate
 
     def accept(self, old: str, new: str) -> list[str]:
-        """The documents changed in ``old..new`` that do not validate at ``new`` (logged once per head)."""
-        paths = self.repo.changed(old, new)
-        if not paths:
+        """The owned documents changed in ``old..new`` that do not validate at ``new`` (logged once per head).
+
+        Only owned paths are judged: a commit touching other facilities'
+        paths alone is accepted unread. An owned document read through a
+        symbolic link (a file, a folder, the experiment folder itself) is
+        judged when what the link reaches changed (:meth:`_owned_changes`).
+        """
+        changed = self.repo.changed(old, new)
+        if not changed:
             return []
         with self.repo.staging(new) as tree:
-            found = validation.problems(tree, paths)
+            paths = self._owned_changes(tree, new, changed)
+            found = validation.problems(tree, paths) if paths else []
         if found:
             self.refused = f"main at {new[:10]} is not applied: " + "; ".join(found)
             bad = [p.split(": ")[0] for p in found]
@@ -176,6 +194,40 @@ class CommitPath:
                 self.log.add(Row(source="refused", who=", ".join(a for a in authors if a) or "?", kind=None, path="; ".join(bad), commit=new, state="pending", detail="fetched, not applied: " + "; ".join(found) + ". The maintainer fixes main by pull request."))  # fmt: skip
         return found
 
+    def _owned_changes(self, tree: Path, rev: str, changed: list[str]) -> list[str]:
+        """What ``changed`` changed of this box's: the owned paths, and every owned document that reaches a changed file through a link.
+
+        A link may be a file, a folder below an owned folder, or the owned
+        folder itself (``experiments/<owned> -> <another>``): the document
+        is read through it, so a change to its target is a change to it, and
+        any link made or retargeted in the range (a chain may pass through
+        another facility's) re-judges every owned document read through one.
+        A deleted target is not seen (deletions are never judged).
+        ``tree`` is a checkout at ``rev``. The gate judges these, and the log
+        and the apply seam take them up: the two never disagree.
+        """
+        paths = self.ownership.owned(changed)
+        prefixes = set(self.ownership.prefixes())
+        every_link = {
+            path for meta, _, path in (line.partition("\t") for line in self.repo.git("ls-tree", "-r", "-z", rev).split("\0"))
+            if meta.startswith("120000")
+        }  # fmt: skip
+        links = [p for p in every_link if self.ownership.owns(p) or p in prefixes or any(q.startswith(p + "/") for q in prefixes)]  # fmt: skip
+        if not links:
+            return paths
+        moved, base = set(changed), tree.resolve()
+        # a link made or retargeted anywhere (another facility's link in a chain an owned link follows, too):
+        # every owned document read through a link is judged again, since where it leads may have changed
+        relinked = bool(moved & every_link)
+        for path in validation.documents(DocumentStore(tree)):
+            if path in paths or not self.ownership.owns(path):
+                continue
+            target = (tree / path).resolve()
+            through_link = target != base / path
+            if (target.is_relative_to(base) and target.relative_to(base).as_posix() in moved) or (relinked and through_link):  # fmt: skip
+                paths.append(path)
+        return paths
+
     def advanced(self, old: str, new: str) -> None:
         """Log the foreign commits just applied, then fast-forward the share's clone (off the repository's lock)."""
         self.refused = None
@@ -184,7 +236,8 @@ class CommitPath:
         for sha, email, author, paths in self.repo.commits(old, new):
             if email == self.settings.committer_email:
                 continue  # the service's own: the save or the inbox logs it
-            for path in paths:
+            # another facility's paths: not this box's row, never applied here (the live checkout is at ``new``)
+            for path in self._owned_changes(self.repo.live, new, paths):
                 if path in known:
                     kind = known[path][0]
                     answer = self.applier.apply(kind, path)
@@ -198,7 +251,7 @@ class CommitPath:
     def _settle_pending(self, new: str) -> None:
         """Re-answer the service's own rows left ``pending`` because their commit was not live yet, now that it is."""
         for row in self.log.rows(limit=10_000):
-            if row.source in ("saved", "published") and row.state == "pending" and row.detail.startswith(NOT_LIVE) and row.commit and self.repo.is_ancestor(row.commit, new):  # fmt: skip
+            if row.source in ("saved", "published") and row.state == "pending" and self.ownership.owns(row.path) and row.detail.startswith(NOT_LIVE) and row.commit and self.repo.is_ancestor(row.commit, new):  # fmt: skip
                 answer = self.applier.apply(row.kind, row.path)
                 self.log.add(row.model_copy(update=answer.row_fields()))  # fmt: skip
 
@@ -246,7 +299,7 @@ class CommitPath:
 
     def reconcile(self) -> list[inbox.Published]:
         """Publish what waits in the inbox, logging each publish (no git when it is empty)."""
-        experiments = self.store.experiments()
+        experiments = self.inbox_experiments()
         if not inbox.pending(self.repo, experiments):
             return []
         author = Identity(self.settings.inbox_author, self.settings.committer_email)
@@ -256,6 +309,11 @@ class CommitPath:
                 answer = self._answer(r.kind, r.path, r.commit)
                 self.log.add(Row(source="published", who=self.settings.inbox_author, kind=r.kind, path=r.path, commit=r.commit, **answer.row_fields()))  # fmt: skip
         return results
+
+    def inbox_experiments(self) -> list[str]:
+        """The experiments whose worker writes this box publishes: the owned ones the repo has a folder for."""
+        there = set(self.store.experiments())
+        return [e for e in self.ownership.experiments if e in there]
 
     def settle_queued(self) -> int:
         """Do the queued applies (one pass, the applier's :meth:`~log.Applier.settle`); how many rows were tried.
@@ -267,7 +325,8 @@ class CommitPath:
         a publish waits for it; a read serves the last accepted main after
         its bounded wait). A row whose answer changed gets a newer line.
         """
-        rows = [r for r in self.log.rows(limit=10_000) if r.state == "queued"]
+        # owned rows only: the log holds no other (a row left from before the box owned less is never applied here)
+        rows = [r for r in self.log.rows(limit=10_000) if r.state == "queued" and self.ownership.owns(r.path)]  # fmt: skip
         if not rows:
             return 0
         self.settling.set()

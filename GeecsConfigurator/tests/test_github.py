@@ -126,7 +126,7 @@ def test_the_pull_request_is_opened_as_the_app(key: tuple[Path, bytes], github: 
 
 def _app_env(origin: Path, state: Path, key: Path) -> dict[str, str]:
     return {
-        "GEECS_CONFIGURATOR_STATE_DIR": str(state), "GEECS_CONFIGURATOR_ORIGIN": str(origin),
+        "GEECS_CONFIGURATOR_EXPERIMENTS": "Bench", "GEECS_CONFIGURATOR_ANALYSIS_FOLDERS": "Ns", "GEECS_CONFIGURATOR_STATE_DIR": str(state), "GEECS_CONFIGURATOR_ORIGIN": str(origin),
         "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0",
         "GEECS_CONFIGURATOR_GITHUB_REPO": "org/configs", "GEECS_CONFIGURATOR_GITHUB_APP_ID": "123",
         "GEECS_CONFIGURATOR_GITHUB_INSTALLATION_ID": "456", "GEECS_CONFIGURATOR_GITHUB_APP_KEY_FILE": str(key),

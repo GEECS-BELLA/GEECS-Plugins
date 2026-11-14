@@ -43,7 +43,7 @@ def share(origin: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def _client(origin: Path, state: Path, share: Path | None = None, applier: object = None) -> TestClient:  # fmt: skip
-    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(state), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
+    env = {"GEECS_CONFIGURATOR_EXPERIMENTS": "Bench", "GEECS_CONFIGURATOR_ANALYSIS_FOLDERS": "Ns", "GEECS_CONFIGURATOR_STATE_DIR": str(state), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
     if share is not None:
         env["GEECS_CONFIGURATOR_SHARE_CLONE"] = str(share)
     return TestClient(create_app(Settings.from_env(env), applier=applier))  # type: ignore[arg-type]
@@ -71,7 +71,7 @@ def test_a_merge_on_main_takes_effect_on_the_timer_fetch_and_is_logged(origin: P
 def test_the_timer_alone_propagates_a_merge(origin: Path, other: Path, tmp_path: Path) -> None:  # fmt: skip
     import time
 
-    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0.1"}  # fmt: skip
+    env = {"GEECS_CONFIGURATOR_EXPERIMENTS": "Bench", "GEECS_CONFIGURATOR_ANALYSIS_FOLDERS": "Ns", "GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0.1"}  # fmt: skip
     with TestClient(create_app(Settings.from_env(env))) as c:
         theirs = push_change(other, f"{SETUPS}/low_power.yaml", VALID, "merged while nobody had the editor open")  # fmt: skip
         deadline = time.monotonic() + 10

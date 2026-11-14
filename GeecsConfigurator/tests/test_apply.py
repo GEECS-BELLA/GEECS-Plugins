@@ -79,7 +79,7 @@ def _http(scanner: Scanner) -> httpx.Client:
 
 
 def _app(origin: Path, state: Path, scanner: Scanner | None = None, run: Run | None = None) -> TestClient:  # fmt: skip
-    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(state), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_APPLY_SECONDS": "0", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
+    env = {"GEECS_CONFIGURATOR_EXPERIMENTS": "Bench", "GEECS_CONFIGURATOR_ANALYSIS_FOLDERS": "Ns", "GEECS_CONFIGURATOR_STATE_DIR": str(state), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_APPLY_SECONDS": "0", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
     if scanner is not None:
         env["GEECS_CONFIGURATOR_SCANNER_URL"] = "http://scanner.test"
     if run is not None:
@@ -290,7 +290,7 @@ def test_a_dry_run_that_could_not_run_is_noted_never_a_refusal(origin: Path, tmp
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
 
-    env = {"GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_APPLY_SECONDS": "0", "GEECS_CONFIGURATOR_SCANNER_URL": "http://scanner.test", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
+    env = {"GEECS_CONFIGURATOR_EXPERIMENTS": "Bench", "GEECS_CONFIGURATOR_ANALYSIS_FOLDERS": "Ns", "GEECS_CONFIGURATOR_STATE_DIR": str(tmp_path / "s"), "GEECS_CONFIGURATOR_ORIGIN": str(origin), "GEECS_CONFIGURATOR_RECONCILE_SECONDS": "0", "GEECS_CONFIGURATOR_FETCH_SECONDS": "0", "GEECS_CONFIGURATOR_APPLY_SECONDS": "0", "GEECS_CONFIGURATOR_SCANNER_URL": "http://scanner.test", "GEECS_CONFIGURATOR_EXPERIMENT": "Bench"}  # fmt: skip
     with TestClient(create_app(Settings.from_env(env), consumer_http=httpx.Client(transport=httpx.MockTransport(down)))) as c:  # fmt: skip
         r = _save_profile(c)
         assert r.status_code == 200 and any(

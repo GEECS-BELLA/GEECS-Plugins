@@ -17,6 +17,18 @@ its design is `Planning/configurator.md`, its record the tracking issue
   in the inbox (`inbox.py`), claimed by rename and committed from there.
   Each rule is pinned against scratch bare repos (`tests/test_repository.py`,
   `test_save.py`, `test_inbox.py`).
+- **One configs repo, many facilities: a box owns its experiments.**
+  `ownership.py` is the rule. A box commits, judges and logs only under the
+  experiments in `GEECS_CONFIGURATOR_EXPERIMENTS` and its facility folders in
+  the shared analysis tree (`_ANALYSIS_FOLDERS`). A commit path that owns
+  nothing refuses to start. A save, proposal or inbox publish elsewhere, or
+  through a link out of an owned folder, is a 403, and the repository refuses
+  it again at the commit. The gate judges owned documents only, so another
+  facility's invalid commit fast-forwards and never blocks this box. Another
+  facility's commits get no log row and never reach the apply seam. Every
+  experiment stays browsable; foreign documents are served `read_only`. The
+  deploy (the App, once per org; a key and the keys per box) is
+  `DEPLOYMENT.md`. Pinned by `tests/test_facilities.py`.
 - **Nothing is applied that did not validate.** Every fast-forward of the
   live checkout passes the gate (`service.CommitPath.accept`): the
   documents changed since the live commit must validate
