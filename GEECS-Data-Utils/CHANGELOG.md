@@ -3,6 +3,33 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.54.0] - 2026-11-14
+
+### Added
+
+- `shot_table`: one reader for both run layouts that assigns each per-shot
+  device's records to a run's rows and flags them (missing, stale,
+  unwitnessed, audit mismatches); an old run reproduces the s-file's join
+  (#1296).
+- A Tiled run's detail joins every device's scalars onto its rows
+  (`scalars()`) and gives each device's matched stamp per shot (`shots()`),
+  and `tiled_export.read_device_records` reads a device stream's records
+  for it (#1296).
+- `read_sfile_head` / `sfile_head_for_scan`, `sfile_column`,
+  `header_for_variable`, `read_scan_info_sections` and
+  `scan_log_variables`: the readers the logbook's start values and
+  day-level lookup use (#1126).
+
+### Changed
+
+- The scalar files and the join use the shot table; a stale asynchronous
+  sample is blanked rather than written, one row per shot always (#1296).
+
+### Fixed
+
+- A `%` in a scan's `ScanStartInfo` no longer makes every reader see an
+  empty ScanInfo ini (#1126).
+
 ## [0.53.0] - 2026-10-22
 
 ### Added

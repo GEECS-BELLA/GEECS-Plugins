@@ -3,6 +3,27 @@
 All notable changes to `geecs-core` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.15.0] - 2026-11-14
+
+### Added
+
+- `geecs_core.epics_env`: the `config.ini` EPICS address bootstrap, moved
+  here from GeecsBluesky (#1130).
+- `GeecsDb.use_credentials`, for a service process with its own
+  read-only user; Python 3.12 is allowed (#1185).
+- `variable_types.enum_choices`, the CA enum limits a `choice` variable is
+  served under (#1214).
+- `pv_naming.native_device_prefix` and `ioc_heartbeat_pv`;
+  `experiment_config_path` takes an empty folder for the experiment's root
+  (#1237).
+- `geecs_core.db.overlap`: a read-only report of devices enabled in more
+  than one live experiment, which `experiment.sh up` prints as a warning
+  (#1235).
+
+### Fixed
+
+- The fake device server closes its subscriptions before waiting on the
+  server, so it stops under Python 3.12 (#1185).
 
 ## [0.14.0] - 2026-10-22
 
