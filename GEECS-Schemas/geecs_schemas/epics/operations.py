@@ -10,9 +10,9 @@ family role, or a DB device's GEECS variable name.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import Field, model_validator
+from pydantic import Field, StringConstraints, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 from geecs_schemas.epics.family import AnyRoleName, FamilyWord
@@ -23,6 +23,8 @@ OPERATOR_POLICY_FILENAME = "operator_policy.yaml"
 _VERSION = "Format version. Leave at 1."
 #: In a grant's ``operators``, alone: every operator who gives a name.
 ANY_OPERATOR = "*"
+#: An operator's name as a policy file writes it: no space at either end.
+OperatorName = Annotated[str, StringConstraints(pattern=r"^\S(.*\S)?$")]
 
 
 class _Scope(SchemaModel):
@@ -50,7 +52,7 @@ class OperatorGrant(_Scope):
     lock and bounds still apply.
     """
 
-    operators: list[str] = Field(
+    operators: list[OperatorName] = Field(
         min_length=1,
         description='Operators, by name; or ["*"] alone: every named operator.',
     )
@@ -58,16 +60,20 @@ class OperatorGrant(_Scope):
 
     @model_validator(mode="after")
     def _names_or_everyone(self) -> "OperatorGrant":
-        if ANY_OPERATOR in self.operators and len(self.operators) > 1:
+        stars = [o for o in self.operators if ANY_OPERATOR in o]
+        if stars and self.operators != [ANY_OPERATOR]:
             raise ValueError(
-                f"operators is names or [{ANY_OPERATOR!r}] alone, not both"
+                f"operators is names or [{ANY_OPERATOR!r}] alone, and "
+                f"{ANY_OPERATOR!r} is not a pattern: {stars}"
             )
         return self
 
     def names(self, operator: str) -> bool:
         """Whether the grant names this operator, or every operator and this one gave a name."""
         if self.operators == [ANY_OPERATOR]:
-            return bool(operator.strip()) and operator != ANY_OPERATOR
+            name = operator.strip()
+            visible = any(c.isprintable() and not c.isspace() for c in name)
+            return visible and name != ANY_OPERATOR
         return operator in self.operators
 
 

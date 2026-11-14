@@ -133,7 +133,10 @@ device's comes from its family file's `confirm: hazard`; both apply to
 both). The device route marks such a role `confirm: hazard`, so the page
 asks before it writes. `operators: ["*"]`, alone in its list, grants every
 operator who gives a name: the journal still records the name, and the
-grant's scope and roles still bound it.
+grant's scope and roles still bound it. The `*` is quoted (bare, it is a
+YAML alias and the whole file is unreadable: every put denied) and is not
+a pattern (`a*` is refused). An image built before the wildcard reads it
+as a literal name, so rebuild the image before the policy uses it.
 
 **The policy guards against mistakes, not against users.** The operator
 is the name the request carries, and nothing binds it to a person: anyone

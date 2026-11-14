@@ -261,7 +261,9 @@ hazards:                              # roles that need the hazard confirm
 A grant names operators and a scope (`families` and/or `devices`), and
 optionally narrows it to `roles`. `operators: ["*"]`, alone in its list,
 grants every operator who gives a name; the journal still records that
-name. A grant never widens a device's allow
+name. Quote it: a bare `*` is a YAML alias, which makes the whole file
+unreadable and every write denied. It is not a pattern: `a*` is refused.
+A grant never widens a device's allow
 list. `hazards` marks roles that need the confirm. A native device's
 family file can also mark a role `confirm: hazard`, a device's `hazard`
 list in `panel_devices.yaml` marks roles of that one device, and a screen

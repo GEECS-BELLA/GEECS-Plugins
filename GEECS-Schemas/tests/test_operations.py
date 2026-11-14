@@ -47,16 +47,28 @@ EVERYONE = OperatorPolicy.model_validate(
         ("", "motor_record", "twf", False),  # nobody
         ("  ", "motor_record", "twf", False),
         ("*", "motor_record", "twf", False),  # the wildcard is not a name
+        (" * ", "motor_record", "twf", False),  # however it is padded
+        ("\u200b", "motor_record", "twf", False),  # nor is a name nobody can see
+        ("\x00", "motor_record", "twf", False),
     ],
 )
 def test_a_wildcard_grant_names_every_named_operator(who, family, role, allowed):
     assert EVERYONE.permits(who, "m1", family, role) is allowed
 
 
-def test_a_wildcard_beside_names_is_refused():
-    with pytest.raises(ValidationError, match="alone, not both"):
+@pytest.mark.parametrize("operators", [["ann", "*"], ["a*"], ["*", "*"]])
+def test_a_wildcard_is_alone_and_is_not_a_pattern(operators):
+    with pytest.raises(ValidationError, match="is not a pattern"):
         OperatorPolicy.model_validate(
-            {"grants": [{"operators": ["ann", "*"], "families": ["motor_record"]}]}
+            {"grants": [{"operators": operators, "families": ["motor_record"]}]}
+        )
+
+
+@pytest.mark.parametrize("name", [" ann", "ann ", " * ", ""])
+def test_an_operator_name_in_the_file_has_no_space_at_either_end(name):
+    with pytest.raises(ValidationError, match="operators"):
+        OperatorPolicy.model_validate(
+            {"grants": [{"operators": [name], "families": ["motor_record"]}]}
         )
 
 
