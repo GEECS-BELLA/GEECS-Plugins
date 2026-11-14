@@ -86,7 +86,7 @@ const hold = { url: null, until: null };
   out.reopenFetched = seen.length - before;
   // a kind with a dry run that refuses: nothing is PUT
   kinds = kinds.map((k) => k.kind === "setup" ? Object.assign({}, k, { dry_run: "a check" }) : k);
-  C.answers["POST " + C.api + "/api/dry-run/setup?experiment=Bench"] = [200, { kind: "setup", by: "scanner", ran: true, refusal: "no such device" }];
+  C.answers["POST " + C.api + "/api/dry-run/setup?experiment=Bench&id=low_power.yaml"] = [200, { kind: "setup", by: "scanner", ran: true, refusal: "no such device" }];
   const n = seen.length;
   G.open(Object.assign({}, opts, { fields: null })); await settle();
   button(document.body.children[0], "Save").on.click(); await settle();
@@ -100,6 +100,24 @@ const hold = { url: null, until: null };
   release(); await settle();
   const nameBox = walk(walk(document.body.children[0], (n) => n.attrs["data-path"] === "name")[0], (n) => n.tagName === "INPUT")[0];
   out.race = nameBox.value;
+  // a refusal's errors are drawn at their fields
+  C.answers["POST " + C.api + "/api/dry-run/setup?experiment=Bench&id=far.yaml"] = [200, { kind: "setup", by: "portal", ran: true, refusal: "name: bad name", errors: [{ loc: ["name"], msg: "a bad name" }] }];
+  button(document.body.children[0], "Save").on.click(); await settle();
+  out.placed = walk(walk(document.body.children[0], (n) => n.attrs["data-path"] === "name")[0], () => true).some((n) => n._t === "a bad name");
+  // a bare name is the kind's one document with that stem, in any folder; two are refused, named
+  out.stem = G.byStem(["HTU/a.yaml", "HTU/b.yml"], "b");
+  try { G.byStem(["HTU/a.yaml", "HTT/a.yaml"], "a"); out.twice = "accepted"; } catch (e) { out.twice = e.message; }
+  // a preview that answers a promise is drawn in the drawer
+  G.open(Object.assign({}, opts, { id: "far.yaml", fields: null, preview: () => Promise.resolve(el("img")), toolbar: Object.assign(el("span"), { _t: "host tools" }) })); await settle();
+  button(document.body.children[0], "Preview").on.click(); await settle();
+  out.previewed = walk(document.body.children[0], (n) => n.tagName === "IMG").length;
+  out.toolbar = document.body.children[0].textContent.includes("host tools");
+  // a page not on the kit: the drawer is drawn in a .kit wrapper of its own, with its own scrim
+  delete require.cache[require.resolve(process.argv[2])];
+  document.body = Object.assign(el("body"), { classList: { contains: () => false } });
+  require(process.argv[2]).open(opts); await settle();
+  const wrap = document.body.children[0];
+  out.wrapped = [wrap.attrs.class, wrap.children.map((c) => c.attrs.class), wrap.children[1].attrs["data-scrim"]];
   console.log(JSON.stringify(out));
 })().catch((e) => { console.error(e); process.exit(1); });
 """
@@ -113,7 +131,7 @@ def _answers(client: TestClient) -> dict:
         assert r.status_code == 200, path
         out[f"GET {API}{path}"] = [200, r.json()]
     doc = client.get("/api/documents/setup/low_power.yaml" + Q).json()["document"]
-    out[f"POST {API}/api/dry-run/setup{Q}"] = [200, client.post("/api/dry-run/setup" + Q, json={"document": doc}).json()]  # fmt: skip
+    out[f"POST {API}/api/dry-run/setup{Q}&id=low_power.yaml"] = [200, client.post("/api/dry-run/setup" + Q + "&id=low_power.yaml", json={"document": doc}).json()]  # fmt: skip
     out[f"PUT {API}/api/documents/setup/low_power.yaml{Q}"] = [200, {"outcome": "committed", "author": "Ada via configurator", "etag": "e2", "tier": "operator", "changes": []}]  # fmt: skip
     return out
 
@@ -179,3 +197,28 @@ def test_a_dry_run_refusal_stops_the_save(ran: dict) -> None:
 
 def test_a_slow_document_never_overwrites_the_one_opened_after_it(ran: dict) -> None:
     assert ran["race"] == "far"
+
+
+def test_a_refusals_errors_are_drawn_at_their_fields(ran: dict) -> None:
+    assert ran["placed"] is True
+
+
+def test_a_bare_name_is_its_stem_in_any_folder_and_never_two(ran: dict) -> None:
+    assert ran["stem"] == "HTU/b.yml" and "two documents are named a" in ran["twice"]
+
+
+def test_a_preview_promise_is_drawn_beside_the_hosts_tools(ran: dict) -> None:
+    assert ran["previewed"] == 1 and ran["toolbar"] is True
+
+
+def test_off_the_kit_the_drawer_brings_its_own_kit_wrapper_and_scrim(ran: dict) -> None:
+    assert ran["wrapped"] == ["kit", ["scrim", "drawer"], "geecs-configurator-scrim"]
+
+
+def test_the_configurators_page_saves_through_the_embeds_one_flow() -> None:
+    """One save flow: the page has no save of its own, and loads embed.js before itself."""
+    static = Path(__file__).resolve().parents[1] / "geecs_configurator"
+    page = (static / "static" / "configurator.js").read_text()
+    assert "GeecsConfigurator.saveFlow(" in page and '"PUT"' not in page and "/api/dry-run/" not in page  # fmt: skip
+    home = (static / "templates" / "home.html").read_text()
+    assert home.index("/static/embed.js") < home.index("/static/configurator.js")

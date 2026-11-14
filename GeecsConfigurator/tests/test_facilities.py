@@ -178,6 +178,10 @@ def test_reads_list_every_experiment_and_mark_another_facilitys_read_only(box: T
     page = box.get("/?experiment=Other&kind=setup").text
     assert "Read-only here." in page and "Other is not this services box&#39;s" in page
     assert "Read-only here." not in box.get("/?experiment=Bench&kind=setup").text
+    # the shared analysis tree: the word over the listing and over another facility's document, never over this box's
+    assert "Read-only here." in box.get("/?kind=analysis_recipe").text
+    assert "Read-only here." not in box.get("/?kind=analysis_recipe&id=Ns/recipe.yaml").text  # fmt: skip
+    assert "Read-only here." in box.get("/?kind=analysis_group&id=base.yaml").text
     assert (
         box.get("/healthz").json()["owns"] == "experiments Bench; analysis folders Ns"
     )

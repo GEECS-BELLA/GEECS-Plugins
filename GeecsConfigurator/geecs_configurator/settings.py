@@ -40,8 +40,10 @@ scanner as this process reaches it: the worker's environment reopen, the
 trigger-profile dry run, readbacks; one URL is the served experiment's,
 ``Exp=url,Exp2=url`` names each experiment instance's scanner) and ``_ARCHIVER_COMMAND`` (the
 archiver's CLI in its own environment, whitespace-split: onboard and its
-dry run). Unset, those applies are handed to the maintainer (pending) and
-those dry runs say they did not run. ``_APPLY_SECONDS`` (default 30; 0 =
+dry run), and ``_PORTAL_URL`` (the data portal as this process reaches it:
+the analysis documents' dry run and a recipe's form, bound to the analysis
+core's registry). Unset, those applies are handed to the maintainer (pending)
+and those dry runs say they did not run. ``_APPLY_SECONDS`` (default 30; 0 =
 off) is how often the queued applies are tried.
 """
 
@@ -123,6 +125,7 @@ class Settings:
     ownership: Ownership = Ownership()
     scanner_url: str = ""
     archiver_command: str = ""
+    portal_url: str = ""
     apply_seconds: float = 30.0
 
     def scanner_urls(self) -> dict[str, str]:
@@ -208,5 +211,6 @@ class Settings:
             ownership=owned,
             scanner_url=get("SCANNER_URL").rstrip("/"),
             archiver_command=get("ARCHIVER_COMMAND"),
+            portal_url=get("PORTAL_URL").rstrip("/"),
             apply_seconds=apply_every,
         )

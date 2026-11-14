@@ -69,6 +69,25 @@ def test_binding_errors_are_recipe_errors(patch, needle):
         compile_recipe(recipe(**patch), allow_file_backgrounds=True)
 
 
+@pytest.mark.parametrize(
+    "patch,loc",
+    [
+        ({"steps": [{"step": "roi", "bounds": [[0, 4], [0, 4]]}, {"step": "sharpen"}]}, ["steps", 1]),
+        ({"steps": [{"step": "median", "kernel": 3, "bogus": 1}]}, ["steps", 0, "bogus"]),
+        ({"steps": [{"step": "median", "kernel": 3}, {"step": "interpolate", "count": 5}]}, ["steps", 1]),
+        ({"measure": {"kind": "line"}}, ["measure"]),
+        ({"inputs": {"bg": {"path": "x.npy"}}}, ["inputs"]),
+    ],
+)  # fmt: skip
+def test_binding_errors_are_at_the_documents_field(patch, loc):
+    """The editor's view of compile_recipe: the union variant dropped, a worded error at the field it names."""
+    from geecs_analysis.recipe import binding_errors
+
+    errors = binding_errors(recipe(**patch))
+    assert errors and errors[0]["loc"][: len(loc)] == loc, errors
+    assert binding_errors(recipe(steps=[{"step": "median", "kernel": 3}])) == []
+
+
 def test_frame_inputs_need_a_loading_host_and_camera_frames():
     bound = recipe(
         steps=[{"step": "background_frame", "source": "bg", "alignment": "samples"}],

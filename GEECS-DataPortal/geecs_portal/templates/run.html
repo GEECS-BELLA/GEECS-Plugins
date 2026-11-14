@@ -2,6 +2,8 @@
 {% block title %}Scan {{ summary.scan_number or uid[:8] }} — GEECS Data Portal{% endblock %}
 {% block head %}
 {% if config_editor %}<link rel="stylesheet" href="{{ root }}/configs/static/editor.css?v={{ portal_version | urlencode }}">{% endif %}
+{# the configurator's embedded editor draws on the kit, inside a .kit wrapper of its own: this page is not on the kit #}
+{% if configurator %}<link rel="stylesheet" href="{{ root }}/theme/kit.css?v={{ portal_version | urlencode }}">{% endif %}
 <style>
   main { max-width: none; margin: 0; padding: 0; }
   /* the config editor drawer: slides over the page from the right */
@@ -388,7 +390,7 @@
           <span class="mono">analysis/Scan{{ "%03d" | format(scan_number) }}/</span> and its
           columns into the s-file (existing columns are overwritten); the Plot tab picks
           them up on reload.</span>
-        <span class="right">{% if config_editor %}<a href="{{ root }}/configs/" target="_blank" title="the full editor: browse, create and edit diagnostics and groups">edit configs ↗</a> · {% endif %}<a href="#" onclick="refreshAnalysis(true);return false;">refresh</a></span>
+        <span class="right">{% if configurator %}<a href="{{ configurator }}/?kind=analysis_recipe" target="_blank" rel="noopener" title="the configurator: browse, create and edit recipes, .himg jobs and groups">configurator ↗</a> · {% elif config_editor %}<a href="{{ root }}/configs/" target="_blank" title="the full editor: browse, create and edit diagnostics and groups">edit configs ↗</a> · {% endif %}<a href="#" onclick="refreshAnalysis(true);return false;">refresh</a></span>
       </div>
       <div id="analysisList"><div class="plotmsg">loading analyzers…</div></div>
       <dialog id="confirmdlg" aria-labelledby="confirmtitle">
@@ -924,6 +926,103 @@ const ANALYSIS_ENABLED = {{ analysis_enabled | tojson }};
 const CONFIG_EDITOR = {{ config_editor | tojson }};
 const SHOT = {{ shot | tojson }};
 
+// ---------------- the configurator's embedded editor ----------------
+// The configurator owns the document and its save (the operator as git
+// author, its tier, its dry run — this portal's /api/analysis/validate);
+// this page passes the operator (the logbook dialog's remembered name), a
+// shot number for the preview, and the preview itself: the unsaved recipe
+// drawn on this scan through /api/analysis/preview, as a run draws it, and
+// each of its summaries over the scan's first shots. Its scripts load on the
+// first edit: the theme's kit.js and form.js from this portal, embed.js from
+// the configurator (the mount contract).
+const CONFIGURATOR = {{ configurator | tojson }};
+let CFG_READY = null, CFG_TOOLBAR = null;
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve;
+    s.onerror = () => reject(new Error(`${src} did not load`));
+    document.head.appendChild(s);
+  });
+}
+function cfgToolbar() {
+  if (CFG_TOOLBAR) return CFG_TOOLBAR;
+  CFG_TOOLBAR = document.createElement("span");
+  CFG_TOOLBAR.className = "row";
+  CFG_TOOLBAR.innerHTML = `<label class="dim" title="the preview reads this shot of the recipe's own device">shot <input class="btn sm" type="number" id="cfgshot" min="1" style="width:5rem"></label>
+    <label class="dim" title="the git author of a save (remembered in this browser, as the logbook's)">name <input class="btn sm" id="cfgname" autocomplete="name" placeholder="your name" style="width:9rem"></label>`;
+  CFG_TOOLBAR.querySelector("#cfgshot").value = String(SHOT);
+  CFG_TOOLBAR.querySelector("#cfgname").value = remembered(AUTHOR_KEY);
+  return CFG_TOOLBAR;
+}
+function cfgOperator() {
+  const name = (document.getElementById("cfgname") || {}).value || "";
+  if (name.trim()) remember(AUTHOR_KEY, name.trim());
+  return name.trim();
+}
+// One preview request: a PNG as an object URL, or the portal's refusal as an Error.
+function cfgPng(path, body) {
+  return fetch(`${ROOT}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(async (r) => {
+      if (r.ok) return URL.createObjectURL(await r.blob());
+      const text = await r.text();
+      let why = text;
+      try {
+        const b = JSON.parse(text);
+        why = b.errors ? b.errors.map((e) => `${(e.loc || []).join(".") || "(the document)"}: ${e.msg}`).join("; ") : (typeof b.detail === "string" ? b.detail : JSON.stringify(b.detail));
+      } catch (e) { /* plain text */ }
+      throw new Error(why);
+    });
+}
+function cfgFigure(caption, got) {
+  const fig = document.createElement("figure");
+  fig.style.cssText = "margin:0;flex:1 1 300px;max-width:460px";
+  if (got instanceof Error) fig.innerHTML = `<p class="err">${esc(got.message)}</p>`;
+  else fig.innerHTML = `<img class="plot" alt="${escAttr(caption)}" src="${escAttr(got)}">`;
+  fig.insertAdjacentHTML("beforeend", `<figcaption class="dim">${esc(caption)}</figcaption>`);
+  return fig;
+}
+function cfgPreview(doc) {
+  const shot = Number((document.getElementById("cfgshot") || {}).value) || 1;
+  const params = { uid: UID, day: DAY };
+  const settle = (p) => p.then((u) => u, (e) => e);
+  const frame = settle(cfgPng("/api/analysis/preview", { document: doc, params: { ...params, shot } }));
+  const sums = (doc.summaries || []).map((s, i) => settle(cfgPng("/api/analysis/preview/summary", { document: doc, params: { ...params, shots: 4 }, index: i })));
+  return Promise.all([frame, ...sums]).then(([f, ...rest]) => {
+    const box = document.createElement("div");
+    box.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start";
+    box.appendChild(cfgFigure(`shot ${shot}, the unsaved recipe as a run draws it`, f));
+    rest.forEach((got, i) => box.appendChild(cfgFigure(`summary ${i + 1} (${doc.summaries[i].kind}) over shots 1-4`, got)));
+    return box;
+  });
+}
+function openInConfigurator(id, kind) {
+  if (!CONFIGURATOR) return;
+  if (!CFG_READY) {
+    const v = encodeURIComponent(VERSION);
+    CFG_READY = loadScript(`${ROOT}/theme/kit.js?v=${v}`)
+      .then(() => loadScript(`${ROOT}/theme/form.js?v=${v}`))
+      .then(() => loadScript(`${CONFIGURATOR}/static/embed.js`))
+      .catch((e) => { CFG_READY = null; throw e; });
+  }
+  const recipe = kind !== "job";
+  CFG_READY.then(() => GeecsConfigurator.open({
+    api: CONFIGURATOR,
+    kind: recipe ? "analysis_recipe" : "himg_job",
+    experiment: "",
+    id,
+    operator: cfgOperator,
+    toolbar: cfgToolbar(),
+    preview: recipe ? cfgPreview : undefined,
+    onSaved: () => {
+      refreshAnalysis(true);
+      // the Images tab's processed view keys the diagnostic by name: re-fetch the shot image if it shows this one
+      const img = document.getElementById("shotimg");
+      if (img && S.processing === id) img.src = img.src.replace(/([&?])_=\d+/, "") + `&_=${Date.now()}`;
+    },
+  })).catch((e) => alert(`The configurator's editor did not load (${CONFIGURATOR}): ${e.message}`));
+}
+
 // ---------------- config editor drawer ----------------
 // The editor script (served by the mounted router) renders the form; this
 // page supplies the preview parameters — this scan and the drawer's shot;
@@ -1083,7 +1182,8 @@ function renderAnalyzer(a, anyRunning) {
   // Ids reach the handlers through data- attributes, never interpolated
   // into JS-in-attribute source (a quote in the id would end the
   // attribute — the #765 review's dead-button finding).
-  const edit = CONFIG_EDITOR ? `<button class="act" data-id="${escAttr(a.id)}" onclick="openConfigEditor(this.dataset.id)" title="edit this diagnostic's YAML with a live preview on the current shot">edit</button> ` : "";
+  const edit = CONFIGURATOR ? `<button class="act" data-id="${escAttr(a.id)}" data-kind="${escAttr(a.kind)}" onclick="openInConfigurator(this.dataset.id, this.dataset.kind)" title="edit this document in the configurator, with a preview of the unsaved recipe on this scan">edit</button> `
+    : CONFIG_EDITOR ? `<button class="act" data-id="${escAttr(a.id)}" onclick="openConfigEditor(this.dataset.id)" title="edit this diagnostic's YAML with a live preview on the current shot">edit</button> ` : "";
   const button = `${edit}<button class="act" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}${a.destructive ? "…" : ""}</button>`;
   // the data device only when it says something the recipe id does not
   const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";

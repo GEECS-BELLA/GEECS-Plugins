@@ -201,7 +201,8 @@ geecs_portal/
                  #   JSON), pages (HTML), plot_api (Plot/Grid JSON + bin
                  #   membership), images (shot/bin images, traces,
                  #   plot.png), runs (analysis runs + artifacts), logbook
-                 #   (plot send), config_editor (mount + previews);
+                 #   (plot send), analysis_configs (the analysis documents' schema,
+                 #   validate and previews), config_editor (the old mount);
                  #   common = stateless request helpers
   analysis.py    # /api boundary chores: filters/bincfg/display parsing,
                  #   JSON shaping (NaN→null), "show the code" snippets
@@ -379,6 +380,31 @@ base-class hook `run_scan_analyzer` sets when the analyzer has it; most
 never report, the `.himg` kinds report per frame from their child
 process), and the tab shows it in the state badge while the run lasts
 (`running · verifying 320/1806`).
+**The analysis documents' consumer check** (`routes/analysis_configs.py`,
+the configurator arc's slice 6): the configurator owns the recipes, `.himg`
+jobs and groups and their saves; this portal runs them, so it answers for
+them, on the processing feature's gate (`--processing-configs` + the
+`analysis` extra, else 404). `GET /api/analysis/schema/{kind}` is the form
+(`analysis_recipe`: `geecs_analysis.recipe.recipe_schema`, steps and
+measure bound to the registry; `himg_job` / `analysis_group`: the model's);
+`POST /api/analysis/validate/{kind}` `{document, id?}` is the configurator's
+dry run of a draft, never written: the model, a recipe's
+`binding_errors` (GEECS-Analysis, each error at its field as a `loc` list),
+for a recipe or job with an `id` (below `analyzers/`) a stem another file
+of the tree holds (the loader, `discover_diagnostics`, refuses duplicates
+across every facility folder, so a duplicate would break every run by
+name), for a group every reference naming a diagnostic. `POST
+/api/analysis/preview` / `/preview/summary` draw an unsaved recipe on this
+scan (the routes the old editor's previews called, below; the same
+functions). With `--configurator-browser-url` (`configurator` in the page
+and the `/api/run/{uid}` payload; `kind` on each run listing row) the
+Analysis tab's **edit** opens the document in the configurator's embedded
+editor (`openInConfigurator` in `run.html`: the theme's `kit.js` and
+`form.js` from this portal and the configurator's `embed.js`, loaded on the
+first edit; the operator is the logbook dialog's remembered name; the
+preview the frame and each summary over shots 1–4). Pinned in
+`tests/test_analysis_configs.py` and the configurator's
+`tests/test_contract_portal.py`.
 **The config editor drawer** (0.21.0, `config_editor` in the page and
 `/api/run/{uid}` payload): the Analysis tab's per-analyzer **edit** button
 opens `scan_analysis.config_editor`'s form in a drawer over the page

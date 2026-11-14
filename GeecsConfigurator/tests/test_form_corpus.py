@@ -252,6 +252,60 @@ def test_a_scan_variable_switches_variant_and_back_without_a_hybrid() -> None:
     )  # nothing of the pseudo variant carried back
 
 
+#: Two recipes as the analysis tree holds them: a camera recipe with a frame input, overlays and summaries, and a line one.
+RECIPES = {
+    "beam": {
+        "schema_version": 3, "device": "UC_TopView", "description": "IR mode at the input to amp3",
+        "metadata": {"location": "Room 148", "spatial_calibration": 2.44e-05, "notes": "532"},
+        "input": {"kind": "camera"},
+        "inputs": {"bg": {"path": "{scan_dir}/bg.png", "fallback_level": 3}},
+        "steps": [
+            {"step": "background_frame", "source": "bg"},
+            {"step": "roi", "bounds": [[350, 600], [10, 750]]},
+            {"step": "median", "kernel": 5},
+            {"step": "circular_mask", "center": [200, 300], "radius": 50, "units": "axis"},
+        ],
+        "measure": {"kind": "beam", "compute_slopes": True},
+        "scan": {"priority": 10, "average_frames_first": True},
+        "figure": {"imshow": {"cmap": "viridis", "vmin": 0}, "overlays": {"com": {"color": "0.5", "hidden": False}}},
+        "summaries": [{"kind": "image_grid", "panel_size": [6.0, 6.0], "columns": 4}, {"kind": "average"}],
+    },
+    "line": {
+        "schema_version": 3, "device": "U_BCaveMagSpec", "output_name": "U_BCaveMagSpec-interpSpec",
+        "input": {"kind": "line", "folder": "U_BCaveMagSpec-interpSpec", "file_tail": ".txt", "format": "device_hdf5", "loading": {"data_type": "pva_stack"}, "x_scale": 1000.0, "x_unit": "MeV"},
+        "steps": [
+            {"step": "background_constant", "level": 0},
+            {"step": "roi", "bounds": [[60, 160]], "units": "axis"},
+            {"step": "interpolate", "count": 400, "lower": 70},
+        ],
+        "measure": {"kind": "line"},
+        "summaries": [{"kind": "waterfall", "sort_key": "U_S1:charge", "scale": "sequential"}, {"kind": "average"}],
+    },
+}  # fmt: skip
+
+
+def test_a_recipe_round_trips_through_the_portals_bound_schema() -> None:
+    """The form a recipe is edited in is the analysis core's (``recipe_schema``, the portal's ``/api/analysis/schema``).
+
+    A no-op touch of every control changes nothing, and the core's binding
+    errors (``binding_errors``) land at the step they name.
+    """
+    from geecs_analysis.recipe import binding_errors, recipe_schema
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    bound = recipe_schema()
+    got = _node([[bound, raw, None] for raw in RECIPES.values()])
+    assert [(r[1], r[2]) for r in got] == [(True, [])] * len(RECIPES)
+    assert all(
+        r[0] > 10 for r in got
+    )  # the step and measure controls were drawn and touched
+    typo = {**RECIPES["beam"], "steps": [*RECIPES["beam"]["steps"], {"step": "median", "kernel": 3, "bogus": 1}]}  # fmt: skip
+    errs = binding_errors(AnalysisRecipe.model_validate(typo))
+    assert errs and errs[0]["loc"][:2] == ["steps", 4]
+    (at,) = _node([[bound, typo, errs]])
+    assert at[errs[0]["msg"]].startswith("steps.4")
+
+
 def test_the_script_knows_the_schemas_tiers() -> None:
     done = subprocess.run(["node", "-e", "console.log(JSON.stringify(require(process.argv[1]).TIERS))", str(static_dir() / "form.js")], text=True, capture_output=True, timeout=30)  # fmt: skip
     assert json.loads(done.stdout) == list(TIERS)

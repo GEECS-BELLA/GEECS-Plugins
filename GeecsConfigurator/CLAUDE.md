@@ -61,9 +61,19 @@ its design is `Planning/configurator.md`, its record the tracking issue
   never applied by another's reopen. A save while a pass runs is answered
   503 at once, never kept waiting on the lock.
 - **Dry runs are the consumers' own** (`apply.py`): the scanner's
-  `POST /api/preflight/trigger-profile` and `geecs-archiver onboard
-  --dry-run --policy <draft>` over a temporary file, never re-implemented
-  here. A consumer's refusal is the save's 422 (before any git); a check
+  `POST /api/preflight/trigger-profile`, `geecs-archiver onboard
+  --dry-run --policy <draft>` over a temporary file, and for the analysis
+  kinds (recipes, `.himg` jobs, groups) the portal's
+  `POST /api/analysis/validate/{kind}` (`PortalClient`, `_PORTAL_URL`: the
+  recipe bound to the analysis core's registry, a stem the loader would
+  refuse anywhere in the shared analyzers tree, a group's references; its
+  errors come back at their fields and the page draws them there), never
+  re-implemented here. An analysis kind's form is the portal's schema too
+  (`GET /api/schema/{kind}` relays `/api/analysis/schema`: a recipe's steps
+  and measure are the registry's), the document's own schema when the
+  portal is unset or silent, `X-Schema-Source` saying which. The contract
+  tests mount the portal's app (a dev-only dependency, its `analysis`
+  extra: `tests/test_contract_portal.py`). A consumer's refusal is the save's 422 (before any git); a check
   that could not run is a note on the save, never a refusal (the
   archiver's mass-pause guard is a fact about the plan, not the draft).
 - **The scanner is reached over HTTP, the archiver as a subprocess**
@@ -126,4 +136,11 @@ its design is `Planning/configurator.md`, its record the tracking issue
   `fields` limits what is drawn and the rest is saved as stored; the save
   is the page's (dry run, etag, 409/422/428). Pinned under node against
   this app's own answers (`tests/test_embed_js.py`). Hosts: the scanner's
-  preset mini.
+  preset mini; the portal's Analysis tab (its `preview` a promise of the
+  unsaved recipe drawn on the scan, its `toolbar` the shot and the name; a
+  page off the kit gets the drawer in a `.kit` wrapper of its own).
+- **One save flow.** `embed.js`'s `saveFlow` is the only save in the
+  browser: the embedded drawer and this service's own page
+  (`configurator.js`, which loads `embed.js` first) both save through it,
+  each with its own elements and document state. A change to what a save
+  asks, sends or shows is made there once.

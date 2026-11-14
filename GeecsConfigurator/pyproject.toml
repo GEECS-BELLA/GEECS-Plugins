@@ -32,6 +32,11 @@ geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["testin
 # Save as preset's calls back here) breaks this suite in the same PR. Never
 # imported by the package (the configurator-edges contract).
 geecs-scanner = { path = "../GeecsScanner", develop = true }
+# The data portal, DEV-ONLY, with its analysis extra (the analysis core and
+# ScanAnalysis): the contract tests mount its app, so its validate and schema
+# routes for the analysis kinds, and the dry run the save asks of them, break
+# this suite in the same PR. Never imported by the package.
+geecs-data-portal = { path = "../GEECS-DataPortal", develop = true, extras = ["analysis"] }
 
 [tool.poetry.scripts]
 geecs-configurator = "geecs_configurator.__main__:main"
