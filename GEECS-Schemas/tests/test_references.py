@@ -94,6 +94,11 @@ def test_an_optimize_preset_names_its_optimizer_config_and_that_its_diagnostics(
     assert named and all(kind == "analysis_recipe" for kind, _ in named)
 
 
+def test_a_preset_without_a_plan_names_only_its_profile() -> None:
+    preset = _doc("preset", {"name": "p", "trigger_profile": "t", "devices": []})
+    assert references(preset) == [("trigger_profile", "t")]
+
+
 def test_a_document_naming_nothing_names_nothing() -> None:
     assert references(_doc("experiment_defaults", {})) == []
     assert references(_doc("setup", {"name": "a", "steps": [{"do": "wait", "seconds": 1}]})) == []  # fmt: skip
