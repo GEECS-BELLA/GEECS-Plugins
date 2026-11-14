@@ -73,6 +73,11 @@ from geecs_scanner.service.models import (
     ReopenOut,
     SavePresetIn,
     SavePresetOut,
+    SetupApplyIn,
+    SetupDetailOut,
+    SetupDiffOut,
+    SetupDiffRow,
+    SetupOut,
     ScanLogListIn,
     ScanLogListOut,
     ScanLogOut,
@@ -98,6 +103,7 @@ CONFIG_KINDS: dict[str, str] = {
     "optimizer_configs": "list_optimizer_configs",
     "scan_variables": "scan_variable_catalog",
     "actions": "action_plan_registry",
+    "setups": "setups",
 }
 
 #: A preflight callable: ``(preset, experiment, client=, catalog=) -> PreflightReport``.
@@ -137,6 +143,10 @@ class ScannerService:
     readback : ReadbackSource, optional
         Where a variable's live value comes from; defaults to the CA
         gateway (:class:`~geecs_scanner.service.readback.CaReadback`).
+    device_types : DbDeviceTypes-like, optional
+        Each DB device's device type, the family a setup's hazard rules
+        name (``by_device()``); defaults to the GEECS DB
+        (:class:`~geecs_scanner.service.settables.DbDeviceTypes`).
     heartbeat_path : Path, optional
         The Tiled writer's ``heartbeat.json``; defaults to the one under
         ``GEECS_TILED_WRITER_STATE`` (the units' shared state directory).
@@ -160,6 +170,7 @@ class ScannerService:
         scan_log_list: Any = None,
         logged_variables: Any = None,
         presets: Any = None,
+        device_types: Any = None,
     ) -> None:
         self.client = client
         self.resolver = resolver
@@ -175,6 +186,8 @@ class ScannerService:
         self._heartbeat_path = heartbeat_path
         self._scan_log_list = scan_log_list
         self._logged_variables = logged_variables
+        #: The DB's device types (a setup's hazard confirms by family); see :meth:`_db_families`.
+        self._device_types = device_types
         if presets is None:
             from geecs_scanner.service.preset_saver import NoConfigurator
 
@@ -356,7 +369,7 @@ class ScannerService:
             ) from exc
         if kind == "scan_variables":
             names = sorted(result.variables)
-        elif kind == "actions":
+        elif kind in ("actions", "setups"):
             names = sorted(result)
         else:
             names = list(result)
@@ -672,6 +685,140 @@ class ScannerService:
         if body.force:
             logger.info("run_action %r forced by %s", name, body.operator or "unknown")
         return self._queue_item("run_action", [name], {}, what=f"action {name!r}")
+
+    # ------------------------------------------------------------ setups
+
+    def setups(self) -> list[SetupOut]:
+        """Every setup of the experiment: name, steps, writes, nested names, who captured it."""
+        from geecs_scanner.service.setups import flatten
+
+        setups = self._setups()
+        out: list[SetupOut] = []
+        for name in sorted(setups):
+            setup = setups[name]
+            nested = [str(s.setup) for s in setup.steps if str(s.do) == "apply"]
+            row = SetupOut(name=name, description=setup.description, steps=len(setup.steps), nested=nested)  # fmt: skip
+            if setup.captured is not None:
+                row.captured_by = setup.captured.by
+                row.captured_at = setup.captured.at.isoformat()
+            try:
+                flat = flatten(name, setup, setups, "")
+                row.steps = len(flat.steps)
+                row.writes = sum(1 for s, _ in flat.steps if s.do == "set")
+            except ScannerError as exc:
+                row.problem = exc.message
+            out.append(row)
+        return out
+
+    def setup(self, name: str) -> SetupDetailOut:
+        """The preview: every step applying *name* would run, in order, and the hazard confirms it asks."""
+        from geecs_scanner.service.setups import describe, hazards
+
+        flat = self._flattened(name)
+        steps = [describe(i, s, o) for i, (s, o) in enumerate(flat.steps, 1)]
+        out = SetupDetailOut(
+            name=name,
+            description=flat.description,
+            steps=steps,
+            writes=sum(1 for s in steps if s.do == "set"),
+            digest=flat.digest,
+            path=flat.path,
+        )
+        try:
+            out.hazards = hazards(flat, resolver=self.resolver, db_families=self._db_families())  # fmt: skip
+        except ScannerError as exc:
+            out.hazard_problem = exc.message
+        return out
+
+    async def setup_diff(self, name: str) -> SetupDiffOut:
+        """Each ``set`` step of *name* against its live readback (``/api/readback``'s path); nothing written.
+
+        On the app's loop like :meth:`readback`: the files are read on a
+        thread, the readbacks concurrently, and no lock or DB is touched.
+        """
+        import asyncio
+
+        from geecs_schemas import setup_value_matches
+
+        flat = await asyncio.to_thread(self._flattened, name)
+        sets = [(i, s) for i, (s, _) in enumerate(flat.steps, 1) if s.do == "set"]
+        if self._readback is None:
+            from geecs_scanner.service.readback import CaReadback
+
+            self._readback = CaReadback(self.experiment)
+        readings = await asyncio.gather(
+            *(
+                self._readback.read(s.device, s.variable, word=isinstance(s.value, str))
+                for _, s in sets
+            )
+        )
+        rows: list[SetupDiffRow] = []
+        for (index, step), reading in zip(sets, readings):
+            row = SetupDiffRow(index=index, device=step.device, variable=step.variable, value=step.value, ok=reading.ok, detail=reading.detail)  # fmt: skip
+            if reading.ok:
+                row.reading = (
+                    reading.text if reading.text is not None else reading.value
+                )
+                row.will_change = not setup_value_matches(step.value, row.reading)
+                if reading.value is not None and not isinstance(step.value, str):
+                    row.difference = reading.value - float(step.value)
+            rows.append(row)
+        return SetupDiffOut(
+            name=name,
+            digest=flat.digest,
+            rows=rows,
+            changes=sum(1 for r in rows if r.will_change),
+            unread=sum(1 for r in rows if not r.ok),
+        )
+
+    def apply_setup(self, name: str, body: SetupApplyIn) -> ItemOut:
+        """Queue ``apply_setup(name)``: operator required, every question acknowledged, idle only.
+
+        The questions are the setup's writes and one hazard confirm per
+        hazardous step (:mod:`.setups`); one not acknowledged is
+        ``policy_refusal`` carrying ``needs_acknowledgement`` and the
+        setup's ``digest``, never acknowledged here. The item's ``md``
+        carries the digest the operator confirmed, which the worker checks
+        before its first write. No grant is checked (the queue path, like a
+        move or a scan).
+        """
+        from geecs_scanner.service.setups import hazards, provenance, questions
+
+        operator = body.operator.strip()
+        if not operator:
+            raise ScannerError(
+                "invalid_request",
+                "enter your name (the operator) first: a setup is applied under it",
+            )
+        generation = self._reopen_guard()
+        flat = self._flattened(name)
+        found = hazards(flat, resolver=self.resolver, db_families=self._db_families())
+        asked = questions(flat, found)
+        pending = [q for q in asked if q.check not in set(body.acknowledged)]
+        if pending:
+            raise ScannerError(
+                "policy_refusal",
+                f"{len(pending)} question(s) need acknowledging before setup {name!r} is applied",
+                needs_acknowledgement=[q.model_dump() for q in pending],
+                digest=flat.digest,
+            )
+        commit_of = getattr(self.resolver, "configs_commit", None)
+        md = provenance(flat, operator=operator, commit=commit_of() if commit_of else None, answered=asked, client=self.identity)  # fmt: skip
+        logger.info(
+            "setup %r (%s, digest %s) applied by %s: %d hazard confirm(s)",
+            name,
+            flat.path,
+            flat.digest[:12],
+            operator,
+            len(found),
+        )
+        return self._queue_item(
+            "apply_setup",
+            [name],
+            {"md": md},
+            what=f"setup {name!r}",
+            generation=generation,
+        )
 
     def calibration(self) -> CalibrationOut:
         """The stored shot offsets (``shot_offsets.yaml``), summarized for the panel."""
@@ -1039,15 +1186,26 @@ class ScannerService:
             raise ScannerError("invalid_request", str(exc)) from exc
 
     def _queue_item(
-        self, name: str, args: list[Any], kwargs: dict[str, Any], *, what: str
+        self,
+        name: str,
+        args: list[Any],
+        kwargs: dict[str, Any],
+        *,
+        what: str,
+        generation: Optional[int] = None,
     ) -> ItemOut:
-        """Add a non-scan item while the manager is idle and nothing waits."""
-        generation = self._reopen_guard()
+        """Add a non-scan item while the manager is idle and nothing waits.
+
+        *generation* is the reopen generation the caller read before its own
+        checks (:meth:`_reopen_guard`), when it judged anything first.
+        """
+        if generation is None:
+            generation = self._reopen_guard()
         with self._lock:
             self._check_generation(generation)
             self._require_idle(what)
             result = self.client.submit_plan(name, args=args, kwargs=kwargs)
-            if result.ok and name in ("mv", "run_action"):
+            if result.ok and name in ("mv", "run_action", "apply_setup"):
                 self.streams.invalidate_optimization(
                     "hardware changed after this optimization"
                 )
@@ -1092,6 +1250,33 @@ class ScannerService:
             raise ScannerError(
                 "internal_error", f"the action library could not be read: {exc}"
             ) from exc
+
+    def _setups(self) -> dict[str, Any]:
+        try:
+            return dict(self.resolver.setups())
+        except Exception as exc:
+            raise ScannerError(
+                "invalid_request", f"the setups could not be read: {exc}"
+            ) from exc
+
+    def _flattened(self, name: str) -> Any:
+        """The setup *name* flattened, with its digest and file; ``not_found`` when unknown."""
+        from geecs_scanner.service.setups import flatten
+
+        setups = self._setups()
+        if name not in setups:
+            raise ScannerError(
+                "not_found", f"no setup {name!r} in setups/", setups=sorted(setups)
+            )
+        return flatten(name, setups[name], setups, self.resolver.setup_repo_path(name))
+
+    def _db_families(self) -> Optional[dict[str, str]]:
+        """Each DB device's device type; ``None`` when the DB did not answer (the hazards then ask)."""
+        if self._device_types is None:
+            from geecs_scanner.service.settables import DbDeviceTypes
+
+            self._device_types = DbDeviceTypes(self.experiment)
+        return self._device_types.by_device()
 
     @staticmethod
     def _device_references(devices: list[str]) -> list[str]:

@@ -339,6 +339,112 @@ class ActionDetailOut(BaseModel):
     writes: int = Field(description="How many steps write to hardware")
 
 
+class SetupOut(BaseModel):
+    """One setup as the list shows it."""
+
+    name: str
+    description: str = ""
+    steps: int = Field(description="Concrete steps after nested applies are inlined")
+    writes: int = Field(default=0, description="How many steps write to hardware")
+    nested: list[str] = Field(
+        default_factory=list, description="Setups this one applies by name"
+    )
+    captured_by: Optional[str] = Field(default=None, description="Who captured it")
+    captured_at: Optional[str] = Field(default=None, description="When, ISO 8601")
+    problem: Optional[str] = Field(
+        default=None,
+        description="Why it cannot be applied (unknown nested setup, a loop)",
+    )
+
+
+class SetupStepOut(BaseModel):
+    """One flattened step of a setup."""
+
+    index: int = Field(description="Its number in the flattened setup, from 1")
+    do: str
+    device: Optional[str] = None
+    variable: Optional[str] = None
+    value: Optional[Any] = None
+    expected: Optional[Any] = None
+    tolerance: Optional[float] = None
+    seconds: Optional[float] = None
+    from_setup: Optional[str] = Field(
+        default=None, description="The nested setup this step was inlined from"
+    )
+    text: str
+
+
+class SetupHazardOut(BaseModel):
+    """A ``set`` step that needs the hazard confirm, and why."""
+
+    index: int
+    device: str
+    variable: str
+    value: Any
+    reasons: list[str]
+
+
+class SetupDetailOut(BaseModel):
+    """``GET /api/setups/{name}``: what applying it would do, in order, and what it asks."""
+
+    name: str
+    description: str = ""
+    steps: list[SetupStepOut]
+    writes: int = Field(description="How many steps write to hardware")
+    digest: str = Field(description="geecs_schemas.setup_digest of these steps")
+    path: str = Field(description="The file as the configs repository names it")
+    hazards: Optional[list[SetupHazardOut]] = Field(
+        default=None,
+        description="The hazard confirms an apply asks; null when unknowable",
+    )
+    hazard_problem: Optional[str] = Field(
+        default=None, description="Why the hazards cannot be told (an apply is refused)"
+    )
+
+
+class SetupDiffRow(BaseModel):
+    """One ``set`` step against the live readback."""
+
+    index: int
+    device: str
+    variable: str
+    value: Any = Field(description="What the setup writes")
+    reading: Optional[Any] = Field(default=None, description="The readback now")
+    ok: bool = Field(default=False, description="Whether the readback answered")
+    will_change: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether the readback differs from the value exactly (a word by equality); "
+            "null when unread. A set step carries no tolerance, so a noisy readback "
+            "differs: read 'difference'"
+        ),
+    )
+    difference: Optional[float] = Field(
+        default=None, description="Reading minus value, for a number read as one"
+    )
+    detail: str = ""
+
+
+class SetupDiffOut(BaseModel):
+    """``GET /api/setups/{name}/diff``: the setup's writes against the readbacks now."""
+
+    name: str
+    digest: str
+    rows: list[SetupDiffRow]
+    changes: int = Field(description="Rows whose readback differs")
+    unread: int = Field(description="Rows whose readback did not answer")
+
+
+class SetupApplyIn(BaseModel):
+    """``POST /api/setups/{name}/apply``: who applies it and what they acknowledged."""
+
+    operator: str = Field(default="", description="Who applies it (required)")
+    acknowledged: list[str] = Field(
+        default_factory=list,
+        description="The checks of the questions answered Continue (from needs_acknowledgement)",
+    )
+
+
 class CalibrationDeviceOut(BaseModel):
     """One device's stored drain offset."""
 
@@ -480,6 +586,10 @@ class ReadbackOut(BaseModel):
     pv: str = ""
     ok: bool = False
     value: Optional[float] = None
+    text: Optional[str] = Field(
+        default=None,
+        description="The reading as a word, when read as one (a setup's diff)",
+    )
     units: str = ""
     timestamp: Optional[float] = Field(
         default=None, description="The reading's own stamp, epoch seconds"

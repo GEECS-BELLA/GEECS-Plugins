@@ -19,6 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+#: Items whose summary takes no acquisition or LabVIEW-files suffix.
+_NOT_SCANS = ("mv", "run_action", "apply_setup")
+
 #: Manager ``exit_status`` → (the word a chip shows, the kit state it wears).
 EXIT_WORDS: dict[str, tuple[str, str]] = {
     "completed": ("ok", "ok"),
@@ -191,6 +194,8 @@ def summarize_item(item: dict) -> ItemSummary:  # noqa: C901, PLR0912, PLR0915
             summary.text = "move " + ", ".join(pairs)
         elif name == "run_action":
             summary.text = f"action {rest[0]}" if rest else "action"
+        elif name == "apply_setup":
+            summary.text = f"setup {rest[0]}" if rest else "setup"
         elif name in ("measure_shot_offsets", "check_shot_sync"):
             summary.text = name.replace("_", " ")
     except (IndexError, TypeError, ValueError):  # a shape we do not know
@@ -203,9 +208,9 @@ def summarize_item(item: dict) -> ItemSummary:  # noqa: C901, PLR0912, PLR0915
         if sps:
             parts.append(f"{sps} shots/step")
         summary.text = " · ".join(parts)
-    if summary.acquisition and name not in ("mv", "run_action"):
+    if summary.acquisition and name not in _NOT_SCANS:
         summary.text += f" · {summary.acquisition}"
-    if summary.native_image_save is False and name not in ("mv", "run_action"):
+    if summary.native_image_save is False and name not in _NOT_SCANS:
         summary.text += " · no LabVIEW files"
     if summary.background:
         summary.text = "background · " + summary.text

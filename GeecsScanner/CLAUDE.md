@@ -29,6 +29,8 @@ geecs_scanner/
     demo.py       DemoQueueClient / DemoResolver / demo_preflight — a manager in memory
     errors.py     ScannerError(kind, message, **extra); kind → HTTP status in one table
     actions.py    the action-plan preview: flatten nested runs over the schema models
+    setups.py     setups: the preview, the hazard confirms (geecs_schemas.setup_hazards),
+                  the apply's questions and the item's md
     scanlog.py    read the run's scan.log from the folder the start document names
     preset_saver.py "Save as preset": a PUT to the configurator (stdlib HTTP), which commits it
     scan_log_list.py the shared scan-log list (state-dir JSON, optimistic save) + the picker's logged variables
@@ -98,8 +100,8 @@ deploy/           the unit template + DEPLOYMENT.md
 - **The demo is sample content**, chosen by a flag; nothing in it is a
   default for a deployment.
 
-- **Idle-only items.** A move (`mv`), an action (`run_action`) and the two
-  calibration plans are queue items that run by themselves the moment they
+- **Idle-only items.** A move (`mv`), an action (`run_action`), a setup
+  (`apply_setup`) and the two calibration plans are queue items that run by themselves the moment they
   are added, so the service refuses them unless the manager is idle **and
   nothing waits** — the check and the add happen under the one lock. The
   action preview flattens nested `run` steps over the schema models in
@@ -113,6 +115,25 @@ deploy/           the unit template + DEPLOYMENT.md
   `DELETE /api/queue/{uid}` removes one waiting item; the running uid is
   `policy_refusal`, an unknown one `not_found`. The many-waiting-items
   limit was the client's posture, never the manager's.
+- **A setup is applied as one idle-only `apply_setup` item**
+  (`GET /api/setups`, `GET /api/setups/{name}` the preview with its digest
+  and hazard confirms, `GET /api/setups/{name}/diff` each write against its
+  readback on `/api/readback`'s path, `POST /api/setups/{name}/apply`).
+  The apply needs the operator, then asks its questions as the preflight
+  does (`policy_refusal` with `needs_acknowledgement`, relayed by the
+  client, never acknowledged here): the setup's writes, and one hazard
+  confirm per `set` the family files (as `panel_devices.yaml` amends them)
+  or the operator policy's `hazards` name (`geecs_schemas.setup_hazards`;
+  a DB device's family is its device type, read once from the DB, and a
+  device whose family cannot be told is asked about whenever a family rule
+  names the role). Every check carries the setup's digest, so an
+  acknowledgement never covers an edited setup, and the item's
+  `md["geecs"]["setup"]` carries that digest, which the worker checks
+  before its first write (`GeecsBluesky/EVENT_SCHEMA.md`). An unreadable
+  policy or device file refuses the apply. No grant is checked: the queue
+  path, like a move or a scan; grants are the device module's gate. The
+  reopen generation is read before the questions are judged, so a reopen
+  that ran meanwhile refuses the item.
 - **The scanner never writes the configs tree.** "Save as preset" asks
   the configurator (`service/preset_saver.py`, `--configurator-url`, a
   site value) over HTTP with the standard library's client: it reads the

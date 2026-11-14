@@ -32,6 +32,7 @@ def build_service(
     streams = StreamCache()
     if demo:
         from geecs_scanner.service.demo import (
+            DemoDeviceTypes,
             DemoQueueClient,
             DemoReadback,
             DemoResolver,
@@ -60,6 +61,7 @@ def build_service(
             ),
             logged_variables=DemoLoggedVariables(),
             presets=DemoPresets(resolver),
+            device_types=DemoDeviceTypes(),
         )
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
     from geecs_bluesky.qs_client import make_queue_client
