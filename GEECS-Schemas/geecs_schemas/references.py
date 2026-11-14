@@ -68,7 +68,7 @@ def references(document: BaseModel) -> list[tuple[str, str]]:
     if isinstance(
         document, Preset
     ):  # an optimize preset names its optimizer config in the plan's kwargs
-        name = document.plan.kwargs.get("optimizer_config")
+        name = document.plan.kwargs.get("optimizer_config") if document.plan else None
         if isinstance(name, str) and name:
             out.append(("optimizer_config", name))
     elif isinstance(document, OptimizerConfig):
