@@ -153,6 +153,9 @@ class _Patch:
         if not isinstance(self.root, yaml.MappingNode):
             raise Unpatchable("the document is not a mapping")
         self.shared = self._shared(self.root)
+        # a merge key is flattened in place when its mapping is constructed, so look before anything is
+        if any(k.tag == _MERGE for k, _ in self._walk_pairs()):
+            raise Unpatchable("a merge key")
         crlf = text.count("\r\n")
         self.style = _Style(
             newline="\r\n" if crlf * 2 > text.count("\n") else "\n",
@@ -518,6 +521,8 @@ class _Patch:
         floor = len(self.text) + 1
         out = self.text
         for e in edits:
+            if e.end < e.start:
+                raise Unpatchable("an edit's span ends before it starts")
             if e.end > floor:
                 raise Unpatchable("two edits overlap")
             out = out[: e.start] + e.text + out[e.end :]

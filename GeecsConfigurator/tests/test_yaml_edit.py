@@ -192,3 +192,10 @@ def test_rewriting_a_node_that_holds_an_alias_is_unpatchable() -> None:
         patch("d: &A 5\ns:\n- a: *A\n- c: 3\n", {"d": 5, "s": [{"x": 1}, {"c": 3}]})
     with pytest.raises(Unpatchable):
         patch("d: &A 5\nm:\n  a: *A\n", {"d": 5, "m": 7})
+
+
+def test_a_file_with_a_merge_key_is_unpatchable() -> None:
+    with pytest.raises(
+        Unpatchable
+    ):  # the constructor flattens a merge in place: its spans are the target's
+        patch("base: &B {a: 1}\ns:\n- <<: *B\n- c: 3\n", {"base": {"a": 1}, "s": [{"x": 1}, {"c": 3}]})  # fmt: skip
