@@ -15,6 +15,13 @@
   }
   //: What the setups surface (setups.js) asks of this page: the operator, and whether the form holds an unsaved edit.
   window.GeecsConfiguratorPage = { operator: function () { return operator ? operator.value.trim() : ""; }, ready: function () { return false; }, dirty: function () { return false; } };
+  // ---- New (a kind that starts blank): the embed's start form in its drawer; a created document opens here.
+  var newDoc = document.getElementById("new-doc");
+  if (newDoc) newDoc.addEventListener("click", function () {
+    GeecsConfigurator.create({ api: root, kind: kind, experiment: body.dataset.experiment || "", operator: function () { return window.GeecsConfiguratorPage.operator(); },
+      // the created document opens here, unless the open one holds an unsaved edit (the drawer shows the new one)
+      onSaved: function (b, docId, how) { if (b.outcome === "committed" && docId && !(how && how.unsaved) && !window.GeecsConfiguratorPage.dirty()) location.href = root + "/" + query + "&kind=" + encodeURIComponent(kind) + "&id=" + encodeURIComponent(docId); } });
+  });
   if (!kind || !id) return;
   //: What saving a change of each tier will do (the commit path arrives in a later slice).
   var ACTION = {
@@ -143,11 +150,22 @@
   saveBtn.addEventListener("click", function () { save(false, false); });
   // ---- Copy and delete: the embed's flows too, so the drawer and this page ask and send the same.
   var page = function (docId) { return root + "/" + query + "&kind=" + encodeURIComponent(kind) + (docId ? "&id=" + encodeURIComponent(docId) : ""); };
-  var copy = GeecsConfigurator.copyFlow(Object.assign({}, ctx, { copied: function (newId) { setTimeout(function () { location.href = page(newId); }, 1200); } }));
-  var remove = GeecsConfigurator.deleteFlow(Object.assign({}, ctx, { host: document.body, deleted: function (b) {
-    saveBtn.disabled = true; $("#copy-delete").hidden = true;
-    if (b.outcome === "committed") form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: true });
+  // A copy or delete never takes an edit made after it was asked: the page stays on it, and says it is unsaved.
+  var copySent = null, deleteSent = null;
+  function editedSince(sent) { return JSON.stringify(form.value()) !== JSON.stringify(sent); }
+  var copy = GeecsConfigurator.copyFlow(Object.assign({}, ctx, { copied: function (newId) {
+    // checked again when it goes: an edit typed while the note shows is kept too
+    if (!editedSince(copySent)) { setTimeout(function () { if (!editedSince(copySent)) location.href = page(newId); }, 1200); return; }
+    var p = el("p", {}, "You edited this document while the copy saved: those edits are still in the form, unsaved. The copy: ");
+    p.appendChild(el("a", { href: page(newId) }, newId)); $("#result").appendChild(p);
   } }));
-  $("#copy").addEventListener("click", function () { copy($("#copy-name").value); });
-  $("#delete").addEventListener("click", function () { remove(); });
+  var remove = GeecsConfigurator.deleteFlow(Object.assign({}, ctx, { host: document.body, deleted: function (b) {
+    if (b.outcome === "proposed") return;  // the file is still on main
+    saveBtn.disabled = true; $("#copy-delete").hidden = true;
+    var later = editedSince(deleteSent);  // the file is gone; an edit made since is kept in view (YAML exports it), never reset
+    form = GeecsForm.mount($("#form"), { schema: schema, value: later ? form.value() : stored, readOnly: true });
+    if (later) $("#result").appendChild(el("div", { class: "banner", "data-state": "stale" }, "You edited the form while it was deleted: those edits are still shown, unsaved (YAML exports them)."));
+  } }));
+  $("#copy").addEventListener("click", function () { copySent = form.value(); copy($("#copy-name").value); });
+  $("#delete").addEventListener("click", function () { deleteSent = form.value(); remove(); });
 })();

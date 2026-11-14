@@ -394,7 +394,15 @@ for a recipe or job with an `id` (below `analyzers/`) a stem another file
 of the tree holds (the loader, `discover_diagnostics`, refuses duplicates
 across every facility folder, so a duplicate would break every run by
 name), for a group the loader's own resolution (`resolve_group`: every
-reference names a diagnostic that loads, none twice). `POST
+reference names a diagnostic that loads, none twice). `GET
+/api/analysis/blank/{kind}?name=&input=&device=&fields=` is a new
+document's starting draft, never written: a recipe is
+`geecs_analysis.recipe.blank_recipe` (the input kind, `fields` a JSON
+object of what it requires beyond its kind, no steps, the registry's
+default measure for its frames, `output_name` the name), so it already
+binds; a group is an empty group; a `.himg` job has none (its kind is the
+operator's decision, and one kind deletes files: a new job is a copy).
+`POST
 /api/analysis/preview` / `/preview/summary` draw an unsaved recipe on this
 scan (the routes the old editor's previews called, below; the same
 functions; they exist wherever the processing feature does, unauthenticated
