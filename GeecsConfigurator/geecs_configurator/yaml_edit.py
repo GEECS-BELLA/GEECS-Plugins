@@ -303,6 +303,16 @@ class _Patch:
         else:
             self._replace(node, new, slot)
 
+    def _holds_shared(self, node: yaml.Node) -> bool:
+        """Whether ``node`` or anything under it is an anchored node that is aliased."""
+        if id(node) in self.shared:
+            return True
+        if isinstance(node, yaml.MappingNode):
+            return any(self._holds_shared(x) for pair in node.value for x in pair)
+        if isinstance(node, yaml.SequenceNode):
+            return any(self._holds_shared(x) for x in node.value)
+        return False
+
     def _shares_a_key(self, node: yaml.MappingNode, new: dict[str, Json]) -> bool:
         """Whether the draft keeps any of the mapping's keys (none kept: the mapping is rewritten whole in its slot)."""
         return any(name in new for name in self._as_drafted(self._keys(node), new))
@@ -324,6 +334,10 @@ class _Patch:
 
     def _replace(self, node: yaml.Node, new: Json, slot: tuple[int, int, int, bool]) -> None:  # fmt: skip
         start, end, col, flow = slot
+        if self._holds_shared(
+            node
+        ):  # an alias's marks are its anchor's: the span would be wrong
+            raise Unpatchable("an anchored or aliased node rewritten")
         if flow:
             self.edits.append(_Edit(start, end, _flow(new)))
             return

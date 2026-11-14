@@ -183,3 +183,12 @@ def test_a_change_inside_an_aliased_anchor_is_unpatchable() -> None:
     with pytest.raises(Unpatchable):
         patch(text, {"a": [1, 3], "b": [1, 2]})
     assert patch(text, copy.deepcopy(_doc(text))) == text
+
+
+def test_rewriting_a_node_that_holds_an_alias_is_unpatchable() -> None:
+    with pytest.raises(
+        Unpatchable
+    ):  # the alias's marks are its anchor's: the splice would be garbled
+        patch("d: &A 5\ns:\n- a: *A\n- c: 3\n", {"d": 5, "s": [{"x": 1}, {"c": 3}]})
+    with pytest.raises(Unpatchable):
+        patch("d: &A 5\nm:\n  a: *A\n", {"d": 5, "m": 7})
