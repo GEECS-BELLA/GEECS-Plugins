@@ -94,6 +94,13 @@ def test_an_optimize_preset_names_its_optimizer_config_and_that_its_diagnostics(
     assert named and all(kind == "analysis_recipe" for kind, _ in named)
 
 
+@pytest.mark.parametrize("spelled", ["align", "align.yaml", "align.yml"])
+def test_a_name_is_the_one_its_reader_resolves(spelled: str) -> None:
+    """An optimizer config is loaded through ``yaml_stem`` (the worker's resolver); a trigger profile by its literal stem."""
+    preset = _doc("preset", {"name": "o", "trigger_profile": f"t{spelled[5:]}", "devices": [], "plan": {"name": "optimize", "kwargs": {"optimizer_config": spelled}}})  # fmt: skip
+    assert references(preset) == [("trigger_profile", f"t{spelled[5:]}"), ("optimizer_config", "align")]  # fmt: skip
+
+
 def test_a_preset_without_a_plan_names_only_its_profile() -> None:
     preset = _doc("preset", {"name": "p", "trigger_profile": "t", "devices": []})
     assert references(preset) == [("trigger_profile", "t")]

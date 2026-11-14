@@ -55,6 +55,7 @@ from geecs_schemas import (
     ScanVariableSpec,
     ShotOffsets,
     TriggerProfile,
+    yaml_stem,
 )
 from geecs_schemas.convert import convert_shot_control
 from geecs_schemas.setup import load_setups
@@ -193,10 +194,9 @@ class ConfigsRepoResolver:
 
     @staticmethod
     def _strip_yaml_suffix(name: str) -> str:
-        for suffix in (".yaml", ".yml"):
-            if name.endswith(suffix):
-                return name[: -len(suffix)]
-        return name
+        return yaml_stem(
+            name
+        )  # the one rule: the references table reads optimizer configs through it too
 
     def _named_yaml_path(self, folder: str, stem: str) -> Path:
         """The config file for *stem* in *folder*: ``.yaml``, else its ``.yml`` twin.

@@ -58,6 +58,21 @@ NAMED = "<name>.yaml"
 #: The spellings a one-file-per-document reader accepts, written form first.
 YAML_SUFFIXES = (".yaml", ".yml")
 
+
+def yaml_stem(name: str) -> str:
+    """A name as a reader that takes either spelling resolves it: ``align.yaml`` and ``align.yml`` are ``align``.
+
+    The scanner's resolver looks presets, trigger profiles and optimizer
+    configs up through this (``ConfigsRepoResolver``), and the references
+    table reads an optimizer config's name through it, so a delete's check
+    and the gate see the name the runtime loads.
+    """
+    for suffix in YAML_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
 #: The loader that tells the analyzers tree's two kinds apart, by the
 #: document's top-level ``kind`` (a ``.himg`` job has one, a recipe none).
 ANALYSIS_DISPATCH = "geecs_schemas.analysis.load_analysis_document"

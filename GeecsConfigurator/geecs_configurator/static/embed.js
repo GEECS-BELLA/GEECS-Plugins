@@ -324,6 +324,10 @@
     // the same document again: the drawer as it was left, the edit in it kept
     if (current && current.key === key) { show(d); return current.handle; }
     var call = caller(base);
+    // This opening of the drawer. Every answer that arrives later (the load, a copy, a delete) touches the
+    // drawer only while it is still the one open: the drawer is shared, and another document may be in it now.
+    var self = null;
+    function open_() { return current !== null && current === self; }
     var form = null, schema = null, stored = null, etag = "", info = null, docId = opts.id, fields = opts.fields || null;
     var status = el("div"), previewBox = el("div", { class: "group" });
     // a host that previews wants room for the picture beside the form
@@ -374,7 +378,7 @@
       docId = id;
       return Promise.all([call("GET", "/api/schema/" + opts.kind), call("GET", docPath()), call("GET", "/api/kinds")]);
     }).then(function (got) {
-      if (!current || current.key !== key) return;  // another document was opened meanwhile: the drawer is its
+      if (!open_()) return;  // another document was opened meanwhile: the drawer is its
       if (got[1].status !== 200) throw new Error(got[1].status + " " + why(got[1].body));
       schema = got[0].body; stored = got[1].body.document; etag = got[1].body.etag;
       info = (got[2].body || []).filter(function (k) { return k.kind === opts.kind; })[0] || { dry_run: "none" };
@@ -401,11 +405,16 @@
         more.appendChild(el("summary", {}, "Copy or delete"));
         var row = more.appendChild(el("div", { class: "row" })), newName = el("input", { class: "btn sm", placeholder: "new name", "aria-label": "the copy's name" });
         var ctx = { call: call, kind: opts.kind, query: function () { return query; }, docId: function () { return docId; }, value: value, etag: function () { return etag; }, operator: operator, status: status };  // prettier-ignore
-        var copy = copyFlow(Object.assign({}, ctx, { copied: function (newId, b) { if (opts.onSaved) opts.onSaved(b); open(Object.assign({}, opts, { id: newId, note: "Saved as a copy of " + docId + " by " + b.author + "." })); } }));
+        // the host hears of every accepted copy and delete; the drawer follows only while it still shows this document
+        var copy = copyFlow(Object.assign({}, ctx, { copied: function (newId, b) {
+          if (opts.onSaved) opts.onSaved(b);
+          if (open_()) open(Object.assign({}, opts, { id: newId, note: "Saved as a copy of " + docId + " by " + b.author + "." }));
+        } }));
         var remove = deleteFlow(Object.assign({}, ctx, { host: d.parentNode || document.body, deleted: function (b) {
+          if (opts.onSaved) opts.onSaved(b);
+          if (!open_()) return;
           current = null; form = null;  // the document is gone: opened again, it asks again
           fill(host, [status]);
-          if (opts.onSaved) opts.onSaved(b);
         } }));
         row.appendChild(newName);
         row.appendChild(button("Save as a copy", "", function () { copy(newName.value); }));
@@ -416,13 +425,13 @@
         fields ? el("p", { class: "dim" }, "Showing " + fields.join(", ") + "; the rest of the document is kept as it is.") : null, tools, more, status, previewBox, formHost]);
       if (opts.note) fill(status, [banner(opts.note)]);
     }).catch(function (e) {
-      if (!current || current.key !== key) return;  // another document was opened meanwhile
+      if (!open_()) return;  // another document was opened meanwhile
       current = null;  // opened again, it asks again
       fill(host, [el("div", { class: "state", "data-state": "error" }, "The configurator did not serve " + opts.id + ": " + (e.message || e))]);
     });
 
     var handle = { close: function () { var kit = typeof window !== "undefined" && window.GeecsKit; if (kit) kit.closeDrawer(); }, value: value };
-    current = { key: key, handle: handle };
+    current = self = { key: key, handle: handle };
     return handle;
   }
 

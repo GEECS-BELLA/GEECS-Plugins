@@ -133,13 +133,14 @@ from geecs_schemas.setup import (
     step_variable,
 )
 from geecs_schemas.shot_offsets import SHOT_OFFSETS_FILENAME, DeviceOffset, ShotOffsets
-from geecs_schemas.references import REFERS_TO, references
+from geecs_schemas.references import READ_AS, REFERS_TO, references
 from geecs_schemas.storage import (
     KIND_STORAGE,
     STORAGE_ROOT_PATHS,
     FileStorage,
     KindStorage,
     NotAFile,
+    yaml_stem,
 )
 from geecs_schemas.sweep import (
     AxisSweep,
@@ -178,10 +179,12 @@ __all__ = [
     "Tier",
     "TIERS",
     # references (which documents name which)
+    "READ_AS",
     "REFERS_TO",
     "references",
     # storage (where each registered kind is kept)
     "KIND_STORAGE",
+    "yaml_stem",
     "STORAGE_ROOT_PATHS",
     "FileStorage",
     "NotAFile",
