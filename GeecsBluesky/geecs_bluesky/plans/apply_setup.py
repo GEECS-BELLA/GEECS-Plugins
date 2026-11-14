@@ -6,30 +6,17 @@ steps inlining other setups. The worker runs one as plain plan stubs, so
 it inherits the RunEngine's pause, stop and abort. It opens no run,
 claims no scan number and writes no file.
 
-The rules, each pinned by ``tests/test_apply_setup.py``:
-
-- **The setup is read when the item runs**, from the configs checkout,
-  and flattened (:func:`geecs_schemas.flatten_setup`): an unknown nested
-  name or a loop is refused before anything is touched.
-- **What was confirmed is what runs.** The client that queued the item
-  passes ``md["geecs"]["setup"]["digest"]``, the
-  :func:`geecs_schemas.setup_digest` of the steps its operator confirmed;
-  a different digest now (the file, or a setup it applies, changed in
-  between) refuses the item before the first write.
-- **Every target is resolved and read before the first write**, so an
-  unknown device or variable, or a read-only one in a ``set``, fails the
-  item with nothing written.
-- **A ``set`` is the device's own completion**: ``abs_set(wait=True)`` on
-  the namespace's settable (which confirms by readback where the device
-  has one); no second confirmation layer. A ``check`` matches as the
-  confirm settable does (:func:`geecs_schemas.setup_value_matches`).
-- **A failure stops the setup where it is** and names it:
-  :class:`~geecs_bluesky.exceptions.SetupStepFailedError` carries the
-  step and the ``set`` steps that already took effect (never undone).
-  A pause, stop or abort of the RunEngine passes through untouched.
-- ``md`` is provenance (the setup's name, path, commit and digest, the
-  operator, the acknowledged questions): it rides in the queue item and
-  the worker's log, never a document (``EVENT_SCHEMA.md``).
+The rules (pinned by ``tests/test_apply_setup.py``): the setup is read
+and flattened when the item runs; a digest in ``md["geecs"]["setup"]``
+(what the operator confirmed) that differs from the setup's now refuses
+the item before the first write; every target is resolved and read
+before the first write; a ``set`` is the device's own completion
+(``abs_set(wait=True)``, no second confirmation layer) and a ``check``
+matches as the confirm settable does; a failure stops the setup and
+names the step and the writes already made
+(:class:`~geecs_bluesky.exceptions.SetupStepFailedError`), while a
+RunEngine pause, stop or abort passes through. ``md`` is otherwise
+provenance, kept in the queue item and the log (``EVENT_SCHEMA.md``).
 """
 
 from __future__ import annotations
