@@ -40,9 +40,9 @@
  */
 (function (out) {
   "use strict";
-  var drawerEl = null, titleEl = null, bodyEl = null, current = null;
+  var drawerEl = null, titleEl = null, bodyEl = null, current = null;  // current: {key, handle}, the document in the drawer
   //: A new document's name: its file's stem (a copy's and a new document's; the service's blank.NAME).
-  var NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;  // current: {key, handle}, the document in the drawer
+  var NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 
   function el(tag, attrs, text) {
     var n = document.createElement(tag);
@@ -415,7 +415,8 @@
             if (b.outcome === "committed") stored = doc;
             if (opts.onSaved) opts.onSaved(b, docId);
             // created: the drawer opens the file as stored (its copy and delete), while it still shows this draft
-            if (isNew && b.outcome === "committed" && open_()) open(Object.assign({}, opts, { draft: null, note: "Created " + docId + " as " + b.author + "." }));
+            // ("nothing to do": main already holds these bytes, so the file is there too)
+            if (isNew && b.outcome !== "proposed" && open_()) open(Object.assign({}, opts, { draft: null, note: "Created " + docId + " as " + b.author + "." }));
           },
         });
       }
@@ -517,6 +518,7 @@
     Promise.all([call("GET", "/api/folders/" + opts.kind), call("GET", "/api/schema/" + opts.kind)]).then(function (got) {
       if (!open_()) return;
       if (got[0].status !== 200) throw new Error(got[0].status + " " + why(got[0].body));
+      if (got[1].status !== 200) throw new Error("the schema did not answer: " + got[1].status + " " + why(got[1].body));
       var folders = Array.isArray(got[0].body) ? got[0].body : [], status = el("div");
       if (!folders.length) { fill(host, [el("div", { class: "state", "data-state": "denied" }, "Nothing new is saved here: this configurator owns no folder of the " + opts.kind + " tree (or its commit path is off).")]); return; }
       var name = el("input", { class: "btn sm", autocomplete: "off", placeholder: "UC_Name", "aria-label": "the new document's name" });

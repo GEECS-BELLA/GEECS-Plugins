@@ -146,7 +146,7 @@ def blank_recipe(input_kind: str, *, name: str, device: str | None = None, input
     try:
         recipe = AnalysisRecipe.model_validate(document)
     except ValidationError as exc:
-        raise RecipeError(f"a {input_kind} recipe needs more than its kind: {exc.errors()[0]['loc']} {exc.errors()[0]['msg']}") from exc  # fmt: skip
+        raise RecipeError(f"a {input_kind} input as chosen does not validate: {exc.errors()[0]['loc']} {exc.errors()[0]['msg']}") from exc  # fmt: skip
     compile_recipe(recipe, allow_file_backgrounds=True)
     return document
 
