@@ -440,14 +440,19 @@ bind).  An incomplete shot keeps its row and fires again (a new row,
 and the scan continues, and two exhausted shots in a row pause the run.
 A required device whose liveness reads down pauses the run with the
 reason; a non-required one is never waited on, never refires anything,
-and is logged once when down.  A gateway plugin camera (a `GeecsDetector`;
+and is logged once when down — from then on it is neither read nor
+collected per fire (each try would wait out a CA timeout; its stream is
+still collected at the run's close).  A gateway plugin camera (a `GeecsDetector`;
 a `NativeCamera` arms its own trigger mode) that counted more than one
 frame since the previous fire is on the row (`extra_frames`); one such
 fire is no fault (a missed shot's late frame can land before the
 refire's), but two in a row pause the run naming the camera and its
 count, with "put it in trigger mode" — a camera not in trigger mode
 free-runs (`OnDemand._free_running`; an unreadable count is named once and
-is no evidence; fly is exempt).  A fire neither the witness nor any device
+is no evidence; fly is exempt).  Only a **required** camera pauses: one
+not required may free-run on purpose (a steady-state monitor recorded
+beside the shots), so its excess stays on the row, the join keeps one
+frame per row, and the streak is a WARNING logged once.  A fire neither the witness nor any device
 saw is not fired: the row is kept and the run pauses with the reason
 (the resume fires again) — a pause never ends a scan, and the fires
 before a pause (not seen, or a required device down) cost the shot no

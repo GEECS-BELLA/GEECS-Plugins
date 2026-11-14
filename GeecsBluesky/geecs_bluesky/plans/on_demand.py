@@ -313,6 +313,7 @@ class OnDemand:
         self._frames_at: dict[str, tuple[float, ...]] = {}
         self._excess_streak: dict[str, int] = {}
         self._unreadable: set[str] = set()
+        self._free_runners: set[str] = set()
 
     # ------------------------------------------------------------------ plans
     def _counters(self):
@@ -321,6 +322,9 @@ class OnDemand:
         A snapshot is used only whole: an immediate pause that cuts the read
         resumes this (non-rewindable) plan past it with some counters
         unread, so the snapshot is taken again, every counter in one pass.
+        The reads run together, so a device that stopped answering costs one
+        :data:`READ_TIMEOUT_S` per snapshot, not one each; a non-required
+        device already logged down is not read again (``()``: no reading).
         """
         keys = [p.name for p in self.progress.values()]
         if self.witness is not None:
@@ -329,8 +333,14 @@ class OnDemand:
             out: dict[str, Any] = {}
 
             async def read(out: dict[str, Any] = out) -> None:
-                for p in self.progress.values():
-                    out[p.name] = await p.read_safe()
+                live = [
+                    p
+                    for p in self.progress.values()
+                    if p.name not in self._reported_down
+                ]
+                counts = await asyncio.gather(*(p.read_safe() for p in live))
+                out.update({p.name: () for p in self.progress.values()})
+                out.update({p.name: c for p, c in zip(live, counts, strict=True)})
                 if self.witness is not None:
                     out[""] = await _bounded(self.witness.counts.get_value, None)
 
@@ -483,7 +493,7 @@ class OnDemand:
             missing, fired = self._verdict(base, now)
             free_running = self._free_running(base, now)
             yield from self._write_row(readers, name)
-            yield from self.streams.collect()
+            yield from self.streams.collect(down=self._reported_down)
             yield from self._report_quiet_optional(base, now)
             self._settled(base)
             if free_running:
@@ -514,43 +524,44 @@ class OnDemand:
         refire's — so one excess is only on the row (``extra_frames``,
         ``name=frames``); :data:`FREE_RUNNING_PAUSE` fires in a row mean the
         camera is not waiting for the trigger, and the returned pause reason
-        names each such camera.  An unreadable count is named once (WARNING)
-        and is no evidence: the camera's next fire measures from its own
-        baseline, and the streak neither grows nor resets.  ``""``: nothing
-        to pause for.
+        names each such camera — a **required** one only.  A camera that is
+        not required may free-run on purpose (a steady-state monitor
+        recorded beside the shots): its excess stays on the row, the join
+        keeps one frame per row and the rest stay in its stack as extras, and
+        a streak is logged once (WARNING), never a pause.  An unreadable
+        count is named once (WARNING) and is no evidence: the camera's next
+        fire measures from its own baseline, and the streak neither grows nor
+        resets.  ``""``: nothing to pause for.
         """
         if not self.checked:
             return ""
+        required = {id(p) for p in self.required}
         flagged: list[str] = []
         streaks: list[str] = []
         for p in self.checked:
-            prev = self._frames_at.get(p.name, base[p.name])
-            cur = now[p.name]
-            if cur:
-                self._frames_at[p.name] = cur
-            else:
-                # No frames inferred across a gap: the next fire measures from
-                # its own baseline; the streak neither grows nor resets.
-                self._frames_at.pop(p.name, None)
-            if not cur or not prev or len(cur) != len(prev):
-                if not cur and p.name not in self._unreadable:
-                    self._unreadable.add(p.name)
-                    logger.warning(
-                        "%s: frame count unreadable — the free-running check "
-                        "skips it while it is (logged once)",
-                        geecs_name(p.owner),
-                    )
+            if p.name in self._reported_down:
                 continue
-            frames = int(max(c - b for c, b in zip(cur, prev, strict=True)))
+            frames = self._frames_since(p, base, now)
+            if frames is None:
+                continue
             if frames <= 1:
                 self._excess_streak[p.name] = 0
                 continue
             flagged.append(f"{p.name}={frames}")
             streak = self._excess_streak.get(p.name, 0) + 1
             self._excess_streak[p.name] = streak
-            if streak >= FREE_RUNNING_PAUSE:
-                self._excess_streak[p.name] = 0
+            if streak < FREE_RUNNING_PAUSE:
+                continue
+            self._excess_streak[p.name] = 0
+            if id(p) in required:
                 streaks.append(f"{geecs_name(p.owner)} ({frames} frames this fire)")
+            elif p.name not in self._free_runners:
+                self._free_runners.add(p.name)
+                logger.warning(
+                    "%s (not required) counts more than one frame per fire — "
+                    "free-running; recorded, one frame per row kept (logged once)",
+                    geecs_name(p.owner),
+                )
         self.columns.values["extra_frames"] = ",".join(flagged)
         if not streaks:
             return ""
@@ -559,6 +570,29 @@ class OnDemand:
             f"from {', '.join(streaks)} — the camera is not waiting for the "
             "trigger (free-running?): put it in trigger mode, then resume"
         )
+
+    def _frames_since(
+        self, p: _Progress, base: dict[str, Any], now: dict[str, Any]
+    ) -> int | None:
+        """Frames *p* counted since its previous fire's re-read; ``None``: no evidence."""
+        prev = self._frames_at.get(p.name, base[p.name])
+        cur = now[p.name]
+        if cur:
+            self._frames_at[p.name] = cur
+        else:
+            # No frames inferred across a gap: the next fire measures from
+            # its own baseline; the streak neither grows nor resets.
+            self._frames_at.pop(p.name, None)
+        if not cur or not prev or len(cur) != len(prev):
+            if not cur and p.name not in self._unreadable:
+                self._unreadable.add(p.name)
+                logger.warning(
+                    "%s: frame count unreadable — the free-running check "
+                    "skips it while it is (logged once)",
+                    geecs_name(p.owner),
+                )
+            return None
+        return int(max(c - b for c, b in zip(cur, prev, strict=True)))
 
     def _missed(self, missing: Sequence[_Progress], n: int):
         """Plan: after an incomplete row, its *n*-th paid attempt: refire, paused or exhausted."""

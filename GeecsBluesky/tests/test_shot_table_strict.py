@@ -480,6 +480,75 @@ def test_a_free_running_plugin_camera_pauses_the_run_by_name(
     assert col.docs["stop"][-1]["exit_status"] == "success"
 
 
+def test_a_free_running_camera_that_is_not_required_never_pauses_the_run(
+    RE, box, count, tmp_path, caplog
+) -> None:
+    """A steady-state monitor beside the shots: recorded every fire, warned once, no pause."""
+    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
+    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
+    box.extra = {"uc_b": 5}
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([a, b], 4, required=[a]))
+    rows = [e["data"] for e in col.primary_events()]
+    assert box.fires == 4 and all(r["complete"] for r in rows)
+    assert [r["extra_frames"] for r in rows] == ["uc_b=6"] * 4
+    assert not [m for m in caplog.messages if "pausing the run" in m]
+    said = [m for m in caplog.messages if "free-running; recorded" in m]
+    assert len(said) == 1 and "UC_B (not required)" in said[0], said
+    assert col.docs["stop"][-1]["exit_status"] == "success"
+
+
+def test_a_non_required_device_logged_down_is_no_longer_read_or_collected(
+    RE, box, count, tmp_path, monkeypatch
+) -> None:
+    """Once logged down, a device that is not required costs the shots nothing.
+
+    Each read or per-fire collect of a dead device waits out a CA timeout;
+    after the down report neither is tried again, and the run's close still
+    collects its stream.
+    """
+    import bluesky.plan_stubs as bps
+
+    from geecs_bluesky.plans import on_demand
+
+    a = _camera(RE, box, "UC_A")
+    b = _camera(RE, box, "UC_B", shot_timeout=0.15)
+    box.quiet = {"uc_b"}
+    reads: list[int] = []
+    plain_read = on_demand._Progress.read
+
+    async def read(self):
+        if self.name == "uc_b":
+            reads.append(box.fires)
+        return await plain_read(self)
+
+    monkeypatch.setattr(on_demand._Progress, "read", read)
+    collected: list[int] = []
+
+    def hook(msg) -> None:
+        obj = getattr(msg, "obj", None)
+        if msg.command == "collect" and getattr(obj, "device", None) is b:
+            collected.append(box.fires)
+
+    RE.msg_hook = hook
+    downs = iter([set(), {"UC_B"}])
+
+    def down(self, quiet):
+        yield from bps.null()
+        return next(downs, {"UC_B"})
+
+    monkeypatch.setattr(on_demand.OnDemand, "_down", down)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([a, b], 5, required=[a]))
+    assert box.fires == 5 and col.docs["stop"][-1]["exit_status"] == "success"
+    # Down reported after fire 2: read in the two snapshots of fires 1 and 2 only.
+    assert sorted(set(reads)) == [0, 1, 2] and len(reads) == 4, reads
+    # Collected per fire at fires 1 and 2, then once more at the run's close.
+    assert collected == [1, 2, 5], collected
+
+
 def test_one_fire_with_two_frames_is_on_the_row_and_pauses_nothing(
     RE, box, count, tmp_path
 ) -> None:
@@ -567,8 +636,12 @@ def test_an_unreadable_count_infers_no_frames_across_the_gap(monkeypatch) -> Non
         _frames_at={},
         _excess_streak={},
         _unreadable=set(),
+        _free_runners=set(),
+        _reported_down=set(),
+        required=[p],
         columns=types.SimpleNamespace(values={}),
     )
+    run._frames_since = lambda *a: OnDemand._frames_since(run, *a)
     counts = [(1.0,), (), (3.0,), (), (5.0,)]
     base, flags, reasons = (0.0,), [], []
     for k, now in enumerate(counts, 1):
