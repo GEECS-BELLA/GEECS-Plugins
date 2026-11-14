@@ -110,12 +110,12 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                 _fail("ns['mv'] is not bluesky's mv")
                 return
             continue
-        if name == "run_action":
+        if name in ("run_action", "apply_setup"):
             if (
                 plan.__name__ != name
                 or "name" not in inspect.signature(plan).parameters
             ):
-                _fail("ns['run_action'] is not the action-library plan")
+                _fail(f"ns[{name!r}] is not the library plan of that name")
                 return
             continue
         if name in CALIBRATION_PLAN_NAMES:

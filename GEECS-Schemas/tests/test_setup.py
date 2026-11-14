@@ -7,11 +7,17 @@ import yaml
 from pydantic import ValidationError
 
 from geecs_schemas import (
+    NativeDevices,
+    OperatorPolicy,
+    PanelDevices,
     Setup,
     SetupCycleError,
     SetupNotFoundError,
     flatten_setup,
+    load_families,
     load_setups,
+    setup_digest,
+    setup_hazards,
     setup_value_matches,
 )
 
@@ -211,3 +217,130 @@ def test_load_setups_refuses_a_stem_under_both_suffixes(tmp_path):
 def test_a_missing_setups_folder_is_empty_and_never_created(tmp_path):
     assert load_setups(tmp_path) == {}
     assert not (tmp_path / "setups").exists()
+
+
+# ---------------------------------------------------------------- the digest
+
+
+def test_the_digest_follows_what_runs_nested_setups_included():
+    inner = _setup("inner", SET)
+    outer = _setup("outer", {"do": "apply", "setup": "inner"}, {"do": "wait", "seconds": 1})  # fmt: skip
+    before = setup_digest(flatten_setup(outer, setups={"inner": inner}))
+    assert before == setup_digest(flatten_setup(outer, setups={"inner": inner}))
+    changed = _setup("inner", {**SET, "value": 1.6})
+    assert before != setup_digest(flatten_setup(outer, setups={"inner": changed}))
+    # The same steps written in the outer setup itself are another document.
+    flat = _setup("outer", SET, {"do": "wait", "seconds": 1})
+    assert before != setup_digest(flatten_setup(flat, setups={}))
+    # A value's type is part of it: 1 and 1.0 are different writes.
+    one = _setup("x", {**SET, "value": 1})
+    one_float = _setup("x", {**SET, "value": 1.0})
+    assert setup_digest(flatten_setup(one, setups={})) != setup_digest(
+        flatten_setup(one_float, setups={})
+    )
+
+
+# --------------------------------------------------------------- the hazards
+
+
+def _hazards(*steps, policy=None, native=None, panels=None, db_families=None):
+    setup = _setup("s", *steps)
+    return setup_hazards(
+        flatten_setup(setup, setups={}),
+        policy=OperatorPolicy.model_validate(policy or {}),
+        families=load_families(),
+        native=native,
+        panels=panels,
+        db_families=db_families,
+    )
+
+
+def _native(devices):
+    return NativeDevices.model_validate({"devices": devices})
+
+
+SUPPLY = {"kind": "setpoint_device", "template": "fastps", "settables": {"current": {"tolerance": 0.01}}}  # fmt: skip
+
+
+def test_a_family_hazard_role_is_asked_by_role_suffix_or_readback():
+    native = _native({"U_PS": SUPPLY})
+    for variable in ("output_sp", "enable_output", "output"):
+        found = _hazards(
+            {"do": "set", "device": "U_PS", "variable": variable, "value": 1},
+            native=native,
+        )
+        assert [h.index for h in found] == [1], variable
+        assert "output_sp" in found[0].reasons[0]
+    quiet = _hazards({"do": "set", "device": "U_PS", "variable": "current", "value": 2.0}, native=native)  # fmt: skip
+    assert quiet == []
+
+
+def test_a_panel_hazard_adds_to_the_family():
+    panels = PanelDevices.model_validate(
+        {"devices": {"U_PS": {"family": "fastps", "hazard": ["current_sp"]}}}
+    )
+    found = _hazards(
+        {"do": "wait", "seconds": 1},
+        {"do": "set", "device": "U_PS", "variable": "current", "value": 2.0},
+        panels=panels,
+    )
+    assert [(h.index, h.device) for h in found] == [(2, "U_PS")]
+
+
+def test_the_policy_names_a_db_device_by_name_or_device_type():
+    by_name = {"hazards": [{"devices": ["U_Gas"], "roles": ["Valve"]}]}
+    step = {"do": "set", "device": "U_Gas", "variable": "Valve", "value": "open"}
+    assert len(_hazards(step, policy=by_name)) == 1
+    by_type = {"hazards": [{"families": ["GasValve"], "roles": ["Valve"]}]}
+    assert len(_hazards(step, policy=by_type, db_families={"U_Gas": "GasValve"})) == 1
+    assert _hazards(step, policy=by_type, db_families={"U_Gas": "Other"}) == []
+    other_role = {**step, "variable": "Pressure"}
+    assert _hazards(other_role, policy=by_type, db_families={"U_Gas": "GasValve"}) == []  # fmt: skip
+
+
+def test_an_unknown_family_asks_when_the_policy_names_the_role_for_any_family():
+    by_type = {"hazards": [{"families": ["GasValve"], "roles": ["Valve"]}]}
+    step = {"do": "set", "device": "U_Gas", "variable": "Valve", "value": "open"}
+    found = _hazards(step, policy=by_type, db_families=None)
+    assert len(found) == 1 and "unknown" in found[0].reasons[0]
+    # The DB answered and does not know the device: still unknown, still asked.
+    assert len(_hazards(step, policy=by_type, db_families={})) == 1
+
+
+def test_checks_and_waits_are_never_hazards():
+    native = _native({"U_PS": SUPPLY})
+    found = _hazards(
+        {"do": "check", "device": "U_PS", "variable": "output_sp", "expected": 1},
+        {"do": "wait", "seconds": 1},
+        native=native,
+    )
+    assert found == []
+
+
+@pytest.mark.parametrize(
+    ("device", "variable"),
+    [("U_PS", "output"), ("U_PS", "Output"), ("u_ps", "output"), ("U_PS", "OUTPUT_SP")],
+)
+def test_a_family_hazard_is_asked_whatever_the_spelling_the_worker_accepts(device, variable):  # fmt: skip
+    """The worker binds a device and a variable case-folded, so the hazard rule does too."""
+    native = _native({"U_PS": SUPPLY})
+    step = {"do": "set", "device": device, "variable": variable, "value": 1}
+    assert [h.index for h in _hazards(step, native=native)] == [1]
+
+
+@pytest.mark.parametrize(
+    ("device", "variable"),
+    [
+        ("U_Laser", "Shutter"),
+        ("U_Laser", "shutter"),
+        ("u_laser", "Shutter"),
+        ("U_LASER", "SHUTTER"),
+    ],  # fmt: skip
+)
+def test_a_policy_hazard_is_asked_whatever_the_spelling(device, variable):
+    by_name = {"hazards": [{"devices": ["U_Laser"], "roles": ["Shutter"]}]}
+    by_type = {"hazards": [{"families": ["LaserCtl"], "roles": ["Shutter"]}]}
+    step = {"do": "set", "device": device, "variable": variable, "value": "closed"}
+    assert len(_hazards(step, policy=by_name)) == 1
+    found = _hazards(step, policy=by_type, db_families={"U_Laser": "LaserCtl"})
+    assert len(found) == 1 and "unknown" not in found[0].reasons[0]

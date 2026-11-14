@@ -139,10 +139,13 @@ from geecs_schemas.setup import (
     SetupCapture,
     SetupCheckStep,
     SetupCycleError,
+    SetupHazard,
     SetupNotFoundError,
     SetupSetStep,
     flatten_setup,
     load_setups,
+    setup_digest,
+    setup_hazards,
     setup_value_matches,
 )
 from geecs_schemas.shot_offsets import SHOT_OFFSETS_FILENAME, DeviceOffset, ShotOffsets
@@ -320,10 +323,13 @@ __all__ = [
     "SetupCapture",
     "CapturedReadback",
     "SetupCycleError",
+    "SetupHazard",
     "SetupNotFoundError",
     "SETUPS_FOLDER",
     "flatten_setup",
     "load_setups",
+    "setup_digest",
+    "setup_hazards",
     "setup_value_matches",
     "DeviceOffset",
     # log_entry

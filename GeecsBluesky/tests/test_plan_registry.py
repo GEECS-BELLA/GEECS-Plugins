@@ -174,6 +174,11 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
         ("count", [["UC_Cam.scalars"]], {"num": 2}),
         ("sweep", [["UC_Cam"]], {"sweep": payload(), "shots_per_step": 4}),
         ("run_action", ["Amp4_DUMP_HP"], {}),
+        (
+            "apply_setup",
+            ["low_power"],
+            {"md": {"geecs": {"operator": "Ada", "setup": {"name": "low_power"}}}},
+        ),
     ]
     for name, args, kwargs in items:
         processed = _process_plan(ns[name], existing_devices={}, existing_plans={})

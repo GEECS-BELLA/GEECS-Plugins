@@ -42,7 +42,8 @@ from geecs_bluesky.plan_names import (
     GEECS_PLAN_NAMES,
     NON_SCAN_PLAN_NAMES,
 )
-from geecs_bluesky.actions.compiler import SettableFactory, run_action_plan
+from geecs_bluesky.actions.compiler import run_action_plan
+from geecs_bluesky.plans.apply_setup import SettableFactory, apply_setup_plan
 from geecs_bluesky.plans.calibration import (
     check_shot_sync_plan,
     measure_shot_offsets_plan,
@@ -817,8 +818,9 @@ def bind_plans(
     The scan verbs come back bound through :func:`strict_plan`; ``mv`` is
     the stock stub (a manual move as a queue item, nothing strict about it)
     with its failure named (:func:`_mv_named`);
-    ``run_action`` is :func:`run_action_plan` over *resolver* and
-    *settables* (the namespace).  *settables* is also where every scan
+    ``run_action`` is :func:`run_action_plan` and ``apply_setup``
+    :func:`~geecs_bluesky.plans.apply_setup.apply_setup_plan`, each over
+    *resolver* and *settables* (the namespace).  *settables* is also where every scan
     verb's background telemetry comes from (:func:`background_snapshot`);
     *mock* connects its members with mock backends (hermetic tests).
     *scan_mode* is the worker's
@@ -848,6 +850,8 @@ def bind_plans(
             )
         elif name == "run_action":
             bound[name] = run_action_plan(resolver, settables)
+        elif name == "apply_setup":
+            bound[name] = apply_setup_plan(resolver, settables)
         elif name == "measure_shot_offsets":
             bound[name] = measure_shot_offsets_plan(profiles, resolver)
         elif name == "check_shot_sync":

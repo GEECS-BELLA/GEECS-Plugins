@@ -411,3 +411,68 @@ def test_a_missing_inbox_folder_is_refused_not_created(tmp_path):
     with pytest.raises(GeecsConfigurationError, match="no configs folder"):
         resolver.write_shot_offsets(document)
     assert not (tmp_path / "inbox").exists()
+
+
+# ------------------------------------------------------------------- setups
+
+
+def _write_setup(repo, name, steps, *, suffix=".yaml"):
+    folder = repo / "TestExp" / "setups"
+    folder.mkdir(exist_ok=True)
+    (folder / f"{name}{suffix}").write_text(
+        yaml.safe_dump({"schema_version": 1, "name": name, "steps": steps})
+    )
+
+
+def test_setups_are_read_fresh_and_resolved_by_name(repo):
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    assert resolver.setups() == {}  # no folder: none, and none created
+    assert not (repo / "TestExp" / "setups").exists()
+    _write_setup(repo, "low_power", [{"do": "wait", "seconds": 1}], suffix=".yml")
+    setup, setups = resolver.resolve_setup("low_power")
+    assert setup.name == "low_power" and set(setups) == {"low_power"}
+    assert resolver.setup_repo_path("low_power") == (
+        "scanner_configs/experiments/TestExp/setups/low_power.yml"
+    )
+    with pytest.raises(GeecsConfigurationError, match=r"Known setups: \['low_power'\]"):
+        resolver.resolve_setup("high_power")
+    (repo / "TestExp" / "setups" / "broken.yaml").write_text("name: other\nsteps: []\n")
+    with pytest.raises(GeecsConfigurationError, match="cannot be read"):
+        resolver.setups()
+
+
+def test_the_policy_and_panel_devices_absent_are_empty_and_invalid_refuse(repo):
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    assert resolver.resolve_operator_policy().hazards == []
+    assert resolver.resolve_panel_devices().devices == {}
+    (repo / "TestExp" / "operator_policy.yaml").write_text("hazards: [{roles: []}]\n")
+    with pytest.raises(GeecsConfigurationError, match="operator policy"):
+        resolver.resolve_operator_policy()
+    (repo / "TestExp" / "panel_devices.yaml").write_text(
+        "devices: {X: {family: nope}}\n"
+    )
+    with pytest.raises(GeecsConfigurationError, match="panel devices"):
+        resolver.resolve_panel_devices()
+
+
+def test_configs_commit_is_the_checkouts_head_and_none_outside_one(repo):
+    import shutil
+    import subprocess
+
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    assert resolver.configs_commit() is None
+    vcs = shutil.which("git")
+    if vcs is None:
+        pytest.skip("no git on this host")
+    ident = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run([vcs, "init", "-q", str(repo)], check=True)
+    subprocess.run([vcs, "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run([vcs, "-C", str(repo), *ident, "commit", "-qm", "x"], check=True)
+    head = subprocess.run(
+        [vcs, "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
+    assert resolver.configs_commit() == head

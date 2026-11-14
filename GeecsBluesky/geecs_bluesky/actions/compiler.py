@@ -26,10 +26,9 @@ experiment's action library and the device namespace, the production
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Mapping, Protocol, runtime_checkable
+from typing import Any, Callable, Mapping
 
 import bluesky.plan_stubs as bps
-from bluesky.protocols import Movable, Readable
 from bluesky.utils import MsgGenerator
 
 from geecs_schemas.action_plan import (
@@ -41,6 +40,7 @@ from geecs_schemas.action_plan import (
 )
 
 from geecs_bluesky.actions.steps import flatten_action_steps
+from geecs_bluesky.plans.apply_setup import SettableFactory
 from geecs_bluesky.utils import resolve_annotations
 from geecs_bluesky.exceptions import (
     ActionCheckFailedError,
@@ -56,27 +56,6 @@ __all__ = [
     "run_action_plan",
     "values_match",
 ]
-
-
-@runtime_checkable
-class SettableFactory(Protocol):
-    """Hands out signals for GEECS ``(device, variable)`` pairs.
-
-    The compiler is deliberately ignorant of how a GEECS name becomes a
-    signal: the production implementation returns CA-backed signals against
-    the gateway PVs (setpoint puts on ``:SP`` riding GEECS blocking sets),
-    while tests return in-memory mock signals.  Factories may raise their own
-    errors for unknown devices/variables; the compiler does not second-guess
-    them.
-    """
-
-    def get_settable(self, device: str, variable: str) -> Movable:
-        """Return a settable signal (accepted by ``bps.abs_set``) for a ``set`` step."""
-        ...
-
-    def get_readable(self, device: str, variable: str) -> Readable:
-        """Return a readable signal (accepted by ``bps.rd``) for a ``check`` step."""
-        ...
 
 
 def compile_action_plan(

@@ -5,7 +5,7 @@ subscribed, `connect_on_demand` installed outermost), publishes documents
 to the 0MQ proxy, exports every device of the experiment as a noun
 (`GeecsNamespace`, from the GEECS DB) and registers the plans listed in
 `geecs_bluesky.plan_names.GEECS_PLAN_NAMES` over them (`count`, `sweep`,
-`optimize`, `mv`, `run_action` and the two shot-offset calibration plans,
+`optimize`, `mv`, `run_action`, `apply_setup` and the two shot-offset calibration plans,
 bound by `geecs_bluesky.plans.registry.bind_plans`). See its module
 docstring for the import-order (`geecs_bluesky`
 first, before any `aioca` import) and experiment-resolution

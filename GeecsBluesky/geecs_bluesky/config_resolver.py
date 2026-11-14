@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Protocol, runtime_checkable, TYPE_CHECKING
+from typing import Protocol, TypeVar, runtime_checkable, TYPE_CHECKING
 
 import yaml
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
 
 if TYPE_CHECKING:
     from geecs_schemas.analysis import AnalysisDocument
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from geecs_bluesky._fs import replace_text
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_core.configs_repo import (
+    EXPERIMENTS_SUBDIR,
     scanner_configs_base,
     scanner_configs_write_base,
     settled_exists,
@@ -38,15 +39,21 @@ from geecs_schemas import (
     ActionPlanLibrary,
     EXPERIMENT_DEFAULTS_FILENAME,
     NATIVE_DEVICES_FILENAME,
+    OPERATOR_POLICY_FILENAME,
     OPTIMIZER_CONFIGS_FOLDER,
+    PANEL_DEVICES_FILENAME,
     PRESETS_FOLDER,
     SCAN_VARIABLES_FILENAME,
     SCAN_VARIABLES_FOLDER,
+    SETUPS_FOLDER,
     SHOT_OFFSETS_FILENAME,
     TRIGGER_PROFILES_FOLDER,
     ExperimentDefaults,
     NativeDevices,
+    OperatorPolicy,
+    PanelDevices,
     Preset,
+    Setup,
     OptimizerConfig,
     ScanVariables,
     ScanVariableSpec,
@@ -55,8 +62,12 @@ from geecs_schemas import (
 )
 from geecs_schemas.action_plan import ACTION_LIBRARY_FILENAME, ACTION_LIBRARY_FOLDER
 from geecs_schemas.convert import convert_shot_control
+from geecs_schemas.setup import load_setups
 
 logger = logging.getLogger(__name__)
+
+#: A configs document read by :meth:`ConfigsRepoResolver._optional_document`.
+_Doc = TypeVar("_Doc", bound=BaseModel)
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +510,107 @@ class ConfigsRepoResolver:
         ):
             return {}
         return dict(self._action_library().plans)
+
+    # ------------------------------------------------------------------
+    # Setups (``setups/<name>.yaml``, read from disk on every call)
+    # ------------------------------------------------------------------
+
+    def setups(self) -> dict[str, Setup]:
+        """Every setup of the experiment by name; no ``setups`` folder is none.
+
+        Not cached, like the action library: an item applies what is
+        committed when it runs. One unreadable file refuses them all
+        (an ``apply`` step may name any of them).
+
+        Raises
+        ------
+        GeecsConfigurationError
+            A file does not validate, its name is not its stem, or two
+            files share a stem.
+        """
+        try:
+            return load_setups(self._root)
+        except (ValueError, OSError, yaml.YAMLError) as exc:
+            raise GeecsConfigurationError(
+                f"the setups of {self._experiment!r} cannot be read: {exc}"
+            ) from exc
+
+    def resolve_setup(self, name: str) -> tuple[Setup, dict[str, Setup]]:
+        """The setup *name* and every setup its ``apply`` steps may name.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            Unknown name (the error lists the known setups), or
+            :meth:`setups` refused.
+        """
+        setups = self.setups()
+        if name not in setups:
+            raise GeecsConfigurationError(
+                f"setup {name!r} is not in {self._experiment!r}'s setups/. "
+                f"Known setups: {sorted(setups)}"
+            )
+        return setups[name], setups
+
+    def setup_repo_path(self, name: str) -> str:
+        """The setup's file as the configs repository names it (``scanner_configs/experiments/<experiment>/setups/<file>``)."""
+        file = self._named_yaml_path(SETUPS_FOLDER, name).name
+        return "/".join((*EXPERIMENTS_SUBDIR, self._experiment, SETUPS_FOLDER, file))
+
+    def configs_commit(self) -> str | None:
+        """The commit the configs checkout holds (``git rev-parse HEAD``); ``None`` when it cannot say.
+
+        Provenance only (a setup's ``md``): a checkout that is not a git
+        working tree, a git that is missing or slow, is no commit, never
+        a failure.
+        """
+        import subprocess
+
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(self._root), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            return None
+        commit = out.stdout.strip()
+        return commit if out.returncode == 0 and len(commit) == 40 else None
+
+    def resolve_operator_policy(self) -> OperatorPolicy:
+        """Load ``<experiment>/operator_policy.yaml``; no file is the empty policy (no hazards named).
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The file exists but is unreadable or not a valid policy.
+        """
+        return self._optional_document(
+            OPERATOR_POLICY_FILENAME, "operator policy", OperatorPolicy
+        )
+
+    def resolve_panel_devices(self) -> PanelDevices:
+        """Load ``<experiment>/panel_devices.yaml``; no file is no panel devices.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The file exists but is unreadable or not a valid document.
+        """
+        return self._optional_document(
+            PANEL_DEVICES_FILENAME, "panel devices", PanelDevices
+        )
+
+    def _optional_document(self, filename: str, kind: str, model: type[_Doc]) -> _Doc:
+        path = self._root / filename
+        if not settled_exists(path):
+            return model()
+        try:
+            return model.model_validate(self._load_yaml(path, kind, filename))
+        except (ValueError, OSError, yaml.YAMLError) as exc:
+            raise GeecsConfigurationError(f"{kind} {path} is invalid: {exc}") from exc
 
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
         """Load ``<experiment>/experiment_defaults.yaml``; ``None`` if absent.

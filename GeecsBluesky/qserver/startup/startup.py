@@ -108,7 +108,8 @@ if _hermetic:
 else:
     # The configs repo: the trigger profiles (one ShotControl each) a plan's
     # trigger_profile argument resolves against, the experiment default from
-    # experiment_defaults.yaml, the action library run_action reads, and the
+    # experiment_defaults.yaml, the action library run_action reads (and the
+    # setups apply_setup reads, per item), and the
     # measured drain offsets.  Built BEFORE the namespace because each
     # detector's drain_offset is seeded at construction — so a
     # re-measurement reaches the worker at the next environment open, not
@@ -208,8 +209,9 @@ if not _hermetic:
 
 # The plans the manager discovers (every generator function in this
 # namespace is a plan to it — profile_ops.plans_from_nspace): the stock
-# verbs bound strict, under their own names, plus mv and run_action (the
-# action library over the namespace), pinned by geecs_bluesky.plan_names
+# verbs bound strict, under their own names, plus mv, run_action (the
+# action library over the namespace) and apply_setup (a setup over the
+# namespace), pinned by geecs_bluesky.plan_names
 # (the readiness check asserts them).  Never import a stray generator into
 # this module.
 globals().update(

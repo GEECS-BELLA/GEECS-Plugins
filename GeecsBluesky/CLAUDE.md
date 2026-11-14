@@ -36,6 +36,7 @@ readiness check asserts the manager lists them all.
 | `optimize` | `plans/optimize.py`: native Xopt ask/tell, one bin per iteration | yes |
 | `mv` | the stock stub with its failure named | no |
 | `run_action` | a named plan from the experiment's `actions.yaml`, compiled to stubs over the namespace | no |
+| `apply_setup` | `plans/apply_setup.py`: a named setup (`setups/<name>.yaml`) as plain stubs over the namespace; refused before the first write when its digest differs from the one the client's `md` says was confirmed; a failure names the step and the writes already made | no |
 | `measure_shot_offsets`, `check_shot_sync` | the once-run calibration and its preflight (`plans/calibration.py`) | no |
 | `release_scan_mode` | `plans/scan_mode.py`: end GEECS scan mode on the devices of a run that never ended it (a halt skips the finalizers) | no |
 
@@ -101,11 +102,13 @@ geecs_bluesky/
   plans/calibration.py      # measure_shot_offsets / check_shot_sync (once-run, never a step)
   plans/scan_mode.py        # scan mode in the bound plans: the bracket inside the trigger
                             #   bracket, run_device_names, the preflight, release_scan_mode
+  plans/apply_setup.py      # apply_setup: a Setup over the namespace (its SettableFactory),
+                            #   targets read before the first write, the confirmed digest
   plans/registry.py         # bind_plans: the registration table, strict_plan (the acquisition
                             #   binder), liveness_gate, TriggerProfiles, background_wrapper
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
-  actions/compiler.py       # ActionPlan → plan stubs; the namespace is its SettableFactory
+  actions/compiler.py       # ActionPlan → plan stubs over the same SettableFactory
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
@@ -119,7 +122,8 @@ geecs_bluesky/
                             #   the package), progress.py (ProgressStream: the live-run
                             #   RunProgress every client renders, row streams = callbacks')
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs,
-                            #   actions, optimizer configs, analysis diagnostics
+                            #   actions, setups, optimizer configs, analysis diagnostics,
+                            #   the operator policy and panel devices (the hazard sources)
   tiled/integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
                             #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
   tiled/spool.py            # the per-run JSONL spool both sides share: layout, the RE
