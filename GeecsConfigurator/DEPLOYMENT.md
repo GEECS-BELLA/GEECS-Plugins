@@ -198,10 +198,12 @@ mint a token, and the other boxes, each with its own key, are untouched. A
 token already minted is **not** revoked with the key: the service reuses its
 token for up to an hour, so for up to an hour the box (or whoever copied the
 key and minted a token) can still push. For a stolen key, suspend the
-App's installation on the configs repo until the hour has passed: only that
-stops a token the thief already minted, and it stops every box meanwhile.
-For a box merely retired, stopping its service is enough. After that, the box's saves answer 502 and its inbox backs
-off. Then remove `/etc/geecs/configurator/github-app.pem` from the box. To
+App's installation on the configs repo until the hour has passed (or remove
+the configs repo from the installation): that stops a token the thief
+already minted, and it stops every box meanwhile. For a box merely retired,
+stopping its service is enough: its token lives only in its memory. A box
+whose key is deleted and whose service still runs answers 502 to saves, and
+its inbox backs off, once its token expires. Then remove `/etc/geecs/configurator/github-app.pem` from the box. To
 give the box a new key, repeat step 1. Nothing else on the box changes.
 
 ## Switching the configs root

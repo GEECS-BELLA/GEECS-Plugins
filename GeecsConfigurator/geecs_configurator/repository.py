@@ -304,9 +304,9 @@ class ConfigsRepository:
         return out
 
     def changed(self, old: str, new: str) -> list[str]:
-        """The paths added, copied, modified or renamed between two commits (not deleted)."""
+        """The paths added, copied, modified, renamed or changed in type (a file become a link, or back) between two commits (not deleted)."""
         return self.git(
-            "diff", "--name-only", "--diff-filter=ACMR", old, new
+            "diff", "--name-only", "--diff-filter=ACMRT", old, new
         ).splitlines()
 
     def fast_forward_share(self, share: Path, timeout: float = GIT_TIMEOUT_S) -> str:

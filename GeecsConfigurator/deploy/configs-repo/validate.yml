@@ -69,5 +69,5 @@ jobs:
           if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             BEFORE=$(git hash-object -t tree /dev/null)   # a new branch: every file is changed
           fi
-          git diff -z --name-only --diff-filter=ACMR "$BEFORE" HEAD \
+          git diff -z --name-only --diff-filter=ACMRT "$BEFORE" HEAD \
             | xargs -0 python -m geecs_configurator.validation --root .

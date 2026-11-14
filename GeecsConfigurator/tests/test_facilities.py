@@ -423,3 +423,47 @@ def test_a_retargeted_link_in_another_facilitys_folder_is_judged_through_the_cha
     assert (
         cp.repo.live_head() == chained
     )  # Bench's document now reads an invalid file: judged, refused
+
+
+def test_an_owned_file_replaced_by_a_link_is_judged(box: TestClient, other: Path) -> None:  # fmt: skip
+    cp = _cp(box)
+    bad = push_change(other, f"{THEIRS}/low_power.yaml", INVALID.format(name="low_power"), "Other's own invalid file")  # fmt: skip
+    cp.fetch()
+    assert cp.repo.live_head() == bad  # Other's: unjudged
+    git("pull", "--quiet", "--ff-only", cwd=other)
+    os.unlink(other / OURS / "low_power.yaml")
+    os.symlink("../../Other/setups/low_power.yaml", other / OURS / "low_power.yaml")
+    git("add", "-A", cwd=other)
+    git(
+        "commit",
+        "--quiet",
+        "-m",
+        "Bench's file becomes a link (git status T)",
+        cwd=other,
+    )
+    git("push", "--quiet", "origin", "HEAD:main", cwd=other)
+    cp.fetch()
+    assert cp.repo.live_head() == bad  # the type change is a change: judged, refused
+
+
+def test_another_facilitys_link_replaced_by_a_file_is_judged_through_the_chain(box: TestClient, other: Path) -> None:  # fmt: skip
+    cp = _cp(box)
+    push_change(other, f"{THEIRS}/target.yaml", SETUP.format(name="chained", text="good"), "Other's file")  # fmt: skip
+    _link(other, "target.yaml", f"{THEIRS}/current.yaml", "Other's alias")
+    chained = _link(other, "../../Other/setups/current.yaml", f"{OURS}/chained.yaml", "Bench reads Other's alias")  # fmt: skip
+    cp.fetch()
+    assert cp.repo.live_head() == chained
+    git("pull", "--quiet", "--ff-only", cwd=other)
+    os.unlink(other / THEIRS / "current.yaml")
+    (other / THEIRS / "current.yaml").write_text(INVALID.format(name="chained"))
+    git("add", "-A", cwd=other)
+    git(
+        "commit",
+        "--quiet",
+        "-m",
+        "Other's alias becomes an invalid file (git status T)",
+        cwd=other,
+    )
+    git("push", "--quiet", "origin", "HEAD:main", cwd=other)
+    cp.fetch()
+    assert cp.repo.live_head() == chained
