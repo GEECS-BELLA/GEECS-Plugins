@@ -21,6 +21,8 @@ from geecs_schemas.epics.panel_devices import DeviceName
 #: The policy's file name in the experiment's configs folder.
 OPERATOR_POLICY_FILENAME = "operator_policy.yaml"
 _VERSION = "Format version. Leave at 1."
+#: In a grant's ``operators``, alone: every operator who gives a name.
+ANY_OPERATOR = "*"
 
 
 class _Scope(SchemaModel):
@@ -41,10 +43,32 @@ class _Scope(SchemaModel):
 
 
 class OperatorGrant(_Scope):
-    """Some operators may write some roles of some devices, named or by family."""
+    """Some operators may write some roles of some devices, named or by family.
 
-    operators: list[str] = Field(min_length=1, description="Operators, by name.")
+    ``operators: ["*"]`` grants every operator who gives a name: the write is
+    still journalled under that name, and the allow list, hazard confirm, run
+    lock and bounds still apply.
+    """
+
+    operators: list[str] = Field(
+        min_length=1,
+        description='Operators, by name; or ["*"] alone: every named operator.',
+    )
     roles: list[AnyRoleName] = Field([], description="Only these; empty: all allowed.")
+
+    @model_validator(mode="after")
+    def _names_or_everyone(self) -> "OperatorGrant":
+        if ANY_OPERATOR in self.operators and len(self.operators) > 1:
+            raise ValueError(
+                f"operators is names or [{ANY_OPERATOR!r}] alone, not both"
+            )
+        return self
+
+    def names(self, operator: str) -> bool:
+        """Whether the grant names this operator, or every operator and this one gave a name."""
+        if self.operators == [ANY_OPERATOR]:
+            return bool(operator.strip()) and operator != ANY_OPERATOR
+        return operator in self.operators
 
 
 class HazardRule(_Scope):
@@ -68,7 +92,7 @@ class OperatorPolicy(VersionedSchemaModel):
     def permits(self, operator: str, device: str, family: str, role: str) -> bool:
         """Whether a grant names this operator, this device or its family, and this role."""
         return any(
-            operator in g.operators
+            g.names(operator)
             and g.covers(device, family)
             and (not g.roles or role in g.roles)
             for g in self.grants

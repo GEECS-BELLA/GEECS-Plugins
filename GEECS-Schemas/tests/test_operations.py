@@ -32,6 +32,34 @@ def test_a_grant_names_operator_scope_and_role(who, device, family, role, allowe
     assert POLICY.permits(who, device, family, role) is allowed
 
 
+EVERYONE = OperatorPolicy.model_validate(
+    {"grants": [{"operators": ["*"], "families": ["motor_record"], "roles": ["twf"]}]}
+)
+
+
+@pytest.mark.parametrize(
+    ("who", "family", "role", "allowed"),
+    [
+        ("ann", "motor_record", "twf", True),  # anyone who gives a name
+        ("carol", "motor_record", "twf", True),
+        ("carol", "motor_record", "val", False),  # the grant's roles still narrow it
+        ("carol", "fastps", "twf", False),  # and its scope
+        ("", "motor_record", "twf", False),  # nobody
+        ("  ", "motor_record", "twf", False),
+        ("*", "motor_record", "twf", False),  # the wildcard is not a name
+    ],
+)
+def test_a_wildcard_grant_names_every_named_operator(who, family, role, allowed):
+    assert EVERYONE.permits(who, "m1", family, role) is allowed
+
+
+def test_a_wildcard_beside_names_is_refused():
+    with pytest.raises(ValidationError, match="alone, not both"):
+        OperatorPolicy.model_validate(
+            {"grants": [{"operators": ["ann", "*"], "families": ["motor_record"]}]}
+        )
+
+
 def test_a_grant_without_a_scope_is_refused():
     with pytest.raises(ValidationError, match="families or devices"):
         OperatorPolicy.model_validate({"grants": [{"operators": ["ann"]}]})

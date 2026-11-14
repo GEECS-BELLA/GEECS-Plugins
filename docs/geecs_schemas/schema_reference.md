@@ -916,6 +916,8 @@ grants:
   - operators: [A. Operator]
     families: [PLC Digital Output]  # a GEECS DB device type: every DB device of it
     roles: [DO.Ch1, DO.Ch2]         # a DB device's role is its GEECS variable name
+  - operators: ["*"]                # alone: every operator who gives a name
+    families: [scope_contract]
 hazards:                            # the hazard confirm for DB devices' roles
   - devices: [U_ShutterPLC]
     roles: [DO.Ch1]
@@ -929,7 +931,7 @@ Some operators may write some roles of some devices, named or by family.
 |---|---|---|---|---|
 | `families` | `list[str]` | no | [] | Every device of these. |
 | `devices` | `list[str]` | no | [] | These GEECS devices. |
-| `operators` | `list[str]` | yes | — | Operators, by name. |
+| `operators` | `list[str]` | yes | — | Operators, by name; or ["*"] alone: every named operator. |
 | `roles` | `list[str]` | no | [] | Only these; empty: all allowed. |
 
 ### HazardRule

@@ -134,6 +134,24 @@ async def test_without_a_policy_every_put_is_denied(env):
     assert env.hare.puts == []
 
 
+async def test_a_wildcard_grant_lets_any_named_operator_write_and_journals_the_name(
+    env,
+):
+    (env.folder / "operator_policy.yaml").write_text(
+        'grants:\n  - {operators: ["*"], families: [easydriver], roles: [reset]}\n'
+    )
+    response = await env.client.post(
+        "/v1/devices/ps1/put", json={"operator": "carol", "role": "reset", "value": 1}
+    )
+    assert response.status_code == 200, response.text
+    assert env.module.journal.last(1)[0].operator == "carol"
+    outside = await env.client.post(
+        "/v1/devices/Mot1/put",
+        json={"operator": "carol", "role": "twf", "value": 1, "axis": "m1"},
+    )
+    assert (outside.status_code, outside.json()["code"]) == (403, "not_permitted")
+
+
 async def test_a_role_outside_the_allow_list_is_denied_before_hare(env):
     response = await put(env, "ps1", role="output_sp", value=1, confirm=True)
     assert (response.status_code, response.json()["code"]) == (403, "not_allowed")

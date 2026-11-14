@@ -298,6 +298,8 @@ grants:
   - operators: [A. Operator]
     families: [PLC Digital Output]  # a GEECS DB device type: every DB device of it
     roles: [DO.Ch1, DO.Ch2]         # a DB device's role is its GEECS variable name
+  - operators: ["*"]                # alone: every operator who gives a name
+    families: [scope_contract]
 hazards:                            # the hazard confirm for DB devices' roles
   - devices: [U_ShutterPLC]
     roles: [DO.Ch1]
