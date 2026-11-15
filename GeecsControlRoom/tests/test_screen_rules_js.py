@@ -57,6 +57,8 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("deferred: a misfit is wrong kind", "judge", [role(entry=ROLE | {"type": "readback"}, fits=["bit", "enum"])], "wrong kind"),
     ("deferred: a fit is the module's verdict", "judge", [role(entry=ROLE | {"type": "readback"}, fits=["readback"])], "stale"),
     ("role: no verdict is the bare PV's rules", "judge", [role(entry=ROLE | {"verdict": None}, frame=UP | {"severity": "MAJOR"})], "error"),
+    ("role: a constant read once (a supply's :TOL) is the bare PV's rules", "judge", [role(entry=ROLE | {"read": "once", "verdict": None})], "live"),
+    ("role: a constant read once, served INVALID, is error", "judge", [role(entry=ROLE | {"read": "once", "verdict": None}, frame=UP | {"value": 0, "severity": "INVALID", "alarmStatus": 5})], "error"),
     # show
     ("show: nothing is a dash", "show", [None, {}, None], "—"),
     ("show: a null value is a dash", "show", [{"value": None}, {}, None], "—"),

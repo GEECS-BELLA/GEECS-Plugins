@@ -456,8 +456,13 @@ supply's current) is drawn the same way.
 - **`differs`** appears after a write of yours has settled (a second after
   the module accepted it, and for a motor once it has stopped moving) when
   `now` is further from `set` than the device's tolerance: the motor's
-  retry deadband, a GEECS device's tolerance from the GEECS database, else
-  one step in the last digit the device shows. It
+  retry deadband, a supply's set tolerance from its IOC (`current set
+  tolerance` among the expert roles), a
+  GEECS device's tolerance from the GEECS database, else one step in the
+  last digit the device shows. Where the device names a tolerance record
+  that gives no tolerance (an IOC that does not serve it yet, or serves it
+  INVALID, zero or negative), the page has no tolerance and marks nothing: it never falls
+  back to the last digit. It
   means the device did not get where you asked (a value it clamped, a
   motor that stopped short, a supply still ramping). It goes away when the
   two agree again. While the page cannot reach the module it is hidden,
