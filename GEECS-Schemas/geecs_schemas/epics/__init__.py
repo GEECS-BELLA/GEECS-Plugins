@@ -289,7 +289,7 @@ class SetpointDevice(_NativeEntry):
             "role for it, 'current:SP', and confirmed within the IOC's set "
             "tolerance, 'current:TOL'). Each must be a readback the family "
             "writes through a setpoint role with a 'tolerance_by'. Each is a "
-            "scan axis 'Device:record' and an action's set target."
+            "scan axis 'Device:record' and a setup's set target."
         ),
     )
     readbacks: list[str] = Field(

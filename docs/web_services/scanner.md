@@ -116,7 +116,7 @@ preset submitted from a notebook through `geecs_bluesky.qs_client` — or
 through the page's own JSON API, `POST /api/submit` — behaves exactly as
 one submitted from the form.
 
-![The queue, and the Devices · move, Actions and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
+![The queue, and the Devices · move, Setups and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
 
 ## Where the data lands
 
@@ -143,7 +143,7 @@ The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.
   fix (the readiness unit reopens it); the page cannot do it.
 - **`doc stream` chip down while a scan runs** — the page still shows the
   queue's state, but no shot-by-shot progress. Scans are unaffected.
-- **Move, Actions and Calibration are held** — the move chip reads
+- **Move, Setups and Calibration are held** — the move chip reads
   `a plan is running` or `items wait in the queue`; they open again when
   the queue is idle.
 - **The scan folder is missing data** — start at the scan's `scan.log`

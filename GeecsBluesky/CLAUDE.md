@@ -224,7 +224,7 @@ qserver/                    # the worker: launcher, startup profile, permissions
   `epics_motor`): one noun per device, one stock ophyd-async `Motor` per
   axis as a Movable child (`U_ESP_JetXYZ.x`, the record
   `<experiment>:<device>:x`), found by `mv`, a sweep axis, `variable`,
-  `get_settable` and an action's `set` step exactly as a `CaMotor` child
+  `get_settable` and a setup's `set` step exactly as a `CaMotor` child
   is.  The record is the verdict: the move is the stock put-callback on
   `.VAL`, done when `.DMOV` returns to 1; the soft limits `.HLM`/`.LLM`
   refuse an out-of-range target **before the put** (stock
@@ -250,7 +250,7 @@ qserver/                    # the worker: launcher, startup profile, permissions
   (`U_VS1H.current`, readback `<experiment>:<device>:current`, written at
   `current:SP` or the family's setpoint role for it —
   `SetpointDevice.setpoint_records`, the FAST-PS's `current_ramp:SP`), found like a
-  `CaMotor` child (an action step's `variable: Current` included: lookups
+  `CaMotor` child (a setup step's `variable: Current` included: lookups
   are case-folded).  **Never done on a put ok**: StreamDevice completes the
   put when the supply accepts the command, so the set waits for the
   readback within the **IOC's set tolerance** and times out (after the

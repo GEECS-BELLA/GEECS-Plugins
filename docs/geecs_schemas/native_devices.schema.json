@@ -112,7 +112,7 @@
           "additionalProperties": {
             "$ref": "#/$defs/SetpointSettable"
           },
-          "description": "The settables, by readback record name under the device's prefix (e.g. {'current': {timeout: 10}} for '<experiment>:<device>:current', written at the family's setpoint role for it, 'current:SP', and confirmed within the IOC's set tolerance, 'current:TOL'). Each must be a readback the family writes through a setpoint role with a 'tolerance_by'. Each is a scan axis 'Device:record' and an action's set target.",
+          "description": "The settables, by readback record name under the device's prefix (e.g. {'current': {timeout: 10}} for '<experiment>:<device>:current', written at the family's setpoint role for it, 'current:SP', and confirmed within the IOC's set tolerance, 'current:TOL'). Each must be a readback the family writes through a setpoint role with a 'tolerance_by'. Each is a scan axis 'Device:record' and a setup's set target.",
           "minProperties": 1,
           "title": "Settables",
           "type": "object"
