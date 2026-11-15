@@ -757,7 +757,8 @@ def test_portal_links_name_this_scanners_experiment() -> None:
     script = (_PKG / "static" / "scanner.js").read_text()
     assert 'portalHref("/day/" + day)' in script
     assert 'portalHref("/run/" + encodeURIComponent(r.run_uids[0]))' in script
-    assert re.search(r'\bPORTAL \+ "/', script) is None, (
+    # Any spacing or quoting of a bare `PORTAL + "/…"` link, not just the form this PR replaced.
+    assert re.search(r"""PORTAL\s*\+\s*['"]/""", script) is None, (
         "a portal link built without the experiment"
     )
     _need_node()
