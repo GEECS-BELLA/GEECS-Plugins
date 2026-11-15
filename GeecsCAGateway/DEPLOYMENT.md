@@ -162,25 +162,33 @@ The gateway runs on the services box, **192.168.6.22**, since 2026-11-15,
 beside the worker-side services and Tiled, which moved there on 2026-10-30
 (`docs/platform/fleet_map.md`). The GEECS MySQL database, which the gateway
 reads at startup, stays on the central lab server **192.168.6.14**. Until
-the move the gateway ran there beside the database; the risks below are
-that arrangement's, kept as the record of why it moved. On the box the
-gateway shares one host, and one failure domain, with every other
-scan-side service instead — plainly, the two services every scan needs on
-one box has become every service on one box:
+the move the gateway ran there beside the database; the first three risks
+below were that arrangement's, kept as the record of why it moved, and the
+last is the box's own:
 
-- **Single point of failure.** One host outage takes down device PVs (Bluesky
-  scans, Phoebus displays) *and* the experiment DB at once — and with the DB,
-  every device-configuration read the gateway and the scanner make. Nothing
-  else in the lab restores either of them automatically. (The services box
-  is the worker family's and Tiled's single point of failure; the two boxes
-  fail independently, which the move bought.)
-- **Resource contention.** MySQL and the gateway's asyncio loop share
-  CPU/RAM/disk I/O. The gateway is light (~100 updates/s), but a runaway
-  query degrades both together. Tiled's write bursts left with the move.
-- **Upgrade coupling.** An OS upgrade or reboot for either service (e.g. the
-  22.04 migration) is downtime for both, and Python/library upgrades on a
-  shared host risk cross-breaking environments. Keep each service in its own
-  venv/poetry env at minimum.
+- **Single point of failure, with the DB (until 2026-11-15).** One host
+  outage took down device PVs (Bluesky scans, Phoebus displays) *and* the
+  experiment DB at once — and with the DB, every device-configuration read
+  the gateway and the scanner make. Nothing else in the lab restored either
+  of them automatically.
+- **Resource contention (until 2026-11-15).** MySQL and the gateway's
+  asyncio loop shared CPU/RAM/disk I/O. The gateway is light (~100
+  updates/s), but a runaway query degraded both together.
+- **Upgrade coupling (until 2026-11-15).** An OS upgrade or reboot for
+  either service was downtime for both, and Python/library upgrades on a
+  shared host risk cross-breaking environments — the one of the three that
+  still holds on the box: keep each service in its own venv/poetry env.
+- **One box (since 2026-11-15).** On the services box the gateway shares
+  the host with the worker, Tiled, the archiver and every web surface: one
+  outage stops every scan-side service at once, and Tiled's write bursts and
+  the archiver's JVM share the gateway's CPU and disk. Accepted with eyes
+  open: the box is sized for it (32 cores, 125 GiB), Ansible-managed,
+  watched by Gatus and backed up nightly, none of which the central server
+  was; a gateway elsewhere bought no resilience, since without the worker
+  nothing scans; and scan mode requires the worker and the gateway on one
+  host in any case (`check_gateway_host`, GeecsBluesky — the constraint the
+  2026-10-30 split violated for scan-mode runs). What is worth keeping off
+  the box is a watcher of it.
 - **Storage growth.** MySQL grows slowly; logs grow steadily. The gateway
   itself is stateless (everything rebuilds from the DB at startup) — it needs
   no storage beyond logs. Tiled's growth with every scan is the services

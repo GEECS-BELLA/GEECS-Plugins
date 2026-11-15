@@ -489,11 +489,11 @@ const INFO = {
   "status": "robust",
   "does": "Mirrors every scalar GEECS variable as an EPICS PV, with a writable `:SP` setpoint PV beside each settable one. Phoebus, Bluesky, a future Archiver and OSPREY's generic EPICS tools all reach GEECS through it with no GEECS-specific code.",
   "how": [
-   "A caproto soft IOC on the central server. At start it pulls the served set, limits and variable types from the GEECS DB for the experiment.",
+   "A caproto soft IOC on the services box (the central server until 2026-11-15). At start it pulls the served set, limits and variable types from the GEECS DB for the experiment.",
    "A TCP subscription per device feeds the readback PVs; a `caput` on a `:SP` becomes a blocking UDP set to the device.",
    "Per-device supervisors reconnect with backoff and mark readbacks INVALID while a device is down. A client-writable `cagateway:restart` PV makes systemd relaunch it and re-sync from the DB."
   ],
-  "now": "In daily use on the central server, serving about 99 devices. The half-open-socket blind spot that froze readbacks was closed in 0.20.0 (2026-08-24) with TCP keepalive plus supervised reconnect.",
+  "now": "In daily use on the services box since 2026-11-15 (the central server before), serving the experiment's devices — 86 on the day it moved. The half-open-socket blind spot that froze readbacks was closed in 0.20.0 (2026-08-24) with TCP keepalive plus supervised reconnect.",
   "next": [
    "Sharding across several processes under systemd for fault isolation when the served set grows.",
    "Archive deadbands (MDEL/ADEL split) when the Archiver Appliance lands.",

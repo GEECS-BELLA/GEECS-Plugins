@@ -58,8 +58,12 @@ back into this table.
     the scanner, GEECS-MCP, the Data Portal, the logbook, the Archiver
     Appliance) and Tiled itself moved from the central server to the
     dedicated services box at 192.168.6.22 (Ubuntu 24.04, racked on the
-    central server's subnet 2026-11-02); the central server keeps the CA
-    gateway and the GEECS DB. Canopy, the Control Room and a second
+    central server's subnet 2026-11-02); the central server kept the CA
+    gateway and the GEECS DB. Amended **2026-11-15**: the CA gateway
+    followed to the box (`geecs-ca-gateway` there, the same 0.21.5 the
+    instance gateway runs; every client's `[epics] ca_addr_list` names
+    192.168.6.22 first), and the central server keeps the GEECS DB alone.
+    Canopy, the Control Room and a second
     experiment instance (PulsedWire: its own CA gateway, queueserver,
     Tiled writer, scanner and logbook, as `<unit>@PulsedWire`) were set
     up on the box after the move; none of them ever ran on the central
@@ -158,8 +162,8 @@ setpoint writes travel against the readback arrows, over the same
 connections.
 
 The services box took the worker-side services over on 2026-10-30 and
-Tiled followed; the CA gateway stayed on the central server, and the
-GEECS DB is LabVIEW infrastructure and stays where GEECS puts it. Canopy
+Tiled followed; the CA gateway followed on 2026-11-15, and the GEECS DB
+is LabVIEW infrastructure and stays where GEECS puts it. Canopy
 and the Control Room were set up on the box afterwards. The way back to
 the central server is the private geecs-epics repo's services-box
 runbook; it lapses once the central server's disabled units are removed.
@@ -362,16 +366,19 @@ Nothing about the old box migrates but its recipe, and the old box keeps
 running until the new one passes `/fleet-status` — that is what makes
 every step reversible. Two shapes, by what follows the worker family:
 
-- **Only the worker family moves** (queueserver, MCP, portal, logbook);
-  the CA gateway, Tiled and the DB stay on the gateway's box. Bring the
-  units up on the new host in the order below, verify, then stop them on
-  the old box. Client side: `[qserver] host` in every `config.ini`, the
-  portal's address, and OSPREY's MCP profile URL change; `[epics]
-  ca_addr_list` and `[tiled] uri` do not.
-- **The gateway (and Tiled) follow.** The new `site.env` carries the new
-  serving interface and beacon address; every client's `[epics]
-  ca_addr_list` (and `[tiled] uri`) changes, and every Phoebus settings
-  file with it. The gateway runbook says what a gateway move or restart
+- **The worker family and the CA gateway move together** (queueserver,
+  MCP, portal, logbook, and the gateway: scan mode requires the worker and
+  the gateway on one host — `check_gateway_host` in GeecsBluesky refuses a
+  scan-mode run otherwise, which is the shape the fleet was in from
+  2026-10-30 to 2026-11-15); Tiled and the DB stay where they are. Bring
+  the units up on the new host in the order below, verify, then stop them
+  on the old box. The new `site.env` carries the gateway's serving
+  interface and beacon address. Client side: `[qserver] host` in every
+  `config.ini`, the portal's address, OSPREY's MCP profile URL and the
+  first `[epics] ca_addr_list` entry change; `[tiled] uri` does not.
+- **Tiled follows too.** Every client's `[tiled] uri` changes as well, and
+  every Phoebus settings file with the gateway's address. The gateway
+  runbook says what a gateway move or restart
   does to clients — monitors reconnect on their own; a routed or VPN
   Phoebus display can look stuck until it is reopened
   ([GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md)).
