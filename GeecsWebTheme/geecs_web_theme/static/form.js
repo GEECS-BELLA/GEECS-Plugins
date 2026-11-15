@@ -31,7 +31,10 @@
  *   index it moved); the diff's tier is the strictest tier among its changes, which decides what a save does.
  * - An error's location is walked down the drawn tree to the nearest node (a variant's name in the location
  *   is skipped); the document's own errors show in a banner at the top, and every fold holding one opens.
- * - A tuple (`prefixItems`) is one field, its members side by side; a list or map item that is one value is a
+ * - A tuple (`prefixItems`) is one field, its members side by side, its errors (its own and each member's) in
+ *   one slot shown while a member is aria-invalid; a stored tuple with more members than it declares is drawn as
+ *   an editable list until trimmed (each member with its Remove), one with fewer as the pair, the missing members
+ *   open. A list or map item that is one value is a
  *   field with its tools, not a panel. A list item that is a union folds to its header (its choice, then a
  *   one-line gist), closed until opened; a list of unions adds by choosing one ("Add step…"). What is open
  *   survives a redraw and moves with a reordered item. `minItems` / `maxItems` disable Remove / hide the adder.
@@ -201,6 +204,11 @@
   //        options, choice, children, items, itemSchema}
   function node(s, value, path, ctx) {
     var u = unwrap(s, ctx.root), sc = u.schema, kind = kindOf(sc, ctx.root), last = path[path.length - 1];
+    // a stored tuple longer than its members is drawn as the list it is, each member with its Remove, so the extra
+    // goes by a deliberate edit (kept as written until then); trimmed to its length it is a pair again. A shorter
+    // one stays a pair: its missing members are open fields, and typing one fills the tuple to its length.
+    var overlong = kind === "tuple" && Array.isArray(value) && value.length > sc.prefixItems.length;
+    if (overlong) kind = "array";
     var n = {
       path: path, key: last, schema: sc, kind: kind, value: value, nullable: u.nullable, extra: !!ctx.extra,
       label: typeof last === "number" ? "#" + (last + 1) : ctx.extra ? String(last) : path.length ? humanize(last) : sc.title || "Document",
@@ -229,8 +237,9 @@
       n.children = fields(sc, value, path, ctx, null);
       n.itemSchema = extraSchema(sc);
     } else if (kind === "array") {
-      n.itemSchema = sc.items || {};
-      n.items = (Array.isArray(value) ? value : []).map(function (v, i) { return node(n.itemSchema, v, path.concat([i]), { root: ctx.root }); });
+      var pre = overlong ? sc.prefixItems : [];
+      n.itemSchema = isObj(sc.items) ? sc.items : pre.length && pre.every(function (p) { return equal(p, pre[0]); }) ? pre[0] : {};
+      n.items = (Array.isArray(value) ? value : []).map(function (v, i) { return node(pre[i] || n.itemSchema, v, path.concat([i]), { root: ctx.root }); });
     } else if (kind === "tuple") {
       n.items = sc.prefixItems.map(function (p, i) { return node(p, Array.isArray(value) ? value[i] : undefined, path.concat([i]), { root: ctx.root }); });
     } else if (kind === "map") {
@@ -568,9 +577,17 @@
     // item) emptied of every member goes back to its stored state when that was absent or null, and to null when it
     // was a value and the tuple is nullable (an optional pair unset by emptying it), absent when it is optional. prep(doc): the document made
     // ready first (a fixed-row list padded to its rows).
+    // Its errors share one .err slot after the pair: the tuple's own (a member short, low above high) and each
+    // member's. A member is aria-invalid while it or the tuple is in error, so the slot shows (kit.css shows an
+    // .err after a pair holding an invalid control); a member's edit drops its own error and the tuple's, which
+    // the edit changed, as a field's edit drops its error.
     function tupleField(n, tools, label, prep) {
-      var key = pathKey(n.path), first = null, msgs = [], err = h("span", { class: "err" }), size = n.items.length;
-      if (errors[key]) msgs.push(errors[key]);
+      var key = pathKey(n.path), first = null, err = h("span", { class: "err" }), size = n.items.length;
+      var whole = errors[key] || "", own = [], inputs = [];
+      var show = function () {
+        err.textContent = [whole].concat(own).filter(Boolean).join("; ");
+        inputs.forEach(function (c, j) { c.setAttribute("aria-invalid", String(!!(whole || own[j]))); });
+      };
       var edit = function (d, p, v) {
         d = prep ? prep(d) : d;
         var t = getAt(d, n.path), full = Array.isArray(t) ? t.slice() : [];
@@ -584,14 +601,17 @@
         }
         return setAt(d, n.path, full);
       };
-      var inputs = n.items.map(function (m, j) {
-        var id = "gf-" + (++ids), mk = pathKey(m.path), msg = (bad[mk] && bad[mk].msg) || errors[mk], c = control(m, id, err, edit);
+      inputs = n.items.map(function (m, j) {
+        var id = "gf-" + (++ids), mk = pathKey(m.path);
+        // the member's control reports into its own share of the slot
+        var slot = { set textContent(v) { own[j] = v; if (!v) whole = ""; show(); } };
+        var c = control(m, id, slot, edit);
+        own[j] = (bad[mk] && bad[mk].msg) || errors[mk] || "";
         first = first || id;
         c.setAttribute("aria-label", (label || n.label) + " " + (j + 1));
-        if (msg) { msgs.push(msg); c.setAttribute("aria-invalid", "true"); }
         return c;
       });
-      err.textContent = msgs.join("; ");
+      show();
       tools = (tools || []).filter(Boolean);
       return h("div", { class: "field", "data-path": key, "data-changed": String(changed(n.path)) }, [
         h("label", { for: first }, [document.createTextNode(label || n.label), n.required ? h("span", { class: "req", text: "*" }) : null, tierMark(n)]),
@@ -685,7 +705,8 @@
     function drawList(n, mode, outer) {
       var isList = n.kind === "array", key = pathKey(n.path), names = isList ? axesOf(n, ndim) : null, len = (n.items || []).length;
       var rows, addTools = [];
-      if (names && (len === 0 || len === names.length)) {
+      // (an item that is not one value, an over-long pair, is drawn as a list item with its own tools)
+      if (names && (len === 0 || len === names.length) && (n.items || []).every(function (it) { return COMPLEX.indexOf(it.kind) < 0; })) {
         var pad = function (d) {
           var list = getAt(d, n.path), full = Array.isArray(list) ? list.slice() : [];
           if (full.length >= names.length) return d;

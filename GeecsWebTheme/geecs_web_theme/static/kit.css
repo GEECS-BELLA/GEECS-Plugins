@@ -631,6 +631,8 @@ body.kit{
 .kit .panel > header.item .eyebrow{margin-right:0;flex:none}
 .kit .panel > header.item select{flex:none;max-width:16em}
 .kit .panel > header.item .gist{cursor:pointer}
-/* A pair (a tuple): its members side by side. */
+/* A pair (a tuple): its members side by side. Its .err slot follows the
+   pair, not a control, so it shows while the pair holds an invalid control. */
 .kit .field .pair{display:flex;gap:6px}
 .kit .field .pair > input{flex:1 1 0;min-width:0}
+.kit .field .pair:has(> [aria-invalid="true"]) ~ .err{display:block}

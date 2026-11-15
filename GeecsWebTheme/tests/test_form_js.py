@@ -15,7 +15,12 @@ import subprocess
 import pytest
 
 from geecs_web_theme import static_dir
-from geecs_web_theme.testing import js_colour_literals, node_available
+from geecs_web_theme.testing import (
+    css_rules,
+    js_colour_literals,
+    node_available,
+    selector_parts,
+)
 
 _FORM = static_dir() / "form.js"
 
@@ -955,6 +960,123 @@ def test_light_items_suggestions_and_unset_parts(laid_out: dict) -> None:
 
 def test_an_error_opens_the_folds_it_is_in(laid_out: dict) -> None:
     assert laid_out["errorOpens"] == [True, True]
+
+
+# ---------------------------------------------------------------------------
+# A pair's errors are SEEN, not only written: kit.css hides every .field .err and
+# shows it only after an invalid control or a pair holding one. ``shown`` below
+# is that rule, read against the drawn DOM; ``test_the_reveal_rule_is_kit_css``
+# holds it to the stylesheet, so a markup change that hides the slot fails here.
+
+_REVEALS = {
+    '.kit .field input[aria-invalid="true"] ~ .err',
+    '.kit .field select[aria-invalid="true"] ~ .err',
+    '.kit .field textarea[aria-invalid="true"] ~ .err',
+    '.kit .field .pair:has(> [aria-invalid="true"]) ~ .err',
+}
+
+_TUPLES = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const fire = (c, text) => { c.value = text; (c.on.input || c.on.change)({ target: c }); };
+const isControl = (n) => ["INPUT", "SELECT", "TEXTAREA"].includes(n.tagName);
+const bad = (n) => n.attrs["aria-invalid"] === "true";
+// kit.css's reveal: an .err is shown when an earlier sibling is an invalid control, or a .pair with one as a child
+const shown = (err) => {
+  const sibs = err.parentNode.children, before = sibs.slice(0, sibs.indexOf(err));
+  return before.some((s) => (isControl(s) && bad(s)) || ((s.attrs.class || "").split(" ").includes("pair") && s.children.some((c) => isControl(c) && bad(c))));
+};
+const slot = (field) => field.children.find((c) => c.attrs.class === "err");
+const seen = (field) => [slot(field).textContent, shown(slot(field))];
+const inputs = (field) => walk(field, (n) => n.tagName === "INPUT");
+const out = {};
+// a member's error and the tuple's own error, placed by the service
+const host = el("div"), form = F.mount(host, { schema: S, value: Object.assign({}, D, { pair: [1, 2] }) });
+form.setErrors([{ loc: ["pair", 0], msg: "not a number" }]);
+out.member = seen(at(host, "pair"));
+form.setErrors([{ loc: ["pair"], msg: "low above high" }]);
+out.whole = [seen(at(host, "pair")), inputs(at(host, "pair")).map(bad)];
+// a member's edit drops the tuple's error (the edit changed it): the slot goes quiet and hides
+fire(inputs(at(host, "pair"))[1], "9");
+out.wholeAfterEdit = [seen(at(host, "pair")), inputs(at(host, "pair")).map(bad)];
+// a member's error stays with that member while the other is edited, and goes with its own edit
+form.setErrors([{ loc: ["pair", 0], msg: "not a number" }]);
+fire(inputs(at(host, "pair"))[1], "8");
+out.otherEdited = [seen(at(host, "pair")), inputs(at(host, "pair")).map(bad)];
+fire(inputs(at(host, "pair"))[0], "3");
+out.ownEdited = [seen(at(host, "pair")), form.value().pair];
+// an ROI bound (a pair in a named row)
+form.setErrors([{ loc: ["steps", 0, "bounds", 1, 0], msg: "below zero" }]);
+out.roi = seen(at(host, "steps.0.bounds.1"));
+// a scalar field's error is shown the same way
+form.setErrors([{ loc: ["device"], msg: "unknown device" }]);
+out.scalar = seen(at(host, "device"));
+// a stored pair with an extra member: a list, each member with its Remove; trimmed, it is a pair again
+const h2 = el("div"), f2 = F.mount(h2, { schema: S, value: Object.assign({}, D, { pair: [1, 2, 3] }) });
+out.longFields = walk(at(h2, "pair"), (n) => n.attrs.class === "field").map((f) => [f.attrs["data-path"], inputs(f)[0].value]);
+out.longAdder = !!button(at(h2, "pair"), "Add");
+const drop = (h, p) => { const f = at(h, p), b = f && button(f, "Remove"); if (b) b.on.click(); return !!b; };
+drop(h2, "pair.2");
+out.trimmed = [f2.value().pair, at(h2, "pair").attrs.class, walk(at(h2, "pair"), (n) => n.attrs.class === "pair").length];
+// an ROI holding an over-long bound: that bound is a list item with its Remove; trimmed, named rows again
+const roi = [{ step: "roi", bounds: [[10, 200, 7], [5, 300]] }];
+const h3 = el("div"), f3 = F.mount(h3, { schema: S, value: Object.assign({}, D, { steps: roi }) });
+out.roiLong = [!!at(h3, "steps.0.bounds.0.2"), drop(h3, "steps.0.bounds.0.2")];
+out.roiTrimmed = [f3.value().steps[0].bounds, walk(at(h3, "steps.0"), (n) => n.attrs.class === "field" && (n.attrs["data-path"] || "").startsWith("steps.0.bounds.")).map((f) => f.children[0].textContent)];
+// a stored pair one member short: a pair, its missing member open; typing it fills the pair
+const h4 = el("div"), f4 = F.mount(h4, { schema: S, value: Object.assign({}, D, { pair: [1] }) });
+out.short = inputs(at(h4, "pair")).map((i) => i.value);
+fire(inputs(at(h4, "pair"))[1], "4");
+out.shortFilled = f4.value().pair;
+console.log(JSON.stringify(out));
+"""
+)
+
+
+@pytest.fixture(scope="module")
+def tuples() -> dict:
+    return _node(_TUPLES, json.dumps([RECIPE, RECIPE_DOC]))
+
+
+def _shows(decls: list) -> bool:
+    return any(name == "display" and "".join(t.serialize() for t in value).strip() == "block" for name, value in decls)  # fmt: skip
+
+
+def test_the_reveal_rule_is_kit_css() -> None:
+    css = (static_dir() / "kit.css").read_text()
+    reveals = {
+        part.strip()
+        for selector, decls in css_rules(css)
+        for part in selector_parts(selector)
+        if part.strip().endswith("~ .err") and _shows(decls)
+    }
+    assert reveals == _REVEALS
+
+
+def test_a_pairs_errors_are_shown(tuples: dict) -> None:
+    assert tuples["member"] == ["not a number", True]
+    # the tuple's own error marks every member, so the slot shows
+    assert tuples["whole"] == [["low above high", True], [True, True]]
+    assert tuples["wholeAfterEdit"] == [["", False], [False, False]]
+    assert tuples["otherEdited"] == [["not a number", True], [True, False]]
+    assert tuples["ownEdited"] == [["", False], [3, 8]]
+    assert tuples["roi"] == ["below zero", True]
+    assert tuples["scalar"] == ["unknown device", True]
+
+
+def test_a_pair_holding_too_many_members_can_be_repaired(tuples: dict) -> None:
+    assert tuples["longFields"] == [["pair.0", "1"], ["pair.1", "2"], ["pair.2", "3"]]  # fmt: skip
+    assert tuples["longAdder"] is False  # at its maxItems already
+    assert tuples["trimmed"] == [[1, 2], "field", 1]
+    assert tuples["roiLong"] == [True, True]
+    assert tuples["roiTrimmed"] == [[[10, 200], [5, 300]], ["y", "x"]]
+
+
+def test_a_pair_short_a_member_fills_as_typed(tuples: dict) -> None:
+    assert tuples["short"] == ["1", ""]
+    assert tuples["shortFilled"] == [1, 4]
 
 
 def test_an_unknown_choice_is_kept_as_written_and_said() -> None:
