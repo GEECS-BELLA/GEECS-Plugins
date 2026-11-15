@@ -3,6 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.43.0] - 2026-11-14
+
+### Changed
+
+- Frames are served by the shot table's matched stamp for each device and
+  shot; a shot with no matched record is refused rather than served from
+  a neighbouring frame or by position (#1296).
+- The run plot and the config editor's line trace read the run's joined
+  scalars and the shot table's stamps (#1296).
+- Plotly is served from the theme's one vendored copy; the portal's own
+  copy and its `/static` mount are removed (#1293).
+- Static files ask the browser to revalidate on every load (#1128).
+
+### Fixed
+
+- Sending a plot to the scan log no longer opens the entry (#1124).
+- Concurrent loads of one run wait for a single read (#1296).
+
 ## [0.42.0] - 2026-10-22
 
 ### Changed

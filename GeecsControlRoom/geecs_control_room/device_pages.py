@@ -1,4 +1,4 @@
-"""Device pages: one page per kind of hardware, any device of that kind (``Planning/device_pages.md``).
+"""Device pages: one page per kind of hardware, any device of that kind (``GeecsControlRoom/CLAUDE.md`` § "The device pages").
 
 ``/device/<kind>`` is the picker: the registry's devices of that kind
 (``native_devices.yaml`` + ``panel_devices.yaml``, a device's kind from its

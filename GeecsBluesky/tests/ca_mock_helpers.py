@@ -74,8 +74,31 @@ class DocCollector:
         self.ordered.append((name, doc))
 
     def primary_events(self) -> list[dict]:
-        uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == "primary"}
-        return [e for e in self.docs["event"] if e["descriptor"] in uids]
+        return self.stream_events("primary")
+
+    def stream_events(self, name: str) -> list[dict]:
+        """The events of stream *name*, event pages unpacked (a collect emits pages)."""
+        uids = {d["uid"] for d in self.docs["descriptor"] if d["name"] == name}
+        events = []
+        for doc_name, doc in self.ordered:
+            if doc.get("descriptor") not in uids:
+                continue
+            if doc_name == "event":
+                events.append(doc)
+            elif doc_name == "event_page":
+                for i in range(len(doc["seq_num"])):
+                    data = {k: v[i] for k, v in doc["data"].items()}
+                    events.append({"descriptor": doc["descriptor"], "data": data})
+        return events
+
+    def datums(self, data_key: str) -> list[dict]:
+        """The ``indices`` of every stream datum of *data_key*, in order."""
+        keys = {r["uid"]: r["data_key"] for r in self.docs["stream_resource"]}
+        return [
+            d["indices"]
+            for d in self.docs["stream_datum"]
+            if keys[d["stream_resource"]] == data_key
+        ]
 
 
 def read_scan_info(path: Any) -> dict[str, str]:

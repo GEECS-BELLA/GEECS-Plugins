@@ -66,7 +66,7 @@ def test_listing_hides_retired_and_invalid_configs(tmp_path):
 def test_expansion_preflight_and_submission_share_optimizer_resolution(monkeypatch):
     preset = Preset(
         name="opt",
-        devices=[{"device": "Meter", "essential": False, "save_images": False}],
+        devices=[{"device": "Meter", "required": False, "save_images": False}],
         plan={"name": "optimize", "kwargs": {"optimizer_config": "test"}},
     )
     resolver = SimpleNamespace(resolve_optimizer_config=lambda _: _config())
@@ -74,8 +74,9 @@ def test_expansion_preflight_and_submission_share_optimizer_resolution(monkeypat
     assert expected.args == [["Meter"]]
     assert expected.kwargs["max_iterations"] == 3
     assert expected.kwargs["shots_per_step"] == 2
-    assert "non_essential" not in expected.kwargs
-    assert not preset.devices[0].essential  # input document remains a draft
+    # The objective's device is merged required, so every device is.
+    assert "non_essential" not in expected.kwargs and "required" not in expected.kwargs
+    assert not preset.devices[0].required  # input document remains a draft
     with pytest.raises(GeecsConfigurationError, match="resolver"):
         expand_preset(preset)
     observed = {}

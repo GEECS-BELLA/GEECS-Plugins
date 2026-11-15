@@ -109,7 +109,7 @@ class GatedBox(FakeBox):
 
     def edge(self) -> None:
         self.edges += 1
-        self.stamp += self.stamp_step
+        self.advance(self.stamp_step)
         for cam in self.cameras:
             if cam.name in self.stall or (cam.name, self.edges) in self.drop:
                 continue
@@ -1025,6 +1025,9 @@ def test_bound_gated_count_records_its_description(
     assert start["acquisition"] == "gated"
     assert start["shot_clock"] == "UC_A"
     assert start["non_essential"] == []
+    # Gated is frozen: none of the shot-table keys.
+    assert not {"layout", "per_shot_streams", "required", "stream_meta"} & set(start)
+    assert start["shot_clock_column"] == "uc_a-acq_timestamp"
     assert start["trigger_profile"] == "HTU-Test"
     assert _datums_by_key(col)["uc_a"] == [{"start": 0, "stop": 2}]
     assert box.states[0] == "off"
@@ -1035,8 +1038,8 @@ def test_bound_plan_refuses_bad_mode_and_a_throttled_gated_run(
 ) -> None:
     a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
     count = bind_plans(profiles)["count"]
-    with pytest.raises(GeecsConfigurationError, match="both as a detector"):
-        RE(count([a], 1, non_essential=[a]))
+    with pytest.raises(GeecsConfigurationError, match="listed twice"):
+        RE(count([a, a], 1, required=[a]))
     with pytest.raises(GeecsConfigurationError, match="acquisition='sloppy'"):
         RE(count([a], 1, acquisition="sloppy"))
     with pytest.raises(GeecsConfigurationError, match="strict-mode throttle"):
@@ -1060,25 +1063,16 @@ def test_shot_period_throttles_strict_fires(
     box: GatedBox,
     profiles: TriggerProfiles,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """#840: one shot per period — the second and third fires wait.
 
     The period exceeds the camera's shot budget on purpose: the wait must
     happen before the detectors are triggered, or the triggered count/stamp
     wait times the shot out during the pause (found on hardware, A8).
-    Pinned twice: a native camera's stamp wait uses its own 0.2 s budget,
-    and a plugin camera's count wait uses ``STRICT_TRIGGER_INFO``'s
-    ``exposure_timeout`` (patched down to 0.2 s here) — the reviewer found
+    Pinned twice: a saver camera's stamp wait and a plugin camera's count
+    wait each use the camera's own 0.2 s shot budget — the reviewer found
     the plugin-only form passing on the pre-A8 code.
     """
-    from geecs_bluesky.plans import strict as strict_module
-
-    monkeypatch.setattr(
-        strict_module,
-        "STRICT_TRIGGER_INFO",
-        strict_module.STRICT_TRIGGER_INFO.model_copy(update={"exposure_timeout": 0.2}),
-    )
     native = _camera(RE, box, "UC_Native", shot_timeout=0.2)
     plugin, _ = _plugin_camera(RE, box, "UC_Cam", tmp_path, shot_timeout=0.2)
     count = bind_plans(profiles)["count"]
@@ -1099,7 +1093,7 @@ def test_shot_period_throttles_strict_fires(
 def test_non_essential_camera_streams_for_the_run(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles, tmp_path: Path, caplog
 ) -> None:
-    """A strict count with B non-essential: B flies in ``uc_b_stream``, never waited on.
+    """A strict count with B not required: B flies in ``uc_b_stream``, never waited on.
 
     B's plugin still reports a previous session's count at the arm
     (GEECS-Plugins#853, found on hardware in A4): zeroed before the kickoff
@@ -1117,7 +1111,7 @@ def test_non_essential_camera_streams_for_the_run(
     caplog.set_level(logging.WARNING, logger="geecs_bluesky.plans.gated")
     count = bind_plans(profiles)["count"]
     t0 = time.monotonic()
-    RE(count([a], 3, non_essential=[b]))
+    RE(count([a, b], 3, required=[a]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     # zeroed BEFORE the kickoff baselined: the close's complete returned at
     # once (a baseline of 6 would have timed it out, skipped, and still
@@ -1126,14 +1120,14 @@ def test_non_essential_camera_streams_for_the_run(
     assert not [
         r for r in caplog.records if "failed at the run's close" in r.getMessage()
     ]
-    assert col.docs["start"][0]["non_essential"] == ["uc_b"]
+    assert col.docs["start"][0]["required"] == ["uc_a"]
     names = {d["name"] for d in col.docs["descriptor"]}
-    assert names == {"primary", "uc_b_stream"}
+    assert names == {"primary", "uc_a_stream", "uc_b_stream"}
     primary = next(d for d in col.docs["descriptor"] if d["name"] == "primary")
     assert not any(k.startswith("uc_b") for k in primary["data_keys"])
     assert len(_stream_events(col, "primary")) == 3
-    # every fire advanced B's count too: one datum covering the run's frames
-    assert _datums_by_key(col)["uc_b"] == [{"start": 0, "stop": 3}]
+    # every fire advanced B's count too: its datums cover the run's frames
+    assert sum(d["stop"] - d["start"] for d in _datums_by_key(col)["uc_b"]) == 3
     assert b_rewinds[0] == 0  # the stale count zeroed at the arm
     assert box.states[0] == "single" and box.states[-1] == "edges"
 
@@ -1148,7 +1142,7 @@ def test_non_essential_camera_that_never_delivers_does_not_hold_the_run(
     RE.subscribe(col)
     count = bind_plans(profiles)["count"]
     t0 = time.monotonic()
-    RE(count([a], 2, non_essential=[b]))
+    RE(count([a, b], 2, required=[a]))
     assert time.monotonic() - t0 < 2.0
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert len(_stream_events(col, "primary")) == 2
@@ -1164,7 +1158,7 @@ def test_non_essential_with_a_gated_run(
     col = DocCollector()
     RE.subscribe(col)
     count = bind_plans(profiles)["count"]
-    RE(count([a], 3, acquisition="gated", non_essential=[b]))
+    RE(count([a, b], 3, acquisition="gated", required=[a]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     datums = _datums_by_key(col)
     assert datums["uc_a"] == [{"start": 0, "stop": 3}]
@@ -1196,7 +1190,7 @@ def test_a_non_essential_scope_with_no_streams_streams_by_stamp(
     RE.subscribe(col)
     count = bind_plans(profiles)["count"]
     with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.gated"):
-        RE(count([a], 2, acquisition="gated", non_essential=[ict]))
+        RE(count([a, ict], 2, acquisition="gated", required=[a]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert not [r for r in caplog.records if "u_ict" in r.getMessage().lower()]
     events = _events_from_pages(col, "u_ict_stream")
@@ -1269,16 +1263,16 @@ def test_a_native_saving_scope_with_every_channel_off_is_a_native_essential(
     ] * 2
 
 
-def test_non_essential_wrapper_without_flyers_is_the_plan(
+def test_required_none_streams_every_per_shot_device(
     RE: RunEngine, box: GatedBox, profiles: TriggerProfiles
 ) -> None:
     cam = _camera(RE, box, "UC_Cam")
     count = bind_plans(profiles)["count"]
     col = DocCollector()
     RE.subscribe(col)
-    RE(count([cam], 1, non_essential=None))
-    assert col.docs["start"][0]["non_essential"] == []
-    assert {d["name"] for d in col.docs["descriptor"]} == {"primary"}
+    RE(count([cam], 1, required=None))
+    assert col.docs["start"][0]["required"] == ["uc_cam"]
+    assert {d["name"] for d in col.docs["descriptor"]} == {"primary", "uc_cam_stream"}
 
 
 def _all_docs(col: DocCollector) -> list[tuple[str, dict[str, Any]]]:
@@ -1292,7 +1286,7 @@ def test_scalars_view_essential_with_its_owner_non_essential_is_refused(
     a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
     count = bind_plans(profiles)["count"]
     with pytest.raises(GeecsConfigurationError, match="scalars view"):
-        RE(count([a.scalars], 2, non_essential=[a]))
+        RE(count([a.scalars, a], 2, required=[a.scalars]))
     assert box.fires == 0
 
 
@@ -1373,15 +1367,15 @@ def test_non_essential_that_fails_at_the_close_does_not_fail_the_run(
     RE.subscribe(col)
     caplog.set_level(logging.WARNING, logger="geecs_bluesky.plans.gated")
     count = bind_plans(profiles)["count"]
-    RE(count([a], 2, non_essential=[b]))  # returns: the item does not fail
+    RE(count([a, b], 2, required=[a]))  # returns: the item does not fail
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert len(_stream_events(col, "primary")) == 2
     messages = [r.getMessage() for r in caplog.records]
-    assert any("non-essential uc_b: complete failed" in m for m in messages)
+    assert any("uc_b: complete failed" in m for m in messages)
     assert not any("collect failed" in m for m in messages)
     # the failed complete never costs the datums: collect ran on its own
-    assert _datums_by_key(col)["uc_b"] == [{"start": 0, "stop": 2}]
-    assert any("non-essential uc_b: unstage failed" in m for m in messages)
+    assert sum(d["stop"] - d["start"] for d in _datums_by_key(col)["uc_b"]) == 2
+    assert any("uc_b: unstage failed" in m for m in messages)
     assert box.states[-1] == "edges"  # STANDBY still driven on the way out
     b.complete = original
     b.unstage = original_unstage

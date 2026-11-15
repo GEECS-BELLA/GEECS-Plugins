@@ -53,7 +53,7 @@ ReadMode = Literal["monitor", "on_request", "once", "never"]
 #: The registry kind a family serves: ``geecs_schemas.epics``' built kinds,
 #: and the one ``GeecsBluesky/NATIVE_DEVICES.md`` §10 still proposes.
 FamilyKind = Literal[
-    "aravis_camera", "epics_motor", "setpoint_device", "array_detector"
+    "aravis_camera", "epics_motor", "setpoint_device", "array_detector", "witness"
 ]
 
 #: Registry kind (``NativeDevices``) → the family a registry device
@@ -65,6 +65,7 @@ REGISTRY_KIND_FAMILIES: Mapping[str, str] = MappingProxyType(
         "aravis_camera": "ad_camera_chain",
         "epics_motor": "motor_record",
         "setpoint_device": "easydriver",
+        "witness": "witness_counter",
     }
 )
 

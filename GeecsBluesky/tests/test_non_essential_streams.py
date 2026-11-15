@@ -94,6 +94,14 @@ def _rows(col: DocCollector, mode: str) -> list[dict]:
     return _events_from_pages(col, "primary" if mode == "strict" else "shots")
 
 
+def _row_stamps(col: DocCollector, mode: str, device: str = "uc_a") -> list:
+    """The required device's stamp per shot: its stream (strict) or the rows (gated)."""
+    key = f"{device}-acq_timestamp"
+    if mode == "strict":
+        return [e["data"][key] for e in col.stream_events(f"{device}_stream")]
+    return [r["data"][key] for r in _rows(col, mode)]
+
+
 def _descriptor(col: DocCollector, name: str) -> dict:
     return next(d for d in col.docs["descriptor"] if d["name"] == name)
 
@@ -120,13 +128,18 @@ def test_a_native_saver_and_a_scalar_device_stream_one_event_per_stamp(
     saves = _saves(haso)
     col = DocCollector()
     RE.subscribe(col)
-    RE(count([a], 4, acquisition=mode, non_essential=[haso, ps]))
+    RE(count([a, haso, ps], 4, acquisition=mode, required=[a]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
-    assert col.docs["start"][0]["non_essential"] == ["u_haso", "u_ps"]
+    start = col.docs["start"][0]
+    if mode == "gated":
+        assert start["non_essential"] == ["u_haso", "u_ps"]
+    else:
+        assert start["required"] == ["uc_a"]
+        assert {"u_haso_stream", "u_ps_stream"} <= set(start["per_shot_streams"])
     assert saves == ["off", "on", "off"]
     rows = _rows(col, mode)
     assert len(rows) == 4
-    row_stamps = [r["data"]["uc_a-acq_timestamp"] for r in rows]
+    row_stamps = _row_stamps(col, mode)
     directory = str(tmp_path / "Scan001" / "U_HASO")
     for device, value in (("u_haso", 7.0), ("u_ps", 2.5)):
         events = _events_from_pages(col, f"{device}_stream")
@@ -168,7 +181,7 @@ def test_a_device_three_times_slower_than_the_rep_rate_records_a_third(
     box.drop = {("u_slow", k) for k in range(1, 200) if k % 3}
     col = DocCollector()
     RE.subscribe(col)
-    RE(count([a], 6, acquisition=mode, non_essential=[slow]))
+    RE(count([a, slow], 6, acquisition=mode, required=[a]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert len(_rows(col, mode)) == 6
     if mode == "strict":
@@ -201,7 +214,7 @@ def test_a_late_stamping_non_essential_never_stretches_the_strict_cadence(
     col = DocCollector()
     RE.subscribe(col)
     t0 = time.monotonic()
-    RE(count([a], 5, non_essential=[haso], shot_period=0.25))
+    RE(count([a, haso], 5, required=[a], shot_period=0.25))
     elapsed = time.monotonic() - t0
     assert col.docs["stop"][-1]["exit_status"] == "success"
     rows = _rows(col, "strict")
@@ -211,7 +224,8 @@ def test_a_late_stamping_non_essential_never_stretches_the_strict_cadence(
     assert max(gaps) < 0.45, gaps
     assert elapsed < 2.0, elapsed
     events = _events_from_pages(col, "u_haso_stream")
-    row_stamps = [r["data"]["uc_a-acq_timestamp"] for r in rows]
+    row_stamps = _row_stamps(col, "strict")
+    assert len(rows) == len(row_stamps) == 5
     event_stamps = [e["data"]["u_haso-acq_timestamp"] for e in events]
     assert event_stamps == row_stamps[: len(event_stamps)]
     assert 1 <= len(events) < 5  # the last shots' stamps land after the close
@@ -230,7 +244,7 @@ def test_a_non_essential_that_publishes_nothing_warns_and_never_fails(
     col = DocCollector()
     RE.subscribe(col)
     with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.gated"):
-        RE(count([a], 3, acquisition=mode, non_essential=[dead]))
+        RE(count([a, dead], 3, acquisition=mode, required=[a]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     assert len(_rows(col, mode)) == 3
     assert _events_from_pages(col, "u_dead_stream") == []
@@ -252,11 +266,11 @@ def test_a_scalars_view_non_essential_streams_its_scalars_without_files(
     saves = _saves(native)
     col = DocCollector()
     RE.subscribe(col)
-    RE(count([a], 3, non_essential=[native.scalars]))
+    RE(count([a, native.scalars], 3, required=[a]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     # the start document names the stream the s-file must find (review
     # finding 1): the owner's, like the stream itself
-    assert col.docs["start"][0]["non_essential"] == ["uc_native"]
+    assert "uc_native_stream" in col.docs["start"][0]["per_shot_streams"]
     assert "on" not in saves and saves == ["off", "off"]  # stage, unstage
     assert not (tmp_path / "Scan001" / "UC_Native").exists()
     events = _events_from_pages(col, "uc_native_stream")
@@ -265,10 +279,11 @@ def test_a_scalars_view_non_essential_streams_its_scalars_without_files(
     assert "uc_native-nonscalar_save_path" not in events[0]["data"]
 
 
-def test_a_free_running_non_essential_is_refused_before_anything_moves(
-    RE: RunEngine,
+@pytest.mark.parametrize("mode", MODES)
+def test_a_free_running_device_is_a_condition_and_cannot_be_required(
+    RE: RunEngine, mode: str
 ) -> None:
-    """No stamp, nothing to join on: refused at bind (deferred), nothing claimed."""
+    """No stamp, nothing to join on: read in every row; requiring it is refused before anything moves."""
     box = GatedBox()
     count = _count(RE, box)
     a = _camera(RE, box, "UC_A")
@@ -276,13 +291,16 @@ def test_a_free_running_non_essential_is_refused_before_anything_moves(
         "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
     )
     connect_mock(RE, gauge)
+    set_mock_value(gauge.pressure, 3.0)
     col = DocCollector()
     RE.subscribe(col)
-    for mode in MODES:
-        with pytest.raises(GeecsConfigurationError, match="no shot stamp: u_gauge"):
-            RE(count([a], 2, acquisition=mode, non_essential=[gauge]))
-    assert box.states == [] and box.fires == 0
-    assert not col.docs["start"]
+    with pytest.raises(
+        GeecsConfigurationError, match="u_gauge: required, but it has no"
+    ):
+        RE(count([a, gauge], 2, acquisition=mode, required=[gauge]))
+    assert box.states == [] and box.fires == 0 and not col.docs["start"]
+    RE(count([a, gauge], 2, acquisition=mode, required=[a]))
+    assert [r["data"]["u_gauge-pressure"] for r in _rows(col, mode)] == [3.0, 3.0]
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -315,7 +333,7 @@ def test_a_plugin_backed_non_essentials_descriptor_follows_the_geometry_the_plug
     box.edge = first_edge_re_declares
     col = DocCollector()
     RE.subscribe(col)
-    RE(count([a], 3, acquisition=mode, non_essential=[b]))
+    RE(count([a, b], 3, acquisition=mode, required=[a]))
     assert col.docs["stop"][-1]["exit_status"] == "success"
     descriptor = _descriptor(col, "uc_b_stream")
     assert descriptor["data_keys"]["uc_b"]["shape"] == [1, 5, 7]

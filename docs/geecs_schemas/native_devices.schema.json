@@ -164,6 +164,51 @@
       ],
       "title": "SetpointSettable",
       "type": "object"
+    },
+    "Witness": {
+      "additionalProperties": false,
+      "description": "A trigger domain's witness: a hardware count of its edges, the count's stamp, an epoch.\n\nRecorded, never waited on: each strict row reads the count (the\nfamily's ``count`` role, ``<counter>Counts``), the count record's own\ntimestamp and the epoch (the family's ``epoch`` role, a string that\nchanges whenever the count restarts). At most one witness per domain.\nNames only, as every entry: the records are the family's.",
+      "properties": {
+        "kind": {
+          "const": "witness",
+          "description": "Device kind: 'witness' (a counter of a trigger domain's edges).",
+          "title": "Kind",
+          "type": "string"
+        },
+        "template": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema.",
+          "title": "Template"
+        },
+        "counter": {
+          "default": "Counter1",
+          "description": "The counter record's name stem under the device's prefix: the count is '<counter>Counts'. It must be the family's count record.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "title": "Counter",
+          "type": "string"
+        },
+        "domain": {
+          "default": "main",
+          "description": "The trigger domain it counts (a plain word): the edges every synchronous device of that domain sees. One witness per domain; strict runs record the 'main' domain's.",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Domain",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Witness",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -182,7 +227,8 @@
           "mapping": {
             "aravis_camera": "#/$defs/AravisCamera",
             "epics_motor": "#/$defs/EpicsMotor",
-            "setpoint_device": "#/$defs/SetpointDevice"
+            "setpoint_device": "#/$defs/SetpointDevice",
+            "witness": "#/$defs/Witness"
           },
           "propertyName": "kind"
         },
@@ -195,6 +241,9 @@
           },
           {
             "$ref": "#/$defs/SetpointDevice"
+          },
+          {
+            "$ref": "#/$defs/Witness"
           }
         ]
       },

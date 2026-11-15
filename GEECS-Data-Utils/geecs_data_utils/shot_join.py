@@ -1,22 +1,22 @@
 """Join a run's per-frame stream columns onto its shot rows.
 
-A strict run records every essential device in the ``primary`` event rows,
-so its s-file is those rows renamed (:mod:`geecs_data_utils.tiled_export`).
-Two shapes of the native-Bluesky scanner put per-shot values *outside* the
-rows instead:
+A strict run before the shot-table layout recorded every device it waited
+on in the ``primary`` event rows, so its s-file is those rows renamed
+(:mod:`geecs_data_utils.tiled_export`).  Every other shape puts per-shot
+values *outside* the rows:
 
 - a **gated** run's frames and their per-frame scalars live in each
   plugin-backed camera's stack, referenced by a datum-only stream with no
   events at all; its rows are the per-shot sampler's ``shots`` events;
-- a **non-essential** camera streams for a whole run into its own
-  ``<name>_stream``, and its frame for shot *k* may arrive during *k+1*;
-- a **non-essential** triggered device *without* a file plugin (a
-  LabVIEW-native saver, a scalar device with a stamp) records one event
-  per stamp it publishes in its own ``<name>_stream``
-  (:func:`frame_columns_from_events`) — at its own rate, slower than the
-  rows' if it is slow.
+- a device streamed for the run into its own ``<name>_stream`` (every
+  per-shot device of a shot-table run; a gated run's devices not
+  required): a camera's frame for shot *k* may arrive during *k+1*;
+- such a triggered device *without* a file plugin (a LabVIEW-native
+  saver, a scalar device with a stamp) records one event per stamp it
+  publishes (:func:`frame_columns_from_events`) — at its own rate, slower
+  than the rows' if it is slow.
 
-Both are joined to the rows by the one shot identity GEECS has, the
+All are joined to the rows by the one shot identity GEECS has, the
 device's ``acq_timestamp``.  Cross-device stamps of one shot differ by a
 per-device constant — the camera's drain offset — so the join corrects
 each
@@ -32,10 +32,9 @@ one frame per row and one row per frame — so no window arithmetic has to
 carry the "a frame belongs to one row" invariant on its own.
 
 A frame no row claims is an **orphan**: the extra edge at a step's end, a
-frame taken during an interrupted step, a non-essential device's frame or
-event for a shot nobody recorded.  It stays in the stack and in Tiled and is left out
-of the s-file (Sam, 2026-09-12): one s-file row per
-essential shot, always.
+frame taken during an interrupted step, a streamed device's frame or
+event for a shot nobody recorded.  It stays in the stack and in Tiled and
+is left out of the s-file: one s-file row per row of the run, always.
 
 Pure arithmetic over arrays — no I/O, no Bluesky, no pandas — so both the
 worker's live callback (reading the stacks off the share at the stop
@@ -67,16 +66,30 @@ ACQ_TIMESTAMP_SUFFIX = "-acq_timestamp"
 #: re-export reads it back out of Tiled.
 SHOTS_STREAM = "shots"
 
-#: A non-essential device's stream is ``<ophyd name>`` + this suffix, in
-#: either mode: a plugin camera's datum-only stream, or the event stream a
+#: A streamed device's stream is ``<ophyd name>`` + this suffix, in every
+#: mode: a plugin camera's datum-only stream, or the event stream a
 #: triggered device without a plugin gets (one event per stamp it
 #: published).  A document contract like :data:`SHOTS_STREAM`.
-NON_ESSENTIAL_STREAM_SUFFIX = "_stream"
+DEVICE_STREAM_SUFFIX = "_stream"
 
 #: The stack attribute suffix that carries a frame's GEECS acquisition
 #: stamp (``geecs_data_utils.io.scan_stack.TIMESTAMP_SUFFIX``); as an
 #: s-file column it is spelled like the strict row's, ``<device> acq_timestamp``.
 FRAME_STAMP_SUFFIX = "frame_acq_timestamp"
+
+#: The non-device clocks a shot-table run's start document may name as its
+#: ``shot_clock_column``: row columns of their own, not a device's ``-acq_timestamp``.  A soft-tick
+#: (fly-mode) run writes its ticks into the witness columns.
+NON_DEVICE_CLOCK_COLUMNS = ("witness_stamp", "fire_stamp")
+
+#: The row columns stamped in **Unix** seconds (CA record times and the
+#: worker's clock).  Every other stamp the join reads is in the **LabVIEW**
+#: epoch: a row's ``<device>-acq_timestamp``, an event stream's, and
+#: :attr:`FrameColumns.stamps` (a stack's Unix stamps — GEECS or a native
+#: camera's EPICS pair — are shifted on read,
+#: :func:`frame_columns_from_attributes`).  :func:`to_labview_epoch` is the
+#: one place a row clock crosses between the two.
+UNIX_EPOCH_COLUMNS = frozenset({"witness_stamp", "fire_stamp", "announce_stamp"})
 
 #: Row stamps closer together than this are one row's publish race, not two
 #: shots, and are ignored when sizing a window.
@@ -122,7 +135,7 @@ class FrameColumns:
 
         The worker knows how many frames a stream's datums referenced;
         anything past that is in the file but not in the documents (a
-        non-essential camera keeps writing between its ``collect`` and its
+        streamed camera keeps writing between its last ``collect`` and its
         ``unstage``), and joining it would put a value in the s-file for a
         frame the catalog does not have.
         """
@@ -163,9 +176,9 @@ class ShotJoin:
         return sum(1 for index in self.frame_for_shot if index is not None)
 
 
-def non_essential_stream(object_name: str) -> str:
-    """The stream a non-essential device's data goes to (``uc_haso`` → ``uc_haso_stream``)."""
-    return f"{object_name}{NON_ESSENTIAL_STREAM_SUFFIX}"
+def device_stream(object_name: str) -> str:
+    """The stream a streamed device's data goes to (``uc_haso`` → ``uc_haso_stream``)."""
+    return f"{object_name}{DEVICE_STREAM_SUFFIX}"
 
 
 def numeric_data_keys(data_keys: Mapping[str, Any]) -> list[str]:
@@ -188,9 +201,9 @@ def frame_columns_from_events(
     *,
     keys: Sequence[str] = (),
 ) -> FrameColumns | None:
-    """Build a :class:`FrameColumns` from a non-essential device's event stream.
+    """Build a :class:`FrameColumns` from a streamed device's event stream.
 
-    A triggered device without a file plugin, listed non-essential, records
+    A streamed triggered device without a file plugin records
     one event per stamp it published (``<name>_stream``,
     GeecsBluesky's ``StampStream``): its ``<name>-acq_timestamp`` and its
     scalars, the spellings a strict row uses.  Each event is one "frame"
@@ -260,14 +273,16 @@ def shot_clock_column(
     order:
 
     1. ``shot_clock_column``, the column itself — what the plan records
-       from GeecsBluesky 0.85;
+       from GeecsBluesky 0.85; a shot-table run names a non-device clock
+       (:data:`NON_DEVICE_CLOCK_COLUMNS`), in the Unix epoch, so pass the
+       values through :func:`to_labview_epoch`;
     2. ``shot_clock``, the GEECS *device* name, matched to a column by
        device name ignoring case and separators (the runs recorded before
        the plan knew to write the column — the mangling that produced the
        column lives in ``geecs_core.pv_naming`` and is never reimplemented
        here, so this is a match, not a derivation);
     3. the first ``detectors`` entry that has a stamp column — a strict
-       run's rows carry one per essential device, and any of them is a
+       run's rows carry one per device it waited on, and any of them is a
        valid clock because the join corrects both sides by their own
        offsets;
     4. the first stamp column at all.
@@ -285,10 +300,12 @@ def shot_clock_column(
     str or None
         The column name, or ``None`` when no row column is a stamp.
     """
+    named = start_doc.get("shot_clock_column")
+    if named in NON_DEVICE_CLOCK_COLUMNS and named in columns:
+        return str(named)  # a shot-table run's witness or fire clock
     stamps = [c for c in columns if c.endswith(ACQ_TIMESTAMP_SUFFIX)]
     if not stamps:
         return None
-    named = start_doc.get("shot_clock_column")
     if named:
         if str(named) in stamps:
             return str(named)
@@ -309,6 +326,41 @@ def shot_clock_column(
         if candidate in stamps:
             return candidate
     return stamps[0]
+
+
+def to_labview_epoch(column: str | None, values: Any) -> np.ndarray:
+    """*values* of row column *column* as float seconds in the LabVIEW epoch.
+
+    The one epoch conversion of the join: a :data:`UNIX_EPOCH_COLUMNS`
+    column is shifted by ``io.scan_stack.LABVIEW_EPOCH_OFFSET``
+    (2,082,844,800 s); any other column is already LabVIEW and is only
+    cast.
+    """
+    array = np.asarray(values, dtype=float)
+    if column in UNIX_EPOCH_COLUMNS:
+        from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+
+        return array + float(LABVIEW_EPOCH_OFFSET)
+    return array
+
+
+def clock_stamps(rows: Any, column: str) -> np.ndarray:
+    """The rows' clock *column* as float seconds in the LabVIEW epoch.
+
+    What every caller of :func:`shot_clock_column` should time against:
+    the column's values through :func:`to_labview_epoch`, so a shot-table
+    run's Unix ``witness_stamp`` / ``fire_stamp`` meets device stamps in
+    one epoch.  *rows* is a DataFrame or a mapping of columns, or a
+    sequence of row mappings (a document buffer); a row without the column
+    reads ``NaN``.  The s-file's join (``shot_table``, under
+    ``tiled_export.join_frame_columns``) and GeecsBluesky's
+    ``callbacks/stack_check`` (``_shot_stamps``) read their clocks here.
+    """
+    if isinstance(rows, Mapping) or hasattr(rows, "columns"):
+        values: Any = rows[column]
+    else:
+        values = [row.get(column, np.nan) for row in rows]
+    return to_labview_epoch(column, values)
 
 
 def clock_device(column: str) -> str:
@@ -512,11 +564,18 @@ def frame_columns_from_attributes(
 
     Notes
     -----
-    Stamps are recognised by GEECS attribute name only. A stock areaDetector
-    stack (a native EPICS camera) carries the EPICS pair instead —
-    ``io.scan_stack.frame_stamps`` reads it; teach this join the same rule
-    before native cameras are admitted to gated or non-essential runs
-    (refused in v1, so no such stack reaches it today).
+    A stock areaDetector stack (a native EPICS camera) carries no GEECS
+    stamp: its frames are stamped by the EPICS pair
+    (``NDArrayEpicsTSSec`` / ``NDArrayEpicsTSnSec``), read through
+    ``io.scan_stack.epics_pair_stamps`` — the conversion the stack check
+    and the camera's own row stamp use — and spelled
+    ``<object_name>-acq_timestamp`` as a strict row of that camera spells
+    it.  The pair itself is consumed, not a column; the GEECS stamp wins
+    when a stack has both.  The writer's other bare attributes
+    (``NDArrayUniqueId``, ``NDArrayTimeStamp``, the layout's markers) are
+    its bookkeeping, not scalars a strict row carries: no column — the
+    counter and ``WitnessCount`` reach the audit by name from the
+    attributes themselves (``shot_table.device_records``).
     """
     from geecs_data_utils.io.arrays import WAVEFORM_ATTRIBUTE_SUFFIXES
     from geecs_data_utils.io.scan_stack import parse_attribute_name
@@ -525,7 +584,10 @@ def frame_columns_from_attributes(
     stamps: np.ndarray | None = None
     columns: dict[str, np.ndarray] = {}
     raw_names: dict[str, str] = {}
+    native, skipped = _native_stamps(attributes)
     for name, values in attributes.items():
+        if name in skipped:
+            continue  # the EPICS pair, a native writer's bookkeeping
         parsed = parse_attribute_name(name)
         device = parsed[0] if parsed else object_name
         suffix = parsed[2] if parsed else name
@@ -546,6 +608,9 @@ def frame_columns_from_attributes(
             columns[key] = array
             if name in manifest:
                 raw_names[key] = str(manifest[name])
+    if stamps is None and native is not None:
+        stamps = native + float(labview_epoch_offset)
+        columns[f"{object_name}{ACQ_TIMESTAMP_SUFFIX}"] = stamps
     if stamps is None:
         logger.warning(
             "%s: no frame stamp among the stack's attributes (%s); not joined",
@@ -573,20 +638,54 @@ def frame_columns_from_attributes(
     )
 
 
+def _native_stamps(
+    attributes: Mapping[str, Any],
+) -> tuple[np.ndarray | None, frozenset[str]]:
+    """``(Unix stamps, names that are no column)`` of a native stack's attributes.
+
+    The stamps are the EPICS pair's (``io.scan_stack.epics_pair_stamps``)
+    when no GEECS stamp is present, else ``None``.  The pair is never a
+    column; on a native stack no bare name is either (the writer's
+    bookkeeping).
+    """
+    from geecs_data_utils.io.scan_stack import (
+        EPICS_TS_NSEC,
+        EPICS_TS_SEC,
+        epics_pair_stamps,
+        parse_attribute_name,
+    )
+
+    pair = frozenset({EPICS_TS_SEC, EPICS_TS_NSEC})
+    if any(
+        name == "acq_timestamp" or name.endswith(f"-{FRAME_STAMP_SUFFIX}")
+        for name in attributes
+    ):
+        return None, pair
+    stamps = epics_pair_stamps(attributes)
+    if stamps is None:
+        return None, pair
+    bare = (name for name in attributes if parse_attribute_name(name) is None)
+    return stamps, pair | frozenset(bare)
+
+
 __all__ = [
     "ACQ_TIMESTAMP_SUFFIX",
     "DEFAULT_SHOT_PERIOD_S",
     "FRAME_STAMP_SUFFIX",
-    "NON_ESSENTIAL_STREAM_SUFFIX",
+    "DEVICE_STREAM_SUFFIX",
+    "NON_DEVICE_CLOCK_COLUMNS",
     "SHOTS_STREAM",
+    "UNIX_EPOCH_COLUMNS",
     "FrameColumns",
     "ShotJoin",
     "clock_device",
+    "clock_stamps",
     "frame_columns_from_attributes",
     "frame_columns_from_events",
+    "device_stream",
     "join_frames_to_shots",
-    "non_essential_stream",
     "numeric_data_keys",
     "row_windows",
     "shot_clock_column",
+    "to_labview_epoch",
 ]
