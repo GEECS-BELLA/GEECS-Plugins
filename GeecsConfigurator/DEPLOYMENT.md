@@ -231,8 +231,17 @@ The steps below run as the admin account unless they say otherwise.
    - push an invalid document to an owned folder. The box refuses it, `/log`
      shows `refused`, and a save answers 502 until the branch is fixed.
 
-   Then unset `GEECS_CONFIGURATOR_BRANCH`, delete the trial branch, empty
-   `<STATE_DIR>` (it followed the trial branch), and restart.
+   Leaving the trial, in this order (the live checkout followed the trial
+   branch, so it is rebuilt from main):
+
+   1. the share's clone is clean on `main` (§ "Switching the configs root",
+      step 1, when it held edits);
+   2. set `GEECS_CONFIGURATOR_SHARE_CLONE` and unset
+      `GEECS_CONFIGURATOR_BRANCH`, **before** anything restarts: a restart
+      with no share to start from comes up *unverified* again;
+   3. stop the service, empty `<STATE_DIR>`, start it, and check `/healthz`
+      (`"main": "applied"`, `"share": "current"`, not unverified);
+   4. delete the trial branch on GitHub.
 
 ### Revoking a box's key
 
@@ -294,17 +303,43 @@ After the switch:
 ### 1. The share's edits, committed once (the maintainer's credential)
 
 The share's clone may hold edits made by hand or by the old writers (the
-scanner's presets, the worker's shot offsets, the portal's editor). They are
-committed once, before anything fast-forwards it:
+scanner's presets, the worker's shot offsets, the portal's editor): changed
+files, new (untracked) ones, and an IDE's folder. They are committed once,
+from any clone of the configs repo, before anything fast-forwards the share;
+the share itself is then only brought level with `main`:
 
-```
-cd "<the share's configs clone>"
-git status --short
-git add <each file to keep>
-git commit -m "Edits on the share before the configurator switch"
-git push origin main
-git status --short          # must print nothing
-```
+1. **List them** on the share: `git -C "<the share's configs clone>" status
+   --short` (` M` changed, `??` untracked).
+2. **Copy the changed and untracked files off the share** into a clone of
+   your own on `main`, at the same paths. An IDE's folder (`.idea/`,
+   `.vscode/`) is not a config: add it to the configs repo's `.gitignore`
+   instead of copying or deleting it.
+3. **Validate them** with the gate's own rule, from the configurator's env:
+
+   ```
+   python -m geecs_configurator.validation --root <your clone> <each copied path>
+   ```
+
+   Fix or leave out whatever it refuses.
+4. **Commit and push them to `main`** as the maintainer (the ruleset's
+   bypass), the `.gitignore` line with them.
+5. **Bring the share level**, as the service account (it owns the share's
+   files):
+
+   ```
+   cd "<the share's configs clone>"
+   git fetch origin
+   # each changed or untracked file must now match main, line endings aside
+   # (git diff against a commit cannot judge an untracked file, so compare contents):
+   git show origin/main:<path> | diff --strip-trailing-cr - <path>
+   git checkout -- .                    # drop the edits, now on main
+   rm <each untracked file now on main>
+   git merge --ff-only origin/main
+   git status --short                   # must print nothing
+   ```
+
+   A file whose content differs from `origin/main` stops here: it was
+   changed after the copy, so copy it again from step 2.
 
 Then wait for the configurator's next fetch (`GEECS_CONFIGURATOR_FETCH_SECONDS`,
 60 s by default) and check `/healthz`: `"main": "applied"`, `"share": "current"`.
@@ -318,9 +353,25 @@ GEECS_CONFIGURATOR_SHARE_CLONE=<the share's configs clone, the old GEECS_CONFIGS
 GEECS_CONFIGS_ROOT=<STATE_DIR>/live
 GEECS_CONFIGS_WRITE_ROOT=<STATE_DIR>/inbox
 GEECS_CONFIGURATOR_SCANNER_URL=<experiment>=http://127.0.0.1:<its scanner's port>,<instance experiment>=http://127.0.0.1:<its scanner's port>
-GEECS_CONFIGURATOR_ARCHIVER_COMMAND=<checkout root>/archiver-checkout/GeecsArchiver/.venv/bin/geecs-archiver
-GEECS_SCANNER_EXTRA_ARGS=<as before> --configurator-url http://127.0.0.1:<GEECS_CONFIGURATOR_PORT>
+GEECS_CONFIGURATOR_ARCHIVER_COMMAND=<the archiver env's bin>/geecs-archiver
+GEECS_SCANNER_EXTRA_ARGS=<as before> --configurator-url http://<the configurator's bind address>:<GEECS_CONFIGURATOR_PORT>
 ```
+
+`ARCHIVER_COMMAND` is the archiver checkout's Poetry env, wherever Poetry
+keeps it: with the envs in Poetry's cache (the bootstrap's default) there is
+no `.venv` in the checkout. Ask Poetry, as the service account:
+
+```
+cd <checkout root>/archiver-checkout/GeecsArchiver && poetry env info -p
+```
+
+and append `/bin/geecs-archiver` to the path it prints.
+
+`<the configurator's bind address>` is `GEECS_CONFIGURATOR_BIND`, or
+`127.0.0.1` when that is the loopback or `0.0.0.0`. A configurator bound to a
+lab interface does not answer on `127.0.0.1`: every same-host URL that names
+it (the scanner's `--configurator-url`, the checks of step 6) uses the bind
+address.
 
 `GEECS_CONFIGURATOR_SCANNER_URL` names each experiment's scanner (an instance's
 scanner is on its slot's port, `deploy/experiment.sh list`): a document of an
@@ -385,6 +436,10 @@ scanner_config_root_path = <STATE_DIR>/live
 scan_analysis_configs_path = <STATE_DIR>/live/scan_analysis_configs
 ```
 
+The file may carry more configs paths than these two (e.g.
+`image_analysis_configs_path`, `interlock_configs_path`): every path under the
+share's clone moves to the same place under `<STATE_DIR>/live`.
+
 ### 4. Units and Canopy's compose, re-rendered
 
 ```
@@ -393,7 +448,18 @@ deploy/render_units.sh /etc/geecs/site.env ~/deploy-staging
 GeecsCanopy/deploy/render_conf.sh /etc/geecs/site.env ~/deploy-staging/canopy
 ```
 
-Install with the `sudo` lines each prints. Canopy's compose now mounts the
+Install with the `sudo` lines each prints, but the units with the glob
+expanded by root (the admin account cannot list the service account's home,
+so a glob it expands finds nothing):
+
+```
+sudo sh -c 'install -m 0644 <the service account's home>/deploy-staging/*.service /etc/systemd/system/'
+sudo systemctl daemon-reload
+```
+
+When the promotion being deployed changed GeecsCanopy's code, re-rendering
+is not enough: rebuild the derived image before the restart (`dc build`,
+`GeecsCanopy/DEPLOYMENT.md`), else Canopy restarts on the old module. Canopy's compose now mounts the
 live checkout's own git dir (`<STATE_DIR>/repo.git/worktrees/live`) read-only
 at the same path, so its readers see a fast-forward's rewrite lock and never
 read the device registry or the operator policy as missing mid-rewrite.
@@ -409,8 +475,15 @@ sudo systemctl restart geecs-qserver geecs-qserver-ready geecs-scanner geecs-dat
 
 ### 6. Check
 
-- `curl -s http://127.0.0.1:<GEECS_CONFIGURATOR_PORT>/healthz` →
+- `curl -s http://<the configurator's bind address>:<GEECS_CONFIGURATOR_PORT>/healthz` →
   `"main": "applied"`, `"share": "current"`.
+- The portal's schema, each analysis kind (`analysis_recipe`,
+  `analysis_group`, `himg_job`):
+  `curl -s <GEECS_CONFIGURATOR_PORTAL_URL>/api/analysis/schema/<kind>` answers
+  a schema, and the configurator relays it:
+  `curl -sI http://<the configurator's bind address>:<GEECS_CONFIGURATOR_PORT>/api/schema/<kind>`
+  carries `X-Schema-Source: portal` (anything else names why the portal
+  was not asked or did not answer).
 - The scanner's `/api/status` → `readiness: "ready"`.
 - `git -C <STATE_DIR>/live status --short` prints nothing, now and after a
   scan.
