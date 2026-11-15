@@ -367,8 +367,13 @@ the share itself is then only brought level with `main`:
    `main` and names the share, which during a trial is after the restart in
    § "Once per services box", step 6's "Leaving the trial".)
 
-Then wait for the configurator's next fetch (`GEECS_CONFIGURATOR_FETCH_SECONDS`,
-60 s by default) and check `/healthz`: `"main": "applied"`, `"share": "current"`.
+Then, on a box whose configurator already follows `main` with the share
+named, restart it (`sudo systemctl restart geecs-configurator`) and check
+`/healthz`: `"main": "applied"`, `"share": "current"`. Waiting for its next
+fetch is not enough: the push of sub-step 4 moved main while the share was
+still dirty, so that fast-forward failed, and the share is tried again only
+at a start or when main next moves; until then `/healthz` keeps the old
+error. Run from "Leaving the trial", this check is that list's step 3.
 
 ### 2. site.env
 
