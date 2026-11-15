@@ -180,7 +180,7 @@ worker's compiler executes); the web scanner's actions panel queues
   queue (or remove the item) before resubmitting a corrected request;
   clients that blindly add-and-start will re-execute the failed item
   first.
-- **A gated (or strict) scan's first arm fails with `no frame within 8 s`
+- **A scan's first arm fails with `no frame within 8 s`
   right after a camera server restart** — the PVA gateway's file plugin
   arms its session on the *first frame* after `Capture=1`, and a freshly
   restarted DG645 comes up in its external-edges default: with the laser
@@ -200,7 +200,7 @@ worker's compiler executes); the web scanner's actions panel queues
   monitor): queue two `mv` items —
   `U_DG645_ShotControl.trigger_source` → `Single shot`, then
   `U_DG645_ShotControl.trigger_executesingleshot` → `on`. One frame reaches
-  the gateway and every later arm (strict or gated) is instant. The
+  the gateway and every later arm is instant. The
   scanner's move panel cannot do this (it takes numbers only); use
   `qserver queue add plan` or `REManagerAPI.item_add(BPlan("mv", …))`.
   Deliberately not engineered around: laser-off scanning is for testing.

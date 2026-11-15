@@ -199,7 +199,9 @@ layout; delete-when-executed is the whole discipline):
   `geecs_data_utils.shot_table` docstrings (the clock-step audit's limits
   among them). What gated keeps alive until it is retired, and what goes
   when the last LabVIEW device migrates, moved to `GeecsBluesky/CLAUDE.md`
-  ("Gated is frozen"). The open questions are on #1278.
+  ("Gated is frozen"; gated was deleted on 2026-11-14, and what goes at
+  the migration is now in that file's § "Acquisition"). The open
+  questions are on #1278.
 
 ## Every PR that changes a package
 

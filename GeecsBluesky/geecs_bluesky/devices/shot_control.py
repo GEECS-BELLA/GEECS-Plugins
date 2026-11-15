@@ -228,12 +228,9 @@ class ShotControl(StandardReadable):
             # Mirrors the standing state; "" until the first move.
             self.state, self._set_state = soft_signal_r_and_setter(str, "")
         self._resume_to: str | None = None
-        #: How many RunEngine pauses this box has seen — a gated step reads it
-        #: around its batch to learn a pause interrupted it (the step then
-        #: keeps the shots every device reached and continues from there).
+        #: How many RunEngine pauses this box has seen — the strict slot reads
+        #: it around a fire to learn a pause or suspension cut into the slot.
         self.pause_count = 0
-        #: The gated plan's hook while a batch holds the box (``hold_for_batch``).
-        self._batch_hook: Callable[[], None] | None = None
         super().__init__(name=name)
 
     @classmethod
@@ -322,26 +319,9 @@ class ShotControl(StandardReadable):
             self._standing = state.value
         self._set_state(self.standing_state)
 
-    def hold_for_batch(self, on_pause: Callable[[], None] | None) -> None:
-        """A gated batch holds the box (*on_pause*), or releases it (``None``).
-
-        While held, a pause calls *on_pause* synchronously **before** it
-        drives OFF — the plan's batch is over from that instant (its pending
-        statuses settle instead of timing out while the operator works) —
-        and the resume restores nothing: the plan re-arms the cameras for
-        the step's remaining shots and drives SCAN itself.
-        """
-        self._batch_hook = on_pause
-
     async def pause(self) -> None:
         """Stop edges on a RunEngine pause if the standing state lets them flow."""
         self.pause_count += 1
-        hook = self._batch_hook
-        if hook is not None:
-            try:
-                hook()
-            except Exception:
-                logger.exception("%s: the batch's pause hook failed", self.name)
         try:
             standing = self.standing_state
             if standing not in QUIESCE_FROM:
@@ -355,8 +335,7 @@ class ShotControl(StandardReadable):
                     self.profile_name,
                 )
                 return
-            if hook is None:
-                self._resume_to = standing  # a held batch restarts from the plan
+            self._resume_to = standing
             await self._drive(TriggerState.OFF)
             logger.info("%s: pause — %s → OFF", self.name, standing)
         except Exception:

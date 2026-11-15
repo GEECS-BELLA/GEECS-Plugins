@@ -8,8 +8,8 @@ source presses ``TriggerSoftware`` per shot and Line1 does not, a missed
 frame is the GEECS timeout, the
 writer keeps the IOC's layout with SWMR off, the row stamp is the frame's
 EPICS timestamp in the LabVIEW epoch through the reader's own conversion,
-``unstage`` restores the camera, a bounded fly prepare (a gated batch) is
-refused, and an unbounded prepare streams the frames the writer wrote,
+``unstage`` restores the camera, a bounded fly prepare (a counted batch)
+is refused, and an unbounded prepare streams the frames the writer wrote,
 armed and guarded as a strict run is.
 """
 
@@ -40,7 +40,7 @@ from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp
 from geecs_bluesky.devices.detector import (
     STRICT_TRIGGER_INFO,
     UNBOUNDED_TRIGGER_INFO,
-    gated_trigger_info,
+    FlyTriggerInfo,
 )
 from geecs_bluesky.devices import native
 from geecs_bluesky.devices.native import (
@@ -384,12 +384,17 @@ def test_a_lock_kept_by_this_workers_failed_restore_is_not_a_warning(
 def test_a_bounded_fly_prepare_is_refused(
     RE: RunEngine, tmp_path: Path, quota: int
 ) -> None:
-    """A gated batch (even of one shot) is refused; a kickoff needs an unbounded prepare."""
+    """A bounded batch (even of one shot) is refused; a kickoff needs an unbounded prepare."""
+    from ophyd_async.core import DetectorTrigger
+
+    bounded = FlyTriggerInfo(
+        trigger=DetectorTrigger.EXTERNAL_EDGE, number_of_events=quota
+    )
     cam, log = _camera(RE, tmp_path)
     _run(RE, lambda: cam.stage())
     log.clear()  # stage itself stops the writer (capture=False)
-    with pytest.raises(GeecsConfigurationError, match="no gated batch"):
-        _run(RE, lambda: cam.prepare(gated_trigger_info(quota)))
+    with pytest.raises(GeecsConfigurationError, match="no counted batch"):
+        _run(RE, lambda: cam.prepare(bounded))
     assert log == []  # refused before anything touched the camera
     with pytest.raises(GeecsConfigurationError, match="unbounded prepare"):
         _run(RE, lambda: cam.kickoff())

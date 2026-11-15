@@ -39,21 +39,22 @@ def test_start_seeds_total_and_never_inherits_the_previous_run() -> None:
     assert c.snapshot().planned_total is None
 
 
-def test_gated_rows_on_the_shots_stream_count_too() -> None:
+def test_only_primary_rows_count_never_a_device_streams_pages() -> None:
     c = StreamCache()
     c.on_document(
         "start",
         {"scan_number": 5, "plan_name": "scan", "num_points": 3, "shots_per_step": 4},
     )
     c.on_document("descriptor", {"uid": "p", "name": "primary"})
-    c.on_document("descriptor", {"uid": "s", "name": "shots"})
-    # a gated run's rows arrive as event pages, several per batch
-    c.on_document("event_page", {"descriptor": "s", "seq_num": [1, 2, 3]})
-    assert c.snapshot().shots_done == 3
-    c.on_document("event_page", {"descriptor": "s", "seq_num": [4, 5]})
-    assert c.snapshot().shots_done == 5
+    c.on_document("descriptor", {"uid": "c", "name": "uc_cam_stream"})
+    c.on_document("event", {"descriptor": "p", "seq_num": 1})
+    c.on_document("event", {"descriptor": "p", "seq_num": 2})
+    assert c.snapshot().shots_done == 2
+    # a device stream's events arrive as pages; they are never rows
+    c.on_document("event_page", {"descriptor": "c", "seq_num": [1, 2, 3, 4, 5]})
+    assert c.snapshot().shots_done == 2
     c.on_document("event_page", {"descriptor": "p", "seq_num": []})  # no rows
-    assert c.snapshot().shots_done == 5
+    assert c.snapshot().shots_done == 2
 
 
 def test_count_total_is_its_num() -> None:

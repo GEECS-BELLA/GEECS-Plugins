@@ -46,8 +46,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import refuse_native_cameras
 from geecs_bluesky.native_scope import NOT_CALIBRATION
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.plans.gated import TRIGGER_PERIOD_S, run_bracket
-from geecs_bluesky.plans.strict import fire_and_await_shot
+from geecs_bluesky.plans.strict import fire_and_await_shot, run_bracket
 from geecs_bluesky.callbacks.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
 
@@ -88,10 +87,10 @@ DEFAULT_CALIBRATION_SHOTS = 10
 #: requested shots plus that many again to replace incomplete ones.
 _RETAKE_BUDGET = 2
 
-#: The trigger period assumed when a caller does not say — HTU's 1 Hz, the
-#: same default the gated batch uses.  Sizes the quiet confirmation window
-#: and the whole-shot folding in the sync check.
-DEFAULT_TRIGGER_PERIOD_S = TRIGGER_PERIOD_S
+#: The trigger period assumed when a caller does not say — the laser rep
+#: rate (HTU: 1 Hz).  Sizes the quiet confirmation window and the
+#: whole-shot folding in the sync check.
+DEFAULT_TRIGGER_PERIOD_S = 1.0
 
 #: A measured offset larger than this is refused for *writing*: a third of
 #: a second is outside anything a frame drain explains, so the measurement

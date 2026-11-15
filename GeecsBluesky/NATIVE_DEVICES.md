@@ -3,7 +3,7 @@
 Status: **built** — `NativeCamera` (#1117), the registry and the
 bind-time refusals (#1118); hardware acceptance pending. Once accepted,
 the rules below move into `CLAUDE.md` and this note is deleted. §6 (native
-cameras in gated runs) is set aside.
+cameras in gated runs) is moot: the gated mode was deleted on 2026-11-14.
 
 ## Why
 
@@ -43,7 +43,7 @@ gateway plugin cameras or not — in **strict** and **fly** `count` and
 (`geecs_data_utils.shot_table`), registered in Tiled, found by analysis.
 
 Refused at bind with a named error (not absent — each falls through a
-GEECS-only branch otherwise): gated runs, the
+GEECS-only branch otherwise): the
 calibration plans, `optimize` (its live frames match on gateway PVs),
 scan-mode profiles (the IOC never acknowledges `ScanStart`; box-less
 profiles fire no edge), a preset that asks for `X.scalars` of a native
@@ -141,7 +141,7 @@ with GEECS logics:
   would make the stock kickoff raise; its datum covers it anyway).
   `trigger()` on a stream is refused; a `Software`-source camera is pressed
   at the fire by `NativeCamera.press()` (refused on a hardware line, and
-  before the camera is acquiring). A **bounded** fly prepare (a gated
+  before the camera is acquiring). A **bounded** fly prepare (a counted
   batch) stays refused before the camera is touched.
 - **The run lock** (geecs-epics `run_lock.db` + `access.acf`): the run owns the camera from the
   **first** step of the first `prepare_edge` — before the source check and
@@ -275,13 +275,14 @@ With the camera cabled that way: the same 10-shot run with
 `trigger_source: line1` (or `line0`), and a deliberately blocked edge fails the step
 naming the camera.
 
-## 6. Gated runs — set aside
+## 6. Gated runs — moot
 
 A native camera in a gated batch was designed here (an append-only,
 stamp-joined essential, pause in place, trim to K; reviewed 2026-10-22)
-and set aside when gated was frozen (2026-11-04): a gated run refuses a
-native camera. The design is in git history (this file before the
-shot-synchronization arc's W3f). Its "non-essential streams" part is
+and set aside when gated was frozen (2026-11-04); the gated mode itself
+was deleted on 2026-11-14 (a request for it is refused by name). The
+design is in git history (this file before the shot-synchronization
+arc's W3f). Its "non-essential streams" part is
 built differently: a native camera streams in strict and fly runs,
 required or not.
 
@@ -371,8 +372,7 @@ text (the one failed-set log line, `log_failed_set`). A motor record
 
 **Scanner and preflight**: the settables list, the readback (`<axis>.RBV`)
 and the move are §10's. As a detector a positioner is a per-row scalar
-device (§10), so `acquisition_refusal` sees it only as a non-essential or
-a gated run's sole essential; `_check_liveness` probes only the preset's
+device (§10); `_check_liveness` probes only the preset's
 device entries (`expand_preset`'s `devices`), never a sweep axis; the
 worker's gate judges it (below).
 
@@ -387,8 +387,7 @@ provided as a soft signal as `CaSettable.offset` is — never the record's `.OFF
 **Liveness**: a motor record has no CONNECTED; the axis's alarm severity
 is the verdict — INVALID (COMM/UDF, what an asyn motor driver sets when
 the controller stops answering) reads down. **The gate's set grows by the
-run's movers**: `liveness_gate` sees only detectors and non-essentials
-today, while `sweep_movers` is already resolved in the same binder for
+run's movers**: `liveness_gate` sees only detectors today, while `sweep_movers` is already resolved in the same binder for
 `background_wrapper`; a device without `connected_status` gets a per-kind
 severity read. The IOC itself down is the connect failure at stage.
 
@@ -523,7 +522,8 @@ U_UndulatorExitICT: {kind: array_detector, trigger_source: external,
 Read **coherently**: a STAT value and the HDF count are separate plugin
 callbacks with no ordering between them, so the kind reads each scalar
 only when its plugin's `UniqueId_RBV` equals the written frame's (the
-`ShotSampler` rule for a member with a stamp of its own, by frame id)
+rule the deleted gated sampler applied to a member with a stamp of its
+own, by frame id)
 **and the computation that produces it is on**. NDPluginStats advances
 `UniqueId_RBV` for every array it receives but recomputes Total, Net, Min
 and Max only while `ComputeStatistics` is set, and the centroid family
@@ -575,9 +575,8 @@ open.
 **Bind-time refusals per kind.** The camera's list stands. A positioner
 or a setpoint device is admitted as a scan axis or an action target in
 every mode and as a strict detector per row, exactly as a
-`CaSnapshotReadable` is; refused as a non-essential — no shot stamp
-(`acquisition_refusal`'s existing sentence) — and as a gated run's only
-essential (the existing "nothing counts shots" rule). The array detector
+`CaSnapshotReadable` is; a condition, never `required` — no shot stamp.
+The array detector
 takes the camera's list plus §9's. The client's native set must be
 **kind-aware** for these to fire on the right devices: `expand_preset`'s
 `native_devices` becomes names → kind, its `scalars_only` /

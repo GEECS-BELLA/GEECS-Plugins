@@ -38,14 +38,14 @@ def test_full_preset_round_trips():
         "plan": {
             "name": "scan",
             "args": ["EMQ1 Current", 1.2, 1.7, 6],
-            "kwargs": {"shots_per_step": 20, "acquisition": "gated"},
+            "kwargs": {"shots_per_step": 20, "acquisition": "strict"},
         },
     }
     preset = Preset.model_validate(document)
     assert preset.plan == PlanCall(
         name="scan",
         args=["EMQ1 Current", 1.2, 1.7, 6],
-        kwargs={"shots_per_step": 20, "acquisition": "gated"},
+        kwargs={"shots_per_step": 20, "acquisition": "strict"},
     )
     assert preset.model_dump(mode="json") == document
     assert [d.required for d in preset.devices] == [True, True, False]

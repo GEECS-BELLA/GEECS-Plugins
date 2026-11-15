@@ -576,7 +576,6 @@
     Array.prototype.forEach.call($("acq").querySelectorAll("button"), function (b) {
       b.setAttribute("aria-pressed", String(b.dataset.acq === acq));
     });
-    $("period").disabled = acq === "gated";
     recalc();
   }
   $("mode").addEventListener("click", function (e) {
@@ -618,7 +617,7 @@
       var preview = composer.result(); steps = preview ? preview.total_steps : 0;
     }
     var total = count ? shots : steps * shots;
-    var period = S.acq !== "gated" && $("period").value !== "" ? Number($("period").value) : null;
+    var period = $("period").value !== "" ? Number($("period").value) : null;
     var periodOk = period === null || (Number.isFinite(period) && period > 0);
     setInvalid("period", !periodOk); ok = ok && periodOk;
     var time = period ? " · ~<b>" + fmtSecs(total * period) + "</b> at " + period + " s/shot" : "";
@@ -664,7 +663,7 @@
       if (name === "count") kwargs.num = shots;
       else { kwargs.shots_per_step = shots; kwargs.sweep = composer.value(); }
     }
-    if (S.acq !== "gated" && $("period").value !== "") kwargs.shot_period = Number($("period").value);
+    if ($("period").value !== "") kwargs.shot_period = Number($("period").value);
     else delete kwargs.shot_period;
     return {name: S.presetName || "adhoc", description: $("desc").value.trim(), trigger_profile: $("trig").value || null,
       native_image_save: nativeSave === "" ? null : nativeSave === "true",

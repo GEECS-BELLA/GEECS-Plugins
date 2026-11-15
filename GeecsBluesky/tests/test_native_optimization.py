@@ -468,7 +468,7 @@ def test_a_stamped_snapshot_still_reading_at_the_bins_end_still_counts(
     """
     import asyncio
 
-    from geecs_bluesky.devices import sampler
+    from geecs_bluesky.devices import stamp_stream as sampler
 
     merge = sampler.merge_gathered_dicts
 
@@ -584,7 +584,7 @@ def test_a_stamp_whose_read_failed_settles_rather_than_wedges(setup):
     """A stamp recorded as failed counts as settled: the bin never waits for it."""
     import asyncio
 
-    from geecs_bluesky.devices.sampler import StampStream
+    from geecs_bluesky.devices.stamp_stream import StampStream
     from geecs_bluesky.plans.optimize import _Settle
     from tests.test_strict_plans import _camera
 

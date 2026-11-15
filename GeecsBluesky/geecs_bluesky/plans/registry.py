@@ -1,7 +1,7 @@
 """Register Count, Sweep, Optimize and utility plans over the worker namespace.
 
-The acquisition binder supplies strict/gated hooks, the liveness gate,
-trigger bracket, non-essential streaming and shot throttling. Count uses
+The acquisition binder supplies the strict and fly hooks, the liveness
+gate, the trigger bracket, the device streams and shot throttling. Count uses
 stock Bluesky count; Sweep delegates traversal to scan_nd. Moving stock
 verbs remain implementation details, never public queue entries.
 """
@@ -39,23 +39,17 @@ from geecs_bluesky.devices.native_setpoint import (
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.devices.witness import Witness, witness_is_down
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
-from geecs_bluesky.native_scope import NOT_GATED, NOT_SCAN_MODE
+from geecs_bluesky.native_scope import NOT_SCAN_MODE
 from geecs_bluesky.plan_names import (
     ACQUISITION_MODES,
     GEECS_PLAN_NAMES,
     NON_SCAN_PLAN_NAMES,
+    acquisition_refusal,
 )
 from geecs_bluesky.actions.compiler import SettableFactory, run_action_plan
 from geecs_bluesky.plans.calibration import (
     check_shot_sync_plan,
     measure_shot_offsets_plan,
-)
-from geecs_bluesky.plans.gated import (
-    gated_per_shot,
-    gated_per_step,
-    non_essential_wrapper,
-    run_bracket,
-    shot_clock,
 )
 from geecs_bluesky.plans.scan_mode import (
     EnterScanMode,
@@ -73,7 +67,7 @@ from geecs_bluesky.plans.on_demand import (
     start_keys,
 )
 from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
-from geecs_bluesky.plans.strict import geecs_name, name_failed_status
+from geecs_bluesky.plans.strict import geecs_name, name_failed_status, run_bracket
 from geecs_bluesky.plans.sweep import sweep_movers, sweep_plan
 from geecs_bluesky.utils import safe_name
 
@@ -241,7 +235,7 @@ def run_witness(
     The namespace's ``main``-domain witness, read with every strict row and
     never waited on.  ``(None, None)`` when the namespace has no witness;
     ``None`` with a ``reason`` when it has one but this run does not read
-    it: none for ``main``, a gated run (not yet), a box-less profile
+    it: none for ``main``, a fly run (the soft tick clocks it), a box-less profile
     (nothing fired for it to count) or a witness that does not answer
     within 5 s (``down``: WARNING-logged, the run proceeds).  With no
     triggered device among *readers*, nothing waits for the shot, so a row
@@ -260,9 +254,7 @@ def run_witness(
         return None, {"device": None, "domain": "main", "read": False, "reason": reason}
     record = {"device": witness._geecs_device_name, "domain": "main", "read": False}
     reason = None
-    if acquisition == "gated":
-        reason = "a gated run does not read the witness yet"
-    elif acquisition == "fly":
+    if acquisition == "fly":
         reason = "a fly run is clocked by the soft tick"
     elif getattr(shot_control, "boxless", False):
         reason = "a box-less profile fires nothing for the witness to count"
@@ -420,8 +412,7 @@ def background_wrapper(
 ) -> Any:
     """Probe the background set right before ``open_run``; record the result in the start document.
 
-    *own* is the run's own reader list (its detectors and non-essential
-    devices) and *movers* the motors it moves — the bound plan knows both
+    *own* is the run's own reader list (its detectors) and *movers* the motors it moves — the bound plan knows both
     before the run (the sweep resolves its axes when it is built, optimize
     holds its movables), so
     :meth:`~geecs_bluesky.devices.background.BackgroundSnapshot.probe`
@@ -473,12 +464,8 @@ def native_image_save_wrapper(
     - a ``.scalars`` view is skipped: the view leaves its owner's data
       logics unprepared (``GeecsDetectorScalars``), so the owner writes
       nothing either way;
-    - a fly prepare (a gated batch, a non-essential stream) leaves a
-      plugin-backed camera's native logic out of the context — and a
-      native saver without a plugin (a gated essential, a non-essential in
-      either mode) keeps its files as its only record — so the bound plan
-      applies this wrapper to strict runs only and never passes
-      ``non_essential``.
+    - a native saver without a plugin keeps its files as its only
+      record, so this switch never reaches it.
 
     Restored to the construction default — on, the dual-write — by a
     ``finalize_wrapper``, success, abort or stop alike.  ``RE.halt()``
@@ -491,8 +478,7 @@ def native_image_save_wrapper(
     plan :
         The bound plan (staging inside it).
     detectors :
-        The run's strict detectors (views and non-essential devices are
-        ignored).
+        The run's detectors (views are ignored).
     enabled :
         ``False`` = the plugin's stack is those cameras' only record this run.
     """
@@ -533,15 +519,13 @@ def native_image_save_wrapper(
     return (yield from bpp.finalize_wrapper(plan, restore()))
 
 
-def refuse_native_run(
-    detectors: Sequence[Any], *, acquisition: str, shot_control: Any
-) -> None:
+def refuse_native_run(detectors: Sequence[Any], *, shot_control: Any) -> None:
     """Refuse a scan verb's run shape a native camera cannot take part in yet.
 
     Called before anything moves and before the claim: a native camera
     takes part in a strict run under a box-fired profile, required or not,
     beside gateway plugin cameras or not (its own stream).  Refused: a
-    gated run (frozen) and a scan-mode profile (LabVIEW-only).  The
+    scan-mode profile (LabVIEW-only).  The
     cabling check and the run lock hold at the camera's prepare.
 
     Raises
@@ -549,8 +533,6 @@ def refuse_native_run(
     GeecsConfigurationError
         Naming the native camera(s) and the reason.
     """
-    if acquisition == "gated":
-        refuse_native_cameras(detectors, NOT_GATED)
     if shot_control.use_scan_mode:
         refuse_native_cameras(detectors, NOT_SCAN_MODE)
 
@@ -669,20 +651,14 @@ def strict_plan(  # noqa: C901, PLR0915
         background = resolve_background_telemetry(
             kwargs.pop("background_telemetry", None), resolver
         )
-        if acquisition not in ACQUISITION_MODES:
-            raise GeecsConfigurationError(
-                f"acquisition={acquisition!r} is not one of {ACQUISITION_MODES}"
-            )
+        refused = acquisition_refusal(acquisition)
+        if refused is not None:
+            raise GeecsConfigurationError(refused)
         if shot_period is not None:
             shot_period = float(shot_period)
             if shot_period <= 0:
                 raise GeecsConfigurationError(
                     f"shot_period must be positive seconds, got {shot_period}"
-                )
-            if acquisition == "gated":
-                raise GeecsConfigurationError(
-                    "shot_period is a strict-mode throttle: a gated batch runs "
-                    "at the box's rate (drop shot_period or use acquisition='strict')"
                 )
         fly = acquisition == "fly"
         # A fly run drives no box, so it resolves no default profile: only a
@@ -708,30 +684,19 @@ def strict_plan(  # noqa: C901, PLR0915
             shot_period = DEFAULT_TICK_PERIOD_S
         bound_args = signature.bind_partial(*args, **kwargs).arguments
         detectors = list(bound_args.get("detectors") or ())
-        refuse_native_run(detectors, acquisition=acquisition, shot_control=shot_control)
+        refuse_native_run(detectors, shot_control=shot_control)
         refuse_listed_witness(detectors)
         per_shot = [d for d in detectors if is_per_shot(d)]
         _refuse_twice_listed(per_shot)
         required = resolve_required(per_shot, required_arg)
-        non_essential: list[Any] = []
-        if acquisition == "gated":
-            # Gated keeps its shape: the required devices are its detectors
-            # (and its clock candidates), the others stream non-essential.
-            non_essential = [d for d in per_shot if all(d is not r for r in required)]
-            detectors = [d for d in detectors if all(d is not n for n in non_essential)]
         # Scan mode (#1084): the profile's flag selects it; refuse what it
         # cannot carry before the box is driven, then thread the control
         # through the hook (the announce before every fire, the row's
         # column) and bracket the run with the entry and the exit.
         announce = scan_mode if shot_control.use_scan_mode else None
-        run_devices = run_device_names(detectors, non_essential, shot_control)
+        run_devices = run_device_names(detectors, shot_control)
         if shot_control.use_scan_mode:
-            scan_mode_preflight(
-                shot_control,
-                scan_mode,
-                acquisition=acquisition,
-                run_devices=run_devices,
-            )
+            scan_mode_preflight(shot_control, scan_mode, run_devices=run_devices)
         md = dict(kwargs.pop("md", None) or {})
         # The key the plan resolved (the configs-repo file stem), not the
         # profile's own name field — so the start document replays.
@@ -740,12 +705,6 @@ def strict_plan(  # noqa: C901, PLR0915
         md["use_scan_mode"] = shot_control.use_scan_mode
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
-        if acquisition == "gated":
-            # The OWNER's name: a ``.scalars`` view streams into
-            # ``<owner>_stream``, and the s-file finds the stream by this list.
-            md["non_essential"] = [
-                getattr(owner_of(d), "name", str(d)) for d in non_essential
-            ]
         md["native_image_save"] = native_files
         snapshot = background_snapshot(settables, mock=mock) if background else None
         md["background_telemetry"] = snapshot is not None
@@ -759,44 +718,13 @@ def strict_plan(  # noqa: C901, PLR0915
         tick = None
         if shot_period is not None:
             md["shot_period"] = shot_period
-        if acquisition == "gated":
-            clock, clock_name = shot_clock(detectors)
-            md["shot_clock"] = clock_name
-            # The row COLUMN as well as the device: the s-file writer and the
-            # offline re-export need the column the sampler writes, and
-            # deriving it from the device name would put a second copy of the
-            # naming contract in a package that cannot import it.
-            md["shot_clock_column"] = clock.name
-            if hook == "per_step":
-                kwargs[hook] = gated_per_step(
-                    shot_control, shots_per_step=shots_per_step
-                )
-            else:
-                num = bound_args.get("num", 1)
-                if num is None:
-                    raise GeecsConfigurationError(
-                        "a gated count needs a finite num (the batch size)"
-                    )
-                delay = bound_args.get("delay", 0.0)
-                if _has_delay(delay):
-                    # The stock repeat loop sleeps `delay` after every one of
-                    # its `num` iterations, and the gated hook does its work
-                    # on the first only — the run would idle (num-1)×delay
-                    # after the batch.  A delay between shots is a strict
-                    # notion; the batch runs at the box's rate.
-                    raise GeecsConfigurationError(
-                        f"delay={delay!r} is a strict-mode spacing between shots: a "
-                        "gated count is one batch at the box's rate (drop delay "
-                        "or use acquisition='strict')"
-                    )
-                kwargs[hook] = gated_per_shot(shot_control, quota=int(num))
-        elif fly:
+        if fly:
             if hook == "per_shot" and _has_delay(bound_args.get("delay", 0.0)):
                 raise GeecsConfigurationError(
                     f"delay={bound_args.get('delay')!r} spaces strict shots: a fly "
                     "count is spaced by its tick (drop delay; set shot_period)"
                 )
-            streams = DeviceStreams(per_shot, dual_write=True)
+            streams = DeviceStreams(per_shot)
             tick, keys, kwargs[hook] = bind_fly(
                 streams,
                 required,
@@ -806,7 +734,7 @@ def strict_plan(  # noqa: C901, PLR0915
             )
             md.update(keys)
         else:
-            streams = DeviceStreams(per_shot, dual_write=True)
+            streams = DeviceStreams(per_shot)
             run = OnDemand(
                 shot_control,
                 streams,
@@ -823,31 +751,20 @@ def strict_plan(  # noqa: C901, PLR0915
                 if hook == "per_step"
                 else on_demand_per_shot(run, scan_mode=announce)
             )
-        # The rows' readers: in a strict run the conditions (every per-shot
-        # device is in its own stream), then the witness and the background,
-        # neither triggered nor waited on (the background is sampled at the
-        # tick in a gated batch, which has no witness).
-        rows = (
-            detectors
-            if acquisition == "gated"
-            else [d for d in detectors if not is_per_shot(d)]
-        )
+        # The rows' readers: the conditions (every per-shot device is in its
+        # own stream), then the witness and the background, neither
+        # triggered nor waited on.
+        rows = [d for d in detectors if not is_per_shot(d)]
         extras = [d for d in (witness, tick, snapshot) if d is not None]
-        if acquisition != "gated":
-            # The stock key keeps naming every device the run records.
-            md["detectors"] = [
-                getattr(d, "name", str(d)) for d in [*detectors, *extras]
-            ]
+        # The stock key keeps naming every device the run records.
+        md["detectors"] = [getattr(d, "name", str(d)) for d in [*detectors, *extras]]
         listed = list(bound_args.get("detectors") or ())
         if extras or len(rows) != len(listed):
             bound = signature.bind_partial(*args, **kwargs)
             bound.arguments["detectors"] = [*rows, *extras]
             args, kwargs = bound.args, dict(bound.kwargs)
         inner = stock(*args, md=md, **kwargs)
-        if acquisition == "gated":
-            inner = non_essential_wrapper(inner, non_essential)
-        else:
-            inner = streams.wrap(inner)
+        inner = streams.wrap(inner)
         if tick is not None:
             inner = tick.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
@@ -858,15 +775,8 @@ def strict_plan(  # noqa: C901, PLR0915
                 if payload is not None and settables is not None
                 else []
             )
-            inner = background_wrapper(
-                inner, snapshot, own=[*detectors, *non_essential], movers=movers
-            )
-        if acquisition != "gated":
-            # A gated batch is a fly prepare: a plugin-backed camera's native
-            # logic is left out of the context and a native-saving essential
-            # (no plugin) saves whatever the switch says, so there is nothing
-            # to switch (nor to log).
-            inner = native_image_save_wrapper(inner, detectors, native_files)
+            inner = background_wrapper(inner, snapshot, own=detectors, movers=movers)
+        inner = native_image_save_wrapper(inner, detectors, native_files)
         if announce is not None:
             # Inside the trigger bracket: ARMED, then ScanStart (a refused
             # entry claims nothing), the run, ScanEnd, then STANDBY.
@@ -877,17 +787,18 @@ def strict_plan(  # noqa: C901, PLR0915
             )
         if fly:
             # Nothing on the box: no state, no fire, no liveness read.
-            yield from liveness_gate(None, [*detectors, *non_essential])
+            yield from liveness_gate(None, detectors)
             logger.info("%s", BOX_NOT_DRIVEN)
             return (yield from name_failed_status(inner))
-        opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim.
-        yield from liveness_gate(shot_control, [*detectors, *non_essential])
+        yield from liveness_gate(shot_control, detectors)
         # A failure outside the stock plan's run_wrapper (the bracket's own
-        # move, a non-essential prepare) is named here; one inside it is
-        # named by the hook, before run_wrapper writes the stop document.
+        # move) is named here; one inside it is named by the hook, before
+        # run_wrapper writes the stop document.
         return (
-            yield from name_failed_status(run_bracket(inner, shot_control, opening))
+            yield from name_failed_status(
+                run_bracket(inner, shot_control, TriggerState.ARMED)
+            )
         )
 
     # The stock ``*args`` annotations are informational (``list_scan`` even
@@ -1052,18 +963,12 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
     if hook == "per_step":
         extra += (
             "    shots_per_step : int, optional\n"
-            "        Shots recorded at every position (default 1): strict single\n"
-            "        shots, or one gated batch of that size.\n"
+            "        Shots recorded at every position (default 1).\n"
         )
     extra += (
-        "    acquisition : {'strict', 'gated', 'fly'}, optional\n"
-        "        'strict' (default) fires the box once per row; 'gated' lets it\n"
-        "        free-run while the plugin-backed cameras count a batch — the\n"
-        "        run is bracketed OFF → STANDBY, frames go to 'primary' as datums\n"
-        "        and one 'shots' event per shot carries everything else.  A\n"
-        "        device without a file plugin saves its LabVIEW files run-long\n"
-        "        (on at the first step, off at unstage); a dropped frame is a\n"
-        "        missing file, never a retake.  'fly' never drives the box: a\n"
+        "    acquisition : {'strict', 'fly'}, optional\n"
+        "        'strict' (default) fires the box once per row (the retired\n"
+        "        'gated' is refused by name).  'fly' never drives the box: a\n"
         "        software tick every shot_period (default 1 s) is the shot, a\n"
         "        Software-source native camera is pressed at each tick and\n"
         "        every other device free-runs; a scan-mode profile is refused.\n"
@@ -1072,13 +977,13 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
         "        cameras) whose record makes a shot complete: waited on and\n"
         "        refired for.  None (default) = every per-shot device; [] =\n"
         "        none.  Strict: every per-shot device streams into its own\n"
-        "        '<name>_stream' and 'primary' is the shot table; gated: the\n"
-        "        others stream non-essential.  A device with no stamp is a\n"
-        "        condition, read in every row, and cannot be required.\n"
+        "        '<name>_stream' and 'primary' is the shot table.  A device\n"
+        "        with no stamp is a condition, read in every row, and cannot\n"
+        "        be required.\n"
         "    shot_period : float, optional\n"
         "        Strict: seconds between fires (a deliberate rep-rate\n"
         "        throttle); None fires as fast as the shot allows.  Fly: the\n"
-        "        tick period.  A gated or fly count refuses a nonzero delay.\n"
+        "        tick period.  A fly count refuses a nonzero delay.\n"
         "    native_image_save : bool, optional\n"
         "        Whether the plugin-backed cameras also write their LabVIEW\n"
         "        per-shot files (PNGs) beside the plugin's stack; the experiment\n"
@@ -1094,7 +999,7 @@ def _geecs_doc(stock: Callable[..., Any], hook: str) -> str:
     return (
         f"GEECS {stock.__name__}: the stock plan with the trigger box driven "
         f"by the worker — fired between trigger and wait on every shot "
-        f"(strict), or free-running through a counted batch (gated).\n\n"
+        f"(strict), or not driven at all (fly).\n\n"
         f"{inspect.getdoc(stock) or ''}\n\n"
         f"    Other Parameters\n    ----------------\n{extra}"
     )
