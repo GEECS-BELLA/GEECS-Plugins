@@ -403,8 +403,8 @@ svg.has-sel .step:not(.on){opacity:.25}
   <h2>What runs where today</h2>
   <p class="sub" style="margin:0 0 12px">A sketch. The <a href="../../platform/fleet_map/">Fleet Map</a> is the authoritative table of hosts, ports, health checks and runbooks, and the place drift is reconciled.</p>
   <div class="hosts">
-    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>CA gateway and GEECS DB. Tiled and the worker-side services ran here too until 2026-10-30.</p></div>
-    <div class="host"><div class="h">Services box</div><div class="ip">192.168.6.22 · Ubuntu 24.04 · systemd</div><p>Tiled and the worker-side services since 2026-10-30: queueserver, Tiled writer, scanner, GEECS-MCP HTTP, Data Portal, logbook, Archiver Appliance. Canopy and the Control Room were set up here after the move.</p></div>
+    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>GEECS DB. The CA gateway ran here until 2026-11-15, Tiled and the worker-side services until 2026-10-30.</p></div>
+    <div class="host"><div class="h">Services box</div><div class="ip">192.168.6.22 · Ubuntu 24.04 · systemd</div><p>Tiled and the worker-side services since 2026-10-30: queueserver, Tiled writer, scanner, GEECS-MCP HTTP, Data Portal, logbook, Archiver Appliance; the CA gateway since 2026-11-15. Canopy and the Control Room were set up here after the move.</p></div>
     <div class="host"><div class="h">Camera servers</div><div class="ip">Windows · NSSM service</div><p>One PVA image gateway per host, beside the LabVIEW camera devices. It serves the live frames and writes the scan's HDF5 stacks. Images never transit the central server.</p></div>
     <div class="host"><div class="h">Device hosts</div><div class="ip">Windows · LabVIEW</div><p>GEECS devices as always. Nothing installed for this stack; the gateway speaks their existing UDP/TCP protocol.</p></div>
     <div class="host"><div class="h">Data share</div><div class="ip">NAS · SMB</div><p>The scan folder tree. Written by the engine, the PVA gateways and LabVIEW; read by everyone else.</p></div>

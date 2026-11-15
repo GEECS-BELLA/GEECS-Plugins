@@ -145,7 +145,7 @@ Which subnet the CA server serves/beacons on is controlled by the standard
 EPICS server env vars, set in the deployment environment:
 
 ```bash
-export EPICS_CAS_INTF_ADDR_LIST="192.168.6.14"     # serve only on the lab interface
+export EPICS_CAS_INTF_ADDR_LIST="192.168.6.22"     # serve only on the lab interface
 export EPICS_CAS_BEACON_ADDR_LIST="192.168.6.255"  # beacon to the lab subnet
 ```
 
@@ -158,14 +158,15 @@ there is no CA-level auth.
 
 ## 2. Current dev deployment — and its risks
 
-The gateway runs on the central lab server **192.168.6.14**, alongside
-the GEECS MySQL database (which the gateway itself reads at startup).
-Tiled and the worker-side services ran there too until 2026-10-30, when
-they moved to the services box, **192.168.6.22**
-(`docs/platform/fleet_map.md`).
-
-This is fine for the pilot; name it for what it is — the two services every
-scan needs, on one box. Plainly:
+The gateway runs on the services box, **192.168.6.22**, since 2026-11-15,
+beside the worker-side services and Tiled, which moved there on 2026-10-30
+(`docs/platform/fleet_map.md`). The GEECS MySQL database, which the gateway
+reads at startup, stays on the central lab server **192.168.6.14**. Until
+the move the gateway ran there beside the database; the risks below are
+that arrangement's, kept as the record of why it moved. On the box the
+gateway shares one host, and one failure domain, with every other
+scan-side service instead — plainly, the two services every scan needs on
+one box has become every service on one box:
 
 - **Single point of failure.** One host outage takes down device PVs (Bluesky
   scans, Phoebus displays) *and* the experiment DB at once — and with the DB,
@@ -217,7 +218,7 @@ works. The caproto CLI tools are the lightest install:
 python -m venv ca && source ca/bin/activate
 pip install caproto
 
-export EPICS_CA_ADDR_LIST=192.168.6.14   # directed name search — routes over VPN
+export EPICS_CA_ADDR_LIST=192.168.6.22   # directed name search — routes over VPN
 export EPICS_CA_AUTO_ADDR_LIST=NO        # don't also broadcast on your local subnet
 
 caproto-get undulator:cagateway:version undulator:cagateway:uptime
@@ -226,7 +227,7 @@ caproto-monitor undulator:cagateway:heartbeat   # ticks every 5 s; Ctrl-C to sto
 
 ```powershell
 # PowerShell equivalent (same shell that runs the client)
-$env:EPICS_CA_ADDR_LIST = "192.168.6.14"
+$env:EPICS_CA_ADDR_LIST = "192.168.6.22"
 $env:EPICS_CA_AUTO_ADDR_LIST = "NO"
 caproto-get undulator:cagateway:version
 ```
@@ -271,7 +272,7 @@ other infrastructure addresses instead of in every shell:
 ```ini
 # ~/.config/geecs_python_api/config.ini
 [epics]
-ca_addr_list = 192.168.6.14
+ca_addr_list = 192.168.6.22
 # ca_auto_addr_list = NO    # optional; defaults to NO when applied from here
 ```
 
@@ -365,7 +366,7 @@ the Data Portal's.
   UDP, so name resolution can still fail with this green):
 
   ```powershell
-  Test-NetConnection 192.168.6.14 -Port 5064
+  Test-NetConnection 192.168.6.22 -Port 5064
   ```
 
 ---

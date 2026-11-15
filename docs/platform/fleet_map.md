@@ -82,11 +82,11 @@ flowchart TB
     end
 
     subgraph central["Central lab server — 192.168.6.14 (Ubuntu 22.04)"]
-        cagw["CA gateway<br/>(GeecsCAGateway)"]
         db[("GEECS MySQL DB")]
     end
 
     subgraph services["Services box — 192.168.6.22 (Ubuntu 24.04)"]
+        cagw["CA gateway<br/>:5064 (GeecsCAGateway, since 2026-11-15)"]
         tiled["Tiled catalog<br/>:8000 (+ /ui)"]
         qs["Queueserver stack<br/>RE Manager :60615 / :60625<br/>doc stream :5568<br/>Redis (loopback)"]
         mcp["GEECS-MCP server<br/>:8100 (HTTP mode)"]
@@ -177,7 +177,7 @@ rendered from it, never edited by hand.
 
 | Service | Host | Checkout | Port(s) | Supervision | Health check | Runbook |
 |---|---|---|---|---|---|---|
-| CA gateway (GeecsCAGateway) | 192.168.6.14 | `<root>/gateway-checkout` | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
+| CA gateway (GeecsCAGateway) | 192.168.6.22 (the services box, since 2026-11-15; on 192.168.6.14 before) | `<root>/gateway-checkout` | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
 | Tiled catalog | 192.168.6.22 (the services box, since 2026-10-30) | — (pip install; `~/tiled/config.yml`) | HTTP 8000 | systemd `tiled` | `GET /api/v1/`; web UI at `/ui` | [GeecsBluesky/TILED_SETUP.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md) |
 | Queueserver worker (RE Manager + Redis + doc proxy) | 192.168.6.22 (the services box) | `<root>/qs-checkout` | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` + `geecs-qserver-ready` (oneshot: opens the worker environment and asserts the plan list after every manager start) | `qserver status` from any client env — **ready** means the worker environment exists (`worker_environment_exists` true) *and* the allowed-plan list is non-empty; a running unit with a closed environment refuses every plan (`scripts/fleet_status.sh` reports both, #793) | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
 | GEECS-MCP server (HTTP mode) — the agent's write entry point where it is deployed, over the scanner, portal and logbook APIs (one server, bound to the main experiment's scanner; an agent at an experiment instance speaks that scanner's HTTP API directly) | 192.168.6.22 (beside the three services it calls; stdio mode remains available per machine) | baked non-editably from the **worker's** clone `<root>/qs-checkout` into `<root>/geecs-mcp-venv`; a thin HTTP client that resolves nothing itself, so it needs no config-truth parity — it reaches the scanner, the portal and the logbook by URL (`config.ini [mcp] scanner_url / portal_url / logbook_url`) | HTTP 8100 (`/mcp`) | systemd `geecs-mcp` | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
