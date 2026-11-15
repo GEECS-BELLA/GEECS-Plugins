@@ -377,11 +377,12 @@ every step reversible. Two shapes, by what follows the worker family:
   `config.ini`, the portal's address, OSPREY's MCP profile URL and the
   first `[epics] ca_addr_list` entry change (and every Phoebus settings
   file with the gateway's address); `[tiled] uri` does not.
-- **Tiled follows too.** Every client's `[tiled] uri` changes as well. The
-  gateway runbook says what a gateway move or restart
-  does to clients — monitors reconnect on their own; a routed or VPN
-  Phoebus display can look stuck until it is reopened
-  ([GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md)).
+- **Tiled follows too.** Every client's `[tiled] uri` changes as well.
+
+Either way the gateway runbook says what a gateway move or restart does to
+CA clients — monitors reconnect on their own; a routed or VPN Phoebus
+display can look stuck until it is reopened
+([GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md)).
 
 Order for the worker family and the gateway, on the new host, in one
 window with no scan running:
