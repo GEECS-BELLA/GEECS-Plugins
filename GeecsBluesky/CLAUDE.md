@@ -199,7 +199,13 @@ qserver/                    # the worker: launcher, startup profile, permissions
   string signal, so connect never demands a line the camera lacks; the
   first prepare refuses one, before touching the camera), the IOC's layout
   and SWMR-off restored after the stock prepare, the row stamp the frame's
-  EPICS timestamp through `scan_stack.epics_timestamp_to_unix`.  **The run
+  EPICS timestamp through `scan_stack.epics_timestamp_to_unix`.  That stamp
+  is taken when the finished frame reaches the driver, so the run's first
+  prepare adds the camera's live exposure (`AcquireTime_RBV`, s) and
+  trigger delay (`TriggerDelay_RBV`, µs) to its stored `drain_offset`:
+  every reader subtracts it, timing the frame from its trigger as a
+  LabVIEW camera's driver already does (unreadable: no correction, a
+  WARNING).  **The run
   lock**: the first prepare's first act sets the IOC's `RUN:Lock` (waiting
   for its readback), and only a completed restore — or an unstage with
   nothing to restore — releases it; meanwhile the IOC refuses acquisition
@@ -246,11 +252,23 @@ qserver/                    # the worker: launcher, startup profile, permissions
   `CaMotor` child (an action step's `variable: Current` included: lookups
   are case-folded).  **Never done on a put ok**: StreamDevice completes the
   put when the supply accepts the command, so the set waits for the
-  readback within the registry tolerance and times out in
-  `GeecsConfirmTimeoutError`'s words.  Refused **before the put**
+  readback within the **IOC's set tolerance** and times out (after the
+  registry's `timeout`, the client's patience) in
+  `GeecsConfirmTimeoutError`'s words.  The tolerance is a record beside
+  the readback (`current:TOL`, geecs-epics decision 21), found through the
+  family (`SetpointDevice.tolerance_records`: the setpoint role's
+  `tolerance_by`), read at every set before the put, uncached, and held off
+  the device tree (an IOC not serving it leaves the supply connected and
+  read); connected, not INVALID and finite above zero is a tolerance,
+  anything else is none (`NATIVE_DEVICES.md` §8).  Refused **before the put**
   (`GeecsSetpointRefusedError`, `written=False`, pinned by tests asserting
-  no put): a value outside the `:SP` record's `DRVL`/`DRVH` (an `ao` clamps
-  and writes), a status bit at 1, a readback INVALID; failed at once after
+  no put): no set tolerance (`GeecsNoSetToleranceError`, naming the
+  record's PV and what was read), a value outside the `:SP` record's
+  `DRVL`/`DRVH` (an `ao` clamps and writes), a status bit at 1, a readback
+  INVALID; a bound scan reads the tolerance of every native settable it
+  moves before the claim (`registry.set_tolerance_gate`: no tolerance
+  claims nothing) and records the values in the start document
+  (`set_tolerances`, `EVENT_SCHEMA.md`); failed at once after
   the put when `:SP` goes INVALID (the IOC's `HIHI`/`LOLO` refusal, a
   `#NAK`), and while waiting when a bit rises or the readback goes INVALID.
   The put goes through `GatewaySetpointPut` (#868).  Read as a device it is

@@ -64,12 +64,14 @@ copy, + 4 MB gzip; 36 MB while the frame was read as int32).
   disagrees`, which is a camera-ROI change).
   The body is already compressed: exclude `application/octet-stream` from the
   proxy's own compression.
-- **A camera-family change rebuilds Canopy's image at deploy**: the module's
-  roles (the raw view's `raw_frame`, `raw_width`, `raw_height`,
-  `raw_counter`) come from the image's copy of GEECS-Schemas, so
-  `dc build` and a `geecs-canopy` restart (`GeecsCanopy/DEPLOYMENT.md`) come
-  before the Control Room's restart; until then the raw view answers 404
-  (the module names no `raw_frame` role).
+- **A family change rebuilds Canopy's image at deploy**: the module's
+  roles come from the image's copy of GEECS-Schemas, the page's drawn
+  controls from the Control Room's own, so `dc build` and a `geecs-canopy`
+  restart (`GeecsCanopy/DEPLOYMENT.md`) come before the Control Room's
+  restart. Until then a role the page draws is one the module does not
+  name: the camera's raw view answers 404 (no `raw_frame` role), and a
+  supply's setpoint, drawn with `tolerance_by: current_tol`, has no
+  tolerance and marks no `differs` (no `current_tol` role).
 - **A screen schema change deploys in order**: the Control Room's env,
   then Canopy's image, then the first screen file that uses it in the
   configs repo. An older Canopy refuses a widget kind its copy of

@@ -4,7 +4,11 @@ from geecs_schemas import ArchivePolicy, NativeDevices, PanelDevices, load_famil
 
 from geecs_archiver import archive_set
 from geecs_archiver.archive_set import build_archive_set, derive_candidates
-from geecs_archiver.native import default_archive_roles, derive_native_candidates
+from geecs_archiver.native import (
+    archived_roles,
+    default_archive_roles,
+    derive_native_candidates,
+)
 
 FAMILIES = load_families()
 
@@ -246,15 +250,24 @@ def test_a_motor_family_marking_nothing_falls_back_to_the_kinds_rule():
 
 def test_a_supply_family_marking_nothing_takes_readbacks_setpoints_and_bits():
     family = unmarked("easydriver")
+    # the fallback for an unmarked file takes every readback, the IOC's set tolerance too; the shipped file marks
+    # its roles, and current_tol is not among them (test_a_marked_supply_family_never_archives_its_tolerance)
     assert default_archive_roles(family) == {
         "current_sp",
         "current",
+        "current_tol",
         "voltage",
         "output_sp",
         "output",
         "fault",
         "interlock",
     }
+
+
+def test_a_marked_supply_family_never_archives_its_tolerance():
+    for template in ("easydriver", "fastps"):
+        names = {r.name for r in archived_roles(FAMILIES[template], None)}
+        assert "current" in names and "current_tol" not in names, template
 
 
 def test_a_detector_family_marking_nothing_takes_settings_readbacks_and_the_lock():

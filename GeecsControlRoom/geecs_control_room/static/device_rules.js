@@ -96,12 +96,15 @@
   // another write in flight) and a blur keep it. One rule for a field's Enter and a tweak's step.
   const keepsDraft = (ok) => ok !== true;
 
-  // How far the measured value may sit from the setpoint: the family's number, else its tolerance role's value
-  // (`by`: undefined when the family names none; unread, nothing is judged), else one unit in the last digit
-  // the record shows (its precision), else exact (a whole number, or no precision).
+  // How far the measured value may sit from the setpoint: the family's number (or the module's), else its
+  // tolerance role's value (`by`: that role's Hare frame; undefined when the family names none), else one unit in
+  // the last digit the record shows (its precision), else exact (a whole number, or no precision). A tolerance
+  // role gives a tolerance only connected, not INVALID and above zero (an IOC's :TOL serves a missing value as 0
+  // INVALID); unread, unserved, INVALID, zero or negative is no tolerance (null): never exact, nothing is judged.
+  const given = (f) => (!!f && f.connected === true && f.severity !== "INVALID" && typeof f.value === "number" && Number.isFinite(f.value) && f.value > 0 ? f.value : null);
   function tolerance({ hint, by, precision, integer }) {
     if (typeof hint === "number") return hint;
-    if (by !== undefined) return typeof by === "number" && Number.isFinite(by) && by >= 0 ? by : null;
+    if (by !== undefined) return given(by);
     if (integer) return 0;
     const p = Number(precision);
     return precision !== null && precision !== undefined && Number.isInteger(p) && p >= 0 ? 10 ** -p : 0;

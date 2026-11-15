@@ -633,3 +633,76 @@ def test_a_bin_end_does_not_collect_a_device_logged_down() -> None:
     down.add("cam_b")  # the slot logs it down between bins
     list(settle())
     assert calls == [set(), {"cam_b"}]
+
+
+# ------------------------------------------------ a native supply as a movable
+def _supply_setup(setup, tolerance, severity="NO_ALARM"):
+    """``setup``'s RunEngine and box, optimizing a native Easy-Driver's current."""
+    from geecs_schemas import NativeDevices
+    from ophyd_async.core import callback_on_mock_put
+
+    re, _, box, _, _, docs, tmp_path = setup
+    supply_entry = {
+        "kind": "setpoint_device",
+        "settables": {"current": {"timeout": 1.0}},
+        "status": ["fault"],
+    }
+    ns = GeecsNamespace(
+        DeviceRoster(experiment="Test", variables={}, types={}, subscribed={}),
+        file_plugin_hosts=set(),
+        native_devices=NativeDevices.model_validate(
+            {"devices": {"U_VS1H": supply_entry}}
+        ),
+    )
+    supply = ns["U_VS1H"]
+    connect_mock(re, supply)
+    current = supply.current
+    set_mock_value(current.drive_high, 5.01)
+    set_mock_value(current.drive_low, -5.01)
+    for signal in (current.setpoint_severity, current.readback_severity):
+        set_mock_value(signal, "NO_ALARM")
+    set_mock_value(current._tolerance.value, tolerance)
+    set_mock_value(current._tolerance.severity, severity)
+    callback_on_mock_put(
+        current.setpoint, lambda value, **_: set_mock_value(current.readback, value)
+    )
+    sc = ShotControl(WRITES, experiment="Test", name="box2", setter_factory=box)
+    connect_mock(re, sc)
+    cfg = OptimizerConfig(
+        vocs={
+            "variables": {"U_VS1H:current": [-0.1, 0.1]},
+            "objectives": {"score": "MINIMIZE"},
+        },
+        measurements={"current": {"signal": "U_VS1H:current"}},
+        derived={"score": "current**2"},
+        generator={"name": "random"},
+        run={"max_iterations": 2, "shots_per_step": 1},
+    )
+    resolver = SimpleNamespace(
+        resolve_optimizer_config=lambda name: cfg,
+        scan_variable_catalog=lambda: SimpleNamespace(variables={}),
+        optimizer_config_path=lambda name: tmp_path / "optimizer.yaml",
+    )
+    profiles = TriggerProfiles({"test": sc}, default="test")
+    plan = bind_plans(profiles, resolver=resolver, settables=ns)["optimize"]
+    return re, supply, box, plan, docs, tmp_path
+
+
+def test_optimize_records_a_native_settables_tolerance(setup):
+    re, supply, box, plan, docs, _ = _supply_setup(setup, 0.005)
+    re(plan([supply], optimizer_config="test"))
+    start = docs.docs["start"][0]
+    assert start["set_tolerances"] == {
+        "U_VS1H:current": {"pv": "test:u_vs1h:current:TOL", "value": 0.005}
+    }
+    assert box.fires == 2
+
+
+def test_optimize_with_no_tolerance_is_refused_before_the_claim(setup):
+    from geecs_bluesky.exceptions import GeecsNoSetToleranceError
+
+    re, supply, box, plan, docs, folder = _supply_setup(setup, 0.0, "INVALID")
+    with pytest.raises(GeecsNoSetToleranceError, match="current:TOL reads 0 INVALID"):
+        re(plan([supply], optimizer_config="test"))
+    assert box.fires == 0 and docs.docs["start"] == []
+    assert not (folder / "xopt_dump.yaml").exists()

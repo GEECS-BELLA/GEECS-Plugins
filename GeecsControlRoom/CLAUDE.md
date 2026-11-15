@@ -531,13 +531,25 @@ GeecsCanopy's own module, in `test_module_contract.py`.
   device poll: no route entry) the mark is hidden and the field stays armed
   (`device_rules.settleMark`), so the mark returns with the route; pinned by
   running `device_rail.js` itself over a fake page in
-  `test_device_rules_js.py`. The tolerance is the role's `tolerance`
-  (a number: the family's, or a DB device's DB `tolerance`, its
-  set-convergence criterion, which GeecsCanopy's gateway source puts on the
-  role and the module's route serves), else its `tolerance_by` role's value
-  (the motor's `rdbd`, the record's own retry deadband), else one unit in the last digit of the
-  measured record's precision (Hare's meta), else exact (a whole number, or
-  no precision). The page judges its own writes only: another client's
+  `test_device_rules_js.py`. The tolerance, in order (`device_rules.tolerance`):
+  the role's `tolerance` number (the page's own family's, `data-tol`; else
+  the module's route's: a DB device's DB `tolerance`, its set-convergence
+  criterion, which GeecsCanopy's gateway source puts on the role), else its
+  `tolerance_by` role's value read over Hare (the motor's `rdbd`, the
+  record's own retry deadband; a native supply's `current_tol`, its IOC's
+  constant `current:TOL`, geecs-epics decision 21, read `once` so the module
+  never judges it and an IOC not yet serving it leaves the device's word
+  alone), else one unit in the last digit of the measured record's
+  precision (Hare's meta), else exact (a whole number, or no precision). A
+  family role is a number or a link, never both, so a native device has one
+  candidate; only a page and an image installed from different families
+  could offer two, and the number wins. A `tolerance_by` role is a
+  tolerance only while connected, not INVALID and above zero: unread,
+  unserved, INVALID (an IOC's `:TOL` serves a missing value as 0 INVALID),
+  zero or negative is **no tolerance**, never exact and never the
+  precision: the mark waits, judges nothing, and the field stays armed
+  (pinned by running `device_rail.js` over a fake supply in
+  `test_device_rules_js.py`). The page judges its own writes only: another client's
   write, or one made before the page loaded, arms nothing; a reload disarms.
 
 ## The trace
