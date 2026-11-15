@@ -375,16 +375,16 @@ every step reversible. Two shapes, by what follows the worker family:
   on the old box. The new `site.env` carries the gateway's serving
   interface and beacon address. Client side: `[qserver] host` in every
   `config.ini`, the portal's address, OSPREY's MCP profile URL and the
-  first `[epics] ca_addr_list` entry change; `[tiled] uri` does not.
-- **Tiled follows too.** Every client's `[tiled] uri` changes as well, and
-  every Phoebus settings file with the gateway's address. The gateway
-  runbook says what a gateway move or restart
+  first `[epics] ca_addr_list` entry change (and every Phoebus settings
+  file with the gateway's address); `[tiled] uri` does not.
+- **Tiled follows too.** Every client's `[tiled] uri` changes as well. The
+  gateway runbook says what a gateway move or restart
   does to clients — monitors reconnect on their own; a routed or VPN
   Phoebus display can look stuck until it is reopened
   ([GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md)).
 
-Order for the worker family, on the new host, in one window with no
-scan running:
+Order for the worker family and the gateway, on the new host, in one
+window with no scan running:
 
 1. **Redis first, as the runbook's distro unit** (`systemctl enable --now
    redis-server`, [qserver runbook](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md)).
@@ -396,14 +396,21 @@ scan running:
    steps when the unit is not enabled. Do not carry a `dump.rdb` from a
    newer Redis onto an older one; start empty instead (the runbook's
    notes give the RDB-version reason).
-2. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`); `qserver
+2. **`geecs-ca-gateway`** beside the old one (the new `site.env` carries
+   its serving interface and beacon; a client sees only the hosts its CA
+   list names, so two gateways can overlap). The worker's environment open
+   connects to its PVs, so it comes before the worker. The check:
+   `cagateway:heartbeat` ticking and `devices_connected` matching the old
+   host's (the 2026-11-15 move: 86 against 91, the difference five devices
+   disabled in the DB that morning).
+3. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`); `qserver
    status` (readiness, not just the port) is the check. Then
    **`geecs-tiled-writer`** beside it — the same clone and env, the spool
    is a local directory of that host; `heartbeat.json` under
    `/var/lib/geecs-tiled-writer` within a few seconds is the check.
-3. **`geecs-mcp`** from a venv baked on the new host, then
+4. **`geecs-mcp`** from a venv baked on the new host, then
    **`geecs-data-portal`**, **`geecs-logbook`**.
-4. `scripts/fleet_status.sh` from a client pointed at the new host: every
+5. `scripts/fleet_status.sh` from a client pointed at the new host: every
    row systemd, clean clone, matching versions, nothing UNMANAGED. Then
    stop and disable the old box's units, and rewrite this page's table to
    the observed truth in the same PR.
@@ -411,7 +418,10 @@ scan running:
 The same order, minus the client changes, is the one that kept each
 step reversible on the 2026-09-04 same-box promotion (hand-started
 processes → units): queueserver family, MCP, portal, and the gateway
-last and only with the owner's go.
+last and only with the owner's go — last because nothing changed hosts
+that day. On the 2026-11-15 gateway move it came first, beside the old
+one, and the clients were switched after its heartbeat and device count
+were checked.
 
 ## How the planes connect
 
