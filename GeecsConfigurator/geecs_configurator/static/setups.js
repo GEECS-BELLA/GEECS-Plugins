@@ -3,6 +3,9 @@
  * - Capture reads live readbacks through the service (POST /api/setups/capture: the scanner's readback
  *   path, nothing written to a device) into a draft, then saves it through the one save route as a new
  *   document (PUT with create): the operator is the author, the tier and ownership are the save's.
+ * - A capture's answer is shown, and Save offered, only while it still answers the form: an edit of the
+ *   name, description or variables, or a later Capture, makes every earlier answer stale (a generation,
+ *   and the inputs it was asked with compared again on arrival). Save sends the capture it was offered.
  * - The diff and the apply are the scanner's, relayed by the service, on the setup as committed: an
  *   unsaved edit in the form is never what is applied, so Apply waits for it to be saved or discarded.
  * - The apply's questions come back from the scanner (409, needs_acknowledgement); every one is shown in
@@ -43,6 +46,9 @@
 
   // ---------------------------------------------------------------- capture (the kind's list)
   var capVars = $("#cap-vars"), capSave = $("#cap-save"), captured = null, settablesRead = false;
+  // capGen: bumped by every edit and every Capture; an answer of an older generation is dropped.
+  // reading: the generation of the latest Capture sent (an answer of it, dropped, says why).
+  var capGen = 0, reading = -1;
   if (capVars) {
     $("#capture-open").addEventListener("click", function () {
       if (!settablesRead) {
@@ -60,7 +66,11 @@
         });
       }
     });
-    function stale() { captured = null; capSave.disabled = true; }
+    function stale() { capGen += 1; captured = null; capSave.disabled = true; }
+    // What a capture is asked with, as the form holds it now.
+    function capInputs() {
+      return { name: $("#cap-name").value.trim(), description: $("#cap-desc").value, variables: capVars.value.split("\n").map(function (x) { return x.trim(); }).filter(Boolean) };
+    }
     ["#cap-name", "#cap-desc", "#cap-vars"].forEach(function (s) { $(s).addEventListener("input", stale); });
     function addPicked() {
       var pick = $("#cap-pick"), v = pick.value.trim();
@@ -75,10 +85,18 @@
     $("#cap-read").addEventListener("click", function () {
       var who = page.operator(), result = $("#cap-result");
       if (!who) { fill(result, [el("div", { class: "banner", "data-state": "error" }, "Type your name (top right) first: you are the setup's capturer and its author.")]); return; }
-      var variables = capVars.value.split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
-      fill(result, [el("div", { class: "state", "data-state": "loading" }, "Reading " + variables.length + " readback(s)…")]);
+      var asked = capInputs();
+      fill(result, [el("div", { class: "state", "data-state": "loading" }, "Reading " + asked.variables.length + " readback(s)…")]);
       stale();
-      call("POST", "/api/setups/capture" + query, { name: $("#cap-name").value.trim(), description: $("#cap-desc").value, operator: who, variables: variables }).then(function (r) {
+      var gen = capGen; reading = gen;
+      // still this answer's form: no edit, no later Capture, and the inputs as they were sent
+      function current() {
+        if (gen === capGen && JSON.stringify(capInputs()) === JSON.stringify(asked)) return true;
+        if (reading === gen) fill(result, [el("div", { class: "banner", "data-state": "stale" }, "The form changed while the readbacks were read: Capture again.")]);
+        return false;
+      }
+      call("POST", "/api/setups/capture" + query, { name: asked.name, description: asked.description, operator: who, variables: asked.variables }).then(function (r) {
+        if (!current()) return;
         if (r.status !== 200) { fill(result, [el("div", { class: "banner", "data-state": "error" }, "Nothing captured: " + why(r.body))]); return; }
         captured = r.body;
         var rows = el("tbody");
@@ -97,22 +115,22 @@
         }
         fill(result, kids);
         capSave.disabled = false;
-      }).catch(function (e) { fill(result, [el("div", { class: "banner", "data-state": "error" }, String(e.message || e))]); });
+      }).catch(function (e) { if (current()) fill(result, [el("div", { class: "banner", "data-state": "error" }, String(e.message || e))]); });
     });
 
     capSave.addEventListener("click", function () {
       if (!captured) return;
-      var who = page.operator(), result = $("#cap-result");
+      var who = page.operator(), result = $("#cap-result"), saving = captured;  // the capture Save was offered for
       capSave.disabled = true;
-      call("PUT", "/api/documents/setup/" + encodeURIComponent(captured.id) + query, { document: captured.document, etag: "", operator: who, create: true }).then(function (r) {
+      call("PUT", "/api/documents/setup/" + encodeURIComponent(saving.id) + query, { document: saving.document, etag: "", operator: who, create: true }).then(function (r) {
         if (r.status === 200) {
-          location.href = root + "/" + query + "&kind=setup&id=" + encodeURIComponent(captured.id);
+          location.href = root + "/" + query + "&kind=setup&id=" + encodeURIComponent(saving.id);
           return;
         }
-        var head = r.status === 409 ? "A setup named " + captured.document.name + " exists: choose another name, or open it and edit it." : "Not saved: " + why(r.body);
+        var head = r.status === 409 ? "A setup named " + saving.document.name + " exists: choose another name, or open it and edit it." : "Not saved: " + why(r.body);
         fill(result, [el("div", { class: "banner", "data-state": "error" }, head)].concat(Array.prototype.slice.call(result.childNodes)));
-        capSave.disabled = r.status === 409;
-      }).catch(function (e) { capSave.disabled = false; fill(result, [el("div", { class: "banner", "data-state": "error" }, String(e.message || e))]); });
+        capSave.disabled = r.status === 409 || captured !== saving;  // an edit since leaves nothing to save
+      }).catch(function (e) { capSave.disabled = captured !== saving; fill(result, [el("div", { class: "banner", "data-state": "error" }, String(e.message || e))]); });
     });
   }
 
