@@ -1,40 +1,26 @@
 """NativeSetpointDevice — a supply served by plain EPICS records (geecs-epics) as settable children.
 
 The third native kind (``NATIVE_DEVICES.md`` §8, the registry's
-``setpoint_device``, the CAEN Easy-Driver pattern): each settable is a
-readback record written at its setpoint record (``<record>:SP``, or the
-family's setpoint role for it) under ``<experiment>:<device>:``.  For
-StreamDevice, put-completion means the supply **accepted** the command,
-not that it converged, so a set is never done on a "put ok": it is
-refused before the put (nothing written) for a value outside ``DRVL``/
-``DRVH`` (an ``ao`` would clamp and write), a status bit at 1 or an
-INVALID readback, and for no set tolerance; it fails at once when the
-setpoint record goes INVALID on the write (the IOC's ``HIHI``/``LOLO``
-refusal, a ``#NAK``) and while waiting when a bit rises or the readback
-goes INVALID; it is done when the readback is within the set tolerance, and
-times out in ``GeecsConfirmTimeoutError``'s words (``CaConfirmSettable``'s
-topology).
+``setpoint_device``): each settable is a readback record written at the
+family's setpoint record for it under ``<experiment>:<device>:``.  For
+StreamDevice a put-completion means the supply **accepted** the command,
+so a set is never done on a "put ok": it is refused before the put
+(nothing written) for no set tolerance, a value outside ``DRVL``/``DRVH``
+(an ``ao`` would clamp and write), a status bit at 1 or an INVALID
+readback; it fails at once when the setpoint record goes INVALID on the
+write (``HIHI``/``LOLO``, a ``#NAK``) and while waiting when a bit rises or
+the readback goes INVALID; it is done when the readback is within the set
+tolerance, and times out in ``GeecsConfirmTimeoutError``'s words.
 
-The set tolerance is the IOC's: a record beside the readback (a supply's
-``current:TOL``, geecs-epics decision 21), named by the family file (the
-setpoint role's ``tolerance_by``: ``SetpointDevice.tolerance_records``),
-read **at every set**, before the put, uncached — it changes only when its
-IOC restarts onto a new configuration, so one read per set always confirms
-against the value the IOC serves now, never a number kept from before.  It
-is a tolerance only while the channel connects, its severity is not
-INVALID and its value is finite and above zero; anything else refuses the
-set before any write (:class:`~geecs_bluesky.exceptions.GeecsNoSetToleranceError`).
-The bound scan plans read every native settable they will move once more
-before the claim (:func:`native_set_tolerances`), so a scan with no
-tolerance is refused with nothing claimed, and the values ride in the start
-document (``set_tolerances``).  The record is not a child of the device: a
-supply whose IOC does not serve it yet still connects, reads and is
-recorded; only its sets are refused.
+The set tolerance is the IOC's record (the family's ``tolerance_by``, a
+supply's ``current:TOL``), read at every set and kept off the device tree
+(:meth:`NativeSetpoint.read_tolerance`); the bound scans read it once more
+before the claim (:func:`native_set_tolerances`).
 
 :class:`NativeSetpoint` is one settable (the Movable child ``mv``, a sweep
 axis and an action's ``set`` step find); :class:`NativeSetpointDevice` is
-the noun, a per-row scalar device.  Not here yet: the gate grown by the
-movers, enum settables, a user offset for pseudos, the scanner's list.
+the noun, a per-row scalar device.  Not here yet: the liveness gate grown
+by the movers, enum settables, a user offset for pseudos, the scanner's list.
 """
 
 from __future__ import annotations
@@ -623,9 +609,9 @@ def native_set_tolerances(movers: Iterable[Any]):
     at its first point.  Each set reads the record again (a value that
     changed since is used, and said); this read is the run's early answer
     and its record.  Movers that are not native settables are skipped; a
-    pseudo positioner over native settables cannot be built yet (a
-    ``NativeSetpoint`` has no user offset), and when one is, its components
-    belong here too.
+    pseudo positioner over native settables cannot be built yet
+    (``build_pseudo`` refuses a component that is no ``CaSettable``), and
+    whoever lifts that check must add a pseudo's native components here.
 
     Returns
     -------
