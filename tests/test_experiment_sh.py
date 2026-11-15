@@ -283,7 +283,9 @@ def test_flags_with_an_existing_instance_file_are_refused(profile) -> None:
     assert "would be ignored" in result.stderr
 
 
-@pytest.mark.parametrize("bad", ["Test stand", r"Foo\tBar", "a/b", "it's", " Lead"])
+@pytest.mark.parametrize(
+    "bad", ["Test stand", r"Foo\tBar", "a/b", "it's", " Lead", "..", ".hidden"]
+)
 def test_a_db_experiment_outside_the_naming_rule_is_refused_before_anything(
     profile, bad: str
 ) -> None:
@@ -312,6 +314,7 @@ def test_an_instance_file_outside_the_naming_rule_is_refused(profile) -> None:
     result = _verb(profile, "up", "PulsedWire", "--dry-run")
     assert result.returncode == 2
     assert "naming rule" in result.stderr and "Test stand default" in result.stderr
+    assert "edit GEECS_EXPERIMENT" in result.stderr  # the DB rename alone is not enough
     assert "[dry]" not in result.stdout
 
 

@@ -43,8 +43,10 @@ ANALYSIS_KIND_FOLDERS = tuple(sorted({
     if isinstance(s, FileStorage) and s.root == "analysis" and s.folder
 }))  # fmt: skip
 _PATTERN_CHARS = set("*?[]")
-#: An owned folder's name: an experiment's (and a facility folder's) naming rule, no spaces.
-_NAME = re.compile(r"[A-Za-z0-9_.-]+")
+#: The experiment naming rule (letters, digits, ``_``, ``.``, ``-``; no spaces): an owned
+#: folder's name, and an experiment's key in ``GEECS_CONFIGURATOR_SCANNER_URL``.
+NAME_CHARS = r"[A-Za-z0-9_.-]+"
+_NAME = re.compile(NAME_CHARS)
 
 
 class OwnershipError(ValueError):

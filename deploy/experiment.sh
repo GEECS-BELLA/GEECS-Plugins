@@ -80,10 +80,11 @@ slot_port() {  # slot_port N BASE STEP
 
 # An experiment's name is letters, digits, '_', '.', '-': the configs folder,
 # the data folder and the configurator's scanner-URL key (Exp=url) all use it.
-check_experiment_name() {  # check_experiment_name NAME WHERE — exit 2 unless NAME follows the rule
+# A name starting with '.' is no folder's name (., .., hidden), as the configurator's.
+check_experiment_name() {  # check_experiment_name NAME WHERE FIX — exit 2 unless NAME follows the rule
     case "$1" in
-        ''|*[!A-Za-z0-9_.-]*)
-            echo "$2: experiment '$1' breaks the naming rule: letters, digits, '_', '.', '-' only, no spaces (the configs folder, the data folder and the configurator's scanner-URL key all use the name) — rename it in the DB first" >&2
+        ''|.*|*[!A-Za-z0-9_.-]*)
+            echo "$2: experiment '$1' breaks the naming rule: letters, digits, '_', '.', '-' only, no spaces, not starting with '.' (the configs folder, the data folder and the configurator's scanner-URL key all use the name) — $3" >&2
             exit 2 ;;
     esac
 }
@@ -208,12 +209,12 @@ up)
             echo "'$INSTANCE' already has an instance file ($INSTALLED): --db-experiment/--address/--broadcast/--ca-extra would be ignored — edit that file (as root) instead" >&2; exit 2
         fi
         EXISTING_EXPT="$(env_value "$INSTALLED" GEECS_EXPERIMENT)"
-        [ -z "$EXISTING_EXPT" ] || check_experiment_name "$EXISTING_EXPT" "instance file $INSTALLED"
+        [ -z "$EXISTING_EXPT" ] || check_experiment_name "$EXISTING_EXPT" "instance file $INSTALLED" "rename it in the DB, then edit GEECS_EXPERIMENT and QS_EXPERIMENT in $INSTALLED (as root)"
         say "up '$INSTANCE' — instance file exists ($INSTALLED), used as it is"
     else
         [ -n "$DB_EXPERIMENT" ] && [ -n "$ADDRESS" ] && [ -n "$BROADCAST" ] || {
             echo "a new instance needs --db-experiment NAME, --address (this host's CA serving address) and --broadcast" >&2; exit 2; }
-        check_experiment_name "$DB_EXPERIMENT" "--db-experiment"
+        check_experiment_name "$DB_EXPERIMENT" "--db-experiment" "rename it in the DB first"
         SLOT="$(free_slot)"
         INSTANCE_FILE="$STAGE/$INSTANCE.env"
         claim_staging
