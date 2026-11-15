@@ -55,10 +55,11 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   **Count** (N shots at a fixed configuration, optionally tagged as a
   background), **Sweep** (one or more variables along a trajectory) or
   **Optimize** (an optimizer drives the variables). Acquisition is
-  **strict** (one fire per shot, one row per fire) or **gated** (the
-  trigger box in SCAN, cameras count a batch); **fly** (a software tick,
-  the box never driven) is a preset's `acquisition: fly`, with no button
-  yet. Press
+  **strict** (one fire per shot, one row per fire); **fly** (a software
+  tick, the box never driven) is a preset's `acquisition: fly`, with no
+  button yet. The gated mode was deleted on 2026-11-14: a preset that
+  still asks for `acquisition: gated` is refused with the reason, never
+  run as something else. Press
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
   The current form can be saved back as a preset (**Save as preset…**):
   the configurator commits it to the configs repo under the operator's

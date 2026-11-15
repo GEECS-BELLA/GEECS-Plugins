@@ -152,7 +152,16 @@ async def test_a_live_device_leaves_not_live_and_its_family_reaches_the_pickers(
     body = (await room.client.get("/api/home/devices")).json()
     families = {d["name"]: d["family"] for d in body["devices"]}
     assert families == {"Cam1": "ad_camera_chain", "Mot1": "motor_record", "ps1": "easydriver"}  # fmt: skip
+    # live although its set-tolerance record never connected (an IOC not yet serving :TOL): read once, never judged
     assert {d["name"] for d in body["not_live"]} == {"Cam1", "Mot1"}
+    tol = next(r for r in roles if r["role"] == "current_tol")
+    assert (tol["read"], tol["verdict"], tol["connected"]) == (
+        "once",
+        None,
+        None,
+    )  # the module never subscribes it: the page reads it over Hare
+    ps1_word = (await room.client.get("/api/devices/ps1")).json()["state"]
+    assert ps1_word == "live" and "ps1" not in {d["name"] for d in body["in_alarm"]}
 
 
 async def test_a_device_route_that_fails_is_unread(room) -> None:
@@ -571,6 +580,14 @@ async def test_a_supply_draws_its_output_pair_and_readings(db_room) -> None:
     assert 'data-role="output_sp" data-value="0" data-pair aria-pressed="false" disabled>Off</button>' in page  # fmt: skip
     assert [r for r in ("current", "voltage", "output", "fault", "interlock") if f'class="live" data-role="{r}"' not in page] == []  # fmt: skip
     assert 'id="hazard-dialog"' in page and 'id="operator"' in page and 'data-axis-pick' not in page  # fmt: skip
+    # the setpoint is judged by its IOC's set-tolerance record: the drawn control names the role, the module serves
+    # it (read once, never judged, never written, no reading of the strip), and the page carries no number of its own
+    assert 'data-role="current_sp" step="any" data-readback="current" data-tol-by="current_tol" disabled>' in page  # fmt: skip
+    tol = {r["role"]: r for r in (await db_room.client.get("/api/devices/ps1")).json()["roles"]}["current_tol"]  # fmt: skip
+    assert (tol["pv"], tol["read"], tol["writable"], tol["writePv"], tol["verdict"]) == ("bench:ps1:current:TOL", "once", False, None, None)  # fmt: skip
+    assert (
+        'data-tol="' not in page and 'class="live" data-role="current_tol"' not in page
+    )
 
 
 async def test_a_db_device_is_laid_out_automatically_and_written_through_the_module(db_room) -> None:  # fmt: skip
@@ -720,15 +737,18 @@ async def test_a_settled_mismatch_is_flagged_and_cleared_when_they_agree(room) -
     sp = (await room.env.hare.get(sp_pv))[
         "value"
     ]  # the setpoint record holds the write
+    tol_pv = roles[("current_tol", None)]["pv"]
+    room.env.hare.values[tol_pv] = live(0.005)  # the IOC's current:TOL
     [tol] = call_all(
-        "device_rules.js", [("tolerance", [{"precision": 2}])]
-    )  # the record's PREC 2
+        "device_rules.js",
+        [("tolerance", [{"by": await room.env.hare.get(tol_pv), "precision": 2}])],
+    )  # the record's 0.005 A, never PREC 2's 0.01
     marks = call_all("device_rules.js", [
         ("mark", [{"armedAt": 0, "now": 500, "sp": sp, "mv": 4.0, "tol": tol}]),  # not settled yet
         ("mark", [{"armedAt": 0, "now": 1000, "sp": sp, "mv": 4.0, "tol": tol}]),  # settled: the supply sits at 4 A
-        ("mark", [{"armedAt": 0, "now": 3000, "sp": sp, "mv": 4.996, "tol": tol}]),  # within 0.01: agrees
+        ("mark", [{"armedAt": 0, "now": 3000, "sp": sp, "mv": 4.996, "tol": tol}]),  # within 0.005: agrees
     ])  # fmt: skip
-    assert (sp, tol, marks) == (5.0, 0.01, ["waiting", "differs", "agrees"])
+    assert (sp, tol, marks) == (5.0, 0.005, ["waiting", "differs", "agrees"])
     assert mv_pv != sp_pv
     # the module's route fails one poll (the page keeps no entry), then answers again: the arming survives the silence
     room.broken.add("/devices/ps1")
@@ -759,7 +779,9 @@ async def test_a_motor_is_judged_by_done_moving_within_its_deadband(room) -> Non
     hare = room.env.hare
     hare.values[roles[("rdbd", "m1")]["pv"]] = live(0.01)
     sp = (await hare.get(roles[("val", "m1")]["writePv"]))["value"]
-    rdbd = (await hare.get(roles[("rdbd", "m1")]["pv"]))["value"]
+    rdbd = await hare.get(
+        roles[("rdbd", "m1")]["pv"]
+    )  # the page passes the role's frame
     rules = call_all("device_rules.js", [("tolerance", [{"by": rdbd, "precision": 4}]), ("done", [live(0)]), ("done", [live(1)])])  # fmt: skip
     tol, moving, stopped = rules
     marks = call_all("device_rules.js", [

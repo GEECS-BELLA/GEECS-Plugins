@@ -37,7 +37,7 @@ It suits free-running devices that should take one shot each when told.
 Without the flag an empty profile is refused.
 
 Scan mode is strict acquisition only. `count`, `sweep` and `optimize` run
-under it; a gated run and the shot-offset calibration plans refuse a
+under it; a fly run and the shot-offset calibration plans refuse a
 scan-mode profile.
 
 ## What happens during a run

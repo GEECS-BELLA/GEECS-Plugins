@@ -887,17 +887,15 @@ def test_a_refused_entry_claims_nothing(RE: RunEngine, stack: Stack) -> None:
     assert tl.index(("put", "armed")) < tl.index(("put", "standby"))
 
 
-def test_gated_is_refused_under_a_scan_mode_profile(
-    RE: RunEngine, stack: Stack
-) -> None:
+def test_fly_naming_a_scan_mode_profile_is_refused(RE: RunEngine, stack: Stack) -> None:
     cam = _camera(RE, FakeBox(), CAM)
     stack.start()
     bound = bind_plans(
         _profiles(RE, stack.timeline, use_scan_mode=True),
         scan_mode=stack.make_control(),
     )
-    with pytest.raises(GeecsConfigurationError, match="strict only"):
-        RE(bound["count"]([cam], num=2, acquisition="gated"))
+    with pytest.raises(GeecsConfigurationError, match="GEECS scan mode"):
+        RE(bound["count"]([cam], num=2, acquisition="fly", trigger_profile="SM"))
     assert not stack.timeline  # nothing driven, nothing sent
 
 
@@ -977,7 +975,7 @@ def test_release_scan_mode_ends_a_run_a_halt_left(RE: RunEngine, stack: Stack) -
 def test_run_device_names_lists_owners_once_plus_the_box(RE: RunEngine) -> None:
     cam = _camera(RE, FakeBox(), CAM)
     sc = _shot_control(RE, [], use_scan_mode=True)  # its device is the box
-    names = run_device_names([cam, cam.scalars], [cam.scalars], sc)
+    names = run_device_names([cam, cam.scalars], sc)
     assert names == (CAM, BOX)
     assert run_device_names([cam]) == (CAM,)
     # a detector's signal names its device (the one naming walk); a plan-side
@@ -1025,7 +1023,7 @@ def test_preflight_refuses_a_device_root_that_is_no_drive(
     sc = _shot_control(RE, [], use_scan_mode=True)
     control = stack.make_control(device_path=lambda p: p)  # no translation set
     with pytest.raises(GeecsConfigurationError, match="pushes device-side paths"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=(CAM,))
 
 
 def test_preflight_refuses_what_scan_mode_cannot_carry(
@@ -1042,16 +1040,16 @@ def test_preflight_refuses_what_scan_mode_cannot_carry(
     with pytest.raises(
         GeecsConfigurationError, match="conflicts with the devices' own"
     ):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=(CAM,))
     control = stack.make_control()
     with pytest.raises(GeecsConfigurationError, match="Nope"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=("Nope",))
+        scan_mode_preflight(sc, control, run_devices=("Nope",))
     with pytest.raises(GeecsConfigurationError, match="no GEECS device"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=())
-    scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=())
+    scan_mode_preflight(sc, control, run_devices=(CAM,))
     monkeypatch.setenv("EPICS_CA_ADDR_LIST", "203.0.113.9")
     with pytest.raises(GeecsConfigurationError, match="one host"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=(CAM,))
 
 
 def test_preflight_reads_the_boundary_rows_as_they_are_now(
@@ -1077,13 +1075,13 @@ def test_preflight_reads_the_boundary_rows_as_they_are_now(
     control = stack.make_control(
         boundary_writes=db.get_scan_boundary_writes("TestExp"), geecs_db=db
     )
-    scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+    scan_mode_preflight(sc, control, run_devices=(CAM,))
     db.start = "edges"  # edited in the DB after the control was built
     with pytest.raises(GeecsConfigurationError, match="'edges' as its startvalue"):
-        scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+        scan_mode_preflight(sc, control, run_devices=(CAM,))
     # a DB that does not answer keeps the rows last read, and says so
     db.down = True
     with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.scan_mode"):
         with pytest.raises(GeecsConfigurationError, match="conflicts"):
-            scan_mode_preflight(sc, control, acquisition="strict", run_devices=(CAM,))
+            scan_mode_preflight(sc, control, run_devices=(CAM,))
     assert "could not be re-read" in caplog.text

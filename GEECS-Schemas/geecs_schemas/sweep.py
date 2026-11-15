@@ -1,7 +1,7 @@
 """Serializable trajectories for the predetermined ``sweep`` plan.
 
 A sweep describes positions, not acquisition: detectors, shots, trigger
-profile and strict/gated mode remain plan arguments. Motionless acquisition
+profile and acquisition mode remain plan arguments. Motionless acquisition
 remains ``count``. Numerical expansion belongs to ``geecs_bluesky.trajectory``;
 this module imports neither NumPy nor Bluesky and never reads a device.
 

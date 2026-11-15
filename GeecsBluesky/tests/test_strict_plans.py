@@ -134,7 +134,7 @@ def shot_control(RE: RunEngine, box: FakeBox) -> ShotControl:
 
 def _on_demand(sc: Any, devices: list, required: Any, scan_mode: Any, kw: dict):
     per_shot = [d for d in devices if is_per_shot(d)]
-    streams = DeviceStreams(per_shot, dual_write=True)
+    streams = DeviceStreams(per_shot)
     required = per_shot if required is None else required
     run = OnDemand(sc, streams, required, scan_mode=scan_mode, **kw)
     md = start_keys(streams, required, witnessed=False)

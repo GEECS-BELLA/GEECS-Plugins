@@ -14,8 +14,7 @@ Checks, in order (the ``PreflightOutcome.check`` vocabulary):
   it knows the plan and every device reference the expansion created.
   A closed environment or a missing plan is a hard refusal naming the
   recovery gesture; an unreachable manager, an unanswered plan list or no
-  ``[qserver]`` config is *skipped* (fail-open).  Off the same tree: a gated run
-  needs a required triggered device.
+  ``[qserver]`` config is *skipped* (fail-open).
 - ``gateway_liveness`` — each preset and trigger-profile device's
   ``CONNECTED`` PV, read once; only the exact ``"Disconnected"`` counts
   as down (fail-open).
@@ -254,24 +253,21 @@ def scan_mode_refusal(item: Any, profile: Any) -> Optional[str]:
     """The worker's scan-mode rule a client can check before submitting, or ``None``.
 
     A trigger profile with ``use_scan_mode`` runs strict only — the worker
-    refuses a gated item under it (``plans/scan_mode.scan_mode_preflight``)
-    and a fly item naming it (``registry.strict_plan``: no box, no announce;
-    a fly item naming no profile resolves none); this
+    refuses a fly item naming it (``registry.strict_plan``: no box, no
+    announce; a fly item naming no profile resolves none); this
     mirrors that one rule so the scanner's report says so before the queue
     does.  Everything else scan mode checks (the DB endpoint, the
     boundary rows, the announced address) is the worker's alone.
     """
     if profile is None or not getattr(profile, "use_scan_mode", False):
         return None
-    acquisition = item.kwargs.get("acquisition", "strict")
-    if acquisition not in ("gated", "fly"):
+    if item.kwargs.get("acquisition", "strict") != "fly":
         return None
-    if acquisition == "fly" and item.kwargs.get("trigger_profile") is None:
+    if item.kwargs.get("trigger_profile") is None:
         return None  # a fly run resolves no default profile
-    run = "a gated batch" if acquisition == "gated" else "a fly run"
     return (
         f"trigger profile {getattr(profile, 'name', '?')!r} runs in GEECS scan "
-        f"mode, which is strict only: {run} has no per-shot announce. "
+        "mode, which is strict only: a fly run has no per-shot announce. "
         "Use acquisition='strict', or a profile without use_scan_mode."
     )
 
@@ -356,10 +352,6 @@ def _check_worker_ready(
                     "and that the DB lists them for the experiment"
                 )
                 return
-            refusal = acquisition_refusal(item, known)
-            if refusal is not None:
-                report.refusal = refusal
-                return
             report.outcomes.append(("worker_ready", "passed", ""))
         elif verdict.state in _FAIL_OPEN_READINESS_STATES:
             report.outcomes.append(("worker_ready", "skipped", verdict.detail))
@@ -370,56 +362,6 @@ def _check_worker_ready(
             close = getattr(client, "close", None)
             if callable(close):
                 close()
-
-
-def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
-    """The phase-2 device rules over the manager's device tree, or ``None``.
-
-    *known* is the tree flattened to dotted names.  A triggered device has
-    an ``acq_timestamp`` child, a plugin-backed or native camera an ``hdf``
-    child: those are per-shot devices.  A scalar-only device has neither —
-    a condition, read in every row: the submit leaves it out of
-    ``required`` (``expand_preset``'s ``device_tree``).
-
-    Parameters
-    ----------
-    item :
-        The expanded queue item (``args[0]`` the detectors, ``kwargs``
-        with ``acquisition`` / ``required``).
-    known :
-        The device names the manager resolves.
-
-    Returns
-    -------
-    str or None
-        The refusal sentence, or ``None`` when every rule passes.
-    """
-    gated = item.kwargs.get("acquisition", "strict") == "gated"
-    detectors = list(item.args[0]) if item.args else []
-    required = item.kwargs.get("required")
-
-    def stamped(reference: str) -> bool:
-        return f"{_owner_reference(reference)}.acq_timestamp" in known
-
-    if not gated:
-        return None
-    # A condition in ``required`` (expanded without the tree) is dropped at
-    # submit, when the client has it: never a clock either way.
-    clocks = detectors if required is None else list(required)
-    if not any(stamped(r) for r in clocks):
-        return (
-            "gated acquisition: no required triggered device — nothing counts "
-            "shots. Add a camera or a triggered scalar device (one with an "
-            "acq_timestamp), or use acquisition='strict'."
-        )
-    return None
-
-
-def _owner_reference(reference: str) -> str:
-    """``X.scalars`` → ``X``; any other reference unchanged."""
-    return (
-        reference[: -len(".scalars")] if reference.endswith(".scalars") else reference
-    )
 
 
 def _check_liveness(

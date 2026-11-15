@@ -6,8 +6,8 @@ the one rule for *what a device's row carries*, shared by every consumer
 that builds a row from it: GeecsBluesky's device namespace (each device's
 event columns and the run's baseline telemetry), GeecsPvaGateway's file
 plugin (the per-frame scalar attributes it writes beside a camera's
-frames, so a gated row and a strict row carry the same columns for that
-device), and the
+frames, so a device's stack and its event columns carry the same scalars),
+and the
 gateways' served set.  It lived in ``geecs_bluesky.db_runtime`` until
 2026-09-12 and moved here (GEECS-Core 0.6.0) beside
 :mod:`geecs_core.db.variable_types` — the PVA gateway depends on GEECS-Core

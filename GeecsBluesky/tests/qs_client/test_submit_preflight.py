@@ -427,7 +427,7 @@ class TestReportShape:
 
 
 class TestAcquisitionRules:
-    """The phase-2 device rules over the manager's device tree."""
+    """The expansion over the manager's device tree, and the retired mode."""
 
     TREE = [
         "UC_Plugin",
@@ -445,144 +445,36 @@ class TestAcquisitionRules:
         "U_Gauge.scalars",
     ]
 
-    def _refusal(self, preset: Preset, engine) -> str | None:
-        from geecs_bluesky.qs_client.presets import expand_preset
-        from geecs_bluesky.qs_client.submit_preflight import acquisition_refusal
-
-        return acquisition_refusal(expand_preset(preset), set(self.TREE))
-
-    def test_a_condition_never_blocks_a_submission(self, engine):
-        """Any per-shot device may be not required, in either mode, scalars-only too.
-
-        A device with no stamp (a free-running gauge) is a condition, read in
-        every row, whatever its ``required`` says.
+    def test_a_condition_is_left_out_of_required(self, engine):
+        """A device with no stamp (a free-running gauge) is a condition, read in
+        every row, whatever its ``required`` says: the client leaves it out.
         """
-        gated = {"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}}
-        for extra in ({}, {"plan": gated}):
-            for device in (
-                {"device": "UC_Native", "required": False},
-                {"device": "U_ICT", "required": False},
-                {"device": "UC_Native", "required": False, "save_images": False},
-            ):
-                preset = _preset(devices=[{"device": "UC_Plugin"}, device], **extra)
-                assert self._refusal(preset, engine) is None, (device, extra)
-            preset = _preset(
-                devices=[
-                    {"device": "U_ICT"},
-                    {"device": "UC_Plugin", "required": False, "save_images": False},
-                ],
-                **extra,
-            )
-            assert self._refusal(preset, engine) is None, extra
-        preset = _preset(
-            devices=[{"device": "UC_Plugin"}, {"device": "U_Gauge", "required": False}]
-        )
-        assert self._refusal(preset, engine) is None
+        from geecs_bluesky.qs_client.presets import expand_preset
+
         preset = _preset(
             devices=[{"device": "UC_Plugin", "required": False}, {"device": "U_Gauge"}]
         )
-        # The gauge keeps its default required: a condition all the same, so
-        # the preset still submits — the client leaves it out of ``required``.
-        assert self._refusal(preset, engine) is None
-        from geecs_bluesky.qs_client.presets import expand_preset
-
         item = expand_preset(preset, device_tree=set(self.TREE))
         assert item.args[0] == ["UC_Plugin", "U_Gauge"]
         assert item.kwargs["required"] == []
 
-    def test_gated_admits_a_native_saving_essential(self, engine):
-        """The 2026-09-25 ruling: a device without a plugin is a gated essential.
-
-        Beside a plugin camera, alone (it clocks the batch: it has a stamp),
-        or scalars-only — none is refused; nor, since 2026-09-26, as a
-        non-essential beside them.
-        """
-        gated = {"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}}
-        preset = _preset(
-            devices=[{"device": "UC_Native"}, {"device": "UC_Plugin"}], plan=gated
-        )
-        assert self._refusal(preset, engine) is None
-        preset = _preset(devices=[{"device": "UC_Native"}], plan=gated)
-        assert self._refusal(preset, engine) is None
-        preset = _preset(
-            devices=[
-                {"device": "UC_Native", "save_images": False},
-                {"device": "UC_Plugin"},
-            ],
-            plan=gated,
-        )
-        assert self._refusal(preset, engine) is None
-        preset = _preset(
-            devices=[
-                {"device": "UC_Plugin"},
-                {"device": "UC_Native", "required": False},
-            ],
-            plan=gated,
-        )
-        assert self._refusal(preset, engine) is None
-
-    def test_gated_needs_a_shot_clock(self, engine):
-        preset = _preset(
-            devices=[{"device": "U_Gauge"}],
-            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
-        )
-        refusal = self._refusal(preset, engine)
-        assert refusal and "nothing counts shots" in refusal
-        preset = _preset(
-            devices=[{"device": "U_Gauge"}, {"device": "U_ICT", "save_images": False}],
-            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
-        )
-        assert self._refusal(preset, engine) is None  # an ICT clocks it
-
-    def test_worker_ready_refuses_through_the_rules(self, engine, monkeypatch):
-        client = _FakeQueueClient(devices=self.TREE)
-        preset = _preset(
-            devices=[{"device": "U_Gauge"}],
-            plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
-        )
-        report = run_submit_preflight(preset, "TestExp", client=client)
-        assert report.refusal and "nothing counts shots" in report.refusal
-
-
-class TestNativeCamera:
-    """A native EPICS camera in a gated preset: the true reason, not the device rules'."""
-
-    #: A native camera's tree: a writer (``hdf``), no ``acq_timestamp``.
-    TREE = [
-        "UC_Plugin",
-        "UC_Plugin.hdf",
-        "UC_Plugin.acq_timestamp",
-        "ADTEST_CAM1",
-        "ADTEST_CAM1.hdf",
-    ]
-
-    def test_a_gated_native_camera_is_refused_in_the_workers_words(
+    def test_a_gated_preset_is_refused_before_the_manager_is_asked(
         self, engine, monkeypatch
     ):
+        """The retired mode is refused at ``validate``, in its own words."""
         monkeypatch.setattr(
             submit_preflight,
             "_make_default_client",
             lambda e: pytest.fail("the manager must not be asked about it"),
         )
-        resolver = _FakeResolver()
-        resolver.resolve_native_devices = lambda: SimpleNamespace(
-            devices={"ADTEST_CAM1": None}
-        )
         preset = _preset(
-            devices=[{"device": "ADTEST_CAM1"}],
+            devices=[{"device": "UC_Plugin"}],
             plan={"name": "count", "kwargs": {"num": 3, "acquisition": "gated"}},
         )
-        report = run_submit_preflight(preset, "TestExp", resolver=resolver)
-        assert report.refusal == (
-            "ADTEST_CAM1: native EPICS cameras run in strict and fly scans only for now "
-            "— not in a gated batch"
-        )
+        report = run_submit_preflight(preset, "TestExp")
+        assert report.refusal and "acquisition='gated' is retired" in report.refusal
+        assert "use acquisition='strict'" in report.refusal
         assert report.outcomes == [] and report.questions == []
-        # the device rules alone would have refused it for another reason
-        report = run_submit_preflight(
-            preset, "TestExp", client=_FakeQueueClient(devices=self.TREE)
-        )
-        assert report.refusal and "no required triggered device" in report.refusal
 
 
 class TestInlineTriggerProfile:
@@ -600,25 +492,26 @@ class TestInlineTriggerProfile:
         )
         assert calls == [["UC_Cam1", "UC_Cam2", "U_DG645_New", "U_Shutter"]]
 
-    def test_a_scan_mode_draft_refuses_a_gated_preset(self, engine):
-        draft = _profile().model_copy(update={"use_scan_mode": True})
-        preset = _preset(plan={"name": "count", "kwargs": {"num": 2, "acquisition": "gated"}})  # fmt: skip
+    def test_a_scan_mode_draft_refuses_a_fly_preset_naming_it(self, engine):
+        draft = _profile("HTU-LaserOFF").model_copy(update={"use_scan_mode": True})
+        on_disk = _FakeResolver({"HTU-LaserOFF": _profile("HTU-LaserOFF")})
+        preset = _preset(
+            trigger_profile="HTU-LaserOFF",
+            plan={"name": "count", "kwargs": {"num": 2, "acquisition": "fly"}},
+        )
         report = run_submit_preflight(
             preset,
             "Undulator",
-            resolver=_FakeResolver(),
+            resolver=on_disk,
             trigger_profile=draft,
-            client=_FakeQueueClient(
-                devices=[
-                    "UC_Cam1",
-                    "UC_Cam1.acq_timestamp",
-                    "UC_Cam2",
-                    "UC_Cam2.scalars",
-                    "UC_Cam2.acq_timestamp",
-                ]
-            ),  # fmt: skip
+            client=_FakeQueueClient(),
         )
         assert report.refusal and "scan mode" in report.refusal
+        # the profile on disk (no scan mode) is not what was checked
+        report = run_submit_preflight(
+            preset, "Undulator", resolver=on_disk, client=_FakeQueueClient()
+        )
+        assert report.refusal is None
 
     def test_the_profile_alone_probes_every_device_it_writes(self, engine, monkeypatch):
         from geecs_bluesky.qs_client import run_trigger_profile_preflight

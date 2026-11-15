@@ -575,7 +575,7 @@ def test_drain_offset_reaches_the_descriptor(RE: RunEngine) -> None:
 def test_a_camera_left_in_fly_mode_still_waits_for_its_stamp(
     RE: RunEngine,
 ) -> None:
-    """A gated run leaves `fly` set, and only `trigger` ever clears it.
+    """A device stream leaves `fly` set, and only `trigger` ever clears it.
 
     `wait_for_idle` returns immediately in fly mode, so a view that did not
     clear the flag would report every shot complete without waiting — a
@@ -586,7 +586,7 @@ def test_a_camera_left_in_fly_mode_still_waits_for_its_stamp(
     box = _box({"amp3": 0.0, "amp4": 0.036}, drop={("amp4", 1)})
     sc = _shot_control(RE, box)
     cams = [_camera(RE, box, n) for n in ("amp3", "amp4")]
-    for cam in cams:  # what a preceding gated run leaves behind
+    for cam in cams:  # what a preceding run's device stream leaves behind
         cam._acquire.fly = True
     plan = measure_shot_offsets_plan(_profiles(sc), resolver=None)
     captured: dict[str, Any] = {}

@@ -185,27 +185,77 @@ class EpicsMotor(_NativeEntry):
 
 
 class SetpointSettable(SchemaModel):
-    """One settable of a setpoint device: how close its readback must come, and how soon."""
+    """One settable of a setpoint device: how long a scan waits for its readback.
 
-    # Finite: an infinite tolerance confirms any readback, an infinite
-    # timeout removes the deadline (PositiveFloat alone admits +inf).
-    tolerance: PositiveFloat = Field(
-        allow_inf_nan=False,
+    The tolerance the readback must come within is not here: it is a device
+    fact the IOC holds as a record (the family's ``tolerance_by`` role for
+    the settable's setpoint, a supply's ``current:TOL``), read by the scan
+    worker at every set.  What stays is the client's patience.
+
+    ``tolerance`` is the retired registry number, accepted and ignored for
+    one release: readers deployed before its retirement *require* it, so a
+    file keeps it until every reader runs this schema, and a round trip
+    keeps it as it was (absent stays absent, a value is written back).
+    """
+
+    tolerance: Optional[float] = Field(
+        None,
         description=(
-            "How close the readback must come to the requested value for the "
-            "set to be done, in the record's units (e.g. 0.005 for 5 mA on a "
-            "supply in A). The one device fact a plain 'ao' record cannot hold."
+            "Retired: ignored, never a tolerance (the IOC's set-tolerance record "
+            "is, read at every set). Accepted only while readers deployed before "
+            "its retirement still require it; drop it from the file once every "
+            "reader runs a schema that accepts its absence."
         ),
     )
+
+    # Finite: an infinite timeout removes the deadline (PositiveFloat
+    # alone admits +inf).
     timeout: PositiveFloat = Field(
         10.0,
         allow_inf_nan=False,
         description=(
-            "Seconds the set waits for the readback to arrive within the "
-            "tolerance after the write, before it fails. Size it for the "
-            "slowest ramp plus the readback's scan period."
+            "Seconds the scan worker waits for the readback to arrive within the "
+            "IOC's set tolerance after the write, before the set fails: the "
+            "client's patience, not a device fact. Size it for the slowest ramp "
+            "plus the readback's scan period. The tolerance itself is the IOC's "
+            "record (the family's tolerance_by role, e.g. current:TOL), never "
+            "written here."
         ),
     )
+
+    @model_serializer(mode="wrap")
+    def _retired_stays_as_it_was(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        # A save must never write 'tolerance: null': an older reader requires a number.
+        data = handler(self)
+        if self.tolerance is None:
+            data.pop("tolerance", None)
+        return data
+
+
+def _no_set_tolerance(family: FamilyFile, record: str) -> Optional[str]:
+    """Why *family* gives the settable *record* no set-tolerance record, naming the family and role; ``None`` if it does."""
+    setpoint = family.setpoint_role_for(record)
+    if setpoint is None:
+        role = next((r for r in family.roles if r.suffix == record), None)
+        what = (
+            f"has it as {role.type} role {role.name!r}"
+            if role
+            else "names no such record"
+        )
+        return (
+            f"settable {record!r}: family {family.template!r} {what} and no "
+            "setpoint role for it, so no set-tolerance record: a scan could not "
+            "confirm a set on it"
+        )
+    if setpoint.tolerance_by is None:
+        return (
+            f"settable {record!r}: family {family.template!r}'s setpoint role "
+            f"{setpoint.name!r} names no set-tolerance record (tolerance_by): a "
+            "scan could not confirm a set on it"
+        )
+    return None
 
 
 class SetpointDevice(_NativeEntry):
@@ -215,10 +265,13 @@ class SetpointDevice(_NativeEntry):
     (``<experiment>:<device>:<record>``), since the worker has no DB rows to
     enumerate them: each settable is its readback record, written at its
     setpoint record (``<record>:SP``, or the family's setpoint role for that
-    readback) and confirmed on the readback within its tolerance; readbacks
-    are extra row columns; status bits are two-state records that fail a
-    set when they read 1. Limits and units live in the records
-    (``DRVH``/``DRVL``, ``EGU``), the one home for device facts.
+    readback) and confirmed on the readback within the IOC's set tolerance
+    (the record the family's ``tolerance_by`` role names for that setpoint);
+    readbacks are extra row columns; status bits are two-state records that
+    fail a set when they read 1. Limits, units and the set tolerance live in
+    the records (``DRVH``/``DRVL``, ``EGU``, ``current:TOL``), the one home
+    for device facts: a settable the family gives no setpoint role with a
+    ``tolerance_by`` is refused.
     """
 
     kind: Literal["setpoint_device"] = Field(
@@ -231,9 +284,12 @@ class SetpointDevice(_NativeEntry):
         min_length=1,
         description=(
             "The settables, by readback record name under the device's prefix "
-            "(e.g. {'current': {tolerance: 0.005}} for "
-            "'<experiment>:<device>:current', written at 'current:SP'). Each "
-            "is a scan axis 'Device:record' and an action's set target."
+            "(e.g. {'current': {timeout: 10}} for "
+            "'<experiment>:<device>:current', written at the family's setpoint "
+            "role for it, 'current:SP', and confirmed within the IOC's set "
+            "tolerance, 'current:TOL'). Each must be a readback the family "
+            "writes through a setpoint role with a 'tolerance_by'. Each is a "
+            "scan axis 'Device:record' and an action's set target."
         ),
     )
     readbacks: list[str] = Field(
@@ -265,8 +321,9 @@ class SetpointDevice(_NativeEntry):
                     f"readback ({record[: -len(SETPOINT_SUFFIX)]!r})"
                 )
         family = families_from(info).get(self.family_template)
-        if family is not None:  # an unknown template is _NativeEntry's refusal
-            self._check_against(family)
+        if family is None:  # an unknown template is _NativeEntry's refusal
+            return self
+        self._check_against(family)
         written = set(self.setpoint_records(family).values())
         clash = sorted(written & {*self.readbacks, *self.status})
         if clash:
@@ -274,20 +331,20 @@ class SetpointDevice(_NativeEntry):
         return self
 
     def _check_against(self, family: FamilyFile) -> None:
-        """Refuse a record the family knows as something else, and a status bit it lacks.
+        """Refuse a settable the family gives no set tolerance, a record it knows as something else, a status bit it lacks.
 
-        A family lists every bit its template has but may omit a readback
-        or a setpoint (the Easy-Driver's ``slewrate``, ``temperature``): a
-        record the family does not name is the template's own business.
+        A settable must be a readback the family writes through a setpoint
+        role with a ``tolerance_by`` (the IOC's set-tolerance record): the
+        scan worker confirms a set within that record's value and has no
+        other.  A family lists every bit its template has but may omit a
+        readback (the Easy-Driver's ``temperature``): a readback the family
+        does not name is the template's own business.
         """
         by_suffix = {r.suffix: r for r in family.roles}
         for record in self.settables:
-            role = by_suffix.get(record)
-            if role is not None and family.setpoint_for(record) is None:
-                raise ValueError(
-                    f"settable {record!r}: family {family.template!r} has it as a "
-                    f"{role.type} with no setpoint role"
-                )
+            refusal = _no_set_tolerance(family, record)
+            if refusal is not None:
+                raise ValueError(refusal)
         for record in self.readbacks:
             role = by_suffix.get(record)
             if role is not None and role.type != "readback":
@@ -303,18 +360,37 @@ class SetpointDevice(_NativeEntry):
                     f"{family.template!r} ({', '.join(faults) or 'none'})"
                 )
 
-    def setpoint_records(self, family: Optional[FamilyFile]) -> dict[str, str]:
-        """Each settable's setpoint record: the family's setpoint role for it, else ``<record>:SP``.
+    def setpoint_records(self, family: FamilyFile) -> dict[str, str]:
+        """Each settable's setpoint record: the family's setpoint role for it.
 
         The one rule every reader writes or archives by (the worker, and
         later the scanner's list, the panel and the archiver); *family* is
-        the device's (``load_families()[entry.family_template]``).
+        the device's (``load_families()[entry.family_template]``), against
+        which the entry validated, so every settable has one.
         """
         return {
-            record: (family.setpoint_for(record) if family is not None else None)
-            or record + SETPOINT_SUFFIX
-            for record in self.settables
+            record: self._family_record(family, record)[0] for record in self.settables
         }
+
+    def tolerance_records(self, family: FamilyFile) -> dict[str, str]:
+        """Each settable's set-tolerance record: its setpoint role's ``tolerance_by`` role's suffix.
+
+        The record the IOC holds the settable's set tolerance in (a
+        supply's ``current:TOL``, geecs-epics decision 21), by the family's
+        one rule (:meth:`FamilyFile.tolerance_for`); *family* as for
+        :meth:`setpoint_records`.
+        """
+        return {
+            record: self._family_record(family, record)[1] for record in self.settables
+        }
+
+    def _family_record(self, family: FamilyFile, record: str) -> tuple[str, str]:
+        # Validation refuses this against the same families; a family other
+        # than the one validated against is the caller's error.
+        refusal = _no_set_tolerance(family, record)
+        if refusal is not None:
+            raise ValueError(refusal)
+        return family.setpoint_for(record), family.tolerance_for(record)  # type: ignore[return-value]
 
 
 class Witness(_NativeEntry):

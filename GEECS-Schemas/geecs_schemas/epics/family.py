@@ -231,7 +231,10 @@ class Role(SchemaModel):
         None,
         description=(
             "On a setpoint: the readback whose value is that tolerance, where the "
-            "record keeps one (the motor record's retry deadband, RDBD)."
+            "IOC keeps one (the motor record's retry deadband, RDBD; a supply's "
+            "constant <readback>:TOL, read once). It is a tolerance only while "
+            "connected, not INVALID and above zero; anything else is none, never "
+            "exact, and a page judges nothing."
         ),
     )
     fresh_by: Optional[RoleName] = Field(
@@ -306,7 +309,7 @@ class Role(SchemaModel):
         None,
         description=(
             "How the bridge reads it, when not the type's own: monitored (scalars), "
-            "on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame)."
+            "on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale or a supply's set tolerance: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame)."
         ),
     )
 
@@ -549,11 +552,30 @@ class FamilyFile(VersionedSchemaModel):
         *readback* (the Easy-Driver's ``current:SP`` beside ``current``, the
         FAST-PS's ``current_ramp:SP``).
         """
+        role = self.setpoint_role_for(readback)
+        return None if role is None else role.write_suffix
+
+    def setpoint_role_for(self, readback: str) -> Optional[Role]:
+        """The setpoint role whose ``readback`` reads the record *readback*; ``None`` if none."""
         names = {r.name for r in self.roles if r.suffix == readback}
         for role in self.roles:
             if role.type == "setpoint" and role.readback in names:
-                return role.write_suffix
+                return role
         return None
+
+    def tolerance_for(self, readback: str) -> Optional[str]:
+        """The record holding the set tolerance of a write to *readback*; ``None`` if no role says.
+
+        The setpoint role for *readback* (:meth:`setpoint_role_for`), its
+        ``tolerance_by`` role, that role's suffix: the Easy-Driver's and the
+        FAST-PS's ``current:TOL`` for ``current``.  The scan worker's reading
+        of the rule the Control Room's page applies to the module's roles; a
+        family number (``tolerance``) is not a record and is not returned.
+        """
+        role = self.setpoint_role_for(readback)
+        if role is None or role.tolerance_by is None:
+            return None
+        return self.role(role.tolerance_by).suffix
 
     def role_names(self) -> list[str]:
         """Every role's name, in the page's order."""
@@ -592,7 +614,7 @@ class FamilyFile(VersionedSchemaModel):
 
 
 def _check_links(role: Role, by_name: Mapping[str, Role]) -> None:
-    """Refuse a link naming no role, an unmonitored one, a freshness source that is no counter, or a tolerance that is no readback."""
+    """Refuse a link naming no role, an unmonitored one (a tolerance may be read once), a freshness source that is no counter, or a tolerance that is no readback."""
     for link in ("settled_by", "readback", "fresh_by", "computed_by", "tolerance_by"):
         target = getattr(role, link)
         if target is None:
@@ -600,7 +622,9 @@ def _check_links(role: Role, by_name: Mapping[str, Role]) -> None:
         other = by_name.get(target)
         if other is None:
             raise ValueError(f"role {role.name!r}: {link} names no role ({target!r})")
-        if other.read_mode != "monitor":
+        # A tolerance record may be a constant read once (an IOC's :TOL): the page reads it, nothing judges it.
+        reads = ("monitor", "once") if link == "tolerance_by" else ("monitor",)
+        if other.read_mode not in reads:
             raise ValueError(f"role {role.name!r}: {link} {target!r} is not monitored")
         if link == "fresh_by" and other.type != "counter":
             raise ValueError(

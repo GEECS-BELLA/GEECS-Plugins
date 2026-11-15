@@ -428,7 +428,8 @@ this package and must never depend on GeecsBluesky or a GUI package).
   declares only the NDAttributes of an inline XML); a plugin stack has no
   per-frame counter at all. And
   `per_shot_event_streams(start)` is the one event-stream gate
-  (`per_shot_streams`, or a gated or earlier strict run's `non_essential`).
+  (`per_shot_streams`, or a recorded gated or earlier strict run's
+  `non_essential`; gated was deleted on 2026-11-14, its runs stay readable).
   `shot_join.to_labview_epoch` is the one Unix → LabVIEW conversion of a
   row clock, and `shot_join.clock_stamps(rows, column)` the stamps every
   `shot_clock_column` caller times against.
@@ -436,7 +437,7 @@ this package and must never depend on GeecsBluesky or a GUI package).
   (`write_scalar_files` from the documents, what the worker calls) or
   offline (`write_scalar_files_from_tiled`).  The rows are `primary`'s
   events when it has them and the per-shot `shots` events otherwise (a
-  gated run), and `join_frame_columns` appends, through `shot_table`,
+  gated run recorded before the mode's 2026-11-14 deletion), and `join_frame_columns` appends, through `shot_table`,
   every datum-only stream's per-frame columns (and every per-shot event
   stream's, `per_shot_event_streams`) before `geecs_scalar_headers` renames and orders them
   — one projection for both shapes of run.  `read_frame_columns` reads a

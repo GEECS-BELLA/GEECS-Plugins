@@ -1,0 +1,8 @@
+{
+ "primary": {
+  "uc_a": "uc_a.h5"
+ },
+ "uc_b_stream": {
+  "uc_b": "uc_b.h5"
+ }
+}

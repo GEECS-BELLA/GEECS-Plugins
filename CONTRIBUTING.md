@@ -197,9 +197,9 @@ layout; delete-when-executed is the whole discipline):
   and its flags in `GeecsBluesky/EVENT_SCHEMA.md`, the native stream path
   in `NATIVE_DEVICES.md`, the join's rules in the
   `geecs_data_utils.shot_table` docstrings (the clock-step audit's limits
-  among them). What gated keeps alive until it is retired, and what goes
-  when the last LabVIEW device migrates, moved to `GeecsBluesky/CLAUDE.md`
-  ("Gated is frozen"). The open questions are on #1278.
+  among them). What goes when the last LabVIEW device migrates moved to
+  `GeecsBluesky/CLAUDE.md` § "Acquisition" (gated itself was deleted on
+  2026-11-14, #1345). The open questions are on #1278.
 - **2026-11-14**, configurator arc (GeecsConfigurator, slices 0–7 on
   `feat/configurator`, #1307) — `configurator.md` deleted in slice 7, ahead
   of the promotion PR. Its rules moved first: the tiers and what each

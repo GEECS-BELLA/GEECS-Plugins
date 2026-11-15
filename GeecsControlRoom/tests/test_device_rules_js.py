@@ -26,6 +26,16 @@ AXES = {"ok": True, "roles": {
 }}  # fmt: skip
 
 
+def tol(value: Any, **wire: Any) -> dict[str, Any]:
+    """A tolerance role's Hare frame: connected and unalarmed unless ``wire`` says otherwise."""
+    return {
+        "value": value,
+        "connected": True,
+        "severity": "NO_ALARM",
+        "alarmStatus": 0,
+    } | wire
+
+
 def row(**over: Any) -> dict[str, Any]:
     return {"hareUp": True, "frame": UP, "view": VIEW, "entry": ENTRY} | over
 
@@ -126,9 +136,18 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("draft: kept on a refusal", "keepsDraft", [False], True),
     ("draft: kept when unsent (another write in flight)", "keepsDraft", [None], True),
     # the tolerance and the mark
-    ("tolerance: the family's number first", "tolerance", [{"hint": 0.05, "by": 0.2, "precision": 3}], 0.05),
-    ("tolerance: else its role's value (a motor's RDBD)", "tolerance", [{"by": 0.002, "precision": 3}], 0.002),
+    ("tolerance: the family's number first", "tolerance", [{"hint": 0.05, "by": tol(0.2), "precision": 3}], 0.05),
+    ("tolerance: the module's number before the role (a family skewed between page and image)", "tolerance", [{"hint": 0.05, "by": tol(0.005), "precision": 4}], 0.05),
+    ("tolerance: else its role's value (a motor's RDBD)", "tolerance", [{"by": tol(0.002), "precision": 3}], 0.002),
+    ("tolerance: else its role's value (a supply's :TOL)", "tolerance", [{"by": tol(0.005), "precision": 2}], 0.005),
     ("tolerance: its role unread judges nothing", "tolerance", [{"by": None, "precision": 3}], None),
+    ("tolerance: its role unserved (never connects) judges nothing, never the precision", "tolerance", [{"by": tol(None, connected=False), "precision": 3}], None),
+    ("tolerance: its role disconnected, a stale value kept, judges nothing", "tolerance", [{"by": tol(0.005, connected=False), "precision": 3}], None),
+    ("tolerance: its role INVALID (a load missing its value: 0 INVALID) judges nothing, never exact", "tolerance", [{"by": tol(0, severity="INVALID", alarmStatus=5), "precision": 3}], None),
+    ("tolerance: its role INVALID with a positive value still judges nothing", "tolerance", [{"by": tol(0.005, severity="INVALID", alarmStatus=5), "precision": 3}], None),
+    ("tolerance: its role at zero is no tolerance, never exact", "tolerance", [{"by": tol(0), "precision": 3}], None),
+    ("tolerance: its role negative is no tolerance", "tolerance", [{"by": tol(-0.005), "precision": 3}], None),
+    ("tolerance: its role MINOR still gives its value", "tolerance", [{"by": tol(0.005, severity="MINOR"), "precision": 3}], 0.005),
     ("tolerance: else one unit in the record's last digit", "tolerance", [{"precision": 2}], 0.01),
     ("tolerance: a whole number is exact", "tolerance", [{"precision": 2, "integer": True}], 0),
     ("tolerance: no precision is exact", "tolerance", [{}], 0),
@@ -249,3 +268,79 @@ def test_a_failed_poll_never_loses_the_differs_mark() -> None:
         "differs": False,
         "armed": False,
     }  # verified agreement disarms
+
+
+# The same rail over a supply whose setpoint names its IOC's set-tolerance record (tolerance_by: current_tol,
+# read once): an accepted write of 5 settles with the measured value and the :TOL frame each case's (stdin).
+_TOL_RAIL = r"""
+const vm = require("vm"), fs = require("fs"), path = require("path");
+const dir = path.dirname(process.argv[1]);
+const D = require(path.join(dir, "device_rules.js")), C = require(path.join(dir, "camera_rules.js")), S = require(path.join(dir, "screen_rules.js"));
+const { mv, tol } = JSON.parse(fs.readFileSync(0, "utf8"));
+const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
+let clock = 1000;
+function el(props = {}) {
+  const on = {}, kids = {};
+  return Object.assign({ dataset: {}, hidden: false, textContent: "", value: "", disabled: false, title: "", tagName: "SPAN",
+    addEventListener(t, f) { (on[t] = on[t] || []).push(f); }, fire(t, ev) { (on[t] || []).forEach((f) => f(ev)); },
+    querySelector(sel) { return (kids[sel] = kids[sel] || el()); }, querySelectorAll() { return []; },
+    closest() { return null; }, focus() {}, blur() {} }, props);
+}
+const field = el();
+const input = el({ tagName: "INPUT", type: "number", step: "any", dataset: { role: "current_sp", readback: "current", tolBy: "current_tol" },
+  closest: (sel) => (sel.startsWith(".field") ? field : null) });
+const box = el({ querySelectorAll: (sel) => (sel === ".field [data-role]" ? [input] : []) });
+const ENTRIES = {
+  "current_sp|": { role: "current_sp", pv: "ps:current:SP", writePv: "ps:current:SP", writable: true, read: "monitor", verdict: "live", tolerance: null },
+  "current|": { role: "current", pv: "ps:current", writePv: null, writable: false, read: "monitor", verdict: "live" },
+  "current_tol|": { role: "current_tol", pv: "ps:current:TOL", writePv: null, writable: false, read: "once", verdict: null },
+};
+const FRAMES = { current_sp: { value: 5, connected: true }, current: { value: mv, connected: true }, current_tol: tol };
+const P = {
+  view: () => ({ ok: true, state: "live", roles: ENTRIES, source: "native" }),
+  entry: (role) => ENTRIES[role + "|"],
+  frame: (role) => (D.watched(ENTRIES[role + "|"]) ? FRAMES[role] : undefined), target: () => null,
+  meta: () => ({ precision: 2 }), word: () => "live", on() {},
+};
+const writes = { write: async () => true, busy: () => false };
+const ids = { "kit-state": el({ textContent: "{}" }), "write-out": el() };
+const document = { getElementById: (id) => ids[id] || null, activeElement: null };
+const ctx = vm.createContext({ window: { GeecsCameraRules: C, GeecsDeviceRules: D, GeecsScreenRules: S }, document, console, CSS: { escape: (s) => s },
+  Date: { now: () => clock }, setTimeout: () => 0 });
+vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
+const rail = ctx.window.GeecsDeviceRail.make(P, box, writes);
+(async () => {
+  input.value = "5"; input.dataset.draft = "1";
+  input.fire("keydown", { key: "Enter", preventDefault() {} });
+  await flush();
+  clock += 1500; rail.fill();
+  console.log(JSON.stringify({ differs: !field.querySelector(".differs").hidden, armed: input.dataset.armed !== undefined }));
+})();
+"""
+
+
+@needs_node
+@pytest.mark.parametrize(
+    "mv, frame, want",
+    [
+        # 4 mA off a 0.005 A tolerance: inside it, though the record shows 0.01 A (the old judge differed at 0.01)
+        (5.004, tol(0.005), {"differs": False, "armed": False}),
+        (4.99, tol(0.005), {"differs": True, "armed": True}),  # 10 mA off: outside it
+        # no tolerance: the mark waits, judges nothing and keeps the arming; never exact, never the precision
+        (4.99, tol(None, connected=False), {"differs": False, "armed": True}),  # unserved (not redeployed)
+        (4.99, None, {"differs": False, "armed": True}),  # no frame yet
+        (5.004, tol(0, severity="INVALID", alarmStatus=5), {"differs": False, "armed": True}),  # 0 INVALID
+        (5.004, tol(0.005, severity="INVALID", alarmStatus=5), {"differs": False, "armed": True}),
+        (5.004, tol(0), {"differs": False, "armed": True}),  # zero is no tolerance, never exact
+        (5.004, tol(-0.005), {"differs": False, "armed": True}),
+    ],
+    ids=["inside", "outside", "unserved", "unread", "zero-invalid", "invalid", "zero", "negative"],
+)  # fmt: skip
+def test_a_supply_is_judged_by_its_iocs_set_tolerance(mv: float, frame: Any, want: dict) -> None:  # fmt: skip
+    import json
+
+    from tests._node import run
+
+    assert (
+        run("device_rail.js", _TOL_RAIL, json.dumps({"mv": mv, "tol": frame})) == want
+    )
