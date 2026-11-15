@@ -127,7 +127,7 @@ axis), `x-suggest` (a datalist), `x-form-note` (why the form is plainer).
 `form.js`'s docstring is their contract. A kind's layout is whoever serves
 its schema: the analysis core stamps the registry's (`x-ndim`, `x-docs`,
 `x-scalars`, `x-axes`), the configurator its pages' (`form_hints.py`).
-The old analysis config editor (`scan_analysis.config_editor`, deleted by
+The old analysis config editor (ScanAnalysis' `editor.js`, deleted by
 #1339) was a second form engine with the recipe's layout hard-coded; its
 affordances live here now, as hints any kind can use.
 
