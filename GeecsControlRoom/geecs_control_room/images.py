@@ -1,7 +1,7 @@
 """A camera's image and arrays, read over Channel Access by this server: read only, at the PVs the module names.
 
 Hare carries scalars; a camera's frame and its plots' arrays do not travel
-through it (``Planning/device_pages.md``, slice 1). Two routes serve them:
+through it (``GeecsControlRoom/CLAUDE.md`` § "The device pages"). Two routes serve them:
 
 - ``GET /api/devices/{name}/frame.jpg``: the JPEG the IOC's MJPEG server
   holds. Its URL is the string at the PV the module's device route names

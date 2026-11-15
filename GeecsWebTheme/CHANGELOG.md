@@ -4,6 +4,14 @@ All notable changes to `geecs-web-theme` are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 project adheres to semantic versioning.
 
+## [0.8.0] - 2026-11-14
+
+### Added
+
+- `plot.js`, the one Plotly template every surface draws line plots
+  through (tokens read at run time), and the vendored
+  `plotly-cartesian-3.1.1.min.js` beside it (#1293).
+
 ## [0.7.0] - 2026-11-04
 
 ### Added

@@ -6,6 +6,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 > **Two different `0.97.0` releases exist below.** The arc line (`feature/nonscalar-pva`) and `master` each bumped this package to 0.97.0 in parallel — #945's capture-stream declaration on 2026-09-21, #944's `native_image_save` on 2026-09-20. Neither was ever deployed, and this merge carries both; the number is kept as each line recorded it rather than rewritten after the fact.
 
+## [0.118.0] - 2026-11-14
+
+### Added
+
+- Fly mode (`acquisition="fly"`): a soft tick clocks the rows and the
+  trigger box is never driven; presets only (#1296).
+- The witness, a hardware count of the trigger box's edges: optional, and
+  with one registered each strict row carries its count and two audits run,
+  counters against rows and a clock-step check (#1296).
+- Native and gateway cameras may be required together in a strict count or
+  sweep (#1296).
+
+### Changed
+
+- A strict run is a shot table: `primary` holds one row per fire and every
+  per-shot device records into its own stream, its records assigned to
+  the rows by time rather than by position (#1296).
+- A shot a required device missed keeps its flagged row and is fired again
+  on a new row instead of rewound; two exhausted shots in a row pause the
+  run (#1296).
+- Pauses never end a run: a required device that reads down, or a camera
+  that counts extra frames two fires in a row, pauses it by name, and
+  extra frames are recorded in an `extra_frames` column (#1296).
+- `required` replaces `essential` on preset devices outside gated runs; a
+  preset naming `essential` is refused by name (#1296).
+- `sweep`, `optimize` and `strict_plan` annotate their device-list and `md`
+  arguments, so the queue manager no longer turns a preset or description
+  named like a device or plan into that object; non-plain `md` is refused
+  by name before the scan number is claimed (#1318).
+
+### Fixed
+
+- A native camera's stream declares the HDF writer's built-in per-frame
+  attributes (the EPICS stamp pair and the unique id), so its frames are
+  timed in Tiled and served by the portal (#1334).
+
 ## [0.117.0] - 2026-11-04
 
 ### Added

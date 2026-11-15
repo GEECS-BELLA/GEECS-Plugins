@@ -53,9 +53,9 @@ GEECS_PLAN_NAMES: tuple[str, ...] = (
 )
 
 #: The acquisition modes every bound scan verb accepts (``acquisition=``):
-#: strict single-shot, or the gated batch.
+#: strict single-shot, the gated batch, or fly (a software tick, no box).
 #: Shared by the registry (the plan) and the client seam (the preset).
-ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated")
+ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated", "fly")
 
 __all__ = [
     "ACQUISITION_MODES",

@@ -37,7 +37,7 @@
     },
     "PresetDevice": {
       "additionalProperties": false,
-      "description": "One device of the group: it records every shot of the scan.\n\n``essential`` (default on) means the scan waits for this device on\nevery shot \u2014 a shot is not complete without its reading.  Off means\nthe device streams what it produces for the run's duration (its\nframes through the camera server's file plugin, or \u2014 without one \u2014\nits readings and LabVIEW files for every shot it stamps, joined to the\nshots afterwards) and never holds a shot or aborts a run: the choice\nfor a slow or unreliable device whose data are welcome but not\nrequired (phase 2, GEECS-Plugins#807; 2026-09-26 for devices without a\nplugin).",
+      "description": "One device of the group: it records every shot of the scan.\n\nEvery per-shot device (a camera, any device with a shot stamp) streams\nwhat it produces for the run into its own stream, joined to the shots\nby stamp.  ``required`` (default on) means the scan also waits for this\ndevice on every shot and refires a shot it missed \u2014 a shot is not\ncomplete without it.  Off, the device never holds a shot or aborts a\nrun: the choice for a slow or unreliable device whose data are welcome\nbut not required.  A device without a shot stamp is a condition, read\nin every row, whatever this says.  ``essential``, the field's old name,\nis refused with a message naming ``required``.",
       "properties": {
         "device": {
           "description": "GEECS device name exactly as it appears in the GEECS experiment database (MySQL), e.g. 'UC_ALineEbeam1'.",
@@ -51,10 +51,10 @@
           "title": "Save Images",
           "type": "boolean"
         },
-        "essential": {
+        "required": {
           "default": true,
-          "description": "Wait for this device on every shot (on, the default) \u2014 a shot is not complete without its reading. Off streams the device for the run's duration instead, at its own rate, joined to the shots by its timestamp: it never holds a shot or aborts the scan, so use it for a slow or unreliable device whose data are welcome but not required. The device needs a shot timestamp (acq_timestamp).",
-          "title": "Essential",
+          "description": "Wait for this device on every shot (on, the default) and refire a shot it missed \u2014 a shot is not complete without its record. Off, the device still records every shot it takes into its own stream, joined to the shots by its timestamp, but never holds a shot or aborts the scan: use it for a slow or unreliable device whose data are welcome but not required. Only a device with a shot timestamp (acq_timestamp) or a native camera can be required; any other device is a condition, read in every row.",
+          "title": "Required",
           "type": "boolean"
         }
       },

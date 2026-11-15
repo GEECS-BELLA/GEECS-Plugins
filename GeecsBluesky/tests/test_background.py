@@ -442,7 +442,8 @@ def test_bound_count_reads_the_background_into_every_row(
     events = col.primary_events()
     assert box.fires == 2 and len(events) == 2
     assert [e["data"]["u_gauge-pressure"] for e in events] == [2.5, 2.5]
-    assert [e["data"]["uc_cam-meancounts"] for e in events] == [7.0, 7.0]
+    stream = col.stream_events("uc_cam_stream")
+    assert [e["data"]["uc_cam-meancounts"] for e in stream] == [7.0, 7.0]
     start = col.docs["start"][0]
     assert start["background_telemetry"] is True
     assert start["background_dropped"] == ["U_Dead"]
@@ -475,12 +476,14 @@ def test_bound_sweep_keeps_the_scanned_devices_other_variables(
     events = col.primary_events()
     assert len(events) == 3
     data = events[0]["data"]
-    assert "u_gauge-pressure" in data and "uc_cam-meancounts" in data
+    assert "u_gauge-pressure" in data
+    assert "uc_cam-meancounts" in col.stream_events("uc_cam_stream")[0]["data"]
     assert "u_s1h-voltage" in data  # the scanned device's other variable: background
     assert [e["data"]["u_s1h-current-position"] for e in events] == pytest.approx(
         [-1.0, 0.0, 1.0]
     )  # the readback: the motor's own column, once
-    descriptor = col.docs["descriptor"][0]["object_keys"]
+    primary = next(d for d in col.docs["descriptor"] if d["name"] == "primary")
+    descriptor = primary["object_keys"]
     assert "u_s1h-voltage" in descriptor["background"]
     assert "u_s1h-current-position" not in descriptor["background"]
     assert col.docs["start"][0]["background_dropped"] == []
@@ -529,10 +532,11 @@ def test_bound_sweep_leaves_a_device_the_run_reads_alone(RE, box, profiles) -> N
         events = col.primary_events()
         assert len(events) == 3
         data = events[0]["data"]
-        assert (
-            axis_key in data and "u_s1h-voltage" in data and "uc_cam-meancounts" in data
-        )
-        background = col.docs["descriptor"][0]["object_keys"]["background"]
+        assert axis_key in data and "u_s1h-voltage" in data
+        stream = col.stream_events("uc_cam_stream")
+        assert "uc_cam-meancounts" in stream[0]["data"]
+        primary = next(d for d in col.docs["descriptor"] if d["name"] == "primary")
+        background = primary["object_keys"]["background"]
         assert "u_gauge-pressure" in background
         assert not [k for k in background if k.split("-")[0] in own]
     # The third case: the magnet is nobody's, so its voltage came from the background.
@@ -665,10 +669,10 @@ def test_no_telemetry_set_or_nothing_outside_the_run_is_fine(RE, box, profiles):
     RE(bind_plans(profiles, settables=ns)["count"]([cam], 1))
     start = col.docs["start"][-1]
     assert start["background_telemetry"] is True and start["background_dropped"] == []
-    assert set(col.primary_events()[-1]["data"]) == {
+    assert not any(k.startswith("u_") for k in col.primary_events()[-1]["data"])
+    assert set(col.stream_events("uc_cam_stream")[-1]["data"]) == {
         "uc_cam-meancounts",
         "uc_cam-acq_timestamp",
-        "bin_number",
     }
 
 

@@ -11,11 +11,9 @@
   :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfDataLogic` over
   :class:`~geecs_bluesky.devices.hdf_plugin.GeecsHdfIO`, one per image variable.
 
-A missed shot does not void the row: scalar columns read ``NaN`` and the
-strict plan records the partial row before taking one more shot.
-:meth:`GeecsDetector.trigger` turns a plugin count timeout into the GEECS
-timeout the refire gate understands; :meth:`GeecsDetector.discard_uncollected`
-rewinds late frames before the retake.  In a **gated** batch the device
+In a strict run every per-shot device records into its own stream (the
+plan's on-demand slot waits on its progress counter and refires a missed
+shot; nothing is rewound).  In a **gated** batch the device
 flies (``prepare(number_of_events=N)``, ``kickoff``, ``truncate_to_quota``,
 ``truncate_to``, ``abandon_step``); a device without a plugin flies as a
 native-saving essential.
@@ -30,6 +28,7 @@ import asyncio
 import logging
 import math
 import numbers
+import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -650,6 +649,11 @@ class GeecsDetector(StandardDetector):
 
     #: :meth:`zero_count` done in the current plugin session.
     count_zeroed: bool = False
+    #: A fly prepare also switches a plugin-backed camera's LabVIEW-native
+    #: saving on (``native_image_save`` still decides): the strict
+    #: dual-write of a camera streamed for a shot-table run.  Set and
+    #: cleared by the plan around the run.
+    fly_native_save: bool = False
 
     def __init__(
         self,
@@ -834,6 +838,35 @@ class GeecsDetector(StandardDetector):
         self._scalars.extend(signals)
         self._scalars_logic.add(*signals)
 
+    def _streamed_save_path(self) -> str | None:
+        """The dual-write directory of a camera streamed with ``fly_native_save``, else ``None``."""
+        logic = self._native_logic
+        if not (self.fly_native_save and self._hdf_ios and logic is not None):
+            return None
+        return None if logic.directory is None else str(logic.directory)
+
+    async def read_configuration(self) -> dict[str, Reading]:
+        """The drain offset; a streamed camera's dual-write directory beside it.
+
+        A streamed plugin-backed camera's stream is datum-only, so its
+        ``-nonscalar_save_path`` — a run-long constant — rides in the
+        stream's descriptor configuration instead of an event column.
+        """
+        out = await super().read_configuration()
+        path = self._streamed_save_path()
+        if path is not None:
+            key = self.name + LvNativeFileDataLogic.datakey_suffix
+            out[key] = Reading(value=path, timestamp=time.time(), alarm_severity=0)
+        return out
+
+    async def describe_configuration(self) -> dict[str, DataKey]:
+        """The configuration's data keys (:meth:`read_configuration`)."""
+        out = await super().describe_configuration()
+        if self._streamed_save_path() is not None:
+            key = self.name + LvNativeFileDataLogic.datakey_suffix
+            out[key] = DataKey(source="derived://" + key, dtype="string", shape=[])
+        return out
+
     async def connect(
         self,
         mock: Any = False,
@@ -886,7 +919,9 @@ class GeecsDetector(StandardDetector):
         """
         if _data_logic_supported(logic.prepare_unbounded):
             return True
-        return logic is self._native_logic and not self._hdf_ios
+        return logic is self._native_logic and (
+            not self._hdf_ios or self.fly_native_save
+        )
 
     async def _update_prepare_context(self, trigger_info: TriggerInfo) -> None:
         """The stock context; in a fly prepare only the flying logics take part.
@@ -982,10 +1017,23 @@ class GeecsDetector(StandardDetector):
         is explicit: ``kickoff`` sets it, ``trigger`` clears it.  A
         stale ``missed`` from a strict run's last shot is cleared too — no
         row of this stream is a shot the plan fired.
+
+        After an **unbounded** prepare (a device stream: acquisition keeps
+        running) a frame can land between the prepare and the kickoff, and
+        the stock kickoff would refuse it ("only prepared up to …"); the
+        stream's datums cover it anyway (from the zeroed count).  So the
+        prepare context's baseline is set past any count the stock check
+        can read, as :meth:`~geecs_bluesky.devices.native.NativeCamera.kickoff`
+        does.  Nothing else reads that baseline on a stream (the batch
+        reads — ``step_baseline``, ``frames_this_batch``, ``truncate_to`` —
+        are a bounded prepare's); the next prepare rebuilds it.
         """
         self._acquire.fly = True
         self._acquire.abandoned = False
         self._acquire.missed = False
+        ctx = self._prepare_ctx
+        if ctx is not None and ctx.trigger_info.number_of_events == 0:
+            ctx.collections_written = sys.maxsize
         await super().kickoff()
 
     def complete(self) -> AsyncStatus:
@@ -1094,27 +1142,6 @@ class GeecsDetector(StandardDetector):
         )
         return max(0, min(int(c) for c in counts) - int(ctx.collections_written))
 
-    async def frames_since_last_datum(self) -> int:
-        """Frames past what a datum last referenced — the most any plugin holds.
-
-        The width the next collect would give this camera's datum.  In
-        strict acquisition a complete shot is exactly one: more means the
-        camera wrote frames the box did not fire, i.e. it is free-running
-        rather than waiting for the trigger.  ``0`` without a plugin or
-        outside ``prepare``.
-        """
-        ctx = self._prepare_ctx
-        if ctx is None or not ctx.streamable_data_providers:
-            return 0
-        providers = ctx.streamable_data_providers
-        counts = await asyncio.gather(
-            *(sdp.collections_written_signal.get_value() for sdp in providers)
-        )
-        return max(
-            int(count) - int(sdp.last_emitted)
-            for sdp, count in zip(providers, counts, strict=True)
-        )
-
     async def truncate_to(self, frames: int) -> None:
         """Rewind every plugin to ``baseline + frames``: the step's first *frames*, exactly.
 
@@ -1158,8 +1185,8 @@ class GeecsDetector(StandardDetector):
             return
         await self._rewind_plugins(0, "fresh session")
 
-    async def _rewind_plugins(self, keep: int | None, what: str) -> None:
-        """Rewind every plugin to *keep* frames (``None``: each provider's ``last_emitted``)."""
+    async def _rewind_plugins(self, keep: int, what: str) -> None:
+        """Rewind every plugin to *keep* frames."""
         ctx = self._prepare_ctx
         assert ctx is not None
         for provider in ctx.streamable_data_providers:
@@ -1173,7 +1200,7 @@ class GeecsDetector(StandardDetector):
             )
             if io is None:
                 continue
-            target = int(getattr(provider, "last_emitted", 0)) if keep is None else keep
+            target = keep
             written = int(await io.num_captured.get_value())
             if written < target:
                 raise GeecsTriggerTimeoutError(
@@ -1194,18 +1221,3 @@ class GeecsDetector(StandardDetector):
                 target,
                 what,
             )
-
-    async def discard_uncollected(self) -> None:
-        """Rewind every plugin to the last frame a document referenced.
-
-        The late-frame guard: called by the plan on every
-        plugin-backed device of a partial shot, before the retake fires.  A
-        delivered frame no row referenced and a late frame of the missed shot
-        are truncated alike, and one that arrives later is stale to the
-        plugin.  Nothing a row references is reachable, because the retake
-        has not fired yet.  A no-op without a plugin or outside ``prepare``.
-        """
-        ctx = self._prepare_ctx
-        if ctx is None or not self._hdf_ios:
-            return
-        await self._rewind_plugins(None, "last datum")
