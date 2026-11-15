@@ -29,11 +29,13 @@ Rules (each pinned by ``tests/test_repository.py``):
   staging worktree is removed on every path, and nothing reaches the live
   checkout unless the push landed.
 - **Nothing is pushed to main that the gate would refuse.** Every commit,
-  the first try and each retry on a newer main, is judged by ``vet(base,
-  commit)`` (the gate's rule, recording nothing) before its push: a check
-  that depends on other files (a deleted document another now names, a stem
-  another file now has) is asked again of the tree the push would make.
-  A refusal is :class:`Vetoed`, nothing pushed.
+  the first try and each retry on a newer main, is judged by ``vet(first
+  base, commit)`` (the gate's rule, recording nothing) before its push:
+  the range the gate asks when the live checkout catches up, so main's
+  commits since are judged with the edit on top. A check that depends on
+  other files (a deleted document another now names, either side's delete;
+  a stem another file now has) is asked again of the tree the push would
+  make. A refusal is :class:`Vetoed`, nothing pushed.
 - **One lock** (per process: the service runs one uvicorn worker) around
   every git operation, so a fetch, a fast-forward and a commit never
   interleave.
@@ -452,13 +454,17 @@ class ConfigsRepository:
         the staging worktree is gone either way.
         """
         with self.lock:
+            # judged from the first base (the live checkout's commit): the range the gate asks when the
+            # live checkout catches up, so main's commits since are judged with the edit on top of them
+            # (a delete there of what the edit names, as well as the edit itself)
+            first = base
             for attempt in range(PUSH_TRIES):
                 with self.staging(base) as tree:
                     sha = self._commit(tree, rel, data, author, message)
                     if sha is None:  # main already holds these bytes
                         self._catch_up()
                         return None
-                    problems = self.vet(base, sha) if self.vet else []
+                    problems = self.vet(first, sha) if self.vet else []
                     if problems:  # never push what the gate then refuses (it would block this box)
                         if attempt:
                             self._catch_up()

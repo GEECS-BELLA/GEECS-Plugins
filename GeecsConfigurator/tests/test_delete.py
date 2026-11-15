@@ -184,3 +184,27 @@ def test_a_referrer_pushed_while_the_delete_is_pushed_refuses_the_retry(committi
     assert (
         "not applied" not in committing.get("/healthz").json()["main"]
     )  # nothing blocks the box
+
+
+def test_a_delete_pushed_while_a_referrer_is_created_refuses_the_retry(committing: TestClient, origin: Path, other: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The mirror: the save adds a name, another clone deletes what it names before the push; the retry is judged with both."""
+    repo, raced = committing.app.state.repo, []
+    real = repo._push
+
+    def push(tree: Path, ref: str) -> None:
+        if not raced:
+            git("pull", "--quiet", "--ff-only", cwd=other)
+            git("rm", "--quiet", f"{SETUPS}/low_power.yaml", cwd=other)
+            git("commit", "--quiet", "-m", "delete low_power", cwd=other)
+            git("push", "--quiet", "origin", "HEAD:main", cwd=other)
+            raced.append(git("rev-parse", "HEAD", cwd=other))
+        real(tree, ref)
+
+    monkeypatch.setattr(repo, "_push", push)
+    composite = {"name": "composite", "steps": [{"do": "apply", "setup": "low_power"}]}
+    r = committing.put(f"/api/documents/setup/composite.yaml{B}", json={"document": composite, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
+    assert r.status_code == 409, r.text
+    assert "low_power.yaml: deleted, but" in r.json()["detail"]["reason"]
+    assert git("rev-parse", "main", cwd=origin) == raced[0] == repo.live_head()
+    assert not _on_main(origin, f"{SETUPS}/composite.yaml")
+    assert "not applied" not in committing.get("/healthz").json()["main"]
