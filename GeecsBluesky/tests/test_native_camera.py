@@ -897,3 +897,48 @@ def test_an_unstage_during_a_prepare_waits_for_it(
     assert (
         _run(RE, lambda: cam.hdf.capture.get_value()) is False
     )  # no capture left open
+
+
+def test_the_stamps_are_timed_from_the_trigger_each_run(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """The live exposure and trigger delay (µs) join the stored offset at each run's first prepare.
+
+    The frame's EPICS stamp is taken when the finished frame reaches the
+    driver; every reader subtracts ``drain_offset``.  Never accumulated
+    across runs: each run starts from the stored offset.
+    """
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.01)
+    set_mock_value(cam.driver.acquire_time, 0.9)
+    set_mock_value(cam.driver.trigger_delay, 400.0)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))  # strict prepares every shot
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.01 + 0.9004)
+    _run(RE, lambda: cam.unstage())
+
+    set_mock_value(cam.driver.acquire_time, 0.001)  # changed between runs
+    set_mock_value(cam.driver.trigger_delay, 0.0)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.011)
+    _run(RE, lambda: cam.unstage())
+
+
+def test_an_unreadable_exposure_corrects_nothing_and_says_so(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.02)
+
+    async def refused(*_, **__):
+        raise TimeoutError("TriggerDelay_RBV")
+
+    monkeypatch.setattr(cam.driver.trigger_delay, "get_value", refused)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.02)
+    assert any("not corrected this run" in m for m in caplog.messages)
+    _run(RE, lambda: cam.unstage())

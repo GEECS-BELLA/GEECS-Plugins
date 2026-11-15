@@ -140,6 +140,8 @@ class NativeDriverIO(AravisDriverIO):
     # Processing the command record fires it (verified on the bench camera).
     trigger_software: A[TriggerableCommand, PvSuffix("TriggerSoftware.PROC")]
     asyn_connect: A[SignalR[AsynConnect], PvSuffix("AsynIO.CNCT")]
+    # GenICam's TriggerDelay, in microseconds (the camera's own unit).
+    trigger_delay: A[SignalR[float], PvSuffix("TriggerDelay_RBV")]
 
 
 class NativeHdfIO(NDFileHDF5IO):
@@ -175,6 +177,10 @@ def run_owner() -> str:
 def liveness_word(cnct: AsynConnect) -> str:
     """The liveness verdict's words: ``Disconnected`` only when the driver lost the camera."""
     return "Disconnected" if cnct == AsynConnect.DISCONNECT else "Connected"
+
+
+#: Seconds the run's first prepare waits for the exposure and trigger delay.
+STAMP_LAG_READ_S = 5.0
 
 
 @dataclass
@@ -591,6 +597,8 @@ class NativeCamera(StandardDetector):
         self.hdf = NativeHdfIO(prefix + HDF_SUFFIX)
         self.run_lock = RunLockIO(prefix + RUN_LOCK_SUFFIX)
         self.drain_offset = soft_signal_rw(float, float(drain_offset), units="s")
+        #: The stored offset; each run's lag is added to this, never to the last run's.
+        self._stored_offset = float(drain_offset)
         self.connected_status = derived_signal_r(
             liveness_word, cnct=self.driver.asyn_connect
         )
@@ -674,11 +682,53 @@ class NativeCamera(StandardDetector):
             )
         try:
             async with self._session.guard:  # whole, so an unstage waits for it
+                if not self._session.programmed:
+                    await self._set_stamp_lag()
                 await super().prepare(value)
         except Exception as exc:
             for reason in await self.plugin_reasons():
                 exc.add_note(reason)
             raise
+
+    async def _set_stamp_lag(self) -> None:
+        """Put the camera's live trigger delay and exposure into its ``drain_offset``.
+
+        The frame's EPICS timestamp is taken when the driver receives the
+        finished frame (ADAravis ``updateTimeStamp``): after the trigger
+        delay and the exposure.  Read at the run's first prepare (settings do
+        not change within a run) and added to the stored offset, so every
+        reader of the run, which subtracts ``drain_offset``, times the frame
+        from its trigger, as a LabVIEW camera's driver already does.  An
+        unreadable setting adds nothing, with a WARNING.
+        """
+        name = self._geecs_device_name
+        try:
+            exposure, delay_us = await asyncio.wait_for(
+                asyncio.gather(
+                    self.driver.acquire_time.get_value(),
+                    self.driver.trigger_delay.get_value(),
+                ),
+                STAMP_LAG_READ_S,
+            )
+        except Exception as exc:  # noqa: BLE001 - any failure: no correction, said
+            logger.warning(
+                "%s: exposure / trigger delay unreadable (%s: %s) — its stamps "
+                "are not corrected this run",
+                name,
+                type(exc).__name__,
+                exc,
+            )
+            await self.drain_offset.set(self._stored_offset)
+            return
+        lag = float(exposure) + float(delay_us) * 1e-6
+        await self.drain_offset.set(self._stored_offset + lag)
+        logger.info(
+            "%s: stamps timed from the trigger: exposure %.6g s + trigger delay "
+            "%.6g us subtracted",
+            name,
+            float(exposure),
+            float(delay_us),
+        )
 
     def _frame_timeout(self) -> float:
         """The frame wait's budget: the prepared ``TriggerInfo.exposure_timeout``."""

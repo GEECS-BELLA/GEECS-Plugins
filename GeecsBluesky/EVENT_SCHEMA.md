@@ -277,7 +277,7 @@ device missed is simply absent from its stream.  Three shapes:
 
   The frame's stamp is Unix `sec + 631152000 + nsec·1e-9`
   (`geecs_data_utils.io.scan_stack.epics_timestamp_to_unix`; LabVIEW:
-  + `LABVIEW_EPOCH_OFFSET`), the IOC host's clock.  `WitnessCount` is not
+  + `LABVIEW_EPOCH_OFFSET`), the IOC host's clock, taken when the finished frame reaches the driver; the stream's descriptor configuration `<name>-drain_offset` includes the camera's exposure and trigger delay as read at the run's first prepare (runs recorded after 2026-11-14), so a reader subtracting it times the frame from its trigger.  `WitnessCount` is not
   declared, even where the IOC writes it (not every IOC does, and a
   declared dataset the file lacks fails the stream's read).  A native
   camera's stream recorded before 2026-11-14 declares the frames key
