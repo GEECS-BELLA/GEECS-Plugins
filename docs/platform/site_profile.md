@@ -217,7 +217,8 @@ check and `CODEOWNERS` come first, once per org: [Once per org](https://github.c
 - set the commit-path and ownership keys in `site.env`
   (`GEECS_CONFIGURATOR_EXPERIMENTS` / `_ANALYSIS_FOLDERS`, the box's own
   committer e-mail; the same section, step 2);
-- set `GEECS_CONFIGURATOR_SHARE_CLONE` **before the first start** (step 4),
+- set `GEECS_CONFIGURATOR_SHARE_CLONE` **before the first start with the
+  commit path on** (`STATE_DIR` set; step 4),
   then install, render and start (step 5);
 - run the trial on a throwaway branch before the box commits to main
   (step 6);
