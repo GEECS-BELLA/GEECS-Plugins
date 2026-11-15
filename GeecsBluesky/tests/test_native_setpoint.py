@@ -8,9 +8,13 @@ an action step's ``Current``); a value past ``DRVH``/``DRVL``, a tripped
 status bit or an INVALID readback refuses the set **before any put**; a
 put whose setpoint record goes INVALID fails at once naming the alarm; a
 status bit rising mid-set fails naming the bit; the set is done only when
-the readback arrives within tolerance, and times out in
-``GeecsConfirmTimeoutError``'s words; the device is a per-row scalar
-device, a telemetry candidate, and judged down by an INVALID readback.
+the readback arrives within the IOC's set tolerance (its ``current:TOL``
+record, read at every set), and times out in ``GeecsConfirmTimeoutError``'s
+words; no tolerance (the record never connecting, INVALID, zero, negative,
+not finite) refuses the set before any put and a bound scan before its
+claim, and a scan records the values it read; the device is a per-row
+scalar device, a telemetry candidate, and judged down by an INVALID
+readback.
 """
 
 from __future__ import annotations
@@ -37,18 +41,27 @@ from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     GeecsConfirmTimeoutError,
     GeecsDeviceDownError,
+    GeecsNoSetToleranceError,
     GeecsSetpointRefusedError,
 )
 from geecs_bluesky.namespace import GeecsNamespace
-from geecs_bluesky.plans.registry import _mv_named, liveness_gate
+from geecs_bluesky.devices.shot_control import ShotControl
+from geecs_bluesky.plans.registry import (
+    TriggerProfiles,
+    _mv_named,
+    bind_plans,
+    liveness_gate,
+)
 from geecs_bluesky.plans.sweep import axis_resolver
 from geecs_bluesky.utils import device_reference
-from tests.ca_mock_helpers import connect_mock
+from tests.ca_mock_helpers import DocCollector, connect_mock
 from tests.test_namespace import ROSTER
+from tests.test_plan_registry import payload
+from tests.test_strict_plans import WRITES, FakeBox, _camera
 
 SUPPLY = {
     "kind": "setpoint_device",
-    "settables": {"current": {"tolerance": 0.005, "timeout": 1.0}},
+    "settables": {"current": {"timeout": 1.0}},
     "readbacks": ["voltage"],
     "status": ["fault", "interlock"],
 }
@@ -75,10 +88,10 @@ def _fast_poll(monkeypatch) -> None:
     monkeypatch.setattr(native_setpoint, "POLL_INTERVAL_S", 0.01)
 
 
-def _supply(RE: RunEngine) -> NativeSetpointDevice:
-    """A connected mock Easy-Driver with the template's drive limits, nothing tripped."""
+def _supply(RE: RunEngine, entry: dict = SUPPLY) -> NativeSetpointDevice:
+    """A connected mock Easy-Driver: the template's drive limits, nothing tripped, ``current:TOL`` 5 mA."""
     ns = GeecsNamespace(
-        ROSTER, file_plugin_hosts=None, native_devices=_registry(U_VS1H=SUPPLY)
+        ROSTER, file_plugin_hosts=None, native_devices=_registry(U_VS1H=entry)
     )
     supply = ns["U_VS1H"]
     connect_mock(RE, supply)
@@ -86,7 +99,21 @@ def _supply(RE: RunEngine) -> NativeSetpointDevice:
     set_mock_value(supply.current.drive_low, -5.01)
     for child in (supply.current.setpoint_severity, supply.current.readback_severity):
         set_mock_value(child, "NO_ALARM")
+    _serve_tolerance(supply.current, 0.005)
     return supply
+
+
+def _serve_tolerance(
+    current: NativeSetpoint,
+    value: float,
+    severity: str = "NO_ALARM",
+    alarm: str = "NO_ALARM",
+) -> None:
+    """The IOC's ``current:TOL`` reads *value* at *severity* (a missing value: 0, INVALID, LOLO)."""
+    record = current._tolerance
+    set_mock_value(record.value, value)
+    set_mock_value(record.severity, severity)
+    set_mock_value(record.alarm, alarm)
 
 
 def _follows(current: NativeSetpoint, offset: float = 0.0) -> None:
@@ -112,6 +139,14 @@ def test_each_settable_is_a_child_found_like_a_settable() -> None:
     assert current.drive_high.source == "ca://testexp:u_vs1h:current:SP.DRVH"
     assert current.setpoint_severity.source == "ca://testexp:u_vs1h:current:SP.SEVR"
     assert current.readback_severity.source == "ca://testexp:u_vs1h:current.SEVR"
+    # The set tolerance: the family's tolerance_by role for current:SP, the
+    # IOC's record — never a child, so a supply whose IOC does not serve it
+    # yet still connects and reads.
+    assert current.tolerance_pv == "testexp:u_vs1h:current:TOL"
+    assert current._tolerance.value.source == "ca://testexp:u_vs1h:current:TOL"
+    assert current._tolerance.severity.source == "ca://testexp:u_vs1h:current:TOL.SEVR"
+    sources = {getattr(child, "source", None) for _, child in current.children()}
+    assert current._tolerance.value.source not in sources
     assert current.status_fault.source == "ca://testexp:u_vs1h:fault"
     assert current.status_interlock.source == "ca://testexp:u_vs1h:interlock"
     # Every lookup a CaMotor child answers to — the DB's spelling ``Current``
@@ -136,24 +171,62 @@ def test_each_settable_is_a_child_found_like_a_settable() -> None:
     }
 
 
+FASTPS = {**SUPPLY, "template": "fastps", "status": []}
+
+
 def test_the_family_names_a_setpoint_record_that_is_not_record_sp() -> None:
-    """The FAST-PS writes ``current_ramp:SP`` beside its ``current`` readback."""
-    fastps = {**SUPPLY, "template": "fastps", "status": []}
+    """The FAST-PS writes ``current_ramp:SP`` and confirms within the one ``current:TOL``."""
     ns = GeecsNamespace(
-        ROSTER, file_plugin_hosts=None, native_devices=_registry(U_FPS=fastps)
+        ROSTER, file_plugin_hosts=None, native_devices=_registry(U_FPS=FASTPS)
     )
     current = ns["U_FPS"].current
     assert current.setpoint.source == "ca://testexp:u_fps:current_ramp:SP"
     assert current.readback.source == "ca://testexp:u_fps:current"
+    assert current.tolerance_pv == "testexp:u_fps:current:TOL"
 
 
-def test_a_settable_the_family_does_not_name_is_written_at_record_sp() -> None:
-    entry = {**SUPPLY, "settables": {"slewrate": {"tolerance": 0.01}}}
-    ns = GeecsNamespace(
-        ROSTER, file_plugin_hosts=None, native_devices=_registry(U_VS1H=entry)
+def test_a_fastps_set_writes_the_ramp_and_confirms_within_current_tol(RE) -> None:
+    supply = _supply(RE, FASTPS)
+    _serve_tolerance(supply.current, 0.1)  # the FAST-PS's own value
+    _follows(supply.current, offset=0.09)
+    _run(RE, lambda: supply.current.set(2.0))
+    get_mock_put(supply.current.setpoint).assert_called_once_with(2.0)
+    _serve_tolerance(supply.current, 0.05)
+    with pytest.raises(GeecsConfirmTimeoutError):
+        _run(RE, lambda: supply.current.set(1.0))
+
+
+def test_a_settable_the_family_does_not_name_is_refused() -> None:
+    """No setpoint role, no set-tolerance record: the registry does not load."""
+    entry = {**SUPPLY, "settables": {"slewrate": {}}}
+    with pytest.raises(ValueError, match="'easydriver' names no such record"):
+        _registry(U_VS1H=entry)
+
+
+def test_a_family_with_no_tolerance_record_refuses_to_build(monkeypatch) -> None:
+    """No fallback: the worker refuses, naming the family and the setpoint role."""
+    from geecs_bluesky import namespace
+
+    families = dict(namespace.load_families())
+    family = families["easydriver"]
+    families["easydriver"] = family.model_copy(
+        update={
+            "roles": [
+                r.model_copy(update={"tolerance_by": None})
+                if r.name == "current_sp"
+                else r
+                for r in family.roles
+            ]
+        }
     )
-    assert ns["U_VS1H"].slewrate.setpoint.source == "ca://testexp:u_vs1h:slewrate:SP"
-    assert ns["U_VS1H"].slewrate._timeout == 10.0  # the schema's default
+    registry = _registry(U_VS1H=SUPPLY)  # valid against the installed families
+    monkeypatch.setattr(namespace, "load_families", lambda: families)
+    with pytest.raises(
+        GeecsConfigurationError,
+        match="U_VS1H: settable 'current': family 'easydriver'.s setpoint role "
+        "'current_sp' names no set-tolerance record",
+    ):
+        GeecsNamespace(ROSTER, file_plugin_hosts=None, native_devices=registry)
 
 
 @pytest.mark.parametrize("spelling", ["U_S1H", "u_s1h"])
@@ -169,7 +242,9 @@ def test_a_registry_supply_the_db_owns_refuses_to_open(spelling: str) -> None:
 @pytest.mark.parametrize("record", ["scalars", "settables", "readback_severities"])
 def test_a_record_that_would_shadow_the_noun_is_refused(record: str) -> None:
     with pytest.raises(GeecsConfigurationError, match=repr(record)):
-        NativeSetpointDevice("S", "undulator:s:", {}, readbacks=[record])
+        NativeSetpointDevice(
+            "S", "undulator:s:", {}, setpoints={}, tolerances={}, readbacks=[record]
+        )
 
 
 def test_telemetry_reads_a_setpoint_device(RE: RunEngine) -> None:
@@ -377,6 +452,7 @@ def test_mv_and_an_action_step_set_the_supply_and_a_refusal_is_named(
     set_mock_value(supply.current.drive_high, 5.01)
     set_mock_value(supply.current.drive_low, -5.01)
     set_mock_value(supply.current.readback, 1.0)
+    _serve_tolerance(supply.current, 0.005)
     _follows(supply.current)
     RE(_mv_named(supply.current, 3.0))
     plan = ActionPlan.model_validate(
@@ -403,7 +479,7 @@ def test_mv_and_an_action_step_set_the_supply_and_a_refusal_is_named(
 
 
 def test_mv_through_a_run_engine_connects_the_settable_on_demand(RE) -> None:
-    """A plan touching ``U_VS1H.current`` alone connects it (its bits and limits too)."""
+    """A plan touching ``U_VS1H.current`` alone connects it (its bits, limits and tolerance too)."""
     from geecs_bluesky.preprocessors import connect_on_demand
 
     ns = GeecsNamespace(
@@ -411,6 +487,11 @@ def test_mv_through_a_run_engine_connects_the_settable_on_demand(RE) -> None:
     )
     current = ns["U_VS1H"].current
     RE.preprocessors.append(lambda plan: connect_on_demand(plan, mock=True))
+    # A fresh mock's current:TOL reads 0: connected with the settable, and no tolerance.
+    with pytest.raises(FailedStatus, match="current:TOL reads 0"):
+        RE(bps.mv(current, 0.0))
+    get_mock_put(current.setpoint).assert_not_called()
+    _serve_tolerance(current, 0.005)
     RE(bps.mv(current, 0.0))  # the mock readback already reads 0
     get_mock_put(current.setpoint).assert_called_once_with(0.0)
 
@@ -435,15 +516,216 @@ def test_the_run_gate_refuses_a_supply_with_an_invalid_readback(RE, which) -> No
         RE(liveness_gate(object(), [supply.scalars]))
 
 
-def test_the_run_gate_refuses_a_supply_whose_ioc_never_answers(RE, monkeypatch) -> None:
-    monkeypatch.setattr(native_setpoint, "LIVENESS_TIMEOUT_S", 0.5)
-    supply = NativeSetpointDevice(
+def _unserved_supply() -> NativeSetpointDevice:
+    """The supply at a prefix no IOC serves (real CA, nothing answers)."""
+    return NativeSetpointDevice(
         "U_VS1H",
         "geecs_test_no_such_ioc:",
         NativeDevices.model_validate({"devices": {"U_VS1H": SUPPLY}})
         .devices["U_VS1H"]
         .settables,
+        setpoints={"current": "current:SP"},
+        tolerances={"current": "current:TOL"},
         name="u_vs1h",
     )
+
+
+def test_the_run_gate_refuses_a_supply_whose_ioc_never_answers(RE, monkeypatch) -> None:
+    monkeypatch.setattr(native_setpoint, "LIVENESS_TIMEOUT_S", 0.5)
+    supply = _unserved_supply()
     with pytest.raises(GeecsDeviceDownError, match="U_VS1H DISCONNECTED"):
         RE(liveness_gate(object(), [supply]))
+
+
+# ------------------------------------------------------- the set tolerance
+def test_a_readback_just_outside_the_iocs_tolerance_times_out(RE) -> None:
+    supply = _supply(RE)
+    _follows(supply.current, offset=0.006)  # outside current:TOL's 0.005
+    with pytest.raises(GeecsConfirmTimeoutError, match="did not match 2.0"):
+        _run(RE, lambda: supply.current.set(2.0))
+
+
+def test_the_set_logs_the_tolerance_it_confirms_within(RE, caplog) -> None:
+    supply = _supply(RE)
+    _follows(supply.current)
+    with caplog.at_level(logging.INFO, logger=native_setpoint.__name__):
+        _run(RE, lambda: supply.current.set(1.0))
+    assert any(
+        "within 0.005, the IOC's testexp:u_vs1h:current:TOL" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.parametrize(
+    "value, severity, alarm, read",
+    [
+        # an IOC loaded without the value serves 0 INVALID (LOLO)
+        (0.0, "INVALID", "LOLO", r"reads 0 INVALID \(LOLO\)"),
+        (0.005, "INVALID", "UDF", r"reads 0.005 INVALID \(UDF\)"),
+        (0.0, "NO_ALARM", "NO_ALARM", r"reads 0 \(not above zero\)"),
+        (-0.005, "MAJOR", "LOLO", r"reads -0.005 \(not above zero\)"),
+        (float("nan"), "NO_ALARM", "NO_ALARM", r"reads nan \(not a finite number\)"),
+        (float("inf"), "NO_ALARM", "NO_ALARM", r"reads inf \(not a finite number\)"),
+    ],
+)
+def test_no_tolerance_refuses_the_set_before_any_put(
+    RE, value, severity, alarm, read
+) -> None:
+    """Never zero, never infinity: the set cannot be confirmed, so nothing is written."""
+    supply = _supply(RE)
+    _serve_tolerance(supply.current, value, severity, alarm)
+    with pytest.raises(GeecsNoSetToleranceError, match=read) as e:
+        _run(RE, lambda: supply.current.set(1.0))
+    assert isinstance(e.value, GeecsSetpointRefusedError)
+    assert e.value.written is False and e.value.target == 1.0
+    assert e.value.pv == "testexp:u_vs1h:current:TOL"
+    assert str(e.value).startswith(
+        "U_VS1H/current: set to 1 refused — no set tolerance: "
+        "testexp:u_vs1h:current:TOL reads"
+    )
+    get_mock_put(supply.current.setpoint).assert_not_called()
+
+
+def test_a_record_that_never_connects_refuses_the_set(RE, monkeypatch) -> None:
+    """The IOC does not serve current:TOL (not restarted onto decision 21): real CA, nothing answers."""
+    monkeypatch.setattr(native_setpoint, "TOLERANCE_TIMEOUT_S", 0.3)
+    current = _unserved_supply().current
+    with pytest.raises(
+        GeecsNoSetToleranceError, match="does not connect within 0.3 s"
+    ) as e:
+        _run(RE, current.read_tolerance)
+    assert str(e.value).startswith(
+        "U_VS1H/current: cannot be set by a scan — no set tolerance: "
+        "geecs_test_no_such_ioc:current:TOL does not connect"
+    )
+    assert e.value.target is None and e.value.written is False
+
+
+def test_a_record_that_stops_answering_refuses_the_set(RE) -> None:
+    supply = _supply(RE)
+
+    async def silent(cached=None):
+        await asyncio.Event().wait()
+
+    supply.current._tolerance.value.get_value = silent  # type: ignore[method-assign]
+    native_setpoint.TOLERANCE_TIMEOUT_S, saved = (
+        0.05,
+        native_setpoint.TOLERANCE_TIMEOUT_S,
+    )
+    try:
+        with pytest.raises(GeecsNoSetToleranceError, match="did not answer within"):
+            _run(RE, lambda: supply.current.set(1.0))
+    finally:
+        native_setpoint.TOLERANCE_TIMEOUT_S = saved
+    get_mock_put(supply.current.setpoint).assert_not_called()
+
+
+def test_a_tolerance_gone_invalid_is_not_remembered(RE) -> None:
+    """A set after a good read sees the record as it is now, never the number from before."""
+    supply = _supply(RE)
+    _follows(supply.current)
+    _run(RE, lambda: supply.current.set(1.0))
+    _serve_tolerance(supply.current, 0.0, "INVALID", "LOLO")
+    with pytest.raises(GeecsNoSetToleranceError):
+        _run(RE, lambda: supply.current.set(2.0))
+    assert [
+        c.args[0] for c in get_mock_put(supply.current.setpoint).call_args_list
+    ] == [1.0]
+
+
+def test_a_changed_tolerance_is_used_and_said(RE, caplog) -> None:
+    """The IOC restarted onto a new configuration between scans: the next set uses it."""
+    supply = _supply(RE)
+    _follows(supply.current, offset=0.004)
+    _run(RE, lambda: supply.current.set(1.0))  # inside 0.005
+    _serve_tolerance(supply.current, 0.002)
+    with caplog.at_level(logging.WARNING, logger=native_setpoint.__name__):
+        with pytest.raises(GeecsConfirmTimeoutError):
+            _run(RE, lambda: supply.current.set(2.0))  # 0.004 off, outside 0.002
+    (warning,) = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert "current:TOL changed from 0.005 to 0.002" in warning.getMessage()
+    caplog.clear()
+    _serve_tolerance(supply.current, 0.01)
+    _run(RE, lambda: supply.current.set(3.0))  # inside the wider value
+    assert "changed from 0.002 to 0.01" in caplog.records[0].getMessage()
+
+
+# ------------------------------------------- the run: refused before the claim
+def _bound_sweep(RE, *, tolerance=(0.005, "NO_ALARM", "NO_ALARM")):
+    """A connected mock supply serving *tolerance*, a camera, the bound plans over a fake box."""
+    box = FakeBox()
+    sc = ShotControl(WRITES, experiment="TestExp", name="htu_test", setter_factory=box)
+    connect_mock(RE, sc)
+    profiles = TriggerProfiles({"HTU-Test": sc}, default="HTU-Test")
+    ns = GeecsNamespace(
+        ROSTER, file_plugin_hosts=None, native_devices=_registry(U_VS1H=SUPPLY)
+    )
+    supply = ns["U_VS1H"]
+    connect_mock(RE, supply)
+    set_mock_value(supply.current.drive_high, 5.01)
+    set_mock_value(supply.current.drive_low, -5.01)
+    for child in (supply.current.setpoint_severity, supply.current.readback_severity):
+        set_mock_value(child, "NO_ALARM")
+    _serve_tolerance(supply.current, *tolerance)
+    _follows(supply.current)
+    cam = _camera(RE, box, "UC_Cam")
+    col = DocCollector()
+    RE.subscribe(col)
+    plans = bind_plans(profiles, settables=ns)
+    return supply, cam, col, plans, box
+
+
+def test_a_sweep_records_the_tolerance_it_confirms_within(RE) -> None:
+    supply, cam, col, plans, _ = _bound_sweep(RE)
+    RE(plans["sweep"]([cam], sweep=payload("U_VS1H.current", -0.1, 0.1, 3)))
+    (start,) = col.docs["start"]
+    assert start["set_tolerances"] == {
+        "U_VS1H:current": {"pv": "testexp:u_vs1h:current:TOL", "value": 0.005}
+    }
+    assert [
+        c.args[0] for c in get_mock_put(supply.current.setpoint).call_args_list
+    ] == pytest.approx([-0.1, 0.0, 0.1])
+
+
+def test_a_count_moves_nothing_and_records_no_tolerance(RE) -> None:
+    """A supply read as a condition needs no tolerance: its readbacks are recorded."""
+    supply, cam, col, plans, _ = _bound_sweep(RE, tolerance=(0.0, "INVALID", "LOLO"))
+    RE(plans["count"]([cam, supply], 1))
+    (start,) = col.docs["start"]
+    assert "set_tolerances" not in start
+    assert "u_vs1h-current-readback" in col.primary_events()[0]["data"]
+
+
+@pytest.mark.parametrize(
+    "tolerance, read",
+    [
+        ((0.0, "INVALID", "LOLO"), "reads 0 INVALID"),
+        ((-1.0, "NO_ALARM", "NO_ALARM"), "not above zero"),
+    ],
+)
+def test_a_sweep_with_no_tolerance_is_refused_before_the_claim(
+    RE, tolerance, read
+) -> None:
+    supply, cam, col, plans, box = _bound_sweep(RE, tolerance=tolerance)
+    with pytest.raises(GeecsNoSetToleranceError, match=read) as e:
+        RE(plans["sweep"]([cam], sweep=payload("U_VS1H.current", -0.1, 0.1, 3)))
+    assert str(e.value).startswith(
+        "U_VS1H/current: cannot be set by a scan — no set tolerance: "
+        "testexp:u_vs1h:current:TOL"
+    )
+    assert any("nothing claimed, no scan folder" in n for n in e.value.__notes__)
+    assert box.puts == [] and box.fires == 0  # the box was never driven
+    assert col.docs["start"] == []  # no open_run: nothing claimed
+    get_mock_put(supply.current.setpoint).assert_not_called()
+
+
+def test_the_run_gate_names_every_settable_without_a_tolerance(RE) -> None:
+    from geecs_bluesky.devices.native_setpoint import native_set_tolerances
+
+    one, two = _supply(RE), _supply(RE)
+    _serve_tolerance(one.current, 0.0, "INVALID", "LOLO")
+    _serve_tolerance(two.current, -1.0)
+    with pytest.raises(GeecsNoSetToleranceError) as e:
+        RE(native_set_tolerances([one.current, two.current, one.current]))
+    assert "reads 0 INVALID" in str(e.value)
+    assert any("reads -1" in n for n in e.value.__notes__)

@@ -550,11 +550,30 @@ class FamilyFile(VersionedSchemaModel):
         *readback* (the Easy-Driver's ``current:SP`` beside ``current``, the
         FAST-PS's ``current_ramp:SP``).
         """
+        role = self.setpoint_role_for(readback)
+        return None if role is None else role.write_suffix
+
+    def setpoint_role_for(self, readback: str) -> Optional[Role]:
+        """The setpoint role whose ``readback`` reads the record *readback*; ``None`` if none."""
         names = {r.name for r in self.roles if r.suffix == readback}
         for role in self.roles:
             if role.type == "setpoint" and role.readback in names:
-                return role.write_suffix
+                return role
         return None
+
+    def tolerance_for(self, readback: str) -> Optional[str]:
+        """The record holding the set tolerance of a write to *readback*; ``None`` if no role says.
+
+        The setpoint role for *readback* (:meth:`setpoint_role_for`), its
+        ``tolerance_by`` role, that role's suffix: the Easy-Driver's and the
+        FAST-PS's ``current:TOL`` for ``current``.  The scan worker's reading
+        of the rule the Control Room's page applies to the module's roles; a
+        family number (``tolerance``) is not a record and is not returned.
+        """
+        role = self.setpoint_role_for(readback)
+        if role is None or role.tolerance_by is None:
+            return None
+        return self.role(role.tolerance_by).suffix
 
     def role_names(self) -> list[str]:
         """Every role's name, in the page's order."""

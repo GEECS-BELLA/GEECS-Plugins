@@ -244,10 +244,11 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
-  # A supply: each settable is its readback record, written at <record>:SP
-  # and confirmed on the readback within its tolerance.
+  # A supply: each settable is its readback record, written at the family's
+  # setpoint role for it (current:SP) and confirmed on the readback within
+  # the IOC's set tolerance (current:TOL); the timeout is the scan's patience.
   U_ExampleSupply: {kind: setpoint_device,
-                    settables: {current: {tolerance: 0.005, timeout: 10}},
+                    settables: {current: {timeout: 10}},
                     readbacks: [voltage], status: [fault, interlock]}
   # A witness: the hardware count of one trigger domain's edges (Counter1Counts),
   # recorded in every strict row; at most one per domain.

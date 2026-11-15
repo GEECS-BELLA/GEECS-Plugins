@@ -8,11 +8,28 @@ StreamDevice, put-completion means the supply **accepted** the command,
 not that it converged, so a set is never done on a "put ok": it is
 refused before the put (nothing written) for a value outside ``DRVL``/
 ``DRVH`` (an ``ao`` would clamp and write), a status bit at 1 or an
-INVALID readback; it fails at once when the setpoint record goes INVALID
-on the write (the IOC's ``HIHI``/``LOLO`` refusal, a ``#NAK``) and while
-waiting when a bit rises or the readback goes INVALID; it is done when the
-readback is within tolerance, and times out in
-``GeecsConfirmTimeoutError``'s words (``CaConfirmSettable``'s topology).
+INVALID readback, and for no set tolerance; it fails at once when the
+setpoint record goes INVALID on the write (the IOC's ``HIHI``/``LOLO``
+refusal, a ``#NAK``) and while waiting when a bit rises or the readback
+goes INVALID; it is done when the readback is within the set tolerance, and
+times out in ``GeecsConfirmTimeoutError``'s words (``CaConfirmSettable``'s
+topology).
+
+The set tolerance is the IOC's: a record beside the readback (a supply's
+``current:TOL``, geecs-epics decision 21), named by the family file (the
+setpoint role's ``tolerance_by``: ``SetpointDevice.tolerance_records``),
+read **at every set**, before the put, uncached — it changes only when its
+IOC restarts onto a new configuration, so one read per set always confirms
+against the value the IOC serves now, never a number kept from before.  It
+is a tolerance only while the channel connects, its severity is not
+INVALID and its value is finite and above zero; anything else refuses the
+set before any write (:class:`~geecs_bluesky.exceptions.GeecsNoSetToleranceError`).
+The bound scan plans read every native settable they will move once more
+before the claim (:func:`native_set_tolerances`), so a scan with no
+tolerance is refused with nothing claimed, and the values ride in the start
+document (``set_tolerances``).  The record is not a child of the device: a
+supply whose IOC does not serve it yet still connects, reads and is
+recorded; only its sets are refused.
 
 :class:`NativeSetpoint` is one settable (the Movable child ``mv``, a sweep
 axis and an action's ``set`` step find); :class:`NativeSetpointDevice` is
@@ -28,11 +45,16 @@ import math
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+import bluesky.plan_stubs as bps
 from bluesky.protocols import Location
-from ophyd_async.core import AsyncStatus, DeviceVector, SignalR, StandardReadable
+from ophyd_async.core import (
+    DEFAULT_TIMEOUT,
+    AsyncStatus,
+    DeviceVector,
+    SignalR,
+    StandardReadable,
+)
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
-
-from geecs_schemas import SETPOINT_SUFFIX
 
 from geecs_bluesky.devices.ca._pv import CA_TRANSPORT_PREFIX
 from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
@@ -43,6 +65,7 @@ from geecs_bluesky.devices.ca.settable import log_failed_set
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
     GeecsConfirmTimeoutError,
+    GeecsNoSetToleranceError,
     GeecsSetpointRefusedError,
 )
 from geecs_bluesky.utils import is_connected, settable_attribute
@@ -60,9 +83,48 @@ POLL_INTERVAL_S = 0.2
 #: Seconds the liveness gate allows a setpoint device to connect and answer.
 LIVENESS_TIMEOUT_S = 5.0
 
+#: Seconds a set-tolerance read may take, the connect and the read each: a
+#: record the IOC does not serve costs this once per set (and per run).
+TOLERANCE_TIMEOUT_S = 2.0
+
 
 def _ca(pv: str) -> str:
     return f"{CA_TRANSPORT_PREFIX}{pv}"
+
+
+class _ToleranceRecord:
+    """A settable's set-tolerance record: its value, severity and alarm — kept off the device tree.
+
+    Not a ``Device``, so the signals are no children: the settable's
+    connect, read and liveness never depend on the record (an IOC not yet
+    serving it leaves the supply connected and recorded).  It connects
+    itself at its first read (mock mode: with the settable's own connect,
+    so a test can set its values), and again at the next read until it has.
+    """
+
+    def __init__(self, pv: str) -> None:
+        self.pv = pv
+        self.value = epics_signal_r(float, _ca(pv))
+        self.severity = epics_signal_r(str, _ca(pv + ".SEVR"))
+        self.alarm = epics_signal_r(str, _ca(pv + ".STAT"))
+
+    def signals(self) -> tuple[SignalR[float], SignalR[str], SignalR[str]]:
+        return self.value, self.severity, self.alarm
+
+    async def connect(self, *, mock: bool = False, timeout: float) -> None:
+        await asyncio.gather(
+            *(
+                s.connect(mock=mock, timeout=timeout)
+                for s in self.signals()
+                if not is_connected(s)  # a mock is never rebuilt
+            )
+        )
+
+    async def read(self) -> tuple[float, str, str]:
+        value, severity, alarm = await asyncio.gather(
+            *(s.get_value(cached=False) for s in self.signals())
+        )
+        return float(value), str(severity), str(alarm)
 
 
 class NativeSetpoint(StandardReadable):
@@ -78,12 +140,16 @@ class NativeSetpoint(StandardReadable):
     prefix :
         The device's PV prefix, ``<experiment>:<device>:``.
     setpoint :
-        The setpoint record's name under the prefix (default
-        ``<record>:SP``).
+        The setpoint record's name under the prefix (the family's setpoint
+        role for *record*, ``SetpointDevice.setpoint_records``).
     tolerance :
-        How close the readback must come to the target for the set to be done.
+        The set-tolerance record's name under the prefix (the family's
+        ``tolerance_by`` role for that setpoint,
+        ``SetpointDevice.tolerance_records``): how close the readback must
+        come, read at every set.
     timeout :
-        Seconds the set waits for that after the write.
+        Seconds the set waits for the readback after the write: the
+        client's patience (the registry's ``SetpointSettable.timeout``).
     status :
         The device's status bits (two-state records under the prefix,
         1 = tripped), checked before the put and while waiting.
@@ -97,19 +163,20 @@ class NativeSetpoint(StandardReadable):
         record: str,
         prefix: str,
         *,
-        setpoint: str | None = None,
-        tolerance: float,
+        setpoint: str,
+        tolerance: str,
         timeout: float,
         status: Iterable[str] = (),
         name: str = "",
     ) -> None:
-        setpoint = setpoint or record + SETPOINT_SUFFIX
         self._geecs_device_name = device
         self._variable = record
-        self._tolerance = float(tolerance)
         self._timeout = float(timeout)
         self._readback_pv = prefix + record
         self._setpoint_pv = prefix + setpoint
+        self._tolerance = _ToleranceRecord(prefix + tolerance)
+        #: The last tolerance read (a change is said once, at the read that sees it).
+        self._last_tolerance: float | None = None
         with self.add_children_as_readables():
             self.readback = epics_signal_r(float, _ca(self._readback_pv))
         # Not readables: the setpoint is written, never a column; the alarm
@@ -130,6 +197,89 @@ class NativeSetpoint(StandardReadable):
         self._put = GatewaySetpointPut(signal=self.setpoint, timeout=self._timeout)
         super().__init__(name=name)
 
+    async def connect(
+        self,
+        mock: Any = False,
+        timeout: float = DEFAULT_TIMEOUT,
+        force_reconnect: bool = False,
+    ) -> None:
+        """Connect the settable; in mock mode its set-tolerance record too (real mode: at its first read)."""
+        await super().connect(
+            mock=mock, timeout=timeout, force_reconnect=force_reconnect
+        )
+        if mock:
+            await self._tolerance.connect(mock=True, timeout=timeout)
+
+    @property
+    def tolerance_pv(self) -> str:
+        """The set-tolerance record's PV (the family's ``tolerance_by`` role)."""
+        return self._tolerance.pv
+
+    def _no_tolerance(
+        self, read: str, target: float | None
+    ) -> GeecsNoSetToleranceError:
+        return GeecsNoSetToleranceError(
+            self._geecs_device_name,
+            self._variable,
+            self._tolerance.pv,
+            read,
+            target=target,
+        )
+
+    async def read_tolerance(self, target: float | None = None) -> float:
+        """The IOC's set tolerance, read now (connected if needed, uncached).
+
+        A tolerance only while the record connects, its severity is not
+        INVALID and its value is finite and above zero; anything else raises
+        (*target* is the set's, when a set asks).  A value other than the
+        last one read is logged at WARNING once: its IOC restarted onto a new
+        configuration, and the sets confirm within the new value.
+
+        Raises
+        ------
+        GeecsNoSetToleranceError
+            No tolerance, naming the record and what was read of it.
+        """
+        record = self._tolerance
+        mock = getattr(self.readback, "_mock", None) is not None
+        try:
+            await record.connect(mock=mock, timeout=TOLERANCE_TIMEOUT_S)
+        except Exception as exc:  # every failure is the same answer
+            raise self._no_tolerance(
+                f"does not connect within {TOLERANCE_TIMEOUT_S:g} s (the IOC does "
+                f"not serve it, or is down: {type(exc).__name__})",
+                target,
+            ) from exc
+        try:
+            value, severity, alarm = await asyncio.wait_for(
+                record.read(), TOLERANCE_TIMEOUT_S
+            )
+        except Exception as exc:  # every failure is the same answer
+            raise self._no_tolerance(
+                f"did not answer within {TOLERANCE_TIMEOUT_S:g} s "
+                f"({type(exc).__name__}: {' '.join(str(exc).split())})",
+                target,
+            ) from exc
+        if severity == INVALID:
+            raise self._no_tolerance(f"reads {value:g} INVALID ({alarm})", target)
+        if not math.isfinite(value):
+            raise self._no_tolerance(f"reads {value} (not a finite number)", target)
+        if value <= 0:
+            raise self._no_tolerance(f"reads {value:g} (not above zero)", target)
+        previous, self._last_tolerance = self._last_tolerance, value
+        if previous is not None and previous != value:
+            logger.warning(
+                "%s: the set tolerance %s changed from %g to %g since it was last "
+                "read (its IOC restarted onto a new configuration): sets now "
+                "confirm within %g",
+                self.name,
+                self._tolerance.pv,
+                previous,
+                value,
+                value,
+            )
+        return value
+
     @property
     def reading_key(self) -> str:
         """Event column containing this settable's readback."""
@@ -141,20 +291,12 @@ class NativeSetpoint(StandardReadable):
         return {self.readback.name: f"{self._geecs_device_name} {self._variable}"}
 
     def set(self, value: float) -> AsyncStatus:
-        """Write *value*; done when the readback is within tolerance of it.
+        """Write *value*; done when the readback is within the IOC's set tolerance of it.
 
         Implements :class:`bluesky.protocols.Movable`.  A failure is
         ERROR-logged with its cause (the one failed-set line,
         :func:`~geecs_bluesky.devices.ca.settable.log_failed_set`), then raised.
         """
-        logger.info(
-            "%s: setting %s → %s (confirm on %s, tol=%.4g)",
-            self.name,
-            self._variable,
-            value,
-            self._readback_pv,
-            self._tolerance,
-        )
         return AsyncStatus(self._set_logged(value))
 
     async def _set_logged(self, value: float) -> None:
@@ -194,12 +336,16 @@ class NativeSetpoint(StandardReadable):
             "is not answering"
         )
 
-    async def _refuse_before_put(self, target: float) -> None:
-        """The checks that write nothing: the value, the drive limits, the bits, the readback."""
+    async def _refuse_before_put(self, target: float) -> float:
+        """The checks that write nothing: the value, the tolerance, the drive limits, the bits, the readback.
+
+        Returns the set tolerance read for this set.
+        """
         if not math.isfinite(target):
             raise self._refused(
                 target, "the value is not a finite number", written=False
             )
+        tolerance = await self.read_tolerance(target)
         high, low = await asyncio.gather(
             self.drive_high.get_value(cached=False),
             self.drive_low.get_value(cached=False),
@@ -222,10 +368,20 @@ class NativeSetpoint(StandardReadable):
         invalid = await self._readback_invalid()
         if invalid is not None:
             raise self._refused(target, invalid, written=False)
+        return tolerance
 
     async def _set_and_wait(self, value: float) -> None:
         target = float(value)
-        await self._refuse_before_put(target)
+        tolerance = await self._refuse_before_put(target)
+        logger.info(
+            "%s: setting %s → %s (confirm on %s within %g, the IOC's %s)",
+            self.name,
+            self._variable,
+            value,
+            self._readback_pv,
+            tolerance,
+            self._tolerance.pv,
+        )
         await self._put.put(target)
         # The put-callback returns once the record has processed this write,
         # so its alarm is this write's: INVALID is the IOC's HIHI/LOLO
@@ -241,7 +397,7 @@ class NativeSetpoint(StandardReadable):
                 "or the supply refused it",
                 written=True,
             )
-        await self._confirm(target)
+        await self._confirm(target, tolerance)
 
     async def _poll_once(self, target: float) -> float:
         """One confirmation read: the bits, the readback's severity, its value."""
@@ -258,7 +414,7 @@ class NativeSetpoint(StandardReadable):
             raise self._refused(target, invalid, written=True)
         return float(await self.readback.get_value(cached=False))
 
-    async def _confirm(self, target: float) -> None:
+    async def _confirm(self, target: float, tolerance: float) -> None:
         """Wait for the readback within tolerance, every read inside one deadline.
 
         Each poll is bounded by the time left, so a slow or stalled CA read
@@ -293,14 +449,14 @@ class NativeSetpoint(StandardReadable):
                 raise
             if loop.time() > deadline:
                 raise expired()
-            if within_tolerance(current, target, self._tolerance):
+            if within_tolerance(current, target, tolerance):
                 logger.debug(
                     "%s: confirmed %s = %r (target=%r, tol=%.4g)",
                     self.name,
                     self._readback_pv,
                     current,
                     target,
-                    self._tolerance,
+                    tolerance,
                 )
                 return
             await asyncio.sleep(min(POLL_INTERVAL_S, max(0.0, deadline - loop.time())))
@@ -316,14 +472,16 @@ class NativeSetpointDevice(StandardReadable):
     prefix :
         The device's PV prefix, ``<experiment>:<device>:``.
     settables :
-        Readback record → ``(tolerance, timeout)`` source: anything with
-        ``tolerance`` and ``timeout`` attributes (the registry's
-        ``SetpointSettable``).  Each binds as
+        Readback record → its timeout source: anything with a ``timeout``
+        attribute (the registry's ``SetpointSettable``).  Each binds as
         :func:`~geecs_bluesky.utils.settable_attribute` of its record (the
         rule a ``Device:Variable`` reference expands by).
     setpoints :
         Readback record → its setpoint record
-        (``SetpointDevice.setpoint_records``); absent, ``<record>:SP``.
+        (``SetpointDevice.setpoint_records``, the family's rule).
+    tolerances :
+        Readback record → its set-tolerance record
+        (``SetpointDevice.tolerance_records``, the family's rule).
     readbacks :
         Further readback records, columns of the row.
     status :
@@ -334,7 +492,8 @@ class NativeSetpointDevice(StandardReadable):
     Raises
     ------
     GeecsConfigurationError
-        A record whose attribute would shadow one of the noun's own.
+        A record whose attribute would shadow one of the noun's own, or a
+        settable with no setpoint or set-tolerance record.
     """
 
     def __init__(
@@ -343,7 +502,8 @@ class NativeSetpointDevice(StandardReadable):
         prefix: str,
         settables: Mapping[str, Any],
         *,
-        setpoints: Mapping[str, str] | None = None,
+        setpoints: Mapping[str, str],
+        tolerances: Mapping[str, str],
         readbacks: Iterable[str] = (),
         status: Iterable[str] = (),
         name: str = "",
@@ -352,7 +512,13 @@ class NativeSetpointDevice(StandardReadable):
         self._settables: list[NativeSetpoint] = []
         self._readbacks: dict[str, SignalR[float]] = {}
         status = list(status)
-        setpoints = dict(setpoints or {})
+        unrecorded = [r for r in settables if r not in setpoints or r not in tolerances]
+        if unrecorded:
+            raise GeecsConfigurationError(
+                f"device namespace: {device}: settable(s) {unrecorded} have no "
+                "setpoint or set-tolerance record (the family's setpoint role and "
+                "its tolerance_by)"
+            )
         # The scalars-only view every namespace device carries, and the
         # listed readbacks' severities (the liveness read; the settables
         # carry their own) — bound first, so a record cannot shadow them.
@@ -370,8 +536,8 @@ class NativeSetpointDevice(StandardReadable):
                     device,
                     record,
                     prefix,
-                    setpoint=setpoints.get(record),
-                    tolerance=spec.tolerance,
+                    setpoint=setpoints[record],
+                    tolerance=tolerances[record],
                     timeout=spec.timeout,
                     status=status,
                 )
@@ -447,9 +613,61 @@ def down_native_setpoint_devices(devices: Iterable[Any]):
     return (yield from down_natives(native_setpoint_devices(devices), _down))
 
 
+def native_set_tolerances(movers: Iterable[Any]):
+    """Plan: read the set tolerance of every native settable a run will move; refuse the run if one has none.
+
+    The bound scan plans call it before the claim and before the trigger
+    box is driven (after the liveness gate), with the movers they know
+    before the run (a sweep's axes, optimize's movables): a scan whose
+    native settable has no tolerance is refused with nothing claimed, never
+    at its first point.  Each set reads the record again (a value that
+    changed since is used, and said); this read is the run's early answer
+    and its record.  Movers that are not native settables are skipped.
+
+    Returns
+    -------
+    dict
+        ``"Device:variable"`` → ``{"pv": <the tolerance record>, "value":
+        <its value>}``, the start document's ``set_tolerances``; empty when
+        the run moves no native settable.
+
+    Raises
+    ------
+    GeecsNoSetToleranceError
+        The first settable with no tolerance, every other one in its notes.
+    """
+    found = list({id(m): m for m in movers if isinstance(m, NativeSetpoint)}.values())
+    if not found:
+        return {}
+
+    async def run() -> list[float | BaseException]:
+        return await asyncio.gather(
+            *(s.read_tolerance() for s in found), return_exceptions=True
+        )
+
+    (task,) = yield from bps.wait_for([run])
+    results = task.result()
+    failed = [r for r in results if isinstance(r, BaseException)]
+    if failed:
+        first = failed[0]
+        for other in failed[1:]:
+            first.add_note(str(other))
+        first.add_note(
+            "the run was refused before the trigger box was driven (nothing "
+            "claimed, no scan folder): restart the IOC onto a configuration "
+            "that serves the record, then resubmit"
+        )
+        raise first
+    return {
+        f"{s._geecs_device_name}:{s._variable}": {"pv": s.tolerance_pv, "value": v}
+        for s, v in zip(found, results)
+    }
+
+
 __all__ = [
     "NativeSetpoint",
     "NativeSetpointDevice",
     "down_native_setpoint_devices",
+    "native_set_tolerances",
     "native_setpoint_devices",
 ]
