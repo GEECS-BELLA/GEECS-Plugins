@@ -308,8 +308,9 @@ files, new (untracked) ones, and an IDE's folder. They are committed once,
 from any clone of the configs repo, before anything fast-forwards the share;
 the share itself is then only brought level with `main`:
 
-1. **List them** on the share: `git -C "<the share's configs clone>" status
-   --short` (` M` changed, `??` untracked).
+1. **List them** on the share, file by file: `git -C "<the share's configs
+   clone>" status --short -uall` (` M` changed, `??` untracked; without
+   `-uall` a new folder is one line, and a folder's path validates nothing).
 2. **Copy the changed and untracked files off the share** into a clone of
    your own on `main`, at the same paths. An IDE's folder (`.idea/`,
    `.vscode/`) is not a config: add it to the configs repo's `.gitignore`
