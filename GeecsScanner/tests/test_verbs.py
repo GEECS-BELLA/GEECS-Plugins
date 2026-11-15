@@ -187,12 +187,16 @@ def test_save_preset_round_trips_required_and_refuses_essential(
         {"device": "UC_ALineEBeam3", "save_images": True, "required": True},
         {"device": "U_ICT", "save_images": False, "required": False},
     ]
-    r = client.post("/api/configs/presets/req_rt", json={"preset": doc})
+    r = client.post(
+        "/api/configs/presets/req_rt", json={"preset": doc, "operator": "Op"}
+    )
     assert r.status_code == 200, r.text
     saved = client.get("/api/configs/presets/req_rt").json()
     assert [d["required"] for d in saved["devices"]] == [True, False]
     old = dict(doc, devices=[{"device": "U_ICT", "essential": False}])
-    r = client.post("/api/configs/presets/req_old", json={"preset": old})
+    r = client.post(
+        "/api/configs/presets/req_old", json={"preset": old, "operator": "Op"}
+    )
     assert r.status_code == 400
     errors = r.json()["error"]["errors"]
     assert any("renamed 'required'" in e["msg"] for e in errors), errors
