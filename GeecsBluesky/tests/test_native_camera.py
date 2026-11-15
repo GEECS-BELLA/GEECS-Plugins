@@ -968,3 +968,22 @@ def test_an_unusable_exposure_corrects_nothing_and_says_so(
     assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.02)
     assert any("not corrected this run" in m for m in caplog.messages)
     _run(RE, lambda: cam.unstage())
+
+
+def test_the_stamp_settings_are_read_under_the_run_lock(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No other client can change the exposure between the read and the run's end."""
+    cam, _ = _camera(RE, tmp_path)
+    seen: list[bool] = []
+    plain = cam.driver.acquire_time.get_value
+
+    async def read(*args, **kwargs):
+        seen.append(bool(await cam.run_lock.lock.get_value()))
+        return await plain(*args, **kwargs)
+
+    monkeypatch.setattr(cam.driver.acquire_time, "get_value", read)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert seen == [True]
+    _run(RE, lambda: cam.unstage())

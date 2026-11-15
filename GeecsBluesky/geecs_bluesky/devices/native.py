@@ -705,9 +705,15 @@ class NativeCamera(StandardDetector):
             )
         try:
             async with self._session.guard:  # whole, so an unstage waits for it
-                if not self._session.programmed:
-                    await self._set_stamp_lag()
+                first = not self._session.programmed
                 await super().prepare(value)
+                if first:
+                    # After the stock prepare: the run lock is held (the
+                    # trigger logic takes it first), so no other client can
+                    # change the exposure between this read and the run's
+                    # end; the stream's descriptor is declared later, at the
+                    # first collect that finds a frame.
+                    await self._set_stamp_lag()
         except Exception as exc:
             for reason in await self.plugin_reasons():
                 exc.add_note(reason)
@@ -715,6 +721,9 @@ class NativeCamera(StandardDetector):
 
     async def _set_stamp_lag(self) -> None:
         """Put the camera's live trigger delay and exposure into its ``drain_offset``.
+
+        Called under the run lock (after the run's first stock prepare), so
+        the settings read are the run's.
 
         The frame's EPICS timestamp is taken when the driver receives the
         finished frame (ADAravis ``updateTimeStamp``): after the trigger
