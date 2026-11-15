@@ -218,6 +218,7 @@ function el(tag) {
   const n = { __id: ++ids, tagName: tag.toUpperCase(), children: [], attrs: {}, on: {}, value: "", parentNode: null, _t: "",
     setAttribute(k, v) { this.attrs[k] = String(v); if (k === "value") this.value = String(v); },
     getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+    removeAttribute(k) { delete this.attrs[k]; },
     appendChild(c) { c.parentNode = this; this.children.push(c); if (this.tagName === "SELECT" && c.attrs.selected !== undefined) this.value = c.attrs.value; return c; },
     removeChild(c) { this.children = this.children.filter((x) => x !== c); },
     addEventListener(k, fn) { this.on[k] = fn; },
@@ -247,7 +248,9 @@ out.tierMarks = walk(host, (n) => n.attrs.class === "tier").map((n) => [n.attrs[
 out.choice = control(at(host, "steps.0")).value;
 control(name).value = "high"; control(name).on.input({ target: control(name) });
 out.afterType = [form.value().name, at(host, "name").attrs["data-changed"]];
-button(at(host, "steps"), "Add").on.click();
+// a list of choices adds by choosing one (the "Add step…" select)
+const adder = walk(at(host, "steps"), (n) => n.attrs["aria-label"] === "add a step")[0];
+adder.value = "set"; adder.on.change({ target: adder });
 out.afterAdd = form.value().steps.length;
 button(at(host, "steps.1"), "Up").on.click();
 out.afterUp = form.value().steps.map((s) => s.do);
@@ -259,7 +262,8 @@ out.placed = form.setErrors([{ loc: ["name"], msg: "too short" }]);
 out.invalid = [control(at(host, "name")).attrs["aria-invalid"], walk(at(host, "name"), (n) => n.attrs.class === "err")[0].textContent];
 out.calls = seen.length;
 const ro = el("div"); F.mount(ro, { schema: S, value: D, readOnly: true });
-out.readOnly = [walk(ro, (n) => n.tagName === "BUTTON").length, walk(ro, (n) => n.attrs.disabled !== undefined).length > 5];
+// read-only: no button edits (a folded item's show / hide toggle edits nothing)
+out.readOnly = [walk(ro, (n) => n.tagName === "BUTTON" && n.attrs["aria-expanded"] === undefined).length, walk(ro, (n) => n.attrs.disabled !== undefined).length > 5];
 console.log(JSON.stringify(out));
 """
 )
@@ -591,3 +595,365 @@ def test_unparsed_text_survives_a_redraw_and_goes_with_its_field(round2: dict) -
     assert round2["kept"] == ["[1, ", "true", ["range"]]
     assert round2["beforeRemove"] == ["range", "rows.0"]
     assert round2["afterRemove"] == [["range"], [[2]]]
+
+
+# ---------------------------------------------------------------------------
+# The layout hints and the choice affordances a recipe's editor needs: a schema
+# shaped as the configurator serves an analysis recipe (the analysis core's
+# registry as discriminated unions, each variant's x-ndim, x-docs and x-scalars;
+# the configurator's x-sections and x-ndim-from; an ROI's x-axes).
+
+DOCS = "https://example.invalid/reference#"
+RECIPE = {
+    "title": "Recipe",
+    "type": "object",
+    "tier": "operator",
+    "x-sections": [
+        {
+            "title": "Source",
+            "keys": ["device", "input", "label"],
+            "gist": ["device", "input"],
+            "note": "reads {input.folder|device}/",
+            "advanced": {"title": "Naming", "keys": ["label"]},
+        },  # fmt: skip
+        {"title": "Steps", "keys": ["steps"], "help": "In order."},
+        {"title": "Measure", "keys": ["measure"]},
+    ],
+    "x-ndim-from": {
+        "path": ["input", "kind"],
+        "values": {"camera": 2, "line": 1},
+        "names": {"1": "traces", "2": "images"},
+    },  # fmt: skip
+    "$defs": {
+        "Camera": {
+            "type": "object",
+            "properties": {
+                "kind": {"const": "camera", "type": "string"},
+                "folder": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                },
+            },
+            "required": ["kind"],
+        },  # fmt: skip
+        "Line": {
+            "type": "object",
+            "properties": {"kind": {"const": "line", "type": "string"}},
+            "required": ["kind"],
+        },  # fmt: skip
+        "Roi": {
+            "type": "object",
+            "description": "Bounds per axis.",
+            "x-ndim": [1, 2],
+            "x-docs": DOCS + "step-roi",
+            "properties": {
+                "step": {"const": "roi", "type": "string"},
+                "bounds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "x-axes": {"1": ["x"], "2": ["y", "x"]},
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "prefixItems": [
+                            {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                            {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                        ],
+                    },  # fmt: skip
+                },
+            },
+            "required": ["bounds"],
+        },
+        "Median": {
+            "type": "object",
+            "x-ndim": [1, 2],
+            "properties": {
+                "step": {"const": "median", "type": "string"},
+                "kernel": {"type": "integer", "default": 3},
+            },
+        },  # fmt: skip
+        "Rotate": {
+            "type": "object",
+            "x-ndim": [2],
+            "properties": {
+                "step": {"const": "rotate", "type": "string"},
+                "angle": {"type": "number", "default": 0},
+            },
+        },  # fmt: skip
+        "Derivative": {
+            "type": "object",
+            "x-ndim": [1],
+            "properties": {"step": {"const": "derivative", "type": "string"}},
+        },  # fmt: skip
+        "Beam": {
+            "type": "object",
+            "description": "Beam statistics.",
+            "x-ndim": [2],
+            "x-docs": DOCS + "measure-beam",
+            "x-scalars": {"x_mean": "centroid", "y_mean": "centroid"},
+            "properties": {"kind": {"const": "beam", "type": "string"}},
+        },  # fmt: skip
+        "LineM": {
+            "type": "object",
+            "x-ndim": [1],
+            "properties": {"kind": {"const": "line", "type": "string"}},
+        },  # fmt: skip
+    },
+    "properties": {
+        "schema_version": {"type": "integer", "default": 3},
+        "device": {"type": "string"},
+        "label": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
+        "input": {
+            "discriminator": {"propertyName": "kind"},
+            "oneOf": [{"$ref": "#/$defs/Camera"}, {"$ref": "#/$defs/Line"}],
+        },  # fmt: skip
+        "steps": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+                "discriminator": {"propertyName": "step"},
+                "oneOf": [
+                    {"$ref": "#/$defs/Roi"},
+                    {"$ref": "#/$defs/Median"},
+                    {"$ref": "#/$defs/Rotate"},
+                    {"$ref": "#/$defs/Derivative"},
+                ],
+            },  # fmt: skip
+        },
+        "measure": {
+            "discriminator": {"propertyName": "kind"},
+            "oneOf": [{"$ref": "#/$defs/Beam"}, {"$ref": "#/$defs/LineM"}],
+        },  # fmt: skip
+        "pair": {
+            "anyOf": [
+                {
+                    "type": "array",
+                    "prefixItems": [{"type": "number"}, {"type": "number"}],
+                    "minItems": 2,
+                    "maxItems": 2,
+                },
+                {"type": "null"},
+            ],
+            "default": None,
+        },  # fmt: skip
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "ref": {"type": "string", "x-suggest": ["UC_A", "UC_B"]},
+        "extra": {"type": "object", "properties": {"x": {"type": "number"}}},
+        "notes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["device", "input"],
+}
+RECIPE_DOC = {
+    "device": "UC_Cam",
+    "input": {"kind": "camera"},
+    "steps": [
+        {"step": "roi", "bounds": [[10, 200], [5, 300]]},
+        {"step": "median", "kernel": 5},
+    ],  # fmt: skip
+    "measure": {"kind": "beam"},
+    "tags": ["a", "b"],
+}
+
+_LAYOUT = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const fire = (c, text) => { c.value = text; (c.on.input || c.on.change)({ target: c }); };
+const opts = (sel) => sel.children.filter((o) => o.tagName === "OPTION").map((o) => o.textContent);
+const sections = (h) => walk(h, (n) => n.tagName === "DETAILS" && (n.attrs.class || "").includes("section"));
+const host = el("div"), form = F.mount(host, { schema: S, value: D });
+const out = {};
+// sections: titled, closed, each with its gist; keys no section names follow them
+out.sections = sections(host).map((d) => [d.attrs["data-section"], d.attrs.open !== undefined, walk(d, (n) => n.attrs.class === "gist")[0].textContent]);
+out.rest = ["pair", "tags", "ref", "extra", "notes"].map((p) => !!at(host, p));
+out.note = walk(host, (n) => n.attrs.class === "dim mono")[0].textContent;
+// a union list item: closed, its choice in the header, its gist beside it
+const step0 = at(host, "steps.0"), header0 = step0.children[0], body0 = step0.children[1];
+out.step0 = [body0.attrs.hidden !== undefined, control(header0).value, walk(header0, (n) => n.attrs.class === "gist")[0].textContent];
+// the choices fit the document's frames, each named with the frames it is for when it fits one kind
+out.stepChoices = opts(control(header0));
+out.adder = opts(walk(host, (n) => n.attrs["aria-label"] === "add a step")[0]);
+// the measure: its variant's help, its reference, the scalars it can write
+const measure = sections(host)[2];
+out.measure = [opts(control(measure)), walk(measure, (n) => n.tagName === "A")[0].attrs.href, walk(measure, (n) => n.tagName === "SUMMARY" && n.textContent.startsWith("Can write"))[0].textContent];
+// an ROI's bounds: one named row per axis, a pair per row
+out.rows = walk(step0, (n) => n.attrs.class === "field" && (n.attrs["data-path"] || "").startsWith("steps.0.bounds.")).map((f) => [f.children[0].textContent, walk(f, (n) => n.tagName === "INPUT").map((i) => i.value)]);
+// open the item: its body shows, and stays open across a redraw elsewhere and a move
+button(header0, "▸").on.click();
+out.opened = body0.attrs.hidden === undefined;
+const add = walk(host, (n) => n.attrs["aria-label"] === "add a step")[0];
+add.value = "rotate"; add.on.change({ target: add });
+out.added = [form.value().steps.map((s) => s.step), form.value().steps[2]];
+const isOpen = (p) => at(host, p).children[1].attrs.hidden === undefined;
+out.openAfterAdd = [isOpen("steps.0"), isOpen("steps.1"), isOpen("steps.2")];
+button(at(host, "steps.1"), "Up").on.click();  // median moves above roi: roi's open state goes with it
+out.openAfterMove = [form.value().steps.map((s) => s.step), isOpen("steps.0"), isOpen("steps.1")];
+// a trace recipe: the image-only steps leave the choices, and an ROI is one row, x
+fire(control(at(host, "input")), "line");
+const roiNow = at(host, "steps.1");
+out.lineChoices = opts(control(roiNow.children[0]));
+out.lineRows = walk(roiNow, (n) => n.attrs.class === "field" && (n.attrs["data-path"] || "").startsWith("steps.1.bounds.")).map((f) => f.children[0].textContent);
+// a trace recipe's one-pair ROI: one row, x
+const host3 = el("div"); F.mount(host3, { schema: S, value: Object.assign({}, D, { input: { kind: "line" }, steps: [{ step: "roi", bounds: [[1, 9]] }] }) });
+out.traceRows = walk(at(host3, "steps.0"), (n) => n.attrs.class === "field" && (n.attrs["data-path"] || "").startsWith("steps.0.bounds.")).map((f) => f.children[0].textContent);
+// an emptied ROI fills its rows as typed: x's pair at index 1, y's left open
+const host2 = el("div"), form2 = F.mount(host2, { schema: S, value: Object.assign({}, D, { steps: [{ step: "roi", bounds: [] }] }) });
+const xLow = walk(at(host2, "steps.0.bounds.1"), (n) => n.tagName === "INPUT")[0];
+fire(xLow, "5");
+out.padded = form2.value().steps[0].bounds;
+// a tuple of its own: one field, its pair; untouched or emptied it stays absent
+const pair = walk(at(host2, "pair"), (n) => n.tagName === "INPUT");
+fire(pair[0], ""); out.pairUntouched = "pair" in form2.value();
+fire(pair[1], "7"); out.pairTyped = form2.value().pair;
+fire(pair[1], ""); out.pairEmptied = "pair" in form2.value();
+// a list of words: each a field with its tools, not a panel
+out.tags = [at(host, "tags.0").attrs.class, !!button(at(host, "tags.1"), "Up"), !!button(at(host, "tags.0"), "Remove")];
+// a word with suggestions offers them
+const ref = control(at(host, "ref"));
+out.suggest = [ref.attrs.list, walk(at(host, "ref"), (n) => n.tagName === "DATALIST")[0].children.map((o) => o.attrs.value)];
+// an unset sub-document is a one-line field with Set; an absent list is drawn empty with its adder ready
+out.unset = [at(host, "extra").attrs.class, !!button(at(host, "extra"), "Set")];
+button(at(host, "notes"), "Add").on.click();
+out.notesAdded = form.value().notes;
+// a list's item has no Clear
+out.itemClear = walk(at(host, "steps.0"), (n) => n.tagName === "BUTTON" && n.textContent === "Clear").length;
+// an error inside a closed section and a closed item opens both
+form.setErrors([{ loc: ["steps", 0, "bounds"], msg: "bad bounds" }]);
+out.errorOpens = [sections(host)[1].attrs.open !== undefined, at(host, "steps.0").children[1].attrs.hidden === undefined];
+console.log(JSON.stringify(out));
+"""
+)
+
+_UNKNOWN = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const host = el("div"), form = F.mount(host, { schema: S, value: D });
+const header = at(host, "steps.0").children[0];
+const sel = control(header);
+console.log(JSON.stringify({
+  selected: sel.value, options: sel.children.map((o) => o.textContent),
+  banner: walk(at(host, "steps.0"), (n) => n.attrs.class === "banner")[0].textContent,
+  kept: walk(at(host, "steps.0"), (n) => n.attrs["data-path"] === "steps.0.size").length,
+  value: form.value().steps[0],
+  note: walk(host, (n) => n.attrs.class === "banner" && n.attrs["data-state"] === "stale").map((n) => n.textContent),
+}));
+"""
+)
+
+_GIST = r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const t = F.tree(S, D), by = (k) => t.children.find((c) => c.key === k);
+console.log(JSON.stringify({
+  steps: F.gist(by("steps"), 2), trace: F.gist(by("steps"), 1),
+  item: F.gist(by("steps").items[1], 2, true), source: F.sectionGist(t, ["device", "input", "label"], 2, ["device", "input"]),
+  empty: F.sectionGist(F.tree(S, { device: "x", input: { kind: "camera" } }), ["pair", "extra"], 2),
+  ndim: [F.ndimOf(S, D), F.ndimOf(S, { input: { kind: "line" } }), F.ndimOf(S, {})],
+  note: F.note("reads {input.folder|device}/ as {label}", D),
+}));
+"""
+
+
+@pytest.fixture(scope="module")
+def laid_out() -> dict:
+    return _node(_LAYOUT, json.dumps([RECIPE, RECIPE_DOC]))
+
+
+def test_sections_fold_closed_with_their_gists(laid_out: dict) -> None:
+    assert laid_out["sections"] == [
+        ["Source", False, "device=UC_Cam · input: camera"],
+        ["Steps", False, "roi y 10–200 x 5–300 → median kernel=5"],
+        ["Measure", False, "beam"],
+    ]
+    assert (
+        laid_out["rest"] == [True] * 5
+    )  # every key no section names is drawn after them
+    assert laid_out["note"] == "reads UC_Cam/"
+
+
+def test_a_choice_list_item_folds_to_its_choice_and_gist(laid_out: dict) -> None:
+    assert laid_out["step0"] == [True, "roi", "y 10–200 x 5–300"]
+    assert laid_out["opened"] is True
+
+
+def test_choices_fit_the_documents_frames_and_name_them(laid_out: dict) -> None:
+    # an image recipe: the trace-only derivative is not offered; rotate fits images only and says so
+    assert laid_out["stepChoices"] == ["roi", "median", "rotate (images)"]
+    assert laid_out["adder"] == ["Add step…", "roi", "median", "rotate (images)"]
+    # a trace recipe: rotate is gone, derivative offered
+    assert laid_out["lineChoices"] == ["roi", "median", "derivative (traces)"]
+
+
+def test_a_choice_shows_its_variants_help_reference_and_scalars(laid_out: dict) -> None:
+    options, href, scalars = laid_out["measure"]
+    assert options == ["beam (images)"]
+    assert href == DOCS + "measure-beam" and scalars == "Can write 2 scalars"
+
+
+def test_an_roi_is_one_named_row_per_axis(laid_out: dict) -> None:
+    assert laid_out["rows"] == [["y", ["10", "200"]], ["x", ["5", "300"]]]
+    assert laid_out["traceRows"] == ["x"]
+    # a trace's ROI that still holds an image's two pairs is an editable list, never rows fixed at the wrong count
+    assert laid_out["lineRows"] == ["#1", "#2"]
+    # typing x on an empty ROI fills y's pair open, never a hole
+    assert laid_out["padded"] == [[None, None], [5, None]]
+
+
+def test_adding_by_choice_opens_the_new_item_and_open_items_move_with_their_place(laid_out: dict) -> None:  # fmt: skip
+    steps, added = laid_out["added"]
+    assert steps == ["roi", "median", "rotate"] and added == {"step": "rotate"}
+    assert laid_out["openAfterAdd"] == [True, False, True]
+    assert laid_out["openAfterMove"] == [["median", "roi", "rotate"], False, True]
+
+
+def test_a_tuple_is_one_field_and_untouched_stays_absent(laid_out: dict) -> None:
+    assert laid_out["pairUntouched"] is False
+    assert laid_out["pairTyped"] == [None, 7]
+    assert (
+        laid_out["pairEmptied"] is False
+    )  # emptied of both members: absent again, as stored
+
+
+def test_light_items_suggestions_and_unset_parts(laid_out: dict) -> None:
+    assert laid_out["tags"] == ["field", True, True]
+    assert laid_out["suggest"][1] == ["UC_A", "UC_B"] and laid_out["suggest"][0]
+    assert laid_out["unset"] == ["field", True]
+    assert laid_out["notesAdded"] == [""]
+    assert laid_out["itemClear"] == 0
+
+
+def test_an_error_opens_the_folds_it_is_in(laid_out: dict) -> None:
+    assert laid_out["errorOpens"] == [True, True]
+
+
+def test_an_unknown_choice_is_kept_as_written_and_said() -> None:
+    doc = {**RECIPE_DOC, "steps": [{"step": "rio", "size": 3}]}
+    schema = {**RECIPE, "x-form-note": "plainer here"}
+    got = _node(_UNKNOWN, json.dumps([schema, doc]))
+    assert got["selected"] == "rio" and got["options"][-1] == "rio (unknown)"
+    assert 'Unknown step "rio"' in got["banner"] and got["kept"] == 1
+    assert got["value"] == {
+        "step": "rio",
+        "size": 3,
+    }  # never redrawn as the first registered step
+    assert got["note"] == [
+        "plainer here"
+    ]  # the root's x-form-note says why the form is plainer
+
+
+def test_gists_and_the_documents_frames() -> None:
+    got = _node(_GIST, json.dumps([RECIPE, {**RECIPE_DOC, "label": "L"}]))
+    assert got["steps"] == "roi y 10–200 x 5–300 → median kernel=5"
+    assert (
+        got["trace"] == "roi bounds=[[10,200],[5,300]] → median kernel=5"
+    )  # two pairs do not name a trace's one axis
+    assert got["item"] == "kernel=5"
+    assert got["source"] == "device=UC_Cam · input: camera"
+    assert got["empty"] == "defaults"
+    assert got["ndim"] == [2, 1, None]
+    assert got["note"] == "reads UC_Cam/ as L"

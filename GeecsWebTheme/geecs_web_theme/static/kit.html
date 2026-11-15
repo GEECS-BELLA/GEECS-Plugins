@@ -316,6 +316,16 @@
         <div class="field"><label for="k-f3">Template<span class="tier" data-tier="code">code</span></label>
           <input id="k-f3" value="fastps" disabled><span class="err"></span></div>
       </div>
+      <p class="dim">A schema laid out in sections (<code>x-sections</code>) folds each to its title and a
+        gist of what is in it; a list item that is a choice folds to its header, the choice and its gist; a
+        pair is one field.</p>
+      <details class="fold section"><summary><span class="eyebrow">Measure</span><span class="gist">beam compute_slopes=true</span></summary></details>
+      <details class="fold section" open><summary><span class="eyebrow">Steps</span><span class="gist">roi y 10–200 x 5–300 → median kernel=5</span></summary>
+        <article class="panel"><header class="item"><button class="btn sm ghost" type="button" aria-expanded="true">&#9662;</button><span class="eyebrow">#1</span>
+          <select class="btn sm" aria-label="Step"><option>roi</option></select><span class="gist">y 10–200 x 5–300</span>
+          <button class="btn sm ghost" type="button">Down</button><button class="btn sm ghost" type="button">Remove</button></header>
+          <div class="body"><div class="field"><label for="k-f4">y</label><div class="pair"><input id="k-f4" value="10"><input aria-label="y 2" value="200"></div><span class="err"></span></div></div></article>
+      </details>
     </section>
 
     <section id="plots" class="group">

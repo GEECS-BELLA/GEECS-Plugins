@@ -124,6 +124,10 @@
           <header><span class="eyebrow">Result</span></header>
           <div class="body" id="result"><p class="dim">Validate, diff or render the document as edited.</p></div>
         </section>
+        <section class="panel">
+          <header><span class="eyebrow">YAML as edited</span></header>
+          <div class="body"><pre class="well yaml" id="live-yaml"></pre><p class="dim">A save writes only the lines that changed, keeping the file's own formatting.</p></div>
+        </section>
       </aside>
     </div>
     {% if kind == "setup" %}

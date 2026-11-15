@@ -18,3 +18,4 @@
 .kit .save-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .kit .save-row input{min-width:12em}
 .kit #ack-list .m{white-space:pre-line}
+.kit pre.yaml{margin:0;max-height:50vh;overflow:auto;white-space:pre}

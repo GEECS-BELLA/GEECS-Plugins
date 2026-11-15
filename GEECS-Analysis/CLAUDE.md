@@ -162,7 +162,9 @@ the editor lists it from here — `recipe.recipe_schema()` is the recipe's
 JSON Schema with `steps`/`measure` replaced by the registry's discriminated
 unions, every step/measure/summary variant tagged `x-ndim` and `x-docs`
 (its card in the published reference, `RECIPE_REFERENCE_URL`), every
-measure variant `x-scalars`; give every spec field a `description=`, the
+measure variant `x-scalars`, and a per-dimension pair list `x-axes` (the
+`roi` step's `bounds`: one named row per axis in the form; the theme's
+`form.js` docstring is the hints' contract); give every spec field a `description=`, the
 form shows it as help (pinned), and every scalar a measure can emit a
 one-line `scalar_docs` meaning (pinned both ways by `test_scalar_docs`).
 A new step, measure or summary also needs

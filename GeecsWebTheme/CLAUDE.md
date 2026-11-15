@@ -117,6 +117,19 @@ that diffs on its side (the configurator, whose diff a save trusts) holds
 its diff to this one by test. Pinned in
 `tests/test_form_js.py` under node.
 
+How a document is laid out is read from **`x-` hints in the schema**, never
+from a per-kind renderer: `x-sections` (closed folds with a one-line gist),
+`x-ndim-from` and each variant's `x-ndim` (only the variants that fit the
+document's frames are offered), `x-docs` and `x-scalars` (a variant's
+reference link and its scalars' meanings), `x-axes` (one named row per
+axis), `x-suggest` (a datalist), `x-form-note` (why the form is plainer).
+`form.js`'s docstring is their contract. A kind's layout is whoever serves
+its schema: the analysis core stamps the registry's (`x-ndim`, `x-docs`,
+`x-scalars`, `x-axes`), the configurator its pages' (`form_hints.py`).
+The old analysis config editor (`scan_analysis.config_editor`, deleted by
+#1339) was a second form engine with the recipe's layout hard-coded; its
+affordances live here now, as hints any kind can use.
+
 ## Adoption status (owner rulings, 2026-09-13)
 
 Theme = paint (tokens, palettes, picker); kit = furniture (shell,
