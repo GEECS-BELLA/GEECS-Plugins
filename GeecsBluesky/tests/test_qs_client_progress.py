@@ -13,12 +13,12 @@ def test_row_streams_are_the_sfile_writers() -> None:
     assert tuple(ROW_STREAMS) == tuple(ENGINE_ROWS)
 
 
-def _gated_run(stream: ProgressStream) -> None:
-    """A gated run: datum-only ``primary`` per step, rows on ``shots`` as pages."""
+def _strict_run(stream: ProgressStream) -> None:
+    """A strict run: rows on ``primary``, a device stream's pages beside them."""
     stream.on_document(
         "start",
         {
-            "uid": "run-g",
+            "uid": "run-s",
             "scan_number": 7,
             "plan_name": "sweep",
             "num_points": 3,
@@ -28,31 +28,29 @@ def _gated_run(stream: ProgressStream) -> None:
         },
     )
     stream.on_document("descriptor", {"uid": "p", "name": "primary"})
-    stream.on_document("descriptor", {"uid": "s", "name": "shots"})
+    stream.on_document("descriptor", {"uid": "c", "name": "uc_cam_stream"})
     stream.on_document("descriptor", {"uid": "b", "name": "baseline"})
-    stream.on_document("event_page", {"descriptor": "s", "seq_num": [1, 2, 3, 4]})
-    stream.on_document("event", {"descriptor": "p", "seq_num": 1})
-    stream.on_document("event_page", {"descriptor": "s", "seq_num": [5, 6, 7, 8]})
-    stream.on_document("event", {"descriptor": "p", "seq_num": 2})
-    stream.on_document("event", {"descriptor": "s", "seq_num": 9})
+    for seq in range(1, 10):
+        stream.on_document("event", {"descriptor": "p", "seq_num": seq})
+        stream.on_document("event_page", {"descriptor": "c", "seq_num": [seq + 20]})
     stream.on_document("event", {"descriptor": "b", "seq_num": 99})
 
 
-def test_a_gated_run_counts_its_shots_rows() -> None:
+def test_a_strict_run_counts_its_primary_rows() -> None:
     stream = ProgressStream(clock=lambda: 3.0)
-    _gated_run(stream)
+    _strict_run(stream)
     snap = stream.snapshot()
-    assert snap.shots_done == 9  # primary's per-step seq (2) never wins
+    assert snap.shots_done == 9  # a device stream's seq (29) never wins
     assert snap.planned_total == 12
     assert snap.day == "2026-10-13" and snap.scan_folder == "/data/Scan007"
-    assert snap.run_uid == "run-g" and snap.state == "running"
-    stream.on_document("stop", {"run_start": "run-g", "exit_status": "success"})
+    assert snap.run_uid == "run-s" and snap.state == "running"
+    stream.on_document("stop", {"run_start": "run-s", "exit_status": "success"})
     assert stream.snapshot().state == "done"
 
 
 def test_a_failed_move_pauses_until_the_next_row() -> None:
     stream = ProgressStream()
-    _gated_run(stream)
+    _strict_run(stream)
     stream.on_console_line(
         f"{FAILED_MOVE_LOG_PREFIX}: U_Hexapod did not reach 1.0", FAILED_MOVE_LOG_PREFIX
     )
@@ -60,14 +58,14 @@ def test_a_failed_move_pauses_until_the_next_row() -> None:
     assert (
         snap.state == "paused" and snap.paused_reason == "U_Hexapod did not reach 1.0"
     )
-    stream.on_document("event", {"descriptor": "s", "seq_num": 10})
+    stream.on_document("event", {"descriptor": "p", "seq_num": 10})
     snap = stream.snapshot()
     assert snap.state == "running" and snap.paused_reason is None
 
 
 def test_a_stop_for_another_run_is_ignored() -> None:
     stream = ProgressStream()
-    _gated_run(stream)
+    _strict_run(stream)
     stream.on_document("stop", {"run_start": "other", "exit_status": "fail"})
     assert stream.snapshot().exit_status is None
 

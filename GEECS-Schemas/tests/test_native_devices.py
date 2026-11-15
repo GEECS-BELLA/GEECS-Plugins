@@ -74,7 +74,7 @@ def test_a_bad_motor_entry_is_refused(entry, why) -> None:
 
 SUPPLY = {
     "kind": "setpoint_device",
-    "settables": {"current": {"tolerance": 0.005, "timeout": 10.0}},
+    "settables": {"current": {"timeout": 10.0}},
     "readbacks": ["voltage"],
     "status": ["fault", "interlock"],
 }
@@ -85,17 +85,27 @@ def test_a_setpoint_device_names_its_records_and_round_trips() -> None:
     registry = NativeDevices.model_validate(doc)
     supply = registry.devices["U_VS1H"]
     assert isinstance(supply, SetpointDevice)
-    assert supply.settables["current"].tolerance == 0.005
+    assert supply.settables["current"].timeout == 10.0
     assert supply.readbacks == ["voltage"] and supply.status == ["fault", "interlock"]
     assert supply.family_template == "easydriver"  # the kind's default
     assert registry.model_dump(mode="json") == doc
 
 
-def test_a_setpoint_device_needs_only_its_settables_tolerances() -> None:
-    entry = {"kind": "setpoint_device", "settables": {"current": {"tolerance": 0.01}}}
+def test_a_setpoint_device_needs_only_its_settables() -> None:
+    entry = {"kind": "setpoint_device", "settables": {"current": {}}}
     supply = NativeDevices.model_validate({"devices": {"U": entry}}).devices["U"]
     assert supply.settables["current"].timeout == 10.0
     assert supply.readbacks == [] and supply.status == []
+
+
+def test_the_retired_tolerance_is_accepted_ignored_and_kept_as_it_was() -> None:
+    """Readers deployed before its retirement require the key: a save keeps it, absent or not."""
+    kept = {**SUPPLY, "settables": {"current": {"tolerance": 0.005, "timeout": 10.0}}}
+    doc = {"schema_version": 1, "devices": {"U": kept}}
+    registry = NativeDevices.model_validate(doc)
+    assert registry.model_dump(mode="json") == doc  # never dropped, never null
+    bare = {"schema_version": 1, "devices": {"U": SUPPLY}}
+    assert NativeDevices.model_validate(bare).model_dump(mode="json") == bare
 
 
 def test_a_setpoint_device_is_not_a_detector_kind() -> None:
@@ -106,40 +116,33 @@ def test_a_setpoint_device_is_not_a_detector_kind() -> None:
     "change, why",
     [
         ({"settables": {}}, "at least 1"),
-        ({"settables": {"current": {}}}, "tolerance"),  # required
-        ({"settables": {"current": {"tolerance": 0}}}, "greater than 0"),
-        ({"settables": {"current": {"tolerance": 0.1, "timeout": -1}}}, "greater"),
-        ({"settables": {"current": {"tolerance": float("inf")}}}, "finite"),
-        ({"settables": {"current": {"tolerance": float("nan")}}}, "finite"),
-        (
-            {"settables": {"current": {"tolerance": 0.1, "timeout": float("inf")}}},
-            "finite",
-        ),
-        ({"settables": {"current": {"tolerance": 0.1, "units": "A"}}}, "extra"),
-        ({"settables": {"output current": {"tolerance": 0.1}}}, "record name"),
+        ({"settables": {"current": {"timeout": -1}}}, "greater"),
+        ({"settables": {"current": {"timeout": float("inf")}}}, "finite"),
+        ({"settables": {"current": {"timeout": float("nan")}}}, "finite"),
+        ({"settables": {"current": {"units": "A"}}}, "extra"),
+        ({"settables": {"output current": {}}}, "record name"),
         ({"readbacks": ["Current"]}, "same record"),  # a settable's readback again
         ({"status": ["fault", "Fault"]}, "same record"),
         ({"readbacks": ["voltage", " "]}, "record name"),
         ({"template": "motor_record"}, "'epics_motor' family"),  # another kind's
         ({"axes": ["x"]}, "extra"),
         (
-            {"settables": {"a--b": {"tolerance": 0.1}}, "readbacks": ["a_b"]},
+            {"settables": {"a--b": {}}, "readbacks": ["a_b"]},
             "same record",
         ),
-        ({"settables": {"current:SP": {"tolerance": 0.1}}}, "is a setpoint record"),
+        ({"settables": {"current:SP": {}}}, "is a setpoint record"),
         ({"readbacks": ["current:SP"]}, "has it as a setpoint"),  # the family's
+        # Checked against the family: a settable is a readback it writes
+        # through a setpoint role with a set-tolerance record (a read-only
+        # role is none, nor is a record it does not name), a bit is no
+        # readback, and a status bit is one of the family's faults.
         (
-            {
-                "settables": {"slewrate": {"tolerance": 0.1}},
-                "readbacks": ["slewrate:SP"],
-            },
-            "setpoint records of this device",
+            {"settables": {"voltage": {}}, "readbacks": []},
+            "'easydriver' has it as readback role 'voltage' and no setpoint role",
         ),
-        # Checked against the family: a read-only role is no settable, a
-        # bit is no readback, and a status bit is one of the family's faults.
         (
-            {"settables": {"voltage": {"tolerance": 0.1}}, "readbacks": []},
-            "no setpoint",
+            {"settables": {"slewrate": {}}},
+            "'easydriver' names no such record and no setpoint role",
         ),
         ({"readbacks": ["enable_output"]}, "a bit, not a readback"),
         ({"status": ["enable_output"]}, "not a fault bit"),  # reads 1 when on
@@ -151,23 +154,43 @@ def test_a_bad_setpoint_device_is_refused(change, why) -> None:
         NativeDevices.model_validate({"devices": {"U_VS1H": {**SUPPLY, **change}}})
 
 
-def test_records_the_family_does_not_name_are_the_templates_business() -> None:
-    """easydriver.json omits the template's slewrate and temperature records."""
-    entry = {
-        **SUPPLY,
-        "settables": {"current": {"tolerance": 0.005}, "slewrate": {"tolerance": 0.01}},
-        "readbacks": ["voltage", "temperature"],
-    }
+def test_a_readback_the_family_does_not_name_is_the_templates_business() -> None:
+    """easydriver.json omits the template's temperature record: a column, never a settable."""
+    entry = {**SUPPLY, "readbacks": ["voltage", "temperature"]}
     supply = NativeDevices.model_validate({"devices": {"U": entry}}).devices["U"]
     family = load_families()["easydriver"]
-    assert supply.setpoint_records(family) == {
-        "current": "current:SP",
-        "slewrate": "slewrate:SP",
-    }
-    assert supply.setpoint_records(None) == {
-        "current": "current:SP",
-        "slewrate": "slewrate:SP",
-    }
+    assert supply.setpoint_records(family) == {"current": "current:SP"}
+    assert supply.tolerance_records(family) == {"current": "current:TOL"}
+
+
+def _without_tolerance_by(template: str) -> dict:
+    """The installed families, *template*'s setpoint roles stripped of their ``tolerance_by``."""
+    families = dict(load_families())
+    family = families[template]
+    roles = [
+        r.model_copy(update={"tolerance_by": None}) if r.type == "setpoint" else r
+        for r in family.roles
+    ]
+    families[template] = family.model_copy(update={"roles": roles})
+    return families
+
+
+def test_a_setpoint_role_with_no_tolerance_record_refuses_its_settable() -> None:
+    """The worker confirms within the IOC's record and has no other tolerance."""
+    families = _without_tolerance_by("easydriver")
+    with pytest.raises(
+        ValidationError,
+        match="family 'easydriver'.s setpoint role 'current_sp' names no "
+        r"set-tolerance record \(tolerance_by\)",
+    ):
+        NativeDevices.model_validate(
+            {"devices": {"U": SUPPLY}}, context={"families": families}
+        )
+    supply = NativeDevices.model_validate({"devices": {"U": SUPPLY}}).devices["U"]
+    with pytest.raises(ValueError, match="'current_sp' names no set-tolerance"):
+        supply.tolerance_records(families["easydriver"])
+    with pytest.raises(ValueError, match="'current_sp' names no set-tolerance"):
+        supply.setpoint_records(families["easydriver"])
 
 
 def test_the_names_normalise_as_geecs_core_does() -> None:
@@ -186,9 +209,16 @@ def test_the_fastps_family_writes_its_ramp_record() -> None:
     families = load_families()
     assert families[supply.family_template].setpoint_for("current") == "current_ramp:SP"
     assert supply.setpoint_records(families["fastps"]) == {"current": "current_ramp:SP"}
+    # One tolerance record for the ramped setpoint (and the IOC's plain
+    # current:SP beside it, which no role writes).
+    assert supply.tolerance_records(families["fastps"]) == {"current": "current:TOL"}
+    assert families["fastps"].tolerance_for("current") == "current:TOL"
     assert families["easydriver"].setpoint_for("current") == "current:SP"
+    assert families["easydriver"].tolerance_for("current") == "current:TOL"
     assert families["easydriver"].setpoint_for("voltage") is None  # read only
+    assert families["easydriver"].tolerance_for("voltage") is None
     assert families["easydriver"].setpoint_for("slewrate") is None  # not a role
+    assert families["easydriver"].tolerance_for("slewrate") is None
 
 
 def test_an_empty_document_is_no_devices() -> None:

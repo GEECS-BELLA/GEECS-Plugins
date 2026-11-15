@@ -8,8 +8,8 @@ source presses ``TriggerSoftware`` per shot and Line1 does not, a missed
 frame is the GEECS timeout, the
 writer keeps the IOC's layout with SWMR off, the row stamp is the frame's
 EPICS timestamp in the LabVIEW epoch through the reader's own conversion,
-``unstage`` restores the camera, a bounded fly prepare (a gated batch) is
-refused, and an unbounded prepare streams the frames the writer wrote,
+``unstage`` restores the camera, a bounded fly prepare (a counted batch)
+is refused, and an unbounded prepare streams the frames the writer wrote,
 armed and guarded as a strict run is.
 """
 
@@ -40,7 +40,7 @@ from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp
 from geecs_bluesky.devices.detector import (
     STRICT_TRIGGER_INFO,
     UNBOUNDED_TRIGGER_INFO,
-    gated_trigger_info,
+    FlyTriggerInfo,
 )
 from geecs_bluesky.devices import native
 from geecs_bluesky.devices.native import (
@@ -384,12 +384,17 @@ def test_a_lock_kept_by_this_workers_failed_restore_is_not_a_warning(
 def test_a_bounded_fly_prepare_is_refused(
     RE: RunEngine, tmp_path: Path, quota: int
 ) -> None:
-    """A gated batch (even of one shot) is refused; a kickoff needs an unbounded prepare."""
+    """A bounded batch (even of one shot) is refused; a kickoff needs an unbounded prepare."""
+    from ophyd_async.core import DetectorTrigger
+
+    bounded = FlyTriggerInfo(
+        trigger=DetectorTrigger.EXTERNAL_EDGE, number_of_events=quota
+    )
     cam, log = _camera(RE, tmp_path)
     _run(RE, lambda: cam.stage())
     log.clear()  # stage itself stops the writer (capture=False)
-    with pytest.raises(GeecsConfigurationError, match="no gated batch"):
-        _run(RE, lambda: cam.prepare(gated_trigger_info(quota)))
+    with pytest.raises(GeecsConfigurationError, match="no counted batch"):
+        _run(RE, lambda: cam.prepare(bounded))
     assert log == []  # refused before anything touched the camera
     with pytest.raises(GeecsConfigurationError, match="unbounded prepare"):
         _run(RE, lambda: cam.kickoff())
@@ -897,3 +902,93 @@ def test_an_unstage_during_a_prepare_waits_for_it(
     assert (
         _run(RE, lambda: cam.hdf.capture.get_value()) is False
     )  # no capture left open
+
+
+def _with_delay(RE: RunEngine, cam: NativeCamera, delay_us: float) -> None:
+    """Set the camera's private trigger-delay record (mock-connected with the camera)."""
+    set_mock_value(cam._trigger_delay, delay_us)
+
+
+def test_the_stamps_are_timed_from_the_trigger_each_run(
+    RE: RunEngine, tmp_path: Path
+) -> None:
+    """The live exposure and trigger delay (µs) join the stored offset at each run's first prepare.
+
+    The frame's EPICS stamp is taken when the finished frame reaches the
+    driver; every reader subtracts ``drain_offset``.  Never accumulated
+    across runs: each run starts from the stored offset.
+    """
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.01)
+    set_mock_value(cam.driver.acquire_time, 0.9)
+    _with_delay(RE, cam, 400.0)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))  # strict prepares every shot
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.01 + 0.9004)
+    _run(RE, lambda: cam.unstage())
+
+    set_mock_value(cam.driver.acquire_time, 0.001)  # changed between runs
+    set_mock_value(cam._trigger_delay, 0.0)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.011)
+    _run(RE, lambda: cam.unstage())
+
+
+def test_a_camera_without_the_delay_record_connects_and_takes_no_delay(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+) -> None:
+    """``TriggerDelay_RBV`` is geecs-epics' add-on record: a camera without it still runs."""
+    monkeypatch.setattr(native, "STAMP_LAG_READ_S", 0.2)
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.02)
+    cam._delay_connected = False  # as on a real camera: connected at the first prepare
+    set_mock_value(cam.driver.acquire_time, 0.5)
+
+    async def unreachable(*_, **__):
+        raise TimeoutError("TriggerDelay_RBV not found")
+
+    monkeypatch.setattr(cam._trigger_delay, "connect", unreachable)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.52)
+    assert any("no trigger delay readable" in m for m in caplog.messages)
+    _run(RE, lambda: cam.unstage())
+
+
+@pytest.mark.parametrize(
+    "exposure, delay", [(math.nan, 0.0), (0.1, -5e5)], ids=["nan", "negative"]
+)
+def test_an_unusable_exposure_corrects_nothing_and_says_so(
+    RE: RunEngine, tmp_path: Path, caplog, exposure, delay
+) -> None:
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.02)
+    set_mock_value(cam.driver.acquire_time, exposure)
+    _with_delay(RE, cam, delay)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.02)
+    assert any("not corrected this run" in m for m in caplog.messages)
+    _run(RE, lambda: cam.unstage())
+
+
+def test_the_stamp_settings_are_read_under_the_run_lock(
+    RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No other client can change the exposure between the read and the run's end."""
+    cam, _ = _camera(RE, tmp_path)
+    seen: list[bool] = []
+    plain = cam.driver.acquire_time.get_value
+
+    async def read(*args, **kwargs):
+        seen.append(bool(await cam.run_lock.lock.get_value()))
+        return await plain(*args, **kwargs)
+
+    monkeypatch.setattr(cam.driver.acquire_time, "get_value", read)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
+    assert seen == [True]
+    _run(RE, lambda: cam.unstage())

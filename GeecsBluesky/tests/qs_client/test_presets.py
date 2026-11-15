@@ -225,13 +225,13 @@ def test_the_required_devices_ride_as_required() -> None:
             {"device": "UC_SlowCam", "required": False},
             {"device": "U_BCaveICT", "save_images": False},
         ],
-        plan={"name": "count", "kwargs": {"num": 10, "acquisition": "gated"}},
+        plan={"name": "count", "kwargs": {"num": 10, "acquisition": "fly"}},
     )
     item = expand_preset(preset)
     assert item.args == [["UC_ALineEBeam3", "UC_SlowCam", "U_BCaveICT.scalars"]]
     assert item.kwargs["required"] == ["UC_ALineEBeam3", "U_BCaveICT.scalars"]
     assert "non_essential" not in item.kwargs
-    assert item.kwargs["acquisition"] == "gated"
+    assert item.kwargs["acquisition"] == "fly"
     assert item.references == ["UC_ALineEBeam3", "UC_SlowCam", "U_BCaveICT.scalars"]
     # None required: an explicit empty list, never absent (absent = all).
     none = _preset(devices=[{"device": "UC_SlowCam", "required": False}])
@@ -347,28 +347,27 @@ def _native_preset(device: dict, **kwargs) -> Preset:
 
 
 @pytest.mark.parametrize(
-    ("device", "kwargs", "why"),
-    [
-        ({"device": "ADTEST_CAM1"}, {"acquisition": "gated"}, "not in a gated batch"),
-        (
-            {"device": "ADTEST_CAM1", "required": False},
-            {"acquisition": "gated"},
-            "not in a gated batch",
-        ),
-    ],
-    ids=["gated-essential", "gated-not-required"],
+    "device",
+    [{"device": "ADTEST_CAM1"}, {"device": "UC_Cam"}],
+    ids=["native-camera", "gateway-device"],
 )
-def test_a_native_camera_in_a_refused_shape_is_refused_at_expansion(
-    device: dict, kwargs: dict, why: str
-) -> None:
-    """The worker's own sentence, before the preflight's device rules can misread it.
-
-    Those rules read a native camera as a device with no ``acq_timestamp``:
-    a gated run of one was refused as "no essential triggered device".
-    """
+def test_a_gated_preset_is_refused_as_retired_at_expansion(device: dict) -> None:
+    """The retired mode's own reason, before any device rule could give another one."""
     with pytest.raises(GeecsConfigurationError) as info:
-        expand_preset(_native_preset(device, **kwargs), native_devices={"adtest_cam1"})
-    assert str(info.value) == STRICT_ONLY + why
+        expand_preset(
+            _native_preset(device, acquisition="gated"),
+            native_devices={"adtest_cam1"},
+        )
+    assert str(info.value) == (
+        "preset 'native': acquisition='gated' is retired: strict is the one "
+        "box-driven mode (a sweep may run under 1 Hz) — use "
+        "acquisition='strict'"
+    )
+
+
+def test_an_unknown_acquisition_is_refused_at_expansion() -> None:
+    with pytest.raises(GeecsConfigurationError, match="is not one of"):
+        expand_preset(_native_preset({"device": "UC_Cam"}, acquisition="batch"))
 
 
 def test_a_strict_native_camera_expands_required_or_not() -> None:
@@ -380,9 +379,6 @@ def test_a_strict_native_camera_expands_required_or_not() -> None:
         _native_preset({"device": "ADTEST_CAM1"}), native_devices={"ADTEST_CAM1"}
     )
     assert item.args[0] == ["UC_Other", "ADTEST_CAM1"]
-    # unknown to the registry: a gated run is the preflight's to judge
-    gated = _native_preset({"device": "ADTEST_CAM1"}, acquisition="gated")
-    assert expand_preset(gated).kwargs["acquisition"] == "gated"
 
 
 def test_a_native_positioner_takes_none_of_the_cameras_rules() -> None:
@@ -400,7 +396,7 @@ def test_a_native_positioner_takes_none_of_the_cameras_rules() -> None:
     # A per-row scalar device, with or without its scalars view, in any shape.
     item = expand_preset(
         _native_preset(
-            {"device": "SimMotor1", "save_images": False}, acquisition="gated"
+            {"device": "SimMotor1", "save_images": False}, acquisition="fly"
         ),
         native_devices=registry,
     )

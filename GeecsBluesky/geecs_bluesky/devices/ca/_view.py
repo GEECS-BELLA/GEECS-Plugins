@@ -24,8 +24,8 @@ def owner_of(obj: Any) -> Any:
 
     The one unwrapping rule: a ``.scalars`` view is its owner's columns,
     staged as its owner and named, in any stream or document key, as its
-    owner (the non-essential stream ``<owner>_stream`` and the start
-    document's ``non_essential`` list must agree on that name).
+    owner (the device stream ``<owner>_stream`` and the start document's
+    ``per_shot_streams`` list must agree on that name).
     """
     return obj._owner if isinstance(obj, ScalarsView) else obj
 

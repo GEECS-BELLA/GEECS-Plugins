@@ -21,8 +21,10 @@ device (``essential`` until the shot-table layout; the old name is
 refused, not aliased: presets are regenerated) — a required device is
 waited on every shot, the others stream for the run like it but never
 hold a shot — and the
-acquisition mode as a plan keyword (``acquisition: gated`` in
-``plan.kwargs``, beside ``shots_per_step``), not a preset field.
+acquisition mode as a plan keyword (``acquisition: fly`` in
+``plan.kwargs``, beside ``shots_per_step``), not a preset field; the
+schema carries plan keywords as written, and the worker's client
+expansion refuses a mode it does not run (the retired ``gated``, by name).
 ``native_image_save`` (0.31.0) is the run-level switch for LabVIEW's
 per-shot files: one value per scan, reaching only the cameras whose
 frames the PVA gateway's file plugin captures (GEECS-Plugins#738); unset

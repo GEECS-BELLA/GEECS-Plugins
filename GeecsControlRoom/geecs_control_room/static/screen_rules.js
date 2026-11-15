@@ -24,7 +24,7 @@
   // A widget's word. A bare PV has no module verdict: its alarm rules, as
   // GeecsCanopy's freshness.judge has them. A device role: the module's verdict,
   // "unknown" whenever the module or Hare is silent; a role the module does not
-  // judge (a DB device's: verdict null) by the bare PV's rules. A deferred
+  // judge (a DB device's, or a constant read once: verdict null) by the bare PV's rules. A deferred
   // widget: "unknown role" when the module lists none, "wrong kind" on a misfit.
   function judge({ hareUp, frame, bare, view, entry, fits }) {
     if (bare) {
@@ -40,7 +40,7 @@
     if (entry.read === "never") return view.state || "unknown"; // a command: the device's word
     if (!hareUp || !frame) return "unknown";
     if (!frame.connected) return "unreachable";
-    if (entry.verdict === null && entry.read === "monitor") return judge({ hareUp, frame, bare: true });
+    if (entry.verdict === null && ["monitor", "once"].includes(entry.read)) return judge({ hareUp, frame, bare: true });
     return entry.verdict || "unknown";
   }
 

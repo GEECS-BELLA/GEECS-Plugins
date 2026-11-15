@@ -80,7 +80,7 @@
     },
     "use_scan_mode": {
       "default": false,
-      "description": "Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a gated run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case \u2014 the shot message is the only trigger.",
+      "description": "Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a fly run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case \u2014 the shot message is the only trigger.",
       "title": "Use Scan Mode",
       "type": "boolean"
     }

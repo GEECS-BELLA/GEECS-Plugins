@@ -37,7 +37,6 @@ from geecs_bluesky.callbacks._base import _StreamCallback
 from geecs_data_utils.shot_table import fresh_rows, shot_table
 from geecs_schemas import TriggerState
 
-from .gated import run_bracket
 from .on_demand import OnDemand, _Progress, start_keys
 from .streams import DeviceStreams, is_per_shot
 from .scan_mode import (
@@ -47,7 +46,7 @@ from .scan_mode import (
     scan_mode_preflight,
     scan_parameter_for,
 )
-from .strict import BinCounter, name_failed_status
+from .strict import BinCounter, name_failed_status, run_bracket
 
 if TYPE_CHECKING:
     from geecs_bluesky.config_resolver import ConfigsRepoResolver
@@ -351,6 +350,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             background_wrapper,
             liveness_gate,
             native_image_save_wrapper,
+            set_tolerance_gate,
             require_plain_metadata,
             resolve_background_telemetry,
             resolve_native_image_save,
@@ -460,11 +460,9 @@ def optimize_plan(  # noqa: C901, PLR0915
             raise GeecsConfigurationError(f"optimizer generator: {exc}") from exc
         sc = profiles.resolve(trigger_profile)
         announce = scan_mode if sc.use_scan_mode else None
-        run_devices = run_device_names(detectors, [], sc)
+        run_devices = run_device_names(detectors, sc)
         if sc.use_scan_mode:
-            scan_mode_preflight(
-                sc, scan_mode, acquisition="strict", run_devices=run_devices
-            )
+            scan_mode_preflight(sc, scan_mode, run_devices=run_devices)
         native_files = resolve_native_image_save(native_image_save, resolver)
         snapshot = (
             background_snapshot(namespace, mock=mock)
@@ -505,7 +503,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             for d in per_shot
             if getattr(d, "plugin_backed", False) and id(owner_of(d)) in read_owners
         ]
-        streams = DeviceStreams(per_shot, dual_write=True, companions=cameras)
+        streams = DeviceStreams(per_shot, companions=cameras)
         metadata.update(start_keys(streams, required_devices, witness is not None))
         metadata["geecs"] = {
             **metadata.get("geecs", {}),
@@ -730,6 +728,9 @@ def optimize_plan(  # noqa: C901, PLR0915
                 source.open()
                 yield from _on_thread(pool, source.wait_connected, 5.0)
             yield from liveness_gate(sc, [*detectors, *movables.values()])
+            # Before the claim: a native settable with no set tolerance
+            # refuses the run; the values read ride in the start document.
+            metadata.update((yield from set_tolerance_gate(list(movables.values()))))
             if snapshot is not None:
                 # One more device of every row, last — after the scalar
                 # pre-reads above (nothing to read before its probe).

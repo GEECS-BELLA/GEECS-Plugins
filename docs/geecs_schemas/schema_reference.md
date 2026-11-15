@@ -313,7 +313,7 @@ The device writes that drive the machine through its trigger states.
 | `name` | `str` | yes | — | The name scans use to refer to this trigger profile. |
 | `states` | `dict[TriggerState, list[TriggerWrite]]` | no | empty | For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched. |
 | `description` | `str` | no | '' | Optional note about what setup this profile is for. |
-| `use_scan_mode` | `bool` | no | False | Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a gated run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case — the shot message is the only trigger. |
+| `use_scan_mode` | `bool` | no | False | Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a fly run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case — the shot message is the only trigger. |
 
 Example:
 
@@ -567,10 +567,11 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
-  # A supply: each settable is its readback record, written at <record>:SP
-  # and confirmed on the readback within its tolerance.
+  # A supply: each settable is its readback record, written at the family's
+  # setpoint role for it (current:SP) and confirmed on the readback within
+  # the IOC's set tolerance (current:TOL); the timeout is the scan's patience.
   U_ExampleSupply: {kind: setpoint_device,
-                    settables: {current: {tolerance: 0.005, timeout: 10}},
+                    settables: {current: {timeout: 10}},
                     readbacks: [voltage], status: [fault, interlock]}
   # A witness: the hardware count of one trigger domain's edges (Counter1Counts),
   # recorded in every strict row; at most one per domain.
@@ -607,18 +608,18 @@ A setpoint device: a supply's plain records (``NATIVE_DEVICES.md`` §8).
 |---|---|---|---|---|
 | `kind` | `'setpoint_device'` | yes | — | Device kind: 'setpoint_device' (a supply's plain records: setpoint, readback, status bits). |
 | `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
-| `settables` | `dict[str, SetpointSettable]` | yes | — | The settables, by readback record name under the device's prefix (e.g. {'current': {tolerance: 0.005}} for '<experiment>:<device>:current', written at 'current:SP'). Each is a scan axis 'Device:record' and an action's set target. |
+| `settables` | `dict[str, SetpointSettable]` | yes | — | The settables, by readback record name under the device's prefix (e.g. {'current': {timeout: 10}} for '<experiment>:<device>:current', written at the family's setpoint role for it, 'current:SP', and confirmed within the IOC's set tolerance, 'current:TOL'). Each must be a readback the family writes through a setpoint role with a 'tolerance_by'. Each is a scan axis 'Device:record' and a setup's set target. |
 | `readbacks` | `list[str]` | no | empty | Further numeric readback records, read into each row beside the settables' own (e.g. ['voltage']). |
 | `status` | `list[str]` | no | empty | Status bits, two-state records that read 1 when tripped (e.g. ['fault', 'interlock']): a set is refused while one reads 1 and fails if one rises while it waits. |
 
 ### SetpointSettable
 
-One settable of a setpoint device: how close its readback must come, and how soon.
+One settable of a setpoint device: how long a scan waits for its readback.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `tolerance` | `float` | yes | — | How close the readback must come to the requested value for the set to be done, in the record's units (e.g. 0.005 for 5 mA on a supply in A). The one device fact a plain 'ao' record cannot hold. |
-| `timeout` | `float` | no | 10.0 | Seconds the set waits for the readback to arrive within the tolerance after the write, before it fails. Size it for the slowest ramp plus the readback's scan period. |
+| `tolerance` | `float (optional)` | no | None | Retired: ignored, never a tolerance (the IOC's set-tolerance record is, read at every set). Accepted only while readers deployed before its retirement still require it; drop it from the file once every reader runs a schema that accepts its absence. |
+| `timeout` | `float` | no | 10.0 | Seconds the scan worker waits for the readback to arrive within the IOC's set tolerance after the write, before the set fails: the client's patience, not a device fact. Size it for the slowest ramp plus the readback's scan period. The tolerance itself is the IOC's record (the family's tolerance_by role, e.g. current:TOL), never written here. |
 
 ### Witness
 
@@ -692,7 +693,7 @@ One record of the template, by what it does for a page.
 | `settled_by` | `str (optional)` | no | None | A write whose put completes only when the work ends (an acquire, a move) is dispatched without waiting and settles when this role says so: the readback that confirms it, or the motor's done flag. |
 | `readback` | `str (optional)` | no | None | A setpoint's readback, shown beside it (a motor's .RBV beside .VAL). |
 | `tolerance` | `float (optional)` | no | None | On a setpoint: how far its measured value may sit from the setpoint, in the role's units, before a page marks them as differing once a write has settled. Absent: 'tolerance_by', else the record's precision (one unit in the last digit shown), else exact. |
-| `tolerance_by` | `str (optional)` | no | None | On a setpoint: the readback whose value is that tolerance, where the record keeps one (the motor record's retry deadband, RDBD). |
+| `tolerance_by` | `str (optional)` | no | None | On a setpoint: the readback whose value is that tolerance, where the IOC keeps one (the motor record's retry deadband, RDBD; a supply's constant <readback>:TOL, read once). It is a tolerance only while connected, not INVALID and above zero; anything else is none, never exact, and a page judges nothing. |
 | `fresh_by` | `str (optional)` | no | None | The counter role whose advance makes this value fresh (the producing plugin's ArrayCounter_RBV): statistics post only on change, so a steady value is judged by its producer. Absent: fresh while connected. |
 | `computed_by` | `str (optional)` | no | None | The flag that must be on for the value to be computed at all (ComputeCentroid): with it off the value reads 'off', not fresh. |
 | `text` | `'string' \| 'char_array' (optional)` | no | None | Read as text: a string record, or a char-array record longer than a string's 40 characters. Enums are read by state name regardless. |
@@ -703,7 +704,7 @@ One record of the template, by what it does for a page.
 | `fault` | `bool` | no | False | A bit that reads 1 when tripped: any tripped fault makes the device 'failed'. |
 | `axis_of` | `list[str] (optional)` | no | None | On an array: the array role (or the list of them) this one is the x axis of, one value per sample of each of its channels (a scope's time axis beside its capture, a spectrometer's wavelengths beside its raw and its processed spectrum). A single name is read as a list of one. All are arrays; an array has one axis at most, and an axis is no array's trace. |
 | `channels_by` | `str (optional)` | no | None | On an array of several channels: the readback that counts them. The array is then [channels, samples], channels fastest (a scope's ARR capture, a disabled channel NaN). Absent: one channel. |
-| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame). |
+| `read` | `'monitor' \| 'on_request' \| 'once' \| 'never' (optional)` | no | None | How the bridge reads it, when not the type's own: monitored (scalars), on request (arrays), once (the image's URL, or a constant record such as a camera's FullScale or a supply's set tolerance: read, never judged), never (a command's record, or an array the bridge never reads because a route of its own serves it: a camera's raw frame). |
 
 ### FamilyAction
 

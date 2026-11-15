@@ -719,6 +719,38 @@ def test_a_tolerance_is_refused_off_a_setpoint_or_a_readback(name: str, fields: 
     _refused(doc, match)
 
 
+def test_a_tolerance_record_may_be_a_constant_read_once() -> None:
+    """A tolerance link takes a monitored readback or one read once (an IOC's :TOL), never one read on request."""
+    doc = tiny()
+    doc["roles"].append({"name": "level_tol", "suffix": "level:TOL", "type": "readback", "label": "level tolerance", "read": "once"})  # fmt: skip
+    role(doc, "level_sp")["tolerance_by"] = "level_tol"
+    assert FamilyFile.model_validate(doc).role("level_sp").tolerance_by == "level_tol"
+    role(doc, "level_tol")["read"] = "on_request"
+    _refused(doc, "tolerance_by 'level_tol' is not monitored")
+    role(doc, "level_tol")["read"] = "once"
+    role(doc, "level_sp").update(tolerance_by=None, readback="level_tol")
+    _refused(
+        doc, "readback 'level_tol' is not monitored"
+    )  # only a tolerance may be read once
+
+
+@pytest.mark.parametrize(
+    "template, setpoint", [("easydriver", "current:SP"), ("fastps", "current_ramp:SP")]
+)
+def test_a_supplys_setpoint_is_judged_by_its_iocs_set_tolerance_record(template: str, setpoint: str) -> None:  # fmt: skip
+    """The IOC's ``current:TOL`` (geecs-epics decision 21): a constant, read once, expert, never written, archived, railed or a reading."""
+    family = load_families()[template]
+    sp, tol = family.role("current_sp"), family.role("current_tol")
+    assert (sp.suffix, sp.readback, sp.tolerance_by, sp.tolerance) == (setpoint, "current", "current_tol", None)  # fmt: skip
+    assert (tol.suffix, tol.type, tol.level, tol.read_mode) == ("current:TOL", "readback", "expert", "once")  # fmt: skip
+    assert not (tol.writable or tol.archive or tol.locked) and tol.write_suffix is None
+    railed = {r for g in family.panel.rail for r in g.roles}
+    assert "current_tol" not in railed | set(family.panel.readings)
+    assert "current_tol" not in {r for a in family.actions.values() for r in a.roles}
+    # the worker's setpoint for the measured current is still the setpoint role's, never the tolerance record
+    assert family.setpoint_for("current") == setpoint
+
+
 def test_a_motors_target_is_judged_within_its_retry_deadband() -> None:
     val = load_families()["motor_record"].role("val")
     assert (val.readback, val.settled_by, val.tolerance_by) == ("rbv", "dmov", "rdbd")

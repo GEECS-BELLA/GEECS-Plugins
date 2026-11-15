@@ -55,10 +55,11 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   **Count** (N shots at a fixed configuration, optionally tagged as a
   background), **Sweep** (one or more variables along a trajectory) or
   **Optimize** (an optimizer drives the variables). Acquisition is
-  **strict** (one fire per shot, one row per fire) or **gated** (the
-  trigger box in SCAN, cameras count a batch); **fly** (a software tick,
-  the box never driven) is a preset's `acquisition: fly`, with no button
-  yet. Press
+  **strict** (one fire per shot, one row per fire); **fly** (a software
+  tick, the box never driven) is a preset's `acquisition: fly`, with no
+  button yet. The gated mode was deleted on 2026-11-14: a preset that
+  still asks for `acquisition: gated` is refused with the reason, never
+  run as something else. Press
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
   The current form can be saved back as a preset (**Save as preset…**):
   the configurator commits it to the configs repo under the operator's
@@ -115,7 +116,7 @@ preset submitted from a notebook through `geecs_bluesky.qs_client` — or
 through the page's own JSON API, `POST /api/submit` — behaves exactly as
 one submitted from the form.
 
-![The queue, and the Devices · move, Actions and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
+![The queue, and the Devices · move, Setups and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
 
 ## Where the data lands
 
@@ -142,7 +143,7 @@ The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.
   fix (the readiness unit reopens it); the page cannot do it.
 - **`doc stream` chip down while a scan runs** — the page still shows the
   queue's state, but no shot-by-shot progress. Scans are unaffected.
-- **Move, Actions and Calibration are held** — the move chip reads
+- **Move, Setups and Calibration are held** — the move chip reads
   `a plan is running` or `items wait in the queue`; they open again when
   the queue is idle.
 - **The scan folder is missing data** — start at the scan's `scan.log`

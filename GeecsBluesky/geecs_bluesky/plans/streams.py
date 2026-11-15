@@ -10,7 +10,7 @@ joined to the rows by stamp afterwards, never a placeholder:
   through its own HDF writer (no count to zero: the writer starts at 0);
 - a triggered device **without** a plugin (a LabVIEW-native saver, a
   scalar device with a stamp, any detector's ``.scalars`` view) is
-  recorded by a :class:`~geecs_bluesky.devices.sampler.StampStream`: one
+  recorded by a :class:`~geecs_bluesky.devices.stamp_stream.StampStream`: one
   event per stamp it publishes.  A native saver listed whole is prepared
   unbounded, so its own lifecycle switches LabVIEW's saving on here and
   off at its ``unstage``.
@@ -39,7 +39,7 @@ from geecs_data_utils.shot_join import device_stream
 from geecs_bluesky.devices.ca._view import owner_of
 from geecs_bluesky.devices.detector import UNBOUNDED_TRIGGER_INFO, GeecsDetector
 from geecs_bluesky.devices.native import NativeCamera
-from geecs_bluesky.devices.sampler import StampStream
+from geecs_bluesky.devices.stamp_stream import StampStream
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +68,6 @@ class DeviceStreams:
     ----------
     devices :
         The listed devices (whole detectors, views, native cameras).
-    dual_write :
-        Plugin-backed cameras also switch their LabVIEW-native saving on
-        for the run (the strict dual-write; ``native_image_save`` still
-        decides per camera).  Off for gated's stream of the devices not
-        required.
-    label :
-        The word that opens each log line (``non-essential``), or none.
     companions :
         Plugin cameras among *devices* whose per-shot stamp a plan needs
         during the run (optimize's live frames; the stack has it only once
@@ -88,11 +81,8 @@ class DeviceStreams:
         self,
         devices: Sequence[Any],
         *,
-        dual_write: bool = False,
-        label: str = "",
         companions: Sequence[Any] = (),
     ) -> None:
-        self._who = f"{label} " if label else ""
         self.devices = list(devices)
         self.roots: list[Any] = []
         for device in self.devices:
@@ -115,7 +105,6 @@ class DeviceStreams:
             StampStream(d, name=owner_of(d).name + COMPANION_SUFFIX) for d in companions
         ]
         self.streams: list[Any] = [*framed, *self.stamped, *self.companions]
-        self.dual_write = dual_write
         self._declared: set[int] = set()
         self._failing: set[str] = set()
 
@@ -191,9 +180,8 @@ class DeviceStreams:
                 if stream.name not in self._failing:
                     self._failing.add(stream.name)
                     logger.warning(
-                        "%s%s: its stream's collect failed (%s: %s) — the stream "
+                        "%s: its stream's collect failed (%s: %s) — the stream "
                         "keeps what it collected and gaps (logged once)",
-                        self._who,
                         stream.name,
                         type(exc).__name__,
                         exc,
@@ -220,9 +208,8 @@ class DeviceStreams:
 
                 def skip(exc, flyer=stream, verb=verb):
                     logger.warning(
-                        "%s%s: %s failed at the run's close (%s: %s) — its stream "
+                        "%s: %s failed at the run's close (%s: %s) — its stream "
                         "carries what it wrote",
-                        self._who,
                         flyer.name,
                         verb,
                         type(exc).__name__,
@@ -236,9 +223,8 @@ class DeviceStreams:
         for stream in self.stamped:
             if not stream.published:
                 logger.warning(
-                    "%s%s: published no shot stamp this run — %s is empty and its "
+                    "%s: published no shot stamp this run — %s is empty and its "
                     "columns read NaN in the s-file",
-                    self._who,
                     stream.device_name,
                     device_stream(stream.name),
                 )
@@ -255,9 +241,8 @@ class DeviceStreams:
 
             def skip(exc, root=root):
                 logger.warning(
-                    "%s%s: unstage failed (%s: %s) — skipped; a stale Capture "
+                    "%s: unstage failed (%s: %s) — skipped; a stale Capture "
                     "or save is cleared by its next stage()",
-                    self._who,
                     root.name,
                     type(exc).__name__,
                     exc,
@@ -289,8 +274,11 @@ class DeviceStreams:
         inner = plan_mutator(plan_mutator(plan, insert_after_open), insert_before_close)
 
         def staged():
+            # The strict dual-write: plugin-backed cameras also switch their
+            # LabVIEW-native saving on for the run (``native_image_save``
+            # still decides per camera).
             for cam in self.plugin:
-                cam.fly_native_save = self.dual_write
+                cam.fly_native_save = True
             yield from bps.stage_all(*self.roots)
             return (yield from inner)
 

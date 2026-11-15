@@ -32,9 +32,9 @@ __all__ = [
     "GeecsMotorTimeoutError",
     "GeecsConfirmTimeoutError",
     "GeecsSetpointRefusedError",
+    "GeecsNoSetToleranceError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
-    "GeecsFrameCountReadError",
     "GeecsScanModeError",
     "PseudoComponentsDisagreeError",
     "PseudoRestorePendingError",
@@ -244,6 +244,53 @@ class GeecsSetpointRefusedError(GeecsError):
         )
 
 
+class GeecsNoSetToleranceError(GeecsSetpointRefusedError):
+    """A native setpoint device's IOC gives no set tolerance, so a scan cannot set it.
+
+    The tolerance a set is confirmed within is the IOC's record (the
+    family's ``tolerance_by`` role, a supply's ``current:TOL``, geecs-epics
+    decision 21).  It is a tolerance only while the channel connects, its
+    severity is not INVALID and its value is finite and above zero; anything
+    else (never connected, no answer, INVALID — an IOC serves a missing
+    value as 0 INVALID — zero, negative, not finite) is **no tolerance**,
+    never zero and never a number kept from an earlier read.  Raised before
+    any write (``written`` is always ``False``): by the set itself, with its
+    *target*, and by the bound plans before the claim, without one
+    (:func:`~geecs_bluesky.devices.native_setpoint.native_set_tolerances`).
+    ``pv`` is the tolerance record, ``read`` what was read of it.
+    """
+
+    def __init__(
+        self,
+        device_name: str,
+        variable: str,
+        pv: str,
+        read: str,
+        *,
+        target: float | None = None,
+    ) -> None:
+        self.pv = pv
+        self.read = read
+        reason = (
+            f"no set tolerance: {pv} {read} (a tolerance is that record "
+            "connected, not INVALID and above zero), so the set could not be "
+            "confirmed"
+        )
+        if target is not None:
+            super().__init__(device_name, variable, target, reason, written=False)
+            return
+        self.device_name = device_name
+        self.variable = variable
+        self.target = None  # type: ignore[assignment]  # no set was asked for
+        self.reason = reason
+        self.written = False
+        GeecsError.__init__(
+            self,
+            f"{device_name}/{variable}: cannot be set by a scan — {reason} "
+            "(nothing was written)",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Configuration / setup errors
 # ---------------------------------------------------------------------------
@@ -291,20 +338,6 @@ class GeecsDeviceDownError(GeecsError):
     """
 
     def __init__(self, message: str, device_name: str | None = None) -> None:
-        self.device_name = device_name
-        super().__init__(message)
-
-
-class GeecsFrameCountReadError(GeecsError):
-    """A gated batch could not read a plugin-backed essential's frame count.
-
-    Raised by :meth:`~geecs_bluesky.devices.sampler.ShotSampler.collect`
-    (chained to the read's own error) when a gate's count read fails; the
-    gated plan takes its failure path on it — box OFF, the rows already
-    out kept — and re-raises it.  ``device_name`` is the camera.
-    """
-
-    def __init__(self, device_name: str, message: str) -> None:
         self.device_name = device_name
         super().__init__(message)
 

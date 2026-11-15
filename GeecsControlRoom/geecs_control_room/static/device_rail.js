@@ -58,7 +58,7 @@
       const by = el.dataset.tolBy;
       const hint = el.dataset.tol === undefined ? (e && typeof e.tolerance === "number" ? e.tolerance : undefined) : Number(el.dataset.tol);
       el.title = el.title || (S.bounds(P.meta(role, axis)) && `limits ${S.bounds(P.meta(role, axis))}`);
-      const tol = D.tolerance({ hint, by: by ? (P.frame(by, axis) || {}).value ?? null : undefined, precision: mvMeta.precision ?? sp.meta.precision, integer: el.step === "1" });
+      const tol = D.tolerance({ hint, by: by ? P.frame(by, axis) ?? null : undefined, precision: mvMeta.precision ?? sp.meta.precision, integer: el.step === "1" });
       const settledBy = el.dataset.settledBy;
       const m = D.settleMark({ known: !!P.entry(role, axis), set: src.set, armedAt: el.dataset.armed === undefined ? undefined : Number(el.dataset.armed), now: Date.now(), isDone: settledBy ? D.done(P.frame(settledBy, axis)) : undefined, sp: sp.frame && sp.frame.value, mv: mv && mv.value, tol });
       if (D.disarms(m)) delete el.dataset.armed; // never on a silent module: a failed poll keeps the arming

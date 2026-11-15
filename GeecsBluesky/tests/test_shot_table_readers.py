@@ -233,16 +233,6 @@ def test_stack_check_joins_a_shot_table_stack_through_the_helper(
     )
 
 
-def test_shot_stamps_routes_its_clock_through_clock_stamps() -> None:
-    """Synthetic: no gated run writes a Unix clock; this pins the routing only."""
-    from geecs_bluesky.callbacks._base import _RunStreams
-    from geecs_bluesky.callbacks.stack_check import _shot_stamps
-
-    run = _RunStreams(rows={"shots": [(1, {"witness_stamp": 100.0})]})
-    shots = _shot_stamps({"shot_clock_column": "witness_stamp"}, run, "uc_cam")
-    assert shots is not None and list(shots.stamps) == [100.0 + LV]
-
-
 def test_an_old_layout_run_naming_per_shot_streams_keeps_the_count_only_check(
     tmp_path, caplog
 ) -> None:

@@ -243,7 +243,7 @@ def test_a_fly_step_holds_shots_per_step_ticks_with_the_motor_in_each_row(
     """The per-step hook: two ticks per position, the motor read in every row."""
     native, _ = _pressed(RE, tmp_path)
     motor = soft_signal_rw(float, name="m")
-    streams = DeviceStreams([native], dual_write=True)
+    streams = DeviceStreams([native])
     clock, keys, hook = bind_fly(
         streams, [native], hook="per_step", shots_per_step=2, period=0.05
     )
@@ -322,7 +322,7 @@ def test_a_step_s_first_tick_opens_a_fresh_window_after_the_move(RE, box) -> Non
     """A free-runner's record from during the move never completes the step's first row."""
     free = _camera(RE, box, "U_PS")
     motor = SlowMotor("m", 4 * PERIOD)
-    streams = DeviceStreams([free], dual_write=True)
+    streams = DeviceStreams([free])
     clock, keys, hook = bind_fly(
         streams, [free], hook="per_step", shots_per_step=2, period=PERIOD
     )

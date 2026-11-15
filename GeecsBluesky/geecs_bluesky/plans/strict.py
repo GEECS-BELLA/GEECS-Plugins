@@ -3,9 +3,10 @@
 The strict slot itself is :mod:`geecs_bluesky.plans.on_demand`.  Here:
 :func:`fire_and_await_shot` (trigger every triggerable, fire between the
 triggers and the wait, report the ones that missed — the shot-offset
-calibration's shot), the confirmed-down read and the plugin's refusal
-reasons the slot reports, :func:`name_failed_status`, and
-:class:`BinCounter`, the ``bin_number`` column.
+calibration's shot), :func:`run_bracket` (the trigger box's run
+bracket), the confirmed-down read and the plugin's refusal reasons the
+slot reports, :func:`name_failed_status`, and :class:`BinCounter`, the
+``bin_number`` column.
 """
 
 from __future__ import annotations
@@ -16,8 +17,10 @@ from collections.abc import Sequence
 from typing import Any, Callable
 
 import bluesky.plan_stubs as bps
+from bluesky.preprocessors import finalize_wrapper
 from bluesky.protocols import Triggerable
 from bluesky.utils import FailedStatus, short_uid
+from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.ca._view import geecs_device_name
 from geecs_bluesky.devices.ca.liveness import read_disconnected
@@ -116,6 +119,21 @@ def name_failed_status(plan: Any):
         if exc.__cause__ is not None:  # a cause-less status keeps its own text
             exc.args = (failure_cause_text(exc),)
         raise
+
+
+def run_bracket(plan: Any, shot_control: Any, opening: TriggerState) -> Any:
+    """Bracket a run *opening* → … → STANDBY through *shot_control*.
+
+    A strict run opens ARMED (the single-shot source), the shot-offset
+    calibration OFF (quiet).  Both close in the machine's idle state,
+    whatever the plan did.
+    """
+    yield from bps.mv(shot_control, opening.value)
+
+    def standby():
+        yield from bps.mv(shot_control, TriggerState.STANDBY.value)
+
+    return (yield from finalize_wrapper(plan, standby()))
 
 
 def _log_non_frame_failure(exc: FailedStatus) -> None:
