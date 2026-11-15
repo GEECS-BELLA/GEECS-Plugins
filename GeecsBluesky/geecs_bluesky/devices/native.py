@@ -725,16 +725,17 @@ class NativeCamera(StandardDetector):
         unreadable setting adds nothing, with a WARNING.
         """
         name = self._geecs_device_name
-        try:
-            exposure = float(
-                await asyncio.wait_for(
-                    self.driver.acquire_time.get_value(), STAMP_LAG_READ_S
-                )
-            )
-            delay_us = await self._read_trigger_delay()
-        except Exception as exc:  # noqa: BLE001 - any failure: no correction, said
-            await self._no_stamp_lag(f"{type(exc).__name__}: {exc}")
+        (exposure,) = await asyncio.gather(
+            asyncio.wait_for(self.driver.acquire_time.get_value(), STAMP_LAG_READ_S),
+            return_exceptions=True,
+        )
+        if isinstance(exposure, asyncio.CancelledError):
+            raise exposure
+        if isinstance(exposure, BaseException):
+            await self._no_stamp_lag(f"{type(exposure).__name__}: {exposure}")
             return
+        exposure = float(exposure)
+        delay_us = await self._read_trigger_delay()
         lag = exposure + delay_us * 1e-6
         if not (math.isfinite(lag) and lag >= 0):
             await self._no_stamp_lag(f"exposure {exposure!r} s, delay {delay_us!r} us")
@@ -750,7 +751,8 @@ class NativeCamera(StandardDetector):
 
     async def _read_trigger_delay(self) -> float:
         """The trigger delay, µs; ``0.0`` with a WARNING on a camera without the record."""
-        try:
+
+        async def read() -> float:
             if not self._delay_connected:
                 await self._trigger_delay.connect(timeout=STAMP_LAG_READ_S)
                 self._delay_connected = True
@@ -759,14 +761,19 @@ class NativeCamera(StandardDetector):
                     self._trigger_delay.get_value(), STAMP_LAG_READ_S
                 )
             )
-        except Exception as exc:  # noqa: BLE001 - no delay record: no delay
+
+        (delay,) = await asyncio.gather(read(), return_exceptions=True)
+        if isinstance(delay, asyncio.CancelledError):
+            raise delay
+        if isinstance(delay, BaseException):
             logger.warning(
                 "%s: no trigger delay readable (%s: %s) — taken as 0 this run",
                 self._geecs_device_name,
-                type(exc).__name__,
-                exc,
+                type(delay).__name__,
+                delay,
             )
             return 0.0
+        return delay
 
     async def _no_stamp_lag(self, why: str) -> None:
         """The stored offset alone, with the WARNING that the stamps are not corrected."""
