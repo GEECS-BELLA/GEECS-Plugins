@@ -351,6 +351,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             background_wrapper,
             liveness_gate,
             native_image_save_wrapper,
+            set_tolerance_gate,
             require_plain_metadata,
             resolve_background_telemetry,
             resolve_native_image_save,
@@ -730,6 +731,9 @@ def optimize_plan(  # noqa: C901, PLR0915
                 source.open()
                 yield from _on_thread(pool, source.wait_connected, 5.0)
             yield from liveness_gate(sc, [*detectors, *movables.values()])
+            # Before the claim: a native settable with no set tolerance
+            # refuses the run; the values read ride in the start document.
+            metadata.update((yield from set_tolerance_gate(list(movables.values()))))
             if snapshot is not None:
                 # One more device of every row, last — after the scalar
                 # pre-reads above (nothing to read before its probe).

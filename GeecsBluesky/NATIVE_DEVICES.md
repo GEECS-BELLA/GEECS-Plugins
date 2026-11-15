@@ -420,6 +420,66 @@ drive limits are read as the `:SP` record's `DRVH`/`DRVL` fields (what
 record's own rule; a tripped status bit or an INVALID readback refuses the
 set before the put too, not only mid-wait.
 
+**The set tolerance is the IOC's record** (2026-11-14, geecs-epics decision
+21; it was the registry's `tolerance` until then, called here "the one
+device fact an `ao` cannot hold"). Each supply's IOC serves
+`<prefix><readback>:TOL` beside the readback: an `ao` with no device link,
+the readback's unit, a fixed value from the instance's configuration,
+read-only to every client (the Easy-Driver's `current:TOL`; the FAST-PS's
+one `current:TOL` for its ramped `current_ramp:SP`). The worker finds it
+through the family, the rule the Control Room's page uses: the setpoint
+role for the readback, its `tolerance_by` role, that role's suffix
+(`SetpointDevice.tolerance_records`, `FamilyFile.tolerance_for`) — never by
+building `<record>:TOL`. A registry settable the family gives no such role
+is refused when the registry loads, naming the family and the role: there
+is no fallback number. The record's contract for every client: a
+tolerance only while the channel connects, its severity is not INVALID and
+its value is finite and above zero; anything else (never connected, no
+answer, INVALID — a missing value is served as 0 INVALID — zero,
+negative) is **no tolerance**, never zero.
+
+- **When it is read.** At every set, before the put, uncached, beside the
+  drive limits (`NativeSetpoint.read_tolerance`): the value changes only
+  when its IOC restarts onto a new configuration, so one read per set
+  confirms against what the IOC serves now and nothing is cached across an
+  IOC restart; a value other than the last read is used and logged at
+  WARNING. The cost is one CA read per set (a record never served costs
+  `TOLERANCE_TIMEOUT_S`, 2 s, per set, then the refusal). A monitored
+  signal was rejected: it would need its own staleness rule for a channel
+  that drops with its IOC, for a value that changes once a restart.
+- **Where no tolerance is refused.** The set refuses before any write
+  (`GeecsNoSetToleranceError`, a `GeecsSetpointRefusedError` with
+  `written=False`, naming the device, the record's PV and what was read) —
+  the only answer for `mv` and an action's `set`. A bound scan
+  (`sweep`, `optimize`) reads every native settable it will move once more
+  before the claim and the trigger box (`registry.set_tolerance_gate`,
+  beside the liveness gate): a refusal there claims nothing and leaves no
+  scan folder, so the operator sees it as the run's failure before a scan
+  number exists, never at the first point. Not at environment open (one
+  supply's IOC not yet serving the record must not close every scan), and
+  not in the scanner's preflight: its checks are questions an operator may
+  answer "continue" to, this one has no override, and a second reading of
+  the rule client-side would be a second implementation of it. The record
+  is not a child of the device: a supply whose IOC does not serve it still
+  connects, reads, is recorded and judged live; only its sets are refused.
+- **What a run records.** The values the gate read ride in the start
+  document as `set_tolerances` (`EVENT_SCHEMA.md`), the run's answer to
+  what "arrived" meant; each set's INFO line in `scan.log` names the
+  tolerance it confirms within.
+- **The timeout stays in the registry** (`SetpointSettable.timeout`): how
+  long a scan waits for the readback is the client's patience, not a
+  device fact.
+- **The registry's `tolerance` is retired in three steps**, because every
+  reader of `native_devices.yaml` validates the whole file and the readers
+  deploy on their own schedules (the worker and the scanner, Canopy's
+  image, the Control Room, the archiver, the configurator's gate, which
+  holds the live configs checkout until a commit validates, and the
+  configs repo's own check): (1) this schema accepts the key and ignores
+  it — the worker warns at environment open that it is ignored — and a
+  save writes it back as it was, so a reader deployed before still reads
+  the file; (2) once every reader runs this schema, the key is dropped from
+  the configs file; (3) the key is deleted from `SetpointSettable`.
+
 The CAEN ELS Easy-Driver (`eztest1`, StreamDevice over its Lantronix
 bridge) is the template for every scalar device with a readback and a
 request. Its records already spell the gateway contract — readback
@@ -429,14 +489,14 @@ refused write an alarm on the setpoint record, named status bits
 a geecs-epics contract document, as the scope's (§9); this note defines
 what GEECS consumes.
 
-**Registry entry** (*proposed* kind setpoint_device): the worker has no
-DB rows to enumerate the variables, so the entry names them — settables
-(each with a tolerance, the one device fact an `ao` cannot hold, and a
-timeout), extra readback columns, status bits; an enum matches exactly.
+**Registry entry** (kind `setpoint_device`): the worker has no DB rows to
+enumerate the variables, so the entry names them — settables (each with
+a timeout; its tolerance is the IOC's record, above), extra readback
+columns, status bits; an enum matches exactly.
 
 ```yaml
 U_EZ1: {kind: setpoint_device,
-        settables: {current: {tolerance: 0.005}, slewrate: {tolerance: 0.01}},
+        settables: {current: {timeout: 10}},
         readbacks: [voltage, temperature], status: [fault, interlock]}
 ```
 
@@ -444,7 +504,7 @@ U_EZ1: {kind: setpoint_device,
 means the device **accepted** the command (`#AK`), not that it converged
 — the opposite of the gateway, where put-completion *is* convergence — so
 the readback wait is mandatory. The set completes when the readback is
-within the tolerance (`within_tolerance`); it fails at once when the `:SP`
+within the IOC's set tolerance (`within_tolerance`); it fails at once when the `:SP`
 record goes INVALID after the put (a `#NAK`, the SEVR rule) or a status
 bit raises, and on the timeout with `GeecsConfirmTimeoutError`'s words:
 `CaConfirmSettable`'s topology — set X, confirm on Y — with Y the readback
@@ -563,7 +623,7 @@ discriminated by `kind`; `NativeDevices.devices` is unchanged; docgen follows.
 |---|---|---|
 | `aravis_camera` (built) | `trigger_source` | `NativeCamera` |
 | epics_motor | axes | a noun with one stock `Motor` per axis |
-| setpoint_device | settables (tolerance, timeout), readbacks, status | one confirm-on-readback Movable per settable |
+| setpoint_device | settables (timeout; the tolerance is the IOC's record), readbacks, status | one confirm-on-readback Movable per settable |
 | array_detector | `trigger_source`, scalars | the camera's path over the alias records |
 | `witness` (built) | `counter` (default `Counter1`), `domain` (default `main`) | `Witness`: recorded, never waited on — its count, stamp and epoch in each strict row; one per domain (`EVENT_SCHEMA.md`) |
 
@@ -672,6 +732,9 @@ rules move into `CLAUDE.md` and the section here is deleted.
 2. **Where a setpoint device's variables and tolerances live.** (a) the
    registry entry (§8); (b) an IOC manifest record read at environment
    open; (c) devicetype templates in GEECS-Schemas. Recommend (a) for v1.
+   Ruled 2026-11-14 for the tolerance: a record of the IOC's (geecs-epics
+   decision 21), found through the family and read at every set (§8); the
+   variables stay in the registry.
 3. **Units and limits in the scanner's list.** (a) one `DBR_CTRL` read
    per native PV, cached; (b) blank; (c) in the registry. Recommend (a).
 4. **Filter wheels.** (a) a motor record with integer positions, under the

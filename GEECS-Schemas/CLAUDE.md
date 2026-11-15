@@ -90,9 +90,17 @@ geecs-epics decision 21; the Easy-Driver and the FAST-PS, whose ramped
 `current_ramp:SP` it judges too). `once` keeps it out of the module's
 verdicts, so an IOC not yet serving it never degrades the device's word; it
 is `expert`, not archived, not writable, in no action and no panel, so the
-archiver, Squirrel's registry and the worker's `setpoint_for` never take it.
-A page treats it as a tolerance only while it is connected, not INVALID and
-above zero.
+archiver, Squirrel's registry and `setpoint_for` never take it. Its readers
+are the page (the setpoint role's `tolerance_by`, from the module's route)
+and the scan worker (the same rule in Python: `FamilyFile.tolerance_for`,
+through `SetpointDevice.tolerance_records`), and both treat it as a
+tolerance only while it is connected, not INVALID and above zero. A `setpoint_device` settable must be a readback the family
+writes through a setpoint role with a `tolerance_by`: the registry holds no
+tolerance of its own (`SetpointSettable` keeps the scan's `timeout`), so an
+entry the family gives none is refused when it loads. Its retired
+`tolerance` is accepted, ignored and written back as it was for one release
+(readers deployed before the retirement require it); the key is deleted once
+no configs file carries it.
 
 ## Screens
 

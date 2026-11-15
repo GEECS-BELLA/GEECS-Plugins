@@ -677,10 +677,11 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
-  # A supply: each settable is its readback record, written at <record>:SP
-  # and confirmed on the readback within its tolerance.
+  # A supply: each settable is its readback record, written at the family's
+  # setpoint role for it (current:SP) and confirmed on the readback within
+  # the IOC's set tolerance (current:TOL); the timeout is the scan's patience.
   U_ExampleSupply: {kind: setpoint_device,
-                    settables: {current: {tolerance: 0.005, timeout: 10}},
+                    settables: {current: {timeout: 10}},
                     readbacks: [voltage], status: [fault, interlock]}
   # A witness: the hardware count of one trigger domain's edges (Counter1Counts),
   # recorded in every strict row; at most one per domain.
@@ -717,18 +718,18 @@ A setpoint device: a supply's plain records (``NATIVE_DEVICES.md`` §8).
 |---|---|---|---|---|
 | `kind` | `'setpoint_device'` | yes | — | Device kind: 'setpoint_device' (a supply's plain records: setpoint, readback, status bits). |
 | `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
-| `settables` | `dict[str, SetpointSettable]` | yes | — | The settables, by readback record name under the device's prefix (e.g. {'current': {tolerance: 0.005}} for '<experiment>:<device>:current', written at 'current:SP'). Each is a scan axis 'Device:record' and an action's set target. |
+| `settables` | `dict[str, SetpointSettable]` | yes | — | The settables, by readback record name under the device's prefix (e.g. {'current': {timeout: 10}} for '<experiment>:<device>:current', written at the family's setpoint role for it, 'current:SP', and confirmed within the IOC's set tolerance, 'current:TOL'). Each must be a readback the family writes through a setpoint role with a 'tolerance_by'. Each is a scan axis 'Device:record' and an action's set target. |
 | `readbacks` | `list[str]` | no | empty | Further numeric readback records, read into each row beside the settables' own (e.g. ['voltage']). |
 | `status` | `list[str]` | no | empty | Status bits, two-state records that read 1 when tripped (e.g. ['fault', 'interlock']): a set is refused while one reads 1 and fails if one rises while it waits. |
 
 ### SetpointSettable
 
-One settable of a setpoint device: how close its readback must come, and how soon.
+One settable of a setpoint device: how long a scan waits for its readback.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `tolerance` | `float` | yes | — | How close the readback must come to the requested value for the set to be done, in the record's units (e.g. 0.005 for 5 mA on a supply in A). The one device fact a plain 'ao' record cannot hold. |
-| `timeout` | `float` | no | 10.0 | Seconds the set waits for the readback to arrive within the tolerance after the write, before it fails. Size it for the slowest ramp plus the readback's scan period. |
+| `tolerance` | `float (optional)` | no | None | Retired: ignored, never a tolerance (the IOC's set-tolerance record is, read at every set). Accepted only while readers deployed before its retirement still require it; drop it from the file once every reader runs a schema that accepts its absence. |
+| `timeout` | `float` | no | 10.0 | Seconds the scan worker waits for the readback to arrive within the IOC's set tolerance after the write, before the set fails: the client's patience, not a device fact. Size it for the slowest ramp plus the readback's scan period. The tolerance itself is the IOC's record (the family's tolerance_by role, e.g. current:TOL), never written here. |
 
 ### Witness
 

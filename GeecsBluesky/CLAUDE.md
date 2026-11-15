@@ -247,11 +247,23 @@ qserver/                    # the worker: launcher, startup profile, permissions
   `CaMotor` child (an action step's `variable: Current` included: lookups
   are case-folded).  **Never done on a put ok**: StreamDevice completes the
   put when the supply accepts the command, so the set waits for the
-  readback within the registry tolerance and times out in
-  `GeecsConfirmTimeoutError`'s words.  Refused **before the put**
+  readback within the **IOC's set tolerance** and times out (after the
+  registry's `timeout`, the client's patience) in
+  `GeecsConfirmTimeoutError`'s words.  The tolerance is a record beside
+  the readback (`current:TOL`, geecs-epics decision 21), found through the
+  family (`SetpointDevice.tolerance_records`: the setpoint role's
+  `tolerance_by`), read at every set before the put, uncached, and held off
+  the device tree (an IOC not serving it leaves the supply connected and
+  read); connected, not INVALID and finite above zero is a tolerance,
+  anything else is none (`NATIVE_DEVICES.md` §8).  Refused **before the put**
   (`GeecsSetpointRefusedError`, `written=False`, pinned by tests asserting
-  no put): a value outside the `:SP` record's `DRVL`/`DRVH` (an `ao` clamps
-  and writes), a status bit at 1, a readback INVALID; failed at once after
+  no put): no set tolerance (`GeecsNoSetToleranceError`, naming the
+  record's PV and what was read), a value outside the `:SP` record's
+  `DRVL`/`DRVH` (an `ao` clamps and writes), a status bit at 1, a readback
+  INVALID; a bound scan reads the tolerance of every native settable it
+  moves before the claim (`registry.set_tolerance_gate`: no tolerance
+  claims nothing) and records the values in the start document
+  (`set_tolerances`, `EVENT_SCHEMA.md`); failed at once after
   the put when `:SP` goes INVALID (the IOC's `HIHI`/`LOLO` refusal, a
   `#NAK`), and while waiting when a bit rises or the readback goes INVALID.
   The put goes through `GatewaySetpointPut` (#868).  Read as a device it is

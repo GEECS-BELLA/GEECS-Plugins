@@ -34,6 +34,7 @@ from geecs_bluesky.devices.native import (
 )
 from geecs_bluesky.devices.native_setpoint import (
     down_native_setpoint_devices,
+    native_set_tolerances,
     native_setpoint_devices,
 )
 from geecs_bluesky.devices.shot_control import ShotControl
@@ -221,6 +222,27 @@ def liveness_gate(shot_control: Any, devices: Sequence[Any]):
             "the device(s), then resubmit.",
             device_name=down[0],
         )
+
+
+def set_tolerance_gate(movers: Sequence[Any]):
+    """Plan: refuse the run when a native settable it moves has no set tolerance; else the start keys recording them.
+
+    Runs where the liveness gate does — before the bracket's first move and
+    before ``open_run`` — through
+    :func:`~geecs_bluesky.devices.native_setpoint.native_set_tolerances`
+    (the IOC's set-tolerance record of each, read now): a refusal claims
+    nothing.  Returns ``{"set_tolerances": …}`` for the start document
+    (``EVENT_SCHEMA.md``), or ``{}`` when the run moves no native settable.
+    Each set reads its record again.
+
+    Raises
+    ------
+    GeecsNoSetToleranceError
+        A settable whose record gives no tolerance (never connected, no
+        answer, INVALID, zero, negative, not finite).
+    """
+    record = yield from native_set_tolerances(movers)
+    return {"set_tolerances": record} if record else {}
 
 
 #: The witness record's note when no reader waits for the shot (the row is read
@@ -851,13 +873,13 @@ def strict_plan(  # noqa: C901, PLR0915
         if tick is not None:
             inner = tick.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
+        payload = bound_args.get("sweep")
+        movers = (
+            sweep_movers(payload, settables)
+            if payload is not None and settables is not None
+            else []
+        )
         if snapshot is not None:
-            payload = bound_args.get("sweep")
-            movers = (
-                sweep_movers(payload, settables)
-                if payload is not None and settables is not None
-                else []
-            )
             inner = background_wrapper(
                 inner, snapshot, own=[*detectors, *non_essential], movers=movers
             )
@@ -878,11 +900,15 @@ def strict_plan(  # noqa: C901, PLR0915
         if fly:
             # Nothing on the box: no state, no fire, no liveness read.
             yield from liveness_gate(None, [*detectors, *non_essential])
+            inner = bpp.inject_md_wrapper(
+                inner, (yield from set_tolerance_gate(movers))
+            )
             logger.info("%s", BOX_NOT_DRIVEN)
             return (yield from name_failed_status(inner))
         opening = TriggerState.OFF if acquisition == "gated" else TriggerState.ARMED
         # Before the first move, before the claim.
         yield from liveness_gate(shot_control, [*detectors, *non_essential])
+        inner = bpp.inject_md_wrapper(inner, (yield from set_tolerance_gate(movers)))
         # A failure outside the stock plan's run_wrapper (the bracket's own
         # move, a non-essential prepare) is named here; one inside it is
         # named by the hook, before run_wrapper writes the stop document.
@@ -1181,6 +1207,7 @@ __all__ = [
     "background_wrapper",
     "bind_plans",
     "liveness_gate",
+    "set_tolerance_gate",
     "native_image_save_wrapper",
     "refuse_native_run",
     "require_plain_metadata",

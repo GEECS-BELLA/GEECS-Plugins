@@ -341,13 +341,34 @@ _HOSTS_FROM_CONFIG = object()
 def _setpoint_device(
     device: str, prefix: str, entry: SetpointDevice, name: str
 ) -> NativeSetpointDevice:
-    """A ``setpoint_device`` entry's noun, each settable written where the schema's one rule says."""
+    """A ``setpoint_device`` entry's noun: each settable written, and its set tolerance read, where the family's one rule says."""
     family = load_families().get(entry.family_template)
+    try:
+        if family is None:
+            raise ValueError(f"family {entry.family_template!r} is not installed")
+        setpoints = entry.setpoint_records(family)
+        tolerances = entry.tolerance_records(family)
+    except ValueError as exc:  # validated against the installed families: not expected
+        raise GeecsConfigurationError(f"device namespace: {device}: {exc}") from exc
+    retired = sorted(
+        r for r, spec in entry.settables.items() if spec.tolerance is not None
+    )
+    if retired:
+        logger.warning(
+            "device namespace: %s: native_devices.yaml still gives %s the retired "
+            "'tolerance': ignored — each set confirms within its IOC's set-tolerance "
+            "record (%s); drop the key once every reader of the file accepts its "
+            "absence",
+            device,
+            ", ".join(retired),
+            ", ".join(prefix + tolerances[r] for r in retired),
+        )
     return NativeSetpointDevice(
         device,
         prefix,
         entry.settables,
-        setpoints=entry.setpoint_records(family),
+        setpoints=setpoints,
+        tolerances=tolerances,
         readbacks=entry.readbacks,
         status=entry.status,
         name=name,
