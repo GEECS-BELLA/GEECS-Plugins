@@ -9,16 +9,12 @@ claims no scan number and writes no file.
 The rules (pinned by ``tests/test_apply_setup.py``): the setup is read
 and flattened when the item runs; a digest in ``md["geecs"]["setup"]``
 (what the operator confirmed) that differs from the setup's now refuses
-the item before the first write; every target is resolved and read
-before the first write, and every device the setup writes or checks is
-judged live before it (``plans/strict.py::down_devices``, the rule a
-scan's liveness gate uses) — a device reported down refuses the setup
-with nothing written; a ``check`` judges its device again when it runs,
-so a device that went down during a ``wait`` cannot pass a check on the
-value its readback retained (a device ``down_devices`` has no judge for —
-a native motor — is not judged, as in a run's gate); a ``set`` is the
-device's own completion
-(``abs_set(wait=True)``, no second confirmation layer) and a ``check``
+the item before the first write; every target is resolved and read, and
+its device judged live (``plans/strict.py::down_devices``, a run's gate's
+rule; a native motor has no judge yet), before the first write; a
+``check`` judges its device again when it runs, so a device down since
+cannot pass it on its retained readback; a ``set`` is the device's own
+completion (``abs_set(wait=True)``, no second confirmation layer) and a ``check``
 matches as the confirm settable does; a failure stops the setup and
 names the step and the writes already made
 (:class:`~geecs_bluesky.exceptions.SetupStepFailedError`), while a
