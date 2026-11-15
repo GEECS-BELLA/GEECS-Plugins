@@ -485,6 +485,41 @@ def test_mv_and_a_setup_step_set_the_supply_and_a_refusal_is_named(RE, caplog) -
     ]
 
 
+def test_a_setup_refuses_a_supply_judged_down_before_its_put(RE) -> None:
+    """A setup's gate is the run's: an INVALID readback means down, and nothing is put."""
+    from geecs_bluesky.exceptions import SetupStepFailedError
+
+    supply = _supply(RE)  # live: every severity NO_ALARM, current:TOL served
+    set_mock_value(supply.current.readback_severity, "INVALID")
+    zero = Setup.model_validate(
+        {
+            "name": "zero",
+            "steps": [
+                {"do": "set", "device": "U_VS1H", "variable": "Current", "value": 0}
+            ],
+        }
+    )
+
+    class _OneSetup:
+        def resolve_setup(self, name):
+            return zero, {"zero": zero}
+
+        def setup_repo_path(self, name):
+            return "setups/zero.yaml"
+
+    class _Factory:  # the namespace's own lookup is pinned by the test above
+        def get_settable(self, device, variable):
+            return supply.current
+
+        def get_readable(self, device, variable):
+            return supply.current
+
+    with pytest.raises(SetupStepFailedError, match="U_VS1H DISCONNECTED") as caught:
+        RE(apply_setup_plan(_OneSetup(), _Factory())("zero"))
+    assert (caught.value.index, caught.value.written) == (0, ())
+    get_mock_put(supply.current.setpoint).assert_not_called()
+
+
 def test_mv_through_a_run_engine_connects_the_settable_on_demand(RE) -> None:
     """A plan touching ``U_VS1H.current`` alone connects it (its bits, limits and tolerance too)."""
     from geecs_bluesky.preprocessors import connect_on_demand

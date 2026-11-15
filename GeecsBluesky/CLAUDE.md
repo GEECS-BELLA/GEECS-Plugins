@@ -35,7 +35,7 @@ readiness check asserts the manager lists them all.
 | `sweep` | `plans/sweep.py`: a `geecs_schemas.Sweep` trajectory through stock `scan_nd`, bound strict | yes |
 | `optimize` | `plans/optimize.py`: native Xopt ask/tell, one bin per iteration | yes |
 | `mv` | the stock stub with its failure named | no |
-| `apply_setup` | `plans/apply_setup.py`: a named setup (`setups/<name>.yaml`) as plain stubs over the namespace; refused before the first write when its digest differs from the one the client's `md` says was confirmed; a failure names the step and the writes already made | no |
+| `apply_setup` | `plans/apply_setup.py`: a named setup (`setups/<name>.yaml`) as plain stubs over the namespace; refused before the first write when its digest differs from the one the client's `md` says was confirmed, or when a device it writes or checks is judged down (the run's liveness rule, `plans/strict.py::down_devices`); a `check` judges its device again when it runs, so a retained readback never passes it; a failure names the step and the writes already made | no |
 | `measure_shot_offsets`, `check_shot_sync` | the once-run calibration and its preflight (`plans/calibration.py`) | no |
 | `release_scan_mode` | `plans/scan_mode.py`: end GEECS scan mode on the devices of a run that never ended it (a halt skips the finalizers) | no |
 
@@ -119,14 +119,16 @@ geecs_bluesky/
                             #   <name>_stream (strict/fly, collected per row)
   plans/strict.py           # shared shot helpers: fire_and_await_shot (the calibration's
                             #   shot), run_bracket, plugin_reasons, BinCounter,
-                            #   name_failed_status
+                            #   name_failed_status, down_devices (the liveness verdict
+                            #   the run's gate and apply_setup share)
   plans/sweep.py            # sweep_plan: the Sweep payload through scan_nd, relative/reset
   plans/optimize.py         # optimize_plan: native Xopt loop, one run, one bin per iteration
   plans/calibration.py      # measure_shot_offsets / check_shot_sync (once-run, never a step)
   plans/scan_mode.py        # scan mode in the bound plans: the bracket inside the trigger
                             #   bracket, run_device_names, the preflight, release_scan_mode
   plans/apply_setup.py      # apply_setup: a Setup over the namespace (its SettableFactory),
-                            #   targets read before the first write, the confirmed digest
+                            #   targets read and their devices judged live before the
+                            #   first write, the confirmed digest
   plans/registry.py         # bind_plans: the registration table, strict_plan (the acquisition
                             #   binder), liveness_gate, TriggerProfiles, background_wrapper
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
@@ -534,7 +536,11 @@ connected if needed and read within 5 s, where unreadable means down).  A dead d
 with `GeecsDeviceDownError` naming every dead one, before the box is
 driven and before `open_run` claims a scan number — so nothing is
 claimed and no folder exists.  The rule against reading quiescence in a
-scan does not apply: this is the liveness PV, read once per run.
+scan does not apply: this is the liveness PV, read once per run.  The
+verdict (`plans/strict.py::down_devices`; a native setpoint device by its
+readbacks' severity) is also `apply_setup`'s: over the namespace nouns
+owning every step's signal before the first write, and over a `check`'s
+device again at the check.
 
 **A failure's name**: a `FailedStatus` is given its cause's `str` (plus
 notes — `exceptions.failure_cause_text`, the one rendering) as it passes

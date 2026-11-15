@@ -287,6 +287,54 @@ def test_a_runengine_abort_passes_through_untouched(namespace) -> None:
         gen.throw(RequestAbort())
 
 
+def test_a_checked_device_disconnected_refuses_before_any_write(RE, namespace, commands) -> None:  # fmt: skip
+    """The gateway keeps serving a dead device's last readback: CONNECTED is the verdict."""
+    apply_setup = apply_setup_plan(StubResolver(), namespace)
+    plc = namespace["U_148_PLC"]
+    set_mock_value(plc.di_ch17, "off")  # the retained readback matches the check
+    set_mock_value(plc.connected_status, "Disconnected")
+    written: list[str] = []
+    callback_on_mock_put(plc.do_ch9._setpoint, lambda v, *_: written.append("plc"))
+    shutter = namespace["U_GaiaSVEReader"].internalshuttera
+    callback_on_mock_put(shutter._setpoint, lambda v, *_: written.append("shutter"))
+    with pytest.raises(SetupStepFailedError) as excinfo:
+        RE(apply_setup("dump"))
+    err = excinfo.value
+    assert (err.index, err.written) == (0, ())
+    assert "U_148_PLC DISCONNECTED" in str(err)
+    assert "nothing was written" in str(err)
+    assert written == [] and "set" not in commands
+
+
+def test_a_write_target_disconnected_refuses_before_any_write(RE, namespace, commands) -> None:  # fmt: skip
+    apply_setup = apply_setup_plan(StubResolver(), namespace)
+    set_mock_value(namespace["U_GaiaSVEReader"].connected_status, "Disconnected")
+    with pytest.raises(SetupStepFailedError) as excinfo:
+        RE(apply_setup("close_shutter"))
+    assert excinfo.value.written == ()
+    assert "U_GaiaSVEReader DISCONNECTED" in str(excinfo.value)
+    assert "set" not in commands
+
+
+def test_a_device_down_during_a_wait_fails_its_check(RE, namespace, commands) -> None:
+    """Live at the gate, down by the check: the retained readback must not pass."""
+    apply_setup = apply_setup_plan(StubResolver(), namespace)
+    plc = namespace["U_148_PLC"]
+    set_mock_value(plc.di_ch17, "off")
+
+    def disconnect(value, *_):  # the PLC drops off during the setup, after its write
+        set_mock_value(plc.connected_status, "Disconnected")
+
+    callback_on_mock_put(plc.do_ch9._setpoint, disconnect)
+    with pytest.raises(SetupStepFailedError) as excinfo:
+        RE(apply_setup("dump"))
+    err = excinfo.value
+    assert (err.index, err.total, err.written) == (4, 4, (1, 2))
+    assert "check U_148_PLC:DI.Ch17 == 'off'" in str(err)
+    assert "U_148_PLC DISCONNECTED" in str(err)
+    assert "steps 1, 2 took effect and are not undone" in str(err)
+
+
 def test_apply_setup_is_registered_beside_the_scan_verbs() -> None:
     assert "apply_setup" in GEECS_PLAN_NAMES and "apply_setup" in NON_SCAN_PLAN_NAMES
     bound = bind_plans(TriggerProfiles({}), resolver=StubResolver(), settables=None)
