@@ -70,8 +70,8 @@ which runs this probe first as its gate.
 | gateway UP, devices connected | reads, and (with user authorization) scans/puts | assume the trigger fires — verify beam state with the user first |
 | MySQL `[WARN] … BLOCKED this address (1129)` | everything that does not need the DB; Tiled/CA are unaffected | retry GeecsDb calls or probe the DB again — the block only lifts server-side (the fleet-map admonition); tell the user |
 | `[WARN] Archiver … not listening` | everything — scans, live displays and the DB are unaffected; `network:` is not flipped | read it as a network fault; it is the appliance's unit on its host (`journalctl -u geecs-archiver`), and `[ -- ] Archiver` means this site has no `[archiver] url` at all |
-| `[WARN] CA entries N of M further … answer` / `[WARN] CA entry <host:port> not listening` | everything — the first `[epics] ca_addr_list` entry (gateway + DB) is the verdict and `network:` is not flipped by the others | read it as a network fault; the entry is an experiment instance's gateway or an IOC host, down or not deployed on its host (its unit, or `/fleet-status`) |
-| MySQL `[ -- ] … not probed` | everything else the tier-1 lines allow (`network:` is not flipped by an unprobed DB) | read it as DOWN — the probe was killed at its wall or had no interpreter; the line says which |
+| `[WARN] CA entries N of M further … answer` / `[WARN] CA entry <host:port> not listening` | everything — the first `[epics] ca_addr_list` entry (the gateway) is the verdict and `network:` is not flipped by the others | read it as a network fault; the entry is an experiment instance's gateway or an IOC host, down or not deployed on its host (its unit, or `/fleet-status`) |
+| MySQL `[ -- ] … not probed` | everything else the tier-1 lines allow (`network:` is not flipped by an unprobed DB) | read it as DOWN — the probe was killed at its wall, had no interpreter, or had no target (Configurations.INI did not resolve — the data share is not mounted, so GeecsDb could not reach the DB from here either; the DB's address is never derived from the gateway's); the line says which |
 
 ## Failure vocabulary → likely meaning
 

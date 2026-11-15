@@ -12,10 +12,13 @@ Target and credentials come from GEECS's ``Configurations.INI`` (via
 ``geecs_core.db.geecs_db._find_credentials``) when it resolves within
 ``--creds-timeout`` — the same server the real clients connect to.
 Otherwise the ``--host`` / ``--port`` fallback (the caller's guess) is
-probed with a throwaway probe user; the server's ``Access denied`` still
-proves the port answered and costs the host nothing. The lookup is bounded
-on its own because ``Configurations.INI`` lives on the data share: a
-stalled SMB mount must not turn into a "DB down" verdict.
+probed with a throwaway probe user, when the caller gives one; the server's
+``Access denied`` still proves the port answered and costs the host nothing.
+Without ``--host`` the probe reports ``no-target`` (6) instead of guessing:
+since 2026-11-15 the CA gateway and the DB are on different hosts, so no
+client-side address implies the DB's — ``Configurations.INI`` alone names
+it. The lookup is bounded on its own because that file lives on the data
+share: a stalled SMB mount must not turn into a "DB down" verdict.
 
 Exit codes (one status word on stdout, then ``host:port`` where known,
 then detail)::
@@ -27,6 +30,8 @@ then detail)::
     5  unverified   a server answered but the *connector* could not complete the
                     handshake (e.g. an auth plugin it lacks) — from the server's
                     side that is an aborted connect; do not retry in a loop
+    6  no-target    ``Configurations.INI`` did not resolve and no ``--host`` fallback
+                    was given — nothing was probed
 
 Only an error the **server** sent (an ERR packet, which always carries a
 ``sqlstate``, or a server errno below 2000) proves a completed handshake;
@@ -88,16 +93,17 @@ def _lookup_credentials(timeout: float) -> dict[str, object] | None:
 
 
 def _credentials(
-    host: str, port: int, creds_timeout: float = 2.0
+    host: str | None, port: int, creds_timeout: float = 2.0
 ) -> tuple[dict[str, object], str]:
     """Return connector kwargs and a label for where the target/credentials came from.
 
     Parameters
     ----------
-    host : str
+    host : str | None
         Fallback host — probed only when ``Configurations.INI`` does not
         resolve (its ``[Database] ipaddress`` wins: that is the server the
-        real clients connect to).
+        real clients connect to). ``None``: no fallback; the caller
+        (:func:`probe`) reports ``no-target`` instead of connecting.
     port : int
         Fallback TCP port, same rule.
     creds_timeout : float
@@ -172,14 +178,15 @@ def classify_error(exc: Exception, target: str, who: str) -> tuple[int, str]:
 
 
 def probe(
-    host: str, port: int, timeout: float, creds_timeout: float = 2.0
+    host: str | None, port: int, timeout: float, creds_timeout: float = 2.0
 ) -> tuple[int, str]:
     """Attempt one handshake-completing connection.
 
     Parameters
     ----------
-    host : str
-        Fallback host (see ``_credentials``).
+    host : str | None
+        Fallback host (see ``_credentials``); ``None`` means none, and a
+        failed credential lookup is then ``no-target`` (6), not a guess.
     port : int
         Fallback TCP port.
     timeout : float
@@ -202,6 +209,14 @@ def probe(
         )
 
     kwargs, who = _credentials(host, port, creds_timeout)
+    if who == "probe user" and host is None:
+        return (
+            6,
+            f"no-target Configurations.INI did not resolve within {creds_timeout:g} s "
+            "(the data share: not mounted, or stalled) and no --host fallback was "
+            "given — the DB's address is known only there, and GeecsDb needs the "
+            "same file, so no DB call could be made from here either",
+        )
     target = f"{kwargs['host']}:{kwargs['port']}"
     try:
         conn = mysql.connector.connect(
@@ -236,8 +251,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--host",
-        required=True,
-        help="fallback host when Configurations.INI does not resolve",
+        default=None,
+        help=(
+            "fallback host when Configurations.INI does not resolve; without it "
+            "the probe reports no-target (6) instead of guessing"
+        ),
     )
     parser.add_argument("--port", type=int, default=3306, help="fallback port")
     parser.add_argument(

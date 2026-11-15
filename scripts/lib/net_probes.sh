@@ -4,9 +4,13 @@
 #   bounded SECS CMD...       hard wall-clock bound around any command (macOS has no `timeout`)
 #   port_open HOST PORT       bare TCP connect, bounded — REFUSES port 3306 (see below)
 #   mysql_probe HOST PORT     handshake-completing MySQL probe; rc per scripts/mysql_probe.py
-#                             (0 ok / 1 down / 3 blocked / 4 no connector / 5 unverified;
-#                             137 = killed at the wall). HOST/PORT are the fallback target —
-#                             Configurations.INI's [Database] ipaddress wins when readable.
+#                             (0 ok / 1 down / 3 blocked / 4 no connector / 5 unverified /
+#                             6 no target; 137 = killed at the wall). HOST/PORT are the
+#                             fallback target — Configurations.INI's [Database] ipaddress
+#                             wins when readable. An empty HOST means no fallback: the
+#                             probe reports no-target (6) rather than guess, because since
+#                             2026-11-15 no client-side address (the CA gateway's least of
+#                             all) implies the DB's.
 #
 # Why MySQL is special (#790): a bare connect of the MySQL port counts toward
 # the server's host block (error 1129), so the DB probe is
@@ -75,5 +79,8 @@ mysql_probe() {  # mysql_probe HOST PORT — prints the probe's status line; rc 
     # Bound = credential lookup + connect timeout + interpreter start-up and
     # imports; the lookup is bounded inside the probe too (a stalled data-share
     # read falls back to the probe user instead of eating the whole wall).
-    bounded "$(( ${TCP_TIMEOUT:-2} + 10 ))" "$py" "$_NET_PROBES_DIR/../mysql_probe.py" --host "$1" --port "$2" --timeout "${TCP_TIMEOUT:-2}" --creds-timeout "${TCP_TIMEOUT:-2}"
+    # --host only when a fallback host was given (bash 3.2 under set -u: an
+    # empty array must be expanded with the ${arr[@]+...} guard).
+    local hostarg=(); [ -n "$1" ] && hostarg=(--host "$1")
+    bounded "$(( ${TCP_TIMEOUT:-2} + 10 ))" "$py" "$_NET_PROBES_DIR/../mysql_probe.py" ${hostarg[@]+"${hostarg[@]}"} --port "$2" --timeout "${TCP_TIMEOUT:-2}" --creds-timeout "${TCP_TIMEOUT:-2}"
 }

@@ -94,7 +94,7 @@ def test_archiver_endpoint_is_optional_with_the_fleet_port_default(
 def test_gateway_host_comes_from_the_ca_list_and_tiled_keeps_its_own(
     tmp_path: Path,
 ) -> None:
-    """Services off the gateway box: LAB_HOST (gateway + DB) is the first CA entry."""
+    """LAB_HOST is the CA gateway's host, the first CA entry; Tiled keeps its own (the DB is nobody's here: Configurations.INI names it)."""
     cfg = tmp_path / "config.ini"
     cfg.write_text(
         "[tiled]\nuri = http://services.example:8000\n"

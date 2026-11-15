@@ -312,3 +312,23 @@ def test_failed_credential_lookup_falls_back(monkeypatch: pytest.MonkeyPatch) ->
     _fake_geecs_db(monkeypatch, boom)
     kwargs, who = mysql_probe._credentials("h", 1, creds_timeout=1)
     assert who == "probe user" and kwargs["host"] == "h"
+
+
+def test_no_fallback_host_is_no_target_not_a_guess(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Since 2026-11-15 the CA gateway and the DB are on different hosts, so no
+    client-side address implies the DB's: without ``--host`` and without a
+    resolving ``Configurations.INI`` the probe says so (rc 6) and connects
+    nowhere, instead of probing a guess and calling the network down.
+    """
+    _fake_geecs_db(monkeypatch, lambda: {})
+    code, line = mysql_probe.probe(None, 3306, timeout=0.5, creds_timeout=0.5)
+    assert code == 6 and line.startswith("no-target"), (code, line)
+    assert (
+        mysql_probe.main(
+            ["--port", "3306", "--timeout", "0.5", "--creds-timeout", "0.5"]
+        )
+        == 6
+    )
+    assert capsys.readouterr().out.startswith("no-target")

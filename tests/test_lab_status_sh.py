@@ -27,7 +27,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "lab_status.sh"
 
 
-def _run(tmp_path: Path, ca_list: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    tmp_path: Path, ca_list: str, probe: str | None = None
+) -> subprocess.CompletedProcess[str]:
     cfg = tmp_path / "config.ini"
     cfg.write_text(
         "[Experiment]\nexpt = Bench\n"
@@ -43,10 +45,26 @@ def _run(tmp_path: Path, ca_list: str) -> subprocess.CompletedProcess[str]:
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "HOME": str(tmp_path),
             "GEECS_CONFIG_INI": str(cfg),
-            "GEECS_PROBE_PYTHON": false,
+            "GEECS_PROBE_PYTHON": probe or false,
         },
         timeout=60,
     )
+
+
+def _no_target_probe(tmp_path: Path) -> str:
+    """A stand-in for the probe interpreter: imports anything, and run as the
+    probe it answers no-target (rc 6) — refusing, loudly, a ``--host`` fallback
+    if the script still passes one."""
+    fake = tmp_path / "probe.sh"
+    fake.write_text(
+        "#!/bin/sh\n"
+        'case "$1" in -c) exit 0 ;; esac\n'
+        'for a in "$@"; do case "$a" in --host|--host=*) echo "fallback host given: $a"; exit 99 ;; esac; done\n'
+        'echo "no-target Configurations.INI did not resolve within 2 s (the data share: not mounted, or stalled) and no --host fallback was given"\n'
+        "exit 6\n"
+    )
+    fake.chmod(0o755)
+    return str(fake)
 
 
 def test_every_further_entry_is_probed_counted_and_named_when_down(
@@ -76,3 +94,17 @@ def test_a_live_further_entry_is_counted_up_and_a_lone_first_entry_prints_no_lin
     assert "CA entry " not in r.stdout
     r = _run(tmp_path, "127.0.0.1:1")
     assert "CA entries" not in r.stdout and "CA entry " not in r.stdout
+
+
+def test_the_db_is_never_guessed_from_the_gateway_host(tmp_path: Path) -> None:
+    """The gateway left the DB's box on 2026-11-15: the DB probe gets no fallback
+    host (it used to be the first CA entry, right only by co-location), and a
+    Configurations.INI that does not resolve is a skip, never the network
+    verdict — a VPN laptop without the data share must not read DOWN.
+    """
+    out = _run(tmp_path, "127.0.0.1:1", probe=_no_target_probe(tmp_path)).stdout
+    assert "fallback host given" not in out, out
+    assert (
+        "[ -- ] MySQL       not probed — Configurations.INI did not resolve" in out
+    ), out
+    assert "[DOWN] MySQL" not in out, out
