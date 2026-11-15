@@ -109,7 +109,15 @@ second confirmation layer is added.
   such a document is refused before any commit, `validation.stem_twins`, so a
   save with no portal to ask never pushes what this gate refuses)
   (`validation.problems`, the one rule the configs repo's CI runs too, from
-  `deploy/configs-repo/validate.yml`). A refused commit is fetched, logged
+  `deploy/configs-repo/validate.yml`). This box never pushes to main what
+  its gate would refuse: every commit, first try and each retry on a
+  newer main, is judged by the same rule before its push
+  (`CommitPath.judge`, the repository's `vet`; refused, nothing is pushed:
+  a save's 422, or its 409 when main moved under it), so a check that
+  depends on other files (a referrer, a stem twin) holds for the tree the
+  push makes, not only the tree the save checked. A create refuses any
+  file already at its path, whatever kind the shared folder reads it as
+  (`DocumentStore.occupied`). A refused commit is fetched, logged
   once, and blocks every save, every inbox publish and every retry
   until main is fixed by PR: nothing of the service is built on it. A new
   live checkout starts at the share's commit (accepted before, by hand)

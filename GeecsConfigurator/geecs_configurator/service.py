@@ -79,7 +79,7 @@ class CommitPath:
             settings.state_dir, settings.origin, settings.branch,
             Identity(settings.committer_name, settings.committer_email),
             credential=self.credential.git_env if self.credential else None,
-            accept=self.accept, on_advanced=self.advanced,
+            accept=self.accept, vet=self.judge, on_advanced=self.advanced,
             writable=self.ownership.owns,  # by name; the commit itself refuses a path through a link
         )  # fmt: skip
         self.store = DocumentStore(self.repo.live)
@@ -171,13 +171,15 @@ class CommitPath:
 
     # ------------------------------------------------------------ the gate
 
-    def accept(self, old: str, new: str) -> list[str]:
-        """The owned documents changed in ``old..new`` that do not validate at ``new`` (logged once per head).
+    def judge(self, old: str, new: str) -> list[str]:
+        """The owned documents changed in ``old..new`` that do not validate at ``new``: the gate's rule, recording nothing.
 
         Only owned paths are judged: a commit touching other facilities'
         paths alone is accepted unread. An owned document read through a
         symbolic link (a file, a folder, the experiment folder itself) is
         judged when what the link reaches changed (:meth:`_owned_changes`).
+        The repository asks it of every commit it is about to push (its
+        ``vet``), so this box never pushes what its own gate then refuses.
         """
         changed = self.repo.changed(old, new)
         # a deleted owned document another still names (judged at the new commit, where it is gone)
@@ -186,7 +188,11 @@ class CommitPath:
             return []
         with self.repo.staging(new) as tree:
             paths = self._owned_changes(tree, new, changed) if changed else []
-            found = validation.problems(tree, paths, deleted) if paths or deleted else []  # fmt: skip
+            return validation.problems(tree, paths, deleted) if paths or deleted else []  # fmt: skip
+
+    def accept(self, old: str, new: str) -> list[str]:
+        """The gate: :meth:`judge`, a refusal logged once per head."""
+        found = self.judge(old, new)
         if found:
             self.refused = f"main at {new[:10]} is not applied: " + "; ".join(found)
             bad = [p.split(": ")[0] for p in found]

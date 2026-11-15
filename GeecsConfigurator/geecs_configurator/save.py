@@ -21,6 +21,12 @@ checkout, then:
   it when the etag is not the current file's (the base moved), and again
   when a concurrent push changed the file while the save was pushed: the
   operator re-applies their edit, never an automatic merge;
+- never commits what the gate would then refuse: the commit is judged by
+  the gate's own rule before every push (:class:`Vetoed`), so a check that
+  depends on other files (a delete another document now names, a stem
+  another file now has) holds for the tree the push makes. Refused on the
+  first push, the **422**; only once main moved under the save, the **409**
+  (the operator reopens, and the save's checks run again);
 - refuses (**428**) a trigger profile in the legacy dialect unless the save
   confirms the conversion (``convert_legacy``): it rewrites the whole file
   in the current schema, listed as its own change (path ``[]``, op
@@ -73,7 +79,7 @@ from pydantic import BaseModel
 
 from geecs_configurator import yaml_edit
 from geecs_configurator.ownership import Ownership
-from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, author_name  # fmt: skip
+from geecs_configurator.repository import VIA, BaseMoved, ConfigsRepository, GitError, Identity, NotWritable, Vetoed, author_name  # fmt: skip
 from geecs_configurator.validation import deletable, referrers, stem_twins, still_named
 from geecs_configurator.store import LEGACY, SERVE_CONFIG, Change, DocumentStore, Json, Loaded, NotFound, content_etag, diff_documents, dump_yaml, restore_nonfinite, same, strictest, tier_in  # fmt: skip
 
@@ -298,14 +304,16 @@ class _Save:
         check_owned(self.store, self.ownership, self.kind, self.experiment, self.doc_id, create=self.request.create)  # fmt: skip
 
     def _new(self) -> Loaded:
-        """A document that does not exist yet: an empty baseline at the kind's path; one already there is the 409."""
-        try:
-            self.store.read(self.kind, self.experiment, self.doc_id)
-        except NotFound:
-            pass
-        else:
-            raise self.conflict("the document already exists; open it and save over it", self.request.document)  # fmt: skip
+        """A document that does not exist yet: an empty baseline at the kind's path; anything already there is the 409.
+
+        Anything: a file the shared folder reads as another kind is not this
+        kind's document, but a create there would replace it unchecked. A
+        concurrent create at the path while the save is pushed is the
+        commit's 409 (the file changed on main).
+        """
         rel = self.store.new_path(self.kind, self.experiment, self.doc_id)
+        if self.store.occupied(self.kind, self.experiment, self.doc_id):
+            raise self.conflict(f"{rel} already exists; open it and save over it, or choose another name", self.request.document)  # fmt: skip
         self._no_twin(rel)
         tier = SCHEMA_REGISTRY[self.kind].tier
         return Loaded(kind=self.kind, experiment=self.experiment, id=self.doc_id, path=rel, document={}, etag="", yaml="", valid=True, errors=[], tier=tier, read_only=False)  # fmt: skip
@@ -384,6 +392,10 @@ class _Save:
             return self.repo.commit_file(rel, data, author=author, message=message, base=base, on_moved=moved)  # fmt: skip
         except BaseMoved as exc:
             raise self.conflict(str(exc), draft) from exc
+        except Vetoed as exc:  # the tree the push would make is one the gate refuses
+            if exc.moved:  # main moved under the save: the operator reopens and its checks run again
+                raise self.conflict(f"main changed while the save was pushed, and the save on top of it would not pass the gate: {exc}; nothing was committed", draft) from exc  # fmt: skip
+            raise Refused(422, {"reason": f"the save would not pass the gate on main: {exc}; nothing was committed", "errors": [{"loc": [], "msg": p} for p in exc.problems]}) from exc  # fmt: skip
         except NotWritable as exc:
             raise Refused(403, str(exc)) from exc
         except GitError as exc:

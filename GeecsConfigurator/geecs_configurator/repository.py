@@ -28,6 +28,12 @@ Rules (each pinned by ``tests/test_repository.py``):
   merged); if the file changed, :class:`BaseMoved` (the save's 409). The
   staging worktree is removed on every path, and nothing reaches the live
   checkout unless the push landed.
+- **Nothing is pushed to main that the gate would refuse.** Every commit,
+  the first try and each retry on a newer main, is judged by ``vet(base,
+  commit)`` (the gate's rule, recording nothing) before its push: a check
+  that depends on other files (a deleted document another now names, a stem
+  another file now has) is asked again of the tree the push would make.
+  A refusal is :class:`Vetoed`, nothing pushed.
 - **One lock** (per process: the service runs one uvicorn worker) around
   every git operation, so a fetch, a fast-forward and a commit never
   interleave.
@@ -84,6 +90,14 @@ class PushFailed(GitError):
 
 class BaseMoved(GitError):
     """Main changed the edited file after the edit's base: the editor re-applies their edit."""
+
+
+class Vetoed(GitError):
+    """The commit would make a main the gate refuses (``moved``: only because main moved under the edit)."""
+
+    def __init__(self, problems: list[str], *, moved: bool):
+        super().__init__("; ".join(problems))
+        self.problems, self.moved = problems, moved
 
 
 class NotWritable(GitError):
@@ -150,13 +164,17 @@ class ConfigsRepository:
         The service, as the committer of every commit it makes.
     credential, accept, on_advanced : callable, optional
         The network credential, the gate and the advance hook (see the module docstring).
+    vet : callable, optional
+        ``vet(base, commit)``: the gate's problems with a commit about to be
+        pushed onto ``base``, recording nothing (the module docstring);
+        ``None``: none asked.
     writable : callable, optional
         ``writable(rel)``: whether this service may commit at ``rel`` (what
         the box owns, ``ownership.py``); a commit elsewhere is refused before
         anything is written. ``None``: anywhere.
     """
 
-    def __init__(self, state_dir: Path, origin: str, branch: str, committer: Identity, *, credential: Credential | None = None, accept: Accept | None = None, on_advanced: Advanced | None = None, writable: Callable[[str], bool] | None = None):  # fmt: skip
+    def __init__(self, state_dir: Path, origin: str, branch: str, committer: Identity, *, credential: Credential | None = None, accept: Accept | None = None, vet: Accept | None = None, on_advanced: Advanced | None = None, writable: Callable[[str], bool] | None = None):  # fmt: skip
         self.state_dir = Path(state_dir)
         self.origin, self.branch, self.committer = origin, branch, committer
         self.bare = self.state_dir / "repo.git"
@@ -168,6 +186,7 @@ class ConfigsRepository:
         #: ``time.monotonic()`` of the last fetch that answered (0: none yet).
         self.fetched_at = 0.0
         self.credential, self.accept, self.on_advanced = credential, accept, on_advanced
+        self.vet = vet
         self.writable = writable
 
     # ----------------------------------------------------------------- git
@@ -428,15 +447,22 @@ class ConfigsRepository:
         :class:`BaseMoved`; the inbox passes none, so the measurement wins.
         On success the live checkout is fast-forwarded (a failure there is
         logged, and the next sync catches up). :class:`PushFailed` when the
-        push did not land; the staging worktree is gone either way.
+        push did not land; :class:`Vetoed` when the commit, on its base, is
+        one the gate refuses (asked before every push, retries included);
+        the staging worktree is gone either way.
         """
         with self.lock:
-            for _ in range(PUSH_TRIES):
+            for attempt in range(PUSH_TRIES):
                 with self.staging(base) as tree:
                     sha = self._commit(tree, rel, data, author, message)
                     if sha is None:  # main already holds these bytes
                         self._catch_up()
                         return None
+                    problems = self.vet(base, sha) if self.vet else []
+                    if problems:  # never push what the gate then refuses (it would block this box)
+                        if attempt:
+                            self._catch_up()
+                        raise Vetoed(problems, moved=bool(attempt))
                     try:
                         self._push(tree, f"refs/heads/{self.branch}")
                     except GitError as exc:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import yaml
 from conftest import git, push_change
 from fastapi.testclient import TestClient
@@ -84,4 +86,67 @@ def test_an_edit_of_a_document_whose_stem_main_now_holds_twice_is_refused_before
     head = git("rev-parse", "main", cwd=origin)
     r = committing.put("/api/documents/himg_job/Ns/compact.yaml", json={"document": {**served["document"], "device": "CamB"}, "etag": served["etag"], "operator": "Ada"})  # fmt: skip
     assert r.status_code == 422 and "Other/compact.yaml" in r.text
+    assert git("rev-parse", "main", cwd=origin) == head
+
+
+def test_a_create_over_a_file_the_shared_folder_reads_as_another_kind_is_409(committing: TestClient, origin: Path) -> None:  # fmt: skip
+    """A ``.himg`` job created at a recipe's path: the folder's listing splits by kind, the path does not; nothing is replaced."""
+    head = git("rev-parse", "main", cwd=origin)
+    job = {"kind": "himg_compact", "device": "CamA"}
+    r = committing.put("/api/documents/himg_job/Ns/recipe.yaml", json={"document": job, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
+    assert r.status_code == 409, r.text
+    assert "Ns/recipe.yaml already exists" in r.json()["detail"]["reason"]
+    assert git("rev-parse", "main", cwd=origin) == head
+    assert git("show", "main:scan_analysis_configs/analyzers/Ns/recipe.yaml", cwd=origin) == "device: CamB"  # fmt: skip
+    # the blank route's refusal asks the same question: a recipe's blank at a job's path
+    taken = committing.get("/api/blank/analysis_recipe/Ns/compact.yaml", params={"input": "camera"})  # fmt: skip
+    assert taken.status_code == 409, taken.text
+
+
+def test_a_create_raced_at_its_path_is_409_on_the_retry(committing: TestClient, origin: Path, other: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The create-only precondition holds through the push retries: a file pushed at the path while the create is pushed wins."""
+    repo, raced = committing.app.state.repo, []
+    real = repo._push
+
+    def push(tree: Path, ref: str) -> None:
+        if not raced:
+            raced.append(push_change(other, "scan_analysis_configs/analyzers/Ns/fresh.yaml", "kind: himg_to_stack\ndevice: CamR\n", "their job"))  # fmt: skip
+        real(tree, ref)
+
+    monkeypatch.setattr(repo, "_push", push)
+    job = {"kind": "himg_compact", "device": "CamA"}
+    r = committing.put("/api/documents/himg_job/Ns/fresh.yaml", json={"document": job, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
+    assert r.status_code == 409, r.text
+    assert git("rev-parse", "main", cwd=origin) == raced[0]
+    assert git("show", "main:scan_analysis_configs/analyzers/Ns/fresh.yaml", cwd=origin) == "kind: himg_to_stack\ndevice: CamR"  # fmt: skip
+
+
+def test_a_same_stem_document_pushed_while_the_create_is_pushed_refuses_the_retry(committing: TestClient, origin: Path, other: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The stem was free when the create was checked; another folder takes it before the push: the retry is judged again, nothing pushed."""
+    repo, raced = committing.app.state.repo, []
+    real = repo._push
+
+    def push(tree: Path, ref: str) -> None:
+        if not raced:
+            raced.append(push_change(other, "scan_analysis_configs/analyzers/Other/twin.yaml", "kind: himg_compact\ndevice: CamO\n", "Other's twin"))  # fmt: skip
+        real(tree, ref)
+
+    monkeypatch.setattr(repo, "_push", push)
+    job = {"kind": "himg_to_stack", "device": "CamQ"}
+    r = committing.put("/api/documents/himg_job/Ns/twin.yaml", json={"document": job, "etag": "", "operator": "Ada", "create": True})  # fmt: skip
+    assert r.status_code == 409, r.text
+    assert "its stem is also" in r.json()["detail"]["reason"]
+    assert git("rev-parse", "main", cwd=origin) == raced[0] == repo.live_head()
+    assert "not applied" not in committing.get("/healthz").json()["main"]
+
+
+def test_a_create_the_gate_refuses_on_its_first_push_is_422_and_pushes_nothing(committing: TestClient, origin: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """The gate's rule is asked of the first push too: whatever the save's own checks missed is refused before the push."""
+    commit = committing.app.state.commit
+    monkeypatch.setattr(
+        commit.repo, "vet", lambda old, new: ["x.yaml: refused by the gate"]
+    )
+    head = git("rev-parse", "main", cwd=origin)
+    r = _create(committing, "jet.yaml", PRESET)
+    assert r.status_code == 422 and "refused by the gate" in r.text
     assert git("rev-parse", "main", cwd=origin) == head

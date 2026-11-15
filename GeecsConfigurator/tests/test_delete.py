@@ -159,3 +159,28 @@ def test_the_live_gate_refuses_a_delete_pushed_past_the_configurator(committing:
         "far.yaml: deleted, but" in health["main"]
         and "composite.yaml" in health["main"]
     )
+
+
+def test_a_referrer_pushed_while_the_delete_is_pushed_refuses_the_retry(committing: TestClient, origin: Path, other: Path, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    """No referrer when the delete was checked; one lands before its push: the retry on the newer main is judged again, nothing deleted.
+
+    Pushed, main would hold a dangling setup reference its own gate then
+    refuses, blocking every later save of this box.
+    """
+    repo, raced = committing.app.state.repo, []
+    real = repo._push
+
+    def push(tree: Path, ref: str) -> None:
+        if not raced:
+            raced.append(push_change(other, f"{SETUPS}/composite.yaml", "name: composite\nsteps:\n  - {do: apply, setup: low_power}\n", "a setup that applies another"))  # fmt: skip
+        real(tree, ref)
+
+    monkeypatch.setattr(repo, "_push", push)
+    r = _delete(committing, "setup", "low_power.yaml")
+    assert r.status_code == 409, r.text
+    assert "low_power.yaml: deleted, but" in r.json()["detail"]["reason"]
+    assert git("rev-parse", "main", cwd=origin) == raced[0] == repo.live_head()
+    assert _on_main(origin, f"{SETUPS}/low_power.yaml")
+    assert (
+        "not applied" not in committing.get("/healthz").json()["main"]
+    )  # nothing blocks the box

@@ -237,6 +237,18 @@ class DocumentStore:
             raise NotFound(f"{doc_id!r} is not a new {kind} document's name (suffixes: {', '.join(storage.suffixes)})")  # fmt: skip
         return (base / doc_id).relative_to(self.root).as_posix()
 
+    def occupied(self, kind: str, experiment: str | None, doc_id: str) -> str | None:
+        """A new document's path when anything is already there (a file of any kind, one no kind reads, a link); ``None`` when free.
+
+        A shared folder's listing is split by its ``dispatch`` loader, so a
+        file read as another kind is not this kind's document; it is still
+        the file a create would replace, so a create asks this, never
+        :meth:`read`.
+        """
+        rel = self.new_path(kind, experiment, doc_id)
+        there = self.root / rel
+        return rel if there.exists() or there.is_symlink() else None
+
     def files(self, kind: str, experiment: str | None) -> dict[str, Path]:
         """The kind's documents: id -> path (what the listing lists; a missing folder is none)."""
         return self._files(kind, experiment)

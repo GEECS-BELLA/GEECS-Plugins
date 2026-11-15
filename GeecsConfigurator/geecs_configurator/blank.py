@@ -51,11 +51,7 @@ def schema_blank(kind: str, name: str, input_kind: str, device: str, fields: Jso
 
 def taken(store: DocumentStore, kind: str, doc_id: str) -> str:
     """Why ``doc_id`` cannot be a new document (a file there, its stem another's in the analyzers tree); ``""`` when free."""
-    try:
-        store.read(kind, None, doc_id)
-    except NotFound:
-        pass
-    else:
+    if store.occupied(kind, None, doc_id):
         return f"{doc_id} already exists: open it, or choose another name"
     twins = stem_twins(store, store.new_path(kind, None, doc_id))
     if twins:
