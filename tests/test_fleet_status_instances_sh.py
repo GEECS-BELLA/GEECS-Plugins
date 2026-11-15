@@ -161,9 +161,7 @@ def test_the_instance_dir_is_the_site_knob_and_a_hand_edited_file_still_counts(
     experiments.mkdir(parents=True)
     (experiments / "PulsedWire.env").write_text("  GEECS_SCANNER_PORT='8330'\n")
     site = tmp_path / "site.env"
-    site.write_text(
-        f'GEECS_EXPERIMENTS_DIR="{experiments}"   # the box keeps them here\n'
-    )
+    site.write_text(f'GEECS_EXPERIMENTS_DIR="{experiments}"\n')
     assert _snippet_names(tmp_path, {"GEECS_SITE_ENV_PATH": str(site)}) == [
         "instance=PulsedWire\tscanner_port=8330"
     ]

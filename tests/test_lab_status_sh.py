@@ -44,7 +44,6 @@ def _run(tmp_path: Path, ca_list: str) -> subprocess.CompletedProcess[str]:
             "HOME": str(tmp_path),
             "GEECS_CONFIG_INI": str(cfg),
             "GEECS_PROBE_PYTHON": false,
-            "TCP_TIMEOUT": "1",
         },
         timeout=60,
     )
