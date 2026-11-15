@@ -53,11 +53,14 @@ numbers lived in the operator's head), so there is no converter for it.
 from __future__ import annotations
 
 import math
-from typing import Optional
+from typing import ClassVar, Optional
 
 from pydantic import Field, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
+
+#: An experiment's measured shot offsets, at the top of its configs folder.
+SHOT_OFFSETS_FILENAME = "shot_offsets.yaml"
 
 
 class DeviceOffset(SchemaModel):
@@ -118,6 +121,8 @@ class ShotOffsets(VersionedSchemaModel):
     signal, which rides in each run's descriptors and is what the s-file
     join corrects by.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     reference: str = Field(
         description=(

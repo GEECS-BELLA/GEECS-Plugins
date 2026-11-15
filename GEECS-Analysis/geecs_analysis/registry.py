@@ -179,6 +179,11 @@ class MeasureDefinition:
     shot to shot (the ``magspec`` energy grid, which a per-shot field
     moves): a summary average folds them index-wise instead of refusing
     them, as the legacy average did.
+
+    ``default`` marks the measure a new recipe of its frames starts with
+    (:func:`default_measure`, the blank recipe an editor creates): at most
+    one per frame dimensionality, a plain measure that needs no service,
+    table, channel or bound frame.
     """
 
     spec: type[MeasureSpec]
@@ -193,6 +198,7 @@ class MeasureDefinition:
     shot_scalars: tuple[str, ...] = ()
     sibling_outputs: tuple[SiblingOutput, ...] = ()
     per_shot_axes: bool = False
+    default: bool = False
 
 
 _MEASURES: dict[type[MeasureSpec], MeasureDefinition] = {}
@@ -243,6 +249,7 @@ def measure(
     shot_scalars: tuple[str, ...] = (),
     sibling_outputs: tuple[SiblingOutput, ...] = (),
     per_shot_axes: bool = False,
+    default: bool = False,
 ) -> Callable[[Callable[..., Measurement]], Callable[..., Measurement]]:
     """Register a builtin measure before constructing the spec union.
 
@@ -254,7 +261,9 @@ def measure(
     the spec fields naming recorded columns read per shot;
     ``sibling_outputs`` the per-shot files written beside the raw folder;
     ``per_shot_axes`` that the frame's coordinates may move shot to shot;
-    see :class:`MeasureDefinition`.
+    ``default`` that a new recipe of these frames starts with it (one per
+    frame dimensionality, :func:`default_measure`); see
+    :class:`MeasureDefinition`.
     """
     if not ndim or not ndim <= {1, 2}:
         raise ValueError("Measure dimensions must be a nonempty subset of {1, 2}")
@@ -269,6 +278,8 @@ def measure(
     shot_scalars = tuple(shot_scalars)
     _check_measure_fields(spec, input_field, tables, shot_scalars)
     channels = tuple(channels)
+    if default and (service or input_field or channels or tables or shot_scalars):
+        raise ValueError("A default measure is a plain one: a new recipe binds nothing for it (no service, frame input, channel, table or shot scalar)")  # fmt: skip
     if channels and (
         ndim != {1} or not all(channels) or len(set(channels)) != len(channels)
     ):
@@ -282,6 +293,8 @@ def measure(
     def register(function: Callable[..., Measurement]):
         if spec in _MEASURES:
             raise ValueError(f"Measure spec already registered: {spec.__name__}")
+        if default and any(d.default and d.ndim & frozenset(ndim) for d in _MEASURES.values()):  # fmt: skip
+            raise ValueError(f"A second default measure for {sorted(ndim)}D frames: {spec.__name__}")  # fmt: skip
         _MEASURES[spec] = MeasureDefinition(
             spec,
             function,
@@ -295,6 +308,7 @@ def measure(
             shot_scalars,
             sibling_outputs,
             per_shot_axes,
+            default,
         )
         return function
 
@@ -304,6 +318,14 @@ def measure(
 def measure_definitions() -> tuple[MeasureDefinition, ...]:
     """Return the builtin measurement declarations in registration order."""
     return tuple(_MEASURES.values())
+
+
+def default_measure(ndim: int) -> MeasureDefinition:
+    """The measure a new recipe of ``ndim``-D frames starts with: the one registered ``default=True`` for it."""
+    hit = [d for d in _MEASURES.values() if d.default and ndim in d.ndim]
+    if len(hit) != 1:
+        raise LookupError(f"no default measure registered for {ndim}D frames")
+    return hit[0]
 
 
 def measure_definition(spec: MeasureSpec) -> MeasureDefinition:

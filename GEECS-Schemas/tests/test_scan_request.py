@@ -72,11 +72,9 @@ class TestScanRequest:
                 "acquisition": "free_run",
                 "save_sets": ["undulator_baseline", "aux_diagnostics"],
                 "trigger_profile": "htu_laser_off",
-                "actions": {"setup": ["pre_scan_ebeam"], "closeout": []},
                 "description": "jet z scan with probe",
             }
         )
-        assert request.actions.setup == ["pre_scan_ebeam"]
         assert request.capture.save_sets == ["undulator_baseline", "aux_diagnostics"]
 
     def test_save_sets_bare_string_coerces_to_list(self):
@@ -145,11 +143,10 @@ class TestScanRequest:
                 ]
             )
 
-    def test_per_step_actions_slot(self):
-        # The architecture's acceptance test: actions between scan steps are
-        # a slot on the existing model, not a new dialect.
-        request = make_step_request(actions={"per_step": ["insert_plunger_check"]})
-        assert request.actions.per_step == ["insert_plunger_check"]
+    def test_action_bindings_are_refused(self):
+        # Action plans went with the action library; nothing executed them.
+        with pytest.raises(ValidationError, match="actions"):
+            make_step_request(actions={"per_step": ["insert_plunger_check"]})
 
     def test_unknown_field_fails_loudly(self):
         with pytest.raises(ValidationError, match="shots_per_stpe"):

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from geecs_scanner.service import StreamCache, ScannerService
 from geecs_scanner.service.demo import (
+    DemoPresets,
     DemoQueueClient,
     DemoReadback,
     DemoResolver,
@@ -37,9 +38,10 @@ def service(
     # The writer's heartbeat is read from a path of the test's own, never
     # from the developer's ~/.local/state (or wherever GEECS_TILED_WRITER_STATE
     # points on this machine).
+    resolver = DemoResolver()
     return ScannerService(
         manager,
-        DemoResolver(),
+        resolver,
         experiment="Demo",
         identity="geecs-scanner test",
         streams=streams,
@@ -48,6 +50,7 @@ def service(
         settables=DemoSettables(),
         readback=DemoReadback(manager),
         heartbeat_path=tmp_path / "heartbeat.json",
+        presets=DemoPresets(resolver),
     )
 
 

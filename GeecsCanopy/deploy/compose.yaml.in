@@ -52,6 +52,10 @@ services:
       CANOPY_RACCOON__DIRECTORY__EXTRAS__DB: "${GEECS_CANOPY_DB}"
     volumes:
       - "${GEECS_CONFIGS_ROOT}:/opt/geecs-configs:ro"
+      # The configs checkout's own git dir when it is a worktree (the configurator's
+      # live checkout), at the host's path: its index.lock tells the readers a
+      # fast-forward is rewriting a file (geecs_core.configs_repo.settled_exists).
+      @CONFIGS_GITDIR_VOLUME@
       - /var/lib/geecs-canopy/module:/var/lib/geecs-canopy-module   # the journal
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:${GEECS_CANOPY_PORT}/health')\""]

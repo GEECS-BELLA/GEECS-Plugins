@@ -180,7 +180,7 @@ def test_only_a_button_runs_an_action_and_only_one_the_library_holds() -> None:
         screen({"kind": "toggle", "bind": {"action": "park"}})
     runs = screen({"kind": "button", "label": "Park", "bind": {"action": "park"}})
     assert resolve_screen(runs, load_families(), PANEL, NATIVE, actions={"park"})[0][0].role is None  # fmt: skip
-    with pytest.raises(ScreenError, match="no action plan 'park'"):
+    with pytest.raises(ScreenError, match="no setup 'park'"):
         resolve_screen(runs, load_families(), PANEL, NATIVE, actions={"other"})
 
 

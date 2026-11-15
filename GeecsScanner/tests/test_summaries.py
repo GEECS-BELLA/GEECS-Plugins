@@ -95,8 +95,8 @@ def test_non_scan_items_and_unknown_shapes_never_raise() -> None:
         == "move U_S1H.current → 0.5"
     )
     assert (
-        summarize_item(_item("run_action", ["close_shutters"])).text
-        == "action close_shutters"
+        summarize_item(_item("apply_setup", ["shutters_closed"])).text
+        == "setup shutters_closed"
     )
     assert (
         summarize_item({"name": "spiral", "args": [["UC_A"], "a", "b"]}).text

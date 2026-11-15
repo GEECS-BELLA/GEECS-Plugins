@@ -200,6 +200,20 @@ layout; delete-when-executed is the whole discipline):
   among them). What goes when the last LabVIEW device migrates moved to
   `GeecsBluesky/CLAUDE.md` § "Acquisition" (gated itself was deleted on
   2026-11-14, #1345). The open questions are on #1278.
+- **2026-11-14**, configurator arc (GeecsConfigurator, slices 0–7 on
+  `feat/configurator`, #1307) — `configurator.md` deleted in slice 7, ahead
+  of the promotion PR. Its rules moved first: the tiers and what each
+  save does, the credential and the ruleset, identity, the two setup
+  executors and what stays out of scope to `GeecsConfigurator/CLAUDE.md`
+  (with the package layout and the rules each slice had already written
+  there); the commit path, the clones, the inbox, the gate and the
+  facility rule were already there and in `DEPLOYMENT.md`, which also took
+  the box trial's lessons (the two accounts, the per-box keys, a trial
+  starting unverified); the apply-per-kind table is `kinds.py`; the
+  operator's view to `docs/web_services/configurator.md`; the root map's
+  row rewritten. The brief's § Status (the red team's and the
+  maintainer's dispositions) is on #1301; the slices' records and the
+  owed box acceptance are on #1307.
 
 ## Every PR that changes a package
 
@@ -339,7 +353,7 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 CI (`.github/workflows/unit-tests.yml`, one Ubuntu job) runs: root
 `tests/`, ScanAnalysis, GEECS-Data-Utils and GEECS-Schemas
 from the **root env**, and GeecsWebTheme, GeecsLogbook, GeecsScanner,
-GeecsControlRoom, GEECS-DataPortal, GEECS-Core, GeecsCAGateway, GeecsBluesky (pure unit
+GeecsControlRoom, GeecsConfigurator, GEECS-DataPortal, GEECS-Core, GeecsCAGateway, GeecsBluesky (pure unit
 tests, `qs-client` extra included), GEECS-MCP and GeecsPvaGateway each
 from its **own env**. Not in CI — run locally via `scripts/check.sh` when
 touching it: GEECS-LogTriage. Everything is hermetic — no lab network, no

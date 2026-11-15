@@ -37,7 +37,7 @@ CONFIG_KINDS = (
     "presets",
     "trigger_profiles",
     "scan_variables",
-    "actions",
+    "setups",
     "optimizer_configs",
 )
 
@@ -163,7 +163,7 @@ async def list_scan_configs(kind: str, name: Optional[str] = None) -> str:
     """The experiment's config catalog, as the scanner lists it.
 
     ``kind`` is one of ``presets``, ``trigger_profiles``, ``scan_variables``,
-    ``actions``, ``optimizer_configs`` → the names (+ ``unavailable`` with
+    ``setups``, ``optimizer_configs`` → the names (+ ``unavailable`` with
     reasons).  With ``name`` on ``presets``, the preset document itself.
     ``devices`` → the scanner page's add-device list, the names a preset's
     ``devices[].device`` takes (a pseudo scan variable can appear there

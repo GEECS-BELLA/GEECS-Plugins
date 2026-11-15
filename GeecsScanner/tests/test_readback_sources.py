@@ -71,7 +71,7 @@ def _fake_aioca(monkeypatch, answer) -> list:
         return answer
 
     mod = types.ModuleType("aioca")
-    mod.caget, mod.FORMAT_TIME = caget, object()
+    mod.caget, mod.FORMAT_TIME, mod.DBR_STRING = caget, object(), "DBR_STRING"
     monkeypatch.setitem(sys.modules, "aioca", mod)
     return calls
 
@@ -91,10 +91,23 @@ async def test_ca_readback_reads_the_gateway_readback_pv_with_its_stamp(
 
 
 @pytest.mark.anyio
+async def test_ca_readback_reads_a_word_as_text(monkeypatch) -> None:
+    class _Str(str):
+        ok = True
+        timestamp = 1.0
+
+    calls = _fake_aioca(monkeypatch, _Str("off"))
+    out = await CaReadback("Undulator").read("U_148_PLC", "DO.Ch9", word=True)
+    assert calls[0][1]["datatype"] == "DBR_STRING"
+    assert out.ok and out.text == "off" and out.value is None
+
+
+@pytest.mark.anyio
 async def test_ca_readback_reports_a_silent_gateway(monkeypatch) -> None:
     _fake_aioca(monkeypatch, _CaNothing())
     out = await CaReadback("Undulator").read("U_S1H", "Current")
     assert out.ok is False and out.value is None and "no answer" in out.detail
+    assert out.not_numeric is False  # no answer is never "read it as a word"
 
 
 @pytest.mark.anyio
@@ -105,7 +118,7 @@ async def test_ca_readback_refuses_a_non_numeric_answer(monkeypatch) -> None:
 
     _fake_aioca(monkeypatch, _Str("OFF"))
     out = await CaReadback("Undulator").read("U_PLC", "shutter1")
-    assert out.ok is False and "not a number" in out.detail
+    assert out.ok is False and "not a number" in out.detail and out.not_numeric is True
 
 
 @pytest.fixture

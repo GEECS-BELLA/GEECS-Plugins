@@ -39,6 +39,7 @@ TEMPLATES = [
     REPO_ROOT / "GeecsArchiver/deploy/geecs-archiver.service",
     REPO_ROOT / "GeecsCanopy/deploy/geecs-canopy.service",
     REPO_ROOT / "GeecsControlRoom/deploy/geecs-control-room.service",
+    REPO_ROOT / "GeecsConfigurator/deploy/geecs-configurator.service",
 ]
 # The per-experiment instance templates (`<unit>@<Instance>`), beside the above.
 INSTANCE_TEMPLATES = [

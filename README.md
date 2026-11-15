@@ -20,7 +20,7 @@ its own `pyproject.toml`, managed by [Poetry](https://python-poetry.org/).
 | `GEECS-Schemas/` | Pydantic schemas for every scanner and analysis config document | library |
 | `GeecsWebTheme/` | Shared stylesheets and FastAPI glue for every web surface | library |
 | `GEECS-Analysis/` | Pure analysis core: coordinate-aware processing steps driven by recipe documents | library |
-| `ScanAnalysis/` | Post-scan analysis: task queue, config system, scan analyzers, the web config editor | library |
+| `ScanAnalysis/` | Post-scan analysis: task queue, config system, scan analyzers | library |
 | `GeecsBluesky/` | Bluesky backend: GEECS devices as ophyd-async devices, the scan plans, the queueserver worker, the Tiled writer, the queue client | queueserver worker (`qserver/launch_re_manager.sh`); `geecs-tiled-writer` |
 | `GeecsCAGateway/` | Channel Access gateway serving GEECS devices as PVs (readback + setpoint) | `geecs-ca-gateway` |
 | `GeecsPvaGateway/` | pvAccess server on each camera host, serving images and array variables as NTNDArray PVs | `geecs-pva-gateway` |
@@ -38,7 +38,7 @@ independently.
 ### Dependencies
 
 Arrows mean "imports" (some edges are optional extras, e.g. the portal's
-analysis features or ScanAnalysis's config editor). Edges only point down the layers, and packages in one
+analysis features). Edges only point down the layers, and packages in one
 layer never import each other; this is enforced on every commit by
 [import-linter](https://import-linter.readthedocs.io/) (`.importlinter`).
 

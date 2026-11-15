@@ -1,0 +1,1107 @@
+"""form.js — the schema-driven form every GEECS editor draws with.
+
+The real ``form.js`` runs under node: its rules (the tree a form is drawn
+from, the edits, the diff with its tier) are called on a schema shaped as
+pydantic writes one (``$defs``, a discriminated union, an optional
+sub-document, a map, a field stricter than its document), and ``mount`` is
+driven through a DOM just big enough for it, the way a person edits.
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+
+import pytest
+
+from geecs_web_theme import static_dir
+from geecs_web_theme.testing import (
+    css_rules,
+    js_colour_literals,
+    node_available,
+    selector_parts,
+)
+
+_FORM = static_dir() / "form.js"
+
+#: A setup-like document: steps a discriminated union, `captured` an optional
+#: sub-document, `limits` a map, `exclude` a maintainer field of an operator document.
+SCHEMA = {
+    "title": "Doc",
+    "type": "object",
+    "tier": "operator",
+    "$defs": {
+        "Set": {
+            "type": "object",
+            "properties": {
+                "do": {"const": "set", "type": "string"},
+                "device": {"type": "string", "description": "The device to set."},
+                "value": {"anyOf": [{"type": "string"}, {"type": "number"}]},
+            },
+            "required": ["do", "device", "value"],
+        },
+        "Wait": {
+            "type": "object",
+            "properties": {
+                "do": {"const": "wait", "type": "string"},
+                "seconds": {"type": "number", "minimum": 0},
+            },
+            "required": ["do", "seconds"],
+        },
+        "Capture": {
+            "type": "object",
+            "properties": {"by": {"type": "string"}},
+            "required": ["by"],
+        },
+    },
+    "properties": {
+        "schema_version": {"type": "integer", "default": 1},
+        "name": {"type": "string", "description": "The name."},
+        "mode": {"enum": ["fast", "slow"], "type": "string", "default": "fast"},
+        "armed": {"type": "boolean", "default": False},
+        "steps": {
+            "type": "array",
+            "items": {
+                "discriminator": {"propertyName": "do", "mapping": {}},
+                "oneOf": [{"$ref": "#/$defs/Set"}, {"$ref": "#/$defs/Wait"}],
+            },
+        },
+        "captured": {
+            "anyOf": [{"$ref": "#/$defs/Capture"}, {"type": "null"}],
+            "default": None,
+        },
+        "limits": {"type": "object", "additionalProperties": {"type": "number"}},
+        "exclude": {
+            "type": "array",
+            "items": {"type": "string"},
+            "tier": "maintainer",
+        },
+    },
+    "required": ["name", "steps"],
+}
+
+DOC = {
+    "name": "low",
+    "mode": "fast",
+    "steps": [
+        {"do": "set", "device": "A", "value": 1.5},
+        {"do": "wait", "seconds": 2},
+    ],
+    "captured": None,
+    "limits": {"x": 1},
+    "exclude": ["a", "b"],
+}
+
+_RULES = r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const t = F.tree(S, D);
+const by = (n, k) => n.children.find((c) => c.key === k);
+const steps = by(t, "steps");
+const out = {
+  fields: t.children.map((c) => [c.key, c.kind, c.required, c.tier, c.label]),
+  help: by(t, "name").help, options: by(t, "mode").options,
+  step0: [steps.items[0].choice, steps.items[0].children.map((c) => [c.key, c.kind, c.help])],
+  step1: steps.items[1].children.map((c) => c.key),
+  captured: [by(t, "captured").kind, by(t, "captured").unset, by(t, "captured").nullable],
+  limits: by(t, "limits").items.map((c) => [c.key, c.kind]),
+  added: F.addItem(D, ["steps"], S.properties.steps.items, S).steps[2],
+  removed: F.removeAt(D, ["steps", 0]).steps,
+  moved: F.moveItem(D, ["steps", 1], -1).steps.map((s) => s.do),
+  movedPastEnd: F.moveItem(D, ["steps", 1], +1).steps.map((s) => s.do),
+  chosen: F.choose(D, ["steps", 1], S.properties.steps.items, "set", S).steps[1],
+  setNew: F.setAt(D, ["limits", "y"], 3).limits,
+  unchanged: D.steps.length,
+  parsed: [F.parse("number", "2.5"), F.parse("number", "two"), F.parse("number", ""), F.parse("scalar", "3"), F.parse("scalar", "on"), F.parse("boolean", "false"), F.parse("string", "")],
+  defaults: F.defaultFor(S, S),
+  diffs: {
+    none: F.diff(D, JSON.parse(JSON.stringify(D)), S),
+    keyOrder: F.diff(D, Object.assign({ exclude: D.exclude }, D), S),
+    value: F.diff(D, F.setAt(D, ["steps", 0, "value"], 2), S),
+    reorder: F.diff(D, F.moveItem(D, ["exclude", 1], -1), S),
+    strict: F.diff(D, F.setAt(F.setAt(D, ["name", ], "x"), ["exclude", 2], "c"), S),
+    variant: F.diff(D, F.choose(D, ["steps", 1], S.properties.steps.items, "set", S), S),
+    added: F.diff(D, F.setAt(D, ["captured"], { by: "me" }), S),
+  },
+  errors: F.placeErrors(t, [{ loc: ["steps", 0, "set", "value"], msg: "bad" }, { loc: "name", msg: "short" }, { loc: [], msg: "whole" }]),
+};
+console.log(JSON.stringify(out));
+"""
+
+
+def _node(harness: str, stdin: str) -> dict:
+    if not node_available():  # pragma: no cover - CI and dev machines have it
+        pytest.skip("node not available")
+    done = subprocess.run(["node", "-e", harness, str(_FORM)], input=stdin, text=True, capture_output=True, timeout=30)  # fmt: skip
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+@pytest.fixture(scope="module")
+def rules() -> dict:
+    return _node(_RULES, json.dumps([SCHEMA, DOC]))
+
+
+def test_the_script_carries_no_literal_colour() -> None:
+    assert js_colour_literals(_FORM.read_text()) == []
+
+
+def test_the_tree_follows_the_schema(rules: dict) -> None:
+    fields = {k: rest for k, *rest in rules["fields"]}
+    assert "schema_version" not in fields  # tools own it
+    assert fields["name"] == ["string", True, None, "Name"]
+    assert fields["mode"][0] == "enum" and rules["options"] == ["fast", "slow"]
+    assert fields["armed"][0] == "boolean" and fields["steps"][:2] == ["array", True]
+    assert fields["limits"][0] == "map" and rules["limits"] == [["x", "number"]]
+    assert fields["exclude"] == [
+        "array",
+        False,
+        "maintainer",
+        "Exclude",
+    ]  # the stricter field is marked
+    assert rules["help"] == "The name."  # the description is the help
+
+
+def test_a_discriminated_union_is_a_choice_then_the_variant(rules: dict) -> None:
+    choice, children = rules["step0"]
+    assert choice == {"prop": "do", "tags": ["set", "wait"], "tag": "set"}
+    assert children == [
+        ["device", "string", "The device to set."],
+        ["value", "scalar", ""],
+    ]  # $ref resolved
+    assert rules["step1"] == ["seconds"]
+
+
+def test_an_optional_sub_document_is_unset_until_set(rules: dict) -> None:
+    assert rules["captured"] == ["object", True, True]
+
+
+def test_edits_return_a_new_document(rules: dict) -> None:
+    assert rules["added"] == {"do": "set", "device": "", "value": None}
+    assert rules["removed"] == [{"do": "wait", "seconds": 2}]
+    assert rules["moved"] == ["wait", "set"] and rules["movedPastEnd"] == [
+        "set",
+        "wait",
+    ]
+    assert rules["chosen"] == {"do": "set", "device": "", "value": None}
+    assert rules["setNew"] == {"x": 1, "y": 3}
+    assert rules["unchanged"] == 2  # the original is never mutated
+
+
+def test_input_text_parses_to_the_kind(rules: dict) -> None:
+    # a word in a number field stays a word (the service names the error); an empty optional is absent (dropped by JSON)
+    assert rules["parsed"] == [2.5, "two", None, 3, "on", False, ""]
+
+
+def test_defaults_fill_the_required_fields(rules: dict) -> None:
+    assert rules["defaults"] == {"name": "", "steps": []}
+
+
+def test_the_diff_and_its_tier(rules: dict) -> None:
+    d = rules["diffs"]
+    assert d["none"] == {"changes": [], "tier": None}
+    assert d["keyOrder"] == {"changes": [], "tier": None}  # key order is not a change
+    assert d["value"]["changes"] == [{"path": ["steps", 0, "value"], "op": "change", "before": 1.5, "after": 2, "tier": "operator"}]  # fmt: skip
+    # a reordered list is a change at every index it moved, at the list's tier
+    assert [(c["path"], c["tier"]) for c in d["reorder"]["changes"]] == [(["exclude", 0], "maintainer"), (["exclude", 1], "maintainer")]  # fmt: skip
+    assert d["reorder"]["tier"] == "maintainer"
+    # the strictest changed tier decides
+    assert [c["tier"] for c in d["strict"]["changes"]] == ["operator", "maintainer"]
+    assert d["strict"]["tier"] == "maintainer"
+    assert [(c["path"], c["op"]) for c in d["variant"]["changes"]] == [(["steps", 1], "change")]  # fmt: skip
+    assert [(c["path"], c["op"]) for c in d["added"]["changes"]] == [(["captured"], "change")]  # fmt: skip
+
+
+def test_errors_land_on_the_form_paths(rules: dict) -> None:
+    # pydantic's location names the variant's tag; the form's path does not
+    assert rules["errors"] == {"steps.0.value": "bad", "name": "short", "": "whole"}
+
+
+_DOM = r"""
+let ids = 0;
+function el(tag) {
+  const n = { __id: ++ids, tagName: tag.toUpperCase(), children: [], attrs: {}, on: {}, value: "", parentNode: null, _t: "",
+    setAttribute(k, v) { this.attrs[k] = String(v); if (k === "value") this.value = String(v); },
+    getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
+    removeAttribute(k) { delete this.attrs[k]; },
+    appendChild(c) { c.parentNode = this; this.children.push(c); if (this.tagName === "SELECT" && c.attrs.selected !== undefined) this.value = c.attrs.value; return c; },
+    removeChild(c) { this.children = this.children.filter((x) => x !== c); },
+    addEventListener(k, fn) { this.on[k] = fn; },
+    get firstChild() { return this.children[0] || null; },
+    get textContent() { return this._t + this.children.map((c) => c.textContent).join(""); },
+    set textContent(v) { this._t = String(v); this.children = []; } };
+  return n;
+}
+global.document = { createElement: el, createTextNode: (t) => Object.assign(el("#text"), { _t: t }) };
+const walk = (n, f, out = []) => { if (f(n)) out.push(n); n.children.forEach((c) => walk(c, f, out)); return out; };
+const at = (host, path) => walk(host, (n) => n.attrs["data-path"] === path)[0];
+const control = (field) => walk(field, (n) => ["INPUT", "SELECT", "TEXTAREA"].includes(n.tagName))[0];
+const button = (scope, text) => walk(scope, (n) => n.tagName === "BUTTON" && n.textContent === text)[0];
+"""
+
+_MOUNT = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const host = el("div"), seen = [];
+const form = F.mount(host, { schema: S, value: D, onChange: (d) => seen.push(d) });
+const name = at(host, "name");
+const out = { kitClasses: [...new Set(walk(host, (n) => n.attrs.class).map((n) => n.attrs.class))].sort() };
+out.nameControl = [control(name).tagName, control(name).value, walk(name, (n) => n.attrs.class === "hint")[0].textContent];
+out.tierMarks = walk(host, (n) => n.attrs.class === "tier").map((n) => [n.attrs["data-tier"], n.parentNode.parentNode.attrs["data-path"]]);
+out.choice = control(at(host, "steps.0")).value;
+control(name).value = "high"; control(name).on.input({ target: control(name) });
+out.afterType = [form.value().name, at(host, "name").attrs["data-changed"]];
+// a list of choices adds by choosing one (the "Add step…" select)
+const adder = walk(at(host, "steps"), (n) => n.attrs["aria-label"] === "add a step")[0];
+adder.value = "set"; adder.on.change({ target: adder });
+out.afterAdd = form.value().steps.length;
+button(at(host, "steps.1"), "Up").on.click();
+out.afterUp = form.value().steps.map((s) => s.do);
+button(at(host, "steps.0"), "Remove").on.click();
+out.afterRemove = form.value().steps.map((s) => s.do);
+button(at(host, "captured"), "Set").on.click();
+out.afterSet = form.value().captured;
+out.placed = form.setErrors([{ loc: ["name"], msg: "too short" }]);
+out.invalid = [control(at(host, "name")).attrs["aria-invalid"], walk(at(host, "name"), (n) => n.attrs.class === "err")[0].textContent];
+out.calls = seen.length;
+const ro = el("div"); F.mount(ro, { schema: S, value: D, readOnly: true });
+// read-only: no button edits (a folded item's show / hide toggle edits nothing)
+out.readOnly = [walk(ro, (n) => n.tagName === "BUTTON" && n.attrs["aria-expanded"] === undefined).length, walk(ro, (n) => n.attrs.disabled !== undefined).length > 5];
+console.log(JSON.stringify(out));
+"""
+)
+
+
+@pytest.fixture(scope="module")
+def mounted() -> dict:
+    return _node(_MOUNT, json.dumps([SCHEMA, DOC]))
+
+
+def test_mount_draws_kit_controls(mounted: dict) -> None:
+    assert {"field", "fold", "panel", "group", "hint", "err", "tier", "req", "eyebrow"} <= set(mounted["kitClasses"])  # fmt: skip
+    assert mounted["nameControl"] == ["INPUT", "low", "The name."]
+    assert mounted["tierMarks"] == [["maintainer", "exclude"]]
+    assert mounted["choice"] == "set"
+
+
+def test_editing_hands_the_document_back(mounted: dict) -> None:
+    assert mounted["afterType"] == ["high", "true"]  # the field says it changed
+    assert mounted["afterAdd"] == 3
+    assert mounted["afterUp"] == ["wait", "set", "set"]
+    assert mounted["afterRemove"] == ["set", "set"]
+    assert mounted["afterSet"] == {"by": ""}
+    assert mounted["calls"] == 5
+
+
+def test_errors_are_drawn_at_the_field(mounted: dict) -> None:
+    assert mounted["placed"] == {"name": "too short"}
+    assert mounted["invalid"] == ["true", "too short"]
+
+
+def test_read_only_offers_no_edit(mounted: dict) -> None:
+    buttons, disabled = mounted["readOnly"]
+    assert buttons == 0 and disabled
+
+
+# ---------------------------------------------------------------------------
+# The shapes behind review round 1 on #1311: an undiscriminated union, a
+# union with a structured member, an open object, a patternProperties map,
+# optional and nullable scalars, a maintainer field inside list items and
+# inside one variant, an unknown tier.
+
+SHAPES = {
+    "type": "object",
+    "tier": "operator",
+    "$defs": {
+        "Real": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "kind": {"enum": ["real"], "type": "string", "default": "real"},
+                "target": {"type": "string"},
+                "word": {"anyOf": [{"type": "string"}, {"type": "number"}]},
+            },
+            "required": ["target"],
+        },
+        "Pseudo": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "kind": {"enum": ["pseudo"], "type": "string"},
+                "expr": {"type": "string"},
+                "owner": {"type": "string", "tier": "maintainer"},
+            },
+            "required": ["kind", "expr"],
+        },
+        "Grant": {
+            "type": "object",
+            "properties": {
+                "who": {"type": "string"},
+                "scope": {"type": "string", "tier": "maintainer"},
+            },  # fmt: skip
+            "required": ["who"],
+        },
+        "Step": {
+            "type": "object",
+            "properties": {"step": {"type": "string"}},
+            "additionalProperties": True,
+        },
+    },
+    "properties": {
+        "variables": {
+            "type": "object",
+            "additionalProperties": {
+                "anyOf": [{"$ref": "#/$defs/Real"}, {"$ref": "#/$defs/Pseudo"}]
+            },
+        },  # fmt: skip
+        "range": {
+            "anyOf": [
+                {"type": "array", "items": {"type": "number"}},
+                {"type": "string"},
+            ]
+        },  # fmt: skip
+        "steps": {"type": "array", "items": {"$ref": "#/$defs/Step"}},
+        "roles": {
+            "type": "object",
+            "patternProperties": {"^[a-z]+$": {"type": "string"}},
+        },  # fmt: skip
+        "note": {"type": "string"},
+        "trigger": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
+        "count": {"type": "integer"},
+        "grants": {"type": "array", "items": {"$ref": "#/$defs/Grant"}},
+        "odd": {"type": "string", "tier": "wizard"},
+        "rows": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    {"type": "array", "items": {"type": "number"}},
+                    {"type": "string"},
+                ]
+            },
+        },  # fmt: skip
+    },
+}
+
+SHAPES_DOC = {
+    "variables": {
+        "a": {"kind": "real", "target": "U_S1H:Current", "word": "4.0"},
+        "b": {"kind": "pseudo", "expr": "a * 2", "owner": "ops"},
+    },
+    "range": [3, 6],
+    "steps": [{"step": "roi", "x": 1, "corners": [1, 2], "label": "1"}],
+    "roles": {"cam": "camera"},
+    "trigger": None,
+    "grants": [{"who": "op", "scope": "all"}],
+    "rows": [[1], [2]],
+}
+
+_SHAPES = r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const t = F.tree(S, D);
+const by = (n, k) => n.children.find((c) => String(c.key) === k);
+const vars = by(t, "variables");
+const step0 = by(t, "steps").items[0];
+const errs = [
+  { loc: ["variables", "a", "Real", "target"], msg: "missing" },
+  { loc: ["variables", "b", "Pseudo", "bogus"], msg: "extra" },
+  { loc: ["steps", 0, "corners", 1], msg: "deep" },
+  { loc: [], msg: "whole" },
+];
+console.log(JSON.stringify({
+  picked: vars.items.map((n) => [n.choice.prop, n.choice.tag, n.children.map((c) => c.key)]),
+  range: by(t, "range").kind, roles: [by(t, "roles").kind, by(t, "roles").items.map((n) => n.kind)],
+  stepKeys: step0.children.map((c) => [c.key, c.kind, c.extra]),
+  placed: F.placeErrors(t, errs),
+  refused: F.addItem(D, ["roles"], { type: "string" }, S, "cam") === D,
+  addedKey: F.addItem(D, ["roles"], { type: "string" }, S, "dog").roles,
+  unknown: [F.strictest("operator", "wizard"), F.strictest("wizard", "code"), F.diff(D, F.setAt(D, ["odd"], "x"), S).tier],
+  tiers: {
+    removeItem: F.diff(D, F.removeAt(D, ["grants", 0]), S).changes.map((c) => [c.path, c.op, c.tier]),
+    addItem: F.diff(D, F.addItem(D, ["grants"], S.$defs.Grant, S), S).tier,
+    switchVariant: F.diff(D, F.setAt(D, ["variables", "a"], { kind: "pseudo", expr: "1" }), S).changes.map((c) => [c.path, c.op, c.tier]),
+    insideVariant: F.diff(D, F.setAt(D, ["variables", "a", "target"], "U_S2V:Current"), S).changes.map((c) => [c.path, c.tier]),
+  },
+}));
+"""
+
+
+@pytest.fixture(scope="module")
+def shapes() -> dict:
+    return _node(_SHAPES, json.dumps([SHAPES, SHAPES_DOC]))
+
+
+def test_an_undiscriminated_union_is_picked_by_its_structure(shapes: dict) -> None:
+    # no discriminator and no const: the enum value and the closed key set pick the variant
+    assert shapes["picked"] == [[None, "Real", ["kind", "target", "word"]], [None, "Pseudo", ["kind", "expr", "owner"]]]  # fmt: skip
+
+
+def test_a_union_with_a_structured_member_is_json_and_maps_and_open_objects_show_every_key(shapes: dict) -> None:  # fmt: skip
+    assert shapes["range"] == "json"
+    assert shapes["roles"] == ["map", ["string"]]  # one patternProperties is a map
+    # an open object's undeclared keys are drawn, never hidden
+    assert shapes["stepKeys"] == [["step", "string", False], ["x", "any", True], ["corners", "any", True], ["label", "any", True]]  # fmt: skip
+
+
+def test_errors_walk_to_the_nearest_drawn_node(shapes: dict) -> None:
+    assert shapes["placed"] == {
+        "variables.a.target": "missing",  # the variant's class name skipped
+        "variables.b": "extra",  # a key never drawn: its nearest drawn node
+        "steps.0.corners": "deep",  # below a JSON value: the value
+        "": "whole",
+    }
+
+
+def test_an_existing_map_key_is_refused(shapes: dict) -> None:
+    assert shapes["refused"] is True
+    assert shapes["addedKey"] == {"cam": "camera", "dog": ""}
+
+
+def test_an_unknown_tier_ranks_strictest(shapes: dict) -> None:
+    assert shapes["unknown"] == ["wizard", "wizard", "wizard"]
+
+
+def test_a_whole_subtree_takes_the_strictest_tier_inside_it(shapes: dict) -> None:
+    t = shapes["tiers"]
+    assert t["removeItem"] == [[["grants", 0], "remove", "maintainer"]]
+    assert t["addItem"] == "maintainer"
+    assert t["switchVariant"] == [
+        [["variables", "a"], "change", "maintainer"]
+    ]  # Pseudo has a maintainer field
+    assert t["insideVariant"] == [[["variables", "a", "target"], "operator"]]
+
+
+_TOUCH = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const fire = (c, text) => { c.value = text; (c.on.input || c.on.change)({ target: c }); };
+const host = el("div"), form = F.mount(host, { schema: S, value: D });
+const controls = () => walk(host, (n) => ["INPUT", "SELECT", "TEXTAREA"].includes(n.tagName) && n.attrs.disabled === undefined && n.attrs["aria-label"] !== "new key");
+// every enabled control touched with the text it shows: nothing changes
+controls().forEach((c) => fire(c, c.tagName === "TEXTAREA" ? c.textContent : c.value));
+const out = { touched: controls().length, noop: [F.equal(form.value(), D), F.diff(D, form.value(), S).changes] };
+// type, then erase: the stored state comes back (absent stays absent, null stays null)
+["note", "trigger", "count"].forEach((p) => { const c = control(at(host, p)); fire(c, "7"); fire(c, ""); });
+out.erased = [form.value(), F.diff(D, form.value(), S).changes];
+// bad JSON: the field is invalid, the document keeps its last good value
+const range = control(at(host, "range"));
+fire(range, "[3, 6, ");
+out.badJson = [form.invalid(), form.value().range, range.attrs["aria-invalid"]];
+fire(range, "[3, 7]");
+out.goodJson = [form.invalid(), form.value().range];
+// errors draw: a banner at the top and on an item panel
+form.setErrors([{ loc: [], msg: "whole" }, { loc: ["grants", 0], msg: "bad grant" }]);
+out.banners = walk(host, (n) => n.attrs.class === "banner").map((n) => n.textContent);
+// an existing key in "new key" is refused at the control
+const keyIn = walk(at(host, "roles"), (n) => n.attrs["aria-label"] === "new key")[0];
+keyIn.value = "cam"; button(at(host, "roles"), "Add").on.click();
+out.keyRefused = [keyIn.attrs["aria-invalid"], Object.keys(form.value().roles)];
+console.log(JSON.stringify(out));
+"""
+)
+
+
+@pytest.fixture(scope="module")
+def touched() -> dict:
+    return _node(_TOUCH, json.dumps([SHAPES, SHAPES_DOC]))
+
+
+def test_a_no_op_touch_of_every_control_changes_nothing(touched: dict) -> None:
+    assert touched["touched"] > 10
+    assert touched["noop"] == [
+        True,
+        [],
+    ]  # the "4.0" word, [3, 6] and the step parameters survive
+
+
+def test_an_emptied_optional_returns_to_the_stored_state(touched: dict) -> None:
+    value, changes = touched["erased"]
+    assert changes == [] and value["trigger"] is None and "note" not in value and "count" not in value  # fmt: skip
+
+
+def test_json_that_does_not_parse_is_invalid_and_keeps_the_last_good_value(touched: dict) -> None:  # fmt: skip
+    assert touched["badJson"] == [["range"], [3, 6], "true"]
+    assert touched["goodJson"] == [[], [3, 7]]
+
+
+def test_errors_show_as_banners_and_existing_keys_are_refused(touched: dict) -> None:
+    assert touched["banners"] == ["whole", "bad grant"]
+    assert touched["keyRefused"] == ["true", ["cam"]]
+
+
+_ROUND2 = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const U = S.properties.variables.additionalProperties;
+const pickedTag = (doc, key) => F.tree(S, doc).children.find((c) => c.key === "variables").items.find((n) => n.key === key).choice.tag;
+const toPseudo = F.choose(D, ["variables", "a"], U, "Pseudo", S), toReal = F.choose(D, ["variables", "b"], U, "Real", S);
+const out = {
+  toPseudo: [toPseudo.variables.a, pickedTag(toPseudo, "a")],
+  toReal: [toReal.variables.b, pickedTag(toReal, "b")],
+  tiers: {
+    switchToPseudo: F.diff(D, toPseudo, S).tier, switchToReal: F.diff(D, toReal, S).tier,
+    addReal: F.diff(D, F.setAt(D, ["variables", "c"], { kind: "real", target: "X" }), S).tier,
+    addPseudo: F.diff(D, F.setAt(D, ["variables", "c"], { kind: "pseudo", expr: "1" }), S).tier,
+  },
+  otherAlone: F.placeErrors(F.tree(S, D), [{ loc: ["variables", "a", "Pseudo", "expr"], msg: "pseudo wants expr" }]),
+  otherDropped: F.placeErrors(F.tree(S, D), [{ loc: ["variables", "a", "Pseudo", "expr"], msg: "pseudo wants expr" }, { loc: ["variables", "a", "Real", "target"], msg: "bad target" }]),
+};
+const host = el("div"), form = F.mount(host, { schema: S, value: D });
+const fire = (c, text) => { c.value = text; c.textContent = text; c.on.input({ target: c }); };
+fire(control(at(host, "range")), "[1, ");
+button(at(host, "grants"), "Add").on.click();  // a redraw elsewhere
+const range = control(at(host, "range"));
+out.kept = [range.textContent, range.attrs["aria-invalid"], form.invalid()];
+fire(control(at(host, "rows.0")), "[oops");
+out.beforeRemove = form.invalid().sort();
+button(at(host, "rows.0"), "Remove").on.click();  // rows.0 is gone: its unparsed text with it
+out.afterRemove = [form.invalid(), form.value().rows];
+console.log(JSON.stringify(out));
+"""
+)
+
+
+@pytest.fixture(scope="module")
+def round2() -> dict:
+    return _node(_ROUND2, json.dumps([SHAPES, SHAPES_DOC]))
+
+
+def test_a_variant_switch_fits_the_chosen_variant_never_a_hybrid(round2: dict) -> None:
+    assert round2["toPseudo"] == [
+        {"kind": "pseudo", "expr": ""},
+        "Pseudo",
+    ]  # kind: "real" not carried
+    assert round2["toReal"] == [
+        {"kind": "real", "target": ""},
+        "Real",
+    ]  # expr, owner not carried
+
+
+def test_a_switch_takes_the_two_variants_tiers_an_add_the_fitted_ones(
+    round2: dict,
+) -> None:
+    assert round2["tiers"] == {"switchToPseudo": "maintainer", "switchToReal": "maintainer", "addReal": "operator", "addPseudo": "maintainer"}  # fmt: skip
+
+
+def test_an_error_for_an_undrawn_variant_goes_to_the_union_or_is_dropped(
+    round2: dict,
+) -> None:
+    assert round2["otherAlone"] == {"variables.a": "pseudo wants expr"}
+    assert round2["otherDropped"] == {"variables.a.target": "bad target"}
+
+
+def test_unparsed_text_survives_a_redraw_and_goes_with_its_field(round2: dict) -> None:
+    assert round2["kept"] == ["[1, ", "true", ["range"]]
+    assert round2["beforeRemove"] == ["range", "rows.0"]
+    assert round2["afterRemove"] == [["range"], [[2]]]
+
+
+# ---------------------------------------------------------------------------
+# The layout hints and the choice affordances a recipe's editor needs: a schema
+# shaped as the configurator serves an analysis recipe (the analysis core's
+# registry as discriminated unions, each variant's x-ndim, x-docs and x-scalars;
+# the configurator's x-sections and x-ndim-from; an ROI's x-axes).
+
+DOCS = "https://example.invalid/reference#"
+RECIPE = {
+    "title": "Recipe",
+    "type": "object",
+    "tier": "operator",
+    "x-sections": [
+        {
+            "title": "Source",
+            "keys": ["device", "input", "label"],
+            "gist": ["device", "input"],
+            "note": "reads {input.folder|device}/",
+            "advanced": {"title": "Naming", "keys": ["label"]},
+        },  # fmt: skip
+        {"title": "Steps", "keys": ["steps"], "help": "In order."},
+        {"title": "Measure", "keys": ["measure"]},
+    ],
+    "x-ndim-from": {
+        "path": ["input", "kind"],
+        "values": {"camera": 2, "line": 1},
+        "names": {"1": "traces", "2": "images"},
+    },  # fmt: skip
+    "$defs": {
+        "Camera": {
+            "type": "object",
+            "properties": {
+                "kind": {"const": "camera", "type": "string"},
+                "folder": {
+                    "anyOf": [{"type": "string"}, {"type": "null"}],
+                    "default": None,
+                },
+            },
+            "required": ["kind"],
+        },  # fmt: skip
+        "Line": {
+            "type": "object",
+            "properties": {"kind": {"const": "line", "type": "string"}},
+            "required": ["kind"],
+        },  # fmt: skip
+        "Roi": {
+            "type": "object",
+            "description": "Bounds per axis.",
+            "x-ndim": [1, 2],
+            "x-docs": DOCS + "step-roi",
+            "properties": {
+                "step": {"const": "roi", "type": "string"},
+                "bounds": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "x-axes": {"1": ["x"], "2": ["y", "x"]},
+                    "items": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "prefixItems": [
+                            {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                            {"anyOf": [{"type": "number"}, {"type": "null"}]},
+                        ],
+                    },  # fmt: skip
+                },
+            },
+            "required": ["bounds"],
+        },
+        "Median": {
+            "type": "object",
+            "x-ndim": [1, 2],
+            "properties": {
+                "step": {"const": "median", "type": "string"},
+                "kernel": {"type": "integer", "default": 3},
+            },
+        },  # fmt: skip
+        "Rotate": {
+            "type": "object",
+            "x-ndim": [2],
+            "properties": {
+                "step": {"const": "rotate", "type": "string"},
+                "angle": {"type": "number", "default": 0},
+            },
+        },  # fmt: skip
+        "Derivative": {
+            "type": "object",
+            "x-ndim": [1],
+            "properties": {"step": {"const": "derivative", "type": "string"}},
+        },  # fmt: skip
+        "Beam": {
+            "type": "object",
+            "description": "Beam statistics.",
+            "x-ndim": [2],
+            "x-docs": DOCS + "measure-beam",
+            "x-scalars": {"x_mean": "centroid", "y_mean": "centroid"},
+            "properties": {"kind": {"const": "beam", "type": "string"}},
+        },  # fmt: skip
+        "LineM": {
+            "type": "object",
+            "x-ndim": [1],
+            "properties": {"kind": {"const": "line", "type": "string"}},
+        },  # fmt: skip
+    },
+    "properties": {
+        "schema_version": {"type": "integer", "default": 3},
+        "device": {"type": "string"},
+        "label": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None},
+        "input": {
+            "discriminator": {"propertyName": "kind"},
+            "oneOf": [{"$ref": "#/$defs/Camera"}, {"$ref": "#/$defs/Line"}],
+        },  # fmt: skip
+        "steps": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+                "discriminator": {"propertyName": "step"},
+                "oneOf": [
+                    {"$ref": "#/$defs/Roi"},
+                    {"$ref": "#/$defs/Median"},
+                    {"$ref": "#/$defs/Rotate"},
+                    {"$ref": "#/$defs/Derivative"},
+                ],
+            },  # fmt: skip
+        },
+        "measure": {
+            "discriminator": {"propertyName": "kind"},
+            "oneOf": [{"$ref": "#/$defs/Beam"}, {"$ref": "#/$defs/LineM"}],
+        },  # fmt: skip
+        "pair": {
+            "anyOf": [
+                {
+                    "type": "array",
+                    "prefixItems": [{"type": "number"}, {"type": "number"}],
+                    "minItems": 2,
+                    "maxItems": 2,
+                },
+                {"type": "null"},
+            ],
+            "default": None,
+        },  # fmt: skip
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "start": {
+            "type": "array",
+            "prefixItems": [{"type": "integer"}, {"type": "integer"}],
+            "minItems": 2,
+            "maxItems": 2,
+            "default": [87, 64],
+        },  # fmt: skip
+        "ref": {"type": "string", "x-suggest": ["UC_A", "UC_B"]},
+        "extra": {"type": "object", "properties": {"x": {"type": "number"}}},
+        "notes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["device", "input"],
+}
+RECIPE_DOC = {
+    "device": "UC_Cam",
+    "input": {"kind": "camera"},
+    "steps": [
+        {"step": "roi", "bounds": [[10, 200], [5, 300]]},
+        {"step": "median", "kernel": 5},
+    ],  # fmt: skip
+    "measure": {"kind": "beam"},
+    "tags": ["a", "b"],
+}
+
+_LAYOUT = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const fire = (c, text) => { c.value = text; (c.on.input || c.on.change)({ target: c }); };
+const opts = (sel) => sel.children.filter((o) => o.tagName === "OPTION").map((o) => o.textContent);
+const sections = (h) => walk(h, (n) => n.tagName === "DETAILS" && (n.attrs.class || "").includes("section"));
+const host = el("div"), form = F.mount(host, { schema: S, value: D });
+const out = {};
+// sections: titled, closed, each with its gist; keys no section names follow them
+out.sections = sections(host).map((d) => [d.attrs["data-section"], d.attrs.open !== undefined, walk(d, (n) => n.attrs.class === "gist")[0].textContent]);
+out.rest = ["pair", "tags", "ref", "extra", "notes"].map((p) => !!at(host, p));
+out.note = walk(host, (n) => n.attrs.class === "dim mono")[0].textContent;
+// a union list item: closed, its choice in the header, its gist beside it
+const step0 = at(host, "steps.0"), header0 = step0.children[0], body0 = step0.children[1];
+out.step0 = [body0.attrs.hidden !== undefined, control(header0).value, walk(header0, (n) => n.attrs.class === "gist")[0].textContent];
+// the choices fit the document's frames, each named with the frames it is for when it fits one kind
+out.stepChoices = opts(control(header0));
+out.adder = opts(walk(host, (n) => n.attrs["aria-label"] === "add a step")[0]);
+// the measure: its variant's help, its reference, the scalars it can write
+const measure = sections(host)[2];
+out.measure = [opts(control(measure)), walk(measure, (n) => n.tagName === "A")[0].attrs.href, walk(measure, (n) => n.tagName === "SUMMARY" && n.textContent.startsWith("Can write"))[0].textContent];
+// an ROI's bounds: one named row per axis, a pair per row
+out.rows = walk(step0, (n) => n.attrs.class === "field" && (n.attrs["data-path"] || "").startsWith("steps.0.bounds.")).map((f) => [f.children[0].textContent, walk(f, (n) => n.tagName === "INPUT").map((i) => i.value)]);
+// open the item: its body shows, and stays open across a redraw elsewhere and a move
+button(header0, "▸").on.click();
+out.opened = body0.attrs.hidden === undefined;
+const add = walk(host, (n) => n.attrs["aria-label"] === "add a step")[0];
+add.value = "rotate"; add.on.change({ target: add });
+out.added = [form.value().steps.map((s) => s.step), form.value().steps[2]];
+const isOpen = (p) => at(host, p).children[1].attrs.hidden === undefined;
+out.openAfterAdd = [isOpen("steps.0"), isOpen("steps.1"), isOpen("steps.2")];
+button(at(host, "steps.1"), "Up").on.click();  // median moves above roi: roi's open state goes with it
+out.openAfterMove = [form.value().steps.map((s) => s.step), isOpen("steps.0"), isOpen("steps.1")];
+// a trace recipe: the image-only steps leave the choices, and an ROI is one row, x
+fire(control(at(host, "input")), "line");
+const roiNow = at(host, "steps.1");
+out.lineChoices = opts(control(roiNow.children[0]));
+out.lineRows = walk(roiNow, (n) => n.attrs.class === "field" && (n.attrs["data-path"] || "").startsWith("steps.1.bounds.")).map((f) => f.children[0].textContent);
+// a trace recipe's one-pair ROI: one row, x
+const host3 = el("div"); F.mount(host3, { schema: S, value: Object.assign({}, D, { input: { kind: "line" }, steps: [{ step: "roi", bounds: [[1, 9]] }] }) });
+out.traceRows = walk(at(host3, "steps.0"), (n) => n.attrs.class === "field" && (n.attrs["data-path"] || "").startsWith("steps.0.bounds.")).map((f) => f.children[0].textContent);
+// an emptied ROI fills its rows as typed: x's pair at index 1, y's left open
+const host2 = el("div"), form2 = F.mount(host2, { schema: S, value: Object.assign({}, D, { steps: [{ step: "roi", bounds: [] }] }) });
+const xLow = walk(at(host2, "steps.0.bounds.1"), (n) => n.tagName === "INPUT")[0];
+fire(xLow, "5");
+out.padded = form2.value().steps[0].bounds;
+// a tuple of its own: one field, its pair; untouched or emptied it stays absent
+const pair = walk(at(host2, "pair"), (n) => n.tagName === "INPUT");
+fire(pair[0], ""); out.pairUntouched = "pair" in form2.value();
+fire(pair[1], "7"); out.pairTyped = form2.value().pair;
+fire(pair[1], ""); out.pairEmptied = "pair" in form2.value();
+// a set optional pair: emptied it is unset (null), and its Clear unsets it too
+const host4 = el("div"), form4 = F.mount(host4, { schema: S, value: Object.assign({}, D, { pair: [1, 2] }) });
+const set = walk(at(host4, "pair"), (n) => n.tagName === "INPUT");
+fire(set[0], ""); fire(set[1], "");
+out.pairSetEmptied = form4.value().pair;
+const host5 = el("div"), form5 = F.mount(host5, { schema: S, value: Object.assign({}, D, { pair: [1, 2] }) });
+button(at(host5, "pair"), "Clear").on.click();
+out.pairCleared = form5.value().pair;
+// a defaulted pair that is not nullable: emptied, it is absent (its default), as an emptied word is
+const host6 = el("div"), form6 = F.mount(host6, { schema: S, value: Object.assign({}, D, { start: [1, 2] }) });
+const st = walk(at(host6, "start"), (n) => n.tagName === "INPUT");
+fire(st[0], ""); fire(st[1], "");
+out.startEmptied = "start" in form6.value();
+// a list of words: each a field with its tools, not a panel
+out.tags = [at(host, "tags.0").attrs.class, !!button(at(host, "tags.1"), "Up"), !!button(at(host, "tags.0"), "Remove")];
+// a word with suggestions offers them
+const ref = control(at(host, "ref"));
+out.suggest = [ref.attrs.list, walk(at(host, "ref"), (n) => n.tagName === "DATALIST")[0].children.map((o) => o.attrs.value)];
+// an unset sub-document is a one-line field with Set; an absent list is drawn empty with its adder ready
+out.unset = [at(host, "extra").attrs.class, !!button(at(host, "extra"), "Set")];
+// an empty list's fold stays open: its adder is in view
+out.notesOpen = at(host, "notes").attrs.open !== undefined;
+button(at(host, "notes"), "Add").on.click();
+out.notesAdded = form.value().notes;
+// a list's item has no Clear
+out.itemClear = walk(at(host, "steps.0"), (n) => n.tagName === "BUTTON" && n.textContent === "Clear").length;
+// an error inside a closed section and a closed item opens both
+form.setErrors([{ loc: ["steps", 0, "bounds"], msg: "bad bounds" }]);
+out.errorOpens = [sections(host)[1].attrs.open !== undefined, at(host, "steps.0").children[1].attrs.hidden === undefined];
+console.log(JSON.stringify(out));
+"""
+)
+
+_UNKNOWN = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const host = el("div"), form = F.mount(host, { schema: S, value: D });
+const header = at(host, "steps.0").children[0];
+const sel = control(header);
+console.log(JSON.stringify({
+  selected: sel.value, options: sel.children.map((o) => o.textContent),
+  banner: walk(at(host, "steps.0"), (n) => n.attrs.class === "banner")[0].textContent,
+  kept: walk(at(host, "steps.0"), (n) => n.attrs["data-path"] === "steps.0.size").length,
+  value: form.value().steps[0],
+  note: walk(host, (n) => n.attrs.class === "banner" && n.attrs["data-state"] === "stale").map((n) => n.textContent),
+}));
+"""
+)
+
+_GIST = r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const t = F.tree(S, D), by = (k) => t.children.find((c) => c.key === k);
+console.log(JSON.stringify({
+  steps: F.gist(by("steps"), 2), trace: F.gist(by("steps"), 1),
+  item: F.gist(by("steps").items[1], 2, true), source: F.sectionGist(t, ["device", "input", "label"], 2, ["device", "input"]),
+  empty: F.sectionGist(F.tree(S, { device: "x", input: { kind: "camera" } }), ["pair", "extra"], 2),
+  ndim: [F.ndimOf(S, D), F.ndimOf(S, { input: { kind: "line" } }), F.ndimOf(S, {})],
+  note: F.note("reads {input.folder|device}/ as {label}", D),
+}));
+"""
+
+
+@pytest.fixture(scope="module")
+def laid_out() -> dict:
+    return _node(_LAYOUT, json.dumps([RECIPE, RECIPE_DOC]))
+
+
+def test_sections_fold_closed_with_their_gists(laid_out: dict) -> None:
+    assert laid_out["sections"] == [
+        ["Source", False, "device=UC_Cam · input: camera"],
+        ["Steps", False, "roi y 10–200 x 5–300 → median kernel=5"],
+        ["Measure", False, "beam"],
+    ]
+    assert (
+        laid_out["rest"] == [True] * 5
+    )  # every key no section names is drawn after them
+    assert laid_out["note"] == "reads UC_Cam/"
+
+
+def test_a_choice_list_item_folds_to_its_choice_and_gist(laid_out: dict) -> None:
+    assert laid_out["step0"] == [True, "roi", "y 10–200 x 5–300"]
+    assert laid_out["opened"] is True
+
+
+def test_choices_fit_the_documents_frames_and_name_them(laid_out: dict) -> None:
+    # an image recipe: the trace-only derivative is not offered; rotate fits images only and says so
+    assert laid_out["stepChoices"] == ["roi", "median", "rotate (images)"]
+    assert laid_out["adder"] == ["Add step…", "roi", "median", "rotate (images)"]
+    # a trace recipe: rotate is gone, derivative offered
+    assert laid_out["lineChoices"] == ["roi", "median", "derivative (traces)"]
+
+
+def test_a_choice_shows_its_variants_help_reference_and_scalars(laid_out: dict) -> None:
+    options, href, scalars = laid_out["measure"]
+    assert options == ["beam (images)"]
+    assert href == DOCS + "measure-beam" and scalars == "Can write 2 scalars"
+
+
+def test_an_roi_is_one_named_row_per_axis(laid_out: dict) -> None:
+    assert laid_out["rows"] == [["y", ["10", "200"]], ["x", ["5", "300"]]]
+    assert laid_out["traceRows"] == ["x"]
+    # a trace's ROI that still holds an image's two pairs is an editable list, never rows fixed at the wrong count
+    assert laid_out["lineRows"] == ["#1", "#2"]
+    # typing x on an empty ROI fills y's pair open, never a hole
+    assert laid_out["padded"] == [[None, None], [5, None]]
+
+
+def test_adding_by_choice_opens_the_new_item_and_open_items_move_with_their_place(laid_out: dict) -> None:  # fmt: skip
+    steps, added = laid_out["added"]
+    assert steps == ["roi", "median", "rotate"] and added == {"step": "rotate"}
+    assert laid_out["openAfterAdd"] == [True, False, True]
+    assert laid_out["openAfterMove"] == [["median", "roi", "rotate"], False, True]
+
+
+def test_a_tuple_is_one_field_and_untouched_stays_absent(laid_out: dict) -> None:
+    assert laid_out["pairUntouched"] is False
+    assert laid_out["pairTyped"] == [None, 7]
+    assert (
+        laid_out["pairEmptied"] is False
+    )  # emptied of both members: absent again, as stored
+    # a pair that held a value: emptied, or cleared, it is unset (null), never [null, null]
+    assert laid_out["pairSetEmptied"] is None and laid_out["pairCleared"] is None
+    assert laid_out["startEmptied"] is False
+
+
+def test_light_items_suggestions_and_unset_parts(laid_out: dict) -> None:
+    assert laid_out["tags"] == ["field", True, True]
+    assert laid_out["suggest"][1] == ["UC_A", "UC_B"] and laid_out["suggest"][0]
+    assert laid_out["unset"] == ["field", True]
+    assert laid_out["notesAdded"] == [""]
+    assert laid_out["notesOpen"] is True
+    assert laid_out["itemClear"] == 0
+
+
+def test_an_error_opens_the_folds_it_is_in(laid_out: dict) -> None:
+    assert laid_out["errorOpens"] == [True, True]
+
+
+# ---------------------------------------------------------------------------
+# A pair's errors are SEEN, not only written: kit.css hides every .field .err and
+# shows it only after an invalid control or a pair holding one. ``shown`` below
+# is that rule, read against the drawn DOM; ``test_the_reveal_rule_is_kit_css``
+# holds it to the stylesheet, so a markup change that hides the slot fails here.
+
+_REVEALS = {
+    '.kit .field input[aria-invalid="true"] ~ .err',
+    '.kit .field select[aria-invalid="true"] ~ .err',
+    '.kit .field textarea[aria-invalid="true"] ~ .err',
+    '.kit .field .pair:has(> [aria-invalid="true"]) ~ .err',
+}
+
+_TUPLES = (
+    _DOM
+    + r"""
+const F = require(process.argv[1]);
+const [S, D] = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const fire = (c, text) => { c.value = text; (c.on.input || c.on.change)({ target: c }); };
+const isControl = (n) => ["INPUT", "SELECT", "TEXTAREA"].includes(n.tagName);
+const bad = (n) => n.attrs["aria-invalid"] === "true";
+// kit.css's reveal: an .err is shown when an earlier sibling is an invalid control, or a .pair with one as a child
+const shown = (err) => {
+  const sibs = err.parentNode.children, before = sibs.slice(0, sibs.indexOf(err));
+  return before.some((s) => (isControl(s) && bad(s)) || ((s.attrs.class || "").split(" ").includes("pair") && s.children.some((c) => isControl(c) && bad(c))));
+};
+const slot = (field) => field.children.find((c) => c.attrs.class === "err");
+const seen = (field) => [slot(field).textContent, shown(slot(field))];
+const inputs = (field) => walk(field, (n) => n.tagName === "INPUT");
+const out = {};
+// a member's error and the tuple's own error, placed by the service
+const host = el("div"), form = F.mount(host, { schema: S, value: Object.assign({}, D, { pair: [1, 2] }) });
+form.setErrors([{ loc: ["pair", 0], msg: "not a number" }]);
+out.member = seen(at(host, "pair"));
+form.setErrors([{ loc: ["pair"], msg: "low above high" }]);
+out.whole = [seen(at(host, "pair")), inputs(at(host, "pair")).map(bad)];
+// a member's edit drops the tuple's error (the edit changed it): the slot goes quiet and hides
+fire(inputs(at(host, "pair"))[1], "9");
+out.wholeAfterEdit = [seen(at(host, "pair")), inputs(at(host, "pair")).map(bad)];
+// a member's error stays with that member while the other is edited, and goes with its own edit
+form.setErrors([{ loc: ["pair", 0], msg: "not a number" }]);
+fire(inputs(at(host, "pair"))[1], "8");
+out.otherEdited = [seen(at(host, "pair")), inputs(at(host, "pair")).map(bad)];
+fire(inputs(at(host, "pair"))[0], "3");
+out.ownEdited = [seen(at(host, "pair")), form.value().pair];
+// an ROI bound (a pair in a named row)
+form.setErrors([{ loc: ["steps", 0, "bounds", 1, 0], msg: "below zero" }]);
+out.roi = seen(at(host, "steps.0.bounds.1"));
+// a scalar field's error is shown the same way
+form.setErrors([{ loc: ["device"], msg: "unknown device" }]);
+out.scalar = seen(at(host, "device"));
+// a stored pair with an extra member: a list, each member with its Remove; trimmed, it is a pair again
+const h2 = el("div"), f2 = F.mount(h2, { schema: S, value: Object.assign({}, D, { pair: [1, 2, 3] }) });
+out.longFields = walk(at(h2, "pair"), (n) => n.attrs.class === "field").map((f) => [f.attrs["data-path"], inputs(f)[0].value]);
+out.longAdder = !!button(at(h2, "pair"), "Add");
+const drop = (h, p) => { const f = at(h, p), b = f && button(f, "Remove"); if (b) b.on.click(); return !!b; };
+drop(h2, "pair.2");
+out.trimmed = [f2.value().pair, at(h2, "pair").attrs.class, walk(at(h2, "pair"), (n) => n.attrs.class === "pair").length];
+// an ROI holding an over-long bound: that bound is a list item with its Remove; trimmed, named rows again
+const roi = [{ step: "roi", bounds: [[10, 200, 7], [5, 300]] }];
+const h3 = el("div"), f3 = F.mount(h3, { schema: S, value: Object.assign({}, D, { steps: roi }) });
+out.roiLong = [!!at(h3, "steps.0.bounds.0.2"), drop(h3, "steps.0.bounds.0.2")];
+out.roiTrimmed = [f3.value().steps[0].bounds, walk(at(h3, "steps.0"), (n) => n.attrs.class === "field" && (n.attrs["data-path"] || "").startsWith("steps.0.bounds.")).map((f) => f.children[0].textContent)];
+// a stored pair one member short: a pair, its missing member open; typing it fills the pair
+const h4 = el("div"), f4 = F.mount(h4, { schema: S, value: Object.assign({}, D, { pair: [1] }) });
+out.short = inputs(at(h4, "pair")).map((i) => i.value);
+fire(inputs(at(h4, "pair"))[1], "4");
+out.shortFilled = f4.value().pair;
+console.log(JSON.stringify(out));
+"""
+)
+
+
+@pytest.fixture(scope="module")
+def tuples() -> dict:
+    return _node(_TUPLES, json.dumps([RECIPE, RECIPE_DOC]))
+
+
+def _shows(decls: list) -> bool:
+    return any(name == "display" and "".join(t.serialize() for t in value).strip() == "block" for name, value in decls)  # fmt: skip
+
+
+def test_the_reveal_rule_is_kit_css() -> None:
+    css = (static_dir() / "kit.css").read_text()
+    reveals = {
+        part.strip()
+        for selector, decls in css_rules(css)
+        for part in selector_parts(selector)
+        if part.strip().endswith("~ .err") and _shows(decls)
+    }
+    assert reveals == _REVEALS
+
+
+def test_a_pairs_errors_are_shown(tuples: dict) -> None:
+    assert tuples["member"] == ["not a number", True]
+    # the tuple's own error marks every member, so the slot shows
+    assert tuples["whole"] == [["low above high", True], [True, True]]
+    assert tuples["wholeAfterEdit"] == [["", False], [False, False]]
+    assert tuples["otherEdited"] == [["not a number", True], [True, False]]
+    assert tuples["ownEdited"] == [["", False], [3, 8]]
+    assert tuples["roi"] == ["below zero", True]
+    assert tuples["scalar"] == ["unknown device", True]
+
+
+def test_a_pair_holding_too_many_members_can_be_repaired(tuples: dict) -> None:
+    assert tuples["longFields"] == [["pair.0", "1"], ["pair.1", "2"], ["pair.2", "3"]]  # fmt: skip
+    assert tuples["longAdder"] is False  # at its maxItems already
+    assert tuples["trimmed"] == [[1, 2], "field", 1]
+    assert tuples["roiLong"] == [True, True]
+    assert tuples["roiTrimmed"] == [[[10, 200], [5, 300]], ["y", "x"]]
+
+
+def test_a_pair_short_a_member_fills_as_typed(tuples: dict) -> None:
+    assert tuples["short"] == ["1", ""]
+    assert tuples["shortFilled"] == [1, 4]
+
+
+def test_an_unknown_choice_is_kept_as_written_and_said() -> None:
+    doc = {**RECIPE_DOC, "steps": [{"step": "rio", "size": 3}]}
+    schema = {**RECIPE, "x-form-note": "plainer here"}
+    got = _node(_UNKNOWN, json.dumps([schema, doc]))
+    assert got["selected"] == "rio" and got["options"][-1] == "rio (unknown)"
+    assert 'Unknown step "rio"' in got["banner"] and got["kept"] == 1
+    assert got["value"] == {
+        "step": "rio",
+        "size": 3,
+    }  # never redrawn as the first registered step
+    assert got["note"] == [
+        "plainer here"
+    ]  # the root's x-form-note says why the form is plainer
+
+
+def test_gists_and_the_documents_frames() -> None:
+    got = _node(_GIST, json.dumps([RECIPE, {**RECIPE_DOC, "label": "L"}]))
+    assert got["steps"] == "roi y 10–200 x 5–300 → median kernel=5"
+    assert (
+        got["trace"] == "roi bounds=[[10,200],[5,300]] → median kernel=5"
+    )  # two pairs do not name a trace's one axis
+    assert got["item"] == "kernel=5"
+    assert got["source"] == "device=UC_Cam · input: camera"
+    assert got["empty"] == "defaults"
+    assert got["ndim"] == [2, 1, None]
+    assert got["note"] == "reads UC_Cam/ as L"

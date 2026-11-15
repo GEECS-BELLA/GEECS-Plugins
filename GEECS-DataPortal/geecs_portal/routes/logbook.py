@@ -102,9 +102,9 @@ def run_logbook_send(
 ) -> JSONResponse:
     """Put one image — a rendered plot, or a run's artifact — into this scan's entry.
 
-    The portal's **third** write verb (after the analysis runs and the
-    config editor) and, like them, an explicit act: nothing is sent
-    that a person (or, through the MCP server, an agent) did not ask
+    The portal's **second** write verb (after the analysis runs; the
+    analysis documents' saves are the configurator's) and, like it, an
+    explicit act: nothing is sent that a person (or, through the MCP server, an agent) did not ask
     for.  It writes to the logbook's own service through that service's
     public API, and touches neither the scans tree nor any portal state
     (an artifact source is READ off the analysis tree, nothing more).

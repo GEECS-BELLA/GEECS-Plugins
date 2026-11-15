@@ -61,7 +61,9 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   still asks for `acquisition: gated` is refused with the reason, never
   run as something else. Press
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
-  The current form can be saved back as a preset (**Save as preset…**).
+  The current form can be saved back as a preset (**Save as preset…**):
+  the configurator commits it to the configs repo under the operator's
+  name (fill in the operator field first).
 - **Queue** — three sections, each one folding: **Ongoing** (the running
   item), **Waiting** (in execution order, each with **Remove**) and
   **History** (newest first, with the scan number and who started it);
@@ -77,9 +79,15 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   setpoint) with the reading's age; enter a value and **Move** queues a
   single move. Moves run only while the queue is idle — the panel's chip
   says `idle`, `a plan is running` or `items wait in the queue`.
-- **Actions** — the experiment's action library: pick a plan, preview
-  every step (nested plans inlined), **Arm**, then **Run**. Arming is never
-  remembered — it is asked for on every run. Idle only.
+- **Setups** — the experiment's setups (named device states): pick one,
+  preview every step (nested setups inlined, hazard steps marked), **Arm**,
+  then **Apply**. The scanner then asks you to confirm the setup's writes
+  and each hazard step before it queues one `apply_setup` item. Arming is
+  never remembered — it is asked for on every apply. Idle only. A device
+  the setup writes or checks that reads disconnected refuses the setup
+  before anything is written; one that drops off during the setup fails
+  the next check on it, naming the writes already made. (A native EPICS
+  motor has no disconnected reading yet, so it is not judged.)
 - **Calibration** — the stored per-device shot offsets, with **Check** and
   **Measure** verbs over the devices in the New scan table and the chosen
   trigger profile. Idle only.
@@ -112,7 +120,7 @@ preset submitted from a notebook through `geecs_bluesky.qs_client` — or
 through the page's own JSON API, `POST /api/submit` — behaves exactly as
 one submitted from the form.
 
-![The queue, and the Devices · move, Actions and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
+![The queue, and the Devices · move, Setups and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
 
 ## Where the data lands
 
@@ -139,7 +147,7 @@ The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.
   fix (the readiness unit reopens it); the page cannot do it.
 - **`doc stream` chip down while a scan runs** — the page still shows the
   queue's state, but no shot-by-shot progress. Scans are unaffected.
-- **Move, Actions and Calibration are held** — the move chip reads
+- **Move, Setups and Calibration are held** — the move chip reads
   `a plan is running` or `items wait in the queue`; they open again when
   the queue is idle.
 - **The scan folder is missing data** — start at the scan's `scan.log`

@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "DerivedChannel": {
+      "additionalProperties": false,
+      "description": "One read-only float PV computed from a numeric expression.\n\nThe output PV is named from ``device`` and ``variable`` using the gateway's\nusual PV normalization, with the experiment prefix supplied by the gateway\nlaunch config unless this entry overrides it.",
+      "properties": {
+        "device": {
+          "description": "Device component of the output PV, e.g. 'U_ChamberVac' for 'undulator:u_chambervac:pressure'. This may be semantic and does not need to be a real GEECS hardware device.",
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "Variable component of the output PV, e.g. 'Pressure'. The gateway normalizes it using the same rules as raw GEECS variables.",
+          "title": "Variable",
+          "type": "string"
+        },
+        "expression": {
+          "description": "Numeric formula for the output value, using input symbols and the gateway's restricted arithmetic subset. Example: '10**(v - 5)'.",
+          "minLength": 1,
+          "title": "Expression",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Input variables available to the expression. Inputs from one source device are frame-coherent; inputs spanning devices use latest-value semantics and require stale_after.",
+          "items": {
+            "$ref": "#/$defs/DerivedInput"
+          },
+          "minItems": 1,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "stale_after": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum input age in seconds for latest-value derived channels. Required when inputs span more than one source device. Leave unset for same-device frame-coherent expressions.",
+          "title": "Stale After"
+        },
+        "experiment": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional experiment prefix override for the output PV. Leave unset to use the gateway's launched experiment.",
+          "title": "Experiment"
+        },
+        "pv": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional explicit output PV variable component. Leave unset to use the 'variable' field.",
+          "title": "Pv"
+        },
+        "egu": {
+          "default": "",
+          "description": "Engineering units displayed by CA clients, e.g. 'Torr'.",
+          "title": "Egu",
+          "type": "string"
+        },
+        "precision": {
+          "default": 3,
+          "description": "Number of decimal places CA clients should display.",
+          "minimum": 0,
+          "title": "Precision",
+          "type": "integer"
+        },
+        "lo": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional lower display limit for the output PV. This is metadata only; it is not an alarm or control limit.",
+          "title": "Lo"
+        },
+        "hi": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional upper display limit for the output PV. This is metadata only; it is not an alarm or control limit.",
+          "title": "Hi"
+        },
+        "deadband": {
+          "default": 0.0,
+          "description": "Monitor deadband for the computed float value. Leave at 0.0 to post every changed value and suppress only exact repeats.",
+          "minimum": 0,
+          "title": "Deadband",
+          "type": "number"
+        },
+        "description": {
+          "default": "",
+          "description": "Operator-facing note describing what the derived PV represents, for example the gauge model or calibration provenance.",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "device",
+        "variable",
+        "expression",
+        "inputs"
+      ],
+      "title": "DerivedChannel",
+      "type": "object"
+    },
+    "DerivedInput": {
+      "additionalProperties": false,
+      "description": "One source variable bound to a symbol in a derived-channel formula.",
+      "properties": {
+        "symbol": {
+          "description": "Python-style symbol used in the expression, e.g. 'v' for a voltage input. Must be a valid identifier and must not shadow a reserved math function or constant.",
+          "title": "Symbol",
+          "type": "string"
+        },
+        "device": {
+          "description": "GEECS source device that provides this input variable, e.g. 'U_DaqPad1'. Inputs may span devices only when the derived channel declares stale_after.",
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "GEECS source variable on the input device, e.g. 'Analog Input 10'. The gateway subscribes to it even if it is not exposed as its own raw readback PV.",
+          "title": "Variable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "symbol",
+        "device",
+        "variable"
+      ],
+      "title": "DerivedInput",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A file of computed read-only PVs for the CA gateway.\n\nLoad this file at gateway startup to add semantic, derived readbacks on top\nof the raw GEECS database-driven PV set.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "derived_channels": {
+      "description": "Derived PVs to expose. Each entry computes one read-only float PV from numeric push-frame values. Cross-device entries use latest-value semantics with stale_after.",
+      "items": {
+        "$ref": "#/$defs/DerivedChannel"
+      },
+      "title": "Derived Channels",
+      "type": "array"
+    }
+  },
+  "tier": "maintainer",
+  "title": "DerivedChannels",
+  "type": "object"
+}

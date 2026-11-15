@@ -166,11 +166,11 @@ def build_app(module: Module, *, read_access: Callable[..., Any], squirrel_trans
 
 
 def _action_routes(app: FastAPI, actions: Executor, read: list[Any], read_access: Callable[..., Any]) -> None:  # fmt: skip
-    """The action plans: the list, a run's start, its state and its stop; read access, as every route."""
+    """The setups a screen button applies: the list, a run's start, its state and its stop; read access, as every route."""
     app.state.actions = actions
 
     @app.get("/v1/actions", dependencies=read)
-    async def action_plans() -> Any:
+    async def setup_list() -> Any:
         return {"plans": await actions.listing()}
 
     @app.post("/v1/actions/{name}/run")

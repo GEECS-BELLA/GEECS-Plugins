@@ -43,12 +43,13 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--config-editor",
-        action="store_true",
+        "--configurator-browser-url",
+        default="",
         help=(
-            "mount the analysis config editor at /configs over the "
-            "--processing-configs tree (a WRITE verb: saves YAML into that "
-            "tree; live preview on the scan page). Needs the analysis extra."
+            "the configurator as the browser reaches it (a site value, e.g. "
+            "http://<services host>:8800): the Analysis tab's edit opens the "
+            "document in its embedded editor, with this portal's preview; the "
+            "configurator lists this portal's origin in its CORS origins"
         ),
     )
     parser.add_argument(
@@ -101,8 +102,8 @@ def main() -> None:
         processing_config_dir=(
             Path(args.processing_configs) if args.processing_configs else None
         ),
-        config_editor=args.config_editor,
         logbook_url=args.logbook_url,
+        configurator_url=args.configurator_browser_url,
     )
     uvicorn.run(
         app,

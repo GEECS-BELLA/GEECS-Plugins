@@ -1,0 +1,17 @@
+schema_version: 1
+name: Amp4_DUMP_HP
+steps:
+- do: apply
+  setup: close_gaia_internal_shutters
+- do: set
+  device: U_148_PLC
+  variable: DO.Ch9
+  value: 'off'
+- do: wait
+  seconds: 3.0
+- do: check
+  device: U_148_PLC
+  variable: DI.Ch17
+  expected: 'off'
+- do: apply
+  setup: open_gaia_internal_shutters

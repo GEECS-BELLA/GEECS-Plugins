@@ -1,14 +1,15 @@
 # Web Services
 
-Four pages in a browser cover the day-to-day work at the beamline: watch
-and set the devices, run a scan, look at what it recorded, and write down
-what happened. Nothing is
+Five pages in a browser cover the day-to-day work at the beamline: watch
+and set the devices, run a scan, look at what it recorded, write down
+what happened, and change the configuration. Nothing is
 installed on an operator machine. Each is a service on a fleet host,
 on its own port, so each gets its own bookmark:
 `http://<worker-host>:<port>/`. The host and the units behind each
 service are on the [fleet map](../platform/fleet_map.md).
 
-Every page's header carries a **Docs** link back to its page here.
+Every page's header carries a **Docs** link back to its page here, except
+the Configurator's, which does not have one yet.
 
 <div class="grid cards" markdown>
 
@@ -17,7 +18,7 @@ Every page's header carries a **Docs** link back to its page here.
     ---
 
     Run scans. Pick a preset or compose a scan, start it, watch it shot
-    by shot, pause or stop it; move a device, run an action plan, check
+    by shot, pause or stop it; move a device, apply a setup, check
     shot-offset calibration.
 
     [:octicons-arrow-right-24: GEECS Scanner](scanner.md)
@@ -52,10 +53,20 @@ Every page's header carries a **Docs** link back to its page here.
 
     [:octicons-arrow-right-24: Control Room](control_room.md)
 
+-   :material-file-cog:{ .lg .middle } **Configurator** · port 8800
+
+    ---
+
+    Edit the configuration files: trigger profiles, presets, setups,
+    screens, analysis recipes. A save is a commit under your name, or a
+    pull request for the maintainer.
+
+    [:octicons-arrow-right-24: Configurator](configurator.md)
+
 </div>
 
 The ports are the reference deployment's defaults; a site can move them.
 The services talk to each other only through links (the Control Room's
-launcher links to the other three): the portal's
+launcher links to the others): the portal's
 run page links to that scan in the logbook, and the portal's Plot tab can
 send a figure into the scan's log entry.

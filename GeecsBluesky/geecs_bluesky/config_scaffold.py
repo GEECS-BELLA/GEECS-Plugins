@@ -26,7 +26,12 @@ import yaml
 
 from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_core.configs_repo import scanner_configs_base
-from geecs_schemas import ExperimentDefaults, ScanVariables
+from geecs_schemas import (
+    EXPERIMENT_DEFAULTS_FILENAME,
+    SCAN_VARIABLES_FILENAME,
+    ExperimentDefaults,
+    ScanVariables,
+)
 
 
 def scaffold_experiment(
@@ -73,8 +78,8 @@ def scaffold_experiment(
     documents = {
         target
         / ConfigsRepoResolver.SCAN_VARIABLES_FOLDER
-        / "scan_variables.yaml": ScanVariables(variables={}),
-        target / "experiment_defaults.yaml": ExperimentDefaults(),
+        / SCAN_VARIABLES_FILENAME: ScanVariables(variables={}),
+        target / EXPERIMENT_DEFAULTS_FILENAME: ExperimentDefaults(),
     }
     for path, document in documents.items():
         path.write_text(

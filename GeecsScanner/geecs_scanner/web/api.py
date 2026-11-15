@@ -18,8 +18,6 @@ from starlette.concurrency import run_in_threadpool
 
 from geecs_scanner.service.errors import ScannerError
 from geecs_scanner.service.models import (
-    ActionDetailOut,
-    ActionOut,
     CalibrationIn,
     CalibrationOut,
     ConfigListOut,
@@ -34,8 +32,14 @@ from geecs_scanner.service.models import (
     ProgressOut,
     QueueOut,
     ReadbackOut,
+    ReopenIn,
+    ReopenOut,
     SavePresetIn,
     SavePresetOut,
+    SetupApplyIn,
+    SetupDetailOut,
+    SetupDiffOut,
+    SetupOut,
     ScanLogListIn,
     ScanLogListOut,
     ScanLogOut,
@@ -44,6 +48,7 @@ from geecs_scanner.service.models import (
     StatusOut,
     SubmitIn,
     SubmitOut,
+    TriggerProfilePreflightIn,
     VerbIn,
     VerbOut,
 )
@@ -161,8 +166,18 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
 
     @router.post("/api/configs/presets/{name}", response_model=SavePresetOut)
     def save_preset(name: str, body: SavePresetIn) -> SavePresetOut:
-        """Write a preset document to the configs tree (the URL names the file)."""
+        """Save a preset (the URL names the file): a commit to main, through the configurator."""
         return service.save_preset(name, body)
+
+    @router.post("/api/preflight/trigger-profile", response_model=PreflightOut)
+    def preflight_trigger_profile(body: TriggerProfilePreflightIn) -> PreflightOut:
+        """The worker's checks of an unsaved trigger profile (the configurator's dry run); queues nothing."""
+        return service.preflight_trigger_profile(body)
+
+    @router.post("/api/environment/reopen", response_model=ReopenOut)
+    def reopen_environment(body: ReopenIn | None = None) -> ReopenOut:
+        """Close and reopen the worker environment (it re-reads its configs); idle and empty only."""
+        return service.reopen_environment(body or ReopenIn())
 
     @router.get("/api/scan-variables", response_model=list[ScanVariableOut])
     def scan_variables(response: Response) -> list[ScanVariableOut]:
@@ -238,33 +253,39 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
 
     @router.get("/api/readback", response_model=ReadbackOut)
     async def readback(
-        variable: str, response: Response, units: str = ""
+        variable: str, response: Response, units: str = "", word: bool = False
     ) -> ReadbackOut:
-        """One live reading of ``Device:Variable`` over the gateway — the readback, not ``:SP``."""
+        """One live reading of ``Device:Variable`` over the gateway — the readback, not ``:SP``; ``word`` reads it as text."""
         response.headers.update(_NO_CACHE)
-        return await service.readback(variable, units=units)
+        return await service.readback(variable, units=units, word=word)
 
     @router.post("/api/move", response_model=ItemOut)
     def move(body: MoveIn) -> ItemOut:
         """One manual move as an ``mv`` queue item; refused unless idle."""
         return service.move(body)
 
-    @router.get("/api/actions", response_model=list[ActionOut])
-    def actions(response: Response) -> list[ActionOut]:
-        """The action library: names, step counts, nested plans."""
+    @router.get("/api/setups", response_model=list[SetupOut])
+    def setups(response: Response) -> list[SetupOut]:
+        """The experiment's setups: names, step counts, nested setups, who captured them."""
         response.headers.update(_NO_CACHE)
-        return service.actions()
+        return service.setups()
 
-    @router.get("/api/actions/{name}", response_model=ActionDetailOut)
-    def action(name: str, response: Response) -> ActionDetailOut:
-        """The preview: every step the action would run, nested plans inlined."""
+    @router.get("/api/setups/{name}", response_model=SetupDetailOut)
+    def setup(name: str, response: Response) -> SetupDetailOut:
+        """The preview: every step applying it would run, its digest and hazard confirms."""
         response.headers.update(_NO_CACHE)
-        return service.action(name)
+        return service.setup(name)
 
-    @router.post("/api/actions/{name}/run", response_model=ItemOut)
-    def run_action(name: str, body: VerbIn | None = None) -> ItemOut:
-        """Queue ``run_action(name)``; refused unless idle."""
-        return service.run_action(name, body or VerbIn())
+    @router.get("/api/setups/{name}/diff", response_model=SetupDiffOut)
+    async def setup_diff(name: str, response: Response) -> SetupDiffOut:
+        """Its writes against the live readbacks; nothing written."""
+        response.headers.update(_NO_CACHE)
+        return await service.setup_diff(name)
+
+    @router.post("/api/setups/{name}/apply", response_model=ItemOut)
+    def apply_setup(name: str, body: SetupApplyIn | None = None) -> ItemOut:
+        """Queue ``apply_setup(name)``: operator required, questions acknowledged, idle only."""
+        return service.apply_setup(name, body or SetupApplyIn())
 
     @router.get("/api/calibration", response_model=CalibrationOut)
     def calibration(response: Response) -> CalibrationOut:

@@ -22,7 +22,7 @@ between trigger and wait.  It owns:
 - `plans/` — the registered plans (`plan_names.GEECS_PLAN_NAMES`): `count`
   (stock `bp.count` bound strict), `sweep` (a `geecs_schemas.Sweep`
   trajectory through stock `scan_nd`), `optimize` (native Xopt ask/tell),
-  plus the utilities `mv`, `run_action` and the two shot-offset
+  plus the utilities `mv`, `apply_setup` and the two shot-offset
   calibration plans.  `plans/strict.py` is the strict `take_reading` (the
   `SINGLESHOT` fire between the triggers and the wait, plus the bounded
   refire); `plans/registry.py` binds them

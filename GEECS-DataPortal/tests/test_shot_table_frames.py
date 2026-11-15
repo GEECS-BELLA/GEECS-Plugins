@@ -26,7 +26,7 @@ from geecs_data_utils.io.scan_stack import (
 
 from geecs_portal.app import create_app
 from geecs_portal.cache import CachingScanCatalog
-from geecs_portal.routes.config_editor import _stamp_row
+from geecs_portal.routes.analysis_configs import _stamp_row
 
 from fake_tiled import Run, camera, catalog
 from test_app import _LV, _start_doc

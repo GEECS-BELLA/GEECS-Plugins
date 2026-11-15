@@ -60,11 +60,14 @@ without a worker.
 | `GET /api/settables` | every numeric settable of the experiment from the GEECS DB, aliased first; the value is the canonical `Device:Variable` |
 | `GET /api/readback?variable=&units=` | one live reading of the gateway's **readback** PV (never `:SP`): value, stamp, age; `ok: false` when the gateway does not answer |
 | `POST /api/move` | `{variable, value, operator}` → one `mv` queue item; idle-only (409 while a plan runs or anything waits) |
-| `GET /api/actions` · `GET /api/actions/{name}` | the action library; the preview — every step, nested `run` plans inlined |
-| `POST /api/actions/{name}/run` | one `run_action` queue item; idle-only; refused when the preview does not resolve |
+| `GET /api/setups` · `GET /api/setups/{name}` | the experiment's setups; the preview: every step, nested `apply` setups inlined, the digest and the hazard confirms |
+| `GET /api/setups/{name}/diff` | each write against its live readback (`will_change`, `difference`); nothing written |
+| `POST /api/setups/{name}/apply` | `{operator, acknowledged[]}` → one `apply_setup` queue item; idle-only; 409 `needs_acknowledgement` (the writes, each hazard step) until every question is acknowledged |
 | `GET /api/calibration` | the stored `shot_offsets.yaml`, summarized |
 | `POST /api/calibration/check` · `/measure` | `check_shot_sync` / `measure_shot_offsets` queue items over `{devices[], trigger_profile, tolerance_s | shots, write}`; idle-only |
-| `POST /api/configs/presets/{name}` | `{preset, overwrite}` → writes `presets/<name>.yaml` through the resolver (409 `exists` without `overwrite`) |
+| `POST /api/configs/presets/{name}` | `{preset, overwrite, operator}` → `presets/<name>.yaml` committed to the configs repo's main by the configurator (`--configurator-url`) as the operator's; 409 `exists` without `overwrite`, 409 `conflict` when it changed meanwhile; refused with no configurator |
+| `POST /api/preflight/trigger-profile` | `{document, preset?}` → the worker's checks of an **unsaved** trigger profile (the configurator's dry run): the schema, the trigger-box adapter, its devices' liveness; with a preset, that preset's full preflight under the draft. Queues nothing |
+| `POST /api/environment/reopen` | `{operator, reason}` → close and reopen the worker environment so it re-reads trigger profiles, the scan-variable catalogue, the native-device registry and the shot offsets (the configurator's apply). Idle **and** empty only (409 otherwise, and while the environment is closed); held under the service lock; every verb that queues is refused with `reopening` meanwhile, and so is one begun before it that reaches the lock after; the queue is started after if items wait. `/api/status` says `reopening` meanwhile |
 | `GET /api/scanlog?offset=` | the latest run's `scan.log` from the folder the start document names (read-only) |
 | `GET /api/events?since=&once=` | the SSE stream: `status`, `progress`, `log`, `console` |
 

@@ -1,0 +1,25 @@
+schema_version: 1
+name: close_gaia_internal_shutters
+steps:
+- do: set
+  device: U_GaiaSVEReader
+  variable: InternalShutterA
+  value: 0
+- do: wait
+  seconds: 3.0
+- do: set
+  device: U_GaiaSVEReader
+  variable: InternalShutterB
+  value: 0
+- do: wait
+  seconds: 3.0
+- do: check
+  device: U_GaiaSVEReader
+  variable: InternalShutterA
+  expected: 0
+- do: wait
+  seconds: 3.0
+- do: check
+  device: U_GaiaSVEReader
+  variable: InternalShutterB
+  expected: 0

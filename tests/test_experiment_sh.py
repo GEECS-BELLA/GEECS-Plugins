@@ -127,6 +127,19 @@ def test_up_writes_slot_one_and_enables_the_six_instance_units(profile) -> None:
     assert "http://127.0.0.1:8310/" in result.stdout
 
 
+def test_a_new_experiment_folder_is_never_scaffolded_into_the_configurators_checkout(
+    profile, tmp_path: Path
+) -> None:
+    """The live checkout is a worktree: an untracked folder would stop its every fast-forward."""
+    configs = tmp_path / "configs"
+    (configs / ".git").write_text(
+        f"gitdir: {tmp_path / 'repo.git' / 'worktrees' / 'live'}\n"
+    )
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 1 and "pull request" in result.stderr
+    assert list((configs / "scanner_configs" / "experiments").iterdir()) == []
+
+
 def test_the_next_instance_takes_the_next_free_slot(profile) -> None:
     (profile["experiments"] / "First.env").write_text("GEECS_INSTANCE_SLOT=1\n")
     result = _verb(

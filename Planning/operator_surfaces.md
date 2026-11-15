@@ -74,7 +74,7 @@ decision cites a screenshot, it should be for a habit, never an artifact.
 | **Device drill-down** (status, host, IOC, last error, restart) | MC Device tab, the two lists | the home, over IOC heartbeats, the asyn connection flags and the gateway's status PVs |
 | Scan console | MC Variable/Scan scan half, Scan Data | GeecsScanner (exists) |
 | Scan browser, logbook, config editor | Scan Data, DB and Expt editors | portal, logbook, the portal's editor (exist); no DB editor yet |
-| Presets and configurations | Experiment tab | Squirrel (snapshots) and GeecsBluesky action plans (sequences), §5 |
+| Presets and configurations | Experiment tab | Squirrel (snapshots) and setups (sequences), §5 |
 
 Everything that moves a PV goes through the GEECS device module on Canopy
 (operator identity, allow lists, journal, bounds, hazard confirm); the
@@ -125,7 +125,7 @@ One page, kept familiar: title "Master Control" if the operators prefer.
 - **Launcher:** the screens from the configs repo grouped by area, the
   device pages by type with a device picker, the variable inspector, the
   scan console, the portal, the logbook, the config editor.
-- **Presets:** the Squirrel groups and action plans for this experiment,
+- **Presets:** the Squirrel groups and setups for this experiment,
   the active-snapshot verdict, the journal's last commands with operator.
 
 The drill-down is where agents earn their place: a device's row shows its
@@ -137,8 +137,8 @@ action hands the same facts to the facility assistant through GEECS-MCP.
 
 - **Save Live Configuration** = a Squirrel snapshot of the experiment's
   registered PVs. Restore of a group = "send preset" for value sets.
-- **Preset as a macro** (an ordered sequence of sets with waits) = an
-  **action plan**, which GeecsBluesky already runs (`run_action`) and
+- **Preset as a macro** (an ordered sequence of sets with waits) = a
+  setup, which GeecsBluesky applies (`apply_setup`) and
   GEECS-Schemas already describes. The home lists both kinds under one
   "Presets" heading; neither needs a custom implementation.
 - **Set Default** splits into two mechanisms that LabVIEW conflated, and

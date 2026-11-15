@@ -18,7 +18,7 @@ supply's ``current:TOL``), read at every set and kept off the device tree
 before the claim (:func:`native_set_tolerances`).
 
 :class:`NativeSetpoint` is one settable (the Movable child ``mv``, a sweep
-axis and an action's ``set`` step find); :class:`NativeSetpointDevice` is
+axis and a setup's ``set`` step find); :class:`NativeSetpointDevice` is
 the noun, a per-row scalar device.  Not here yet: the liveness gate grown
 by the movers, enum settables, a user offset for pseudos, the scanner's list.
 """

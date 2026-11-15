@@ -2,8 +2,8 @@
 
 A scan request says what kind of scan to run (a sweep, a stand-still
 statistics run, or an optimization), what to sweep and over which positions,
-how many shots to take, what to save, how the trigger is driven, and which
-action plans run around it.  Saved presets *are* scan requests; a multi-scan
+how many shots to take, what to save and how the trigger is driven.  Saved
+presets *are* scan requests; a multi-scan
 queue is a list of them.  You would edit one to save a scan you run often.
 
 Developer notes
@@ -23,9 +23,6 @@ Design decisions carried from the legacy system:
   the scan metadata.
 - ``acquisition`` defaults to ``strict`` to match the engine default
   (``GEECS_BLUESKY_ACQUISITION_MODE``).
-- ``actions.per_step`` exists from day one: "actions between scan steps" is
-  composition (a named plan at the step boundary), never a new plan type —
-  that is this schema's acceptance test.
 - Step scans declare ``axes: [ScanAxis]`` (variable + positions per axis).
   One axis is the legacy 1-D scan; several form an outer-product grid
   (first axis outermost/slowest, last innermost/fastest). The schema is
@@ -248,30 +245,6 @@ class ScanAxis(SchemaModel):
     )
 
 
-class ActionBindings(SchemaModel):
-    """Which named action plans run around (and inside) the scan.
-
-    Each slot lists plan names from the experiment's action library.  Leave
-    a slot empty for "nothing".
-    """
-
-    setup: list[str] = Field(
-        default_factory=list,
-        description="Plans to run once before the scan starts.",
-    )
-    per_step: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Plans to run between scan steps — after each move, before the "
-            "shots at that position."
-        ),
-    )
-    closeout: list[str] = Field(
-        default_factory=list,
-        description="Plans to run once after the scan finishes (even on abort).",
-    )
-
-
 class CaptureSettings(SchemaModel):
     """How shots are taken and what gets recorded — the capture concern.
 
@@ -482,8 +455,8 @@ class ScanRequest(VersionedSchemaModel):
     """One complete scan, ready to submit: what to do, what to save, how to trigger.
 
     Fill in the mode (sweep / stand still), the axis (or axes) to
-    sweep, how many shots per position, and the names of the save sets,
-    trigger profile, and action plans to use.  Saving a request you like
+    sweep, how many shots per position, and the names of the save sets
+    and the trigger profile to use.  Saving a request you like
     *is* a preset.
 
     A step scan may sweep **one axis or several**.  With several axes the
@@ -494,8 +467,8 @@ class ScanRequest(VersionedSchemaModel):
 
     Notes
     -----
-    Name-valued fields (``capture.save_sets``, ``capture.trigger_profile``,
-    entries in ``actions``) are resolved against the experiment's config
+    Name-valued fields (``capture.save_sets``, ``capture.trigger_profile``)
+    are resolved against the experiment's config
     library at submission time; this model checks shape and mode
     consistency, not name existence.  ``capture.save_sets`` is a list — the
     engine resolves each named set and **unions** their devices into the
@@ -547,13 +520,6 @@ class ScanRequest(VersionedSchemaModel):
             "acquisition discipline, save sets, the telemetry toggle and "
             "the trigger profile. Omit for a one-shot strict "
             "capture with no named save sets."
-        ),
-    )
-    actions: ActionBindings = Field(
-        default_factory=ActionBindings,
-        description=(
-            "Named action plans to run before the scan (setup), between "
-            "steps (per_step), and after it (closeout)."
         ),
     )
     description: str = Field(

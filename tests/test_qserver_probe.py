@@ -25,7 +25,7 @@ FIVE_PLANS = {
     "success": True,
     "plans_allowed": {
         f"geecs_{n}_plan": {}
-        for n in ("noscan", "optimize", "run_action", "scan", "scan_request")
+        for n in ("noscan", "optimize", "apply_setup", "scan", "scan_request")
     },
 }
 

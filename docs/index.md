@@ -34,7 +34,7 @@ follow that split; the bottom row is for navigation and troubleshooting.
     ---
 
     Process per-shot images, configure analysis pipelines, and run
-    per-scan analysis from the data portal. Edit configs in its config editor; run
+    per-scan analysis from the data portal. Edit recipes in the configurator; run
     them headlessly or interactively via the Image/Scan Analysis APIs.
 
     [:octicons-arrow-right-24: Analysis tutorial](tutorials/analysis.md) ·
@@ -96,7 +96,7 @@ can then load the s-file via Data Utils for ad-hoc exploration.
 
 **[GEECS Scanner](web_services/scanner.md)** — the operator front end
 for collecting data, in a browser: pick or compose a scan, submit it to the
-Bluesky queueserver, watch it live, move devices and run action plans. The
+Bluesky queueserver, watch it live, move devices and apply setups. The
 engine underneath (GeecsBluesky) is equally usable headlessly.
 
 **[Analysis](analysis/index.md)** — per-image processing in the analysis

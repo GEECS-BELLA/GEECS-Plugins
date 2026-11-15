@@ -35,7 +35,7 @@ readiness check asserts the manager lists them all.
 | `sweep` | `plans/sweep.py`: a `geecs_schemas.Sweep` trajectory through stock `scan_nd`, bound strict | yes |
 | `optimize` | `plans/optimize.py`: native Xopt ask/tell, one bin per iteration | yes |
 | `mv` | the stock stub with its failure named | no |
-| `run_action` | a named plan from the experiment's `actions.yaml`, compiled to stubs over the namespace | no |
+| `apply_setup` | `plans/apply_setup.py`: a named setup (`setups/<name>.yaml`) as plain stubs over the namespace; refused before the first write when its digest differs from the one the client's `md` says was confirmed, or when a device it writes or checks is judged down (the run's liveness rule, `plans/strict.py::down_devices`); a `check` judges its device again when it runs, so a judged device's retained readback never passes it (a `NativeMotor` has no judge yet, as in the run's gate); a failure names the step and the writes already made | no |
 | `measure_shot_offsets`, `check_shot_sync` | the once-run calibration and its preflight (`plans/calibration.py`) | no |
 | `release_scan_mode` | `plans/scan_mode.py`: end GEECS scan mode on the devices of a run that never ended it (a halt skips the finalizers) | no |
 
@@ -43,8 +43,8 @@ The moving stock verbs (`scan`, `list_scan`, `rel_scan`, …) are **not**
 registered: `sweep` is the one moving plan, and it uses `scan_nd`
 internally.  A preset can name only the three scan plans
 (`qs_client.presets.PRESET_PLAN_NAMES`); the utilities take no detector
-list or no positions.  `run_action` is compiled from
-`geecs_bluesky.actions.steps` (the same walk the scanner previews with).
+list or no positions.  `apply_setup` walks a setup with
+`geecs_schemas.flatten_setup`, the walk the scanner previews with.
 
 Every bound scan verb takes, keyword-only, `trigger_profile`,
 `shots_per_step`, `acquisition` (`strict` default, or `fly`; the retired
@@ -55,7 +55,7 @@ passed through),
 `native_image_save` and `background_telemetry`; all ride in the start
 document (`EVENT_SCHEMA.md`).  Every GEECS-defined registered plan
 hands the manager resolved annotation objects — the calibration plans
-and `run_action` through `utils.resolve_annotations`, the bound stock
+and `apply_setup` through `utils.resolve_annotations`, the bound stock
 plans through the signature `strict_plan` rebuilds, `optimize` through
 `inspect.signature(..., eval_str=True)`: the manager evaluates a plan's
 annotations in its own namespace, so postponed (string) annotations
@@ -119,17 +119,20 @@ geecs_bluesky/
                             #   <name>_stream (strict/fly, collected per row)
   plans/strict.py           # shared shot helpers: fire_and_await_shot (the calibration's
                             #   shot), run_bracket, plugin_reasons, BinCounter,
-                            #   name_failed_status
+                            #   name_failed_status, down_devices (the liveness verdict
+                            #   the run's gate and apply_setup share)
   plans/sweep.py            # sweep_plan: the Sweep payload through scan_nd, relative/reset
   plans/optimize.py         # optimize_plan: native Xopt loop, one run, one bin per iteration
   plans/calibration.py      # measure_shot_offsets / check_shot_sync (once-run, never a step)
   plans/scan_mode.py        # scan mode in the bound plans: the bracket inside the trigger
                             #   bracket, run_device_names, the preflight, release_scan_mode
+  plans/apply_setup.py      # apply_setup: a Setup over the namespace (its SettableFactory),
+                            #   targets read and their devices judged live before the
+                            #   first write, the confirmed digest
   plans/registry.py         # bind_plans: the registration table, strict_plan (the acquisition
                             #   binder), liveness_gate, TriggerProfiles, background_wrapper
   plans/claim_scan.py       # the day-scoped claim (the ONE folder creator), the
                             #   claim_scan preprocessor, GeecsScanPathProvider
-  actions/compiler.py       # ActionPlan → plan stubs; the namespace is its SettableFactory
   run_engine.py             # make_run_engine: RE + claim + headers + callbacks (+ the spool)
   preprocessors.py          # connect_on_demand (installed outermost), scalar_headers
   callbacks/                # the run's GEECS outputs, per run: scan_info.py (ScanInfo ini),
@@ -143,7 +146,8 @@ geecs_bluesky/
                             #   the package), progress.py (ProgressStream: the live-run
                             #   RunProgress every client renders, row streams = callbacks')
   config_resolver.py        # ConfigsRepoResolver: presets, trigger profiles, catalogs,
-                            #   actions, optimizer configs, analysis diagnostics
+                            #   setups, optimizer configs, analysis diagnostics,
+                            #   the operator policy and panel devices (the hazard sources)
   tiled/integration.py      # subscribe_tiled_spool (the engine's whole Tiled path) +
                             #   the shared checks (tiled_server_reachable, SafeDocumentCallback)
   tiled/spool.py            # the per-run JSONL spool both sides share: layout, the RE
@@ -164,7 +168,6 @@ geecs_bluesky/
   native_scope.py           # a native camera's refused run shapes, worded once for the
                             #   worker's bind and the client's expansion
   log_markers.py            # log-line strings clients parse from the manager's text stream
-  actions/steps.py          # flatten_action_steps: GEECS-Schemas' walk, raising this package's errors
   utils.py                  # safe_name, identifier_name, resolve_annotations
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
@@ -223,7 +226,7 @@ qserver/                    # the worker: launcher, startup profile, permissions
   `epics_motor`): one noun per device, one stock ophyd-async `Motor` per
   axis as a Movable child (`U_ESP_JetXYZ.x`, the record
   `<experiment>:<device>:x`), found by `mv`, a sweep axis, `variable`,
-  `get_settable` and an action's `set` step exactly as a `CaMotor` child
+  `get_settable` and a setup's `set` step exactly as a `CaMotor` child
   is.  The record is the verdict: the move is the stock put-callback on
   `.VAL`, done when `.DMOV` returns to 1; the soft limits `.HLM`/`.LLM`
   refuse an out-of-range target **before the put** (stock
@@ -249,7 +252,7 @@ qserver/                    # the worker: launcher, startup profile, permissions
   (`U_VS1H.current`, readback `<experiment>:<device>:current`, written at
   `current:SP` or the family's setpoint role for it —
   `SetpointDevice.setpoint_records`, the FAST-PS's `current_ramp:SP`), found like a
-  `CaMotor` child (an action step's `variable: Current` included: lookups
+  `CaMotor` child (a setup step's `variable: Current` included: lookups
   are case-folded).  **Never done on a put ok**: StreamDevice completes the
   put when the supply accepts the command, so the set waits for the
   readback within the **IOC's set tolerance** and times out (after the
@@ -533,7 +536,11 @@ connected if needed and read within 5 s, where unreadable means down).  A dead d
 with `GeecsDeviceDownError` naming every dead one, before the box is
 driven and before `open_run` claims a scan number — so nothing is
 claimed and no folder exists.  The rule against reading quiescence in a
-scan does not apply: this is the liveness PV, read once per run.
+scan does not apply: this is the liveness PV, read once per run.  The
+verdict (`plans/strict.py::down_devices`; a native setpoint device by its
+readbacks' severity) is also `apply_setup`'s: over the namespace nouns
+owning every step's signal before the first write, and over a `check`'s
+device again at the check.
 
 **A failure's name**: a `FailedStatus` is given its cause's `str` (plus
 notes — `exceptions.failure_cause_text`, the one rendering) as it passes
@@ -832,7 +839,14 @@ CLI parses Python literals not JSON).
 kwargs={"trigger_profile": "HTU-NoGas"})`) or a saved preset
 (`submit_preset(preset)` → `presets.expand_preset`: device bindings,
 `Device:Variable` / catalog names into `U_S1H.current`, a sweep's
-trajectory payload, the provenance `md`).  The package import stays light
+trajectory payload, the provenance `md`).  `environment_close` /
+`environment_open` each wait until the manager settles (an open that
+falls back to closed is a failure naming the startup profile) and carry no
+idle check of their own: the caller decides when a reopen is safe (the
+scanner's reopen route, idle and empty, under its lock); `queue_start`
+starts what waits.  `run_trigger_profile_preflight` is the worker's checks
+of an unsaved trigger profile, and `run_submit_preflight(...,
+trigger_profile=)` checks a preset under one.  The package import stays light
 (PEP 562-lazy device re-exports; `bluesky-queueserver-api` behind the
 `qs-client` extra).  One-shot blocking CA reads go through
 `devices/ca/oneshot.py` (one persistent reader loop, never a per-call
@@ -1033,7 +1047,15 @@ command) and never imports the gateway (circular).
   device-server, file-plugin (`geecs_pva_plugin_data_base_path`, UNC, as
   the camera servers' plugin service sees it) and Tiled-host roots through
   `read_config_entry` (`data_paths`); the configs-repo root through
-  `geecs_core.configs_repo.scanner_configs_base`.
+  `geecs_core.configs_repo.scanner_configs_base`.  The worker's one write
+  into the configs tree (`write_shot_offsets`) goes under the **write
+  root**, `GEECS_CONFIGS_WRITE_ROOT` in site.env
+  (`scanner_configs_write_base`; unset = the read root, a laptop's case):
+  on the services box the configurator's inbox, which commits the file,
+  because the live checkout the worker reads is never written (git
+  refuses to fast-forward over an uncommitted file).  Its readers wait
+  out a fast-forward rewriting a file (`configs_repo.settled_exists`)
+  rather than read a missing registry as "none".
 - `[tiled] uri / api_key`: `geecs_data_utils.tiled_catalog`.
 - `[Experiment] expt`: `GeecsPathsConfig`.
 - `[Database]`: `GeecsDb`.

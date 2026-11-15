@@ -420,7 +420,12 @@ def launcher(settings: Settings) -> Launcher:
             "" if url else f"not configured: GEECS_CONTROL_ROOM_{word.upper()}_URL",
         )  # fmt: skip
         for word in layout.links
-        for url in [settings.links.get(word)]
+        # the config editor opens on this experiment
+        for url in [
+            settings.editor_url()
+            if word == "config_editor"
+            else settings.links.get(word)
+        ]  # fmt: skip
     ]
     areas = [(a.title, [screen(n) for n in a.screens]) for a in layout.areas]
     return Launcher(areas, pages, links)
@@ -475,7 +480,7 @@ def router(settings: Settings, scanner: Optional[httpx.AsyncClient]) -> APIRoute
     @r.get("/")
     async def home(request: Request) -> Any:
         roster, silent = await roster_of(request.app.state.module)
-        context = {"launcher": launcher(settings), "directory": directory(settings, roster, silent)}  # fmt: skip
+        context = {"launcher": launcher(settings), "directory": directory(settings, roster, silent), "edit_url": settings.editor_url("home_layout", HOME_LAYOUT_FILENAME)}  # fmt: skip
         return request.app.state.templates.TemplateResponse(request, "home.html", context)  # fmt: skip
 
     @r.get("/api/home/devices")

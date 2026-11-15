@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Area": {
+      "additionalProperties": false,
+      "description": "A titled set of screens, e.g. the laser's or the vacuum's.",
+      "properties": {
+        "title": {
+          "description": "The area's heading.",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "screens": {
+          "description": "Screen names, the stems of files in the screens folder, in order.",
+          "items": {
+            "pattern": "^[\\w-]+$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Screens",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "screens"
+      ],
+      "title": "Area",
+      "type": "object"
+    },
+    "DevicePages": {
+      "additionalProperties": false,
+      "description": "A device-page entry: a picker over the roster's devices of these families.",
+      "properties": {
+        "title": {
+          "description": "What the entry reads, e.g. 'Cameras'.",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "families": {
+          "description": "Family file names whose devices the picker lists.",
+          "items": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Families",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "families"
+      ],
+      "title": "DevicePages",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The launcher: screens by area, device pages by family, the named links.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "description": "Format version. Leave at 1.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "areas": {
+      "default": [],
+      "description": "Screens grouped by area, in order.",
+      "items": {
+        "$ref": "#/$defs/Area"
+      },
+      "title": "Areas",
+      "type": "array"
+    },
+    "device_pages": {
+      "default": [],
+      "description": "Device-page entries, each with a device picker.",
+      "items": {
+        "$ref": "#/$defs/DevicePages"
+      },
+      "title": "Device Pages",
+      "type": "array"
+    },
+    "links": {
+      "default": [],
+      "description": "Services to link to, in order; their URLs are settings.",
+      "items": {
+        "enum": [
+          "scanner",
+          "portal",
+          "logbook",
+          "config_editor"
+        ],
+        "type": "string"
+      },
+      "title": "Links",
+      "type": "array"
+    }
+  },
+  "tier": "operator",
+  "title": "HomeLayout",
+  "type": "object"
+}

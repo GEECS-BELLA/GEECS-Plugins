@@ -15,7 +15,7 @@ plan parameters): both concepts survive, folded into one document.  What
 did **not** survive, deliberately: per-scalar selection (every subscribed
 scalar of every device in the run is recorded, and the s-file carries all
 of them), and setup/closeout rituals and the ``SaveRole`` enum (an
-explicit action plan is its own queue item).  What phase 2 added
+explicit setup is its own queue item).  What phase 2 added
 (GEECS-Plugins#807): ``required`` on each
 device (``essential`` until the shot-table layout; the old name is
 refused, not aliased: presets are regenerated) — a required device is
@@ -48,11 +48,14 @@ catalog; the client resolves it to the namespace's Movable child
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import ClassVar, Optional
 
 from pydantic import Field, JsonValue, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
+
+#: Where an experiment's scan presets live: ``presets/<name>.yaml``.
+PRESETS_FOLDER = "presets"
 
 
 class PresetDevice(SchemaModel):
@@ -159,6 +162,8 @@ class Preset(VersionedSchemaModel):
     A preset without a ``plan`` is a device group waiting for one: it is
     listed and editable but cannot be submitted as is.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     name: str = Field(description="The name clients use to pick this preset.")
     description: str = Field(
