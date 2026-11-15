@@ -194,8 +194,11 @@ deploy/           the unit template + DEPLOYMENT.md
   Not the configs repo: a list edited daily would keep that checkout
   dirty and, once committed, block `git pull` on the host.
 - **Portal links are URL only.** `--portal-url` (a site value) prefixes
-  `/run/<uid>` and `/day/<iso>` links in the rail; nothing from the portal
-  is imported.
+  `/run/<uid>` and `/day/<iso>` links in the rail, and each carries this
+  scanner's experiment as the portal's `experiment` query (`portalHref` in
+  the script): the portal browses every experiment on the share and
+  defaults to the main one, so an instance's links would otherwise land
+  on the main experiment's day. Nothing from the portal is imported.
 - **The Tiled writer's word is shown, never enforced.** `service/writer_status.py`
   reads `heartbeat.json` under `GEECS_TILED_WRITER_STATE` (the unit sets
   it; `/var/lib/geecs-tiled-writer`, the same on every host) and projects

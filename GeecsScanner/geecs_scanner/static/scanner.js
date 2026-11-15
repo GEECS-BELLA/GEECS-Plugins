@@ -11,9 +11,18 @@
 
   var ROOT = document.body.dataset.root || "";
   var PORTAL = (document.body.dataset.portal || "").replace(/\/$/, "");
+  var EXPERIMENT = document.body.dataset.experiment || "";
   var $ = function (id) { return document.getElementById(id); };
   var STALE_DOCS_S = 5;      // a running scan whose documents go quiet
   var STALE_MANAGER_S = 4;   // the status poll is every second
+
+  /* The portal browses every experiment on the share, and a page of it takes
+   * the experiment as a query (else the portal's own default: the main
+   * experiment's). This scanner names its own, so an instance's links land on
+   * its day and its run's neighbours, never the main experiment's. */
+  function portalHref(path) {
+    return PORTAL + path + (EXPERIMENT ? "?experiment=" + encodeURIComponent(EXPERIMENT) : "");
+  }
 
   /* ---------------------------------------------------------------- api */
 
@@ -148,7 +157,7 @@
     var now = new Date(), iso = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
     var label = (day === iso ? "Today" : "Last run") + " · " + day;
     if (PORTAL) {
-      var a = document.createElement("a"); a.href = PORTAL + "/day/" + day; a.textContent = label; a.title = "the day in the Data Portal";
+      var a = document.createElement("a"); a.href = portalHref("/day/" + day); a.textContent = label; a.title = "the day in the Data Portal";
       h.appendChild(a);
     } else h.textContent = label;
   }
@@ -265,7 +274,7 @@
     q.finished.filter(function (r) { return r.scan_numbers && r.scan_numbers.length; }).slice(0, 6).forEach(function (r) {
       var a = document.createElement("a");
       // The portal's run page is keyed by the run uid the history row carries.
-      a.href = PORTAL && r.run_uids && r.run_uids.length ? PORTAL + "/run/" + encodeURIComponent(r.run_uids[0]) : "#queue";
+      a.href = PORTAL && r.run_uids && r.run_uids.length ? portalHref("/run/" + encodeURIComponent(r.run_uids[0])) : "#queue";
       if (a.href.indexOf("#") === -1) a.title = "open in the Data Portal";
       var n = r.scan_numbers && r.scan_numbers.length ? "Scan " + String(r.scan_numbers[0]).padStart(3, "0") : r.plan;
       a.innerHTML = "<span></span><span class=\"dim\"></span>";
