@@ -622,7 +622,10 @@ def native_set_tolerances(movers: Iterable[Any]):
     native settable has no tolerance is refused with nothing claimed, never
     at its first point.  Each set reads the record again (a value that
     changed since is used, and said); this read is the run's early answer
-    and its record.  Movers that are not native settables are skipped.
+    and its record.  Movers that are not native settables are skipped; a
+    pseudo positioner over native settables cannot be built yet (a
+    ``NativeSetpoint`` has no user offset), and when one is, its components
+    belong here too.
 
     Returns
     -------

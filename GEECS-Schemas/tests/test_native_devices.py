@@ -98,6 +98,16 @@ def test_a_setpoint_device_needs_only_its_settables() -> None:
     assert supply.readbacks == [] and supply.status == []
 
 
+def test_the_retired_tolerance_is_accepted_ignored_and_kept_as_it_was() -> None:
+    """Readers deployed before its retirement require the key: a save keeps it, absent or not."""
+    kept = {**SUPPLY, "settables": {"current": {"tolerance": 0.005, "timeout": 10.0}}}
+    doc = {"schema_version": 1, "devices": {"U": kept}}
+    registry = NativeDevices.model_validate(doc)
+    assert registry.model_dump(mode="json") == doc  # never dropped, never null
+    bare = {"schema_version": 1, "devices": {"U": SUPPLY}}
+    assert NativeDevices.model_validate(bare).model_dump(mode="json") == bare
+
+
 def test_a_setpoint_device_is_not_a_detector_kind() -> None:
     assert "setpoint_device" not in DETECTOR_KINDS
 
@@ -106,8 +116,6 @@ def test_a_setpoint_device_is_not_a_detector_kind() -> None:
     "change, why",
     [
         ({"settables": {}}, "at least 1"),
-        # The tolerance is the IOC's record, never the registry's (decision 21).
-        ({"settables": {"current": {"tolerance": 0.005}}}, "extra"),
         ({"settables": {"current": {"timeout": -1}}}, "greater"),
         ({"settables": {"current": {"timeout": float("inf")}}}, "finite"),
         ({"settables": {"current": {"timeout": float("nan")}}}, "finite"),

@@ -728,6 +728,7 @@ One settable of a setpoint device: how long a scan waits for its readback.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
+| `tolerance` | `float (optional)` | no | None | Retired: ignored, never a tolerance (the IOC's set-tolerance record is, read at every set). Accepted only while readers deployed before its retirement still require it; drop it from the file once every reader runs a schema that accepts its absence. |
 | `timeout` | `float` | no | 10.0 | Seconds the scan worker waits for the readback to arrive within the IOC's set tolerance after the write, before the set fails: the client's patience, not a device fact. Size it for the slowest ramp plus the readback's scan period. The tolerance itself is the IOC's record (the family's tolerance_by role, e.g. current:TOL), never written here. |
 
 ### Witness

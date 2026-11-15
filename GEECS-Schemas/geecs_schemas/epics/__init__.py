@@ -191,7 +191,22 @@ class SetpointSettable(SchemaModel):
     fact the IOC holds as a record (the family's ``tolerance_by`` role for
     the settable's setpoint, a supply's ``current:TOL``), read by the scan
     worker at every set.  What stays is the client's patience.
+
+    ``tolerance`` is the retired registry number, accepted and ignored for
+    one release: readers deployed before its retirement *require* it, so a
+    file keeps it until every reader runs this schema, and a round trip
+    keeps it as it was (absent stays absent, a value is written back).
     """
+
+    tolerance: Optional[float] = Field(
+        None,
+        description=(
+            "Retired: ignored, never a tolerance (the IOC's set-tolerance record "
+            "is, read at every set). Accepted only while readers deployed before "
+            "its retirement still require it; drop it from the file once every "
+            "reader runs a schema that accepts its absence."
+        ),
+    )
 
     # Finite: an infinite timeout removes the deadline (PositiveFloat
     # alone admits +inf).
@@ -207,6 +222,16 @@ class SetpointSettable(SchemaModel):
             "written here."
         ),
     )
+
+    @model_serializer(mode="wrap")
+    def _retired_stays_as_it_was(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        # A save must never write 'tolerance: null': an older reader requires a number.
+        data = handler(self)
+        if self.tolerance is None:
+            data.pop("tolerance", None)
+        return data
 
 
 def _no_set_tolerance(family: FamilyFile, record: str) -> Optional[str]:

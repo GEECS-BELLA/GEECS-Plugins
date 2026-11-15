@@ -469,6 +469,16 @@ negative) is **no tolerance**, never zero.
 - **The timeout stays in the registry** (`SetpointSettable.timeout`): how
   long a scan waits for the readback is the client's patience, not a
   device fact.
+- **The registry's `tolerance` is retired in three steps**, because every
+  reader of `native_devices.yaml` validates the whole file and the readers
+  deploy on their own schedules (the worker and the scanner, Canopy's
+  image, the Control Room, the archiver, the configurator's gate, which
+  holds the live configs checkout until a commit validates, and the
+  configs repo's own check): (1) this schema accepts the key and ignores
+  it — the worker warns at environment open that it is ignored — and a
+  save writes it back as it was, so a reader deployed before still reads
+  the file; (2) once every reader runs this schema, the key is dropped from
+  the configs file; (3) the key is deleted from `SetpointSettable`.
 
 The CAEN ELS Easy-Driver (`eztest1`, StreamDevice over its Lantronix
 bridge) is the template for every scalar device with a readback and a
