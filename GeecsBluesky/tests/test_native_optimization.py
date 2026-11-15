@@ -609,3 +609,27 @@ def test_a_stamp_whose_read_failed_settles_rather_than_wedges(setup):
     assert (stream.published, stream.failed, stream.pending) == (0, 1, 0)
     settle = _Settle(SimpleNamespace(companions=[stream]))
     assert settle._missing(stream, (1.0,)) == 0
+
+
+def test_a_bin_end_does_not_collect_a_device_logged_down() -> None:
+    """The settle passes the slot's down set to the collect, read when the bin ends.
+
+    A device that is not required and was logged down mid-run would
+    otherwise cost every bin a stream collect waiting out a CA timeout.
+    """
+    from geecs_bluesky.plans.optimize import _Settle
+
+    calls: list[set[str]] = []
+
+    def collect(down=()):
+        calls.append(set(down))
+        yield from ()
+
+    down: set[str] = set()
+    settle = _Settle(
+        SimpleNamespace(companions=[], stamped=[], collect=collect), down=down
+    )
+    list(settle())
+    down.add("cam_b")  # the slot logs it down between bins
+    list(settle())
+    assert calls == [set(), {"cam_b"}]

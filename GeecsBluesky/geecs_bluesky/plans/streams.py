@@ -28,7 +28,7 @@ frame's shape.  A strict run also collects every stream once per shot.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 import bluesky.plan_stubs as bps
@@ -160,12 +160,19 @@ class DeviceStreams:
         )
         self._declared.add(id(stream))
 
-    def collect(self):
+    def collect(self, down: Collection[str] = ()):
         """Plan: collect every stream once (a strict shot), each a contingency logged once.
 
         A framed stream is declared at the first collect that finds a frame.
+        A stream whose device's object name is in *down* (a device the run
+        logged down) is not collected per fire: each try would wait out a CA
+        timeout.  :meth:`close` still collects it, so its stream keeps every
+        frame it wrote.
         """
         for stream in self.streams:
+            device = stream.device if isinstance(stream, StampStream) else stream
+            if owner_of(device).name in down:
+                continue
 
             def one(stream=stream):
                 if id(stream) not in self._declared:

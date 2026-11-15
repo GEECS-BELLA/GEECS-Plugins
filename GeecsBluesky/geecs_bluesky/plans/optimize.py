@@ -17,7 +17,7 @@ import inspect
 import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
-from collections.abc import Callable, Generator, Mapping, Sequence
+from collections.abc import Callable, Collection, Generator, Mapping, Sequence
 from pathlib import Path
 from time import time
 from typing import TYPE_CHECKING, Any
@@ -183,8 +183,12 @@ class _Settle:
     stream (the event joins a later collect, not this bin).
     """
 
-    def __init__(self, streams: DeviceStreams) -> None:
+    def __init__(self, streams: DeviceStreams, down: Collection[str] = ()) -> None:
         self.streams = streams
+        #: The slot's devices logged down (not required): not collected here,
+        #: the per-fire rule (``DeviceStreams.collect``); read live, so a
+        #: device logged down later is skipped from then on.
+        self._down = down
         self.shortfall = {id(c): 0 for c in streams.companions}
         self._warned: set[int] = set()
         self._warned_stamped: set[int] = set()
@@ -243,7 +247,7 @@ class _Settle:
                     short,
                     SETTLE_S,
                 )
-        yield from self.streams.collect()
+        yield from self.streams.collect(down=self._down)
 
 
 def _measured(
@@ -543,7 +547,6 @@ def optimize_plan(  # noqa: C901, PLR0915
             ]
         )
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="geecs-optimize")
-        settle = _Settle(streams)
         slot = OnDemand(
             sc,
             streams,
@@ -552,6 +555,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             shot_period=shot_period,
             scan_mode=announce,
         )
+        settle = _Settle(streams, down=slot._reported_down)
         bins = BinCounter()
         row_extras = [bins] if announce is None else [bins, announce]
 
