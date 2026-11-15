@@ -314,32 +314,48 @@ the share itself is then only brought level with `main`:
    your own on `main`, at the same paths. An IDE's folder (`.idea/`,
    `.vscode/`) is not a config: add it to the configs repo's `.gitignore`
    instead of copying or deleting it.
-3. **Validate them** with the gate's own rule, from the configurator's env:
+3. **Validate them** with the gate's own rule, from the configurator's env,
+   inside your clone (the paths are relative to `--root`: an absolute path
+   matches no document and passes unjudged):
 
    ```
-   python -m geecs_configurator.validation --root <your clone> <each copied path>
+   cd <your clone>
+   python -m geecs_configurator.validation --root . <each copied path, as git status printed it>
    ```
 
-   Fix or leave out whatever it refuses.
+   Fix or leave out whatever it refuses. A file left out is not on `main`:
+   move it off the share (keep a copy) before sub-step 5, which discards
+   every edit still there.
 4. **Commit and push them to `main`** as the maintainer (the ruleset's
    bypass), the `.gitignore` line with them.
-5. **Bring the share level**, as the service account (it owns the share's
-   files):
+5. **Bring the share level**, as the account that owns the share's files
+   (the service account; § "Once per services box", step 4, when they
+   belong to another owner). First prove every file is on `main`: each
+   changed or untracked file must match it, line endings aside (git diff
+   against a commit cannot judge an untracked file, so compare contents):
 
    ```
    cd "<the share's configs clone>"
    git fetch origin
-   # each changed or untracked file must now match main, line endings aside
-   # (git diff against a commit cannot judge an untracked file, so compare contents):
-   git show origin/main:<path> | diff --strip-trailing-cr - <path>
-   git checkout -- .                    # drop the edits, now on main
+   git show origin/main:<path> | diff --strip-trailing-cr - <path> && echo same   # each file
+   ```
+
+   A file that differs was changed after the copy: copy it again from
+   sub-step 2, and do not go on. Only when every file printed `same`, drop
+   the edits and the copies:
+
+   ```
+   git checkout -- .
    rm <each untracked file now on main>
    git merge --ff-only origin/main
    git status --short                   # must print nothing
    ```
 
-   A file whose content differs from `origin/main` stops here: it was
-   changed after the copy, so copy it again from step 2.
+   (Without a credential for origin on this account, compare against the
+   configurator's bare repository instead, after its next fetch:
+   `git --git-dir <STATE_DIR>/repo.git show main:<path>`, and skip the
+   merge: once the share is clean, the configurator fast-forwards it
+   itself.)
 
 Then wait for the configurator's next fetch (`GEECS_CONFIGURATOR_FETCH_SECONDS`,
 60 s by default) and check `/healthz`: `"main": "applied"`, `"share": "current"`.
@@ -481,7 +497,8 @@ sudo systemctl restart geecs-qserver geecs-qserver-ready geecs-scanner geecs-dat
   `analysis_group`, `himg_job`):
   `curl -s <GEECS_CONFIGURATOR_PORTAL_URL>/api/analysis/schema/<kind>` answers
   a schema, and the configurator relays it:
-  `curl -sI http://<the configurator's bind address>:<GEECS_CONFIGURATOR_PORT>/api/schema/<kind>`
+  `curl -s -D - -o /dev/null http://<the configurator's bind address>:<GEECS_CONFIGURATOR_PORT>/api/schema/<kind>`
+  (a GET: the route answers HEAD with 405)
   carries `X-Schema-Source: portal` (anything else names why the portal
   was not asked or did not answer).
 - The scanner's `/api/status` → `readiness: "ready"`.
