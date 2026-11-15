@@ -160,8 +160,9 @@ def announced_shots(frame: Any) -> Optional[Any]:
     THE file-number rule for a scan-mode run's ``ScanNNN_<device>_SSS``
     files, shared by every reader that joins them to rows: the value of
     :func:`announced_shot_column`, never the row index.  The two differ
-    once an announced shot ends in no row (an immediate pause that rewinds
-    the shot in progress announces the replay under the next number).
+    once an announced shot ends in no row (in a run recorded before the
+    shot table, an immediate pause rewound the shot in progress and
+    announced the replay under the next number).
 
     Parameters
     ----------

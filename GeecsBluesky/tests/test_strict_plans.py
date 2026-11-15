@@ -1,11 +1,14 @@
-"""Stock plans run strict GEECS scans through ``take_reading``.
+"""Stock plans run strict GEECS scans through the on-demand slot.
 
 ``bp.count`` / ``bp.scan`` from ``bluesky.plans`` over a
-:class:`GeecsDetector` and a :class:`CaMotor`, with
-:func:`geecs_per_shot` / :func:`geecs_per_step` supplying the one GEECS
-difference — the fire between trigger and wait — on mock CA backends.  The
-fake trigger box advances the camera's stamp **synchronously** inside the
-SINGLESHOT put, the worst case for the baseline.
+:class:`GeecsDetector` and a :class:`CaMotor`, with the on-demand hooks
+(:mod:`geecs_bluesky.plans.on_demand`) and the device streams
+(:class:`~geecs_bluesky.plans.streams.DeviceStreams`) bound as the
+registry binds them (:func:`strict_count`, :func:`strict_scan`), on mock CA
+backends.  ``primary`` is the shot table; each device records into its own
+``<name>_stream``.  The fake trigger box advances the camera's stamp
+**synchronously** inside the SINGLESHOT put, the worst case for the
+baseline.
 """
 
 from __future__ import annotations
@@ -13,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import time
 import logging
-import math
 from pathlib import Path
 from typing import Any
 
@@ -34,13 +36,13 @@ from ophyd_async.core import (
 from geecs_bluesky.devices.ca import CaMotor
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.shot_control import ShotControl, ShotControlWrites
-from geecs_bluesky.exceptions import (
-    GeecsConfigurationError,
-    GeecsDeviceDownError,
-    GeecsFrameCountReadError,
-    GeecsTriggerTimeoutError,
+from geecs_bluesky.plans.on_demand import (
+    OnDemand,
+    on_demand_per_shot,
+    on_demand_per_step,
+    start_keys,
 )
-from geecs_bluesky.plans.strict import geecs_per_shot, geecs_per_step
+from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
 from tests.ca_mock_helpers import DocCollector, connect_mock, follow_setpoint
 
 WRITES = ShotControlWrites(
@@ -57,7 +59,9 @@ class FakeBox:
     """Setter factory: the SINGLESHOT put is the shot, landing on every camera now.
 
     ``drop`` names (camera, attempt) pairs whose frame is lost — a dropped
-    shot advances every other camera's stamp but not that one's.
+    shot advances every other camera's stamp but not that one's.  ``clock``
+    stamps each shot with the worker's time (LabVIEW epoch) instead of a
+    count from 1000, so the readers' fire-interval join can place it.
     """
 
     def __init__(self) -> None:
@@ -67,6 +71,15 @@ class FakeBox:
         self.puts: list[tuple[str, str, str]] = []
         self.drop: set[tuple[str, int]] = set()
         self.counts: dict[str, int] = {}  # plugin-backed cameras' frame counts
+        self.clock = False
+
+    def advance(self, step: float = 1.0) -> None:
+        """The next shot's stamp."""
+        from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+
+        self.stamp = (
+            time.time() + LABVIEW_EPOCH_OFFSET if self.clock else self.stamp + step
+        )
         # Frames a free-running camera's plugin counts per fire beyond the shot's.
         self.extra: dict[str, int] = {}
 
@@ -82,7 +95,7 @@ class FakeBox:
                     # get) is long done by then.  Give it the loop once.
                     await asyncio.sleep(0.02)
                     box.fires += 1
-                    box.stamp += 1.0
+                    box.advance()
                     for cam in box.cameras:
                         if (cam.name, box.fires) in box.drop:
                             continue
@@ -119,6 +132,42 @@ def shot_control(RE: RunEngine, box: FakeBox) -> ShotControl:
     return sc
 
 
+def _on_demand(sc: Any, devices: list, required: Any, scan_mode: Any, kw: dict):
+    per_shot = [d for d in devices if is_per_shot(d)]
+    streams = DeviceStreams(per_shot, dual_write=True)
+    required = per_shot if required is None else required
+    run = OnDemand(sc, streams, required, scan_mode=scan_mode, **kw)
+    md = start_keys(streams, required, witnessed=False)
+    return streams, run, [d for d in devices if not is_per_shot(d)], md
+
+
+def strict_count(
+    sc: Any, devices: list, num: int, *, required=None, scan_mode=None, md=None, **kw
+):
+    """The bound count's strict path over *devices* (no claim, no liveness gate)."""
+    streams, run, rows, keys = _on_demand(sc, devices, required, scan_mode, kw)
+    hook = on_demand_per_shot(run, scan_mode=scan_mode)
+    return streams.wrap(
+        bp.count(rows, num=num, per_shot=hook, md={**keys, **(md or {})})
+    )
+
+
+def strict_scan(
+    sc: Any,
+    devices: list,
+    *args,
+    shots_per_step: int = 1,
+    required=None,
+    plan: Any = bp.scan,
+    md=None,
+    **kw,
+):
+    """*plan* (``bp.scan``) over the rows with the on-demand step (*shots_per_step* slots)."""
+    streams, run, rows, keys = _on_demand(sc, devices, required, None, kw)
+    hook = on_demand_per_step(run, shots_per_step=shots_per_step)
+    return streams.wrap(plan(rows, *args, per_step=hook, md={**keys, **(md or {})}))
+
+
 def _camera(
     RE: RunEngine,
     box: FakeBox,
@@ -152,8 +201,8 @@ def test_count_fires_once_per_shot(
     set_mock_value(cam.meancounts, 3.0)
     col = DocCollector()
     RE.subscribe(col)
-    RE(bp.count([cam], num=4, per_shot=geecs_per_shot(shot_control)))
-    events = col.primary_events()
+    RE(strict_count(shot_control, [cam], 4))
+    events = col.stream_events("uc_cam_stream")
     assert box.fires == 4
     assert [e["data"]["uc_cam-acq_timestamp"] for e in events] == [
         1001.0,
@@ -162,8 +211,12 @@ def test_count_fires_once_per_shot(
         1004.0,
     ]
     assert [e["data"]["uc_cam-meancounts"] for e in events] == [3.0] * 4
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["shot_index"] for r in rows] == [1, 2, 3, 4]
+    assert [r["uc_cam-baseline"] for r in rows] == [1000.0, 1001.0, 1002.0, 1003.0]
+    assert not any(k.startswith("uc_cam-acq") for k in rows[0])  # no device data
     start = col.docs["start"][0]
-    assert start["detectors"] == ["uc_cam"] and start["plan_name"] == "count"
+    assert start["per_shot_streams"] == ["uc_cam_stream"]
     assert shot_control.standing_state == "ARMED"
 
 
@@ -178,15 +231,15 @@ def test_scan_moves_then_fires(
     follow_setpoint(magnet)
     col = DocCollector()
     RE.subscribe(col)
-    RE(bp.scan([cam], magnet, -1.0, 1.0, 5, per_step=geecs_per_step(shot_control)))
+    RE(strict_scan(shot_control, [cam], magnet, -1.0, 1.0, 5))
     events = col.primary_events()
     assert box.fires == 5
     assert [e["data"]["u_s1h-current-position"] for e in events] == pytest.approx(
         [-1.0, -0.5, 0.0, 0.5, 1.0]
     )
-    assert [e["data"]["uc_cam-acq_timestamp"] for e in events] == [
-        1001.0 + i for i in range(5)
-    ]
+    assert [
+        e["data"]["uc_cam-acq_timestamp"] for e in col.stream_events("uc_cam_stream")
+    ] == [1001.0 + i for i in range(5)]
     assert list(col.docs["start"][0]["motors"]) == ["u_s1h-current"]
 
 
@@ -219,16 +272,7 @@ def test_deferred_pause_lands_between_the_shots_of_a_step(
 
     threading.Thread(target=pause_soon, daemon=True).start()
     with pytest.raises(RunEngineInterrupted):
-        RE(
-            bp.scan(
-                [cam],
-                magnet,
-                -1.0,
-                1.0,
-                2,
-                per_step=geecs_per_step(shot_control, shots_per_step=5),
-            )
-        )
+        RE(strict_scan(shot_control, [cam], magnet, -1.0, 1.0, 2, shots_per_step=5))
     assert box.fires < 5, box.fires  # inside the first step
     RE.resume()
     assert col.docs["stop"][-1]["exit_status"] == "success"
@@ -244,22 +288,22 @@ def test_two_cameras_share_one_fire(
     b = _camera(RE, box, "UC_B")
     col = DocCollector()
     RE.subscribe(col)
-    RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
+    RE(strict_count(shot_control, [a, b], 3))
     assert box.fires == 3
-    for event in col.primary_events():
-        assert (
-            event["data"]["uc_a-acq_timestamp"] == event["data"]["uc_b-acq_timestamp"]
-        )
+    stamps = [
+        [e["data"][f"{n}-acq_timestamp"] for e in col.stream_events(f"{n}_stream")]
+        for n in ("uc_a", "uc_b")
+    ]
+    assert stamps[0] == stamps[1] == [1001.0, 1002.0, 1003.0]
 
 
 def test_missed_frame_keeps_the_row_and_adds_a_shot(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl
 ) -> None:
-    """Camera A misses fire 2: the row is kept with A empty, and one more shot is taken.
+    """Camera A misses fire 2: the row is kept, flagged, and one more shot is taken.
 
-    Sam, 2026-09-11: B's frame from shot 2 is data, not an
-    orphan; A's columns for that row read NaN (its monitor cache would
-    otherwise carry shot 1's values); the step then gets its complete row.
+    Sam, 2026-09-11: B's frame from shot 2 is data, not an orphan — it is
+    in B's stream; A's stream simply has no record for that fire.
     """
     a = _camera(RE, box, "UC_A", shot_timeout=0.3)
     b = _camera(RE, box, "UC_B", shot_timeout=0.3)
@@ -267,57 +311,69 @@ def test_missed_frame_keeps_the_row_and_adds_a_shot(
     box.drop = {("uc_a", 2)}
     col = DocCollector()
     RE.subscribe(col)
-    RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
-    events = col.primary_events()
+    RE(strict_count(shot_control, [a, b], 3))
+    events = [e["data"] for e in col.primary_events()]
     assert len(events) == 4  # three complete rows and the partial one
     assert box.fires == 4
-    stamps = [
-        (e["data"]["uc_a-acq_timestamp"], e["data"]["uc_b-acq_timestamp"])
-        for e in events
+    assert [(r["complete"], r["missing"], r["attempt"]) for r in events] == [
+        (True, "", 1),
+        (False, "uc_a", 1),
+        (True, "", 2),
+        (True, "", 1),
     ]
-    assert stamps[0] == (1001.0, 1001.0)
-    assert math.isnan(stamps[1][0]) and stamps[1][1] == 1002.0
-    assert stamps[2:] == [(1003.0, 1003.0), (1004.0, 1004.0)]
-    counts = [e["data"]["uc_a-meancounts"] for e in events]
-    assert counts[0] == 7.0 and math.isnan(counts[1]) and counts[2] == 7.0
+
+    def stamps(name: str) -> list[float]:
+        return [
+            e["data"][f"{name}-acq_timestamp"]
+            for e in col.stream_events(f"{name}_stream")
+        ]
+
+    assert stamps("uc_a") == [1001.0, 1003.0, 1004.0]
+    assert stamps("uc_b") == [1001.0, 1002.0, 1003.0, 1004.0]
+    a_counts = [e["data"]["uc_a-meancounts"] for e in col.stream_events("uc_a_stream")]
+    assert a_counts == [7.0] * 3
 
 
-def test_extra_shots_are_bounded(
-    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+def test_extra_shots_are_bounded_and_the_step_flagged(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl, caplog
 ) -> None:
-    """A device that never delivers: the partial rows stay, the step fails loudly."""
+    """A device that never delivers: the refires stop, the rows stay, the scan continues."""
     cam = _camera(RE, box, "UC_A", shot_timeout=0.2)
     box.drop = {("uc_a", n) for n in range(1, 10)}
     col = DocCollector()
     RE.subscribe(col)
-    with pytest.raises(
-        GeecsTriggerTimeoutError, match="no complete row after 2"
-    ) as info:
-        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control, max_refires=1)))
+    RE(strict_count(shot_control, [cam], 1, max_refires=1))
     assert box.fires == 2
-    assert len(col.primary_events()) == 2  # both partial rows are data
+    assert [e["data"]["complete"] for e in col.primary_events()] == [False, False]
+    assert col.docs["stop"][-1]["exit_status"] == "success"
     # No plugin to ask: the camera itself is the suspect.
-    assert "no frame from UC_A (partial rows kept; known camera frame-drop" in str(
-        info.value
+    assert any(
+        "no record from UC_A — the last row is flagged incomplete" in r.getMessage()
+        and "known camera frame-drop" in r.getMessage()
+        for r in caplog.records
     )
 
 
-def test_a_dead_device_is_not_refired(
-    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+def test_a_dead_required_device_pauses_the_run_with_the_reason(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl, caplog
 ) -> None:
-    """CONNECTED says Disconnected → GeecsDeviceDownError, no refire burnt."""
+    """CONNECTED says Disconnected → the run pauses naming it, no refire burnt."""
+    from bluesky.utils import RunEngineInterrupted
+
     cam = _camera(RE, box, "UC_A", shot_timeout=0.2)
     set_mock_value(cam.connected_status, "Disconnected")
     box.drop = {("uc_a", n) for n in range(1, 10)}
-    with pytest.raises(GeecsDeviceDownError, match="UC_A"):
-        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control)))
-    assert box.fires == 1
+    with pytest.raises(RunEngineInterrupted):
+        RE(strict_count(shot_control, [cam], 1))
+    assert box.fires == 1 and RE.state == "paused"
+    assert any("UC_A report down" in r.getMessage() for r in caplog.records)
+    RE.stop()
 
 
 def test_native_saving_brackets_the_run(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:
-    """save=on from the first prepare, the directory in every row, save=off at unstage."""
+    """save=on from the stream's prepare, the directory in every record, save=off at unstage."""
     (tmp_path / "Scan001").mkdir()
     cam = _camera(RE, box, "UC_Cam", tmp_path)
     saves: list[str] = []
@@ -330,11 +386,10 @@ def test_native_saving_brackets_the_run(
     asyncio.run_coroutine_threadsafe(watch(), RE._loop).result(5)
     col = DocCollector()
     RE.subscribe(col)
-    RE(bp.count([cam], num=2, per_shot=geecs_per_shot(shot_control)))
+    RE(strict_count(shot_control, [cam], 2))
     directory = str(tmp_path / "Scan001" / "UC_Cam")
-    assert [e["data"]["uc_cam-nonscalar_save_path"] for e in col.primary_events()] == [
-        directory
-    ] * 2
+    events = col.stream_events("uc_cam_stream")
+    assert [e["data"]["uc_cam-nonscalar_save_path"] for e in events] == [directory] * 2
     assert Path(directory).is_dir()
     assert saves[-1] == "off" and "on" in saves
     assert (
@@ -396,7 +451,7 @@ def test_a_failed_fire_is_not_a_dropped_frame(
     RE(bps.mv(sc, "ARMED"))
     with caplog.at_level(logging.ERROR, logger="geecs_bluesky.plans.strict"):
         with pytest.raises(FailedStatus) as info:
-            RE(bp.count([cam], num=1, per_shot=geecs_per_shot(sc, max_refires=2)))
+            RE(strict_count(sc, [cam], 1, max_refires=2))
     assert isinstance(info.value.__cause__, _RefusedPut)
     assert refusing.fires == 1  # no refire on a failed fire
     errors = [
@@ -484,12 +539,13 @@ def test_two_plugin_cameras_in_one_run_keep_distinct_attribute_keys(
     connect_mock(RE, sc)
     docs = DocCollector()
     RE.subscribe(docs)
-    RE(bp.count([a, b], 2, per_shot=geecs_per_shot(sc)))
+    RE(strict_count(sc, [a, b], 2))
     assert docs.docs["stop"][-1]["exit_status"] == "success"
-    data_keys = docs.docs["descriptor"][0]["data_keys"]
     for cam in (a, b):
-        stamp = data_keys[f"{cam.name}-acq_timestamp"]
-        assert "external" not in stamp and "acq_timestamp" in stamp["source"]
+        descriptor = next(
+            d for d in docs.docs["descriptor"] if d["name"] == f"{cam.name}_stream"
+        )
+        data_keys = descriptor["data_keys"]
         assert data_keys[f"{cam.name}-hdf-image-frame_acq_timestamp"]["external"]
     assert sorted(d["data_key"] for d in docs.docs["stream_resource"]) == [
         "uc_a",
@@ -513,26 +569,8 @@ def test_two_plugin_cameras_in_one_run_keep_distinct_attribute_keys(
         normalizer(name, doc)
     names = [n for n, _ in normalizer.emitted]
     assert names[-1] == "stop"
-    normalized = next(d for n, d in normalizer.emitted if n == "descriptor")
-    assert "external" not in normalized["data_keys"]["uc_a-acq_timestamp"]
-    event = next(d for n, d in normalizer.emitted if n == "event")
-    assert "uc_a-acq_timestamp" in event["data"]
-
-
-def test_bare_attribute_names_collide_on_the_second_camera(
-    RE: RunEngine, box: FakeBox, tmp_path: Path
-) -> None:
-    """What #829 looked like: the gateway's pre-0.8 XML fails the run at its descriptor."""
-    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
-    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path)
-    for cam in (a, b):
-        set_mock_value(
-            cam.hdf.nd_attributes_file, _attributes_xml(cam.name, "acq_timestamp")
-        )
-    sc = ShotControl(WRITES, experiment="TestExp", name="htu", setter_factory=box)
-    connect_mock(RE, sc)
-    with pytest.raises(ValueError, match="collide"):
-        RE(bp.count([a, b], 2, per_shot=geecs_per_shot(sc)))
+    # Two shots, three keys per camera (the frame, two attributes), two cameras.
+    assert names.count("stream_datum") == 12
 
 
 def test_first_strict_shot_zeroes_a_plugins_stale_count(
@@ -546,16 +584,10 @@ def test_first_strict_shot_zeroes_a_plugins_stale_count(
     set_mock_value(cam.hdf.num_captured, 5)  # stale, from a closed session
     col = DocCollector()
     RE.subscribe(col)
-    RE(bp.count([cam], num=3, per_shot=geecs_per_shot(shot_control)))
+    RE(strict_count(shot_control, [cam], 3))
     assert box.fires == 3  # no refire: the first shot counted from 0
-    assert rewinds[0] == 0  # zeroed at the first arm
-    resources = {r["uid"]: r["data_key"] for r in col.docs["stream_resource"]}
-    datums = [
-        d["indices"]
-        for d in col.docs["stream_datum"]
-        if resources[d["stream_resource"]] == "uc_a"
-    ]
-    assert datums == [
+    assert rewinds == [0]  # zeroed at the first arm, never rewound after
+    assert col.datums("uc_a") == [
         {"start": 0, "stop": 1},
         {"start": 1, "stop": 2},
         {"start": 2, "stop": 3},
@@ -577,9 +609,9 @@ def test_no_frame_from_a_plugin_camera_names_the_plugins_reason(
     The camera pushes every shot; the plugin drops each as a frame of
     another shape than the one it declared at the arm, so the count never
     advances and the device yields no frame.  The reason reaches only the
-    plugin's ``WriteMessage``: the incomplete-shot warning and the step's
-    failure (the scan-end message) carry it beside the device's name, and
-    the failure stops blaming the camera.
+    plugin's ``WriteMessage``: the incomplete-shot warning and the flagged
+    step's warning carry it beside the device's name, and stop blaming the
+    camera.
     """
     cam, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
     refusal = (
@@ -588,27 +620,18 @@ def test_no_frame_from_a_plugin_camera_names_the_plugins_reason(
     )
     set_mock_value(cam.hdf.write_message, refusal)
     box.drop = {("uc_a", n) for n in range(1, 10)}
-    with (
-        caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.strict"),
-        pytest.raises(GeecsTriggerTimeoutError) as info,
-    ):
-        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control, max_refires=1)))
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.on_demand"):
+        RE(strict_count(shot_control, [cam], 1, max_refires=1))
     assert box.fires == 2
-    assert info.value.device_name == "UC_A"  # the name stays a name
-    text = str(info.value)
-    assert (
-        f"no frame from UC_A (file plugin uc_a-hdf: {refusal}) (partial rows kept; a file plugin refused"
-        in text
-    )
-    assert "frame-drop intermittency" not in text
-    incomplete = [
-        r.getMessage() for r in caplog.records if "incomplete" in r.getMessage()
-    ]
+    messages = [r.getMessage() for r in caplog.records]
+    flagged = [m for m in messages if "flagged incomplete" in m]
+    assert len(flagged) == 1
+    assert f"no record from UC_A (file plugin uc_a-hdf: {refusal})" in flagged[0]
+    assert "a file plugin refused" in flagged[0]
+    assert "frame-drop intermittency" not in flagged[0]
+    incomplete = [m for m in messages if "shot 1 of 2 incomplete" in m]
     assert len(incomplete) == 1
-    assert (
-        f"shot 1 of 2 incomplete: no frame from UC_A (file plugin uc_a-hdf: {refusal})"
-        in incomplete[0]
-    )
+    assert f"no record from UC_A (file plugin uc_a-hdf: {refusal})" in incomplete[0]
 
 
 def test_a_plugin_that_never_answers_does_not_hang_the_miss_path(
@@ -630,115 +653,27 @@ def test_a_plugin_that_never_answers_does_not_hang_the_miss_path(
     monkeypatch.setattr(cam.hdf.write_message, "get_value", hang)
     box.drop = {("uc_a", n) for n in range(1, 10)}
     started = time.monotonic()
-    with pytest.raises(GeecsTriggerTimeoutError) as info:
-        RE(bp.count([cam], num=1, per_shot=geecs_per_shot(shot_control, max_refires=1)))
-    # Two dropped shots cost the stock count wait each (STRICT_TRIGGER_INFO's
-    # 3 s exposure_timeout) plus the 0.2 s reason budget; a hung read would
-    # never return at all.
+    RE(strict_count(shot_control, [cam], 1, max_refires=1))
+    # Two dropped shots cost the shot timeout each plus the 0.2 s reason
+    # budget; a hung read would never return at all.
     assert time.monotonic() - started < 10.0
     assert box.fires == 2
-    assert "no frame from UC_A (partial rows kept; known camera frame-drop" in str(
-        info.value
-    )
 
 
-def test_a_free_running_plugin_camera_fails_the_shot_by_name(
+def test_missed_frame_on_plugin_cameras_is_a_gap_in_its_stream(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
 ) -> None:
-    """GEECS-Plugins#1276: a camera not in trigger mode is named, not a datum-width error.
-
-    Its plugin counts every frame the camera pushes, so by the row it holds
-    several where the triggered camera holds one; bluesky refused that row
-    with "Received `indices` ... of a different width".  The run fails
-    before the row is recorded, naming the camera and its frame count.
-    """
-    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
-    b, _ = _plugin_camera(RE, box, "UC_B", tmp_path, shot_timeout=0.3)
-    box.extra = {"uc_b": 5}
-    col = DocCollector()
-    RE.subscribe(col)
-    with pytest.raises(GeecsConfigurationError) as info:
-        RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
-    text = str(info.value)
-    assert "UC_B (6 frames)" in text and "put it in trigger mode" in text
-    assert "UC_A" not in text
-    assert box.fires == 1  # no retake: another shot cannot help
-    assert col.primary_events() == []
-    assert col.docs["stop"][-1]["exit_status"] == "fail"
-    assert "UC_B (6 frames)" in col.docs["stop"][-1]["reason"]
-
-
-def test_an_unreadable_frame_count_is_named_not_an_index_error(
-    RE: RunEngine,
-    box: FakeBox,
-    shot_control: ShotControl,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A failed count read before the row fails the run naming the camera."""
-    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
-
-    async def unreadable() -> int:
-        raise TimeoutError("NumCaptured_RBV")
-
-    monkeypatch.setattr(a, "frames_since_last_datum", unreadable)
-    with pytest.raises(GeecsFrameCountReadError) as info:
-        RE(bp.count([a], num=1, per_shot=geecs_per_shot(shot_control)))
-    assert info.value.device_name == "UC_A"
-    assert "frame count unreadable before the row" in str(info.value)
-
-
-def test_a_native_camera_runs_a_strict_count_past_the_frame_check(
-    RE: RunEngine, shot_control: ShotControl, tmp_path: Path
-) -> None:
-    """A NativeCamera is plugin-backed but not a GeecsDetector: the check leaves it alone.
-
-    It arms its own trigger mode, so a free-running native camera is not
-    this check's case; reading a count it has no method for failed every
-    strict scan with one.
-    """
-    pytest.importorskip("aioca")
-    from tests.test_native_camera import _camera, _frames_on_software_trigger
-
-    cam, _ = _camera(RE, tmp_path)
-    presses = _frames_on_software_trigger(cam)
-    col = DocCollector()
-    RE.subscribe(col)
-    RE(bp.count([cam], num=2, per_shot=geecs_per_shot(shot_control)))
-    assert col.docs["stop"][-1]["exit_status"] == "success"
-    assert len(presses) == 2 and len(col.primary_events()) == 2
-
-
-def test_missed_frame_on_plugin_cameras_rewinds_the_partial_row(
-    RE: RunEngine, box: FakeBox, shot_control: ShotControl, tmp_path: Path
-) -> None:
-    """A partial row keeps its scalars and no frames: every plugin camera rewinds to its last datum.
-
-    The bundler wants one same-width datum per external key per event, so
-    B's frame from the shot A missed cannot be referenced by that row; the
-    rewind (the late-frame guard for A) drops B's uncollected frame too.
-    """
+    """A misses fire 2: no rewind anywhere — B's frame of that fire is in B's stream, A's stream skips it."""
     a, a_rewinds = _plugin_camera(RE, box, "UC_A", tmp_path, shot_timeout=0.3)
     b, b_rewinds = _plugin_camera(RE, box, "UC_B", tmp_path, shot_timeout=0.3)
     box.drop = {("uc_a", 2)}
     col = DocCollector()
     RE.subscribe(col)
-    RE(bp.count([a, b], num=3, per_shot=geecs_per_shot(shot_control)))
-    events = col.primary_events()
-    assert len(events) == 4 and box.fires == 4
-    # Zeroed at the run's first arm (#853); then both rewind to 1 (the frame
-    # row 1 referenced) before the retake.
-    assert a_rewinds == [0, 1] and b_rewinds == [0, 1]
-    datums = [d for d in col.docs["stream_datum"]]
-    by_key: dict[str, list[dict]] = {}
-    resources = {r["uid"]: r["data_key"] for r in col.docs["stream_resource"]}
-    for d in datums:
-        by_key.setdefault(resources[d["stream_resource"]], []).append(d["indices"])
-    assert by_key["uc_a"] == [
-        {"start": 0, "stop": 1},
-        {"start": 1, "stop": 2},
-        {"start": 2, "stop": 3},
-    ]
-    assert by_key["uc_b"] == by_key["uc_a"]
-    assert math.isnan(events[1]["data"]["uc_a-acq_timestamp"])
-    assert events[1]["data"]["uc_b-acq_timestamp"] == 1002.0
+    RE(strict_count(shot_control, [a, b], 3))
+    assert len(col.primary_events()) == 4 and box.fires == 4
+    assert a_rewinds == [0] and b_rewinds == [0]  # zeroed at the arm only
+
+    def frames(key: str) -> int:
+        return sum(d["stop"] - d["start"] for d in col.datums(key))
+
+    assert frames("uc_a") == 3 and frames("uc_b") == 4

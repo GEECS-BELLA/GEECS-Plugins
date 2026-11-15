@@ -776,3 +776,388 @@ def test_a_wide_frame_is_built_in_one_allocation() -> None:
         3,
         4,
     ]
+
+
+# ------------------------------------------- shot-table layout (the readers)
+def test_per_shot_event_streams_reads_both_layouts() -> None:
+    """``per_shot_streams`` (stream names) and ``non_essential`` (device names) both count."""
+    from geecs_data_utils.shot_table import per_shot_event_streams
+
+    assert per_shot_event_streams(
+        {"non_essential": ["u_a"], "per_shot_streams": ["u_b_stream", "u_a_stream"]}
+    ) == {"u_a_stream": "u_a", "u_b_stream": "u_b"}
+    assert per_shot_event_streams({}) == {}
+    # a device whose own name ends in the suffix: only one suffix is the stream's
+    assert per_shot_event_streams({"per_shot_streams": ["x_stream_stream"]}) == {
+        "x_stream_stream": "x_stream"
+    }
+    assert per_shot_event_streams({"non_essential": ["x_stream"]}) == {
+        "x_stream_stream": "x_stream"
+    }
+
+
+def test_the_offline_re_export_reads_a_shot_table_run() -> None:
+    """A device named only in ``per_shot_streams`` joins on the Unix witness clock."""
+    import numpy as np
+
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
+    from geecs_data_utils.tiled_export import read_device_records, read_run_rows
+
+    rows = pd.DataFrame(
+        {
+            "shot_index": [1, 2, 3],
+            "bin_number": [1, 1, 1],
+            "witness_count": [7, 8, 9],
+            "witness_stamp": [100.0, 101.0, 102.0],  # Unix, CA record time
+        }
+    )
+    events = pd.DataFrame(
+        {
+            "u_slow-acq_timestamp": [
+                100.002 + LABVIEW_EPOCH_OFFSET,
+                102.0 + LABVIEW_EPOCH_OFFSET,
+            ],
+            "u_slow-current": [1.0, 3.0],
+        }
+    )
+    start = {
+        **_slow_start(),
+        "non_essential": [],
+        "layout": "shot-table/1",
+        "per_shot_streams": ["u_slow_stream"],
+        "shot_clock_column": "witness_stamp",
+    }
+
+    class _Run:
+        metadata = {"start": start}
+        _streams = {
+            "primary": _FakeStream({"internal": _FakePart(rows, "table")}),
+            "u_slow_stream": _FakeStream({"internal": _FakePart(events, "table")}),
+        }
+
+        def __iter__(self):
+            return iter(self._streams)
+
+        def __getitem__(self, key):
+            return self._streams[key]
+
+    table, stream = read_run_rows(_Run())
+    (source,) = read_device_records(_Run(), stream)
+    assert (source.stream, source.device) == ("u_slow_stream", "u_slow")
+    df = build_legacy_scalar_dataframe(start, table, [source])
+    current = df["U_Slow Current"].to_numpy()
+    assert current[0] == 1.0 and np.isnan(current[1]) and current[2] == 3.0
+
+
+def test_a_clock_drain_offset_moves_the_rows_before_the_join() -> None:
+    """Old layout: the clock device's own drain offset shifts the rows' stamps.
+
+    Rows at 1001, 1002, … with a 0.3 s clock offset sit at 1000.7, 1001.7;
+    the frame at 1001.45 is row 2's (0.25 s), not row 1's (0.45 s raw).
+    """
+    import numpy as np
+
+    from geecs_data_utils.shot_join import FrameColumns
+
+    frames = [
+        FrameColumns(
+            "u_slow",
+            np.array([1001.45]),
+            {
+                "u_slow-acq_timestamp": np.array([1001.45]),
+                "u_slow-current": np.array([5.0]),
+            },
+        )
+    ]
+    df = build_legacy_scalar_dataframe(
+        _slow_start(), _strict_rows(), frames, drain_offsets={"uc_a": 0.3}
+    )
+    current = df["U_Slow Current"].to_numpy()
+    assert current[1] == 5.0 and np.isnan(np.delete(current, 1)).all()
+
+
+def _shot_table_run(start: dict, events: pd.DataFrame, rows: pd.DataFrame):
+    class _Run:
+        metadata = {"start": start}
+        _streams = {
+            "primary": _FakeStream({"internal": _FakePart(rows, "table")}),
+            "u_slow_stream": _FakeStream({"internal": _FakePart(events, "table")}),
+        }
+
+        def __iter__(self):
+            return iter(self._streams)
+
+        def __getitem__(self, key):
+            return self._streams[key]
+
+    return _Run()
+
+
+def test_a_shot_table_run_without_a_clock_column_falls_back_to_fire_stamp(
+    caplog,
+) -> None:
+    """No ``shot_clock_column``: timed on ``fire_stamp`` with a warning, not dropped."""
+    import logging
+
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET as LV
+    from geecs_data_utils.tiled_export import read_device_records
+
+    rows = pd.DataFrame({"bin_number": [1, 1], "fire_stamp": [100.0, 101.0]})
+    events = pd.DataFrame(
+        {"u_slow-acq_timestamp": [100.4 + LV, 101.4 + LV], "u_slow-current": [1.0, 2.0]}
+    )
+    start = {
+        **_slow_start(),
+        "layout": "shot-table/1",
+        "per_shot_streams": ["u_slow_stream"],
+    }
+    (source,) = read_device_records(_shot_table_run(start, events, rows), "primary")
+    with caplog.at_level(logging.WARNING):
+        df = build_legacy_scalar_dataframe(start, rows, [source])
+    assert list(df["U_Slow Current"]) == [1.0, 2.0]
+    assert "timed on fire_stamp" in caplog.text
+
+
+def test_read_device_records_reads_stream_meta_and_stamps_only() -> None:
+    """``stream_meta`` sets the class; *stamps_only* keeps the stamp and the counter."""
+    from geecs_data_utils.tiled_export import read_device_records
+
+    rows = pd.DataFrame({"bin_number": [1], "witness_stamp": [100.0]})
+    events = pd.DataFrame(
+        {
+            "u_slow-acq_timestamp": [1.0],
+            "u_slow-current": [3.0],
+            "u_slow-uniqueid": [41.0],  # event columns are lowercase
+        }
+    )
+    start = {
+        **_slow_start(),
+        "layout": "shot-table/1",
+        "per_shot_streams": ["u_slow_stream"],
+        "stream_meta": {
+            "u_slow_stream": {"sync_class": "asynchronous", "stale_after": 4}
+        },
+    }
+    run = _shot_table_run(start, events, rows)
+    (full,) = read_device_records(run, "primary")
+    assert (full.sync_class, full.stale_after) == ("asynchronous", 4.0)
+    assert list(full.counter) == [41.0] and "u_slow-current" in full.records.columns
+    (lean,) = read_device_records(run, "primary", stamps_only=True)
+    assert set(lean.records.columns) == {"u_slow-acq_timestamp", "u_slow-uniqueid"}
+    assert list(lean.counter) == [41.0]
+
+
+def test_device_records_reads_the_w5_attribute_by_its_hdf5_name() -> None:
+    """``WitnessCount`` (the witness attribute) and ``NDArrayUniqueId`` from a stack's datasets."""
+    import numpy as np
+
+    from geecs_data_utils.shot_join import FrameColumns
+    from geecs_data_utils.shot_table import device_records
+
+    records = FrameColumns("uc_cam", np.array([1.0, 2.0]))
+    source = device_records(
+        "uc_cam_stream",
+        records,
+        {},
+        {"WitnessCount": np.array([7, 8], dtype=np.int32), "NDArrayUniqueId": [3, 4]},
+    )
+    assert list(source.witness_count) == [7.0, 8.0] and list(source.counter) == [
+        3.0,
+        4.0,
+    ]
+
+
+def test_a_stampless_device_does_not_cost_the_stamped_one_its_counter() -> None:
+    """One stamped device and one without a stamp: the bare counter is the first's."""
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_device_records
+
+    stream = _FakeStream(
+        {
+            "uc_b-hdf-image-frame_acq_timestamp": _FakePart(
+                np.array([1.0, 2.0]), "array"
+            ),
+            "uc_x-hdf-image-meancounts": _FakePart(np.array([4.0, 5.0]), "array"),
+            "NDArrayUniqueId": _FakePart(np.array([8.0, 9.0]), "array"),
+        }
+    )
+
+    class _Run:
+        metadata = {"start": _slow_start()}
+
+        def __iter__(self):
+            return iter(["primary", "uc_b_stream"])
+
+        def __getitem__(self, key):
+            if key == "primary":
+                return _FakeStream({"internal": _FakePart(_strict_rows(), "table")})
+            return stream
+
+    (source,) = read_device_records(_Run(), "primary")
+    assert source.device == "uc_b" and list(source.counter) == [8.0, 9.0]
+
+
+def test_an_event_stream_takes_its_bare_counter_and_w5_parts() -> None:
+    """A native camera's stream: its stamps a table, its NDAttribute parts bare arrays.
+
+    The counter and ``WitnessCount`` reach the shot table from Tiled as they
+    do from the stack file live, so the portal audits as the s-file does.
+    """
+    import numpy as np
+
+    from geecs_data_utils.tiled_export import read_device_records
+
+    rows = pd.DataFrame({"bin_number": [1, 1], "witness_stamp": [100.0, 101.0]})
+    events = pd.DataFrame({"uc_nat-acq_timestamp": [1.0, 2.0]})
+    stream = _FakeStream(
+        {
+            "internal": _FakePart(events, "table"),
+            "uc_nat": _FakePart(np.zeros((2, 4, 4)), "array"),
+            "NDArrayUniqueId": _FakePart(np.array([11.0, 12.0]), "array"),
+            "WitnessCount": _FakePart(np.array([5.0, 6.0]), "array"),
+        }
+    )
+    start = {"layout": "shot-table/1", "per_shot_streams": ["uc_nat_stream"]}
+
+    class _Run:
+        metadata = {"start": start}
+
+        def __iter__(self):
+            return iter(["primary", "uc_nat_stream"])
+
+        def __getitem__(self, key):
+            if key == "primary":
+                return _FakeStream({"internal": _FakePart(rows, "table")})
+            return stream
+
+    for lean in (False, True):
+        (source,) = read_device_records(_Run(), "primary", stamps_only=lean)
+        assert source.device == "uc_nat"
+        assert list(source.counter) == [11.0, 12.0]
+        assert list(source.witness_count) == [5.0, 6.0]
+
+
+def test_a_native_datum_stream_joins_on_its_epics_pair_parts_offline() -> None:
+    """A native camera's datum-only stream: bare NDAttribute parts, the EPICS pair the stamp.
+
+    The offline s-file gets the camera's stamp column under its strict-row
+    name, NaN on the row it has no frame for, and the counter for the audit.
+    """
+    import numpy as np
+
+    from geecs_data_utils.io.scan_stack import EPICS_EPOCH_OFFSET, LABVIEW_EPOCH_OFFSET
+    from geecs_data_utils.tiled_export import (
+        build_legacy_scalar_dataframe,
+        read_device_records,
+    )
+
+    unix = np.array([1_793_940_000.0, 1_793_940_002.0])  # row 2 has no frame
+    rows = pd.DataFrame(
+        {
+            "bin_number": [1, 1, 1],
+            "witness_count": [1, 2, 3],
+            "witness_stamp": [1_793_940_000.0, 1_793_940_001.0, 1_793_940_002.0],
+        }
+    )
+    stream = _FakeStream(
+        {
+            "uc_nat": _FakePart(np.zeros((2, 4, 4)), "array"),
+            "NDArrayEpicsTSSec": _FakePart(unix - EPICS_EPOCH_OFFSET, "array"),
+            "NDArrayEpicsTSnSec": _FakePart(np.zeros(2), "array"),
+            "NDArrayUniqueId": _FakePart(np.array([11.0, 12.0]), "array"),
+        }
+    )
+    start = {
+        "layout": "shot-table/1",
+        "per_shot_streams": ["uc_nat_stream"],
+        "required": ["uc_nat"],
+        "shot_clock_column": "witness_stamp",
+        "geecs_scalar_headers": {"uc_nat-acq_timestamp": "UC_Nat acq_timestamp"},
+    }
+
+    class _Run:
+        metadata = {"start": start}
+
+        def __iter__(self):
+            return iter(["primary", "uc_nat_stream"])
+
+        def __getitem__(self, key):
+            if key == "primary":
+                return _FakeStream({"internal": _FakePart(rows, "table")})
+            return stream
+
+    for lean in (False, True):
+        (source,) = read_device_records(_Run(), "primary", stamps_only=lean)
+        assert source.device == "uc_nat" and list(source.counter) == [11.0, 12.0]
+    (source,) = read_device_records(_Run(), "primary")
+    frame = build_legacy_scalar_dataframe(start, rows, [source])
+    stamps = frame["UC_Nat acq_timestamp"].to_numpy()
+    assert np.allclose(stamps[[0, 2]], unix + LABVIEW_EPOCH_OFFSET)
+    assert np.isnan(stamps[1])
+
+
+def test_an_unknown_sync_class_warns_once_and_reads_synchronous(caplog) -> None:
+    """A ``stream_meta`` class the reader does not know: synchronous, said once."""
+    import logging
+
+    import numpy as np
+
+    from geecs_data_utils.shot_join import FrameColumns
+    from geecs_data_utils.shot_table import SYNCHRONOUS, device_records
+
+    start = {"stream_meta": {"odd_stream": {"sync_class": "sometimes"}}}
+    records = FrameColumns("odd", np.array([1.0]))
+    with caplog.at_level(logging.WARNING):
+        classes = {
+            device_records("odd_stream", records, start).sync_class for _ in "ab"
+        }
+    assert classes == {SYNCHRONOUS}
+    assert caplog.text.count("unknown sync_class 'sometimes'") == 1
+
+
+def test_a_stale_sample_is_blanked_in_the_s_file() -> None:
+    """One free-running sample 0.1 s before the first tick, stale from row 2 on.
+
+    The join keeps it on every row with its age and ``stale:cam``; the
+    s-file, which carries neither, blanks it on the stale rows.
+    """
+    import numpy as np
+
+    from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET as LV
+    from geecs_data_utils.shot_join import FrameColumns
+    from geecs_data_utils.shot_table import ASYNCHRONOUS, DeviceRecords, shot_table
+
+    ticks = 1000.0 + np.arange(5.0)
+    rows = pd.DataFrame(
+        {
+            "bin_number": [1] * 5,
+            "witness_count": np.arange(1.0, 6.0),
+            "witness_stamp": ticks,
+            "witness_epoch": ["e"] * 5,
+            "complete": [True] * 5,
+        }
+    )
+    start = {
+        "layout": "shot-table/1",
+        "clock": "soft-tick",
+        "shot_clock_column": "witness_stamp",
+        "shot_period": 1.0,
+        "per_shot_streams": ["cam_stream"],
+        "required": [],
+        "geecs_scalar_headers": {"cam-meancounts": "Cam MeanCounts"},
+    }
+    stamp = np.array([ticks[0] - 0.1 + LV])
+    cam = DeviceRecords(
+        "cam_stream",
+        FrameColumns(
+            "cam", stamp, {"cam-acq_timestamp": stamp, "cam-meancounts": [42.0]}
+        ),
+        sync_class=ASYNCHRONOUS,
+        stale_after=1.0,
+    )
+    table = shot_table(start, rows, [cam])
+    assert [("stale:cam" in f) for f in table.flags] == [False] + [True] * 4
+    assert list(table.rows["cam-meancounts"]) == [42.0] * 5  # the evidence stays
+    values = build_legacy_scalar_dataframe(start, rows, [cam])["Cam MeanCounts"]
+    assert values.iloc[0] == 42.0 and values.iloc[1:].isna().all()

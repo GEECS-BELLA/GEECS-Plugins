@@ -131,17 +131,27 @@ def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], boo
         rather than serve a neighbouring shot's image.  The ``valid``
         column is matched by
         :func:`geecs_data_utils.tiled_schema.device_valid_column`.
+
+        A device the run's shot table joined
+        (``RunDetail.shots``: a gated run's cameras, a per-shot stream)
+        gives its assigned record's stamp, or ``(None, True)`` on a gap.
+        On rows that are not frames (gated, shot-table) a device with
+        neither is ``(None, True)`` too: no ordinal fallback there.
     """
     import math
 
     frame = detail.data
+    ordinal_ok = getattr(detail, "rows_are_frames", True)
     if frame is None or shot < 1 or shot > len(frame):
-        return (None, False)
+        return (None, not ordinal_ok)  # a gated run with no rows: never ordinal
+    shots = detail.shots() if hasattr(detail, "shots") else None
+    if shots is not None and shots.covers(device):
+        return (shots.stamp_for(device, shot), True)
     column = schema_map.device_acq_timestamp_column(
         [str(c) for c in frame.columns], device
     )
     if column is None:
-        return (None, False)
+        return (None, not ordinal_ok)
     valid = schema_map.device_valid_column([str(c) for c in frame.columns], device)
     if valid is not None:
         try:

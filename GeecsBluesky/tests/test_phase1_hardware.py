@@ -42,6 +42,11 @@ Environment
 ``GEECS_HW_SHOTS_PER_STEP``   rows per position for the scan (default 2)
 ``GEECS_HW_QSERVER``          control address of the acceptance manager (unset → test 2 skipped)
 ``GEECS_HW_DOCS_OUT``         optional path to dump the in-process documents as JSON
+
+The bound plans now write the shot-table layout (``primary`` per fire,
+each device in its own stream); the assertions on ``primary`` below were
+written for the earlier layout, and their verification on hardware is
+owed.
 """
 
 from __future__ import annotations

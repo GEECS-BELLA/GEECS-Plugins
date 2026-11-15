@@ -245,6 +245,7 @@ def test_the_installed_families_load_by_template() -> None:
         "motor_record",
         "scope_contract",
         "spectrometer_contract",
+        "witness_counter",
     }
     assert families["motor_record"].per_axis
     assert families["ad_camera_chain"].kind == "aravis_camera"
