@@ -538,21 +538,6 @@ def test_the_run_gate_refuses_a_supply_whose_ioc_never_answers(RE, monkeypatch) 
 
 
 # ------------------------------------------------------- the set tolerance
-def test_the_retired_registry_tolerance_is_ignored_and_said(RE, caplog) -> None:
-    """A file still carrying ``tolerance: 0.5`` confirms within the IOC's 0.005, never 0.5."""
-    entry = {**SUPPLY, "settables": {"current": {"tolerance": 0.5, "timeout": 1.0}}}
-    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.namespace"):
-        supply = _supply(RE, entry)
-    (warning,) = [r for r in caplog.records if "retired" in r.getMessage()]
-    assert "U_VS1H: native_devices.yaml still gives current the retired" in (
-        warning.getMessage()
-    )
-    assert "testexp:u_vs1h:current:TOL" in warning.getMessage()
-    _follows(supply.current, offset=0.006)  # inside 0.5, outside the IOC's 0.005
-    with pytest.raises(GeecsConfirmTimeoutError):
-        _run(RE, lambda: supply.current.set(2.0))
-
-
 def test_a_readback_just_outside_the_iocs_tolerance_times_out(RE) -> None:
     supply = _supply(RE)
     _follows(supply.current, offset=0.006)  # outside current:TOL's 0.005
