@@ -32,7 +32,7 @@ UNITS = (
 )
 NEW = [
     "--db-experiment",
-    "Bench stand",
+    "BenchStand",
     "--address",
     "127.0.0.1",
     "--broadcast",
@@ -107,7 +107,7 @@ def test_up_writes_slot_one_and_enables_the_six_instance_units(profile) -> None:
     assert result.returncode == 0, result.stderr
     env = _staged(profile, "PulsedWire")
     assert env["GEECS_INSTANCE_SLOT"] == "1"
-    assert env["GEECS_EXPERIMENT"] == env["QS_EXPERIMENT"] == "Bench stand"
+    assert env["GEECS_EXPERIMENT"] == env["QS_EXPERIMENT"] == "BenchStand"
     assert env["GEECS_CA_SERVER_PORT"] == "5164"
     assert env["EPICS_CA_ADDR_LIST"] == "127.0.0.1:5164"
     assert env["QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER"] == "tcp://*:60715"
@@ -230,7 +230,7 @@ def test_a_busy_slot_port_installs_nothing(tmp_path: Path, profile) -> None:
         profile["root"], stale=False
     )  # existing clones: nothing cloned or installed
     configs = profile["site"].parent / "configs" / "scanner_configs" / "experiments"
-    (configs / "Bench stand").mkdir()  # the scaffold has nothing to do
+    (configs / "BenchStand").mkdir()  # the scaffold has nothing to do
     site = profile["site"]
     site.write_text(site.read_text() + f"GEECS_SERVICE_USER={getpass.getuser()}\n")
     result = _verb(
@@ -266,12 +266,12 @@ def test_down_disables_only_the_instance_units(profile) -> None:
 
 def test_list_shows_each_instance(profile) -> None:
     (profile["experiments"] / "PulsedWire.env").write_text(
-        'GEECS_EXPERIMENT="Bench stand"\nGEECS_INSTANCE_SLOT=1\nGEECS_SCANNER_PORT=8310\n'
+        'GEECS_EXPERIMENT="BenchStand"\nGEECS_INSTANCE_SLOT=1\nGEECS_SCANNER_PORT=8310\n'
     )
     result = _verb(profile, "list")
     assert result.returncode == 0, result.stderr
     row = next(x for x in result.stdout.splitlines() if x.startswith("PulsedWire"))
-    assert "'Bench stand'" in row and " 1 " in row and "8310" in row
+    assert "'BenchStand'" in row and " 1 " in row and "8310" in row
 
 
 def test_flags_with_an_existing_instance_file_are_refused(profile) -> None:
@@ -283,18 +283,36 @@ def test_flags_with_an_existing_instance_file_are_refused(profile) -> None:
     assert "would be ignored" in result.stderr
 
 
-def test_backslashes_in_the_db_name_are_kept_verbatim(profile) -> None:
-    args = [
-        "--db-experiment",
-        r"Foo\tBar",
-        "--address",
-        "127.0.0.1",
-        "--broadcast",
-        "x",
-    ]
+@pytest.mark.parametrize("bad", ["Test stand", r"Foo\tBar", "a/b", "it's", " Lead"])
+def test_a_db_experiment_outside_the_naming_rule_is_refused_before_anything(
+    profile, bad: str
+) -> None:
+    """Letters, digits, '_', '.', '-': the configs folder, the data folder and
+    the configurator's scanner-URL key use the name. Refused before a slot is
+    taken, a file staged or a command planned."""
+    args = ["--db-experiment", bad, "--address", "127.0.0.1", "--broadcast", "x"]
+    result = _verb(profile, "up", "PulsedWire", *args, "--dry-run")
+    assert result.returncode == 2
+    assert "naming rule" in result.stderr and "no spaces" in result.stderr
+    assert not (profile["root"] / "deploy-staging").exists()
+    assert "[dry]" not in result.stdout
+
+
+def test_a_db_experiment_inside_the_naming_rule_passes(profile) -> None:
+    args = ["--db-experiment", "Test.Stand-2_b", "--address", "127.0.0.1", "--broadcast", "x"]  # fmt: skip
     result = _verb(profile, "up", "PulsedWire", *args, "--dry-run")
     assert result.returncode == 0, result.stderr
-    assert _staged(profile, "PulsedWire")["GEECS_EXPERIMENT"] == r"Foo\tBar"
+    assert _staged(profile, "PulsedWire")["GEECS_EXPERIMENT"] == "Test.Stand-2_b"
+
+
+def test_an_instance_file_outside_the_naming_rule_is_refused(profile) -> None:
+    (profile["experiments"] / "PulsedWire.env").write_text(
+        'GEECS_INSTANCE=PulsedWire\nGEECS_INSTANCE_SLOT=1\nGEECS_EXPERIMENT="Test stand default"\n'
+    )
+    result = _verb(profile, "up", "PulsedWire", "--dry-run")
+    assert result.returncode == 2
+    assert "naming rule" in result.stderr and "Test stand default" in result.stderr
+    assert "[dry]" not in result.stdout
 
 
 def test_list_never_shows_the_main_value_for_a_missing_key(profile) -> None:
@@ -328,7 +346,7 @@ def test_an_incomplete_instance_installs_nothing(profile) -> None:
 def test_up_checks_overlap_over_every_live_experiment(profile) -> None:
     """Main (site.env) + every other instance + this one, names intact."""
     (profile["experiments"] / "Other.env").write_text(
-        'GEECS_EXPERIMENT="Third bench"\nGEECS_INSTANCE_SLOT=1\n'
+        'GEECS_EXPERIMENT="ThirdBench"\nGEECS_INSTANCE_SLOT=1\n'
     )
     result = _verb(
         profile,
@@ -340,18 +358,18 @@ def test_up_checks_overlap_over_every_live_experiment(profile) -> None:
     )
     assert result.returncode == 0, result.stderr
     line = next(x for x in result.stdout.splitlines() if "geecs_core.db.overlap" in x)
-    assert line.endswith("'Undulator' 'Third bench' 'Bench stand'")
+    assert line.endswith("'Undulator' 'ThirdBench' 'BenchStand'")
 
 
 def test_a_stopped_instance_is_not_live(profile) -> None:
     """`down` keeps the file; a stopped instance drives no device."""
     (profile["experiments"] / "Other.env").write_text(
-        'GEECS_EXPERIMENT="Third bench"\nGEECS_INSTANCE_SLOT=1\n'
+        'GEECS_EXPERIMENT="ThirdBench"\nGEECS_INSTANCE_SLOT=1\n'
     )
     result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
     assert result.returncode == 0, result.stderr
     line = next(x for x in result.stdout.splitlines() if "geecs_core.db.overlap" in x)
-    assert line.endswith("'Undulator' 'Bench stand'")
+    assert line.endswith("'Undulator' 'BenchStand'")
 
 
 def test_the_instance_itself_counts_once(profile) -> None:
@@ -364,7 +382,7 @@ def test_the_instance_itself_counts_once(profile) -> None:
     )
     assert again.returncode == 0, again.stderr
     line = next(x for x in again.stdout.splitlines() if "geecs_core.db.overlap" in x)
-    assert line.endswith("python -m geecs_core.db.overlap 'Undulator' 'Bench stand'")
+    assert line.endswith("python -m geecs_core.db.overlap 'Undulator' 'BenchStand'")
 
 
 def _log(profile: dict[str, Path]) -> list[str]:
@@ -629,7 +647,7 @@ def test_a_second_running_instance_of_one_experiment_is_refused(
     tmp_path: Path, profile
 ) -> None:
     (profile["experiments"] / "First.env").write_text(
-        'GEECS_EXPERIMENT="Bench stand"\nGEECS_INSTANCE_SLOT=1\n'
+        'GEECS_EXPERIMENT="BenchStand"\nGEECS_INSTANCE_SLOT=1\n'
     )
     fake = tmp_path / "first-running"
     fake.mkdir()
@@ -646,7 +664,7 @@ def test_a_second_running_instance_of_one_experiment_is_refused(
         env={"PATH": f"{fake}:/usr/bin:/bin:/usr/sbin:/sbin"},
     )
     assert result.returncode == 2
-    assert "instance 'First' already serves 'Bench stand'" in result.stderr
+    assert "instance 'First' already serves 'BenchStand'" in result.stderr
 
 
 def test_a_half_running_instance_is_not_refused_on_its_own_ports(
@@ -783,12 +801,12 @@ def test_up_says_when_the_experiment_has_no_trigger_profile(profile) -> None:
     assert "no trigger profile" in result.stderr
     assert "systemctl restart geecs-qserver@PulsedWire" in result.stderr
     configs = profile["site"].parent / "configs" / "scanner_configs" / "experiments"
-    (configs / "Bench stand" / "shot_control_configurations").mkdir(parents=True)
+    (configs / "BenchStand" / "shot_control_configurations").mkdir(parents=True)
     result = _verb(
         profile, "up", "PulsedWire", *NEW, "--dry-run"
     )  # the folder, empty: the post-scaffold state
     assert "no trigger profile" in result.stderr
-    (configs / "Bench stand" / "shot_control_configurations" / "Bench.yaml").write_text(
+    (configs / "BenchStand" / "shot_control_configurations" / "Bench.yaml").write_text(
         "device: bench-trigger\n"
     )
     result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")

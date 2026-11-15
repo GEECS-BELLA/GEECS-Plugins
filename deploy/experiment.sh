@@ -12,8 +12,8 @@
 # /etc/geecs/site.env and then /etc/geecs/experiments/INSTANCE.env.
 #
 # up    First time: writes the instance file from deploy/experiments.env.example
-#       (--db-experiment, the address this host serves CA on and its
-#       broadcast are required; every port follows from the first free SLOT,
+#       (--db-experiment, letters, digits, '_', '.', '-' and no spaces, the
+#       address this host serves CA on and its broadcast are required; every port follows from the first free SLOT,
 #       see the example). Again: reuses the installed file as it is (and
 #       refuses those flags). Then renders the instance units
 #       (bootstrap_host.sh --experiment) — all six or it stops, nothing
@@ -76,6 +76,16 @@ env_value() {  # env_value FILE KEY — one key of an env file, parsed as system
 # The ports of slot N (deploy/experiments.env.example; slot 0 = the stock ports).
 slot_port() {  # slot_port N BASE STEP
     echo $(( $2 + $1 * $3 ))
+}
+
+# An experiment's name is letters, digits, '_', '.', '-': the configs folder,
+# the data folder and the configurator's scanner-URL key (Exp=url) all use it.
+check_experiment_name() {  # check_experiment_name NAME WHERE — exit 2 unless NAME follows the rule
+    case "$1" in
+        ''|*[!A-Za-z0-9_.-]*)
+            echo "$2: experiment '$1' breaks the naming rule: letters, digits, '_', '.', '-' only, no spaces (the configs folder, the data folder and the configurator's scanner-URL key all use the name) — rename it in the DB first" >&2
+            exit 2 ;;
+    esac
 }
 
 free_slot() {
@@ -197,10 +207,13 @@ up)
         if [ -n "$DB_EXPERIMENT$ADDRESS$BROADCAST$CA_EXTRA" ]; then
             echo "'$INSTANCE' already has an instance file ($INSTALLED): --db-experiment/--address/--broadcast/--ca-extra would be ignored — edit that file (as root) instead" >&2; exit 2
         fi
+        EXISTING_EXPT="$(env_value "$INSTALLED" GEECS_EXPERIMENT)"
+        [ -z "$EXISTING_EXPT" ] || check_experiment_name "$EXISTING_EXPT" "instance file $INSTALLED"
         say "up '$INSTANCE' — instance file exists ($INSTALLED), used as it is"
     else
         [ -n "$DB_EXPERIMENT" ] && [ -n "$ADDRESS" ] && [ -n "$BROADCAST" ] || {
             echo "a new instance needs --db-experiment NAME, --address (this host's CA serving address) and --broadcast" >&2; exit 2; }
+        check_experiment_name "$DB_EXPERIMENT" "--db-experiment"
         SLOT="$(free_slot)"
         INSTANCE_FILE="$STAGE/$INSTANCE.env"
         claim_staging
