@@ -25,17 +25,12 @@ from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.background import BackgroundSnapshot
 from geecs_bluesky.devices.ca._view import owner_of
-from geecs_bluesky.devices.ca.liveness import read_disconnected
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import (
-    native_cameras,
     refuse_native_cameras,
-    down_native_cameras,
 )
 from geecs_bluesky.devices.native_setpoint import (
-    down_native_setpoint_devices,
     native_set_tolerances,
-    native_setpoint_devices,
 )
 from geecs_bluesky.devices.shot_control import ShotControl
 from geecs_bluesky.devices.witness import Witness, witness_is_down
@@ -68,7 +63,11 @@ from geecs_bluesky.plans.on_demand import (
     start_keys,
 )
 from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
-from geecs_bluesky.plans.strict import geecs_name, name_failed_status, run_bracket
+from geecs_bluesky.plans.strict import (
+    down_devices,
+    name_failed_status,
+    run_bracket,
+)
 from geecs_bluesky.plans.sweep import sweep_movers, sweep_plan
 from geecs_bluesky.utils import safe_name
 
@@ -168,44 +167,21 @@ class TriggerProfiles:
 def liveness_gate(shot_control: Any, devices: Sequence[Any]):
     """Plan: refuse the run if any of its devices is reported Disconnected.
 
-    One ``CONNECTED`` read each for the trigger box's device(s)
-    (:attr:`~geecs_bluesky.devices.shot_control.ShotControl.liveness_signals`)
-    and every device in *devices* that carries a ``connected_status``
-    signal (a detector, its scalars view, a scalar-only device); a device
-    without one is not judged.  The verdict rule is the shared
-    :func:`~geecs_bluesky.devices.ca.liveness.read_disconnected` —
-    fail-open, only the exact ``Disconnected`` string counts.
-
-    A native camera is judged by its IOC instead
-    (:func:`~geecs_bluesky.devices.native.down_native_cameras`: unreadable =
-    down), and a native setpoint device by its readbacks' severity
-    (:func:`~geecs_bluesky.devices.native_setpoint.down_native_setpoint_devices`:
-    INVALID or unreadable = down).  Runs before the bracket's first move and before
-    ``open_run``: nothing is driven and nothing is claimed for a run this
-    refuses.
+    The verdict is :func:`~geecs_bluesky.plans.strict.down_devices` over
+    *devices* and the trigger box's device(s)
+    (:attr:`~geecs_bluesky.devices.shot_control.ShotControl.liveness_signals`):
+    the gateway's ``CONNECTED`` (fail-open) for a GEECS device, its IOC for
+    a native camera, its readbacks' severity for a native setpoint device.
+    Runs before the bracket's first move and before ``open_run``: nothing
+    is driven and nothing is claimed for a run this refuses.
 
     Raises
     ------
     GeecsDeviceDownError
         Naming every device reported down.
     """
-    # A native camera or setpoint device is judged by its IOC, not by the
-    # gateway's rule.
-    natives = [*native_cameras(devices), *native_setpoint_devices(devices)]
-    native_down = yield from down_native_cameras(natives)
-    native_down += yield from down_native_setpoint_devices(natives)
-    signals: dict[str, Any] = dict(getattr(shot_control, "liveness_signals", {}))
-    for obj in devices:
-        if owner_of(obj) in natives:
-            continue
-        signal = getattr(obj, "connected_status", None)
-        if signal is None:
-            continue
-        signals.setdefault(geecs_name(obj), signal)
-    # An unreadable CONNECTED before a run is abnormal (the gateway serves
-    # it for every DB device) and cost the connect timeout: say so.
-    down = yield from read_disconnected(signals, unreadable_level=logging.WARNING)
-    down = [*native_down, *down]
+    signals = getattr(shot_control, "liveness_signals", {})
+    down = yield from down_devices(devices, signals)
     if down:
         names = ", ".join(down)
         raise GeecsDeviceDownError(

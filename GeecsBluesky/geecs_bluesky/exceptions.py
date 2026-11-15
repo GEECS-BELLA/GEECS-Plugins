@@ -333,7 +333,8 @@ class GeecsDeviceDownError(GeecsError):
     (:func:`~geecs_bluesky.plans.registry.liveness_gate`) before a run's
     first move when the gateway reports any of its devices down, and by
     :func:`~geecs_bluesky.plans.strict.fire_and_await_shot` when a
-    no-frame device turns out to be disconnected mid-scan.  The message is
+    no-frame device turns out to be disconnected mid-scan; a setup's
+    :class:`SetupStepFailedError` carries it as its cause.  The message is
     operator-facing; ``device_name`` is the first device named.
     """
 

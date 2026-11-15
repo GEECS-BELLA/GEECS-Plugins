@@ -9,9 +9,12 @@ claims no scan number and writes no file.
 The rules (pinned by ``tests/test_apply_setup.py``): the setup is read
 and flattened when the item runs; a digest in ``md["geecs"]["setup"]``
 (what the operator confirmed) that differs from the setup's now refuses
-the item before the first write; every target is resolved and read
-before the first write; a ``set`` is the device's own completion
-(``abs_set(wait=True)``, no second confirmation layer) and a ``check``
+the item before the first write; every target is resolved and read, and
+its device judged live (``plans/strict.py::down_devices``, a run's gate's
+rule; a native motor has no judge yet), before the first write; a
+``check`` judges its device again when it runs, so a device down since
+cannot pass it on its retained readback; a ``set`` is the device's own
+completion (``abs_set(wait=True)``, no second confirmation layer) and a ``check``
 matches as the confirm settable does; a failure stops the setup and
 names the step and the writes already made
 (:class:`~geecs_bluesky.exceptions.SetupStepFailedError`), while a
@@ -27,7 +30,7 @@ from typing import Any, Optional, Protocol, runtime_checkable
 
 import bluesky.plan_stubs as bps
 from bluesky.protocols import Movable, Readable
-from bluesky.utils import MsgGenerator, RunEngineControlException
+from bluesky.utils import MsgGenerator, RunEngineControlException, root_ancestor
 from geecs_schemas import (
     SetupCheckStep,
     SetupCycleError,
@@ -40,10 +43,12 @@ from geecs_schemas import (
 
 from geecs_bluesky.exceptions import (
     GeecsConfigurationError,
+    GeecsDeviceDownError,
     SetupCheckFailedError,
     SetupStepFailedError,
     failure_cause_text,
 )
+from geecs_bluesky.plans.strict import down_devices
 from geecs_bluesky.utils import resolve_annotations
 
 logger = logging.getLogger(__name__)
@@ -151,11 +156,54 @@ def _connect(name: str, total: int, signals: list[Any]) -> MsgGenerator:
             raise SetupStepFailedError(name, 0, total, what, (), cause) from exc
 
 
+def _owners(signals: list[Any]) -> list[Any]:
+    """The distinct namespace devices behind *signals*, in step order.
+
+    A step's signal is a child of its namespace noun (a settable child
+    carries the device's name itself, but only the noun carries the
+    liveness signal), so the owner is the root ancestor, the object
+    bluesky's ``stage_wrapper`` stages for it too.
+    """
+    owners: dict[int, Any] = {}
+    for signal in signals:
+        if signal is not None:
+            owner = root_ancestor(signal)
+            owners.setdefault(id(owner), owner)
+    return list(owners.values())
+
+
+def _down_refusal(down: list[str]) -> GeecsDeviceDownError:
+    """The refusal naming the devices judged down (a step's failure carries it as its cause)."""
+    return GeecsDeviceDownError(
+        f"{', '.join(down)} DISCONNECTED (the gateway's CONNECTED, a native "
+        "camera's IOC not answering, or a native setpoint device's readback "
+        "INVALID): check the device(s), then apply the setup again",
+        device_name=down[0],
+    )
+
+
+def _gate(name: str, total: int, signals: list[Any]) -> MsgGenerator:
+    """Refuse the setup, before any write, when a device it writes or checks is judged down."""
+    down = yield from down_devices(_owners(signals))
+    if down:
+        exc = _down_refusal(down)
+        what = "the liveness check before the first write"
+        raise SetupStepFailedError(name, 0, total, what, (), str(exc)) from exc
+
+
 def _run_step(step: Any, signal: Any) -> MsgGenerator:
-    """One step: a set to the device's own completion, a check by the confirm settable's match, a wait."""
+    """One step: a set to the device's own completion, a check by the confirm settable's match, a wait.
+
+    A check judges its device's liveness first, at the check: a device
+    that went down since the gate keeps serving its last readback, which
+    must not pass the check.
+    """
     if isinstance(step, SetupSetStep):
         yield from bps.abs_set(signal, step.value, wait=True)
     elif isinstance(step, SetupCheckStep):
+        down = yield from down_devices(_owners([signal]))
+        if down:
+            raise _down_refusal(down)
         actual = yield from bps.rd(signal)
         if not setup_value_matches(step.expected, actual, step.tolerance):
             raise SetupCheckFailedError(
@@ -186,9 +234,11 @@ def apply_setup_plan(
     def apply_setup(name: str, *, md: Optional[dict] = None) -> MsgGenerator:
         """Apply the setup *name* from the experiment's ``setups/``: its steps, in order.
 
-        Opens no run. Every target is resolved and read before the first
-        write; a ``check`` mismatch or a refused ``set`` stops the setup
-        there, and the writes before it stay.
+        Opens no run. Every target is resolved and read, and every device
+        it writes or checks judged live, before the first write; a
+        ``check`` judges its device again when it runs. A device down, a
+        ``check`` mismatch or a refused ``set`` stops the setup there, and
+        the writes before it stay.
 
         Parameters
         ----------
@@ -219,6 +269,7 @@ def apply_setup_plan(
             "" if record.get("digest") else " (no confirmed digest: not checked)",
         )
         yield from _connect(name, total, signals)
+        yield from _gate(name, total, signals)
         written: list[int] = []
         for index, ((step, _origin), signal) in enumerate(zip(steps, signals), 1):
             try:
