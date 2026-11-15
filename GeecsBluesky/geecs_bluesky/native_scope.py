@@ -19,7 +19,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 #: Why each refused shape is refused — the tail of :func:`native_refusal`.
-NOT_GATED = "not in a gated batch"
 NOT_SCAN_MODE = (
     "not under a scan-mode profile (the IOC never acknowledges "
     "ScanStart, and a box-less profile fires no edge)"
@@ -38,7 +37,6 @@ def native_refusal(names: Iterable[str], why: str) -> str:
 
 __all__ = [
     "NOT_CALIBRATION",
-    "NOT_GATED",
     "NOT_OPTIMIZE",
     "NOT_SCAN_MODE",
     "native_refusal",

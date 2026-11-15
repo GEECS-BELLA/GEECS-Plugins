@@ -145,22 +145,20 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
     assert (
         "acq_timestamp" in devices["UC_Cam"]["components"]
     )  # the preflight's trigger rule
-    gated_item = {
+    fly_item = {
         "name": "count",
         "args": [["UC_Cam"]],
-        "kwargs": {"num": 3, "acquisition": "gated", "required": ["UC_Cam"]},
+        "kwargs": {"num": 3, "acquisition": "fly", "required": ["UC_Cam"]},
         "item_type": "plan",
         "user_group": "admin",
     }
-    ok, message = validate_plan(
-        gated_item, allowed_plans=plans, allowed_devices=devices
-    )
+    ok, message = validate_plan(fly_item, allowed_plans=plans, allowed_devices=devices)
     assert ok, message
     from bluesky_queueserver.manager.profile_ops import prepare_plan
 
     # the manager resolves the required names like the detectors'
     resolved = prepare_plan(
-        gated_item,
+        fly_item,
         plans_in_nspace=plans_in_nspace,
         devices_in_nspace=devices_in_nspace,
         allowed_plans={"admin": plans},
@@ -168,7 +166,7 @@ def test_queue_items_validate_against_the_bound_plans(RE, box, profiles) -> None
         nspace=ns,
     )
     assert resolved["kwargs"]["required"] == [cam]
-    assert resolved["kwargs"]["acquisition"] == "gated"
+    assert resolved["kwargs"]["acquisition"] == "fly"
     items = [
         ("count", [["UC_Cam"], 3], {"trigger_profile": "HTU-Test"}),
         ("count", [["UC_Cam.scalars"]], {"num": 2}),

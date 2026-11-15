@@ -237,8 +237,7 @@ class BackgroundSnapshot:
         ----------
         own :
             The run's own readers as the plan lists them: its detectors
-            and non-essential devices (a ``.scalars`` view counts as its
-            owner).  Every candidate rooted at one is the run's and is
+            (a ``.scalars`` view counts as its owner).  Every candidate rooted at one is the run's and is
             left to it.
         movers :
             The motors the run moves (the sweep's resolved axes, the

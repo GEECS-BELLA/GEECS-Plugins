@@ -46,7 +46,6 @@ def identifier_name(geecs_name: str) -> str:
 #: the device family; ``tests/test_namespace.py`` pins it.
 RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
     {
-        "abandon_step",
         "add_config_signals",
         "add_detector_logics",
         "add_readables",
@@ -60,14 +59,12 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "describe_configuration",
         "events_to_kickoff",
         "fly_native_save",
-        "frames_this_batch",
         "get_index",
         "get_trigger_deadtime",
         "hints",
         "kickoff",
         "last_acq_timestamp",
         "log",
-        "mark_abandoned",
         "missed_shot",
         "name",
         "native_image_save",
@@ -79,10 +76,7 @@ RESERVED_DEVICE_ATTRIBUTES: frozenset[str] = frozenset(
         "read_configuration",
         "set_name",
         "stage",
-        "step_baseline",
         "trigger",
-        "truncate_to",
-        "truncate_to_quota",
         "unstage",
         "zero_count",
     }

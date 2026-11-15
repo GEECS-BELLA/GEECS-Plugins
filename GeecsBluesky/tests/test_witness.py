@@ -455,13 +455,13 @@ def _value(plan):
     raise AssertionError("expected no messages")
 
 
-def test_gated_and_box_less_runs_do_not_read_the_witness(witness) -> None:
+def test_fly_and_box_less_runs_do_not_read_the_witness(witness) -> None:
     settables = _Settables({"main": witness})
     fired = SimpleNamespace(boxless=False)
     found, record = _value(
-        run_witness(settables, acquisition="gated", shot_control=fired)
+        run_witness(settables, acquisition="fly", shot_control=fired)
     )
-    assert found is None and record["read"] is False and "gated" in record["reason"]
+    assert found is None and record["read"] is False and "fly" in record["reason"]
     boxless = SimpleNamespace(boxless=True)
     found, record = _value(
         run_witness(settables, acquisition="strict", shot_control=boxless)

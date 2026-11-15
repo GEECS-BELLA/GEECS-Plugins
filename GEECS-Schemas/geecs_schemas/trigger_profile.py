@@ -273,7 +273,7 @@ class TriggerProfile(VersionedSchemaModel):
             "the run closes. A device then acquires once per announced shot, "
             "saves shot-numbered files and applies its own database "
             "start/end values. Off by default. Strict acquisition only: a "
-            "gated run and the calibration plans refuse such a profile. A "
+            "fly run and the calibration plans refuse such a profile. A "
             "profile with this flag and no writes at all is the box-less "
             "case — the shot message is the only trigger."
         ),

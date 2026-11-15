@@ -695,13 +695,13 @@ class NativeCamera(StandardDetector):
     async def prepare(self, value: TriggerInfo) -> None:
         """The stock prepare: a strict shot or an unbounded stream; a failure carries the writer's reason.
 
-        A bounded fly prepare (a gated batch) is refused before the camera
-        is touched: its quota would need a rewind the writer lacks.
+        A bounded fly prepare (a counted batch) is refused before the
+        camera is touched: its quota would need a rewind the writer lacks.
         """
         if isinstance(value, FlyTriggerInfo) and value.number_of_events != 0:
             raise GeecsConfigurationError(
                 f"{self._geecs_device_name} is a native EPICS camera: strict scans "
-                "or an unbounded stream only for now (no gated batch)"
+                "or an unbounded stream only for now (no counted batch)"
             )
         try:
             async with self._session.guard:  # whole, so an unstage waits for it

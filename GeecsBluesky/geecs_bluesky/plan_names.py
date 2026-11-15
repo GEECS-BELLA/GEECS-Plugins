@@ -53,12 +53,38 @@ GEECS_PLAN_NAMES: tuple[str, ...] = (
 )
 
 #: The acquisition modes every bound scan verb accepts (``acquisition=``):
-#: strict single-shot, the gated batch, or fly (a software tick, no box).
-#: Shared by the registry (the plan) and the client seam (the preset).
-ACQUISITION_MODES: tuple[str, ...] = ("strict", "gated", "fly")
+#: strict single-shot, or fly (a software tick, no box).  Shared by the
+#: registry (the plan) and the client seam (the preset).
+ACQUISITION_MODES: tuple[str, ...] = ("strict", "fly")
+
+#: Modes that existed and were deleted, with why — refused by name rather
+#: than reported as unknown, so a preset or request still asking for one
+#: reads the reason and never runs as something else.
+RETIRED_ACQUISITION_MODES: dict[str, str] = {
+    "gated": (
+        "strict is the one box-driven mode (a sweep may run under 1 Hz) "
+        "— use acquisition='strict'"
+    ),
+}
+
+
+def acquisition_refusal(acquisition: object) -> str | None:
+    """Why *acquisition* is refused, or ``None`` when it is a mode this worker runs.
+
+    The one wording for the worker's bind and the client's expansion.
+    """
+    if acquisition in ACQUISITION_MODES:
+        return None
+    retired = RETIRED_ACQUISITION_MODES.get(str(acquisition))
+    if retired is not None:
+        return f"acquisition={acquisition!r} is retired: {retired}"
+    return f"acquisition={acquisition!r} is not one of {ACQUISITION_MODES}"
+
 
 __all__ = [
     "ACQUISITION_MODES",
+    "RETIRED_ACQUISITION_MODES",
+    "acquisition_refusal",
     "CALIBRATION_PLAN_NAMES",
     "GEECS_PLAN_NAMES",
     "NON_SCAN_PLAN_NAMES",

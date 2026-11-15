@@ -711,7 +711,7 @@ def test_a_count_moves_nothing_and_records_no_tolerance(RE) -> None:
     assert "u_vs1h-current-readback" in col.primary_events()[0]["data"]
 
 
-@pytest.mark.parametrize("acquisition", ["strict", "fly", "gated"])
+@pytest.mark.parametrize("acquisition", ["strict", "fly"])
 @pytest.mark.parametrize(
     "tolerance, read",
     [

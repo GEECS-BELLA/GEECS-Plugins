@@ -9,8 +9,8 @@ raised back into the RunEngine.
 - :class:`SFileCallback` — ``ScanDataScanNNN.txt`` + ``analysis/sNNN.txt``
   at the stop document, from the run's own per-shot rows
   (:func:`geecs_data_utils.write_scalar_files`), for any exit status that
-  produced rows: a strict run's ``primary`` or a gated run's ``shots``
-  events, with datum-only streams joined by offset-corrected stamp.
+  produced rows: the run's ``primary`` events, with datum-only streams
+  joined by offset-corrected stamp.
 - :class:`ScanLogCallback` — ``scan.log`` from start to stop
   (:class:`geecs_bluesky.callbacks.scan_log.ScanLogFile`).
 - :class:`StackCheckCallback` — at the stop document, checks each image

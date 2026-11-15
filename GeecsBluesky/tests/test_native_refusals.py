@@ -31,11 +31,10 @@ from tests.test_strict_plans import WRITES, FakeBox, _camera, _plugin_camera
 STRICT_ONLY = (
     "ADTEST_CAM1: native EPICS cameras run in strict and fly scans only for now"
 )
-#: The strict states plus the gated bracket's, so a gated run could start.
+#: The strict states plus OFF (the calibration's bracket).
 STATES = {
     **WRITES.states,
     "OFF": [("DG", "Trigger.Source", "off")],
-    "SCAN": [("DG", "Trigger.Source", "edges")],
 }
 
 
@@ -67,23 +66,19 @@ def _refused(RE: RunEngine, box: FakeBox, plan, reason: str) -> None:
     assert col.docs["start"] == []
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "reason"),
-    [
-        ({"acquisition": "gated"}, "not in a gated batch"),
-        ({"acquisition": "gated", "required": "other"}, "not in a gated batch"),
-    ],
-    ids=["gated-required", "gated-not-required"],
-)
-def test_gated_runs_are_refused_before_the_claim(
-    RE: RunEngine, box: FakeBox, tmp_path: Path, kwargs: dict, reason: str
+def test_a_gated_run_is_refused_as_retired_before_the_claim(
+    RE: RunEngine, box: FakeBox, tmp_path: Path
 ) -> None:
+    """The retired mode's own reason, not a native-camera one: nothing driven, nothing claimed."""
     native, _ = _native_camera(RE, tmp_path)
     other = _camera(RE, box, "UC_Other")
-    if kwargs.get("required") == "other":
-        kwargs = {**kwargs, "required": [other]}
     count = bind_plans(_profiles(RE, box))["count"]
-    _refused(RE, box, count([native, other], 2, **kwargs), reason)
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(GeecsConfigurationError, match="acquisition='gated' is retired"):
+        RE(count([native, other], 2, acquisition="gated"))
+    assert box.puts == [] and box.fires == 0
+    assert col.docs["start"] == []
 
 
 @pytest.mark.parametrize("states", [STATES, {}], ids=["box", "box-less"])
@@ -126,7 +121,7 @@ def test_the_strict_shapes_are_admitted(
     plugin, _ = _plugin_camera(RE, box, "UC_Plugin", tmp_path)
     shot_control = _profiles(RE, box).resolve(None)
     for devices in ([native, plugin], [native, plugin.scalars], [native]):
-        refuse_native_run(devices, acquisition="strict", shot_control=shot_control)
+        refuse_native_run(devices, shot_control=shot_control)
 
 
 def test_a_preset_asking_for_a_native_cameras_scalars_is_refused_at_expansion() -> None:

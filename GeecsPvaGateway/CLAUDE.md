@@ -182,9 +182,9 @@ tests/
   asked for; `seed_held_frames=False` turns it off (tests that pin the
   gating). Frames are deduped on `acq_timestamp` and
   stale-filtered against a watermark set at `Capture=1` and moved by
-  `Rewind` (truncate to N, drop older-stamped arrivals: the gated
-  batch's trim and the zero at a fresh session; a strict refire never
-  rewinds); `NumCaptured_RBV` posts after each frame is on disk, and an
+  `Rewind` (truncate to N, drop older-stamped arrivals: the worker's zero
+  at a fresh session — the deleted gated batch also trimmed with it; a
+  strict refire never rewinds); `NumCaptured_RBV` posts after each frame is on disk, and an
   accepted frame clears `WriteStatus` / `WriteMessage` (they name the
   writer's state now, not a frame it refused shots ago — a `FilePath` put
   and `Capture=1` clear them too); `Capture=0` stamps the reconciliation

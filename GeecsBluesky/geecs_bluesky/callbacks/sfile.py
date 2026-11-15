@@ -27,16 +27,14 @@ logger = logging.getLogger(__name__)
 class SFileCallback(_StreamCallback):
     """Write the legacy scalar files at the stop document from the run's per-shot rows.
 
-    The rows are the ``primary`` events when the run has them (strict: the
-    shot table, or an earlier run's per-shot reads) and the per-shot sampler's
-    ``shots`` events otherwise (gated: ``primary`` carries only the
-    cameras' frames).  The columns are whatever the rows carried — the run's
+    The rows are the ``primary`` events (the shot table, or an earlier
+    run's per-shot reads).  The columns are whatever the rows carried — the run's
     devices and its background telemetry alike — renamed and ordered by
     ``geecs_scalar_headers`` inside
     :func:`geecs_data_utils.build_legacy_scalar_dataframe`.
 
-    Every **datum-only** stream of the run — a gated run's cameras, a
-    gated run's streamed camera, a shot-table run's device streams — has its per-frame columns joined onto those rows by
+    Every **datum-only** stream of the run — a shot-table run's device
+    streams — has its per-frame columns joined onto those rows by
     offset-corrected stamp through the shot table
     (:mod:`geecs_data_utils.shot_table`): one
     s-file row per row of the run, a camera's per-frame scalars spelled as
@@ -109,7 +107,7 @@ class SFileCallback(_StreamCallback):
         from geecs_data_utils.shot_join import frame_columns_from_attributes
         from geecs_data_utils.shot_table import device_records
 
-        # One window for every stack, not one each: a gated run with three
+        # One window for every stack, not one each: a run with three
         # cameras whose plugin never finalizes must not hold its s-file for
         # three timeouts.
         finalized = {

@@ -37,7 +37,6 @@ if TYPE_CHECKING:
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.native_scope import (
-    NOT_GATED,
     NOT_OPTIMIZE,
     native_refusal,
 )
@@ -45,6 +44,7 @@ from geecs_bluesky.plan_names import (
     ACQUISITION_MODES,
     GEECS_PLAN_NAMES,
     NON_SCAN_PLAN_NAMES,
+    acquisition_refusal,
 )
 from geecs_bluesky.utils import device_reference, identifier_name
 
@@ -203,9 +203,11 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     ------
     GeecsConfigurationError
         No plan call, a plan that is not a scan verb the worker registers,
-        ``save_images: false`` on a native camera, or a native camera in a
-        run shape the worker refuses at bind (gated, scan mode,
-        optimize — :func:`_native_run_refusal`).
+        ``save_images: false`` on a native camera, a native camera in a
+        run shape the worker refuses at bind (``optimize`` —
+        :func:`_native_run_refusal`), or an acquisition mode the worker
+        does not run (the retired ``gated`` by name —
+        :func:`~geecs_bluesky.plan_names.acquisition_refusal`).
     """
     if preset.plan is not None and preset.plan.name == "optimize":
         if resolver is None:
@@ -230,6 +232,11 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
                 else ""
             )
         )
+    # First: a retired mode is refused by name before any device rule could
+    # refuse the preset for a reason that is not the real one.
+    acquisition_refused = acquisition_refusal(plan.kwargs.get("acquisition", "strict"))
+    if acquisition_refused is not None:
+        raise GeecsConfigurationError(f"preset {preset.name!r}: {acquisition_refused}")
     detectors: list[str] = []
     required: list[str] = []
     per_shot: list[str] = []
@@ -249,9 +256,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             "frames and stamps go to its stack)"
         )
     refusal = _native_run_refusal(
-        plan.name,
-        plan.kwargs.get("acquisition", "strict"),
-        [d for d in devices if d.device.casefold() in native],
+        plan.name, [d for d in devices if d.device.casefold() in native]
     )
     if refusal is not None:
         raise GeecsConfigurationError(refusal)
@@ -298,12 +303,6 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             raise GeecsConfigurationError(
                 f"preset {preset.name!r}: invalid sweep: {exc}"
             ) from exc
-    acquisition = kwargs.get("acquisition", "strict")
-    if acquisition not in ACQUISITION_MODES:
-        raise GeecsConfigurationError(
-            f"preset {preset.name!r}: acquisition={acquisition!r} is not one of "
-            f"{ACQUISITION_MODES}"
-        )
     if len(required) < len(per_shot):
         # Explicit whenever a device is not required, an empty list included.
         kwargs["required"] = required
@@ -363,9 +362,7 @@ def _detector_names(native_devices: Collection[str] | Mapping[str, Any]) -> set[
     return {name.casefold() for name in native_devices}
 
 
-def _native_run_refusal(
-    plan_name: str, acquisition: Any, natives: list[Any]
-) -> str | None:
+def _native_run_refusal(plan_name: str, natives: list[Any]) -> str | None:
     """The worker's bind-time refusal of a native camera's run shape, said here first.
 
     *natives* are the preset's device entries the registry names.  The
@@ -382,8 +379,6 @@ def _native_run_refusal(
         return None
     if plan_name == "optimize":
         return native_refusal((d.device for d in natives), NOT_OPTIMIZE)
-    if acquisition == "gated":
-        return native_refusal((d.device for d in natives), NOT_GATED)
     return None
 
 

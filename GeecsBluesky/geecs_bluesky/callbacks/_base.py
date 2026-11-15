@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from geecs_data_utils.shot_join import SHOTS_STREAM, numeric_data_keys
+from geecs_data_utils.shot_join import numeric_data_keys
 from geecs_data_utils.shot_table import per_shot_event_streams
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -22,11 +22,12 @@ Document = Mapping[str, Any]
 #: Seconds to wait for the file plugin to finalize a stack before reading it.
 DEFAULT_FINALIZE_TIMEOUT_S = 15.0
 
-#: The streams whose events can be a run's per-shot rows, in preference
-#: order: ``primary`` for a strict run, the per-shot sampler's ``shots`` for
-#: a gated one.  No other stream's events are buffered (a monitor stream is
-#: not shots).
-ROW_STREAMS = ("primary", SHOTS_STREAM)
+#: The streams whose events can be a run's per-shot rows: ``primary``.  (A
+#: run recorded in the deleted gated mode had its rows in ``shots``; the
+#: offline readers in ``geecs_data_utils`` read those, the live callbacks
+#: never see one.)  No other stream's events are buffered (a monitor
+#: stream is not shots).
+ROW_STREAMS = ("primary",)
 
 #: How many runs' buffers to keep when a run never emits a stop document
 #: (the RunEngine always does, even on an abort, so this is a backstop
@@ -51,8 +52,8 @@ class _RunCallback:
             elif name == "event":
                 self.on_event(doc)
             elif name == "event_page":
-                # A ``collect``ed stream's rows arrive as pages (the gated
-                # run's ``shots``); the hooks see one row at a time either way.
+                # A ``collect``ed stream's rows arrive as pages (a device
+                # stream's events); the hooks see one row at a time either way.
                 from event_model import unpack_event_page
 
                 for event in unpack_event_page(doc):  # type: ignore[arg-type]
@@ -157,8 +158,7 @@ class _RunStreams:
         the streams' descriptor configuration).
     event_streams :
         Stream name → object name, for every per-shot device stream the
-        start document names (``per_shot_streams``, or a gated run's
-        ``non_essential``: ``<name>_stream``).  The ones that carry events are
+        start document names (``per_shot_streams``: ``<name>_stream``).  The ones that carry events are
         a triggered device without a file plugin, one event per stamp it
         published (GeecsBluesky's ``StampStream``): buffered like the rows
         and joined onto them by stamp.
@@ -190,8 +190,7 @@ class _RunStreams:
     def row_stream(self) -> str:
         """The stream the run's per-shot rows are in.
 
-        ``primary`` when it carried events (strict), else the sampler's
-        ``shots`` (gated), else ``""``.
+        ``primary`` when it carried events, else ``""``.
         """
         for stream in ROW_STREAMS:
             if self.rows.get(stream):

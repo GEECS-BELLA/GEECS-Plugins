@@ -26,11 +26,11 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-#: The streams whose events are shots: a strict run's ``primary`` rows and
-#: a gated run's ``shots`` rows.  Mirrors ``geecs_bluesky.callbacks.ROW_STREAMS``
+#: The streams whose events are shots: a run's ``primary`` rows.  Mirrors
+#: ``geecs_bluesky.callbacks.ROW_STREAMS``
 #: (that package imports the engine); ``tests/test_qs_client_progress.py``
 #: pins the two equal.
-ROW_STREAMS: tuple[str, ...] = ("primary", "shots")
+ROW_STREAMS: tuple[str, ...] = ("primary",)
 
 
 class RunProgress(BaseModel):
