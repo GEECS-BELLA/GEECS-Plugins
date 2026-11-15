@@ -72,7 +72,14 @@ def test_a_recipes_form_is_the_portals_bound_schema(browsing: TestClient) -> Non
     from geecs_analysis.recipe import recipe_schema
 
     r = browsing.get("/api/schema/analysis_recipe")
-    assert r.json() == recipe_schema() and r.headers["X-Schema-Source"] == "portal"
+    served = r.json()
+    hints = {k: served.pop(k) for k in ("x-sections", "x-ndim-from")}
+    assert served == recipe_schema() and r.headers["X-Schema-Source"] == "portal"
+    # the layout the form draws it in: sections over every key, the frames read off the input's kind
+    assert [s["title"] for s in hints["x-sections"]] == ["Source", "Steps", "Measure", "Figure", "Summaries", "Scan"]  # fmt: skip
+    assert {k for s in hints["x-sections"] for k in s["keys"]} == set(served["properties"]) - {"schema_version"}  # fmt: skip
+    assert hints["x-ndim-from"]["values"] == {"camera": 2, "line": 1}
+    assert "x-form-note" not in served  # the registry reached it: nothing to explain
     assert (
         r.json()["tier"] == "operator"
     )  # the tier the page and the save decide on, kept
@@ -90,6 +97,11 @@ def test_without_an_answer_the_form_is_the_documents_own_schema_and_says_why(roo
         assert (
             "StepRef" in r.json()["$defs"]
         )  # the open reference: the document's own schema
+        # laid out the same, and it says why a step and the measure are names, not lists
+        assert (
+            r.json()["x-sections"]
+            and "did not reach this form" in r.json()["x-form-note"]
+        )
         dry = client.post("/api/dry-run/analysis_recipe?id=Ns/UC_Crop.yaml", json={"document": {}}).json()  # fmt: skip
         assert (dry["by"], dry["ran"], dry["refusal"]) == ("portal", False, None)
 
@@ -192,3 +204,47 @@ def test_the_portals_refusal_of_a_blank_is_the_answer(committing: TestClient) ->
     assert unknown.status_code == 422 and "telescope" in unknown.json()["detail"]
     lacking = committing.get("/api/blank/analysis_recipe/Ns/L.yaml", params={"input": "line"})  # fmt: skip
     assert lacking.status_code == 422 and "loading" in lacking.json()["detail"]
+
+
+def test_a_groups_entries_suggest_the_analyzers_trees_names(
+    browsing: TestClient,
+) -> None:
+    ref = browsing.get("/api/schema/analysis_group").json()["$defs"]["AnalyzerRef"]["properties"]["ref"]  # fmt: skip
+    assert "UC_Crop" in ref["x-suggest"]
+
+
+def test_the_source_notes_names_are_the_recipes_own() -> None:
+    """The note's "{a|b}" names, filled as form.js fills them, are the recipe's data_folder and output label."""
+    import re
+
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    from geecs_configurator.form_hints import RECIPE_SECTIONS
+
+    def fill(template: str, doc: dict) -> str:
+        def first(m: re.Match) -> str:
+            for path in m.group(1).split("|"):
+                v: Any = doc
+                for k in path.split("."):
+                    v = v.get(k) if isinstance(v, dict) else None
+                if v not in (None, ""):
+                    return str(v)
+            return ""
+
+        return re.sub(r"\{([^}]*)\}", first, template)
+
+    note = RECIPE_SECTIONS[0]["note"]
+    for doc in (
+        {"device": "cam", "input": {"kind": "camera"}},
+        {
+            "device": "cam",
+            "output_name": "lbl",
+            "scalar_suffix": "_v2",
+            "input": {"kind": "camera", "folder": "cam-proc"},
+        },  # fmt: skip
+    ):
+        r = AnalysisRecipe.model_validate(doc)
+        assert fill(note, doc) == (
+            f"Reads scans/ScanNNN/{r.data_folder}/; writes {r.effective_output_name}_<scalar>{r.scalar_suffix or ''} "
+            f"s-file columns and analysis/ScanNNN/{r.effective_output_name}/."
+        )

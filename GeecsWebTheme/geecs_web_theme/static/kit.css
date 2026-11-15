@@ -613,3 +613,26 @@ body.kit{
 .kit .tier[data-tier="code"]{border-style:dashed}
 .kit [data-changed="true"] > input, .kit [data-changed="true"] > select, .kit [data-changed="true"] > textarea{box-shadow:inset 3px 0 0 var(--accent)}
 .kit .panel[data-changed="true"]{border-color:var(--accent)}
+/* A form laid out in sections (a schema's `x-sections`): each section a fold
+   with an edge of its own, its title and a one-line gist of what is in it, so
+   a closed form reads as a summary of the document. A list item that is a
+   choice (a step, a summary) folds to its header: the choice, then its gist. */
+.kit details.fold.section{border:var(--bw) solid var(--rule);border-radius:var(--r);padding:8px var(--pad);background:var(--surface)}
+.kit details.fold.section > summary{width:auto;gap:12px;min-width:0}
+.kit details.fold.section > summary .eyebrow{flex:none;font-family:var(--ff-ui);font-size:12.5px;font-weight:600;letter-spacing:.05em;color:var(--ink)}
+.kit details.fold.section[open] > summary{padding-bottom:8px;border-bottom:var(--bw) solid var(--rule-soft)}
+.kit details.fold.section > p.hint{margin:0 0 8px;font-size:12px}
+.kit details.fold.section .mono.dim{font-size:11.5px;overflow-wrap:anywhere}
+.kit .gist{
+  flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:var(--ff-mono);font-size:11.5px;color:var(--muted);
+}
+.kit .panel > header.item{flex-wrap:nowrap;padding:6px var(--pad)}
+.kit .panel > header.item .eyebrow{margin-right:0;flex:none}
+.kit .panel > header.item select{flex:none;max-width:16em}
+.kit .panel > header.item .gist{cursor:pointer}
+/* A pair (a tuple): its members side by side. Its .err slot follows the
+   pair, not a control, so it shows while the pair holds an invalid control. */
+.kit .field .pair{display:flex;gap:6px}
+.kit .field .pair > input{flex:1 1 0;min-width:0}
+.kit .field .pair:has(> [aria-invalid="true"]) ~ .err{display:block}

@@ -31,6 +31,7 @@ geecs_configurator/
                  #   stem twins, referrers, deletable
   ownership.py   # what this box owns (experiments, analysis folders)
   blank.py       # a new document's draft and where it may go
+  form_hints.py  # the layout hints an analysis kind's served schema carries
   setups.py      # the setups surface: capture, diff, apply (the scanner's)
   github.py      # the App's tokens and the pull requests
   yaml_edit.py   # the format-keeping splice of a save into the stored text
@@ -186,7 +187,17 @@ second confirmation layer is added.
   and dry run, pinned to the file kinds by test.
 - **The form is the theme's.** Pages draw with GeecsWebTheme's `form.js`
   from `/theme`; the service's `store.diff_documents` is the diff a save
-  will trust, held to `form.js`'s by `tests/test_form_parity.py`.
+  will trust, held to `form.js`'s by `tests/test_form_parity.py`. How an
+  analysis kind is laid out is `form_hints.py`, stamped into the schema
+  `GET /api/schema/{kind}` serves (portal or fallback alike), so the page
+  and every embedded drawer draw it the same: a recipe's `x-sections`
+  (Source, Steps, Measure, Figure, Summaries, Scan) and `x-ndim-from` (the
+  input kinds' own `ndim`), a group's entries' `x-suggest` (the analyzers
+  tree's stems), and on the fallback the `x-form-note` saying why a step is
+  a name there. Hints say how to draw, never what is valid. The page shows
+  the YAML of the form as edited beside it (`/api/yaml`, the latest ask
+  wins). Pinned by `tests/test_contract_portal.py` and the laid-out
+  round trip in `test_form_corpus.py`.
 - **A thin client.** It imports GEECS-Schemas, GEECS-Core (`configs_repo`,
   never `GeecsDb`) and the theme; everything else is asked over HTTP
   (the `configurator-edges` contract). Nothing in the repo imports it.

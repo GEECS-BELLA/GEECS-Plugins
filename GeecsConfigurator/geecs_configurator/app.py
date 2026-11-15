@@ -33,7 +33,7 @@ from geecs_web_theme.web import ForwardedPrefixMiddleware, RevalidatingStaticFil
 
 import httpx
 
-from geecs_configurator import blank, inbox, setups
+from geecs_configurator import blank, form_hints, inbox, setups
 from geecs_configurator.apply import (
     Archiver,
     DryRun,
@@ -238,12 +238,23 @@ def schema(request: Request, kind: str) -> JSONResponse:
             )
         else:
             try:
-                return JSONResponse(portal.schema(kind), headers={"X-Schema-Source": "portal"})  # fmt: skip
+                return JSONResponse(_hinted(request, kind, portal.schema(kind), "portal"), headers={"X-Schema-Source": "portal"})  # fmt: skip
             except (httpx.HTTPError, ValueError) as exc:
                 logger.warning("the portal's %s schema did not answer: %s", kind, exc)
                 source = f"geecs-schemas (the portal did not answer: {' '.join(str(exc).split())[:200]})"  # fmt: skip
-        return JSONResponse(SCHEMA_REGISTRY[kind].model_json_schema(), headers={"X-Schema-Source": source.encode("ascii", "replace").decode()})  # fmt: skip
+        return JSONResponse(_hinted(request, kind, SCHEMA_REGISTRY[kind].model_json_schema(), source), headers={"X-Schema-Source": source.encode("ascii", "replace").decode()})  # fmt: skip
     return JSONResponse(SCHEMA_REGISTRY[kind].model_json_schema())
+
+
+def _hinted(request: Request, kind: str, schema: dict[str, Any], source: str) -> dict[str, Any]:  # fmt: skip
+    """An analysis kind's schema with the layout hints its form draws (``form_hints``)."""
+    if kind == "analysis_recipe":
+        return form_hints.recipe_hints(schema, registry=source == "portal", source=source)  # fmt: skip
+    if kind == "analysis_group":
+        store = _store(request)
+        names = [PurePosixPath(doc_id).stem for k in ANALYSIS_KINDS if k != "analysis_group" for doc_id in store.files(k, None)]  # fmt: skip
+        return form_hints.group_hints(schema, names)
+    return schema
 
 
 @api.get("/folders/{kind}")

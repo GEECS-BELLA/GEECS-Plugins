@@ -68,6 +68,20 @@
     if (d.tier) kids.push(el("p", {}, "Saving would: " + ACTION[d.tier] + "."));
     fill($("#tier"), kids);
   }
+  // The YAML of the document as edited, beside the form: asked a moment after the last edit, and only the
+  // latest ask is shown (an older answer arriving late is dropped).
+  var yamlAsks = 0, yamlTimer = null;
+  function yamlSoon() {
+    var box = $("#live-yaml");
+    if (!box || !form) return;
+    clearTimeout(yamlTimer);
+    yamlTimer = setTimeout(function () {
+      var mine = ++yamlAsks;
+      api("/api/yaml", { document: form.value() }).then(function (text) { if (mine === yamlAsks) box.textContent = text; })
+        .catch(function (err) { if (mine === yamlAsks) box.textContent = String(err.message || err); });
+    }, 250);
+  }
+  function edited() { drawTier(); yamlSoon(); }
   function drawChanges(d) {
     var list = el("div", { class: "changes" });
     d.changes.forEach(function (c) {
@@ -98,7 +112,7 @@
       // a read-only kind, or a document another facility's box owns: no save row
       var saveRow = $(".save-row"); if (saveRow && readOnly) saveRow.hidden = true;
       $("#doc-path").textContent = got[1].path;
-      form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: got[1].read_only, onChange: drawTier });
+      form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: got[1].read_only, onChange: edited }); yamlSoon();
       if (got[1].errors.length) form.setErrors(got[1].errors);
       info = got[2].filter(function (k) { return k.kind === kind; })[0];
       var copyDelete = $("#copy-delete"); if (copyDelete) copyDelete.hidden = !!readOnly || !GeecsConfigurator.named(info);  // a folder of named files only
@@ -121,14 +135,14 @@
   $("#yaml").addEventListener("click", function () {
     api("/api/yaml", { document: form.value() }).then(function (text) { fill($("#result"), [el("pre", { class: "well" }, text)]); }).catch(fail);
   });
-  $("#reset").addEventListener("click", function () { form.reset(); drawTier(); fill($("#result"), [el("p", { class: "dim" }, "Edits discarded.")]); });
+  $("#reset").addEventListener("click", function () { form.reset(); drawTier(); yamlSoon(); fill($("#result"), [el("p", { class: "dim" }, "Edits discarded.")]); });
 
   // ---- Save (the commit path on): the embed's one save flow (embed.js), into this page's result panel.
   var saveBtn = $("#save");
   if (!saveBtn) return;
   function remount(doc) {
     stored = doc.document; etag = doc.etag;
-    form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: doc.read_only, onChange: drawTier });
+    form = GeecsForm.mount($("#form"), { schema: schema, value: stored, readOnly: doc.read_only, onChange: edited }); yamlSoon();
     drawTier();
   }
   function who() {

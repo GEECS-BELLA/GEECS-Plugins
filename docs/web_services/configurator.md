@@ -28,6 +28,16 @@ owns it or by a pull request.
 
 ![A recipe open in the configurator](assets/configurator_01_document.png)
 
+An analysis recipe opens in sections (Source, Steps, Measure, Figure,
+Summaries, Scan), each closed to one line that says what is in it; open
+the one you are changing. A step is one line too, its kind in a list:
+open it for its parameters, a link to its reference card and, for the
+measure, the scalars it writes. The lists offer only the steps and
+measures that fit the recipe's frames (images or traces), and an ROI is
+one row per axis. The step and measure lists come from the data portal:
+on a box whose configurator has no portal, a banner says so and a step is
+typed by name. The YAML of the recipe as edited is shown beside the form.
+
 ## Editing and saving
 
 - **Validate** checks the form against the schema. **Diff against stored**

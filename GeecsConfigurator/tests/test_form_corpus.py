@@ -293,9 +293,13 @@ def test_a_recipe_round_trips_through_the_portals_bound_schema() -> None:
     from geecs_analysis.recipe import binding_errors, recipe_schema
     from geecs_schemas.analysis import AnalysisRecipe
 
+    from geecs_configurator.form_hints import recipe_hints
+
     bound = recipe_schema()
-    got = _node([[bound, raw, None] for raw in RECIPES.values()])
-    assert [(r[1], r[2]) for r in got] == [(True, [])] * len(RECIPES)
+    # as the core serves it, and as this service lays it out (sections, fixed ROI rows, the frame filter)
+    laid_out = recipe_hints(bound, registry=True, source="portal")
+    got = _node([[s, raw, None] for s in (bound, laid_out) for raw in RECIPES.values()])  # fmt: skip
+    assert [(r[1], r[2]) for r in got] == [(True, [])] * (2 * len(RECIPES))
     assert all(
         r[0] > 10 for r in got
     )  # the step and measure controls were drawn and touched

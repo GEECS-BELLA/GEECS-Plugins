@@ -227,6 +227,8 @@ def test_recipe_schema_binds_the_registry_vocabulary():
     assert schema["$defs"]["InterpolateSpec"]["x-ndim"] == [1]
     assert schema["$defs"]["WaterfallSummary"]["x-ndim"] == [1]
     assert schema["$defs"]["ImageGridSummary"]["x-ndim"] == [2]
+    # an ROI's pairs are named by axis, rows (y) before columns (x) in numpy order
+    assert schema["$defs"]["RoiSpec"]["properties"]["bounds"]["x-axes"] == {"1": ["x"], "2": ["y", "x"]}  # fmt: skip
     # the document's frame is the schema package's, untouched
     assert schema["properties"]["input"]["discriminator"]["propertyName"] == "kind"
     assert "FigureStyle" in schema["$defs"]
