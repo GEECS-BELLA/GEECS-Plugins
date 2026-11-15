@@ -26,8 +26,9 @@
 # down. CODEOWNERS.example beside this file routes each pull request to the
 # facility whose folders it touches.
 #
-# GEECS_PLUGINS_REF is the GEECS-Plugins branch the validator comes from:
-# feat/configurator while the configurator arc is unpromoted, master after.
+# GEECS_PLUGINS_REF is the GEECS-Plugins branch the validator comes from
+# (master; an integration branch's name while an arc that changes the
+# validator is unpromoted, then back to master at its promotion).
 
 name: validate
 
@@ -44,7 +45,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     env:
-      GEECS_PLUGINS_REF: feat/configurator
+      GEECS_PLUGINS_REF: master
     steps:
       - uses: actions/checkout@v4
         with:
