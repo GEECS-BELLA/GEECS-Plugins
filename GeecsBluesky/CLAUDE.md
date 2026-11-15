@@ -200,7 +200,13 @@ qserver/                    # the worker: launcher, startup profile, permissions
   string signal, so connect never demands a line the camera lacks; the
   first prepare refuses one, before touching the camera), the IOC's layout
   and SWMR-off restored after the stock prepare, the row stamp the frame's
-  EPICS timestamp through `scan_stack.epics_timestamp_to_unix`.  **The run
+  EPICS timestamp through `scan_stack.epics_timestamp_to_unix`.  That stamp
+  is taken when the finished frame reaches the driver, so the run's first
+  prepare adds the camera's live exposure (`AcquireTime_RBV`, s) and
+  trigger delay (`TriggerDelay_RBV`, µs) to its stored `drain_offset`:
+  every reader subtracts it, timing the frame from its trigger as a
+  LabVIEW camera's driver already does (unreadable: no correction, a
+  WARNING).  **The run
   lock**: the first prepare's first act sets the IOC's `RUN:Lock` (waiting
   for its readback), and only a completed restore — or an unstage with
   nothing to restore — releases it; meanwhile the IOC refuses acquisition

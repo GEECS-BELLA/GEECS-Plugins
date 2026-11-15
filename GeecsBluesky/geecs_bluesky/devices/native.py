@@ -74,7 +74,7 @@ from ophyd_async.epics.adcore import (
     NDArrayDescription,
     NDFileHDF5IO,
 )
-from ophyd_async.epics.core import PvSuffix, epics_signal_rw
+from ophyd_async.epics.core import PvSuffix, epics_signal_r, epics_signal_rw
 
 from geecs_data_utils.io.scan_stack import (
     ATTRIBUTES_GROUP,
@@ -175,6 +175,10 @@ def run_owner() -> str:
 def liveness_word(cnct: AsynConnect) -> str:
     """The liveness verdict's words: ``Disconnected`` only when the driver lost the camera."""
     return "Disconnected" if cnct == AsynConnect.DISCONNECT else "Connected"
+
+
+#: Seconds the run's first prepare waits for the exposure and trigger delay.
+STAMP_LAG_READ_S = 5.0
 
 
 @dataclass
@@ -588,9 +592,17 @@ class NativeCamera(StandardDetector):
         self._geecs_device_name = device
         self._source = NativeTriggerSource(trigger_source)
         self.driver = NativeDriverIO(prefix + DRIVER_SUFFIX)
+        # GenICam's TriggerDelay (µs) from geecs-epics' trigger_delay.db, not
+        # a stock record: private, so connecting the camera never needs it.
+        self._trigger_delay = epics_signal_r(
+            float, prefix + DRIVER_SUFFIX + "TriggerDelay_RBV"
+        )
+        self._delay_connected = False
         self.hdf = NativeHdfIO(prefix + HDF_SUFFIX)
         self.run_lock = RunLockIO(prefix + RUN_LOCK_SUFFIX)
         self.drain_offset = soft_signal_rw(float, float(drain_offset), units="s")
+        #: The stored offset; each run's lag is added to this, never to the last run's.
+        self._stored_offset = float(drain_offset)
         self.connected_status = derived_signal_r(
             liveness_word, cnct=self.driver.asyn_connect
         )
@@ -627,6 +639,25 @@ class NativeCamera(StandardDetector):
         self._column_headers = {
             f"{self.name}-{ACQ_TIMESTAMP}": f"{device} {ACQ_TIMESTAMP}"
         }
+
+    async def connect(
+        self,
+        mock: bool | Any = False,
+        timeout: float = DEFAULT_TIMEOUT,
+        force_reconnect: bool = False,
+    ) -> None:
+        """The stock connect; in mock mode the private trigger-delay record too.
+
+        A real connect never needs that record (a camera without geecs-epics'
+        ``trigger_delay.db`` must still run): the run's first prepare connects
+        it, bounded.  A mock connect has no such camera, so it joins here.
+        """
+        await super().connect(
+            mock=mock, timeout=timeout, force_reconnect=force_reconnect
+        )
+        if mock:
+            await self._trigger_delay.connect(mock=True)
+            self._delay_connected = True
 
     @AsyncStatus.wrap
     async def unstage(self) -> None:
@@ -674,11 +705,94 @@ class NativeCamera(StandardDetector):
             )
         try:
             async with self._session.guard:  # whole, so an unstage waits for it
+                first = not self._session.programmed
                 await super().prepare(value)
+                if first:
+                    # After the stock prepare: the run lock is held (the
+                    # trigger logic takes it first), so no other client can
+                    # change the exposure between this read and the run's
+                    # end; the stream's descriptor is declared later, at the
+                    # first collect that finds a frame.
+                    await self._set_stamp_lag()
         except Exception as exc:
             for reason in await self.plugin_reasons():
                 exc.add_note(reason)
             raise
+
+    async def _set_stamp_lag(self) -> None:
+        """Put the camera's live trigger delay and exposure into its ``drain_offset``.
+
+        Called under the run lock (after the run's first stock prepare), so
+        the settings read are the run's.
+
+        The frame's EPICS timestamp is taken when the driver receives the
+        finished frame (ADAravis ``updateTimeStamp``): after the trigger
+        delay and the exposure.  Read at the run's first prepare (settings do
+        not change within a run) and added to the stored offset, so every
+        reader of the run, which subtracts ``drain_offset``, times the frame
+        from its trigger, as a LabVIEW camera's driver already does.  An
+        unreadable setting adds nothing, with a WARNING.
+        """
+        name = self._geecs_device_name
+        (exposure,) = await asyncio.gather(
+            asyncio.wait_for(self.driver.acquire_time.get_value(), STAMP_LAG_READ_S),
+            return_exceptions=True,
+        )
+        if isinstance(exposure, asyncio.CancelledError):
+            raise exposure
+        if isinstance(exposure, BaseException):
+            await self._no_stamp_lag(f"{type(exposure).__name__}: {exposure}")
+            return
+        exposure = float(exposure)
+        delay_us = await self._read_trigger_delay()
+        lag = exposure + delay_us * 1e-6
+        if not (math.isfinite(lag) and lag >= 0):
+            await self._no_stamp_lag(f"exposure {exposure!r} s, delay {delay_us!r} us")
+            return
+        await self.drain_offset.set(self._stored_offset + lag)
+        logger.info(
+            "%s: stamps timed from the trigger: exposure %.6g s + trigger delay "
+            "%.6g us subtracted",
+            name,
+            exposure,
+            delay_us,
+        )
+
+    async def _read_trigger_delay(self) -> float:
+        """The trigger delay, µs; ``0.0`` with a WARNING on a camera without the record."""
+
+        async def read() -> float:
+            if not self._delay_connected:
+                await self._trigger_delay.connect(timeout=STAMP_LAG_READ_S)
+                self._delay_connected = True
+            return float(
+                await asyncio.wait_for(
+                    self._trigger_delay.get_value(), STAMP_LAG_READ_S
+                )
+            )
+
+        (delay,) = await asyncio.gather(read(), return_exceptions=True)
+        if isinstance(delay, asyncio.CancelledError):
+            raise delay
+        if isinstance(delay, BaseException):
+            logger.warning(
+                "%s: no trigger delay readable (%s: %s) — taken as 0 this run",
+                self._geecs_device_name,
+                type(delay).__name__,
+                delay,
+            )
+            return 0.0
+        return delay
+
+    async def _no_stamp_lag(self, why: str) -> None:
+        """The stored offset alone, with the WARNING that the stamps are not corrected."""
+        logger.warning(
+            "%s: exposure / trigger delay unusable (%s) — its stamps are not "
+            "corrected this run",
+            self._geecs_device_name,
+            why,
+        )
+        await self.drain_offset.set(self._stored_offset)
 
     def _frame_timeout(self) -> float:
         """The frame wait's budget: the prepared ``TriggerInfo.exposure_timeout``."""

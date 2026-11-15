@@ -193,6 +193,12 @@ with GEECS logics:
   constant) with `_column_headers`, as every row stamp does; one epoch for
   both and every join reads `NaN` without an error. Requires the IOC
   host's clock NTP-disciplined (PTP later) — the stamp is the join key.
+  The pair is taken when the finished frame reaches the driver (ADAravis's
+  `updateTimeStamp`), after the trigger delay and the exposure; the run's
+  first prepare adds both, read live, to the camera's `drain_offset`, which
+  every reader subtracts. The camera's own `NDArrayTimeStamp` (latched by
+  the camera, its power-up clock) would need PTP or a per-run fit, which not
+  every camera here supports.
 - **Finalized** (verified, geecs-epics#2): the IOC's layout writes
   `finalized = 1` on **`/entry`** when the file closes (a root-level layout
   attribute segfaults the writer). The stack check's `_is_finalized`
