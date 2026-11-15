@@ -1,8 +1,11 @@
 # GEECS MCP Server — overview
 
-**GEECS-MCP** is the GEECS server for AI agents: the one entry point for
-every write an agent makes to the machine, and the reads a closed loop
-needs. Submit a scan from a preset, wait for it, run the standard
+**GEECS-MCP** is the GEECS server for AI agents: the entry point for
+every write OSPREY's htu-assistant makes to the machine, and the reads a
+closed loop needs. It is one server, bound to the main experiment's
+scanner; an agent at an experiment instance speaks that scanner's HTTP API
+directly ([GEECS Scanner](../web_services/scanner.md#from-a-script-or-an-agent)),
+the same routes this server calls. Submit a scan from a preset, wait for it, run the standard
 analysis on it, read the numbers, post a draft to the logbook — each as
 a typed tool an agent can call, each one a thing an operator can already
 do by hand in the web scanner, the Data Portal or the logbook.

@@ -1,8 +1,10 @@
 # GEECS-MCP
 
-The GEECS facility MCP server — the one entry point for an AI agent's
-writes to the machine, built as a **thin HTTP client** of the web scanner
-(:8300), the Data Portal (:8200) and the logbook (:8400). The design is
+The GEECS facility MCP server — the entry point for an AI agent's writes
+to the machine where it is deployed (one server, bound to the main
+experiment's scanner; an agent at an experiment instance speaks that
+scanner's HTTP API directly), built as a **thin HTTP client** of the web
+scanner (:8300), the Data Portal (:8200) and the logbook (:8400). The design is
 `DESIGN.md`; the rebuild lands in small PRs (its §9) and this README
 describes the current state.
 

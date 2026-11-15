@@ -180,7 +180,7 @@ rendered from it, never edited by hand.
 | CA gateway (GeecsCAGateway) | 192.168.6.14 | `<root>/gateway-checkout` | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
 | Tiled catalog | 192.168.6.22 (the services box, since 2026-10-30) | — (pip install; `~/tiled/config.yml`) | HTTP 8000 | systemd `tiled` | `GET /api/v1/`; web UI at `/ui` | [GeecsBluesky/TILED_SETUP.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md) |
 | Queueserver worker (RE Manager + Redis + doc proxy) | 192.168.6.22 (the services box) | `<root>/qs-checkout` | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` + `geecs-qserver-ready` (oneshot: opens the worker environment and asserts the plan list after every manager start) | `qserver status` from any client env — **ready** means the worker environment exists (`worker_environment_exists` true) *and* the allowed-plan list is non-empty; a running unit with a closed environment refuses every plan (`scripts/fleet_status.sh` reports both, #793) | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
-| GEECS-MCP server (HTTP mode) — the agent's one write entry point, over the scanner, portal and logbook APIs | 192.168.6.22 (beside the three services it calls; stdio mode remains available per machine) | baked non-editably from the **worker's** clone `<root>/qs-checkout` into `<root>/geecs-mcp-venv`; a thin HTTP client that resolves nothing itself, so it needs no config-truth parity — it reaches the scanner, the portal and the logbook by URL (`config.ini [mcp] scanner_url / portal_url / logbook_url`) | HTTP 8100 (`/mcp`) | systemd `geecs-mcp` | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
+| GEECS-MCP server (HTTP mode) — the agent's write entry point where it is deployed, over the scanner, portal and logbook APIs (one server, bound to the main experiment's scanner; an agent at an experiment instance speaks that scanner's HTTP API directly) | 192.168.6.22 (beside the three services it calls; stdio mode remains available per machine) | baked non-editably from the **worker's** clone `<root>/qs-checkout` into `<root>/geecs-mcp-venv`; a thin HTTP client that resolves nothing itself, so it needs no config-truth parity — it reaches the scanner, the portal and the logbook by URL (`config.ini [mcp] scanner_url / portal_url / logbook_url`) | HTTP 8100 (`/mcp`) | systemd `geecs-mcp` | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
 | GEECS Data Portal (GEECS-DataPortal) — memory ceiling from `site.env`; links to the logbook and sends Plot-tab figures into a scan's entry (`--logbook-url`, absolute and reachable from both this process and operators' browsers), no longer hosts it | 192.168.6.22 (the services box) | `<root>/portal-checkout` | HTTP 8200 | systemd `geecs-data-portal` | `GET /health` (catalog probe); any day page in a browser | [GEECS-DataPortal/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-DataPortal/DEPLOYMENT.md) |
 | GEECS Logbook (GeecsLogbook) — the scans book over scan folders + the ops book; its own process since 2026-09-13 (before: a router in the portal at `/log`). Entries in the unit's `StateDirectory` (`/var/lib/geecs-logbook`: `logbook.db` + `attachments/`, **the irreplaceable part — back it up**), mirrored to `<experiment>/logbook/` on the share | 192.168.6.22 (with the portal) | `<root>/portal-checkout` (the portal's clone, own poetry env in `GeecsLogbook/` — a pull there is a deploy of both; restart both) | HTTP 8400 | systemd `geecs-logbook` | `GET /health` → `ok`, `version`, `writable` (true on a deployed host); `GET /` → 307 to today | [GeecsLogbook/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsLogbook/deploy/DEPLOYMENT.md) |
 | GEECS Scanner (GeecsScanner) — the web scanner console: submit / watch / stop scans from a browser, over `geecs_bluesky.qs_client`; runs from the **worker's** checkout so it submits against the plan surface that checkout defines | worker host (co-located with the RE Manager) | `<root>/qs-checkout` | HTTP 8300 | systemd `geecs-scanner` | `GET /health` (`readiness` must read `ready`; `tiled_writer.state` is the writer's word, below); `GET /api/status` | [GeecsScanner/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsScanner/deploy/DEPLOYMENT.md) |
@@ -245,9 +245,27 @@ model and the port slots; `deploy/experiment.sh list` shows what is up.
 `/fleet-status` lists each instance's units as rows of their own
 (`… @<Instance>`) and reads each instance scanner's `/health` for its
 manager's readiness, once the host has named the instance and its port.
-The units run from the same clones as the main experiment's — the one
-transitional exception being `GEECS_INSTANCE_CHECKOUT_ROOT` during the
-multi-experiment proof.
+The units run from the same clones as the main experiment's: the
+render-time `GEECS_INSTANCE_CHECKOUT_ROOT` that let the multi-experiment
+proof run from clones of its own was dropped from the reference
+deployment's `site.env` once the arc was on `master` (2026-11-04).
+
+The reference deployment has one instance, **PulsedWire** — the
+pulsed-wire bench, DB experiment "Test stand default", slot 1 — on the
+services box (192.168.6.22):
+
+| Unit | Port |
+|---|---|
+| `geecs-ca-gateway@PulsedWire` | CA **5164** — its own gateway, so a bench client lists `192.168.6.22:5164` in `[epics] ca_addr_list` |
+| `geecs-qserver@PulsedWire` | 0MQ control 60715, info 60725; documents 5668 |
+| `geecs-scanner@PulsedWire` | HTTP **8310** (`/health` carries `readiness` and `experiment`) |
+| `geecs-logbook@PulsedWire` | HTTP **8410** |
+| `geecs-tiled-writer@PulsedWire` | — (its spool is under the instance's state dir) |
+
+Its scans land under `<data root>/Test stand default/` and its presets and
+profiles under the configs repo's
+`scanner_configs/experiments/Test stand default/`. The scanner on 8300
+knows nothing of it.
 
 ## One clone per service
 

@@ -20,6 +20,15 @@ port **8300**), beside the [Data Portal](data_portal.md) (8200) and the
 `http://<worker-host>:8300/` in a browser on the lab network. The host and
 the other services are on the [fleet map](../platform/fleet_map.md).
 
+A hub that runs a **second experiment** gives it a scanner of its own on
+another port: an instance in slot *N* adds 10×*N*, so the first instance's
+scanner is **8310** and its logbook 8410 (the reference deployment's
+pulsed-wire bench, `<unit>@PulsedWire`). The fleet map's
+[Experiment instances](../platform/fleet_map.md#experiment-instances)
+section names the live ones. If your devices are not in the main
+experiment's roster, that scanner is yours: the one on 8300 cannot see
+them.
+
 For development, the package runs anywhere from a checkout of
 GEECS-Plugins, with or without a real worker:
 
@@ -31,6 +40,34 @@ poetry run geecs-scanner --demo                      # an in-memory manager that
 ```
 
 `--demo` contacts nothing, so the page can be explored offline.
+
+## From a script or an agent
+
+Every control on this page is a route on the scanner's JSON API, and the
+API is the contract: the OpenAPI document is served at `/openapi.json`.
+Taking data without the browser — a notebook, or an AI agent at an
+experiment that has no GEECS-MCP server — uses the same routes, in the
+order the page does:
+
+1. `GET /api/devices`, `GET /api/scan-variables`,
+   `GET /api/configs/presets` and `GET /api/configs/presets/{name}`: what
+   the worker can see, the presets on disk, and one preset's document.
+2. `POST /api/preflight` with the preset document. The answer is the list
+   of questions an operator must acknowledge; nothing is queued.
+3. `POST /api/submit` with the preset, the acknowledged `check` names and
+   the `operator`. Preflight runs again, then the scan is queued.
+4. `GET /api/status` and `GET /api/progress` to follow it; `POST /api/stop`
+   and `POST /api/pause` to halt.
+
+`POST /api/move` moves one settable and completes the way a scan step's
+move does: a motor's readback within tolerance, otherwise the device's own
+set completion.
+
+A preflight question is for a **person** to answer: an agent relays it and
+waits, and never acknowledges one on its own. And data is never taken by
+writing to devices directly (`GeecsDevice.set`, or a gateway `:SP` PV):
+that path has no scan number, no save set and no shot control, and
+nothing records that it happened.
 
 ## A tour of the page
 
