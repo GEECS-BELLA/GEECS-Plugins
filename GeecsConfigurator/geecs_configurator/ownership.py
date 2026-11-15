@@ -27,6 +27,7 @@ an owned file. No owned path is ever implied: an empty setting owns nothing.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -42,6 +43,10 @@ ANALYSIS_KIND_FOLDERS = tuple(sorted({
     if isinstance(s, FileStorage) and s.root == "analysis" and s.folder
 }))  # fmt: skip
 _PATTERN_CHARS = set("*?[]")
+#: The experiment naming rule (letters, digits, ``_``, ``.``, ``-``; no spaces): an owned
+#: folder's name, and an experiment's key in ``GEECS_CONFIGURATOR_SCANNER_URL``.
+NAME_CHARS = r"[A-Za-z0-9_.-]+"
+_NAME = re.compile(NAME_CHARS)
 
 
 class OwnershipError(ValueError):
@@ -49,7 +54,12 @@ class OwnershipError(ValueError):
 
 
 def parse_names(raw: str, key: str) -> tuple[str, ...]:
-    """A comma-separated setting as folder names: blanks dropped, duplicates once; refuses a path or a pattern."""
+    """A comma-separated setting as folder names: blanks dropped, duplicates once.
+
+    Refuses a path, a pattern, and a name outside the naming rule (letters,
+    digits, ``_``, ``.``, ``-``): an experiment's name is its configs folder,
+    its data folder and its key in ``GEECS_CONFIGURATOR_SCANNER_URL``.
+    """
     out: list[str] = []
     for name in (n.strip() for n in raw.split(",")):
         if not name:
@@ -58,6 +68,8 @@ def parse_names(raw: str, key: str) -> tuple[str, ...]:
             raise OwnershipError(f"{key}: {name!r} is not a folder's name")
         if _PATTERN_CHARS & set(name):
             raise OwnershipError(f"{key}: {name!r} is a pattern; name each folder")
+        if not _NAME.fullmatch(name):
+            raise OwnershipError(f"{key}: {name!r} breaks the naming rule: letters, digits, '_', '.', '-' only, no spaces")  # fmt: skip
         if name not in out:
             out.append(name)
     return tuple(out)

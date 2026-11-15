@@ -236,8 +236,12 @@ experiment's units and never instead of them. Tiled, the Data Portal
   (keys and the port scheme in `deploy/experiments.env.example`), read by
   the `<unit>@.service` templates *after* `site.env`, so it overrides the
   site for that instance only. `<Instance>` is a slug; the DB experiment
-  it serves (`GEECS_EXPERIMENT`) may carry spaces, and it is the name the
-  scan folders, the configs folder and the logbook use.
+  it serves (`GEECS_EXPERIMENT`) may differ from it, and it is the name the
+  scan folders, the configs folder, the logbook and the configurator's
+  scanner-URL key (`Exp=url`) use. **An experiment's name carries no
+  spaces**: letters, digits, `_`, `.` and `-` only. `experiment.sh up` and the
+  configurator's `GEECS_CONFIGURATOR_EXPERIMENTS` refuse any other; a DB
+  experiment named otherwise is renamed in the DB first.
 - **Ports come from a slot** `N` (1..9; the main experiment is slot 0, the
   stock ports): CA `5064+100N`, 0MQ `60615+100N` / `60625+100N`, documents
   `5567+100N` / `5568+100N`, scanner `8300+10N`, logbook `8400+10N`.

@@ -108,6 +108,19 @@ def test_an_owned_name_is_one_plain_folder(bad: str) -> None:
         parse_names(f"Bench,{bad}", "KEY")
 
 
+@pytest.mark.parametrize(
+    "bad", ["Test stand default", "Bench stand", "Exp=1", "Bénch", "a\tb", "x,y'z"]
+)
+def test_an_owned_name_follows_the_naming_rule(bad: str) -> None:
+    """No spaces: the name is the configs folder, the data folder and a SCANNER_URL key."""
+    with pytest.raises(OwnershipError, match="naming rule"):
+        parse_names(f"Bench,{bad}", "KEY")
+
+
+def test_the_naming_rule_keeps_letters_digits_and_three_marks() -> None:
+    assert parse_names("TestStand,HTU,PW-Laser,Exp_2,v1.0", "KEY") == ("TestStand", "HTU", "PW-Laser", "Exp_2", "v1.0")  # fmt: skip
+
+
 def test_owned_by_name() -> None:
     own = Ownership(("Bench",), ("Ns",))
     yes = [f"{EXP}/Bench/setups/a.yaml", f"{EXP}/Bench/shot_offsets.yaml", "scan_analysis_configs/analyzers/Ns/x/r.yaml", "scan_analysis_configs/groups/Ns/g.yaml"]  # fmt: skip

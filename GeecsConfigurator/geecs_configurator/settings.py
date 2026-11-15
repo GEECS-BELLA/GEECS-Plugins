@@ -57,7 +57,12 @@ from pathlib import Path
 
 from geecs_core.configs_repo import EXPERIMENTS_SUBDIR, scanner_configs_base
 
-from geecs_configurator.ownership import Ownership, OwnershipError, parse_names
+from geecs_configurator.ownership import (
+    NAME_CHARS,
+    Ownership,
+    OwnershipError,
+    parse_names,
+)
 
 _P = "GEECS_CONFIGURATOR_"
 
@@ -65,7 +70,7 @@ _P = "GEECS_CONFIGURATOR_"
 def _named_scanners(raw: str) -> dict[str, str] | None:
     """``Exp=url,Exp2=url`` as a mapping, or ``None`` when no part names an experiment (one plain URL)."""
     parts = [p.strip() for p in raw.split(",") if p.strip()]
-    named = [re.fullmatch(r"([A-Za-z0-9_.-]+)=(https?://\S+)", p) for p in parts]
+    named = [re.fullmatch(rf"({NAME_CHARS})=(https?://\S+)", p) for p in parts]
     if not any(named):
         return None
     if not all(named):
