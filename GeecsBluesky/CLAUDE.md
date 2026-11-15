@@ -35,7 +35,7 @@ readiness check asserts the manager lists them all.
 | `sweep` | `plans/sweep.py`: a `geecs_schemas.Sweep` trajectory through stock `scan_nd`, bound strict | yes |
 | `optimize` | `plans/optimize.py`: native Xopt ask/tell, one bin per iteration | yes |
 | `mv` | the stock stub with its failure named | no |
-| `apply_setup` | `plans/apply_setup.py`: a named setup (`setups/<name>.yaml`) as plain stubs over the namespace; refused before the first write when its digest differs from the one the client's `md` says was confirmed, or when a device it writes or checks is judged down (the run's liveness rule, `plans/strict.py::down_devices`); a `check` judges its device again when it runs, so a retained readback never passes it; a failure names the step and the writes already made | no |
+| `apply_setup` | `plans/apply_setup.py`: a named setup (`setups/<name>.yaml`) as plain stubs over the namespace; refused before the first write when its digest differs from the one the client's `md` says was confirmed, or when a device it writes or checks is judged down (the run's liveness rule, `plans/strict.py::down_devices`); a `check` judges its device again when it runs, so a judged device's retained readback never passes it (a `NativeMotor` has no judge yet, as in the run's gate); a failure names the step and the writes already made | no |
 | `measure_shot_offsets`, `check_shot_sync` | the once-run calibration and its preflight (`plans/calibration.py`) | no |
 | `release_scan_mode` | `plans/scan_mode.py`: end GEECS scan mode on the devices of a run that never ended it (a halt skips the finalizers) | no |
 

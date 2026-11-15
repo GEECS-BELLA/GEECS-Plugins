@@ -15,7 +15,9 @@ judged live before it (``plans/strict.py::down_devices``, the rule a
 scan's liveness gate uses) — a device reported down refuses the setup
 with nothing written; a ``check`` judges its device again when it runs,
 so a device that went down during a ``wait`` cannot pass a check on the
-value its readback retained; a ``set`` is the device's own completion
+value its readback retained (a device ``down_devices`` has no judge for —
+a native motor — is not judged, as in a run's gate); a ``set`` is the
+device's own completion
 (``abs_set(wait=True)``, no second confirmation layer) and a ``check``
 matches as the confirm settable does; a failure stops the setup and
 names the step and the writes already made

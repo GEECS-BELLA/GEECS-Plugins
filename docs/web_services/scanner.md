@@ -86,7 +86,8 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   never remembered — it is asked for on every apply. Idle only. A device
   the setup writes or checks that reads disconnected refuses the setup
   before anything is written; one that drops off during the setup fails
-  the next check on it, naming the writes already made.
+  the next check on it, naming the writes already made. (A native EPICS
+  motor has no disconnected reading yet, so it is not judged.)
 - **Calibration** — the stored per-device shot offsets, with **Check** and
   **Measure** verbs over the devices in the New scan table and the chosen
   trigger profile. Idle only.

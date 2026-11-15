@@ -520,6 +520,56 @@ def test_a_setup_refuses_a_supply_judged_down_before_its_put(RE) -> None:
     get_mock_put(supply.current.setpoint).assert_not_called()
 
 
+def test_a_supply_down_by_its_check_fails_it_on_the_retained_readback(RE) -> None:
+    """Live at the gate, INVALID by the check: its own judge refuses the check, the write named."""
+    from geecs_bluesky.exceptions import SetupStepFailedError
+
+    supply = _supply(RE)
+
+    def drop_off_later(
+        value, **_
+    ):  # follows, then stops answering after the set confirms
+        set_mock_value(supply.current.readback, value)
+        asyncio.get_running_loop().call_later(
+            0.1, set_mock_value, supply.current.readback_severity, "INVALID"
+        )
+
+    callback_on_mock_put(supply.current.setpoint, drop_off_later)
+    setup = Setup.model_validate(
+        {
+            "name": "zero_checked",
+            "steps": [
+                {"do": "set", "device": "U_VS1H", "variable": "Current", "value": 0},
+                {"do": "wait", "seconds": 0.5},
+                {
+                    "do": "check",
+                    "device": "U_VS1H",
+                    "variable": "Current",
+                    "expected": 0,
+                },
+            ],
+        }
+    )
+
+    class _OneSetup:
+        def resolve_setup(self, name):
+            return setup, {setup.name: setup}
+
+        def setup_repo_path(self, name):
+            return "setups/zero_checked.yaml"
+
+    class _Factory:
+        def get_settable(self, device, variable):
+            return supply.current
+
+        def get_readable(self, device, variable):
+            return supply.current
+
+    with pytest.raises(SetupStepFailedError, match="U_VS1H DISCONNECTED") as caught:
+        RE(apply_setup_plan(_OneSetup(), _Factory())("zero_checked"))
+    assert (caught.value.index, caught.value.written) == (3, (1,))
+
+
 def test_mv_through_a_run_engine_connects_the_settable_on_demand(RE) -> None:
     """A plan touching ``U_VS1H.current`` alone connects it (its bits, limits and tolerance too)."""
     from geecs_bluesky.preprocessors import connect_on_demand
