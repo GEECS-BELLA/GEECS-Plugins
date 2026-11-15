@@ -392,8 +392,8 @@ scan verb.  `count` keeps its stock parameters; `sweep` takes the
 validated trajectory payload; `optimize` takes its optimizer config.
 
 Strict is the one box-driven mode.  The gated batch (the box free-running
-in SCAN while the plugin cameras counted a quota) was deleted on
-2026-11-14; its code is in git history before the deleting PR.
+in SCAN while the plugin cameras counted a quota) is deleted; its code is
+in git history.
 `acquisition: gated` is refused by name, at the client's expansion and at
 the worker's bind (`plan_names.acquisition_refusal`), never run as
 something else.  Runs recorded in gated mode stay readable: their `shots`
@@ -502,8 +502,7 @@ shot.  Strict holds 1 Hz on a count
 and every other edge on a moving scan: the fire put (~200 ms) plus the
 move overruns the ~550 ms between stamp arrival and the next edge.  The
 plan layer recovers it, not `take_reading`.  A sweep running under 1 Hz
-is accepted (the maintainer's ruling of 2026-11-14 that retired the
-gated batch, the one mode that held the rep rate).
+is accepted: no mode holds the rep rate on a moving scan.
 
 **Before the bracket's first move** every bound plan runs the liveness
 gate (`plans/registry.py::liveness_gate`): one `CONNECTED` read for

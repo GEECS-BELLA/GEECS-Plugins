@@ -1,6 +1,6 @@
 {
-  "stamps": 99,
-  "noqa": 269,
+  "stamps": 96,
+  "noqa": 263,
   "max_complexity": 10,
   "max_branches": 12,
   "max_statements": 50,
