@@ -771,6 +771,10 @@ def test_up_says_when_the_experiment_has_no_trigger_profile(profile) -> None:
     assert "systemctl restart geecs-qserver@PulsedWire" in result.stderr
     configs = profile["site"].parent / "configs" / "scanner_configs" / "experiments"
     (configs / "Bench stand" / "shot_control_configurations").mkdir(parents=True)
+    result = _verb(
+        profile, "up", "PulsedWire", *NEW, "--dry-run"
+    )  # the folder, empty: the post-scaffold state
+    assert "no trigger profile" in result.stderr
     (configs / "Bench stand" / "shot_control_configurations" / "Bench.yaml").write_text(
         "device: bench-trigger\n"
     )

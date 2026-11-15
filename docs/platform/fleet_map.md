@@ -242,7 +242,8 @@ values in `/etc/geecs/experiments/<Instance>.env` and its state under
 [Site Profile](site_profile.md#a-second-experiment-on-the-same-hub) has the
 model and the port slots; `deploy/experiment.sh list` shows what is up.
 `/fleet-status` lists each instance's units as rows of their own
-(`… @<Instance>`); its readiness probe answers for the main manager only.
+(`… @<Instance>`) and reads each instance scanner's `/health` for its
+manager's readiness, once the host has named the instance and its port.
 The units run from the same clones as the main experiment's — the one
 transitional exception being `GEECS_INSTANCE_CHECKOUT_ROOT` during the
 multi-experiment proof.
