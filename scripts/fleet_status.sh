@@ -236,7 +236,9 @@ if [ "$NET_UP" -eq 1 ]; then
     # liveness and say readiness is unknown. The address is config.ini's
     # [qserver] control_addr override when set (the same precedence as
     # geecs_bluesky.qs_client's config.ini read), else tcp://<host>:60615 —
-    # the main manager; experiment instances are not probed here yet.
+    # the main manager. An experiment instance's manager is asked through its
+    # scanner's /health in stage 2, once its host has named the instance and
+    # its scanner port (probe_instance_scanner).
     QS_HOST="${WORKER_HOST:-$LAB_HOST}"
     QS_ADDR="$(ini_get qserver control_addr)"
     QS_ADDR="${QS_ADDR:-tcp://$QS_HOST:60615}"
@@ -576,6 +578,15 @@ for scope in "" "--user"; do
         emit "$role" "$label" "systemd" "$active" "$pid" "$wd" ""
     done
 done
+# 1b) experiment instances — each one is named with its scanner port, so the
+#     caller can ask that scanner whether the instance manager is ready
+#     (/health); the main scanner is probed from config.ini in stage 1.
+for f in "${GEECS_EXPERIMENTS_DIR:-/etc/geecs/experiments}"/*.env; do
+    [ -r "$f" ] || continue
+    inst="$(basename "$f" .env)"
+    sport="$(sed -nE "s/^GEECS_SCANNER_PORT=\"?([0-9]+)\"?.*/\1/p" "$f" | tail -1)"
+    [ -n "$sport" ] && printf "instance=%s\tscanner_port=%s\n" "$inst" "$sport"
+done
 # 2) whoever owns each fleet port, if not already listed via its unit
 for port in $FLEET_PORTS; do
     # The archiver listens from inside its container (host networking): the
@@ -676,6 +687,7 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             nosystemd) skip "no systemd on this host"; continue ;;
             nounits) skip "no geecs-* / tiled units and nothing listening on the fleet ports"; continue ;;
             role=*) ;;
+            instance=*) continue ;;             # an instance's scanner port — the host loop probes it
             *) info "ssh: $line"; continue ;;   # known-hosts notices, remote warnings — not records
         esac
         rec "$line"
@@ -745,6 +757,25 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
     done
 }
 
+probe_instance_scanner() {  # probe_instance_scanner HOST INSTANCE PORT — the instance's scanner /health, as stage 1 reads the main one's
+    local h="$1" inst="$2" port="$3" body v ready
+    body="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$h:$port/health")"
+    if [ -n "$body" ]; then
+        v="$(printf '%s' "$body" | sed -nE 's/.*"version": *"([^"]+)".*/\1/p')"
+        ready="$(printf '%s' "$body" | sed -nE 's/.*"readiness": *"([^"]*)".*/\1/p')"
+        if [ "$ready" = "ready" ]; then
+            ok "GEECS Scanner @$inst $h:$port  geecs-scanner ${v:-?}  (manager ready)"
+            rec "role=GEECS Scanner @$inst	state=ok	version=${v:-}"
+        else
+            warn "GEECS Scanner @$inst $h:$port  geecs-scanner ${v:-?}  up but manager ${ready:-unknown}"
+            rec "role=GEECS Scanner @$inst	state=ok	version=${v:-}	note=manager ${ready:-unknown}"
+        fi
+    else
+        bad "GEECS Scanner @$inst $h:$port  (no /health answer)"
+        rec "role=GEECS Scanner @$inst	state=down"
+    fi
+}
+
 if [ "$NET_UP" -eq 1 ] && [ "$DO_SSH" -eq 1 ]; then
     echo "== Stage 2: host checkouts (ssh, read-only) =="
     if [ -z "$HOSTS" ]; then
@@ -762,6 +793,12 @@ if [ "$NET_UP" -eq 1 ] && [ "$DO_SSH" -eq 1 ]; then
             continue
         fi
         fmt_host_records <<< "$out"   # here-string, not a pipe: note_sha must run in this shell
+        # Each experiment instance the host named: ask its scanner for the
+        # instance manager's readiness (the main one was asked in stage 1).
+        tab="$(printf '\t')"
+        while read -r inst sport; do
+            [ -n "$inst" ] && probe_instance_scanner "$host" "$inst" "$sport"
+        done <<< "$(printf '%s\n' "$out" | sed -nE "s/^instance=([^$tab]+)${tab}scanner_port=([0-9]+)\$/\1 \2/p")"
     done
     echo
 elif [ "$NET_UP" -eq 1 ]; then

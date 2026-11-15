@@ -313,6 +313,14 @@ up)
     if [ -d "$EXPERIMENTS_ROOT/$EXPT" ]; then echo "  $EXPERIMENTS_ROOT/$EXPT exists — left as it is"
     elif [ "$DRY" -eq 1 ]; then echo "  [dry] python -m geecs_bluesky.config_scaffold '$EXPT' --experiments-root '$EXPERIMENTS_ROOT'"
     else in_engine "$GEECS_POETRY" run python -m geecs_bluesky.config_scaffold "$EXPT" --experiments-root "$EXPERIMENTS_ROOT" | sed 's/^/  /'; fi
+    # The worker loads trigger profiles at START, while the scanner's preflight
+    # reads the folder on disk: with none here the first scan passes preflight
+    # and fails at the plan ("unknown trigger profile …; none loaded"), and a
+    # profile copied in later is unknown until the worker restarts (the
+    # 2026-10-31 proof). Said here, where the folder is made.
+    if ! ls "$EXPERIMENTS_ROOT/$EXPT/shot_control_configurations"/*.y*ml >/dev/null 2>&1; then
+        echo "  WARNING: no trigger profile in $EXPERIMENTS_ROOT/$EXPT/shot_control_configurations/ — copy one in before the first scan, then: systemctl restart geecs-qserver@$INSTANCE" >&2
+    fi
 
     [ "$INSTANCE_FILE" -ef "$INSTALLED" ] || run as_root install -D -m 0644 "$INSTANCE_FILE" "$INSTALLED"
     # The glob is expanded by root (the staging dir is the service account's).

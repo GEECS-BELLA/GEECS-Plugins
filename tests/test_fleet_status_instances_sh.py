@@ -98,3 +98,36 @@ def test_the_table_puts_an_instance_row_after_its_main_row() -> None:
         table.version(merged["Queueserver RE Manager @PulsedWire"])
         == "geecs-bluesky 1.0"
     )
+
+
+def test_the_host_names_each_instance_with_its_scanner_port(tmp_path: Path) -> None:
+    """Stage 2 asks an instance's scanner for its manager's readiness; the host
+    names the instance and the port, from its instance file, nothing else."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "systemctl").write_text("#!/usr/bin/env bash\nexit 0\n")
+    (bin_dir / "ss").write_text("#!/usr/bin/env bash\nexit 0\n")
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    experiments = tmp_path / "experiments"
+    experiments.mkdir()
+    (experiments / "PulsedWire.env").write_text(
+        "GEECS_INSTANCE=PulsedWire\nGEECS_SCANNER_PORT=8310\nGEECS_LOGBOOK_PORT=8410\n"
+    )
+    (experiments / "Half.env").write_text(
+        "GEECS_INSTANCE=Half\n"
+    )  # no scanner port: not named
+    r = subprocess.run(
+        ["bash", "-s"],
+        input=_sh.remote_snippet(),
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "GEECS_EXPERIMENTS_DIR": str(experiments),
+        },
+    )
+    assert r.returncode == 0, r.stderr
+    named = [line for line in r.stdout.splitlines() if line.startswith("instance=")]
+    assert named == ["instance=PulsedWire\tscanner_port=8310"]

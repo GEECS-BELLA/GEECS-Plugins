@@ -760,3 +760,20 @@ def test_a_site_env_experiments_dir_is_honoured_everywhere(
         f"install -D -m 0644 {profile['root']}/deploy-staging/instances/Second.env {configured}/Second.env"
         in up.stdout
     )
+
+
+def test_up_says_when_the_experiment_has_no_trigger_profile(profile) -> None:
+    """The worker loads profiles at start: a folder without one fails the first
+    scan after a passed preflight, so ``up`` says so where the folder is made."""
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "no trigger profile" in result.stderr
+    assert "systemctl restart geecs-qserver@PulsedWire" in result.stderr
+    configs = profile["site"].parent / "configs" / "scanner_configs" / "experiments"
+    (configs / "Bench stand" / "shot_control_configurations").mkdir(parents=True)
+    (configs / "Bench stand" / "shot_control_configurations" / "Bench.yaml").write_text(
+        "device: bench-trigger\n"
+    )
+    result = _verb(profile, "up", "PulsedWire", *NEW, "--dry-run")
+    assert result.returncode == 0, result.stderr
+    assert "no trigger profile" not in result.stderr

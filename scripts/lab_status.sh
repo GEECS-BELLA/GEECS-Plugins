@@ -82,6 +82,28 @@ else
     bad "CA gateway  $LAB_HOST:$CA_PORT (first [epics] ca_addr_list entry)"
     NET_UP=0
 fi
+# The other [epics] ca_addr_list entries — a second experiment's gateway on
+# its own CA port, the native IOC hosts — probed in parallel (one timeout
+# for all of them, however many) and summed up in one line, with a line per
+# entry that does not answer. None of them is the network verdict: the
+# first entry (gateway + DB) is.
+CA_ADDR_REST="${CA_ADDR_ENTRIES#"$CA_ADDR_FIRST"}"
+if [ -n "${CA_ADDR_REST// /}" ]; then
+    ca_rest_results="$(for e in $CA_ADDR_REST; do
+        ( h="${e%%:*}"; p=5064; case "$e" in *:*) p="${e##*:}" ;; esac
+          if port_open "$h" "$p"; then echo "up $h:$p"; else echo "down $h:$p"; fi ) &
+    done; wait)"
+    ca_rest_all="$(printf '%s\n' "$ca_rest_results" | grep -c .)"
+    ca_rest_up="$(printf '%s\n' "$ca_rest_results" | grep -c '^up ')"
+    if [ "$ca_rest_up" -eq "$ca_rest_all" ]; then
+        ok "CA entries  $ca_rest_up of $ca_rest_all further [epics] ca_addr_list entries answer (TCP)"
+    else
+        warn "CA entries  $ca_rest_up of $ca_rest_all further [epics] ca_addr_list entries answer (TCP)"
+        while read -r hp; do
+            [ -n "$hp" ] && warn "CA entry    $hp not listening (an instance gateway or an IOC host; not the network verdict)"
+        done <<< "$(printf '%s\n' "$ca_rest_results" | sed -n 's/^down //p' | sort)"
+    fi
+fi
 if [ -n "$ARCHIVER_HOST" ]; then
     # The Archiver Appliance: its own management API answers the version.
     # Down means no history (Phoebus Data Browser archives, trend queries);
