@@ -8,7 +8,8 @@ on its own port, so each gets its own bookmark:
 `http://<worker-host>:<port>/`. The host and the units behind each
 service are on the [fleet map](../platform/fleet_map.md).
 
-Every page's header carries a **Docs** link back to its page here.
+Every page's header carries a **Docs** link back to its page here, except
+the Configurator's, which does not have one yet.
 
 <div class="grid cards" markdown>
 

@@ -14,6 +14,8 @@ git history. Deployment is `DEPLOYMENT.md`; the operator's view is
 
 ```
 geecs_configurator/
+  __main__.py    # geecs-configurator: Settings.from_env, uvicorn on BIND:PORT
+  settings.py    # Settings: every GEECS_CONFIGURATOR_* key (site.env)
   app.py         # the app factory: the API over the store, the save, delete,
                  #   blank and dry-run routes, the home and the log pages
   kinds.py       # the service's own column per file kind: readers, apply verb,
@@ -33,6 +35,7 @@ geecs_configurator/
   github.py      # the App's tokens and the pull requests
   yaml_edit.py   # the format-keeping splice of a save into the stored text
   log.py         # the commit log and its four states
+  templates/     # home.html (catalogue, listing, the open document), log.html
   static/        # configurator.js (the page), embed.js (the mount contract,
                  #   the one save/copy/delete/create flow), setups.js
 deploy/          # the unit, the configs repo's validate.yml and CODEOWNERS examples

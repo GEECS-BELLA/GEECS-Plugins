@@ -125,10 +125,8 @@ found the split the hard way):
   the App's key under `/etc/geecs/configurator`, the site.env edits, the
   rendered unit into systemd, and the restarts.
 
-On a **first install** run `deploy/bootstrap_host.sh <site.env> --only
-configurator` as the service account **without `--no-install`**: the
-configurator's env does not exist yet, and `--no-install` only clones and
-fetches. A later update may skip the install when no dependency moved.
+A first install runs the bootstrap at step 5, after site.env has the keys
+of step 2 (the bootstrap refuses without `GEECS_CONFIGURATOR_PORT`).
 
 A shell expands a glob before `sudo` runs, as the calling user, so a glob
 over a root-owned directory finds nothing: list it as root instead,
@@ -194,12 +192,23 @@ The steps below run as the admin account unless they say otherwise.
    `GEECS_CONFIGURATOR_SHARE_CLONE` **before the first start**. Without it the
    service starts *unverified* (see `/healthz`), and holds the share until the
    maintainer deletes `<STATE_DIR>/UNVERIFIED`.
-5. **Render, start, check:**
+5. **Install, render, start, check.** As the **service account**, in its
+   checkout, install and render. On a first install run the bootstrap
+   **without `--no-install`**: the configurator's env does not exist yet,
+   and `--no-install` only clones and fetches (a later update may skip the
+   install when no dependency moved):
 
    ```bash
-   deploy/render_units.sh            # or deploy/bootstrap_host.sh --only configurator
+   deploy/bootstrap_host.sh /etc/geecs/site.env --only configurator
+   ```
+
+   Then as the admin account install the rendered unit (the bootstrap says
+   where it put it), restart and check, at the address `BIND` names
+   (`127.0.0.1` when it is the loopback or `0.0.0.0`):
+
+   ```bash
    sudo systemctl restart geecs-configurator
-   curl -s http://127.0.0.1:<port>/healthz
+   curl -s http://<bind address>:<port>/healthz
    ```
 
    `/healthz` should show `"commits": "on"`, `"credential": "GitHub App"`,
@@ -208,10 +217,11 @@ The steps below run as the admin account unless they say otherwise.
    `journalctl -u geecs-configurator` names the missing key.
 6. **The trial, on a throwaway branch**, before the box commits to main: set
    `GEECS_CONFIGURATOR_BRANCH=<trial branch>` (made from main on GitHub, and
-   left out of the ruleset), restart. A trial run with the share clone left
-   empty (`GEECS_CONFIGURATOR_SHARE_CLONE` unset) starts **unverified**:
-   `/healthz` says so, which is expected on a trial; the maintainer deletes
-   `<STATE_DIR>/UNVERIFIED` once main is looked at. Then:
+   left out of the ruleset), restart. A trial that deliberately skips the
+   share (`GEECS_CONFIGURATOR_SHARE_CLONE` unset, step 4's exception) starts
+   **unverified**: `/healthz` says so, which is expected then; the
+   maintainer deletes `<STATE_DIR>/UNVERIFIED` once main is looked at.
+   Then:
    - save an operator-tier document in an owned experiment. It lands on the
      branch, authored by the operator, and shows on `/log`;
    - save a maintainer-tier one. A pull request opens against the branch;
