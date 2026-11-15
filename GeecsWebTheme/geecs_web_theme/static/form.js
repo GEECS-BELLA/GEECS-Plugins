@@ -565,8 +565,9 @@
     }
     // A fixed-length tuple (a low / high pair): its members side by side in one field. A member's edit fills the
     // tuple to its length first (an emptied member is null, never a shorter tuple); a tuple of its own (not a list's
-    // item) emptied of every member goes back to its stored state. prep(doc): the document made ready first (a
-    // fixed-row list padded to its rows).
+    // item) emptied of every member goes back to its stored state when that was absent or null, and to null when it
+    // was a value and the tuple is nullable (an optional pair unset by emptying it). prep(doc): the document made
+    // ready first (a fixed-row list padded to its rows).
     function tupleField(n, tools, label, prep) {
       var key = pathKey(n.path), first = null, msgs = [], err = h("span", { class: "err" }), size = n.items.length;
       if (errors[key]) msgs.push(errors[key]);
@@ -578,6 +579,7 @@
         if (typeof n.key !== "number" && full.every(function (x) { return x === null || x === undefined; })) {
           var stored = getAt(original, n.path);
           if (!Array.isArray(stored)) return stored === undefined ? removeAt(d, n.path) : setAt(d, n.path, stored);
+          if (n.nullable) return setAt(d, n.path, null);
         }
         return setAt(d, n.path, full);
       };
@@ -597,7 +599,7 @@
       ]);
     }
     function fold(n, body, tools) {
-      var key = pathKey(n.path), d = h("details", { class: "fold", open: isOpen(key, !(n.items && !n.items.length && n.kind !== "tuple")) || errUnder(key), "data-path": key, "data-changed": String(changed(n.path)) }, [
+      var key = pathKey(n.path), d = h("details", { class: "fold", open: isOpen(key, true) || errUnder(key), "data-path": key, "data-changed": String(changed(n.path)) }, [
         h("summary", { class: "eyebrow" }, [document.createTextNode(n.label + (n.items && n.kind !== "tuple" ? " (" + n.items.length + ")" : "")), tierMark(n)]),
         n.help ? h("p", { class: "hint dim", text: n.help }) : null, banner(errors[key]),
         tools && tools.filter(Boolean).length ? h("div", { class: "row" }, tools.filter(Boolean)) : null, body,
@@ -635,7 +637,12 @@
     function draw1(n, mode) {
       var complex = COMPLEX.indexOf(n.kind) >= 0;
       var remove = n.extra ? btn("Remove", function () { update(removeAt(doc, n.path), n.path); }) : null;
-      if (n.kind === "tuple") return { el: tupleField(n, [remove]) };
+      if (n.kind === "tuple") {
+        // a set optional pair has its Clear, as every optional value does (a list's item goes by its Remove)
+        var unpair = typeof n.key !== "number" && mode !== "item" && n.value !== undefined && n.value !== null && (n.nullable || !n.required) && !n.extra
+          ? btn("Clear", function () { update(n.nullable ? setAt(doc, n.path, null) : removeAt(doc, n.path), n.path); }) : null;
+        return { el: tupleField(n, [unpair, remove]) };
+      }
       if (!complex) return { el: scalar(n, [remove]) };
       // an absent list or map that is not nullable is drawn empty, its adder ready (adding writes it)
       if (n.unset && !n.nullable && n.value === undefined && (n.kind === "array" || n.kind === "map")) {

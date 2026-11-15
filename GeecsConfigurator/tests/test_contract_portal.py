@@ -211,3 +211,40 @@ def test_a_groups_entries_suggest_the_analyzers_trees_names(
 ) -> None:
     ref = browsing.get("/api/schema/analysis_group").json()["$defs"]["AnalyzerRef"]["properties"]["ref"]  # fmt: skip
     assert "UC_Crop" in ref["x-suggest"]
+
+
+def test_the_source_notes_names_are_the_recipes_own() -> None:
+    """The note's "{a|b}" names, filled as form.js fills them, are the recipe's data_folder and output label."""
+    import re
+
+    from geecs_schemas.analysis import AnalysisRecipe
+
+    from geecs_configurator.form_hints import RECIPE_SECTIONS
+
+    def fill(template: str, doc: dict) -> str:
+        def first(m: re.Match) -> str:
+            for path in m.group(1).split("|"):
+                v: Any = doc
+                for k in path.split("."):
+                    v = v.get(k) if isinstance(v, dict) else None
+                if v not in (None, ""):
+                    return str(v)
+            return ""
+
+        return re.sub(r"\{([^}]*)\}", first, template)
+
+    note = RECIPE_SECTIONS[0]["note"]
+    for doc in (
+        {"device": "cam", "input": {"kind": "camera"}},
+        {
+            "device": "cam",
+            "output_name": "lbl",
+            "scalar_suffix": "_v2",
+            "input": {"kind": "camera", "folder": "cam-proc"},
+        },  # fmt: skip
+    ):
+        r = AnalysisRecipe.model_validate(doc)
+        assert fill(note, doc) == (
+            f"Reads scans/ScanNNN/{r.data_folder}/; writes {r.effective_output_name}_<scalar>{r.scalar_suffix or ''} "
+            f"s-file columns and analysis/ScanNNN/{r.effective_output_name}/."
+        )

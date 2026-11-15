@@ -42,6 +42,7 @@ RECIPE_SECTIONS: list[dict[str, Json]] = [
         ],  # fmt: skip
         "gist": ["device", "output_name", "scalar_suffix", "input", "inputs"],
         "help": "The device whose folder is read, how one frame is read, and any frame loaded before the run for a step or the measure to use by name (a background image, a haso reference).",  # fmt: skip
+        # the recipe's own naming rules (AnalysisRecipe.data_folder, effective_output_name), pinned to them by test
         "note": "Reads scans/ScanNNN/{input.folder|device}/; writes {output_name|device}_<scalar>{scalar_suffix} s-file columns and analysis/ScanNNN/{output_name|device}/.",  # fmt: skip
         "advanced": {
             "title": "Naming overrides",

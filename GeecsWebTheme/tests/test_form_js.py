@@ -809,6 +809,14 @@ const pair = walk(at(host2, "pair"), (n) => n.tagName === "INPUT");
 fire(pair[0], ""); out.pairUntouched = "pair" in form2.value();
 fire(pair[1], "7"); out.pairTyped = form2.value().pair;
 fire(pair[1], ""); out.pairEmptied = "pair" in form2.value();
+// a set optional pair: emptied it is unset (null), and its Clear unsets it too
+const host4 = el("div"), form4 = F.mount(host4, { schema: S, value: Object.assign({}, D, { pair: [1, 2] }) });
+const set = walk(at(host4, "pair"), (n) => n.tagName === "INPUT");
+fire(set[0], ""); fire(set[1], "");
+out.pairSetEmptied = form4.value().pair;
+const host5 = el("div"), form5 = F.mount(host5, { schema: S, value: Object.assign({}, D, { pair: [1, 2] }) });
+button(at(host5, "pair"), "Clear").on.click();
+out.pairCleared = form5.value().pair;
 // a list of words: each a field with its tools, not a panel
 out.tags = [at(host, "tags.0").attrs.class, !!button(at(host, "tags.1"), "Up"), !!button(at(host, "tags.0"), "Remove")];
 // a word with suggestions offers them
@@ -816,6 +824,8 @@ const ref = control(at(host, "ref"));
 out.suggest = [ref.attrs.list, walk(at(host, "ref"), (n) => n.tagName === "DATALIST")[0].children.map((o) => o.attrs.value)];
 // an unset sub-document is a one-line field with Set; an absent list is drawn empty with its adder ready
 out.unset = [at(host, "extra").attrs.class, !!button(at(host, "extra"), "Set")];
+// an empty list's fold stays open: its adder is in view
+out.notesOpen = at(host, "notes").attrs.open !== undefined;
 button(at(host, "notes"), "Add").on.click();
 out.notesAdded = form.value().notes;
 // a list's item has no Clear
@@ -917,6 +927,8 @@ def test_a_tuple_is_one_field_and_untouched_stays_absent(laid_out: dict) -> None
     assert (
         laid_out["pairEmptied"] is False
     )  # emptied of both members: absent again, as stored
+    # a pair that held a value: emptied, or cleared, it is unset (null), never [null, null]
+    assert laid_out["pairSetEmptied"] is None and laid_out["pairCleared"] is None
 
 
 def test_light_items_suggestions_and_unset_parts(laid_out: dict) -> None:
@@ -924,6 +936,7 @@ def test_light_items_suggestions_and_unset_parts(laid_out: dict) -> None:
     assert laid_out["suggest"][1] == ["UC_A", "UC_B"] and laid_out["suggest"][0]
     assert laid_out["unset"] == ["field", True]
     assert laid_out["notesAdded"] == [""]
+    assert laid_out["notesOpen"] is True
     assert laid_out["itemClear"] == 0
 
 
