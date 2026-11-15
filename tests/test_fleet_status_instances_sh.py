@@ -189,12 +189,14 @@ def test_an_instance_scanner_is_read_like_the_main_one(tmp_path: Path) -> None:
     """The host named the instance; the caller reads that scanner's /health and
     records the role with the instance, the same three outcomes as stage 1."""
     harness = (
+        "set -u\n"  # the script runs with -u: an unbound name in the functions fails here
         "ok(){ printf 'OK %s\\n' \"$1\"; }\nwarn(){ printf 'WARN %s\\n' \"$1\"; }\n"
         "bad(){ printf 'BAD %s\\n' \"$1\"; }\nrec(){ printf 'REC %s\\n' \"$1\"; }\n"
         'bounded(){ shift; "$@"; }\nTCP_TIMEOUT=1\n'
         'curl(){ printf \'%s\' "$HEALTH"; }\nport_open(){ [ "$LISTENING" = 1 ]; }\n'
         + _functions("probe_scanner", "probe_named_instances")
         + '\nprobe_named_instances 192.0.2.1 "$RECORDS"\n'
+        + "printf 'BODY %s\\n' \"$SCANNER_HEALTH\"\n"  # left for stage 1's Tiled-writer read
     )
     records = "role=GEECS Scanner @PulsedWire\tsvc=x\ninstance=PulsedWire\tscanner_port=8310\ninstance=two words\tscanner_port=8320\n"
 
@@ -220,6 +222,7 @@ def test_an_instance_scanner_is_read_like_the_main_one(tmp_path: Path) -> None:
         "REC role=GEECS Scanner @PulsedWire\tstate=ok\tversion=0.15.0",
         "OK GEECS Scanner @two words 192.0.2.1:8320  geecs-scanner 0.15.0  (manager ready)",
         "REC role=GEECS Scanner @two words\tstate=ok\tversion=0.15.0",
+        'BODY {"ok":true,"version":"0.15.0","readiness":"ready"}',
     ]
     not_ready = run('{"ok":true,"version":"0.15.0","readiness":"notready"}', "1")
     assert not_ready[0].startswith(
@@ -233,4 +236,5 @@ def test_an_instance_scanner_is_read_like_the_main_one(tmp_path: Path) -> None:
     assert run("", "0") == [
         "REC role=GEECS Scanner @PulsedWire\tstate=absent",
         "REC role=GEECS Scanner @two words\tstate=absent",
+        "BODY ",
     ]

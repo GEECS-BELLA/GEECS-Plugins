@@ -170,10 +170,12 @@ fi
 
 # ===========================================================================
 if [ "$NET_UP" -eq 1 ]; then
+SCANNER_HEALTH=""   # the last /health body probe_scanner read (stage 1's Tiled-writer read parses it)
 probe_scanner() {  # probe_scanner HOST PORT [INSTANCE] — the scanner's /health (ok, the manager probe, the readiness word, the installed version); an instance's scanner is the same read under the role "GEECS Scanner @<Instance>"
     local h="$1" port="$2" inst="${3:-}" role label body v ready
     role="GEECS Scanner${inst:+ @$inst}"; label="$role $h:$port"
     body="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$h:$port/health")"
+    SCANNER_HEALTH="$body"
     if [ -n "$body" ]; then
         v="$(printf '%s' "$body" | sed -nE 's/.*"version": *"([^"]+)".*/\1/p')"
         ready="$(printf '%s' "$body" | sed -nE 's/.*"readiness": *"([^"]*)".*/\1/p')"
@@ -313,6 +315,7 @@ probe_named_instances() {  # probe_named_instances HOST RECORDS — one probe_sc
     # stage 2 reuses for each experiment instance's scanner).
     SC_HOST="${WORKER_HOST:-$LAB_HOST}"
     probe_scanner "$SC_HOST" "$SCANNER_PORT"
+    sh_="$SCANNER_HEALTH"   # the Tiled-writer read below parses the same body
 
     # Tiled writer — no port of its own; its heartbeat.json lives on the
     # worker host, and the scanner's /health reads it (tiled_writer: the
