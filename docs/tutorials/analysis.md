@@ -18,7 +18,7 @@ see the [recipe reference](../sites/analysis_recipes/index.html).
 ## 1. Open a recorded shot
 
 In the portal, pick a day and a scan and open the camera or trace you want to
-analyze. **edit configs** opens the config editor with that shot as its
+analyze. On the Analysis tab a recipe's **edit** opens it in the configurator's editor, with that shot as its
 preview input. See the [Data Portal guide](../web_services/data_portal.md) for
 finding your way around, and [Getting started](getting_started.md) for the
 path settings.
@@ -48,11 +48,11 @@ summaries:
 - kind: average
 ```
 
-The editor builds this form for you. Each step, measure and summary has a
-**reference ↗** link to its card in the recipe reference, and a measure lists
-the scalars it can write and what each means. Change a field, then **preview**
-to run the **unsaved** recipe on the selected shot; preview writes nothing.
-The editor reports validation errors before saving. A stale-file conflict on
+The editor builds this form for you from the analysis core's own vocabulary (every step and measure, each parameter with its help); what each one means, with worked figures, is in the
+[recipe reference](../sites/analysis_recipes/index.html). Change a field, pick the shot, then **Preview**
+to draw the **unsaved** recipe on it, as a run draws it, and each summary over the first shots; preview writes nothing.
+Type your name and **Save**: the portal checks the recipe first (it must bind to the analysis core, its file name unique in the analyzers tree), then the configurator commits it under your name.
+A refusal is drawn at the field and nothing is saved. A conflict on
 save means someone else changed the file; reload and reconcile.
 
 Things to check in the preview:
@@ -129,5 +129,5 @@ factory, output contract, and custom analyzers.
 
 LiveWatch and Google Docs uploads are removed. Existing `scan.gdoc_slot`
 and group `upload_to_scanlog` fields validate but have no effect; the
-editor hides them while preserving existing values. Analysis runs only when
+a save keeps existing values. Analysis runs only when
 someone asks for it, from the portal, Python, or the MCP tools.

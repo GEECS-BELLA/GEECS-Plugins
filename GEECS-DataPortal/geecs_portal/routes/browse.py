@@ -138,7 +138,6 @@ def api_run(
         "next_day": (run_day + timedelta(days=1)).isoformat() if run_day else None,
         "processing_options": portal.processing_names(),
         "analysis_enabled": portal.analysis_enabled_for(folder),
-        "config_editor": portal.config_editor_enabled,
         "configurator": portal.configurator_url or None,
         "logbook": portal.logbook_url(request, detail, run_day) or None,
         "logbook_send": portal.logbook_sendable(detail, run_day),

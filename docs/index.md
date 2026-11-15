@@ -34,7 +34,7 @@ follow that split; the bottom row is for navigation and troubleshooting.
     ---
 
     Process per-shot images, configure analysis pipelines, and run
-    per-scan analysis from the data portal. Edit configs in its config editor; run
+    per-scan analysis from the data portal. Edit recipes in the configurator; run
     them headlessly or interactively via the Image/Scan Analysis APIs.
 
     [:octicons-arrow-right-24: Analysis tutorial](tutorials/analysis.md) ·

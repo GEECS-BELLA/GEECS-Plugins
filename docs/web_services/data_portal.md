@@ -76,17 +76,19 @@ A missing scan folder is reported, never created.
 ## Edit a recipe
 
 Each recipe on the Analysis tab has an **edit** button. It opens the
-config editor in a drawer over the page, with this scan's data as the
-preview input.
+configurator's editor in a drawer over the page, with this scan's data as
+the preview input; the tab's **configurator ↗** link opens the
+configurator itself, where the groups are too.
 
 - Change the steps (background, crop, filters, masks) and the measure,
-  then press **preview** (or turn on **auto**) to see the result on a
-  shot. Preview saves nothing.
-- **Save** writes the recipe to the configs repository. If someone else
-  saved it since you opened it, the editor says so rather than
-  overwriting their change.
-- **duplicate as** copies the recipe under a new name, for a second
-  analysis of the same device.
+  pick the shot, then press **Preview** to see the result on that shot,
+  drawn as a run draws it, and each of the recipe's summaries over the
+  scan's first shots. Preview saves nothing.
+- Type your name and press **Save**. The portal checks the recipe first
+  (it must bind to the analysis core); a refusal is drawn at the field and
+  nothing is saved. Then the configurator commits it to the configs
+  repository under your name. If someone else saved it since you opened
+  it, it says so rather than overwriting their change.
 
 What each step and measure does, what every scalar it writes means, and
 worked examples are in the
