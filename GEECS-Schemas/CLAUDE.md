@@ -82,6 +82,18 @@ and that none of the four is archived; the Control Room's contract test
 pins `verdict: null` on them. A family change reaches Canopy only through its image's copy of this
 package, so it rebuilds Canopy's image at deploy.
 
+A setpoint's tolerance is a number (`tolerance`) or a link (`tolerance_by`),
+never both. The link names a readback that is monitored (the motor's `rdbd`,
+which an engineer may change) or, for this link alone, read `once`: a
+supply's `current_tol` (`current:TOL`, the IOC's constant set tolerance,
+geecs-epics decision 21; the Easy-Driver and the FAST-PS, whose ramped
+`current_ramp:SP` it judges too). `once` keeps it out of the module's
+verdicts, so an IOC not yet serving it never degrades the device's word; it
+is `expert`, not archived, not writable, in no action and no panel, so the
+archiver, Squirrel's registry and the worker's `setpoint_for` never take it.
+A page treats it as a tolerance only while it is connected, not INVALID and
+above zero.
+
 ## Screens
 
 `screens.py`: `Screen`, a control GUI as a document (`<experiment>/screens/<name>.yaml`,
