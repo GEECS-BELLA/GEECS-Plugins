@@ -604,11 +604,13 @@ done
 #     directory is a site knob: deploy/site_env_lib.sh resolves it AFTER
 #     site.env (which may set GEECS_EXPERIMENTS_DIR), so it is read from
 #     site.env here too; the ssh environment may name it (tests), and the
-#     fleet default stands when neither does. Values may be quoted either way.
+#     fleet default stands when neither does. Quotes of either kind are
+#     stripped, as deploy/site_env_lib.sh strips them; nothing else is (no
+#     trailing comments in a site.env, per deploy/experiments.env.example).
 exp_dir="${GEECS_EXPERIMENTS_DIR:-}"
 site_env="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"
 if [ -z "$exp_dir" ] && [ -r "$site_env" ]; then
-    exp_dir="$(sed -nE "s/^[[:space:]]*GEECS_EXPERIMENTS_DIR=(.*)$/\1/p" "$site_env" | tail -1 | sed -E "s/[[:space:]]+#.*$//; s/[[:space:]]+$//" | tr -d "\"\047")"
+    exp_dir="$(sed -nE "s/^[[:space:]]*GEECS_EXPERIMENTS_DIR=(.*)$/\1/p" "$site_env" | tail -1 | sed -E "s/[[:space:]]+$//" | tr -d "\"\047")"
 fi
 for f in "${exp_dir:-/etc/geecs/experiments}"/*.env; do
     [ -r "$f" ] || continue
