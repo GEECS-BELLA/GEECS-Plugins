@@ -739,6 +739,13 @@ RECIPE = {
             "default": None,
         },  # fmt: skip
         "tags": {"type": "array", "items": {"type": "string"}},
+        "start": {
+            "type": "array",
+            "prefixItems": [{"type": "integer"}, {"type": "integer"}],
+            "minItems": 2,
+            "maxItems": 2,
+            "default": [87, 64],
+        },  # fmt: skip
         "ref": {"type": "string", "x-suggest": ["UC_A", "UC_B"]},
         "extra": {"type": "object", "properties": {"x": {"type": "number"}}},
         "notes": {"type": "array", "items": {"type": "string"}},
@@ -817,6 +824,11 @@ out.pairSetEmptied = form4.value().pair;
 const host5 = el("div"), form5 = F.mount(host5, { schema: S, value: Object.assign({}, D, { pair: [1, 2] }) });
 button(at(host5, "pair"), "Clear").on.click();
 out.pairCleared = form5.value().pair;
+// a defaulted pair that is not nullable: emptied, it is absent (its default), as an emptied word is
+const host6 = el("div"), form6 = F.mount(host6, { schema: S, value: Object.assign({}, D, { start: [1, 2] }) });
+const st = walk(at(host6, "start"), (n) => n.tagName === "INPUT");
+fire(st[0], ""); fire(st[1], "");
+out.startEmptied = "start" in form6.value();
 // a list of words: each a field with its tools, not a panel
 out.tags = [at(host, "tags.0").attrs.class, !!button(at(host, "tags.1"), "Up"), !!button(at(host, "tags.0"), "Remove")];
 // a word with suggestions offers them
@@ -929,6 +941,7 @@ def test_a_tuple_is_one_field_and_untouched_stays_absent(laid_out: dict) -> None
     )  # emptied of both members: absent again, as stored
     # a pair that held a value: emptied, or cleared, it is unset (null), never [null, null]
     assert laid_out["pairSetEmptied"] is None and laid_out["pairCleared"] is None
+    assert laid_out["startEmptied"] is False
 
 
 def test_light_items_suggestions_and_unset_parts(laid_out: dict) -> None:

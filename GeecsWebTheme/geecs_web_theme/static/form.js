@@ -566,7 +566,7 @@
     // A fixed-length tuple (a low / high pair): its members side by side in one field. A member's edit fills the
     // tuple to its length first (an emptied member is null, never a shorter tuple); a tuple of its own (not a list's
     // item) emptied of every member goes back to its stored state when that was absent or null, and to null when it
-    // was a value and the tuple is nullable (an optional pair unset by emptying it). prep(doc): the document made
+    // was a value and the tuple is nullable (an optional pair unset by emptying it), absent when it is optional. prep(doc): the document made
     // ready first (a fixed-row list padded to its rows).
     function tupleField(n, tools, label, prep) {
       var key = pathKey(n.path), first = null, msgs = [], err = h("span", { class: "err" }), size = n.items.length;
@@ -580,6 +580,7 @@
           var stored = getAt(original, n.path);
           if (!Array.isArray(stored)) return stored === undefined ? removeAt(d, n.path) : setAt(d, n.path, stored);
           if (n.nullable) return setAt(d, n.path, null);
+          if (!n.required) return removeAt(d, n.path);  // an optional pair with a default: back to it, as an emptied word is
         }
         return setAt(d, n.path, full);
       };
