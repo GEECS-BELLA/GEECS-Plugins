@@ -62,9 +62,8 @@ ACQUISITION_MODES: tuple[str, ...] = ("strict", "fly")
 #: reads the reason and never runs as something else.
 RETIRED_ACQUISITION_MODES: dict[str, str] = {
     "gated": (
-        "the gated batch was deleted on 2026-11-14: strict is the one "
-        "box-driven mode (a sweep may run under 1 Hz) — use "
-        "acquisition='strict'"
+        "strict is the one box-driven mode (a sweep may run under 1 Hz) "
+        "— use acquisition='strict'"
     ),
 }
 

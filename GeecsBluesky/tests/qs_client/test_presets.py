@@ -359,9 +359,9 @@ def test_a_gated_preset_is_refused_as_retired_at_expansion(device: dict) -> None
             native_devices={"adtest_cam1"},
         )
     assert str(info.value) == (
-        "preset 'native': acquisition='gated' is retired: the gated batch was "
-        "deleted on 2026-11-14: strict is the one box-driven mode (a sweep may "
-        "run under 1 Hz) — use acquisition='strict'"
+        "preset 'native': acquisition='gated' is retired: strict is the one "
+        "box-driven mode (a sweep may run under 1 Hz) — use "
+        "acquisition='strict'"
     )
 
 
