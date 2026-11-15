@@ -47,7 +47,7 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 if [ -z "$LAB_HOST" ]; then
-    bad "neither [epics] ca_addr_list nor [tiled] uri in config.ini — cannot derive the lab server host"
+    bad "neither [epics] ca_addr_list nor [tiled] uri in config.ini — cannot derive the CA gateway's host"
     exit 1
 fi
 
@@ -58,8 +58,8 @@ NET_UP=1
 # probe itself was killed at the wall (a stalled credential lookup or
 # connect — not a verdict), anything else = nothing answered. The probe's
 # line names the host:port it actually probed. No fallback host is passed:
-# the DB's address lives in Configurations.INI alone — the CA gateway's host
-# implied it only while the two shared a box, which ended 2026-11-15.
+# the DB's address is Configurations.INI's alone (scripts/mysql_probe.py says
+# why no client-side value implies it).
 db_line="$(mysql_probe "" "$DB_PORT")"
 db_rc=$?
 db_target="$(printf '%s' "$db_line" | awk '{print $2}')"
@@ -134,7 +134,7 @@ if [ -n "$DATA_ROOT" ]; then
 else
     skip "Data mount  (GEECS_DATA_LOCAL_BASE_PATH not in config.ini)"
 fi
-# Crude VPN-vs-lab hint: round-trip time to the lab server.
+# Crude VPN-vs-lab hint: round-trip time to the gateway's host.
 rtt="$(ping -c 1 -t 2 "$LAB_HOST" 2>/dev/null | sed -nE 's/.*time=([0-9.]+) ms.*/\1/p')"
 if [ -n "$rtt" ]; then
     echo "  rtt ${rtt} ms  (rule of thumb: <5 ms on-site, more = VPN — expect ~5 s/shot free-run scans)"

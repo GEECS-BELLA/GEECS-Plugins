@@ -25,11 +25,10 @@ ini_get() {  # ini_get SECTION KEY — first match, trimmed
 
 # --- endpoints from config.ini (never hardcode hosts in a script) ---------
 # LAB_HOST is the CA gateway's host: the first [epics] ca_addr_list entry. It
-# implies nothing else — the DB shared its box only until 2026-11-15 (the
-# gateway moved to the services box, the DB stayed), and the DB is reached
-# through Configurations.INI on the data share alone, which mysql_probe reads
-# itself. Tiled has a host of its own ([tiled] uri); a config with no
-# ca_addr_list keeps the old one-box reading (the Tiled host).
+# implies nothing else — the DB's address is Configurations.INI's alone,
+# which mysql_probe reads itself (its docstring says why). Tiled has a host
+# of its own ([tiled] uri); a config with no ca_addr_list keeps the old
+# one-box reading (the Tiled host).
 url_host() { printf '%s' "$1" | sed -E 's|^[a-z]+://||; s|[:/].*$||'; }            # url_host URL — the host part
 url_port() { printf '%s' "$1" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p'; }    # url_port URL — the explicit port, or empty
 TILED_URI="$(ini_get tiled uri)"

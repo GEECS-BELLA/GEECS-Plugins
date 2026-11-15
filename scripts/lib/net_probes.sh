@@ -8,9 +8,8 @@
 #                             6 no target; 137 = killed at the wall). HOST/PORT are the
 #                             fallback target — Configurations.INI's [Database] ipaddress
 #                             wins when readable. An empty HOST means no fallback: the
-#                             probe reports no-target (6) rather than guess, because since
-#                             2026-11-15 no client-side address (the CA gateway's least of
-#                             all) implies the DB's.
+#                             probe reports no-target (6), with the lookup's reason,
+#                             rather than guess (why: scripts/mysql_probe.py's docstring).
 #
 # Why MySQL is special (#790): a bare connect of the MySQL port counts toward
 # the server's host block (error 1129), so the DB probe is
