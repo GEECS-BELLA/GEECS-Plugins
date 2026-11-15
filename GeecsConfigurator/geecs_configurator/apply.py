@@ -271,9 +271,13 @@ class Archiver:
     def onboard(self, experiment: str, policy: Path | None) -> Answer:
         """Reconcile the appliance with the committed policy; this reader's state.
 
-        Applied only when the archiver printed its plan (exit 0, or 1 for
-        drift it reports): a crash also exits 1 and sends nothing, so it is
-        queued and tried again, never applied.
+        Applied only when the archiver printed its plan and sent it (exit 0,
+        or 1 for drift it reports). Pending, the maintainer's, when it refused
+        in a way no retry clears: its usage refusal (the mass-pause guard) and
+        the unresolved-registry guard, which prints the plan, says "nothing
+        was sent" and exits 1 (the registry is fixed by hand, then onboard is
+        run by hand). Anything else that sent nothing (a crash also exits 1)
+        is queued and tried again, never applied.
         """
         code, output = self._onboard(experiment, policy, "--wait", "0")
         if _planned(code, output):

@@ -1,11 +1,82 @@
 # GeecsConfigurator — Developer Context for Claude
 
 One editor over every GEECS-Schemas document in the configs repository
-(`geecs-configurator`, port 8800). A stub while the configurator arc runs:
-its design is `Planning/configurator.md`, its record the tracking issue
-(#1307); the arc's last slice writes this file fully.
+(`geecs-configurator`, port 8800): every file kind drawn from its schema,
+validated, diffed and saved as its **tier** says, the save a commit by the
+operator who made it; the consumers' own dry runs before a save and their
+applies after it; setups captured, diffed and applied through the scanner;
+an embedded editor any surface mounts. The arc's record (rulings, slices,
+what the lab found) is its tracking issue, #1307; the derivations are in
+git history. Deployment is `DEPLOYMENT.md`; the operator's view is
+`docs/web_services/configurator.md`.
 
-## Rules that already bind
+## Layout
+
+```
+geecs_configurator/
+  __main__.py    # geecs-configurator: Settings.from_env, uvicorn on BIND:PORT
+  settings.py    # Settings: every GEECS_CONFIGURATOR_* key (site.env)
+  app.py         # the app factory: the API over the store, the save, delete,
+                 #   blank and dry-run routes, the home and the log pages
+  kinds.py       # the service's own column per file kind: readers, apply verb,
+                 #   dry run, deletable, blank (storage and tier are GEECS-Schemas')
+  store.py       # reads, validates, diffs; never writes, never creates a directory
+  save.py        # a save, a create, a delete: tier, etag, ownership, the commit
+  repository.py  # the bare repo, the live checkout, staging worktrees, the lock
+  service.py     # CommitPath: the gate, the timer (fetch, inbox, apply passes)
+  inbox.py       # the worker's writes, claimed by rename and committed
+  apply.py       # the consumers: ScannerClient, PortalClient, Archiver;
+                 #   ServiceApplier (dry runs, applies, the settle pass)
+  validation.py  # the gate's rule (also the configs repo's CI): problems,
+                 #   stem twins, referrers, deletable
+  ownership.py   # what this box owns (experiments, analysis folders)
+  blank.py       # a new document's draft and where it may go
+  setups.py      # the setups surface: capture, diff, apply (the scanner's)
+  github.py      # the App's tokens and the pull requests
+  yaml_edit.py   # the format-keeping splice of a save into the stored text
+  log.py         # the commit log and its four states
+  templates/     # home.html (catalogue, listing, the open document), log.html
+  static/        # configurator.js (the page), embed.js (the mount contract,
+                 #   the one save/copy/delete/create flow), setups.js
+deploy/          # the unit, the configs repo's validate.yml and CODEOWNERS examples
+```
+
+## Tiers: what the Save button does
+
+The tier is GEECS-Schemas' (`tier` on each document model, a stricter
+field's `tier` in its property schema); the strictest tier among the changed
+fields decides, a reordered list counting as changed.
+
+| Tier | The save | Kinds (today) |
+|---|---|---|
+| operator | a commit to the configs repo's main, the operator its author ("Name via configurator"), this box the committer | trigger profiles, presets, scan variables, experiment defaults, setups, shot offsets, optimizer configs, screens, the home layout, the analysis recipes, jobs and groups, the archive policy's sampling overrides |
+| maintainer | a pull request on the configs repo, the operator named in its body; the review is the approval and the merge the signature | operator policy, native devices, panel devices, derived channels, the archive policy's membership rules |
+| code | read-only: a PR in GEECS-Plugins | family files (package data, shown from the package) |
+| parameter, sudo | not built: an IOC record's tuning field (a later arc), an experiment up or down handed to the maintainer as a command | — |
+
+There is no password. The operator's name is required on every write and is
+the git author; a shared console login makes any local secret worthless.
+The credential is a **GitHub App** installed on the configs repo alone
+(contents and pull requests), its private key in a file beside site.env
+(one key per box, revoked alone). The repo's ruleset says it: humans change
+main by pull request; the App (and the maintainer's own account, for
+regenerated catalogues) are on its bypass list, and that bypass is the
+whole operator tier. A deploy key is the fallback: it pushes but opens no
+pull request, so the maintainer tier shows the compare link instead.
+
+## Setups: two executors, one document
+
+A setup (`<experiment>/setups/<name>.yaml`, GEECS-Schemas' `Setup`) is
+applied two ways, both reading the same files. The **queue path** is the
+scanner's apply (`apply_setup` on the worker, one queue item, the hazard
+confirmations asked as preflight questions, **no grant check**, as moves
+and scans have none). The **Canopy module's executor** keeps its routes and
+its gates (the operator policy's grants and hazards, the camera run lock)
+for screen buttons and Squirrel's restore. Squirrel presets stay Canopy's:
+setups do not use them. A setup `set` is the device's own completion; no
+second confirmation layer is added.
+
+## Rules that bind
 
 - **The store reads; saving is `save.py` through `repository.py`.** The
   store (`store.py`) reads, validates and diffs, and never creates a
@@ -60,7 +131,9 @@ its design is `Planning/configurator.md`, its record the tracking issue
   kept on the row (`Row.readers`): a pass retries only the readers still
   queued, so a worker is never reopened again for a row whose onboard
   waits. The archiver's onboard is applied only when it printed its plan
-  (a crash exits 1 like drift). Each experiment has its own scanner
+  and sent it (a crash exits 1 like drift); its refusals no retry clears,
+  the mass-pause guard and the unresolved-registry guard ("nothing was
+  sent"), are pending, the maintainer's by hand (`Archiver.onboard`). Each experiment has its own scanner
   (`SCANNER_URL` as `Exp=url,…`); a row of an experiment without one is
   never applied by another's reopen. A save while a pass runs is answered
   503 at once, never kept waiting on the lock.
@@ -215,9 +288,27 @@ its design is `Planning/configurator.md`, its record the tracking issue
   by `tests/test_new_document.py`, `test_contract_portal.py` (every frame
   kind's draft binds and commits; a taken stem refused) and
   `test_new_document_js.py`.
-- **One save flow.** `embed.js`'s `saveFlow` is the save of an existing
-  document in the browser: the embedded drawer and this service's own page
+- **One save flow.** `embed.js`'s `saveFlow` is the save in the browser
+  (an existing document, a new one's first Save as its create): the embedded drawer and this service's own page
   (`configurator.js`, which loads `embed.js` first) both save through it,
   each with its own elements and document state. A change to what a save
   asks, sends or shows is made there once. (Saving a captured setup as a new
   document is the setups surface's own `PUT` with `create`, `setups.js`.)
+
+## Tests
+
+Its own env (`poetry install` here, the dev group: the scanner's demo app
+and the portal with its `analysis` extra are dev-only path dependencies for
+the contract tests): `poetry run pytest -q`, or `scripts/check.sh
+GeecsConfigurator`. Hermetic: scratch bare repositories as origin, a fake
+GitHub on an httpx mock transport, the scanner's and portal's apps on ASGI
+transports; the browser files run under node against this app's own
+answers (`test_*_js.py`), held answers and edits included. No test reaches
+the network or a device.
+
+## Out of scope
+
+Per-user authentication and the operator registry (#882), and any grant
+check on the queue path; one shared operator key across surfaces (it needs
+a prefix-preserving front door); Squirrel; DB writes; the parameter tier's
+IOC restarts; a non-web editor.

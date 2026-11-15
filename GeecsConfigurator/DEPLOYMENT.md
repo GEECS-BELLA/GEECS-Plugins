@@ -115,7 +115,24 @@ revoke it the same way (below).
 
 ## Once per services box
 
-As root on the box, with `<service account>` the account the units run as.
+Two accounts do the work, as with every service on the box (a box trial
+found the split the hard way):
+
+- **`<service account>`**, the account the units run as, owns the checkout:
+  it clones and fetches (`deploy/bootstrap_host.sh`), installs the poetry
+  env, and renders the units (`deploy/render_units.sh`).
+- **`<admin account>`** (sudo) installs what lands outside the checkout:
+  the App's key under `/etc/geecs/configurator`, the site.env edits, the
+  rendered unit into systemd, and the restarts.
+
+A first install runs the bootstrap at step 5, after site.env has the keys
+of step 2 (the bootstrap refuses without `GEECS_CONFIGURATOR_PORT`).
+
+A shell expands a glob before `sudo` runs, as the calling user, so a glob
+over a root-owned directory finds nothing: list it as root instead,
+`sudo sh -c 'ls -l /etc/geecs/configurator/*'`.
+
+The steps below run as the admin account unless they say otherwise.
 
 1. **The box's own private key.** On the App's page, *Generate a private key*.
    Each box gets its own key, so one box can be revoked alone. Copy the
@@ -143,7 +160,16 @@ As root on the box, with `<service account>` the account the units run as.
    GEECS_CONFIGURATOR_COMMITTER_EMAIL=configurator+<facility>@<domain>
    GEECS_CONFIGURATOR_INBOX_AUTHOR=GEECS worker (<facility>) via configurator
    GEECS_CONFIGURATOR_SHARE_CLONE=<the share's clone of the configs repo>
+   # per box: where it listens and which surfaces may embed its editor
+   GEECS_CONFIGURATOR_BIND=<interface it serves on>
+   GEECS_CONFIGURATOR_PORT=8800
+   GEECS_CONFIGURATOR_CORS_ORIGINS=<the scanner's and the portal's origins, as browsers reach them>
    ```
+
+   `BIND`, `PORT` and `CORS_ORIGINS` are per box: a box with another
+   interface or another free port sets its own, and the origins are the
+   browser URLs of the scanner and the portal on that box (the switch below
+   adds them).
 
    The committer e-mail must differ per box. A box treats commits under its
    own e-mail as its own, and never logs or applies them again.
@@ -166,12 +192,23 @@ As root on the box, with `<service account>` the account the units run as.
    `GEECS_CONFIGURATOR_SHARE_CLONE` **before the first start**. Without it the
    service starts *unverified* (see `/healthz`), and holds the share until the
    maintainer deletes `<STATE_DIR>/UNVERIFIED`.
-5. **Render, start, check:**
+5. **Install, render, start, check.** As the **service account**, in its
+   checkout, install and render. On a first install run the bootstrap
+   **without `--no-install`**: the configurator's env does not exist yet,
+   and `--no-install` only clones and fetches (a later update may skip the
+   install when no dependency moved):
 
    ```bash
-   deploy/render_units.sh            # or deploy/bootstrap_host.sh --only configurator
+   deploy/bootstrap_host.sh /etc/geecs/site.env --only configurator
+   ```
+
+   Then as the admin account install the rendered unit (the bootstrap says
+   where it put it), restart and check, at the address `BIND` names
+   (`127.0.0.1` when it is the loopback or `0.0.0.0`):
+
+   ```bash
    sudo systemctl restart geecs-configurator
-   curl -s http://127.0.0.1:<port>/healthz
+   curl -s http://<bind address>:<port>/healthz
    ```
 
    `/healthz` should show `"commits": "on"`, `"credential": "GitHub App"`,
@@ -180,7 +217,11 @@ As root on the box, with `<service account>` the account the units run as.
    `journalctl -u geecs-configurator` names the missing key.
 6. **The trial, on a throwaway branch**, before the box commits to main: set
    `GEECS_CONFIGURATOR_BRANCH=<trial branch>` (made from main on GitHub, and
-   left out of the ruleset), restart, then:
+   left out of the ruleset), restart. A trial that deliberately skips the
+   share (`GEECS_CONFIGURATOR_SHARE_CLONE` unset, step 4's exception) starts
+   **unverified**: `/healthz` says so, which is expected then; the
+   maintainer deletes `<STATE_DIR>/UNVERIFIED` once main is looked at.
+   Then:
    - save an operator-tier document in an owned experiment. It lands on the
      branch, authored by the operator, and shows on `/log`;
    - save a maintainer-tier one. A pull request opens against the branch;

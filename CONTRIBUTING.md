@@ -174,6 +174,20 @@ layout; delete-when-executed is the whole discipline):
   view to `docs/web_services/control_room.md` § "Raw view". The brief's
   § Status (the red team's dispositions) is in #1271's body; the hardware
   proof is owed after the deploy.
+- **2026-11-14**, configurator arc (GeecsConfigurator, slices 0–7 on
+  `feat/configurator`, #1307) — `configurator.md` deleted in slice 7, ahead
+  of the promotion PR. Its rules moved first: the tiers and what each
+  save does, the credential and the ruleset, identity, the two setup
+  executors and what stays out of scope to `GeecsConfigurator/CLAUDE.md`
+  (with the package layout and the rules each slice had already written
+  there); the commit path, the clones, the inbox, the gate and the
+  facility rule were already there and in `DEPLOYMENT.md`, which also took
+  the box trial's lessons (the two accounts, the per-box keys, a trial
+  starting unverified); the apply-per-kind table is `kinds.py`; the
+  operator's view to `docs/web_services/configurator.md`; the root map's
+  row rewritten. The brief's § Status (the red team's and the
+  maintainer's dispositions) is on #1301; the slices' records and the
+  owed box acceptance are on #1307.
 
 ## Every PR that changes a package
 
