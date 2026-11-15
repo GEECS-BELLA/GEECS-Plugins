@@ -234,8 +234,10 @@ The steps below run as the admin account unless they say otherwise.
    Leaving the trial, in this order (the live checkout followed the trial
    branch, so it is rebuilt from main):
 
-   1. the share's clone is clean on `main` (§ "Switching the configs root",
-      step 1, when it held edits);
+   1. the share's clone is clean on `main`, level with it or behind it
+      (§ "Switching the configs root", step 1, when it held edits: behind
+      when its no-credential path skipped the merge; the restart below
+      fast-forwards it);
    2. set `GEECS_CONFIGURATOR_SHARE_CLONE` and unset
       `GEECS_CONFIGURATOR_BRANCH`, **before** anything restarts: a restart
       with no share to start from comes up *unverified* again;
@@ -338,12 +340,15 @@ the share itself is then only brought level with `main`:
    ```
    cd "<the share's configs clone>"
    git fetch origin
-   git show origin/main:<path> | diff --strip-trailing-cr - <path> && echo same   # each file
+   git cat-file -e origin/main:<path> && git show origin/main:<path> | diff --strip-trailing-cr - <path> && echo same   # each file
    ```
 
-   A file that differs was changed after the copy: copy it again from
-   sub-step 2, and do not go on. Only when every file printed `same`, drop
-   the edits and the copies:
+   `git cat-file -e` is the gate for a file `main` does not have: without it
+   the pipe reports only `diff`'s status, and an empty file missing from
+   `main` would compare equal to `git show`'s empty output. A file that
+   differs, or is missing, was changed after the copy or never committed:
+   copy it again from sub-step 2, and do not go on. Only when every file
+   printed `same`, drop the edits and the copies:
 
    ```
    git checkout -- .
@@ -353,10 +358,14 @@ the share itself is then only brought level with `main`:
    ```
 
    (Without a credential for origin on this account, compare against the
-   configurator's bare repository instead, after its next fetch:
-   `git --git-dir <STATE_DIR>/repo.git show main:<path>`, and skip the
-   merge: once the share is clean, the configurator fast-forwards it
-   itself.)
+   configurator's bare repository instead, after its next fetch (60 s):
+   `git --git-dir <STATE_DIR>/repo.git cat-file -e origin/main:<path>` and
+   `... show origin/main:<path>`, the fetched main. Not its `main`: that ref
+   moves only while the service follows `main`, so during a trial it is
+   stale or absent. Then skip the merge: the share stays clean at its older
+   commit, and the configurator fast-forwards it once the service follows
+   `main` and names the share, which during a trial is after the restart in
+   § "Once per services box", step 6's "Leaving the trial".)
 
 Then wait for the configurator's next fetch (`GEECS_CONFIGURATOR_FETCH_SECONDS`,
 60 s by default) and check `/healthz`: `"main": "applied"`, `"share": "current"`.
