@@ -251,7 +251,8 @@ proof run from clones of its own was dropped from the reference
 deployment's `site.env` once the arc was on `master` (2026-11-04).
 
 The reference deployment has one instance, **PulsedWire** — the
-pulsed-wire bench, DB experiment "Test stand default", slot 1 — on the
+pulsed-wire bench, DB experiment **TestStand** (renamed from "Test stand
+default" on 2026-11-15: experiment names carry no spaces), slot 1 — on the
 services box (192.168.6.22):
 
 | Unit | Port |
@@ -262,9 +263,10 @@ services box (192.168.6.22):
 | `geecs-logbook@PulsedWire` | HTTP **8410** |
 | `geecs-tiled-writer@PulsedWire` | — (its spool is under the instance's state dir) |
 
-Its scans land under `<data root>/Test stand default/` and its presets and
+Its scans land under `<data root>/TestStand/` (the DB experiment's data
+folder, beside the LabVIEW-era TestStand data) and its presets and
 profiles under the configs repo's
-`scanner_configs/experiments/Test stand default/`. The scanner on 8300
+`scanner_configs/experiments/TestStand/`. The scanner on 8300
 knows nothing of it.
 
 ## One clone per service
