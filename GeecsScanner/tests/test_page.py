@@ -743,3 +743,40 @@ def test_queue_sections_and_add_to_queue_beside_start(client: TestClient) -> Non
     )
     # Replace clears every waiting item, so the prompt counts them (#1285 review M1)
     assert '". Clear all " + items.length + " waiting items' in script
+
+
+def test_portal_links_name_this_scanners_experiment() -> None:
+    """The portal browses every experiment on the share and takes the
+    experiment as a query (its own default otherwise: the main experiment's),
+    so an instance scanner's day and run links must carry its experiment or
+    they land on the main experiment's day.  Both links go through
+    ``portalHref``, which runs here under node: the query is appended and
+    URL-encoded (a DB experiment name may hold spaces), and an empty
+    experiment adds none.
+    """
+    script = (_PKG / "static" / "scanner.js").read_text()
+    assert 'portalHref("/day/" + day)' in script
+    assert 'portalHref("/run/" + encodeURIComponent(r.run_uids[0]))' in script
+    # Any spacing or quoting of a bare `PORTAL + "/…"` link, not just the form this PR replaced.
+    assert re.search(r"""PORTAL\s*\+\s*['"]/""", script) is None, (
+        "a portal link built without the experiment"
+    )
+    _need_node()
+    body = _script_function(script, "portalHref")
+    harness = "\n".join(
+        [
+            'var PORTAL = "http://portal:8200", EXPERIMENT = "Second stand";',
+            f"function portalHref(path) {{\n{body}\n}}",
+            'var out = { day: portalHref("/day/2026-10-31"), run: portalHref("/run/abc") };',
+            'EXPERIMENT = ""; out.bare = portalHref("/day/2026-10-31");',
+            "console.log(JSON.stringify(out));",
+        ]
+    )
+    out = subprocess.run(
+        ["node", "-"], input=harness, capture_output=True, text=True, check=True
+    )
+    assert json.loads(out.stdout) == {
+        "day": "http://portal:8200/day/2026-10-31?experiment=Second%20stand",
+        "run": "http://portal:8200/run/abc?experiment=Second%20stand",
+        "bare": "http://portal:8200/day/2026-10-31",
+    }
