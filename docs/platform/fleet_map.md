@@ -245,9 +245,27 @@ model and the port slots; `deploy/experiment.sh list` shows what is up.
 `/fleet-status` lists each instance's units as rows of their own
 (`… @<Instance>`) and reads each instance scanner's `/health` for its
 manager's readiness, once the host has named the instance and its port.
-The units run from the same clones as the main experiment's — the one
-transitional exception being `GEECS_INSTANCE_CHECKOUT_ROOT` during the
-multi-experiment proof.
+The units run from the same clones as the main experiment's: the
+render-time `GEECS_INSTANCE_CHECKOUT_ROOT` that let the multi-experiment
+proof run from clones of its own was dropped from the reference
+deployment's `site.env` once the arc was on `master` (2026-11-04).
+
+The reference deployment has one instance, **PulsedWire** — the
+pulsed-wire bench, DB experiment "Test stand default", slot 1 — on the
+services box (192.168.6.22):
+
+| Unit | Port |
+|---|---|
+| `geecs-ca-gateway@PulsedWire` | CA **5164** — its own gateway, so a bench client lists `192.168.6.22:5164` in `[epics] ca_addr_list` |
+| `geecs-qserver@PulsedWire` | 0MQ control 60715, info 60725; documents 5668 |
+| `geecs-scanner@PulsedWire` | HTTP **8310** (`/health` carries `readiness` and `experiment`) |
+| `geecs-logbook@PulsedWire` | HTTP **8410** |
+| `geecs-tiled-writer@PulsedWire` | — (its spool is under the instance's state dir) |
+
+Its scans land under `<data root>/Test stand default/` and its presets and
+profiles under the configs repo's
+`scanner_configs/experiments/Test stand default/`. The scanner on 8300
+knows nothing of it.
 
 ## One clone per service
 

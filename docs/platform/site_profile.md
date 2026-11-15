@@ -268,7 +268,8 @@ experiment's units and never instead of them. Tiled, the Data Portal
   clones of their own. It exists for the multi-experiment proof, while the
   arc's code is not yet on the main clones' ref — a **transitional
   exception**: once promoted, one clone serves every experiment and the key
-  is removed.
+  is dropped from `site.env` (done on the reference deployment 2026-11-04;
+  the render-time key stays available for the next proof).
 
 ### Moving an experiment from plain units to an instance
 
