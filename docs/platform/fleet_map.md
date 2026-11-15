@@ -252,7 +252,7 @@ deployment's `site.env` once the arc was on `master` (2026-11-04).
 
 The reference deployment has one instance, **PulsedWire** — the
 pulsed-wire bench, DB experiment **TestStand** (renamed from "Test stand
-default" on 2026-11-15: experiment names carry no spaces), slot 1 — on the
+default" on 2026-11-15), slot 1 — on the
 services box (192.168.6.22):
 
 | Unit | Port |
