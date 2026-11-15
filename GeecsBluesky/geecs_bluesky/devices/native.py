@@ -74,7 +74,7 @@ from ophyd_async.epics.adcore import (
     NDArrayDescription,
     NDFileHDF5IO,
 )
-from ophyd_async.epics.core import PvSuffix, epics_signal_rw
+from ophyd_async.epics.core import PvSuffix, epics_signal_r, epics_signal_rw
 
 from geecs_data_utils.io.scan_stack import (
     ATTRIBUTES_GROUP,
@@ -140,8 +140,6 @@ class NativeDriverIO(AravisDriverIO):
     # Processing the command record fires it (verified on the bench camera).
     trigger_software: A[TriggerableCommand, PvSuffix("TriggerSoftware.PROC")]
     asyn_connect: A[SignalR[AsynConnect], PvSuffix("AsynIO.CNCT")]
-    # GenICam's TriggerDelay, in microseconds (the camera's own unit).
-    trigger_delay: A[SignalR[float], PvSuffix("TriggerDelay_RBV")]
 
 
 class NativeHdfIO(NDFileHDF5IO):
@@ -594,6 +592,12 @@ class NativeCamera(StandardDetector):
         self._geecs_device_name = device
         self._source = NativeTriggerSource(trigger_source)
         self.driver = NativeDriverIO(prefix + DRIVER_SUFFIX)
+        # GenICam's TriggerDelay (µs) from geecs-epics' trigger_delay.db, not
+        # a stock record: private, so connecting the camera never needs it.
+        self._trigger_delay = epics_signal_r(
+            float, prefix + DRIVER_SUFFIX + "TriggerDelay_RBV"
+        )
+        self._delay_connected = False
         self.hdf = NativeHdfIO(prefix + HDF_SUFFIX)
         self.run_lock = RunLockIO(prefix + RUN_LOCK_SUFFIX)
         self.drain_offset = soft_signal_rw(float, float(drain_offset), units="s")
@@ -635,6 +639,25 @@ class NativeCamera(StandardDetector):
         self._column_headers = {
             f"{self.name}-{ACQ_TIMESTAMP}": f"{device} {ACQ_TIMESTAMP}"
         }
+
+    async def connect(
+        self,
+        mock: bool | Any = False,
+        timeout: float = DEFAULT_TIMEOUT,
+        force_reconnect: bool = False,
+    ) -> None:
+        """The stock connect; in mock mode the private trigger-delay record too.
+
+        A real connect never needs that record (a camera without geecs-epics'
+        ``trigger_delay.db`` must still run): the run's first prepare connects
+        it, bounded.  A mock connect has no such camera, so it joins here.
+        """
+        await super().connect(
+            mock=mock, timeout=timeout, force_reconnect=force_reconnect
+        )
+        if mock:
+            await self._trigger_delay.connect(mock=True)
+            self._delay_connected = True
 
     @AsyncStatus.wrap
     async def unstage(self) -> None:
@@ -703,32 +726,57 @@ class NativeCamera(StandardDetector):
         """
         name = self._geecs_device_name
         try:
-            exposure, delay_us = await asyncio.wait_for(
-                asyncio.gather(
-                    self.driver.acquire_time.get_value(),
-                    self.driver.trigger_delay.get_value(),
-                ),
-                STAMP_LAG_READ_S,
+            exposure = float(
+                await asyncio.wait_for(
+                    self.driver.acquire_time.get_value(), STAMP_LAG_READ_S
+                )
             )
+            delay_us = await self._read_trigger_delay()
         except Exception as exc:  # noqa: BLE001 - any failure: no correction, said
-            logger.warning(
-                "%s: exposure / trigger delay unreadable (%s: %s) — its stamps "
-                "are not corrected this run",
-                name,
-                type(exc).__name__,
-                exc,
-            )
-            await self.drain_offset.set(self._stored_offset)
+            await self._no_stamp_lag(f"{type(exc).__name__}: {exc}")
             return
-        lag = float(exposure) + float(delay_us) * 1e-6
+        lag = exposure + delay_us * 1e-6
+        if not (math.isfinite(lag) and lag >= 0):
+            await self._no_stamp_lag(f"exposure {exposure!r} s, delay {delay_us!r} us")
+            return
         await self.drain_offset.set(self._stored_offset + lag)
         logger.info(
             "%s: stamps timed from the trigger: exposure %.6g s + trigger delay "
             "%.6g us subtracted",
             name,
-            float(exposure),
-            float(delay_us),
+            exposure,
+            delay_us,
         )
+
+    async def _read_trigger_delay(self) -> float:
+        """The trigger delay, µs; ``0.0`` with a WARNING on a camera without the record."""
+        try:
+            if not self._delay_connected:
+                await self._trigger_delay.connect(timeout=STAMP_LAG_READ_S)
+                self._delay_connected = True
+            return float(
+                await asyncio.wait_for(
+                    self._trigger_delay.get_value(), STAMP_LAG_READ_S
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - no delay record: no delay
+            logger.warning(
+                "%s: no trigger delay readable (%s: %s) — taken as 0 this run",
+                self._geecs_device_name,
+                type(exc).__name__,
+                exc,
+            )
+            return 0.0
+
+    async def _no_stamp_lag(self, why: str) -> None:
+        """The stored offset alone, with the WARNING that the stamps are not corrected."""
+        logger.warning(
+            "%s: exposure / trigger delay unusable (%s) — its stamps are not "
+            "corrected this run",
+            self._geecs_device_name,
+            why,
+        )
+        await self.drain_offset.set(self._stored_offset)
 
     def _frame_timeout(self) -> float:
         """The frame wait's budget: the prepared ``TriggerInfo.exposure_timeout``."""

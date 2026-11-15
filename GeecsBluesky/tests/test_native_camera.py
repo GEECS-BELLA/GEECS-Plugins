@@ -899,6 +899,11 @@ def test_an_unstage_during_a_prepare_waits_for_it(
     )  # no capture left open
 
 
+def _with_delay(RE: RunEngine, cam: NativeCamera, delay_us: float) -> None:
+    """Set the camera's private trigger-delay record (mock-connected with the camera)."""
+    set_mock_value(cam._trigger_delay, delay_us)
+
+
 def test_the_stamps_are_timed_from_the_trigger_each_run(
     RE: RunEngine, tmp_path: Path
 ) -> None:
@@ -910,7 +915,7 @@ def test_the_stamps_are_timed_from_the_trigger_each_run(
     """
     cam, _ = _camera(RE, tmp_path, drain_offset=0.01)
     set_mock_value(cam.driver.acquire_time, 0.9)
-    set_mock_value(cam.driver.trigger_delay, 400.0)
+    _with_delay(RE, cam, 400.0)
     _run(RE, lambda: cam.stage())
     _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
     _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))  # strict prepares every shot
@@ -919,7 +924,7 @@ def test_the_stamps_are_timed_from_the_trigger_each_run(
     _run(RE, lambda: cam.unstage())
 
     set_mock_value(cam.driver.acquire_time, 0.001)  # changed between runs
-    set_mock_value(cam.driver.trigger_delay, 0.0)
+    set_mock_value(cam._trigger_delay, 0.0)
     _run(RE, lambda: cam.stage())
     _run(RE, lambda: cam.prepare(UNBOUNDED_TRIGGER_INFO))
     config = _run(RE, lambda: cam.read_configuration())
@@ -927,15 +932,36 @@ def test_the_stamps_are_timed_from_the_trigger_each_run(
     _run(RE, lambda: cam.unstage())
 
 
-def test_an_unreadable_exposure_corrects_nothing_and_says_so(
+def test_a_camera_without_the_delay_record_connects_and_takes_no_delay(
     RE: RunEngine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
 ) -> None:
+    """``TriggerDelay_RBV`` is geecs-epics' add-on record: a camera without it still runs."""
+    monkeypatch.setattr(native, "STAMP_LAG_READ_S", 0.2)
     cam, _ = _camera(RE, tmp_path, drain_offset=0.02)
+    cam._delay_connected = False  # as on a real camera: connected at the first prepare
+    set_mock_value(cam.driver.acquire_time, 0.5)
 
-    async def refused(*_, **__):
-        raise TimeoutError("TriggerDelay_RBV")
+    async def unreachable(*_, **__):
+        raise TimeoutError("TriggerDelay_RBV not found")
 
-    monkeypatch.setattr(cam.driver.trigger_delay, "get_value", refused)
+    monkeypatch.setattr(cam._trigger_delay, "connect", unreachable)
+    _run(RE, lambda: cam.stage())
+    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
+    config = _run(RE, lambda: cam.read_configuration())
+    assert config["adtest_cam1-drain_offset"]["value"] == pytest.approx(0.52)
+    assert any("no trigger delay readable" in m for m in caplog.messages)
+    _run(RE, lambda: cam.unstage())
+
+
+@pytest.mark.parametrize(
+    "exposure, delay", [(math.nan, 0.0), (0.1, -5e5)], ids=["nan", "negative"]
+)
+def test_an_unusable_exposure_corrects_nothing_and_says_so(
+    RE: RunEngine, tmp_path: Path, caplog, exposure, delay
+) -> None:
+    cam, _ = _camera(RE, tmp_path, drain_offset=0.02)
+    set_mock_value(cam.driver.acquire_time, exposure)
+    _with_delay(RE, cam, delay)
     _run(RE, lambda: cam.stage())
     _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
     config = _run(RE, lambda: cam.read_configuration())
