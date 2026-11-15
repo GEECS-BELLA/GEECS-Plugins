@@ -392,11 +392,16 @@ class OnDemand:
             yield from bps.wait_for([self._press])
 
     async def _press(self) -> None:
-        """Press every Software-source native; a refused press is logged once per camera."""
+        """Press every Software-source native; a refused press is logged once per camera.
+
+        A native the run logged down (not required) is not pressed: each try
+        would wait out a CA timeout, the rule its reads and collects follow.
+        """
+        live = [cam for cam in self.presses if cam.name not in self._reported_down]
         results = await asyncio.gather(
-            *(cam.press() for cam in self.presses), return_exceptions=True
+            *(cam.press() for cam in live), return_exceptions=True
         )
-        for cam, result in zip(self.presses, results, strict=True):
+        for cam, result in zip(live, results, strict=True):
             if isinstance(result, asyncio.CancelledError):
                 raise result
             name = geecs_name(cam)

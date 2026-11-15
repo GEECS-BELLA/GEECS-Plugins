@@ -331,6 +331,38 @@ def test_a_refused_press_is_logged_once_and_never_fails_the_run(
     assert len(said) == 1 and "ADTEST_CAM1" in said[0] and "refused" in said[0]
 
 
+def test_a_software_native_logged_down_is_no_longer_pressed(
+    RE, box, count, tmp_path, monkeypatch
+) -> None:
+    """A dead Software-source native that is not required: pressed until logged down, then never."""
+    import bluesky.plan_stubs as bps
+    from ophyd_async.core import get_mock_execute
+
+    from geecs_bluesky.plans import on_demand
+    from tests.test_native_camera import _camera as _native
+
+    cam = _camera(RE, box, "UC_A")
+    native, _ = _native(RE, tmp_path)
+    pressed: list[int] = []
+
+    def dead(*_, **__):
+        pressed.append(box.fires)
+        raise TimeoutError("TriggerSoftware.PROC")
+
+    get_mock_execute(native.driver.trigger_software).side_effect = dead
+
+    def down(self, quiet):
+        yield from bps.null()
+        return ["ADTEST_CAM1"]
+
+    monkeypatch.setattr(on_demand.OnDemand, "_down", down)
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(count([cam, native], 3, required=[cam]))
+    assert col.docs["stop"][-1]["exit_status"] == "success" and box.fires == 3
+    assert pressed == [1], pressed
+
+
 @pytest.mark.parametrize("required", [lambda a, b: [a], lambda a, b: []])
 def test_a_non_required_device_going_quiet_never_refires(
     RE, box, count, required

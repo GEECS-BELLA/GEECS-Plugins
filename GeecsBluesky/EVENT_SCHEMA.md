@@ -103,7 +103,7 @@ What the row carries:
 | `<device>-baseline` | a frame count, or LabVIEW s | One per required device: its progress counter read **before** the fire — a plugin or native camera's frame count (`NumCaptured`, the fewest across its plugins), a stamped device's `acq_timestamp` (LabVIEW epoch, `NaN` before its first stamp). A record of row *k* is newer than baseline *k* |
 | `complete` | boolean | Every required device reported for this fire (the plan's decision to stop refiring; which record is which shot's is the join's — a reader auditing the two flags *complete-mismatch*) |
 | `missing` | string | The required devices that did not report, comma-joined ophyd names; `""` when complete |
-| `extra_frames` | string | Gateway plugin cameras (`GeecsDetector`, not a native camera) that counted more than one frame since the previous fire, comma-joined `<name>=<frames>`; `""` when none. One fire may (a missed shot's late frame before the refire's); two in a row pause the run naming the camera (free-running: put it in trigger mode). Not in a fly run |
+| `extra_frames` | string | Gateway plugin cameras (`GeecsDetector`, not a native camera) that counted more than one frame since the previous fire, comma-joined `<name>=<frames>`; `""` when none. One fire may (a missed shot's late frame before the refire's); two in a row pause the run naming the camera when it is **required** (free-running: put it in trigger mode). A camera that is not required may free-run on purpose (a steady-state monitor): it is listed on every such row, the join keeps one of its frames per row, the rest stay in its stack as extras, and the run logs one WARNING, never a pause. Not in a fly run |
 | `unwitnessed` | boolean | No witness read this run: the join assigns by fire interval |
 | `witness_late` | boolean | The witness count stayed put while a device reported (a poll or USB stall) — never a stop |
 | `interrupted` | boolean | A pause or suspension landed inside the fire's slot; the counters were re-read after the resume (a pause inside the row's own bundle drops it and reads it again — never a short row) |
@@ -118,9 +118,11 @@ pause followed (nothing saw it, or a required device is down) costs no
 refire, so the shot is still taken after the resume.  A shot whose refires are
 exhausted keeps its rows, its last flagged `complete: false`, and the scan
 continues; two such shots in a row pause the run, as does a required
-device whose liveness reads down, or a gateway plugin camera counting
-more than one frame on two fires in a row (`extra_frames`; the reason in
-the log).
+device whose liveness reads down, or a required gateway plugin camera
+counting more than one frame on two fires in a row (`extra_frames`; the
+reason in the log).  A device that is not required never pauses the run
+and never slows it: one logged down is no longer read, pressed or
+collected per fire (its stream is still collected at the close).
 
 **A fly run** (`acquisition: fly`, start `clock: "soft-tick"`): one row
 per tick of the worker's timer, `shot_period` apart on an absolute
