@@ -49,9 +49,9 @@ Taking data without the browser — a notebook, or an AI agent at an
 experiment that has no GEECS-MCP server — uses the same routes, in the
 order the page does:
 
-1. `GET /api/devices`, `GET /api/scan-variables` and
-   `GET /api/configs/presets/{name}`: what the worker can see, and the
-   presets on disk.
+1. `GET /api/devices`, `GET /api/scan-variables`,
+   `GET /api/configs/presets` and `GET /api/configs/presets/{name}`: what
+   the worker can see, the presets on disk, and one preset's document.
 2. `POST /api/preflight` with the preset document. The answer is the list
    of questions an operator must acknowledge; nothing is queued.
 3. `POST /api/submit` with the preset, the acknowledged `check` names and
@@ -59,8 +59,9 @@ order the page does:
 4. `GET /api/status` and `GET /api/progress` to follow it; `POST /api/stop`
    and `POST /api/pause` to halt.
 
-`POST /api/move` moves one settable the way a scan step would, confirmed
-by readback.
+`POST /api/move` moves one settable and completes the way a scan step's
+move does: a motor's readback within tolerance, otherwise the device's own
+set completion.
 
 A preflight question is for a **person** to answer: an agent relays it and
 waits, and never acknowledges one on its own. And data is never taken by
