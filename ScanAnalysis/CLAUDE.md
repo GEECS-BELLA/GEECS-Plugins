@@ -31,6 +31,9 @@ scan_analysis/
   services/                        # the vendor launchers core_services builds (moved from the retired ImageAnalysis):
                                    #   frog_dll_retrieval.py + _frog_dll_worker.py (FrogDllRetrieval, Kane's 32-bit FROG.dll),
                                    #   haso_wavekit.py + _wavekit_worker.py (HasoWaveKit, WaveKit), wavekit_doctor.py (geecs-wavekit-doctor)
+  tools/
+    spectral_interferometry.py     # one-file command: read a spectrum (data-utils' reader), run the core's
+                                   #   spectral interferometry, print JSON / save the figure where told (never beside the data)
   analyzers/
     common/
       scalar_columns.py                # the scalar-columns job (ScalarJob): formulas over s-file columns, merged back into the s-file
