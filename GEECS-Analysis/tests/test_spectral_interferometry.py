@@ -17,6 +17,8 @@ import pytest
 from geecs_analysis.algorithms.spectral_interferometry import (
     C_NM_PER_FS,
     FLAG_NAMES,
+    GDD_ONLY_FLAGS,
+    tau0_flags,
     SpectralInterferometryConfig,
     SpectralInterferometryResult,
     analyze_interferogram,
@@ -275,11 +277,95 @@ class TestUnreliable:
     def test_narrow_bandwidth_is_flagged(self):
         result = analyse(3000.0, 0.0, fwhm_nm=3.0, noise=0.01)
         assert result.flags.narrow_bandwidth
-        assert not result.reliable
+        assert not result.reliable and not result.delta_gdd_reliable
+
+    def test_a_narrow_band_leaves_tau0_standing(self):
+        # Scan006's case: clean fringes over too little bandwidth for the
+        # curvature. τ0 is still well determined and stays reliable.
+        result = analyse(2350.0, 200.0, fwhm_nm=12.0, noise=0.01)
+        assert set(raised(result)) <= GDD_ONLY_FLAGS and result.flags.narrow_bandwidth
+        assert result.tau0_reliable and not result.delta_gdd_reliable
+        assert result.tau0_fs == pytest.approx(
+            expected_tau(2350.0, 200.0, result), abs=5 * result.tau0_err_fs
+        )
+
+    @pytest.mark.parametrize("reference_nm", [700.0, 780.0, 820.0, 900.0])
+    def test_a_narrow_band_condemns_tau0_reported_away_from_its_centre(
+        self, reference_nm
+    ):
+        # τ0(ω0) = τ_c + ΔGDD (ω0 − ω_c): a loose ΔGDD enters with that lever
+        # (review #1365: 700 nm gave τ0 78 fs off, still "reliable").
+        config = SpectralInterferometryConfig(reference_wavelength_nm=reference_nm)
+        result = analyse(2350.0, 200.0, fwhm_nm=12.0, noise=0.01, config=config)
+        assert result.flags.narrow_bandwidth and not result.reference_central
+        assert not result.tau0_reliable
+
+    def test_the_window_checks_feed_their_own_flags(self, monkeypatch):
+        import geecs_analysis.algorithms.spectral_interferometry as si
+
+        # ΔGDD alone window-sensitive: τ0 stands (central reference).
+        monkeypatch.setattr(si, "_window_shifts", lambda *a: (0.0, 500.0, False, True))
+        result = analyse(600.0, 300.0)
+        assert raised(result) == {"window_sensitive_gdd"}
+        assert result.tau0_reliable and not result.delta_gdd_reliable
+        monkeypatch.setattr(si, "_window_shifts", lambda *a: (5.0, 0.0, True, False))
+        result = analyse(600.0, 300.0)
+        assert raised(result) == {"window_sensitive_tau0"}
+        assert not result.tau0_reliable and not result.delta_gdd_reliable
+
+    def test_window_shifts_judge_tau0_and_gdd_apart(self):
+        import geecs_analysis.algorithms.spectral_interferometry as si
+
+        config = SpectralInterferometryConfig()
+        sideband = si._Sideband(
+            peak=50, lo=40, hi=60, edge_lo=42, central=5, overlaps=False
+        )
+
+        class _T:
+            positive_magnitude = np.zeros(200)
+
+        fit = si._Fit(0.0, 600.0, 300.0, 0.01, 1.0, 0.0, np.zeros(1), np.zeros(1))
+        gdd_moves = si._window_shifts(
+            _T(),
+            sideband,
+            config,
+            fit,
+            lambda lo, hi: si._Fit(
+                0.0, 600.0, 900.0, 0.01, 1.0, 0.0, np.zeros(1), np.zeros(1)
+            ),
+        )
+        assert gdd_moves[2:] == (False, True)
+        tau_moves = si._window_shifts(
+            _T(),
+            sideband,
+            config,
+            fit,
+            lambda lo, hi: si._Fit(
+                0.0, 650.0, 300.0, 0.01, 1.0, 0.0, np.zeros(1), np.zeros(1)
+            ),
+        )
+        assert tau_moves[2:] == (True, False)
+
+    def test_tau0_reliability_is_every_flag_but_the_gdd_ones(self):
+        for tau, gdd, kw in [
+            (600.0, 300.0, {}),
+            (100.0, 0.0, {}),
+            (1500.0, 8000.0, {}),
+            (0.0, 0.0, {}),
+        ]:
+            result = analyse(tau, gdd, **kw)
+            bearing = raised(result) & tau0_flags(result.reference_central)
+            assert result.tau0_reliable == (result.tau0_fs is not None and not bearing)
+            assert result.delta_gdd_reliable == (
+                result.delta_gdd_fs2 is not None and not raised(result)
+            )
+            assert result.reliable == (
+                result.tau0_reliable and result.delta_gdd_reliable
+            )
 
     def test_a_partially_overlapping_sideband_is_window_sensitive(self):
         result = analyse(100.0, 0.0)
-        assert result.flags.window_sensitive
+        assert result.flags.window_sensitive_tau0 or result.flags.window_sensitive_gdd
         assert result.window_tau_shift_fs > 1.0 or result.window_gdd_shift_fs2 > 20.0
         assert analyse(600.0, 300.0).window_tau_shift_fs < 0.1
 
@@ -374,7 +460,8 @@ class TestMeasure:
         assert set(result.scalars) == analysis.measure.emitted_scalars()
         assert result.scalars["tau0_fs"] == pytest.approx(600.0, abs=0.1)
         assert result.scalars["delta_gdd_fs2"] == pytest.approx(300.0, rel=0.01)
-        assert result.scalars["reliable"] == 1.0
+        assert result.scalars["tau0_reliable"] == 1.0
+        assert result.scalars["delta_gdd_reliable"] == 1.0
         assert set(result.extras) == {"interference_phase", "phase_residual"}
 
     def test_undetermined_values_are_nan_with_notes(self):
@@ -386,5 +473,6 @@ class TestMeasure:
         )
         result = analyze(self._frame(0.0, 0.0), analysis)
         assert math.isnan(result.scalars["tau0_fs"])
-        assert result.scalars["reliable"] == 0.0
+        assert result.scalars["tau0_reliable"] == 0.0
+        assert result.scalars["delta_gdd_reliable"] == 0.0
         assert any("not evidence of zero delay" in note for note in result.notes)

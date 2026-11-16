@@ -57,8 +57,19 @@ The λ → ω Jacobian is not applied: it reshapes the envelope, never the phase
 
 ## Reliability flags
 
-Any raised flag makes `reliable` false and adds one sentence to
-`messages`. A value that could not be determined is `null` (NaN in the
+Each raised flag adds one sentence to `messages`, and the result judges
+the two quantities separately:
+
+- **`delta_gdd_reliable`** is false when any flag is raised.
+- **`tau0_reliable`** ignores `narrow_bandwidth` and `window_sensitive_gdd`
+  when the reference lies in the middle half of the fit band
+  (`reference_central`, true for the default band-centre reference). There a
+  band too narrow for the curvature still pins the slope. Away from the
+  centre, τ0(ω0) = τ_c + ΔGDD·(ω0 − ω_c) carries the loose ΔGDD with lever
+  ω0 − ω_c, so every flag counts against τ0 as well.
+- **`reliable`** is true only when both are.
+
+A value that could not be determined is `null` (NaN in the
 measure), **never 0**: a merged peak is not evidence of zero delay.
 
 | Flag | Raised when |
@@ -66,7 +77,8 @@ measure), **never 0**: a merged peak is not evidence of zero delay.
 | `sideband_not_found` | The shot holds no spectrum (the smoothed peak stands fewer than 10 pixel-noise units above the mean; σ from the raw pixels' high-frequency floor), or no sideband clears the central peak and the noise. No τ0 or ΔGDD is reported. |
 | `sideband_overlaps_central` | The central peak does not fall to 5 % of the sideband peak before the sideband, or the window reaches into the central peak. |
 | `sideband_broadened` | The sideband is more than 3× its unchirped width (the transform of `|A1A2|`), and its edge reaches below half its delay. Strong ΔGDD smears it across the gap that isolates it. |
-| `window_sensitive` | Moving any window edge in or out by 10 % of the width changes τ0 by more than max(1 fs, 3σ), or ΔGDD by more than max(20 fs², 10 %, 3σ). |
+| `window_sensitive_tau0` | Moving any window edge in or out by 10 % of the width changes τ0 by more than max(1 fs, 3σ). |
+| `window_sensitive_gdd` | The same test changes ΔGDD by more than max(20 fs², 10 %, 3σ). Affects ΔGDD only. |
 | `fringes_undersampled` | Fewer than 3 detector pixels per fringe, using the local delay τ0 + ΔGDD(ω − ω0) and the local pixel spacing. |
 | `fringes_unresolved` | The stated optical resolution (Gaussian FWHM δω) leaves less than half the fringe contrast, exp(−(τ δω)² / 16 ln 2) < 0.5. Checked only when `resolution_nm` is given. |
 | `narrow_bandwidth` | The fit band spans fewer than 20 detector pixels, or σ(ΔGDD) > max(50 fs², 25 % of \|ΔGDD\|). The band gives too little quadratic leverage for the noise present. |
@@ -76,7 +88,8 @@ Every threshold is a field of `SpectralInterferometryConfig`.
 ## Using it
 
 One file, now (from an environment with ScanAnalysis installed). The
-command prints the JSON result and exits 1 when any flag is raised:
+command prints the JSON result, writes each quantity's verdict to stderr, and
+exits 1 when any flag is raised:
 
 ```bash
 python -m scan_analysis.tools.spectral_interferometry ScanNNN_SPEC-PL1-Thorlabs_001.txt --resolution-nm 2 --png ~/si.png
@@ -101,8 +114,9 @@ diagnostic_figure(analysis)                       # spectrum | delay domain | ph
 Per shot, in a recipe over a `line` input with x in nm:
 `measure: {kind: spectral_interferometry}`. It emits `tau0_fs`,
 `tau0_err_fs`, `delta_gdd_fs2`, `delta_gdd_err_fs2`,
-`reference_wavelength_nm` and `reliable`. Raised flags become notes.
+`reference_wavelength_nm`, `tau0_reliable` and `delta_gdd_reliable`. Raised
+flags become notes.
 A flagged shot can still carry a finite but doubtful value, for example an
 overlapping sideband. A scan's bin average (nanmean) folds such values in,
-so filter on `reliable == 1` before averaging `tau0_fs` or
-`delta_gdd_fs2`.
+so filter on `tau0_reliable == 1` before averaging `tau0_fs`, and on
+`delta_gdd_reliable == 1` before averaging `delta_gdd_fs2`.
