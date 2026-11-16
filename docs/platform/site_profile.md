@@ -305,6 +305,86 @@ Scan mode needs the worker and the gateway on one host
 (`check_gateway_host`); a per-experiment gateway instance on the hub is
 what satisfies it for a worker that runs there.
 
+## A front door
+
+A front door gives the services box's web surfaces names instead of
+`http://<address>:<port>`. It is one reverse proxy on the box holding
+:443 with TLS, which routes by path, for example:
+
+| Path | Service |
+|---|---|
+| `/` | Control Room (8700) |
+| `/<experiment>/scanner`, `/<experiment>/logbook` | that experiment's scanner and logbook (its slot's ports) |
+| `/portal`, `/config`, `/canopy` | the portal (8200), the configurator (8800), Canopy (8600) |
+
+`<experiment>` is the experiment's name in lowercase. Nothing in this
+repository installs the proxy. A site provides it, and the GEECS-BELLA
+sites run geecs-epics' Ansible role `front_door` (its
+`docs/runbooks/ansible.md`, "Front door": the internal CA, the
+certificates, DNS, trusting the CA, a new facility's checklist). This
+section is what the GEECS services need from any proxy, and what changes
+in `site.env` when one arrives.
+
+**What the proxy must do**
+
+- **Strip each prefix** before forwarding, and name it in
+  `X-Forwarded-Prefix`: every GEECS FastAPI surface builds its links from
+  that header (`geecs_web_theme.web`).
+- **Canopy is stripped too.** `GEECS_CANOPY_ROOT_PATH=/canopy` makes
+  uvicorn's `--root-path` add the prefix back, so it expects the request
+  *without* it: behind `--root-path /canopy`, `/docs` answers and
+  `/canopy/docs` is a 404. The same holds for the `--root-path` flags the
+  other surfaces take, which are only for a proxy that strips the prefix
+  without sending `X-Forwarded-Prefix`.
+- **Pass WebSocket upgrades** (`Upgrade`, `Connection`, HTTP/1.1):
+  Hare's `/canopy/hare/v1/ws/pvs` is one.
+- **Send `X-Forwarded-Proto`**, and let uvicorn trust it from the
+  proxy's address. uvicorn trusts only `FORWARDED_ALLOW_IPS`
+  (default `127.0.0.1`). A service the proxy reaches on the lab address
+  rather than loopback, such as the configurator bound to the lab interface, needs
+  that address listed. Otherwise its redirects say `http://`.
+
+**What changes in `site.env`**
+
+Each service URL is either a **browser** URL (a link or a page the
+operator's browser opens) or a **server** URL (one process calling
+another). Browser URLs move to the name. Server URLs stay on the
+services' own addresses, so no process has to trust the front door's
+certificate and no call depends on the proxy.
+
+| Key | Kind | Without a front door | With one |
+|---|---|---|---|
+| portal `--logbook-url` (`GEECS_PORTAL_EXTRA_ARGS`) | server (the plot send), and the link base when there is no browser URL | `http://<host>:8400` | unchanged |
+| portal `--logbook-browser-url` | browser | omitted | `https://<name>/<experiment>/logbook` (absolute) |
+| portal `--configurator-browser-url` | browser | `http://<host>:8800` | `https://<name>/config` |
+| scanner `--portal-url` (`GEECS_SCANNER_EXTRA_ARGS`) | browser | `http://<host>:8200` | `https://<name>/portal` |
+| scanner `--configurator-url` | server | `http://<configurator bind>:8800` | unchanged |
+| scanner `--configurator-browser-url` | browser | `http://<host>:8800` | `https://<name>/config` |
+| `GEECS_CONTROL_ROOM_CANOPY_URL` | server | `http://127.0.0.1:8600` (no prefix: `--root-path` adds it) | unchanged |
+| `GEECS_CONTROL_ROOM_CANOPY_BROWSER_URL` | browser | `http://<host>:8600` | `https://<name>/canopy` |
+| `GEECS_CONTROL_ROOM_SCANNER_URL` | server | `http://127.0.0.1:8300` | unchanged |
+| `GEECS_CONTROL_ROOM_SCANNER_BROWSER_URL` | browser | `http://<host>:8300` | `https://<name>/<experiment>/scanner` |
+| `GEECS_CONTROL_ROOM_PORTAL_URL`, `_LOGBOOK_URL`, `_CONFIG_EDITOR_URL` | browser | `http://<host>:<port>` | `https://<name>/portal`, `/<experiment>/logbook`, `/config` |
+| `GEECS_CONFIGURATOR_SCANNER_URL`, `_PORTAL_URL` | server | loopback | unchanged |
+| `GEECS_CONFIGURATOR_CORS_ORIGINS` | browser origins | the scanner's and the portal's `http://<host>:<port>` | add `https://<name>` (the embedded editor is same-origin behind the proxy; the old origins stay while they are used) |
+| `GEECS_CANOPY_ROOT_PATH` | | empty | `/canopy` |
+| `FORWARDED_ALLOW_IPS` | | absent (uvicorn's `127.0.0.1`) | `127.0.0.1,<the address the proxy dials>` |
+| config.ini `[mcp]` URLs | server | `http://<host>:<port>` | unchanged |
+
+**The order.** First, the proxy answers every path by name; the old
+`<host>:<port>` addresses keep working throughout. Then, between scans,
+edit `site.env` (a dated backup first) and restart the services it
+feeds: Canopy before the Control Room, then the portal, each scanner
+(`geecs-scanner`, `geecs-scanner@<Instance>`) and the configurator. The
+queueservers and the logbooks read none of these keys and keep running. Last, add the `/canopy`
+route, which 404s until Canopy runs with its root path. Check that each surface's
+cross-links (the Control Room's launcher, a portal run page's "log ↗", the
+scanner's portal link) carry the name.
+
+**A new experiment** behind a front door: `deploy/experiment.sh up` prints
+its two routes. Add them to the proxy, and the instance's scanner inherits
+the site's scanner flags.
+
 ## Onboarding a second facility
 
 1. Copy `deploy/site.env.example`; change every value; keep every key —
@@ -326,10 +406,13 @@ what satisfies it for a worker that runs there.
    ([The rule: a box owns its experiments](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#the-rule-a-box-owns-its-experiments),
    [Once per org](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#once-per-org),
    [Once per services box](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#once-per-services-box)).
-5. Experiment-specific *code* (analyzers, scan-database filters) follows
+5. Names for the web surfaces, when the site wants them: the proxy and
+   its certificates first, then `site.env` ([A front door](#a-front-door)).
+   Every surface works on its own port until then.
+6. Experiment-specific *code* (analyzers, scan-database filters) follows
    the existing per-experiment package pattern
    (`analyzers/<Experiment>/`), not this profile.
-6. The first real second site will find a value this page missed. Add
+7. The first real second site will find a value this page missed. Add
    it to `site.env.example` and here in the same PR — that is the
    contract growing, not breaking.
 
