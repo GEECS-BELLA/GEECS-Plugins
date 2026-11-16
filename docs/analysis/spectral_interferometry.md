@@ -63,7 +63,7 @@ measure), **never 0**: a merged peak is not evidence of zero delay.
 
 | Flag | Raised when |
 |---|---|
-| `sideband_not_found` | The shot holds no spectrum (the smoothed peak stands fewer than 10 pixel-noise units above the median), or no sideband clears the central peak and the noise. No τ0 or ΔGDD is reported. |
+| `sideband_not_found` | The shot holds no spectrum (the smoothed peak stands fewer than 10 pixel-noise units above the mean; σ from the raw pixels' high-frequency floor), or no sideband clears the central peak and the noise. No τ0 or ΔGDD is reported. |
 | `sideband_overlaps_central` | The central peak does not fall to 5 % of the sideband peak before the sideband, or the window reaches into the central peak. |
 | `sideband_broadened` | The sideband is more than 3× its unchirped width (the transform of `|A1A2|`), and its edge reaches below half its delay. Strong ΔGDD smears it across the gap that isolates it. |
 | `window_sensitive` | Moving any window edge in or out by 10 % of the width changes τ0 by more than max(1 fs, 3σ), or ΔGDD by more than max(20 fs², 10 %, 3σ). |

@@ -132,7 +132,7 @@ class SpectralInterferometryConfig(BaseModel):
         gt=0,
         description=(
             "The smoothed spectrum's peak must stand this many noise units above its "
-            "median; below it the shot holds no spectrum."
+            "mean; below it the shot holds no spectrum."
         ),
     )
     fit_floor: float = Field(
@@ -283,8 +283,8 @@ class SpectralInterferometryResult(BaseModel):
     central_edge_fs: Optional[float] = Field(
         description="Where the central peak falls below edge_level × the sideband peak, fs."
     )
-    signal_snr: Optional[float] = Field(
-        description="The smoothed spectrum's peak above its median, in pixel-noise units (null: no scatter)."
+    signal_snr: float = Field(
+        description="The smoothed spectrum's peak above its mean, in pixel-noise units."
     )
     sideband_snr: Optional[float] = Field(
         description="Sideband peak over the delay-domain noise floor."
@@ -579,7 +579,7 @@ class _Spectrum:
     pixel_omega: np.ndarray
     grid: np.ndarray
     signal: np.ndarray
-    signal_snr: Optional[float]
+    signal_snr: float
 
 
 @dataclass(frozen=True)
@@ -666,19 +666,25 @@ def _prepare(
     )
 
 
-def _signal_snr(counts: np.ndarray) -> Optional[float]:
-    """How far the smoothed spectrum's peak stands above its median, in noise units.
+def _signal_snr(counts: np.ndarray) -> float:
+    """How far the smoothed spectrum's peak stands above its mean, in noise units.
 
-    The pixel noise comes from neighbour differences (robust to a smooth
-    spectrum and to a minority of fringe pixels), reduced by the smoothing.
-    ``None`` when the trace has no scatter to judge by.
+    The pixel noise σ is the white floor of the raw pixels' own transform:
+    the median magnitude over the top quarter of pixel frequencies (fringes
+    coarser than 2.7 pixels each, finer than the analysis can use anyway,
+    stay below it, however much of the detector they fill), Rayleigh, so ``σ = median / √(N ln 2)``. Integer counts keep
+    it above zero (quantisation). The mean, not the median, is the reference,
+    so a background clipped at zero does not stand above itself.
     """
     k = _smoothing(counts.size)
-    sigma = 1.4826 * float(np.median(np.abs(np.diff(counts)))) / np.sqrt(2.0)
+    centred = counts - np.mean(counts)
+    floor = np.abs(np.fft.rfft(centred))[3 * counts.size // 8 :]
+    sigma = float(np.median(floor)) / np.sqrt(counts.size * np.log(2.0))
+    smooth = np.convolve(centred, np.ones(k) / k, mode="valid")
+    height = float(np.max(smooth))
     if not sigma > 0:
-        return None
-    smooth = np.convolve(counts, np.ones(k) / k, mode="valid")
-    return float(np.max(smooth) - np.median(counts)) / (sigma / np.sqrt(k))
+        return float("inf") if height > 0 else 0.0
+    return height / (sigma / np.sqrt(k))
 
 
 def _smoothing(n: int) -> int:
@@ -950,7 +956,7 @@ def analyze_interferogram(
     noise = float(np.median(mag[mag.size // 2 :])) or float(np.finfo(float).tiny)
     # No spectrum (a dark or misfired shot): nothing to look for. Without
     # this, the tapered residual's low-delay structure passes as a sideband.
-    dark = spectrum.signal_snr is not None and spectrum.signal_snr < cfg.min_signal_snr
+    dark = spectrum.signal_snr < cfg.min_signal_snr
     sb = None if dark else _locate_sideband(transform, cfg, noise)
     if sb is None:
         rec = _Recovery(flags=dict.fromkeys(FLAG_NAMES, False))

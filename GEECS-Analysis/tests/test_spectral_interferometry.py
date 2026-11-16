@@ -182,6 +182,42 @@ class TestUnreliable:
             assert result.flags.sideband_not_found, (seed, result.tau0_fs)
             assert result.tau0_fs is None and not result.reliable
 
+    @pytest.mark.parametrize(
+        "make",
+        [
+            lambda rng, n: np.round(
+                100.0 + rng.normal(0.0, 0.4, n)
+            ),  # quiet integer ADC
+            lambda rng, n: np.maximum(
+                rng.normal(0.0, 3.0, n), 0.0
+            ),  # subtracted, clipped
+        ],
+        ids=["integer-counts", "clipped-at-zero"],
+    )
+    def test_quiet_and_clipped_dark_shots_report_no_delay(self, make):
+        wavelength = np.linspace(497.7, 1103.2, 3648)
+        for seed in range(20):
+            counts = make(np.random.default_rng(seed), wavelength.size)
+            result = analyze_interferogram(wavelength, counts).result
+            assert result.tau0_fs is None, (seed, result.signal_snr)
+
+    def test_fringes_filling_the_detector_are_not_mistaken_for_noise(self):
+        # A spectrometer the pulse fills, at large delay: most pixels carry
+        # fringes, which must not inflate the pixel-noise estimate.
+        wavelength = np.linspace(700.0, 900.0, 2048)
+        omega = wavelength_to_omega(wavelength)
+        width = 2 * np.pi * C_NM_PER_FS * 120.0 / CENTRE_NM**2
+        envelope = 1e4 * np.exp(-4 * np.log(2) * ((omega - OMEGA_C) / width) ** 2)
+        counts = 2 * envelope * (1 + np.cos(3000.0 * (omega - OMEGA_C))) + 100.0
+        counts += np.random.default_rng(0).normal(
+            0.0, 0.002 * counts.max(), counts.size
+        )
+        result = analyze_interferogram(wavelength, counts).result
+        assert result.signal_snr > 50
+        assert result.tau0_fs == pytest.approx(
+            expected_tau(3000.0, 0.0, result), abs=0.5
+        )
+
     def test_a_near_overlap_is_flagged(self):
         result = analyse(100.0, 0.0)
         assert not result.reliable
