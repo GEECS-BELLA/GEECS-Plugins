@@ -378,6 +378,17 @@ def _tukey(n: int, alpha: float) -> np.ndarray:
     return w
 
 
+#: Fewest pixels an inferred signal region spans.
+_MIN_REGION = 64
+#: Median over 25th percentile of a Rayleigh distribution: √(ln 2 / ln(4/3)).
+_RAYLEIGH_Q25_TO_MEDIAN = float(np.sqrt(np.log(2.0) / np.log(4.0 / 3.0)))
+
+
+def _rayleigh_median(magnitudes: np.ndarray) -> float:
+    """The noise median from the 25th percentile: robust to signal in up to ~70 % of bins."""
+    return float(np.percentile(magnitudes, 25)) * _RAYLEIGH_Q25_TO_MEDIAN
+
+
 def _signal_region(omega: np.ndarray, counts: np.ndarray) -> tuple[float, float]:
     """Where the spectrum stands above its background, padded by 15 % each side."""
     n = counts.size
@@ -386,9 +397,18 @@ def _signal_region(omega: np.ndarray, counts: np.ndarray) -> tuple[float, float]
     baseline = float(np.median(counts))
     peak = float(np.max(smooth))
     if not peak > baseline:
-        raise ValueError("no signal above the spectrum's median")
+        # Nothing stands up: the dark check downstream reports it.
+        return float(omega[0]), float(omega[-1])
     above = np.flatnonzero(smooth > baseline + 0.05 * (peak - baseline))
-    lo, hi = float(omega[above[0]]), float(omega[above[-1]])
+    first, last = int(above[0]), int(above[-1])
+    # At least _MIN_REGION pixels, so a lone hot pixel is analysed (and
+    # found wanting), not refused.
+    short = _MIN_REGION - (last - first + 1)
+    if short > 0:
+        first = max(0, first - short // 2 - 1)
+        last = min(n - 1, first + _MIN_REGION - 1)
+        first = max(0, last - _MIN_REGION + 1)
+    lo, hi = float(omega[first]), float(omega[last])
     pad = 0.15 * (hi - lo)
     return max(lo - pad, float(omega[0])), min(hi + pad, float(omega[-1]))
 
@@ -580,6 +600,7 @@ class _Spectrum:
     grid: np.ndarray
     signal: np.ndarray
     signal_snr: float
+    pixel_sigma: float
 
 
 @dataclass(frozen=True)
@@ -627,7 +648,8 @@ def _prepare(
     omega = wavelength_to_omega(wl)
     order = np.argsort(omega)
     omega, sorted_counts = omega[order], ct[order]
-    signal_snr = _signal_snr(sorted_counts)
+    pixel_sigma = _pixel_noise(sorted_counts)
+    signal_snr = _signal_snr(sorted_counts, pixel_sigma)
 
     # The region transformed: where the signal is, or the user's choice,
     # always covering a user fit range.
@@ -663,24 +685,32 @@ def _prepare(
         grid=grid,
         signal=resampled * _tukey(n, cfg.taper),
         signal_snr=signal_snr,
+        pixel_sigma=pixel_sigma,
     )
 
 
-def _signal_snr(counts: np.ndarray) -> float:
-    """How far the smoothed spectrum's peak stands above its mean, in noise units.
+def _pixel_noise(counts: np.ndarray) -> float:
+    """The detector's white pixel noise σ, from the raw pixels' own transform.
 
-    The pixel noise σ is the white floor of the raw pixels' own transform:
-    the median magnitude over the top quarter of pixel frequencies (fringes
-    coarser than 2.7 pixels each, finer than the analysis can use anyway,
-    stay below it, however much of the detector they fill), Rayleigh, so ``σ = median / √(N ln 2)``. Integer counts keep
-    it above zero (quantisation). The mean, not the median, is the reference,
-    so a background clipped at zero does not stand above itself.
+    The 25th-percentile (Rayleigh-scaled) magnitude over the top quarter of
+    pixel frequencies: fringes coarser than 2.7 pixels each stay below that
+    band however much of the detector they fill, and finer ones (beyond what
+    the analysis can use) may fill most of it without raising the estimate.
+    ``σ = median / √(N ln 2)``; integer counts keep it above zero.
     """
-    k = _smoothing(counts.size)
     centred = counts - np.mean(counts)
     floor = np.abs(np.fft.rfft(centred))[3 * counts.size // 8 :]
-    sigma = float(np.median(floor)) / np.sqrt(counts.size * np.log(2.0))
-    smooth = np.convolve(centred, np.ones(k) / k, mode="valid")
+    return _rayleigh_median(floor) / np.sqrt(counts.size * np.log(2.0))
+
+
+def _signal_snr(counts: np.ndarray, sigma: float) -> float:
+    """How far the smoothed spectrum's peak stands above its mean, in noise units.
+
+    The mean, not the median, is the reference, so a background clipped at
+    zero does not stand above itself.
+    """
+    k = _smoothing(counts.size)
+    smooth = np.convolve(counts - np.mean(counts), np.ones(k) / k, mode="valid")
     height = float(np.max(smooth))
     if not sigma > 0:
         return float("inf") if height > 0 else 0.0
@@ -920,6 +950,25 @@ def _recover(
     return rec
 
 
+def _detection_floor(spectrum: _Spectrum, transform: _Transform, taper: float) -> float:
+    """The delay-domain noise median a sideband candidate is judged against.
+
+    Predicted from the pixel noise σ rather than read off the transform, so
+    neither a sideband in the band read nor the resampling's attenuation of
+    the far delays (which made a read floor several times low, letting noise
+    peaks pass) can move it. Each pixel's noise enters the resampled sum
+    about ``g`` times (``g`` = its spacing over the grid step) and scaled by
+    the region taper, so ``E|F|² = σ² Σ (g·taper)²`` at the delays a
+    sideband occupies; white noise's median is ``√(E|F|² ln 2)``.
+    """
+    pixels = spectrum.pixel_omega
+    grid = spectrum.grid
+    spacing = np.gradient(pixels) / (grid[1] - grid[0])
+    shape = np.interp(pixels, grid, _tukey(grid.size, taper))
+    power = spectrum.pixel_sigma**2 * float(np.sum((spacing * shape) ** 2))
+    return float(np.sqrt(power * np.log(2.0)))
+
+
 def analyze_interferogram(
     wavelength_nm: np.ndarray,
     counts: np.ndarray,
@@ -950,10 +999,9 @@ def analyze_interferogram(
     cfg = config or SpectralInterferometryConfig()
     spectrum = _prepare(wavelength_nm, counts, cfg)
     transform = _Transform(spectrum.grid, spectrum.signal, cfg.pad_factor)
-    mag = transform.positive_magnitude
-    # The noise floor: the median magnitude over the outer half of the delay
-    # range, Rayleigh-distributed for white noise, so E|F|² = median² / ln 2.
-    noise = float(np.median(mag[mag.size // 2 :])) or float(np.finfo(float).tiny)
+    noise = _detection_floor(spectrum, transform, cfg.taper) or float(
+        np.finfo(float).tiny
+    )
     # No spectrum (a dark or misfired shot): nothing to look for. Without
     # this, the tapered residual's low-delay structure passes as a sideband.
     dark = spectrum.signal_snr < cfg.min_signal_snr

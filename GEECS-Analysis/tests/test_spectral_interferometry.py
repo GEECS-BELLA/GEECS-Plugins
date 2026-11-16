@@ -201,6 +201,21 @@ class TestUnreliable:
             result = analyze_interferogram(wavelength, counts).result
             assert result.tau0_fs is None, (seed, result.signal_snr)
 
+    def test_one_arm_at_low_light_reports_no_delay(self):
+        # One arm blocked: a weak spectrum with no fringes. Noise peaks in
+        # the delay domain must not pass as a sideband (review #1364).
+        wavelength = np.linspace(497.7, 1103.2, 3648)
+        omega = wavelength_to_omega(wavelength)
+        width = 2 * np.pi * C_NM_PER_FS * 40.0 / CENTRE_NM**2
+        arm = 30.0 * np.exp(-4 * np.log(2) * ((omega - OMEGA_C) / width) ** 2)
+        for seed in range(20):
+            counts = (
+                100.0 + arm + np.random.default_rng(seed).normal(0.0, 3.0, arm.size)
+            )
+            result = analyze_interferogram(wavelength, counts).result
+            assert not result.reliable, (seed, result.tau0_fs)
+            assert result.tau0_fs is None, (seed, result.tau0_fs)
+
     def test_fringes_filling_the_detector_are_not_mistaken_for_noise(self):
         # A spectrometer the pulse fills, at large delay: most pixels carry
         # fringes, which must not inflate the pixel-noise estimate.
