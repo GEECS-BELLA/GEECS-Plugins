@@ -259,7 +259,7 @@ def _native(devices):
     return NativeDevices.model_validate({"devices": devices})
 
 
-SUPPLY = {"kind": "setpoint_device", "template": "fastps", "settables": {"current": {"tolerance": 0.01}}}  # fmt: skip
+SUPPLY = {"kind": "setpoint_device", "template": "fastps", "settables": {"current": {"timeout": 10.0}}}  # fmt: skip
 
 
 def test_a_family_hazard_role_is_asked_by_role_suffix_or_readback():
