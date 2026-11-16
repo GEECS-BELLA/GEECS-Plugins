@@ -61,8 +61,12 @@ Each raised flag adds one sentence to `messages`, and the result judges
 the two quantities separately:
 
 - **`delta_gdd_reliable`** is false when any flag is raised.
-- **`tau0_reliable`** ignores `narrow_bandwidth` and `window_sensitive_gdd`.
-  A band too narrow for the curvature still pins the slope, so τ0 stands.
+- **`tau0_reliable`** ignores `narrow_bandwidth` and `window_sensitive_gdd`
+  when the reference lies in the middle half of the fit band
+  (`reference_central`, true for the default band-centre reference). There a
+  band too narrow for the curvature still pins the slope. Away from the
+  centre, τ0(ω0) = τ_c + ΔGDD·(ω0 − ω_c) carries the loose ΔGDD with lever
+  ω0 − ω_c, so every flag counts against τ0 as well.
 - **`reliable`** is true only when both are.
 
 A value that could not be determined is `null` (NaN in the
@@ -84,7 +88,8 @@ Every threshold is a field of `SpectralInterferometryConfig`.
 ## Using it
 
 One file, now (from an environment with ScanAnalysis installed). The
-command prints the JSON result and exits 1 when any flag is raised:
+command prints the JSON result, writes each quantity's verdict to stderr, and
+exits 1 when any flag is raised:
 
 ```bash
 python -m scan_analysis.tools.spectral_interferometry ScanNNN_SPEC-PL1-Thorlabs_001.txt --resolution-nm 2 --png ~/si.png

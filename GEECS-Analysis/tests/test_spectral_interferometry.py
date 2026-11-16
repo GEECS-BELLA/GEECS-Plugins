@@ -18,6 +18,7 @@ from geecs_analysis.algorithms.spectral_interferometry import (
     C_NM_PER_FS,
     FLAG_NAMES,
     GDD_ONLY_FLAGS,
+    tau0_flags,
     SpectralInterferometryConfig,
     SpectralInterferometryResult,
     analyze_interferogram,
@@ -288,6 +289,63 @@ class TestUnreliable:
             expected_tau(2350.0, 200.0, result), abs=5 * result.tau0_err_fs
         )
 
+    @pytest.mark.parametrize("reference_nm", [700.0, 780.0, 820.0, 900.0])
+    def test_a_narrow_band_condemns_tau0_reported_away_from_its_centre(
+        self, reference_nm
+    ):
+        # τ0(ω0) = τ_c + ΔGDD (ω0 − ω_c): a loose ΔGDD enters with that lever
+        # (review #1365: 700 nm gave τ0 78 fs off, still "reliable").
+        config = SpectralInterferometryConfig(reference_wavelength_nm=reference_nm)
+        result = analyse(2350.0, 200.0, fwhm_nm=12.0, noise=0.01, config=config)
+        assert result.flags.narrow_bandwidth and not result.reference_central
+        assert not result.tau0_reliable
+
+    def test_the_window_checks_feed_their_own_flags(self, monkeypatch):
+        import geecs_analysis.algorithms.spectral_interferometry as si
+
+        # ΔGDD alone window-sensitive: τ0 stands (central reference).
+        monkeypatch.setattr(si, "_window_shifts", lambda *a: (0.0, 500.0, False, True))
+        result = analyse(600.0, 300.0)
+        assert raised(result) == {"window_sensitive_gdd"}
+        assert result.tau0_reliable and not result.delta_gdd_reliable
+        monkeypatch.setattr(si, "_window_shifts", lambda *a: (5.0, 0.0, True, False))
+        result = analyse(600.0, 300.0)
+        assert raised(result) == {"window_sensitive_tau0"}
+        assert not result.tau0_reliable and not result.delta_gdd_reliable
+
+    def test_window_shifts_judge_tau0_and_gdd_apart(self):
+        import geecs_analysis.algorithms.spectral_interferometry as si
+
+        config = SpectralInterferometryConfig()
+        sideband = si._Sideband(
+            peak=50, lo=40, hi=60, edge_lo=42, central=5, overlaps=False
+        )
+
+        class _T:
+            positive_magnitude = np.zeros(200)
+
+        fit = si._Fit(0.0, 600.0, 300.0, 0.01, 1.0, 0.0, np.zeros(1), np.zeros(1))
+        gdd_moves = si._window_shifts(
+            _T(),
+            sideband,
+            config,
+            fit,
+            lambda lo, hi: si._Fit(
+                0.0, 600.0, 900.0, 0.01, 1.0, 0.0, np.zeros(1), np.zeros(1)
+            ),
+        )
+        assert gdd_moves[2:] == (False, True)
+        tau_moves = si._window_shifts(
+            _T(),
+            sideband,
+            config,
+            fit,
+            lambda lo, hi: si._Fit(
+                0.0, 650.0, 300.0, 0.01, 1.0, 0.0, np.zeros(1), np.zeros(1)
+            ),
+        )
+        assert tau_moves[2:] == (True, False)
+
     def test_tau0_reliability_is_every_flag_but_the_gdd_ones(self):
         for tau, gdd, kw in [
             (600.0, 300.0, {}),
@@ -296,7 +354,7 @@ class TestUnreliable:
             (0.0, 0.0, {}),
         ]:
             result = analyse(tau, gdd, **kw)
-            bearing = raised(result) - GDD_ONLY_FLAGS
+            bearing = raised(result) & tau0_flags(result.reference_central)
             assert result.tau0_reliable == (result.tau0_fs is not None and not bearing)
             assert result.delta_gdd_reliable == (
                 result.delta_gdd_fs2 is not None and not raised(result)

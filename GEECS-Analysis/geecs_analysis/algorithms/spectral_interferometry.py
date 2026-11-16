@@ -67,9 +67,17 @@ FLAG_NAMES = (
     "narrow_bandwidth",
 )
 
-#: The flags that leave τ0 standing: they speak to ΔGDD alone. Every flag
-#: bears on ΔGDD (a sideband doubtful for τ0 is doubtful for its curvature).
+#: The flags that leave τ0 standing when it is reported near the fit band's
+#: centre: there the slope is pinned whatever the curvature. Away from the
+#: centre a loose ΔGDD enters τ0 with lever |ω0 − ω_c|, so every flag
+#: counts. Every flag bears on ΔGDD.
 GDD_ONLY_FLAGS = frozenset({"narrow_bandwidth", "window_sensitive_gdd"})
+
+
+def tau0_flags(reference_central: bool) -> frozenset[str]:
+    """The flags that make τ0 unreliable, given where it is reported."""
+    exempt = GDD_ONLY_FLAGS if reference_central else frozenset()
+    return frozenset(FLAG_NAMES) - exempt
 
 
 class SpectralInterferometryConfig(BaseModel):
@@ -217,8 +225,9 @@ class SpectralInterferometryConfig(BaseModel):
 class SpectralInterferometryFlags(BaseModel):
     """One boolean per reliability check.
 
-    Any True makes ΔGDD unreliable; any but ``GDD_ONLY_FLAGS`` (a band too
-    narrow for the curvature, a window-sensitive ΔGDD) makes τ0 unreliable.
+    Any True makes ΔGDD unreliable. For τ0, see :func:`tau0_flags`: with the
+    reference in the middle half of the fit band, ``GDD_ONLY_FLAGS`` (a band
+    too narrow for the curvature, a window-sensitive ΔGDD) leave it standing.
     """
 
     sideband_not_found: bool = Field(
@@ -324,8 +333,14 @@ class SpectralInterferometryResult(BaseModel):
     )
     n_fit_pixels: int = Field(description="Detector pixels inside the fit band.")
     flags: SpectralInterferometryFlags
+    reference_central: bool = Field(
+        description="The reference lies in the middle half of the fit band (in ω)."
+    )
     tau0_reliable: bool = Field(
-        description="True when no flag bearing on tau0 is set (all but GDD_ONLY_FLAGS)."
+        description=(
+            "True when no flag bearing on tau0 is set: all but GDD_ONLY_FLAGS with a "
+            "central reference, every flag otherwise."
+        )
     )
     delta_gdd_reliable: bool = Field(description="True when no flag is set.")
     reliable: bool = Field(description="Both tau0 and ΔGDD reliable (no flag set).")
@@ -1049,6 +1064,10 @@ def _result(
 ) -> SpectralInterferometryResult:
     """Assemble the JSON result."""
     tpos, fit, band, grid = transform.positive_delay, rec.fit, rec.band, spectrum.grid
+    central = False
+    if band.size and rec.omega0 is not None:
+        lo, hi = float(grid[band[0]]), float(grid[band[-1]])
+        central = abs(rec.omega0 - 0.5 * (lo + hi)) <= 0.25 * (hi - lo)
     omega0 = rec.omega0
     if omega0 is None:
         omega0 = (
@@ -1094,8 +1113,9 @@ def _result(
         rms_residual_rad=None if fit is None else fit.rms,
         n_fit_pixels=rec.n_fit_pixels,
         flags=SpectralInterferometryFlags(**rec.flags),
+        reference_central=central,
         tau0_reliable=fit is not None
-        and not any(v for k, v in rec.flags.items() if k not in GDD_ONLY_FLAGS),
+        and not any(rec.flags[k] for k in tau0_flags(central)),
         delta_gdd_reliable=fit is not None and not any(rec.flags.values()),
         reliable=fit is not None and not any(rec.flags.values()),
         messages=[_MESSAGES[name] for name in FLAG_NAMES if rec.flags[name]],

@@ -86,7 +86,11 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Run the command line; exit 0 when the result is reliable, 1 when flagged."""
+    """Run the command line: JSON on stdout, each quantity's verdict on stderr.
+
+    Exit 0 when τ0 and ΔGDD are both reliable, 1 when any check is raised
+    (the stderr line and ``tau0_reliable`` say whether τ0 still stands).
+    """
     args = _parser().parse_args(argv)
     png, json_path = _output(args.png), _output(args.json)
     config = SpectralInterferometryConfig(
@@ -110,7 +114,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         figure = diagnostic_figure(analysis, title=Path(args.spectrum).name)
         FigureCanvasAgg(figure)
         figure.savefig(png, dpi=110)
-    return 0 if analysis.result.reliable else 1
+    result = analysis.result
+    print(
+        f"tau0 {'reliable' if result.tau0_reliable else 'UNRELIABLE'}, "
+        f"delta GDD {'reliable' if result.delta_gdd_reliable else 'UNRELIABLE'}"
+        + "".join(f"\n  {message}" for message in result.messages),
+        file=sys.stderr,
+    )
+    return 0 if result.reliable else 1
 
 
 if __name__ == "__main__":
