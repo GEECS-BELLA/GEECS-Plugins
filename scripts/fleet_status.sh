@@ -13,7 +13,7 @@
 #   scripts/fleet_status.sh                       # full picture (needs the lab)
 #   scripts/fleet_status.sh --local-only          # just the local checkouts
 #   scripts/fleet_status.sh --no-ssh              # service self-reports only
-#   scripts/fleet_status.sh --ssh 192.168.6.14=<alias>   # ssh alias override
+#   scripts/fleet_status.sh --ssh 192.168.6.22=<alias>   # ssh alias override
 #   scripts/fleet_status.sh --experiment Undulator --no-fetch
 #   scripts/fleet_status.sh --summary             # one box table + attention list
 #   scripts/fleet_status.sh --watch 300           # dashboard pane: --summary every 300 s (--full for the log)
@@ -35,7 +35,7 @@
 #      deployed sha, and how far each is from origin/master
 #
 # Endpoints come from ~/.config/geecs_python_api/config.ini (the one client
-# contract) — the gateway + DB box from the first [epics] ca_addr_list
+# contract) — the CA gateway's host from the first [epics] ca_addr_list
 # entry, Tiled from [tiled] uri, the worker from [qserver] host, ssh aliases from ~/.ssh/config by matching HostName. Nothing lab-
 # specific is hardcoded here beyond the fleet map's port numbers.
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
@@ -124,9 +124,10 @@ fi
 # Endpoints come from lab_env.sh (config.ini); only the experiment fallback is ours.
 [ -n "$EXPERIMENT" ] || EXPERIMENT="$(config_experiment)"
 
-# Hosts to visit over ssh: the lab server, the worker and the archiver's
-# host, deduplicated (today they are one box; the fleet map says which
-# services live where).
+# Hosts to visit over ssh: the gateway's, Tiled's, the worker's and the
+# archiver's, deduplicated (today one box, the services box; the fleet map
+# says which services live where — the DB's host is not visited, nothing
+# of this repo runs there).
 HOSTS=""
 for h in "$LAB_HOST" "$TILED_HOST" "$WORKER_HOST" "$ARCHIVER_HOST"; do
     [ -n "$h" ] || continue
