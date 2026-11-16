@@ -127,6 +127,23 @@ class SpectralInterferometryConfig(BaseModel):
             "below it, it is the central peak's sidelobe, not fringes."
         ),
     )
+    min_signal_snr: float = Field(
+        10.0,
+        gt=0,
+        description=(
+            "The smoothed spectrum's peak must stand this many noise units above its "
+            "median; below it the shot holds no spectrum."
+        ),
+    )
+    fit_floor: float = Field(
+        0.05,
+        gt=0,
+        lt=1,
+        description=(
+            "A user fit range is limited to where the sideband magnitude exceeds "
+            "this fraction of its peak: below it the phase is noise and unwraps badly."
+        ),
+    )
     min_valley_dip: float = Field(
         0.5,
         gt=0,
@@ -266,6 +283,9 @@ class SpectralInterferometryResult(BaseModel):
     central_edge_fs: Optional[float] = Field(
         description="Where the central peak falls below edge_level × the sideband peak, fs."
     )
+    signal_snr: Optional[float] = Field(
+        description="The smoothed spectrum's peak above its median, in pixel-noise units (null: no scatter)."
+    )
     sideband_snr: Optional[float] = Field(
         description="Sideband peak over the delay-domain noise floor."
     )
@@ -361,7 +381,7 @@ def _tukey(n: int, alpha: float) -> np.ndarray:
 def _signal_region(omega: np.ndarray, counts: np.ndarray) -> tuple[float, float]:
     """Where the spectrum stands above its background, padded by 15 % each side."""
     n = counts.size
-    k = max(5, (n // 400) | 1)
+    k = _smoothing(n)
     smooth = np.convolve(counts, np.ones(k) / k, mode="same")
     baseline = float(np.median(counts))
     peak = float(np.max(smooth))
@@ -529,8 +549,9 @@ def _find_sideband(
 
 _MESSAGES = {
     "sideband_not_found": (
-        "No interference sideband stands clear of the central peak and the noise floor; "
-        "no delay is reported (a merged peak is not evidence of zero delay)."
+        "No interference sideband stands clear of the central peak and the noise floor "
+        "(or the shot holds no spectrum); no delay is reported (a merged peak is not "
+        "evidence of zero delay)."
     ),
     "sideband_overlaps_central": "The selected sideband overlaps the central peak.",
     "sideband_broadened": (
@@ -558,6 +579,7 @@ class _Spectrum:
     pixel_omega: np.ndarray
     grid: np.ndarray
     signal: np.ndarray
+    signal_snr: Optional[float]
 
 
 @dataclass(frozen=True)
@@ -605,6 +627,7 @@ def _prepare(
     omega = wavelength_to_omega(wl)
     order = np.argsort(omega)
     omega, sorted_counts = omega[order], ct[order]
+    signal_snr = _signal_snr(sorted_counts)
 
     # The region transformed: where the signal is, or the user's choice,
     # always covering a user fit range.
@@ -639,7 +662,28 @@ def _prepare(
         pixel_omega=pixel_omega,
         grid=grid,
         signal=resampled * _tukey(n, cfg.taper),
+        signal_snr=signal_snr,
     )
+
+
+def _signal_snr(counts: np.ndarray) -> Optional[float]:
+    """How far the smoothed spectrum's peak stands above its median, in noise units.
+
+    The pixel noise comes from neighbour differences (robust to a smooth
+    spectrum and to a minority of fringe pixels), reduced by the smoothing.
+    ``None`` when the trace has no scatter to judge by.
+    """
+    k = _smoothing(counts.size)
+    sigma = 1.4826 * float(np.median(np.abs(np.diff(counts)))) / np.sqrt(2.0)
+    if not sigma > 0:
+        return None
+    smooth = np.convolve(counts, np.ones(k) / k, mode="valid")
+    return float(np.max(smooth) - np.median(counts)) / (sigma / np.sqrt(k))
+
+
+def _smoothing(n: int) -> int:
+    """Odd moving-average length for finding the signal: ~0.25 % of the trace."""
+    return max(5, (n // 400) | 1)
 
 
 def _shape_window(
@@ -698,10 +742,14 @@ def _locate_sideband(
 def _fit_band(
     magnitude: np.ndarray, grid: np.ndarray, cfg: SpectralInterferometryConfig
 ) -> np.ndarray:
-    """The user's fit range, or the run around the strongest fringes."""
+    """The user's fit range (where the fringes are measurable), or the strongest run."""
     if cfg.fit_range_nm is not None:
         f_lo, f_hi = _nm_range_to_omega(cfg.fit_range_nm)
-        return np.flatnonzero((grid >= f_lo) & (grid <= f_hi))
+        inside = (grid >= f_lo) & (grid <= f_hi)
+        if not inside.any():
+            return np.zeros(0, dtype=int)
+        held = np.where(inside, magnitude, 0.0)
+        return _contiguous_run(held >= cfg.fit_floor * held.max(), int(np.argmax(held)))
     return _contiguous_run(
         magnitude >= cfg.fit_threshold * magnitude.max(), int(np.argmax(magnitude))
     )
@@ -900,7 +948,10 @@ def analyze_interferogram(
     # The noise floor: the median magnitude over the outer half of the delay
     # range, Rayleigh-distributed for white noise, so E|F|² = median² / ln 2.
     noise = float(np.median(mag[mag.size // 2 :])) or float(np.finfo(float).tiny)
-    sb = _locate_sideband(transform, cfg, noise)
+    # No spectrum (a dark or misfired shot): nothing to look for. Without
+    # this, the tapered residual's low-delay structure passes as a sideband.
+    dark = spectrum.signal_snr is not None and spectrum.signal_snr < cfg.min_signal_snr
+    sb = None if dark else _locate_sideband(transform, cfg, noise)
     if sb is None:
         rec = _Recovery(flags=dict.fromkeys(FLAG_NAMES, False))
         rec.flags["sideband_not_found"] = True
@@ -954,6 +1005,7 @@ def _result(
         window_source="user" if cfg.sideband_window_fs is not None else "auto",
         sideband_peak_fs=None if sb is None else float(tpos[sb.peak]),
         central_edge_fs=None if sb is None else float(tpos[sb.central]),
+        signal_snr=spectrum.signal_snr,
         sideband_snr=(
             None if sb is None else float(transform.positive_magnitude[sb.peak] / noise)
         ),

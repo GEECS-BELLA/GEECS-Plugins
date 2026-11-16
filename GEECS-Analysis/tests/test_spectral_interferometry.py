@@ -163,6 +163,25 @@ class TestUnreliable:
         assert "not evidence of zero delay" in result.messages[0]
         assert json.loads(result.model_dump_json())["tau0_fs"] is None
 
+    @pytest.mark.parametrize(
+        "wavelength",
+        [
+            np.linspace(497.7, 1103.2, 3648),
+            np.linspace(750.0, 850.0, 2048),
+            np.linspace(700.0, 900.0, 2048),
+        ],
+    )
+    def test_a_dark_shot_reports_no_delay(self, wavelength):
+        # A misfire: background and noise only. The tapered residual's
+        # low-delay structure must not pass as a few-fs sideband.
+        for seed in range(10):
+            counts = 100.0 + np.random.default_rng(seed).normal(
+                0.0, 3.0, wavelength.size
+            )
+            result = analyze_interferogram(wavelength, counts).result
+            assert result.flags.sideband_not_found, (seed, result.tau0_fs)
+            assert result.tau0_fs is None and not result.reliable
+
     def test_a_near_overlap_is_flagged(self):
         result = analyse(100.0, 0.0)
         assert not result.reliable
@@ -227,6 +246,18 @@ class TestOverridesAndResult:
             expected_tau(600.0, 300.0, result), abs=0.5
         )
         assert result.delta_gdd_fs2 == pytest.approx(300.0, rel=0.02)
+
+    def test_a_user_fit_range_into_the_dark_wings_is_held_to_the_fringes(self):
+        # 700–900 nm reaches far past a 40 nm spectrum: the phase there is
+        # noise and unwrapped badly, biasing ΔGDD by several σ (review #1364).
+        config = SpectralInterferometryConfig(fit_range_nm=(700.0, 900.0))
+        pulls = []
+        for seed in range(12):
+            result = analyse(600.0, 300.0, noise=0.01, seed=seed, config=config)
+            assert result.fit_range_source == "user"
+            assert 740.0 < result.fit_range_nm[0] and result.fit_range_nm[1] < 870.0
+            pulls.append((result.delta_gdd_fs2 - 300.0) / result.delta_gdd_err_fs2)
+        assert abs(np.mean(pulls)) < 1.0 and np.std(pulls) < 2.0
 
     def test_a_manual_window_on_the_negative_side_is_mirrored(self):
         config = SpectralInterferometryConfig(sideband_window_fs=(-750.0, -450.0))
