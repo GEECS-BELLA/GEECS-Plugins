@@ -102,3 +102,7 @@ Per shot, in a recipe over a `line` input with x in nm:
 `measure: {kind: spectral_interferometry}`. It emits `tau0_fs`,
 `tau0_err_fs`, `delta_gdd_fs2`, `delta_gdd_err_fs2`,
 `reference_wavelength_nm` and `reliable`. Raised flags become notes.
+A flagged shot can still carry a finite but doubtful value, for example an
+overlapping sideband. A scan's bin average (nanmean) folds such values in,
+so filter on `reliable == 1` before averaging `tau0_fs` or
+`delta_gdd_fs2`.
