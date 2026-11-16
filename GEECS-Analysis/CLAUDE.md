@@ -242,6 +242,16 @@ float64 line result values reflect RMS negative clipping; float32 results do
 not. Preserve these values at the runtime boundary with private copies. Do not
 propagate these quirks into pure steps or general Frame semantics.
 
+The `spectral_interferometry` measure (`algorithms.spectral_interferometry`,
+new, not a port): τ0 and ΔGDD of two pulses from one spectral
+interferogram (FFT → sideband → inverse FFT → unwrapped phase → weighted
+quadratic fit), with seven reliability flags. Undetermined values are
+`None`/NaN, never 0. The figure is `render.spectral_interferometry`, and
+its file edge is ScanAnalysis' `tools/spectral_interferometry.py`. The
+sign convention (τ0 ≥ 0 is the later pulse; the arms are
+indistinguishable from one spectrum) is in the module and in
+`docs/analysis/spectral_interferometry.md`. Numpy only.
+
 ## Rendering
 
 `render.single` / `render.waterfall` return matplotlib Figure objects; no

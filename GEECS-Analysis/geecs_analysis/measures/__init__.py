@@ -12,6 +12,7 @@ from . import (
     magspec,
     none,
     pulsed_wire,
+    spectral_interferometry,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "magspec",
     "none",
     "pulsed_wire",
+    "spectral_interferometry",
 ]
