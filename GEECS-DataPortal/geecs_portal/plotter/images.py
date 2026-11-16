@@ -250,7 +250,8 @@ def trace_device(
     """How *device* records traces (``kind == ""``: it does not), remembered.
 
     ``geecs_data_utils.io.shot_traces.trace_device``: an array capture
-    stack, or per-shot scope files (one opened to name its channels). The
+    stack, per-shot scope files (one opened to name its channels), or
+    per-shot x/y text columns (a spectrometer's wavelength and counts). The
     answer is kept until the device folder changes, so a page of tiles
     probes the share once.
     """
