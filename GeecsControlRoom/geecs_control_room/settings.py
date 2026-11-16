@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import get_args
+from urllib.parse import urlencode
 
 from geecs_schemas import HomeLink
 
@@ -52,6 +53,19 @@ class Settings:
         this package depends on GEECS-Schemas and the theme only.
         """
         return self.configs_root / "scanner_configs" / "experiments" / self.experiment
+
+    def editor_url(self, kind: str = "", doc_id: str = "") -> str:
+        """The configurator's page for one of this experiment's documents (its home with no kind); "" when not configured.
+
+        A link and nothing more (``GEECS_CONTROL_ROOM_CONFIG_EDITOR_URL``, the
+        configurator's home as the browser reaches it): the configurator draws,
+        saves and commits; this process never reads its API.
+        """
+        base = self.links.get("config_editor", "").rstrip("/")
+        if not base:
+            return ""
+        query = {"experiment": self.experiment} | ({"kind": kind, "id": doc_id} if kind else {})  # fmt: skip
+        return f"{base}/?{urlencode(query)}"
 
     @property
     def browser_url(self) -> str:

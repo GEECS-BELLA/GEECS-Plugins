@@ -5,10 +5,8 @@ Scan variables have no converter: ``scan_variables.yaml`` is new-schema only
 rewritten to v2 once (0.19.0) and is authored v2-only since.  Presets have
 none: the legacy save elements and scan presets were regenerated once as
 ``Preset`` documents (GEECS-Plugins#807, phase 1 PR 2) and the converters
-went with them.  Action libraries have none either (0.22.0): every
-``action_library/actions.yaml`` in the corpus was regenerated once as an
-``ActionPlanLibrary`` document and the legacy ``actions:`` dialect (with
-its ``assigned_actions.yaml`` companion) is refused by its consumers.
+went with them.  The action library is gone: each plan became a setup
+(``setups/<name>.yaml``) once, by a one-shot conversion of the configs repo.
 
 One module per legacy dialect; every converter accepts a parsed dict or a
 YAML path and fails loudly (:class:`SchemaConversionError`) naming exactly

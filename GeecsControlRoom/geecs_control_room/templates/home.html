@@ -43,7 +43,7 @@
 
   <div class="grid">
     <article class="panel">
-      <header><span class="eyebrow">Launcher</span></header>
+      <header><span class="eyebrow">Launcher</span>{% if edit_url %}<span class="spacer"></span><a class="btn sm ghost" href="{{ edit_url }}" target="_blank" rel="noopener" title="Open home.yaml in the configurator">Edit layout</a>{% endif %}</header>
       <div class="body">
       {% if launcher.state != "ok" %}
         <div class="state" data-state="{{ launcher.state }}">

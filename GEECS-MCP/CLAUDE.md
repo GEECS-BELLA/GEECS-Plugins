@@ -1,9 +1,12 @@
 # GEECS-MCP — Developer Context for Claude
 
-The **GEECS facility MCP server** — the one entry point for every write an
-AI agent (OSPREY's htu-assistant) makes to the machine, and the reads a
-closed loop needs: submit a scan, wait for it, run analysis, read the
-numbers, post to the logbook.  **A thin HTTP client of three services**
+The **GEECS facility MCP server** — the entry point for every write
+OSPREY's htu-assistant makes to the machine, and the reads a closed loop
+needs: submit a scan, wait for it, run analysis, read the numbers, post to
+the logbook.  One server, bound to the main experiment's scanner (it is not
+templated per experiment instance): an agent at an instance speaks that
+instance's scanner HTTP API directly, the same routes this server calls,
+and never a device.  **A thin HTTP client of three services**
 and nothing else: the web scanner (GeecsScanner, :8300), the Data Portal
 (:8200) and the logbook (GeecsLogbook, :8400).  The design is
 `DESIGN.md` (merged #1099) — read it first; this file is the package as

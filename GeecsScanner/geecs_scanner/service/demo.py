@@ -59,8 +59,8 @@ def _nonrun_report(item: dict) -> str:
             f"{args[i]} = {args[i + 1]}" for i in range(0, len(args) - 1, 2)
         )
         return f"moved {pairs}"
-    if name == "run_action":
-        return f"action {args[0]!r} ran to completion" if args else "action ran"
+    if name == "apply_setup":
+        return f"setup {args[0]!r} applied" if args else "setup applied"
     n = len(args[0]) if args and isinstance(args[0], list) else 0
     if name == "check_shot_sync":
         return f"{n} devices in tolerance (spread 0.008 s)"
@@ -162,6 +162,26 @@ def demo_presets() -> list[Any]:
     ]
 
 
+class DemoPresets:
+    """The configurator, in memory: a save lands in the demo resolver's presets (no commit)."""
+
+    def __init__(self, resolver: "DemoResolver") -> None:
+        self._resolver = resolver
+        self.saves: list[tuple[str, str]] = []  # (name, operator)
+
+    def save(self, name: str, document: dict[str, Any], *, operator: str, overwrite: bool) -> Any:  # fmt: skip
+        """Keep the document under its name (one there only with *overwrite*); the path is where the configurator would commit it."""
+        from geecs_schemas import Preset
+
+        from geecs_scanner.service.preset_saver import SavedPreset, exists_refusal
+
+        if name in self._resolver._presets and not overwrite:
+            raise exists_refusal(name)
+        self._resolver._presets[name] = Preset.model_validate(document)
+        self.saves.append((name, operator))
+        return SavedPreset(path=f"demo/presets/{name}.yaml", commit=None, message=f"preset {name!r} kept in memory (demo: the configurator would commit it)")  # fmt: skip
+
+
 class DemoResolver:
     """An in-memory stand-in for ``ConfigsRepoResolver``."""
 
@@ -204,103 +224,95 @@ class DemoResolver:
             run={"shots_per_step": 5, "max_iterations": 10},
         )
 
-    def write_preset(self, preset: Any, *, overwrite: bool = False) -> Path:
-        """Keep *preset* in memory under its name; the path is where the real one would go."""
-        from geecs_bluesky.exceptions import GeecsConfigurationError
+    def setups(self) -> dict[str, Any]:
+        """Four setups: one nesting another, one writing a hazard role, one in a loop."""
+        from geecs_schemas import Setup
 
-        name = preset.name
-        while name.endswith((".yaml", ".yml")):
-            name = name.rsplit(".", 1)[0]
-        if not name or not name[0].isalnum() and name[0] != "_":
-            # The real resolver's _PRESET_STEM rule, in the double too.
-            raise GeecsConfigurationError(
-                f"preset name {preset.name!r} is not a file name: use letters, "
-                "digits, '_', '-' and '.', no separators"
-            )
-        if name != preset.name:
-            preset = preset.model_copy(update={"name": name})
-        if preset.name in self._presets and not overwrite:
-            raise GeecsConfigurationError(
-                f"preset {preset.name!r} already exists at {self.preset_path(preset.name)}; "
-                "pass overwrite=True to replace it"
-            )
-        self._presets[preset.name] = preset
-        return self.preset_path(preset.name)
-
-    def preset_path(self, name: str) -> Path:
-        """Where the real resolver would write *name*."""
-        return Path("demo") / "presets" / f"{name}.yaml"
-
-    def action_plan_registry(self) -> dict[str, Any]:
-        """Three action plans: one plain, one nesting another, one broken on purpose."""
-        from geecs_schemas import ActionPlan
-
-        return {
-            "close_shutters": ActionPlan.model_validate(
-                {
-                    "description": "Close both shutters and confirm",
-                    "steps": [
-                        {
-                            "do": "set",
-                            "device": "U_148_PLC",
-                            "variable": "shutter1",
-                            "value": "off",
-                        },
-                        {
-                            "do": "set",
-                            "device": "U_148_PLC",
-                            "variable": "shutter2",
-                            "value": "off",
-                        },
-                        {"do": "wait", "seconds": 2},
-                        {
-                            "do": "check",
-                            "device": "U_148_PLC",
-                            "variable": "shutter1",
-                            "expected": "off",
-                        },
+        docs = [
+            {
+                "name": "shutters_closed",
+                "description": "Both shutters closed, and confirmed",
+                "steps": [
+                    {
+                        "do": "set",
+                        "device": "U_148_PLC",
+                        "variable": "shutter1",
+                        "value": "off",
+                    },
+                    {
+                        "do": "set",
+                        "device": "U_148_PLC",
+                        "variable": "shutter2",
+                        "value": "off",
+                    },
+                    {"do": "wait", "seconds": 2},
+                    {
+                        "do": "check",
+                        "device": "U_148_PLC",
+                        "variable": "shutter1",
+                        "expected": "off",
+                    },
+                ],
+                "captured": {
+                    "by": "demo",
+                    "at": "2026-11-01T09:00:00-07:00",
+                    "readbacks": [
+                        {"device": "U_148_PLC", "variable": "shutter1"},
+                        {"device": "U_148_PLC", "variable": "shutter2"},
                     ],
-                }
-            ),
-            "experiment_closeout": ActionPlan.model_validate(
-                {
-                    "description": "Zero the steering magnets, then close the shutters",
-                    "steps": [
-                        {
-                            "do": "set",
-                            "device": "U_S1H",
-                            "variable": "current",
-                            "value": 0.0,
-                        },
-                        {"do": "run", "plan": "close_shutters"},
-                    ],
-                }
-            ),
-            "broken_reference": ActionPlan.model_validate(
-                {
-                    "description": "Runs a plan that is not in the library",
-                    "steps": [{"do": "run", "plan": "no_such_plan"}],
-                }
-            ),
-            # The library validator refuses unknown names but not loops;
-            # the shared flatten is the one guard, exercised here.
-            "loop_a": ActionPlan.model_validate(
-                {
-                    "description": "Runs loop_b",
-                    "steps": [{"do": "run", "plan": "loop_b"}],
-                }
-            ),
-            "loop_b": ActionPlan.model_validate(
-                {
-                    "description": "Runs loop_a",
-                    "steps": [{"do": "run", "plan": "loop_a"}],
-                }
-            ),
-        }
+                },
+            },
+            {
+                "name": "low_power",
+                "description": "Steering zeroed, jet low, shutters closed",
+                "steps": [
+                    {
+                        "do": "set",
+                        "device": "U_S1H",
+                        "variable": "current",
+                        "value": 0.0,
+                    },
+                    {
+                        "do": "set",
+                        "device": "U_HP_Daq",
+                        "variable": "Jet pressure",
+                        "value": 2.0,
+                    },
+                    {"do": "apply", "setup": "shutters_closed"},
+                ],
+            },
+            {"name": "loop_a", "steps": [{"do": "apply", "setup": "loop_b"}]},
+            {"name": "loop_b", "steps": [{"do": "apply", "setup": "loop_a"}]},
+        ]
+        return {d["name"]: Setup.model_validate(d) for d in docs}
 
-    def resolve_action_plan(self, name: str) -> Any:
-        """One plan, or ``KeyError``."""
-        return self.action_plan_registry()[name]
+    def setup_repo_path(self, name: str) -> str:
+        """Where the real resolver would say the file is."""
+        return f"scanner_configs/experiments/Demo/setups/{name}.yaml"
+
+    def configs_commit(self) -> str | None:
+        """The demo tree is not a checkout."""
+        return None
+
+    def resolve_operator_policy(self) -> Any:
+        """One hazard rule: the jet pressure of the DAQ device type."""
+        from geecs_schemas import OperatorPolicy
+
+        return OperatorPolicy.model_validate(
+            {"hazards": [{"families": ["DemoDaq"], "roles": ["Jet pressure"]}]}
+        )
+
+    def resolve_native_devices(self) -> Any:
+        """No native devices in the demo."""
+        from geecs_schemas import NativeDevices
+
+        return NativeDevices()
+
+    def resolve_panel_devices(self) -> Any:
+        """No panel devices in the demo."""
+        from geecs_schemas import PanelDevices
+
+        return PanelDevices()
 
     @property
     def shot_offsets_path(self) -> Path:
@@ -359,8 +371,9 @@ def demo_preflight(
     client: Any = None,
     catalog: Any = None,
     resolver: Any = None,
+    trigger_profile: Any = None,
 ) -> Any:
-    """Validate by the real expansion; ask one fixed question."""
+    """Validate by the real expansion; ask one fixed question (an inline trigger profile changes nothing here)."""
     from geecs_bluesky.qs_client import (
         PreflightQuestion,
         PreflightReport,
@@ -460,6 +473,25 @@ class DemoQueueClient:
                 if self._running is None
                 else "executing_plan",
             )
+
+    #: How many environment reopens the demo manager went through (tests read it).
+    reopens = 0
+
+    def environment_close(self, *, timeout: float = 0.0) -> tuple[bool, str]:
+        """Nothing to close in memory: done."""
+        return True, "environment close: done"
+
+    def environment_open(self, *, timeout: float = 0.0) -> tuple[bool, str]:
+        """Nothing to open in memory: counted, done."""
+        self.reopens += 1
+        return True, "environment open: done"
+
+    def queue_start(self) -> tuple[bool, str]:
+        """Start the next waiting item, if any."""
+        with self._lock:
+            if self._running is None and self._queue:
+                self._start_next()
+        return True, "queue started"
 
     def readiness(self, expected_plans: str | Sequence[str] | None = None) -> Any:
         """Always ready."""
@@ -924,8 +956,10 @@ class DemoReadback:
         self._manager = manager
         self._clock = clock
 
-    async def read(self, device: str, variable: str, *, units: str = "") -> Any:
-        """The value of the last finished ``mv`` naming this variable, else 0."""
+    async def read(
+        self, device: str, variable: str, *, units: str = "", word: bool = False
+    ) -> Any:
+        """The value of the last finished ``mv`` naming this variable, else 0 (``"off"`` as a word)."""
         from geecs_bluesky.qs_client.presets import scan_variable_reference
 
         from geecs_scanner.service.models import ReadbackOut
@@ -939,6 +973,8 @@ class DemoReadback:
                     if args[i] == reference:
                         value = float(args[i + 1])
         now = self._clock()
+        if word:
+            return ReadbackOut(variable=f"{device}:{variable}", pv=f"demo:{reference}", ok=True, text="off", units=units, timestamp=now, age_s=0.0)  # fmt: skip
         return ReadbackOut(
             variable=f"{device}:{variable}",
             pv=f"demo:{reference}",
@@ -948,3 +984,11 @@ class DemoReadback:
             timestamp=now,
             age_s=0.0,
         )
+
+
+class DemoDeviceTypes:
+    """The demo's DB device types: the jet's DAQ is the one the policy names."""
+
+    def by_device(self) -> dict[str, str]:
+        """``{device: devicetype}``."""
+        return {"U_HP_Daq": "DemoDaq", "U_S1H": "Magnet", "U_148_PLC": "PLC"}

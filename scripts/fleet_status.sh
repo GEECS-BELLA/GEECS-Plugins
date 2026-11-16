@@ -13,7 +13,7 @@
 #   scripts/fleet_status.sh                       # full picture (needs the lab)
 #   scripts/fleet_status.sh --local-only          # just the local checkouts
 #   scripts/fleet_status.sh --no-ssh              # service self-reports only
-#   scripts/fleet_status.sh --ssh 192.168.6.14=<alias>   # ssh alias override
+#   scripts/fleet_status.sh --ssh 192.168.6.22=<alias>   # ssh alias override
 #   scripts/fleet_status.sh --experiment Undulator --no-fetch
 #   scripts/fleet_status.sh --summary             # one box table + attention list
 #   scripts/fleet_status.sh --watch 300           # dashboard pane: --summary every 300 s (--full for the log)
@@ -35,7 +35,7 @@
 #      deployed sha, and how far each is from origin/master
 #
 # Endpoints come from ~/.config/geecs_python_api/config.ini (the one client
-# contract) — the gateway + DB box from the first [epics] ca_addr_list
+# contract) — the CA gateway's host from the first [epics] ca_addr_list
 # entry, Tiled from [tiled] uri, the worker from [qserver] host, ssh aliases from ~/.ssh/config by matching HostName. Nothing lab-
 # specific is hardcoded here beyond the fleet map's port numbers.
 set -u  # deliberately not -e: a failed probe is a *finding*, not an error
@@ -124,9 +124,10 @@ fi
 # Endpoints come from lab_env.sh (config.ini); only the experiment fallback is ours.
 [ -n "$EXPERIMENT" ] || EXPERIMENT="$(config_experiment)"
 
-# Hosts to visit over ssh: the lab server, the worker and the archiver's
-# host, deduplicated (today they are one box; the fleet map says which
-# services live where).
+# Hosts to visit over ssh: the gateway's, Tiled's, the worker's and the
+# archiver's, deduplicated (today one box, the services box; the fleet map
+# says which services live where — the DB's host is not visited, nothing
+# of this repo runs there).
 HOSTS=""
 for h in "$LAB_HOST" "$TILED_HOST" "$WORKER_HOST" "$ARCHIVER_HOST"; do
     [ -n "$h" ] || continue
@@ -170,6 +171,42 @@ fi
 
 # ===========================================================================
 if [ "$NET_UP" -eq 1 ]; then
+SCANNER_HEALTH=""   # the last /health body probe_scanner read (stage 1's Tiled-writer read parses it)
+SCANNER_VERSION=""  # and the version it carried
+probe_scanner() {  # probe_scanner HOST PORT [INSTANCE] — the scanner's /health (ok, the manager probe, the readiness word, the installed version); an instance's scanner is the same read under the role "GEECS Scanner @<Instance>"
+    local h="$1" port="$2" inst="${3:-}" role label body v ready
+    role="GEECS Scanner${inst:+ @$inst}"; label="$role $h:$port"
+    body="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$h:$port/health")"
+    SCANNER_HEALTH="$body"
+    if [ -n "$body" ]; then
+        v="$(printf '%s' "$body" | sed -nE 's/.*"version": *"([^"]+)".*/\1/p')"
+        SCANNER_VERSION="$v"
+        ready="$(printf '%s' "$body" | sed -nE 's/.*"readiness": *"([^"]*)".*/\1/p')"
+        if [ "$ready" = "ready" ]; then
+            ok "$label  geecs-scanner ${v:-?}  (manager ready)"
+            rec "role=$role	state=ok	version=${v:-}"
+        else
+            warn "$label  geecs-scanner ${v:-?}  up but manager ${ready:-unknown}"
+            rec "role=$role	state=ok	version=${v:-}	note=manager ${ready:-unknown}"
+        fi
+    elif port_open "$h" "$port"; then
+        warn "$label  listening but no /health answer"
+        rec "role=$role	state=ok	note=no /health answer"
+    else
+        # Not listening is absent (·) for an instance too: a downed instance
+        # keeps its file by design (`up` brings it back as it was) and its
+        # unit rows say the rest, so an instance file is not a deployment claim.
+        rec "role=$role	state=absent"
+    fi
+}
+probe_named_instances() {  # probe_named_instances HOST RECORDS — one probe_scanner per "instance=<name><TAB>scanner_port=<port>" line the host emitted (names may carry spaces; the tab is the separator)
+    local h="$1" tab inst sport
+    tab="$(printf '\t')"
+    while IFS="$tab" read -r inst sport; do
+        [ -n "$inst" ] && probe_scanner "$h" "$sport" "$inst"
+    done <<< "$(printf '%s\n' "$2" | sed -nE "s/^instance=([^$tab]+)${tab}scanner_port=([0-9]+)\$/\1${tab}\2/p")"
+}
+
     echo "== Stage 1: what each service says about itself (read-only) =="
     # Tiled — pip-installed, no checkout; its library version is the whole story.
     tv="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$TILED_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
@@ -236,7 +273,9 @@ if [ "$NET_UP" -eq 1 ]; then
     # liveness and say readiness is unknown. The address is config.ini's
     # [qserver] control_addr override when set (the same precedence as
     # geecs_bluesky.qs_client's config.ini read), else tcp://<host>:60615 —
-    # the main manager; experiment instances are not probed here yet.
+    # the main manager. An experiment instance's manager is asked through its
+    # scanner's /health in stage 2, once its host has named the instance and
+    # its scanner port (probe_named_instances → probe_scanner).
     QS_HOST="${WORKER_HOST:-$LAB_HOST}"
     QS_ADDR="$(ini_get qserver control_addr)"
     QS_ADDR="${QS_ADDR:-tcp://$QS_HOST:60615}"
@@ -275,25 +314,11 @@ if [ "$NET_UP" -eq 1 ]; then
 
     # GEECS Scanner — /health carries ok + the manager probe + the readiness
     # word + installed version. A scanner whose manager is unreachable is up
-    # but useless; say so rather than calling it ok.
+    # but useless; say so rather than calling it ok (probe_scanner, which
+    # stage 2 reuses for each experiment instance's scanner).
     SC_HOST="${WORKER_HOST:-$LAB_HOST}"
-    sh_="$(bounded "$TCP_TIMEOUT" curl -s -m "$TCP_TIMEOUT" "http://$SC_HOST:$SCANNER_PORT/health")"
-    if [ -n "$sh_" ]; then
-        sv="$(printf '%s' "$sh_" | sed -nE 's/.*"version": *"([^"]+)".*/\1/p')"
-        sready="$(printf '%s' "$sh_" | sed -nE 's/.*"readiness": *"([^"]*)".*/\1/p')"
-        if [ "$sready" = "ready" ]; then
-            ok "GEECS Scanner $SC_HOST:$SCANNER_PORT  geecs-scanner ${sv:-?}  (manager ready)"
-            rec "role=GEECS Scanner	state=ok	version=${sv:-}"
-        else
-            warn "GEECS Scanner $SC_HOST:$SCANNER_PORT  geecs-scanner ${sv:-?}  up but manager ${sready:-unknown}"
-            rec "role=GEECS Scanner	state=ok	version=${sv:-}	note=manager ${sready:-unknown}"
-        fi
-    elif port_open "$SC_HOST" "$SCANNER_PORT"; then
-        warn "GEECS Scanner $SC_HOST:$SCANNER_PORT  listening but no /health answer"
-        rec "role=GEECS Scanner	state=ok	note=no /health answer"
-    else
-        rec "role=GEECS Scanner	state=absent"
-    fi
+    probe_scanner "$SC_HOST" "$SCANNER_PORT"
+    sh_="$SCANNER_HEALTH"; sv="$SCANNER_VERSION"   # the Tiled-writer read below parses the same body
 
     # Tiled writer — no port of its own; its heartbeat.json lives on the
     # worker host, and the scanner's /health reads it (tiled_writer: the
@@ -576,6 +601,26 @@ for scope in "" "--user"; do
         emit "$role" "$label" "systemd" "$active" "$pid" "$wd" ""
     done
 done
+# 1b) experiment instances — each one is named with its scanner port, so the
+#     caller can ask that scanner whether the instance manager is ready
+#     (/health); the main scanner is probed from config.ini in stage 1. The
+#     directory is a site knob: deploy/site_env_lib.sh resolves it AFTER
+#     site.env (which may set GEECS_EXPERIMENTS_DIR), so it is read from
+#     site.env here too; the ssh environment may name it (tests), and the
+#     fleet default stands when neither does. Quotes of either kind are
+#     stripped, as deploy/site_env_lib.sh strips them; nothing else is (no
+#     trailing comments in a site.env, per deploy/experiments.env.example).
+exp_dir="${GEECS_EXPERIMENTS_DIR:-}"
+site_env="${GEECS_SITE_ENV_PATH:-/etc/geecs/site.env}"
+if [ -z "$exp_dir" ] && [ -r "$site_env" ]; then
+    exp_dir="$(sed -nE "s/^[[:space:]]*GEECS_EXPERIMENTS_DIR=(.*)$/\1/p" "$site_env" | tail -1 | sed -E "s/[[:space:]]+$//" | tr -d "\"\047")"
+fi
+for f in "${exp_dir:-/etc/geecs/experiments}"/*.env; do
+    [ -r "$f" ] || continue
+    inst="$(basename "$f" .env)"
+    sport="$(sed -nE "s/^[[:space:]]*GEECS_SCANNER_PORT=[^0-9]?([0-9]+).*/\1/p" "$f" | tail -1)"
+    [ -n "$sport" ] && printf "instance=%s\tscanner_port=%s\n" "$inst" "$sport"
+done
 # 2) whoever owns each fleet port, if not already listed via its unit
 for port in $FLEET_PORTS; do
     # The archiver listens from inside its container (host networking): the
@@ -676,6 +721,7 @@ fmt_host_records() {  # stdin: service records -> pretty lines; side effect: not
             nosystemd) skip "no systemd on this host"; continue ;;
             nounits) skip "no geecs-* / tiled units and nothing listening on the fleet ports"; continue ;;
             role=*) ;;
+            instance=*) continue ;;             # an instance's scanner port — the host loop probes it
             *) info "ssh: $line"; continue ;;   # known-hosts notices, remote warnings — not records
         esac
         rec "$line"
@@ -762,6 +808,9 @@ if [ "$NET_UP" -eq 1 ] && [ "$DO_SSH" -eq 1 ]; then
             continue
         fi
         fmt_host_records <<< "$out"   # here-string, not a pipe: note_sha must run in this shell
+        # Each experiment instance the host named: read its scanner's /health
+        # for the instance manager's readiness (the main one was read in stage 1).
+        probe_named_instances "$host" "$out"
     done
     echo
 elif [ "$NET_UP" -eq 1 ]; then

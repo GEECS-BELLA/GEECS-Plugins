@@ -103,6 +103,34 @@ needs it); the portal's figures are below.
   sentinels resolved in the page) and load this bundle from its `/theme`
   mount; moving them onto `plot.js` is the portal's own change, not done.
 
+## Forms drawn from a schema: `form.js`
+
+Every editor of a GEECS-Schemas document draws with **`form.js`**
+(`window.GeecsForm`), the one copy, as `plot.js` is for plots: a JSON
+Schema with the `tier` annotations in, kit controls out (`.field`,
+`details.fold`, a `.panel` per list item), the edited document and its diff
+back. `mount(host, {schema, value, readOnly, onChange})`; `diff(before,
+after, schema)` gives every change at a field's path (a reordered list
+included) with the strictest tier on that path, and the strictest overall,
+which decides what a save does. The kit styles its two marks, `.tier` and
+`[data-changed="true"]`. A host never re-implements the rules; a service
+that diffs on its side (the configurator, whose diff a save trusts) holds
+its diff to this one by test. Pinned in
+`tests/test_form_js.py` under node.
+
+How a document is laid out is read from **`x-` hints in the schema**, never
+from a per-kind renderer: `x-sections` (closed folds with a one-line gist),
+`x-ndim-from` and each variant's `x-ndim` (only the variants that fit the
+document's frames are offered), `x-docs` and `x-scalars` (a variant's
+reference link and its scalars' meanings), `x-axes` (one named row per
+axis), `x-suggest` (a datalist), `x-form-note` (why the form is plainer).
+`form.js`'s docstring is their contract. A kind's layout is whoever serves
+its schema: the analysis core stamps the registry's (`x-ndim`, `x-docs`,
+`x-scalars`, `x-axes`), the configurator its pages' (`form_hints.py`).
+The old analysis config editor (ScanAnalysis' `editor.js`, deleted by
+#1339) was a second form engine with the recipe's layout hard-coded; its
+affordances live here now, as hints any kind can use.
+
 ## Adoption status (owner rulings, 2026-09-13)
 
 Theme = paint (tokens, palettes, picker); kit = furniture (shell,
@@ -114,16 +142,15 @@ the theme without being on the kit.
 | GeecsLogbook | yes | yes | yes (0.10.0) |
 | GeecsScanner (web console, its branch) | yes | yes | yes |
 | GEECS-DataPortal | yes | **no** — its own rail, tabs, badges, overlay, a 125-line inline style block and a 971-line inline script | no (own middleware copy) — one exception: its `/theme` mount (which also serves the vendored Plotly bundle) uses `RevalidatingStaticFiles` (#1128), so a deploy is not hidden behind a cached asset. That is not the glue adoption below; the middleware copy and `root` processor stay until then |
-| ScanAnalysis config editor (`/configs`) | yes | no | no |
 
 **Portal onto the kit is deliberately LAST** — after the Qt console's
 deletion (done 2026-09-14) and once HTU is quiet — because it is the kit's acceptance test: the
 run page uses plots, tabs and toasts, which the kit does not have yet,
 so that adoption will grow the kit rather than just consume it. Take the
 portal's glue copy (`_ForwardedPrefixMiddleware`, its own `root`
-context processor) out in the same change. The config editor follows the
-portal (it is a router inside it); it never gets a kit pass of its own.
-Do not start either early to "tidy up".
+context processor) out in the same change. (The run page's
+embedded configurator drawer is already on the kit, in a `.kit` wrapper of its own.)
+Do not start it early to "tidy up".
 
 ## The FastAPI glue and the template guards
 

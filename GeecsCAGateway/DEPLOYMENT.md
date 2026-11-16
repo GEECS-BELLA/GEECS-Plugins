@@ -145,7 +145,7 @@ Which subnet the CA server serves/beacons on is controlled by the standard
 EPICS server env vars, set in the deployment environment:
 
 ```bash
-export EPICS_CAS_INTF_ADDR_LIST="192.168.6.14"     # serve only on the lab interface
+export EPICS_CAS_INTF_ADDR_LIST="192.168.6.22"     # serve only on the lab interface
 export EPICS_CAS_BEACON_ADDR_LIST="192.168.6.255"  # beacon to the lab subnet
 ```
 
@@ -158,28 +158,26 @@ there is no CA-level auth.
 
 ## 2. Current dev deployment — and its risks
 
-The gateway runs on the central lab server **192.168.6.14**, alongside
-the GEECS MySQL database (which the gateway itself reads at startup).
-Tiled and the worker-side services ran there too until 2026-10-30, when
-they moved to the services box, **192.168.6.22**
-(`docs/platform/fleet_map.md`).
+The gateway runs on the services box, **192.168.6.22**, since 2026-11-15,
+beside the worker-side services and Tiled, which moved there on 2026-10-30
+(`docs/platform/fleet_map.md`). The GEECS MySQL database, which the gateway
+reads at startup, stays on the central lab server **192.168.6.14**. Until
+the move the gateway ran there beside the database; the first three risks
+below were that arrangement's, kept as the record of why it moved, the
+fourth spans both hosts, and the last is the box's own:
 
-This is fine for the pilot; name it for what it is — the two services every
-scan needs, on one box. Plainly:
-
-- **Single point of failure.** One host outage takes down device PVs (Bluesky
-  scans, Phoebus displays) *and* the experiment DB at once — and with the DB,
-  every device-configuration read the gateway and the scanner make. Nothing
-  else in the lab restores either of them automatically. (The services box
-  is the worker family's and Tiled's single point of failure; the two boxes
-  fail independently, which the move bought.)
-- **Resource contention.** MySQL and the gateway's asyncio loop share
-  CPU/RAM/disk I/O. The gateway is light (~100 updates/s), but a runaway
-  query degrades both together. Tiled's write bursts left with the move.
-- **Upgrade coupling.** An OS upgrade or reboot for either service (e.g. the
-  22.04 migration) is downtime for both, and Python/library upgrades on a
-  shared host risk cross-breaking environments. Keep each service in its own
-  venv/poetry env at minimum.
+- **Single point of failure, with the DB (until 2026-11-15).** One host
+  outage took down device PVs (Bluesky scans, Phoebus displays) *and* the
+  experiment DB at once — and with the DB, every device-configuration read
+  the gateway and the scanner make. Nothing else in the lab restored either
+  of them automatically.
+- **Resource contention (until 2026-11-15).** MySQL and the gateway's
+  asyncio loop shared CPU/RAM/disk I/O. The gateway is light (~100
+  updates/s), but a runaway query degraded both together.
+- **Upgrade coupling (until 2026-11-15).** An OS upgrade or reboot for
+  either service was downtime for both, and Python/library upgrades on a
+  shared host risk cross-breaking environments — the one of the three that
+  still holds on the box: keep each service in its own venv/poetry env.
 - **Storage growth.** MySQL grows slowly; logs grow steadily. The gateway
   itself is stateless (everything rebuilds from the DB at startup) — it needs
   no storage beyond logs. Tiled's growth with every scan is the services
@@ -187,6 +185,17 @@ scan needs, on one box. Plainly:
   disk, never on the data share (SQLite over SMB/NFS is a corruption
   lottery), and the scan tables and stacks it serves stay on the share —
   `GeecsBluesky/TILED_SETUP.md` has the layout.
+- **One box (since 2026-11-15).** On the services box the gateway shares
+  the host with the worker, Tiled, the archiver and every web surface: one
+  outage stops every scan-side service at once, and Tiled's write bursts and
+  the archiver's JVM share the gateway's CPU and disk. Accepted with eyes
+  open: the box is sized for it and is configuration-managed, watched and
+  backed up nightly, none of which the central server was (the facility
+  repo's services-box runbook has the figures); a gateway elsewhere bought no resilience, since without the worker
+  nothing scans; and scan mode requires the worker and the gateway on one
+  host in any case (`check_gateway_host`, GeecsBluesky — the constraint the
+  2026-10-30 split violated for scan-mode runs). What is worth keeping off
+  the box is a watcher of it.
 
 ---
 
@@ -217,7 +226,7 @@ works. The caproto CLI tools are the lightest install:
 python -m venv ca && source ca/bin/activate
 pip install caproto
 
-export EPICS_CA_ADDR_LIST=192.168.6.14   # directed name search — routes over VPN
+export EPICS_CA_ADDR_LIST=192.168.6.22   # directed name search — routes over VPN
 export EPICS_CA_AUTO_ADDR_LIST=NO        # don't also broadcast on your local subnet
 
 caproto-get undulator:cagateway:version undulator:cagateway:uptime
@@ -226,7 +235,7 @@ caproto-monitor undulator:cagateway:heartbeat   # ticks every 5 s; Ctrl-C to sto
 
 ```powershell
 # PowerShell equivalent (same shell that runs the client)
-$env:EPICS_CA_ADDR_LIST = "192.168.6.14"
+$env:EPICS_CA_ADDR_LIST = "192.168.6.22"
 $env:EPICS_CA_AUTO_ADDR_LIST = "NO"
 caproto-get undulator:cagateway:version
 ```
@@ -271,7 +280,7 @@ other infrastructure addresses instead of in every shell:
 ```ini
 # ~/.config/geecs_python_api/config.ini
 [epics]
-ca_addr_list = 192.168.6.14
+ca_addr_list = 192.168.6.22
 # ca_auto_addr_list = NO    # optional; defaults to NO when applied from here
 ```
 
@@ -365,7 +374,7 @@ the Data Portal's.
   UDP, so name resolution can still fail with this green):
 
   ```powershell
-  Test-NetConnection 192.168.6.14 -Port 5064
+  Test-NetConnection 192.168.6.22 -Port 5064
   ```
 
 ---

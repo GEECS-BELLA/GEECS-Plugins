@@ -237,7 +237,7 @@ def test_restore_call_gets_the_longer_transport_budget(monkeypatch) -> None:
         "bluesky_queueserver.manager.comms",
         types.SimpleNamespace(zmq_single_request=fake_zmq),
     )
-    request = ready._zmq_request("tcp://localhost:1")
+    request = ready.zmq_request("tcp://localhost:1")
     request("status", None)
     request("permissions_reload", {"restore_plans_devices": True})
     assert seen["status"] == int(ready.POLL_S * 1000)
@@ -380,7 +380,7 @@ class TestMain:
                 raise NotReady("nope")
             return []
 
-        monkeypatch.setattr(ready, "_zmq_request", lambda addr: object())
+        monkeypatch.setattr(ready, "zmq_request", lambda addr: object())
         monkeypatch.setattr(ready, "ensure_ready", fake_ensure)
         assert ready.main([]) == 1
         outcomes["ready"] = True
@@ -393,7 +393,7 @@ class TestMain:
         def no_zmq(addr):
             raise ImportError("no bluesky_queueserver")
 
-        monkeypatch.setattr(ready, "_zmq_request", no_zmq)
+        monkeypatch.setattr(ready, "zmq_request", no_zmq)
         assert ready.main([]) == 2
 
     def test_control_addr_precedence(self, monkeypatch) -> None:
@@ -408,7 +408,7 @@ class TestMain:
 
         seen = {}
         monkeypatch.setattr(
-            ready, "_zmq_request", lambda addr: seen.__setitem__("addr", addr)
+            ready, "zmq_request", lambda addr: seen.__setitem__("addr", addr)
         )
         monkeypatch.setattr(ready, "ensure_ready", lambda *a, **k: [])
         monkeypatch.delenv("QS_CONTROL_ADDR", raising=False)

@@ -3,7 +3,7 @@
   each widget by kind. A widget's binding travels on its wrapper as data-*
   (device, role, axis, or a bare pv; data-deferred + data-fits for a DB
   device, whose role the page judges by the module's word; data-action for
-  a button that runs an action plan). Its control is the rail's
+  a button that applies a setup). Its control is the rail's
   (_panel.html's `control`, screens.spec_of): a setpoint a field tracking
   the setpoint with set / now / differs, a toggle or flipper the two-state
   pair (its `values`, else 0 and 1), a select the enum's choices, a button a
@@ -26,6 +26,7 @@
 {% block head %}<link rel="stylesheet" href="{{ root }}/static/screen.css">
 {%- if not loaded.screen and loaded.status != 404 %}<meta http-equiv="refresh" content="{{ RETRY_S }}">{% endif %}{% endblock %}
 {% block header %}
+{% if edit_url %}<a class="btn ghost sm" href="{{ edit_url }}" target="_blank" rel="noopener" title="Open this screen's file in the configurator">Edit screen</a>{% endif %}
 <label class="operator">Operator <input id="operator" autocomplete="name" placeholder="your name" size="14"></label>
 <span class="hare"><span class="dot" data-state="unknown" aria-hidden="true"></span><span id="hare-state">connecting</span></span>
 {% endblock %}

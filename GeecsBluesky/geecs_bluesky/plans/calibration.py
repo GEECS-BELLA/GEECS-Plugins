@@ -843,7 +843,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         across devices, averaged over the shots, is the calibration.
 
         No run is opened and nothing is claimed: a queue item like
-        ``run_action``, not a scan.  The box returns to STANDBY on every path
+        ``apply_setup``, not a scan.  The box returns to STANDBY on every path
         that unwinds the plan except ``RE.halt()``, which skips finalizers.
 
         The measurement is **reported** by default and stored only with
@@ -1035,9 +1035,10 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             )
             path = resolver.write_shot_offsets(document)
             logger.info(
-                "shot offsets stored in %s — this is an UNCOMMITTED change in "
-                "the configs repo: review and commit it. The worker picks the new "
-                "offsets up at its next environment open, not now.",
+                "shot offsets stored in %s — under the configurator's inbox it "
+                "commits them to the configs repo; elsewhere this is an UNCOMMITTED "
+                "change to review and commit. The worker picks the new offsets up "
+                "at its next environment open, not now.",
                 path,
             )
             return measurement

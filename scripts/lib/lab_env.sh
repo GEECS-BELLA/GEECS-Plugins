@@ -24,17 +24,22 @@ ini_get() {  # ini_get SECTION KEY — first match, trimmed
 }
 
 # --- endpoints from config.ini (never hardcode hosts in a script) ---------
-# The DB server and the CA gateway share one box (GeecsCAGateway/DEPLOYMENT.md
-# "one box"): LAB_HOST is the first [epics] ca_addr_list entry. Tiled has a
-# host of its own ([tiled] uri) since the services moved off that box; a
-# config with no ca_addr_list keeps the old one-box reading (the Tiled host).
+# LAB_HOST is the CA gateway's host: the first [epics] ca_addr_list entry. It
+# implies nothing else — the DB's address is Configurations.INI's alone,
+# which mysql_probe reads itself (its docstring says why). Tiled has a host
+# of its own ([tiled] uri); a config with no ca_addr_list keeps the old
+# one-box reading (the Tiled host).
 url_host() { printf '%s' "$1" | sed -E 's|^[a-z]+://||; s|[:/].*$||'; }            # url_host URL — the host part
 url_port() { printf '%s' "$1" | sed -nE 's|^[a-z]+://[^:/]+:([0-9]+).*|\1|p'; }    # url_port URL — the explicit port, or empty
 TILED_URI="$(ini_get tiled uri)"
 TILED_HOST="$(url_host "$TILED_URI")"
 # The gateway is taken to be the FIRST entry (commas or spaces separate, as
-# geecs_core.epics_env reads it); the probes print that they took it so.
-CA_ADDR_FIRST="$(ini_get epics ca_addr_list | tr ',' ' ' | awk '{print $1}')"
+# geecs_core.epics_env reads it); the probes print that they took it so. The
+# whole list (space-separated) is CA_ADDR_ENTRIES: a second experiment's
+# gateway on its own CA port and the native IOC hosts follow the first entry,
+# and lab_status.sh probes each of them.
+CA_ADDR_ENTRIES="$(ini_get epics ca_addr_list | tr ',' ' ' | awk '{$1=$1; print}')"
+CA_ADDR_FIRST="${CA_ADDR_ENTRIES%% *}"
 LAB_HOST="${CA_ADDR_FIRST%%:*}"
 # An explicit host:port entry names the gateway's CA port (EPICS WAN form).
 CA_PORT=""

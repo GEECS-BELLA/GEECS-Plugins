@@ -16,7 +16,7 @@ scan_analysis/
   core_products.py                 # write-free average/bin and summary product planning (ProductCollector streams it)
   core_workers.py                  # the worker count a run gets: recipe request, host cap (config.ini), small-run floor
   core_sink.py                     # legacy-named HDF5/PNG product writes under analysis/ScanNNN (+ parse_output_filename, their inverse); draw_product / draw_summary; per-shot sidecar tables beside the raw file; sibling outputs (magspec -interp/-interpSpec) beside the device folder; ShotStore (a measure's per-scan HDF5 of every shot's frame + extras)
-  core_preview.py                  # the editor's previews through the run's own calls (frame; a summary's layout over a few shots)
+  core_preview.py                  # the portal's previews of an unsaved recipe through the run's own calls (frame; a summary's layout over a few shots)
   core_analyzer.py                 # CoreScanAnalyzer: the one analysis route behind the ScanAnalyzer contract
   route_compare.py                 # snapshot + compare two analysis trees (one equality rule); goldens on disk
   task_queue.py                    # Task claiming, heartbeat, YAML status system
@@ -76,7 +76,7 @@ the stack only, never per shot. `prepare_recipe(services=False)` refuses
 such a recipe with `ServicesNotRequested` (an `UnsupportedRecipe`):
 `core_preview.prepare_document` defaults to that, so the portal's shot
 browser keeps its old route (which refuses FROG) and never starts the DLL
-per view; `preview_frame` / `preview_summary` — the editor's explicit
+per view; `preview_frame` / `preview_summary` — the portal's explicit
 previews — and scan runs ask for services.
 
 `core_source.prepare_source` maps a completed scan's scalar rows to native
@@ -362,94 +362,39 @@ camera with distinct output trees and s-file columns
 (`output_name: UC_TopView_left` / `UC_TopView_right`). The suffix affects
 scalar keys only, never directory or file names.
 
-### The config editor (`config_store.py` + `config_editor/`)
+### Editing the documents (the configurator, the portal's check)
 
-The config editor (the Qt `ConfigFileGUI` it replaced was deleted in
-1.21.0). Three layers, so the data portal is one host and not the only one:
+This package has no editor and no store: the analysis documents are
+edited in the **configurator** (`GeecsConfigurator`), which saves them to
+the configs repo (the operator as git author, its tier, its dry run), and
+the data portal answers for them as their consumer
+(`GEECS-DataPortal/geecs_portal/routes/analysis_configs.py`): the form is
+`geecs_analysis.recipe.recipe_schema` (steps and measure bound to the
+registry), the dry run validates the model, `geecs_analysis.recipe.binding_errors`
+(each error at its field), a stem unique across the analyzers tree, and a
+group's references. ScanAnalysis' old config editor (its web router, its
+store and the `editor` extra) was deleted when the analysis kinds
+moved there (the configurator arc's slice 6).
 
-- **`scan_analysis.config_store.ConfigStore(root)`** — plain Python, no
-  web, no Qt: `list(kind)` (validity + summary per file), `read(kind, id)`
-  (raw document + **etag**), `validate(kind, document)` (pydantic locations
-  + canonical YAML via `geecs_schemas.analysis.canonical_document`),
-  `save(kind, namespace, id, document, etag=)` (atomic temp+rename;
-  stale etag / duplicate stem across namespaces → `ConflictError`; an
-  invalid document is never written; `etag=None` = create, refuses to
-  overwrite), `delete`, `pending_changes()` (git status of the tree),
-  `schema(kind)` (the JSON Schema the form renders: for `analyzer` the
-  recipe's, with `steps` and `measure` bound to the analysis core's
-  registry by `geecs_analysis.recipe.recipe_schema`). A recipe validates
-  as its schema AND binds to the registry (`compile_recipe`): an unknown
-  step or parameter, a step or measure for the wrong frame shape, a frame
-  input no step or measure uses — reported at the form's field path, listed as
-  invalid, never written. `list()` runs the same cross-checks as
-  `validate()` (a group naming an unknown document lists as invalid too;
-  the analyzers tree is walked once per listing). Writes touch only the configs tree — the repo's
-  scan-folder invariant is irrelevant by construction, and pinned
-  portal-side.
-- **`scan_analysis.config_editor.create_editor_router(store, preview=,
-  read_only=)`** — a FastAPI router (the `editor` extra): `/api/list`,
-  `/api/schema/{kind}`, `GET/PUT/DELETE /api/{analyzers|groups}/…`,
-  `POST /api/validate/{kind}`, `POST /api/preview` (404 unless the host
-  passes a `preview(document, params) -> PNG bytes`), the editor page and
-  `static/editor.js` + `editor.css`. Every URL is relative to the mount.
-  `editor.js` is a hand-written schema-driven form over pydantic's JSON
-  Schema (objects, `anyOf [T, null]` optionals as toggled sections,
-  discriminated unions as a kind select that swaps the variant's fields,
-  enums, tuples, keyed mappings as named cards, keyword mappings as
-  key/value rows), live YAML preview, server-side error placement by
-  pydantic location, and the optional preview pane (a `preview` button
-  renders the edited document on the host's shot; `auto` re-renders per
-  edit, remembered in localStorage). **The form is the recipe's** (format
-  3), laid out as the document reads, each section a `<details>` closed
-  on open with a one-line gist in its header (`sectionGist`; a server
-  error opens the section and card holding it): Source (`device`, the
-  resolved-names line — reads `scans/ScanNNN/<folder>/`, writes
-  `<label>_<metric><suffix>` and `analysis/ScanNNN/<label>/`, from
-  `namesOf` — then a nested **naming overrides** group, `output_name` +
-  `scalar_suffix`, closed unless the document sets one; `input`, frame
-  `inputs`) → Steps (each step / summary card folds to its gist; an ROI's
-  `bounds` are fixed `y`/`x` rows, or one `x` row for a line, by the
-  document's input kind; a schema `maxItems` hides a list's adder at
-  the cap; ordered cards; the add-select lists the registry with
-  `(images)` / `(traces)` hints from `x-ndim`; a name the registry does not
-  know is kept as written and flagged, never swapped) → Measure → Figure
-  (matplotlib keyword rows: numbers, true/false, [lists] typed, other text
-  a string; overlay styles by id) → Summaries → Scan. Reorder and remove
-  rebuild the list from its current values so every field path
-  (`steps.2.bounds`) stays true. A `.himg` job, or a file that is not a
-  recipe (the retired v2 format lists as invalid), opens read-only — a
-  note, the file as saved, Delete. The preview is **the run's own draw**: the host renders the
-  document through `scan_analysis.core_preview` — `preview_frame`, the
-  sink's per-frame call with the document's `figure` block, frame inputs
-  resolved from the document's device folder under the scan — cropped
-  tight like the product PNG, so what the pane shows is the product file
-  the run would write. The **summaries** block (`POST /api/preview/summary`,
-  host hook `summary_preview=`, cap `summary_shots_max=` carried in
-  `/api/list`) lays out each summary kind over a few of the host's shots
-  through `preview_summary` — `core_sink.draw_summary`, the sink's own
-  call — one panel (row) per shot at its shot number under the run's
-  noscan label (`core_products.NOSCAN_POSITION_LABEL`), or the shots'
-  average. That is the kind's *layout* on real frames (a run's grid
-  panels are per-bin averages, and a camera run on a noscan writes no
-  grid), while the frame preview is the product file itself. Both draws
-  are the sink's functions (`draw_product` / `draw_summary`), pinned
-  byte-for-byte against `save_products`' files
-  (`tests/test_core_preview.py`); a host never re-derives the pairing. The form is pinned under node on a fake DOM
-  (`test_recipe_form_round_trips_and_reorders`: a corpus recipe reads back
-  canonical-equal, move-up swaps steps and renumbers paths). No build
-  chain, no library — the portal's doctrine.
-- **Host.** The data portal mounts it at `/configs` with the preview of
-  the **unsaved** document on the scan page's current shot
-  (`GEECS-DataPortal/CLAUDE.md`); its **edit configs** link is the
-  full-page form. It is the one host: the standalone
-  `scan-config-editor` launcher was removed (owner ruling 2026-09-13 —
-  the editor stays beside the analysis it configures, and a laptop edits
-  the configs repo in an editor and commits).
+What stays here is the preview the portal's run page draws an unsaved
+recipe with, and it is **the run's own draw**: `core_preview.preview_frame`
+is the sink's per-frame call with the document's `figure` block (frame
+inputs resolved from the document's device folder under the scan), cropped
+tight like the product PNG, so the picture is the product file the run
+would write; `preview_summary` lays out each summary kind over a few of the
+host's shots through `core_sink.draw_summary`, one panel (row) per shot at
+its shot number under the run's noscan label
+(`core_products.NOSCAN_POSITION_LABEL`), or the shots' average. That is the
+kind's *layout* on real frames (a run's grid panels are per-bin averages,
+and a camera run on a noscan writes no grid). Both draws are the sink's
+functions (`draw_product` / `draw_summary`), pinned byte-for-byte against
+`save_products`' files (`tests/test_core_preview.py`); a host never
+re-derives the pairing.
 
 Adding a field to a schema model is all an editor change needs: the form
 is generated. Adding a step, measure or summary kind in GEECS-Analysis
 (its spec's `description=` on every field — the form shows it as help)
-shows up in the add-select automatically.
+shows up in the step list automatically.
 
 ## Analyzer Class Hierarchy
 
@@ -538,9 +483,9 @@ Change a name and its parser together;
 ## Retired watching and uploads
 
 LiveWatchGUI, LiveTaskRunner and Google Docs uploads were removed in 1.26.0.
-The config editor, ConfigStore, group loader and explicit task queue remain.
+The group loader and explicit task queue remain.
 Existing `gdoc_slot` and `upload_to_scanlog` fields validate but have no effect;
-the editor hides these deprecated fields and preserves authored values.
+a save keeps the authored values.
 ScanAnalysis has no LogMaker, watchdog or Qt dependency.
 
 ## Key Design Decisions
@@ -631,12 +576,12 @@ pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
 ## Adding a New Scan Analyzer
 
 1. (Optional) Add or reuse a step, measure or summary kind in
-   `GEECS-Analysis` (its `CLAUDE.md`); the editor's add-select lists the
+   `GEECS-Analysis` (its `CLAUDE.md`); the recipe form's step list shows the
    registry automatically.
 2. Create the recipe YAML in the configs repo under
-   `analyzers/<namespace>/<id>.yaml` — or in the portal's config editor,
-   which previews it on a real shot (the shape below is illustrative; the
-   editor's schema is the authority on step names and fields):
+   `analyzers/<namespace>/<id>.yaml` — or from the configurator (the portal's
+   Analysis tab opens it there and previews it on a real shot; the shape below is illustrative, the
+   portal's recipe schema is the authority on step names and fields):
 
    ```yaml
    schema_version: 3

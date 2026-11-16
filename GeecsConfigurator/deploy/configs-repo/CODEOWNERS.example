@@ -1,0 +1,34 @@
+# EXAMPLE ONLY: a CODEOWNERS for the shared configs repository, one block per
+# facility. Copy it into the configs repo as .github/CODEOWNERS and replace
+# every <placeholder> with the org's own teams and folder names; nothing here
+# names a real team, experiment or facility.
+#
+# One configs repo serves several facilities, each with its own services box
+# (GeecsConfigurator/DEPLOYMENT.md). A box commits only under the experiments
+# and analysis folders its site.env names; a human change goes by pull
+# request, and this file routes each pull request to the facility whose
+# folders it touches. It binds only when the main ruleset turns on "Require
+# review from Code Owners". The GitHub App is on the bypass list, so its
+# commits (the operator tier, from the box that owns the folder) are not
+# reviewed here: ownership is enforced on the box, and the `validate` check
+# names an invalid commit on GitHub either way.
+#
+# The last matching line wins: the catch-all first, the facilities after.
+
+# Everything not claimed below (the README, the logbook templates, a new
+# experiment before it has an owner): the configs repo's maintainers.
+*                                               @<org>/<configs-maintainers>
+
+# Facility A: its experiments, and its folders in the shared analysis tree.
+/scanner_configs/experiments/<ExperimentA1>/    @<org>/<facility-a-maintainers>
+/scanner_configs/experiments/<ExperimentA2>/    @<org>/<facility-a-maintainers>
+/scan_analysis_configs/analyzers/<FacilityA>/   @<org>/<facility-a-maintainers>
+/scan_analysis_configs/groups/<FacilityA>/      @<org>/<facility-a-maintainers>
+
+# Facility B: the same shape.
+/scanner_configs/experiments/<ExperimentB1>/    @<org>/<facility-b-maintainers>
+/scan_analysis_configs/analyzers/<FacilityB>/   @<org>/<facility-b-maintainers>
+/scan_analysis_configs/groups/<FacilityB>/      @<org>/<facility-b-maintainers>
+
+# The check itself and this file: the configs repo's maintainers alone.
+/.github/                                       @<org>/<configs-maintainers>

@@ -38,9 +38,8 @@ __all__ = [
     "GeecsScanModeError",
     "PseudoComponentsDisagreeError",
     "PseudoRestorePendingError",
-    "ActionCheckFailedError",
-    "ActionPlanNotFoundError",
-    "ActionPlanCycleError",
+    "SetupCheckFailedError",
+    "SetupStepFailedError",
     "failure_cause_text",
 ]
 
@@ -334,7 +333,8 @@ class GeecsDeviceDownError(GeecsError):
     (:func:`~geecs_bluesky.plans.registry.liveness_gate`) before a run's
     first move when the gateway reports any of its devices down, and by
     :func:`~geecs_bluesky.plans.strict.fire_and_await_shot` when a
-    no-frame device turns out to be disconnected mid-scan.  The message is
+    no-frame device turns out to be disconnected mid-scan; a setup's
+    :class:`SetupStepFailedError` carries it as its cause.  The message is
     operator-facing; ``device_name`` is the first device named.
     """
 
@@ -361,18 +361,15 @@ class GeecsScanModeError(GeecsError):
 
 
 # ---------------------------------------------------------------------------
-# Action-plan errors — compiled ActionPlan execution (actions/compiler)
+# Setup errors — apply_setup (plans/apply_setup)
 # ---------------------------------------------------------------------------
 
 
-class ActionCheckFailedError(GeecsError):
-    """A ``check`` step read a value that did not match what the plan expected.
+class SetupCheckFailedError(GeecsError):
+    """A setup's ``check`` step read a value that does not match its ``expected``.
 
-    Raised by the compiled action plan (see
-    :func:`~geecs_bluesky.actions.compiler.compile_action_plan`) when a
-    ``check`` step's readback differs from its ``expected`` value.  The plan
-    always stops here — a mismatch is never papered over.  The message is
-    operator-facing.
+    The match is :func:`geecs_schemas.setup_value_matches` (a number within
+    the step's ``tolerance``, a word exactly); the setup stops here.
     """
 
     def __init__(
@@ -381,52 +378,51 @@ class ActionCheckFailedError(GeecsError):
         variable: str,
         expected: object,
         actual: object,
+        tolerance: float,
     ) -> None:
         self.device = device
         self.variable = variable
         self.expected = expected
         self.actual = actual
+        self.tolerance = tolerance
+        slack = f" (within {tolerance:g})" if tolerance else ""
         super().__init__(
-            f"Check failed: {device}:{variable} read back {actual!r} but the "
-            f"plan expected {expected!r}. The action plan stopped here so the "
-            "mismatch can be looked at before anything else runs."
+            f"check {device}:{variable} read {actual!r}, expected {expected!r}{slack}"
         )
 
 
-class ActionPlanNotFoundError(GeecsError):
-    """A ``run`` step referenced a plan name that is not in the registry.
+class SetupStepFailedError(GeecsError):
+    """A setup stopped at one step: what it was, and which writes already took effect.
 
-    Raised while a compiled action plan executes a nested ``run`` step whose
-    ``plan`` name has no entry in the plan registry — typically a renamed or
-    deleted plan that something still points at.
+    ``written`` lists the numbers of the ``set`` steps that completed
+    before the failing one; they are not undone. The message is the
+    manager's history line for the item, so it names the setup, the step
+    and the partial state first.
     """
 
-    def __init__(self, plan_name: str, known_plans: list[str] | None = None) -> None:
-        self.plan_name = plan_name
-        self.known_plans = sorted(known_plans) if known_plans else []
-        known = (
-            f" Known plans: {', '.join(self.known_plans)}."
-            if self.known_plans
-            else " The registry is empty."
+    def __init__(
+        self,
+        setup: str,
+        index: int,
+        total: int,
+        step: str,
+        written: Sequence[int],
+        cause: str,
+    ) -> None:
+        self.setup = setup
+        self.index = index
+        self.total = total
+        self.step = step
+        self.written = tuple(written)
+        self.cause = cause
+        done = (
+            "nothing was written before it"
+            if not self.written
+            else "the writes of steps "
+            + ", ".join(map(str, self.written))
+            + " took effect and are not undone"
         )
         super().__init__(
-            f"Action plan {plan_name!r} is not defined in the plan registry — "
-            f"it may have been renamed or removed.{known}"
-        )
-
-
-class ActionPlanCycleError(GeecsError):
-    """Nested ``run`` steps form a loop, so the plan would never finish.
-
-    Raised before recursing into a nested plan whose name is already on the
-    execution stack (for example plan A runs B, and B runs A again); the
-    message shows the chain of plan names that closes the loop.
-    """
-
-    def __init__(self, chain: list[str]) -> None:
-        self.chain = list(chain)
-        super().__init__(
-            "Action plans call each other in a loop and would never finish: "
-            + " -> ".join(self.chain)
-            + ". Remove one of the 'run' steps to break the cycle."
+            f"setup {setup!r} stopped at step {index} of {total} ({step}); "
+            f"{done}: {cause}"
         )

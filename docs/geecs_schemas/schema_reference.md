@@ -8,6 +8,8 @@
 
 ## `optimizer_config`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/optimizer_configs/<name>.yaml`
+
 ### OptimizerConfig
 
 An optimization: search space, live measurements, derived outputs and generator.
@@ -98,6 +100,8 @@ Run defaults; queue-item arguments may override the iteration and shot budgets.
 
 ## `preset`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/presets/<name>.yaml`
+
 ### Preset
 
 A saved scan: the device group plus the plan call.
@@ -154,6 +158,8 @@ The stock plan the preset runs, with its arguments.
 
 ## `scan_request`
 
+Not a file: a plan parameter: built per submit from a preset, never saved
+
 ### ScanRequest
 
 One complete scan, ready to submit: what to do, what to save, how to trigger.
@@ -164,7 +170,6 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 | `mode` | `ScanRequestMode` | yes | — | What kind of scan: 'step' sweeps one or more axes, 'noscan' collects shots without moving anything. |
 | `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan. |
 | `capture` | `CaptureSettings` | no | CaptureSettings(shots_per_step=1, acquisition=<AcquisitionMode.STRICT: 'strict'>, save_sets=[], background_telemetry=None, trigger_profile=None) | How shots are taken and what gets recorded: shots per step, acquisition discipline, save sets, the telemetry toggle and the trigger profile. Omit for a one-shot strict capture with no named save sets. |
-| `actions` | `ActionBindings` | no | ActionBindings(setup=[], per_step=[], closeout=[]) | Named action plans to run before the scan (setup), between steps (per_step), and after it (closeout). |
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
 
@@ -185,10 +190,6 @@ capture:
   acquisition: free_run
   save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
   trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_ebeam]
-  per_step: []
-  closeout: []
 description: "jet z scan with probe"
 # v1 documents (the capture fields flat at the top level) still validate —
 # they are lifted into this shape automatically.
@@ -233,17 +234,9 @@ How shots are taken and what gets recorded — the capture concern.
 | `background_telemetry` | `bool (optional)` | no | None | Also log every other live experiment device as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger. |
 
-### ActionBindings
-
-Which named action plans run around (and inside) the scan.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `setup` | `list[str]` | no | empty | Plans to run once before the scan starts. |
-| `per_step` | `list[str]` | no | empty | Plans to run between scan steps — after each move, before the shots at that position. |
-| `closeout` | `list[str]` | no | empty | Plans to run once after the scan finishes (even on abort). |
-
 ## `scan_variables`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/scan_devices/scan_variables.yaml`
 
 ### ScanVariables
 
@@ -308,6 +301,8 @@ One device a pseudo variable moves, and the formula for its value.
 
 ## `trigger_profile`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/shot_control_configurations/<name>.yaml`
+
 ### TriggerProfile
 
 The device writes that drive the machine through its trigger states.
@@ -360,108 +355,9 @@ One device variable set during a state transition.
 | `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'Trigger.Source'. |
 | `value` | `str` | yes | — | The value to send, exactly as the device expects it — a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges'). |
 
-## `action_plan`
-
-### ActionPlan
-
-An ordered checklist of steps the scanner runs for you.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `steps` | `list[SetStep \| WaitStep \| CheckStep \| RunPlanStep]` | yes | — | The steps to perform, in order from top to bottom. |
-| `description` | `str` | no | '' | Optional note to your future self about what this plan does and when to use it. |
-
-Example:
-
-```yaml
-schema_version: 1
-description: "Zero the pressure voltage and confirm the PLC output"
-steps:
-  - do: set
-    device: U_HP_Daq
-    variable: AnalogOutput.Channel 1
-    value: 0
-  - do: wait
-    seconds: 3
-  - do: check
-    device: U_148_PLC
-    variable: DI.Ch17
-    expected: "off"
-  - do: run
-    plan: close_gaia_internal_shutters
-```
-
-### SetStep
-
-One step that sets a device variable to a value.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'set'` | yes | — | Step type. 'set' writes a value to a device variable. |
-| `device` | `str` | yes | — | Name of the device to command, e.g. 'U_148_PLC'. |
-| `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'DO.Ch9'. |
-| `value` | `str \| float \| int` | yes | — | The value to write — a number, or a word the device understands such as 'on' or 'off'. |
-| `wait_for_execution` | `bool` | no | True | Wait for the device to confirm the change before moving to the next step. Leave on unless you know the step is fire-and-forget. |
-
-### WaitStep
-
-One step that simply pauses for a number of seconds.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'wait'` | yes | — | Step type. 'wait' pauses the plan for a fixed time. |
-| `seconds` | `float` | yes | — | How long to pause, in seconds (must be greater than 0). |
-
-### CheckStep
-
-One step that reads a device variable and verifies its value.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'check'` | yes | — | Step type. 'check' reads a device variable and stops the plan with an error if the value is not what you expected. |
-| `device` | `str` | yes | — | Name of the device to read, e.g. 'U_GaiaSVEReader'. |
-| `variable` | `str` | yes | — | Which variable on the device to read, e.g. 'InternalShutterA'. |
-| `expected` | `str \| float \| int` | yes | — | The value the reading must match for the plan to continue — a number or a word such as 'on'. |
-
-### RunPlanStep
-
-One step that runs another named action plan.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `do` | `'run'` | yes | — | Step type. 'run' executes another named plan from the library. |
-| `plan` | `str` | yes | — | Name of the plan to run, as listed in the action library. |
-
-## `action_plan_library`
-
-### ActionPlanLibrary
-
-The collection of all named action plans for an experiment.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `plans` | `dict[str, ActionPlan]` | yes | — | All named plans, keyed by the name used to invoke them. |
-
-Example:
-
-```yaml
-schema_version: 1
-plans:
-  zero_pressure_voltage:
-    steps:
-      - do: set
-        device: U_HP_Daq
-        variable: AnalogOutput.Channel 1
-        value: 0
-  experiment_closeout:
-    steps:
-      - do: run
-        plan: zero_pressure_voltage
-```
-
 ## `experiment_defaults`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/experiment_defaults.yaml`
 
 ### ExperimentDefaults
 
@@ -472,7 +368,6 @@ Per-experiment fallbacks applied where a scan request is silent.
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile to use when a scan doesn't name one. Leave unset if scans must always choose explicitly. |
 | `native_image_save` | `bool` | no | True | Whether cameras whose frames the PVA gateway's file plugin captures also write their LabVIEW per-shot files (PNGs) when a scan does not say (the preset's 'native_image_save' unset). On by default: the dual-write is the rollout's parity evidence until PNG retirement (GEECS-Plugins#738). Set false to run the experiment on the plugin's HDF5 stacks alone; a device without a file plugin always keeps its native files. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
-| `actions` | `DefaultActions` | no | DefaultActions(setup=[], closeout=[]) | Action plans every scan runs by default — setup plans run first (before the scan's own), closeout plans run last (after the scan's own). |
 | `apply_db_scan_defaults` | `bool` | no | True | RESERVED AND NOT HONORED. The DB's scan start/end writes (MySQL table expt_device_variable: rows with set='yes', their startvalue/endvalue) are applied by the DEVICE itself on the ScanStart/ScanEnd commands of GEECS scan mode, never by the engine: under a trigger profile with use_scan_mode they take effect exactly as under Master Control, and without one they do not. This flag changes neither. Kept for a possible future engine-side application. This is the set-side only: the get-side 'db_scalars' (standard telemetry) and 'background_telemetry' are separate and remain active. |
 | `background_telemetry` | `bool` | no | True | Read every logged scalar of the experiment that is not in a scan's device group — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — into every row of the scan as well, the way Master Control did: softly, from the gateway's monitor cache, never waited on. A device that does not answer when the scan starts is left out of that scan with a log line (and named in the run's start document), one the gateway marks INVALID reads NaN; nothing here can stall or fail a scan. On by default so no data is silently lost; a preset can override it with its own 'background_telemetry'. The worker reads this at every scan, so an edit takes effect at the next scan without reopening its environment. |
 | `description` | `str` | no | '' | Optional note about what these defaults are for. |
@@ -481,26 +376,15 @@ Example:
 
 ```yaml
 schema_version: 1
-# applied only where a scan request is silent: defaults run first,
-# then the scan's own
+# applied only where a scan request is silent
 trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_checklist]
-  closeout: [experiment_closeout]
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 ```
 
-### DefaultActions
-
-The action plans every scan of the experiment runs by default.
-
-| Field | Type | Required | Default | What it does |
-|---|---|---|---|---|
-| `setup` | `list[str]` | no | empty | Names of action plans to run before every scan, ahead of any setup plans the scan itself lists. |
-| `closeout` | `list[str]` | no | empty | Names of action plans to run after every scan, after any closeout plans the scan itself lists (teardown mirrors setup: these are the outermost bracket). |
-
 ## `derived_channels`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/gateway/derived_channels.yaml`
 
 ### DerivedChannels
 
@@ -560,6 +444,8 @@ One source variable bound to a symbol in a derived-channel formula.
 
 ## `archive_policy`
 
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/archiver/archive_policy.yaml`
+
 ### ArchivePolicy
 
 The experiment's archive-set exceptions and sampling defaults.
@@ -567,11 +453,11 @@ The experiment's archive-set exceptions and sampling defaults.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `exclude` | `list[str]` | no | empty | fnmatch globs over full lowercase PV names that the derived rule would include but this experiment does not archive. |
-| `include` | `list[str]` | no | empty | Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:uptime'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them. |
-| `include_setpoints` | `bool` | no | True | Archive the ':SP' setpoint PV of every settable variable. They change only on puts and carry the operator's intent and the refused-write alarm history. |
-| `include_status` | `bool` | no | True | Archive every device's 'connected' status PV (state changes only) and the gateway's own heartbeat and devices_connected. |
-| `include_derived` | `bool` | no | True | Archive the gateway's derived channels declared in the experiment's gateway/derived_channels.yaml. |
+| `exclude` | `list[str]` | no | empty | *Tier: maintainer.* fnmatch globs over full lowercase PV names that the derived rule would include but this experiment does not archive. |
+| `include` | `list[str]` | no | empty | *Tier: maintainer.* Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:uptime'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them. |
+| `include_setpoints` | `bool` | no | True | *Tier: maintainer.* Archive the ':SP' setpoint PV of every settable variable. They change only on puts and carry the operator's intent and the refused-write alarm history. |
+| `include_status` | `bool` | no | True | *Tier: maintainer.* Archive every device's 'connected' status PV (state changes only) and the gateway's own heartbeat and devices_connected. |
+| `include_derived` | `bool` | no | True | *Tier: maintainer.* Archive the gateway's derived channels declared in the experiment's gateway/derived_channels.yaml. |
 | `default_sampling_period` | `float` | no | 1.0 | Sampling period (seconds) for PVs no override matches. |
 | `default_sampling_method` | `'MONITOR' \| 'SCAN'` | no | 'MONITOR' | Sampling method for PVs no override matches. |
 | `sampling_overrides` | `list[SamplingOverride]` | no | empty | Per-glob sampling rules; the last matching entry wins per field. |
@@ -603,6 +489,8 @@ A sampling rule for the PVs matching one glob.
 | `sampling_method` | `'MONITOR' \| 'SCAN' (optional)` | no | None | MONITOR (store every change the appliance is sent; the period only sizes its buffer) or SCAN (store the latest value once per period). |
 
 ## `shot_offsets`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/shot_offsets.yaml`
 
 ### ShotOffsets
 
@@ -655,6 +543,8 @@ One device's measured edge-to-stamp latency, relative to the reference.
 | `geecs_device` | `str` | no | '' | GEECS device name this offset was measured for, e.g. 'UC_Amp3_IR_input'. Informational: the mapping key is the ophyd object name the runtime uses. |
 
 ## `native_devices`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/native_devices.yaml`
 
 ### NativeDevices
 
@@ -718,7 +608,7 @@ A setpoint device: a supply's plain records (``NATIVE_DEVICES.md`` §8).
 |---|---|---|---|---|
 | `kind` | `'setpoint_device'` | yes | — | Device kind: 'setpoint_device' (a supply's plain records: setpoint, readback, status bits). |
 | `template` | `str (optional)` | no | None | The family file the device instantiates, one of its kind's; absent: the kind's default (REGISTRY_KIND_FAMILIES). A device also in panel_devices.yaml names the same family there. Older readers refuse the key: write it only once every reader has this schema. |
-| `settables` | `dict[str, SetpointSettable]` | yes | — | The settables, by readback record name under the device's prefix (e.g. {'current': {timeout: 10}} for '<experiment>:<device>:current', written at the family's setpoint role for it, 'current:SP', and confirmed within the IOC's set tolerance, 'current:TOL'). Each must be a readback the family writes through a setpoint role with a 'tolerance_by'. Each is a scan axis 'Device:record' and an action's set target. |
+| `settables` | `dict[str, SetpointSettable]` | yes | — | The settables, by readback record name under the device's prefix (e.g. {'current': {timeout: 10}} for '<experiment>:<device>:current', written at the family's setpoint role for it, 'current:SP', and confirmed within the IOC's set tolerance, 'current:TOL'). Each must be a readback the family writes through a setpoint role with a 'tolerance_by'. Each is a scan axis 'Device:record' and a setup's set target. |
 | `readbacks` | `list[str]` | no | empty | Further numeric readback records, read into each row beside the settables' own (e.g. ['voltage']). |
 | `status` | `list[str]` | no | empty | Status bits, two-state records that read 1 when tripped (e.g. ['fault', 'interlock']): a set is refused while one reads 1 and fails if one rises while it waits. |
 
@@ -742,6 +632,8 @@ A trigger domain's witness: a hardware count of its edges, the count's stamp, an
 | `domain` | `str` | no | 'main' | The trigger domain it counts (a plain word): the edges every synchronous device of that domain sees. One witness per domain; strict runs record the 'main' domain's. |
 
 ## `family_file`
+
+Tier: `code` · Not a file: package data (geecs_schemas/epics/families/): shown read-only as 'code', changed by a PR to GEECS-Plugins
 
 ### FamilyFile
 
@@ -857,6 +749,8 @@ A setpoint drawn with a step and a pair of step buttons beside it (the motor rec
 
 ## `panel_devices`
 
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/panel_devices.yaml`
+
 ### PanelDevices
 
 The experiment's devices with a panel: each one's family and per-device panel data.
@@ -905,6 +799,8 @@ One device's panel data: its family and what differs from it on this device.
 | `ioc` | `str (optional)` | no | None | The IOC serving the device, as its host's compose file names it (IOC_NAME, e.g. 'adtest-cam1'): the archiver keeps that IOC's devIocStats heartbeat. Absent: no heartbeat for it. |
 
 ## `operator_policy`
+
+Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/operator_policy.yaml`
 
 ### OperatorPolicy
 
@@ -960,6 +856,8 @@ These roles of these devices need the hazard confirm, as a family role with ``co
 
 ## `journal_entry`
 
+Not a file: a database row: the device module's record of a write attempt
+
 ### JournalEntry
 
 One journal row: a request's outcome, or the ``attempted`` row a dispatched write leaves first (its outcome names it in ``attempt``).
@@ -998,6 +896,8 @@ detail: 12.5 is outside the record's limits [0.0, 10.0]
 ```
 
 ## `screen`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/screens/<name>.yaml`
 
 ### Screen
 
@@ -1073,7 +973,7 @@ What a widget shows and writes: a device's role (on an axis), or a bare PV.
 | `role` | `str (optional)` | no | None | The device family's role; a DB device's GEECS variable name. |
 | `axis` | `str (optional)` | no | None | The axis, for a per-axis family (a motor's m1). |
 | `pv` | `str (optional)` | no | None | A bare PV, read only: a writing kind on one is drawn disabled. |
-| `action` | `str (optional)` | no | None | An action plan's name in the experiment's library: a button runs it. |
+| `action` | `str (optional)` | no | None | A setup's name (its file stem in setups/): a button applies it. |
 | `group` | `str (optional)` | no | None | A rail group's title in the device's family panel, or 'settings' for the automatic layout: a group widget draws it. |
 
 ### ToggleValues
@@ -1086,6 +986,8 @@ The two numbers a toggle writes to a numeric role (a LabVIEW boolean kept as a n
 | `off` | `float` | yes | — | Written to switch it off; a readback equal to it reads off. Any other readback reads unknown. |
 
 ## `home_layout`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/home.yaml`
 
 ### HomeLayout
 
@@ -1131,6 +1033,8 @@ A device-page entry: a picker over the roster's devices of these families.
 | `families` | `list[str]` | yes | — | Family file names whose devices the picker lists. |
 
 ## `analysis_recipe`
+
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
 
 ### AnalysisRecipe
 
@@ -1328,6 +1232,8 @@ A straight-line fit of measured scalars against the scan position.
 
 ## `analysis_group`
 
+Tier: `operator` · File: `scan_analysis_configs/groups/**/<name>.yaml`
+
 ### AnalysisGroup
 
 A named set of diagnostics to run after each scan, in priority order.
@@ -1363,6 +1269,8 @@ One diagnostic in a group, optionally disabled or re-prioritised for this group.
 
 ## `himg_job`
 
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
+
 ### HimgJob
 
 One ``.himg`` data-management job over a HASO device folder.
@@ -1395,6 +1303,8 @@ How the job runs among a group's analyses.
 | `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
 
 ## `log_entry`
+
+Not a file: a database row: the logbook's store
 
 ### LogEntry
 
@@ -1484,3 +1394,99 @@ One file uploaded with an entry — a pasted screenshot, a PDF.
 | `content_type` | `str` | yes | — | Media type, e.g. image/png. |
 | `size_bytes` | `int` | yes | — | Stored size in bytes. |
 | `uploaded_at` | `datetime` | yes | — | When the file was stored. |
+
+## `setup`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/setups/<name>.yaml`
+
+### Setup
+
+A named device state: the steps that put the machine in it, in order.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `name` | `str` | yes | — | The setup's name, also its file stem, e.g. 'low_power'. |
+| `description` | `str` | no | '' | What this state is and when to use it. |
+| `steps` | `list[SetupSetStep \| WaitStep \| SetupCheckStep \| SetupApplyStep]` | yes | — | The steps to perform, in order from top to bottom. |
+| `captured` | `SetupCapture (optional)` | no | None | Where the values came from; absent for a hand-written setup. |
+
+Example:
+
+```yaml
+schema_version: 1
+# <experiment>/setups/low_power.yaml: one setup per file, the file stem its name.
+name: low_power
+description: Amp4 off, the jet at its standby pressure
+steps:
+  - {do: set, device: U_HP_Daq, variable: AnalogOutput.Channel 1, value: 0.5}
+  - {do: wait, seconds: 3}
+  - {do: check, device: U_HP_Daq, variable: AnalogInput.Channel 1, expected: 0.5,
+     tolerance: 0.02}               # a number matches within tolerance, a word exactly
+  - {do: apply, setup: shutters_closed}   # another setup, inlined here; loops refused
+captured:
+  by: A. Operator
+  at: "2026-11-07T18:02:00-08:00"
+  readbacks:
+    - {device: U_HP_Daq, variable: AnalogOutput.Channel 1}
+```
+
+### SetupSetStep
+
+One step that sets a device variable and waits for the device to finish.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'set'` | yes | — | Step type. 'set' writes a value and waits for the device. |
+| `device` | `str` | yes | — | The device, e.g. 'U_S1H'. |
+| `variable` | `str` | yes | — | The variable, e.g. 'Current'. |
+| `value` | `str \| int \| float` | yes | — | The value to write: a number, or a word such as 'on'. |
+
+### WaitStep
+
+One step that simply pauses for a number of seconds.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'wait'` | yes | — | Step type. 'wait' pauses for a fixed time. |
+| `seconds` | `float` | yes | — | How long to pause, in seconds (must be greater than 0). |
+
+### SetupCheckStep
+
+One step that reads a device variable and stops the setup on a mismatch.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'check'` | yes | — | Step type. 'check' reads a variable and stops on a mismatch. |
+| `device` | `str` | yes | — | The device to read. |
+| `variable` | `str` | yes | — | The variable to read. |
+| `expected` | `str \| int \| float` | yes | — | The value the reading must match: a number or a word. |
+| `tolerance` | `float` | no | 0.0 | How far a numeric reading may be from 'expected' and still match. Only for a numeric 'expected'; a word matches exactly. |
+
+### SetupApplyStep
+
+One step that applies another setup, inlined where it sits.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `do` | `'apply'` | yes | — | Step type. 'apply' runs another setup's steps here. |
+| `setup` | `str` | yes | — | The other setup's name (its file stem). |
+
+### SetupCapture
+
+Where a setup's values came from: who captured them, when, from which readbacks.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `by` | `str` | yes | — | The operator who captured it. |
+| `at` | `datetime` | yes | — | When it was captured. |
+| `readbacks` | `list[CapturedReadback]` | no | empty | The readbacks the values were read from. |
+
+### CapturedReadback
+
+One readback a captured value was read from.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `device` | `str` | yes | — | The device read. |
+| `variable` | `str` | yes | — | The variable read. |

@@ -61,6 +61,7 @@ TEMPLATES=(
     GeecsArchiver/deploy/geecs-archiver.service
     GeecsCanopy/deploy/geecs-canopy.service
     GeecsControlRoom/deploy/geecs-control-room.service
+    GeecsConfigurator/deploy/geecs-configurator.service
     # Per-experiment instance templates (`<unit>@<Instance>`): beside the
     # units above, never instead of them — see deploy/experiments.env.example.
     GeecsCAGateway/deploy/geecs-ca-gateway@.service

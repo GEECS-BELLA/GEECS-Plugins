@@ -12,8 +12,8 @@
 # /etc/geecs/site.env and then /etc/geecs/experiments/INSTANCE.env.
 #
 # up    First time: writes the instance file from deploy/experiments.env.example
-#       (--db-experiment, the address this host serves CA on and its
-#       broadcast are required; every port follows from the first free SLOT,
+#       (--db-experiment, letters, digits, '_', '.', '-' and no spaces, the
+#       address this host serves CA on and its broadcast are required; every port follows from the first free SLOT,
 #       see the example). Again: reuses the installed file as it is (and
 #       refuses those flags). Then renders the instance units
 #       (bootstrap_host.sh --experiment) — all six or it stops, nothing
@@ -76,6 +76,17 @@ env_value() {  # env_value FILE KEY — one key of an env file, parsed as system
 # The ports of slot N (deploy/experiments.env.example; slot 0 = the stock ports).
 slot_port() {  # slot_port N BASE STEP
     echo $(( $2 + $1 * $3 ))
+}
+
+# An experiment's name is letters, digits, '_', '.', '-': the configs folder,
+# the data folder and the configurator's scanner-URL key (Exp=url) all use it.
+# A name starting with '.' is no folder's name (., .., hidden), as the configurator's.
+check_experiment_name() {  # check_experiment_name NAME WHERE FIX — exit 2 unless NAME follows the rule
+    case "$1" in
+        ''|.*|*[!A-Za-z0-9_.-]*)
+            echo "$2: experiment '$1' breaks the naming rule: letters, digits, '_', '.', '-' only, no spaces, not starting with '.' (the configs folder, the data folder and the configurator's scanner-URL key all use the name) — $3" >&2
+            exit 2 ;;
+    esac
 }
 
 free_slot() {
@@ -197,10 +208,13 @@ up)
         if [ -n "$DB_EXPERIMENT$ADDRESS$BROADCAST$CA_EXTRA" ]; then
             echo "'$INSTANCE' already has an instance file ($INSTALLED): --db-experiment/--address/--broadcast/--ca-extra would be ignored — edit that file (as root) instead" >&2; exit 2
         fi
+        EXISTING_EXPT="$(env_value "$INSTALLED" GEECS_EXPERIMENT)"
+        [ -z "$EXISTING_EXPT" ] || check_experiment_name "$EXISTING_EXPT" "instance file $INSTALLED" "rename it in the DB, then edit GEECS_EXPERIMENT and QS_EXPERIMENT in $INSTALLED (as root)"
         say "up '$INSTANCE' — instance file exists ($INSTALLED), used as it is"
     else
         [ -n "$DB_EXPERIMENT" ] && [ -n "$ADDRESS" ] && [ -n "$BROADCAST" ] || {
             echo "a new instance needs --db-experiment NAME, --address (this host's CA serving address) and --broadcast" >&2; exit 2; }
+        check_experiment_name "$DB_EXPERIMENT" "--db-experiment" "rename it in the DB first"
         SLOT="$(free_slot)"
         INSTANCE_FILE="$STAGE/$INSTANCE.env"
         claim_staging
@@ -311,8 +325,21 @@ up)
     say "configs ($EXPT)"
     EXPERIMENTS_ROOT="$GEECS_CONFIGS_ROOT/scanner_configs/experiments"
     if [ -d "$EXPERIMENTS_ROOT/$EXPT" ]; then echo "  $EXPERIMENTS_ROOT/$EXPT exists — left as it is"
+    elif [ -f "$GEECS_CONFIGS_ROOT/.git" ]; then
+        # The configurator's live checkout (a worktree): nothing writes it — an
+        # untracked file stops its every fast-forward (GeecsConfigurator/DEPLOYMENT.md).
+        echo "  the configs root is the configurator's live checkout: add $EXPT's folder to the configs repo by pull request, then restart geecs-configurator (its inbox folder) and rerun" >&2
+        exit 1
     elif [ "$DRY" -eq 1 ]; then echo "  [dry] python -m geecs_bluesky.config_scaffold '$EXPT' --experiments-root '$EXPERIMENTS_ROOT'"
     else in_engine "$GEECS_POETRY" run python -m geecs_bluesky.config_scaffold "$EXPT" --experiments-root "$EXPERIMENTS_ROOT" | sed 's/^/  /'; fi
+    # The worker loads trigger profiles at START, while the scanner's preflight
+    # reads the folder on disk: with none here the first scan passes preflight
+    # and fails at the plan ("unknown trigger profile …; none loaded"), and a
+    # profile copied in later is unknown until the worker restarts (the
+    # 2026-10-31 proof). Said here, where the folder is made.
+    if ! ls "$EXPERIMENTS_ROOT/$EXPT/shot_control_configurations"/*.y*ml >/dev/null 2>&1; then
+        echo "  WARNING: no trigger profile in $EXPERIMENTS_ROOT/$EXPT/shot_control_configurations/ — copy one in before the first scan, then: systemctl restart geecs-qserver@$INSTANCE" >&2
+    fi
 
     [ "$INSTANCE_FILE" -ef "$INSTALLED" ] || run as_root install -D -m 0644 "$INSTANCE_FILE" "$INSTALLED"
     # The glob is expanded by root (the staging dir is the service account's).

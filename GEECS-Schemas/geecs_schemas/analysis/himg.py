@@ -24,11 +24,11 @@ kind rather than a recipe.  ``load_analysis_document`` reads a top-level
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import ClassVar, Literal, Optional
 
 from pydantic import Field, PrivateAttr
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 
 HimgJobKind = Literal["himg_to_stack", "himg_compact", "himg_restore"]
 
@@ -51,6 +51,8 @@ class HimgJob(VersionedSchemaModel):
     ``.himg`` files; it also names the stamp column of the scan's rows and
     the stack file.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     schema_version: int = Field(
         1,

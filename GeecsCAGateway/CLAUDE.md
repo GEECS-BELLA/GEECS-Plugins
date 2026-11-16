@@ -20,8 +20,8 @@ externally observable behavior as a contract — the three deep references are:
   (naming, types, timestamps + the frame-ordering guarantee, alarm policy,
   collision and failure semantics). Behavior changes that touch it must update
   it and its pinned tests in the same PR.
-- **`DEPLOYMENT.md`** — launch/CLI, config resolution, the current dev
-  deployment on 192.168.6.14 and its risks, the client-side recipe (Windows
+- **`DEPLOYMENT.md`** — launch/CLI, config resolution, the deployment
+  on the services box (192.168.6.22, since 2026-11-15) and its risks, the client-side recipe (Windows
   included), smoke tests, target systemd shape.
 - **`DESIGN.md`** — why this exists (Path A vs B), the caproto decision,
   regime fitness, foundational decisions, honest gaps.

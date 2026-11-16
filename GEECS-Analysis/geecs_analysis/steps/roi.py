@@ -23,6 +23,8 @@ class RoiSpec(StepSpec):
             "(low, high) per dimension in numpy order: rows (y) then columns "
             "(x) for an image, one pair for a trace; null leaves that side open."
         ),
+        # each pair's axis by frame dimensionality: a form draws one named row per axis
+        json_schema_extra={"x-axes": {"1": ["x"], "2": ["y", "x"]}},
     )
     units: Literal["index", "axis"] = Field(
         "index",

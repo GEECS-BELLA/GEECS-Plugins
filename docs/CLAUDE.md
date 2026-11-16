@@ -15,9 +15,10 @@ Home → Tutorials → Web Services → Acquisition → Analysis → Platform �
 
 **Web Services** is the operator's tab: one task-oriented page per
 browser surface (the GEECS Scanner, the Data Portal, the Logbook, the
-Control Room) under
+Control Room, the Configurator) under
 `docs/web_services/`, behind a landing page. Each surface's header links
-to its own page there (`https://geecs-plugins.readthedocs.io/en/latest/web_services/<page>/`),
+to its own page there (the Configurator's not yet: its header has no Docs
+link) (`https://geecs-plugins.readthedocs.io/en/latest/web_services/<page>/`),
 so renaming or moving one of these pages breaks a link in a running
 service — change the template in the same PR. Screenshots live in
 `docs/web_services/assets/`.
@@ -74,7 +75,7 @@ page links back to the docs root. `docs/sites/README.md` carries the
 rules and the page table; add a row when you add a page.
 
 If you find yourself wanting to document a workflow that spans two packages
-(say, "configure analysis in the config editor then run from the data portal"), it
+(say, "configure analysis in the configurator then run from the data portal"), it
 belongs under `tutorials/`, not under either constituent package.
 
 ## Building & previewing locally

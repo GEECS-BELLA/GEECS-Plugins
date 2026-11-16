@@ -189,13 +189,30 @@ def test_start_gate_needs_a_valid_form_not_a_loaded_preset() -> None:
     assert got["paused"]["start"] is True and "paused" in got["paused"]["title"], got
 
 
-def test_presets_and_actions_are_dropdowns(client: TestClient) -> None:
-    """PR 5a: the rail's preset picklist and the actions picklist became selects."""
+def test_presets_and_setups_are_dropdowns(client: TestClient) -> None:
+    """The rail's preset picklist and the setups picklist are selects."""
     html = client.get("/").text
-    assert '<select id="preset"' in html and '<select id="action">' in html
+    assert '<select id="preset"' in html and '<select id="setup">' in html
     assert 'id="presets"' not in html and 'id="actions-list"' not in html
-    # the preview the action dropdown drives is still there
-    assert 'id="action-steps"' in html
+    # the preview the setup dropdown drives
+    assert 'id="setup-steps"' in html
+
+
+def test_the_preset_mini_is_the_configurators_embedded_editor(client: TestClient, service) -> None:  # fmt: skip
+    """Edit preset… loads the configurator's embed.js and the theme's form.js; no configurator, no button."""
+    html = client.get("/").text
+    assert 'id="btn-edit-preset"' not in html and "embed.js" not in html
+    service.configurator_browser_url = "http://configurator.example:8800"
+    html = client.get("/").text
+    assert 'id="btn-edit-preset"' in html
+    assert (
+        '<script src="http://configurator.example:8800/static/embed.js" defer>' in html
+    )
+    assert '<script src="/theme/form.js" defer>' in html
+    assert 'data-configurator="http://configurator.example:8800"' in html
+    script = (Path(__file__).resolve().parents[1] / "geecs_scanner/static/scanner.js").read_text()  # fmt: skip
+    # the contract's call: the loaded preset, its settings only, this page's operator
+    assert 'GeecsConfigurator.open({ api: CONFIGURATOR, kind: "preset"' in script and "operator: operator" in script  # fmt: skip
 
 
 def test_move_panel_carries_the_kit_live_row(client: TestClient) -> None:
@@ -300,7 +317,7 @@ def test_hints_carry_state_or_a_unit_never_prose(client: TestClient) -> None:
         'id="sweep-message"',
         'id="shots-hint"',
         'id="presets-note"',
-        'id="actions-note"',
+        'id="setups-note"',
         'id="mv-hint"',
         'id="devq-hint"',
         '<span class="hint">seconds</span>',
@@ -726,3 +743,40 @@ def test_queue_sections_and_add_to_queue_beside_start(client: TestClient) -> Non
     )
     # Replace clears every waiting item, so the prompt counts them (#1285 review M1)
     assert '". Clear all " + items.length + " waiting items' in script
+
+
+def test_portal_links_name_this_scanners_experiment() -> None:
+    """The portal browses every experiment on the share and takes the
+    experiment as a query (its own default otherwise: the main experiment's),
+    so an instance scanner's day and run links must carry its experiment or
+    they land on the main experiment's day.  Both links go through
+    ``portalHref``, which runs here under node: the query is appended and
+    URL-encoded (a DB experiment name may hold spaces), and an empty
+    experiment adds none.
+    """
+    script = (_PKG / "static" / "scanner.js").read_text()
+    assert 'portalHref("/day/" + day)' in script
+    assert 'portalHref("/run/" + encodeURIComponent(r.run_uids[0]))' in script
+    # Any spacing or quoting of a bare `PORTAL + "/…"` link, not just the form this PR replaced.
+    assert re.search(r"""PORTAL\s*\+\s*['"]/""", script) is None, (
+        "a portal link built without the experiment"
+    )
+    _need_node()
+    body = _script_function(script, "portalHref")
+    harness = "\n".join(
+        [
+            'var PORTAL = "http://portal:8200", EXPERIMENT = "Second stand";',
+            f"function portalHref(path) {{\n{body}\n}}",
+            'var out = { day: portalHref("/day/2026-10-31"), run: portalHref("/run/abc") };',
+            'EXPERIMENT = ""; out.bare = portalHref("/day/2026-10-31");',
+            "console.log(JSON.stringify(out));",
+        ]
+    )
+    out = subprocess.run(
+        ["node", "-"], input=harness, capture_output=True, text=True, check=True
+    )
+    assert json.loads(out.stdout) == {
+        "day": "http://portal:8200/day/2026-10-31?experiment=Second%20stand",
+        "run": "http://portal:8200/run/abc?experiment=Second%20stand",
+        "bare": "http://portal:8200/day/2026-10-31",
+    }

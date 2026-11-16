@@ -10,8 +10,8 @@
 // module's put route, the operator's name, sent once, the outcome on the
 // widget's own line, the widget's hazard note asked first). This file keeps
 // the polling, the words, a flipper's lamps and the action buttons: a button
-// naming an action plan asks the module to run it (once, confirmed when the
-// plan writes a hazard role) and shows the run as the module reports it,
+// naming a setup asks the module to apply it (once, confirmed when the
+// setup writes a hazard role) and shows the run as the module reports it,
 // polled until it ends, with Stop while it runs. The rules are
 // screen_rules.js's and device_rules.js's (tested under node).
 (function () {
@@ -130,7 +130,7 @@
     out.title = detail || "";
   }
 
-  // ---- action plans: the module's library and its runs, by plan
+  // ---- setups: the module's list and its runs, by name
   const plans = {}, runs = {}, runOf = {}, watching = new Set();
   let plansError = "not read yet";
   const ofPlan = (plan) => widgets.filter((w) => w.dataset.action === plan);

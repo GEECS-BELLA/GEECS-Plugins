@@ -7,8 +7,9 @@ fleet be stood up on a new box, on a different network, or at a
 different GEECS facility without forking any file in the repository.
 
 !!! note "Reference deployment"
-    HTU/Undulator on the services box (the CA gateway and the DB on the
-    central lab server) is the worked example throughout the docs. Its
+    HTU/Undulator on the services box (the DB on the central lab server;
+    the CA gateway joined the box on 2026-11-15) is the worked example
+    throughout the docs. Its
     values appear in runbooks and templates only as **examples** — the
     rule below is what makes that safe.
 
@@ -100,7 +101,9 @@ Two kinds of keys, documented line by line in the example file:
   read by the containers through `env_file:`, and
   `/etc/geecs/control-room/secrets.env` for GeecsControlRoom's display read
   key (`GEECS_CONTROL_ROOM_READ_KEY`), the unit's second `EnvironmentFile=`;
-  never interpolated into a unit or a compose file.
+  never interpolated into a unit or a compose file. The configurator's
+  GitHub App key is the same kind of file, `/etc/geecs/configurator/github-app.pem`
+  (mode 0600), named by `GEECS_CONFIGURATOR_GITHUB_APP_KEY_FILE`.
 
 Syntax is systemd `EnvironmentFile=` syntax, which is stricter than
 shell: `KEY=VALUE` per line, comments **only on their own lines** (a
@@ -118,7 +121,7 @@ arguments**. It does not expand in `WorkingDirectory=`, `User=`,
 |---|---|---|
 | `@PLACEHOLDER@` | at render time, by `deploy/render_units.sh` (one `sed`) | `@SERVICE_USER@`, `@SERVICE_HOME@`, `@CHECKOUT_ROOT@`, `@POETRY@`, `@SITE_ENV@`, `@PORTAL_MEMORY_HIGH@`, `@PORTAL_MEMORY_MAX@`; the instance templates' `@EXPERIMENTS_DIR@` (`GEECS_EXPERIMENTS_DIR`, default `/etc/geecs/experiments`) and `@INSTANCE_CHECKOUT_ROOT@` (`GEECS_INSTANCE_CHECKOUT_ROOT`, default `GEECS_CHECKOUT_ROOT`) |
 | `${VARIABLE}` | at start, by systemd from `site.env` | `--experiment ${GEECS_EXPERIMENT}`, `--doc-addr ${GEECS_QS_DOC_ADDR}`, `--processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs"` (quoted: substituted as one argument, spaces survive) |
-| `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS`, `$GEECS_LOGBOOK_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--config-editor` and `--logbook-url`) |
+| `$VARIABLE` (unbraced) | at start, by systemd from `site.env` | `$GEECS_PORTAL_EXTRA_ARGS`, `$GEECS_LOGBOOK_EXTRA_ARGS` — split on whitespace into several arguments; unset adds nothing. For optional flag lists only (the portal's `--logbook-url` and `--configurator-browser-url`) |
 
 Values that services read from the environment directly (the EPICS
 addressing, `TZ`, `QS_EXPERIMENT`) need no hole at all — `EnvironmentFile=`
@@ -135,6 +138,7 @@ delivers them.
 | `archiver-checkout` | the Archiver Appliance's `geecs-archiver` CLI and its conf templates | the appliance itself is upstream's container: `geecs-archiver.service` runs `docker compose` from `/etc/geecs/archiver` and never reads the clone, so its uptime does not depend on a checkout; the clone is where onboarding runs and the conf is rendered from |
 | `canopy-checkout` | Canopy (`geecs-canopy`): the derived image's build context and `render_conf.sh` | the unit runs `docker compose` from `/etc/geecs/canopy`, like the archiver; a pull changes nothing until `dc build` and a restart |
 | `control-room-checkout` | the Control Room and the screens (`geecs-control-room`) | the surface that writes to devices (through the module on Canopy): it never moves with the portal's pulls |
+| `configurator-checkout` | the configurator (`geecs-configurator`) | it commits to the configs repo and owns the live checkout the other services read (below): it never moves with another service's pull |
 | `qs-checkout` | queueserver worker **and** the Tiled writer (`geecs-tiled-writer`: the same package, `GeecsBluesky`, the same poetry env — the consumer half of the worker's document spool); also the MCP server's install source and the web scanner's (`geecs-scanner`, a client of the plan surface this checkout defines) | the MCP bakes a non-editable venv (`<root>/geecs-mcp-venv`) from it so a pull never mutates code under the running server; the writer shares the worker's env on purpose (one spool line format, one env — a pull there is a deploy of both, so restart both) |
 
 The root is the site's choice (`GEECS_CHECKOUT_ROOT`): the service
@@ -142,8 +146,12 @@ account's home costs no sudo; `/opt/geecs` is the same layout with one
 `chown`. The rule and its reasons are in the fleet map's
 [one clone per service](fleet_map.md#one-clone-per-service) section. The
 configs repo (`GEECS-Plugins-Configs`) is **not** cloned per service: it
-is data, read at runtime, and the copy on the data share is the one
-LabVIEW reads too — `GEECS_CONFIGS_ROOT` points at it.
+is data, read at runtime. Before the configurator's switch,
+`GEECS_CONFIGS_ROOT` points at the share's clone, the one LabVIEW reads
+too. After it, the Linux services read the configurator's live checkout
+(`<STATE_DIR>/live`, accepted commits of main only), and the configurator
+fast-forwards the share's clone for LabVIEW, read-only for everyone else
+([Switching the configs root](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#switching-the-configs-root)).
 
 **A clone means a clone, not a `git worktree`.** A linked worktree shares
 its object store *and its branch refs* with the clone it was made from.
@@ -166,7 +174,7 @@ every run (`WORKTREE of <clone>` in the row's notes).
 ```bash
 # as the service account, on the new host: the worker's clone is the one
 # you run the bootstrap from (it is one of the clones the bootstrap owns —
-# never make a fifth, unmanaged clone just to hold the script)
+# never make another, unmanaged clone just to hold the script)
 git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git <root>/qs-checkout && cd <root>/qs-checkout
 cp deploy/site.env.example ~/site.env && $EDITOR ~/site.env
 deploy/bootstrap_host.sh ~/site.env          # clones, envs, config.ini, staged units — no sudo
@@ -200,6 +208,24 @@ order (each step lives in its runbook; this list only points there):
 - enable `geecs-canopy`, then `geecs-control-room` ([§2](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#2-first-install));
 - `squirrel-sync`, `--check` first ([§3a](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCanopy/DEPLOYMENT.md#3a-the-device-module-geecs)).
 
+The bootstrap installs the configurator read-only (over
+`GEECS_CONFIGS_ROOT`) once `GEECS_CONFIGURATOR_PORT` is set. Its commit
+path is manual, in this order (the org's GitHub App, ruleset, `validate`
+check and `CODEOWNERS` come first, once per org: [Once per org](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#once-per-org)):
+
+- install this box's own App key under `/etc/geecs/configurator`
+  ([Once per services box](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#once-per-services-box), step 1);
+- set the commit-path and ownership keys in `site.env`
+  (`GEECS_CONFIGURATOR_EXPERIMENTS` / `_ANALYSIS_FOLDERS`, the box's own
+  committer e-mail; the same section, step 2);
+- set `GEECS_CONFIGURATOR_SHARE_CLONE` **before the first start with the
+  commit path on** (`STATE_DIR` set; step 4),
+  then install, render and start (step 5);
+- run the trial on a throwaway branch before the box commits to main
+  (step 6);
+- switch the Linux services' configs root to the live checkout
+  ([Switching the configs root](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#switching-the-configs-root)).
+
 ## A second experiment on the same hub
 
 A second experiment is an **instance**: its own CA gateway, queueserver
@@ -211,8 +237,12 @@ experiment's units and never instead of them. Tiled, the Data Portal
   (keys and the port scheme in `deploy/experiments.env.example`), read by
   the `<unit>@.service` templates *after* `site.env`, so it overrides the
   site for that instance only. `<Instance>` is a slug; the DB experiment
-  it serves (`GEECS_EXPERIMENT`) may carry spaces, and it is the name the
-  scan folders, the configs folder and the logbook use.
+  it serves (`GEECS_EXPERIMENT`) may differ from it, and it is the name the
+  scan folders, the configs folder, the logbook and the configurator's
+  scanner-URL key (`Exp=url`) use. **An experiment's name carries no
+  spaces**: letters, digits, `_`, `.` and `-` only. `experiment.sh up` and the
+  configurator's `GEECS_CONFIGURATOR_EXPERIMENTS` refuse any other; a DB
+  experiment named otherwise is renamed in the DB first.
 - **Ports come from a slot** `N` (1..9; the main experiment is slot 0, the
   stock ports): CA `5064+100N`, 0MQ `60615+100N` / `60625+100N`, documents
   `5567+100N` / `5568+100N`, scanner `8300+10N`, logbook `8400+10N`.
@@ -243,7 +273,8 @@ experiment's units and never instead of them. Tiled, the Data Portal
   clones of their own. It exists for the multi-experiment proof, while the
   arc's code is not yet on the main clones' ref — a **transitional
   exception**: once promoted, one clone serves every experiment and the key
-  is removed.
+  is dropped from `site.env` (done on the reference deployment 2026-11-04;
+  the render-time key stays available for the next proof).
 
 ### Moving an experiment from plain units to an instance
 
@@ -284,12 +315,21 @@ what satisfies it for a worker that runs there.
    facility's experiment, gateway address, Tiled URI, queueserver host,
    and data path.
 3. Run the bootstrap on the service host; do the root steps, then the
-   manual steps for Canopy and the Control Room
+   manual steps for Canopy, the Control Room and the configurator
    ([Standing up a host](#standing-up-a-host)).
-4. Experiment-specific *code* (analyzers, scan-database filters) follows
+4. The configurator: the org's GitHub App is shared, and the new box gets
+   its own private key. Set `GEECS_CONFIGURATOR_EXPERIMENTS` and
+   `GEECS_CONFIGURATOR_ANALYSIS_FOLDERS` to this facility's own, and give the
+   box its own committer e-mail; add the facility's folders to the configs
+   repo's `CODEOWNERS`; keep analysis recipe stems unique across facilities;
+   run the per-box trial before the box commits to main
+   ([The rule: a box owns its experiments](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#the-rule-a-box-owns-its-experiments),
+   [Once per org](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#once-per-org),
+   [Once per services box](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsConfigurator/DEPLOYMENT.md#once-per-services-box)).
+5. Experiment-specific *code* (analyzers, scan-database filters) follows
    the existing per-experiment package pattern
    (`analyzers/<Experiment>/`), not this profile.
-5. The first real second site will find a value this page missed. Add
+6. The first real second site will find a value this page missed. Add
    it to `site.env.example` and here in the same PR — that is the
    contract growing, not breaking.
 

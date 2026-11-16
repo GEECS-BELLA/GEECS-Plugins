@@ -57,7 +57,10 @@ def test_idle_only_items_refuse_while_a_plan_runs_or_waits(
     _start_a_scan(client, preset_doc)
     for path, body in (
         ("/api/move", {"variable": "S1H current", "value": 0}),
-        ("/api/actions/close_shutters/run", {}),
+        (
+            "/api/setups/shutters_closed/apply",
+            {"operator": "ada", "acknowledged": ["*"]},
+        ),
         ("/api/calibration/check", {"devices": ["UC_ALineEBeam3", "U_ICT"]}),
         ("/api/calibration/measure", {"devices": ["UC_ALineEBeam3", "U_ICT"]}),
     ):
@@ -90,53 +93,6 @@ def test_idle_only_items_refuse_while_a_plan_runs_or_waits(
     assert r.status_code == 409
     assert r.json()["error"]["items_in_queue"] == 1
     assert "clear the queue" in r.json()["error"]["message"]
-
-
-# --------------------------------------------------------------- actions
-
-
-def test_actions_list_and_preview_inline_nested_runs(client: TestClient) -> None:
-    rows = {a["name"]: a for a in client.get("/api/actions").json()}
-    assert (
-        rows["close_shutters"]["steps"] == 4
-        and rows["close_shutters"]["problem"] is None
-    )
-    assert rows["experiment_closeout"]["steps"] == 5
-    assert rows["experiment_closeout"]["nested"] == ["close_shutters"]
-    assert "no_such_plan" in rows["broken_reference"]["problem"]
-    d = client.get("/api/actions/experiment_closeout").json()
-    assert [s["do"] for s in d["steps"]] == ["set", "set", "set", "wait", "check"]
-    assert [s["from_plan"] for s in d["steps"]] == [None] + ["close_shutters"] * 4
-    assert d["steps"][0]["text"] == "set U_S1H:current = 0.0"
-    assert d["steps"][1]["text"] == "set U_148_PLC:shutter1 = 'off'"
-    assert d["steps"][3]["text"] == "wait 2 s"
-    assert d["writes"] == 3
-    assert client.get("/api/actions/no_such").status_code == 404
-    r = client.get("/api/actions/broken_reference")
-    assert r.status_code == 400 and "no_such_plan" in r.json()["error"]["message"]
-    # a loop: the library validator lets it through, the flatten must not
-    assert (
-        "in a loop" in rows["loop_a"]["problem"]
-        and "in a loop" in rows["loop_b"]["problem"]
-    )
-    r = client.get("/api/actions/loop_a")
-    assert r.status_code == 400 and "in a loop" in r.json()["error"]["message"]
-    assert client.post("/api/actions/loop_a/run").status_code == 400
-
-
-def test_run_action_queues_run_action_and_refuses_an_unresolvable_one(
-    client: TestClient, manager: DemoQueueClient
-) -> None:
-    r = client.post("/api/actions/experiment_closeout/run", json={"operator": "sam"})
-    assert r.status_code == 200, r.text
-    assert r.json()["plan"] == "run_action"
-    assert r.json()["summary"] == "action experiment_closeout"
-    manager.step()
-    done = client.get("/api/queue").json()["finished"][0]
-    assert done["plan"] == "run_action" and "ran to completion" in done["detail"]
-    assert client.post("/api/actions/broken_reference/run").status_code == 400
-    assert client.post("/api/actions/nope/run").status_code == 404
-    assert client.get("/api/status").json()["items_in_queue"] == 0
 
 
 # ----------------------------------------------------------- calibration
@@ -199,7 +155,9 @@ def test_save_preset_writes_then_refuses_to_overwrite_unless_asked(
 ) -> None:
     doc = dict(preset_doc)
     doc["description"] = "saved from the page"
-    r = client.post("/api/configs/presets/jet_v2", json={"preset": doc})
+    r = client.post(
+        "/api/configs/presets/jet_v2", json={"preset": doc, "operator": "Op"}
+    )
     assert r.status_code == 200, r.text
     assert r.json()["name"] == "jet_v2" and r.json()["path"].endswith("jet_v2.yaml")
     assert "commit" in r.json()["message"]
@@ -207,11 +165,14 @@ def test_save_preset_writes_then_refuses_to_overwrite_unless_asked(
     saved = client.get("/api/configs/presets/jet_v2").json()
     assert saved["name"] == "jet_v2"  # the URL names the file, not the body
     assert saved["description"] == "saved from the page"
-    r = client.post("/api/configs/presets/jet_v2", json={"preset": doc})
+    r = client.post(
+        "/api/configs/presets/jet_v2", json={"preset": doc, "operator": "Op"}
+    )
     assert r.status_code == 409 and r.json()["error"]["exists"] is True
     doc["description"] = "second"
     r = client.post(
-        "/api/configs/presets/jet_v2", json={"preset": doc, "overwrite": True}
+        "/api/configs/presets/jet_v2",
+        json={"preset": doc, "overwrite": True, "operator": "Op"},
     )
     assert r.status_code == 200
     assert client.get("/api/configs/presets/jet_v2").json()["description"] == "second"
@@ -226,12 +187,16 @@ def test_save_preset_round_trips_required_and_refuses_essential(
         {"device": "UC_ALineEBeam3", "save_images": True, "required": True},
         {"device": "U_ICT", "save_images": False, "required": False},
     ]
-    r = client.post("/api/configs/presets/req_rt", json={"preset": doc})
+    r = client.post(
+        "/api/configs/presets/req_rt", json={"preset": doc, "operator": "Op"}
+    )
     assert r.status_code == 200, r.text
     saved = client.get("/api/configs/presets/req_rt").json()
     assert [d["required"] for d in saved["devices"]] == [True, False]
     old = dict(doc, devices=[{"device": "U_ICT", "essential": False}])
-    r = client.post("/api/configs/presets/req_old", json={"preset": old})
+    r = client.post(
+        "/api/configs/presets/req_old", json={"preset": old, "operator": "Op"}
+    )
     assert r.status_code == 400
     errors = r.json()["error"]["errors"]
     assert any("renamed 'required'" in e["msg"] for e in errors), errors
@@ -241,10 +206,14 @@ def test_save_preset_exists_is_decided_from_the_listing_not_a_message(
     client: TestClient, preset_doc: dict
 ) -> None:
     """The page's replace dialog keys on 409 + exists; that must not hang on the resolver's wording."""
-    r = client.post("/api/configs/presets/eb_align_1hz", json={"preset": preset_doc})
+    r = client.post(
+        "/api/configs/presets/eb_align_1hz",
+        json={"preset": preset_doc, "operator": "Op"},
+    )
     assert r.status_code == 409 and r.json()["error"]["exists"] is True
     r = client.post(
-        "/api/configs/presets/eb_align_1hz.yaml", json={"preset": preset_doc}
+        "/api/configs/presets/eb_align_1hz.yaml",
+        json={"preset": preset_doc, "operator": "Op"},
     )
     assert r.status_code == 409  # the suffix names the same file
 
@@ -252,12 +221,17 @@ def test_save_preset_exists_is_decided_from_the_listing_not_a_message(
 def test_save_preset_refuses_an_invalid_document(
     client: TestClient, preset_doc: dict
 ) -> None:
-    r = client.post("/api/configs/presets/bad", json={"preset": {"devices": "nope"}})
+    r = client.post(
+        "/api/configs/presets/bad",
+        json={"preset": {"devices": "nope"}, "operator": "Op"},
+    )
     assert r.status_code == 400
     assert r.json()["error"]["kind"] == "invalid_request"
     assert "bad" not in client.get("/api/configs/presets").json()["names"]
     # a name that is only a suffix strips to nothing and is refused, not written as ''
-    r = client.post("/api/configs/presets/.yaml", json={"preset": preset_doc})
+    r = client.post(
+        "/api/configs/presets/.yaml", json={"preset": preset_doc, "operator": "Op"}
+    )
     assert r.status_code == 400 and "not a file name" in r.json()["error"]["message"]
     assert "" not in client.get("/api/configs/presets").json()["names"]
 
@@ -280,7 +254,7 @@ def test_save_cannot_overwrite_with_schema_invalid_sweep(client, preset_doc):
     }
     response = client.post(
         "/api/configs/presets/jet_pressure_sweep",
-        json={"preset": preset_doc, "overwrite": True},
+        json={"preset": preset_doc, "overwrite": True, "operator": "Op"},
     )
     assert response.status_code == 400
     assert "equal point counts" in str(response.json())
@@ -295,6 +269,6 @@ def test_save_valid_sweep_does_not_require_preview(client, preset_doc, monkeypat
 
     monkeypatch.setattr(trajectory, "preview", no_preview)
     response = client.post(
-        "/api/configs/presets/no_preview", json={"preset": preset_doc}
+        "/api/configs/presets/no_preview", json={"preset": preset_doc, "operator": "Op"}
     )
     assert response.status_code == 200, response.text

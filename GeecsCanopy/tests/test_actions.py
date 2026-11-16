@@ -21,11 +21,13 @@ def env(tmp_path):
     return env
 
 
-def library(env, **plans):
-    folder = env.folder / "action_library"
+def library(env, **setups):
+    """Write one setup file per name (``setups/<name>.yaml``)."""
+    folder = env.folder / "setups"
     folder.mkdir(exist_ok=True)
-    doc = {"plans": {n: {"steps": s, "description": f"{n} plan"} for n, s in plans.items()}}  # fmt: skip
-    (folder / "actions.yaml").write_text(yaml.safe_dump(doc))
+    for name, steps in setups.items():
+        doc = {"name": name, "steps": steps, "description": f"{name} setup"}
+        (folder / f"{name}.yaml").write_text(yaml.safe_dump(doc))
 
 
 async def run(env, name, **body):
@@ -123,13 +125,11 @@ async def test_a_hazard_role_anywhere_needs_the_confirm_once(env):
     assert body["state"] == "done" and len(env.hare.puts) == 2
 
 
-async def test_a_library_that_does_not_validate_is_503(env):
-    (env.folder / "action_library").mkdir()
-    (env.folder / "action_library" / "actions.yaml").write_text(
-        "plans: {x: {steps: []}}"
-    )
+async def test_a_setup_that_does_not_validate_is_503(env):
+    (env.folder / "setups").mkdir()
+    (env.folder / "setups" / "x.yaml").write_text("name: x\nsteps: []\n")
     answer = await env.client.get("/v1/actions")
-    assert (answer.status_code, answer.json()["code"]) == (503, "library_unavailable")
+    assert (answer.status_code, answer.json()["code"]) == (503, "setups_unavailable")
 
 
 async def test_an_unreadable_run_lock_refuses_before_the_first_write(env):
@@ -156,3 +156,22 @@ async def test_a_stop_during_the_last_step_that_completes_it_is_done(env):
     )  # the put is in flight: it completes
     gate.set()
     assert (await ended(env, run_id))["state"] == "done"
+
+
+async def test_a_check_matches_within_its_tolerance_and_fails_outside_it(env):
+    env.hare.values[RB] = live(1.04)
+    near = {"do": "check", "device": "ps1", "variable": "current", "expected": 1.0, "tolerance": 0.05}  # fmt: skip
+    library(env, near=[near], far=[{**near, "tolerance": 0.01}])
+    body = await ended(env, (await run(env, "near")).json()["runId"])
+    assert body["state"] == "done", body
+    body = await ended(env, (await run(env, "far")).json()["runId"])
+    assert body["state"] == "failed" and body["steps"][0]["code"] == "check_failed"
+
+
+async def test_an_unknown_setup_is_404_and_an_unknown_nested_one_422(env):
+    library(env, outer=[{"do": "apply", "setup": "ghost"}])
+    missing = await run(env, "nope")
+    assert (missing.status_code, missing.json()["code"]) == (404, "not_found")
+    nested = await run(env, "outer")
+    assert nested.status_code == 422 and "ghost" in nested.json()["detail"]
+    assert env.hare.puts == []

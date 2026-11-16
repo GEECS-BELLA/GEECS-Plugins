@@ -83,6 +83,7 @@ _SURFACES = [
     "GeecsWebTheme/geecs_web_theme/static/kit.html",
     "GeecsWebTheme/geecs_web_theme/static/kit.js",
     "GeecsWebTheme/geecs_web_theme/static/plot.js",
+    "GeecsWebTheme/geecs_web_theme/static/form.js",
     "GEECS-DataPortal/geecs_portal/templates/base.html",
     "GEECS-DataPortal/geecs_portal/templates/day.html",
     "GEECS-DataPortal/geecs_portal/templates/run.html",
@@ -92,8 +93,6 @@ _SURFACES = [
     "GeecsLogbook/geecs_logbook/templates/_entries.html",
     "GeecsLogbook/geecs_logbook/static/editor.js",
     "GeecsLogbook/geecs_logbook/static/nav.js",
-    "ScanAnalysis/scan_analysis/config_editor/static/editor.css",
-    "ScanAnalysis/scan_analysis/config_editor/templates/editor.html",
     "GeecsScanner/geecs_scanner/templates/console.html",
     "GeecsScanner/geecs_scanner/static/scanner.css",
     "GeecsScanner/geecs_scanner/static/scanner.js",
@@ -121,6 +120,12 @@ _SURFACES = [
     "GeecsControlRoom/geecs_control_room/templates/_panel.html",
     "GeecsControlRoom/geecs_control_room/static/device_rail.js",
     "GeecsControlRoom/geecs_control_room/static/device_rules.js",
+    "GeecsConfigurator/geecs_configurator/templates/home.html",
+    "GeecsConfigurator/geecs_configurator/templates/log.html",
+    "GeecsConfigurator/geecs_configurator/static/configurator.css",
+    "GeecsConfigurator/geecs_configurator/static/configurator.js",
+    "GeecsConfigurator/geecs_configurator/static/setups.js",
+    "GeecsConfigurator/geecs_configurator/static/embed.js",
 ]
 
 #: Selectors whose rules may carry a literal, each with its reason. This is

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+from geecs_core.configs_repo import settled_exists
 from geecs_core.pv_naming import native_device_prefix
 from geecs_schemas import (
     NATIVE_DEVICES_FILENAME,
@@ -75,7 +76,8 @@ class Resolved:
 
 
 def _load(path: Path, model: type, families: Mapping[str, FamilyFile]):
-    if not path.exists():
+    # the configurator's fast-forward rewrites a file by unlink and create: never read "none" mid-rewrite
+    if not settled_exists(path):
         return model()
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

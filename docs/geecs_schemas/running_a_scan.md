@@ -22,8 +22,7 @@ submit, what fills the gaps, and where the data lands.
 A **scan request** is the complete description of one scan — the single document
 you submit. It says what kind of scan it is (sweep a variable, sit still and
 collect shots, or let an optimizer drive), which positions to visit and how many
-shots to take, and — by name — which save set, trigger profile, and action plans
-to use. A saved preset *is* a scan request.
+shots to take, and — by name — which save set and trigger profile to use. A saved preset *is* a scan request.
 
 You rarely have to spell out everything. Whatever the request leaves silent is
 filled from the experiment's standing defaults, and every value that gets filled
@@ -40,35 +39,21 @@ sources. From the bottom up:
    units, and limits. This is the bedrock the configs sit on; it is not itself a
    config file you edit here.
 2. **`experiment_defaults.yaml`** — the experiment's standing choices: the
-   default trigger profile, the setup/closeout plans every scan runs, and
-   whether background telemetry is on. Applied only where the request is silent;
+   default trigger profile and whether background telemetry is on. Applied only where the request is silent;
    it never overrides a value the request states explicitly.
-3. **Save-set entry rituals** — each required device can carry its own
-   `setup`/`closeout` action plans, so a device's ritual travels with it into
-   any scan whose save set includes that entry.
-4. **The scan request's own fields** — the most specific layer; anything stated
+3. **The scan request's own fields** — the most specific layer; anything stated
    here wins.
 
-Setup plans nest like context managers on the way in — defaults first, then the
-save-set entry rituals, then the scan's own — and unwind in the exact reverse on
-the way out, so an experiment-wide "return the machine to standby" always runs
-last. The assembled order is recorded in the run metadata (`action_plans`).
+## A named device state is a setup, not part of the scan
 
-## Everything happens through actions, not database writes
+Putting the machine into a state before a scan (close the shutters, zero the
+magnets) is a **setup**: a named list of steps (set a variable, wait, check a
+readback, apply another setup) in the experiment's `setups/`, applied as a
+queue item of its own from the scanner's Setups panel, never from inside a
+scan.
 
-Scan-start, scan-end, and between-step operations are all expressed as **action
-plans** — named checklists of steps (set a variable, wait, check a readback, run
-another plan). A scan request points at them in three slots:
+The mechanisms that shape the run itself, none of them a database write:
 
-- **setup** — before the first step,
-- **per_step** — at every position, right after the move and before the shots,
-- **closeout** — once at the end, in reverse order, and even if the scan aborts.
-
-Alongside actions, three other mechanisms shape the run, and none of them is a
-database write:
-
-- the **save set's entry rituals** (per-device setup/closeout, layer 3 above),
-- **`experiment_defaults.yaml`** actions (layer 2),
 - the **trigger profile** — the machine's OFF / STANDBY / SCAN / SINGLESHOT /
   ARMED states, each an ordered list of device writes, driven by the shot
   controller,

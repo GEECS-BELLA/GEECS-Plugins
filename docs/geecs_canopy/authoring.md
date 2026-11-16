@@ -10,7 +10,7 @@ grant is a file edit there, never code. This page shows each file.
 |---|---|---|
 | `screens/<name>.yaml` | One control screen | `Screen` |
 | `home.yaml` | The home's launcher | `HomeLayout` |
-| `action_library/actions.yaml` | Named action plans a button may run | `ActionPlanLibrary` |
+| `setups/<name>.yaml` | One setup (a named device state) a button may apply | `Setup` |
 | `operator_policy.yaml` | Who may write what, and which roles need the hazard confirm | `OperatorPolicy` |
 
 The device names below (`SimMotor1`, `eztest1`, `U_PLC`, …) are the
@@ -68,7 +68,7 @@ A widget's `bind` is exactly one of four forms:
 |---|---|---|
 | Device role | `{device: eztest1, role: current_sp}` | A role from the device's family file. On a per-axis family (a motor), add `axis: m1`. On a LabVIEW device served through the gateway, the role is the GEECS variable name: `{device: U_PLC, role: DO.Ch1}`. |
 | Bare PV | `{pv: "x:u_plc:di_ch5"}` | A PV by name, **read only**: a writing widget bound to one is drawn disabled. For a value that belongs to no device role (a timestamp, a derived channel). |
-| Action | `{action: bench_park}` | A plan in `action_library/actions.yaml`. Only a `button` may bind one. |
+| Action | `{action: bench_park}` | A setup, `setups/bench_park.yaml`. Only a `button` may bind one. |
 | Device group | `{device: eztest1, group: Output}` | A rail group of the device's page, by its title in the family's `panel` (`axis:` on a per-axis family), or `settings` for the automatic layout of a device whose family has none (every LabVIEW device served through the gateway). Only a `group` may bind one. |
 
 Name the device by its GEECS name, never by its PV; the PV comes from the
@@ -119,7 +119,7 @@ a binding that can be read.
   indicators: [{device: ps, role: output}]
 ```
 
-**button**: a latching command (a jog, a reset), or an action plan. Takes a
+**button**: a latching command (a jog, a reset), or a setup. Takes a
 writable `command` or `bit` role, or `{action: …}`.
 
 ```yaml
@@ -201,38 +201,43 @@ setting (`GEECS_CONTROL_ROOM_SCANNER_BROWSER_URL`,
 a family that is not installed or a service with no address is drawn
 disabled with the reason.
 
-## An action plan for a button
+## A setup for a button
 
-A button bound `{action: <name>}` runs that plan from
-`action_library/actions.yaml`, the same library the scanner reads for a
-scan's setup and closeout. A plan is an ordered list of steps:
+A button bound `{action: <name>}` applies the setup `setups/<name>.yaml`,
+the same file the scanner's Setups panel applies as a queue item. A setup
+is an ordered list of steps, one setup per file, its name the file's stem:
 
 ```yaml
+# setups/bench_park.yaml
 schema_version: 1
-plans:
-  bench_park:
-    description: Park the stage at zero and check it stopped.
-    steps:
-      - {do: set, device: SimMotor1, variable: m1, value: 0}
-      - {do: wait, seconds: 1}
-      - {do: check, device: SimMotor1, variable: m1.movn, expected: 0}
-  closeout:
-    steps:
-      - {do: run, plan: bench_park}
+name: bench_park
+description: Park the stage at zero and check it stopped.
+steps:
+  - {do: set, device: SimMotor1, variable: m1, value: 0}
+  - {do: wait, seconds: 1}
+  - {do: check, device: SimMotor1, variable: m1.movn, expected: 0}
+```
+
+```yaml
+# setups/closeout.yaml
+schema_version: 1
+name: closeout
+steps:
+  - {do: apply, setup: bench_park}
 ```
 
 | Step | Fields | Does |
 |---|---|---|
-| `set` | `device`, `variable`, `value`, `wait_for_execution` | Writes the value through the module's gates. From a button every set waits for the device; `wait_for_execution` is honoured in a scan only. |
+| `set` | `device`, `variable`, `value` | Writes the value through the module's gates and waits for the device. |
 | `wait` | `seconds` (> 0) | Pauses. |
-| `check` | `device`, `variable`, `expected` | Reads the value and fails the run if it does not match **exactly** (no tolerance; an enum reads as its label). Check discrete values (a bit, an enum, a word), not a motor's position. |
-| `run` | `plan` | Runs another plan of the library. |
+| `check` | `device`, `variable`, `expected`, `tolerance` | Reads the value and fails the run unless it matches: a number within `tolerance` (default 0), a word exactly (an enum reads as its label). |
+| `apply` | `setup` | Applies another setup there. |
 
 On a per-axis device, `variable` is the axis (`m1`: its setpoint to set,
 its readback to check) or `<axis>.<role>` (`m1.velo`). Before step 1 the
 module checks every `set` (the grant, the allow list, the run lock, the
 limits); if one would be refused, nothing runs. When any step writes a
-hazardous role the page asks once, showing the plan's description and its
+hazardous role the page asks once, showing the setup's description and its
 hazard steps. The first failing step ends the run; nothing is retried. A
 sequence is never scripted in a screen.
 

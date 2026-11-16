@@ -357,7 +357,7 @@ U_ESP_JetXYZ: {kind: epics_motor, axes: [x, y, z]}
 `low_limit_travel`/`high_limit_travel`, `velocity`, `motor_stop` — under
 one parent noun per device (`NativeMotor`) bound as
 `U_ESP_JetXYZ.x`, so `mv`, a sweep axis, `GeecsNamespace.variable`,
-`get_settable` and an action's `set` step find it as a `CaMotor` child.
+`get_settable` and a setup's `set` step find it as a `CaMotor` child.
 The parent carries `_geecs_device_name` and `_column_headers` (`<name>-x`
 → header `U_ESP_JetXYZ x`): the row and `EVENT_SCHEMA.md` are unchanged.
 
@@ -455,7 +455,7 @@ negative) is **no tolerance**, never zero.
 - **Where no tolerance is refused.** The set refuses before any write
   (`GeecsNoSetToleranceError`, a `GeecsSetpointRefusedError` with
   `written=False`, naming the device, the record's PV and what was read) —
-  the only answer for `mv` and an action's `set`. A bound scan
+  the only answer for `mv` and a setup's `set` step. A bound scan
   (`sweep`, `optimize`) reads every native settable it will move once more
   before the claim and the trigger box (`registry.set_tolerance_gate`,
   beside the liveness gate): a refusal there claims nothing and leaves no

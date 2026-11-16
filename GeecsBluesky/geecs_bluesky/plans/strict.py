@@ -4,7 +4,7 @@ The strict slot itself is :mod:`geecs_bluesky.plans.on_demand`.  Here:
 :func:`fire_and_await_shot` (trigger every triggerable, fire between the
 triggers and the wait, report the ones that missed — the shot-offset
 calibration's shot), :func:`run_bracket` (the trigger box's run
-bracket), the confirmed-down read and the plugin's refusal reasons the
+bracket), the devices-down verdict, the confirmed-down read and the plugin's refusal reasons the
 slot reports, :func:`name_failed_status`, and :class:`BinCounter`, the
 ``bin_number`` column.
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Callable
 
 import bluesky.plan_stubs as bps
@@ -22,8 +22,13 @@ from bluesky.protocols import Triggerable
 from bluesky.utils import FailedStatus, short_uid
 from geecs_schemas.trigger_profile import TriggerState
 
-from geecs_bluesky.devices.ca._view import geecs_device_name
+from geecs_bluesky.devices.ca._view import geecs_device_name, owner_of
 from geecs_bluesky.devices.ca.liveness import read_disconnected
+from geecs_bluesky.devices.native import down_native_cameras, native_cameras
+from geecs_bluesky.devices.native_setpoint import (
+    down_native_setpoint_devices,
+    native_setpoint_devices,
+)
 from geecs_bluesky.exceptions import (
     GeecsDeviceDownError,
     GeecsTriggerTimeoutError,
@@ -50,6 +55,53 @@ def _confirmed_down(devices: Sequence[Any], device_name: str):
         return False
     down = yield from read_disconnected({device_name: signal})
     return bool(down)
+
+
+def down_devices(devices: Sequence[Any], signals: Mapping[str, Any] | None = None):
+    """Plan: the GEECS names of *devices* (and *signals*' devices) judged down — the one verdict.
+
+    The rule every gate before a write shares (the run's
+    :func:`~geecs_bluesky.plans.registry.liveness_gate`, a setup's
+    :func:`~geecs_bluesky.plans.apply_setup.apply_setup_plan`): a native
+    camera is judged by its IOC
+    (:func:`~geecs_bluesky.devices.native.down_native_cameras`: unreadable =
+    down), a native setpoint device by its readbacks' severity
+    (:func:`~geecs_bluesky.devices.native_setpoint.down_native_setpoint_devices`:
+    INVALID or unreadable = down), and every other device carrying a
+    ``connected_status`` by the gateway's ``CONNECTED``
+    (:func:`~geecs_bluesky.devices.ca.liveness.read_disconnected`:
+    fail-open, only the exact ``Disconnected`` string counts).  A device
+    with none of these is not judged.
+
+    Parameters
+    ----------
+    devices :
+        Plan objects — devices or ``.scalars`` views (pass a child's owning
+        device: a signal has no ``connected_status`` of its own).
+    signals :
+        Extra GEECS name → ``CONNECTED`` signal to read first (the trigger
+        box's :attr:`~geecs_bluesky.devices.shot_control.ShotControl.liveness_signals`).
+
+    Returns
+    -------
+    list of str
+        The devices judged down: the natives first, then the gateway's.
+    """
+    natives = [*native_cameras(devices), *native_setpoint_devices(devices)]
+    native_down = yield from down_native_cameras(natives)
+    native_down += yield from down_native_setpoint_devices(natives)
+    to_read: dict[str, Any] = dict(signals or {})
+    for obj in devices:
+        if owner_of(obj) in natives:
+            continue
+        signal = getattr(obj, "connected_status", None)
+        if signal is None:
+            continue
+        to_read.setdefault(geecs_name(obj), signal)
+    # An unreadable CONNECTED before a write is abnormal (the gateway serves
+    # it for every DB device) and cost the connect timeout: say so.
+    down = yield from read_disconnected(to_read, unreadable_level=logging.WARNING)
+    return [*native_down, *down]
 
 
 def geecs_name(obj: Any) -> str:

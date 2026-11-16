@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from geecs_analysis.recipe import (
     RecipeError,
+    binding_errors,
     compile_recipe,
     figure_of,
     recipe_schema,
@@ -67,6 +68,93 @@ def recipe(**patch):
 def test_binding_errors_are_recipe_errors(patch, needle):
     with pytest.raises(RecipeError, match=needle):
         compile_recipe(recipe(**patch), allow_file_backgrounds=True)
+
+
+@pytest.mark.parametrize(
+    "patch,loc",
+    [
+        ({"steps": [{"step": "roi", "bounds": [[0, 4], [0, 4]]}, {"step": "sharpen"}]}, ["steps", 1]),
+        ({"steps": [{"step": "median", "kernel": 3, "bogus": 1}]}, ["steps", 0, "bogus"]),
+        ({"steps": [{"step": "median", "kernel": 3}, {"step": "interpolate", "count": 5}]}, ["steps", 1]),
+        ({"measure": {"kind": "line"}}, ["measure"]),
+        ({"inputs": {"bg": {"path": "x.npy"}}}, ["inputs"]),
+    ],
+)  # fmt: skip
+def test_binding_errors_are_at_the_documents_field(patch, loc):
+    """The editor's view of compile_recipe: the union variant dropped, a worded error at the field it names."""
+    from geecs_analysis.recipe import binding_errors
+
+    errors = binding_errors(recipe(**patch))
+    assert errors and errors[0]["loc"][: len(loc)] == loc, errors
+    assert binding_errors(recipe(steps=[{"step": "median", "kernel": 3}])) == []
+
+
+def _blank_input_fields(kind: str) -> dict:
+    """What an input kind needs beyond its kind, read off the schema (a trace's loading format)."""
+    from geecs_schemas.analysis.processing_1d import Data1DType
+
+    return {"loading": {"data_type": next(iter(Data1DType)).value}} if kind == "line" else {}  # fmt: skip
+
+
+def test_every_frame_kind_has_one_default_measure_and_its_blank_binds():
+    """A new recipe opens on a draft that compiles: for each input kind, its frames' default measure, no steps."""
+    from geecs_analysis.recipe import blank_recipe, input_kinds
+    from geecs_analysis.registry import default_measure, measure_definitions
+
+    kinds = input_kinds()
+    assert set(kinds.values()) == {1, 2}
+    for ndim in {1, 2}:
+        assert sum(1 for d in measure_definitions() if d.default and ndim in d.ndim) == 1  # fmt: skip
+    for kind, ndim in kinds.items():
+        doc = blank_recipe(kind, name="New_one", input_fields=_blank_input_fields(kind))
+        recipe = AnalysisRecipe.model_validate(doc)
+        assert binding_errors(recipe) == [] and recipe.steps == []
+        assert (doc["output_name"], doc["device"], recipe.measure.kind) == ("New_one", "New_one", default_measure(ndim).spec.model_fields["kind"].default)  # fmt: skip
+        compile_recipe(
+            recipe
+        )  # no frame inputs: it compiles even for a host that loads none
+
+
+def test_a_blank_names_what_its_input_lacks_and_refuses_an_unknown_kind():
+    from geecs_analysis.recipe import blank_recipe
+
+    with pytest.raises(RecipeError, match="loading"):
+        blank_recipe("line", name="L")
+    with pytest.raises(RecipeError, match="no input kind"):
+        blank_recipe("telescope", name="T")
+
+
+def test_every_trace_format_drafts_a_blank_that_binds():
+    """The start form offers every file format; the capture stack also names its format (the input's own rule)."""
+    from geecs_schemas.analysis.processing_1d import Data1DType
+
+    from geecs_analysis.recipe import blank_recipe
+
+    for data_type in Data1DType:
+        fields: dict = {"loading": {"data_type": data_type.value}}
+        if data_type.value == "pva_stack":
+            with pytest.raises(RecipeError, match="format"):
+                blank_recipe("line", name="L", input_fields=fields)
+            fields["format"] = "device_hdf5"
+        doc = blank_recipe("line", name="L", input_fields=fields)
+        assert binding_errors(AnalysisRecipe.model_validate(doc)) == []
+
+
+def test_a_default_measure_is_a_plain_one():
+    from geecs_analysis.registry import measure
+
+    with pytest.raises(ValueError, match="plain one"):
+        measure(AnalysisRecipe, ndim={1}, default=True, service="frog")  # type: ignore[type-var]
+
+
+def test_a_second_default_measure_for_a_dimensionality_is_refused():
+    from geecs_analysis.registry import measure
+
+    with pytest.raises(ValueError, match="second default"):
+
+        @measure(AnalysisRecipe, ndim={2}, default=True)  # type: ignore[type-var]
+        def _(frame, spec):  # pragma: no cover - never registered
+            return None
 
 
 def test_frame_inputs_need_a_loading_host_and_camera_frames():
@@ -139,6 +227,8 @@ def test_recipe_schema_binds_the_registry_vocabulary():
     assert schema["$defs"]["InterpolateSpec"]["x-ndim"] == [1]
     assert schema["$defs"]["WaterfallSummary"]["x-ndim"] == [1]
     assert schema["$defs"]["ImageGridSummary"]["x-ndim"] == [2]
+    # an ROI's pairs are named by axis, rows (y) before columns (x) in numpy order
+    assert schema["$defs"]["RoiSpec"]["properties"]["bounds"]["x-axes"] == {"1": ["x"], "2": ["y", "x"]}  # fmt: skip
     # the document's frame is the schema package's, untouched
     assert schema["properties"]["input"]["discriminator"]["propertyName"] == "kind"
     assert "FigureStyle" in schema["$defs"]
