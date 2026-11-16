@@ -320,7 +320,7 @@ A front door gives the services box's web surfaces names instead of
 `<experiment>` is the experiment's name in lowercase. Nothing in this
 repository installs the proxy. A site provides it, and the GEECS-BELLA
 sites run geecs-epics' Ansible role `front_door` (its
-`docs/runbooks/ansible.md`, "Front door": the internal CA, the
+Ansible runbook, "Front door": the internal CA, the
 certificates, DNS, trusting the CA, a new facility's checklist). This
 section is what the GEECS services need from any proxy, and what changes
 in `site.env` when one arrives.
