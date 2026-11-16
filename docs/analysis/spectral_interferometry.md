@@ -25,7 +25,10 @@ the arms matter.
    its peak, padded by 25 %.
 4. Inverse FFT of the windowed sideband gives the complex term
    `A1 A2 e^{iΦ(ω)}`. Its phase is unwrapped over the fit band, which by
-   default is where `|A1 A2|` exceeds 15 % of its peak.
+   default is where `|A1 A2|` exceeds 15 % of its peak. A user fit range
+   is held to where `|A1 A2|` exceeds 5 % of its peak, because below that
+   the phase is noise and unwraps badly. The band actually used is
+   reported in `fit_range_nm`.
 5. Weighted least squares
    `Φ(ω) = Φ0 + τ0 (ω − ω0) + ½ ΔGDD (ω − ω0)²`, with the residuals
    weighted by the fringe magnitude `|A1 A2|`. ω0 defaults to the centre
@@ -60,7 +63,7 @@ measure), **never 0**: a merged peak is not evidence of zero delay.
 
 | Flag | Raised when |
 |---|---|
-| `sideband_not_found` | No sideband clears the central peak and the noise. No τ0 or ΔGDD is reported. |
+| `sideband_not_found` | The shot holds no spectrum (the smoothed peak stands fewer than 10 pixel-noise units above the median), or no sideband clears the central peak and the noise. No τ0 or ΔGDD is reported. |
 | `sideband_overlaps_central` | The central peak does not fall to 5 % of the sideband peak before the sideband, or the window reaches into the central peak. |
 | `sideband_broadened` | The sideband is more than 3× its unchirped width (the transform of `|A1A2|`), and its edge reaches below half its delay. Strong ΔGDD smears it across the gap that isolates it. |
 | `window_sensitive` | Moving any window edge in or out by 10 % of the width changes τ0 by more than max(1 fs, 3σ), or ΔGDD by more than max(20 fs², 10 %, 3σ). |
