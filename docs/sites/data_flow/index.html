@@ -367,7 +367,7 @@ svg.has-sel .step:not(.on){opacity:.25}
   <circle class="st st-exploratory" cx="690" cy="700" r="4"/><text class="t-sub" x="698" y="704">exploratory</text>
   <text class="t-sub" x="900" y="704">Click any block for what it does, how it works, status and next steps.</text>
 </svg>
-<figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the deployment since 2026-10-30: the CA gateway and the GEECS DB on the central server, Tiled and every worker-side service on the services box.</figcaption>
+<figcaption><span class="l-amber" style="color:var(--amber);font-weight:600">*</span> Cameras are the first non-scalar device type on the image path. The PVA gateway will expand to cover every GEECS device type that saves non-scalar data. One scan reads left to right: the request enters the queueserver, setpoints and readbacks cross the CA gateway, and everything the scan produces drops into Tiled and the NAS scan folder, where people and agents read it back. Two ways in, one engine, one folder layout. Status dots are the maintainer's read as of 2026-09-08; click a block for the detail behind it. Ports and hosts are the deployment as of 2026-11-15: the GEECS DB on the central server; Tiled and every worker-side service on the services box since 2026-10-30, and the CA gateway beside them since 2026-11-15.</figcaption>
 </figure>
 
 <div class="grid">
@@ -403,8 +403,8 @@ svg.has-sel .step:not(.on){opacity:.25}
   <h2>What runs where today</h2>
   <p class="sub" style="margin:0 0 12px">A sketch. The <a href="../../platform/fleet_map/">Fleet Map</a> is the authoritative table of hosts, ports, health checks and runbooks, and the place drift is reconciled.</p>
   <div class="hosts">
-    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>CA gateway and GEECS DB. Tiled and the worker-side services ran here too until 2026-10-30.</p></div>
-    <div class="host"><div class="h">Services box</div><div class="ip">192.168.6.22 · Ubuntu 24.04 · systemd</div><p>Tiled and the worker-side services since 2026-10-30: queueserver, Tiled writer, scanner, GEECS-MCP HTTP, Data Portal, logbook, Archiver Appliance. Canopy and the Control Room were set up here after the move.</p></div>
+    <div class="host"><div class="h">Central lab server</div><div class="ip">192.168.6.14 · Ubuntu · systemd</div><p>GEECS DB. The CA gateway ran here until 2026-11-15, Tiled and the worker-side services until 2026-10-30.</p></div>
+    <div class="host"><div class="h">Services box</div><div class="ip">192.168.6.22 · Ubuntu 24.04 · systemd</div><p>Tiled and the worker-side services since 2026-10-30: queueserver, Tiled writer, scanner, GEECS-MCP HTTP, Data Portal, logbook, Archiver Appliance; the CA gateway since 2026-11-15. Canopy and the Control Room were set up here after the move.</p></div>
     <div class="host"><div class="h">Camera servers</div><div class="ip">Windows · NSSM service</div><p>One PVA image gateway per host, beside the LabVIEW camera devices. It serves the live frames and writes the scan's HDF5 stacks. Images never transit the central server.</p></div>
     <div class="host"><div class="h">Device hosts</div><div class="ip">Windows · LabVIEW</div><p>GEECS devices as always. Nothing installed for this stack; the gateway speaks their existing UDP/TCP protocol.</p></div>
     <div class="host"><div class="h">Data share</div><div class="ip">NAS · SMB</div><p>The scan folder tree. Written by the engine, the PVA gateways and LabVIEW; read by everyone else.</p></div>
@@ -489,11 +489,11 @@ const INFO = {
   "status": "robust",
   "does": "Mirrors every scalar GEECS variable as an EPICS PV, with a writable `:SP` setpoint PV beside each settable one. Phoebus, Bluesky, a future Archiver and OSPREY's generic EPICS tools all reach GEECS through it with no GEECS-specific code.",
   "how": [
-   "A caproto soft IOC on the central server. At start it pulls the served set, limits and variable types from the GEECS DB for the experiment.",
+   "A caproto soft IOC on the services box (the central server until 2026-11-15). At start it pulls the served set, limits and variable types from the GEECS DB for the experiment.",
    "A TCP subscription per device feeds the readback PVs; a `caput` on a `:SP` becomes a blocking UDP set to the device.",
    "Per-device supervisors reconnect with backoff and mark readbacks INVALID while a device is down. A client-writable `cagateway:restart` PV makes systemd relaunch it and re-sync from the DB."
   ],
-  "now": "In daily use on the central server, serving about 99 devices. The half-open-socket blind spot that froze readbacks was closed in 0.20.0 (2026-08-24) with TCP keepalive plus supervised reconnect.",
+  "now": "In daily use on the services box since 2026-11-15 (the central server before), serving the experiment's devices — 86 on the day it moved. The half-open-socket blind spot that froze readbacks was closed in 0.20.0 (2026-08-24) with TCP keepalive plus supervised reconnect.",
   "next": [
    "Sharding across several processes under systemd for fault isolation when the served set grows.",
    "Archive deadbands (MDEL/ADEL split) when the Archiver Appliance lands.",

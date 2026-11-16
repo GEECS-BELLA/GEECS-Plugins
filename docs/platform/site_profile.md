@@ -7,8 +7,9 @@ fleet be stood up on a new box, on a different network, or at a
 different GEECS facility without forking any file in the repository.
 
 !!! note "Reference deployment"
-    HTU/Undulator on the services box (the CA gateway and the DB on the
-    central lab server) is the worked example throughout the docs. Its
+    HTU/Undulator on the services box (the DB on the central lab server;
+    the CA gateway joined the box on 2026-11-15) is the worked example
+    throughout the docs. Its
     values appear in runbooks and templates only as **examples** — the
     rule below is what makes that safe.
 

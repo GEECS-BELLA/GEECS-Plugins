@@ -106,7 +106,7 @@ uri = http://192.168.6.22:8000
 api_key = <ask the Tiled admin>
 
 [epics]
-ca_addr_list = 192.168.6.14
+ca_addr_list = 192.168.6.22
 
 [pva]
 addr_list = 192.168.6.100 192.168.7.161 192.168.8.197

@@ -58,8 +58,12 @@ back into this table.
     the scanner, GEECS-MCP, the Data Portal, the logbook, the Archiver
     Appliance) and Tiled itself moved from the central server to the
     dedicated services box at 192.168.6.22 (Ubuntu 24.04, racked on the
-    central server's subnet 2026-11-02); the central server keeps the CA
-    gateway and the GEECS DB. Canopy, the Control Room and a second
+    central server's subnet 2026-11-02); the central server kept the CA
+    gateway and the GEECS DB. Amended **2026-11-15**: the CA gateway
+    followed to the box (`geecs-ca-gateway` there, the same 0.21.5 the
+    instance gateway runs; every client's `[epics] ca_addr_list` names
+    192.168.6.22 first), and the central server keeps the GEECS DB alone.
+    Canopy, the Control Room and a second
     experiment instance (PulsedWire: its own CA gateway, queueserver,
     Tiled writer, scanner and logbook, as `<unit>@PulsedWire`) were set
     up on the box after the move; none of them ever ran on the central
@@ -82,11 +86,11 @@ flowchart TB
     end
 
     subgraph central["Central lab server — 192.168.6.14 (Ubuntu 22.04)"]
-        cagw["CA gateway<br/>(GeecsCAGateway)"]
         db[("GEECS MySQL DB")]
     end
 
     subgraph services["Services box — 192.168.6.22 (Ubuntu 24.04)"]
+        cagw["CA gateway<br/>:5064 (GeecsCAGateway, since 2026-11-15)"]
         tiled["Tiled catalog<br/>:8000 (+ /ui)"]
         qs["Queueserver stack<br/>RE Manager :60615 / :60625<br/>doc stream :5568<br/>Redis (loopback)"]
         mcp["GEECS-MCP server<br/>:8100 (HTTP mode)"]
@@ -158,8 +162,8 @@ setpoint writes travel against the readback arrows, over the same
 connections.
 
 The services box took the worker-side services over on 2026-10-30 and
-Tiled followed; the CA gateway stayed on the central server, and the
-GEECS DB is LabVIEW infrastructure and stays where GEECS puts it. Canopy
+Tiled followed; the CA gateway followed on 2026-11-15, and the GEECS DB
+is LabVIEW infrastructure and stays where GEECS puts it. Canopy
 and the Control Room were set up on the box afterwards. The way back to
 the central server is the private geecs-epics repo's services-box
 runbook; it lapses once the central server's disabled units are removed.
@@ -177,7 +181,7 @@ rendered from it, never edited by hand.
 
 | Service | Host | Checkout | Port(s) | Supervision | Health check | Runbook |
 |---|---|---|---|---|---|---|
-| CA gateway (GeecsCAGateway) | 192.168.6.14 | `<root>/gateway-checkout` | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
+| CA gateway (GeecsCAGateway) | 192.168.6.22 (the services box, since 2026-11-15; on 192.168.6.14 before) | `<root>/gateway-checkout` | CA 5064/5065 | systemd `geecs-ca-gateway` | heartbeat + per-device `CONNECTED` PVs; `systemctl status` | [GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md) |
 | Tiled catalog | 192.168.6.22 (the services box, since 2026-10-30) | — (pip install; `~/tiled/config.yml`) | HTTP 8000 | systemd `tiled` | `GET /api/v1/`; web UI at `/ui` | [GeecsBluesky/TILED_SETUP.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/TILED_SETUP.md) |
 | Queueserver worker (RE Manager + Redis + doc proxy) | 192.168.6.22 (the services box) | `<root>/qs-checkout` | ZMQ 60615 (control), 60625 (console stream), 5568 (documents); Redis loopback-only | systemd `geecs-qserver` + `geecs-qserver-ready` (oneshot: opens the worker environment and asserts the plan list after every manager start) | `qserver status` from any client env — **ready** means the worker environment exists (`worker_environment_exists` true) *and* the allowed-plan list is non-empty; a running unit with a closed environment refuses every plan (`scripts/fleet_status.sh` reports both, #793) | [GeecsBluesky/qserver/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md) |
 | GEECS-MCP server (HTTP mode) — the agent's write entry point where it is deployed, over the scanner, portal and logbook APIs (one server, bound to the main experiment's scanner; an agent at an experiment instance speaks that scanner's HTTP API directly) | 192.168.6.22 (beside the three services it calls; stdio mode remains available per machine) | baked non-editably from the **worker's** clone `<root>/qs-checkout` into `<root>/geecs-mcp-venv`; a thin HTTP client that resolves nothing itself, so it needs no config-truth parity — it reaches the scanner, the portal and the logbook by URL (`config.ini [mcp] scanner_url / portal_url / logbook_url`) | HTTP 8100 (`/mcp`) | systemd `geecs-mcp` | tool call `scan_status` from an agent | [GEECS-MCP/deploy/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GEECS-MCP/deploy/DEPLOYMENT.md) |
@@ -362,22 +366,26 @@ Nothing about the old box migrates but its recipe, and the old box keeps
 running until the new one passes `/fleet-status` — that is what makes
 every step reversible. Two shapes, by what follows the worker family:
 
-- **Only the worker family moves** (queueserver, MCP, portal, logbook);
-  the CA gateway, Tiled and the DB stay on the gateway's box. Bring the
-  units up on the new host in the order below, verify, then stop them on
-  the old box. Client side: `[qserver] host` in every `config.ini`, the
-  portal's address, and OSPREY's MCP profile URL change; `[epics]
-  ca_addr_list` and `[tiled] uri` do not.
-- **The gateway (and Tiled) follow.** The new `site.env` carries the new
-  serving interface and beacon address; every client's `[epics]
-  ca_addr_list` (and `[tiled] uri`) changes, and every Phoebus settings
-  file with it. The gateway runbook says what a gateway move or restart
-  does to clients — monitors reconnect on their own; a routed or VPN
-  Phoebus display can look stuck until it is reopened
-  ([GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md)).
+- **The worker family and the CA gateway move together** (queueserver,
+  MCP, portal, logbook, and the gateway: scan mode requires the worker and
+  the gateway on one host — `check_gateway_host` in GeecsBluesky refuses a
+  scan-mode run otherwise, which is the shape the fleet was in from
+  2026-10-30 to 2026-11-15); Tiled and the DB stay where they are. Bring
+  the units up on the new host in the order below, verify, then stop them
+  on the old box. The new `site.env` carries the gateway's serving
+  interface and beacon address. Client side: `[qserver] host` in every
+  `config.ini`, the portal's address, OSPREY's MCP profile URL and the
+  first `[epics] ca_addr_list` entry change (and every Phoebus settings
+  file with the gateway's address); `[tiled] uri` does not.
+- **Tiled follows too.** Every client's `[tiled] uri` changes as well.
 
-Order for the worker family, on the new host, in one window with no
-scan running:
+Either way the gateway runbook says what a gateway move or restart does to
+CA clients — monitors reconnect on their own; a routed or VPN Phoebus
+display can look stuck until it is reopened
+([GeecsCAGateway/DEPLOYMENT.md](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsCAGateway/DEPLOYMENT.md)).
+
+Order for the worker family and the gateway, on the new host, in one
+window with no scan running:
 
 1. **Redis first, as the runbook's distro unit** (`systemctl enable --now
    redis-server`, [qserver runbook](https://github.com/GEECS-BELLA/GEECS-Plugins/blob/master/GeecsBluesky/qserver/deploy/DEPLOYMENT.md)).
@@ -389,14 +397,21 @@ scan running:
    steps when the unit is not enabled. Do not carry a `dump.rdb` from a
    newer Redis onto an older one; start empty instead (the runbook's
    notes give the RDB-version reason).
-2. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`); `qserver
+2. **`geecs-ca-gateway`** beside the old one (the new `site.env` carries
+   its serving interface and beacon; a client sees only the hosts its CA
+   list names, so two gateways can overlap). The worker's environment open
+   connects to its PVs, so it comes before the worker. The check:
+   `cagateway:heartbeat` ticking and `devices_connected` matching the old
+   host's (the 2026-11-15 move: 86 against 91, the difference five devices
+   disabled in the DB that morning).
+3. **`geecs-qserver`** (it pulls in `geecs-qserver-ready`); `qserver
    status` (readiness, not just the port) is the check. Then
    **`geecs-tiled-writer`** beside it — the same clone and env, the spool
    is a local directory of that host; `heartbeat.json` under
    `/var/lib/geecs-tiled-writer` within a few seconds is the check.
-3. **`geecs-mcp`** from a venv baked on the new host, then
+4. **`geecs-mcp`** from a venv baked on the new host, then
    **`geecs-data-portal`**, **`geecs-logbook`**.
-4. `scripts/fleet_status.sh` from a client pointed at the new host: every
+5. `scripts/fleet_status.sh` from a client pointed at the new host: every
    row systemd, clean clone, matching versions, nothing UNMANAGED. Then
    stop and disable the old box's units, and rewrite this page's table to
    the observed truth in the same PR.
@@ -404,7 +419,10 @@ scan running:
 The same order, minus the client changes, is the one that kept each
 step reversible on the 2026-09-04 same-box promotion (hand-started
 processes → units): queueserver family, MCP, portal, and the gateway
-last and only with the owner's go.
+last and only with the owner's go — last because nothing changed hosts
+that day. On the 2026-11-15 gateway move it came first, beside the old
+one, and the clients were switched after its heartbeat and device count
+were checked.
 
 ## How the planes connect
 
