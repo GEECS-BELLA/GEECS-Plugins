@@ -96,6 +96,12 @@ extending this package.
   server-to-server, and a path-shaped base names the browser's front
   door, not a host this process can dial (it links but cannot send —
   `logbook_send` in the page context and the run JSON).
+  `--logbook-browser-url` splits the two: when set, every link (the run
+  page's, `logbook` in the run JSON, a send reply's `url`) uses it,
+  and the send still dials `--logbook-url` (`PortalState.logbook_browser_base`;
+  the fallback is GeecsControlRoom's `canopy_browser_url or canopy_url`).
+  It must be absolute: a path would take the portal's own prefix, and
+  `create_app` refuses one.
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
   imports `tiled` directly and never talks to the catalog server except
@@ -215,6 +221,8 @@ geecs_portal/
                  #   --configurator-browser-url  the configurator as the browser reaches it (the edit drawer)
                  #   --logbook-url  the logbook service's base URL (its own process,
                  #                  :8400); the run page's "log" link; empty = no link
+                 #   --logbook-browser-url  the logbook as the browser reaches it,
+                 #                  when that differs (links only; the send dials --logbook-url)
   templates/     # base.html / day.html / run.html (Jinja2; every colour a GeecsWebTheme token)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)

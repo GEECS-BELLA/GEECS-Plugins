@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
@@ -97,6 +97,7 @@ def _artifact_image(
 def run_logbook_send(
     uid: str,
     payload: PlotToLogbook,
+    request: Request,
     day: str = "",
     portal: PortalState = Depends(get_state),
 ) -> JSONResponse:
@@ -117,7 +118,8 @@ def run_logbook_send(
     are about this payload (409/413/415, and 404 for an ``entry_required``
     entry that is gone — never a fresh one), else 502.  The reply carries
     the attachment ``link`` the body now shows, so a caller appending
-    more can cite it.
+    more can cite it, and the entry's ``url`` as the browser reaches it
+    (the browser base, never the address this process dialled).
     """
     detail = portal.load_run(uid)
     if not portal.logbook_send_allowed(detail):
@@ -180,7 +182,7 @@ def run_logbook_send(
         {
             "entry_id": result.entry_id,
             "appended": result.appended,
-            "url": f"{portal.logbook_send_base}/entry/{result.entry_id}",
+            "url": f"{portal.logbook_browser_base(request)}/entry/{result.entry_id}",
             "link": result.link,
         },
         status_code=201,

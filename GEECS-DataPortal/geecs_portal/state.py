@@ -90,6 +90,8 @@ class PortalState:
     default_experiment: str = ""
     processing_config_dir: Optional[Path] = None
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None
+    #: The logbook as the browser reaches it: every link the page or a
+    #: reply hands out (``--logbook-browser-url``, else ``--logbook-url``).
     logbook_base: str = ""
     #: Sending needs an address the PORTAL can reach, not one the browser
     #: can: the call is server-to-server (``geecs_portal.logbook_send``),
@@ -130,12 +132,18 @@ class PortalState:
             return ""
         if summary.experiment != self.default_experiment:
             return ""
-        base = (
-            _root(request) + self.logbook_base
-            if self.logbook_base.startswith("/")
-            else self.logbook_base
-        )
+        base = self.logbook_browser_base(request)
         return f"{base}/day/{run_day.isoformat()}#Scan{summary.scan_number:03d}"
+
+    def logbook_browser_base(self, request: Request) -> str:
+        """The logbook's base URL as this request's browser reaches it.
+
+        A path-shaped base (``/log``) is same-origin and takes this app's
+        own prefix; an absolute one is used verbatim.
+        """
+        if self.logbook_base.startswith("/"):
+            return _root(request) + self.logbook_base
+        return self.logbook_base
 
     def logbook_send_allowed(self, detail) -> bool:
         """Whether a send to the logbook is possible for this run at all.
