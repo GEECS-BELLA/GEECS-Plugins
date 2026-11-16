@@ -437,6 +437,16 @@ class TestRouteGate:
             in client.get(f"/run/{_UID}").text
         )
 
+    def test_a_path_shaped_browser_url_is_refused(self) -> None:
+        """A path would take the portal's own prefix: the front door's logbook is never there."""
+        with pytest.raises(ValueError, match="absolute"):
+            create_app(
+                FakeCatalog(),
+                default_experiment="Undulator",
+                logbook_url="http://127.0.0.1:8400",
+                logbook_browser_url="/undulator/logbook",
+            )
+
     def test_no_logbook_url_means_no_send_route(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

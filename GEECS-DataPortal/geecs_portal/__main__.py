@@ -82,7 +82,8 @@ def main() -> None:
             "--logbook-url (a site value, e.g. https://<front door>/<experiment>/logbook): "
             "every link uses it, while the plot send keeps posting to "
             "--logbook-url, an address this process dials; empty = links use "
-            "--logbook-url"
+            "--logbook-url. Absolute only (a path would take this portal's own "
+            "prefix)"
         ),
     )
     args = parser.parse_args()

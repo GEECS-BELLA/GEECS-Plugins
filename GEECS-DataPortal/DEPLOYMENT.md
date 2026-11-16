@@ -336,8 +336,9 @@ the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`.
 the browser and this process reach the logbook at different addresses:
 keep `--logbook-url` the address the portal dials
 (`http://127.0.0.1:8400`) and add `--logbook-browser-url
-https://<name>/<experiment>/logbook`. Every link the page or a send
-reply hands out uses the browser URL; the send still posts to
+https://<name>/<experiment>/logbook` (absolute: a path would be taken as
+the portal's own origin and prefix, and is refused at start). Every link
+the page or a send reply hands out uses the browser URL; the send still posts to
 `--logbook-url`, so the portal never has to resolve the front door's
 name or trust its certificate. The link is
 built for runs of `--experiment` alone: the logbook serves one

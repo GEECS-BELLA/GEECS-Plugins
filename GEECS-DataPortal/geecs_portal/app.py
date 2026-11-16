@@ -174,7 +174,8 @@ def create_app(
         ``https://<name>/<experiment>/logbook``, while ``logbook_url``
         stays an address this process dials). Every link uses it; the
         plot send still posts to ``logbook_url``. Empty: links use
-        ``logbook_url``.
+        ``logbook_url``. Absolute only (``ValueError`` otherwise): a path
+        would take this app's prefix, which is where it never is.
     logbook_client : httpx.Client, optional
         The HTTP client the plot send talks to the logbook with. ``None``
         (the default) makes one per send; tests inject a client over an
@@ -226,6 +227,14 @@ def create_app(
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
     data_cache = ShotDataCache()
+    if logbook_browser_url and not logbook_browser_url.startswith(
+        ("http://", "https://")
+    ):
+        # A path would be taken as same-origin and get this app's own prefix:
+        # a logbook on its own path behind the front door is never there.
+        raise ValueError(
+            f"logbook_browser_url must be absolute (http(s)://...): {logbook_browser_url!r}"
+        )
     logbook_send_url = logbook_url.rstrip("/")
     logbook_base = (logbook_browser_url or logbook_url).rstrip("/")
     portal = PortalState(

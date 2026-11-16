@@ -98,9 +98,10 @@ extending this package.
   `logbook_send` in the page context and the run JSON).
   `--logbook-browser-url` splits the two: when set, every link (the run
   page's, `logbook` in the run JSON, a send reply's `url`) uses it,
-  and the send still dials `--logbook-url` — the scanner's
-  `--configurator-url` / `--configurator-browser-url` pair, for the same
-  reason (`PortalState.logbook_browser_base`).
+  and the send still dials `--logbook-url` (`PortalState.logbook_browser_base`;
+  the fallback is GeecsControlRoom's `canopy_browser_url or canopy_url`).
+  It must be absolute: a path would take the portal's own prefix, and
+  `create_app` refuses one.
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
   imports `tiled` directly and never talks to the catalog server except
