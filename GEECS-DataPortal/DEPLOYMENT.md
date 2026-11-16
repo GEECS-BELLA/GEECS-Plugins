@@ -329,7 +329,17 @@ scan to its card there (`<base>/day/YYYY-MM-DD#ScanNNN`; `GET
 (`http://<host>:8400`) is used as given; a path (`/log`, once the fleet's
 front door routes it to the logbook) is same-origin and carries the
 portal's own proxy prefix. Without the flag there is no link. Set it on
-the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`. The link is
+the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`.
+
+**Behind a front door that serves the logbook on its own path**
+(`https://<name>/<experiment>/logbook`, not under the portal's prefix),
+the browser and this process reach the logbook at different addresses:
+keep `--logbook-url` the address the portal dials
+(`http://127.0.0.1:8400`) and add `--logbook-browser-url
+https://<name>/<experiment>/logbook`. Every link the page or a send
+reply hands out uses the browser URL; the send still posts to
+`--logbook-url`, so the portal never has to resolve the front door's
+name or trust its certificate. The link is
 built for runs of `--experiment` alone: the logbook serves one
 experiment's share and scan numbers restart per experiment.
 

@@ -401,6 +401,42 @@ class TestRouteGate:
         assert call["png"] == _PNG
         assert call["filename"] == "scan002-plot.png"
 
+    def test_a_browser_url_names_the_entry_the_send_still_dials_the_logbook(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Behind a front door the browser and this process reach the logbook differently."""
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        client = _client(
+            logbook_url="http://127.0.0.1:8400",
+            logbook_browser_url="https://front.example/undulator/logbook",
+        )
+        response = _post(client)
+        assert response.status_code == 201
+        assert (
+            response.json()["url"] == "https://front.example/undulator/logbook/entry/e1"
+        )
+        assert stub.calls[0]["base_url"] == "http://127.0.0.1:8400"
+        html = client.get(f"/run/{_UID}").text
+        assert (
+            'href="https://front.example/undulator/logbook/day/2026-07-12#Scan002"'
+            in html
+        )
+
+    def test_a_browser_url_alone_links_but_cannot_send(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The send dials --logbook-url only; the browser's address is never dialled."""
+        stub = _StubSend()
+        monkeypatch.setattr(logbook_send, "send_plot", stub)
+        client = _client(logbook_url="", logbook_browser_url="https://front.example/l")
+        assert _post(client).status_code == 404
+        assert not stub.calls
+        assert (
+            'href="https://front.example/l/day/2026-07-12#Scan002"'
+            in client.get(f"/run/{_UID}").text
+        )
+
     def test_no_logbook_url_means_no_send_route(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

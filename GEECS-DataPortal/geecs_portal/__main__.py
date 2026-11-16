@@ -74,6 +74,17 @@ def main() -> None:
             "mounts the logbook"
         ),
     )
+    parser.add_argument(
+        "--logbook-browser-url",
+        default="",
+        help=(
+            "the logbook as the browser reaches it, when that differs from "
+            "--logbook-url (a site value, e.g. https://<front door>/<experiment>/logbook): "
+            "every link uses it, while the plot send keeps posting to "
+            "--logbook-url, an address this process dials; empty = links use "
+            "--logbook-url"
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -103,6 +114,7 @@ def main() -> None:
             Path(args.processing_configs) if args.processing_configs else None
         ),
         logbook_url=args.logbook_url,
+        logbook_browser_url=args.logbook_browser_url,
         configurator_url=args.configurator_browser_url,
     )
     uvicorn.run(

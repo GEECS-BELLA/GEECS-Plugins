@@ -126,6 +126,7 @@ def create_app(
     processing_config_dir: Optional[Path] = None,
     analysis_factory: Optional[analysis_runs.AnalyzerFactory] = None,
     logbook_url: str = "",
+    logbook_browser_url: str = "",
     logbook_client: Optional[httpx.Client] = None,
     configurator_url: str = "",
 ) -> FastAPI:
@@ -167,6 +168,13 @@ def create_app(
         shows no link. The link is built for runs of
         ``default_experiment`` alone — the logbook serves one
         experiment's share and scan numbers restart per experiment.
+    logbook_browser_url : str, optional
+        The logbook as the browser reaches it, when that differs from
+        ``logbook_url`` (behind a front door: the browser's
+        ``https://<name>/<experiment>/logbook``, while ``logbook_url``
+        stays an address this process dials). Every link uses it; the
+        plot send still posts to ``logbook_url``. Empty: links use
+        ``logbook_url``.
     logbook_client : httpx.Client, optional
         The HTTP client the plot send talks to the logbook with. ``None``
         (the default) makes one per send; tests inject a client over an
@@ -218,7 +226,8 @@ def create_app(
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
     data_cache = ShotDataCache()
-    logbook_base = logbook_url.rstrip("/")
+    logbook_send_url = logbook_url.rstrip("/")
+    logbook_base = (logbook_browser_url or logbook_url).rstrip("/")
     portal = PortalState(
         catalog=catalog,
         templates=templates,
@@ -230,7 +239,9 @@ def create_app(
         analysis_factory=analysis_factory,
         logbook_base=logbook_base,
         logbook_send_base=(
-            logbook_base if logbook_base.startswith(("http://", "https://")) else ""
+            logbook_send_url
+            if logbook_send_url.startswith(("http://", "https://"))
+            else ""
         ),
         logbook_client=logbook_client,
         configurator_url=configurator_url.rstrip("/"),
