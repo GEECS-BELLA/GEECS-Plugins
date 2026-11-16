@@ -111,6 +111,15 @@ class ForwardedPrefixMiddleware:
     serves the HTML and loses every stylesheet and script (a styleless
     page, not a 404). Verified on the logbook and the portal, 2026-09-13.
 
+    That holds for ``FastAPI(root_path=…)`` (the logbook's and the
+    scanner's ``--root-path``). ``uvicorn.run(root_path=…)`` (the
+    portal's, the Control Room's and the configurator's, and Canopy's
+    ``--root-path``) is the opposite shape: uvicorn prepends the root path
+    to every request itself, so the app answers ``/run/…`` and
+    ``/theme/…`` and 404s ``/portal/…``. It suits a stripping proxy that
+    sends no header. Verified on the portal with uvicorn 0.52.4,
+    2026-11-16.
+
     The path is re-prefixed too (the ASGI-canonical shape: ``path``
     includes ``root_path``). Starlette's router strips ``root_path`` from
     the FRONT of ``path`` wherever it happens to match, so the

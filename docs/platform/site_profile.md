@@ -333,9 +333,13 @@ in `site.env` when one arrives.
 - **Canopy is stripped too.** `GEECS_CANOPY_ROOT_PATH=/canopy` makes
   uvicorn's `--root-path` add the prefix back, so it expects the request
   *without* it: behind `--root-path /canopy`, `/docs` answers and
-  `/canopy/docs` is a 404. The same holds for the `--root-path` flags the
-  other surfaces take, which are only for a proxy that strips the prefix
-  without sending `X-Forwarded-Prefix`.
+  `/canopy/docs` is a 404. The GEECS surfaces need no `--root-path`
+  behind a proxy that sends the header. Their flags are not one shape
+  anyway: the portal's, the Control Room's and the configurator's go to
+  `uvicorn.run` and behave like Canopy's (a stripping proxy), while the
+  logbook's and the scanner's go to `FastAPI(root_path=…)` and expect the
+  prefix kept (`geecs_web_theme.web`'s middleware docstring).
+  Verified with uvicorn 0.52.4, 2026-11-16.
 - **Pass WebSocket upgrades** (`Upgrade`, `Connection`, HTTP/1.1):
   Hare's `/canopy/hare/v1/ws/pvs` is one.
 - **Send `X-Forwarded-Proto`**, and let uvicorn trust it from the
@@ -366,20 +370,25 @@ certificate and no call depends on the proxy.
 | `GEECS_CONTROL_ROOM_SCANNER_BROWSER_URL` | browser | `http://<host>:8300` | `https://<name>/<experiment>/scanner` |
 | `GEECS_CONTROL_ROOM_PORTAL_URL`, `_LOGBOOK_URL`, `_CONFIG_EDITOR_URL` | browser | `http://<host>:<port>` | `https://<name>/portal`, `/<experiment>/logbook`, `/config` |
 | `GEECS_CONFIGURATOR_SCANNER_URL`, `_PORTAL_URL` | server | loopback | unchanged |
-| `GEECS_CONFIGURATOR_CORS_ORIGINS` | browser origins | the scanner's and the portal's `http://<host>:<port>` | add `https://<name>` (the embedded editor is same-origin behind the proxy; the old origins stay while they are used) |
+| `GEECS_CONFIGURATOR_CORS_ORIGINS` | browser origins | the scanner's and the portal's `http://<host>:<port>` | unchanged: through the proxy the embedded editor is same-origin and needs no entry, and a scanner or portal still opened on its port loads the editor from the name cross-origin, so keep those port origins while the ports are used |
 | `GEECS_CANOPY_ROOT_PATH` | | empty | `/canopy` |
 | `FORWARDED_ALLOW_IPS` | | absent (uvicorn's `127.0.0.1`) | `127.0.0.1,<the address the proxy dials>` |
 | config.ini `[mcp]` URLs | server | `http://<host>:<port>` | unchanged |
 
-**The order.** First, the proxy answers every path by name; the old
-`<host>:<port>` addresses keep working throughout. Then, between scans,
-edit `site.env` (a dated backup first) and restart the services it
-feeds: Canopy before the Control Room, then the portal, each scanner
-(`geecs-scanner`, `geecs-scanner@<Instance>`) and the configurator. The
-queueservers and the logbooks read none of these keys and keep running. Last, add the `/canopy`
-route, which 404s until Canopy runs with its root path. Check that each surface's
-cross-links (the Control Room's launcher, a portal run page's "log ↗", the
-scanner's portal link) carry the name.
+**The order.** First, the proxy answers every path but `/canopy` by
+name; the old `<host>:<port>` addresses keep working throughout. Then,
+between scans, edit `site.env` (a dated backup first) and restart:
+
+1. Canopy, then add the `/canopy` route (it 404s until Canopy runs with
+   its root path);
+2. the Control Room, whose browser URL for Canopy is now that route;
+3. the portal, each scanner (`geecs-scanner`, `geecs-scanner@<Instance>`)
+   and the configurator.
+
+The queueservers keep running. So do the logbooks: they take no URL keys,
+and the proxy reaches them on loopback, which uvicorn trusts already.
+Check that each surface's cross-links (the Control Room's launcher, a
+portal run page's "log ↗", the scanner's portal link) carry the name.
 
 **A new experiment** behind a front door: `deploy/experiment.sh up` prints
 its two routes. Add them to the proxy, and the instance's scanner inherits

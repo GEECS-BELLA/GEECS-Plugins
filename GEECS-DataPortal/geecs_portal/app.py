@@ -163,8 +163,9 @@ def create_app(
         The logbook's base URL — its own service since GeecsLogbook
         0.10.0 (port 8400; the portal no longer mounts it). The run page
         links each scan to its card there. An absolute URL is used as
-        given; a path (``/log``, the front door's route) is same-origin
-        and carries this app's own mount prefix. Empty (the default)
+        given; a path is same-origin and carries this app's own mount
+        prefix (it links but cannot send: behind a front door use an
+        absolute address here and ``logbook_browser_url`` for the links). Empty (the default)
         shows no link. The link is built for runs of
         ``default_experiment`` alone — the logbook serves one
         experiment's share and scan numbers restart per experiment.

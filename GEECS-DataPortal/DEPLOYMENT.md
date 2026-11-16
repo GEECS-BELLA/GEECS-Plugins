@@ -193,21 +193,18 @@ Two proxy shapes, one setting each — they are **not interchangeable**
 
 - **Prefix-stripping** (the nginx block above; Caddy `handle_path`):
   forwards `/run/…` and sends the header. No flag.
-- **Prefix-preserving** (forwards `/portal/run/…` as is, sends no
-  header): start the service with `geecs-data-portal --root-path
-  /portal`. The page then links `/portal/theme/…`, and the mounted
-  assets (`/theme`) answer at the prefixed path **only** —
-  plain routes answer either way, which is why the wrong pairing fails
-  quietly: a stripping proxy without the header serves the HTML and
-  loses every stylesheet and script. In this mode also avoid mount names
-  that collide with a portal route head, and know that trailing-slash
-  redirects drop the prefix (Starlette builds them from the un-prefixed
-  path; the header mode re-prefixes the path and has neither
-  limitation).
+- **Prefix-stripping without the header**: start the service with
+  `geecs-data-portal --root-path /portal`. The flag goes to
+  `uvicorn.run`, which adds the prefix back to every request, so the
+  portal answers `/run/…` and `/theme/…` and 404s `/portal/…`
+  (verified with uvicorn 0.52.4, 2026-11-16; this page said the
+  opposite before, which held for `FastAPI(root_path=…)`, the logbook's
+  and the scanner's shape). A prefix-preserving proxy has no setting
+  here: make it strip and send the header.
 
 The header, when present, wins over the flag. A proxy that does **not**
 strip the prefix must not send it (the symptom of that misconfiguration
-is loud — every page 404s).
+is loud: every page 404s).
 
 For a panel health LED, probe `GET /health` — 200 always (the JSON
 `ok` field reports the catalog probe, so a down Tiled shows as a
