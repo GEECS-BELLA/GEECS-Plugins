@@ -3,7 +3,7 @@
 A thin measure over ``algorithms.spectral_interferometry``: the trace is one
 spectrometer shot (x in nm, counts) holding the interferogram of two
 collinear pulses. It emits τ0 at the reference wavelength, ΔGDD, their 1σ
-uncertainties, the reference used and a reliability flag; every raised
+uncertainties, the reference used and a reliability flag for each; every raised
 check is a note. Undetermined values are NaN with a note, never zero (a
 merged peak is not evidence of zero delay). See the algorithm module for
 the sign convention: τ0 ≥ 0 is the later pulse's delay, ΔGDD = late − early,
@@ -44,7 +44,8 @@ class SpectralInterferometrySpec(MeasureSpec):
         "delta_gdd_fs2": "Differential GDD, later pulse minus earlier, fs²",
         "delta_gdd_err_fs2": "1σ uncertainty of delta_gdd, fs²",
         "reference_wavelength_nm": "Wavelength tau0 is reported at, nm",
-        "reliable": "1 when no reliability check was raised, else 0 (the notes name them)",
+        "tau0_reliable": "1 when no check bearing on tau0 was raised, else 0 (the notes name them)",
+        "delta_gdd_reliable": "1 when no check at all was raised, else 0 (a narrow band leaves tau0 standing)",
     }
     resolution_nm: Optional[float] = Field(
         None,
@@ -73,7 +74,7 @@ class SpectralInterferometrySpec(MeasureSpec):
     )
 
     def emitted_scalars(self) -> frozenset[str]:
-        """The fit values, their uncertainties, the reference and the flag."""
+        """The fit values, their uncertainties, the reference and the two flags."""
         return frozenset(self.scalar_docs)
 
 
@@ -137,7 +138,8 @@ def spectral_interferometry(
             "delta_gdd_fs2": value(result.delta_gdd_fs2),
             "delta_gdd_err_fs2": value(result.delta_gdd_err_fs2),
             "reference_wavelength_nm": result.reference_wavelength_nm,
-            "reliable": float(result.reliable),
+            "tau0_reliable": float(result.tau0_reliable),
+            "delta_gdd_reliable": float(result.delta_gdd_reliable),
         },
         frame=frame,
         notes=tuple(result.messages),

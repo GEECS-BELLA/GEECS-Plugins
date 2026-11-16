@@ -17,6 +17,7 @@ import pytest
 from geecs_analysis.algorithms.spectral_interferometry import (
     C_NM_PER_FS,
     FLAG_NAMES,
+    GDD_ONLY_FLAGS,
     SpectralInterferometryConfig,
     SpectralInterferometryResult,
     analyze_interferogram,
@@ -275,11 +276,38 @@ class TestUnreliable:
     def test_narrow_bandwidth_is_flagged(self):
         result = analyse(3000.0, 0.0, fwhm_nm=3.0, noise=0.01)
         assert result.flags.narrow_bandwidth
-        assert not result.reliable
+        assert not result.reliable and not result.delta_gdd_reliable
+
+    def test_a_narrow_band_leaves_tau0_standing(self):
+        # Scan006's case: clean fringes over too little bandwidth for the
+        # curvature. τ0 is still well determined and stays reliable.
+        result = analyse(2350.0, 200.0, fwhm_nm=12.0, noise=0.01)
+        assert set(raised(result)) <= GDD_ONLY_FLAGS and result.flags.narrow_bandwidth
+        assert result.tau0_reliable and not result.delta_gdd_reliable
+        assert result.tau0_fs == pytest.approx(
+            expected_tau(2350.0, 200.0, result), abs=5 * result.tau0_err_fs
+        )
+
+    def test_tau0_reliability_is_every_flag_but_the_gdd_ones(self):
+        for tau, gdd, kw in [
+            (600.0, 300.0, {}),
+            (100.0, 0.0, {}),
+            (1500.0, 8000.0, {}),
+            (0.0, 0.0, {}),
+        ]:
+            result = analyse(tau, gdd, **kw)
+            bearing = raised(result) - GDD_ONLY_FLAGS
+            assert result.tau0_reliable == (result.tau0_fs is not None and not bearing)
+            assert result.delta_gdd_reliable == (
+                result.delta_gdd_fs2 is not None and not raised(result)
+            )
+            assert result.reliable == (
+                result.tau0_reliable and result.delta_gdd_reliable
+            )
 
     def test_a_partially_overlapping_sideband_is_window_sensitive(self):
         result = analyse(100.0, 0.0)
-        assert result.flags.window_sensitive
+        assert result.flags.window_sensitive_tau0 or result.flags.window_sensitive_gdd
         assert result.window_tau_shift_fs > 1.0 or result.window_gdd_shift_fs2 > 20.0
         assert analyse(600.0, 300.0).window_tau_shift_fs < 0.1
 
@@ -374,7 +402,8 @@ class TestMeasure:
         assert set(result.scalars) == analysis.measure.emitted_scalars()
         assert result.scalars["tau0_fs"] == pytest.approx(600.0, abs=0.1)
         assert result.scalars["delta_gdd_fs2"] == pytest.approx(300.0, rel=0.01)
-        assert result.scalars["reliable"] == 1.0
+        assert result.scalars["tau0_reliable"] == 1.0
+        assert result.scalars["delta_gdd_reliable"] == 1.0
         assert set(result.extras) == {"interference_phase", "phase_residual"}
 
     def test_undetermined_values_are_nan_with_notes(self):
@@ -386,5 +415,6 @@ class TestMeasure:
         )
         result = analyze(self._frame(0.0, 0.0), analysis)
         assert math.isnan(result.scalars["tau0_fs"])
-        assert result.scalars["reliable"] == 0.0
+        assert result.scalars["tau0_reliable"] == 0.0
+        assert result.scalars["delta_gdd_reliable"] == 0.0
         assert any("not evidence of zero delay" in note for note in result.notes)

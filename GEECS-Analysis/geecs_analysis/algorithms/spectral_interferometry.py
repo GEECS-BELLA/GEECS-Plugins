@@ -60,11 +60,16 @@ FLAG_NAMES = (
     "sideband_not_found",
     "sideband_overlaps_central",
     "sideband_broadened",
-    "window_sensitive",
+    "window_sensitive_tau0",
+    "window_sensitive_gdd",
     "fringes_undersampled",
     "fringes_unresolved",
     "narrow_bandwidth",
 )
+
+#: The flags that leave τ0 standing: they speak to ΔGDD alone. Every flag
+#: bears on ΔGDD (a sideband doubtful for τ0 is doubtful for its curvature).
+GDD_ONLY_FLAGS = frozenset({"narrow_bandwidth", "window_sensitive_gdd"})
 
 
 class SpectralInterferometryConfig(BaseModel):
@@ -210,7 +215,11 @@ class SpectralInterferometryConfig(BaseModel):
 
 
 class SpectralInterferometryFlags(BaseModel):
-    """One boolean per reliability check; any True makes the result unreliable."""
+    """One boolean per reliability check.
+
+    Any True makes ΔGDD unreliable; any but ``GDD_ONLY_FLAGS`` (a band too
+    narrow for the curvature, a window-sensitive ΔGDD) makes τ0 unreliable.
+    """
 
     sideband_not_found: bool = Field(
         description="No sideband stands clear of the central peak and the noise floor; no fit."
@@ -224,8 +233,11 @@ class SpectralInterferometryFlags(BaseModel):
             "broadening_reach of its delay: strong ΔGDD, clean isolation doubtful."
         )
     )
-    window_sensitive: bool = Field(
-        description="Moving the window edges changed tau0 or ΔGDD materially."
+    window_sensitive_tau0: bool = Field(
+        description="Moving the window edges changed tau0 materially."
+    )
+    window_sensitive_gdd: bool = Field(
+        description="Moving the window edges changed ΔGDD materially (ΔGDD only)."
     )
     fringes_undersampled: bool = Field(
         description="Fewer than min_samples_per_fringe detector pixels per fringe."
@@ -312,7 +324,11 @@ class SpectralInterferometryResult(BaseModel):
     )
     n_fit_pixels: int = Field(description="Detector pixels inside the fit band.")
     flags: SpectralInterferometryFlags
-    reliable: bool = Field(description="True when no flag is set.")
+    tau0_reliable: bool = Field(
+        description="True when no flag bearing on tau0 is set (all but GDD_ONLY_FLAGS)."
+    )
+    delta_gdd_reliable: bool = Field(description="True when no flag is set.")
+    reliable: bool = Field(description="Both tau0 and ΔGDD reliable (no flag set).")
     messages: list[str] = Field(description="One sentence per raised flag.")
     sign_convention: str = SIGN_CONVENTION
 
@@ -577,14 +593,15 @@ _MESSAGES = {
     "sideband_broadened": (
         "Differential dispersion broadens the sideband; clean isolation is doubtful."
     ),
-    "window_sensitive": (
-        "Changing the sideband window changes tau0 or delta GDD materially."
-    ),
+    "window_sensitive_tau0": "Changing the sideband window changes tau0 materially.",
+    "window_sensitive_gdd": "Changing the sideband window changes delta GDD materially.",
     "fringes_undersampled": (
         "The fringes are too fine for the detector's pixel sampling."
     ),
     "fringes_unresolved": "The fringes are too fine for the stated optical resolution.",
-    "narrow_bandwidth": "The usable bandwidth is too narrow for a reliable GDD fit.",
+    "narrow_bandwidth": (
+        "The usable bandwidth is too narrow for a reliable GDD fit (tau0 is unaffected)."
+    ),
 }
 
 
@@ -797,8 +814,8 @@ def _window_shifts(
     cfg: SpectralInterferometryConfig,
     fit: _Fit,
     refit: Callable[[int, int], Optional[_Fit]],
-) -> tuple[Optional[float], Optional[float], bool]:
-    """Move each window edge in and out; the largest τ0 and ΔGDD changes, and the flag."""
+) -> tuple[Optional[float], Optional[float], bool, bool]:
+    """Move each window edge in and out: the largest τ0 and ΔGDD changes, and their flags."""
     step = max(1, int(round(cfg.sensitivity_step * (sb.hi - sb.lo))))
     top = transform.positive_magnitude.size - 2
     shifts = []
@@ -813,7 +830,7 @@ def _window_shifts(
         if variant is not None:
             shifts.append((abs(variant.tau0 - fit.tau0), abs(variant.gdd - fit.gdd)))
     if not shifts:
-        return None, None, False
+        return None, None, False, False
     tau_shift = max(s[0] for s in shifts)
     gdd_shift = max(s[1] for s in shifts)
     tau_limit = max(cfg.sensitivity_tau_fs, 3.0 * fit.tau0_err)
@@ -822,7 +839,7 @@ def _window_shifts(
         cfg.sensitivity_gdd_rel * abs(fit.gdd),
         3.0 * fit.gdd_err,
     )
-    return tau_shift, gdd_shift, tau_shift > tau_limit or gdd_shift > gdd_limit
+    return tau_shift, gdd_shift, tau_shift > tau_limit, gdd_shift > gdd_limit
 
 
 def _broadening(
@@ -922,7 +939,12 @@ def _recover(
     else:
         local_delay = np.abs(fit.tau0 + fit.gdd * (band_omega - omega0))
         rec.sweep = abs(fit.gdd) * float(band_omega[-1] - band_omega[0])
-        rec.tau_shift, rec.gdd_shift, rec.flags["window_sensitive"] = _window_shifts(
+        (
+            rec.tau_shift,
+            rec.gdd_shift,
+            rec.flags["window_sensitive_tau0"],
+            rec.flags["window_sensitive_gdd"],
+        ) = _window_shifts(
             transform,
             sb,
             cfg,
@@ -1072,7 +1094,10 @@ def _result(
         rms_residual_rad=None if fit is None else fit.rms,
         n_fit_pixels=rec.n_fit_pixels,
         flags=SpectralInterferometryFlags(**rec.flags),
-        reliable=not any(rec.flags.values()),
+        tau0_reliable=fit is not None
+        and not any(v for k, v in rec.flags.items() if k not in GDD_ONLY_FLAGS),
+        delta_gdd_reliable=fit is not None and not any(rec.flags.values()),
+        reliable=fit is not None and not any(rec.flags.values()),
         messages=[_MESSAGES[name] for name in FLAG_NAMES if rec.flags[name]],
     )
 

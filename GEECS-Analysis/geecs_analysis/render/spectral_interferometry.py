@@ -165,7 +165,16 @@ def diagnostic_figure(
     _delay_panel(fig.add_subplot(grid[:, 1]), result, tr)
     _phase_panels(phase, fig.add_subplot(grid[1, 2], sharex=phase), result, tr)
     raised = [name for name, value in result.flags.model_dump().items() if value]
-    status = "reliable" if result.reliable else "UNRELIABLE: " + ", ".join(raised)
+
+    def verdict(name: str, ok: bool) -> str:
+        return f"{name} reliable" if ok else f"{name} UNRELIABLE"
+
+    status = (
+        "reliable"
+        if result.reliable
+        else f"{verdict('τ0', result.tau0_reliable)}, "
+        f"{verdict('ΔGDD', result.delta_gdd_reliable)}: " + ", ".join(raised)
+    )
     fig.suptitle(
         f"{title}  —  {status}" if title else status,
         color="black" if result.reliable else "C3",
