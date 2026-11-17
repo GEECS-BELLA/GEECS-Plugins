@@ -166,6 +166,16 @@ Resolves the GEECS data root and experiment name. Reading order:
 
 Also provides optional paths for config repos and FROG DLL.
 
+`[data_folders]` maps an experiment to the folder its scans live in under
+the base path (`data_folders`, `data_folder_for`): an empty value means
+the experiment's `Y{YYYY}` folders sit directly in the base path (a site
+whose data tree predates the convention), another name a renamed folder.
+`ScanPaths.get_daily_scan_folder` builds through it and
+`ScanPaths(folder=…)` parses back through `experiment_for_data_folder`, so
+the tag keeps the experiment name and the path round-trips; an experiment
+without an entry, or a config without the section, follows the convention
+unchanged. Pinned by `tests/test_data_folders.py`.
+
 ## GEECS Folder Convention
 
 ```

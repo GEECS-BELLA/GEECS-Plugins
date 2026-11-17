@@ -13,7 +13,9 @@ from __future__ import annotations
 from typing import Optional, Union
 
 import logging
+import os
 from configparser import ConfigParser
+from configparser import Error as ConfigParserError
 from pathlib import Path
 from geecs_data_utils.utils import ConfigurationError
 
@@ -135,6 +137,9 @@ class GeecsPathsConfig:
         self.wavekit_python_path: Optional[Path] = None
         self.wavekit_launcher: Optional[str] = None
         self.wavekit_configs_path: Optional[Path] = None
+        self.data_folders: dict[str, str] = (
+            self._read_data_folders(config_path) if config_path.exists() else {}
+        )
 
         if config_path.exists():
             try:
@@ -169,6 +174,91 @@ class GeecsPathsConfig:
                 logger.debug("Could not read tool paths from config: %s", e)
 
     @staticmethod
+    def _read_data_folders(config_path: Path) -> dict[str, str]:
+        """Read ``[data_folders]``, keeping the experiment names' case.
+
+        A value that is not a single folder name (a separator, ``.`` or
+        ``..``) is logged and ignored, so the experiment falls back to its
+        own name rather than reaching outside the data root.
+        """
+        config = ConfigParser()
+        config.optionxform = str  # experiment names are case-sensitive folders
+        try:
+            config.read(config_path)
+        except (OSError, ConfigParserError) as e:
+            logger.debug("Could not read [data_folders] from config: %s", e)
+            return {}
+        if not config.has_section("data_folders"):
+            return {}
+        folders: dict[str, str] = {}
+        for experiment, raw in config.items("data_folders"):
+            folder = raw.strip()
+            if folder in (".", "..") or any(sep in folder for sep in "/\\"):
+                logger.warning(
+                    "[data_folders] %s = %r is not a single folder name; ignored",
+                    experiment,
+                    raw,
+                )
+                continue
+            folders[experiment] = folder
+        return folders
+
+    def data_folder_for(self, experiment: Optional[str]) -> str:
+        """The folder under ``base_path`` that holds *experiment*'s scans.
+
+        Parameters
+        ----------
+        experiment : str or None
+            GEECS experiment name.
+
+        Returns
+        -------
+        str
+            The ``[data_folders]`` entry when there is one (empty: the
+            ``Y{YYYY}`` folders sit directly in ``base_path``), else the
+            experiment name itself; empty for no experiment.
+        """
+        if not experiment:
+            return ""
+        return self.data_folders.get(experiment, experiment)
+
+    def experiment_for_data_folder(
+        self, folder: Path, base_path: Optional[Path] = None
+    ) -> str:
+        """The experiment whose scans live in *folder*, the inverse of :meth:`data_folder_for`.
+
+        Parameters
+        ----------
+        folder : Path
+            The folder above a scan's ``Y{YYYY}`` folder.
+        base_path : Path, optional
+            The data root *folder* was found under; defaults to
+            ``self.base_path``.
+
+        Returns
+        -------
+        str
+            The experiment mapped to an empty folder when *folder* is the
+            data root itself, else the experiment mapped to *folder*'s
+            name, else *folder*'s name (the GEECS convention).
+        """
+        root = base_path if base_path is not None else self.base_path
+        if root is not None and _same_path(folder, Path(root)):
+            flat = [e for e, f in self.data_folders.items() if f == ""]
+            if len(flat) == 1:
+                return flat[0]
+            if len(flat) > 1:
+                logger.warning(
+                    "[data_folders] maps several experiments to the data root "
+                    "(%s); a scan there cannot be attributed to one",
+                    ", ".join(flat),
+                )
+        renamed = [e for e, f in self.data_folders.items() if f and f == folder.name]
+        if len(renamed) == 1:
+            return renamed[0]
+        return folder.name
+
+    @staticmethod
     def _validate_path(input_path) -> Optional[Path]:
         """
         Validate and return path if it exists.
@@ -187,6 +277,13 @@ class GeecsPathsConfig:
             return input_path
         logger.warning("%s path was not found", input_path)
         return None
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    """Whether two paths name the same folder, lexically (no filesystem access)."""
+    return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(
+        os.path.normpath(str(b))
+    )
 
 
 if __name__ == "__main__":

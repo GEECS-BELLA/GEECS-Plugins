@@ -129,6 +129,7 @@ What each section is for, and who reads it:
 |---|---|---|
 | `[Paths] geecs_data` | Root of the experiment data share; also where `Configurations.INI` (database credentials) lives | Everything that touches scan data or the GEECS database |
 | `[Paths] GEECS_DATA_LOCAL_BASE_PATH` | The data share as mounted on *this* machine (scan-folder resolution; `scripts/lab_status.sh`'s mount probe) | GEECS-Data-Utils `GeecsPathsConfig`, the fleet scripts |
+| `[data_folders] <experiment> =` | Where an experiment's scans live under the data root, when not in a folder of its own name (optional). Empty: its `Y{YYYY}` folders sit directly in the data root. Every machine that writes or reads that experiment's scans needs the same entry | GEECS-Data-Utils `ScanPaths` (the worker's scan claim, the portal, the logbook, ScanAnalysis) |
 | `[Paths] geecs_tiled_host_data_base_path` | The data share as mounted on the **Tiled host**, only when that differs from this machine's mount: the Tiled writer registers each stream's Parquet table by the Tiled host's path. Unset = same mount | GeecsBluesky `geecs-tiled-writer` |
 | `[Paths] scan_analysis_configs_path` | Analyzer/diagnostic YAMLs in the configs repo | ScanAnalysis, the data portal (its analysis runs and previews) |
 | `[Paths] scanner_config_root_path` | The configs repo root (scanner configs, derived channels, experiment defaults) | GEECS Scanner, GeecsBluesky, the CA gateway |

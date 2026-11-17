@@ -118,7 +118,7 @@ class ScanPaths:
                 )
             folder = self.get_scan_folder_path(tag, base_directory=base_directory)
 
-        self._initialize_folders(folder, read_mode)
+        self._initialize_folders(folder, read_mode, base_directory=base_directory)
 
     @classmethod
     def reload_paths_config(
@@ -146,7 +146,12 @@ class ScanPaths:
             logger.error("Configuration Error in ScanData: %s", e)  # noqa: TRY400 — expected config state
             cls.paths_config = None
 
-    def _initialize_folders(self, folder: Path, read_mode: bool):
+    def _initialize_folders(
+        self,
+        folder: Path,
+        read_mode: bool,
+        base_directory: Union[Path, str, None] = None,
+    ):
         """
         Initialize and validate folder paths for the scan.
 
@@ -156,6 +161,10 @@ class ScanPaths:
             Folder path for the scan.
         read_mode : bool
             If True, raise an error if the folder does not exist.
+        base_directory : Path or str, optional
+            The data root the folder was built under, when the caller gave
+            one: a scan directly in it belongs to the experiment
+            ``[data_folders]`` maps to an empty folder.
 
         Raises
         ------
@@ -210,11 +219,26 @@ class ScanPaths:
             self._tag_date.month,
             self._tag_date.day,
             parse_scan_folder_name(scan_folder_name),
-            experiment=exp_name,
+            experiment=self._experiment_from_folder(
+                folder.parents[4], exp_name, base_directory
+            ),
         )
 
         # Assign folder attributes
         self._folder = folder
+
+    @staticmethod
+    def _experiment_from_folder(
+        experiment_folder: Path,
+        folder_name: str,
+        base_directory: Union[Path, str, None],
+    ) -> str:
+        """The experiment a scan's ``experiment_folder`` belongs to (``[data_folders]``)."""
+        lookup = getattr(ScanPaths.paths_config, "experiment_for_data_folder", None)
+        if lookup is None:
+            return folder_name
+        base = Path(base_directory) if base_directory is not None else None
+        return lookup(experiment_folder, base_path=base)
 
     @staticmethod
     def get_scan_tag(
@@ -299,7 +323,11 @@ class ScanPaths:
                 experiment=experiment,
             )
 
-        folder = Path(base) / tag.experiment if tag.experiment else Path(base)
+        # getattr: callers and tests may hand in a duck-typed config
+        # (base_path + experiment) that predates [data_folders].
+        lookup = getattr(ScanPaths.paths_config, "data_folder_for", None)
+        data_folder = lookup(tag.experiment) if lookup else (tag.experiment or "")
+        folder = Path(base) / data_folder if data_folder else Path(base)
         folder = (
             folder / f"Y{tag.year}" / f"{tag.month:02d}-{cal.month_name[tag.month][:3]}"
         )
