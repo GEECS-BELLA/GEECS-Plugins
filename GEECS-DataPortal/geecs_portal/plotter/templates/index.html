@@ -82,7 +82,7 @@
                 <label class="hint" for="xmin{{ c.sfx }}">x from</label>
                 <input id="xmin{{ c.sfx }}" name="xmin{{ c.sfx }}" form="pick" type="text" inputmode="decimal" class="narrow-number" placeholder="start"
                        value="{{ c.xmin if c.xmin is not none else '' }}" data-submit-on-change
-                       title="Draw each tile from this x (a number in the trace's own units, e.g. 650 for nm or 2e-6 for s; empty is the trace's start">
+                       title="Draw each tile from this x (a number in the trace's own units, e.g. 650 for nm or 2e-6 for s); empty is the trace's start">
                 <label class="hint" for="xmax{{ c.sfx }}">to</label>
                 <input id="xmax{{ c.sfx }}" name="xmax{{ c.sfx }}" form="pick" type="text" inputmode="decimal" class="narrow-number" placeholder="end"
                        value="{{ c.xmax if c.xmax is not none else '' }}" data-submit-on-change
