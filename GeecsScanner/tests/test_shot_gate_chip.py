@@ -141,3 +141,46 @@ def test_the_route_answers_for_the_chosen_profile() -> None:
     assert body["enabled"] is False
     body = client.get("/api/shot-gate").json()
     assert body["enabled"] is True and body["profile"] == "PW"
+
+
+def test_a_superseded_poll_never_overwrites_the_chip() -> None:
+    """An older poll answering after a newer one does not render."""
+    import json
+    import re
+    import subprocess
+    from pathlib import Path
+
+    import pytest
+    from geecs_web_theme.testing import node_available
+
+    if not node_available():  # pragma: no cover
+        pytest.skip("node not available")
+    script = (
+        Path(__file__).resolve().parents[1] / "geecs_scanner" / "static" / "scanner.js"
+    ).read_text()
+    m = re.search(
+        r"\n(  var gatePoll = 0;\n  function pollGate\(\) \{\n.*?\n  \})\n",
+        script,
+        re.S,
+    )
+    assert m, "pollGate is a top-level function of the page's IIFE"
+    harness = (
+        """
+var trig = {value: "A"}; function $(id) { return trig; }
+var pending = []; var shown = [];
+function api(url) { return new Promise(function (ok) { pending.push({url: url, ok: ok}); }); }
+function renderGateChip(g) { shown.push(g && g.profile); }
+"""
+        + m.group(1)
+        + """
+pollGate();                 // profile A asks
+trig.value = "B"; pollGate(); // the operator picks B
+pending[1].ok({profile: "B", state: "degraded"});
+pending[0].ok({profile: "A", state: "ok"});  // A answers late
+setTimeout(function () { console.log(JSON.stringify(shown)); }, 0);
+"""
+    )
+    result = subprocess.run(
+        ["node", "-"], input=harness, text=True, capture_output=True, check=True
+    )
+    assert json.loads(result.stdout) == ["B"]

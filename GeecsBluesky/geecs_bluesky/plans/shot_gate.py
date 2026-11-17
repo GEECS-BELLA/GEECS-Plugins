@@ -1,7 +1,7 @@
 """The shot gate in the plans: connect before the claim, hold before every fire.
 
 :class:`~geecs_bluesky.shot_gate.ShotGate` is the client; here are
-the two plan stubs every firing plan shares:
+the three plan stubs every firing plan shares:
 
 - :func:`open_gate` — before the box is driven and before the claim: start
   the reader and wait (bounded) for a connection.  An unreachable gate
@@ -10,6 +10,7 @@ the two plan stubs every firing plan shares:
   fresh ``safe``; a hold longer than the gate's ``hold_pause_s`` pauses
   the run with the gate's reason, and the operator's resume waits again.
   A pause never fires: permission is always checked again after one.
+- :func:`fire_gated` — the SINGLESHOT put, the fire marked at dispatch.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ import time
 from typing import Any
 
 import bluesky.plan_stubs as bps
+
+from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.shot_gate import CONNECT_TIMEOUT_S, ShotGate
 from geecs_bluesky.exceptions import GeecsShotGateError
@@ -85,4 +88,23 @@ def hold_for_permission(gate: ShotGate | None, pause: Any = None):
             yield from pause(reason)
 
 
-__all__ = ["hold_for_permission", "open_gate"]
+def fire_gated(shot_control: Any, gate: ShotGate | None):
+    """Plan: the SINGLESHOT put, the fire marked on the gate at dispatch.
+
+    Marked before the put, not after it: the put returns only once the box
+    acknowledges, and the service's post-cleanup ``safe`` can arrive in that
+    wait — a later mark would discard it, and a service that speaks only on
+    change would never send another.  A failed put marks again: it may
+    have fired, and no ``safe`` received during it counts.
+    """
+    if gate is not None:
+        gate.fired()
+    try:
+        yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
+    except BaseException:
+        if gate is not None:
+            gate.fired()
+        raise
+
+
+__all__ = ["fire_gated", "hold_for_permission", "open_gate"]

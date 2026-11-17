@@ -123,10 +123,15 @@
     else if (g.state === K.failed) setChip(el, K.failed, "shot gate: unreachable", "Shot gate" + where + ": " + (g.detail || "not connected") + " — the worker will not fire");
     else setChip(el, K.degraded, "shot gate: not safe", "Shot gate" + where + ": " + (g.detail || "not safe") + " — the next shot waits for safe");
   }
+  // Only the latest poll renders: an older one answering late (a profile
+  // changed since, or an overlapping tick) must not overwrite a newer state.
+  var gatePoll = 0;
   function pollGate() {
     var trig = $("trig") ? $("trig").value : "";
+    var mine = ++gatePoll;
     api("/api/shot-gate?trigger_profile=" + encodeURIComponent(trig || ""))
-      .then(renderGateChip, function () { renderGateChip(null); });
+      .then(function (g) { if (mine === gatePoll) renderGateChip(g); },
+            function () { if (mine === gatePoll) renderGateChip(null); });
   }
 
   /* ------------------------------------------------------------- now */

@@ -47,7 +47,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import refuse_native_cameras
 from geecs_bluesky.native_scope import NOT_CALIBRATION
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.plans.shot_gate import hold_for_permission, open_gate
+from geecs_bluesky.plans.shot_gate import fire_gated, hold_for_permission, open_gate
 from geecs_bluesky.plans.strict import fire_and_await_shot, run_bracket
 from geecs_bluesky.callbacks.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
@@ -979,11 +979,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             yield from bps.mv(shot_control, TriggerState.ARMED.value)
 
             def fire():
-                try:
-                    yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
-                finally:
-                    if shot_gate is not None:
-                        shot_gate.fired()
+                yield from fire_gated(shot_control, shot_gate)
 
             complete: list[dict[str, float]] = []
             attempts = 0

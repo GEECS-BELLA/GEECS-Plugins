@@ -30,7 +30,6 @@ from geecs_data_utils.shot_table import (
     STREAM_META_KEY,
     SYNCHRONOUS,
 )
-from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
 from geecs_bluesky.devices.detector import DEFAULT_SHOT_TIMEOUT
@@ -41,7 +40,7 @@ from geecs_bluesky.devices.native import (
 )
 from geecs_bluesky.devices.scan_mode import ANNOUNCE
 from geecs_bluesky.shot_gate import ShotGate
-from geecs_bluesky.plans.shot_gate import hold_for_permission
+from geecs_bluesky.plans.shot_gate import fire_gated, hold_for_permission
 from geecs_bluesky.plans.streams import DeviceStreams
 from geecs_bluesky.plans.strict import (
     BinCounter,
@@ -405,13 +404,7 @@ class OnDemand:
                 values["fire_stamp"] = values["announce_stamp"]
             else:
                 values["fire_stamp"] = time.time()
-                try:
-                    yield from bps.mv(self.sc, TriggerState.SINGLESHOT.value)
-                finally:
-                    # A failed put may still have fired: the next shot needs
-                    # its own permission either way.
-                    if self.gate is not None:
-                        self.gate.fired()
+                yield from fire_gated(self.sc, self.gate)
         except FailedStatus as exc:
             _log_non_frame_failure(exc)
             raise

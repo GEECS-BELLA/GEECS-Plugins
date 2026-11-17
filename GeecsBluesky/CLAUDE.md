@@ -592,8 +592,11 @@ profile's, `plans/shot_gate.py` the two stubs.  The rules:
   a safety system: the hardware's interlocks stay the safety layer.
 - **One fresh `safe` per fire**: a shot starts the hardware's cleanup and
   the service may not have said so yet, so only a `safe` received after
-  the previous fire (+ `holdoff_s`) permits the next.  A failed SINGLESHOT
-  put counts as a fire.  What this asks of the service (`ShotGateSpec`):
+  the previous fire (+ `holdoff_s`) permits the next.  The fire is marked
+  when the put is dispatched (`fire_gated`), not when the box acknowledges
+  it, so a `safe` sent during the acknowledgement counts; a failed
+  SINGLESHOT put marks it again.  A lost connection ends permission before
+  its teardown.  What this asks of the service (`ShotGateSpec`):
   a fresh `safe` once each shot's cleanup is done (a shot with no state
   change holds the next until `hold_pause_s`, and the mark persists across
   runs, so a run's first shot needs one too), `holdoff_s` set when it

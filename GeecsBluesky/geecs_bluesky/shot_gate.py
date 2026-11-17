@@ -252,6 +252,7 @@ class ShotGate:
             logger.info("shot gate %s connected", self.address)
             logged_down = False
             self._set(GateMessage(False, "connected, no message yet"), True)
+            reason = "the shot gate reader stopped"
             try:
                 async for line in self._read_lines(reader):
                     message = self._parse(line)
@@ -262,11 +263,13 @@ class ShotGate:
             except (OSError, ValueError, asyncio.LimitOverrunError) as exc:
                 reason = f"shot gate connection lost: {exc}"
             finally:
+                # Not safe before the teardown awaits: a fire must not pass
+                # on a connection already known lost.
+                self._set(GateMessage(False, reason), False)
                 writer.close()
                 with contextlib.suppress(Exception):
                     await writer.wait_closed()
             logger.warning("%s (%s) — not safe; reconnecting", reason, self.address)
-            self._set(GateMessage(False, reason), False)
             await asyncio.sleep(RECONNECT_S)
 
     @staticmethod

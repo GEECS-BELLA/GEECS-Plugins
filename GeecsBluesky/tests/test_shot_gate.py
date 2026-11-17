@@ -489,3 +489,90 @@ def test_a_permission_lapsing_before_the_fire_holds_again(
     # the baseline was read again after that hold: the frame recorded during
     # it is not this fire's
     assert row["uc_cam-baseline"] == 1500.0
+
+
+class _SlowAckBox(FakeBox):
+    """The SINGLESHOT put returns 0.3 s after the shot: a slow acknowledgement."""
+
+    def __call__(self, device: str, variable: str):
+        setter = super().__call__(device, variable)
+        if variable != "Trigger.ExecuteSingleShot":
+            return setter
+
+        class Slow:
+            async def put(self, value: str) -> None:
+                await setter.put(value)
+                await asyncio.sleep(0.3)
+
+        return Slow()
+
+
+def test_a_safe_sent_during_the_acknowledgement_permits_the_next_fire(
+    RE: RunEngine, server: FakeGateServer
+) -> None:
+    box = _SlowAckBox()
+    sc = _shot_control(RE, box)
+    cam = _camera(RE, box, "UC_Cam")
+    gate = ShotGate("127.0.0.1", server.port, hold_pause_s=1.0)
+    RE(open_gate(gate))
+    server.wait_client()
+    # A service that speaks only on change: not_safe at the shot, safe once
+    # its cleanup is done — both while the put still awaits the box's
+    # acknowledgement.  A fire marked after the put would discard that safe
+    # and hold the next shot until the pause.
+    seen = {"fires": 0}
+    stop = threading.Event()
+
+    def interlock() -> None:
+        server.send("safe")
+        while not stop.is_set():
+            if box.fires != seen["fires"]:
+                seen["fires"] = box.fires
+                server.send("not_safe cleanup")
+                time.sleep(0.05)
+                server.send("safe")
+            time.sleep(0.002)
+
+    threading.Thread(target=interlock, daemon=True).start()
+    try:
+        RE(strict_count(sc, [cam], 2, gate=gate))
+    finally:
+        stop.set()
+    assert box.fires == 2
+
+
+async def test_a_lost_connection_ends_permission_before_its_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import geecs_bluesky.shot_gate as module
+
+    reader = asyncio.StreamReader()
+    closing = asyncio.Event()  # the teardown never finishes in this test
+
+    class Writer:
+        def close(self) -> None:
+            pass
+
+        async def wait_closed(self) -> None:
+            await closing.wait()
+
+    async def open_connection(*args, **kwargs):
+        return reader, Writer()
+
+    monkeypatch.setattr(module.asyncio, "open_connection", open_connection)
+    gate = ShotGate("127.0.0.1", 1)
+    await gate.start()
+    try:
+        assert await gate.wait_connected(5)
+        reader.feed_data(b"safe\n")
+        assert await gate.wait_safe(5)
+        reader.feed_eof()  # the service hangs up; wait_closed stays pending
+        for _ in range(200):
+            if not gate.connected:
+                break
+            await asyncio.sleep(0.01)
+        assert not gate.connected and not gate.permits()
+        assert "closed the connection" in gate.reason
+    finally:
+        closing.set()
+        await gate.stop()
