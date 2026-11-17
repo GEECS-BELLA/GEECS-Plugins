@@ -36,6 +36,8 @@ geecs_scanner/
     settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
     readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
     trajectory.py isolated hardware-free preview over shared Bluesky expansion
+    shot_gate.py  the "shot gate" chip: the form's trigger profile's gate, one read-only
+                  ShotGate reader per address on a daemon thread; shown, never a gate here
     writer_status.py the Tiled writer's heartbeat verdict (geecs_bluesky.tiled.spool's rule) projected onto the API model (the "tiled writer" chip, /health); shown, never a gate
   web/
     app.py        create_app (the process) and create_scanner_router (the same as a router)
@@ -89,7 +91,8 @@ deploy/           the unit template + DEPLOYMENT.md
   (the readback — the scanner reads gateway PVs directly, like the
   preflight does through the client seam), and
   `geecs_bluesky.tiled.spool` (the writer's heartbeat model and reader —
-  the shared side of the spool, never `tiled_writer`, the service loop).
+  the shared side of the spool, never `tiled_writer`, the service loop),
+  and `geecs_bluesky.shot_gate` (the gate client, standard library only).
   Never the
   portal, the logbook, GEECS-MCP, or the engine's
   `plans`/`devices`/`run_engine`/`namespace`. `tests/test_boundaries.py`
@@ -209,6 +212,22 @@ deploy/           the unit template + DEPLOYMENT.md
   loses nothing, so no preflight question, no Start gate and no refusal
   ever comes from it (owner's ruling 2026-09-25; pinned in
   `tests/test_writer_status.py`).
+
+- **The shot gate is shown here, enforced by the worker.** A trigger
+  profile may name a permission-to-fire service (`shot_gate`).
+  `GET /api/shot-gate?trigger_profile=` answers for the profile the form
+  submits under (empty: the experiment default), resolved from the configs
+  per request; the page polls it every 2 s and on every change of the
+  profile. `ShotGateWatches` keeps one read-only reader per address, each on
+  a daemon thread started the first time a profile names it, never
+  stopped, reconnecting by itself. The answer: `enabled: false` with the
+  reason (no gate in the profile, no profile to tell, an unreadable one:
+  the chip hidden, never an error), else `ok` safe, `degraded` not safe
+  with the service's reason (normal between shots), `failed` not
+  connected. It never calls `fired` (the per-fire freshness rule is the
+  worker's), and no preflight question, Start gate or refusal comes from
+  it: the worker refuses a run whose gate does not connect and holds every
+  fire for its permission.
 
 ## Testing
 

@@ -108,6 +108,27 @@
     setChip($("chip-writer"), word, "tiled writer", tw.detail || tw.state);
   }
 
+  // The shot gate of the trigger profile the form submits under (#trig;
+  // empty: the experiment default), polled on its own and on every change
+  // of the profile: hidden when that profile names none; safe / not safe
+  // (the service's reason) / unreachable.  The worker enforces it before
+  // every fire — the chip only shows it.
+  var GATE_POLL_MS = 2000;
+  function renderGateChip(g) {
+    var el = $("chip-gate");
+    el.hidden = !(g && g.enabled);
+    if (el.hidden) return;
+    var where = " (" + (g.profile ? g.profile + ", " : "") + g.address + ")";
+    if (g.state === K.ok) setChip(el, K.ok, "shot gate: safe", "Shot gate" + where + ": safe");
+    else if (g.state === K.failed) setChip(el, K.failed, "shot gate: unreachable", "Shot gate" + where + ": " + (g.detail || "not connected") + " — the worker will not fire");
+    else setChip(el, K.degraded, "shot gate: not safe", "Shot gate" + where + ": " + (g.detail || "not safe") + " — the next shot waits for safe");
+  }
+  function pollGate() {
+    var trig = $("trig") ? $("trig").value : "";
+    api("/api/shot-gate?trigger_profile=" + encodeURIComponent(trig || ""))
+      .then(renderGateChip, function () { renderGateChip(null); });
+  }
+
   /* ------------------------------------------------------------- now */
 
   function fmtAge(s) { return s < 0 ? "" : s.toFixed(1) + " s"; }
@@ -216,6 +237,9 @@
     }
   }
   setInterval(tickAges, 500);
+  $("trig").addEventListener("change", pollGate);
+  pollGate();
+  setInterval(pollGate, GATE_POLL_MS);
 
   /* ------------------------------------------------------------- queue */
 

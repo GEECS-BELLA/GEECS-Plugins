@@ -169,6 +169,7 @@ from geecs_schemas.scan_variables import (
 )
 from geecs_schemas.trigger_profile import (
     TRIGGER_PROFILES_FOLDER,
+    ShotGateSpec,
     TriggerProfile,
     TriggerState,
     TriggerWrite,
@@ -230,6 +231,7 @@ __all__ = [
     "CompositeMode",
     # trigger_profile
     "TriggerProfile",
+    "ShotGateSpec",
     "TRIGGER_PROFILES_FOLDER",
     "TriggerState",
     "TriggerWrite",

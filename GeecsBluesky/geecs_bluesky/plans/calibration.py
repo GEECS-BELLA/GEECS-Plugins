@@ -46,6 +46,7 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import refuse_native_cameras
 from geecs_bluesky.native_scope import NOT_CALIBRATION
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plans.shot_gate import hold_for_permission, open_gate
 from geecs_bluesky.plans.strict import fire_and_await_shot, run_bracket
 from geecs_bluesky.callbacks.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
@@ -822,6 +823,11 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         The configs-repo resolver the measurement is written through;
         ``None`` registers a plan that can measure but not write (the
         hermetic worker).
+
+    Notes
+    -----
+    A profile's ``shot_gate`` holds every SINGLESHOT before its devices are
+    armed, and is connected before the box is driven.
     """
 
     def measure_shot_offsets(  # noqa: C901, PLR0915
@@ -947,6 +953,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             TriggerState.SINGLESHOT,
         ):
             _refuse_profile_without(shot_control, state)
+        shot_gate = shot_control.shot_gate
         confirm_time = max(
             QUIET_CONFIRM_FLOOR_S, QUIET_CONFIRM_PERIODS * trigger_period
         )
@@ -971,13 +978,20 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             yield from bps.mv(shot_control, TriggerState.ARMED.value)
 
             def fire():
-                yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
+                try:
+                    yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
+                finally:
+                    if shot_gate is not None:
+                        shot_gate.fired()
 
             complete: list[dict[str, float]] = []
             attempts = 0
             budget = shots * _RETAKE_BUDGET  # the requested shots, plus as many retakes
             while len(complete) < shots and attempts < budget:
                 attempts += 1
+                # Before the devices are armed: a hold must not spend their
+                # shot timeout.
+                yield from hold_for_permission(shot_gate)
                 missed = yield from fire_and_await_shot(views, fire)
                 if missed:
                     logger.warning(
@@ -1010,6 +1024,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         # which is the line telling the operator there is an uncommitted
         # change to review.
         with plan_report_sink(REPORT_LOGGER):
+            yield from open_gate(shot_gate)
             complete = yield from run_bracket(inner(), shot_control, TriggerState.OFF)
             measurement = offsets_from_shots(complete)
             logger.info(

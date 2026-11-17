@@ -76,7 +76,15 @@ nothing records that it happened.
 The rail on the left lists the page's sections; the **health chips** in
 the header say whether the RE Manager answers (`manager`), whether the
 worker's document stream is being heard (`doc stream`), and whether the
-Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
+Tiled writer is keeping up (`tiled writer`). When the trigger profile
+the form will submit under names a permission-to-fire service (the
+profile's `shot_gate`, edited in the configurator), a fourth chip shows
+that service's latest word: `shot gate: safe`, `shot gate: not safe`
+(hover for the service's reason; normal for a moment after every shot) or
+`shot gate: unreachable`. Pick a profile without a gate (laser off, say)
+and the chip goes away. The chip only shows the gate: the worker holds
+every shot until the gate says safe after the previous one. **Docs**
+opens this page.
 
 - **Current** — the running scan: state, the claimed scan number, progress
   against the planned shots, and a live tail of the scan's own `scan.log`
@@ -182,6 +190,12 @@ The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.
   *"not in the list of allowed plans"* — the worker's RunEngine
   environment is closed or its plan list is stale. That is a worker-side
   fix (the readiness unit reopens it); the page cannot do it.
+- **A scan sits between shots and the `shot gate` chip reads not safe** —
+  the worker is waiting for the gate's permission (the reason is in the
+  chip's tooltip and the scan log). After `hold_pause_s` (default 60 s)
+  the scan pauses with that reason; **Resume** waits for safe again and
+  never fires without it. `shot gate: unreachable` refuses new scans
+  before anything moves.
 - **`doc stream` chip down while a scan runs** — the page still shows the
   queue's state, but no shot-by-shot progress. Scans are unaffected.
 - **Move, Setups and Calibration are held** — the move chip reads

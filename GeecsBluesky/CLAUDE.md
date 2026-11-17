@@ -121,6 +121,8 @@ geecs_bluesky/
                             #   shot), run_bracket, plugin_reasons, BinCounter,
                             #   name_failed_status, down_devices (the liveness verdict
                             #   the run's gate and apply_setup share)
+  plans/shot_gate.py        # open_gate (connect before the claim), hold_for_permission
+                            #   (before every fire's baseline; a long hold pauses)
   plans/sweep.py            # sweep_plan: the Sweep payload through scan_nd, relative/reset
   plans/optimize.py         # optimize_plan: native Xopt loop, one run, one bin per iteration
   plans/calibration.py      # measure_shot_offsets / check_shot_sync (once-run, never a step)
@@ -169,6 +171,10 @@ geecs_bluesky/
                             #   worker's bind and the client's expansion
   log_markers.py            # log-line strings clients parse from the manager's text stream
   utils.py                  # safe_name, identifier_name, resolve_annotations
+  shot_gate.py              # ShotGate — a facility's permission-to-fire TCP service (one way,
+                            #   "safe" / "not_safe <reason>"): the reader, one fresh safe per
+                            #   fire, fail closed; parse_message is the one wire-format swap
+                            #   point (stdlib only: the scanner's chip runs a reader too)
 qserver/                    # the worker: launcher, startup profile, permissions, deploy/
 ```
 
@@ -441,7 +447,7 @@ per fire, refires included (`EVENT_SCHEMA.md`).  One slot per shot,
 `shots_per_step` complete shots per position —
 
 ```
-throttle; mark = pause_count
+throttle; [hold for the shot gate's fresh safe]; mark = pause_count
 read every per-shot counter + the witness count   # frame count / acq_timestamp monitor
 [mv(scan_mode, ANNOUNCE)]; mv(box, SINGLESHOT); press Software natives
 wait (bounded) for every required counter         # none required: for the witness
@@ -562,6 +568,48 @@ run lock hold at its prepare.  `expand_preset` refuses its `X.scalars`
 shape a preset alone shows — `optimize` — so the preflight's
 device rules never refuse a native camera for a reason that is not the
 real one.
+
+### The shot gate (a trigger profile's field)
+
+A facility whose Master Control waits for a permission-to-fire service
+before every shot (a TCP service checking hardware between shots,
+streaming `safe` / `not_safe <reason>` one way) names it in the trigger
+profile: `shot_gate: {host, port, hold_pause_s (60), holdoff_s (0)}`
+(GEECS-Schemas' `ShotGateSpec`).  A profile without one changes nothing:
+no gate, no start key, no column — and a laser-off or bench profile at a
+gated facility leaves it out.  `shot_gate.ShotGate` is the client
+(`gate_for`: one per address for the process, so the last-fire mark
+follows the physical service across runs and profiles; the hold settings
+are the profile's, refreshed per run), `ShotControl.shot_gate` the
+profile's, `plans/shot_gate.py` the two stubs.  The rules:
+
+- **It governs the SINGLESHOT put, nothing else** (`registry.gate_for_run`):
+  every strict `count` / `sweep` / `optimize` fire and every
+  `measure_shot_offsets` shot under the profile; not a fly run (no box)
+  and never a box-less profile (the schema refuses a gate on a profile
+  without SINGLESHOT writes; `ShotControl.shot_gate` is `None` there too),
+  not `mv`, not the box's free-running states.  A permission to fire, never
+  a safety system: the hardware's interlocks stay the safety layer.
+- **One fresh `safe` per fire**: a shot starts the hardware's cleanup and
+  the service may not have said so yet, so only a `safe` received after
+  the previous fire (+ `holdoff_s`) permits the next.  A failed SINGLESHOT
+  put counts as a fire.
+- **Fail closed**: unreachable, dropped, or a line not understood is not
+  safe; the reader reconnects by itself, and one left on an earlier
+  RunEngine loop is restarted on the current one.  At the run's start the
+  gate must connect within 5 s or the run is refused (`GeecsShotGateError`)
+  before the box is driven and before the claim.
+- **The hold sits before the slot's baseline** (after the throttle), so a
+  hold never spends a device's shot timeout and a free-running camera's
+  frames during it are not this fire's; the calibration holds before
+  `fire_and_await_shot` arms its devices.  Each row records `gate_hold_s`.
+  A hold longer than `hold_pause_s` pauses the run with the gate's reason;
+  the resume waits again — a pause never fires.
+- **The wire format is `parse_message`** (newline-framed text), a
+  placeholder until the facility's own format is known; swapping it is a
+  one-function change.
+- The worker reads profiles at environment open, so an edited gate applies
+  after the configurator's apply (the reopen), like every profile edit.
 
 ### Sweep
 

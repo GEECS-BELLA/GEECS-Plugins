@@ -33,6 +33,17 @@ with the flag and **no writes at all** is the box-less case (the shot
 message is the only trigger).  Off by default; strict acquisition only.
 The worker side is GeecsBluesky's ``devices/scan_mode.py``.
 
+Shot gate
+---------
+``shot_gate`` names a facility's permission-to-fire service: a TCP
+service that checks hardware between shots and streams ``safe`` /
+``not_safe <reason>`` one way.  Under such a profile the worker waits,
+before every SINGLESHOT it issues, for a ``safe`` received after the
+previous fire, and refuses a run whose gate does not connect.  A
+permission to fire, never a safety system.  Absent by default; a profile
+for a condition that needs no gate (laser off, a bench) leaves it out.
+The worker side is GeecsBluesky's ``shot_gate.py``.
+
 Developer notes
 ---------------
 Successor of the shot-control YAML once validated by the retired
@@ -224,6 +235,41 @@ def _reject_duplicate_targets(states: dict) -> dict:
     return states
 
 
+class ShotGateSpec(SchemaModel):
+    """A permission-to-fire service the worker waits on before every shot.
+
+    The service streams ``safe`` / ``not_safe <reason>`` one way over TCP;
+    every SINGLESHOT waits for a ``safe`` received after the previous fire.
+    """
+
+    host: str = Field(
+        min_length=1,
+        description="The service's host name or IP address on the facility network.",
+    )
+    port: int = Field(ge=1, le=65535, description="The service's TCP port.")
+    hold_pause_s: float = Field(
+        default=60.0,
+        gt=0,
+        description=(
+            "Seconds a shot waits for permission before the scan pauses with "
+            "the service's reason (resuming waits again; a pause never fires)."
+        ),
+    )
+    holdoff_s: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "Seconds after a shot before a 'safe' counts as the next shot's "
+            "permission (0: any 'safe' received after the shot)."
+        ),
+    )
+
+    @property
+    def address(self) -> str:
+        """``host:port``."""
+        return f"{self.host}:{self.port}"
+
+
 class TriggerProfile(VersionedSchemaModel):
     """The device writes that drive the machine through its trigger states.
 
@@ -287,8 +333,32 @@ class TriggerProfile(VersionedSchemaModel):
         ),
     )
 
+    shot_gate: ShotGateSpec | None = Field(
+        default=None,
+        description=(
+            "A permission-to-fire service the worker waits on before every "
+            "shot: a 'safe' received after the previous shot permits the "
+            "next; unreachable or not safe holds it, and a long hold pauses "
+            "the scan. Leave empty for no gate."
+        ),
+    )
+
     _fix_off_key = field_validator("states", mode="before")(_normalize_state_keys)
     _no_duplicates = field_validator("states")(_reject_duplicate_targets)
+
+    @model_validator(mode="after")
+    def _gate_needs_a_fire(self) -> "TriggerProfile":
+        """A shot gate holds the SINGLESHOT put, so the profile must define one."""
+        if self.shot_gate is not None and not self.defines_state(
+            TriggerState.SINGLESHOT
+        ):
+            raise ValueError(
+                f"trigger profile {self.name!r} names a shot gate but defines "
+                "no SINGLESHOT writes — the gate holds the single-shot fire, "
+                "and this profile issues none (a box-less profile's shot is "
+                "the scan-mode announce)."
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
