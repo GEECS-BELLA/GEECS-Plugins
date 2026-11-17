@@ -41,6 +41,51 @@ the arms matter.
 
 The λ → ω Jacobian is not applied: it reshapes the envelope, never the phase.
 
+## Pulse lengthening
+
+From ΔGDD the analysis also reports how much longer one arm is than the
+other, in **RMS duration**. Assume one arm is at transform limit. With a
+quadratic phase, the group delay is ΔGDD·(ω − ω0), and for **any** spectral
+shape
+
+$$\sigma_t^2 = \sigma_\text{TL}^2 + \Delta\text{GDD}^2\,\sigma_\omega^2 .$$
+
+That is the flat-phase pulse's own duration plus the spread of group
+delays, weighted by the spectrum. So the other arm is longer by
+`delta_duration_rms_fs` = √(σ_TL² + (ΔGDD·σ_ω)²) − σ_TL.
+
+- **The spectrum** is the measured one without its fringes. The central
+  term of the same transform is I1 + I2, which is smooth and nearly free
+  of noise; the region's taper is divided back out. σ_ω is its
+  intensity-weighted RMS bandwidth (`rms_bandwidth_rad_per_fs`, in the
+  JSON result only, not an s-file column). The chirped arm is taken to
+  have this summed spectrum. If the two arms' spectra differ, the numbers
+  describe an arm with the sum's spectrum, not either arm exactly.
+- **σ_TL** (`tl_rms_fs`) is the RMS duration of the flat-phase pulse with
+  that spectrum, taken within ±5 of its own FWHMs. This is a convention,
+  not a converged limit. A measured spectrum has edges (the region's
+  truncation, clipped noise), so its transform has 1/t² wings and an
+  unbounded t² moment that never settles. On 26_1112 Scan006, going to ±10
+  FWHMs moves σ_TL and the lengthening by 5–8 %, about 0.1 fs, which is
+  under their statistical σ. The σ_t² relation itself is exact.
+- **Accuracy.** On synthetic spectra it is within 2 % for flat-topped ones
+  and about 5 % long for a Gaussian. σ_ω is within 2 % for both, with or
+  without noise.
+
+The lengthening is even in ΔGDD, so the sign ambiguity drops out. Near
+ΔGDD = 0 it is quadratic: noise only lengthens it, so its σ
+(`delta_duration_rms_err_fs`) is upward only, and an average of per-shot
+values is biased up. Average ΔGDD over a bin and take the lengthening of
+that. Trust it only where `delta_gdd_reliable` is 1.
+
+**Why RMS, not FWHM.** On flat-topped spectra like the Thorlabs ones,
+modest GDD hardly changes the FWHM while the wings grow, so a FWHM stretch
+is small and ill-conditioned per shot. A Gaussian model of the FWHM
+overstates it badly (up to 25× on 26_1112 Scan006). The RMS relation is
+exact for the measured spectrum. Third-order dispersion is ignored. A
+user `spectral_region_nm` narrower than the spectrum truncates it and
+biases both numbers.
+
 ## Sign convention
 
 !!! warning "One spectrum cannot tell the arms apart"
@@ -114,7 +159,8 @@ diagnostic_figure(analysis)                       # spectrum | delay domain | ph
 Per shot, in a recipe over a `line` input with x in nm:
 `measure: {kind: spectral_interferometry}`. It emits `tau0_fs`,
 `tau0_err_fs`, `delta_gdd_fs2`, `delta_gdd_err_fs2`,
-`reference_wavelength_nm`, `tau0_reliable` and `delta_gdd_reliable`. Raised
+`reference_wavelength_nm`, `tl_rms_fs`, `delta_duration_rms_fs`,
+`delta_duration_rms_err_fs`, `tau0_reliable` and `delta_gdd_reliable`. Raised
 flags become notes.
 A flagged shot can still carry a finite but doubtful value, for example an
 overlapping sideband. A scan's bin average (nanmean) folds such values in,

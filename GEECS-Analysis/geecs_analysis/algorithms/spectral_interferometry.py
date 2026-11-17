@@ -316,6 +316,29 @@ class SpectralInterferometryResult(BaseModel):
     delay_sweep_fs: Optional[float] = Field(
         description="|ΔGDD| × fit-band width: the spread of local delays, fs."
     )
+    rms_bandwidth_rad_per_fs: Optional[float] = Field(
+        description="Intensity-weighted RMS bandwidth σ_ω of the measured spectrum (I1 + I2), rad/fs."
+    )
+    tl_rms_fs: Optional[float] = Field(
+        description=(
+            "RMS duration σ_t of the transform-limited pulse with that spectrum, fs, taken "
+            "within ±5 of its own FWHMs (an ideal hard-edged spectrum has no finite one)."
+        )
+    )
+    delta_duration_rms_fs: Optional[float] = Field(
+        description=(
+            "How much ΔGDD lengthens the RMS duration of a transform-limited arm, fs: "
+            "√(σ_TL² + (ΔGDD σ_ω)²) − σ_TL; the relation is exact for any spectral shape, "
+            "σ_TL is taken within ±5 transform-limited FWHMs (≥ 0, even in ΔGDD; assumes "
+            "the other arm is at transform limit and has the summed spectrum)."
+        )
+    )
+    delta_duration_rms_err_fs: Optional[float] = Field(
+        description=(
+            "1σ of delta_duration_rms from σ(ΔGDD), fs: the larger change over "
+            "ΔGDD ± σ, upward only near ΔGDD = 0."
+        )
+    )
     window_tau_shift_fs: Optional[float] = Field(
         description="Largest tau0 change in the window test, fs."
     )
@@ -431,7 +454,7 @@ def _signal_region(omega: np.ndarray, counts: np.ndarray) -> tuple[float, float]
         # Nothing stands up: the dark check downstream reports it.
         return float(omega[0]), float(omega[-1])
     above = np.flatnonzero(smooth > baseline + 0.05 * (peak - baseline))
-    first, last = int(above[0]), int(above[-1])
+    first, last = _cluster_around(above, int(np.argmax(smooth)), max(n // 20, 1))
     # At least _MIN_REGION pixels, so a lone hot pixel is analysed (and
     # found wanting), not refused.
     short = _MIN_REGION - (last - first + 1)
@@ -442,6 +465,27 @@ def _signal_region(omega: np.ndarray, counts: np.ndarray) -> tuple[float, float]
     lo, hi = float(omega[first]), float(omega[last])
     pad = 0.15 * (hi - lo)
     return max(lo - pad, float(omega[0])), min(hi + pad, float(omega[-1]))
+
+
+def _cluster_around(indices: np.ndarray, at: int, gap: int) -> tuple[int, int]:
+    """The span of ``indices`` around ``at``, bridging gaps shorter than ``gap``.
+
+    Fringe minima open short gaps in the spectrum and are bridged; an
+    isolated noise excursion far from the spectrum is not, so it cannot
+    stretch the region (and with it σ_ω) to the detector's edge. By the
+    same rule, two spectral lobes more than ``gap`` apart are not bridged:
+    the region keeps the one holding the peak.
+    """
+    first = last = int(indices[np.argmin(np.abs(indices - at))])
+    for index in indices[indices > at]:
+        if index - last > gap:
+            break
+        last = int(index)
+    for index in indices[indices < at][::-1]:
+        if first - index > gap:
+            break
+        first = int(index)
+    return first, last
 
 
 def _contiguous_run(mask: np.ndarray, at: int) -> np.ndarray:
@@ -663,6 +707,10 @@ class _Recovery:
     spf_min: Optional[float] = None
     vis_min: Optional[float] = None
     n_fit_pixels: int = 0
+    rms_bandwidth: Optional[float] = None
+    tl_rms: Optional[float] = None
+    delta_rms: Optional[float] = None
+    delta_rms_err: Optional[float] = None
 
 
 def _prepare(
@@ -984,7 +1032,102 @@ def _recover(
     rec.flags["narrow_bandwidth"] = (
         fit is None or rec.n_fit_pixels < cfg.min_fit_pixels or loose
     )
+    if fit is not None:
+        spectrum_shape = _arm_spectrum(transform, sb, cfg)
+        rec.rms_bandwidth, rec.tl_rms, rec.delta_rms, rec.delta_rms_err = (
+            _rms_durations(grid, spectrum_shape, fit)
+        )
     return rec
+
+
+#: The transform-limited RMS duration is taken within this many of its own
+#: FWHMs of the centroid: noise and the region's truncation put a faint
+#: pedestal far out in time that the t² weight would otherwise inflate.
+_RMS_TIME_REACH = 5.0
+
+
+def _arm_spectrum(
+    transform: _Transform, sb: _Sideband, cfg: SpectralInterferometryConfig
+) -> np.ndarray:
+    """The measured spectrum without its fringes: the central term, I1 + I2.
+
+    The transform's central peak, low-passed out to the sideband window's
+    inner edge (a half-Tukey roll-off) and transformed back, is the two
+    arms' summed spectrum, smooth and nearly free of noise. The region's
+    taper is divided back out where it is above 10 %; below, the edge is
+    dropped.
+    """
+    reach = np.arange(sb.lo + 1)
+    roll = _tukey(2 * reach.size - 1, 0.5)[reach.size - 1 :]
+    window = np.zeros(transform.m)
+    window[reach] = roll
+    window[(transform.m - reach[1:]) % transform.m] = roll[1:]
+    central = np.real(np.fft.ifft(transform.spectrum * window))[: transform.n]
+    taper = _tukey(transform.n, cfg.taper)
+    shape = np.where(taper >= 0.1, central / np.maximum(taper, 0.1), 0.0)
+    return np.maximum(shape, 0.0)
+
+
+def _rms_bandwidth(omega: np.ndarray, intensity: np.ndarray) -> float:
+    centre = float(np.sum(omega * intensity) / np.sum(intensity))
+    return float(np.sqrt(np.sum((omega - centre) ** 2 * intensity) / np.sum(intensity)))
+
+
+def _tl_rms_duration(omega: np.ndarray, intensity: np.ndarray) -> float:
+    """RMS duration of the flat-phase pulse with this intensity spectrum, fs."""
+    m = 1 << int(np.ceil(np.log2(omega.size * 8)))
+    field = np.fft.fftshift(np.fft.fft(np.sqrt(intensity), m))
+    power = np.abs(field) ** 2
+    t = 2.0 * np.pi * np.fft.fftshift(np.fft.fftfreq(m, float(omega[1] - omega[0])))
+    centre = float(np.sum(t * power) / np.sum(power))
+    near = np.abs(t - centre) <= _RMS_TIME_REACH * _intensity_fwhm(t, power)
+    t, power = t[near], power[near]
+    centre = float(np.sum(t * power) / np.sum(power))
+    return float(np.sqrt(np.sum((t - centre) ** 2 * power) / np.sum(power)))
+
+
+def _intensity_fwhm(t: np.ndarray, power: np.ndarray) -> float:
+    """FWHM of a single-peaked trace, crossings interpolated linearly."""
+    top = int(np.argmax(power))
+    half = 0.5 * float(power[top])
+    above = np.flatnonzero(power >= half)
+    lo, hi = int(above[0]), int(above[-1])
+
+    def crossing(below: int, inside: int) -> float:
+        span = power[inside] - power[below]
+        return float(t[below] + (half - power[below]) * (t[inside] - t[below]) / span)
+
+    left = crossing(lo - 1, lo) if lo > 0 else float(t[0])
+    right = crossing(hi + 1, hi) if hi < power.size - 1 else float(t[-1])
+    return right - left
+
+
+def _rms_durations(
+    omega: np.ndarray, intensity: np.ndarray, fit: _Fit
+) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """σ_ω, the transform-limited σ_t, the RMS lengthening ΔGDD gives, and its σ.
+
+    For any spectrum with a quadratic phase, the group delay is
+    ``ΔGDD (ω − ω0)`` and ``σ_t² = σ_TL² + ΔGDD² σ_ω²`` exactly (the
+    flat-phase pulse's own duration plus the spread of group delays,
+    weighted by the spectrum). Assuming one arm is at transform limit, the
+    other is longer by ``√(σ_TL² + (ΔGDD σ_ω)²) − σ_TL``. It is even in
+    ΔGDD and quadratic near zero, so its σ is the larger change over
+    ``ΔGDD ± σ(ΔGDD)``, upward only there.
+    """
+    if not np.any(intensity > 0):
+        return None, None, None, None
+    sigma_w = _rms_bandwidth(omega, intensity)
+    tl = _tl_rms_duration(omega, intensity)
+
+    def lengthening(gdd: float) -> float:
+        return float(np.hypot(tl, gdd * sigma_w)) - tl
+
+    delta = lengthening(fit.gdd)
+    spread = max(
+        abs(lengthening(fit.gdd + s * fit.gdd_err) - delta) for s in (-1.0, 1.0)
+    )
+    return sigma_w, tl, delta, spread
 
 
 def _detection_floor(spectrum: _Spectrum, transform: _Transform, taper: float) -> float:
@@ -1106,6 +1249,10 @@ def _result(
         ),
         sideband_broadening=rec.broadening,
         delay_sweep_fs=rec.sweep,
+        rms_bandwidth_rad_per_fs=rec.rms_bandwidth,
+        tl_rms_fs=rec.tl_rms,
+        delta_duration_rms_fs=rec.delta_rms,
+        delta_duration_rms_err_fs=rec.delta_rms_err,
         window_tau_shift_fs=rec.tau_shift,
         window_gdd_shift_fs2=rec.gdd_shift,
         min_samples_per_fringe=rec.spf_min,
