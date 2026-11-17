@@ -139,10 +139,8 @@ through `SetpointDevice.tolerance_records`), and both treat it as a
 tolerance only while it is connected, not INVALID and above zero. A `setpoint_device` settable must be a readback the family
 writes through a setpoint role with a `tolerance_by`: the registry holds no
 tolerance of its own (`SetpointSettable` keeps the scan's `timeout`), so an
-entry the family gives none is refused when it loads. Its retired
-`tolerance` is accepted, ignored and written back as it was for one release
-(readers deployed before the retirement require it); the key is deleted once
-no configs file carries it.
+entry the family gives none is refused when it loads, and a settable that
+still gives a `tolerance` of its own is refused as an unknown field.
 
 ## Screens
 
