@@ -305,3 +305,16 @@ def test_a_header_names_the_columns_even_index(tmp_path):
     found = shot_traces.read_text_trace(path)
     assert found is not None
     np.testing.assert_allclose(found.data, [[0, 5], [1, 7]])
+
+
+def test_crop_trace_keeps_the_window_both_ends_in():
+    trace = Data1DResult(
+        data=np.column_stack((np.arange(6.0), np.arange(6.0) * 10)), x_units="nm"
+    )
+    cropped = shot_traces.crop_trace(trace, 2.0, 4.0)
+    np.testing.assert_allclose(cropped.data[:, 0], [2.0, 3.0, 4.0])
+    np.testing.assert_allclose(cropped.data[:, 1], [20.0, 30.0, 40.0])
+    assert cropped.x_units == "nm"
+    assert shot_traces.crop_trace(trace, None, 1.0).data.shape == (2, 2)
+    assert shot_traces.crop_trace(trace, None, None) is trace
+    assert shot_traces.crop_trace(trace, 10.0, 20.0) is None

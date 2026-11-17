@@ -45,6 +45,7 @@ from geecs_portal.plotter.routes import Context, read_form
 from geecs_portal.plotter.routes.images import (
     multi_query,
     prep_query,
+    window_query,
     strip_code,
     strip_tiles,
     trace_code,
@@ -747,6 +748,7 @@ def _fill_images(
             _strip_refs(page, extras),
             settings.merge_tolerance,
             x or "",
+            first["window"],
         )
     elif first["tiles"]:
         prep = ImagePrep(hits=first["hits"], centre=first["centre"])
@@ -817,6 +819,8 @@ def _first_look(settings: PlotterSettings) -> ImageCamera:
         cbar=settings.image_cbar,
         bgsub=settings.image_bgsub,
         channel=settings.image_channel,
+        xmin=settings.image_xmin,
+        xmax=settings.image_xmax,
     )
 
 
@@ -866,6 +870,8 @@ def _camera_row(
         "kept": "",
         "problem": None,
         "trace": "",
+        "window": None,
+        "window_problem": "",
         "channels": [],
         "tiles": [],
         "roi": ",".join(str(v) for v in roi) if roi else "",
@@ -903,6 +909,7 @@ def _camera_row(
     if row["problem"]:
         return row
     trace = bool(row["trace"])
+    row["window"] = _row_window(row) if trace else None
     prep = ImagePrep() if trace else ImagePrep(hits=row["hits"], centre=row["centre"])
     try:
         row["tiles"] = strip_tiles(
@@ -921,6 +928,7 @@ def _camera_row(
             source=source,
             extra=page["scans_text"],
             mtol=settings.merge_tolerance,
+            window=row["window"],
         )
     except HTTPException as missing:
         row["problem"] = missing.detail
@@ -945,9 +953,25 @@ def _camera_row(
             **({"bg": row["bg"]} if row["bg"] else {}),
             **({"channel": row["channel"]} if trace else {}),
             **multi_query(page["scans_text"], settings.merge_tolerance, x or ""),
+            **window_query(row["window"]),
         }
     )
     return row
+
+
+def _row_window(row: dict) -> Optional[tuple]:
+    """A trace row's x window from its boxes; ``None`` for none, or for a reversed one.
+
+    A window whose 'to' is not above its 'from' is not applied: the row
+    says so (``window_problem``) and draws the whole trace.
+    """
+    low, high = row.get("xmin"), row.get("xmax")
+    if low is None and high is None:
+        return None
+    if low is not None and high is not None and not high > low:
+        row["window_problem"] = "x 'to' must be above 'from': the whole trace is drawn"
+        return None
+    return (low, high)
 
 
 def display_query(page: dict) -> str:

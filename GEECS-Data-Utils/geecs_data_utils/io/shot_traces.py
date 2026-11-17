@@ -352,6 +352,35 @@ def average_traces(traces: Sequence[Data1DResult]) -> Optional[Data1DResult]:
     )
 
 
+def crop_trace(
+    trace: Data1DResult, low: Optional[float] = None, high: Optional[float] = None
+) -> Optional[Data1DResult]:
+    """The samples of *trace* with x from *low* to *high* (both kept); ``None`` if none.
+
+    Either bound may be ``None`` (no limit on that side), and the order of
+    the samples is kept. A window the trace does not reach has no samples,
+    so the caller can say why rather than draw nothing. Labels and units
+    are the trace's.
+    """
+    if low is None and high is None:
+        return trace
+    x = trace.data[:, 0]
+    keep = np.ones(x.shape, dtype=bool)
+    if low is not None:
+        keep &= x >= low
+    if high is not None:
+        keep &= x <= high
+    if not keep.any():
+        return None
+    return Data1DResult(
+        data=trace.data[keep],
+        x_units=trace.x_units,
+        y_units=trace.y_units,
+        x_label=trace.x_label,
+        y_label=trace.y_label,
+    )
+
+
 def average_trace_rows(
     scan_folder: Path,
     frame: Optional["pd.DataFrame"],

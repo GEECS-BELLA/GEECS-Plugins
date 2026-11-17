@@ -758,17 +758,40 @@ def trace_tile(
     return found
 
 
+#: A trace row's x window: ``(low, high)``, either ``None`` for no limit.
+XWindow = tuple[Optional[float], Optional[float]]
+
+
+def windowed(trace: Data1DResult, window: Optional[XWindow]) -> Data1DResult:
+    """*trace* inside the row's x *window* (``shot_traces.crop_trace``).
+
+    Raises
+    ------
+    NoImage
+        The trace has no sample in the window.
+    """
+    if window is None:
+        return trace
+    cropped = shot_traces.crop_trace(trace, *window)
+    if cropped is None:
+        low, high = (f"{v:.4g}" if v is not None else "…" for v in window)
+        raise NoImage(f"no samples with x from {low} to {high}")
+    return cropped
+
+
 def trace_levels(
     folder: Source,
     frame: pd.DataFrame,
     device: str,
     tiles: list[Tile],
     channel: int = 0,
+    window: Optional[XWindow] = None,
 ) -> tuple[float, float, int]:
     """One y range for every trace tile: the lowest and highest sample of them all.
 
     The trace row's "shared" scale, as :func:`shared_levels` is a camera's:
     every tile given (the page's shown ones) is read first, a few at a time.
+    With an x *window*, only the samples inside it count.
 
     Returns
     -------
@@ -783,7 +806,8 @@ def trace_levels(
 
     def levels(tile: Tile) -> Optional[tuple[float, float]]:
         try:
-            y = trace_tile(folder, frame, device, tile.rows, channel).data[:, 1]
+            trace = trace_tile(folder, frame, device, tile.rows, channel)
+            y = windowed(trace, window).data[:, 1]
         except NoImage:
             return None
         finite = y[np.isfinite(y)]

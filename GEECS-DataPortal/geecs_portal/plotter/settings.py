@@ -159,6 +159,9 @@ class ImageCamera(BaseModel):
     bgsub: bool = True
     #: A scope's channel (from 0), when the device records traces.
     channel: int = Field(default=0, ge=0)
+    #: A trace row's x window (``None``: no limit on that side).
+    xmin: Optional[float] = None
+    xmax: Optional[float] = None
 
 
 class PlotterSettings(BaseModel):
@@ -259,6 +262,11 @@ class PlotterSettings(BaseModel):
     #: The first row's scope channel (from 0), when its device records
     #: traces (a scope's files hold several); a camera ignores it.
     image_channel: int = Field(default=0, ge=0)
+    #: The first row's x window when it records traces: each tile, the
+    #: shared y range and the big view's first view are taken over it
+    #: (``None``: no limit on that side); a camera ignores it.
+    image_xmin: Optional[float] = None
+    image_xmax: Optional[float] = None
     #: Each camera's region of interest, ``[x0, y0, x1, y1]`` in pixels
     #: (x right, y down, the end excluded); a camera not here is whole.
     image_rois: dict[str, list[int]] = Field(default_factory=dict)
@@ -547,6 +555,8 @@ FORM_FIELDS = {
     "bg": "image_bg",
     "bgsub": "image_bgsub",
     "channel": "image_channel",
+    "xmin": "image_xmin",
+    "xmax": "image_xmax",
     "scalstat": "image_scalar_stat",
     "tilemax": "image_tile_max",
     "mtol": "merge_tolerance",
@@ -596,7 +606,7 @@ _INTEGERS: dict[str, tuple[int, Optional[int]]] = {
 }
 
 #: The fixed z-scale values: any finite number, or empty for none.
-_LEVELS = ("image_zmin", "image_zmax")
+_LEVELS = ("image_zmin", "image_zmax", "image_xmin", "image_xmax")
 
 #: A colour-map name as stored (matplotlib's names are of this shape).
 _CMAP_NAME = re.compile(r"[A-Za-z0-9_]{1,40}")
@@ -632,7 +642,7 @@ def merged(settings: PlotterSettings, form: dict[str, str]) -> PlotterSettings:
 #: A stacked camera's field: the first camera's form name, ``@`` and its
 #: place (2 for the second): ``cmap@2``, ``roi@3``.
 _CAMERA_FIELD = re.compile(
-    rf"(device|devf|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|channel|roi)@([2-{MAX_CAMERAS}])"
+    rf"(device|devf|cmap|zscale|zmin|zmax|hits|centre|cbar|bgsub|channel|xmin|xmax|roi)@([2-{MAX_CAMERAS}])"
 )
 
 
