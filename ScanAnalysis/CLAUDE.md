@@ -200,7 +200,13 @@ fewer than `MIN_UNITS_FOR_POOL` (50) units, else the recipe's `scan.workers`
 capped by the host — `CoreScanAnalyzer.worker_cap` when a host process set
 it, else `config.ini [analysis] worker_cap` (a facility value: never in a
 recipe), else one core fewer than the machine has — and logged as
-`<device>: <n> units, <k> workers`. The count is a throughput knob only:
+`<device>: <n> units, <k> workers`. The run reports its progress through
+`ScanAnalyzer.report_progress` — `(0, N, phase)` before the first unit,
+then `(k, N, phase)` as each outcome arrives, a failed unit counted, the
+phase `shot` or `bin` (`UNIT_PHASES`), then `(N, N, "writing products")`
+(`WRITING_PHASE`) once every unit is in — to whichever host set the sink
+(the portal's run record; the task queue sets none), so the core stays
+free of I/O. The worker count is a throughput knob only:
 `test_pooled_run_writes_the_identical_tree` holds the pooled tree to the
 serial one at 0 ulp. Hosts that run analyses (the portal's thread pool, the
 task queue, MCP's detached worker) are threaded processes; the pool is

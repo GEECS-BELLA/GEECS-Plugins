@@ -178,13 +178,16 @@ if (typeof navigator === "undefined") globalThis.navigator = {};  // node < 21
 const providers = { set innerHTML(html) {
   if (String(html).includes("columns:")) { console.error(html); process.exit(1); }
 } };
+// A test may hand the page real elements (``__elements`` by id) and
+// document members (``__document``); everything else is the stub.
 const document = new Proxy({}, {
   get: (t, k) => k === "getElementById"
-    ? id => id === "providers" ? providers : any : any,
+    ? id => id === "providers" ? providers : (globalThis.__elements || {})[id] || any
+    : (globalThis.__document || {})[k] || any,
 });
 Object.assign(globalThis, {
   document, window: any, history: any, localStorage: any, Option: any,
-  Plotly: any, GeecsKit: any, ResizeObserver: any, ClipboardItem: undefined,
+  Plotly: any, GeecsKit: any, ResizeObserver: any, CSS: { escape: String }, ClipboardItem: undefined,
   getComputedStyle: () => ({ getPropertyValue: () => "" }),
   fetch: async () => ({ ok: true, json: async () => ({ columns: [], grid_axes: [] }) }),
 });
@@ -226,6 +229,107 @@ def test_the_scan_page_script_boots_without_an_undefined_name(
         [node, str(script)], capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stderr
+
+
+def _run_page_script(tmp_path: Path, test: str) -> None:
+    """Boot the scan page's script under node, then run *test* against it."""
+    import shutil
+    import subprocess
+
+    from fastapi.testclient import TestClient
+    from geecs_web_theme.testing import inline_scripts
+
+    from geecs_portal.app import create_app
+    from tests.test_app import FakeCatalog
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to run the page script")
+    page = TestClient(create_app(FakeCatalog())).get("/run/uid-002").text
+    script = tmp_path / "page.cjs"
+    script.write_text(
+        _BOOT_HARNESS
+        + 'globalThis.location = new URL("http://portal.example/run/uid-002");\n'
+        + "\n".join(inline_scripts(page)).replace('"use strict";', "")
+        + "\nconst check = (ok, what) => { if (!ok) { console.error(what); process.exit(1); } };\n"
+        + test
+        + "\nprocess.exit(0);\n"
+    )
+    result = subprocess.run(
+        [node, str(script)], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+
+
+#: A listing with one analyzer, running at ``done`` of 11 shots (or done).
+_ANALYSIS_LISTING = r"""
+const listing = (done, state = "running") => ({
+  running: state === "running" ? "PW_SpecFringes" : null,
+  analyzers: [{
+    id: "PW_SpecFringes", device: "Thorlabs", applicable: true, destructive: false,
+    files: [], artifacts: [],
+    job: { state, error: null, log: [], finished: null,
+           progress: { done, total: 11, phase: "shot" } },
+  }],
+});
+"""
+
+
+def test_a_running_analysis_draws_shot_k_of_n_on_the_kit_meter(tmp_path) -> None:
+    """The Analysis tab's row carries a determinate meter while the run lasts;
+    a progress-only poll moves it without rebuilding the list (which would
+    re-fetch every inline artifact); the settled row has none."""
+    _run_page_script(
+        tmp_path,
+        _ANALYSIS_LISTING
+        + r"""
+const drawn = [];
+globalThis.__elements = { analysisList: { set innerHTML(html) { drawn.push(html); } } };
+const meter = { outerHTML: "" };
+const ROW = '#analysisList .arow[data-row="PW_SpecFringes"]';
+globalThis.__document = { querySelector: sel => sel === ROW
+  ? { querySelector: s => s === ":scope > .aprog" ? meter : null } : null };
+renderAnalysis(listing(3), false);
+check(drawn.length === 1, "first listing draws the list");
+check(drawn[0].includes('class="meter aprog"'), "a running row carries the kit meter");
+check(drawn[0].includes("shot 3 of 11"), "the meter says shot k of N: " + drawn[0]);
+check(drawn[0].includes('aria-valuenow="3"') && drawn[0].includes('aria-valuemax="11"'),
+      "the meter is a progressbar with its numbers");
+check(drawn[0].includes("width:27%"), "the bar is done/total wide");
+renderAnalysis(listing(4), false);
+check(drawn.length === 1, "a progress tick does not rebuild the list");
+check(meter.outerHTML.includes("shot 4 of 11"), "a progress tick moves the meter");
+renderAnalysis(listing(11, "done"), false);
+check(drawn.length === 2, "the settled run redraws the list");
+check(!drawn[1].includes("aprog"), "a settled row carries no meter");
+check(drawn[1].includes('data-state="ok"'), "and its final chip");
+""",
+    )
+
+
+def test_a_first_progress_report_inserts_the_meter(tmp_path) -> None:
+    """A row drawn before the run reported anything has no meter; the first
+    report adds one after the row's head rather than rebuilding the list."""
+    _run_page_script(
+        tmp_path,
+        _ANALYSIS_LISTING
+        + r"""
+const drawn = [];
+globalThis.__elements = { analysisList: { set innerHTML(html) { drawn.push(html); } } };
+const head = { inserted: null, insertAdjacentHTML(where, html) { this.inserted = [where, html]; } };
+const row = { querySelector: sel => sel === ":scope > .head" ? head : null };
+globalThis.__document = { querySelector: sel =>
+  sel === '#analysisList .arow[data-row="PW_SpecFringes"]' ? row : null };
+const silent = listing(0);
+silent.analyzers[0].job.progress = null;
+renderAnalysis(silent, false);
+check(drawn.length === 1 && !drawn[0].includes("aprog"), "no report, no meter");
+renderAnalysis(listing(1), false);
+check(drawn.length === 1, "the first report does not rebuild the list");
+check(head.inserted && head.inserted[0] === "afterend"
+      && head.inserted[1].includes("shot 1 of 11"), "the meter is inserted after the head");
+""",
+    )
 
 
 def test_the_day_page_plots_the_scans_it_shows(tmp_path) -> None:

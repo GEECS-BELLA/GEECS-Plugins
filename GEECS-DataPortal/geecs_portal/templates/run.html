@@ -330,15 +330,47 @@ function stepBin(id, delta) {
 //: An analysis job's state as the kit's status word.
 const JOB_STATES = { queued: "queued", running: "running", done: "ok", failed: "failed", no_data: "degraded" };
 
+// While a run lasts, the kit's meter under its row: what the analyzer last
+// reported (a recipe per shot or bin, the .himg kinds per frame) as
+// "shot 3 of 11" and a bar.  An analyzer that never reports shows none
+// and its chip says the bare state.
+function renderProgress(p) {
+  if (!p) return "";
+  const total = Math.max(0, Math.floor(Number(p.total)) || 0);
+  const done = Math.min(Math.max(0, Math.floor(Number(p.done)) || 0), total);
+  const pct = total ? Math.round(100 * done / total) : 0;
+  return `<div class="meter aprog" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}" aria-label="${escAttr(p.phase)} progress">
+    <div class="track"><i class="fill" style="width:${pct}%"></i></div>
+    <div class="lbl"><span>${esc(p.phase)} ${done} of ${total}</span><span>${pct}%</span></div></div>`;
+}
+
+//: The listing with every job's progress dropped: two polls that differ
+//: only there are a progress tick, drawn without rebuilding the list.
+function withoutProgress(body) {
+  return JSON.stringify(body, (k, v) => (k === "progress" ? undefined : v));
+}
+
+// A progress tick patches each active row's meter in place: rebuilding the
+// list would re-fetch every inline artifact on the tab (they are no-cache)
+// once per poll for the whole run.
+function patchProgress(body) {
+  for (const a of body.analyzers) {
+    const job = a.job;
+    if (!job || !(job.state === "running" || job.state === "queued")) continue;
+    const row = document.querySelector(`#analysisList .arow[data-row="${CSS.escape(a.id)}"]`);
+    if (!row) continue;
+    const old = row.querySelector(":scope > .aprog");
+    const html = renderProgress(job.progress);
+    if (old) old.outerHTML = html;
+    else if (html) row.querySelector(":scope > .head").insertAdjacentHTML("afterend", html);
+  }
+}
+
 function renderAnalyzer(a, anyRunning) {
   const job = a.job;
   const state = job ? job.state : "";
   const active = state === "running" || state === "queued";
-  // While a run lasts, the badge carries what the analyzer last reported
-  // (frames done/total in its phase) — the .himg kinds report per frame;
-  // an analyzer that never reports shows the bare state.
-  const prog = active && job.progress ? `<span class="prog">${esc(job.progress.phase)} ${esc(String(job.progress.done))}/${esc(String(job.progress.total))}</span>` : "";
-  const badge = state ? `<span class="chip" data-state="${JOB_STATES[state] || "unknown"}">${esc(state)}${prog}</span>` : `<span class="chip" data-state="unknown">not run</span>`;
+  const badge = state ? `<span class="chip" data-state="${JOB_STATES[state] || "unknown"}">${esc(state)}</span>` : `<span class="chip" data-state="unknown">not run</span>`;
   // A destructive kind (it deletes data files) says so on its row; its
   // run button opens the confirmation instead of starting the run.
   const danger = a.destructive ? `<span class="tag-warn" title="this analyzer deletes data files; running it asks for the scan number">deletes files</span>` : "";
@@ -351,7 +383,7 @@ function renderAnalyzer(a, anyRunning) {
   // the data device only when it says something the recipe id does not
   const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";
   const when = job && job.finished ? `<span class="note">${new Date(job.finished * 1000).toLocaleTimeString()}</span>` : "";
-  let body = "";
+  let body = active ? renderProgress(job.progress) : "";
   if (job && job.error) body += `<p class="err">${esc(job.error)}</p>`;
   body += renderArtifacts(a.id, a.artifacts);
   if (job && job.log && job.log.length) {
@@ -369,6 +401,7 @@ let POLL_STEP = POLL_STEPS.length;
 function nextPollDelay() { return POLL_STEP < POLL_STEPS.length ? POLL_STEPS[POLL_STEP++] : 1500; }
 
 let ANALYSIS_LAST = null;  // last-rendered payload — an unchanged poll leaves the DOM alone
+let ANALYSIS_SHAPE = null; // the same without progress — a progress-only change patches the meters
 let ANALYSIS_BODY = null;  // the payload itself, so a stepper click re-renders without a fetch
 
 function renderAnalysis(body, force) {
@@ -377,14 +410,19 @@ function renderAnalysis(body, force) {
   const anyRunning = body.running !== null;
   const key = JSON.stringify(body);
   ANALYSIS_BODY = body;
-  if (key === ANALYSIS_LAST && !force) {
-    // Nothing changed: keep polling while active, but do not rebuild
-    // the list (every <img> would re-fetch its artifact).
+  const shape = withoutProgress(body);
+  if ((key === ANALYSIS_LAST || shape === ANALYSIS_SHAPE) && !force) {
+    // Nothing changed but (at most) a run's progress: keep polling while
+    // active, but do not rebuild the list (every <img> would re-fetch
+    // its artifact) — move the meters.
+    if (key !== ANALYSIS_LAST) patchProgress(body);
+    ANALYSIS_LAST = key;
     clearTimeout(ANALYSIS_TIMER);
     ANALYSIS_TIMER = anyRunning ? setTimeout(() => refreshAnalysis(false), nextPollDelay()) : null;
     return;
   }
   ANALYSIS_LAST = key;
+  ANALYSIS_SHAPE = shape;
   if (!body.analyzers.length) {
     list.innerHTML = paneState("empty", "No loadable diagnostics in the configs tree");
     return;
@@ -408,7 +446,7 @@ function refreshAnalysis(force) {
   const list = document.getElementById("analysisList");
   if (!list || (!force && S.tab !== "analysis")) return;
   api("analysis", {}).then(renderAnalysis).catch(err => {
-    ANALYSIS_LAST = null;
+    ANALYSIS_LAST = ANALYSIS_SHAPE = null;
     list.innerHTML = paneState("error", err.message);
   });
 }
@@ -491,7 +529,7 @@ function postAnalysis(id, confirm) {
       // re-render so the buttons come back — the up-front disable must
       // never be the page's last word.
       flashNote("run failed: " + err.message);
-      ANALYSIS_LAST = null;
+      ANALYSIS_LAST = ANALYSIS_SHAPE = null;
       refreshAnalysis(true);
     });
 }
