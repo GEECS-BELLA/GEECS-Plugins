@@ -66,6 +66,32 @@ class TestPaths:
             mirror.logbook_root(DAY, EXP, base_directory=tmp_path)
         assert list(tmp_path.iterdir()) == []
 
+    def test_a_flat_experiments_bare_mount_point_means_unmounted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """[data_folders] FLAT = : the experiment dir is the data root, which a
+        bare mount point satisfies by existing — it must also hold something."""
+        from types import SimpleNamespace
+
+        from geecs_data_utils import ScanPaths
+
+        monkeypatch.setattr(
+            ScanPaths,
+            "paths_config",
+            SimpleNamespace(
+                base_path=tmp_path,
+                experiment="Flat",
+                data_folder_for=lambda e: "" if e == "Flat" else (e or ""),
+                experiment_for_data_folder=lambda f, base_path=None: f.name,
+            ),
+        )
+        with pytest.raises(mirror.MirrorUnavailable, match="not mounted"):
+            mirror.logbook_root(DAY, "Flat", base_directory=tmp_path)
+        assert list(tmp_path.iterdir()) == []
+        (tmp_path / "Y2026").mkdir()
+        root = mirror.logbook_root(DAY, "Flat", base_directory=tmp_path)
+        assert root == tmp_path / "logbook" / "Y2026" / "09-Sep" / "26_0911"
+
     def test_a_path_into_the_data_tree_is_refused(self, share: Path) -> None:
         """The invariant is pinned in code, not only by construction."""
         with pytest.raises(mirror.MirrorUnavailable):

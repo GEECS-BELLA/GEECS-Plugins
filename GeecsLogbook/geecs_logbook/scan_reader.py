@@ -59,6 +59,7 @@ from geecs_data_utils.scan_info import (
     scan_log_variables,
 )
 from geecs_data_utils.scan_log_loader import first_log_timestamp
+from geecs_data_utils.scan_paths import experiment_dir_present
 
 from geecs_logbook.models import DaySummary, ScanSummary
 
@@ -434,7 +435,7 @@ def days_with_folders(
     found: set[date] = set()
     try:
         folder = month_folder(first, experiment, base_directory)
-        if not folder.parent.parent.is_dir():  # {base}/{experiment}
+        if not experiment_dir_present(folder.parent.parent, experiment):
             logger.warning("experiment directory missing: %s", folder.parent.parent)
             return None
         with os.scandir(folder) as entries:

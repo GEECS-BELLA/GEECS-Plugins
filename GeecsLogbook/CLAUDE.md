@@ -82,7 +82,9 @@ monkeypatches `Path.mkdir` across both the markdown and the attachment
 copy to assert every directory made is under `logbook/`. One sentinel
 stands before any `mkdir`: the **experiment directory** must exist,
 because its absence means the share is not mounted, and a tree built on
-the bare mount point would be hidden when the share came back. The first cut put `logbook/`
+the bare mount point would be hidden when the share came back. A flat
+experiment's directory (`[data_folders]` maps it to empty) is the data root,
+which must also be non-empty (`geecs_data_utils.scan_paths.experiment_dir_present`). The first cut put `logbook/`
 inside each day folder and could not create the day; that stranded the
 ops book, which is why it moved (owner ruling 2026-09-11).
 

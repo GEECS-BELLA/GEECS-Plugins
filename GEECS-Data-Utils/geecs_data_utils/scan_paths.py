@@ -219,7 +219,7 @@ class ScanPaths:
             self._tag_date.month,
             self._tag_date.day,
             parse_scan_folder_name(scan_folder_name),
-            experiment=self._experiment_from_folder(
+            experiment=self.experiment_from_folder(
                 folder.parents[4], exp_name, base_directory
             ),
         )
@@ -228,12 +228,29 @@ class ScanPaths:
         self._folder = folder
 
     @staticmethod
-    def _experiment_from_folder(
+    def experiment_from_folder(
         experiment_folder: Path,
         folder_name: str,
-        base_directory: Union[Path, str, None],
+        base_directory: Union[Path, str, None] = None,
     ) -> str:
-        """The experiment a scan's ``experiment_folder`` belongs to (``[data_folders]``)."""
+        """The experiment a scan's ``experiment_folder`` belongs to (``[data_folders]``).
+
+        Parameters
+        ----------
+        experiment_folder : Path
+            The folder above a scan's ``Y{YYYY}`` folder.
+        folder_name : str
+            What to answer without a ``[data_folders]``-aware config
+            (the convention: the folder's own name).
+        base_directory : Path or str, optional
+            The data root the folder was found under; defaults to the
+            configured one.
+
+        Returns
+        -------
+        str
+            The experiment name.
+        """
         lookup = getattr(ScanPaths.paths_config, "experiment_for_data_folder", None)
         if lookup is None:
             return folder_name
@@ -870,6 +887,38 @@ def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
                 if seen >= max_files:
                     break
     return counts.most_common(1)[0][0] if counts else "png"
+
+
+def experiment_dir_present(experiment_dir: Path, experiment: Optional[str]) -> bool:
+    """Whether *experiment*'s data folder is really there — the "share is mounted" sentinel.
+
+    A conventional experiment folder is absent when the share is down. A
+    flat experiment's folder (``[data_folders]`` maps it to empty) is the
+    data root itself, which may be a bare mount point that exists while the
+    share is down — so for it the folder must also be non-empty.
+
+    Parameters
+    ----------
+    experiment_dir : Path
+        The folder above the experiment's ``Y{YYYY}`` folders.
+    experiment : str or None
+        GEECS experiment name.
+
+    Returns
+    -------
+    bool
+        True when the folder exists (and, for a flat experiment, holds
+        anything).
+    """
+    try:
+        if not experiment_dir.is_dir():
+            return False
+        lookup = getattr(ScanPaths.paths_config, "data_folder_for", None)
+        if experiment and lookup is not None and lookup(experiment) == "":
+            return next(experiment_dir.iterdir(), None) is not None
+    except OSError:
+        return False
+    return True
 
 
 def daily_scan_folder(

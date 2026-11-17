@@ -24,7 +24,12 @@ from pathlib import Path
 import pytest
 
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
-from geecs_data_utils.scan_paths import ScanPaths, daily_scan_folder
+from geecs_data_utils.folder_catalog import FolderScanCatalog, parse_folder_uid
+from geecs_data_utils.scan_paths import (
+    ScanPaths,
+    daily_scan_folder,
+    experiment_dir_present,
+)
 
 DAY = (2026, 11, 17)
 DAY_PARTS = ("Y2026", "11-Nov", "26_1117", "scans")
@@ -181,3 +186,43 @@ class TestScannerSide:
         assert created == day / "Scan003"
         assert created.is_dir()
         assert not (mapped.base_path / "Flat").exists()
+
+
+class TestFolderCatalog:
+    """The portal's folder catalog names the experiment, not the folder above Y{YYYY}."""
+
+    def _scan(self, root: Path, number: int) -> None:
+        folder = root.joinpath(*DAY_PARTS, f"Scan{number:03d}")
+        folder.mkdir(parents=True)
+        (folder / f"ScanInfoScan{number:03d}.ini").write_text(
+            '[Scan Info]\nScan No = "1"\nScan Parameter = "Shotnumber"\n'
+        )
+
+    @pytest.mark.parametrize(
+        ("experiment", "folder"), [("Flat", ""), ("Renamed", "OtherFolder")]
+    )
+    def test_listed_scans_carry_the_experiment_and_load(
+        self, mapped, experiment, folder
+    ):
+        root = mapped.base_path / folder if folder else mapped.base_path
+        self._scan(root, 1)
+        catalog = FolderScanCatalog()
+        runs = catalog.list_runs(experiment, date(*DAY))
+        assert [parse_folder_uid(r.uid)[0] for r in runs] == [experiment]
+        detail = catalog.load_run(runs[0].uid)
+        assert detail.summary.scan_number == 1
+
+
+class TestExperimentDirPresent:
+    """The "share is mounted" sentinel: a flat experiment's folder is the data root."""
+
+    def test_an_empty_root_is_not_a_flat_experiments_share(self, mapped):
+        assert not experiment_dir_present(mapped.base_path, "Flat")
+        (mapped.base_path / "Y2026").mkdir()
+        assert experiment_dir_present(mapped.base_path, "Flat")
+
+    def test_a_conventional_folder_needs_only_to_exist(self, mapped):
+        folder = mapped.base_path / "Conventional"
+        assert not experiment_dir_present(folder, "Conventional")
+        folder.mkdir()
+        assert experiment_dir_present(folder, "Conventional")

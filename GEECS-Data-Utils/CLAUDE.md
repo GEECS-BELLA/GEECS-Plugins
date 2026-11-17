@@ -174,7 +174,12 @@ whose data tree predates the convention), another name a renamed folder.
 `ScanPaths(folder=…)` parses back through `experiment_for_data_folder`, so
 the tag keeps the experiment name and the path round-trips; an experiment
 without an entry, or a config without the section, follows the convention
-unchanged. Pinned by `tests/test_data_folders.py`.
+unchanged. Anything that reads the experiment back from a path goes through
+`ScanPaths.experiment_from_folder` (the folder catalog's uids do), and the
+"share is mounted" sentinel is `scan_paths.experiment_dir_present`: a flat
+experiment's folder is the data root, which a bare mount point satisfies by
+existing, so it must also be non-empty (the logbook's mirror and calendar
+use it). Pinned by `tests/test_data_folders.py`.
 
 ## GEECS Folder Convention
 
