@@ -269,3 +269,41 @@ def test_a_camera_row_has_no_x_window(client: TestClient, camera: Path) -> None:
 def test_the_notebook_code_crops_to_the_window(client: TestClient, scope: Path) -> None:
     page = post(client, scan=1, page="images", device=SCOPE, xmin="2e-9", xmax="4e-9")
     assert "images.windowed(trace, (2e-09, 4e-09))" in page
+
+
+def test_a_windowed_tile_is_cropped(client: TestClient, scope: Path) -> None:
+    """The window changes what a tile draws (a tile that ignored it would not)."""
+    whole = _tile(client, strip="bins", index=0, channel=1).content
+    cropped = _tile(client, strip="bins", index=0, channel=1, **WINDOW).content
+    assert whole != cropped
+
+
+def test_the_big_view_s_y_range_is_the_window_s_samples(
+    client: TestClient, scope: Path
+) -> None:
+    # Index 2 of the shots strip is shot 2: its ramp 0, 2, ..., 10 has 4, 6
+    # and 8 inside the window, padded by 4 % of that span (never 0 to 10).
+    base = {"day": DAY, "scan": 1, "device": SCOPE, "strip": "shots", "index": 2}
+    body = client.get(
+        "/api/images/trace", params={**base, "channel": 1, **WINDOW}
+    ).json()
+    assert body["figure"]["layout"]["yaxis"]["range"] == pytest.approx([3.84, 8.16])
+
+
+def test_a_window_missing_every_tile_says_so_on_the_levels(
+    client: TestClient, scope: Path
+) -> None:
+    params = {"day": DAY, "scan": 1, "device": SCOPE, "strip": "shots", "channel": 1}
+    response = client.get(
+        "/api/images/levels", params={**params, "xmin": 1.0, "xmax": 2.0}
+    )
+    assert response.status_code == 404
+    assert "x window" in response.json()["detail"]
+
+
+def test_a_blank_window_box_is_no_limit(
+    client: TestClient, scope: Path, settings_dir: Path
+) -> None:
+    post(client, scan=1, page="images", device=SCOPE, xmin="  ", xmax="4e-9")
+    saved = json.loads((settings_dir / "default.json").read_text())
+    assert (saved["image_xmin"], saved["image_xmax"]) == (None, 4e-9)

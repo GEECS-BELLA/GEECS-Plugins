@@ -816,6 +816,13 @@ def trace_levels(
     with ThreadPoolExecutor(max_workers=8) as pool:
         found = [w for w in pool.map(levels, tiles) if w is not None]
     if not found:
+        if window is not None:
+            low = "the start" if window[0] is None else f"{window[0]:g}"
+            high = "the end" if window[1] is None else f"{window[1]:g}"
+            raise NoImage(
+                f"no tile has samples with x from {low} to {high} "
+                "(the row's x window: clear it or widen it)"
+            )
         raise NoImage("no tile has a trace")
     return min(lo for lo, _ in found), max(hi for _, hi in found), len(found)
 

@@ -846,6 +846,7 @@ def _text_value(key: str, value: str) -> object:
     if key in CHOICES and value not in CHOICES[key]:
         raise ValueError(f"must be one of {', '.join(CHOICES[key])}")
     if key in _LEVELS:
+        value = value.strip()  # a box holding only spaces is "no limit"
         if not value:
             return None
         number = float(value)
