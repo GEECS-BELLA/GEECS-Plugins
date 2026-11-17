@@ -44,14 +44,13 @@ class SpectralInterferometrySpec(MeasureSpec):
         "delta_gdd_fs2": "Differential GDD, later pulse minus earlier, fs²",
         "delta_gdd_err_fs2": "1σ uncertainty of delta_gdd, fs²",
         "reference_wavelength_nm": "Wavelength tau0 is reported at, nm",
-        "transform_limited_fs": (
-            "Gaussian-equivalent transform-limited FWHM of one arm, fs, from the fringe envelope"
+        "tl_rms_fs": "RMS duration of the transform-limited pulse with the measured spectrum (I1 + I2), fs",
+        "delta_duration_rms_fs": (
+            "How much delta_gdd lengthens the RMS duration of a transform-limited arm, fs: "
+            "sqrt(tl_rms² + (delta_gdd σ_ω)²) − tl_rms, exact for any spectral shape "
+            "(assumes the other arm is at transform limit; trust it with delta_gdd_reliable)"
         ),
-        "delta_duration_fs": (
-            "How much delta_gdd lengthens a transform-limited arm, fs (assumes the other "
-            "arm is at transform limit; trust it with delta_gdd_reliable)"
-        ),
-        "delta_duration_err_fs": "1σ of delta_duration from that of delta_gdd, fs (one-sided near zero)",
+        "delta_duration_rms_err_fs": "1σ of delta_duration_rms from that of delta_gdd, fs (upward only near zero)",
         "tau0_reliable": "1 when no check bearing on tau0 was raised, else 0 (the notes name them)",
         "delta_gdd_reliable": "1 when no check at all was raised, else 0 (a narrow band leaves tau0 standing)",
     }
@@ -146,9 +145,9 @@ def spectral_interferometry(
             "delta_gdd_fs2": value(result.delta_gdd_fs2),
             "delta_gdd_err_fs2": value(result.delta_gdd_err_fs2),
             "reference_wavelength_nm": result.reference_wavelength_nm,
-            "transform_limited_fs": value(result.transform_limited_fs),
-            "delta_duration_fs": value(result.delta_duration_fs),
-            "delta_duration_err_fs": value(result.delta_duration_err_fs),
+            "tl_rms_fs": value(result.tl_rms_fs),
+            "delta_duration_rms_fs": value(result.delta_duration_rms_fs),
+            "delta_duration_rms_err_fs": value(result.delta_duration_rms_err_fs),
             "tau0_reliable": float(result.tau0_reliable),
             "delta_gdd_reliable": float(result.delta_gdd_reliable),
         },

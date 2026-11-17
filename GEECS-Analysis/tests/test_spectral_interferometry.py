@@ -38,12 +38,14 @@ def interferogram(
     fwhm_nm: float = 40.0,
     phi0: float = 0.3,
     seed: int = 0,
+    order: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Counts over wavelength for two pulses, the second ``ratio`` times as intense."""
     wavelength = np.linspace(497.7, 1103.2, 3648)
     omega = wavelength_to_omega(wavelength)
     width = 2 * np.pi * C_NM_PER_FS * fwhm_nm / CENTRE_NM**2
-    i1 = 1e4 * np.exp(-4 * np.log(2) * ((omega - OMEGA_C) / width) ** 2)
+    # order 1 is a Gaussian; higher orders are flat-topped (super-Gaussian).
+    i1 = 1e4 * np.exp(-np.log(2) * (4 * ((omega - OMEGA_C) / width) ** 2) ** order)
     i2 = ratio * i1
     phase = phi0 + tau_fs * (omega - OMEGA_C) + 0.5 * gdd_fs2 * (omega - OMEGA_C) ** 2
     counts = i1 + i2 + 2 * np.sqrt(i1 * i2) * np.cos(phase) + 100.0
@@ -123,6 +125,13 @@ class TestKnownValues:
         assert 0.5 < np.std(pulls_tau) < 2.0
         assert 0.5 < np.std(pulls_gdd) < 2.0
 
+    def test_a_far_noise_excursion_does_not_stretch_the_region(self):
+        wavelength, counts = interferogram(1500.0, 0.0, fwhm_nm=16.0)
+        counts[-3:] += 0.2 * counts.max()  # a burst at the detector's red edge
+        result = analyze_interferogram(wavelength, counts).result
+        assert result.spectral_region_nm[1] < 850.0
+        assert result.reliable
+
     def test_the_wavelength_order_does_not_matter(self):
         wavelength, counts = interferogram(600.0, 300.0)
         forward = analyze_interferogram(wavelength, counts).result
@@ -132,53 +141,76 @@ class TestKnownValues:
 
 
 class TestPulseLengthening:
-    """ΔGDD as a duration: a transform-limited Gaussian arm against its chirped twin."""
+    """ΔGDD as an RMS lengthening of a transform-limited arm, for any spectral shape."""
 
     @staticmethod
-    def gaussian(gdd: float, fwhm_nm: float = 40.0) -> tuple[float, float]:
-        bandwidth = 2 * np.pi * C_NM_PER_FS * fwhm_nm / CENTRE_NM**2
-        tl = 4 * np.log(2) / bandwidth
-        return tl, tl * np.sqrt(1 + (4 * np.log(2) * gdd / tl**2) ** 2) - tl
+    def exact(gdd: float, fwhm_nm: float, order: int) -> tuple[float, float]:
+        """σ_TL and the lengthening, from the noise-free arm spectrum on a wide grid."""
+        width = 2 * np.pi * C_NM_PER_FS * fwhm_nm / CENTRE_NM**2
+        omega = OMEGA_C + np.linspace(-6 * width, 6 * width, 1 << 14)
+        intensity = np.exp(-np.log(2) * (4 * ((omega - OMEGA_C) / width) ** 2) ** order)
+
+        def rms(phase: np.ndarray) -> float:
+            field = np.fft.fft(np.sqrt(intensity) * np.exp(1j * phase), 1 << 17)
+            power = np.abs(np.fft.fftshift(field)) ** 2
+            t = (
+                2
+                * np.pi
+                * np.fft.fftshift(np.fft.fftfreq(power.size, omega[1] - omega[0]))
+            )
+            centre = np.sum(t * power) / np.sum(power)
+            return float(np.sqrt(np.sum((t - centre) ** 2 * power) / np.sum(power)))
+
+        tl = rms(np.zeros_like(omega))
+        return tl, rms(0.5 * gdd * (omega - OMEGA_C) ** 2) - tl
 
     @pytest.mark.parametrize(
-        ("gdd", "fwhm_nm"),
-        [(0.0, 40.0), (300.0, 40.0), (-1000.0, 40.0), (3000.0, 60.0)],
+        ("gdd", "fwhm_nm", "order", "tl_rel"),
+        [
+            (300.0, 40.0, 1, 0.06),
+            (-1000.0, 40.0, 1, 0.06),
+            (1000.0, 16.0, 2, 0.03),
+            (3000.0, 16.0, 2, 0.03),
+            (3000.0, 16.0, 3, 0.03),
+        ],
     )
-    def test_matches_the_gaussian_closed_form(self, gdd, fwhm_nm):
-        result = analyse(1500.0, gdd, fwhm_nm=fwhm_nm)
-        tl, stretch = self.gaussian(gdd, fwhm_nm)
-        assert result.transform_limited_fs == pytest.approx(tl, rel=0.01)
-        assert result.delta_duration_fs == pytest.approx(
-            stretch, abs=max(0.2, 0.01 * stretch)
-        )
+    def test_matches_the_exact_rms_for_gaussian_and_flat_top_spectra(
+        self, gdd, fwhm_nm, order, tl_rel
+    ):
+        result = analyse(1500.0, gdd, fwhm_nm=fwhm_nm, order=order)
+        tl, stretch = self.exact(gdd, fwhm_nm, order)
+        assert result.tl_rms_fs == pytest.approx(tl, rel=tl_rel)
+        assert result.delta_duration_rms_fs == pytest.approx(stretch, rel=0.06, abs=0.3)
 
     def test_is_robust_to_noise_and_unequal_arms(self):
-        tl, stretch = self.gaussian(300.0)
+        tl, stretch = self.exact(3000.0, 16.0, 2)
         for seed in range(5):
-            result = analyse(600.0, 300.0, ratio=0.3, noise=0.02, seed=seed)
-            assert result.transform_limited_fs == pytest.approx(tl, rel=0.03)
+            result = analyse(
+                1500.0, 3000.0, fwhm_nm=16.0, order=2, ratio=0.3, noise=0.02, seed=seed
+            )
+            assert result.tl_rms_fs == pytest.approx(tl, rel=0.05)
             assert (
-                abs(result.delta_duration_fs - stretch)
-                < 4 * result.delta_duration_err_fs + 1.0
+                abs(result.delta_duration_rms_fs - stretch)
+                < 4 * result.delta_duration_rms_err_fs + 0.06 * stretch
             )
 
     def test_is_even_in_delta_gdd(self):
         config = SpectralInterferometryConfig(reference_wavelength_nm=800.0)
         positive = analyse(600.0, 500.0, config=config)
         negative = analyse(600.0, -500.0, config=config)
-        assert negative.delta_duration_fs == pytest.approx(
-            positive.delta_duration_fs, rel=0.01
+        assert negative.delta_duration_rms_fs == pytest.approx(
+            positive.delta_duration_rms_fs, rel=0.01
         )
-        assert positive.delta_duration_fs > 0
+        assert positive.delta_duration_rms_fs > 0
 
-    def test_its_uncertainty_is_one_sided_near_zero(self):
+    def test_its_uncertainty_is_upward_near_zero(self):
         result = analyse(600.0, 0.0, noise=0.02)
-        assert result.delta_duration_fs >= 0
-        assert result.delta_duration_err_fs > 0
+        assert result.delta_duration_rms_fs >= 0
+        assert result.delta_duration_rms_err_fs > 0
 
     def test_undetermined_without_a_fit(self):
         result = analyse(0.0, 0.0)
-        assert result.transform_limited_fs is None and result.delta_duration_fs is None
+        assert result.tl_rms_fs is None and result.delta_duration_rms_fs is None
 
 
 class TestSignAmbiguity:

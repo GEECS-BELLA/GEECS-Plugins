@@ -31,6 +31,16 @@ def _fmt(value: float | None, err: float | None, unit: str) -> str:
     return f"{value:.4g} ± {err:.2g} {unit}"
 
 
+def _lengthening(result: SpectralInterferometryResult) -> str:
+    """The RMS lengthening with its σ, upward only (it is ≥ 0)."""
+    if result.delta_duration_rms_fs is None:
+        return "not determined"
+    return (
+        f"{result.delta_duration_rms_fs:.3g} +{result.delta_duration_rms_err_fs:.2g} fs "
+        f"(σ_TL {result.tl_rms_fs:.3g} fs)"
+    )
+
+
 def _spectrum_panel(
     ax: Axes, result: SpectralInterferometryResult, tr: SpectralInterferometryTraces
 ) -> None:
@@ -106,7 +116,7 @@ def _phase_panels(
         f"τ0 = {_fmt(result.tau0_fs, result.tau0_err_fs, 'fs')} "
         f"@ {result.reference_wavelength_nm:.2f} nm\n"
         f"ΔGDD = {_fmt(result.delta_gdd_fs2, result.delta_gdd_err_fs2, 'fs²')}  ·  "
-        f"Δτ_pulse = {_fmt(result.delta_duration_fs, result.delta_duration_err_fs, 'fs')}",
+        f"Δσ_t = {_lengthening(result)}",
         fontsize="medium",
     )
     ax_res.set_xlabel("ω (rad/fs)")

@@ -44,25 +44,40 @@ The λ → ω Jacobian is not applied: it reshapes the envelope, never the phase
 ## Pulse lengthening
 
 From ΔGDD the analysis also reports how much longer one arm is than the
-other, `delta_duration_fs`. This rests on two assumptions: **one arm is
-at transform limit**, and **both arms share one spectral shape**. The
-fringe envelope `|A1 A2|` is then proportional to each arm's intensity
-spectrum. A Gaussian fitted to the envelope's core, above 20 % of its
-peak, gives the arm's bandwidth Δω and the Gaussian-equivalent transform
-limit `transform_limited_fs` = 4 ln 2 / Δω. The stretch is
+other, in **RMS duration**. Assume one arm is at transform limit. With a
+quadratic phase, the group delay is ΔGDD·(ω − ω0), and for **any** spectral
+shape
 
-$$\Delta\tau = \tau_\text{TL}\left(\sqrt{1 + \left(4\ln 2\,\Delta\text{GDD}/\tau_\text{TL}^2\right)^2} - 1\right).$$
+$$\sigma_t^2 = \sigma_\text{TL}^2 + \Delta\text{GDD}^2\,\sigma_\omega^2 .$$
 
-It is even in ΔGDD, so the sign ambiguity drops out. Near ΔGDD = 0 it is
-quadratic, so noise only ever lengthens it, and its σ
-(`delta_duration_err_fs`, the largest change over ΔGDD ± σ) is one-sided.
-Trust it only where `delta_gdd_reliable` is 1.
+That is the flat-phase pulse's own duration plus the spread of group
+delays, weighted by the spectrum. So the other arm is longer by
+`delta_duration_rms_fs` = √(σ_TL² + (ΔGDD·σ_ω)²) − σ_TL.
 
-A Gaussian fit is used rather than a numerical FWHM of the transform. The
-FWHM of √|a| depends on the spectral wings, which are exactly where the
-noise and the region's truncation sit: on synthetic data it read 8 % long
-noise-free, and half the true value with 2 % noise. Third-order dispersion
-and a non-Gaussian spectral shape are ignored.
+- **The spectrum** is the measured one without its fringes. The central
+  term of the same transform is I1 + I2, which is smooth and nearly free
+  of noise; the region's taper is divided back out. σ_ω is its
+  intensity-weighted RMS bandwidth (`rms_bandwidth_rad_per_fs`).
+- **σ_TL** (`tl_rms_fs`) is the RMS duration of the flat-phase pulse with
+  that spectrum. It is taken within ±5 of its own FWHMs, so a faint
+  pedestal far out in time from noise or truncation cannot inflate it.
+- **Accuracy.** On synthetic spectra it is within 2 % for flat-topped ones
+  and about 5 % long for a Gaussian. σ_ω is within 2 % for both, with or
+  without noise.
+
+The lengthening is even in ΔGDD, so the sign ambiguity drops out. Near
+ΔGDD = 0 it is quadratic: noise only lengthens it, so its σ
+(`delta_duration_rms_err_fs`) is upward only, and an average of per-shot
+values is biased up. Average ΔGDD over a bin and take the lengthening of
+that. Trust it only where `delta_gdd_reliable` is 1.
+
+**Why RMS, not FWHM.** On flat-topped spectra like the Thorlabs ones,
+modest GDD hardly changes the FWHM while the wings grow, so a FWHM stretch
+is small and ill-conditioned per shot. A Gaussian model of the FWHM
+overstates it badly (up to 25× on 26_1112 Scan006). The RMS relation is
+exact for the measured spectrum. Third-order dispersion is ignored. A
+user `spectral_region_nm` narrower than the spectrum truncates it and
+biases both numbers.
 
 ## Sign convention
 
@@ -137,8 +152,8 @@ diagnostic_figure(analysis)                       # spectrum | delay domain | ph
 Per shot, in a recipe over a `line` input with x in nm:
 `measure: {kind: spectral_interferometry}`. It emits `tau0_fs`,
 `tau0_err_fs`, `delta_gdd_fs2`, `delta_gdd_err_fs2`,
-`reference_wavelength_nm`, `transform_limited_fs`, `delta_duration_fs`,
-`delta_duration_err_fs`, `tau0_reliable` and `delta_gdd_reliable`. Raised
+`reference_wavelength_nm`, `tl_rms_fs`, `delta_duration_rms_fs`,
+`delta_duration_rms_err_fs`, `tau0_reliable` and `delta_gdd_reliable`. Raised
 flags become notes.
 A flagged shot can still carry a finite but doubtful value, for example an
 overlapping sideband. A scan's bin average (nanmean) folds such values in,
