@@ -69,6 +69,8 @@ def write_scalars_into_rows(rows: pd.DataFrame, records: list[dict]) -> None:
 #: The progress phase a run reports, by whether a unit is a bin (frames
 #: averaged before analysis) or one shot.
 UNIT_PHASES = {False: "shot", True: "bin"}
+#: The phase after the last unit: the scalars and products being written.
+WRITING_PHASE = "writing products"
 
 
 class CoreScanAnalyzer(ScanAnalyzer):
@@ -215,6 +217,10 @@ class CoreScanAnalyzer(ScanAnalyzer):
             if store is not None:
                 self._discard_store(store)
             raise
+        # Every unit is in; what is left (the store, the scalar merge, the
+        # products) is writing, which a long camera scan spends a while on —
+        # said so, not left at "N of N" looking hung.
+        self.report_progress(len(prepared.groups), len(prepared.groups), WRITING_PHASE)
         if store is not None:
             # The store is a product: like every product write, its final
             # flush and rename must never cost the run its scalars.

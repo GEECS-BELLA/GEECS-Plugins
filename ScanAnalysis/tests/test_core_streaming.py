@@ -22,7 +22,7 @@ from geecs_schemas.analysis import AnalysisRecipe
 
 import scan_analysis.base as base
 from scan_analysis import core_scan, core_source
-from scan_analysis.core_analyzer import CoreScanAnalyzer
+from scan_analysis.core_analyzer import WRITING_PHASE, CoreScanAnalyzer
 from scan_analysis.core_scan import prepare_scan
 
 TAG = ScanTag(year=2026, month=1, day=2, number=3, experiment="Test")
@@ -245,15 +245,16 @@ def _run_reporting(tmp_path, monkeypatch, shots: int, **scan) -> list[tuple]:
 
 
 def test_a_run_reports_each_shot_as_it_is_analysed(tmp_path, monkeypatch):
-    """The host's sink hears 0 of N first, then one report per unit, in order."""
+    """The host's sink hears 0 of N first, then one report per unit, in order,
+    then the writing phase while the scalars and products are saved."""
     reports = _run_reporting(tmp_path, monkeypatch, 5)
-    assert reports == [(n, 5, "shot") for n in range(6)]
+    assert reports == [(n, 5, "shot") for n in range(6)] + [(5, 5, WRITING_PHASE)]
 
 
 def test_a_per_bin_run_reports_bins(tmp_path, monkeypatch):
     """Frames averaged before analysis: the unit is a bin (one, on a noscan)."""
     reports = _run_reporting(tmp_path, monkeypatch, 4, average_frames_first=True)
-    assert reports == [(0, 1, "bin"), (1, 1, "bin")]
+    assert reports == [(0, 1, "bin"), (1, 1, "bin"), (1, 1, WRITING_PHASE)]
 
 
 def test_a_failed_unit_still_counts_as_done(tmp_path, monkeypatch, caplog):
@@ -269,7 +270,7 @@ def test_a_failed_unit_still_counts_as_done(tmp_path, monkeypatch, caplog):
     finally:
         analyzer.cleanup()
     assert "unit 2" in caplog.text  # the broken shot did fail
-    assert reports == [(n, 4, "shot") for n in range(5)]
+    assert reports[:5] == [(n, 4, "shot") for n in range(5)]
 
 
 def test_a_run_without_a_listener_reports_to_nobody(tmp_path, monkeypatch):

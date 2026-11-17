@@ -286,7 +286,9 @@ def test_a_running_analysis_draws_shot_k_of_n_on_the_kit_meter(tmp_path) -> None
 const drawn = [];
 globalThis.__elements = { analysisList: { set innerHTML(html) { drawn.push(html); } } };
 const meter = { outerHTML: "" };
-globalThis.__document = { querySelector: () => ({ querySelector: () => meter }) };
+const ROW = '#analysisList .arow[data-row="PW_SpecFringes"]';
+globalThis.__document = { querySelector: sel => sel === ROW
+  ? { querySelector: s => s === ":scope > .aprog" ? meter : null } : null };
 renderAnalysis(listing(3), false);
 check(drawn.length === 1, "first listing draws the list");
 check(drawn[0].includes('class="meter aprog"'), "a running row carries the kit meter");
@@ -315,8 +317,9 @@ def test_a_first_progress_report_inserts_the_meter(tmp_path) -> None:
 const drawn = [];
 globalThis.__elements = { analysisList: { set innerHTML(html) { drawn.push(html); } } };
 const head = { inserted: null, insertAdjacentHTML(where, html) { this.inserted = [where, html]; } };
-const row = { querySelector: sel => sel.includes("aprog") ? null : head };
-globalThis.__document = { querySelector: () => row };
+const row = { querySelector: sel => sel === ":scope > .head" ? head : null };
+globalThis.__document = { querySelector: sel =>
+  sel === '#analysisList .arow[data-row="PW_SpecFringes"]' ? row : null };
 const silent = listing(0);
 silent.analyzers[0].job.progress = null;
 renderAnalysis(silent, false);

@@ -441,7 +441,8 @@ thing the analyzer reported through `ScanAnalyzer.progress`, the
 base-class hook `run_scan_analyzer` sets when the analyzer has it: a
 recipe's `CoreScanAnalyzer` reports per run unit — `shot` or `bin`, 0 of
 N before the first and one per outcome as it arrives, a failed unit
-counted — and the `.himg` kinds per frame from their child process; a
+counted, then `writing products` while its scalars and products are
+saved — and the `.himg` kinds per frame from their child process; a
 scalar-columns job never reports), and the tab draws it while the run
 lasts as the kit's `.meter` under the row's head (`shot 3 of 11`, the
 bar, the percentage; `renderProgress` in `run.html`).  A poll that

@@ -203,7 +203,8 @@ recipe), else one core fewer than the machine has — and logged as
 `<device>: <n> units, <k> workers`. The run reports its progress through
 `ScanAnalyzer.report_progress` — `(0, N, phase)` before the first unit,
 then `(k, N, phase)` as each outcome arrives, a failed unit counted, the
-phase `shot` or `bin` (`UNIT_PHASES`) — to whichever host set the sink
+phase `shot` or `bin` (`UNIT_PHASES`), then `(N, N, "writing products")`
+(`WRITING_PHASE`) once every unit is in — to whichever host set the sink
 (the portal's run record; the task queue sets none), so the core stays
 free of I/O. The worker count is a throughput knob only:
 `test_pooled_run_writes_the_identical_tree` holds the pooled tree to the
