@@ -997,7 +997,14 @@ same length, same x values; a bin whose axes differ has no tile and says
 why — nothing is resampled). The row's z scale is its y range (each tile,
 shared over every tile through the same `levels` route, or typed in); its
 channel is `image_channel` / `ImageCamera.channel` (`channel@N`), one per
-row — stack the scope again for another channel. A camera's colour map,
+row — stack the scope again for another channel. Its **x window** (the
+author, 2026-11-16: `image_xmin` / `image_xmax`, `xmin@N` / `xmax@N`,
+each `None` for no limit on that side) crops every tile
+(`images.windowed` → Data-Utils' `shot_traces.crop_trace`, nothing
+resampled), the shared y range is taken inside it, and the big view opens
+on it with the whole trace still there to zoom out; tile, levels and
+trace URLs carry `xmin=` / `xmax=`, a reversed window is a 422 on a URL
+and on the page a warning with the whole trace drawn. A camera's colour map,
 clean-ups, background, colour bar and ROI do not apply and are not shown.
 `tile.png` and `levels` answer for either kind (the device decides);
 `/plot/api/images/trace` is a trace tile as a figure, which the big view

@@ -76,6 +76,18 @@
                   <label class="hint" for="zmax{{ c.sfx }}">{{ hi_word }}</label>
                   <input id="zmax{{ c.sfx }}" name="zmax{{ c.sfx }}" form="pick" type="number" step="any" value="{{ c.zmax if c.zmax is not none else '' }}" class="narrow-number" data-live data-cam="{{ k }}">
                 {% endif %}
+                {% if c.trace %}
+                {# The row's x window: every tile, the shared y range and the big
+                   view's first view are taken over it; empty is no limit. #}
+                <label class="hint" for="xmin{{ c.sfx }}">x from</label>
+                <input id="xmin{{ c.sfx }}" name="xmin{{ c.sfx }}" form="pick" type="text" inputmode="decimal" class="narrow-number" placeholder="start"
+                       value="{{ c.xmin if c.xmin is not none else '' }}" data-submit-on-change
+                       title="Draw each tile from this x (a number in the trace's own units, e.g. 650 for nm or 2e-6 for s); empty is the trace's start">
+                <label class="hint" for="xmax{{ c.sfx }}">to</label>
+                <input id="xmax{{ c.sfx }}" name="xmax{{ c.sfx }}" form="pick" type="text" inputmode="decimal" class="narrow-number" placeholder="end"
+                       value="{{ c.xmax if c.xmax is not none else '' }}" data-submit-on-change
+                       title="Draw each tile up to this x; empty is the trace's end">
+                {% endif %}
                 {% if not c.trace %}
                 {# Each shot is cleaned before it is drawn or averaged: X-ray hits
                    out first, then centred on its beam (the centre of mass above
@@ -106,6 +118,7 @@
                 {% if k > 1 %}<span class="spacer"></span>
                 <button class="btn sm ghost" type="submit" form="pick" name="dropcam" value="{{ k }}" aria-label="Remove this camera" title="Remove this camera">✕</button>{% endif %}
               </div>
+              {% if c.window_problem %}<span class="hint level-problem" role="alert">{{ c.window_problem }}</span>{% endif %}
               {% if c.zscale == "fixed" %}<span class="hint level-problem" id="level-warning{{ c.sfx }}" role="alert"{% if c.zmin is none or c.zmax is none or c.zmax > c.zmin %} hidden{% endif %}>{{ 'Y high must be above y low: each tile draws its own range until it is.' if c.trace else 'White must be above black: every tile draws flat until it is.' }}</span>{% endif %}
               {% if c.zscale == "shared" and c.tiles %}<span class="hint mono" data-shared-for="{{ k }}" aria-live="polite">reading the tiles shown…</span>{% endif %}
 {%- endmacro %}

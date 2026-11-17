@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Sequence
 from urllib.parse import urlencode
 
+import numpy as np
 import pandas as pd
 
 from fastapi import APIRouter, HTTPException, Query
@@ -117,8 +118,11 @@ def tile_url(
     extra: str = "",
     mtol: Optional[float] = None,
     binx: Optional[str] = None,
+    window: Optional[images.XWindow] = None,
 ) -> str:
     """A tile's PNG URL, relative to the app root; the page adds the display.
+
+    A trace row's x *window* rides along (its tile and the big view's figure).
 
     A trace device's tile names its scope *channel* (``None``: a camera).
     Several scans name the others (*extra*, ``YYYY-MM-DD:N,…``) and the
@@ -138,6 +142,7 @@ def tile_url(
     if channel is not None:
         query["channel"] = channel
     query.update(multi_query(extra, mtol, binx))
+    query.update(window_query(window))
     return f"api/images/tile.png?{urlencode({**query, **prep_query(prep)})}"
 
 
@@ -259,8 +264,11 @@ def strip_tiles(
     source: Optional[images.Source] = None,
     extra: str = "",
     mtol: Optional[float] = None,
+    window: Optional[images.XWindow] = None,
 ) -> list[TileModel]:
     """The strip's tiles with their URLs; captions carry the scan variable's value.
+
+    A trace row's x *window* rides on every tile's URL.
 
     With several scans (*source* an :class:`images.ScanSet`, *frame* its
     merged frame) the tiles are its rows and its one bin number, each
@@ -316,6 +324,7 @@ def strip_tiles(
                 extra if many else "",
                 mtol,
                 x if many else None,
+                window,
             ),
             **(_own_scan(many, t) if many and strip != "bins" else {}),
         )
@@ -530,16 +539,24 @@ def trace_code(
     refs: Sequence[tuple[date, int]] = (),
     mtol: Optional[float] = None,
     binx: Optional[str] = None,
+    window: Optional[images.XWindow] = None,
 ) -> str:
-    """The notebook snippet that loads each trace tile as the page does (*refs*: as :func:`strip_code`)."""
+    """The notebook snippet that loads each trace tile as the page does.
+
+    *refs* as :func:`strip_code`; the row's x *window* crops each trace.
+    """
     by = f", pick_by=frame[{pick_by!r}]" if strip == "pick" and pick_by else ""
+    crop = (
+        f"        trace = images.windowed(trace, {tuple(window)!r})\n" if window else ""
+    )
     return (
         "from datetime import date\n"
         + _code_head(day, scan, experiment, refs, mtol, binx)
         + f"for tile in images.tiles(frame, {strip!r}{by}{_code_bins(refs)}):\n"
         "    try:\n"
         f"        trace = images.trace_tile(folder, frame, {device!r}, tile.rows, {channel})\n"
-        "    except images.NoImage as why:\n"
+        + crop
+        + "    except images.NoImage as why:\n"
         "        print(tile.caption, '—', why)\n"
         "        continue\n"
         "    x, y = trace.data[:, 0], trace.data[:, 1]  # a bin: its shots' mean\n"
@@ -588,14 +605,20 @@ def _axis_title(label: Optional[str], units: Optional[str]) -> str:
     return label or (f"({units})" if units else "")
 
 
-def trace_png(trace, levels: Optional[tuple[float, float]] = None) -> bytes:
+def trace_png(
+    trace,
+    levels: Optional[tuple[float, float]] = None,
+    window: Optional[images.XWindow] = None,
+) -> bytes:
     """A trace tile: the line, small, with its axes; y from *levels* when given.
 
     matplotlib's object API (never pyplot). Without *levels* the y range is
-    the trace's own; with them every tile of a row reads on one scale. The
-    ticks are few and in engineering units (``2 µs``, ``500 mV``), so they
-    read at a tile's size.
+    the trace's own; with them every tile of a row reads on one scale. With
+    an x *window* only its samples are drawn, the axis spanning the window
+    (a missing bound: the trace's own end). The ticks are few and in
+    engineering units (``2 µs``, ``500 mV``), so they read at a tile's size.
     """
+    trace = images.windowed(trace, window)
     from matplotlib.figure import Figure
     from matplotlib.ticker import EngFormatter, MaxNLocator
 
@@ -605,6 +628,10 @@ def trace_png(trace, levels: Optional[tuple[float, float]] = None) -> bytes:
     ax = fig.add_subplot()
     ax.plot(trace.data[:, 0], trace.data[:, 1], linewidth=1.0)
     ax.margins(x=0)
+    if window is not None:
+        x = trace.data[:, 0]
+        low, high = window
+        ax.set_xlim(x.min() if low is None else low, x.max() if high is None else high)
     if levels is not None:
         # A little room either side, as matplotlib's own range leaves,
         # so the highest and lowest samples are not drawn on the frame.
@@ -626,8 +653,9 @@ def trace_tile_png(
     rows: tuple[int, ...],
     channel: int,
     levels: Optional[tuple[float, float]],
+    window: Optional[images.XWindow] = None,
 ) -> bytes:
-    """A trace tile's PNG; a 404 naming why there is none.
+    """A trace tile's PNG (inside the row's x *window*); a 404 naming why there is none.
 
     Levels that do not rise (white not above black) draw the trace's own
     range, rather than a flat line.
@@ -636,15 +664,26 @@ def trace_tile_png(
         levels = None
     try:
         return trace_png(
-            images.trace_tile(folder, frame, device, rows, channel), levels
+            images.trace_tile(folder, frame, device, rows, channel), levels, window
         )
     except images.NoImage as why:
         raise HTTPException(status_code=404, detail=str(why)) from None
 
 
-def trace_view(trace, name: str) -> dict:
-    """The big view's figure for a trace tile (plotly, the page's theme)."""
+def trace_view(trace, name: str, window: Optional[images.XWindow] = None) -> dict:
+    """The big view's figure for a trace tile (plotly, the page's theme).
+
+    The whole trace, so it zooms out past the row's x *window*; with one,
+    the figure opens on it, the y range the window's samples (padded).
+
+    Raises
+    ------
+    images.NoImage
+        The trace has no sample in the window.
+    """
     from geecs_portal import figures as portal_figures
+
+    inside = images.windowed(trace, window)
 
     figure = portal_figures.trace_figure(
         trace.data[:, 0],
@@ -654,7 +693,40 @@ def trace_view(trace, name: str) -> dict:
         y_title=_axis_title(trace.y_label, trace.y_units),
         palette=portal_figures.THEMED_PALETTE,
     )
+    if window is not None:
+        x, y = inside.data[:, 0], inside.data[:, 1]
+        low, high = window
+        figure.update_xaxes(
+            range=[x.min() if low is None else low, x.max() if high is None else high]
+        )
+        finite = y[np.isfinite(y)]
+        if finite.size:
+            pad = 0.04 * ((finite.max() - finite.min()) or 1.0)
+            figure.update_yaxes(range=[finite.min() - pad, finite.max() + pad])
     return portal_figures.page_figure(figure)
+
+
+def parse_window(
+    xmin: Optional[float], xmax: Optional[float]
+) -> Optional[images.XWindow]:
+    """A trace row's ``xmin`` / ``xmax``: ``None`` for neither; a 422 unless xmax is above xmin."""
+    if xmin is None and xmax is None:
+        return None
+    for value in (xmin, xmax):
+        if value is not None and not math.isfinite(value):
+            raise HTTPException(status_code=422, detail="the x window: finite numbers")
+    if xmin is not None and xmax is not None and not xmax > xmin:
+        raise HTTPException(
+            status_code=422, detail="the x window: 'to' must be above 'from'"
+        )
+    return (xmin, xmax)
+
+
+def window_query(window: Optional[images.XWindow]) -> dict[str, object]:
+    """The x-window half of a trace tile's or the levels' URL (nothing without one)."""
+    if window is None:
+        return {}
+    return {k: v for k, v in zip(("xmin", "xmax"), window) if v is not None}
 
 
 def opened_scan(ctx: Context, day: date, scan: int):
@@ -779,6 +851,10 @@ def register(router: APIRouter, ctx: Context) -> None:
         filters: str = Query(default="", description="the shot filters (JSON)"),
         bg: str = Query(default="", description="a background scan, YYYY-MM-DD:N"),
         channel: int = Query(default=0, ge=0, description="a scope's channel"),
+        xmin: Optional[float] = Query(
+            default=None, description="a trace row's x window: from"
+        ),
+        xmax: Optional[float] = Query(default=None, description="… to"),
         shown: str = Query(
             default="",
             description="the tiles on screen, their indices comma-separated; empty is all",
@@ -820,7 +896,7 @@ def register(router: APIRouter, ctx: Context) -> None:
             if traces:
                 # A trace row's shared y range: its lowest to highest sample.
                 lo, hi, count = images.trace_levels(
-                    got.source, frame, device, found, channel
+                    got.source, frame, device, found, channel, parse_window(xmin, xmax)
                 )
                 body = LevelsResponse(zmin=lo, zmax=hi, tiles=count)
                 return JSONResponse(body.model_dump(), headers=NO_CACHE)
@@ -869,6 +945,10 @@ def register(router: APIRouter, ctx: Context) -> None:
             description="a background scan, YYYY-MM-DD:N: its average off each shot",
         ),
         channel: int = Query(default=0, ge=0, description="a scope's channel"),
+        xmin: Optional[float] = Query(
+            default=None, description="a trace row's x window: from"
+        ),
+        xmax: Optional[float] = Query(default=None, description="… to"),
         extra: str = Query(
             default="",
             alias="scans",
@@ -899,7 +979,15 @@ def register(router: APIRouter, ctx: Context) -> None:
         rows = tile_rows(frame, strip, index, keep, got.bin_col)
         levels = (zmin, zmax) if zmin is not None and zmax is not None else None
         if traces:
-            png = trace_tile_png(got.source, frame, device, rows, channel, levels)
+            png = trace_tile_png(
+                got.source,
+                frame,
+                device,
+                rows,
+                channel,
+                levels,
+                parse_window(xmin, xmax),
+            )
             return Response(png, media_type="image/png", headers=NO_CACHE)
         prep = parse_prep(hits, centre)
         png = tile_png(
@@ -995,6 +1083,10 @@ def register_traces(router: APIRouter, ctx: Context) -> None:
         strip: Strip = "bins",
         index: int = Query(default=0, description="the bin's position, or the row"),
         channel: int = Query(default=0, ge=0, description="a scope's channel"),
+        xmin: Optional[float] = Query(
+            default=None, description="a trace row's x window: from"
+        ),
+        xmax: Optional[float] = Query(default=None, description="… to"),
         filters: str = Query(
             default="", description="the shot filters (JSON): a bin's shots"
         ),
@@ -1026,8 +1118,12 @@ def register_traces(router: APIRouter, ctx: Context) -> None:
             trace = images.trace_tile(got.source, frame, device, rows, channel)
         except images.NoImage as why:
             raise HTTPException(status_code=404, detail=str(why)) from None
+        try:
+            figure = trace_view(trace, device, parse_window(xmin, xmax))
+        except images.NoImage as why:
+            raise HTTPException(status_code=404, detail=str(why)) from None
         body = TraceResponse(
-            figure=trace_view(trace, device),
+            figure=figure,
             points=int(trace.data.shape[0]),
             shots=len(rows),
         )
