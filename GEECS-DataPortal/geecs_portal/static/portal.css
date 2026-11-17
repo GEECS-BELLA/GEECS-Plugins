@@ -42,7 +42,8 @@
 .kit .arow .head .id { font-family: var(--ff-mono); }
 .kit .arow .err { color: var(--crit); font-size: 12px; white-space: pre-wrap; font-family: var(--ff-mono); }
 .kit .arow details pre { max-height: 14rem; overflow: auto; font-size: 11px; }
-.kit .chip .prog { font-family: var(--ff-mono); }
+/* A running analyzer's progress: the kit's .meter under its row's head. */
+.kit .arow .aprog { margin-top: 8px; max-width: 28rem; }
 /* What an analyzer does, not how it went: a warning tag beside the chip. */
 .kit .tag-warn { font-size: 11px; border-radius: var(--r); padding: 1px 6px; color: var(--warn); background: var(--warn-soft); }
 .kit .arts { display: flex; flex-wrap: wrap; gap: var(--gap); }

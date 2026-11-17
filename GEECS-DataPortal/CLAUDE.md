@@ -438,10 +438,17 @@ compares against (from the resolved folder, like the run's tag), and
 the dialog asks for that one.  The
 job record also carries `progress` (`{done, total, phase}` — the last
 thing the analyzer reported through `ScanAnalyzer.progress`, the
-base-class hook `run_scan_analyzer` sets when the analyzer has it; most
-never report, the `.himg` kinds report per frame from their child
-process), and the tab shows it in the state badge while the run lasts
-(`running · verifying 320/1806`).
+base-class hook `run_scan_analyzer` sets when the analyzer has it: a
+recipe's `CoreScanAnalyzer` reports per run unit — `shot` or `bin`, 0 of
+N before the first and one per outcome as it arrives, a failed unit
+counted — and the `.himg` kinds per frame from their child process; a
+scalar-columns job never reports), and the tab draws it while the run
+lasts as the kit's `.meter` under the row's head (`shot 3 of 11`, the
+bar, the percentage; `renderProgress` in `run.html`).  A poll that
+changes nothing but progress patches the meters in place
+(`patchProgress`) instead of rebuilding the list, which would re-fetch
+every inline artifact on the tab once per poll; the settled row draws
+no meter (`tests/test_page.py` runs both under node).
 **The config editor drawer** (0.21.0, `config_editor` in the page and
 `/api/run/{uid}` payload): the Analysis tab's per-analyzer **edit** button
 opens `scan_analysis.config_editor`'s form in a drawer over the page

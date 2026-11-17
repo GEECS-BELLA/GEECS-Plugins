@@ -229,3 +229,56 @@ def test_the_source_pickles_closed_and_reads_after_a_round_trip(tmp_path):
     assert recipe_copy.recipe == prepared.prepared.recipe
     with pytest.raises(TypeError):
         recipe_copy.inputs["x"] = None
+
+
+def _run_reporting(tmp_path, monkeypatch, shots: int, **scan) -> list[tuple]:
+    build_noscan(tmp_path, shots)
+    monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
+    reports: list[tuple] = []
+    analyzer = CoreScanAnalyzer(recipe(**scan), id="Camera", priority=1)
+    analyzer.progress = lambda *report: reports.append(report)
+    try:
+        analyzer.run_analysis(TAG)
+    finally:
+        analyzer.cleanup()
+    return reports
+
+
+def test_a_run_reports_each_shot_as_it_is_analysed(tmp_path, monkeypatch):
+    """The host's sink hears 0 of N first, then one report per unit, in order."""
+    reports = _run_reporting(tmp_path, monkeypatch, 5)
+    assert reports == [(n, 5, "shot") for n in range(6)]
+
+
+def test_a_per_bin_run_reports_bins(tmp_path, monkeypatch):
+    """Frames averaged before analysis: the unit is a bin (one, on a noscan)."""
+    reports = _run_reporting(tmp_path, monkeypatch, 4, average_frames_first=True)
+    assert reports == [(0, 1, "bin"), (1, 1, "bin")]
+
+
+def test_a_failed_unit_still_counts_as_done(tmp_path, monkeypatch, caplog):
+    """A unit whose input will not load is logged and counted: the bar ends at N."""
+    scan = build_noscan(tmp_path, 4)
+    (scan / "Camera" / "Scan003_Camera_002.npy").write_bytes(b"not an array")
+    monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
+    reports: list[tuple] = []
+    analyzer = CoreScanAnalyzer(recipe(), id="Camera", priority=1)
+    analyzer.progress = lambda *report: reports.append(report)
+    try:
+        analyzer.run_analysis(TAG)
+    finally:
+        analyzer.cleanup()
+    assert "unit 2" in caplog.text  # the broken shot did fail
+    assert reports == [(n, 4, "shot") for n in range(5)]
+
+
+def test_a_run_without_a_listener_reports_to_nobody(tmp_path, monkeypatch):
+    """No sink set (the task queue, MCP's worker): the run is unchanged."""
+    build_noscan(tmp_path, 3)
+    monkeypatch.setattr(base, "ScanPaths", partial(ScanPaths, base_directory=tmp_path))
+    analyzer = CoreScanAnalyzer(recipe(), id="Camera", priority=1)
+    assert analyzer.progress is None
+    try:
+        assert analyzer.run_analysis(TAG)
+    finally:
+        analyzer.cleanup()
