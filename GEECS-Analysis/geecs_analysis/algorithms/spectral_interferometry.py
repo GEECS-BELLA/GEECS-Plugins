@@ -320,13 +320,17 @@ class SpectralInterferometryResult(BaseModel):
         description="Intensity-weighted RMS bandwidth σ_ω of the measured spectrum (I1 + I2), rad/fs."
     )
     tl_rms_fs: Optional[float] = Field(
-        description="RMS duration σ_t of the transform-limited pulse with that spectrum, fs."
+        description=(
+            "RMS duration σ_t of the transform-limited pulse with that spectrum, fs, taken "
+            "within ±5 of its own FWHMs (an ideal hard-edged spectrum has no finite one)."
+        )
     )
     delta_duration_rms_fs: Optional[float] = Field(
         description=(
             "How much ΔGDD lengthens the RMS duration of a transform-limited arm, fs: "
-            "√(σ_TL² + (ΔGDD σ_ω)²) − σ_TL, exact for any spectral shape (≥ 0, even in "
-            "ΔGDD; assumes the other arm is at transform limit)."
+            "√(σ_TL² + (ΔGDD σ_ω)²) − σ_TL; the relation is exact for any spectral shape, "
+            "σ_TL is taken within ±5 transform-limited FWHMs (≥ 0, even in ΔGDD; assumes "
+            "the other arm is at transform limit and has the summed spectrum)."
         )
     )
     delta_duration_rms_err_fs: Optional[float] = Field(

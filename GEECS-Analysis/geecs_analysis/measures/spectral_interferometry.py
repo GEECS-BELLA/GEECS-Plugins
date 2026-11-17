@@ -44,11 +44,14 @@ class SpectralInterferometrySpec(MeasureSpec):
         "delta_gdd_fs2": "Differential GDD, later pulse minus earlier, fs²",
         "delta_gdd_err_fs2": "1σ uncertainty of delta_gdd, fs²",
         "reference_wavelength_nm": "Wavelength tau0 is reported at, nm",
-        "tl_rms_fs": "RMS duration of the transform-limited pulse with the measured spectrum (I1 + I2), fs",
+        "tl_rms_fs": (
+            "RMS duration of the transform-limited pulse with the measured spectrum (I1 + I2), "
+            "fs, within ±5 of its own FWHMs"
+        ),
         "delta_duration_rms_fs": (
             "How much delta_gdd lengthens the RMS duration of a transform-limited arm, fs: "
-            "sqrt(tl_rms² + (delta_gdd σ_ω)²) − tl_rms, exact for any spectral shape "
-            "(assumes the other arm is at transform limit; trust it with delta_gdd_reliable)"
+            "sqrt(tl_rms² + (delta_gdd σ_ω)²) − tl_rms, an exact relation for any spectral "
+            "shape (assumes the other arm is at transform limit; trust it with delta_gdd_reliable)"
         ),
         "delta_duration_rms_err_fs": "1σ of delta_duration_rms from that of delta_gdd, fs (upward only near zero)",
         "tau0_reliable": "1 when no check bearing on tau0 was raised, else 0 (the notes name them)",

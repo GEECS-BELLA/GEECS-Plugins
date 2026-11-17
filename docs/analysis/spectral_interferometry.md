@@ -57,10 +57,17 @@ delays, weighted by the spectrum. So the other arm is longer by
 - **The spectrum** is the measured one without its fringes. The central
   term of the same transform is I1 + I2, which is smooth and nearly free
   of noise; the region's taper is divided back out. σ_ω is its
-  intensity-weighted RMS bandwidth (`rms_bandwidth_rad_per_fs`).
+  intensity-weighted RMS bandwidth (`rms_bandwidth_rad_per_fs`, in the
+  JSON result only, not an s-file column). The chirped arm is taken to
+  have this summed spectrum. If the two arms' spectra differ, the numbers
+  describe an arm with the sum's spectrum, not either arm exactly.
 - **σ_TL** (`tl_rms_fs`) is the RMS duration of the flat-phase pulse with
-  that spectrum. It is taken within ±5 of its own FWHMs, so a faint
-  pedestal far out in time from noise or truncation cannot inflate it.
+  that spectrum, taken within ±5 of its own FWHMs. This is a convention,
+  not a converged limit. A measured spectrum has edges (the region's
+  truncation, clipped noise), so its transform has 1/t² wings and an
+  unbounded t² moment that never settles. On 26_1112 Scan006, going to ±10
+  FWHMs moves σ_TL and the lengthening by 5–8 %, about 0.1 fs, which is
+  under their statistical σ. The σ_t² relation itself is exact.
 - **Accuracy.** On synthetic spectra it is within 2 % for flat-topped ones
   and about 5 % long for a Gaussian. σ_ω is within 2 % for both, with or
   without noise.
