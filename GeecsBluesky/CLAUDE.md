@@ -600,9 +600,10 @@ profile's, `plans/shot_gate.py` the two stubs.  The rules:
   repeats its state continuously (else a `safe` sent before it saw the
   shot permits the next), and more than one client (the scanner's chip
   holds its own connection).
-- **Re-checked at the fire**: a permission that lapses between the slot's
-  hold and the put (during the counter read, the announce) holds again;
-  the baseline stays valid, nothing has fired.
+- **Re-checked after the baseline**: a permission that lapses during the
+  counter read holds again and the counters are read again after it, so
+  the baseline always follows the last hold; only the scan-mode announce
+  lies between that check and the put.
 - **Fail closed**: unreachable, dropped, or a line not understood is not
   safe; the reader reconnects by itself, and one left on an earlier
   RunEngine loop is restarted on the current one.  At the run's start the

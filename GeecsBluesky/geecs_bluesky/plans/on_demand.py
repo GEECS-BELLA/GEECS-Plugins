@@ -396,12 +396,6 @@ class OnDemand:
 
     def _fire(self):
         values = self.columns.values
-        if self.gate is not None and not self.gate.permits():
-            # The permission lapsed between the slot's hold and the fire (a
-            # not_safe during the counter read): hold again.  The baseline
-            # stays valid — nothing has fired since it was read.
-            held = yield from hold_for_permission(self.gate, pause=self._pause)
-            values["gate_hold_s"] += held
         self._last_fire = time.monotonic()
         try:
             if self.scan_mode is not None:
@@ -517,9 +511,17 @@ class OnDemand:
         while True:
             attempt += 1
             yield from self._throttle()
-            held = yield from hold_for_permission(self.gate, pause=self._pause)
-            mark = self.sc.pause_count
-            base = yield from self._counters()
+            held = 0.0
+            while True:
+                held += yield from hold_for_permission(self.gate, pause=self._pause)
+                mark = self.sc.pause_count
+                base = yield from self._counters()
+                # A permission that lapsed during the counter read holds
+                # again, and the counters are read again after it: the
+                # baseline is always taken after the last hold, so nothing a
+                # device records during a hold counts as this fire's.
+                if self.gate is None or self.gate.permits():
+                    break
             self.columns.shot_index += 1
             self.columns.reset(
                 attempt,

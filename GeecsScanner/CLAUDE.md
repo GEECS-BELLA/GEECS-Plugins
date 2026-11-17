@@ -220,7 +220,9 @@ deploy/           the unit template + DEPLOYMENT.md
   per request; the page polls it every 2 s and on every change of the
   profile. `ShotGateWatches` keeps one read-only reader per address, each on
   a daemon thread started the first time a profile names it, never
-  stopped, reconnecting by itself. The answer: `enabled: false` with the
+  stopped, reconnecting by itself. That is a second connection beside
+  the worker's, so the service must accept more than one client
+  (`ShotGateSpec` states it). The answer: `enabled: false` with the
   reason (no gate in the profile, no profile to tell, an unreadable one:
   the chip hidden, never an error), else `ok` safe, `degraded` not safe
   with the service's reason (normal between shots), `failed` not

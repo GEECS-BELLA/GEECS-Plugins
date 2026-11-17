@@ -19,6 +19,7 @@ pytest.importorskip("aioca")
 import bluesky.plan_stubs as bps
 from bluesky import RunEngine
 from bluesky.utils import RunEngineInterrupted
+from ophyd_async.core import set_mock_value
 
 from geecs_schemas import ShotGateSpec, TriggerProfile
 
@@ -443,7 +444,7 @@ def test_a_gated_calibration_paused_on_a_hold_never_replays_a_shot(
 
 
 class _LapsingGate(ShotGate):
-    """A gate whose permission lapses once, right after the slot's hold."""
+    """A gate whose permission lapses once, during the slot's counter read."""
 
     def __init__(self, *args, **kw) -> None:
         super().__init__(*args, **kw)
@@ -451,7 +452,7 @@ class _LapsingGate(ShotGate):
 
     def permits(self) -> bool:
         self.calls += 1
-        if self.calls == 2:  # the re-check just before the fire
+        if self.calls == 2:  # the re-check after the counters
             self._latest = GateMessage(False, "lapsed")
             return False
         return super().permits()
@@ -469,8 +470,12 @@ def test_a_permission_lapsing_before_the_fire_holds_again(
     server.send("safe")
     _until(lambda: ShotGate.permits(gate))
 
-    def interlock() -> None:  # a fresh safe 100 ms after the lapse
+    def interlock() -> None:
+        # During the second hold the camera records on its own (a frame no
+        # fire caused); then a fresh safe 100 ms after the lapse.
         _until(lambda: gate.calls >= 2)
+        box.stamp = 1500.0
+        set_mock_value(cam.acq_timestamp, 1500.0)
         time.sleep(0.1)
         server.send("safe")
 
@@ -481,3 +486,6 @@ def test_a_permission_lapsing_before_the_fire_holds_again(
     assert box.fires == 1
     (row,) = [e["data"] for e in col.primary_events()]
     assert row["gate_hold_s"] >= 0.05  # the second hold is on the row
+    # the baseline was read again after that hold: the frame recorded during
+    # it is not this fire's
+    assert row["uc_cam-baseline"] == 1500.0
