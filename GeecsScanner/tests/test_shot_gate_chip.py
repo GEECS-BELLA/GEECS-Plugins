@@ -159,7 +159,7 @@ def test_a_superseded_poll_never_overwrites_the_chip() -> None:
         Path(__file__).resolve().parents[1] / "geecs_scanner" / "static" / "scanner.js"
     ).read_text()
     m = re.search(
-        r"\n(  var gatePoll = 0;\n  function pollGate\(\) \{\n.*?\n  \})\n",
+        r"\n(  // A tick waits.*?\n  var gatePoll = 0, gateBusy = false;\n  function pollGate\(\) \{\n.*?\n  \})\n",
         script,
         re.S,
     )

@@ -365,7 +365,7 @@ A permission-to-fire service the worker waits on before every shot.
 | `host` | `str` | yes | — | The service's host name or IP address on the facility network. |
 | `port` | `int` | yes | — | The service's TCP port. |
 | `hold_pause_s` | `float` | no | 60.0 | Seconds a shot waits for permission before the scan pauses with the service's reason (resuming waits again; a pause never fires). |
-| `holdoff_s` | `float` | no | 0.0 | Seconds after a shot before a 'safe' counts as the next shot's permission (0: any 'safe' received after the shot). Set it for a service that repeats its state continuously: the time the service takes to report a shot, so a 'safe' from before the shot is ignored. |
+| `holdoff_s` | `float` | no | 0.0 | Seconds after a shot before a 'safe' counts as the next shot's permission (0: any 'safe' received after the shot). Set it for a service that repeats its state continuously: counted from when the fire is sent, so it covers the box's acknowledgement plus the time the service takes to report a shot, and a 'safe' from before the shot is ignored. |
 
 ## `experiment_defaults`
 

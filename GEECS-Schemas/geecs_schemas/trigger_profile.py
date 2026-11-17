@@ -244,8 +244,10 @@ class ShotGateSpec(SchemaModel):
     shot's cleanup is done (a shot with no state change would otherwise
     hold the next until ``hold_pause_s``), and it accepts more than one
     client (the worker and the web scanner's chip each hold a connection).
-    A service that repeats its state continuously needs ``holdoff_s``: the
-    time it takes to report a shot, so a ``safe`` from before it is ignored.
+    A service that repeats its state continuously needs ``holdoff_s``,
+    counted from when the fire is sent: the box's acknowledgement plus the
+    time the service takes to report a shot, so a ``safe`` from before it
+    is ignored.
     """
 
     host: str = Field(
@@ -267,9 +269,10 @@ class ShotGateSpec(SchemaModel):
         description=(
             "Seconds after a shot before a 'safe' counts as the next shot's "
             "permission (0: any 'safe' received after the shot). Set it for a "
-            "service that repeats its state continuously: the time the "
-            "service takes to report a shot, so a 'safe' from before the "
-            "shot is ignored."
+            "service that repeats its state continuously: counted from when "
+            "the fire is sent, so it covers the box's acknowledgement plus "
+            "the time the service takes to report a shot, and a 'safe' from "
+            "before the shot is ignored."
         ),
     )
 

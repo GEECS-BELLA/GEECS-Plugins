@@ -125,14 +125,18 @@
   }
   // Only the latest poll renders: an older one answering late (a profile
   // changed since, or an overlapping tick) must not overwrite a newer state.
-  var gatePoll = 0;
+  // A tick waits while a poll is in flight, so a slow answer still lands.
+  var gatePoll = 0, gateBusy = false;
   function pollGate() {
     var trig = $("trig") ? $("trig").value : "";
     var mine = ++gatePoll;
+    gateBusy = true;
     api("/api/shot-gate?trigger_profile=" + encodeURIComponent(trig || ""))
       .then(function (g) { if (mine === gatePoll) renderGateChip(g); },
-            function () { if (mine === gatePoll) renderGateChip(null); });
+            function () { if (mine === gatePoll) renderGateChip(null); })
+      .then(function () { if (mine === gatePoll) gateBusy = false; });
   }
+  function tickGate() { if (!gateBusy) pollGate(); }
 
   /* ------------------------------------------------------------- now */
 
@@ -244,7 +248,7 @@
   setInterval(tickAges, 500);
   $("trig").addEventListener("change", pollGate);
   pollGate();
-  setInterval(pollGate, GATE_POLL_MS);
+  setInterval(tickGate, GATE_POLL_MS);
 
   /* ------------------------------------------------------------- queue */
 

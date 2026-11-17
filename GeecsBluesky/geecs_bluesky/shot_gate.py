@@ -264,8 +264,10 @@ class ShotGate:
                 reason = f"shot gate connection lost: {exc}"
             finally:
                 # Not safe before the teardown awaits: a fire must not pass
-                # on a connection already known lost.
-                self._set(GateMessage(False, reason), False)
+                # on a connection already known lost.  A reader superseded on
+                # another loop (start()) leaves the state to its successor.
+                if self._task is asyncio.current_task():
+                    self._set(GateMessage(False, reason), False)
                 writer.close()
                 with contextlib.suppress(Exception):
                     await writer.wait_closed()
