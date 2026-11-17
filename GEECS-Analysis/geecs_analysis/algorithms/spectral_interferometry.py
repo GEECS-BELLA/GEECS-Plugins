@@ -472,7 +472,9 @@ def _cluster_around(indices: np.ndarray, at: int, gap: int) -> tuple[int, int]:
 
     Fringe minima open short gaps in the spectrum and are bridged; an
     isolated noise excursion far from the spectrum is not, so it cannot
-    stretch the region (and with it σ_ω) to the detector's edge.
+    stretch the region (and with it σ_ω) to the detector's edge. By the
+    same rule, two spectral lobes more than ``gap`` apart are not bridged:
+    the region keeps the one holding the peak.
     """
     first = last = int(indices[np.argmin(np.abs(indices - at))])
     for index in indices[indices > at]:
