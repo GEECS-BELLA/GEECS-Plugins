@@ -41,6 +41,29 @@ the arms matter.
 
 The λ → ω Jacobian is not applied: it reshapes the envelope, never the phase.
 
+## Pulse lengthening
+
+From ΔGDD the analysis also reports how much longer one arm is than the
+other, `delta_duration_fs`. This rests on two assumptions: **one arm is
+at transform limit**, and **both arms share one spectral shape**. The
+fringe envelope `|A1 A2|` is then proportional to each arm's intensity
+spectrum. A Gaussian fitted to the envelope's core, above 20 % of its
+peak, gives the arm's bandwidth Δω and the Gaussian-equivalent transform
+limit `transform_limited_fs` = 4 ln 2 / Δω. The stretch is
+
+$$\Delta\tau = \tau_\text{TL}\left(\sqrt{1 + \left(4\ln 2\,\Delta\text{GDD}/\tau_\text{TL}^2\right)^2} - 1\right).$$
+
+It is even in ΔGDD, so the sign ambiguity drops out. Near ΔGDD = 0 it is
+quadratic, so noise only ever lengthens it, and its σ
+(`delta_duration_err_fs`, the largest change over ΔGDD ± σ) is one-sided.
+Trust it only where `delta_gdd_reliable` is 1.
+
+A Gaussian fit is used rather than a numerical FWHM of the transform. The
+FWHM of √|a| depends on the spectral wings, which are exactly where the
+noise and the region's truncation sit: on synthetic data it read 8 % long
+noise-free, and half the true value with 2 % noise. Third-order dispersion
+and a non-Gaussian spectral shape are ignored.
+
 ## Sign convention
 
 !!! warning "One spectrum cannot tell the arms apart"
@@ -114,7 +137,8 @@ diagnostic_figure(analysis)                       # spectrum | delay domain | ph
 Per shot, in a recipe over a `line` input with x in nm:
 `measure: {kind: spectral_interferometry}`. It emits `tau0_fs`,
 `tau0_err_fs`, `delta_gdd_fs2`, `delta_gdd_err_fs2`,
-`reference_wavelength_nm`, `tau0_reliable` and `delta_gdd_reliable`. Raised
+`reference_wavelength_nm`, `transform_limited_fs`, `delta_duration_fs`,
+`delta_duration_err_fs`, `tau0_reliable` and `delta_gdd_reliable`. Raised
 flags become notes.
 A flagged shot can still carry a finite but doubtful value, for example an
 overlapping sideband. A scan's bin average (nanmean) folds such values in,

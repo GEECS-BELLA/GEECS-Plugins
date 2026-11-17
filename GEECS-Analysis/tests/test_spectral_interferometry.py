@@ -131,6 +131,56 @@ class TestKnownValues:
         assert backward.delta_gdd_fs2 == pytest.approx(forward.delta_gdd_fs2, abs=1e-4)
 
 
+class TestPulseLengthening:
+    """ΔGDD as a duration: a transform-limited Gaussian arm against its chirped twin."""
+
+    @staticmethod
+    def gaussian(gdd: float, fwhm_nm: float = 40.0) -> tuple[float, float]:
+        bandwidth = 2 * np.pi * C_NM_PER_FS * fwhm_nm / CENTRE_NM**2
+        tl = 4 * np.log(2) / bandwidth
+        return tl, tl * np.sqrt(1 + (4 * np.log(2) * gdd / tl**2) ** 2) - tl
+
+    @pytest.mark.parametrize(
+        ("gdd", "fwhm_nm"),
+        [(0.0, 40.0), (300.0, 40.0), (-1000.0, 40.0), (3000.0, 60.0)],
+    )
+    def test_matches_the_gaussian_closed_form(self, gdd, fwhm_nm):
+        result = analyse(1500.0, gdd, fwhm_nm=fwhm_nm)
+        tl, stretch = self.gaussian(gdd, fwhm_nm)
+        assert result.transform_limited_fs == pytest.approx(tl, rel=0.01)
+        assert result.delta_duration_fs == pytest.approx(
+            stretch, abs=max(0.2, 0.01 * stretch)
+        )
+
+    def test_is_robust_to_noise_and_unequal_arms(self):
+        tl, stretch = self.gaussian(300.0)
+        for seed in range(5):
+            result = analyse(600.0, 300.0, ratio=0.3, noise=0.02, seed=seed)
+            assert result.transform_limited_fs == pytest.approx(tl, rel=0.03)
+            assert (
+                abs(result.delta_duration_fs - stretch)
+                < 4 * result.delta_duration_err_fs + 1.0
+            )
+
+    def test_is_even_in_delta_gdd(self):
+        config = SpectralInterferometryConfig(reference_wavelength_nm=800.0)
+        positive = analyse(600.0, 500.0, config=config)
+        negative = analyse(600.0, -500.0, config=config)
+        assert negative.delta_duration_fs == pytest.approx(
+            positive.delta_duration_fs, rel=0.01
+        )
+        assert positive.delta_duration_fs > 0
+
+    def test_its_uncertainty_is_one_sided_near_zero(self):
+        result = analyse(600.0, 0.0, noise=0.02)
+        assert result.delta_duration_fs >= 0
+        assert result.delta_duration_err_fs > 0
+
+    def test_undetermined_without_a_fit(self):
+        result = analyse(0.0, 0.0)
+        assert result.transform_limited_fs is None and result.delta_duration_fs is None
+
+
 class TestSignAmbiguity:
     def test_swapping_the_arms_gives_the_same_spectrum_and_answer(self):
         wl, a = interferogram(600.0, 300.0, phi0=0.3)

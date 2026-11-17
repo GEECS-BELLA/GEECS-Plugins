@@ -105,7 +105,8 @@ def _phase_panels(
     ax.set_title(
         f"τ0 = {_fmt(result.tau0_fs, result.tau0_err_fs, 'fs')} "
         f"@ {result.reference_wavelength_nm:.2f} nm\n"
-        f"ΔGDD = {_fmt(result.delta_gdd_fs2, result.delta_gdd_err_fs2, 'fs²')}",
+        f"ΔGDD = {_fmt(result.delta_gdd_fs2, result.delta_gdd_err_fs2, 'fs²')}  ·  "
+        f"Δτ_pulse = {_fmt(result.delta_duration_fs, result.delta_duration_err_fs, 'fs')}",
         fontsize="medium",
     )
     ax_res.set_xlabel("ω (rad/fs)")

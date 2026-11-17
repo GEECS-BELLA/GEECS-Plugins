@@ -316,6 +316,21 @@ class SpectralInterferometryResult(BaseModel):
     delay_sweep_fs: Optional[float] = Field(
         description="|ΔGDD| × fit-band width: the spread of local delays, fs."
     )
+    transform_limited_fs: Optional[float] = Field(
+        description=(
+            "Gaussian-equivalent transform-limited FWHM of one arm, fs: 4 ln2 / Δω from a "
+            "Gaussian fit to the fringe envelope's core (both arms share one spectral shape)."
+        )
+    )
+    delta_duration_fs: Optional[float] = Field(
+        description=(
+            "How much ΔGDD lengthens a transform-limited Gaussian arm, fs (intensity FWHM; "
+            "assumes the other arm is at transform limit; ≥ 0, even in ΔGDD)."
+        )
+    )
+    delta_duration_err_fs: Optional[float] = Field(
+        description="1σ of delta_duration from σ(ΔGDD), fs (one-sided near ΔGDD = 0)."
+    )
     window_tau_shift_fs: Optional[float] = Field(
         description="Largest tau0 change in the window test, fs."
     )
@@ -663,6 +678,9 @@ class _Recovery:
     spf_min: Optional[float] = None
     vis_min: Optional[float] = None
     n_fit_pixels: int = 0
+    tl_duration: Optional[float] = None
+    delta_duration: Optional[float] = None
+    delta_duration_err: Optional[float] = None
 
 
 def _prepare(
@@ -984,7 +1002,65 @@ def _recover(
     rec.flags["narrow_bandwidth"] = (
         fit is None or rec.n_fit_pixels < cfg.min_fit_pixels or loose
     )
+    if fit is not None:
+        rec.tl_duration, rec.delta_duration, rec.delta_duration_err = _durations(
+            grid, magnitude, fit
+        )
     return rec
+
+
+#: The envelope's core, where the Gaussian is fitted: above this fraction of
+#: its peak. The wings carry the noise and the region's truncation, both of
+#: which a numerical FWHM of √|a| would turn into fake bandwidth.
+_ENVELOPE_CORE = 0.2
+
+
+def _gaussian_bandwidth(omega: np.ndarray, magnitude: np.ndarray) -> Optional[float]:
+    """Intensity FWHM in ω of one arm, from a Gaussian fit to the envelope's core.
+
+    The fringe envelope is ``|A1 A2|``, which for two arms of one spectral
+    shape is proportional to each arm's intensity spectrum, so its FWHM is
+    the arm's. ``ln|a|`` is fitted with a parabola over the core, weighted
+    by ``|a|²`` (its inverse variance under additive noise).
+    """
+    peak = int(np.argmax(magnitude))
+    core = _contiguous_run(magnitude >= _ENVELOPE_CORE * magnitude[peak], peak)
+    if core.size < 5:
+        return None
+    x = omega[core] - omega[peak]
+    weight = magnitude[core] ** 2
+    curvature = np.polyfit(x, np.log(magnitude[core]), 2, w=np.sqrt(weight))[0]
+    if not curvature < 0:
+        return None
+    # ln|a| = c − 4 ln2 (Δω / FWHM)²  ⇒  FWHM = √(−4 ln2 / curvature).
+    return float(np.sqrt(-4.0 * np.log(2.0) / curvature))
+
+
+def _stretched(tl: float, gdd: float) -> float:
+    """A transform-limited Gaussian of FWHM ``tl`` after GDD ``gdd``, FWHM, fs."""
+    return tl * float(np.sqrt(1.0 + (4.0 * np.log(2.0) * gdd / tl**2) ** 2))
+
+
+def _durations(
+    omega: np.ndarray, magnitude: np.ndarray, fit: _Fit
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """Gaussian-equivalent transform limit, the stretch ΔGDD gives it, and its σ.
+
+    Assuming one arm is at transform limit, the other carries ΔGDD:
+    ``Δτ = τ_TL (√(1 + (4 ln2 ΔGDD / τ_TL²)²) − 1)``, with
+    ``τ_TL = 4 ln2 / Δω``. It is even in ΔGDD and quadratic near zero, so
+    its σ is one-sided: the largest change over ΔGDD ± σ(ΔGDD). TOD and the
+    spectrum's departure from a Gaussian are ignored.
+    """
+    bandwidth = _gaussian_bandwidth(omega, magnitude)
+    if bandwidth is None:
+        return None, None, None
+    tl = 4.0 * np.log(2.0) / bandwidth
+    stretched = _stretched(tl, fit.gdd)
+    spread = max(
+        abs(_stretched(tl, fit.gdd + s * fit.gdd_err) - stretched) for s in (-1.0, 1.0)
+    )
+    return tl, stretched - tl, spread
 
 
 def _detection_floor(spectrum: _Spectrum, transform: _Transform, taper: float) -> float:
@@ -1106,6 +1182,9 @@ def _result(
         ),
         sideband_broadening=rec.broadening,
         delay_sweep_fs=rec.sweep,
+        transform_limited_fs=rec.tl_duration,
+        delta_duration_fs=rec.delta_duration,
+        delta_duration_err_fs=rec.delta_duration_err,
         window_tau_shift_fs=rec.tau_shift,
         window_gdd_shift_fs2=rec.gdd_shift,
         min_samples_per_fringe=rec.spf_min,
