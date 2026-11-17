@@ -34,7 +34,7 @@ geecs_scanner/
     preset_saver.py "Save as preset": a PUT to the configurator (stdlib HTTP), which commits it
     scan_log_list.py the shared scan-log list (state-dir JSON, optimistic save) + the picker's logged variables
     settables.py  the movable panel's list: GEECS-Core's numeric_settables over GeecsDb rows, cached per process
-    readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async path
+    readback.py   one aioca caget of the gateway's readback PV (geecs_core.pv_naming) — the service's one async route
     trajectory.py isolated hardware-free preview over shared Bluesky expansion
     shot_gate.py  the "shot gate" chip: the form's trigger profile's gate, one read-only
                   ShotGate reader per address on a daemon thread; shown, never a gate here

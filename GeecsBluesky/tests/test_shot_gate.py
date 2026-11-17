@@ -61,6 +61,14 @@ class FakeGateServer:
             time.sleep(0.005)
 
     def send(self, line: str) -> None:
+        # The gate can see its connection before the accept thread has
+        # registered it: a line sent to nobody would be lost, so wait for one
+        # (a closed server — a test's leftover thread — drops the line).
+        deadline = time.monotonic() + 5.0
+        while not self.clients and not self._closed:
+            if time.monotonic() > deadline:
+                raise AssertionError("the gate never connected")
+            time.sleep(0.005)
         with self._lock:
             for conn in list(self.clients):
                 try:
@@ -375,3 +383,101 @@ def test_an_unreachable_profile_gate_refuses_the_bound_count_before_the_box(
         RE(bind_plans(profiles)["count"]([cam], 1))
     assert box.fires == 0 and box.puts == []  # the box never driven
     assert not col.docs.get("start")  # nothing opened, nothing claimed
+
+
+def test_a_gated_calibration_paused_on_a_hold_never_replays_a_shot(
+    RE: RunEngine, server: FakeGateServer
+) -> None:
+    """A hold that pauses ``measure_shot_offsets`` after a fire, then a resume.
+
+    The calibration runs non-rewindable: a resume replays nothing, so the
+    box fires exactly the requested shots, each one permitted.  (Rewindable,
+    the resume would re-send every cached SINGLESHOT before the next.)
+    """
+    from geecs_bluesky.plans.calibration import measure_shot_offsets_plan
+    from tests.test_calibration import WRITES as CAL_WRITES
+    from tests.test_calibration import _box, _camera as cal_camera
+
+    box = _box({"amp3": 0.0, "amp4": 0.036})
+    writes = CAL_WRITES.model_copy(
+        update={
+            "shot_gate": ShotGateSpec(
+                host="127.0.0.1", port=server.port, hold_pause_s=0.3
+            )
+        }
+    )
+    sc = ShotControl(writes, experiment="TestExp", name="cal", setter_factory=box)
+    connect_mock(RE, sc)
+    cams = [cal_camera(RE, box, n) for n in ("amp3", "amp4")]
+    plan = measure_shot_offsets_plan(
+        TriggerProfiles({"test": sc}, default="test"), None
+    )
+    release = threading.Event()
+    stop = threading.Event()
+
+    def interlock() -> None:
+        # Safe for the first shot; then silent (the hold pauses the plan)
+        # until the test releases it; then a fresh safe after every shot.
+        server.wait_client()
+        server.send("safe")
+        seen = 1
+        release.wait()
+        server.send("safe")
+        while not stop.is_set():
+            if box.fires != seen:
+                seen = box.fires
+                time.sleep(0.02)
+                server.send("safe")
+            time.sleep(0.002)
+
+    threading.Thread(target=interlock, daemon=True).start()
+    try:
+        with pytest.raises(RunEngineInterrupted):
+            RE(plan(cams, shots=3, quiet_time=0.01))
+        assert box.fires == 1  # one permitted shot, then held and paused
+        release.set()
+        RE.resume()
+    finally:
+        stop.set()
+    assert box.fires == 3  # nothing replayed on resume
+
+
+class _LapsingGate(ShotGate):
+    """A gate whose permission lapses once, right after the slot's hold."""
+
+    def __init__(self, *args, **kw) -> None:
+        super().__init__(*args, **kw)
+        self.calls = 0
+
+    def permits(self) -> bool:
+        self.calls += 1
+        if self.calls == 2:  # the re-check just before the fire
+            self._latest = GateMessage(False, "lapsed")
+            return False
+        return super().permits()
+
+
+def test_a_permission_lapsing_before_the_fire_holds_again(
+    RE: RunEngine, server: FakeGateServer
+) -> None:
+    box = FakeBox()
+    sc = _shot_control(RE, box)
+    cam = _camera(RE, box, "UC_Cam")
+    gate = _LapsingGate("127.0.0.1", server.port)
+    RE(open_gate(gate))
+    server.wait_client()
+    server.send("safe")
+    _until(lambda: ShotGate.permits(gate))
+
+    def interlock() -> None:  # a fresh safe 100 ms after the lapse
+        _until(lambda: gate.calls >= 2)
+        time.sleep(0.1)
+        server.send("safe")
+
+    threading.Thread(target=interlock, daemon=True).start()
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(strict_count(sc, [cam], 1, gate=gate))
+    assert box.fires == 1
+    (row,) = [e["data"] for e in col.primary_events()]
+    assert row["gate_hold_s"] >= 0.05  # the second hold is on the row

@@ -593,7 +593,16 @@ profile's, `plans/shot_gate.py` the two stubs.  The rules:
 - **One fresh `safe` per fire**: a shot starts the hardware's cleanup and
   the service may not have said so yet, so only a `safe` received after
   the previous fire (+ `holdoff_s`) permits the next.  A failed SINGLESHOT
-  put counts as a fire.
+  put counts as a fire.  What this asks of the service (`ShotGateSpec`):
+  a fresh `safe` once each shot's cleanup is done (a shot with no state
+  change holds the next until `hold_pause_s`, and the mark persists across
+  runs, so a run's first shot needs one too), `holdoff_s` set when it
+  repeats its state continuously (else a `safe` sent before it saw the
+  shot permits the next), and more than one client (the scanner's chip
+  holds its own connection).
+- **Re-checked at the fire**: a permission that lapses between the slot's
+  hold and the put (during the counter read, the announce) holds again;
+  the baseline stays valid, nothing has fired.
 - **Fail closed**: unreachable, dropped, or a line not understood is not
   safe; the reader reconnects by itself, and one left on an earlier
   RunEngine loop is restarted on the current one.  At the run's start the
@@ -602,7 +611,8 @@ profile's, `plans/shot_gate.py` the two stubs.  The rules:
 - **The hold sits before the slot's baseline** (after the throttle), so a
   hold never spends a device's shot timeout and a free-running camera's
   frames during it are not this fire's; the calibration holds before
-  `fire_and_await_shot` arms its devices.  Each row records `gate_hold_s`.
+  `fire_and_await_shot` arms its devices, and runs non-rewindable, so a
+  resume after a hold's pause replays no SINGLESHOT.  Each row records `gate_hold_s`.
   A hold longer than `hold_pause_s` pauses the run with the gate's reason;
   the resume waits again — a pause never fires.
 - **The wire format is `parse_message`** (newline-framed text), a

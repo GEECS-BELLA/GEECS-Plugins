@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 import bluesky.plan_stubs as bps
+from bluesky.preprocessors import rewindable_wrapper
 from bluesky.protocols import Readable
 from bluesky.utils import separate_devices
 from geecs_schemas.shot_offsets import DeviceOffset, ShotOffsets
@@ -1025,7 +1026,12 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         # change to review.
         with plan_report_sink(REPORT_LOGGER):
             yield from open_gate(shot_gate)
-            complete = yield from run_bracket(inner(), shot_control, TriggerState.OFF)
+            # Not rewindable: a resume after a pause (an operator's, or a
+            # gate hold's) must never replay the cached SINGLESHOTs — every
+            # replayed put is a physical shot no gate permitted.
+            complete = yield from rewindable_wrapper(
+                run_bracket(inner(), shot_control, TriggerState.OFF), False
+            )
             measurement = offsets_from_shots(complete)
             logger.info(
                 "shot offsets over %d shot(s), reference %s:\n%s",

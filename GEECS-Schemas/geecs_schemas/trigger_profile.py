@@ -240,6 +240,12 @@ class ShotGateSpec(SchemaModel):
 
     The service streams ``safe`` / ``not_safe <reason>`` one way over TCP;
     every SINGLESHOT waits for a ``safe`` received after the previous fire.
+    What that asks of the service: it sends a fresh ``safe`` once each
+    shot's cleanup is done (a shot with no state change would otherwise
+    hold the next until ``hold_pause_s``), and it accepts more than one
+    client (the worker and the web scanner's chip each hold a connection).
+    A service that repeats its state continuously needs ``holdoff_s``: the
+    time it takes to report a shot, so a ``safe`` from before it is ignored.
     """
 
     host: str = Field(
@@ -260,7 +266,10 @@ class ShotGateSpec(SchemaModel):
         ge=0,
         description=(
             "Seconds after a shot before a 'safe' counts as the next shot's "
-            "permission (0: any 'safe' received after the shot)."
+            "permission (0: any 'safe' received after the shot). Set it for a "
+            "service that repeats its state continuously: the time the "
+            "service takes to report a shot, so a 'safe' from before the "
+            "shot is ignored."
         ),
     )
 
