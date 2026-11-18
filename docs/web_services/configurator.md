@@ -72,7 +72,7 @@ Each row says which.
   asks for a name, one of this box's folders and, for a recipe, its data
   folder and frame kind. It then opens a draft that already works: no
   processing steps, and the standard measure for those frames. Nothing is
-  written until you Save. A name another recipe or `.himg` job already
+  written until you Save. A name another recipe or job already
   uses, anywhere in the analyzers tree, is refused.
 - **Save as a copy** writes the form as a new file beside the original,
   under a new name.

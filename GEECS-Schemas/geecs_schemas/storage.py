@@ -172,6 +172,7 @@ KIND_STORAGE: dict[str, KindStorage] = {
     "setup": _experiment(SETUPS_FOLDER, suffixes=YAML_SUFFIXES),
     "analysis_recipe": _analysis(ANALYZERS_FOLDER, ANALYSIS_DISPATCH),
     "himg_job": _analysis(ANALYZERS_FOLDER, ANALYSIS_DISPATCH),
+    "scalar_job": _analysis(ANALYZERS_FOLDER, ANALYSIS_DISPATCH),
     "analysis_group": _analysis(GROUPS_FOLDER),
     "scan_request": NotAFile(
         reason="a plan parameter: built per submit from a preset, never saved"

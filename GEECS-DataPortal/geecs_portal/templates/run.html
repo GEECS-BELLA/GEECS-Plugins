@@ -251,10 +251,10 @@ function openInConfigurator(id, kind) {
       .then(() => loadScript(`${CONFIGURATOR}/static/embed.js`))
       .catch((e) => { CFG_READY = null; throw e; });
   }
-  const recipe = kind !== "job";
+  const recipe = kind !== "job" && kind !== "scalar";
   CFG_READY.then(() => GeecsConfigurator.open({
     api: CONFIGURATOR,
-    kind: recipe ? "analysis_recipe" : "himg_job",
+    kind: recipe ? "analysis_recipe" : kind === "scalar" ? "scalar_job" : "himg_job",
     experiment: "",
     id,
     operator: cfgOperator,
@@ -376,8 +376,7 @@ function renderAnalyzer(a, anyRunning) {
   // Ids reach the handlers through data- attributes, never interpolated
   // into JS-in-attribute source (a quote in the id would end the
   // attribute — the #765 review's dead-button finding).
-  // a scalar-columns job is not a configurator kind yet: no edit for it
-  const edit = CONFIGURATOR && a.kind !== "scalar" ? `<button class="btn sm" data-id="${escAttr(a.id)}" data-kind="${escAttr(a.kind)}" onclick="openInConfigurator(this.dataset.id, this.dataset.kind)" title="edit this document in the configurator, with a preview of the unsaved recipe on this scan">edit</button> ` : "";
+  const edit = CONFIGURATOR ? `<button class="btn sm" data-id="${escAttr(a.id)}" data-kind="${escAttr(a.kind)}" onclick="openInConfigurator(this.dataset.id, this.dataset.kind)" title="edit this document in the configurator, with a preview of the unsaved recipe on this scan">edit</button> ` : "";
   const button = `${edit}<button class="btn sm" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}${a.destructive ? "…" : ""}</button>`;
   // the data device only when it says something the recipe id does not
   const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";

@@ -187,16 +187,15 @@ def test_a_condition_round_trips():
     assert load_analysis_document(canonical_document(job)) == job
 
 
-def test_the_form_hint_names_real_fields():
-    """The editor's formula | condition switch (x-choice) owns real fields."""
-    from geecs_schemas.analysis import ScalarColumn
+def test_a_blank_is_one_formula_over_a_placeholder_column():
+    """The new-document draft validates and names its job; its input is no real column."""
+    from geecs_schemas.analysis.scalar import BLANK_INPUT, blank_scalar_job
 
-    schema = ScalarJob.model_json_schema()["$defs"]["ScalarColumn"]
-    options = schema["x-choice"]["options"]
-    owned = [k for o in options for k in o["keys"]]
-    assert set(owned) <= set(ScalarColumn.model_fields)
-    assert [o["title"] for o in options] == ["formula", "condition"]
-    assert len(owned) == len(set(owned))
+    job = ScalarJob.model_validate(blank_scalar_job("ratio"))
+    assert job.output_name == "ratio"
+    assert [(c.name, c.expr, c.inputs) for c in job.columns] == [
+        ("ratio", "x", {"x": BLANK_INPUT})
+    ]
 
 
 @pytest.mark.parametrize(

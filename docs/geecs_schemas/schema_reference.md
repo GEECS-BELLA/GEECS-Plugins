@@ -1304,6 +1304,8 @@ How the job runs among a group's analyses.
 
 ## `scalar_job`
 
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
+
 ### ScalarJob
 
 New s-file columns computed from existing ones, shot by shot.
