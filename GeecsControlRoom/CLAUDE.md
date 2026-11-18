@@ -470,9 +470,13 @@ A feedback loop has no page of its own: its family (`loop_contract`,
 the names of geecs-epics' loop contract) is a `setpoint_device` with a
 panel, so the settables page draws it under the kind word `supply` (the
 mode, the setpoint, the tuning and the travel limits on the rail; the
-state and its reason first in the readings). A live image or a trend
-beside it is not this page's.
-
+mode the engine took, the state and its reason first in the readings: a
+close the engine refuses is an accepted write whose mode reads back Off).
+A loop is a panel device only (`{family: loop_contract, prefix: ...}`, no
+`ioc:`): it is no registry device and no scan axis, since its setpoint
+serves no set tolerance. Its `mode` settles by the mode taken, so a preset
+restore writes it after the setpoint and the limits. A live image or a
+trend beside it is not this page's.
 A device is classified by its roster `source` first: a gateway device's
 family is its DB device type, never looked up as a family file, even when
 it is spelled like one.

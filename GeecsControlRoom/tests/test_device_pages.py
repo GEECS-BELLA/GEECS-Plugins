@@ -327,4 +327,12 @@ def test_a_loop_is_drawn_whole_by_the_settables_page() -> None:
     assert railed == {
         r.name for r in family.roles if r.writable
     }  # every write an operator has, none hidden
-    assert drawn["readings"][:3] == ["state", "reason", "reason_text"]
+    assert drawn["readings"][:4] == [
+        "mode_taken",
+        "state",
+        "reason",
+        "reason_text",
+    ]  # the mode the engine took, never only the one asked for
+    assert (
+        family.role("mode").settled_by == "mode_taken"
+    )  # a preset restore writes the mode last

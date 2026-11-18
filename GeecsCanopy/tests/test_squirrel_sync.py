@@ -160,3 +160,28 @@ async def test_a_bench_device_that_leaves_the_panel_file_loses_its_rows(bench, c
     assert not any(
         p["setpointAddress"].startswith("bench:") for p in squirrel.pvs.values()
     )
+
+
+def test_a_feedback_loop_is_served_from_a_panel_row_and_its_mode_restores_last(
+    tmp_path,
+):
+    """A loop (``loop_contract``) needs no registry entry: a panel row resolves it, every setting is a row, and ``mode`` settles (by the mode the engine took), so a restore writes it after the setpoint and the limits."""
+    from geecs_canopy.gates import settles
+    from geecs_canopy.testing import PANELS
+
+    write_documents(tmp_path, panels=PANELS + '  lfs: {family: loop_contract, prefix: "bench:lfs:"}\n')  # fmt: skip
+    devices = NativeSource(EXPERIMENT, tmp_path / "scanner_configs" / "experiments").resolve()  # fmt: skip
+    loop = next(d for d in devices if d.name == "lfs")
+    rows = derive([loop])
+    assert rows["bench:lfs:Setpoint"].readback == "bench:lfs:Setpoint_RBV"
+    assert rows["bench:lfs:Mode"].readback == "bench:lfs:Mode_RBV"
+    assert not any(
+        e.role in ("use_current", "accept") for e in rows.values()
+    )  # a press is no setting
+    by_name = {r.name: r for r in loop.roles}
+    settling = [name for name in by_name if by_name[name].writable and settles(loop, by_name[name])]  # fmt: skip
+    assert settling == ["mode"]
+    assert (
+        by_name["heartbeat"].type == "counter"
+        and by_name["state"].fresh_by == "heartbeat"
+    )  # a hung engine reads stale

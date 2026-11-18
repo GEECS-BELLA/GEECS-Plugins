@@ -4,9 +4,9 @@
   "kind": "setpoint_device",
   "description": "A feedback loop behind geecs-epics' loop contract (docs/loop-contract.md, the ioc-loop engine): the mode, the setpoint held, the tuning and travel limits, and what the loop last saw and did.",
   "roles": [
-    {"name": "mode", "suffix": "Mode", "type": "enum", "label": "mode", "writable": true, "readback": "mode_taken", "archive": true},
-    {"name": "mode_taken", "suffix": "Mode_RBV", "type": "enum", "label": "mode taken", "archive": true},
-    {"name": "state", "suffix": "State_RBV", "type": "enum", "label": "state", "fields": ["SEVR", "STAT"], "archive": true},
+    {"name": "mode", "suffix": "Mode", "type": "enum", "label": "mode", "writable": true, "readback": "mode_taken", "settled_by": "mode_taken", "archive": true},
+    {"name": "mode_taken", "suffix": "Mode_RBV", "type": "enum", "label": "mode taken", "fresh_by": "heartbeat", "archive": true},
+    {"name": "state", "suffix": "State_RBV", "type": "enum", "label": "state", "fresh_by": "heartbeat", "fields": ["SEVR", "STAT"], "archive": true},
     {"name": "reason", "suffix": "Reason_RBV", "type": "enum", "label": "reason", "archive": true},
     {"name": "reason_text", "suffix": "ReasonText_RBV", "type": "readback", "label": "why", "text": "char_array"},
 
@@ -41,12 +41,11 @@
     {"name": "used", "suffix": "Used_RBV", "type": "readback", "label": "samples accepted", "level": "expert"},
     {"name": "missed", "suffix": "Missed_RBV", "type": "readback", "label": "frame ids missed", "level": "expert"},
     {"name": "skipped_no_beam", "suffix": "SkippedNoBeam_RBV", "type": "readback", "label": "skipped: no beam", "level": "expert"},
-    {"name": "skipped_no_frames", "suffix": "SkippedNoFrames_RBV", "type": "readback", "label": "skipped: no frames", "level": "expert"},
     {"name": "skipped_invalid", "suffix": "SkippedInvalid_RBV", "type": "readback", "label": "skipped: invalid", "level": "expert"},
     {"name": "skipped_jump", "suffix": "SkippedJump_RBV", "type": "readback", "label": "skipped: jump", "level": "expert"},
     {"name": "skipped_permit", "suffix": "SkippedPermit_RBV", "type": "readback", "label": "skipped: permit", "level": "expert"},
     {"name": "skipped_settling", "suffix": "SkippedSettling_RBV", "type": "readback", "label": "skipped: settling", "level": "expert"},
-    {"name": "heartbeat", "suffix": "Heartbeat_RBV", "type": "readback", "label": "engine heartbeat", "level": "expert"},
+    {"name": "heartbeat", "suffix": "Heartbeat_RBV", "type": "counter", "label": "engine heartbeat", "level": "expert"},
     {"name": "off_since_boot", "suffix": "OffSinceBoot_RBV", "type": "bit", "label": "off since the engine started", "fields": ["SEVR", "STAT"]}
   ],
   "actions": {
@@ -62,6 +61,6 @@
       {"title": "Tuning", "roles": ["gain", "deadband", "max_step", "average"]},
       {"title": "Travel limits", "roles": ["limit_low", "limit_high"]}
     ],
-    "readings": ["state", "reason", "reason_text", "value_display", "setpoint_display", "value", "error", "step", "target", "steps", "owns", "off_since_boot"]
+    "readings": ["mode_taken", "state", "reason", "reason_text", "value_display", "setpoint_display", "value", "error", "step", "target", "steps", "owns", "off_since_boot"]
   }
 }
