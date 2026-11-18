@@ -245,6 +245,12 @@ class ScalarColumn(SchemaModel):
     )
     description: Optional[str] = Field(None, description="Free-text note.")
 
+    @field_validator("expr", "otherwise", mode="before")
+    @classmethod
+    def _blank_is_none(cls, value: Any) -> Any:  # Any: the raw field, before its type
+        """An emptied box is no formula (no label): a form clears a field to ``""``, so a column can change kind."""
+        return None if isinstance(value, str) and not value.strip() else value
+
     @field_validator("inputs")
     @classmethod
     def _symbols_are_names(cls, inputs: dict[str, str]) -> dict[str, str]:

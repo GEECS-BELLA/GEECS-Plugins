@@ -187,6 +187,16 @@ def test_a_condition_round_trips():
     assert load_analysis_document(canonical_document(job)) == job
 
 
+def test_an_emptied_formula_or_label_is_none():
+    """A form clears a box to "": a formula column becomes a condition, and back."""
+    turned = column(expr="", cases=[{"when": "x > 1", "label": "in"}])
+    assert load_analysis_document(turned).columns[0].is_condition
+    back = column(expr="x * 2", otherwise=" ")
+    assert load_analysis_document(back).columns[0].labels == []
+    with pytest.raises(ValidationError, match="is empty"):
+        load_analysis_document(column(expr=""))
+
+
 def test_a_blank_is_one_formula_over_a_placeholder_column():
     """The new-document draft validates and names its job; its input is no real column."""
     from geecs_schemas.analysis.scalar import BLANK_INPUT, blank_scalar_job

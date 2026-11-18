@@ -487,7 +487,7 @@
   }
 
   // ---- a new document --------------------------------------------------------------------------
-  function newLabel(kind) { return "New " + kind.replace(/^analysis_/, "") + "…"; }
+  function newLabel(kind) { return "New " + kind.replace(/^analysis_/, "").replace(/_/g, " ") + "…"; }
 
   // What a recipe's start form asks beyond its name, read off the kind's schema: each input kind (the
   // discriminator's mapping), for each the enumerated fields it requires beyond `kind` (a trace's

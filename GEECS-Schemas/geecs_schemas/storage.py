@@ -73,8 +73,8 @@ def yaml_stem(name: str) -> str:
     return name
 
 
-#: The loader that tells the analyzers tree's two kinds apart, by the
-#: document's top-level ``kind`` (a ``.himg`` job has one, a recipe none).
+#: The loader that tells the analyzers tree's kinds apart, by the
+#: document's top-level ``kind`` (a job has one, a recipe none).
 ANALYSIS_DISPATCH = "geecs_schemas.analysis.load_analysis_document"
 
 

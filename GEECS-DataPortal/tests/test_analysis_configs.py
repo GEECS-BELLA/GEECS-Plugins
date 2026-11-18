@@ -200,6 +200,7 @@ class TestBlank:
         assert group == {"name": "g2", "analyzers": []}
         assert _validate(client, "analysis_group", group).json()["ok"]
         assert client.get("/api/analysis/blank/himg_job", params={"name": "j"}).status_code == 404  # fmt: skip
+        assert client.get("/api/analysis/blank/preset", params={"name": "p"}).status_code == 404  # fmt: skip
 
     def test_a_scalar_job_is_a_kind_with_a_blank(self, scan_folder, configs_tree):
         """The portal answers for a scalar-columns job: its schema, a blank that validates, a formula's typo refused at its field."""
@@ -213,7 +214,6 @@ class TestBlank:
         bad = {**blank, "columns": [{"name": "r", "expr": "x +", "inputs": {"x": "a"}}]}
         out = _validate(client, "scalar_job", bad).json()
         assert not out["ok"] and out["errors"][0]["loc"][:2] == ["columns", 0]
-        assert client.get("/api/analysis/blank/preset", params={"name": "p"}).status_code == 404  # fmt: skip
 
     def test_off_without_the_configs_tree(self):
         client = TestClient(create_app(FakeCatalog()))

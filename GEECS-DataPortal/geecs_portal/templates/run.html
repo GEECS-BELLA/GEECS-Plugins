@@ -74,7 +74,7 @@
           columns into the s-file (existing columns are overwritten); the Plot page picks
           them up on reload.</span>
         <span class="spacer"></span>
-        {% if configurator %}<a class="btn sm" href="{{ configurator }}/?kind=analysis_recipe" target="_blank" rel="noopener" title="the configurator: browse, create and edit recipes, .himg jobs and groups">configurator ↗</a>{% endif %}
+        {% if configurator %}<a class="btn sm" href="{{ configurator }}/?kind=analysis_recipe" target="_blank" rel="noopener" title="the configurator: browse, create and edit recipes, jobs and groups">configurator ↗</a>{% endif %}
         <button class="btn sm" type="button" onclick="refreshAnalysis(true)">refresh</button>
       </div>
       <div id="analysisList" class="group"><div class="state" data-state="loading"><div class="t">Loading analyzers…</div></div></div>
@@ -376,7 +376,7 @@ function renderAnalyzer(a, anyRunning) {
   // Ids reach the handlers through data- attributes, never interpolated
   // into JS-in-attribute source (a quote in the id would end the
   // attribute — the #765 review's dead-button finding).
-  const edit = CONFIGURATOR ? `<button class="btn sm" data-id="${escAttr(a.id)}" data-kind="${escAttr(a.kind)}" onclick="openInConfigurator(this.dataset.id, this.dataset.kind)" title="edit this document in the configurator, with a preview of the unsaved recipe on this scan">edit</button> ` : "";
+  const edit = CONFIGURATOR ? `<button class="btn sm" data-id="${escAttr(a.id)}" data-kind="${escAttr(a.kind)}" onclick="openInConfigurator(this.dataset.id, this.dataset.kind)" title="edit this document in the configurator (a recipe: with a preview of the unsaved draft on this scan)">edit</button> ` : "";
   const button = `${edit}<button class="btn sm" ${anyRunning ? "disabled" : ""} data-id="${escAttr(a.id)}" onclick="startAnalysis(this.dataset.id)">${label}${a.destructive ? "…" : ""}</button>`;
   // the data device only when it says something the recipe id does not
   const device = a.device && a.device !== a.id ? `<span class="dim mono" title="the device whose data this recipe reads">on ${esc(a.device)}</span>` : "";
