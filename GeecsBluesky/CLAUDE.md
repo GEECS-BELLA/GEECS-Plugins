@@ -583,7 +583,7 @@ this package decides how the worker waits for it.
 process (`gate_for`), so the last-fire mark follows the physical server
 across runs and profiles, and each profile's view keeps its own hold
 settings; `ShotControl.shot_gate` the profile's; `plans/shot_gate.py` the
-three stubs.  The rules:
+plan stubs.  The rules:
 
 - **The protocol** (v1): a 4-byte big-endian length then UTF-8 JSON, a
   frame on connect and every ~0.1 s.  Safe only when `ok` and the
@@ -624,7 +624,9 @@ three stubs.  The rules:
   resume replays no SINGLESHOT.  A hold pauses the run with the server's
   reason only after `hold_pause_s` without permission (a verdict that
   lapses as a wait returns is waited for again); the resume waits again —
-  a pause never fires.  Each row records `gate_hold_s`, the waiting alone
+  a pause never fires.  A shot whose permission keeps lapsing between the
+  hold and the fire pauses once its lapses have lasted `hold_pause_s`
+  (`pause_on_lapses`: timed from its first lapse, again after any pause).  Each row records `gate_hold_s`, the waiting alone
   (never a pause), the server's time to clear the shot.
 - **Swap points**: `parse_frame` (the frame's body) and `read_frames` (the
   framing); the freshness rule is `ShotGate.permits`.

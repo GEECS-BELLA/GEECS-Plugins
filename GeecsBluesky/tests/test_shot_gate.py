@@ -891,3 +891,39 @@ def test_a_permission_that_keeps_lapsing_pauses_the_run(
         RE(strict_count(sc, [cam], 1, gate=gate))
     assert box.fires == 0 and gate.calls > 2
     RE.abort()
+
+
+class _OneLapseAtTheRecheck(ShotGate):
+    """Permission lapses once, at the slot's re-check after the counter read."""
+
+    armed = False
+
+    def permits(self) -> bool:
+        import inspect
+
+        if self.armed and inspect.stack()[1].function == "_baseline_and_fire":
+            self.armed = False
+            return False
+        return super().permits()
+
+
+def test_one_lapse_after_a_resumed_hold_does_not_pause_again(
+    RE: RunEngine, server: FakeGateServer
+) -> None:
+    """The lapse clock starts at the lapse, not the hold: a hold that paused
+    (and the operator's pause) never counts toward a later lapse's pause."""
+    box = FakeBox()
+    sc = _shot_control(RE, box)
+    cam = _camera(RE, box, "UC_Cam")
+    gate = _OneLapseAtTheRecheck("127.0.0.1", server.port, hold_pause_s=0.3)
+    RE(open_gate(gate))
+    server.send("not_safe: chiller flow low")
+    _until(lambda: "chiller" in gate.reason)
+    with pytest.raises(RunEngineInterrupted):
+        RE(strict_count(sc, [cam], 1, gate=gate))  # held past 0.3 s: paused
+    server.send("safe")
+    _until(gate.permits)
+    time.sleep(0.5)
+    gate.armed = True  # one brief lapse at the re-check after the resume
+    RE.resume()  # completes: no second pause
+    assert not gate.armed and box.fires == 1

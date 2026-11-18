@@ -1,7 +1,7 @@
 """The shot gate in the plans: connect before the claim, hold before every fire.
 
 :class:`~geecs_bluesky.shot_gate.ShotGate` is the client; here are
-the three plan stubs every firing plan shares:
+the plan stubs every firing plan shares:
 
 - :func:`open_gate` — before the box is driven and before the claim: start
   the reader and wait (bounded) for a connection and its first frame.  An unreachable gate
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 import bluesky.plan_stubs as bps
@@ -95,25 +96,45 @@ def hold_for_permission(gate: ShotGate | None, pause: Any = None):
         )
 
 
-def pause_on_lapses(gate: ShotGate | None, since: float, pause: Any = None):
-    """Plan: after a lapse before the fire, pause once ``hold_pause_s`` has passed since *since*.
+class LapseClock:
+    """When one shot's permission first lapsed before its fire, for :func:`pause_on_lapses`.
 
-    A permission that lapses between the hold and the fire sends the
-    caller back to the hold, which starts its own deadline; a verdict that
-    keeps flickering would never fire and never pause.  The caller keeps
-    *since* (the shot's first hold) across its lapses and passes it here
-    after each one.  Returns the *since* to keep: unchanged, or now after
-    a pause.
+    A permission that lapses between the hold and the fire sends the caller
+    back to the hold, which starts its own deadline, so a verdict that keeps
+    flickering would never fire and never pause.  The clock starts at the
+    shot's first lapse and starts again after any pause of the run
+    (*pauses*: the box's ``pause_count``), so neither a hold before the
+    first lapse nor the operator's pause counts.  One clock per shot.
     """
-    if gate is None or time.monotonic() - since < gate.hold_pause_s:
-        return since
+
+    def __init__(self, pauses: Callable[[], int]) -> None:
+        self._pauses = pauses
+        self._seen = -1
+        self.since: float | None = None
+
+    def lapsed(self) -> float:
+        """Record a lapse; when this shot's lapses began (since the last pause)."""
+        seen = self._pauses()
+        if self.since is None or seen != self._seen:
+            self.since, self._seen = time.monotonic(), seen
+        return self.since
+
+    def reset(self) -> None:
+        """Start again: after a pause, or a shot that fired."""
+        self.since = None
+
+
+def pause_on_lapses(gate: ShotGate | None, clock: LapseClock, pause: Any = None):
+    """Plan: record a lapse before the fire; pause once they have lasted ``hold_pause_s``."""
+    if gate is None or time.monotonic() - clock.lapsed() < gate.hold_pause_s:
+        return
     yield from _pause_run(
         f"shot gate {gate.address}: permission lapsed before every fire for "
         f"{gate.hold_pause_s:g} s — {gate.reason or 'not safe'}; "
         "resume to try again",
         pause,
     )
-    return time.monotonic()
+    clock.reset()
 
 
 def _pause_run(reason: str, pause: Any):
@@ -151,4 +172,10 @@ def fire_gated(shot_control: Any, gate: ShotGate | None):
     return True
 
 
-__all__ = ["fire_gated", "hold_for_permission", "open_gate", "pause_on_lapses"]
+__all__ = [
+    "LapseClock",
+    "fire_gated",
+    "hold_for_permission",
+    "open_gate",
+    "pause_on_lapses",
+]

@@ -41,6 +41,7 @@ from geecs_bluesky.devices.native import (
 from geecs_bluesky.devices.scan_mode import ANNOUNCE
 from geecs_bluesky.shot_gate import ShotGate
 from geecs_bluesky.plans.shot_gate import (
+    LapseClock,
     fire_gated,
     hold_for_permission,
     pause_on_lapses,
@@ -512,13 +513,13 @@ class OnDemand:
         this fire's.
         """
         held = 0.0
-        since = time.monotonic()
+        lapses = LapseClock(lambda: self.sc.pause_count)
         while True:
             held += yield from hold_for_permission(self.gate, pause=self._pause)
             mark = self.sc.pause_count
             base = yield from self._counters()
             if self.gate is not None and not self.gate.permits():
-                since = yield from pause_on_lapses(self.gate, since, self._pause)
+                yield from pause_on_lapses(self.gate, lapses, self._pause)
                 continue
             self.columns.shot_index += 1
             self.columns.reset(
@@ -530,7 +531,7 @@ class OnDemand:
             if (yield from self._fire()):
                 return mark, base
             self.columns.shot_index -= 1  # nothing fired: no row
-            since = yield from pause_on_lapses(self.gate, since, self._pause)
+            yield from pause_on_lapses(self.gate, lapses, self._pause)
 
     def _slot(self, readers: Sequence[Any], name: str):
         # ``attempt`` counts the shot's fires (the row's column); ``spent``
