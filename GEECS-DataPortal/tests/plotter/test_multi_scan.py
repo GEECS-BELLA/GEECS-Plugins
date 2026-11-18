@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from tests.plotter.conftest import EXPERIMENT, SCAN_VARIABLE, post
 
-from geecs_portal.plotter import figures
+from geecs_portal.plotter import figures, multi
 from geecs_portal.plotter.settings import PlotterSettings, ScanRef, merged
 
 CHARGE = "U_ICT charge"
@@ -414,6 +414,22 @@ class TestPage:
         assert 'data-toggle-for="multi"' not in html
         assert "scans=&amp;" in html
 
+    def test_the_exported_plot_names_every_scan_found(self, client, two_days):
+        """Copy, save and the logbook send label the PNG from data-provenance:
+        the date and scan of each scan plotted, a missing one left out."""
+        html = post(client, scan=1, scans="2026-10-03:1,2026-10-09:4")
+        plot = html[html.index('id="plot"') :]
+        assert 'data-provenance="Scan001 · 2026-10-02; Scan001 · 2026-10-03"' in plot
+
+    def test_one_scan_s_export_carries_its_heading(self, client, two_days):
+        html = post(client, scan=1)
+        plot = html[html.index('id="plot"') :]
+        assert 'data-provenance="Scan001 · 2026-10-02"' in plot
+
+    def test_the_map_s_export_names_the_main_scan_alone(self, client, two_days):
+        html = post(client, scan=1, scans="2026-10-03:1", tab="map")
+        assert 'data-provenance="Scan001 · 2026-10-02"' in html
+
     def test_the_map_says_it_draws_the_main_scan(self, client, two_days):
         html = post(client, scan=1, scans="2026-10-03:1", tab="map")
         assert "the map draws 10-02 S001 alone" in html
@@ -438,3 +454,37 @@ def test_remove_all_clears_the_added_scans(client, settings_dir) -> None:
     assert "data-scans-clear" not in page
     saved = _json.loads((settings_dir / "default.json").read_text())
     assert saved["extra_scans"] == []
+
+
+class TestProvenance:
+    """``multi.provenance``: the label written on an exported plot."""
+
+    def test_one_scan_reads_as_the_panel_heading(self):
+        assert multi.provenance([(date(2026, 10, 27), 9)]) == "Scan009 · 2026-10-27"
+
+    def test_scans_group_by_day_in_order_main_first(self):
+        refs = [
+            (date(2026, 10, 27), 9),
+            (date(2026, 10, 28), 2),
+            (date(2026, 10, 27), 12),
+            (date(2026, 10, 27), 9),  # a repeat names it once
+        ]
+        assert (
+            multi.provenance(refs)
+            == "Scan009, Scan012 · 2026-10-27; Scan002 · 2026-10-28"
+        )
+
+
+def test_every_plot_picture_is_drawn_through_the_labelled_export() -> None:
+    """Save, copy and the logbook send share one path (``picture``/``download``
+    over ``exported``), so none of them can drop the label: no direct
+    ``toImage`` of the plot, and Plotly's own camera replaced by ours."""
+    source = (Path(multi.__file__).parent / "static" / "plot_tools.js").read_text()
+    assert "data.provenance" in source
+    assert source.count("Plotly.toImage(") == 1  # inside picture()
+    assert "Plotly.toImage(figure" in source
+    assert "Plotly.downloadImage(figure" in source
+    assert 'modeBarButtonsToRemove: ["toImage"]' in source
+    assert "toImageButtonOptions" not in source
+    # A title of the viewer's own is kept, the label after it.
+    assert "...own," in source and "${ownText}  ·  ${text}" in source

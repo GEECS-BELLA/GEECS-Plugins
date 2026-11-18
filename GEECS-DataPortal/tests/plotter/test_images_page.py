@@ -116,3 +116,14 @@ def test_a_max_tile_width_caps_the_columns(client: TestClient, camera: Path) -> 
     )
     with pytest.raises(SettingsError, match="pixels"):
         merged(PlotterSettings(), {"tilemax": "5"})
+
+
+def test_the_big_view_s_exported_trace_names_its_scan(
+    client: TestClient, camera: Path
+) -> None:
+    """A trace device's big view copies and saves through the plot's
+    labelled export (plot_tools.js), so it carries the date and scan too."""
+    page = post(client, scan=1, page="images", device=CAM)
+    bigview = page[page.index('id="bigview"') :]
+    bigview = bigview[: bigview.index(">")]
+    assert 'data-provenance="Scan001 · 2026-10-02"' in bigview
