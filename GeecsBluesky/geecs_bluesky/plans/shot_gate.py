@@ -129,9 +129,9 @@ def pause_on_lapses(gate: ShotGate | None, clock: LapseClock, pause: Any = None)
     if gate is None or time.monotonic() - clock.lapsed() < gate.hold_pause_s:
         return
     yield from _pause_run(
-        f"shot gate {gate.address}: permission lapsed before every fire for "
-        f"{gate.hold_pause_s:g} s — {gate.reason or 'not safe'}; "
-        "resume to try again",
+        f"shot gate {gate.address}: no fire for {gate.hold_pause_s:g} s since "
+        "the shot's permission first lapsed before its fire — "
+        f"{gate.reason or 'not safe'}; resume to try again",
         pause,
     )
     clock.reset()
