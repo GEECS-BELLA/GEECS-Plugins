@@ -71,10 +71,9 @@ class GeecsStreamResourceDataProvider(StreamResourceDataProvider):
     This one re-reads the main dataset's ``StreamResourceInfo`` from the
     plugin's geometry PVs at every ``make_datakeys`` / ``make_stream_docs``
     until a stream datum is out, then keeps it: the descriptor is composed
-    after the first frame (strict: at the first ``save``; gated: the
-    cameras' stream is declared after the first batch; a non-essential
-    plugin stream: declared at the run's close, right before its collect —
-    both in ``plans/gated.py``), the resource document goes out with the
+    after the first frame (a device stream is declared at the first
+    collect that finds a frame, or at the run's close —
+    ``plans/streams.py``), the resource document goes out with the
     first datum, and both read the shape the plugin settled on.  The
     NDAttribute datasets are scalars and stay as the stock logic described
     them.  What this relies on — the
@@ -219,8 +218,8 @@ class PluginPathProvider(PathProvider):
         scanner claimed (``mkdir(exist_ok=True)``, never ``parents``: a
         missing scan folder is an error, the root ``CLAUDE.md`` invariant).
         The plugin never creates it — it refuses to arm on a missing
-        ``FilePath`` — and in a fly prepare (a gated batch, a non-essential
-        stream) the LabVIEW-native saving logic is not part of the context.
+        ``FilePath`` — and in a fly prepare (a device stream) the
+        LabVIEW-native saving logic is not always part of the context.
         """
         local = self._shared(self._stem)
         local_dir = Path(local.directory_path)

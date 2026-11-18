@@ -98,6 +98,7 @@ def run_analysis_list(
                 or info.device in present,
                 "output_dir": info.output_name,
                 "destructive": info.destructive,
+                "kind": info.kind,
                 "job": job.to_json() if job is not None else None,
                 "files": files,
                 "artifacts": analysis_runs.describe_artifacts(

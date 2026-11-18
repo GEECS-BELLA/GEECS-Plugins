@@ -11,9 +11,18 @@
 
   var ROOT = document.body.dataset.root || "";
   var PORTAL = (document.body.dataset.portal || "").replace(/\/$/, "");
+  var EXPERIMENT = document.body.dataset.experiment || "";
   var $ = function (id) { return document.getElementById(id); };
   var STALE_DOCS_S = 5;      // a running scan whose documents go quiet
   var STALE_MANAGER_S = 4;   // the status poll is every second
+
+  /* The portal browses every experiment on the share, and a page of it takes
+   * the experiment as a query (else the portal's own default: the main
+   * experiment's). This scanner names its own, so an instance's links land on
+   * its day and its run's neighbours, never the main experiment's. */
+  function portalHref(path) {
+    return PORTAL + path + (EXPERIMENT ? "?experiment=" + encodeURIComponent(EXPERIMENT) : "");
+  }
 
   /* ---------------------------------------------------------------- api */
 
@@ -52,7 +61,7 @@
     consoleSeq: 0, epoch: null,
     formable: true, formableNote: "",
     pendingPreset: null, pendingAck: [],
-    devices: [], actions: [], actionName: null, armed: false, calibration: null,
+    devices: [], setups: [], setupName: null, armed: false, calibration: null,
     settables: [], settablesNote: "", readbackVar: null, readbackTimer: null,
     tail: "scanlog", logFolder: null, logLines: [], consoleLines: []
   };
@@ -109,7 +118,11 @@
     if (!st) return;
     var running = st.re_state === "running" || st.re_state === "paused";
     var runWord = st.re_state === "paused" ? K.paused : K.running;
-    if (!st.connected) {
+    if (st.reopening) {
+      // the configurator's apply: the worker re-reads the configs; a Start waits for it
+      setChip($("chip-manager"), K.running, "manager", "the worker environment is reopening (a committed configuration change)");
+      setChip($("now-chip"), K.running, "reopening");
+    } else if (!st.connected) {
       setChip($("chip-manager"), K.failed, "manager", st.detail || "not answering");
       setChip($("now-chip"), K.failed, "unreachable");
     } else if (st.readiness !== "ready") {
@@ -144,7 +157,7 @@
     var now = new Date(), iso = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
     var label = (day === iso ? "Today" : "Last run") + " · " + day;
     if (PORTAL) {
-      var a = document.createElement("a"); a.href = PORTAL + "/day/" + day; a.textContent = label; a.title = "the day in the Data Portal";
+      var a = document.createElement("a"); a.href = portalHref("/day/" + day); a.textContent = label; a.title = "the day in the Data Portal";
       h.appendChild(a);
     } else h.textContent = label;
   }
@@ -221,28 +234,34 @@
     var tr = document.createElement("tr");
     if (selected) tr.setAttribute("aria-selected", "true");
     tr.appendChild(td(chip(r.state, r.word)));
-    tr.appendChild(td((r.position ? "#" + r.position + " " : "") + r.summary, "id"));
-    tr.appendChild(td(r.user));
-    var detail = (r.scan_numbers && r.scan_numbers.length ? "Scan " + r.scan_numbers.map(function (n) { return String(n).padStart(3, "0"); }).join(", ") + (r.detail ? " · " : "") : "") + (r.detail || "");
-    tr.appendChild(td(detail, "dim"));
+    // The anchor column: the scan number (the running one's from progress,
+    // the manager's history has not got it yet), else the waiting position.
+    var p = S.progress, live = p && (p.state === "running" || p.state === "paused");
+    var nums = r.scan_numbers && r.scan_numbers.length ? r.scan_numbers
+      : selected && live && p.scan_number ? [p.scan_number] : [];
+    tr.appendChild(td(nums.length ? "Scan " + nums.map(function (n) { return String(n).padStart(3, "0"); }).join(", ") : r.position ? "#" + r.position : "", "id"));
+    tr.appendChild(td(r.summary, "sum"));
+    tr.appendChild(td(r.user, "dim"));
+    // The detail column says only what the summary does not already: the exit
+    // message of a finished item. The description is quoted in the summary.
+    tr.appendChild(td(r.detail && r.summary.indexOf(r.detail) === -1 ? r.detail : "", "dim"));
     return tr;
   }
 
   function renderQueue() {
     var q = S.queue;
     if (!q) return;
-    var body = $("qbody");
-    body.textContent = "";
-    if (q.running) body.appendChild(row(q.running, true));
-    q.waiting.forEach(function (r) { body.appendChild(row(r)); });
-    q.finished.forEach(function (r) { body.appendChild(row(r)); });
-    if (!body.children.length) body.appendChild(td("Nothing queued, nothing finished today.", "dim"));
+    section("q-run", q.running ? [q.running] : [], "Nothing running.", false);
+    section("q-wait", q.waiting, "Nothing waiting.", true);
+    section("q-done", q.finished, "Nothing finished today.", false);
+    $("q-wait-h").textContent = "Waiting · " + q.waiting.length;
+    $("q-done-h").textContent = "History · " + q.finished.length;
     $("q-summary").textContent = q.summary;
     renderProgress();
     $("dlg-clear-n").textContent = q.waiting.length + " waiting item" + (q.waiting.length === 1 ? "" : "s");
     if (q.running) {
       $("now-plan").textContent = q.running.summary;
-      $("now-by").textContent = q.running.user ? "submitted as " + q.running.user : "";
+      $("now-by").textContent = q.running.user ? "submitted by " + q.running.user : "";
       $("dlg-stop-scan").textContent = S.progress && S.progress.scan_number ? "Scan " + String(S.progress.scan_number).padStart(3, "0") : "the running scan";
     } else {
       $("now-plan").textContent = q.finished.length ? "Idle. Last: " + q.finished[0].summary : "Idle.";
@@ -255,7 +274,7 @@
     q.finished.filter(function (r) { return r.scan_numbers && r.scan_numbers.length; }).slice(0, 6).forEach(function (r) {
       var a = document.createElement("a");
       // The portal's run page is keyed by the run uid the history row carries.
-      a.href = PORTAL && r.run_uids && r.run_uids.length ? PORTAL + "/run/" + encodeURIComponent(r.run_uids[0]) : "#queue";
+      a.href = PORTAL && r.run_uids && r.run_uids.length ? portalHref("/run/" + encodeURIComponent(r.run_uids[0])) : "#queue";
       if (a.href.indexOf("#") === -1) a.title = "open in the Data Portal";
       var n = r.scan_numbers && r.scan_numbers.length ? "Scan " + String(r.scan_numbers[0]).padStart(3, "0") : r.plan;
       a.innerHTML = "<span></span><span class=\"dim\"></span>";
@@ -264,6 +283,30 @@
       recent.appendChild(a);
     });
   }
+
+  // #1281: Ongoing / Queue / History; a waiting row carries its Remove button.
+  function section(id, rows, empty, removable) {
+    var body = $(id);
+    body.textContent = "";
+    rows.forEach(function (r) {
+      var tr = row(r, id === "q-run");
+      if (removable) {
+        var b = document.createElement("button");
+        b.className = "btn danger sm"; b.type = "button"; b.textContent = "Remove"; b.dataset.uid = r.item_uid || "";
+        tr.appendChild(td(b));
+      }
+      body.appendChild(tr);
+    });
+    if (!rows.length) { var tr = document.createElement("tr"); tr.appendChild(td(empty, "dim")); body.appendChild(tr); }
+  }
+  $("q-wait").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-uid]");
+    if (!b) return;
+    b.disabled = true;
+    api("/api/queue/" + encodeURIComponent(b.dataset.uid), { method: "DELETE" })
+      .catch(function (err) { showError("Not removed: " + err.message); })
+      .then(refreshQueue);
+  });
 
   function refreshQueue() {
     return api("/api/queue").then(function (q) { S.queue = q; renderQueue(); })
@@ -286,11 +329,14 @@
     });
     es.addEventListener("optimization", function (e) { S.optimization = JSON.parse(e.data); renderOptimization(); });
     es.addEventListener("progress", function (ev) {
-      var p = JSON.parse(ev.data);
+      var p = JSON.parse(ev.data), was = S.progress || {};
       var finished = S.progress && S.progress.state !== p.state && (p.state === "done" || p.state === "aborted");
       S.progress = p;
       renderProgress();
       if (finished) refreshQueue();
+      // The Ongoing row's scan number comes from the start document, which
+      // lands after the queue refresh that first showed the item running.
+      else if (S.queue && S.queue.running && (p.scan_number !== was.scan_number || p.state !== was.state)) section("q-run", [S.queue.running], "Nothing running.", false);
     });
     es.addEventListener("console", function (ev) {
       var line = JSON.parse(ev.data);
@@ -387,19 +433,19 @@
       api("/api/scan-variables"),
       api("/api/configs/trigger_profiles"),
       api("/api/devices").catch(function () { return []; }),
-      api("/api/actions").catch(function (e) { return { error: e.message }; }),
+      api("/api/setups").catch(function (e) { return { error: e.message }; }),
       api("/api/calibration").catch(function (e) { return { stored: false, detail: e.message }; }),
       api("/api/settables").catch(function (e) { return { items: [], source: "?", detail: e.message }; }),
       api("/api/configs/optimizer_configs").catch(function (e) { return { names: [], detail: e.message }; })
     ]).then(function (res) {
       S.presets = res[0].names; S.variables = res[1]; S.triggers = res[2].names;
-      S.devices = res[3]; S.actions = res[4].error ? [] : res[4]; S.calibration = res[5];
+      S.devices = res[3]; S.setups = res[4].error ? [] : res[4]; S.calibration = res[5];
       var optimizers = $("optimizer-config");
       optimizers.textContent = ""; optimizers.appendChild(option("", "Choose an optimizer…"));
       res[7].names.forEach(function (n) { optimizers.appendChild(option(n, n)); });
       renderOptimizerAvailability(res[7]);
       S.settables = res[6].items || []; S.settablesNote = res[6].detail || "";
-      renderMoveVars(); renderDeviceList(); renderActions(res[4].error || null); renderCalibration();
+      renderMoveVars(); renderDeviceList(); renderSetups(res[4].error || null); renderCalibration();
       renderPresetList();
       composer.variables(S.variables.filter(function (v) { return v.scannable; }).concat(S.settables));
       var tr = $("trig"); tr.textContent = "";
@@ -424,11 +470,25 @@
     if (name) selectPreset(name);
   });
 
+  // The preset mini: the loaded preset's settings (not its plan, which is this form's) in the configurator's
+  // embedded editor, with this page's operator; the configurator commits it as theirs. The form here is not
+  // reloaded: a save says to load the preset again.
+  var CONFIGURATOR = (document.body.dataset.configurator || "").replace(/\/$/, "");
+  var PRESET_FIELDS = ["description", "trigger_profile", "background", "native_image_save", "background_telemetry", "devices"];
+  if ($("btn-edit-preset")) $("btn-edit-preset").addEventListener("click", function () {
+    if (!S.loadedName) return;
+    if (!window.GeecsConfigurator) { showError("The configurator's editor did not load from " + CONFIGURATOR + "."); return; }
+    var name = S.loadedName;
+    window.GeecsConfigurator.open({ api: CONFIGURATOR, kind: "preset", experiment: document.body.dataset.experiment, id: name, fields: PRESET_FIELDS,
+      operator: operator, onSaved: function (b) { if (b.outcome !== "nothing to do") $("presets-note").textContent = "Preset " + name + " saved; load it again to use the change."; } });
+  });
+
   function selectPreset(name) {
     S.presetName = name;  // claimed now, so a slower default cannot override the pick
     api("/api/configs/presets/" + encodeURIComponent(name)).then(function (doc) {
       if (S.presetName !== name) return;  // a later click won
       S.presetDoc = doc; S.loadedName = name;  // the LISTING name: a document's inner name need not match its file
+      if ($("btn-edit-preset")) { $("btn-edit-preset").disabled = false; $("btn-edit-preset").title = "Edit preset " + name + "'s settings in the configurator"; }
       $("preset-name").textContent = "preset " + name;
       $("devices-eyebrow").textContent = "devices · preset " + name;
       fillFormFromPreset(doc);
@@ -467,17 +527,17 @@
     // The run-level LabVIEW-files switch (#738): unset = the experiment default.
     $("native-save").value = doc.native_image_save === true ? "true" : doc.native_image_save === false ? "false" : "";
     var body = $("devs"); body.textContent = "";
-    (doc.devices || []).forEach(function (d) { body.appendChild(deviceRow(d.device, d.save_images !== false, d.essential !== false)); });
+    (doc.devices || []).forEach(function (d) { body.appendChild(deviceRow(d.device, d.save_images !== false, d.required !== false)); });
     noDevicesNote();
     if (shape === "optimize") { setSelect("optimizer-config", kw.optimizer_config || ""); loadOptimizer(kw); }
     recalc(); renderCalibration();
   }
-  function deviceRow(name, saveImages, essential) {
+  function deviceRow(name, saveImages, required) {
     var tr = document.createElement("tr");
     tr.dataset.device = name;
     tr.appendChild(td(name, "id"));
     tr.appendChild(td(checkbox(saveImages, "save images for " + name)));
-    tr.appendChild(td(checkbox(essential, name + " essential")));
+    tr.appendChild(td(checkbox(required, name + " required")));
     var rm = document.createElement("button");
     rm.type = "button"; rm.className = "btn sm ghost rm"; rm.textContent = "remove";
     rm.setAttribute("aria-label", "remove " + name);
@@ -498,7 +558,7 @@
     var out = [];
     Array.prototype.forEach.call($("devs").querySelectorAll("tr[data-device]"), function (tr) {
       var boxes = tr.querySelectorAll("input[type=checkbox]");
-      out.push({ device: tr.dataset.device, save_images: boxes[0].checked, essential: boxes[1].checked });
+      out.push({ device: tr.dataset.device, save_images: boxes[0].checked, required: boxes[1].checked });
     });
     return out;
   }
@@ -543,7 +603,6 @@
     Array.prototype.forEach.call($("acq").querySelectorAll("button"), function (b) {
       b.setAttribute("aria-pressed", String(b.dataset.acq === acq));
     });
-    $("period").disabled = acq !== "strict";
     recalc();
   }
   $("mode").addEventListener("click", function (e) {
@@ -585,7 +644,7 @@
       var preview = composer.result(); steps = preview ? preview.total_steps : 0;
     }
     var total = count ? shots : steps * shots;
-    var period = S.acq === "strict" && $("period").value !== "" ? Number($("period").value) : null;
+    var period = $("period").value !== "" ? Number($("period").value) : null;
     var periodOk = period === null || (Number.isFinite(period) && period > 0);
     setInvalid("period", !periodOk); ok = ok && periodOk;
     var time = period ? " · ~<b>" + fmtSecs(total * period) + "</b> at " + period + " s/shot" : "";
@@ -608,9 +667,11 @@
     var busy = !st || !st.connected || st.re_state === "paused";
     var btn = $("btn-start");
     btn.disabled = busy || !valid || !S.formable;
+    $("btn-append").disabled = btn.disabled;
     $("btn-save-preset").disabled = !valid || !S.formable;
     btn.title = !st ? "waiting for the manager" : !st.connected ? "manager unreachable" : busy ? "a scan is paused — resume or stop it first" : !S.formable ? S.formableNote : !valid ? "fix the form first" : "";
     $("preset-name").textContent = S.presetName ? "preset " + S.presetName + (S.formable ? "" : " · " + S.formableNote) : "";
+    $("btn-append").title = btn.title || "Append to the end of the queue; no title dialog";
   }
 
   function buildPreset() {
@@ -629,7 +690,7 @@
       if (name === "count") kwargs.num = shots;
       else { kwargs.shots_per_step = shots; kwargs.sweep = composer.value(); }
     }
-    if (S.acq === "strict" && $("period").value !== "") kwargs.shot_period = Number($("period").value);
+    if ($("period").value !== "") kwargs.shot_period = Number($("period").value);
     else delete kwargs.shot_period;
     return {name: S.presetName || "adhoc", description: $("desc").value.trim(), trigger_profile: $("trig").value || null,
       native_image_save: nativeSave === "" ? null : nativeSave === "true",
@@ -644,12 +705,12 @@
       var needed = required.some(function (name) { return name.toLowerCase() === tr.dataset.device.toLowerCase(); });
       var boxes = tr.querySelectorAll("input[type=checkbox]");
       if (needed && !tr.dataset.optimizerRequired) {
-        tr.dataset.previousSave = boxes[0].checked; tr.dataset.previousEssential = boxes[1].checked;
+        tr.dataset.previousSave = boxes[0].checked; tr.dataset.previousRequired = boxes[1].checked;
         tr.dataset.optimizerRequired = "true";
       } else if (!needed && tr.dataset.optimizerRequired) {
         if (tr.dataset.optimizerAdded) { tr.remove(); return; }
         boxes[0].checked = tr.dataset.previousSave === "true";
-        boxes[1].checked = tr.dataset.previousEssential === "true";
+        boxes[1].checked = tr.dataset.previousRequired === "true";
         delete tr.dataset.optimizerRequired;
       }
       Array.prototype.forEach.call(boxes, function (box) { box.disabled = needed; if (needed) box.checked = true; });
@@ -728,16 +789,43 @@
 
   /* --------------------------------------------------------- submission */
 
+  // #1280: Start asks for the scan title (the form's description) first,
+  // unless the checkbox beside it is off; the choice is per browser.
+  var TITLE_KEY = "geecs.scanner.confirm-title";
+  try { var keep = window.localStorage.getItem(TITLE_KEY); if (keep !== null) $("confirm-title").checked = keep === "1"; } catch (e) { /* private window */ }
+  $("confirm-title").addEventListener("change", function () {
+    try { window.localStorage.setItem(TITLE_KEY, $("confirm-title").checked ? "1" : "0"); } catch (e) { /* ignore */ }
+  });
   $("btn-start").addEventListener("click", function () {
+    if (!$("confirm-title").checked) { startScan(); return; }
+    $("title-box").value = $("desc").value;
+    window.GeecsKit.confirm($("dlg-title")).open();
+  });
+  $("title-box").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); $("do-title").click(); }
+  });
+  // An empty title proceeds: the description is optional everywhere else.
+  $("do-title").addEventListener("click", function () {
+    window.GeecsKit.confirm($("dlg-title")).close();
+    $("desc").value = $("title-box").value.trim();
+    if ($("btn-start").disabled) { showError("Not started: " + ($("btn-start").title || "Start is unavailable")); return; }
+    startScan();
+  });
+  // #1281: the same preflight and acknowledgement as Start, never the title dialog.
+  $("btn-append").addEventListener("click", function () { startScan(true); });
+
+  function startScan(append) {
     var preset = buildPreset();
     S.pendingPreset = preset;
+    S.pendingAppend = append;
     $("btn-start").disabled = true;
+    $("btn-append").disabled = true;
     post("/api/preflight", preset).then(function (out) {
       if (out.refusal) { showError("Refused: " + out.refusal); updateStartGate(); return; }
-      if (out.questions.length) { openAck(out.questions); return; }
+      if (out.questions.length) { openAck(out.questions, "Preflight found", submitAcked); return; }
       submit(preset, [], false);
     }).catch(function (e) { showError("Preflight failed: " + e.message + detailOf(e)); updateStartGate(); });
-  });
+  }
 
   function detailOf(e) {
     var p = e.payload || {};
@@ -745,8 +833,13 @@
     return "";
   }
 
-  function openAck(questions) {
+  // The acknowledgement dialog: *questions* from the server, *heading* its
+  // first words, *then* called with the ticked checks (a scan's submit, a
+  // setup's apply). The server decides; the page never acknowledges itself.
+  function submitAcked(acked) { submit(S.pendingPreset, acked, false); }
+  function openAck(questions, heading, then) {
     S.pendingAck = questions.map(function (q) { return q.check; });
+    S.ackThen = then;
     var list = $("ack-list"); list.textContent = "";
     questions.forEach(function (q) {
       var li = document.createElement("li"), label = document.createElement("label");
@@ -757,7 +850,7 @@
       text.appendChild(m);
       label.appendChild(box); label.appendChild(text); li.appendChild(label); list.appendChild(li);
     });
-    $("dlg-ack-title").textContent = "Preflight found " + questions.length + " thing" + (questions.length === 1 ? "" : "s") + " to acknowledge";
+    $("dlg-ack-title").textContent = heading + " " + questions.length + " thing" + (questions.length === 1 ? "" : "s") + " to acknowledge";
     $("do-submit").disabled = true;
     window.GeecsKit.confirm($("dlg-ack")).open();
   }
@@ -770,7 +863,7 @@
     var acked = Array.prototype.filter.call(document.querySelectorAll(".ackbox"), function (c) { return c.checked; })
       .map(function (c) { return c.dataset.check; });
     window.GeecsKit.confirm($("dlg-ack")).close();
-    submit(S.pendingPreset, acked, false);
+    (S.ackThen || submitAcked)(acked);
   });
   $("do-replace").addEventListener("click", function () {
     window.GeecsKit.confirm($("dlg-pending")).close();
@@ -779,19 +872,22 @@
 
   function submit(preset, acknowledged, clearPending) {
     S.pendingAckDone = acknowledged;
-    post("/api/submit", { preset: preset, acknowledged: acknowledged, operator: operator(), clear_pending: clearPending })
+    post("/api/submit", { preset: preset, acknowledged: acknowledged, operator: operator(), clear_pending: clearPending, append: !!S.pendingAppend })
       .then(function (out) {
         $("verb-note").textContent = "Queued: " + out.summary + (out.planned_shots ? " (" + out.planned_shots + " shots)" : "");
         refreshQueue();
       })
       .catch(function (e) {
+        if (e.status === 409 && e.payload.pending_items && S.pendingAppend) { showError("Not added: " + e.message); return; }
         if (e.status === 409 && e.payload.pending_items) {
           var items = e.payload.pending_items;
-          $("dlg-pending-text").textContent = "Waiting now: " + items.map(function (i) { return i.summary; }).join("; ") + ". Replace it with this scan?";
+          var many = items.length > 1;
+          $("dlg-pending-title").textContent = many ? items.length + " items are already waiting" : "An item is already waiting";
+          $("dlg-pending-text").textContent = "Waiting now: " + items.map(function (i) { return i.summary; }).join("; ") + (many ? ". Clear all " + items.length + " waiting items and queue this scan?" : ". Replace it with this scan?");
           window.GeecsKit.confirm($("dlg-pending")).open();
           return;
         }
-        if (e.status === 409 && e.payload.needs_acknowledgement) { openAck(e.payload.needs_acknowledgement); return; }
+        if (e.status === 409 && e.payload.needs_acknowledgement) { openAck(e.payload.needs_acknowledgement, "Preflight found", submitAcked); return; }
         showError("Submit failed: " + e.message + detailOf(e));
       })
       .then(updateStartGate);
@@ -819,7 +915,7 @@
 
   /* ------------------------------------------------- idle-only items */
 
-  // A move, an action or a calibration is a queue item that runs by itself
+  // A move, a setup or a calibration is a queue item that runs by itself
   // as soon as it is added: allowed only while nothing runs or waits.
   function idle() {
     var st = S.status;
@@ -838,9 +934,9 @@
     $("btn-move").title = mvName && !mvKnown ? "no settable named " + mvName : why;
     var mvWord = ok ? "idle" : (why || "held");
     setChip($("mv-chip"), ok ? K.ok : K.unknown, mvWord, why);
-    $("act-arm").disabled = !ok || !S.actionName || !!(currentAction() && currentAction().problem);
-    $("act-run").disabled = !ok || !S.armed;
-    $("act-run").title = why;
+    $("setup-arm").disabled = !ok || !S.setupName || !!(currentSetup() && currentSetup().problem);
+    $("setup-apply").disabled = !ok || !S.armed;
+    $("setup-apply").title = why;
     if (!ok && S.armed) setArmed(false);
     var twoDevices = tableDevices().length >= 2;
     $("cal-check").disabled = !ok || !twoDevices; $("cal-measure").disabled = !ok || !twoDevices;
@@ -962,69 +1058,85 @@
       .catch(itemRefused).then(renderIdleGates);
   });
 
-  /* ---- actions */
-  function currentAction() {
-    return S.actions.filter(function (a) { return a.name === S.actionName; })[0] || null;
+  /* ---- setups */
+  function currentSetup() {
+    return S.setups.filter(function (a) { return a.name === S.setupName; })[0] || null;
   }
   function setArmed(on) {
     S.armed = on;
     var armWord = on ? "armed" : "disarmed";
-    setChip($("act-chip"), on ? K.degraded : K.unknown, armWord);
-    $("act-arm").textContent = on ? "Disarm" : "Arm";
-    $("act-run").disabled = !on || !idle();
+    setChip($("setup-chip"), on ? K.degraded : K.unknown, armWord);
+    $("setup-arm").textContent = on ? "Disarm" : "Arm";
+    $("setup-apply").disabled = !on || !idle();
   }
-  function renderActions(problem) {
-    var sel = $("action"); sel.textContent = "";
-    sel.appendChild(option("", S.actions.length ? "— pick an action —" : "no action plans in the configs tree", !S.actions.length));
-    S.actions.forEach(function (a) {
-      // A plan that cannot run stays pickable: the preview shows why.
-      var label = a.name + " · " + (a.problem ? "cannot run" : a.steps + " step" + (a.steps === 1 ? "" : "s") + (a.nested.length ? " · runs " + a.nested.join(", ") : ""));
+  function renderSetups(problem) {
+    var sel = $("setup"); sel.textContent = "";
+    sel.appendChild(option("", S.setups.length ? "— pick a setup —" : "no setups in the configs tree", !S.setups.length));
+    S.setups.forEach(function (a) {
+      // A setup that cannot be applied stays pickable: the preview shows why.
+      var label = a.name + " · " + (a.problem ? "cannot apply" : a.steps + " step" + (a.steps === 1 ? "" : "s") + (a.nested.length ? " · applies " + a.nested.join(", ") : ""));
       sel.appendChild(option(a.name, label, false, a.problem || a.description || ""));
     });
-    if (S.actionName) sel.value = S.actionName;
-    $("actions-note").textContent = problem ? "Action library: " + problem
-      : S.actions.length ? "" : "No action plans in the configs tree.";
+    if (S.setupName) sel.value = S.setupName;
+    $("setups-note").textContent = problem ? "Setups: " + problem
+      : S.setups.length ? "" : "No setups in the configs tree.";
     renderIdleGates();
   }
-  $("action").addEventListener("change", function () {
-    if (this.value) { selectAction(this.value); return; }
-    S.actionName = null; setArmed(false);
-    $("action-preview-group").hidden = true;
+  $("setup").addEventListener("change", function () {
+    if (this.value) { selectSetup(this.value); return; }
+    S.setupName = null; setArmed(false);
+    $("setup-preview-group").hidden = true;
     renderIdleGates();
   });
-  function selectAction(name) {
-    S.actionName = name; setArmed(false);
-    $("action").value = name;
-    var a = currentAction();
-    $("action-preview-group").hidden = false;
-    $("action-preview-title").textContent = "preview · " + name;
-    var ol = $("action-steps"); ol.textContent = "";
+  function selectSetup(name) {
+    S.setupName = name; setArmed(false);
+    $("setup").value = name;
+    var a = currentSetup();
+    $("setup-preview-group").hidden = false;
+    $("setup-preview-title").textContent = "preview · " + name;
+    var ol = $("setup-steps"); ol.textContent = "";
     if (a && a.problem) {
       var li = document.createElement("li"); li.className = "prob"; li.textContent = a.problem; ol.appendChild(li);
-      $("action-writes").textContent = "";
+      $("setup-writes").textContent = "";
       renderIdleGates();
       return;
     }
-    api("/api/actions/" + encodeURIComponent(name)).then(function (d) {
-      if (S.actionName !== name) return;
+    api("/api/setups/" + encodeURIComponent(name)).then(function (d) {
+      if (S.setupName !== name) return;
+      var hazards = {};
+      (d.hazards || []).forEach(function (h) { hazards[h.index] = h; });
       d.steps.forEach(function (st) {
         var li = document.createElement("li");
         if (st.do === "set") li.className = "write";
-        li.textContent = st.text;
-        if (st.from_plan) { var f = document.createElement("span"); f.className = "from"; f.textContent = "← " + st.from_plan; li.appendChild(f); }
+        li.textContent = st.text + (hazards[st.index] ? " · hazard" : "");
+        if (st.from_setup) { var f = document.createElement("span"); f.className = "from"; f.textContent = "← " + st.from_setup; li.appendChild(f); }
         ol.appendChild(li);
       });
-      $("action-writes").textContent = d.writes + " write" + (d.writes === 1 ? "" : "s") + " · " + d.steps.length + " steps" + (d.description ? " · " + d.description : "");
+      $("setup-writes").textContent = d.writes + " write" + (d.writes === 1 ? "" : "s") + " · " + d.steps.length + " steps"
+        + (d.hazard_problem ? " · " + d.hazard_problem : "") + (d.description ? " · " + d.description : "");
       renderIdleGates();
-    }).catch(function (e) { showError("Action " + name + ": " + e.message); });
+    }).catch(function (e) { showError("Setup " + name + ": " + e.message); });
   }
-  $("act-arm").addEventListener("click", function () { setArmed(!S.armed); });
-  $("act-run").addEventListener("click", function () {
-    if (!S.armed || !S.actionName) return;
-    var name = S.actionName;
+  // The server asks (its writes, each hazard step); the page relays the
+  // questions into the acknowledgement dialog and sends back what was ticked.
+  function applySetup(name, acknowledged) {
+    post("/api/setups/" + encodeURIComponent(name) + "/apply", { operator: operator() || "", acknowledged: acknowledged })
+      .then(itemQueued)
+      .catch(function (e) {
+        if (e.status === 409 && e.payload.needs_acknowledgement) {
+          openAck(e.payload.needs_acknowledgement, "Setup " + name + " asks", function (acked) { applySetup(name, acked); });
+          return;
+        }
+        itemRefused(e);
+      })
+      .then(renderIdleGates);
+  }
+  $("setup-arm").addEventListener("click", function () { setArmed(!S.armed); });
+  $("setup-apply").addEventListener("click", function () {
+    if (!S.armed || !S.setupName) return;
+    var name = S.setupName;
     setArmed(false);
-    post("/api/actions/" + encodeURIComponent(name) + "/run", { operator: operator() })
-      .then(itemQueued).catch(itemRefused).then(renderIdleGates);
+    applySetup(name, []);
   });
 
   /* ---- calibration */
@@ -1167,7 +1279,7 @@
   ["pname", "pdesc"].forEach(function (id) { $(id).addEventListener("input", renderPresetYaml); });
   function savePreset(overwrite) {
     var preset = presetForSave();
-    post("/api/configs/presets/" + encodeURIComponent(preset.name), { preset: preset, overwrite: overwrite })
+    post("/api/configs/presets/" + encodeURIComponent(preset.name), { preset: preset, overwrite: overwrite, operator: operator() })
       .then(function (out) {
         $("preset-saved").textContent = out.message;
         return api("/api/configs/presets").then(function (r) {

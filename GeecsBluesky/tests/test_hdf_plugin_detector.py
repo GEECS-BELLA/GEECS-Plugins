@@ -5,8 +5,7 @@ The plugin itself is exercised for real in GeecsPvaGateway's
 here the plugin's PVs are mock signals and the contracts pinned are the
 detector's: the stock lifecycle produces stream documents, the count wait
 precedes the stamp wait and its timeout is the GEECS one, a missed shot
-reads empty, ``discard_uncollected`` rewinds to the last referenced frame,
-and the path provider hands the plugin and Tiled their two paths.
+reads empty, and the path provider hands the plugin and Tiled their two paths.
 """
 
 from __future__ import annotations
@@ -34,6 +33,7 @@ from ophyd_async.core import (
 from geecs_bluesky.devices.detector import (
     DEFAULT_SHOT_TIMEOUT,
     STRICT_TRIGGER_INFO,
+    FlyTriggerInfo,
     GeecsDetector,
     mask_missed_shot,
 )
@@ -46,6 +46,17 @@ from geecs_bluesky.devices.hdf_plugin import (
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.plans.claim_scan import GeecsScanPathProvider
 from tests.ca_mock_helpers import connect_mock
+
+
+def _bounded(
+    quota: int, exposure_timeout: float = DEFAULT_SHOT_TIMEOUT
+) -> FlyTriggerInfo:
+    """A bounded fly prepare: *quota* edges.  No plan issues one; the device's paths stay pinned."""
+    return FlyTriggerInfo(
+        trigger=DetectorTrigger.EXTERNAL_EDGE,
+        number_of_events=quota,
+        exposure_timeout=exposure_timeout,
+    )
 
 
 def _run(RE: RunEngine, make_awaitable):
@@ -187,41 +198,6 @@ def test_scalars_view_reads_empty_after_a_missed_shot(
     assert math.isnan(reading["uc_testcam-meancounts"]["value"])
 
 
-def test_discard_uncollected_rewinds_to_the_last_referenced_frame(
-    RE: RunEngine, tmp_path: Path
-) -> None:
-    """A late frame past the last datum is rewound; a delivered device is untouched."""
-    cam = _camera(RE, tmp_path)
-    rewinds: list[int] = []
-
-    def plugin_rewinds(value, **_) -> None:
-        rewinds.append(value)
-        set_mock_value(cam.hdf.num_captured, value)
-
-    callback_on_mock_put(cam.hdf.rewind, plugin_rewinds)
-    _run(RE, lambda: cam.stage())
-    _run(RE, lambda: cam.prepare(STRICT_TRIGGER_INFO))
-
-    async def scenario():
-        status = cam.trigger()
-        await asyncio.sleep(0.05)  # the trigger re-baselines the count first
-        set_mock_value(cam.hdf.num_captured, 1)
-        set_mock_value(cam.acq_timestamp, 1001.0)
-        await status
-        _ = [doc async for doc in cam.collect_asset_docs()]  # frame 0 referenced
-        set_mock_value(cam.hdf.num_captured, 2)  # a late frame nobody referenced
-        await cam.discard_uncollected()
-        return await cam.hdf.num_captured.get_value()
-
-    assert _run(RE, lambda: scenario()) == 1
-    assert rewinds == [1]
-    # Outside prepare, and without a plugin, it is a no-op.
-    _run(RE, lambda: cam.unstage())
-    plain = GeecsDetector("UC_Plain", [], name="plain")
-    connect_mock(RE, plain)
-    _run(RE, lambda: plain.discard_uncollected())
-
-
 def test_mask_missed_shot_blanks_by_type() -> None:
     """Every kind of stale value is blanked: floats, ints, bools, numpy scalars, arrays."""
     import numpy as np
@@ -269,9 +245,8 @@ def test_describe_and_the_stream_resource_follow_the_geometry_the_plugin_settles
 
     The plugin arms on the frame it holds and re-declares the geometry on
     the session's first fresh frame when the device's settings moved
-    since.  The descriptor is composed after that frame (strict: at the
-    first save; gated: the cameras' stream is declared after the first
-    batch) and the StreamResource goes out with the first datum: both read
+    since.  The descriptor is composed after that frame (at the first
+    save, or a device stream's first collect) and the StreamResource goes out with the first datum: both read
     the shape — and dtype — the plugin settled on, and once a datum is out
     the description is kept whatever the PVs say later.
     """
@@ -316,14 +291,12 @@ def test_describe_and_the_stream_resource_follow_the_geometry_the_plugin_settles
 
 
 def test_count_timeouts_name_the_plugins_reason(RE: RunEngine, tmp_path: Path) -> None:
-    """A strict trigger's and a gated complete's count timeout carry the plugin's reason (#1023).
+    """A strict trigger's and a fly complete's count timeout carry the plugin's reason (#1023).
 
     Both translate the stock wait's bare ``TimeoutError``; both now append
     ``file plugin <io.name>: <WriteMessage>`` when the plugin has one, and
     keep the old wording when it has nothing to say.
     """
-    from geecs_bluesky.devices.detector import gated_trigger_info
-
     cam = _camera(RE, tmp_path)
     refusal = (
         "could not open the stack in \\\\nas\\data\\Scan001\\UC_TestCam: share refused"
@@ -351,13 +324,13 @@ def test_count_timeouts_name_the_plugins_reason(RE: RunEngine, tmp_path: Path) -
             await cam.complete()
         return str(info.value)
 
-    _run(RE, lambda: cam.prepare(gated_trigger_info(2, exposure_timeout=0.2)))
+    _run(RE, lambda: cam.prepare(_bounded(2, exposure_timeout=0.2)))
     text = _run(RE, lambda: batch())
     assert "UC_TestCam: the file plugin counted no frame for" in text
     assert text.endswith(f" — file plugin uc_testcam-hdf: {refusal}")
     # Nothing to say: the old wording, unchanged.
     set_mock_value(cam.hdf.write_message, "")
-    _run(RE, lambda: cam.prepare(gated_trigger_info(2, exposure_timeout=0.2)))
+    _run(RE, lambda: cam.prepare(_bounded(2, exposure_timeout=0.2)))
     assert _run(RE, lambda: batch()).endswith("while the box ran")
     _run(RE, lambda: cam.unstage())
 
@@ -567,12 +540,11 @@ def test_a_detector_built_without_plugins_is_not_plugin_backed(
     assert ict._hdf_ios == []
     assert not ict.plugin_backed
     # ... and a batch on it is refused before anything moves.
-    from geecs_bluesky.devices.detector import gated_trigger_info
     from geecs_bluesky.exceptions import GeecsConfigurationError
 
     _run(RE, lambda: ict.stage())
     with pytest.raises(GeecsConfigurationError, match="no file plugin"):
-        _run(RE, lambda: ict.prepare(gated_trigger_info(2)))
+        _run(RE, lambda: ict.prepare(_bounded(2)))
     _run(RE, lambda: ict.unstage())
 
 
@@ -656,13 +628,10 @@ def test_fly_mode_counts_and_skips_the_stamp_wait(
     RE: RunEngine, tmp_path: Path
 ) -> None:
     """kickoff → fly; complete is done on the count alone; trigger leaves fly mode."""
-    from geecs_bluesky.devices.detector import gated_trigger_info
-
     cam, rewinds = _batch_camera(RE, tmp_path)
     _run(RE, lambda: cam.stage())
-    _run(RE, lambda: cam.prepare(gated_trigger_info(3)))
-    assert cam.step_baseline == 0
-    # a batch prepare describes the stream only: no per-event scalars
+    _run(RE, lambda: cam.prepare(_bounded(3)))
+    # a bounded fly prepare describes the stream only: no per-event scalars
     described = _run(RE, lambda: cam.describe())
     assert "uc_testcam" in described and "uc_testcam-meancounts" not in described
 
@@ -678,12 +647,10 @@ def test_fly_mode_counts_and_skips_the_stamp_wait(
         assert not status.done
         set_mock_value(cam.hdf.num_captured, 3)
         await status  # no stamp advanced: the count is the completion
-        set_mock_value(cam.hdf.num_captured, 4)  # the in-flight frame
-        await cam.truncate_to_quota()
         return [doc async for doc in cam.collect_asset_docs()]
 
     docs = _run(RE, lambda: batch())
-    assert rewinds == [3]
+    assert rewinds == []
     datum = next(d for n, d in docs if n == "stream_datum")
     assert datum["indices"] == {"start": 0, "stop": 3}
     # a strict prepare after the batch: the context is rebuilt with the
@@ -703,57 +670,10 @@ def test_fly_mode_counts_and_skips_the_stamp_wait(
     _run(RE, lambda: cam.unstage())
 
 
-def test_a_paused_batch_keeps_its_frames_and_the_step_continues(
-    RE: RunEngine, tmp_path: Path
-) -> None:
-    """A pause's settle: keep the shots reached, trim the rest, re-arm for the remainder.
-
-    Two of four frames counted, a third in flight when the settle decides
-    on two: ``truncate_to(2)`` trims the third; the next prepare baselines
-    after the kept frames, and the step's datums tile ``0..4``.
-    """
-    from geecs_bluesky.devices.detector import gated_trigger_info
-
-    cam, rewinds = _batch_camera(RE, tmp_path)
-    _run(RE, lambda: cam.stage())
-    _run(RE, lambda: cam.prepare(gated_trigger_info(4, exposure_timeout=0.3)))
-
-    async def scenario():
-        await cam.kickoff()
-        status = cam.complete()
-        await asyncio.sleep(0.02)
-        set_mock_value(cam.hdf.num_captured, 3)  # three of four, then the pause
-        await asyncio.sleep(0.02)
-        await cam.abandon_step()  # settles the pending complete (no frames come)
-        assert status.done and status.success
-        assert await cam.frames_this_batch() == 3
-        await cam.truncate_to(2)  # the sampler reached two
-        assert await cam.frames_this_batch() == 2
-        docs = [doc async for doc in cam.collect_asset_docs()]
-        # the rest of the step: two more, baselined after the kept frames
-        await cam.prepare(gated_trigger_info(2, exposure_timeout=0.3))
-        assert cam.step_baseline == 2
-        assert await cam.frames_this_batch() == 0
-        await cam.kickoff()
-        status = cam.complete()
-        await asyncio.sleep(0.02)
-        set_mock_value(cam.hdf.num_captured, 4)
-        await status
-        return docs + [doc async for doc in cam.collect_asset_docs()]
-
-    docs = _run(RE, lambda: scenario())
-    assert rewinds == [2]
-    datums = [d["indices"] for n, d in docs if n == "stream_datum"]
-    assert datums == [{"start": 0, "stop": 2}, {"start": 2, "stop": 4}]
-    _run(RE, lambda: cam.unstage())
-
-
 def test_batch_count_timeout_is_the_geecs_error(RE: RunEngine, tmp_path: Path) -> None:
-    from geecs_bluesky.devices.detector import gated_trigger_info
-
     cam, _ = _batch_camera(RE, tmp_path)
     _run(RE, lambda: cam.stage())
-    _run(RE, lambda: cam.prepare(gated_trigger_info(2, exposure_timeout=0.2)))
+    _run(RE, lambda: cam.prepare(_bounded(2, exposure_timeout=0.2)))
 
     async def scenario():
         await cam.kickoff()
@@ -771,18 +691,15 @@ def test_fly_prepare_without_a_plugin_is_run_long_native_saving_or_refused(  # n
 ) -> None:
     """No plugin: an unbounded fly prepare switches LabVIEW saving on, run-long.
 
-    The 2026-09-25 ruling — a device without a file plugin is a gated
-    essential whose files are its record.  Its data path in that prepare
-    is the native logic alone (the save-path column, no scalars: those the
-    sampler reads); a *bounded* batch is still refused (nothing of it can
+    The 2026-09-25 ruling — a device without a file plugin is a streamed
+    device whose files are its record.  Its data path in that prepare is
+    the native logic alone (the save-path column, no scalars: those its
+    stamp stream reads); a *bounded* batch is refused (nothing of it can
     count), and so is a fly prepare on a device with neither a plugin nor
     saving controls.  A plugin camera's native saving stays off in every
     fly prepare.
     """
-    from geecs_bluesky.devices.detector import (
-        UNBOUNDED_TRIGGER_INFO,
-        gated_trigger_info,
-    )
+    from geecs_bluesky.devices.detector import UNBOUNDED_TRIGGER_INFO
     from geecs_bluesky.exceptions import GeecsConfigurationError
 
     (tmp_path / "Scan001").mkdir()
@@ -798,7 +715,7 @@ def test_fly_prepare_without_a_plugin_is_run_long_native_saving_or_refused(  # n
     connect_mock(RE, native)
     _run(RE, lambda: native.stage())
     with pytest.raises(GeecsConfigurationError, match="cannot count a batch of 2"):
-        _run(RE, lambda: native.prepare(gated_trigger_info(2)))
+        _run(RE, lambda: native.prepare(_bounded(2)))
     assert _run(RE, lambda: native.save.get_value()) == "off"
     _run(RE, lambda: native.prepare(UNBOUNDED_TRIGGER_INFO))
     assert _run(RE, lambda: native.save.get_value()) == "on"
@@ -830,7 +747,7 @@ def test_fly_prepare_without_a_plugin_is_run_long_native_saving_or_refused(  # n
     with pytest.raises(GeecsConfigurationError, match="no LabVIEW saving controls"):
         _run(RE, lambda: ict.prepare(UNBOUNDED_TRIGGER_INFO))
     with pytest.raises(GeecsConfigurationError, match="no LabVIEW saving controls"):
-        _run(RE, lambda: ict.prepare(gated_trigger_info(2)))
+        _run(RE, lambda: ict.prepare(_bounded(2)))
     _run(RE, lambda: ict.unstage())
 
     provider = StaticPathProvider(
@@ -855,10 +772,10 @@ def test_fly_prepare_without_a_plugin_is_run_long_native_saving_or_refused(  # n
         _run(RE, lambda: both.save.get_value()) == "off"
     )  # native saving not switched on
     _run(RE, lambda: both.unstage())
-    # a batch of ONE (shots_per_step=1, the default) is a fly prepare too:
-    # the type says so, not the event count
+    # a bounded fly prepare of ONE is a fly prepare too: the type says so,
+    # not the event count
     _run(RE, lambda: both.stage())
-    _run(RE, lambda: both.prepare(gated_trigger_info(1)))
+    _run(RE, lambda: both.prepare(_bounded(1)))
     assert _run(RE, lambda: both.save.get_value()) == "off"
     assert "uc_both-meancounts" not in _run(RE, lambda: both.describe())
     _run(RE, lambda: both.unstage())

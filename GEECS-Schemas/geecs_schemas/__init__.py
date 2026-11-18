@@ -2,40 +2,23 @@
 
 Configs are schemas; YAML is just serialization.  This package is the single
 home of the models: presets (the saved scan: device group +
-plan call), scan requests, scan variables, trigger profiles, action plans,
-and gateway derived channels — plus converters from the legacy YAML
-dialects still in use (``geecs_schemas.convert``; scan variables, presets
-and action libraries have none, GEECS-Plugins#779 / #807) and a Markdown
+plan call), scan requests, scan variables, trigger profiles,
+setups (named device states) and gateway derived channels — plus converters from the legacy YAML
+dialects still in use (``geecs_schemas.convert``; scan variables and presets
+have none, GEECS-Plugins#779 / #807) and a Markdown
 reference generator (``geecs_schemas.docgen``).
 
 It depends on Pydantic and GEST (the lightweight VOCS model), so anything — engine, GUI, scripts, docs
 tooling — can import it without dragging in hardware or analysis stacks.
 """
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import TIERS, SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.analysis import (
     AnalysisGroup,
     AnalysisRecipe,
     AnalyzerRef,
     HimgJob,
     ScalarJob,
-)
-from geecs_schemas.action_plan import (
-    ACTION_LIBRARY_FILENAME,
-    ACTION_LIBRARY_FOLDER,
-    ActionPlan,
-    ActionPlanCycleError,
-    ActionPlanLibrary,
-    ActionPlanNotFoundError,
-    ActionStep,
-    CheckStep,
-    ConcreteStep,
-    RunPlanStep,
-    SetStep,
-    WaitStep,
-    flatten_action_steps,
-    load_action_library,
-    values_match,
 )
 from geecs_schemas.archive_policy import (
     ARCHIVE_POLICY_FILENAME,
@@ -53,16 +36,23 @@ from geecs_schemas.derived_channels import (
 from geecs_schemas.epics import (
     DETECTOR_KINDS,
     NATIVE_DEVICES_FILENAME,
+    SETPOINT_SUFFIX,
     AravisCamera,
     EpicsMotor,
     NativeDevice,
     NativeDevices,
+    SetpointDevice,
+    SetpointSettable,
+    Witness,
 )
 from geecs_schemas.epics.family import (
     REGISTRY_KIND_FAMILIES,
     FamilyAction,
     FamilyFile,
+    Panel,
+    PanelGroup,
     Role,
+    TweakHint,
     load_families,
 )
 from geecs_schemas.epics.panel_devices import (
@@ -78,12 +68,14 @@ from geecs_schemas.epics.operations import (
     OperatorPolicy,
 )
 from geecs_schemas.screens import (
+    AUTO_GROUP,
     SCREENS_DIRNAME,
     Binding,
     Bound,
     Group,
     Screen,
     ScreenError,
+    ToggleValues,
     Widget,
     resolve as resolve_screen,
 )
@@ -94,8 +86,11 @@ from geecs_schemas.home_layout import (
     HomeLayout,
     HomeLink,
 )
-from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
-from geecs_schemas.preset import PlanCall, Preset, PresetDevice
+from geecs_schemas.experiment_defaults import (
+    EXPERIMENT_DEFAULTS_FILENAME,
+    ExperimentDefaults,
+)
+from geecs_schemas.preset import PRESETS_FOLDER, PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
     AnalysisPayload,
     Attachment,
@@ -108,7 +103,6 @@ from geecs_schemas.log_entry import (
 )
 from geecs_schemas.scan_request import (
     AcquisitionMode,
-    ActionBindings,
     CaptureSettings,
     PositionList,
     PositionRange,
@@ -120,7 +114,36 @@ from geecs_schemas.scan_request import (
     ScanRequestMode,
     SubmissionRecord,
 )
-from geecs_schemas.shot_offsets import DeviceOffset, ShotOffsets
+from geecs_schemas.setup import (
+    SETUPS_FOLDER,
+    CapturedReadback,
+    Setup,
+    SetupApplyStep,
+    SetupCapture,
+    SetupCheckStep,
+    SetupCycleError,
+    SetupHazard,
+    SetupNotFoundError,
+    SetupSetStep,
+    WaitStep,
+    flatten_setup,
+    load_setups,
+    setup_digest,
+    setup_hazards,
+    setup_value_matches,
+    split_step_variable,
+    step_variable,
+)
+from geecs_schemas.shot_offsets import SHOT_OFFSETS_FILENAME, DeviceOffset, ShotOffsets
+from geecs_schemas.references import READ_AS, REFERS_TO, references
+from geecs_schemas.storage import (
+    KIND_STORAGE,
+    STORAGE_ROOT_PATHS,
+    FileStorage,
+    KindStorage,
+    NotAFile,
+    yaml_stem,
+)
 from geecs_schemas.sweep import (
     AxisSweep,
     FermatSpiralSweep,
@@ -135,6 +158,8 @@ from geecs_schemas.sweep import (
     X2XSweep,
 )
 from geecs_schemas.scan_variables import (
+    SCAN_VARIABLES_FILENAME,
+    SCAN_VARIABLES_FOLDER,
     CompositeMode,
     PseudoComponent,
     PseudoScanVariable,
@@ -144,6 +169,7 @@ from geecs_schemas.scan_variables import (
     split_device_variable,
 )
 from geecs_schemas.trigger_profile import (
+    TRIGGER_PROFILES_FOLDER,
     TriggerProfile,
     TriggerState,
     TriggerWrite,
@@ -152,11 +178,23 @@ from geecs_schemas.trigger_profile import (
 __all__ = [
     "SchemaModel",
     "VersionedSchemaModel",
+    "Tier",
+    "TIERS",
+    # references (which documents name which)
+    "READ_AS",
+    "REFERS_TO",
+    "references",
+    # storage (where each registered kind is kept)
+    "KIND_STORAGE",
+    "yaml_stem",
+    "STORAGE_ROOT_PATHS",
+    "FileStorage",
+    "NotAFile",
+    "KindStorage",
     # scan_request
     "ScanRequest",
     "ScanRequestMode",
     "AcquisitionMode",
-    "ActionBindings",
     "CaptureSettings",
     "PositionRange",
     "ScanAxis",
@@ -178,10 +216,13 @@ __all__ = [
     "DerivedInput",
     # preset
     "Preset",
+    "PRESETS_FOLDER",
     "PresetDevice",
     "PlanCall",
     # scan_variables
     "ScanVariables",
+    "SCAN_VARIABLES_FOLDER",
+    "SCAN_VARIABLES_FILENAME",
     "split_device_variable",
     "ScanVariable",
     "ScanVariableSpec",
@@ -190,6 +231,7 @@ __all__ = [
     "CompositeMode",
     # trigger_profile
     "TriggerProfile",
+    "TRIGGER_PROFILES_FOLDER",
     "TriggerState",
     "TriggerWrite",
     # epics (native EPICS devices)
@@ -197,12 +239,19 @@ __all__ = [
     "NativeDevice",
     "AravisCamera",
     "EpicsMotor",
+    "SetpointDevice",
+    "SetpointSettable",
+    "Witness",
     "DETECTOR_KINDS",
     "NATIVE_DEVICES_FILENAME",
+    "SETPOINT_SUFFIX",
     # epics.family / epics.panel_devices (the web estate's device data)
     "FamilyFile",
     "FamilyAction",
+    "Panel",
+    "PanelGroup",
     "Role",
+    "TweakHint",
     "load_families",
     "REGISTRY_KIND_FAMILIES",
     "PanelDevices",
@@ -218,6 +267,8 @@ __all__ = [
     "Screen",
     "Group",
     "Widget",
+    "ToggleValues",
+    "AUTO_GROUP",
     "Binding",
     "Bound",
     "ScreenError",
@@ -231,23 +282,7 @@ __all__ = [
     "resolve_screen",
     # experiment_defaults
     "ExperimentDefaults",
-    "DefaultActions",
-    # action_plan
-    "ACTION_LIBRARY_FILENAME",
-    "ACTION_LIBRARY_FOLDER",
-    "ActionPlanCycleError",
-    "ActionPlanNotFoundError",
-    "ConcreteStep",
-    "flatten_action_steps",
-    "load_action_library",
-    "values_match",
-    "ActionPlan",
-    "ActionPlanLibrary",
-    "ActionStep",
-    "SetStep",
-    "WaitStep",
-    "CheckStep",
-    "RunPlanStep",
+    "EXPERIMENT_DEFAULTS_FILENAME",
     # analysis
     "AnalysisGroup",
     "AnalysisRecipe",
@@ -256,6 +291,26 @@ __all__ = [
     "ScalarJob",
     # shot_offsets
     "ShotOffsets",
+    "SHOT_OFFSETS_FILENAME",
+    # setup (a named device state: <experiment>/setups/<name>.yaml)
+    "Setup",
+    "SetupSetStep",
+    "SetupCheckStep",
+    "SetupApplyStep",
+    "SetupCapture",
+    "CapturedReadback",
+    "SetupCycleError",
+    "SetupHazard",
+    "SetupNotFoundError",
+    "SETUPS_FOLDER",
+    "flatten_setup",
+    "load_setups",
+    "setup_digest",
+    "setup_hazards",
+    "setup_value_matches",
+    "split_step_variable",
+    "step_variable",
+    "WaitStep",
     "DeviceOffset",
     # log_entry
     "LogEntry",
@@ -268,6 +323,7 @@ __all__ = [
     "EntryStatus",
     "SCHEMA_REGISTRY",
     "OptimizerConfig",
+    "OPTIMIZER_CONFIGS_FOLDER",
     "optimizer_required_devices",
     # sweep payload (nested in a plan call, not a standalone config document)
     "Sweep",
@@ -285,7 +341,11 @@ __all__ = [
 
 # kind → top-level document model, for generic tooling (loaders, editors,
 # docgen). Keys are the canonical config-kind identifiers.
-from .optimizer_config import OptimizerConfig, optimizer_required_devices
+from .optimizer_config import (
+    OPTIMIZER_CONFIGS_FOLDER,
+    OptimizerConfig,
+    optimizer_required_devices,
+)
 
 SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "optimizer_config": OptimizerConfig,
@@ -293,8 +353,6 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "scan_request": ScanRequest,
     "scan_variables": ScanVariables,
     "trigger_profile": TriggerProfile,
-    "action_plan": ActionPlan,
-    "action_plan_library": ActionPlanLibrary,
     "experiment_defaults": ExperimentDefaults,
     "derived_channels": DerivedChannels,
     "archive_policy": ArchivePolicy,
@@ -311,4 +369,5 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "himg_job": HimgJob,
     "scalar_job": ScalarJob,
     "log_entry": LogEntry,
+    "setup": Setup,
 }

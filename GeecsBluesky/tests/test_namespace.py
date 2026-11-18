@@ -637,7 +637,7 @@ def test_only_the_channels_the_db_says_are_wired_get_a_plugin(caplog) -> None:
 
 
 def test_a_scope_with_every_channel_off_gets_no_plugin_at_all(caplog) -> None:
-    """It is then exactly a scalar-only device — the gated plan refuses it by name."""
+    """It is then exactly a device without a plugin."""
     from geecs_bluesky.devices.detector import GeecsDetector
 
     rows = [

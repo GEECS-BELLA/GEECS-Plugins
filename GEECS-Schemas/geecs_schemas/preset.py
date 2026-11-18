@@ -15,13 +15,16 @@ plan parameters): both concepts survive, folded into one document.  What
 did **not** survive, deliberately: per-scalar selection (every subscribed
 scalar of every device in the run is recorded, and the s-file carries all
 of them), and setup/closeout rituals and the ``SaveRole`` enum (an
-explicit action plan is its own queue item).  What phase 2 added
-(GEECS-Plugins#807): ``essential`` on each
-device — an essential device is waited on every shot, a non-essential
-one streams for the run (its frames, or one record per shot it stamps)
-and never holds a shot — and the
-acquisition mode as a plan keyword (``acquisition: gated`` in
-``plan.kwargs``, beside ``shots_per_step``), not a preset field.
+explicit setup is its own queue item).  What phase 2 added
+(GEECS-Plugins#807): ``required`` on each
+device (``essential`` until the shot-table layout; the old name is
+refused, not aliased: presets are regenerated) — a required device is
+waited on every shot, the others stream for the run like it but never
+hold a shot — and the
+acquisition mode as a plan keyword (``acquisition: fly`` in
+``plan.kwargs``, beside ``shots_per_step``), not a preset field; the
+schema carries plan keywords as written, and the worker's client
+expansion refuses a mode it does not run (the retired ``gated``, by name).
 ``native_image_save`` (0.31.0) is the run-level switch for LabVIEW's
 per-shot files: one value per scan, reaching only the cameras whose
 frames the PVA gateway's file plugin captures (GEECS-Plugins#738); unset
@@ -45,26 +48,40 @@ catalog; the client resolves it to the namespace's Movable child
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import ClassVar, Optional
 
 from pydantic import Field, JsonValue, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
+
+#: Where an experiment's scan presets live: ``presets/<name>.yaml``.
+PRESETS_FOLDER = "presets"
 
 
 class PresetDevice(SchemaModel):
     """One device of the group: it records every shot of the scan.
 
-    ``essential`` (default on) means the scan waits for this device on
-    every shot — a shot is not complete without its reading.  Off means
-    the device streams what it produces for the run's duration (its
-    frames through the camera server's file plugin, or — without one —
-    its readings and LabVIEW files for every shot it stamps, joined to the
-    shots afterwards) and never holds a shot or aborts a run: the choice
-    for a slow or unreliable device whose data are welcome but not
-    required (phase 2, GEECS-Plugins#807; 2026-09-26 for devices without a
-    plugin).
+    Every per-shot device (a camera, any device with a shot stamp) streams
+    what it produces for the run into its own stream, joined to the shots
+    by stamp.  ``required`` (default on) means the scan also waits for this
+    device on every shot and refires a shot it missed — a shot is not
+    complete without it.  Off, the device never holds a shot or aborts a
+    run: the choice for a slow or unreliable device whose data are welcome
+    but not required.  A device without a shot stamp is a condition, read
+    in every row, whatever this says.  ``essential``, the field's old name,
+    is refused with a message naming ``required``.
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_the_old_name(cls, data: object) -> object:
+        if isinstance(data, dict) and "essential" in data:
+            raise ValueError(
+                "'essential' was renamed 'required' (the same meaning: wait "
+                "for this device on every shot); regenerate the preset with "
+                "'required'"
+            )
+        return data
 
     device: str = Field(
         min_length=1,
@@ -83,15 +100,17 @@ class PresetDevice(SchemaModel):
             "device (nothing to save either way)."
         ),
     )
-    essential: bool = Field(
+    required: bool = Field(
         True,
         description=(
-            "Wait for this device on every shot (on, the default) — a shot is "
-            "not complete without its reading. Off streams the device for the "
-            "run's duration instead, at its own rate, joined to the shots by "
-            "its timestamp: it never holds a shot or aborts the scan, so use "
-            "it for a slow or unreliable device whose data are welcome but "
-            "not required. The device needs a shot timestamp (acq_timestamp)."
+            "Wait for this device on every shot (on, the default) and refire "
+            "a shot it missed — a shot is not complete without its record. "
+            "Off, the device still records every shot it takes into its own "
+            "stream, joined to the shots by its timestamp, but never holds a "
+            "shot or aborts the scan: use it for a slow or unreliable device "
+            "whose data are welcome but not required. Only a device with a "
+            "shot timestamp (acq_timestamp) or a native camera can be "
+            "required; any other device is a condition, read in every row."
         ),
     )
 
@@ -143,6 +162,8 @@ class Preset(VersionedSchemaModel):
     A preset without a ``plan`` is a device group waiting for one: it is
     listed and editable but cannot be submitted as is.
     """
+
+    tier: ClassVar[Tier] = "operator"
 
     name: str = Field(description="The name clients use to pick this preset.")
     description: str = Field(

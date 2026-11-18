@@ -45,7 +45,7 @@ class LineSpec(MeasureSpec):
         )
 
 
-@measure(LineSpec, ndim={1})
+@measure(LineSpec, ndim={1}, default=True)
 def line(frame: Frame, spec: LineSpec) -> Measurement:
     """Measure a private scratch trace; preserve the processed frame unchanged."""
     from geecs_analysis.algorithms.basic_line_stats import LineBasicStats

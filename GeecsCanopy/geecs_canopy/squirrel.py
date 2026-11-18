@@ -5,7 +5,7 @@ every registered PV. The registry is **derived, never hand-edited**: one
 row per writable role of every device the module has (a command is a
 press, not a setting), the setpoint record as the row's address, its
 readback beside it, ``device`` the GEECS name, ``description`` the role
-as an action step names it (``m1.val`` on an axis), tags ``family``,
+as a setup step names it (``m1.val`` on an axis), tags ``family``,
 ``source`` (native or gateway) and ``axis``. ``reconcile`` makes the
 registry equal to the derivation (add, update, remove) and ``--check``
 reports the drift instead. The remove step is bounded as the archiver's
@@ -17,8 +17,8 @@ and more than ``REMOVE_GUARD`` removals need ``--yes``.
 Squirrel's model, as its REST has it: addresses are immutable (a changed
 readback is a delete and a create) and a deleted PV takes its saved values
 out of every snapshot with it, so a retired role's history goes with the
-row (an upstream candidate, Planning/geecs_canopy.md §7.4). The write key
-reaches this process alone (condition (a)): read from the environment,
+row (a soft retire upstream would keep it). The write key
+reaches this process alone: read from the environment,
 never printed.
 """
 
@@ -29,8 +29,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from geecs_schemas import step_variable
 
-from geecs_canopy.actions import step_variable
 from geecs_canopy.native import Resolved
 
 #: The tag groups the derivation writes.

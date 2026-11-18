@@ -12,10 +12,13 @@ Target and credentials come from GEECS's ``Configurations.INI`` (via
 ``geecs_core.db.geecs_db._find_credentials``) when it resolves within
 ``--creds-timeout`` — the same server the real clients connect to.
 Otherwise the ``--host`` / ``--port`` fallback (the caller's guess) is
-probed with a throwaway probe user; the server's ``Access denied`` still
-proves the port answered and costs the host nothing. The lookup is bounded
-on its own because ``Configurations.INI`` lives on the data share: a
-stalled SMB mount must not turn into a "DB down" verdict.
+probed with a throwaway probe user, when the caller gives one; the server's
+``Access denied`` still proves the port answered and costs the host nothing.
+Without ``--host`` the probe reports ``no-target`` (6) instead of guessing:
+since 2026-11-15 the CA gateway and the DB are on different hosts, so no
+client-side address implies the DB's — ``Configurations.INI`` alone names
+it. The lookup is bounded on its own because that file lives on the data
+share: a stalled SMB mount must not turn into a "DB down" verdict.
 
 Exit codes (one status word on stdout, then ``host:port`` where known,
 then detail)::
@@ -27,6 +30,8 @@ then detail)::
     5  unverified   a server answered but the *connector* could not complete the
                     handshake (e.g. an auth plugin it lacks) — from the server's
                     side that is an aborted connect; do not retry in a loop
+    6  no-target    ``Configurations.INI`` did not resolve and no ``--host`` fallback
+                    was given — nothing was probed
 
 Only an error the **server** sent (an ERR packet, which always carries a
 ``sqlstate``, or a server errno below 2000) proves a completed handshake;
@@ -56,7 +61,11 @@ _CLIENT_ERRNO_RANGE = range(2000, 3000)
 _BLOCKED_ERRNO = 1129
 
 
-def _lookup_credentials(timeout: float) -> dict[str, object] | None:
+#: "Not given" for ``_credentials``'s pre-fetched lookup result.
+_UNSET: object = object()
+
+
+def _lookup(timeout: float) -> tuple[dict[str, object] | None, str]:
     """Run ``_find_credentials`` on a daemon thread, bounded by ``timeout``.
 
     Parameters
@@ -66,9 +75,14 @@ def _lookup_credentials(timeout: float) -> dict[str, object] | None:
 
     Returns
     -------
-    dict[str, object] | None
-        The resolved credentials, or ``None`` when the lookup failed or did
-        not finish in time (the thread is abandoned; the process exits soon).
+    tuple[dict[str, object] | None, str]
+        The resolved credentials and ``"geecs credentials"``, or ``None`` and
+        **why** — the lookup's own words: the interpreter has no
+        ``geecs_core``, this account has no ``config.ini``, the INI is not
+        where ``[Paths] geecs_data`` points (the data share not mounted), a
+        ``[Database]`` key is missing, or the lookup did not finish in time
+        (the thread is abandoned; the process exits soon). Each is a
+        different thing to go and fix, so the line names it.
     """
     box: dict[str, object] = {}
 
@@ -77,31 +91,60 @@ def _lookup_credentials(timeout: float) -> dict[str, object] | None:
             from geecs_core.db.geecs_db import _find_credentials
 
             box["creds"] = dict(_find_credentials())
-        except Exception:  # noqa: BLE001 — no config here is fine; the probe user suffices
-            pass
+        except ImportError as exc:
+            box["why"] = f"geecs_core is not importable in this interpreter ({exc})"
+        except FileNotFoundError as exc:
+            why = str(exc)
+            if "Configurations.INI" in why:
+                why += " (the data share not mounted, or [Paths] geecs_data pointing elsewhere)"
+            box["why"] = why
+        except Exception as exc:  # noqa: BLE001 — the reason is the result
+            box["why"] = f"{type(exc).__name__}: {exc}"
 
     worker = threading.Thread(target=run, daemon=True)
     worker.start()
     worker.join(timeout)
     found = box.get("creds")
-    return found if isinstance(found, dict) else None
+    if isinstance(found, dict) and found:
+        return found, "geecs credentials"
+    if "why" in box:
+        return None, str(box["why"])
+    if isinstance(found, dict):
+        return None, "Configurations.INI resolved but gave no [Database] credentials"
+    return None, (
+        f"the Configurations.INI lookup timed out after {timeout:g} s "
+        "(the data share: not mounted, or stalled)"
+    )
+
+
+def _lookup_credentials(timeout: float) -> dict[str, object] | None:
+    """The credentials :func:`_lookup` resolves, or ``None`` (the reason dropped)."""
+    return _lookup(timeout)[0]
 
 
 def _credentials(
-    host: str, port: int, creds_timeout: float = 2.0
+    host: str | None,
+    port: int,
+    creds_timeout: float = 2.0,
+    *,
+    found: dict[str, object] | None | object = _UNSET,
 ) -> tuple[dict[str, object], str]:
     """Return connector kwargs and a label for where the target/credentials came from.
 
     Parameters
     ----------
-    host : str
+    host : str | None
         Fallback host — probed only when ``Configurations.INI`` does not
         resolve (its ``[Database] ipaddress`` wins: that is the server the
-        real clients connect to).
+        real clients connect to). ``None``: no fallback; the caller
+        (:func:`probe`) reports ``no-target`` instead of connecting.
     port : int
         Fallback TCP port, same rule.
     creds_timeout : float
         Seconds allowed for the credential lookup before falling back.
+    found : dict[str, object] | None, optional
+        A lookup result already in hand (:func:`probe` fetches it once, for
+        the reason); left unset, the lookup runs here.
 
     Returns
     -------
@@ -109,8 +152,9 @@ def _credentials(
         ``(kwargs for mysql.connector.connect, who)`` — ``who`` is
         ``"geecs credentials"`` or ``"probe user"``.
     """
-    found = _lookup_credentials(creds_timeout)
-    if found:
+    if found is _UNSET:
+        found = _lookup_credentials(creds_timeout)
+    if isinstance(found, dict) and found:
         return (
             {
                 "host": str(found.get("host") or host),
@@ -172,14 +216,15 @@ def classify_error(exc: Exception, target: str, who: str) -> tuple[int, str]:
 
 
 def probe(
-    host: str, port: int, timeout: float, creds_timeout: float = 2.0
+    host: str | None, port: int, timeout: float, creds_timeout: float = 2.0
 ) -> tuple[int, str]:
     """Attempt one handshake-completing connection.
 
     Parameters
     ----------
-    host : str
-        Fallback host (see ``_credentials``).
+    host : str | None
+        Fallback host (see ``_credentials``); ``None`` means none, and a
+        failed credential lookup is then ``no-target`` (6), not a guess.
     port : int
         Fallback TCP port.
     timeout : float
@@ -201,7 +246,14 @@ def probe(
             "no-connector mysql-connector-python not importable in this interpreter",
         )
 
-    kwargs, who = _credentials(host, port, creds_timeout)
+    found, why = _lookup(creds_timeout)
+    if found is None and host is None:
+        return (
+            6,
+            f"no-target no DB address: {why.rstrip('.')}; no --host fallback was given, and "
+            "Configurations.INI alone names the DB",
+        )
+    kwargs, who = _credentials(host, port, found=found)
     target = f"{kwargs['host']}:{kwargs['port']}"
     try:
         conn = mysql.connector.connect(
@@ -236,8 +288,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--host",
-        required=True,
-        help="fallback host when Configurations.INI does not resolve",
+        default=None,
+        help=(
+            "fallback host when Configurations.INI does not resolve; without it "
+            "the probe reports no-target (6) instead of guessing"
+        ),
     )
     parser.add_argument("--port", type=int, default=3306, help="fallback port")
     parser.add_argument(
@@ -250,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
         help="seconds for the Configurations.INI lookup on the data share (default 2)",
     )
     args = parser.parse_args(argv)
-    code, line = probe(args.host, args.port, args.timeout, args.creds_timeout)
+    code, line = probe(args.host or None, args.port, args.timeout, args.creds_timeout)
     print(line)
     return code
 

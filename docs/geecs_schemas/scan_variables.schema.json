@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "CompositeMode": {
+      "description": "How a pseudo variable's targets interpret the scanned value.\n\nAttributes\n----------\nABSOLUTE : str\n    Each target is set to exactly what its expression computes.\nRELATIVE : str\n    Each target is offset from where it was when the scan started, by\n    the amount its expression computes.",
+      "enum": [
+        "absolute",
+        "relative"
+      ],
+      "title": "CompositeMode",
+      "type": "string"
+    },
+    "PseudoComponent": {
+      "additionalProperties": false,
+      "description": "One device a pseudo variable moves, and the formula for its value.\n\nThe ``forward`` expression computes this component's setting from the\nsingle scanned number, which appears in the formula as ``composite_var``.",
+      "properties": {
+        "target": {
+          "description": "The device variable to move, written as 'Device:Variable', e.g. 'U_S1H:Current'.",
+          "title": "Target",
+          "type": "string"
+        },
+        "forward": {
+          "description": "Formula for this device's value in terms of the scanned number: plain arithmetic with 'composite_var' (or its short alias 'x') as the scanned value \u2014 e.g. 'composite_var * -2', 'x * -2', or '8.5 + (composite_var-10)*2.5'.",
+          "minLength": 1,
+          "title": "Forward",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "forward"
+      ],
+      "title": "PseudoComponent",
+      "type": "object"
+    },
+    "PseudoScanVariable": {
+      "additionalProperties": false,
+      "description": "A friendly name that moves several devices together from one number.\n\nScanning this variable sweeps one number; each listed target follows it\nthrough its own formula.  Use it for coordinated moves \u2014 e.g. moving a\ngas jet while a probe camera stage tracks it.\n\nNotes\n-----\nSuccessor of a legacy ``composite_variables.yaml`` entry.  ``mode`` and\nthe arithmetic expressions keep their legacy (numexpr-era) semantics\nverbatim; the engine evaluates them with a whitelisted expression\nevaluator, and the shorter alias ``x`` may be used for the scanned\nvalue in new entries.\n``inverse`` \u2014 the scanned number as a formula of the components'\npositions \u2014 has no legacy counterpart.  It is required only when a\n``forward`` is not linear in the scanned value (the R56 square root);\na linear relation is inverted by the software.",
+      "properties": {
+        "kind": {
+          "const": "pseudo",
+          "description": "Variable type. 'pseudo' moves several devices from one number.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "targets": {
+          "description": "The devices this variable moves, each with its own formula.",
+          "items": {
+            "$ref": "#/$defs/PseudoComponent"
+          },
+          "minItems": 1,
+          "title": "Targets",
+          "type": "array"
+        },
+        "mode": {
+          "$ref": "#/$defs/CompositeMode",
+          "description": "'absolute' = each device goes exactly where its formula says. 'relative' = each device is offset from where it was when the scan started."
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Free text for the people who edit this file \u2014 for a steering bump, the geometry and assumptions behind the coefficients (drift lengths, equal kick per ampere), so the numbers can be audited later.",
+          "title": "Description"
+        },
+        "inverse": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Formula recovering the scanned number from the components' positions. Name a component by its device name when only one target uses that device ('U_ChicaneInner'), or always by its full target with every non-alphanumeric character replaced by '_' ('U_ESP302_02_Position_Axis_3'): e.g. '560968.636 * U_ChicaneInner**2 / 100**2'. Required when a 'forward' is not linear in the scanned value; leave unset for linear relations, which the software inverts itself.",
+          "title": "Inverse"
+        }
+      },
+      "required": [
+        "kind",
+        "targets",
+        "mode"
+      ],
+      "title": "PseudoScanVariable",
+      "type": "object"
+    },
+    "ScanVariable": {
+      "additionalProperties": false,
+      "description": "A friendly name for one device variable you can scan.\n\nPoints a human-readable name at the ``Device:Variable`` it moves, and\nsays whether it is a plain setpoint or a motor with position readback.\n\nNotes\n-----\nMost scan variables are the simple case: the variable you *set* is also\nthe variable that *measures* the result (a stage's ``Position.Axis N``, a\nsteering-magnet ``Current``), so completion can be judged on the same\nname.  For those, leave ``confirm`` unset.\n\nSome devices split the two \u2014 you set one variable but a *different*\nvariable reports the physical truth.  The production example is the EMQ\ntriplet: the catalog's \"EMQ1 Current\" writes\n``U_EMQTripletBipolar:Current_Limit.Ch1`` (a software limit), while the\nmeasured current is a separate variable.  GEECS binds its set-completion\ntolerance to the *written* variable, so such a set \"confirms\" against a\nvalue that is trivially correct and the real current is never checked.\n``confirm`` names the measured variable so this split is at least\n**visible** in the config; enforcing it (a device whose ``set()``\ncompletes on the confirming variable) is a later engine milestone.  The\nmatch *tolerance* is a device fact and stays below the configs (the DB /\ngateway PV metadata), not here.",
+      "properties": {
+        "target": {
+          "description": "The device variable this name moves, written as 'Device:Variable', e.g. 'U_ESP_JetXYZ:Position.Axis 3'.",
+          "title": "Target",
+          "type": "string"
+        },
+        "kind": {
+          "default": "setpoint",
+          "description": "'setpoint' = write the value and wait for the device to accept it (the default). 'motor' = additionally poll the readback until the device reports it arrived \u2014 use for real positioners.",
+          "enum": [
+            "motor",
+            "setpoint"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Free text for the people who edit this file: what the variable is for, units, anything the name does not say.",
+          "title": "Description"
+        },
+        "confirm": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional 'Device:Variable' that *measures* the result when it differs from the variable being set \u2014 e.g. set a supply's current limit but confirm on its measured current. Leave unset when the set variable is also the readback (the common case). Declared but not yet enforced by the engine in v1.",
+          "title": "Confirm"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "title": "ScanVariable",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The experiment's catalog of scannable variables, keyed by friendly name.\n\nEverything a scan's \"Variable\" dropdown offers comes from this file.\nEdit it to expose a new device knob under a readable name, or to define\na coordinated multi-device (pseudo) variable.\n\nNotes\n-----\nReplaces the legacy ``scan_devices.yaml`` + ``composite_variables.yaml``\npair with one document.  Simple entries default to ``kind: setpoint``;\nentries with ``kind: pseudo`` carry targets and formulas.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "variables": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ScanVariable"
+          },
+          {
+            "$ref": "#/$defs/PseudoScanVariable"
+          }
+        ]
+      },
+      "description": "All scannable variables, keyed by the friendly name shown when setting up a scan.",
+      "title": "Variables",
+      "type": "object"
+    }
+  },
+  "required": [
+    "variables"
+  ],
+  "tier": "operator",
+  "title": "ScanVariables",
+  "type": "object"
+}

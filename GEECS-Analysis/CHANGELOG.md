@@ -4,6 +4,19 @@ All notable changes to `geecs-analysis` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.1] - 2026-11-04
+
+### Fixed
+
+- Pooled analysis workers run one BLAS/OpenMP thread each: the thread-count
+  variables are set in the environment around each pool submit, so a child
+  that unpickles a recipe imports numpy already pinned (#1247, #1284).
+
+### Deploy
+
+- Restart `geecs-data-portal`; ScanAnalysis callers pick it up on their next
+  run.
+
 ## [0.29.0] - 2026-10-22
 
 ### Added

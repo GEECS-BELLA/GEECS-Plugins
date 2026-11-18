@@ -111,6 +111,13 @@
           </div>
         </div>
 
+        <details class="fold" open>
+          <summary class="eyebrow">fold &middot; a group that closes &middot; 3</summary>
+          <p class="dim">A section the reader may put away: a history, a long
+            table. Native <code>&lt;details&gt;</code> with the eyebrow as its
+            summary; no box, no script.</p>
+        </details>
+
         <div class="group">
           <span class="eyebrow">well &middot; output you did not write</span>
           <div class="well"><pre>scan_variables:
@@ -308,8 +315,47 @@
         <button class="btn primary" type="button" data-dialog-open="k-ack">Submit scan&hellip;</button>
         <span class="dim"><code>dialog.ack</code> &mdash; rung 3 widened once, for the
           preflight questions an operator must answer on the record before a scan
-          is queued. The kit styles the list; the surface wires Submit to the boxes.</span>
+          is queued. The kit styles the list; the surface wires Submit to the boxes.
+          Otherwise a dialog holds no form, beyond the one input a confirmation confirms.</span>
       </div>
+    </section>
+
+    <section id="forms" class="group">
+      <h2>Forms drawn from a schema</h2>
+      <p class="dim"><code>form.js</code> (<code>GeecsForm.mount</code>) draws a document from its JSON
+        Schema with the kit's own parts. A field stricter than its document wears its tier;
+        a field the reader edited wears the accent edge until it is saved.</p>
+      <div class="grid tight">
+        <div class="field" data-changed="true"><label for="k-f1">Default sampling period<span class="req">*</span></label>
+          <input id="k-f1" value="1.0"><span class="err"></span><span class="hint">Seconds between samples.</span></div>
+        <div class="field"><label for="k-f2">Include setpoints<span class="tier" data-tier="maintainer">maintainer</span></label>
+          <select id="k-f2"><option>true</option><option>false</option></select><span class="err"></span></div>
+        <div class="field"><label for="k-f3">Template<span class="tier" data-tier="code">code</span></label>
+          <input id="k-f3" value="fastps" disabled><span class="err"></span></div>
+      </div>
+      <p class="dim">A schema laid out in sections (<code>x-sections</code>) folds each to its title and a
+        gist of what is in it; a list item that is a choice folds to its header, the choice and its gist; a
+        pair is one field.</p>
+      <details class="fold section"><summary><span class="eyebrow">Measure</span><span class="gist">beam compute_slopes=true</span></summary></details>
+      <details class="fold section" open><summary><span class="eyebrow">Steps</span><span class="gist">roi y 10–200 x 5–300 → median kernel=5</span></summary>
+        <article class="panel"><header class="item"><button class="btn sm ghost" type="button" aria-expanded="true">&#9662;</button><span class="eyebrow">#1</span>
+          <select class="btn sm" aria-label="Step"><option>roi</option></select><span class="gist">y 10–200 x 5–300</span>
+          <button class="btn sm ghost" type="button">Down</button><button class="btn sm ghost" type="button">Remove</button></header>
+          <div class="body"><div class="field"><label for="k-f4">y</label><div class="pair"><input id="k-f4" value="10"><input aria-label="y 2" value="200"></div><span class="err"></span></div></div></article>
+      </details>
+    </section>
+
+    <section id="plots" class="group">
+      <h2>Line plots</h2>
+      <p class="dim">Every line plot on every surface (a trace, a lineout, a histogram, a
+        scalar plot) is Plotly, drawn through <code>plot.js</code>: the layout and the
+        modebar read from the tokens, trace <em>i</em> in <code>--trace-(i+1)</code>,
+        repainted when the theme changes. The page sets its axes and data, never a
+        colour. Images are each surface's own.</p>
+      <article class="panel">
+        <header><span class="eyebrow">Two channels</span></header>
+        <div id="k-plot" style="height:240px"></div>
+      </article>
     </section>
 
     <section id="states" class="group">
@@ -543,6 +589,20 @@
 
 <script src="theme.js" defer></script>
 <script src="kit.js" defer></script>
+<script src="plotly-cartesian-3.1.1.min.js" defer></script>
+<script src="plot.js" defer></script>
+<script>
+  // The plot specimen: data and axes are all a surface writes; the template does the rest.
+  window.addEventListener("DOMContentLoaded", function () {
+    var x = [], a = [], b = [];
+    for (var i = 0; i < 400; i++) { var t = (i - 80) * 2.5e-8; x.push(t); a.push(0.8 * Math.exp(-Math.pow((t - 4e-6) / 1.5e-6, 2))); b.push(0.3 * Math.sin(2 * Math.PI * t / 6e-6)); }
+    var host = document.getElementById("k-plot");
+    window.Plotly.react(host, [{ type: "scatter", mode: "lines", name: "A", x: x, y: a }, { type: "scatter", mode: "lines", name: "B", x: x, y: b }],
+      window.GeecsPlot.layout({ xaxis: { title: { text: "time (s)" }, exponentformat: "SI" }, yaxis: { title: { text: "capture (V)" } } }),
+      window.GeecsPlot.config());
+    window.GeecsPlot.watch(host);
+  });
+</script>
 <script>
   // The picker specimen: the rows and what Add does are all a surface writes.
   window.addEventListener("DOMContentLoaded", function () {

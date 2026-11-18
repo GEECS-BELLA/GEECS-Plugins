@@ -1,9 +1,10 @@
 """A native camera's unsupported run shapes are refused at bind (``NATIVE_DEVICES.md``).
 
-Every shape outside "an essential detector of a strict run under a
-box-fired profile, no gateway plugin camera beside it" is refused before
-the box is driven and before ``open_run`` (no scan number claimed), each
-naming the camera — the camera's own fly refusals come after the claim.
+Every shape outside "a per-shot device of a strict run under a box-fired
+profile" (required or not, beside gateway plugin cameras or not) is
+refused before the box is driven and before ``open_run`` (no scan number
+claimed), each naming the camera — the camera's own fly refusals come
+after the claim.
 """
 
 from __future__ import annotations
@@ -27,12 +28,13 @@ from tests.ca_mock_helpers import DocCollector, connect_mock
 from tests.test_native_camera import _camera as _native_camera
 from tests.test_strict_plans import WRITES, FakeBox, _camera, _plugin_camera
 
-STRICT_ONLY = "ADTEST_CAM1: native EPICS cameras run in strict scans only for now"
-#: The strict states plus the gated bracket's, so a gated run could start.
+STRICT_ONLY = (
+    "ADTEST_CAM1: native EPICS cameras run in strict and fly scans only for now"
+)
+#: The strict states plus OFF (the calibration's bracket).
 STATES = {
     **WRITES.states,
     "OFF": [("DG", "Trigger.Source", "off")],
-    "SCAN": [("DG", "Trigger.Source", "edges")],
 }
 
 
@@ -64,29 +66,19 @@ def _refused(RE: RunEngine, box: FakeBox, plan, reason: str) -> None:
     assert col.docs["start"] == []
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "reason"),
-    [
-        ({"acquisition": "gated"}, "not in a gated batch"),
-        ({"non_essential": "native"}, "not as a non-essential stream"),
-        (
-            {"non_essential": "native", "acquisition": "gated"},
-            "not as a non-essential stream",
-        ),
-    ],
-    ids=["gated-essential", "strict-non-essential", "gated-non-essential"],
-)
-def test_gated_runs_and_non_essential_streams_are_refused_before_the_claim(
-    RE: RunEngine, box: FakeBox, tmp_path: Path, kwargs: dict, reason: str
+def test_a_gated_run_is_refused_as_retired_before_the_claim(
+    RE: RunEngine, box: FakeBox, tmp_path: Path
 ) -> None:
+    """The retired mode's own reason, not a native-camera one: nothing driven, nothing claimed."""
     native, _ = _native_camera(RE, tmp_path)
     other = _camera(RE, box, "UC_Other")
-    if kwargs.get("non_essential") == "native":
-        detectors, kwargs = [other], {**kwargs, "non_essential": [native]}
-    else:
-        detectors = [native, other]
     count = bind_plans(_profiles(RE, box))["count"]
-    _refused(RE, box, count(detectors, 2, **kwargs), reason)
+    col = DocCollector()
+    RE.subscribe(col)
+    with pytest.raises(GeecsConfigurationError, match="acquisition='gated' is retired"):
+        RE(count([native, other], 2, acquisition="gated"))
+    assert box.puts == [] and box.fires == 0
+    assert col.docs["start"] == []
 
 
 @pytest.mark.parametrize("states", [STATES, {}], ids=["box", "box-less"])
@@ -97,21 +89,6 @@ def test_a_scan_mode_profile_is_refused_before_the_preflight(
     native, _ = _native_camera(RE, tmp_path)
     count = bind_plans(_profiles(RE, box, states=states, use_scan_mode=True))["count"]
     _refused(RE, box, count([native], 2), "not under a scan-mode profile")
-
-
-@pytest.mark.parametrize("listed", ["essential", "non_essential"])
-def test_a_gateway_plugin_camera_beside_a_native_one_is_refused(
-    RE: RunEngine, box: FakeBox, tmp_path: Path, listed: str
-) -> None:
-    native, _ = _native_camera(RE, tmp_path)
-    plugin, _ = _plugin_camera(RE, box, "UC_Plugin", tmp_path)
-    count = bind_plans(_profiles(RE, box))["count"]
-    plan = (
-        count([native, plugin], 2)
-        if listed == "essential"
-        else count([native], 2, non_essential=[plugin])
-    )
-    _refused(RE, box, plan, "not beside a gateway plugin camera (uc_plugin)")
 
 
 @pytest.mark.parametrize("name", ["measure_shot_offsets", "check_shot_sync"])
@@ -136,19 +113,15 @@ def test_optimize_refuses_a_native_camera_before_reading_its_config(
     _refused(RE, box, plan([native], optimizer_config="any"), "not in optimize")
 
 
-def test_the_strict_essential_shape_is_admitted(
+def test_the_strict_shapes_are_admitted(
     RE: RunEngine, box: FakeBox, tmp_path: Path
 ) -> None:
-    """The one v1 shape passes, a plugin camera's scalars view beside it included."""
+    """A strict run takes a native beside a gateway plugin camera, its view, or neither."""
     native, _ = _native_camera(RE, tmp_path, source=NativeTriggerSource.LINE1)
     plugin, _ = _plugin_camera(RE, box, "UC_Plugin", tmp_path)
     shot_control = _profiles(RE, box).resolve(None)
-    refuse_native_run(
-        [native, plugin.scalars, _camera(RE, box, "UC_Other")],
-        [],
-        acquisition="strict",
-        shot_control=shot_control,
-    )
+    for devices in ([native, plugin], [native, plugin.scalars], [native]):
+        refuse_native_run(devices, shot_control=shot_control)
 
 
 def test_a_preset_asking_for_a_native_cameras_scalars_is_refused_at_expansion() -> None:

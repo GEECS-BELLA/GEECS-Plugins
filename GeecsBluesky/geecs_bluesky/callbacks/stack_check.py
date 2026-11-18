@@ -1,8 +1,8 @@
 """The stack-check callback.
 
 At the stop document, checks every image stack the run's stream resources
-reference against the documents (frame count and per-row stamps; a gated
-stack's stamps against the ``shots`` rows).  A mismatch is a WARNING in
+reference against the documents (frame count and per-row stamps; a
+device stream's stack through the shot table).  A mismatch is a WARNING in
 ``scan.log``, never a failure.
 """
 
@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from geecs_data_utils.shot_join import SHOTS_STREAM
+from geecs_data_utils.shot_table import LAYOUT_KEY, SHOT_TABLE_LAYOUT
 
 from geecs_bluesky.callbacks._base import (
     Document,
@@ -40,39 +40,26 @@ class StackCheckCallback(_StreamCallback):
     A plugin-backed camera's stream resource names its stack
     (``application/x-hdf5``, dataset ``FRAMES_DATASET``) and its data key
     ``<name>``; its stream datums say which rows own a frame
-    (``seq_nums``, assigned by the RunEngine bundler) — a partial row owns
-    none even when the camera delivered (its frame was rewound), so the
-    rows are taken from the datums, never from the stamp column alone.
+    (``seq_nums``, assigned by the RunEngine bundler) — an earlier strict
+    run's partial row owns none even when the camera delivered (its frame
+    was rewound), so the rows are taken from the datums, never from the
+    stamp column alone.
     Three shapes, one per way a stack can be referenced:
 
-    - a stream **with event rows** (strict ``primary``): the stack's own
-      stamps are read (LabVIEW epoch, the rows' epoch — the plugin stores
-      Unix seconds) and compared with those rows' ``<name>-acq_timestamp``;
-      the frame count must be the datums' total width and every referenced
-      row's stamp its frame's;
-    - a **gated** run's datum-only ``primary``: the count, plus the
-      ``shots`` rows — the sampler ticked once per shot and the batch
-      trimmed every stack to the quota, so *every* row must own exactly one
-      frame within the join window and no frame may be orphaned;
-    - any other datum-only stream (a non-essential ``<name>_stream``): the
-      count alone — a non-essential camera's frame for shot *k* may land
-      during *k+1* and an orphan there is normal, not a defect.
-
-    A gated run's **native-saving essentials** (no plugin; their LabVIEW
-    files are their record) get a files-versus-rows
-    line of their own: the sampler writes each one's
-    ``-nonscalar_save_path`` column into every ``shots`` row as a run-long
-    constant, and every row's own stamp (``<owner>-acq_timestamp``) is
-    matched against the files in that directory by the naming contract
-    (``geecs_data_utils.native_files``: ``{stem}_{stamp:.3f}{tail}``, the
-    tail the device's — so the listing is keyed by stamp, a per-shot
-    sidecar rides with its shot and an Explorer ``Thumbs.db`` is nobody's
-    file) — waiting, bounded, for every row's file first (there is no
-    write-complete readback; the last file lands a LabVIEW loop period
-    after the last edge).  Rows without a file (a dropped frame — a
-    missing file, no retake) and file stamps with no row (the shot in
-    flight at a pause, an in-flight edge's) are counted **separately**, so neither hides the
-    other: WARNING on either, never a failure.
+    - a stream **with event rows** (an earlier strict ``primary``): the
+      stack's own stamps are read (LabVIEW epoch, the rows' epoch — the
+      plugin stores Unix seconds) and compared with those rows'
+      ``<name>-acq_timestamp``; the frame count must be the datums' total
+      width and every referenced row's stamp its frame's;
+    - a **shot-table** run's device stream (``layout: "shot-table/1"``):
+      the count, plus the stack's stamps (and its counters) joined to the
+      ``primary`` rows by the shot table — a record no row claims, or one
+      the join flags (an audit mismatch, an ambiguous interval), is a
+      WARNING; a row without a frame, and rows sharing a witness stamp the
+      counters cannot order, are reported, not warned;
+    - any other datum-only stream: the count alone — a streamed camera's
+      frame for shot *k* may land during *k+1* and an orphan there is
+      normal, not a defect.
 
     The stop document precedes ``unstage`` (``Capture=0``, when the plugin
     finalizes and closes the file), and a run callback must not block the
@@ -93,7 +80,11 @@ class StackCheckCallback(_StreamCallback):
         self, start: dict[str, Any], stop: Document, run: _RunStreams
     ) -> None:
         """Check every stack against its documents, off the RunEngine's thread."""
-        gated = str(start.get("acquisition") or "") == "gated"
+        table_rows = (
+            run.stream_rows("primary")
+            if start.get(LAYOUT_KEY) == SHOT_TABLE_LAYOUT
+            else []
+        )
         owners = self._owners.get(str(start.get("uid") or ""), {})
         for stack in run.stacks.values():
             stream_rows = run.rows_by_seq(stack.stream)
@@ -124,7 +115,7 @@ class StackCheckCallback(_StreamCallback):
             if column is not None and owners.get(column) != owner:
                 column = None  # the device published no stamp of its own
             expected: list[float] | None = None
-            shots: _ShotStamps | None = None
+            shots: _TableStamps | None = None
             if stream_rows and column:
                 seqs = sorted({n for r in stack.seq_nums for n in r})
                 expected = [
@@ -132,10 +123,14 @@ class StackCheckCallback(_StreamCallback):
                     for n in seqs
                     if n in stream_rows and column in stream_rows[n]
                 ]
-            elif gated and stack.stream == "primary":
-                # The gated batch's own stacks: the shots rows ARE the frames'
-                # rows, one per shot, so the stamps can be checked after all.
-                shots = _shot_stamps(start, run, stack.data_key)
+            elif table_rows and stack.stream != "primary":
+                shots = _TableStamps(
+                    dict(start),
+                    table_rows,
+                    stack.stream,
+                    dict(run.drain_offsets),
+                    stack.width,
+                )
             elif stream_rows:
                 # Rows, but the descriptors named no single stamp column for
                 # this stack's device: say so rather than quietly dropping to
@@ -158,32 +153,14 @@ class StackCheckCallback(_StreamCallback):
                 stack.width,
                 self.finalize_timeout,
             )
-        if gated:
-            # The sampler's rows.  Stream-agnostic below this line: a strict
-            # run's ``primary`` carries the same column with the same
-            # semantics, and the day the strict line is wanted this reads
-            # ``run.row_stream()`` instead (a partial strict row — a missed
-            # shot, NaN stamp — would then count as a row without a file,
-            # which it is).
-            rows = run.stream_rows(SHOTS_STREAM)
-            for owner, directory, stamps in _native_save_dirs(dict(start), rows):
-                self.spawn(
-                    f"native-files[{owner}]",
-                    self._check_native_files,
-                    dict(start),
-                    owner,
-                    directory,
-                    stamps,
-                    self.finalize_timeout,
-                )
         self._spawn_stream_file_checks(start, run)
 
     def _spawn_stream_file_checks(
         self, start: dict[str, Any], run: _RunStreams
     ) -> None:
-        """Spawn the native-files check of each non-essential saver's stream.
+        """Spawn the native-files check of each streamed native saver's stream.
 
-        A non-essential native saver without a plugin (either mode): its
+        A streamed native saver without a plugin (any mode): its
         stream's EVENTS are matched to its files — one event per stamp it
         published, so an event without a file is a lost save and a file
         without an event a stamp the stream never saw.  Not under scan
@@ -204,7 +181,6 @@ class StackCheckCallback(_StreamCallback):
                     stamps,
                     self.finalize_timeout,
                     f"{stream} event",
-                    True,
                 )
 
     @staticmethod
@@ -214,17 +190,15 @@ class StackCheckCallback(_StreamCallback):
         directory: Path,
         stamps: Sequence[float],
         timeout: float,
-        record: str = "shots row",
-        stream_closes: bool = False,
+        record: str,
     ) -> None:
         """Match the records' *stamps* against the native files in *directory*.
 
-        *record* names what a stamp came from — a gated run's ``shots row``,
-        or a non-essential stream's event (*stream_closes*).  Waits, bounded by *timeout*,
-        for every record to have its file (the device writes a LabVIEW
-        loop period behind the edge); then one line, WARNING on a record
-        without a file or a file stamp with no record — never a failure.
-        For a non-essential stream, files stamped **after** its last event
+        *record* names what a stamp came from (``<stream> event``).  Waits,
+        bounded by *timeout*, for every record to have its file (the device
+        writes a LabVIEW loop period behind the edge); then one line,
+        WARNING on a record without a file or a file stamp with no record —
+        never a failure.  Files stamped **after** the stream's last event
         are counted apart and are no defect: the device keeps saving from
         the stream's close (before ``close_run``) to its ``unstage``, and
         a slow device's last frame lands in that gap.
@@ -243,7 +217,7 @@ class StackCheckCallback(_StreamCallback):
         unclaimed = set(keys) - claimed
         trailing = 0
         finite = [s for s in stamps if s == s]
-        if stream_closes and finite:
+        if finite:
             last = timestamp_key(max(finite)) + 1  # the %.3f rounding neighbour
             trailing = sum(1 for key in unclaimed if key > last)
         orphans = len(unclaimed) - trailing
@@ -279,7 +253,7 @@ class StackCheckCallback(_StreamCallback):
         data_key: str,
         path: Path,
         expected: list[float] | None,
-        shots: "_ShotStamps | None",
+        shots: "_TableStamps | None",
         width: int,
         finalize_timeout: float,
     ) -> None:
@@ -302,7 +276,7 @@ class StackCheckCallback(_StreamCallback):
             return
         stamps = read_stack_timestamps(path, labview_epoch=True)
         if expected is None:
-            # A datum-only stream (gated primary, a non-essential stream):
+            # A datum-only stream (a device stream):
             # no row of its own carries a stamp; the datums' width is the
             # contract.
             _stack_verdict(
@@ -344,79 +318,82 @@ class StackCheckCallback(_StreamCallback):
 
 
 @dataclass(frozen=True)
-class _ShotStamps:
-    """The ``shots`` rows a gated stack's frames must fall on, one each.
+class _TableStamps:
+    """A shot-table run's ``primary`` rows a device stream's stack is joined to.
 
-    Attributes
-    ----------
-    stamps :
-        The rows' clock stamps, LabVIEW epoch, in row order.
-    windows :
-        Per-row half-windows, seconds
-        (``geecs_data_utils.shot_join.row_windows``).
-    clock_offset, frame_offset :
-        The clock device's and the camera's drain offsets, seconds.
+    *width* is the frames the stream's datums referenced (``0``: all), the
+    s-file's truncation.
     """
 
-    stamps: Sequence[float]
-    windows: "np.ndarray"
-    clock_offset: float = 0.0
-    frame_offset: float = 0.0
+    start: Mapping[str, Any]
+    rows: Sequence[Mapping[str, Any]]
+    stream: str
+    drain_offsets: Mapping[str, float]
+    width: int = 0
 
     def verdict(
         self, data_key: str, path: Path, frames: "np.ndarray"
     ) -> tuple[str, bool]:
-        """``(message, warning)`` for the stamp comparison of this stack."""
-        from geecs_data_utils.shot_join import join_frames_to_shots
+        """``(message, warning)`` for the stack's frames through the shot table.
 
-        join = join_frames_to_shots(
-            self.stamps,
-            frames,
-            windows=self.windows,
-            shot_offset=self.clock_offset,
-            frame_offset=self.frame_offset,
+        Rows sharing a witness stamp that the stack's counters cannot order
+        (``witness-stamp-shared-unresolved``) are never guessed and never a
+        warning: they and the frames they hold back
+        are reported apart from the extras (``ShotTable.held``: only the
+        records inside such a group's window, so a stray elsewhere warns).
+        """
+        import pandas as pd
+        from geecs_data_utils.io.scan_stack import read_stack_attributes
+        from geecs_data_utils.shot_join import FrameColumns
+        from geecs_data_utils.shot_table import device_records, frame_for, shot_table
+
+        frames = frames[: self.width] if self.width else frames
+        try:
+            attributes = read_stack_attributes(path)
+        except OSError:
+            attributes = {}
+        # One device at a time: the run's ``required`` (completeness) is the
+        # s-file's question, and the others would read as unresolved here.
+        start = {key: v for key, v in self.start.items() if key != "required"}
+        source = device_records(
+            self.stream, FrameColumns(data_key, frames), start, attributes
         )
-        rows = len(join.frame_for_shot)
-        if join.matched == rows and not join.orphans and not join.contested:
-            return (
-                f"{data_key}: {len(frames)} frame(s) in {path.name} match the "
-                f"shots rows' stamps",
-                False,
+        table = shot_table(
+            start,
+            pd.DataFrame(list(self.rows)),
+            [source],
+            drain_offsets=self.drain_offsets,
+        )
+        rows = len(self.rows)
+        matched = sum(
+            frame_for(table, data_key, shot) is not None for shot in range(1, rows + 1)
+        )
+        own = [[f for f in row if f.endswith(f":{data_key}")] for row in table.flags]
+        unresolved = sum(
+            any(f.startswith("witness-stamp-shared-unresolved:") for f in row)
+            for row in own
+        )
+        flagged = sum(
+            any(
+                not f.startswith(("missing:", "witness-stamp-shared-unresolved:"))
+                for f in row
             )
-        widest = float(max(self.windows)) if len(self.windows) else 0.0
-        return (
-            f"{data_key}: {join.matched} of {len(frames)} frame(s) in {path.name} "
-            f"fall on a shots row (±{widest:.3f} s at most) — {len(join.orphans)} "
-            f"orphan(s), {rows - join.matched} shot(s) with no frame",
-            True,
+            for row in own
         )
-
-
-def _shot_stamps(
-    start: Mapping[str, Any], run: _RunStreams, data_key: str
-) -> "_ShotStamps | None":
-    """The gated run's shot stamps and per-row windows, or ``None`` without rows."""
-    from geecs_data_utils.shot_join import (
-        DEFAULT_SHOT_PERIOD_S,
-        clock_device,
-        row_windows,
-        shot_clock_column,
-    )
-
-    rows = run.stream_rows(SHOTS_STREAM)
-    if not rows:
-        return None
-    clock = shot_clock_column(start, list(rows[0]))
-    if clock is None:
-        return None
-    stamps = [float(row.get(clock, float("nan"))) for row in rows]
-    period = float(start.get("shot_period") or DEFAULT_SHOT_PERIOD_S)
-    return _ShotStamps(
-        stamps=stamps,
-        windows=row_windows(stamps, period),
-        clock_offset=float(run.drain_offsets.get(clock_device(clock), 0.0)),
-        frame_offset=float(run.drain_offsets.get(data_key, 0.0)),
-    )
+        extras = len(table.extras.get(data_key, ()))
+        held = len(table.held.get(data_key, ()))
+        extras -= held
+        message = (
+            f"{data_key}: {matched} of {len(frames)} frame(s) in {path.name} "
+            f"assigned to a shot-table row — {extras} extra(s), {flagged} row(s) "
+            f"flagged, {rows - matched} row(s) with no frame"
+        )
+        if unresolved:
+            message += (
+                f"; {unresolved} row(s) share a witness stamp the counters cannot "
+                f"order ({held} frame(s) held back, not guessed)"
+            )
+        return message, bool(extras or flagged)
 
 
 def _match_stamps(

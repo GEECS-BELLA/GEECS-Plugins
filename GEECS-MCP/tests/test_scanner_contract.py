@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from geecs_mcp import clients, config, guard
+from geecs_mcp.identity import identity_for
 from geecs_mcp.scans import tools
 
 OPERATOR = "Ada Lovelace"
@@ -86,8 +87,10 @@ class TestReads:
         missing = _j(await run(tools._list_scan_configs, "presets", "nope"))
         assert missing["ok"] is False
         assert missing["error_kind"] == "not_found"
-        by_name = _j(await run(tools._list_scan_configs, "actions", "x"))
+        by_name = _j(await run(tools._list_scan_configs, "setups", "x"))
         assert by_name["error_kind"] == "invalid_request"
+        setups = _j(await run(tools._list_scan_configs, "setups", None))
+        assert setups["ok"] is True and "low_power" in setups["names"]
 
     async def test_devices_are_the_bare_names_a_preset_takes(self, wired) -> None:
         out = _j(await run(tools._list_scan_configs, "devices", None))
@@ -108,7 +111,8 @@ class TestReads:
         assert finished["item_uid"] == submitted["item_uid"]
         assert len(finished["scan_numbers"]) == 1
         assert finished["run_uids"]
-        assert finished["user"] == "geecs-scanner test"
+        # The row names the operator the submission recorded: the MCP's line.
+        assert finished["user"] == identity_for(OPERATOR)
 
 
 # ---------------------------------------------------------- submit_preset

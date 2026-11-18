@@ -63,6 +63,14 @@ HELPER = textwrap.dedent(
             if shot == 3:
                 log.warning("shot %d looks odd", shot)
             return np.full(self.shape, shot, dtype=np.uint16)
+
+
+    class EnvSource(Source):
+        def __enter__(self):
+            names = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
+            with open(Path(self.record_dir) / f"env-{os.getpid()}", "w") as f:
+                f.write(" ".join(os.environ.get(name, "-") for name in names))
+            return super().__enter__()
     '''
 )
 
@@ -194,6 +202,24 @@ def test_pool_refuses_multi_member_groups_in_per_shot_mode(source):
     with pytest.raises(ValueError, match="single-member"):
         list(run_units(recipe(), [ShotGroup(1, (1, 2))], loader, workers=2))
     assert all(value == ["open", "close"] for value in lifecycle(records).values())
+
+
+@pytest.mark.parametrize("caller", [None, "3"])
+def test_pooled_workers_run_one_compute_thread_unless_the_caller_names_one(
+    source, monkeypatch, caller
+):
+    _, records = source
+    for name in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        monkeypatch.delenv(name, raising=False)
+    if caller:
+        monkeypatch.setenv("OMP_NUM_THREADS", caller)
+    parent = dict(os.environ)
+    loader = importlib.import_module("pool_helper").EnvSource((4, 6), records)
+    groups = [ShotGroup(n, (n,)) for n in range(1, 7)]
+    assert len(list(run_units(recipe(), groups, loader, workers=2))) == 6
+    seen = {p.read_text() for p in records.glob("env-*")}
+    assert seen == {f"{caller or 1} 1 1"}
+    assert dict(os.environ) == parent, "the parent's environment is restored"
 
 
 def test_serial_default_creates_no_pool(monkeypatch):

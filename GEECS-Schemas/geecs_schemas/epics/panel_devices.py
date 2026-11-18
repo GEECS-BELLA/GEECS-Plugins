@@ -1,19 +1,20 @@
 """PanelDevices — per-device panel data, one document per experiment (layer 0b of the web estate).
 
-The configs repository's ``<experiment>/panel_devices.yaml`` (the panels'
-``--bench`` file, promoted): for each device a page is drawn for, the
-family (record template) it instantiates and what differs from that
-family on this device — its own PV names for a role (the two supplies have
-no shared record set), a bit's label, the actions the page may take on it
-(``allow``), the line the page shows (``note``), the roles it does not
-have (``omit``), the roles that need a hazard confirm on it alone
-(``hazard``), the roles the archiver takes beyond the family's
-(``archive``) or leaves out on this device (``no_archive``), and the IOC
-serving it (``ioc``, whose devIocStats heartbeat the archiver keeps).
+The configs repository's ``<experiment>/panel_devices.yaml``: for each
+device a page is drawn for, the family (record template) it instantiates
+and what differs from that family on this device — its own PV names for a
+role (the two supplies have no shared record set), a bit's label, the
+actions the page may take on it (``allow``), the line the page shows
+(``note``), the roles it does not have (``omit``), the roles that need a
+hazard confirm on it alone (``hazard``), the roles the archiver takes
+beyond the family's (``archive``) or leaves out on this device
+(``no_archive``), and the IOC serving it (``ioc``, whose devIocStats
+heartbeat the archiver keeps).
 
-Read by the PV bridge, and by the archiver's registry pass for the device's
-archived roles, prefix, axes and IOC (``Planning/epics_estate.md`` §2.5),
-both on ``feat/web-estate``; GeecsCanopy reads it next.  The scan worker never reads it, so a device
+Read by GeecsCanopy, by GeecsControlRoom (the home and the screens), and
+by the archiver's registry pass for the device's
+archived roles, prefix, axes and IOC.
+The scan worker never reads it, so a device
 listed here may still be owned by the GEECS DB (a bench device on a bench
 prefix): ``native_devices.yaml`` stays what the worker binds, and a device
 in both takes its axes from the registry and its panel data from here.
@@ -22,11 +23,11 @@ in both takes its axes from the registry and its panel data from here.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Literal, Optional
+from typing import Annotated, ClassVar, Literal, Optional
 
 from pydantic import AfterValidator, Field, ValidationInfo, model_validator
 
-from geecs_schemas._base import SchemaModel, VersionedSchemaModel
+from geecs_schemas._base import SchemaModel, Tier, VersionedSchemaModel
 from geecs_schemas.epics.family import (
     FamilyFile,
     Role,
@@ -272,6 +273,8 @@ class PanelDevices(VersionedSchemaModel):
     (a bench device): the scan worker reads ``native_devices.yaml``, never
     this file.
     """
+
+    tier: ClassVar[Tier] = "maintainer"
 
     schema_version: Literal[1] = Field(
         1,

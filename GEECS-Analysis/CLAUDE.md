@@ -1,7 +1,8 @@
 # GEECS-Analysis
 
-The replacement analysis core, developed on `codex/analysis-refactor`.
-Read `../Planning/analysis_refactor.md` for scope, acceptance gates and migration.
+The analysis core: every per-shot recipe (steps, measure, figure, summaries)
+runs through it; the legacy ImageAnalysis package and the scan-analyzer
+wrappers around it were deleted 2026-10-16 (tag `legacy-analysis-final`).
 The optimizer uses this core directly for camera recipes; portal image
 processing, unsaved-document rendering and ScanAnalysis' scan runs all
 compile and run v3 recipes through it.
@@ -76,6 +77,14 @@ compile and run v3 recipes through it.
   folds differing camera axes index-wise — the legacy average's `nanmean`
   over each shot's axis — where every other measure's are refused; while
   none has moved the first result's axes are kept.
+- A frame dimensionality's **default measure** is declared at
+  registration (`@measure(..., default=True)`: `beam` for images, `line`
+  for traces; a second default for an ndim is refused at import), and
+  `registry.default_measure(ndim)` is the one lookup. A new recipe starts
+  from it (`recipe.blank_recipe(input_kind, name=...)`: its input, no
+  steps, that measure, validated and compiled; the input kinds and their
+  ndim are the schema's, `recipe.input_kinds()`), so an editor never lists
+  a measure by hand. Pinned for every input kind by `tests/test_recipe.py`.
 - Register each builtin in `steps/__init__.py`; the registry constructs the
   discriminated spec union. Adding a builtin must not require a dispatcher edit.
   Runtime/plugin registration after spec construction is not supported yet.
@@ -153,7 +162,9 @@ the editor lists it from here — `recipe.recipe_schema()` is the recipe's
 JSON Schema with `steps`/`measure` replaced by the registry's discriminated
 unions, every step/measure/summary variant tagged `x-ndim` and `x-docs`
 (its card in the published reference, `RECIPE_REFERENCE_URL`), every
-measure variant `x-scalars`; give every spec field a `description=`, the
+measure variant `x-scalars`, and a per-dimension pair list `x-axes` (the
+`roi` step's `bounds`: one named row per axis in the form; the theme's
+`form.js` docstring is the hints' contract); give every spec field a `description=`, the
 form shows it as help (pinned), and every scalar a measure can emit a
 one-line `scalar_docs` meaning (pinned both ways by `test_scalar_docs`).
 A new step, measure or summary also needs
@@ -265,6 +276,9 @@ open-ended and validated by preview rendering, with RenderError at the layout
 boundary. Deep-copy kwargs before passing to matplotlib; normalization objects
 can be mutated by rendering. Preserve geometry rather than accepting arbitrary
 extent overrides. New overlay families must carry data, never render callbacks.
+Recipes never name arbitrary matplotlib calls or carry Python: the fixed
+kwarg groups (`imshow`, `plot`, `colorbar`, ...) and the named overlay kinds are
+the vocabulary, so the editor can list and the preview can validate them.
 
 `render.image_grid` draws image measurements with per-panel coordinates and a
 single palette/colorbar. It accepts titles and a positive column count. Palette

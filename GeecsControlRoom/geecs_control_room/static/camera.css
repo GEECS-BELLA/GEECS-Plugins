@@ -1,0 +1,21 @@
+/* The camera page (device_camera.html): its own camera ROI and display fields, the image and the plots (the
+   rail-and-pane grid and the readings are device.css's, every device page's). Tokens only (GeecsWebTheme's guard). */
+.kit .camera .field.coord,.kit .camera .field.levels{min-width:0;width:84px}
+/* The image fills most of the window's height; the canvas is sized to it in device pixels (camera.js). */
+.kit .viewport{position:relative;height:min(68vh,calc(100vh - 300px));min-height:360px;background:var(--surface-2);border-radius:var(--r);overflow:hidden;touch-action:none;cursor:crosshair}
+.kit .viewport canvas{display:block;width:100%;height:100%;cursor:inherit}
+.kit .viewport.panning{cursor:grabbing}
+.kit .plots .dbody{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;padding-top:6px}
+.kit .plot canvas{display:block;width:100%;height:120px}
+.kit .plot-head{display:flex;gap:10px;align-items:baseline;font-size:11px}
+.kit .plot-head .eyebrow{margin-right:auto}
+.kit .plot-head .key::before{content:"";display:inline-block;width:10px;height:2px;margin-right:4px;vertical-align:middle;background:currentColor}
+.kit .plot-head .key.t1{color:var(--trace-1)}
+.kit .plot-head .key.t2{color:var(--trace-2)}
+.kit .device[data-kind="camera"]{max-width:none}
+/* The Raw toggle and its note (the transform applied, the full scale; an unknown transform warns). */
+.kit .panel.image header .raw-toggle{display:inline-flex;align-items:center;gap:4px;font-size:12px}
+.kit .panel.image header #raw-note:empty{display:none}
+.kit .panel.image header #raw-note[data-state="degraded"]{color:var(--warn)}
+/* The camera's rail is the panel's (_panel.html): two fields to a row in its narrow column, set / now under each. */
+.kit #camera .panel-rail .group[data-roles] .field{width:118px}

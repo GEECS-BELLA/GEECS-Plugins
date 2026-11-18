@@ -115,7 +115,7 @@ the writer both read `~/.config/geecs_python_api/config.ini`:
 
 ```ini
 [tiled]
-uri = http://192.168.6.14:8000
+uri = http://192.168.6.22:8000
 api_key = <stable key>
 ```
 
@@ -128,7 +128,7 @@ into that catalog.
 from tiled.client import from_uri
 from geecs_data_utils.tiled_catalog import read_primary_scalars
 
-c = from_uri("http://192.168.6.14:8000", api_key="<key>")
+c = from_uri("http://192.168.6.22:8000", api_key="<key>")
 run = c.values().last()
 run.metadata["start"]
 df = read_primary_scalars(run["primary"])   # the per-shot table only
@@ -143,7 +143,7 @@ under the composite-container layout; use `.base` for raw node access.
 
 ### The web UI
 
-`http://192.168.6.14:8000/ui` (not `/`, which is a landing page): a generic
+`http://192.168.6.22:8000/ui` (not `/`, which is a landing page): a generic
 catalog browser — metadata, tables, array previews, downloads.  With
 `allow_anonymous_access: false`, open `/ui?api_key=<key>` once; the server
 moves the key into a cookie and strips the URL.  The scan-shaped workflow
@@ -170,5 +170,5 @@ moves the key into a cookie and strips the URL.  The scan-shaped workflow
 ```bash
 sudo systemctl status tiled
 sudo journalctl -u tiled --no-pager | tail -30
-curl -s http://192.168.6.14:8000/api/v1/ | jq .library_version
+curl -s http://192.168.6.22:8000/api/v1/ | jq .library_version
 ```

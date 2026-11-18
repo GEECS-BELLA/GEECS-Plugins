@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pickle
 import subprocess
+import sys
 import types
 
 import numpy as np
@@ -11,6 +12,8 @@ import pytest
 
 from scan_analysis.services import frog_dll_retrieval as frog
 from scan_analysis.services.frog_dll_retrieval import FrogDllRetrieval
+
+from .test_subprocess_group import _gone
 
 
 @pytest.fixture
@@ -30,7 +33,7 @@ def command_of(retriever: FrogDllRetrieval, monkeypatch) -> list[str]:
         seen.append(cmd)
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="stop")
 
-    monkeypatch.setattr(frog.subprocess, "run", fake_run)
+    monkeypatch.setattr(frog, "run_process_group", fake_run)
     with pytest.raises(RuntimeError, match="stop"):
         retriever.retrieve_pulse(np.ones((9, 4)), delt=1.0, dellam=-0.1, lam0=400.0)
     return seen[0]
@@ -77,3 +80,16 @@ def test_the_retriever_pickles_for_pool_workers(paths):
         python,
         ("wine",),
     )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX")
+def test_a_frog_timeout_kills_the_launchers_whole_process_tree(paths, tmp_path):
+    """The FROG worker shares WaveKit's launcher, and its timeout bug (see _subprocess)."""
+    dll, python = paths
+    pidfile = tmp_path / "grandchild.pid"
+    launcher = ("sh", "-c", f'sleep 300 & echo $! > "{pidfile}"; wait', "launcher")
+    with pytest.raises(RuntimeError, match="timed out"):
+        FrogDllRetrieval(dll, python, launcher=launcher).retrieve_pulse(
+            np.ones((9, 4)), delt=1.0, dellam=-0.1, lam0=400.0, timeout=1.0
+        )
+    assert _gone(int(pidfile.read_text()))

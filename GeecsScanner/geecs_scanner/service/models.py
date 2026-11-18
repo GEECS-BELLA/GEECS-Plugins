@@ -59,6 +59,41 @@ class StatusOut(BaseModel):
     tiled_writer: TiledWriterOut = Field(
         description="The Tiled writer's heartbeat verdict (the page's chip); shown, never a gate"
     )
+    reopening: bool = Field(
+        default=False,
+        description="The worker environment is being reopened (POST /api/environment/reopen)",
+    )
+
+
+class ReopenIn(BaseModel):
+    """The body of ``POST /api/environment/reopen``: who asks, and why (logged)."""
+
+    operator: str = ""
+    reason: str = ""
+
+
+class ReopenOut(BaseModel):
+    """A completed reopen: the environment is up and idle again."""
+
+    ok: bool
+    message: str
+    queue_started: bool = Field(
+        default=False,
+        description="Items waited after the open, so the queue was started",
+    )
+    seconds: float = 0.0
+
+
+class TriggerProfilePreflightIn(BaseModel):
+    """The body of ``POST /api/preflight/trigger-profile``: an unsaved profile, and optionally a preset to check it under."""
+
+    document: dict[str, Any] = Field(
+        description="A geecs_schemas.TriggerProfile document"
+    )
+    preset: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="A preset run under the draft profile (the full preflight); omitted, the profile's own checks",
+    )
 
 
 class QueueRow(BaseModel):
@@ -160,6 +195,10 @@ class SubmitIn(BaseModel):
         default=False,
         description="Remove a failed item sitting at the front of the queue first",
     )
+    append: bool = Field(
+        default=False,
+        description="Add behind the waiting items of a started queue (refused when stopped)",
+    )
 
 
 class SubmitOut(BaseModel):
@@ -249,7 +288,7 @@ class MoveIn(BaseModel):
 
 
 class ItemOut(BaseModel):
-    """A queued non-scan item: a move, an action, a calibration."""
+    """A queued non-scan item: a move, a setup, a calibration."""
 
     item_uid: Optional[str] = None
     message: str = ""
@@ -261,43 +300,110 @@ class ItemOut(BaseModel):
     )
 
 
-class ActionOut(BaseModel):
-    """One action plan as the picklist shows it."""
+class SetupOut(BaseModel):
+    """One setup as the list shows it."""
 
     name: str
     description: str = ""
-    steps: int = Field(description="Concrete steps after nested runs are inlined")
+    steps: int = Field(description="Concrete steps after nested applies are inlined")
+    writes: int = Field(default=0, description="How many steps write to hardware")
     nested: list[str] = Field(
-        default_factory=list, description="Plans this one runs by name"
+        default_factory=list, description="Setups this one applies by name"
     )
+    captured_by: Optional[str] = Field(default=None, description="Who captured it")
+    captured_at: Optional[str] = Field(default=None, description="When, ISO 8601")
     problem: Optional[str] = Field(
-        default=None, description="Why it cannot run (unknown nested plan, a loop)"
+        default=None,
+        description="Why it cannot be applied (unknown nested setup, a loop)",
     )
 
 
-class ActionStepOut(BaseModel):
-    """One flattened step of an action plan."""
+class SetupStepOut(BaseModel):
+    """One flattened step of a setup."""
 
+    index: int = Field(description="Its number in the flattened setup, from 1")
     do: str
     device: Optional[str] = None
     variable: Optional[str] = None
     value: Optional[Any] = None
     expected: Optional[Any] = None
+    tolerance: Optional[float] = None
     seconds: Optional[float] = None
-    wait: Optional[bool] = None
-    from_plan: Optional[str] = Field(
-        default=None, description="The nested plan this step was inlined from"
+    from_setup: Optional[str] = Field(
+        default=None, description="The nested setup this step was inlined from"
     )
     text: str
 
 
-class ActionDetailOut(BaseModel):
-    """``GET /api/actions/{name}``: the preview — what running it would do, in order."""
+class SetupHazardOut(BaseModel):
+    """A ``set`` step that needs the hazard confirm, and why."""
+
+    index: int
+    device: str
+    variable: str
+    value: Any
+    reasons: list[str]
+
+
+class SetupDetailOut(BaseModel):
+    """``GET /api/setups/{name}``: what applying it would do, in order, and what it asks."""
 
     name: str
     description: str = ""
-    steps: list[ActionStepOut]
+    steps: list[SetupStepOut]
     writes: int = Field(description="How many steps write to hardware")
+    digest: str = Field(description="geecs_schemas.setup_digest of these steps")
+    path: str = Field(description="The file as the configs repository names it")
+    hazards: Optional[list[SetupHazardOut]] = Field(
+        default=None,
+        description="The hazard confirms an apply asks; null when unknowable",
+    )
+    hazard_problem: Optional[str] = Field(
+        default=None, description="Why the hazards cannot be told (an apply is refused)"
+    )
+
+
+class SetupDiffRow(BaseModel):
+    """One ``set`` step against the live readback."""
+
+    index: int
+    device: str
+    variable: str
+    value: Any = Field(description="What the setup writes")
+    reading: Optional[Any] = Field(default=None, description="The readback now")
+    ok: bool = Field(default=False, description="Whether the readback answered")
+    will_change: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether the readback differs from the value exactly (a word by equality); "
+            "null when unread. A set step carries no tolerance, so a noisy readback "
+            "differs: read 'difference'"
+        ),
+    )
+    difference: Optional[float] = Field(
+        default=None, description="Reading minus value, for a number read as one"
+    )
+    detail: str = ""
+
+
+class SetupDiffOut(BaseModel):
+    """``GET /api/setups/{name}/diff``: the setup's writes against the readbacks now."""
+
+    name: str
+    digest: str
+    rows: list[SetupDiffRow]
+    changes: int = Field(description="Rows whose readback differs")
+    unread: int = Field(description="Rows whose readback did not answer")
+
+
+class SetupApplyIn(BaseModel):
+    """``POST /api/setups/{name}/apply``: who applies it and what they acknowledged."""
+
+    operator: str = Field(default="", description="Who applies it (required)")
+    acknowledged: list[str] = Field(
+        default_factory=list,
+        description="The checks of the questions answered Continue (from needs_acknowledgement)",
+    )
 
 
 class CalibrationDeviceOut(BaseModel):
@@ -348,14 +454,19 @@ class SavePresetIn(BaseModel):
 
     preset: dict[str, Any] = Field(description="A geecs_schemas.Preset document")
     overwrite: bool = False
+    operator: str = Field(
+        default="",
+        description="Who saves: the commit's author (required by the configurator)",
+    )
 
 
 class SavePresetOut(BaseModel):
-    """A written preset."""
+    """A saved preset: committed to the configs repo's main by the configurator."""
 
     name: str
     path: str
     message: str
+    commit: Optional[str] = None
 
 
 class ScanLogOut(BaseModel):
@@ -436,6 +547,10 @@ class ReadbackOut(BaseModel):
     pv: str = ""
     ok: bool = False
     value: Optional[float] = None
+    text: Optional[str] = Field(
+        default=None,
+        description="The reading as a word, when read as one (a setup's diff)",
+    )
     units: str = ""
     timestamp: Optional[float] = Field(
         default=None, description="The reading's own stamp, epoch seconds"
@@ -444,6 +559,10 @@ class ReadbackOut(BaseModel):
         default=None, description="Now minus the reading's stamp"
     )
     detail: str = ""
+    not_numeric: bool = Field(
+        default=False,
+        description="The gateway answered, with a value that is not a number: read it as a word (never set for no answer)",
+    )
 
 
 class OptimizationOut(BaseModel):

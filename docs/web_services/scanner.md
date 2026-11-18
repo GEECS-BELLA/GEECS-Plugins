@@ -20,6 +20,15 @@ port **8300**), beside the [Data Portal](data_portal.md) (8200) and the
 `http://<worker-host>:8300/` in a browser on the lab network. The host and
 the other services are on the [fleet map](../platform/fleet_map.md).
 
+A hub that runs a **second experiment** gives it a scanner of its own on
+another port: an instance in slot *N* adds 10×*N*, so the first instance's
+scanner is **8310** and its logbook 8410 (the reference deployment's
+pulsed-wire bench, `<unit>@PulsedWire`). The fleet map's
+[Experiment instances](../platform/fleet_map.md#experiment-instances)
+section names the live ones. If your devices are not in the main
+experiment's roster, that scanner is yours: the one on 8300 cannot see
+them.
+
 For development, the package runs anywhere from a checkout of
 GEECS-Plugins, with or without a real worker:
 
@@ -32,16 +41,44 @@ poetry run geecs-scanner --demo                      # an in-memory manager that
 
 `--demo` contacts nothing, so the page can be explored offline.
 
+## From a script or an agent
+
+Every control on this page is a route on the scanner's JSON API, and the
+API is the contract: the OpenAPI document is served at `/openapi.json`.
+Taking data without the browser — a notebook, or an AI agent at an
+experiment that has no GEECS-MCP server — uses the same routes, in the
+order the page does:
+
+1. `GET /api/devices`, `GET /api/scan-variables`,
+   `GET /api/configs/presets` and `GET /api/configs/presets/{name}`: what
+   the worker can see, the presets on disk, and one preset's document.
+2. `POST /api/preflight` with the preset document. The answer is the list
+   of questions an operator must acknowledge; nothing is queued.
+3. `POST /api/submit` with the preset, the acknowledged `check` names and
+   the `operator`. Preflight runs again, then the scan is queued.
+4. `GET /api/status` and `GET /api/progress` to follow it; `POST /api/stop`
+   and `POST /api/pause` to halt.
+
+`POST /api/move` moves one settable and completes the way a scan step's
+move does: a motor's readback within tolerance, otherwise the device's own
+set completion.
+
+A preflight question is for a **person** to answer: an agent relays it and
+waits, and never acknowledges one on its own. And data is never taken by
+writing to devices directly (`GeecsDevice.set`, or a gateway `:SP` PV):
+that path has no scan number, no save set and no shot control, and
+nothing records that it happened.
+
 ## A tour of the page
 
-![The scanner running a jet-pressure sweep: the Now panel with progress, shot counts and the scan.log tail](assets/scanner_01_running.png)
+![The scanner running a jet-pressure sweep: the Current panel with progress, shot counts and the scan.log tail](assets/scanner_01_running.png)
 
 The rail on the left lists the page's sections; the **health chips** in
 the header say whether the RE Manager answers (`manager`), whether the
 worker's document stream is being heard (`doc stream`), and whether the
 Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
 
-- **Now** — the running scan: state, the claimed scan number, progress
+- **Current** — the running scan: state, the claimed scan number, progress
   against the planned shots, and a live tail of the scan's own `scan.log`
   (the manager's console text sits behind a toggle). **Pause**, **Resume**
   and **Stop scan…** live here and act on the running item.
@@ -50,17 +87,28 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   top half is common to every scan: shots per step, trigger profile,
   whether LabVIEW saves its own files, shot period, a description, and
   the devices table (which devices to record, whether each saves images,
-  and which are essential). The mode buttons fill the bottom half:
+  and which are required: a required device is waited on every shot and
+  a shot it misses is refired; the others record what they take). The mode buttons fill the bottom half:
   **Count** (N shots at a fixed configuration, optionally tagged as a
   background), **Sweep** (one or more variables along a trajectory) or
   **Optimize** (an optimizer drives the variables). Acquisition is
-  **strict** (fire between trigger and wait, one row per shot) or
-  **gated** (the trigger box in SCAN, cameras count a batch). Press
+  **strict** (one fire per shot, one row per fire); **fly** (a software
+  tick, the box never driven) is a preset's `acquisition: fly`, with no
+  button yet. The gated mode was deleted on 2026-11-14: a preset that
+  still asks for `acquisition: gated` is refused with the reason, never
+  run as something else. Press
   **Start** — see [Running a scan](#running-a-scan) for what Start does.
-  The current form can be saved back as a preset (**Save as preset…**).
-- **Queue** — the running item, what waits behind it, and recent history;
-  **Clear** empties what waits. The page refuses a second waiting item
-  unless you say so.
+  The current form can be saved back as a preset (**Save as preset…**):
+  the configurator commits it to the configs repo under the operator's
+  name (fill in the operator field first).
+- **Queue** — three sections, each one folding: **Ongoing** (the running
+  item), **Waiting** (in execution order, each with **Remove**) and
+  **History** (newest first, with the scan number and who started it);
+  **Clear** empties what waits. **Add to Queue** beside Start appends the
+  scan to the end (the same preflight, no title dialog); Start replaces a
+  waiting item after you say so. While the queue is stopped with items
+  waiting (a failed scan returns to its front), Add to Queue refuses
+  until you remove or clear them.
 - **Devices · move** — every numeric settable variable of the experiment,
   straight from the GEECS database, behind a type-ahead: type any fragment
   of the device, the variable or its alias to narrow the list. Pick one and
@@ -68,20 +116,28 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
   setpoint) with the reading's age; enter a value and **Move** queues a
   single move. Moves run only while the queue is idle — the panel's chip
   says `idle`, `a plan is running` or `items wait in the queue`.
-- **Actions** — the experiment's action library: pick a plan, preview
-  every step (nested plans inlined), **Arm**, then **Run**. Arming is never
-  remembered — it is asked for on every run. Idle only.
+- **Setups** — the experiment's setups (named device states): pick one,
+  preview every step (nested setups inlined, hazard steps marked), **Arm**,
+  then **Apply**. The scanner then asks you to confirm the setup's writes
+  and each hazard step before it queues one `apply_setup` item. Arming is
+  never remembered — it is asked for on every apply. Idle only. A device
+  the setup writes or checks that reads disconnected refuses the setup
+  before anything is written; one that drops off during the setup fails
+  the next check on it, naming the writes already made. (A native EPICS
+  motor has no disconnected reading yet, so it is not judged.)
 - **Calibration** — the stored per-device shot offsets, with **Check** and
   **Measure** verbs over the devices in the New scan table and the chosen
   trigger profile. Idle only.
 
 ## Running a scan
 
-![New scan with the background_dark preset loaded: Count mode, one essential camera, 50 shots](assets/scanner_02_new_scan_preset.png)
+![New scan with the background_dark preset loaded: Count mode, one required camera, 50 shots](assets/scanner_02_new_scan_preset.png)
 
 1. Pick a preset in **New scan**, or compose a scan and pick a trigger
    profile.
-2. Press **Start**. The page first runs the pre-submit **preflight**.
+2. Press **Start**. With **confirm title** ticked beside it (the default,
+   remembered per browser) Start first asks for the scan title, prefilled
+   from the description; then the page runs the pre-submit **preflight**.
    Refusals (an unknown name, a variable no device serves, a worker that
    is not ready) come back as text and nothing is queued. Warnings come
    back as *questions* — stale cameras, a trigger that looks off — in a
@@ -89,7 +145,7 @@ Tiled writer is keeping up (`tiled writer`). **Docs** opens this page.
    press **Submit to queue**. The acknowledgements are stamped into the
    run's metadata. A clean preflight queues the item at once — Start is
    not a dry run (the dry run is the API's `POST /api/preflight`).
-3. The item lands in the queue and, when the worker is idle, runs; **Now**
+3. The item lands in the queue and, when the worker is idle, runs; **Current**
    follows it shot by shot.
 4. **Stop scan…** aborts at the next safe point and restores the trigger
    to its standby state. An aborted scan's folder is kept, never deleted.
@@ -101,7 +157,7 @@ preset submitted from a notebook through `geecs_bluesky.qs_client` — or
 through the page's own JSON API, `POST /api/submit` — behaves exactly as
 one submitted from the form.
 
-![The queue, and the Devices · move, Actions and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
+![The queue, and the Devices · move, Setups and Calibration panels below it](assets/scanner_03_queue_and_tools.png)
 
 ## Where the data lands
 
@@ -128,9 +184,9 @@ The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.
   fix (the readiness unit reopens it); the page cannot do it.
 - **`doc stream` chip down while a scan runs** — the page still shows the
   queue's state, but no shot-by-shot progress. Scans are unaffected.
-- **Move, Actions and Calibration are held** — the move chip reads
+- **Move, Setups and Calibration are held** — the move chip reads
   `a plan is running` or `items wait in the queue`; they open again when
   the queue is idle.
 - **The scan folder is missing data** — start at the scan's `scan.log`
-  (the **Now** tail, or the file in the scan folder) and the repository's
+  (the **Current** tail, or the file in the scan folder) and the repository's
   `/triage` skill.

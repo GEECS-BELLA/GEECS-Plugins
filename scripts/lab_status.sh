@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# config.ini reader, endpoints (LAB_HOST, TILED_PORT, DATA_ROOT, DB_PORT,
+# config.ini reader, endpoints (LAB_HOST, TILED_HOST, TILED_PORT, DATA_ROOT, DB_PORT,
 # CA_PORT), printers and the bounded port probe — shared with fleet_status.sh.
 . "$(cd "$(dirname "$0")" && pwd)/lib/lab_env.sh"
 [ -n "$EXPERIMENT" ] || EXPERIMENT="$(config_experiment)"
@@ -47,40 +47,70 @@ if [ ! -f "$CONFIG" ]; then
     exit 1
 fi
 if [ -z "$LAB_HOST" ]; then
-    bad "[tiled] uri absent from config.ini — cannot derive the lab server host"
+    bad "neither [epics] ca_addr_list nor [tiled] uri in config.ini — cannot derive the CA gateway's host"
     exit 1
 fi
 
 NET_UP=1
 # Handshake-completing probe (see header): rc 0 reachable, 3 reachable-but-
 # blocked, 4 no connector available, 5 answered but handshake incomplete,
-# 137 the probe itself was killed at the wall (a stalled credential lookup
-# or connect — not a verdict), anything else = nothing answered. The probe's
-# line names the host:port it actually probed (INI target or fallback).
-db_line="$(mysql_probe "$LAB_HOST" "$DB_PORT")"
+# 6 no target (Configurations.INI did not resolve — not a verdict), 137 the
+# probe itself was killed at the wall (a stalled credential lookup or
+# connect — not a verdict), anything else = nothing answered. The probe's
+# line names the host:port it actually probed. No fallback host is passed:
+# the DB's address is Configurations.INI's alone (scripts/mysql_probe.py says
+# why no client-side value implies it).
+db_line="$(mysql_probe "" "$DB_PORT")"
 db_rc=$?
 db_target="$(printf '%s' "$db_line" | awk '{print $2}')"
 db_rest="$(printf '%s' "$db_line" | cut -d' ' -f3-)"
 case $db_rc in
     0) ok "MySQL       $db_target ($db_rest)" ;;
     3) warn "MySQL       $db_target answers but has BLOCKED this address (MySQL 1129: too many aborted connects — a bare port probe somewhere on the VPN); GeecsDb calls fail fast until a DB admin runs FLUSH HOSTS" ;;
-    4) skip "MySQL       $LAB_HOST:$DB_PORT not probed — ${db_line#no-connector }; a bare TCP probe is never the fallback" ;;
+    4) skip "MySQL       not probed — ${db_line#no-connector }; a bare TCP probe is never the fallback" ;;
     5) warn "MySQL       $db_target $db_rest" ;;
-    137) skip "MySQL       $LAB_HOST:$DB_PORT not probed — the probe was killed at its $(( TCP_TIMEOUT + 10 )) s wall (a stalled credential lookup on the data share, or a stalled connect); not a DB verdict" ;;
-    *) bad "MySQL       ${db_target:-$LAB_HOST:$DB_PORT} — GeecsDb calls would hang ~75 s; do not make them"; NET_UP=0 ;;
+    6) skip "MySQL       not probed — ${db_line#no-target }" ;;
+    137) skip "MySQL       not probed — the probe was killed at its $(( TCP_TIMEOUT + 10 )) s wall (a stalled credential lookup on the data share, or a stalled connect); not a DB verdict" ;;
+    *) bad "MySQL       ${db_target:-the DB named by Configurations.INI} — GeecsDb calls would hang ~75 s; do not make them"; NET_UP=0 ;;
 esac
-if port_open "$LAB_HOST" "$TILED_PORT"; then
-    version="$(curl -s -m "$TCP_TIMEOUT" "http://$LAB_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
-    ok "Tiled       $LAB_HOST:$TILED_PORT (v${version:-?})"
+if port_open "$TILED_HOST" "$TILED_PORT"; then
+    version="$(curl -s -m "$TCP_TIMEOUT" "http://$TILED_HOST:$TILED_PORT/api/v1/" | sed -nE 's/.*"library_version":"([^"]+)".*/\1/p')"
+    ok "Tiled       $TILED_HOST:$TILED_PORT (v${version:-?})"
 else
-    bad "Tiled       $LAB_HOST:$TILED_PORT"
+    bad "Tiled       $TILED_HOST:$TILED_PORT"
     NET_UP=0
 fi
 if port_open "$LAB_HOST" "$CA_PORT"; then
-    ok "CA gateway  $LAB_HOST:$CA_PORT (TCP only — liveness needs --hardware)"
+    ok "CA gateway  $LAB_HOST:$CA_PORT (first [epics] ca_addr_list entry; TCP only — liveness needs --hardware)"
 else
-    bad "CA gateway  $LAB_HOST:$CA_PORT"
+    bad "CA gateway  $LAB_HOST:$CA_PORT (first [epics] ca_addr_list entry)"
     NET_UP=0
+fi
+# The other [epics] ca_addr_list entries — a second experiment's gateway on
+# its own CA port, the native IOC hosts — probed in parallel (one timeout
+# for all of them, however many) and summed up in one line, with a line per
+# entry that does not answer. None of them is the network verdict: the
+# first entry (the gateway) is. The probe is a function, not an inline
+# `case`: bash 3.2 (macOS's /bin/bash) cannot parse `case … pattern)` inside
+# `$( … )` — the unbalanced paren ends the substitution early.
+ca_entry_probe() {  # ca_entry_probe HOST[:PORT] — "up host:port" or "down host:port"; 5064 when no port is given
+    local e="$1" h p
+    h="${e%%:*}"; p="${e##*:}"; [ "$p" != "$e" ] || p=5064
+    if port_open "$h" "$p"; then echo "up $h:$p"; else echo "down $h:$p"; fi
+}
+CA_ADDR_REST="${CA_ADDR_ENTRIES#"$CA_ADDR_FIRST"}"
+if [ -n "${CA_ADDR_REST// /}" ]; then
+    ca_rest_results="$(for e in $CA_ADDR_REST; do ca_entry_probe "$e" & done; wait)"
+    ca_rest_all="$(printf '%s\n' "$ca_rest_results" | grep -c .)"
+    ca_rest_up="$(printf '%s\n' "$ca_rest_results" | grep -c '^up ')"
+    if [ "$ca_rest_up" -eq "$ca_rest_all" ]; then
+        ok "CA entries  $ca_rest_up of $ca_rest_all further [epics] ca_addr_list entries answer (TCP)"
+    else
+        warn "CA entries  $ca_rest_up of $ca_rest_all further [epics] ca_addr_list entries answer (TCP)"
+        while read -r hp; do
+            [ -n "$hp" ] && warn "CA entry    $hp not listening (an instance gateway or an IOC host; not the network verdict)"
+        done <<< "$(printf '%s\n' "$ca_rest_results" | sed -n 's/^down //p' | sort)"
+    fi
 fi
 if [ -n "$ARCHIVER_HOST" ]; then
     # The Archiver Appliance: its own management API answers the version.
@@ -104,7 +134,7 @@ if [ -n "$DATA_ROOT" ]; then
 else
     skip "Data mount  (GEECS_DATA_LOCAL_BASE_PATH not in config.ini)"
 fi
-# Crude VPN-vs-lab hint: round-trip time to the lab server.
+# Crude VPN-vs-lab hint: round-trip time to the gateway's host.
 rtt="$(ping -c 1 -t 2 "$LAB_HOST" 2>/dev/null | sed -nE 's/.*time=([0-9.]+) ms.*/\1/p')"
 if [ -n "$rtt" ]; then
     echo "  rtt ${rtt} ms  (rule of thumb: <5 ms on-site, more = VPN — expect ~5 s/shot free-run scans)"

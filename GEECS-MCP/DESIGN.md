@@ -21,12 +21,14 @@ columns.
 - Logbook posts go to the **scans** book; every submission and every
   entry carries the identity string `agent, admin supervision (<operator>)`.
 - No campaign envelope, budget or token.
-- Deployed as the existing `geecs-mcp` systemd unit on the gateway box,
+- Deployed as the existing `geecs-mcp` systemd unit on the services box,
   replacing the nohup 0.9.0 process.
 
 The two PMQ alignment campaigns (2026-10-08, 2026-10-15) ran this loop
-by hand against the same three HTTP APIs; this server packages that
-practice as tools and nothing more. The approach page shared with the
+by hand against the same three HTTP APIs before the redesign; the results
+for 2026-10-15 are in the logbook's scans book (Scan046, entry
+`/entry/37454df6ea02`). This server packages that practice as tools and
+nothing more. The approach page shared with the
 OSPREY team (the "approach page" below) lives with the htu-assistant
 deployment, not in this repo.
 
@@ -309,16 +311,18 @@ route accepts images and PDFs only.
   and `operator` pass through; the scanner records them and today acts
   regardless (its ownership registry is a later scanner PR). The MCP's
   own ownership check goes with `client_identity`: the queue item's
-  `user` is now the scanner's identity for every submitter.
+  `user` is the operator the submission recorded (for the MCP, its
+  `agent, admin supervision (<operator>)` line), the scanner's identity
+  only when none was sent.
 
 ### 4.8 Two portal additions (PR B)
 
 The portal has no analyzer catalog independent of a scan (the Analysis
-tab lists per run; the editor's `/configs/api/list` exists only behind
+tab lists per run; the old config editor's `/configs/api/list` existed only behind
 `--config-editor`, a write surface). A small read route returning
 `{analyzers: [{id, device, output_dir, destructive, kind}], groups: [{id, members}]}`
 from the same processing tree the portal already loads
-(`PortalState.processing_infos()` + the ScanAnalysis config store the
+(`PortalState.processing_infos()` + the ScanAnalysis group loader the
 analysis extra brings) serves `list_analyzers` / `list_analysis_groups`
 and is useful to the tab too. The second is the `path` image source on
 `POST /api/run/{uid}/logbook` (§4.6). One portal PR, ~100 lines with
@@ -393,7 +397,7 @@ operator is `invalid_request`. Where it lands:
 | Service | Field | Note |
 |---|---|---|
 | scanner submit | `SubmitIn.operator` → `md.geecs.operator` on the run | `SubmissionRecord.client` stays the scanner's own identity (`geecs-scanner <version>`) — the record names the service that queued it; the operator field names who |
-| scanner move / verbs | `MoveIn.operator`, `VerbIn.operator` | `ScannerService.move` never reads `body.operator` today (the verbs log it only on `force`); a two-line scanner change stamps `md.geecs.operator` on idle-only items (move, action, calibration) — proposed in §9 |
+| scanner move / verbs | `MoveIn.operator`, `VerbIn.operator` | `ScannerService.move` never reads `body.operator` today (the verbs log it only on `force`); a two-line scanner change stamps `md.geecs.operator` on idle-only items (move, setup, calibration) — proposed in §9 |
 | logbook | `author` on create; `author` on each portal send (its `editor` on the append) | ≤120 chars; the entry's `kind: agent_analysis` + `status: draft` is the machine-readable half |
 
 `operator` is an argument rather than a config value because it names a

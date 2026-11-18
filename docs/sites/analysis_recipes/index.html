@@ -475,7 +475,7 @@ function render(id){
   if(!e&&id){
     document.getElementById("crumb").textContent=id;
     body.appendChild(h("h2",{},esc(id)));
-    body.appendChild(h("p",{},"This page has no card for that name yet: it is newer than the page's embedded data. Rerun <code>make_examples.py</code> beside this page to add it. Until then, the config editor's help line and parameter descriptions come straight from the code."));
+    body.appendChild(h("p",{},"This page has no card for that name yet: it is newer than the page's embedded data. Rerun <code>make_examples.py</code> beside this page to add it. Until then, the recipe form's help line and parameter descriptions come straight from the code."));
     document.querySelectorAll("#picker button").forEach(b=>b.setAttribute("aria-current","false"));return;}
   id=(e||ENTRIES[0]).id;
   const [role,...rest]=id.split("-");const name=rest.join("-");

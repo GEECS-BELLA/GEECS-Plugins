@@ -85,3 +85,18 @@ def test_gateway_status_pv_is_the_cagateway_namespace() -> None:
         "undulator:cagateway:devices_connected",
     ]
     assert gateway_status_pv(None, "RESTART") == "cagateway:restart"
+
+
+def test_native_device_prefix_is_the_normalized_pair_and_a_colon() -> None:
+    from geecs_core.pv_naming import native_device_prefix
+
+    assert (
+        native_device_prefix("Undulator", "UC_VisaEBeam6") == "undulator:uc_visaebeam6:"
+    )
+    assert native_device_prefix(None, "ADTEST_CAM1") == "adtest_cam1:"
+
+
+def test_ioc_heartbeat_pv_is_the_upper_cased_ioc_name() -> None:
+    from geecs_core.pv_naming import ioc_heartbeat_pv
+
+    assert ioc_heartbeat_pv("adtest-cam1") == "ADTEST-CAM1:HEARTBEAT"

@@ -113,8 +113,22 @@ def _acq_timestamp(detail, device: str, shot: int) -> tuple[Optional[float], boo
     :func:`geecs_data_utils.io.shot_images.row_acq_timestamp` over the
     run's event table: ``(None, True)`` means the device missed the shot
     and the caller must refuse rather than serve a neighbour's image.
+
+    A device the run's shot table joined (``RunDetail.shots``: a gated
+    run's cameras, a per-shot stream) gives its assigned record's stamp,
+    or ``(None, True)`` on a gap. On rows that are not frames (gated,
+    shot-table) a device with neither is ``(None, True)`` too: no ordinal
+    fallback there.
     """
-    return shot_images.row_acq_timestamp(detail.data, device, shot)
+    frame = detail.data
+    ordinal_ok = getattr(detail, "rows_are_frames", True)
+    if frame is None or shot < 1 or shot > len(frame):
+        return (None, not ordinal_ok)  # a gated run with no rows: never ordinal
+    shots = detail.shots() if hasattr(detail, "shots") else None
+    if shots is not None and shots.covers(device):
+        return (shots.stamp_for(device, shot), True)
+    value, present = shot_images.row_acq_timestamp(frame, device, shot)
+    return (value, present or not ordinal_ok)
 
 
 def _file_shot(detail, shot: int, folder: Optional[Path] = None) -> Optional[int]:

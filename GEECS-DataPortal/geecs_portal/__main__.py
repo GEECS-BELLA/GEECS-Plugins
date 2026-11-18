@@ -145,12 +145,13 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--config-editor",
-        action="store_true",
+        "--configurator-browser-url",
+        default="",
         help=(
-            "mount the analysis config editor at /configs over the "
-            "--processing-configs tree (a WRITE verb: saves YAML into that "
-            "tree; live preview on the scan page). Needs the analysis extra."
+            "the configurator as the browser reaches it (a site value, e.g. "
+            "http://<services host>:8800): the Analysis tab's edit opens the "
+            "document in its embedded editor, with this portal's preview; the "
+            "configurator lists this portal's origin in its CORS origins"
         ),
     )
     parser.add_argument(
@@ -158,8 +159,8 @@ def main() -> None:
         default="",
         help=(
             "URL prefix the portal is mounted under behind a PREFIX-PRESERVING "
-            "reverse proxy (e.g. /portal): the /static and /theme mounts then "
-            "answer at the prefixed path only. A proxy that strips the prefix "
+            "reverse proxy (e.g. /portal): the /theme mount then "
+            "answers at the prefixed path only. A proxy that strips the prefix "
             "must send X-Forwarded-Prefix instead, which overrides this per "
             "request (DEPLOYMENT.md § Behind a reverse proxy)"
         ),
@@ -173,6 +174,18 @@ def main() -> None:
             "/log to it, then /log — a path is same-origin and carries the "
             "portal's own prefix). Empty hides the link; the portal never "
             "mounts the logbook"
+        ),
+    )
+    parser.add_argument(
+        "--logbook-browser-url",
+        default="",
+        help=(
+            "the logbook as the browser reaches it, when that differs from "
+            "--logbook-url (a site value, e.g. https://<front door>/<experiment>/logbook): "
+            "every link uses it, while the plot send keeps posting to "
+            "--logbook-url, an address this process dials; empty = links use "
+            "--logbook-url. Absolute only (a path would take this portal's own "
+            "prefix)"
         ),
     )
     parser.add_argument(
@@ -245,7 +258,6 @@ def main() -> None:
         processing_config_dir=(
             Path(args.processing_configs) if args.processing_configs else None
         ),
-        config_editor=args.config_editor,
         logbook_url=args.logbook_url,
         worker=worker,
         plotter=create_plotter(
@@ -254,6 +266,8 @@ def main() -> None:
             mount="/plot",
             logbook_url=args.logbook_url,
         ),
+        logbook_browser_url=args.logbook_browser_url,
+        configurator_url=args.configurator_browser_url,
     )
     server = uvicorn.Server(
         uvicorn.Config(

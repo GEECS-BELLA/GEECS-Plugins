@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "SamplingOverride": {
+      "additionalProperties": false,
+      "description": "A sampling rule for the PVs matching one glob.\n\nGlobs are ``fnmatch`` patterns over the full, lowercase PV name\n(``undulator:u_vacuumgauge:*``).  The last matching override wins per\nfield.  At least one of ``sampling_period`` or ``sampling_method`` must be\ngiven.  The values are sent to the appliance with the archive request\n(its \"user-specified sampling\"), so what this file says is what the\nappliance does \u2014 there is no second table of named policies to agree with.",
+      "properties": {
+        "match": {
+          "description": "fnmatch glob over the full lowercase PV name.",
+          "minLength": 1,
+          "title": "Match",
+          "type": "string"
+        },
+        "sampling_period": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sampling period in seconds (the appliance's samplingperiod).",
+          "title": "Sampling Period"
+        },
+        "sampling_method": {
+          "anyOf": [
+            {
+              "enum": [
+                "MONITOR",
+                "SCAN"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MONITOR (store every change the appliance is sent; the period only sizes its buffer) or SCAN (store the latest value once per period).",
+          "title": "Sampling Method"
+        }
+      },
+      "required": [
+        "match"
+      ],
+      "title": "SamplingOverride",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The experiment's archive-set exceptions and sampling defaults.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "exclude": {
+      "description": "fnmatch globs over full lowercase PV names that the derived rule would include but this experiment does not archive.",
+      "items": {
+        "type": "string"
+      },
+      "tier": "maintainer",
+      "title": "Exclude",
+      "type": "array"
+    },
+    "include": {
+      "description": "Full PV names to archive beyond what the rule derives (e.g. a gateway diagnostic such as 'undulator:cagateway:uptime'). Listed PVs are never paused by onboarding; 'exclude' does not apply to them.",
+      "items": {
+        "type": "string"
+      },
+      "tier": "maintainer",
+      "title": "Include",
+      "type": "array"
+    },
+    "include_setpoints": {
+      "default": true,
+      "description": "Archive the ':SP' setpoint PV of every settable variable. They change only on puts and carry the operator's intent and the refused-write alarm history.",
+      "tier": "maintainer",
+      "title": "Include Setpoints",
+      "type": "boolean"
+    },
+    "include_status": {
+      "default": true,
+      "description": "Archive every device's 'connected' status PV (state changes only) and the gateway's own heartbeat and devices_connected.",
+      "tier": "maintainer",
+      "title": "Include Status",
+      "type": "boolean"
+    },
+    "include_derived": {
+      "default": true,
+      "description": "Archive the gateway's derived channels declared in the experiment's gateway/derived_channels.yaml.",
+      "tier": "maintainer",
+      "title": "Include Derived",
+      "type": "boolean"
+    },
+    "default_sampling_period": {
+      "default": 1.0,
+      "description": "Sampling period (seconds) for PVs no override matches.",
+      "exclusiveMinimum": 0,
+      "title": "Default Sampling Period",
+      "type": "number"
+    },
+    "default_sampling_method": {
+      "default": "MONITOR",
+      "description": "Sampling method for PVs no override matches.",
+      "enum": [
+        "MONITOR",
+        "SCAN"
+      ],
+      "title": "Default Sampling Method",
+      "type": "string"
+    },
+    "sampling_overrides": {
+      "description": "Per-glob sampling rules; the last matching entry wins per field.",
+      "items": {
+        "$ref": "#/$defs/SamplingOverride"
+      },
+      "title": "Sampling Overrides",
+      "type": "array"
+    }
+  },
+  "tier": "operator",
+  "title": "ArchivePolicy",
+  "type": "object"
+}

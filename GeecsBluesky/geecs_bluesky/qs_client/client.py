@@ -21,13 +21,16 @@ A client submits a **plan item**: a name from
 by name (:meth:`QueueClient.submit_plan`), or a saved preset expanded
 into one (:meth:`QueueClient.submit_preset`).  On plan failure the
 manager returns the failed item to the **front** of the queue, so the
-submit verbs surface the queue's front items (``pending_items``) and
-clear them only when told to (``clear_pending=True``).
+submit verbs surface the queue's front items (``pending_items``): cleared on
+``clear_pending=True``, added behind on ``append=True`` in a started queue.
 """
 
 from __future__ import annotations
 
+import contextlib
+
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -52,6 +55,13 @@ _CONTROL_PORT = 60615
 _INFO_PORT = 60625
 _DOC_PORT = 5568
 
+#: Per-process overrides of the three addresses, in field order. config.ini is
+#: one file per account, shared by every experiment instance on a host; an
+#: instance's units carry these keys (deploy/experiments.env.example). Names
+#: of their own, never site.env's: the main units read site.env too, and its
+#: ``QS_CONTROL_ADDR`` is the readiness unit's key alone.
+_ENV_KEYS = ("QS_CLIENT_CONTROL_ADDR", "QS_CLIENT_INFO_ADDR", "QS_CLIENT_DOC_ADDR")
+
 #: Bound on one control-socket round trip (seconds). Chosen above the api's
 #: 2 s default recv timeout so a wedged manager degrades to "disconnected"
 #: instead of stacking retries.
@@ -61,6 +71,14 @@ _RECV_TIMEOUT_S = 2.0
 #: before giving up. The pause waits out an in-flight blocking move (the
 #: engine's pause-latency floor), so this must cover the slowest move.
 _STOP_PAUSE_TIMEOUT_S = 120.0
+
+#: How long the environment verbs wait for the manager to settle (seconds):
+#: a close is quick; an open imports the startup profile and builds the
+#: device namespace from the GEECS DB (the readiness unit's budget).
+ENVIRONMENT_CLOSE_TIMEOUT_S = 120.0
+ENVIRONMENT_OPEN_TIMEOUT_S = 600.0
+#: Poll interval while the close waits.
+_ENVIRONMENT_POLL_S = 1.0
 
 
 @dataclass(frozen=True)
@@ -73,19 +91,48 @@ class QserverConfig:
 
 
 def read_qserver_config() -> Optional[QserverConfig]:
-    """Read the ``[qserver]`` section of the shared GEECS config file.
+    """The manager's addresses: the environment's, else config.ini's ``[qserver]``.
 
-    Keys: ``host`` (required — the worker machine) plus optional full
-    overrides ``control_addr`` (``tcp://host:60615``), ``info_addr``
+    ``QS_CLIENT_CONTROL_ADDR`` / ``QS_CLIENT_INFO_ADDR`` /
+    ``QS_CLIENT_DOC_ADDR`` each override
+    their field — how an experiment instance's scanner reaches its own
+    manager while config.ini (one per account) names the main one.  With
+    no config.ini ``[qserver]``, all three must be set.
+
+    config.ini keys: ``host`` (required — the worker machine) plus optional
+    full overrides ``control_addr`` (``tcp://host:60615``), ``info_addr``
     (``tcp://host:60625``), and ``doc_addr`` (``host:5568``).  Defaults are
     derived from ``host`` with the deployment-standard ports.
 
     Returns
     -------
     QserverConfig or None
-        ``None`` when the file or section is absent — clients then run
+        ``None`` when neither source names a manager — clients then run
         with the stub client (submission disabled, everything else works).
     """
+    env = [os.environ.get(key, "").strip() for key in _ENV_KEYS]
+    from_file = _read_qserver_section()
+    if from_file is None:
+        if all(env):
+            return QserverConfig(*env)
+        if any(env):
+            logger.warning(
+                "%s set without the others and no config.ini [qserver] — "
+                "set all three, or none",
+                ", ".join(k for k, v in zip(_ENV_KEYS, env) if v),
+            )
+        return None
+    control, info, doc = (
+        override or default
+        for override, default in zip(
+            env, (from_file.control_addr, from_file.info_addr, from_file.doc_addr)
+        )
+    )
+    return QserverConfig(control_addr=control, info_addr=info, doc_addr=doc)
+
+
+def _read_qserver_section() -> Optional[QserverConfig]:
+    """config.ini's ``[qserver]`` alone; ``None`` when absent or empty."""
     import configparser
 
     path = _USER_CONFIG_PATH.expanduser()
@@ -366,12 +413,15 @@ class QueueClient(Protocol):
         args: Sequence[Any] = (),
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        append: bool = False,
     ) -> SubmitResult:
         """Queue the plan *name* with *args* / *kwargs* and start the queue.
 
         Devices are named (``"UC_Amp4_IR_input"``, ``"U_S1H.current"``):
         the manager resolves them against the worker namespace.  *name*
         must be one of :data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`.
+        *append* adds behind waiting items while the queue is started; in a
+        stopped queue waiting items still refuse (``pending_items``).
         """
         ...
 
@@ -383,6 +433,7 @@ class QueueClient(Protocol):
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
         resolver: ConfigsRepoResolver | None = None,
+        append: bool = False,
     ) -> SubmitResult:
         """Expand a :class:`geecs_schemas.Preset` and queue it (:func:`~.presets.expand_preset`).
 
@@ -429,6 +480,39 @@ class QueueClient(Protocol):
         deliberately separate from submission (``submit_scan`` never
         clears implicitly; see ``clear_pending``).
         """
+        ...
+
+    def remove_item(self, uid: str) -> tuple[bool, str]:
+        """Remove one WAITING item by uid; the running item is never removed.
+
+        A uid that is not waiting is refused (``(False, message)``); a
+        manager failure raises, like the reads.
+        """
+        ...
+
+    def environment_close(
+        self, *, timeout: float = ENVIRONMENT_CLOSE_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Close the worker environment and wait until it is closed; ``(ok, message)``.
+
+        No idle check of its own: the caller decides when a close is safe
+        (the scanner's reopen holds its lock and requires idle and empty).
+        """
+        ...
+
+    def environment_open(
+        self, *, timeout: float = ENVIRONMENT_OPEN_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Open the worker environment and wait until the manager is ready; ``(ok, message)``.
+
+        Ready is :func:`readiness_verdict`'s: the plan list too, not the
+        environment alone. An open that settles back to closed (the startup
+        profile failed to import) is ``(False, ...)`` naming the worker's journal.
+        """
+        ...
+
+    def queue_start(self) -> tuple[bool, str]:
+        """Start the queue (its waiting items run in order); ``(ok, message)``."""
         ...
 
     def allowed_plan_names(self) -> list[str]:
@@ -484,6 +568,7 @@ class StubQueueClient:
         args: Sequence[Any] = (),
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        append: bool = False,
     ) -> SubmitResult:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
@@ -496,6 +581,7 @@ class StubQueueClient:
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
         resolver: ConfigsRepoResolver | None = None,
+        append: bool = False,
     ) -> SubmitResult:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
@@ -524,7 +610,27 @@ class StubQueueClient:
         """Refuse with the missing-config message."""
         raise RuntimeError(_STUB_MESSAGE)
 
+    def remove_item(self, uid: str) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
+
     def clear_queue(self) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
+
+    def environment_close(
+        self, *, timeout: float = ENVIRONMENT_CLOSE_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
+
+    def environment_open(
+        self, *, timeout: float = ENVIRONMENT_OPEN_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
+
+    def queue_start(self) -> tuple[bool, str]:
         """Refuse with the missing-config message."""
         return False, _STUB_MESSAGE
 
@@ -614,6 +720,7 @@ class ZmqQueueClient:
         *,
         clear_pending: bool,
         kwargs: Optional[dict] = None,
+        append: bool = False,
     ) -> SubmitResult:
         """Shared add-and-start with the failed-item-at-front guard.
 
@@ -633,7 +740,16 @@ class ZmqQueueClient:
         try:
             queue = api.queue_get()
             pending = list(queue.get("items") or [])
-            if pending and not clear_pending:
+            # Behind a started queue nothing failed sits at the front; a
+            # stopped queue keeps the refusal.  The state is a second request,
+            # so a plan failing in between leaves the same window the busy
+            # start below has.
+            appending = (
+                append
+                and bool(pending)
+                and self.status().manager_state in _QUEUE_STARTED_MANAGER_STATES
+            )
+            if pending and not (clear_pending or appending):
                 return SubmitResult(
                     ok=False,
                     message=(
@@ -643,7 +759,7 @@ class ZmqQueueClient:
                     ),
                     pending_items=pending,
                 )
-            if pending:
+            if pending and not appending:
                 api.queue_clear()
             item = BPlan(plan_name, *args, **(kwargs or {}))
             response = api.item_add(item, user=self._user)
@@ -696,6 +812,7 @@ class ZmqQueueClient:
         args: Sequence[Any] = (),
         kwargs: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
+        append: bool = False,
     ) -> SubmitResult:
         """Queue one plan item; refuse a name the worker does not register."""
         if name not in GEECS_PLAN_NAMES:
@@ -707,7 +824,11 @@ class ZmqQueueClient:
                 ),
             )
         return self._submit_item(
-            name, list(args), kwargs=dict(kwargs or {}), clear_pending=clear_pending
+            name,
+            list(args),
+            kwargs=dict(kwargs or {}),
+            clear_pending=clear_pending,
+            append=append,
         )
 
     def submit_preset(
@@ -718,6 +839,7 @@ class ZmqQueueClient:
         md: Optional[Mapping[str, Any]] = None,
         clear_pending: bool = False,
         resolver: ConfigsRepoResolver | None = None,
+        append: bool = False,
     ) -> SubmitResult:
         """Expand the preset and queue it; an expansion refusal is the message."""
         from geecs_bluesky.exceptions import GeecsConfigurationError
@@ -725,10 +847,23 @@ class ZmqQueueClient:
 
         try:
             item = expand_preset(preset, catalog=catalog, md=md, resolver=resolver)
+            if "required" in item.kwargs:
+                # Some device is not required: the tree tells the conditions
+                # (no shot stamp) apart, which are never required.
+                tree: list[str] | None = None
+                with contextlib.suppress(Exception):  # the submit reports the manager
+                    tree = self.allowed_device_names()
+                item = expand_preset(
+                    preset, catalog=catalog, md=md, resolver=resolver, device_tree=tree
+                )
         except GeecsConfigurationError as exc:
             return SubmitResult(ok=False, message=str(exc))
         return self.submit_plan(
-            item.name, args=item.args, kwargs=item.kwargs, clear_pending=clear_pending
+            item.name,
+            args=item.args,
+            kwargs=item.kwargs,
+            clear_pending=clear_pending,
+            append=append,
         )
 
     def request_pause(self) -> tuple[bool, str]:
@@ -806,13 +941,92 @@ class ZmqQueueClient:
         raw = self._manager().queue_get().get("running_item") or None
         return dict(raw) if raw else None
 
+    def remove_item(self, uid: str) -> tuple[bool, str]:
+        """Remove one waiting item; a uid not waiting (the running one) is refused.
+
+        A refusal is ``(False, message)``; a manager failure raises.
+        """
+        api = self._manager()
+        waiting = [i.get("item_uid") for i in api.queue_get().get("items") or []]
+        if uid not in waiting:
+            return False, f"{uid} is not waiting in the queue"
+        api.item_remove(uid=uid)
+        return True, "removed"
+
     def clear_queue(self) -> tuple[bool, str]:
         """Remove every queued item (the explicit recovery verb)."""
+        return self._call_verb("queue_clear", "queue cleared")
+
+    def _call_verb(self, verb: str, done: str) -> tuple[bool, str]:
+        """One argument-less manager verb by name: ``(True, done)``, or ``(False, the error)``."""
         try:
-            self._manager().queue_clear()
-            return True, "queue cleared"
+            getattr(self._manager(), verb)()
         except Exception as exc:  # noqa: BLE001 — manager call, error reply
             return False, str(exc)
+        return True, done
+
+    #: The pause between polls while an environment verb waits (a seam tests set to 0).
+    _environment_poll_s = _ENVIRONMENT_POLL_S
+
+    def _wait(
+        self, settled: Callable[[QueueStatus], Optional[str]], timeout: float, what: str
+    ) -> tuple[bool, str]:
+        """Poll ``status`` until *settled* answers ``""`` (done) or a reason (failed), or the deadline."""
+        deadline = time.monotonic() + timeout
+        last = QueueStatus()
+        while True:
+            last = self.status()
+            if last.connected:
+                verdict = settled(last)
+                if verdict is not None:
+                    return (verdict == "", verdict or f"{what}: done")
+            if time.monotonic() >= deadline:
+                return False, (
+                    f"{what}: not settled within {timeout:.0f} s "
+                    f"(manager_state={last.manager_state!r}, "
+                    f"worker_environment_state={last.worker_environment_state!r}"
+                    f"{', ' + last.detail if last.detail else ''})"
+                )
+            time.sleep(self._environment_poll_s)
+
+    def environment_close(
+        self, *, timeout: float = ENVIRONMENT_CLOSE_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Close the worker environment, then wait for the manager idle with none."""
+        ok, why = self._call_verb("environment_close", "")
+        if not ok:
+            return False, f"environment close refused: {why}"
+
+        def closed(st: QueueStatus) -> Optional[str]:
+            return "" if not st.worker_exists and st.manager_state == "idle" else None
+
+        return self._wait(closed, timeout, "environment close")
+
+    def environment_open(
+        self, *, timeout: float = ENVIRONMENT_OPEN_TIMEOUT_S
+    ) -> tuple[bool, str]:
+        """Open the worker environment and wait until the manager is ready: the readiness unit's own rule.
+
+        :func:`~geecs_bluesky.qs_client.ready.ensure_ready` over the
+        readiness unit's own transport to this client's control address (one
+        bounded request per call, the restore given its longer budget): open
+        when closed, wait the open out (one that collapses names the startup
+        profile), then the plan list settled and, if its download timed out,
+        restored once from the worker's copy on disk (GEECS-Plugins#838). An
+        environment that reads up with an empty plan list would refuse every
+        submission.
+        """
+        from geecs_bluesky.qs_client import ready
+
+        try:
+            ready.ensure_ready(ready.zmq_request(self._config.control_addr), timeout_s=timeout, log=logger.info)  # fmt: skip
+        except ready.NotReady as exc:
+            return False, str(exc)
+        return True, "environment open: ready"
+
+    def queue_start(self) -> tuple[bool, str]:
+        """Start the queue."""
+        return self._call_verb("queue_start", "queue started")
 
     def allowed_plan_names(self) -> list[str]:
         """The manager's ``plans_allowed`` for this client's user group.

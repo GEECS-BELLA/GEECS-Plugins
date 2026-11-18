@@ -19,6 +19,8 @@ read live.
   :mod:`geecs_bluesky.plans.strict`).  A typed ``str`` signal has no
   enum edge to trip over.
 
+- :func:`down_natives` — native devices (no ``CONNECTED``): a judge that raises is down.
+
 ``aioca`` is imported lazily on first use (the ``ca`` extra).
 """
 
@@ -26,7 +28,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any, Iterable
+from typing import Any, Awaitable, Callable, Iterable, Sequence
+
+import asyncio
 
 import bluesky.plan_stubs as bps
 
@@ -130,3 +134,32 @@ def probe_disconnected(
         for device, reading in zip(names, readings)
         if reading is not None and str(reading) == GATEWAY_DISCONNECTED
     ]
+
+
+def down_natives(found: Sequence[Any], judge: Callable[[Any], Awaitable[bool]]):
+    """Plan: the GEECS names of the native devices in *found* that *judge* says are down.
+
+    Not the gateway's fail-open rule: a native device's word comes from its
+    own IOC, so a judge that raises (an IOC that never answered, or died
+    after an earlier connect) means down, logged at WARNING.  The judges run
+    concurrently; each bounds its own wait.
+    """
+    if not found:
+        return []
+
+    async def run() -> list[bool | BaseException]:
+        return await asyncio.gather(*(judge(d) for d in found), return_exceptions=True)
+
+    (task,) = yield from bps.wait_for([run])
+    down: list[str] = []
+    for device, verdict in zip(found, task.result()):
+        if isinstance(verdict, BaseException):
+            logger.warning(
+                "liveness: %s IOC did not answer (%s: %s) — down",
+                device._geecs_device_name,
+                type(verdict).__name__,
+                " ".join(str(verdict).split()),
+            )
+        if isinstance(verdict, BaseException) or verdict:
+            down.append(device._geecs_device_name)
+    return down

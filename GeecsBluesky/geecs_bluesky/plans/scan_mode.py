@@ -8,12 +8,11 @@ The device is :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`;
   claims no scan number, the liveness gate's posture), and ends it in a
   finalizer before STANDBY, on every exit path but ``RE.halt()``.
 - :func:`run_device_names` is the ``ScanStart`` gate's list: the run's
-  detectors (their owners), its non-essential devices and the profile's
-  box.  Movers and the background telemetry are not required: an unlocked
+  detectors (their owners) and the profile's box.  Movers and the background telemetry are not required: an unlocked
   mover still takes sets, and a background readback is read from the
   gateway's cache either way.
 - :func:`scan_mode_preflight` refuses, before the box is driven, what scan
-  mode cannot carry: a gated run, a worker without the control or the
+  mode cannot carry: a worker without the control or the
   experiment's endpoint, a run device the roster lacks, a profile write
   that disagrees with the device's own DB boundary row (the device applies
   its ``startvalue`` on ``ScanStart``, after the bracket's ARMED), an
@@ -64,19 +63,17 @@ _BOUNDARY_PAIRS: tuple[tuple[TriggerState, str], ...] = (
 
 
 def run_device_names(
-    detectors: Sequence[Any],
-    non_essential: Sequence[Any] = (),
-    shot_control: Any | None = None,
+    detectors: Sequence[Any], shot_control: Any | None = None
 ) -> tuple[str, ...]:
     """The GEECS devices the entry waits for, in plan order, each once.
 
-    The detectors' owners (a ``.scalars`` view names its owner), the
-    non-essential devices' owners, then the trigger profile's device(s);
+    The detectors' owners (a ``.scalars`` view names its owner), then the
+    trigger profile's device(s);
     a plan-side object with no GEECS device behind it (the bin counter,
     the background snapshot) is skipped.
     """
     names: dict[str, None] = {}
-    for obj in [*detectors, *non_essential]:
+    for obj in detectors:
         device = geecs_device_of(obj)
         if device:
             names.setdefault(device)
@@ -252,7 +249,6 @@ def scan_mode_preflight(
     shot_control: Any,
     control: ScanModeControl | None,
     *,
-    acquisition: str,
     run_devices: Sequence[str],
 ) -> None:
     """Refuse, before the box is driven, a run scan mode cannot carry.
@@ -262,12 +258,6 @@ def scan_mode_preflight(
     cause.  Runs only for a profile with ``use_scan_mode``.
     """
     name = getattr(shot_control, "profile_name", "?")
-    if acquisition != "strict":
-        raise GeecsConfigurationError(
-            f"trigger profile {name!r} runs in scan mode, which is strict "
-            "only: a gated batch has no per-shot announce (use "
-            "acquisition='strict', or a profile without use_scan_mode)"
-        )
     if control is None:
         raise GeecsConfigurationError(
             f"trigger profile {name!r} asks for scan mode but this worker has "

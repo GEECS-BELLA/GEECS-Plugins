@@ -1,0 +1,688 @@
+[
+ [
+  "start",
+  {
+   "uid": "90542949-e026-4b3a-a529-b2990b48db40",
+   "time": 1794707026.7202072,
+   "versions": {
+    "ophyd": "1.11.2",
+    "ophyd_async": "0.19.3",
+    "bluesky": "1.15.0",
+    "event_model": "1.23.1"
+   },
+   "scan_id": 1,
+   "plan_type": "generator",
+   "plan_name": "sweep",
+   "trigger_profile": "HTU-Test",
+   "use_scan_mode": false,
+   "shots_per_step": 2,
+   "acquisition": "gated",
+   "non_essential": [],
+   "native_image_save": true,
+   "background_telemetry": false,
+   "witness": null,
+   "shot_clock": "UC_A",
+   "shot_clock_column": "uc_a-acq_timestamp",
+   "sweep": {
+    "trajectory": {
+     "kind": "axes",
+     "axes": [
+      {
+       "axis": "Motor",
+       "relative": false,
+       "kind": "range",
+       "start": -1.0,
+       "stop": 1.0,
+       "num": 2
+      }
+     ],
+     "combine": "zip",
+     "snake": false
+    }
+   },
+   "sweep_first_axis": [
+    -1.0,
+    1.0,
+    2.0
+   ],
+   "detectors": [
+    "uc_a",
+    "uc_b",
+    "u_gauge"
+   ],
+   "motors": [
+    "u_s1h-current"
+   ],
+   "num_points": 2,
+   "num_intervals": 1,
+   "shape": [
+    2
+   ],
+   "extents": [
+    [
+     -1.0,
+     1.0
+    ]
+   ],
+   "snaking": [
+    false
+   ],
+   "hints": {},
+   "scan_number": 1,
+   "scan_folder": "/data/TestExp/scans/Scan001",
+   "experiment": "TestExp",
+   "scan_tag": {
+    "year": 2026,
+    "month": 9,
+    "day": 10,
+    "number": 1,
+    "experiment": "TestExp"
+   },
+   "geecs_scalar_headers": {
+    "uc_a-meancounts": "UC_A MeanCounts",
+    "uc_a-acq_timestamp": "UC_A acq_timestamp",
+    "uc_b-meancounts": "UC_B MeanCounts",
+    "uc_b-acq_timestamp": "UC_B acq_timestamp",
+    "u_gauge-pressure": "U_Gauge Pressure",
+    "u_s1h-current-position": "U_S1H Current"
+   }
+  }
+ ],
+ [
+  "descriptor",
+  {
+   "configuration": {
+    "shot_sampler": {
+     "data": {},
+     "timestamps": {},
+     "data_keys": {}
+    }
+   },
+   "data_keys": {
+    "u_gauge-pressure": {
+     "dtype": "number",
+     "shape": [],
+     "dtype_numpy": "<f8",
+     "source": "mock+ca://testexp:u_gauge:pressure",
+     "object_name": "shot_sampler"
+    },
+    "u_s1h-current-position": {
+     "dtype": "number",
+     "shape": [],
+     "dtype_numpy": "<f8",
+     "source": "mock+ca://testexp:u_s1h:current",
+     "object_name": "shot_sampler"
+    },
+    "bin_number": {
+     "source": "plan:bin_number",
+     "dtype": "integer",
+     "shape": [],
+     "object_name": "shot_sampler"
+    },
+    "uc_a-acq_timestamp": {
+     "dtype": "number",
+     "shape": [],
+     "dtype_numpy": "<f8",
+     "source": "mock+ca://testexp:uc_a:acq_timestamp",
+     "object_name": "shot_sampler"
+    }
+   },
+   "name": "shots",
+   "object_keys": {
+    "shot_sampler": [
+     "u_gauge-pressure",
+     "u_s1h-current-position",
+     "bin_number",
+     "uc_a-acq_timestamp"
+    ]
+   },
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40",
+   "time": 1794707027.1965141,
+   "uid": "d7aad318-4166-4ee5-a502-388d24b9d262",
+   "hints": {}
+  }
+ ],
+ [
+  "event_page",
+  {
+   "time": [
+    1794707027.302413,
+    1794707027.302602
+   ],
+   "uid": [
+    "c9f77d96-0b11-4c0a-95bf-2540839187bd",
+    "cb9193fd-0eaf-4160-8678-ea565d492e5c"
+   ],
+   "seq_num": [
+    1,
+    2
+   ],
+   "descriptor": "d7aad318-4166-4ee5-a502-388d24b9d262",
+   "filled": {},
+   "data": {
+    "u_gauge-pressure": [
+     3e-06,
+     3e-06
+    ],
+    "u_s1h-current-position": [
+     -1.0,
+     -1.0
+    ],
+    "bin_number": [
+     1,
+     1
+    ],
+    "uc_a-acq_timestamp": [
+     1000.2,
+     1000.4000000000001
+    ]
+   },
+   "timestamps": {
+    "u_gauge-pressure": [
+     1794707026.70812,
+     1794707026.70812
+    ],
+    "u_s1h-current-position": [
+     1794707026.723933,
+     1794707026.723933
+    ],
+    "bin_number": [
+     1794707027.250058,
+     1794707027.301253
+    ],
+    "uc_a-acq_timestamp": [
+     1794707027.249838,
+     1794707027.300993
+    ]
+   }
+  }
+ ],
+ [
+  "descriptor",
+  {
+   "configuration": {
+    "uc_a": {
+     "data": {
+      "uc_a-drain_offset": 0.22
+     },
+     "timestamps": {
+      "uc_a-drain_offset": 1794707026.706651
+     },
+     "data_keys": {
+      "uc_a-drain_offset": {
+       "dtype": "number",
+       "shape": [],
+       "dtype_numpy": "<f8",
+       "source": "mock+soft://uc_a-drain_offset",
+       "units": "s"
+      }
+     }
+    },
+    "uc_b": {
+     "data": {
+      "uc_b-drain_offset": 0.02
+     },
+     "timestamps": {
+      "uc_b-drain_offset": 1794707026.7077792
+     },
+     "data_keys": {
+      "uc_b-drain_offset": {
+       "dtype": "number",
+       "shape": [],
+       "dtype_numpy": "<f8",
+       "source": "mock+soft://uc_b-drain_offset",
+       "units": "s"
+      }
+     }
+    }
+   },
+   "data_keys": {
+    "uc_a": {
+     "source": "file://localhost/data/TestExp/Scan001/UC_A/UC_A.h5",
+     "shape": [
+      1
+     ],
+     "dtype": "number",
+     "dtype_numpy": "<u2",
+     "external": "STREAM:",
+     "object_name": "uc_a"
+    },
+    "uc_a-hdf-image-frame_acq_timestamp": {
+     "source": "file://localhost/data/TestExp/Scan001/UC_A/UC_A.h5",
+     "shape": [
+      1
+     ],
+     "dtype": "number",
+     "dtype_numpy": "<f8",
+     "external": "STREAM:",
+     "object_name": "uc_a"
+    },
+    "uc_a-hdf-image-meancounts": {
+     "source": "file://localhost/data/TestExp/Scan001/UC_A/UC_A.h5",
+     "shape": [
+      1
+     ],
+     "dtype": "number",
+     "dtype_numpy": "<f8",
+     "external": "STREAM:",
+     "object_name": "uc_a"
+    },
+    "uc_b": {
+     "source": "file://localhost/data/TestExp/Scan001/UC_B/UC_B.h5",
+     "shape": [
+      1
+     ],
+     "dtype": "number",
+     "dtype_numpy": "<u2",
+     "external": "STREAM:",
+     "object_name": "uc_b"
+    },
+    "uc_b-hdf-image-frame_acq_timestamp": {
+     "source": "file://localhost/data/TestExp/Scan001/UC_B/UC_B.h5",
+     "shape": [
+      1
+     ],
+     "dtype": "number",
+     "dtype_numpy": "<f8",
+     "external": "STREAM:",
+     "object_name": "uc_b"
+    },
+    "uc_b-hdf-image-meancounts": {
+     "source": "file://localhost/data/TestExp/Scan001/UC_B/UC_B.h5",
+     "shape": [
+      1
+     ],
+     "dtype": "number",
+     "dtype_numpy": "<f8",
+     "external": "STREAM:",
+     "object_name": "uc_b"
+    }
+   },
+   "name": "primary",
+   "object_keys": {
+    "uc_a": [
+     "uc_a",
+     "uc_a-hdf-image-frame_acq_timestamp",
+     "uc_a-hdf-image-meancounts"
+    ],
+    "uc_b": [
+     "uc_b",
+     "uc_b-hdf-image-frame_acq_timestamp",
+     "uc_b-hdf-image-meancounts"
+    ]
+   },
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40",
+   "time": 1794707027.64684,
+   "uid": "cb2a0d50-5d54-4b6f-9562-ae4034035222",
+   "hints": {
+    "uc_a": {
+     "fields": [
+      "uc_a"
+     ]
+    },
+    "uc_b": {
+     "fields": [
+      "uc_b"
+     ]
+    }
+   }
+  }
+ ],
+ [
+  "stream_resource",
+  {
+   "uid": "0aaeb713-c14e-45a8-8ac7-536dd861a9ee",
+   "data_key": "uc_a",
+   "mimetype": "application/x-hdf5",
+   "uri": "file://localhost/data/TestExp/Scan001/UC_A/UC_A.h5",
+   "parameters": {
+    "chunk_shape": [
+     1
+    ],
+    "dataset": "/entry/data/data"
+   },
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40"
+  }
+ ],
+ [
+  "stream_resource",
+  {
+   "uid": "ca1cebd7-75cb-496a-87fb-19ed7d2f2161",
+   "data_key": "uc_a-hdf-image-frame_acq_timestamp",
+   "mimetype": "application/x-hdf5",
+   "uri": "file://localhost/data/TestExp/Scan001/UC_A/UC_A.h5",
+   "parameters": {
+    "chunk_shape": [
+     16384
+    ],
+    "dataset": "/entry/instrument/NDAttributes/uc_a-hdf-image-frame_acq_timestamp"
+   },
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40"
+  }
+ ],
+ [
+  "stream_resource",
+  {
+   "uid": "3f7869b1-67cc-483d-8634-332c4941c2ca",
+   "data_key": "uc_a-hdf-image-meancounts",
+   "mimetype": "application/x-hdf5",
+   "uri": "file://localhost/data/TestExp/Scan001/UC_A/UC_A.h5",
+   "parameters": {
+    "chunk_shape": [
+     16384
+    ],
+    "dataset": "/entry/instrument/NDAttributes/uc_a-hdf-image-meancounts"
+   },
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "0aaeb713-c14e-45a8-8ac7-536dd861a9ee",
+   "uid": "0aaeb713-c14e-45a8-8ac7-536dd861a9ee/0",
+   "seq_nums": {
+    "start": 1,
+    "stop": 3
+   },
+   "indices": {
+    "start": 0,
+    "stop": 2
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "ca1cebd7-75cb-496a-87fb-19ed7d2f2161",
+   "uid": "ca1cebd7-75cb-496a-87fb-19ed7d2f2161/0",
+   "seq_nums": {
+    "start": 1,
+    "stop": 3
+   },
+   "indices": {
+    "start": 0,
+    "stop": 2
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "3f7869b1-67cc-483d-8634-332c4941c2ca",
+   "uid": "3f7869b1-67cc-483d-8634-332c4941c2ca/0",
+   "seq_nums": {
+    "start": 1,
+    "stop": 3
+   },
+   "indices": {
+    "start": 0,
+    "stop": 2
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_resource",
+  {
+   "uid": "3f5cb784-483c-4fe5-a399-a852c40fb529",
+   "data_key": "uc_b",
+   "mimetype": "application/x-hdf5",
+   "uri": "file://localhost/data/TestExp/Scan001/UC_B/UC_B.h5",
+   "parameters": {
+    "chunk_shape": [
+     1
+    ],
+    "dataset": "/entry/data/data"
+   },
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40"
+  }
+ ],
+ [
+  "stream_resource",
+  {
+   "uid": "520c4fa3-648f-4798-99bf-ca7e29ea0fba",
+   "data_key": "uc_b-hdf-image-frame_acq_timestamp",
+   "mimetype": "application/x-hdf5",
+   "uri": "file://localhost/data/TestExp/Scan001/UC_B/UC_B.h5",
+   "parameters": {
+    "chunk_shape": [
+     16384
+    ],
+    "dataset": "/entry/instrument/NDAttributes/uc_b-hdf-image-frame_acq_timestamp"
+   },
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40"
+  }
+ ],
+ [
+  "stream_resource",
+  {
+   "uid": "efcbd70a-15d1-4e83-ac0d-06228ab15344",
+   "data_key": "uc_b-hdf-image-meancounts",
+   "mimetype": "application/x-hdf5",
+   "uri": "file://localhost/data/TestExp/Scan001/UC_B/UC_B.h5",
+   "parameters": {
+    "chunk_shape": [
+     16384
+    ],
+    "dataset": "/entry/instrument/NDAttributes/uc_b-hdf-image-meancounts"
+   },
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "3f5cb784-483c-4fe5-a399-a852c40fb529",
+   "uid": "3f5cb784-483c-4fe5-a399-a852c40fb529/0",
+   "seq_nums": {
+    "start": 1,
+    "stop": 3
+   },
+   "indices": {
+    "start": 0,
+    "stop": 2
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "520c4fa3-648f-4798-99bf-ca7e29ea0fba",
+   "uid": "520c4fa3-648f-4798-99bf-ca7e29ea0fba/0",
+   "seq_nums": {
+    "start": 1,
+    "stop": 3
+   },
+   "indices": {
+    "start": 0,
+    "stop": 2
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "efcbd70a-15d1-4e83-ac0d-06228ab15344",
+   "uid": "efcbd70a-15d1-4e83-ac0d-06228ab15344/0",
+   "seq_nums": {
+    "start": 1,
+    "stop": 3
+   },
+   "indices": {
+    "start": 0,
+    "stop": 2
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "event_page",
+  {
+   "time": [
+    1794707027.863764,
+    1794707027.863947
+   ],
+   "uid": [
+    "7cee9f15-7c14-4e2f-9ff7-2ce7a5cb0b2e",
+    "a5d296fc-eb3e-491f-9f28-888a5394c474"
+   ],
+   "seq_num": [
+    3,
+    4
+   ],
+   "descriptor": "d7aad318-4166-4ee5-a502-388d24b9d262",
+   "filled": {},
+   "data": {
+    "u_gauge-pressure": [
+     3e-06,
+     3e-06
+    ],
+    "u_s1h-current-position": [
+     1.0,
+     1.0
+    ],
+    "bin_number": [
+     2,
+     2
+    ],
+    "uc_a-acq_timestamp": [
+     1000.8000000000002,
+     1001.0000000000002
+    ]
+   },
+   "timestamps": {
+    "u_gauge-pressure": [
+     1794707026.70812,
+     1794707026.70812
+    ],
+    "u_s1h-current-position": [
+     1794707027.6545138,
+     1794707027.6545138
+    ],
+    "bin_number": [
+     1794707027.811806,
+     1794707027.862742
+    ],
+    "uc_a-acq_timestamp": [
+     1794707027.811324,
+     1794707027.862526
+    ]
+   }
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "0aaeb713-c14e-45a8-8ac7-536dd861a9ee",
+   "uid": "0aaeb713-c14e-45a8-8ac7-536dd861a9ee/1",
+   "seq_nums": {
+    "start": 3,
+    "stop": 5
+   },
+   "indices": {
+    "start": 2,
+    "stop": 4
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "ca1cebd7-75cb-496a-87fb-19ed7d2f2161",
+   "uid": "ca1cebd7-75cb-496a-87fb-19ed7d2f2161/1",
+   "seq_nums": {
+    "start": 3,
+    "stop": 5
+   },
+   "indices": {
+    "start": 2,
+    "stop": 4
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "3f7869b1-67cc-483d-8634-332c4941c2ca",
+   "uid": "3f7869b1-67cc-483d-8634-332c4941c2ca/1",
+   "seq_nums": {
+    "start": 3,
+    "stop": 5
+   },
+   "indices": {
+    "start": 2,
+    "stop": 4
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "3f5cb784-483c-4fe5-a399-a852c40fb529",
+   "uid": "3f5cb784-483c-4fe5-a399-a852c40fb529/1",
+   "seq_nums": {
+    "start": 3,
+    "stop": 5
+   },
+   "indices": {
+    "start": 2,
+    "stop": 4
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "520c4fa3-648f-4798-99bf-ca7e29ea0fba",
+   "uid": "520c4fa3-648f-4798-99bf-ca7e29ea0fba/1",
+   "seq_nums": {
+    "start": 3,
+    "stop": 5
+   },
+   "indices": {
+    "start": 2,
+    "stop": 4
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stream_datum",
+  {
+   "stream_resource": "efcbd70a-15d1-4e83-ac0d-06228ab15344",
+   "uid": "efcbd70a-15d1-4e83-ac0d-06228ab15344/1",
+   "seq_nums": {
+    "start": 3,
+    "stop": 5
+   },
+   "indices": {
+    "start": 2,
+    "stop": 4
+   },
+   "descriptor": "cb2a0d50-5d54-4b6f-9562-ae4034035222"
+  }
+ ],
+ [
+  "stop",
+  {
+   "uid": "0b6530ec-b8ee-4d46-905d-b9b26d4fe2b2",
+   "time": 1794707028.210043,
+   "run_start": "90542949-e026-4b3a-a529-b2990b48db40",
+   "exit_status": "success",
+   "reason": "",
+   "num_events": {
+    "shots": 4,
+    "primary": 4
+   }
+  }
+ ]
+]

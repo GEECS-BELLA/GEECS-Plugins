@@ -5,8 +5,11 @@
 ``panel_devices.yaml`` and ``native_devices.yaml``, and the module's roster
 (read at most every ``ROSTER_TTL_S``): a device only the module lists (a
 DB device) is bound deferred, its roles judged on the page by the module's
-device route. A button may name an action plan, checked against the
-experiment's library and run by the module. The page reads live values
+device route. A button may name a setup, checked against the
+experiment's ``setups/`` and applied by the module. A group widget draws a
+device's rail group as its device page does: the server reads the module's
+device route for it when it draws the page (``device_pages.embedded``,
+handed in by the app, since that module builds on this one). The page reads live values
 from Hare itself; the routes here only pass the module's answers through:
 a device's verdicts, a put, and an action run's start, state and stop,
 each write sent once.
@@ -18,34 +21,36 @@ import asyncio
 import math
 import re
 import time
-from collections.abc import Collection
+from collections.abc import Awaitable, Callable, Collection
 from urllib.parse import quote
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import yaml
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
 from geecs_schemas import (
-    ACTION_LIBRARY_FILENAME,
-    ACTION_LIBRARY_FOLDER,
     NATIVE_DEVICES_FILENAME,
     PANEL_DEVICES_FILENAME,
     SCREENS_DIRNAME,
     Bound,
     NativeDevices,
     PanelDevices,
+    Role,
     Screen,
     ScreenError,
-    load_action_library,
     load_families,
+    load_setups,
     resolve_screen,
 )
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 
 from geecs_control_room.module_client import ModuleClient, ModuleUnavailable
 from geecs_control_room.settings import Settings
+
+if TYPE_CHECKING:  # device_pages builds on this module: its type only
+    from geecs_control_room.device_pages import Embedded
 
 _NAME = re.compile(r"^[\w-]+$")
 #: Raster images only: an SVG opened directly would run its script on this origin.
@@ -73,6 +78,8 @@ class Loaded:
     rows: list[list[Bound]] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
     status: int = 200
+    #: Why the problems may all be one thing (the module's roster is incomplete); drawn first.
+    cause: str = ""
 
     @property
     def columns(self) -> int:
@@ -92,6 +99,16 @@ class Loaded:
         return columns
 
 
+def registry(folder: Path) -> tuple[PanelDevices, NativeDevices]:
+    """The experiment's ``panel_devices.yaml`` and ``native_devices.yaml`` (either missing: empty); a misfit raises."""
+    panel, native = PanelDevices(), NativeDevices.model_validate({})
+    if (folder / PANEL_DEVICES_FILENAME).is_file():
+        panel = PanelDevices.from_path(folder / PANEL_DEVICES_FILENAME)
+    if (folder / NATIVE_DEVICES_FILENAME).is_file():
+        native = NativeDevices.from_path(folder / NATIVE_DEVICES_FILENAME)
+    return panel, native
+
+
 def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loaded:
     """Read and bind ``<name>.yaml`` (``deferred``: the module's device names); a missing file is 404, any misfit 422."""
     folder = settings.experiment_dir
@@ -100,22 +117,57 @@ def load(settings: Settings, name: str, deferred: Collection[str] = ()) -> Loade
         return Loaded(problems=[f"no screen {name!r} in {settings.experiment}"], status=404)  # fmt: skip
     try:
         screen = Screen.from_path(path)
-        panel, native = PanelDevices(), NativeDevices.model_validate({})
-        if (folder / PANEL_DEVICES_FILENAME).is_file():
-            panel = PanelDevices.from_path(folder / PANEL_DEVICES_FILENAME)
-        if (folder / NATIVE_DEVICES_FILENAME).is_file():
-            native = NativeDevices.from_path(folder / NATIVE_DEVICES_FILENAME)
-        plans: set[str] = set()
-        library = folder / ACTION_LIBRARY_FOLDER / ACTION_LIBRARY_FILENAME
+        panel, native = registry(folder)
+        setups: set[str] = set()
         runs = any(w.bind and w.bind.action for g in screen.groups for w in g.widgets)
-        if runs:  # a button names a plan: the module's library holds it
-            plans = set(load_action_library(library).plans)
-        bound = resolve_screen(screen, load_families(), panel, native, deferred, plans)
+        if runs:  # a button names a setup: the experiment's setups/ holds it
+            setups = set(load_setups(folder))
+        bound = resolve_screen(screen, load_families(), panel, native, deferred, setups)
         return Loaded(screen, bound)
     except ScreenError as exc:
         return Loaded(problems=exc.problems, status=422)
-    except (ValidationError, yaml.YAMLError, OSError) as exc:
+    except (ValueError, yaml.YAMLError, OSError) as exc:
+        # ValueError covers pydantic's ValidationError and load_setups' own
+        # refusals (a name that is not its file stem, two files of one stem)
         return Loaded(problems=[str(exc)], status=422)
+
+
+#: A widget kind as the rail's control draws it (``_panel.html``'s ``control``, by ``spec.type``); a toggle
+#: or a flipper is the rail's two-state pair.
+_DRAWN = {
+    "setpoint": "setpoint",
+    "select": "enum",
+    "button": "command",
+    "readout": "readback",
+}
+#: A pair's words when the record has none of its own (a bit, a toggle's numbers): off, then on.
+PAIR = ("Off", "On")
+
+
+def role_spec(role: Optional[Role], name: str) -> dict[str, Any]:
+    """What the rail's control macro reads from a family role: whole, text, readback, done flag, tolerance (no role: a DB device's, none here)."""
+    keys = ("text", "settled_by", "tolerance", "tolerance_by")
+    return {"integer": bool(role and role.integer), "readback": (role.readback if role else None) or name} | {k: getattr(role, k) if role else None for k in keys}  # fmt: skip
+
+
+def spec_of(bound: Bound) -> dict[str, Any]:
+    """A bound widget as the rail's control macro reads it: the screen's label and units over the role's, the kind's control.
+
+    A deferred widget (a DB device) has no role here: the page takes its
+    type, text and tolerance from the module's device route.
+    """
+    w, role = bound.widget, bound.role
+    b = w.bind
+    name = (b.pv or b.role) if b else ""
+    spec: dict[str, Any] = {"name": name, "type": _DRAWN.get(w.kind, "pair"), "writable": w.kind != "readout"}  # fmt: skip
+    spec |= {"label": w.label or (role.label if role else name), "units": w.units or (role.units if role else None)}  # fmt: skip
+    return spec | role_spec(role, name) | {"choices": role.choices if role else None, "enum_labels": not w.values}  # fmt: skip
+
+
+def pair_values(bound: Bound) -> tuple[float, float]:
+    """What a toggle's or a flipper's pair writes: off, then on (its ``values``; else 0 and 1)."""
+    v = bound.widget.values
+    return (v.off, v.on) if v else (0, 1)
 
 
 class PutBody(BaseModel):
@@ -193,8 +245,20 @@ async def through(
         return unreachable(exc, why)
 
 
-def router(settings: Settings) -> APIRouter:
-    """The screen page, the screens' images, and the device pass-throughs."""
+#: A group widget's key: (device, axis, group), as ``resolve_screen`` bound it.
+GroupKey = tuple[str, Optional[str], str]
+#: The group widgets' keys → each drawn as its device page draws it (``device_pages.embedded``).
+Embed = Callable[[ModuleClient, Collection[GroupKey]], Awaitable["dict[GroupKey, Embedded]"]]  # fmt: skip
+
+
+def group_keys(loaded: Loaded) -> list[GroupKey]:
+    """The screen's group widgets as (device, axis, group), in order, once each."""
+    found = [(w.bind.device or "", w.bind.axis, w.bind.group or "") for row in loaded.rows for b in row if (w := b.widget).kind == "group" and w.bind]  # fmt: skip
+    return list(dict.fromkeys(found))
+
+
+def router(settings: Settings, embed: Embed) -> APIRouter:
+    """The screen page, the screens' images, and the device pass-throughs; ``embed`` draws its group widgets."""
     r = APIRouter()
     roster = _Roster()
 
@@ -204,9 +268,11 @@ def router(settings: Settings) -> APIRouter:
         loaded = load(settings, name, names)
         if (
             error and loaded.status == 422
-        ):  # a DB device may be refused for want of the roster
-            loaded.problems.append(f"the module's roster is incomplete ({error}): a DB device cannot be bound")  # fmt: skip
-        context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE}
+        ):  # a DB device may be refused for want of the roster: say so before the widgets
+            loaded.cause = f"the module's roster is incomplete ({error}): a DB device cannot be bound"  # fmt: skip
+        keys = group_keys(loaded)
+        groups = await embed(request.app.state.module, keys) if keys else {}
+        context = {"loaded": loaded, "name": name, "kit_state": KIT_STATE, "spec_of": spec_of, "pair_values": pair_values, "pair": PAIR, "groups": groups, "edit_url": settings.editor_url("screen", f"{name}.yaml")}  # fmt: skip
         templates = request.app.state.templates
         return templates.TemplateResponse(
             request, "screen.html", context, status_code=loaded.status

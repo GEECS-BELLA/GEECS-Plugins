@@ -14,9 +14,7 @@ Checks, in order (the ``PreflightOutcome.check`` vocabulary):
   it knows the plan and every device reference the expansion created.
   A closed environment or a missing plan is a hard refusal naming the
   recovery gesture; an unreachable manager, an unanswered plan list or no
-  ``[qserver]`` config is *skipped* (fail-open).  Off the same tree: every
-  ``non_essential`` device must be triggered (an ``acq_timestamp`` child),
-  and a gated run needs an essential triggered device.
+  ``[qserver]`` config is *skipped* (fail-open).
 - ``gateway_liveness`` — each preset and trigger-profile device's
   ``CONNECTED`` PV, read once; only the exact ``"Disconnected"`` counts
   as down (fail-open).
@@ -73,6 +71,7 @@ def run_submit_preflight(
     client: Any | None = None,
     catalog: Optional[Mapping[str, Any]] = None,
     resolver: Any | None = None,
+    trigger_profile: Any | None = None,
 ) -> PreflightReport:
     """Run every pre-submit check; return findings for the client to render.
 
@@ -100,6 +99,9 @@ def run_submit_preflight(
         (``resolve_trigger_profile`` / ``resolve_experiment_defaults``).
         ``None`` builds the experiment's configs-repo resolver from the
         shared config for the duration of the check.
+    trigger_profile : geecs_schemas.TriggerProfile, optional
+        An unsaved trigger-profile document, checked in place of the one
+        the preset names on disk (the configurator's dry run of a draft).
 
     Returns
     -------
@@ -129,7 +131,11 @@ def run_submit_preflight(
         return report
 
     # -- scan mode (the worker's rule, mirrored for the client's report) ----
-    profile = _resolve_trigger_profile(preset, experiment, resolver)
+    profile = (
+        trigger_profile
+        if trigger_profile is not None
+        else _resolve_trigger_profile(preset, experiment, resolver)
+    )
     refusal = scan_mode_refusal(item, profile)
     if refusal is not None:
         report.refusal = refusal
@@ -141,13 +147,47 @@ def run_submit_preflight(
         if device not in devices:
             devices.append(device)
     if devices:
-        try:
-            _check_liveness(report, devices, experiment)
-        except Exception as exc:  # noqa: BLE001 — preflight fails open
-            logger.warning("liveness preflight failed: %s", exc)
-            report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
+        _liveness_fail_open(report, devices, experiment)
 
     return report
+
+
+def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) -> PreflightReport:  # fmt: skip
+    """The worker's own checks of a trigger-profile document, unsaved; nothing is queued.
+
+    The configurator's dry run of a draft: ``validate`` is the schema and
+    the adapter the worker builds the trigger box from
+    (:func:`~geecs_bluesky.devices.shot_control.trigger_writes_from_profile`),
+    a hard refusal; ``gateway_liveness`` reads each device the profile
+    writes, a question (fail-open), as a scan's preflight does. Never raises.
+    """
+    from pydantic import ValidationError
+
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+    from geecs_schemas import TriggerProfile
+
+    report = PreflightReport()
+    try:
+        profile = TriggerProfile.model_validate(dict(document))
+        from geecs_bluesky.devices.shot_control import trigger_writes_from_profile
+
+        devices = list(trigger_writes_from_profile(profile).devices)
+    except (ValidationError, GeecsConfigurationError, TypeError, ValueError) as exc:
+        report.refusal = str(exc)
+        return report
+    report.outcomes.append(("validate", "passed", ""))
+    if devices:
+        _liveness_fail_open(report, devices, experiment)
+    return report
+
+
+def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str) -> None:  # fmt: skip
+    """:func:`_check_liveness`, recorded ``skipped`` (never raised) when the probe itself fails."""
+    try:
+        _check_liveness(report, devices, experiment)
+    except Exception as exc:  # noqa: BLE001 — preflight fails open
+        logger.warning("liveness preflight failed: %s", exc)
+        report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
 
 
 def _make_default_resolver(experiment: str) -> Any:
@@ -213,18 +253,21 @@ def scan_mode_refusal(item: Any, profile: Any) -> Optional[str]:
     """The worker's scan-mode rule a client can check before submitting, or ``None``.
 
     A trigger profile with ``use_scan_mode`` runs strict only — the worker
-    refuses a gated item under it (``plans/scan_mode.scan_mode_preflight``);
-    this mirrors that one rule so the scanner's report says so before the
-    queue does.  Everything else scan mode checks (the DB endpoint, the
+    refuses a fly item naming it (``registry.strict_plan``: no box, no
+    announce; a fly item naming no profile resolves none); this
+    mirrors that one rule so the scanner's report says so before the queue
+    does.  Everything else scan mode checks (the DB endpoint, the
     boundary rows, the announced address) is the worker's alone.
     """
     if profile is None or not getattr(profile, "use_scan_mode", False):
         return None
-    if item.kwargs.get("acquisition", "strict") != "gated":
+    if item.kwargs.get("acquisition", "strict") != "fly":
         return None
+    if item.kwargs.get("trigger_profile") is None:
+        return None  # a fly run resolves no default profile
     return (
         f"trigger profile {getattr(profile, 'name', '?')!r} runs in GEECS scan "
-        "mode, which is strict only: a gated batch has no per-shot announce. "
+        "mode, which is strict only: a fly run has no per-shot announce. "
         "Use acquisition='strict', or a profile without use_scan_mode."
     )
 
@@ -309,10 +352,6 @@ def _check_worker_ready(
                     "and that the DB lists them for the experiment"
                 )
                 return
-            refusal = acquisition_refusal(item, known)
-            if refusal is not None:
-                report.refusal = refusal
-                return
             report.outcomes.append(("worker_ready", "passed", ""))
         elif verdict.state in _FAIL_OPEN_READINESS_STATES:
             report.outcomes.append(("worker_ready", "skipped", verdict.detail))
@@ -323,63 +362,6 @@ def _check_worker_ready(
             close = getattr(client, "close", None)
             if callable(close):
                 close()
-
-
-def acquisition_refusal(item: Any, known: set[str]) -> Optional[str]:
-    """The phase-2 device rules over the manager's device tree, or ``None``.
-
-    *known* is the tree flattened to dotted names.  A plugin-backed
-    detector has an ``hdf`` child; a LabVIEW-native camera has ``save``
-    (and ``localsavingpath``) but no ``hdf`` — admitted as a gated
-    essential and as a non-essential in either mode (its own stream, one
-    event per stamp); a
-    triggered device has an ``acq_timestamp`` child; a scalar-only device
-    has neither, and is refused as a non-essential (nothing could place
-    its readings on a shot — the free-running case is deferred).
-
-    Parameters
-    ----------
-    item :
-        The expanded queue item (``args[0]`` the detectors, ``kwargs``
-        with ``acquisition`` / ``non_essential``).
-    known :
-        The device names the manager resolves.
-
-    Returns
-    -------
-    str or None
-        The refusal sentence, or ``None`` when every rule passes.
-    """
-    gated = item.kwargs.get("acquisition", "strict") == "gated"
-    non_essential = list(item.kwargs.get("non_essential") or ())
-    detectors = list(item.args[0]) if item.args else []
-    unstamped = [
-        r for r in non_essential if f"{_owner_reference(r)}.acq_timestamp" not in known
-    ]
-    if unstamped:
-        return (
-            f"non-essential device(s) with no shot stamp: {', '.join(unstamped)} "
-            "— a non-essential device is recorded by its acq_timestamp and "
-            "joined to the shots by it; a free-running device (no stamp) is "
-            "not admitted as non-essential yet. Make it essential."
-        )
-    if not gated:
-        return None
-    owners = [_owner_reference(r) for r in detectors]
-    if not any(f"{r}.acq_timestamp" in known for r in owners):
-        return (
-            "gated acquisition: no essential triggered device — nothing counts "
-            "shots. Add a camera or a triggered scalar device (one with an "
-            "acq_timestamp), or use acquisition='strict'."
-        )
-    return None
-
-
-def _owner_reference(reference: str) -> str:
-    """``X.scalars`` → ``X``; any other reference unchanged."""
-    return (
-        reference[: -len(".scalars")] if reference.endswith(".scalars") else reference
-    )
 
 
 def _check_liveness(

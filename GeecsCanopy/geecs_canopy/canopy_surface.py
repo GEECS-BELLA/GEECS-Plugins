@@ -1,4 +1,4 @@
-"""Every Canopy-internal name the package uses, and the image they were verified at (condition (d)).
+"""Every Canopy-internal name the package uses, and the image they were verified at.
 
 Canopy declares none of them as a library surface. ``self_test`` runs before
 the wrapper imports Canopy and refuses to start, naming the rollback, unless

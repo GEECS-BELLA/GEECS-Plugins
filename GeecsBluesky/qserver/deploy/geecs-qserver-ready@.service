@@ -1,0 +1,42 @@
+# GEECS queueserver readiness, per-experiment instance — systemd unit
+# TEMPLATE: opens the instance's worker environment and asserts the plan
+# list (the manager at QS_CONTROL_ADDR from the instance file).
+#
+# One instance per experiment: `systemctl enable --now <unit>@<Instance>`.
+# Render with deploy/render_units.sh (or bootstrap_host.sh --experiment);
+# @PLACEHOLDER@ holes are filled at render time. Runtime values come from
+# site.env and THEN the instance file @EXPERIMENTS_DIR@/<Instance>.env, which
+# overrides it (the experiment, ports, CA addressing — keys in
+# deploy/experiments.env.example). Per-instance state lives under
+# /var/lib/geecs-experiments/<Instance>/. The non-templated unit of the same
+# name is the main experiment's and stays as it is.
+
+[Unit]
+Description=GEECS queueserver readiness (experiment instance %i)
+After=geecs-qserver@%i.service
+Requires=geecs-qserver@%i.service
+PartOf=geecs-qserver@%i.service
+# A manager still crash-looping when this fires (Type=exec reports it started
+# at exec) makes the assertion fail fast; retry a bounded number of times
+# rather than stay failed, then give up loudly.
+StartLimitIntervalSec=1800
+StartLimitBurst=4
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=@SERVICE_USER@
+Environment=HOME=@SERVICE_HOME@
+EnvironmentFile=@SITE_ENV@
+EnvironmentFile=@EXPERIMENTS_DIR@/%i.env
+WorkingDirectory=@INSTANCE_CHECKOUT_ROOT@/qs-checkout/GeecsBluesky
+# The INSTANCE's manager: ensure-ready reads QS_CONTROL_ADDR, which the
+# instance file sets (overriding site.env's main one); check_instance_env pins
+# its port to the manager's own QSERVER_ZMQ_CONTROL_ADDRESS_FOR_SERVER.
+ExecStart=@POETRY@ run geecs-qserver-ensure-ready --timeout 600
+TimeoutStartSec=660
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

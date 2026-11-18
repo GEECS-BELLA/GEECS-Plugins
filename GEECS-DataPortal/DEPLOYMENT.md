@@ -2,7 +2,7 @@
 
 One service, one host: the portal runs on the worker host — the fleet
 map (`docs/platform/fleet_map.md`) is the authority on which machine
-that is at any given time. On the interim box it happens to share a
+that is at any given time. On the services box it happens to share a
 machine with Tiled and GEECS-MCP, so the ports read `:8000` Tiled,
 `:8100` MCP, **`:8200` portal** — but only the portal's own port is
 load-bearing; nothing below assumes Tiled is local. Anyone on the lab
@@ -134,8 +134,10 @@ Tiled, MySQL and the queueserver). Above HIGH systemd throttles and
 reclaims the portal; at MAX it kills it and `Restart=on-failure` brings
 it back — so a runaway portal evicts itself before the kernel picks a
 victim, and the victim is the portal rather than Tiled (#834). The unit
-also sets `MemorySwapMax=0`: without it the portal is pushed into swap
-above HIGH instead of reaching MAX, and hangs rather than restarting.
+also sets `MemorySwapMax=0`: without it the portal throttled above HIGH
+is pushed into swap as well and takes the host's swap with it; it does
+not make a runaway reach MAX — a process throttled at HIGH stalls there
+with swap off too (**Unresponsive but `active (running)`** below).
 Portal analysis runs execute in this process. Since ScanAnalysis 1.38.0
 (#1003) a run streams — it holds one running frame per product, not
 every processed frame, so a 3600-shot 600×600 camera run needs a few
@@ -154,14 +156,27 @@ shows the current `Memory:` line against the cap.
 **Unresponsive but `active (running)`.** If pages time out while the
 unit reports running, check whether the portal is pinned at its memory
 line: `systemctl status geecs-data-portal` (`Memory:` at `high:` with
-`available: 0B`) and
-`cat /sys/fs/cgroup/system.slice/geecs-data-portal.service/memory.swap.current`.
-A plain `systemctl restart` then sits in the stop timeout, because the
-process cannot page itself back in to shut down cleanly; skip it with
+`available: 0B`),
+`cat /sys/fs/cgroup/system.slice/geecs-data-portal.service/memory.{current,swap.current}`
+and `ps -o stat,wchan:30 -p <MainPID>` — all read-only. A `D` state in
+`mem_cgroup_handle_over_high` is the wedge: the process is throttled at
+HIGH and never reaches MAX, so nothing kills it and `Restart=` never
+fires — with swap on, the excess goes into swap as well (2026-09-25:
+3 GB resident plus the host's whole swap); with swap off it stalls at
+HIGH just the same (2026-09-29, 2026-10-07). A plain `systemctl restart` then sits in the stop
+timeout (`TimeoutStopSec`), because the process cannot page itself back
+in to shut down cleanly; skip it with
 `sudo systemctl kill -s KILL geecs-data-portal` and the pending restart
-proceeds. On a host whose unit predates `MemorySwapMax=0`,
+proceeds (a healthy portal answers `/` with a 307 to `/day/<today>`). On a
+host whose unit predates `MemorySwapMax=0`,
 `sudo systemctl set-property geecs-data-portal MemorySwapMax=0` applies
-it without a re-render.
+it without a re-render. Every wedge so far was an Analysis-tab run of a
+large stack in this process; the runs now stream and release their memory
+and the ceiling and swap settings above were changed for it (#1004,
+#1056, #1059). Before calling residual memory a leak, compare the
+cgroup's `memory.stat` `anon` against `file`: `file` is the reclaimable
+page cache of the stacks read. (Observed 2026-09-25, live incident;
+recurred 2026-09-29 and 2026-10-07.)
 
 Verify:
 
@@ -198,8 +213,8 @@ Two proxy shapes, one setting each — they are **not interchangeable**
   forwards `/run/…` and sends the header. No flag.
 - **Prefix-preserving** (forwards `/portal/run/…` as is, sends no
   header): start the service with `geecs-data-portal --root-path
-  /portal`. The page then links `/portal/static/…`, and the mounted
-  assets (`/static`, `/theme`) answer at the prefixed path **only** —
+  /portal`. The page then links `/portal/theme/…`, and the mounted
+  assets (`/theme`) answer at the prefixed path **only** —
   plain routes answer either way, which is why the wrong pairing fails
   quietly: a stripping proxy without the header serves the HTML and
   loses every stylesheet and script. In this mode also avoid mount names
@@ -227,6 +242,56 @@ sudo systemctl restart geecs-data-portal
 (Drop `--extras analysis` only on a deployment that deliberately runs
 without the processing selector.)
 
+## Testing a branch beside the deployed instance
+
+A UI change (a confirmation step, a progress badge) is clicked in a
+browser against real scans before it merges, without touching the
+deployed unit: a second portal on another port runs the branch's sources
+against the same Tiled catalog and share and a copy of the configs tree.
+About five minutes, no deploy (proven 2026-09-29, PR #1028).
+
+1. Sources: `rsync -a --delete --exclude __pycache__` each changed
+   package's *source directory* (`GEECS-DataPortal/geecs_portal`,
+   `GEECS-Data-Utils/geecs_data_utils`, `ScanAnalysis/scan_analysis`, …)
+   from the branch to `/tmp/<name>/pr/<Package>/<package>/` on the host —
+   a few MB, seconds. (`--info=progress2` is not in macOS's stock rsync;
+   plain `-a`.)
+2. Configs: `/etc/geecs/site.env` cannot be `source`d (its
+   `GEECS_PORTAL_EXTRA_ARGS` line is unquoted and multi-word), so grep the
+   keys — `ROOT=$(grep '^GEECS_CONFIGS_ROOT=' /etc/geecs/site.env | cut -d= -f2- | tr -d '"')`
+   — then `mkdir -p /tmp/<name>/configs && cp -r "$ROOT/scan_analysis_configs" /tmp/<name>/configs/`
+   (the directory first: on a fresh `/tmp/<name>`, `cp -r` would otherwise
+   make `configs` the copy itself and step 4's path would not exist) and
+   drop any new recipe into the copy. The Tiled URI and the data root
+   are not read from the environment: the bootstrap renders them into the
+   service account's `~/.config/geecs_python_api/config.ini` and the
+   portal reads that file, so run the instance as that account, or with
+   `HOME` set to its home as the unit does (`Environment=HOME=`). Read
+   `TZ` from `site.env` the same way and export it.
+3. Interpreter: the deployed env's python (`poetry env info -p` from
+   `<root>/portal-checkout/GEECS-DataPortal`; poetry is not on a
+   non-login ssh `PATH`, so call it by its full path).
+4. Launch from a **neutral cwd** (`cd /tmp/<name>`):
+   `PYTHONPATH=<the pr directories, the portal's first> <python> -m
+   geecs_portal --host 0.0.0.0 --port 8201 --experiment <Experiment>
+   --processing-configs /tmp/<name>/configs/scan_analysis_configs
+   --logbook-url <the deployed logbook>`. `python -m`
+   puts the cwd first on `sys.path`: launched from the checkout, the
+   deployed `geecs_portal` shadows the branch's (health OK, new keys
+   missing) — `python -c "import geecs_portal; print(geecs_portal.__file__)"`
+   from the same cwd tells.
+5. Keep the ssh session open for the instance's life (`nohup` and
+   `setsid` did not survive the session closing); stop it with
+   `pkill -f "[p]ort 8201"` (the bracket keeps the pattern from matching
+   the shell running it).
+6. Check from a client: `curl http://<host>:8201/health`,
+   `/api/run/jump/<day>?prefer=<scan>` for the run uid, then the browser
+   on `/run/<uid>?tab=analysis`. The deployed `:8200` unit is untouched
+   throughout.
+
+A file copied from the share with `cp -R` gets a fresh mtime: a copied
+`.himg` looks young to the compaction age guard for a minute.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |
@@ -236,6 +301,7 @@ without the processing selector.)
 | Slow day listings | measure `list_runs` against the catalog first — the fix is a portal-side cache, not a schema change |
 | Unit crash-loops at start | `status` shows **217/USER** — the installed unit is a pre-profile file (or a copy from an old staging run) with the generic `User=`; the clone it came from predates the templated units — pull it forward, re-render with `deploy/render_units.sh`, reinstall (site profile page). Wrong absolute Poetry path in `ExecStart` (`status` shows 203/EXEC); env installed by a different account than `User=` (empty venv — reinstall as the service account); or port 8200 already taken. A down Tiled does **not** exit the service — that shows up as the `/health` row above |
 | Plot tab: **Copy plot to clipboard downloads a PNG instead** | The portal is served over plain `http://`, and every browser gates clipboard *image* writes on a secure context, so `navigator.clipboard` does not exist on the page — the button says so in its tooltip and its note, and degrades to the 2× download. No page-side workaround exists (the legacy `execCommand` copy carries text only). To get a real bitmap copy, reach the portal from a secure origin — see **Clipboard copy and the secure-context rule** below |
+| Pages time out or refuse while the unit is `active (running)` | the process is wedged at its memory ceiling — **Unresponsive but `active (running)`** under the systemd unit above: read the cgroup counters, then `systemctl kill -s KILL` (a plain restart hangs in the stop timeout) |
 | Evening scans 404 (or resolve oddly) while daytime scans work | host timezone differs from the scanner hosts' — daily folders are named by the scanner's local date. `site.env` sets `TZ`; keep it matching the lab's zone |
 
 The fleet-map page (`docs/platform/fleet_map.md`) carries the
@@ -281,7 +347,18 @@ scan to its card there (`<base>/day/YYYY-MM-DD#ScanNNN`; `GET
 (`http://<host>:8400`) is used as given; a path (`/log`, once the fleet's
 front door routes it to the logbook) is same-origin and carries the
 portal's own proxy prefix. Without the flag there is no link. Set it on
-the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`. The link is
+the host through `GEECS_PORTAL_EXTRA_ARGS` in `site.env`.
+
+**Behind a front door that serves the logbook on its own path**
+(`https://<name>/<experiment>/logbook`, not under the portal's prefix),
+the browser and this process reach the logbook at different addresses:
+keep `--logbook-url` the address the portal dials
+(`http://127.0.0.1:8400`) and add `--logbook-browser-url
+https://<name>/<experiment>/logbook` (absolute: a path would be taken as
+the portal's own origin and prefix, and is refused at start). Every link
+the page or a send reply hands out uses the browser URL; the send still posts to
+`--logbook-url`, so the portal never has to resolve the front door's
+name or trust its certificate. The link is
 built for runs of `--experiment` alone: the logbook serves one
 experiment's share and scan numbers restart per experiment.
 
@@ -301,20 +378,18 @@ fails argument parsing at start — replace `--scan-log` with `--logbook-url
 `/var/lib/geecs-data-portal` per the logbook runbook **before** starting
 the portal on the new unit.
 
-## The config editor (`--config-editor`)
 
-Off by default in the CLI. The unit template appends
-`$GEECS_PORTAL_EXTRA_ARGS` from `site.env` to the command line; setting it
-to `--config-editor` (as `deploy/site.env.example`, the reference profile,
-does) mounts the analysis config editor at `/configs` and puts an **edit**
-button on the Analysis tab. A read-only viewer leaves the key empty — a
-site.env choice, never a hand-edit of the rendered unit. It is a write verb: saves
-land in the `--processing-configs` tree — the share copy of the configs
-repo — uncommitted, exactly like the scanner's preset writes; someone
-still commits them. It needs the `analysis` extra (ScanAnalysis brings the
-editor router; its `editor` extra — fastapi, jinja2 — is satisfied by the
-portal's own dependencies). Turn it on where operators are expected to
-tune diagnostics from the browser; leave it off on a read-only mount. It
-carries no authentication beyond the lab network, like the scanner's
-preset writes — `DELETE` removes a file from the share checkout (git
-restores it, nothing else does).
+## The analysis documents: edited in the configurator
+
+The portal writes no configs. The Analysis tab's **edit** opens a recipe or a
+`.himg` job in the configurator's embedded editor (groups: its **configurator ↗** link) when
+`GEECS_PORTAL_EXTRA_ARGS` carries `--configurator-browser-url
+http://<this host>:<the configurator's port>` (the configurator as the browser
+reaches it; the configurator then lists this portal's origin in
+`GEECS_CONFIGURATOR_CORS_ORIGINS`); without it there is no edit button. The
+save is the configurator's (the operator as git author, its tier, its dry
+run), and that dry run is this portal's `/api/analysis/validate`, reached at
+`GEECS_CONFIGURATOR_PORTAL_URL` (`GeecsConfigurator/DEPLOYMENT.md`). The old
+`--config-editor` and `--config-editor-read-only` flags are gone: a site.env
+still carrying either fails argument parsing at start, so drop them from
+`GEECS_PORTAL_EXTRA_ARGS` before the portal restarts on this version.

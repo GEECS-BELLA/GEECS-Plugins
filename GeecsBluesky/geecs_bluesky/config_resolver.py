@@ -5,10 +5,8 @@ production implementation over the real configs-repo layout
 (``scanner_configs/experiments/<Experiment>/``).  A YAML file carrying a
 ``schema_version`` key loads as the new schema directly; trigger profiles
 without one are converted from their legacy dialect via
-:mod:`geecs_schemas.convert`.  Presets, scan-variable catalogs and action
-libraries are new-schema only (the legacy save elements, scan presets and
-action libraries were regenerated once as ``Preset`` and
-``ActionPlanLibrary`` documents; no converter remains for them).
+:mod:`geecs_schemas.convert`.  Presets, scan-variable catalogs and setups
+are new-schema only (no converter remains for them).
 
 The client seam expands a preset into a plan queue item
 (:mod:`geecs_bluesky.qs_client.presets`).
@@ -17,41 +15,55 @@ The client seam expands a preset into a plan queue item
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
-from typing import Protocol, runtime_checkable, TYPE_CHECKING
+from typing import Protocol, TypeVar, runtime_checkable, TYPE_CHECKING
 
 import yaml
-from pydantic import JsonValue
+from pydantic import BaseModel, JsonValue
 
 if TYPE_CHECKING:
     from geecs_schemas.analysis import AnalysisDocument
 
 from geecs_bluesky._fs import replace_text
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_core.configs_repo import scanner_configs_base
+from geecs_core.configs_repo import (
+    EXPERIMENTS_SUBDIR,
+    scanner_configs_base,
+    scanner_configs_write_base,
+    settled_exists,
+)
 from geecs_schemas import (
-    ActionPlan,
-    ActionPlanLibrary,
+    EXPERIMENT_DEFAULTS_FILENAME,
     NATIVE_DEVICES_FILENAME,
+    OPERATOR_POLICY_FILENAME,
+    OPTIMIZER_CONFIGS_FOLDER,
+    PANEL_DEVICES_FILENAME,
+    PRESETS_FOLDER,
+    SCAN_VARIABLES_FILENAME,
+    SCAN_VARIABLES_FOLDER,
+    SETUPS_FOLDER,
+    SHOT_OFFSETS_FILENAME,
+    TRIGGER_PROFILES_FOLDER,
     ExperimentDefaults,
     NativeDevices,
+    OperatorPolicy,
+    PanelDevices,
     Preset,
+    Setup,
     OptimizerConfig,
     ScanVariables,
     ScanVariableSpec,
     ShotOffsets,
     TriggerProfile,
+    yaml_stem,
 )
-from geecs_schemas.action_plan import ACTION_LIBRARY_FILENAME, ACTION_LIBRARY_FOLDER
 from geecs_schemas.convert import convert_shot_control
+from geecs_schemas.setup import load_setups
 
 logger = logging.getLogger(__name__)
 
-SHOT_CONTROL_FOLDER = "shot_control_configurations"
-
-#: A preset file stem: a plain name, no path separators, no leading dot.
-_PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
+#: A configs document read by :meth:`ConfigsRepoResolver._optional_document`.
+_Doc = TypeVar("_Doc", bound=BaseModel)
 
 
 # ---------------------------------------------------------------------------
@@ -62,10 +74,9 @@ _PRESET_STEM = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")
 def _write_yaml_atomically(path: Path, document: dict) -> None:
     """Write *document* as YAML to *path*, atomically and fsynced (:func:`replace_text`).
 
-    The one write primitive of this module (``write_shot_offsets``,
-    ``write_preset``): a reader — the worker reopening its environment,
-    another host's resolver, the scanner listing presets — never sees a
-    half-written file.
+    The one write primitive of this module (``write_shot_offsets``): a
+    reader — the configurator claiming the file from its inbox, another
+    host's resolver — never sees a half-written file.
     """
     replace_text(path, yaml.safe_dump(document, sort_keys=False))
 
@@ -86,10 +97,6 @@ class ConfigResolver(Protocol):
         """Return the scan-variable entry called *name*."""
         ...
 
-    def resolve_action_plan(self, name: str) -> ActionPlan:
-        """Return the action plan called *name*."""
-        ...
-
     def resolve_shot_offsets(self) -> ShotOffsets | None:
         """Return the measured drain offsets, or ``None`` if never measured.
 
@@ -103,9 +110,8 @@ class ConfigResolver(Protocol):
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
         """Return the experiment's defaults, or ``None`` if none are declared.
 
-        Defaults apply where the request is silent (default trigger
-        profile; default setup/closeout plans prepended); what was applied
-        is recorded for provenance (see the client-side preset expansion,
+        Defaults apply where the request is silent (the default trigger
+        profile); what was applied is recorded for provenance (see the client-side preset expansion,
         :mod:`geecs_bluesky.qs_client.presets`).
         Resolvers without this method are tolerated (no defaults).
         """
@@ -123,8 +129,8 @@ class ConfigsRepoResolver:
     - ``shot_control_configurations/<name>.yaml`` — trigger profiles
     - ``scan_devices/scan_variables.yaml`` — the scan-variable catalog
       (new schema only)
-    - ``action_library/actions.yaml`` — the action-plan library (new
-      schema only; the legacy ``actions:`` dialect is refused)
+    - ``setups/<name>.yaml`` — setups (``geecs_schemas.Setup``), read
+      fresh for each item
     - ``optimizer_configs/<name>.yaml`` — validated native ``OptimizerConfig``
       documents, read fresh for each request.
 
@@ -142,20 +148,36 @@ class ConfigsRepoResolver:
         Override for the experiments root (tests); defaults to the
         production resolution (:func:`geecs_core.configs_repo.scanner_configs_base`),
         resolved lazily on first use.
+    experiments_write_root :
+        Where the one write (:meth:`write_shot_offsets`) lands: defaults to
+        *experiments_root* when that is given, else the production write
+        root (:func:`geecs_core.configs_repo.scanner_configs_write_base`:
+        ``GEECS_CONFIGS_WRITE_ROOT``, the configurator's inbox on the box,
+        else the read root). Reads never look there.
     """
 
-    TRIGGER_FOLDER = SHOT_CONTROL_FOLDER
-    SCAN_VARIABLES_FOLDER = "scan_devices"
-    ACTION_FOLDER = ACTION_LIBRARY_FOLDER
-    PRESET_FOLDER = "presets"
-    OPTIMIZER_FOLDER = "optimizer_configs"
+    # The folder names are GEECS-Schemas' constants (the one home); these
+    # aliases keep the resolver's own spelling for its callers and tests.
+    TRIGGER_FOLDER = TRIGGER_PROFILES_FOLDER
+    SCAN_VARIABLES_FOLDER = SCAN_VARIABLES_FOLDER
+    PRESET_FOLDER = PRESETS_FOLDER
+    OPTIMIZER_FOLDER = OPTIMIZER_CONFIGS_FOLDER
 
     def __init__(
-        self, experiment: str, experiments_root: str | Path | None = None
+        self,
+        experiment: str,
+        experiments_root: str | Path | None = None,
+        *,
+        experiments_write_root: str | Path | None = None,
     ) -> None:
         self._experiment = experiment
         self._experiments_root = (
             Path(experiments_root) if experiments_root is not None else None
+        )
+        self._experiments_write_root = (
+            Path(experiments_write_root)
+            if experiments_write_root is not None
+            else self._experiments_root
         )
         # (mtime_ns, size) of the catalog file the cached document came from.
         self._scan_variables_cache: tuple[tuple[int, int], ScanVariables] | None = None
@@ -170,13 +192,6 @@ class ConfigsRepoResolver:
             )
         return root / self._experiment
 
-    @staticmethod
-    def _strip_yaml_suffix(name: str) -> str:
-        for suffix in (".yaml", ".yml"):
-            if name.endswith(suffix):
-                return name[: -len(suffix)]
-        return name
-
     def _named_yaml_path(self, folder: str, stem: str) -> Path:
         """The config file for *stem* in *folder*: ``.yaml``, else its ``.yml`` twin.
 
@@ -186,15 +201,15 @@ class ConfigsRepoResolver:
         """
         base = self._root / folder
         path = base / f"{stem}.yaml"
-        if not path.exists():
+        if not settled_exists(path):
             twin = base / f"{stem}.yml"
-            if twin.exists():
+            if settled_exists(twin):
                 return twin
         return path
 
     def _load_yaml(self, path: Path, kind: str, name: str) -> dict:
         """Load one YAML mapping, failing loudly with the config kind/name."""
-        if not path.exists():
+        if not settled_exists(path):
             raise GeecsConfigurationError(
                 f"{kind} {name!r} not found for experiment "
                 f"{self._experiment!r}: no file at {path}"
@@ -257,8 +272,8 @@ class ConfigsRepoResolver:
     def resolve_preset(self, name: str) -> Preset:
         """Load preset *name* as a validated :class:`~geecs_schemas.Preset`.
 
-        One YAML per name under ``presets/`` — :meth:`write_preset` writes
-        them; the queue client's ``submit_preset`` reads them here so the
+        One YAML per name under ``presets/`` — saved through the
+        configurator (the scanner posts to it); the queue client's ``submit_preset`` reads them here so the
         folder layout keeps one owner.
 
         Raises
@@ -268,74 +283,10 @@ class ConfigsRepoResolver:
         pydantic.ValidationError
             A document that is not a valid ``Preset``.
         """
-        stem = self._strip_yaml_suffix(name)
+        stem = yaml_stem(name)
         path = self._named_yaml_path(self.PRESET_FOLDER, stem)
         document = self._load_yaml(path, "preset", name)
         return Preset.model_validate(document)
-
-    def preset_path(self, name: str) -> Path:
-        """The file preset *name* lives in (``presets/<name>.yaml`` or its ``.yml`` twin)."""
-        return self._named_yaml_path(self.PRESET_FOLDER, self._strip_yaml_suffix(name))
-
-    def write_preset(self, preset: Preset, *, overwrite: bool = False) -> Path:
-        """Save *preset* as ``presets/<preset.name>.yaml``; the file round-trips through :meth:`resolve_preset`.
-
-        The scanner's "Save as preset" writes here, so the folder keeps
-        one owner.  Atomic like :meth:`write_shot_offsets`, same mode rules,
-        same "the configs repo is a git checkout — committing is a human
-        act" contract: the path is returned so the caller can say which
-        file now differs from the tree.
-
-        Parameters
-        ----------
-        preset : Preset
-            The validated document.  Its ``name`` is the file stem and must
-            be a plain file name: letters, digits, ``_``, ``-`` and ``.``
-            (no separators, no leading dot).  A ``.yaml`` / ``.yml`` suffix
-            is stripped — the stem is the preset's name in the document too.
-        overwrite : bool, default False
-            Replace an existing preset of that name.  Off by default so a
-            typo in the name cannot silently replace a curated preset.
-
-        Raises
-        ------
-        GeecsConfigurationError
-            A name that is not a file stem, the experiment folder missing
-            (never created here — see :meth:`write_shot_offsets`), or an
-            existing preset without *overwrite*.
-        """
-        name = preset.name
-        while name != self._strip_yaml_suffix(name):
-            name = self._strip_yaml_suffix(name)
-        if name != preset.name:
-            # ``jet.yaml`` is the file, ``jet`` the preset: the document's
-            # name must be what ``list_presets`` says and ``resolve_preset``
-            # is asked for.
-            preset = preset.model_copy(update={"name": name})
-        if not _PRESET_STEM.fullmatch(name):
-            raise GeecsConfigurationError(
-                f"preset name {name!r} is not a file name: use letters, digits, "
-                "'_', '-' and '.', no separators"
-            )
-        folder = self._root / self.PRESET_FOLDER
-        if not self._root.is_dir():
-            raise GeecsConfigurationError(
-                f"cannot write preset {name!r} for experiment {self._experiment!r}: "
-                f"no configs folder at {self._root} (check the configs root and "
-                "that the share is mounted)"
-            )
-        path = self.preset_path(name)
-        if path.exists() and not overwrite:
-            raise GeecsConfigurationError(
-                f"preset {name!r} already exists at {path}; pass overwrite=True "
-                "to replace it"
-            )
-        # The presets folder itself may be absent in a fresh experiment; the
-        # experiment folder above it is the thing never created here.
-        folder.mkdir(exist_ok=True)
-        _write_yaml_atomically(path, preset.model_dump(mode="json"))
-        logger.info("preset %r written to %s", name, path)
-        return path
 
     @property
     def analysis_config_dir(self) -> Path:
@@ -351,7 +302,8 @@ class ConfigsRepoResolver:
 
     def optimizer_config_path(self, name: str) -> Path:
         """Return the optimizer config path; its seed dumps resolve relative to it."""
-        stem = self._strip_yaml_suffix(name)
+        # the references table reads a preset's optimizer config through yaml_stem too
+        stem = yaml_stem(name)
         if not stem or stem in (".", "..") or any(c in stem for c in ("/", "\\")):
             raise GeecsConfigurationError("optimizer config must be a file stem")
         return self._named_yaml_path(self.OPTIMIZER_FOLDER, stem)
@@ -414,7 +366,7 @@ class ConfigsRepoResolver:
         GeecsConfigurationError
             Missing file, or a profile that names no trigger device.
         """
-        stem = self._strip_yaml_suffix(name)
+        stem = yaml_stem(name)
         path = self._named_yaml_path(self.TRIGGER_FOLDER, stem)
         document = self._load_yaml(path, "trigger profile", name)
         if "schema_version" in document:
@@ -440,8 +392,11 @@ class ConfigsRepoResolver:
         the previous read (SMB shares tick at 1–2 s) is served stale until
         the next tick or byte-count change.
         """
-        path = self._root / self.SCAN_VARIABLES_FOLDER / "scan_variables.yaml"
+        path = self._root / self.SCAN_VARIABLES_FOLDER / SCAN_VARIABLES_FILENAME
         try:
+            settled_exists(
+                path
+            )  # a fast-forward mid-rewrite of the catalogue is waited out
             st = path.stat()
         except (FileNotFoundError, NotADirectoryError):
             # ``Path.exists`` read both as "missing"; keep that message.
@@ -491,54 +446,106 @@ class ConfigsRepoResolver:
                 f"{sorted(catalog.variables)}"
             ) from None
 
-    def _action_library(self) -> ActionPlanLibrary:
-        """Load the experiment's action-plan library — from disk on every call.
+    # ------------------------------------------------------------------
+    # Setups (``setups/<name>.yaml``, read from disk on every call)
+    # ------------------------------------------------------------------
 
-        Not cached: the worker holds one resolver for its lifetime and
-        ``run_action`` resolves through it, so a plan edited by hand in
-        ``actions.yaml`` must be what the next queue item runs.  One small
-        YAML per item.
-        """
-        path = self._root / self.ACTION_FOLDER / ACTION_LIBRARY_FILENAME
-        document = self._load_yaml(path, "action library", "actions")
-        if not document:
-            # An empty file (a fresh experiment's placeholder) is an empty
-            # library.  ``_load_yaml`` maps YAML ``None`` to ``{}``, so a
-            # literal ``{}`` reads the same way here.
-            return ActionPlanLibrary(plans={})
-        # A legacy 'actions:' document is refused by the schema itself
-        # (ActionPlanLibrary's before-validator names the regeneration).
-        return ActionPlanLibrary.model_validate(document)
+    def setups(self) -> dict[str, Setup]:
+        """Every setup of the experiment by name; no ``setups`` folder is none.
 
-    def resolve_action_plan(self, name: str) -> ActionPlan:
-        """Look up the action plan *name* in the experiment library.
+        Not cached: an item applies what is
+        committed when it runs. One unreadable file refuses them all
+        (an ``apply`` step may name any of them).
 
         Raises
         ------
         GeecsConfigurationError
-            Unknown name (the error lists the known plans).
+            A file does not validate, its name is not its stem, or two
+            files share a stem.
         """
-        library = self._action_library()
         try:
-            return library.plans[name]
-        except KeyError:
+            return load_setups(self._root)
+        except (ValueError, OSError, yaml.YAMLError) as exc:
             raise GeecsConfigurationError(
-                f"action plan {name!r} is not in the {self._experiment!r} "
-                f"action library. Known plans: {sorted(library.plans)}"
-            ) from None
+                f"the setups of {self._experiment!r} cannot be read: {exc}"
+            ) from exc
 
-    def action_plan_registry(self) -> dict[str, ActionPlan]:
-        """Return every named plan visible to nested ``run`` steps (the library).
+    def resolve_setup(self, name: str) -> tuple[Setup, dict[str, Setup]]:
+        """The setup *name* and every setup its ``apply`` steps may name.
 
-        Empty when the experiment has no ``actions.yaml`` at all; an
-        unreadable or legacy-dialect file **raises** (a listing that read
-        empty would hide the regeneration a legacy file needs).
+        Raises
+        ------
+        GeecsConfigurationError
+            Unknown name (the error lists the known setups), or
+            :meth:`setups` refused.
         """
-        if not (self._root / self.ACTION_FOLDER / ACTION_LIBRARY_FILENAME).exists():
-            return {}
-        return dict(self._action_library().plans)
+        setups = self.setups()
+        if name not in setups:
+            raise GeecsConfigurationError(
+                f"setup {name!r} is not in {self._experiment!r}'s setups/. "
+                f"Known setups: {sorted(setups)}"
+            )
+        return setups[name], setups
 
-    DEFAULTS_FILE = "experiment_defaults.yaml"
+    def setup_repo_path(self, name: str) -> str:
+        """The setup's file as the configs repository names it (``scanner_configs/experiments/<experiment>/setups/<file>``)."""
+        file = self._named_yaml_path(SETUPS_FOLDER, name).name
+        return "/".join((*EXPERIMENTS_SUBDIR, self._experiment, SETUPS_FOLDER, file))
+
+    def configs_commit(self) -> str | None:
+        """The commit the configs checkout holds (``git rev-parse HEAD``); ``None`` when it cannot say.
+
+        Provenance only (a setup's ``md``): a checkout that is not a git
+        working tree, a git that is missing or slow, is no commit, never
+        a failure.
+        """
+        import subprocess
+
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(self._root), "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            return None
+        commit = out.stdout.strip()
+        return commit if out.returncode == 0 and len(commit) == 40 else None
+
+    def resolve_operator_policy(self) -> OperatorPolicy:
+        """Load ``<experiment>/operator_policy.yaml``; no file is the empty policy (no hazards named).
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The file exists but is unreadable or not a valid policy.
+        """
+        return self._optional_document(
+            OPERATOR_POLICY_FILENAME, "operator policy", OperatorPolicy
+        )
+
+    def resolve_panel_devices(self) -> PanelDevices:
+        """Load ``<experiment>/panel_devices.yaml``; no file is no panel devices.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            The file exists but is unreadable or not a valid document.
+        """
+        return self._optional_document(
+            PANEL_DEVICES_FILENAME, "panel devices", PanelDevices
+        )
+
+    def _optional_document(self, filename: str, kind: str, model: type[_Doc]) -> _Doc:
+        path = self._root / filename
+        if not settled_exists(path):
+            return model()
+        try:
+            return model.model_validate(self._load_yaml(path, kind, filename))
+        except (ValueError, OSError, yaml.YAMLError) as exc:
+            raise GeecsConfigurationError(f"{kind} {path} is invalid: {exc}") from exc
 
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
         """Load ``<experiment>/experiment_defaults.yaml``; ``None`` if absent.
@@ -546,10 +553,12 @@ class ConfigsRepoResolver:
         No legacy dialect exists behind it (the legacy scanner kept these
         choices in GUI state).
         """
-        path = self._root / self.DEFAULTS_FILE
-        if not path.exists():
+        path = self._root / EXPERIMENT_DEFAULTS_FILENAME
+        if not settled_exists(path):
             return None
-        document = self._load_yaml(path, "experiment defaults", self.DEFAULTS_FILE)
+        document = self._load_yaml(
+            path, "experiment defaults", EXPERIMENT_DEFAULTS_FILENAME
+        )
         return ExperimentDefaults.model_validate(document)
 
     def resolve_native_devices(self) -> NativeDevices:
@@ -578,7 +587,7 @@ class ConfigsRepoResolver:
             raise GeecsConfigurationError(
                 f"configs directory {path.parent.parent} is not reachable"
             )
-        if not path.exists():
+        if not settled_exists(path):
             return NativeDevices()
         try:
             document = self._load_yaml(
@@ -590,12 +599,27 @@ class ConfigsRepoResolver:
                 f"native device registry {path} is invalid: {exc}"
             ) from exc
 
-    SHOT_OFFSETS_FILE = "shot_offsets.yaml"
-
     @property
     def shot_offsets_path(self) -> Path:
         """Where this experiment's measured drain offsets live (written or not)."""
-        return self._root / self.SHOT_OFFSETS_FILE
+        return self._root / SHOT_OFFSETS_FILENAME
+
+    @property
+    def shot_offsets_write_path(self) -> Path:
+        """Where :meth:`write_shot_offsets` writes: the same file under the write root.
+
+        The read path itself unless ``GEECS_CONFIGS_WRITE_ROOT`` names
+        another root (the configurator's inbox on the services box, which
+        commits the file to main; the worker reads it back from the live
+        checkout at its next environment open).
+        """
+        root = self._experiments_write_root or scanner_configs_write_base()
+        if root is None:
+            raise GeecsConfigurationError(
+                "cannot resolve where to write: set GEECS_CONFIGS_WRITE_ROOT, or the "
+                "configs root (config.ini [Paths] scanner_config_root_path)"
+            )
+        return root / self._experiment / SHOT_OFFSETS_FILENAME
 
     def resolve_shot_offsets(self) -> ShotOffsets | None:
         """Load ``<experiment>/shot_offsets.yaml``; ``None`` if never measured.
@@ -617,9 +641,9 @@ class ConfigsRepoResolver:
             a tight rep rate with nothing in the log to say why.
         """
         path = self.shot_offsets_path
-        if not path.exists():
+        if not settled_exists(path):
             return None
-        document = self._load_yaml(path, "shot offsets", self.SHOT_OFFSETS_FILE)
+        document = self._load_yaml(path, "shot offsets", SHOT_OFFSETS_FILENAME)
         return ShotOffsets.model_validate(document)
 
     def write_shot_offsets(self, offsets: ShotOffsets) -> Path:
@@ -634,10 +658,12 @@ class ConfigsRepoResolver:
         checkout, and a file only the service account could read would
         block the very review this write exists to invite.
 
-        The configs repo is a **git checkout**, usually on the data share.
-        This writes the working tree only: committing and pushing is a
-        human act, and the caller logs the path so the operator knows there
-        is an uncommitted change to review.
+        It writes to :attr:`shot_offsets_write_path`.  On the services box
+        that is the configurator's inbox, which commits the file to the
+        configs repo's main as the worker (the live checkout the worker
+        reads is never written: git refuses to fast-forward over an
+        uncommitted file); elsewhere it is the read path, a working-tree
+        change to review and commit.
 
         Returns
         -------
@@ -651,7 +677,7 @@ class ConfigsRepoResolver:
             misconfigured or unreachable, and creating the tree here would
             plant an experiment folder in the wrong place.
         """
-        path = self.shot_offsets_path
+        path = self.shot_offsets_write_path
         if not path.parent.is_dir():
             raise GeecsConfigurationError(
                 f"cannot write shot offsets for experiment {self._experiment!r}: "

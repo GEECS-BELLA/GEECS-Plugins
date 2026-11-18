@@ -77,7 +77,7 @@ class BeamSpec(MeasureSpec):
         return frozenset(keys)
 
 
-@measure(BeamSpec, ndim={2})
+@measure(BeamSpec, ndim={2}, default=True)
 def beam(frame: Frame, spec: BeamSpec) -> Measurement:
     """Measure a beam; x/y use frame coordinates, diagonals/slopes local indices."""
     from math import isfinite

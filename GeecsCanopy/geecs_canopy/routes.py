@@ -1,7 +1,7 @@
-"""The module's routes, mounted at ``/geecs``; no Canopy import (condition (b)).
+"""The module's routes, mounted at ``/geecs``; no Canopy import.
 
 Every route, the put and an action run included, needs Canopy read access
-only (condition (a)): an operator's key never carries Canopy ``write``; the
+only: an operator's key never carries Canopy ``write``; the
 module authorizes its own writes by the operator policy, step by step. Errors are Canopy's
 ``{"code", "detail"}`` envelope.
 """
@@ -166,11 +166,11 @@ def build_app(module: Module, *, read_access: Callable[..., Any], squirrel_trans
 
 
 def _action_routes(app: FastAPI, actions: Executor, read: list[Any], read_access: Callable[..., Any]) -> None:  # fmt: skip
-    """The action plans: the list, a run's start, its state and its stop; read access, as every route."""
+    """The setups a screen button applies: the list, a run's start, its state and its stop; read access, as every route."""
     app.state.actions = actions
 
     @app.get("/v1/actions", dependencies=read)
-    async def action_plans() -> Any:
+    async def setup_list() -> Any:
         return {"plans": await actions.listing()}
 
     @app.post("/v1/actions/{name}/run")

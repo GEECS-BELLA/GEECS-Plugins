@@ -3,10 +3,11 @@
 Run configured camera and 1D analysis across completed scans, bin results,
 write derived scalars, and render summary figures. Python 3.11 is required.
 
-The operator entry point is the **Data Portal Analysis tab**. Its config
-editor uses this package's `ConfigStore` and editor router, including
-previews of unsaved diagnostic documents. Install the portal's `analysis`
-extra to enable these features.
+The operator entry point is the **Data Portal Analysis tab**: it runs the
+recipes through this package and previews an unsaved recipe through
+`scan_analysis.core_preview`; the recipes themselves are edited and saved
+in the configurator. Install the portal's `analysis` extra to enable these
+features.
 
 For Python use, install with `poetry install` from this directory (or the
 repository root), then load a diagnostic/group with `scan_analysis.config`

@@ -30,7 +30,7 @@ from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from geecs_schemas import SCHEMA_REGISTRY
+from geecs_schemas import KIND_STORAGE, SCHEMA_REGISTRY, FileStorage
 
 # Marker line that prefixes the committed Markdown page so a reader (or a stray
 # editor) knows not to hand-edit it.  The no-drift test compares the file with
@@ -76,10 +76,6 @@ capture:
   acquisition: free_run
   save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
   trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_ebeam]
-  per_step: []
-  closeout: []
 description: "jet z scan with probe"
 # v1 documents (the capture fields flat at the top level) still validate —
 # they are lifted into this shape automatically.
@@ -143,51 +139,16 @@ states:
     - {device: U_DG645_ShotControl, variable: Trigger.ExecuteSingleShot,
        value: "on"}
 """,
-    "action_plan": """\
-schema_version: 1
-description: "Zero the pressure voltage and confirm the PLC output"
-steps:
-  - do: set
-    device: U_HP_Daq
-    variable: AnalogOutput.Channel 1
-    value: 0
-  - do: wait
-    seconds: 3
-  - do: check
-    device: U_148_PLC
-    variable: DI.Ch17
-    expected: "off"
-  - do: run
-    plan: close_gaia_internal_shutters
-""",
-    "action_plan_library": """\
-schema_version: 1
-plans:
-  zero_pressure_voltage:
-    steps:
-      - do: set
-        device: U_HP_Daq
-        variable: AnalogOutput.Channel 1
-        value: 0
-  experiment_closeout:
-    steps:
-      - do: run
-        plan: zero_pressure_voltage
-""",
     "experiment_defaults": """\
 schema_version: 1
-# applied only where a scan request is silent: defaults run first,
-# then the scan's own
+# applied only where a scan request is silent
 trigger_profile: htu_shot_control
-actions:
-  setup: [pre_scan_checklist]
-  closeout: [experiment_closeout]
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 """,
     "archive_policy": """\
 schema_version: 1
-# the archive set is derived from the DB (monitored readbacks, :SP, connected,
+# the archive set is derived from the DB (served readbacks, :SP, connected,
 # derived channels); this file lists the exceptions
 exclude:
   - "undulator:uc_*:image_size*"
@@ -244,6 +205,15 @@ devices:
   UC_FlirCam: {kind: aravis_camera, trigger_source: line0}
   # A positioner: one motor record per axis, <experiment>:u_examplestage:x …
   U_ExampleStage: {kind: epics_motor, axes: [x, y, z]}
+  # A supply: each settable is its readback record, written at the family's
+  # setpoint role for it (current:SP) and confirmed on the readback within
+  # the IOC's set tolerance (current:TOL); the timeout is the scan's patience.
+  U_ExampleSupply: {kind: setpoint_device,
+                    settables: {current: {timeout: 10}},
+                    readbacks: [voltage], status: [fault, interlock]}
+  # A witness: the hardware count of one trigger domain's edges (Counter1Counts),
+  # recorded in every strict row; at most one per domain.
+  U_ExampleWitness: {kind: witness, counter: Counter1, domain: main}
   # An entry may name its family ('template', one of its kind's); absent,
   # the kind's default. Older readers refuse the key.
 """,
@@ -293,6 +263,8 @@ grants:
   - operators: [A. Operator]
     families: [PLC Digital Output]  # a GEECS DB device type: every DB device of it
     roles: [DO.Ch1, DO.Ch2]         # a DB device's role is its GEECS variable name
+  - operators: ["*"]                # alone: every operator who gives a name
+    families: [scope_contract]
 hazards:                            # the hazard confirm for DB devices' roles
   - devices: [U_ShutterPLC]
     roles: [DO.Ch1]
@@ -390,6 +362,23 @@ columns:
     expr: a * b / c
     inputs: {a: U_BCaveICT charge, b: U_ICT2 charge, c: U_ICT3 charge}
 """,
+    "setup": """\
+schema_version: 1
+# <experiment>/setups/low_power.yaml: one setup per file, the file stem its name.
+name: low_power
+description: Amp4 off, the jet at its standby pressure
+steps:
+  - {do: set, device: U_HP_Daq, variable: AnalogOutput.Channel 1, value: 0.5}
+  - {do: wait, seconds: 3}
+  - {do: check, device: U_HP_Daq, variable: AnalogInput.Channel 1, expected: 0.5,
+     tolerance: 0.02}               # a number matches within tolerance, a word exactly
+  - {do: apply, setup: shutters_closed}   # another setup, inlined here; loops refused
+captured:
+  by: A. Operator
+  at: "2026-11-07T18:02:00-08:00"
+  readbacks:
+    - {device: U_HP_Daq, variable: AnalogOutput.Channel 1}
+""",
     "log_entry": """\
 schema_version: 1
 entry_id: 7f3a9c2b1d04
@@ -416,6 +405,34 @@ updated_at: "2026-09-11T17:42:10+00:00"   # moves on every change; edited_at onl
 version: 2
 """,
 }
+
+
+def _kind_line(kind: str, model: type[BaseModel]) -> str:
+    """The reference's line under a kind's heading: its tier and where it is kept.
+
+    Parameters
+    ----------
+    kind : str
+        The registry kind.
+    model : type of pydantic.BaseModel
+        Its document model (``tier`` ClassVar, when declared).
+
+    Returns
+    -------
+    str
+        ``Tier: `operator` · File: `<path>``` or the not-a-file reason; empty
+        for a kind the storage table does not know (a test registry).
+    """
+    parts = []
+    tier = getattr(model, "tier", None)
+    if tier is not None:
+        parts.append(f"Tier: `{tier}`")
+    storage = KIND_STORAGE.get(kind)
+    if isinstance(storage, FileStorage):
+        parts.append(f"File: `{storage.path_pattern()}`")
+    elif storage is not None:
+        parts.append(f"Not a file: {storage.reason}")
+    return " · ".join(parts)
 
 
 def _type_name(annotation: Any) -> str:
@@ -580,6 +597,9 @@ def render_model_markdown(model: type[BaseModel], example: str | None = None) ->
     ]
     for name, field in model.model_fields.items():
         description = _escape_cell(" ".join((field.description or "").split()))
+        extra = field.json_schema_extra
+        if isinstance(extra, dict) and extra.get("tier"):
+            description = f"*Tier: {extra['tier']}.* {description}"
         required = "yes" if field.is_required() else "no"
         type_name = _escape_cell(_type_name(field.annotation))
         default = _escape_cell(_default_repr(field))
@@ -614,6 +634,9 @@ def render_reference(
     out: list[str] = ["# GEECS config schema reference", ""]
     for kind, model in registry.items():
         out += [f"## `{kind}`", ""]
+        kind_line = _kind_line(kind, model)
+        if kind_line:
+            out += [kind_line, ""]
         out.append(render_model_markdown(model, example=EXAMPLES.get(kind)))
         for nested in iter_nested_models(model):
             if nested is model or nested in documented:

@@ -65,15 +65,21 @@ with settable variables can take part in a transition.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from enum import Enum
 
 from pydantic import model_validator, Field, field_validator
 
 from geecs_schemas._base import (
     SchemaModel,
+    Tier,
     VersionedSchemaModel,
     stale_schema_version,
 )
+
+#: Where an experiment's trigger profiles live: ``shot_control_configurations/<name>.yaml``.
+TRIGGER_PROFILES_FOLDER = "shot_control_configurations"
 
 
 class TriggerState(str, Enum):
@@ -239,6 +245,8 @@ class TriggerProfile(VersionedSchemaModel):
     populated one, and normalizes ``schema_version`` ≤ 1 to 2.
     """
 
+    tier: ClassVar[Tier] = "operator"
+
     schema_version: int = Field(
         default=2,
         description=(
@@ -273,7 +281,7 @@ class TriggerProfile(VersionedSchemaModel):
             "the run closes. A device then acquires once per announced shot, "
             "saves shot-numbered files and applies its own database "
             "start/end values. Off by default. Strict acquisition only: a "
-            "gated run and the calibration plans refuse such a profile. A "
+            "fly run and the calibration plans refuse such a profile. A "
             "profile with this flag and no writes at all is the box-less "
             "case — the shot message is the only trigger."
         ),

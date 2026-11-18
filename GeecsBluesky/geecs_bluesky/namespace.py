@@ -14,7 +14,7 @@ take devices by name: ``count([UC_Amp4_IR_input], 10)``,
   :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the DB gives it a
   tolerance or the catalog says ``kind: motor``, else
   :class:`~geecs_bluesky.devices.ca.settable.CaSettable`;
-* a native registry entry is a ``NativeCamera`` or ``NativeMotor`` (one owner);
+* a native registry entry is a native noun by kind (one owner);
 * a catalog ``kind: pseudo`` entry becomes a
   :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoPositioner` under the
   catalog name (:meth:`GeecsNamespace.add_pseudos`).
@@ -43,7 +43,7 @@ from geecs_core.db.device_streams import (
     served_array_variables,
 )
 from geecs_core.db.served_set import served_variables
-from geecs_core.pv_naming import pv_name
+from geecs_core.pv_naming import native_device_prefix
 from geecs_core.db.variable_types import (
     VARTYPE_TO_DTYPE,
     effective_vartype,
@@ -62,7 +62,10 @@ from geecs_bluesky.devices.hdf_plugin import PluginPathProvider
 from geecs_bluesky.devices.hdf_plugin import file_plugin_hosts as _hosts_from_config
 from geecs_bluesky.devices.native import NativeCamera, NativeTriggerSource
 from geecs_bluesky.devices.native_motor import NativeMotor
-from geecs_schemas import AravisCamera, EpicsMotor
+from geecs_bluesky.devices.native_setpoint import NativeSetpointDevice
+from geecs_bluesky.devices.witness import Witness
+from geecs_schemas import AravisCamera, EpicsMotor, SetpointDevice, load_families
+from geecs_schemas import Witness as WitnessEntry
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plan_names import GEECS_PLAN_NAMES
 from geecs_bluesky.utils import identifier_name, safe_name, settable_attribute
@@ -335,6 +338,30 @@ class DeviceRoster:
 _HOSTS_FROM_CONFIG = object()
 
 
+def _setpoint_device(
+    device: str, prefix: str, entry: SetpointDevice, name: str
+) -> NativeSetpointDevice:
+    """A ``setpoint_device`` entry's noun: each settable written, and its set tolerance read, where the family's one rule says."""
+    family = load_families().get(entry.family_template)
+    try:
+        if family is None:
+            raise ValueError(f"family {entry.family_template!r} is not installed")
+        setpoints = entry.setpoint_records(family)
+        tolerances = entry.tolerance_records(family)
+    except ValueError as exc:  # validated against the installed families: not expected
+        raise GeecsConfigurationError(f"device namespace: {device}: {exc}") from exc
+    return NativeSetpointDevice(
+        device,
+        prefix,
+        entry.settables,
+        setpoints=setpoints,
+        tolerances=tolerances,
+        readbacks=entry.readbacks,
+        status=entry.status,
+        name=name,
+    )
+
+
 class GeecsNamespace:
     """The experiment's devices as ophyd-async objects, addressable by name.
 
@@ -373,8 +400,11 @@ class GeecsNamespace:
         (``aravis_camera``) or a
         :class:`~geecs_bluesky.devices.native_motor.NativeMotor`
         (``epics_motor``: one stock motor record per axis, each a Movable
-        child ``Device.axis``).  A name that is also a DB roster device
-        raises — one owner per device.
+        child ``Device.axis``) or a
+        :class:`~geecs_bluesky.devices.native_setpoint.NativeSetpointDevice`
+        (``setpoint_device``: each settable a Movable child
+        ``Device.record`` confirmed on its readback).  A name that is also a
+        DB roster device raises — one owner per device.
     """
 
     def __init__(
@@ -402,6 +432,7 @@ class GeecsNamespace:
             str(k): float(v) for k, v in (drain_offsets or {}).items()
         }
         self._devices: dict[str, Any] = {}
+        self._witnesses: dict[str, Witness] = {}  # trigger domain → its witness
         self._by_geecs_name: dict[str, Any] = {}
         self._attrs: dict[str, dict[str, str]] = {}  # ns name → {lower var → attr}
         skipped: list[str] = []
@@ -551,43 +582,8 @@ class GeecsNamespace:
                     f"and {device!r} both normalise to {safe_name(device)!r}"
                 )
             name = safe_name(device)
-            prefix = pv_name(self.experiment, device) + ":"
-            dev: Any
-            attrs: dict[str, str] = {}
-            if isinstance(entry, EpicsMotor):
-                dev = NativeMotor(device, prefix, entry.axes, name=name)
-                for axis in entry.axes:
-                    attr = settable_attribute(axis)  # the Movable child
-                    attrs[axis.lower()] = attr
-                    attrs[attr.lower()] = attr
-                    # A catalog ``kind: motor`` opt-in on a native axis is
-                    # redundant, never unhonoured.
-                    self._bound_motors.add(f"{device}:{axis}".lower())
-            elif isinstance(entry, AravisCamera):
-                if self._path_provider is None:
-                    raise GeecsConfigurationError(
-                        f"device namespace: native camera {device!r} needs the "
-                        "run's path provider"
-                    )
-                dev = NativeCamera(
-                    device,
-                    prefix,
-                    trigger_source=NativeTriggerSource[entry.trigger_source.upper()],
-                    path_provider=PluginPathProvider(
-                        self._path_provider,
-                        device,
-                        plugin_path=native_ioc_save_path,
-                        path_type=PurePosixPath,
-                    ),
-                    name=name,
-                    drain_offset=self._drain_offsets.get(name, 0.0),
-                )
-            else:  # a kind the schema knows and this namespace does not build yet
-                raise GeecsConfigurationError(
-                    f"device namespace: {device!r} is a native {entry.kind!r}, a "
-                    "kind this worker does not build — drop it from "
-                    "native_devices.yaml until its noun lands"
-                )
+            prefix = native_device_prefix(self.experiment, device)
+            dev, attrs = self._native_noun(device, entry, name, prefix)
             dev._geecs_namespace_member = True  # connect_on_demand's marker
             self._devices[identifier_name(device)] = dev
             self._by_geecs_name[device.lower()] = dev
@@ -596,8 +592,10 @@ class GeecsNamespace:
         if built:
             cameras = [d for d in built if isinstance(d, NativeCamera)]
             motors = [d for d in built if isinstance(d, NativeMotor)]
+            supplies = [d for d in built if isinstance(d, NativeSetpointDevice)]
             logger.info(
-                "device namespace: %d native EPICS camera(s): %s; %d positioner(s): %s",
+                "device namespace: %d native EPICS camera(s): %s; %d positioner(s): "
+                "%s; %d setpoint device(s): %s",
                 len(cameras),
                 ", ".join(c._geecs_device_name for c in cameras) or "none",
                 len(motors),
@@ -606,8 +604,85 @@ class GeecsNamespace:
                     for m in motors
                 )
                 or "none",
+                len(supplies),
+                ", ".join(
+                    f"{d._geecs_device_name} "
+                    f"({', '.join(c._variable for c in d.settables)})"
+                    for d in supplies
+                )
+                or "none",
             )
         return built
+
+    def _native_noun(
+        self, device: str, entry: Any, name: str, prefix: str
+    ) -> tuple[Any, dict[str, str]]:
+        """One registry entry's noun by kind, and its lookups (lower name → attribute)."""
+        dev: Any
+        attrs: dict[str, str] = {}
+        if isinstance(entry, EpicsMotor):
+            dev = NativeMotor(device, prefix, entry.axes, name=name)
+            for axis in entry.axes:
+                attr = settable_attribute(axis)  # the Movable child
+                attrs[axis.lower()] = attr
+                attrs[attr.lower()] = attr
+                # A catalog ``kind: motor`` opt-in on a native axis is
+                # redundant, never unhonoured.
+                self._bound_motors.add(f"{device}:{axis}".lower())
+        elif isinstance(entry, SetpointDevice):
+            dev = _setpoint_device(device, prefix, entry, name)
+            for record in [*entry.settables, *entry.readbacks]:
+                attr = settable_attribute(record)  # the child or the column
+                attrs[record.lower()] = attr
+                attrs[attr.lower()] = attr
+            for record in entry.settables:
+                # Confirmed on its readback: a catalog ``kind: motor``
+                # opt-in is redundant, never unhonoured.
+                self._bound_motors.add(f"{device}:{record}".lower())
+        elif isinstance(entry, WitnessEntry):  # one per domain: the schema's rule
+            count, epoch = entry.records(load_families()[entry.family_template])
+            dev = Witness(
+                device,
+                prefix,
+                count_record=count,
+                epoch_record=epoch,
+                domain=entry.domain,
+                name=name,
+            )
+            self._witnesses[entry.domain] = dev
+            if entry.domain != "main":
+                logger.warning(
+                    "device namespace: witness %s counts domain %r — strict runs "
+                    "record only the 'main' domain's witness",
+                    device,
+                    entry.domain,
+                )
+        elif isinstance(entry, AravisCamera):
+            if self._path_provider is None:
+                raise GeecsConfigurationError(
+                    f"device namespace: native camera {device!r} needs the "
+                    "run's path provider"
+                )
+            dev = NativeCamera(
+                device,
+                prefix,
+                trigger_source=NativeTriggerSource[entry.trigger_source.upper()],
+                path_provider=PluginPathProvider(
+                    self._path_provider,
+                    device,
+                    plugin_path=native_ioc_save_path,
+                    path_type=PurePosixPath,
+                ),
+                name=name,
+                drain_offset=self._drain_offsets.get(name, 0.0),
+            )
+        else:  # a kind the schema knows and this namespace does not build yet
+            raise GeecsConfigurationError(
+                f"device namespace: {device!r} is a native {entry.kind!r}, a "
+                "kind this worker does not build — drop it from "
+                "native_devices.yaml until its noun lands"
+            )
+        return dev, attrs
 
     # ------------------------------------------------------------------ build
     def _build(  # noqa: C901, PLR0912
@@ -940,8 +1015,8 @@ class GeecsNamespace:
         device, sep, variable = target.partition(":")
         return self.variable(device, variable) if sep else self[device]
 
-    # The action compiler's SettableFactory (actions/compiler.py): an
-    # action plan's (device, variable) is the child the namespace already
+    # apply_setup's SettableFactory (plans/apply_setup.py): a setup
+    # step's (device, variable) is the child the namespace already
     # built — the Movable for a settable, the readback signal otherwise.
     def get_settable(self, device: str, variable: str) -> Movable:
         """The Movable child for a ``set`` step; loud when the variable is read-only."""
@@ -952,13 +1027,13 @@ class GeecsNamespace:
             raise GeecsConfigurationError(
                 f"device namespace: {device}:{variable} is owned by the detector's "
                 "native saving (opened and closed by the run) — not settable "
-                "from an action plan"
+                "from a setup"
             )
         child = self._child_for_step(device, variable)
         if not isinstance(child, Movable):
             raise GeecsConfigurationError(
                 f"device namespace: {device}:{variable} is not settable (the "
-                "gateway serves it read-only) — an action plan cannot set it"
+                "gateway serves it read-only) — a setup cannot set it"
             )
         return child
 
@@ -987,15 +1062,20 @@ class GeecsNamespace:
         for dev in self._devices.values():
             if isinstance(dev, GeecsDetector):
                 objects.extend(dev._scalar_signals())
-            elif isinstance(dev, (CaPseudoPositioner, NativeCamera)):
+            elif isinstance(dev, (CaPseudoPositioner, NativeCamera, Witness)):
                 # a pseudo derives from components the baseline already
-                # carries; a native camera has no scalars and reads only per shot
+                # carries; a native camera has no scalars and reads only per
+                # shot; a witness is read by the strict shot alone
                 continue
             else:
                 # a scalar-only device, or a native positioner (its axes'
                 # readbacks: a read costs no shot)
                 objects.append(dev)
         return objects
+
+    def witnesses(self) -> dict[str, Witness]:
+        """The registry's witnesses, by the trigger domain each counts."""
+        return dict(self._witnesses)
 
     # ----------------------------------------------------------------- export
     def export_into(self, namespace: dict[str, Any]) -> list[str]:

@@ -22,11 +22,10 @@ between trigger and wait.  It owns:
 - `plans/` — the registered plans (`plan_names.GEECS_PLAN_NAMES`): `count`
   (stock `bp.count` bound strict), `sweep` (a `geecs_schemas.Sweep`
   trajectory through stock `scan_nd`), `optimize` (native Xopt ask/tell),
-  plus the utilities `mv`, `run_action` and the two shot-offset
+  plus the utilities `mv`, `apply_setup` and the two shot-offset
   calibration plans.  `plans/strict.py` is the strict `take_reading` (the
   `SINGLESHOT` fire between the triggers and the wait, plus the bounded
-  refire); `plans/gated.py` the gated batch (the box free-runs while the
-  plugin-backed cameras count frames); `plans/registry.py` binds them
+  refire); `plans/registry.py` binds them
 - `plans/claim_scan.py` — the day-scoped scan-number claim (the one place
   a `scans/ScanNNN/` folder comes into existence)
 - `run_engine.py` — `make_run_engine`: one RunEngine with

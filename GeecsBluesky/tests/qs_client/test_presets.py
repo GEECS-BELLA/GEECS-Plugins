@@ -212,31 +212,62 @@ def test_a_preset_cannot_name_mv() -> None:
         expand_preset(_preset(plan={"name": "mv", "args": ["U_S1H:Current", 0.0]}))
 
 
-def test_a_preset_cannot_name_run_action() -> None:
-    with pytest.raises(GeecsConfigurationError, match="submit_plan\\('run_action'"):
-        expand_preset(_preset(plan={"name": "run_action", "args": ["Amp4_DUMP_HP"]}))
+def test_a_preset_cannot_name_apply_setup() -> None:
+    with pytest.raises(GeecsConfigurationError, match="submit_plan\\('apply_setup'"):
+        expand_preset(_preset(plan={"name": "apply_setup", "args": ["Amp4_DUMP_HP"]}))
 
 
 # ------------------------------------------------------------- phase 2b
-def test_non_essential_devices_ride_as_the_plans_keyword() -> None:
+def test_the_required_devices_ride_as_required() -> None:
     preset = _preset(
         devices=[
             {"device": "UC_ALineEBeam3"},
-            {"device": "UC_SlowCam", "essential": False},
+            {"device": "UC_SlowCam", "required": False},
             {"device": "U_BCaveICT", "save_images": False},
         ],
-        plan={"name": "count", "kwargs": {"num": 10, "acquisition": "gated"}},
+        plan={"name": "count", "kwargs": {"num": 10, "acquisition": "fly"}},
     )
     item = expand_preset(preset)
-    assert item.args == [["UC_ALineEBeam3", "U_BCaveICT.scalars"]]
-    assert item.kwargs["non_essential"] == ["UC_SlowCam"]
-    assert item.kwargs["acquisition"] == "gated"
-    assert item.references == ["UC_ALineEBeam3", "U_BCaveICT.scalars", "UC_SlowCam"]
+    assert item.args == [["UC_ALineEBeam3", "UC_SlowCam", "U_BCaveICT.scalars"]]
+    assert item.kwargs["required"] == ["UC_ALineEBeam3", "U_BCaveICT.scalars"]
+    assert "non_essential" not in item.kwargs
+    assert item.kwargs["acquisition"] == "fly"
+    assert item.references == ["UC_ALineEBeam3", "UC_SlowCam", "U_BCaveICT.scalars"]
+    # None required: an explicit empty list, never absent (absent = all).
+    none = _preset(devices=[{"device": "UC_SlowCam", "required": False}])
+    assert expand_preset(none).kwargs["required"] == []
 
 
-def test_all_essential_preset_carries_no_non_essential_keyword() -> None:
+def test_a_condition_is_never_required_once_the_tree_says_so() -> None:
+    """A stampless device (its default ``required``) beside a non-essential camera."""
+    preset = _preset(
+        devices=[
+            {"device": "UC_Cam"},
+            {"device": "U_Gauge"},
+            {"device": "UC_Slow", "required": False},
+        ]
+    )
+    tree = {"UC_Cam.acq_timestamp", "UC_Slow.hdf", "U_Gauge", "U_Gauge.pressure"}
+    item = expand_preset(preset, device_tree=tree)
+    assert item.args[0] == ["UC_Cam", "U_Gauge", "UC_Slow"]
+    assert item.kwargs["required"] == ["UC_Cam"]
+    only_conditions = _preset(devices=[{"device": "UC_Cam"}, {"device": "U_Gauge"}])
+    assert "required" not in expand_preset(only_conditions, device_tree=tree).kwargs
+
+
+def test_a_non_identifier_device_is_classed_by_its_namespace_binding() -> None:
+    """The tree names the binding (``uc_cam_2``), never the GEECS spelling."""
+    preset = _preset(
+        devices=[{"device": "UC-Cam 2"}, {"device": "UC_Slow", "required": False}]
+    )
+    tree = {"uc_cam_2.acq_timestamp", "UC_Slow.hdf"}
+    item = expand_preset(preset, device_tree=tree)
+    assert item.kwargs["required"] == ["uc_cam_2"]
+
+
+def test_all_required_preset_carries_no_required_keyword() -> None:
     item = expand_preset(_preset())
-    assert "non_essential" not in item.kwargs and "acquisition" not in item.kwargs
+    assert "required" not in item.kwargs and "acquisition" not in item.kwargs
 
 
 def test_non_essential_scalars_only_streams_its_view() -> None:
@@ -249,13 +280,25 @@ def test_non_essential_scalars_only_streams_its_view() -> None:
         _preset(
             devices=[
                 {"device": "UC_A"},
-                {"device": "UC_Cam", "essential": False, "save_images": False},
+                {"device": "UC_Cam", "required": False, "save_images": False},
             ]
         )
     )
-    assert item.args == [["UC_A"]]
-    assert item.kwargs["non_essential"] == ["UC_Cam.scalars"]
+    assert item.args == [["UC_A", "UC_Cam.scalars"]]
+    assert item.kwargs["required"] == ["UC_A"]
     assert item.references[:2] == ["UC_A", "UC_Cam.scalars"]
+
+
+def test_a_fly_preset_keeps_its_mode_and_tick_period() -> None:
+    preset = _preset(
+        plan={
+            "name": "count",
+            "kwargs": {"num": 5, "acquisition": "fly", "shot_period": 0.5},
+        }
+    )
+    item = expand_preset(preset)
+    assert item.kwargs["acquisition"] == "fly"
+    assert item.kwargs["shot_period"] == 0.5
 
 
 def test_bad_acquisition_is_refused() -> None:
@@ -288,7 +331,9 @@ def test_generic_reference_resolution_preserves_literal_strings():
 # -- a native EPICS camera's refused run shapes, in the worker's words ---------
 
 #: The worker's bind-time sentence (``devices/native.refuse_native_cameras``).
-STRICT_ONLY = "ADTEST_CAM1: native EPICS cameras run in strict scans only for now — "
+STRICT_ONLY = (
+    "ADTEST_CAM1: native EPICS cameras run in strict and fly scans only for now — "
+)
 
 
 def _native_preset(device: dict, **kwargs) -> Preset:
@@ -302,43 +347,38 @@ def _native_preset(device: dict, **kwargs) -> Preset:
 
 
 @pytest.mark.parametrize(
-    ("device", "kwargs", "why"),
-    [
-        ({"device": "ADTEST_CAM1"}, {"acquisition": "gated"}, "not in a gated batch"),
-        (
-            {"device": "ADTEST_CAM1", "essential": False},
-            {},
-            "not as a non-essential stream",
-        ),
-        (
-            {"device": "ADTEST_CAM1", "essential": False},
-            {"acquisition": "gated"},
-            "not as a non-essential stream",
-        ),
-    ],
-    ids=["gated-essential", "strict-non-essential", "gated-non-essential"],
+    "device",
+    [{"device": "ADTEST_CAM1"}, {"device": "UC_Cam"}],
+    ids=["native-camera", "gateway-device"],
 )
-def test_a_native_camera_in_a_refused_shape_is_refused_at_expansion(
-    device: dict, kwargs: dict, why: str
-) -> None:
-    """The worker's own sentence, before the preflight's device rules can misread it.
-
-    Those rules read a native camera as a device with no ``acq_timestamp``:
-    a gated run of one was refused as "no essential triggered device".
-    """
+def test_a_gated_preset_is_refused_as_retired_at_expansion(device: dict) -> None:
+    """The retired mode's own reason, before any device rule could give another one."""
     with pytest.raises(GeecsConfigurationError) as info:
-        expand_preset(_native_preset(device, **kwargs), native_devices={"adtest_cam1"})
-    assert str(info.value) == STRICT_ONLY + why
+        expand_preset(
+            _native_preset(device, acquisition="gated"),
+            native_devices={"adtest_cam1"},
+        )
+    assert str(info.value) == (
+        "preset 'native': acquisition='gated' is retired: strict is the one "
+        "box-driven mode (a sweep may run under 1 Hz) — use "
+        "acquisition='strict'"
+    )
 
 
-def test_the_strict_essential_shape_of_a_native_camera_expands() -> None:
+def test_an_unknown_acquisition_is_refused_at_expansion() -> None:
+    with pytest.raises(GeecsConfigurationError, match="is not one of"):
+        expand_preset(_native_preset({"device": "UC_Cam"}, acquisition="batch"))
+
+
+def test_a_strict_native_camera_expands_required_or_not() -> None:
+    loose = _native_preset({"device": "ADTEST_CAM1", "required": False})
+    assert expand_preset(loose, native_devices={"ADTEST_CAM1"}).kwargs["required"] == [
+        "UC_Other"
+    ]
     item = expand_preset(
         _native_preset({"device": "ADTEST_CAM1"}), native_devices={"ADTEST_CAM1"}
     )
     assert item.args[0] == ["UC_Other", "ADTEST_CAM1"]
-    # unknown to the registry: a gated run is the preflight's to judge
-    gated = _native_preset({"device": "ADTEST_CAM1"}, acquisition="gated")
-    assert expand_preset(gated).kwargs["acquisition"] == "gated"
 
 
 def test_a_native_positioner_takes_none_of_the_cameras_rules() -> None:
@@ -356,7 +396,7 @@ def test_a_native_positioner_takes_none_of_the_cameras_rules() -> None:
     # A per-row scalar device, with or without its scalars view, in any shape.
     item = expand_preset(
         _native_preset(
-            {"device": "SimMotor1", "save_images": False}, acquisition="gated"
+            {"device": "SimMotor1", "save_images": False}, acquisition="fly"
         ),
         native_devices=registry,
     )
@@ -405,3 +445,33 @@ def test_an_optimize_preset_with_a_native_camera_is_refused_at_expansion() -> No
     assert str(info.value) == (
         STRICT_ONLY + "not in optimize (its live frames are matched on gateway PVs)"
     )
+
+
+def test_an_optimize_preset_passes_required_through_like_count() -> None:
+    """``required`` rides as ``required=`` for optimize too; the objective's device is merged in."""
+    from types import SimpleNamespace
+
+    from geecs_schemas import OptimizerConfig
+
+    config = OptimizerConfig(
+        vocs={
+            "variables": {"Motor:Current": [-1, 1]},
+            "objectives": {"score": "MINIMIZE"},
+        },
+        measurements={"score": {"signal": "Meter:Value"}},
+        generator={"name": "random"},
+        run={"max_iterations": 3, "shots_per_step": 2},
+    )
+    resolver = SimpleNamespace(resolve_optimizer_config=lambda _: config)
+    preset = Preset(
+        name="opt",
+        devices=[
+            {"device": "Meter", "required": False},
+            {"device": "UC_Slow", "required": False},
+        ],
+        plan={"name": "optimize", "kwargs": {"optimizer_config": "test"}},
+    )
+    item = expand_preset(preset, resolver=resolver)
+    assert item.args[0] == ["Meter", "UC_Slow"]
+    assert item.kwargs["required"] == ["Meter"]
+    assert "non_essential" not in item.kwargs

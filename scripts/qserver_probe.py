@@ -25,7 +25,9 @@ The manager address is ``--addr`` when given; otherwise the ``[qserver]``
 section of ``~/.config/geecs_python_api/config.ini`` — its ``control_addr``
 override verbatim, else ``tcp://<host>:60615`` — read through
 ``geecs_bluesky.qs_client.read_qserver_config`` when that imports here and
-parsed directly otherwise (the same keys, the same precedence).
+parsed directly otherwise (the same config.ini keys, the same precedence;
+an experiment instance's ``QS_CLIENT_*`` environment overrides apply only on
+the first path — this probe answers for the main manager).
 """
 
 from __future__ import annotations

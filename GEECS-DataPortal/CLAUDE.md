@@ -8,40 +8,39 @@ extending this package.
 
 ## Architecture rules
 
-- **Read-only, except explicit analysis runs, the config editor,
-  sending a plot to the logbook, and the Plot tab's settings sets**
-  (charter amendments: owner rulings 2026-09-01, 2026-09-06 and
-  2026-09-15; the settings sets are the author's, 2026-10-28, for the
-  maintainer to confirm — below, "Open, for the maintainer").
-  The portal itself has no write verbs: no annotations.  Four
-  exceptions, all explicit opt-ins; the fourth, the settings sets, writes
+- **Read-only, except explicit analysis runs, sending a plot to the
+  logbook, and the Plot tab's settings sets** (charter amendments: owner
+  rulings 2026-09-01 and 2026-09-15; the settings sets are the author's,
+  2026-10-28, for the maintainer to confirm — below, "Open, for the
+  maintainer").
+  The portal itself has no write verbs: no annotations.  Three
+  exceptions, all explicit opt-ins; the third, the settings sets, writes
   JSON files into the settings folder only (below, "The Plot tab"), never
-  the data share's scan tree.  (A MOUNTED scan logbook was a
-  fourth, 0.22–0.26: a router at `/log` behind a `log` extra.  Since
+  the data share's scan tree.  (A MOUNTED scan logbook was another,
+  0.22–0.26: a router at `/log` behind a `log` extra.  Since
   GeecsLogbook 0.10.0 it is **its own service** on port 8400 and this
   package only reaches it over HTTP — `--logbook-url` is the base the
   run page's "log" link is built from and the plot send posts to
   (`tests/test_logbook_link.py`, `tests/test_logbook_send.py`); `/log`
-  on the portal is nobody's route.)  **The config
-  editor** (`--config-editor`,
-  0.21.0) mounts ScanAnalysis' `config_editor` router at `/configs` over
-  the `--processing-configs` tree: it writes analysis-config YAML into
-  **that tree only** (the share copy of the configs repo, uncommitted —
-  same standing as the scanner's preset writes), never the scans tree
-  (pinned in `tests/test_config_editor_mount.py`).  Its preview
-  renders the *unsaved* document on the scan page's current shot through
+  on the portal is nobody's route.  The analysis config editor, a
+  `/configs` router behind `--config-editor` that wrote YAML into the
+  share's checkout, was another, 0.21 until the configurator arc's slice
+  6: the analysis documents are saved by the configurator now, and this
+  portal only checks and previews them, below.)  The **preview** of an
+  unsaved recipe (`POST /api/analysis/preview`, the run page's embedded
+  editor) renders it on a shot through
   `geecs_portal.processing.render_document_as_run` — ScanAnalysis'
   `core_preview.preview_frame`, the analysis sink's own per-frame call
   (`single` with the document's `figure` block, frame inputs resolved
   under the scan), cropped tight like the sink's PNGs, so the pane shows
   the product file a run would write; no portal palette or window reaches
-  it (pinned byte-for-byte against that seam). Its **summaries** block
-  (`POST /configs/api/preview/summary`, `render_summary_as_run` →
-  `core_preview.preview_summary`) draws each summary over the scan's first
+  it (pinned byte-for-byte against that seam). Its **summaries**
+  (`POST /api/analysis/preview/summary`, `render_summary_as_run` →
+  `core_preview.preview_summary`) draw each summary over the scan's first
   shots (`params.shots`, at most 8 — never a whole scan on the shared
   host), one panel per shot. A document the core declines at compilation
   is a 400 naming the reason, in every view (the legacy ImageAnalysis
-  fallback was retired in #1039).
+  fallback was retired in #1039). A preview writes nothing.
   The Images page's processing preview (its big view, on a shot:
   `image.png?processing=`, the choices from the device route's
   `processing_options`) keeps
@@ -104,6 +103,12 @@ extending this package.
   server-to-server, and a path-shaped base names the browser's front
   door, not a host this process can dial (it links but cannot send —
   `logbook_send` in the page context and the run JSON).
+  `--logbook-browser-url` splits the two: when set, every link (the run
+  page's, `logbook` in the run JSON, a send reply's `url`) uses it,
+  and the send still dials `--logbook-url` (`PortalState.logbook_browser_base`;
+  the fallback is GeecsControlRoom's `canopy_browser_url or canopy_url`).
+  It must be absolute: a path would take the portal's own prefix, and
+  `create_app` refuses one.
 - **Batch analysis is the worker's, never the portal's** (the author,
   2026-11-04). The day page's **Analyze this day…** drawer (only with
   `--analysis-worker-url`, for the portal's own experiment) runs an
@@ -155,11 +160,14 @@ its jobs (marked `· watch`). `--analysis-worker-autostart`
 - **No build chain.**  Server-rendered Jinja2 templates; page behaviour
   is plain inline JS.  No npm, no CDN assets
   (control-room machines may lack internet).  The one amendment (owner
-  approval 2026-08-30): **vendored, version-pinned JS assets committed
-  under `geecs_portal/static/`** — today exactly one, the Plotly
-  cartesian bundle (`plotly-cartesian-<version>.min.js`, MIT), served
-  from `/static/`.  Upgrading it = replacing the file + the template
-  reference in one commit; never fetch it at build or run time.
+  approval 2026-08-30): **vendored, version-pinned JS assets** — today
+  exactly one, the Plotly cartesian bundle
+  (`plotly-cartesian-<version>.min.js`, MIT), which since 2026-11-05 is
+  GeecsWebTheme's (one copy for every surface, beside its `plot.js`
+  template: `GeecsWebTheme/CLAUDE.md` § "Line plots are Plotly"), served
+  from the portal's `/theme/` mount.  Upgrading it is the theme's change
+  (the file + every template reference in one commit); never fetch it at
+  build or run time.
   Server-side matplotlib PNGs (via the **object API** —
   `matplotlib.figure.Figure`, never pyplot: no global figure registry
   on FastAPI's threadpool) remain for `plot.png`-style endpoints;
@@ -237,7 +245,8 @@ geecs_portal/
                  #   JSON), pages (HTML), plot_api (plot and grid JSON + bin
                  #   membership), images (shot/bin images, traces,
                  #   plot.png), runs (analysis runs + artifacts), logbook
-                 #   (plot send), config_editor (mount + previews);
+                 #   (plot send), analysis_configs (the analysis documents' schema,
+                 #   validate and previews);
                  #   common = stateless request helpers
   analysis.py    # /api boundary chores: filters/bincfg/display parsing,
                  #   JSON shaping (NaN→null), "show the code" snippets
@@ -253,12 +262,14 @@ geecs_portal/
                  #   app, routes, settings sets, figures, image strip)
   resources.py   # figure_png (a shot's pixels, traces and PNG are
                  #   geecs_data_utils.io.shot_images / .display_png)
-  static/        # the vendored Plotly bundle (the ONE committed JS asset)
-                 #   and portal.css (what the kit does not settle)
+  static/        # portal.css (what the kit does not settle); Plotly is
+                 #   the theme's bundle, at /theme
   __main__.py    # CLI (geecs-data-portal): real TiledScanCatalog + uvicorn;
-                 #   --config-editor mounts scan_analysis.config_editor at /configs
+                 #   --configurator-browser-url  the configurator as the browser reaches it (the edit drawer)
                  #   --logbook-url  the logbook service's base URL (its own process,
                  #                  :8400); the run page's "log" link; empty = no link
+                 #   --logbook-browser-url  the logbook as the browser reaches it,
+                 #                  when that differs (links only; the send dials --logbook-url)
   templates/     # base.html / day.html / run.html (Jinja2; every colour a GeecsWebTheme token)
 tests/
   test_app.py        # TestClient over FakeCatalog/StubCatalog (+ /api)
@@ -450,21 +461,44 @@ changes nothing but progress patches the meters in place
 (`patchProgress`) instead of rebuilding the list, which would re-fetch
 every inline artifact on the tab once per poll; the settled row draws
 no meter (`tests/test_page.py` runs both under node).
-**The config editor drawer** (0.21.0, `config_editor` in the page and
-`/api/run/{uid}` payload): the Analysis tab's per-analyzer **edit** button
-opens `scan_analysis.config_editor`'s form in a drawer over the page
-(`openConfigEditor` in `run.html` loads `/configs/static/editor.js` on
-first use); the preview renders the drawer's shot of the **recipe's own
-data folder** (`diag.data_folder` — the server ignores any device in the
-params; there is no device picker, 0.37.0: it once drew one camera
-through another's recipe), on demand via its `preview` button or per
-edit with `auto`; **duplicate as** copies the open recipe for the same
-device with `output_name` set to the new id; a save refreshes the analyzer list.  The editor's own API is documented
-in `ScanAnalysis/CLAUDE.md`.
-The portal also passes the editor its `columns=` hook
-(`_config_editor_columns`): a scan's s-file header, the scalar-columns
-form's input picker — the scan by `uid` (the drawer) or `day` + `scan` in
-the portal's experiment (the full page); one line read, nothing written.
+**The analysis documents' consumer check** (`routes/analysis_configs.py`,
+the configurator arc's slice 6): the configurator owns the recipes, `.himg`
+jobs and groups and their saves; this portal runs them, so it answers for
+them, on the processing feature's gate (`--processing-configs` + the
+`analysis` extra, else 404). `GET /api/analysis/schema/{kind}` is the form
+(`analysis_recipe`: `geecs_analysis.recipe.recipe_schema`, steps and
+measure bound to the registry; `himg_job` / `analysis_group`: the model's);
+`POST /api/analysis/validate/{kind}` `{document, id?}` is the configurator's
+dry run of a draft, never written: the model, a recipe's
+`binding_errors` (GEECS-Analysis, each error at its field as a `loc` list),
+for a recipe or job with an `id` (below `analyzers/`) a stem another file
+of the tree holds (the loader, `discover_diagnostics`, refuses duplicates
+across every facility folder, so a duplicate would break every run by
+name), for a group the loader's own resolution (`resolve_group`: every
+reference names a diagnostic that loads, none twice). `GET
+/api/analysis/blank/{kind}?name=&input=&device=&fields=` is a new
+document's starting draft, never written: a recipe is
+`geecs_analysis.recipe.blank_recipe` (the input kind, `fields` a JSON
+object of what it requires beyond its kind, no steps, the registry's
+default measure for its frames, `output_name` the name), so it already
+binds; a group is an empty group; a `.himg` job has none (its kind is the
+operator's decision, and one kind deletes files: a new job is a copy).
+`POST
+/api/analysis/preview` / `/preview/summary` draw an unsaved recipe on this
+scan (the preview is the recipe's own data folder, `diag.data_folder`, never a
+device the caller names: it once drew one camera through another's recipe;
+the routes exist wherever the processing feature does, unauthenticated
+like the run verb, and a preview may start a measure's service, the FROG
+DLL or WaveKit, and reads at most 8 shots). With `--configurator-browser-url` (`configurator` in the page
+and the `/api/run/{uid}` payload; `kind` on each run listing row) the
+Analysis tab's **edit** opens the document in the configurator's embedded
+editor (`openInConfigurator` in `run.html`: the theme's `form.js`
+from this portal and the configurator's `embed.js`, loaded on the first
+edit; the page is on the kit, so `kit.js` is already there; the operator is the logbook dialog's remembered name; the
+preview the frame and each summary over shots 1–4; a save refreshes the
+analyzer list and, when the Images tab shows that recipe, the shot image). Pinned in
+`tests/test_analysis_configs.py` and the configurator's
+`tests/test_contract_portal.py`.
 `GET /run/{uid}/artifact?path=<relative>` serves one produced file —
 the resolved path must stay inside the scan's own analysis folder
 (`analysis_runs.contained_artifact`; symlinks resolved), else 404.
@@ -762,9 +796,6 @@ they left open is here, for Sam at the promotion PR to `master`.
   named settings sets rather than the URL (old links with `y=`, `x=`,
   `filters=` … open the scan but no longer reproduce the plot, including
   links stored in logbook entries, and new entries link the live set).
-- **`Planning/epics_estate.md`** plans this merge differently (a React
-  `geecs-web` app that deletes the kit layer). Neither plan binds; this one
-  is built.
 - Whether `PlotterSettings` stays in the portal or moves to GEECS-Schemas.
 - **A run's status word has three tables**: the scanner (`EXIT_WORDS`:
   abort → failed), the logbook (`KIT_STATE`: aborted → degraded) and the
@@ -1073,11 +1104,11 @@ one experiment at a time).
 
 `processing.py` owns the temporary backend choice and the portal display style,
 not numerical algorithms. Discovery/reads delegate to Data Utils, schema
-validation to GEECS-Schemas, execution/rendering to geecs-analysis. The config
-editor still uses ScanAnalysis ConfigStore; explicit scan runs still use its
+validation to GEECS-Schemas, execution/rendering to geecs-analysis. Explicit
+scan runs still use ScanAnalysis's
 factory. Bin images process each shot before averaging and omit shot overlays.
 The image preview source ladder is unchanged; trace rendering accepts already
-loaded Nx2 data but does not add native trace discovery to the editor yet.
+loaded Nx2 data but does not add native trace discovery to the preview yet.
 
 Camera file backgrounds use `scan_analysis.core_inputs.prepare_recipe`, shared with
 future scan execution: one load per prepared run, legacy constant fallback on

@@ -1,7 +1,7 @@
 # GeecsWebTheme
 
 The shared look of every GEECS web surface — the Data Portal, the scan
-logbook, the analysis config editor, and the scanner (the web console).
+logbook, the scanner (the web console), the configurator and the Control Room.
 
 Two layers, because they answer two different questions.
 
@@ -57,6 +57,25 @@ page at a time and the kit's class names cannot collide with a surface's
 own. `kit.js` is optional: without it the page still renders and
 `<details>` still opens; only the drawer, the dialog helper and the density
 control go missing.
+
+## `plot.js` — line plots
+
+Every GEECS line plot is Plotly, drawn through one template the theme
+derives from its tokens; the vendored `plotly-cartesian-<version>.min.js`
+sits beside it (no CDN: lab hosts have no internet).
+
+```html
+<script src="/theme/plotly-cartesian-3.1.1.min.js" defer></script>
+<script src="/theme/plot.js" defer></script>
+```
+
+```js
+Plotly.react(host, data, GeecsPlot.layout({ xaxis: { title: { text: "time (s)" } } }), GeecsPlot.config());
+GeecsPlot.watch(host); // repainted when the theme changes
+```
+
+Images are each surface's own. The rule and its pins: `CLAUDE.md` §
+"Line plots are Plotly".
 
 ## Using it
 

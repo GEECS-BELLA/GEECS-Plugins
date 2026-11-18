@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "DeviceOffset": {
+      "additionalProperties": false,
+      "description": "One device's measured edge-to-stamp latency, relative to the reference.",
+      "properties": {
+        "offset_s": {
+          "description": "Seconds after the reference device that this device stamps the same shot \u2014 the mean over the shots that contributed. The reference device's own value is 0.0. Subtracted from this device's acq_timestamp before frames are matched to shot rows.",
+          "title": "Offset S",
+          "type": "number"
+        },
+        "scatter_s": {
+          "default": 0.0,
+          "description": "Peak-to-peak spread of this device's per-shot offset across the measurement, seconds. Expect up to ~10 ms from ordinary host clock dither; markedly more than the other devices in the set means this machine's timekeeping is worth looking at.",
+          "minimum": 0.0,
+          "title": "Scatter S",
+          "type": "number"
+        },
+        "shots": {
+          "default": 1,
+          "description": "How many complete shots were averaged into this offset. A shot counts only when every device in the set delivered, so this is the same for every device of one measurement; shots that some device missed were discarded and retaken, and appear only in the calibration plan's log.",
+          "minimum": 1,
+          "title": "Shots",
+          "type": "integer"
+        },
+        "geecs_device": {
+          "default": "",
+          "description": "GEECS device name this offset was measured for, e.g. 'UC_Amp3_IR_input'. Informational: the mapping key is the ophyd object name the runtime uses.",
+          "title": "Geecs Device",
+          "type": "string"
+        }
+      },
+      "required": [
+        "offset_s"
+      ],
+      "title": "DeviceOffset",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The experiment's measured per-device drain offsets.\n\nWritten by the ``measure_shot_offsets`` calibration plan and read at\nworker startup to populate every detector's ``drain_offset`` config\nsignal, which rides in each run's descriptors and is what the s-file\njoin corrects by.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "reference": {
+      "description": "The ophyd object name of the device the offsets are measured against \u2014 the one that stamped first. Its own offset_s is 0.0. Only differences matter, so which device this is carries no meaning beyond anchoring the numbers.",
+      "title": "Reference",
+      "type": "string"
+    },
+    "devices": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DeviceOffset"
+      },
+      "description": "Ophyd object name (e.g. 'uc_amp3_ir_input') \u2192 that device's measured offset. A device absent from this mapping keeps the 0.0 default, which is correct only if it really stamps with the reference.",
+      "title": "Devices",
+      "type": "object"
+    },
+    "measured_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO-8601 timestamp of the measurement, with offset. Informational, but the thing to look at when a join goes wrong: a calibration older than the last camera or server change is suspect.",
+      "title": "Measured At"
+    },
+    "trigger_profile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Trigger profile the measurement fired through. Recorded because a profile that drives a different trigger box would measure different latencies.",
+      "title": "Trigger Profile"
+    },
+    "trigger_rate_hz": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Rep rate the measurement was taken at, Hz. Load-bearing provenance, not decoration: a camera that pipelines \u2014 exposing the next frame while draining the last \u2014 has a rate-DEPENDENT offset. Measured on HTU 2026-09-12: an un-ROI'd camera's offset shifted 11.3 ms between 1 Hz and 5 Hz while an ROI'd one moved 0.2 ms. Calibrate at the rate you intend to run at, and compare this field against it before trusting the numbers.",
+      "title": "Trigger Rate Hz"
+    },
+    "description": {
+      "default": "",
+      "description": "Optional note about this measurement.",
+      "title": "Description",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reference"
+  ],
+  "tier": "operator",
+  "title": "ShotOffsets",
+  "type": "object"
+}

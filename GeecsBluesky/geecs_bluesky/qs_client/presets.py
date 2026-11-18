@@ -5,8 +5,8 @@ call); submission translates its names into the namespace bindings the
 worker's plans (:data:`~geecs_bluesky.plan_names.GEECS_PLAN_NAMES`) take:
 
 - each device becomes its namespace binding (``UC_Amp4_IR_input``, or
-  ``UC_Amp4_IR_input.scalars`` when ``save_images`` is off); an
-  ``essential: false`` device goes to ``non_essential`` instead;
+  ``.scalars`` without images); the ``required`` per-shot ones ride as
+  ``required``, the plan keyword of the same name;
 - ``acquisition`` and ``shot_period`` ride in ``plan.kwargs``;
 - each scan-variable string in ``plan.args`` / ``plan.kwargs`` (a
   ``Device:Variable`` pair or a catalog name) becomes the namespace's
@@ -21,7 +21,7 @@ The manager passes an unknown device name through to the plan, so the
 expansion records every reference (:attr:`QueueItem.references`) for the
 preflight to check against the manager's device tree
 (:func:`~geecs_bluesky.qs_client.submit_preflight.run_submit_preflight`).
-A preset must name a scan verb; ``mv`` and ``run_action`` go through
+A preset must name a scan verb; ``mv`` and ``apply_setup`` go through
 ``submit_plan``.
 """
 
@@ -37,8 +37,6 @@ if TYPE_CHECKING:
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.native_scope import (
-    NOT_GATED,
-    NOT_NON_ESSENTIAL,
     NOT_OPTIMIZE,
     native_refusal,
 )
@@ -46,6 +44,7 @@ from geecs_bluesky.plan_names import (
     ACQUISITION_MODES,
     GEECS_PLAN_NAMES,
     NON_SCAN_PLAN_NAMES,
+    acquisition_refusal,
 )
 from geecs_bluesky.utils import device_reference, identifier_name
 
@@ -59,9 +58,9 @@ RUN_LEVEL_FIELDS: tuple[str, ...] = (
 )
 
 
-#: The plans a preset may name: the scan verbs.  ``mv`` and ``run_action``
+#: The plans a preset may name: the scan verbs.  ``mv`` and ``apply_setup``
 #: are queue items of their own (``submit_plan("mv", ["U_S1H.current",
-#: 0.0])``, ``submit_plan("run_action", ["Amp4_DUMP_HP"])``), never a
+#: 0.0])``, ``submit_plan("apply_setup", ["Amp4_DUMP_HP"])``), never a
 #: preset — neither takes a detector list.
 PRESET_PLAN_NAMES: tuple[str, ...] = tuple(
     n for n in GEECS_PLAN_NAMES if n not in NON_SCAN_PLAN_NAMES
@@ -108,21 +107,21 @@ def scan_variable_reference(
 
 
 def merge_required_devices(preset: Preset, required_devices: frozenset[str]) -> Preset:
-    """Copy a preset with optimizer-required devices saved and essential."""
+    """Copy a preset with optimizer-required devices saved and required."""
     from geecs_schemas import PresetDevice
 
     if preset.plan is None or preset.plan.name != "optimize":
         return preset
     required = {name.casefold(): name for name in required_devices}
     devices = [
-        d.model_copy(update={"essential": True, "save_images": True})
+        d.model_copy(update={"required": True, "save_images": True})
         if d.device.casefold() in required
         else d
         for d in preset.devices
     ]
     present = {d.device.casefold() for d in devices}
     devices.extend(
-        PresetDevice(device=name, essential=True, save_images=True)
+        PresetDevice(device=name, required=True, save_images=True)
         for key, name in sorted(required.items())
         if key not in present
     )
@@ -170,6 +169,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     required_devices: frozenset[str] = frozenset(),
     resolver: ConfigsRepoResolver | None = None,
     native_devices: Collection[str] | Mapping[str, Any] | None = None,
+    device_tree: Collection[str] | None = None,
 ) -> QueueItem:
     """The queue item a preset submits.
 
@@ -191,14 +191,23 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
         ``save_images: false`` entry for one is refused here; a positioner
         takes none of the camera's rules.  Unset = the resolver's registry
         (none without a resolver).
+    device_tree :
+        The manager's device tree as dotted names
+        (``QueueClient.allowed_device_names``).  A device with neither an
+        ``acq_timestamp`` nor an ``hdf`` child there is a condition, read in
+        every row: never passed as ``required``, whatever its ``required``
+        says.  Unset, every non-native device counts as per-shot (the
+        binder refuses a condition named in ``required``).
 
     Raises
     ------
     GeecsConfigurationError
         No plan call, a plan that is not a scan verb the worker registers,
-        ``save_images: false`` on a native camera, or a native camera in a
-        run shape the worker refuses at bind (non-essential, gated,
-        optimize — :func:`_native_run_refusal`).
+        ``save_images: false`` on a native camera, a native camera in a
+        run shape the worker refuses at bind (``optimize`` —
+        :func:`_native_run_refusal`), or an acquisition mode the worker
+        does not run (the retired ``gated`` by name —
+        :func:`~geecs_bluesky.plan_names.acquisition_refusal`).
     """
     if preset.plan is not None and preset.plan.name == "optimize":
         if resolver is None:
@@ -223,8 +232,14 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
                 else ""
             )
         )
+    # First: a retired mode is refused by name before any device rule could
+    # refuse the preset for a reason that is not the real one.
+    acquisition_refused = acquisition_refusal(plan.kwargs.get("acquisition", "strict"))
+    if acquisition_refused is not None:
+        raise GeecsConfigurationError(f"preset {preset.name!r}: {acquisition_refused}")
     detectors: list[str] = []
-    non_essential: list[str] = []
+    required: list[str] = []
+    per_shot: list[str] = []
     devices = merge_required_devices(preset, required_devices).devices
     if native_devices is None:
         # A stand-in resolver (the scanner's demo) has no registry.
@@ -241,9 +256,7 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             "frames and stamps go to its stack)"
         )
     refusal = _native_run_refusal(
-        plan.name,
-        plan.kwargs.get("acquisition", "strict"),
-        [d for d in devices if d.device.casefold() in native],
+        plan.name, [d for d in devices if d.device.casefold() in native]
     )
     if refusal is not None:
         raise GeecsConfigurationError(refusal)
@@ -253,13 +266,17 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             if d.save_images
             else device_reference(d.device) + ".scalars"
         )
-        if getattr(d, "essential", True):
-            detectors.append(reference)
-        else:
-            # Non-essential, either way: its own stream,
-            # joined by stamp; ``.scalars`` records its scalars without files.
-            non_essential.append(reference)
-    references: list[str] = [*detectors, *non_essential]
+        detectors.append(reference)
+        owner = device_reference(d.device)  # the tree's spelling, as the preflight's
+        if (
+            d.device.casefold() in native
+            or device_tree is None
+            or {f"{owner}.acq_timestamp", f"{owner}.hdf"} & set(device_tree)
+        ):
+            per_shot.append(reference)
+        if d.required and reference in per_shot:
+            required.append(reference)
+    references: list[str] = list(detectors)
     args = [_resolve(a, catalog, references) for a in plan.args]
     kwargs = {k: _resolve(v, catalog, references) for k, v in plan.kwargs.items()}
     if plan.name == "sweep":
@@ -286,14 +303,9 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
             raise GeecsConfigurationError(
                 f"preset {preset.name!r}: invalid sweep: {exc}"
             ) from exc
-    acquisition = kwargs.get("acquisition", "strict")
-    if acquisition not in ACQUISITION_MODES:
-        raise GeecsConfigurationError(
-            f"preset {preset.name!r}: acquisition={acquisition!r} is not one of "
-            f"{ACQUISITION_MODES}"
-        )
-    if non_essential:
-        kwargs["non_essential"] = non_essential
+    if len(required) < len(per_shot):
+        # Explicit whenever a device is not required, an empty list included.
+        kwargs["required"] = required
     # The run-level preset fields are the one source of truth for the plan
     # keyword of the same name: a copy in plan.kwargs is refused rather
     # than merged.  Unset stays absent — the worker's default applies.
@@ -350,9 +362,7 @@ def _detector_names(native_devices: Collection[str] | Mapping[str, Any]) -> set[
     return {name.casefold() for name in native_devices}
 
 
-def _native_run_refusal(
-    plan_name: str, acquisition: Any, natives: list[Any]
-) -> str | None:
+def _native_run_refusal(plan_name: str, natives: list[Any]) -> str | None:
     """The worker's bind-time refusal of a native camera's run shape, said here first.
 
     *natives* are the preset's device entries the registry names.  The
@@ -369,11 +379,6 @@ def _native_run_refusal(
         return None
     if plan_name == "optimize":
         return native_refusal((d.device for d in natives), NOT_OPTIMIZE)
-    streamed = [d.device for d in natives if not getattr(d, "essential", True)]
-    if streamed:
-        return native_refusal(streamed, NOT_NON_ESSENTIAL)
-    if acquisition == "gated":
-        return native_refusal((d.device for d in natives), NOT_GATED)
     return None
 
 

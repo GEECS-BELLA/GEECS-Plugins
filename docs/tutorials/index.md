@@ -20,7 +20,7 @@ first — toolchain, config file, and a smoke test.
 
     ---
 
-    Build a per-camera analyzer config in the web config editor, add it to a
+    Build a per-camera analysis recipe in the configurator, add it to a
     group, and run analysis on a completed scan from the data portal.
     Inspect the saved scalars and summary figures.
 

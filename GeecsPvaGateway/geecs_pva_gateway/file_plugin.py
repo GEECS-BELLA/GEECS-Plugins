@@ -29,8 +29,7 @@ Session semantics:
   put at once when the gateway already holds a decoded frame of the
   variable, declaring that frame's shape as the stream geometry.  A push
   is not waited for because none is coming: a strict run arms with the
-  trigger box ARMED and a gated run with it OFF, and a camera pushes
-  nothing in either state (GEECS-Plugins#894: ``UC_ModeImager``, ARMED
+  trigger box ARMED, and a camera pushes nothing then (GEECS-Plugins#894: ``UC_ModeImager``, ARMED
   for 26 s, a fresh subscription, no push in 8 s — waiting there failed
   the run's first prepare).  The held frame is as current as the
   variable's last subscription, which ``Capture=0`` released, so the
@@ -673,8 +672,8 @@ class HdfFilePlugin:
 
         ``NumCaptured_RBV`` posts before ``Capture_RBV`` can flip: the stock
         ``ADHDFDataLogic`` baselines ``collections_written`` on it right
-        after the arm, and the previous session's count still there made the
-        first batch of a gated run count from *N* (GEECS-Plugins#853).
+        after the arm, and the previous session's count still there made a
+        run's first frames count from *N* (GEECS-Plugins#853).
         """
         for suffix in (
             "NumCaptured_RBV",
@@ -734,8 +733,7 @@ class HdfFilePlugin:
         if held is not None:
             # The gateway already holds a decoded frame of this variable:
             # that is all the geometry the arm needs, and no push is coming
-            # — a strict run arms with the box ARMED, a gated run with it
-            # OFF (#894).  The frame itself is never written (it predates
+            # — a strict run arms with the box ARMED (#894).  The frame itself is never written (it predates
             # the watermark) and its shape is provisional: the first fresh
             # frame re-declares it if the device's settings moved since the
             # variable was last subscribed (#1023, ``_on_frame``).

@@ -32,6 +32,8 @@ def home(tmp_path, monkeypatch):
     # temp home on both POSIX and Windows.
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    for key in ("QS_CLIENT_CONTROL_ADDR", "QS_CLIENT_INFO_ADDR", "QS_CLIENT_DOC_ADDR"):
+        monkeypatch.delenv(key, raising=False)
     return tmp_path
 
 
@@ -68,6 +70,47 @@ class TestReadQserverConfig:
         assert config.control_addr == "tcp://h:1"
         assert config.info_addr == "tcp://h:2"
         assert config.doc_addr == "h:3"
+
+    def test_the_environment_overrides_each_field(self, home, monkeypatch):
+        """An experiment instance's scanner reaches ITS manager (the instance
+        file's keys) while config.ini names the main one."""
+        _write_config(home, "[qserver]\nhost = h\n")
+        monkeypatch.setenv("QS_CLIENT_CONTROL_ADDR", "tcp://localhost:60715")
+        monkeypatch.setenv("QS_CLIENT_DOC_ADDR", "localhost:5668")
+        config = read_qserver_config()
+        assert config == QserverConfig(
+            control_addr="tcp://localhost:60715",
+            info_addr="tcp://h:60625",  # not overridden: config.ini's
+            doc_addr="localhost:5668",
+        )
+
+    def test_the_environment_alone_needs_all_three(self, home, monkeypatch):
+        monkeypatch.setenv("QS_CLIENT_CONTROL_ADDR", "tcp://localhost:60715")
+        assert read_qserver_config() is None
+        monkeypatch.setenv("QS_CLIENT_INFO_ADDR", "tcp://localhost:60725")
+        monkeypatch.setenv("QS_CLIENT_DOC_ADDR", "localhost:5668")
+        assert read_qserver_config() == QserverConfig(
+            "tcp://localhost:60715", "tcp://localhost:60725", "localhost:5668"
+        )
+
+    def test_the_readiness_key_does_not_steer_a_client(self, home, monkeypatch):
+        """site.env's QS_CONTROL_ADDR is the readiness unit's; the main
+        scanner reads site.env too and must keep config.ini's manager."""
+        _write_config(home, "[qserver]\nhost = h\n")
+        monkeypatch.setenv("QS_CONTROL_ADDR", "tcp://elsewhere:60615")
+        assert read_qserver_config().control_addr == "tcp://h:60615"
+
+    def test_blank_environment_keys_change_nothing(self, home, monkeypatch):
+        _write_config(home, "[qserver]\nhost = h\n")
+        for key in (
+            "QS_CLIENT_CONTROL_ADDR",
+            "QS_CLIENT_INFO_ADDR",
+            "QS_CLIENT_DOC_ADDR",
+        ):
+            monkeypatch.setenv(key, "  ")
+        assert read_qserver_config() == QserverConfig(
+            "tcp://h:60615", "tcp://h:60625", "h:5568"
+        )
 
     def test_empty_section_reads_none(self, home):
         _write_config(home, "[qserver]\n")
@@ -138,6 +181,10 @@ class _FakeManagerAPI:
 
     def queue_start(self) -> None:
         self.calls.append(("queue_start",))
+
+    def item_remove(self, *, uid=None, pos=None) -> None:
+        self.calls.append(("item_remove", uid))
+        self.queue_items = [i for i in self.queue_items if i["item_uid"] != uid]
 
     def queue_stop(self) -> None:
         self.calls.append(("queue_stop",))
@@ -250,6 +297,36 @@ class TestZmqQueueClient:
         names = [c[0] for c in fake.calls]
         assert names == ["queue_get", "queue_clear", "item_add", "queue_start"]
 
+    def test_append_queues_behind_a_waiting_item_in_a_started_queue(self):
+        """#1281: a started queue has no failed item at its front; append keeps order."""
+        fake = _FakeManagerAPI()
+        fake.queue_items = [{"item_uid": "waiting"}]
+        fake.status_payloads = [{"manager_state": "executing_queue"}]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 3], append=True)
+        assert result.ok and result.item_uid == "uid-1"
+        names = [c[0] for c in fake.calls]
+        assert names == ["queue_get", "status", "item_add", "queue_start"]
+        assert fake.queue_items == [{"item_uid": "waiting"}]
+
+    def test_append_in_a_stopped_queue_with_waiting_items_refuses(self):
+        """#1281: a stopped queue may hold a failed item at its front — refuse as today."""
+        fake = _FakeManagerAPI()
+        fake.queue_items = [{"item_uid": "failed"}]
+        result = _client(fake).submit_plan("count", args=[["UC_Cam"], 3], append=True)
+        assert not result.ok and result.pending_items[0]["item_uid"] == "failed"
+        assert not any(c[0] in ("item_add", "queue_clear") for c in fake.calls)
+
+    def test_remove_item_removes_a_waiting_uid_and_refuses_the_running_one(self):
+        fake = _FakeManagerAPI()
+        fake.queue_items = [{"item_uid": "a"}, {"item_uid": "b"}]
+        fake.running = {"item_uid": "run"}
+        client = _client(fake)
+        assert client.remove_item("a") == (True, "removed")
+        assert fake.queue_items == [{"item_uid": "b"}]
+        ok, message = client.remove_item("run")
+        assert not ok and "not waiting" in message
+        assert ("item_remove", "run") not in fake.calls
+
     def test_submit_preset_expands_then_queues(self):
         from geecs_schemas import Preset
 
@@ -290,6 +367,38 @@ class TestZmqQueueClient:
         )
         assert added["kwargs"]["trigger_profile"] == "HTU-NoGas"
         assert added["kwargs"]["md"]["geecs"] == {"submission": {}, "preset": "p"}
+
+    def test_submit_preset_never_requires_a_condition(self):
+        """A stampless device (default required) beside a non-required camera still submits."""
+        from geecs_schemas import Preset
+
+        class Tree(_FakeManagerAPI):
+            def devices_allowed(self, *, reload=False, user_group=None) -> dict:
+                super().devices_allowed()
+                components = {"acq_timestamp": {}, "scalars": {}}
+                return {
+                    "success": True,
+                    "devices_allowed": {
+                        "UC_Cam": {"components": components},
+                        "U_Gauge": {"components": {"pressure": {}}},
+                    },
+                }
+
+        preset = Preset.model_validate(
+            {
+                "name": "p",
+                "devices": [
+                    {"device": "U_Gauge"},
+                    {"device": "UC_Cam", "required": False},
+                ],
+                "plan": {"name": "count", "kwargs": {"num": 2}},
+            }
+        )
+        fake = Tree()
+        assert _client(fake).submit_preset(preset).ok
+        added = next(c[1] for c in fake.calls if c[0] == "item_add")
+        assert added["args"] == [["U_Gauge", "UC_Cam"]]
+        assert added["kwargs"]["required"] == []
 
     def test_submit_preset_refusal_is_the_expansion_message(self):
         from geecs_schemas import Preset

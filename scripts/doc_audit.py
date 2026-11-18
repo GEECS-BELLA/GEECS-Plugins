@@ -180,6 +180,7 @@ STALE_TERMS: list[tuple[str, str, tuple[str, ...] | None]] = [
         None,
     ),
     (r"\bLiveWatch\b", "nothing; the portal runs analysis on request", None),
+    (r"\bGeecsPanels\b", "GeecsControlRoom's device pages", None),
     (r"\bGeecsSession\b", "GeecsNamespace / the qs_client manager", None),
     (r"\bBlueskyScanner\b", "the queueserver worker + GeecsScanner", None),
     (

@@ -6,6 +6,7 @@ import json
 import pickle
 import struct
 import subprocess
+import sys
 import types
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from scan_analysis.services.haso_wavekit import (
     WaveKitError,
     WaveKitSensorMismatch,
 )
+
+from .test_subprocess_group import _gone
 
 SENSOR = "WFS_HASO4_LIFT_680_8244_gain_enabled.dat"
 HEIGHT, WIDTH = 4, 6
@@ -52,7 +55,7 @@ def pixels() -> np.ndarray:
 
 
 def fake_worker(behaviour):
-    """A ``subprocess.run`` stand-in that plays the worker for one call."""
+    """A ``_run_process_group`` stand-in that plays the worker for one call."""
     seen = []
 
     def run(cmd, **kwargs):
@@ -100,7 +103,7 @@ def test_the_tree_is_checked_at_construction(tree, tmp_path):
 
 def test_the_worker_gets_a_rebuilt_himg_and_the_parameters(tree, monkeypatch):
     seen, run = fake_worker(good_worker)
-    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    monkeypatch.setattr(wavekit, "_run_process_group", run)
     captured = {}
 
     def capture(cmd, **kwargs):
@@ -109,7 +112,7 @@ def test_the_worker_gets_a_rebuilt_himg_and_the_parameters(tree, monkeypatch):
         captured["params"] = json.loads((workdir / "params.json").read_text())
         return run(cmd, **kwargs)
 
-    monkeypatch.setattr(wavekit.subprocess, "run", capture)
+    monkeypatch.setattr(wavekit, "_run_process_group", capture)
     service = engine(tree)
     result = service.compute(
         pixels(),
@@ -151,7 +154,7 @@ def test_the_worker_gets_a_rebuilt_himg_and_the_parameters(tree, monkeypatch):
 
 def test_a_launcher_prefixes_the_interpreter_and_shares_cores(tree, monkeypatch):
     seen, run = fake_worker(good_worker)
-    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    monkeypatch.setattr(wavekit, "_run_process_group", run)
     monkeypatch.setattr(wavekit.os, "cpu_count", lambda: 4)
     service = engine(tree, launcher=("env", "WINEPREFIX=/p", "wine"))
     service.share_cores(3)
@@ -171,7 +174,7 @@ def test_a_serial_mismatch_and_a_crash_are_distinct_errors(tree, monkeypatch):
         return subprocess.CompletedProcess(cmd, 3, stdout="", stderr="")
 
     seen, run = fake_worker(mismatch)
-    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    monkeypatch.setattr(wavekit, "_run_process_group", run)
     service = engine(tree)
     with pytest.raises(WaveKitSensorMismatch, match="7784"):
         service.compute(pixels(), sensor_config=SENSOR)
@@ -185,21 +188,21 @@ def test_a_serial_mismatch_and_a_crash_are_distinct_errors(tree, monkeypatch):
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
 
     _, run = fake_worker(crash)
-    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    monkeypatch.setattr(wavekit, "_run_process_group", run)
     with pytest.raises(WaveKitError, match="boom"):
         engine(tree).compute(pixels(), sensor_config=SENSOR)
 
     def timeout(cmd, **kwargs):
         raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
 
-    monkeypatch.setattr(wavekit.subprocess, "run", timeout)
+    monkeypatch.setattr(wavekit, "_run_process_group", timeout)
     with pytest.raises(WaveKitError, match="timed out"):
         engine(tree, timeout=7).compute(pixels(), sensor_config=SENSOR)
 
 
 def test_unknown_sensor_or_wrong_frame_shape_never_starts_the_worker(tree, monkeypatch):
     seen, run = fake_worker(good_worker)
-    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    monkeypatch.setattr(wavekit, "_run_process_group", run)
     service = engine(tree)
     with pytest.raises(FileNotFoundError, match="not found in"):
         service.compute(pixels(), sensor_config="other.dat")
@@ -269,7 +272,7 @@ def reference_aware_worker(log):
 def test_a_reference_is_computed_once_and_subtracted_by_every_shot(tree, monkeypatch):
     log = []
     _, run = fake_worker(reference_aware_worker(log))
-    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    monkeypatch.setattr(wavekit, "_run_process_group", run)
     service = engine(tree)
     reference = pixels()[::-1].copy()
     for mask in ((0, 2, 0, 4), (1, 3, 0, 4)):  # the mask acts after the subtraction
@@ -300,7 +303,7 @@ def test_the_reference_cache_stays_in_its_process(tree, monkeypatch):
 
     log = []
     _, run = fake_worker(reference_aware_worker(log))
-    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    monkeypatch.setattr(wavekit, "_run_process_group", run)
     service = engine(tree)
     service.compute(pixels(), sensor_config=SENSOR, reference=pixels())
     directory = service._reference_dir
@@ -320,7 +323,7 @@ def test_a_reference_task_that_saves_nothing_is_an_error(tree, monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     seen, run = fake_worker(forgetful)
-    monkeypatch.setattr(wavekit.subprocess, "run", run)
+    monkeypatch.setattr(wavekit, "_run_process_group", run)
     with pytest.raises(WaveKitError, match="no reference slopes"):
         engine(tree).compute(pixels(), sensor_config=SENSOR, reference=pixels())
     assert len(seen) == 1
@@ -333,3 +336,25 @@ def test_the_worker_script_is_python_38(tmp_path):
     source = wavekit._WORKER_SCRIPT.read_text()
     ast.parse(source, feature_version=(3, 8))
     assert "from scan_analysis" not in source and "geecs_" not in source
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX")
+def test_a_timeout_kills_the_launchers_whole_process_tree(tree, tmp_path):
+    """Wine 9 starts the interpreter as a child of the launcher (start.exe /exec).
+
+    Killing only the launcher left that grandchild running after every timed-out
+    shot (51 orphans on the services box, holding the portal's memory).
+    """
+    pidfile = tmp_path / "grandchild.pid"
+    launcher = (
+        "sh",
+        "-c",
+        f'sleep 300 & echo $! > "{pidfile}"; wait',
+        "launcher",  # $0; the interpreter, script and workdir follow as $1..$3
+    )
+    with pytest.raises(WaveKitError, match="timed out after 1 s"):
+        engine(tree, launcher=launcher, timeout=1).compute(
+            pixels(), sensor_config=SENSOR
+        )
+    grandchild = int(pidfile.read_text())
+    assert _gone(grandchild), f"grandchild {grandchild} outlived the timeout"

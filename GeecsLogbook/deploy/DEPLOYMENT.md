@@ -178,9 +178,11 @@ nothing owed.
 The portal's run page links each scan to its card in the logbook
 (`<logbook>/day/YYYY-MM-DD#ScanNNN`). It builds the link from its
 `--logbook-url` — the logbook's base URL, set in `site.env` through
-`GEECS_PORTAL_EXTRA_ARGS` (`--logbook-url http://<host>:8400` until the
-fleet's front door routes `/log` to this service, then `--logbook-url
-/log`). Without the flag the portal shows no link.
+`GEECS_PORTAL_EXTRA_ARGS` (`--logbook-url http://<host>:8400`; behind a
+front door that serves this logbook on its own path, add
+`--logbook-browser-url https://<front door>/<experiment>/logbook`, and
+the portal links there while its plot send keeps dialling
+`--logbook-url`). Without the flag the portal shows no link.
 
 ## Type buttons (seed templates)
 

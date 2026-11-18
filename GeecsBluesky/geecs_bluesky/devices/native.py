@@ -1,4 +1,4 @@
-"""NativeCamera — a native EPICS areaDetector camera as a GEECS strict detector.
+"""NativeCamera — a native EPICS areaDetector camera as a GEECS strict or fly detector.
 
 A camera served by its own IOC (geecs-epics: ADAravis + the stock
 ``NDFileHDF5`` plugin), not ophyd-async's ``AravisDetector`` — that one
@@ -11,15 +11,18 @@ be skipped.  The GEECS camera contract over stock records
   the stack); ``unstage`` restores the camera (live view between scans);
 - **a shot is the writer's frame count advancing**: ``Software`` presses
   ``TriggerSoftware`` inside ``trigger()`` (exposed when the worker says go
-  — the accepted caveat), ``Line0`` / ``Line1`` wait for the timing
-  system's edge on that input;
-- **one frame per row**: an own miss fails the step and a pause never
-  replays a shot (the writer cannot rewind; Bluesky's HDF5 consolidator
-  reads frames by datum count from 0);
+  — the accepted caveat), or through :meth:`NativeCamera.press` at the fire
+  of a stream run; ``Line0`` / ``Line1`` wait for the timing system's edge
+  on that input;
+- **never rewound**: the writer appends, and Bluesky's HDF5 consolidator
+  reads frames by datum count from 0 — a strict run streams the camera, so
+  a skipped frame is a gap in its stream and a pause replays nothing;
 - **the row stamp** is the frame's EPICS timestamp through
   ``scan_stack.epics_timestamp_to_unix``, in the LabVIEW epoch.
 
-Strict runs only: fly prepares are refused here as well as at bind.
+A strict shot per row, or a datum-only **stream** after an unbounded
+prepare (its datums the frames written, from 0; a skip is absent, never a
+placeholder), both armed alike; a bounded fly prepare is refused.
 """
 
 from __future__ import annotations
@@ -30,13 +33,13 @@ import logging
 import math
 import os
 import socket
+import sys
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Annotated as A
 from typing import Any
 
-import bluesky.plan_stubs as bps
 from bluesky.protocols import Reading
 from event_model import DataKey
 from ophyd_async.core import (
@@ -54,6 +57,8 @@ from ophyd_async.core import (
     SignalRW,
     StandardDetector,
     StreamableDataProvider,
+    StreamResourceDataProvider,
+    StreamResourceInfo,
     StrictEnum,
     TriggerInfo,
     TriggerableCommand,
@@ -69,11 +74,18 @@ from ophyd_async.epics.adcore import (
     NDArrayDescription,
     NDFileHDF5IO,
 )
-from ophyd_async.epics.core import PvSuffix, epics_signal_rw
+from ophyd_async.epics.core import PvSuffix, epics_signal_r, epics_signal_rw
 
-from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET, epics_timestamp_to_unix
+from geecs_data_utils.io.scan_stack import (
+    ATTRIBUTES_GROUP,
+    EPICS_TS_NSEC,
+    EPICS_TS_SEC,
+    LABVIEW_EPOCH_OFFSET,
+    epics_timestamp_to_unix,
+)
 
 from geecs_bluesky.devices.ca._view import owner_of
+from geecs_bluesky.devices.ca.liveness import down_natives
 from geecs_bluesky.devices.detector import (
     ACQ_TIMESTAMP,
     STRICT_TRIGGER_INFO,
@@ -142,8 +154,7 @@ class RunLockIO(Device):
     """The IOC's run lock: ``RUN:Lock`` and ``RUN:Owner``.
 
     While ``lock`` is set, the IOC's access security refuses acquisition
-    writes from anyone but the scan worker (geecs-epics ``access.acf``;
-    ``Planning/device_panels.md`` §6).
+    writes from anyone but the scan worker (geecs-epics ``access.acf``).
     """
 
     def __init__(self, prefix: str, name: str = "") -> None:
@@ -164,6 +175,10 @@ def run_owner() -> str:
 def liveness_word(cnct: AsynConnect) -> str:
     """The liveness verdict's words: ``Disconnected`` only when the driver lost the camera."""
     return "Disconnected" if cnct == AsynConnect.DISCONNECT else "Connected"
+
+
+#: Seconds the run's first prepare waits for the exposure and trigger delay.
+STAMP_LAG_READ_S = 5.0
 
 
 @dataclass
@@ -188,8 +203,9 @@ class NativeTriggerLogic(DetectorTriggerLogic):
     """External edges (Line0/Line1) or the software command; the camera is programmed once per run.
 
     ``prepare_edge`` runs before the data logic starts the HDF capture, so
-    this is where a free-running camera is stopped and put in trigger mode:
-    no frame of its live view can reach the stack.
+    this is where the camera (free-running, or resting in trigger mode) is
+    stopped and put in trigger mode: no frame of its live view can reach
+    the stack.
     """
 
     def __init__(
@@ -231,9 +247,10 @@ class NativeTriggerLogic(DetectorTriggerLogic):
         await take_run_lock(self.run_lock, self.session)
         await self._refuse_a_source_the_camera_lacks()
         if self.session.restore is None:
-            # Captured once and kept until a restore succeeds: a run that
-            # ended without a completed unstage (a killed worker, a halt, a
-            # failed restore) must not make the armed state the "pre-run" one.
+            # Captured once and kept until a restore succeeds: a run in this
+            # worker that ended without a completed unstage (a halt, a failed
+            # restore) must not make the armed state the "pre-run" one. A
+            # killed worker's session is gone; take_run_lock names that case.
             self.session.restore = tuple(
                 await asyncio.gather(
                     d.acquire.get_value(),
@@ -243,9 +260,11 @@ class NativeTriggerLogic(DetectorTriggerLogic):
                 )
             )
             if self.session.restore[1] == OnOff.ON:
-                logger.warning(
-                    "%s: already in trigger mode before the run (a previous run "
-                    "did not restore it?) — unstage will leave it in trigger mode",
+                # The usual resting state: a camera IOC may arm its trigger at
+                # boot so live view runs at the shot rate (geecs-epics'
+                # cameras do). Not a sign of an unrestored run.
+                logger.debug(
+                    "%s: in trigger mode before the run; unstage returns it there",
                     d.name,
                 )
         await d.acquire.set(False)
@@ -320,7 +339,22 @@ async def take_run_lock(run_lock: RunLockIO, session: _Session) -> None:
 
     Waited for, not trusted: a refused CA put can complete as success
     (#868), and a run must not go on believing the camera is protected.
+
+    A lock already set that this session did not take means a run in
+    another process never released the camera (a killed or restarted
+    worker). The run takes it over, but says so, naming the previous owner:
+    the camera's state saved next is the one that run left, not the
+    operator's. (This session's own lock, kept by a failed restore, is not
+    that case: ``session.restore`` still holds the true pre-run state.)
     """
+    if not session.locked and await run_lock.lock.get_value():
+        logger.warning(
+            "%s: the run lock was already held (owner %r) — a previous run did "
+            "not release the camera; the state it left becomes this run's "
+            "pre-run state",
+            run_lock.name,
+            await run_lock.owner.get_value(),
+        )
     await run_lock.owner.set(run_owner())
     await run_lock.lock.set(True)
     session.locked = True
@@ -412,6 +446,19 @@ class NativeAcquireLogic(DetectorAcquireLogic):
             await release_run_lock(self.run_lock, self.session)
 
 
+#: The per-frame attributes NDFileHDF5 writes into every stack whatever the
+#: layout lists — the frame's EPICS stamp pair (the join's clock) and its
+#: unique id (the counter audit's) — with their dtypes in the written file.
+BUILTIN_ATTRIBUTES: tuple[tuple[str, str], ...] = (
+    (EPICS_TS_SEC, "<u4"),
+    (EPICS_TS_NSEC, "<u4"),
+    ("NDArrayUniqueId", "<i4"),
+)
+#: NDFileHDF5's chunk length for an NDAttribute dataset (the stock logic's).
+NDATTRIBUTE_CHUNK = 16384
+HDF5_MIMETYPE = "application/x-hdf5"
+
+
 @dataclass
 class NativeHdfDataLogic(ADHDFDataLogic):
     """The stock HDF data logic, keeping the IOC's layout and SWMR off.
@@ -425,14 +472,41 @@ class NativeHdfDataLogic(ADHDFDataLogic):
     """
 
     async def prepare_unbounded(self, datakey_name: str) -> StreamableDataProvider:
-        """The stock prepare, then the IOC's layout and SWMR off restored."""
+        """The stock prepare, then the IOC's layout and SWMR off restored.
+
+        The stream also declares the writer's built-in per-frame attributes
+        (:data:`BUILTIN_ATTRIBUTES`), under their bare names: the stock logic
+        declares only the attributes an inline XML lists, and without the
+        EPICS stamp pair a reader of the run in Tiled cannot time the
+        camera's frames (the live s-file reads them from the stack itself).
+        """
         layout = await self.writer.xml_file_name.get_value()
         provider = await super().prepare_unbounded(datakey_name)
         await asyncio.gather(
             self.writer.xml_file_name.set(layout),
             self.writer.swmr_mode.set(False),
         )
-        return provider
+        if not isinstance(provider, StreamResourceDataProvider):
+            return provider
+        declared = {resource.data_key for resource in provider.resources}
+        builtins = [
+            StreamResourceInfo(
+                data_key=name,
+                shape=(),
+                chunk_shape=(NDATTRIBUTE_CHUNK,),
+                dtype_numpy=dtype,
+                parameters={"dataset": f"{ATTRIBUTES_GROUP}/{name}"},
+            )
+            for name, dtype in BUILTIN_ATTRIBUTES
+            if name not in declared
+        ]
+        return StreamResourceDataProvider(
+            uri=provider.uri,
+            resources=[*provider.resources, *builtins],
+            mimetype=HDF5_MIMETYPE,
+            collections_written_signal=provider.collections_written_signal,
+            flush_signal=provider.flush_signal,
+        )
 
 
 class _StampProvider(ReadableDataProvider):
@@ -477,21 +551,6 @@ class _StampDataLogic(DetectorDataLogic):
         )
 
 
-class _NotRewindable:
-    """What bluesky's ``all_safe_rewind`` reads (``rewindable.get()``): never safe.
-
-    A pause after this camera's frame landed but before the row was saved
-    would otherwise **replay** the trigger and the fire on resume
-    (``plans/strict.py`` wraps each shot in ``rewindable_wrapper``, and a
-    device without this attribute counts as safe to re-run): the stock
-    writer keeps the first frame and captures a second, one frame too many
-    for one row.  Not rewindable, the resume continues where it stopped.
-    """
-
-    def get(self) -> bool:
-        return False
-
-
 class NativeCamera(StandardDetector):
     """A native EPICS camera as a GEECS strict detector (module docstring).
 
@@ -533,15 +592,21 @@ class NativeCamera(StandardDetector):
         self._geecs_device_name = device
         self._source = NativeTriggerSource(trigger_source)
         self.driver = NativeDriverIO(prefix + DRIVER_SUFFIX)
+        # GenICam's TriggerDelay (µs) from geecs-epics' trigger_delay.db, not
+        # a stock record: private, so connecting the camera never needs it.
+        self._trigger_delay = epics_signal_r(
+            float, prefix + DRIVER_SUFFIX + "TriggerDelay_RBV"
+        )
+        self._delay_connected = False
         self.hdf = NativeHdfIO(prefix + HDF_SUFFIX)
         self.run_lock = RunLockIO(prefix + RUN_LOCK_SUFFIX)
         self.drain_offset = soft_signal_rw(float, float(drain_offset), units="s")
+        #: The stored offset; each run's lag is added to this, never to the last run's.
+        self._stored_offset = float(drain_offset)
         self.connected_status = derived_signal_r(
             liveness_word, cnct=self.driver.asyn_connect
         )
         self._session = _Session()
-        #: Read by bluesky's ``all_safe_rewind``: a shot is never replayed.
-        self.rewindable = _NotRewindable()
         self._native_acquire = NativeAcquireLogic(
             self.driver, self._session, self.run_lock
         )
@@ -574,6 +639,25 @@ class NativeCamera(StandardDetector):
         self._column_headers = {
             f"{self.name}-{ACQ_TIMESTAMP}": f"{device} {ACQ_TIMESTAMP}"
         }
+
+    async def connect(
+        self,
+        mock: bool | Any = False,
+        timeout: float = DEFAULT_TIMEOUT,
+        force_reconnect: bool = False,
+    ) -> None:
+        """The stock connect; in mock mode the private trigger-delay record too.
+
+        A real connect never needs that record (a camera without geecs-epics'
+        ``trigger_delay.db`` must still run): the run's first prepare connects
+        it, bounded.  A mock connect has no such camera, so it joins here.
+        """
+        await super().connect(
+            mock=mock, timeout=timeout, force_reconnect=force_reconnect
+        )
+        if mock:
+            await self._trigger_delay.connect(mock=True)
+            self._delay_connected = True
 
     @AsyncStatus.wrap
     async def unstage(self) -> None:
@@ -609,27 +693,149 @@ class NativeCamera(StandardDetector):
 
     @AsyncStatus.wrap
     async def prepare(self, value: TriggerInfo) -> None:
-        """The stock prepare, strict only; a failure carries the writer's reason."""
-        if isinstance(value, FlyTriggerInfo):
+        """The stock prepare: a strict shot or an unbounded stream; a failure carries the writer's reason.
+
+        A bounded fly prepare (a counted batch) is refused before the
+        camera is touched: its quota would need a rewind the writer lacks.
+        """
+        if isinstance(value, FlyTriggerInfo) and value.number_of_events != 0:
             raise GeecsConfigurationError(
                 f"{self._geecs_device_name} is a native EPICS camera: strict scans "
-                "only for now (no gated batch, no non-essential stream)"
+                "or an unbounded stream only for now (no counted batch)"
             )
         try:
             async with self._session.guard:  # whole, so an unstage waits for it
+                first = not self._session.programmed
                 await super().prepare(value)
+                if first:
+                    # After the stock prepare: the run lock is held (the
+                    # trigger logic takes it first), so no other client can
+                    # change the exposure between this read and the run's
+                    # end; the stream's descriptor is declared later, at the
+                    # first collect that finds a frame.
+                    await self._set_stamp_lag()
         except Exception as exc:
             for reason in await self.plugin_reasons():
                 exc.add_note(reason)
             raise
+
+    async def _set_stamp_lag(self) -> None:
+        """Put the camera's live trigger delay and exposure into its ``drain_offset``.
+
+        Called under the run lock (after the run's first stock prepare), so
+        the settings read are the run's.
+
+        The frame's EPICS timestamp is taken when the driver receives the
+        finished frame (ADAravis ``updateTimeStamp``): after the trigger
+        delay and the exposure.  Read at the run's first prepare (settings do
+        not change within a run) and added to the stored offset, so every
+        reader of the run, which subtracts ``drain_offset``, times the frame
+        from its trigger, as a LabVIEW camera's driver already does.  An
+        unreadable setting adds nothing, with a WARNING.
+        """
+        name = self._geecs_device_name
+        (exposure,) = await asyncio.gather(
+            asyncio.wait_for(self.driver.acquire_time.get_value(), STAMP_LAG_READ_S),
+            return_exceptions=True,
+        )
+        if isinstance(exposure, asyncio.CancelledError):
+            raise exposure
+        if isinstance(exposure, BaseException):
+            await self._no_stamp_lag(f"{type(exposure).__name__}: {exposure}")
+            return
+        exposure = float(exposure)
+        delay_us = await self._read_trigger_delay()
+        lag = exposure + delay_us * 1e-6
+        if not (math.isfinite(lag) and lag >= 0):
+            await self._no_stamp_lag(f"exposure {exposure!r} s, delay {delay_us!r} us")
+            return
+        await self.drain_offset.set(self._stored_offset + lag)
+        logger.info(
+            "%s: stamps timed from the trigger: exposure %.6g s + trigger delay "
+            "%.6g us subtracted",
+            name,
+            exposure,
+            delay_us,
+        )
+
+    async def _read_trigger_delay(self) -> float:
+        """The trigger delay, µs; ``0.0`` with a WARNING on a camera without the record."""
+
+        async def read() -> float:
+            if not self._delay_connected:
+                await self._trigger_delay.connect(timeout=STAMP_LAG_READ_S)
+                self._delay_connected = True
+            return float(
+                await asyncio.wait_for(
+                    self._trigger_delay.get_value(), STAMP_LAG_READ_S
+                )
+            )
+
+        (delay,) = await asyncio.gather(read(), return_exceptions=True)
+        if isinstance(delay, asyncio.CancelledError):
+            raise delay
+        if isinstance(delay, BaseException):
+            logger.warning(
+                "%s: no trigger delay readable (%s: %s) — taken as 0 this run",
+                self._geecs_device_name,
+                type(delay).__name__,
+                delay,
+            )
+            return 0.0
+        return delay
+
+    async def _no_stamp_lag(self, why: str) -> None:
+        """The stored offset alone, with the WARNING that the stamps are not corrected."""
+        logger.warning(
+            "%s: exposure / trigger delay unusable (%s) — its stamps are not "
+            "corrected this run",
+            self._geecs_device_name,
+            why,
+        )
+        await self.drain_offset.set(self._stored_offset)
 
     def _frame_timeout(self) -> float:
         """The frame wait's budget: the prepared ``TriggerInfo.exposure_timeout``."""
         ctx = self._prepare_ctx
         return (ctx.trigger_info if ctx else STRICT_TRIGGER_INFO).exposure_timeout
 
+    def _streams(self) -> bool:
+        """Whether the camera is prepared as a stream (unbounded) rather than for strict shots."""
+        ctx = self._prepare_ctx
+        return ctx is not None and ctx.trigger_info.number_of_events == 0
+
+    async def press(self) -> None:
+        """Press ``TriggerSoftware`` once, outside ``trigger()``: the fire of a stream run.
+
+        Refused on a hardware-source camera (its shot is the timing system's
+        edge; a press would be a stray frame) and unless the camera is
+        prepared as a stream and acquiring: before the Acquire readback (mid
+        prepare, a failed prepare, after unstage) the press is lost or lands
+        on the live view, and on a strict camera it writes a frame outside any
+        row and shifts every later one.
+        """
+        if self._source != NativeTriggerSource.SOFTWARE:
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name}: trigger_source is "
+                f"{self._source.name.lower()} ({self._source.value!r}) — only a "
+                "Software-source native camera is pressed"
+            )
+        if not self._streams():
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name}: press() needs an unbounded prepare "
+                "(the stream path); a strict shot presses inside trigger()"
+            )
+        if not self._session.acquiring:
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name}: press() before the camera is "
+                "acquiring would be lost"
+            )
+        await self.driver.trigger_software.trigger()
+
     def trigger(self) -> AsyncStatus:
         """Wait for one more frame in the stack (pressing the software trigger if that is the source)."""
+        if self._streams():
+            return AsyncStatus(self._refuse_trigger_on_a_stream())
         self._session.missed = False
         self._session.fire_pending = self._source == NativeTriggerSource.SOFTWARE
         return AsyncStatus(self._translate_count_timeout(super().trigger()))
@@ -648,30 +854,32 @@ class NativeCamera(StandardDetector):
                 f"{timeout:.1f}s" + "".join(f"; {r}" for r in reasons),
             ) from exc
 
-    @AsyncStatus.wrap
-    async def kickoff(self) -> None:
-        """Refused: native cameras fly in no stream yet (strict only)."""
+    async def _refuse_trigger_on_a_stream(self) -> None:
         raise GeecsConfigurationError(
-            f"{self._geecs_device_name} is a native EPICS camera: strict scans only"
+            f"{self._geecs_device_name}: prepared as a stream (unbounded) — its "
+            "shots are collected, never triggered"
         )
 
-    async def discard_uncollected(self) -> None:
-        """Keep a frame that arrived; fail the step on this camera's own miss.
+    @AsyncStatus.wrap
+    async def kickoff(self) -> None:
+        """Start the stream; only after an unbounded prepare.
 
-        The strict plan calls this on every plugin-backed device when any
-        device missed.  A frame this camera did write is the shot's and its
-        datum stays (it is the run's only external key — mixed runs with a
-        gateway plugin camera are refused at bind).  Its own miss cannot be
-        retaken: the stock writer cannot rewind a late frame, and a skipped
-        frame shifts every later frame in Tiled (``NATIVE_DEVICES.md``).
+        A frame landing after the prepare (which starts the camera) — an
+        edge while the box idles, before or during the kickoff — would make
+        the stock kickoff raise ("only prepared up to …"); the stream's
+        datums cover it anyway (from frame 0).  So the prepare context's
+        baseline is set past any count the stock check can read: no second
+        read has to agree with a first.  Nothing else reads that baseline
+        on a stream (``trigger()`` is refused; the next prepare rebuilds it).
         """
-        if self._session.missed:
-            raise GeecsTriggerTimeoutError(
-                self._geecs_device_name,
-                self._frame_timeout(),
-                f"{self._geecs_device_name} missed a shot: a native camera cannot "
-                "refire yet (its writer cannot rewind) — the step fails",
+        ctx = self._prepare_ctx
+        if ctx is None or not self._streams():
+            raise GeecsConfigurationError(
+                f"{self._geecs_device_name} is a native EPICS camera: kickoff needs "
+                "an unbounded prepare (the stream path)"
             )
+        ctx.collections_written = sys.maxsize
+        await super().kickoff()
 
 
 def native_cameras(devices: Iterable[Any]) -> list[NativeCamera]:
@@ -688,15 +896,20 @@ async def _native_word(cam: NativeCamera) -> str:
     return liveness_word(cnct)
 
 
+async def _camera_down(cam: NativeCamera) -> bool:
+    return await _native_word(cam) == "Disconnected"
+
+
 def down_native_cameras(devices: Iterable[Any]):
     """Plan: the native cameras among *devices* whose IOC reports or is down.
 
     Judged here, not by the gateway's fail-open rule: the word comes from the
     IOC's own ``AsynIO.CNCT``, so a read that fails (an IOC that never
     answered, or died after an earlier run's connect — the channel stays
-    cached in a long-lived worker) means the IOC is down.  Concurrent, one
-    bounded wait (``LIVENESS_CONNECT_TIMEOUT_S`` for the connect, then the
-    read); ``connect_on_demand`` would connect only the derived
+    cached in a long-lived worker) means the IOC is down
+    (:func:`~geecs_bluesky.devices.ca.liveness.down_natives`).  Bounded by
+    ``LIVENESS_CONNECT_TIMEOUT_S`` for the connect, then the read;
+    ``connect_on_demand`` would connect only the derived
     ``connected_status``, never this source.
 
     Returns
@@ -704,29 +917,7 @@ def down_native_cameras(devices: Iterable[Any]):
     list of str
         The GEECS names of the cameras reported ``Disconnected`` or unreachable.
     """
-    cams = native_cameras(devices)
-    if not cams:
-        return []
-
-    async def judge() -> list[str | BaseException]:
-        return await asyncio.gather(
-            *(_native_word(c) for c in cams), return_exceptions=True
-        )
-
-    (task,) = yield from bps.wait_for([judge])
-    words = task.result()
-    down: list[str] = []
-    for cam, word in zip(cams, words):
-        if isinstance(word, BaseException):
-            logger.warning(
-                "liveness: %s IOC did not answer (%s: %s) — down",
-                cam._geecs_device_name,
-                type(word).__name__,
-                " ".join(str(word).split()),
-            )
-        if isinstance(word, BaseException) or word == "Disconnected":
-            down.append(cam._geecs_device_name)
-    return down
+    return (yield from down_natives(native_cameras(devices), _camera_down))
 
 
 def refuse_native_cameras(devices: Iterable[Any], why: str) -> None:

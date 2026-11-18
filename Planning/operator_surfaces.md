@@ -3,7 +3,7 @@
 Status: design note, 2026-10-26, **provisional until built**. Written from
 the maintainer's screenshots and notes of the LabVIEW GEECS GUIs (HTU
 Control Center, Master Control, the diagnostics camera GUI) and the
-GeecsCanopy exercise (`Planning/geecs_canopy.md`). It names the operator
+GeecsCanopy exercise (adopted 2026-10-26; GeecsCanopy/CLAUDE.md). It names the operator
 surfaces, maps each to its owner in the new estate, and proposes the first
 slice. The front end is designed from Canopy outward and from these
 surfaces; nothing from the parked geecs-web arc carries weight here.
@@ -74,7 +74,7 @@ decision cites a screenshot, it should be for a habit, never an artifact.
 | **Device drill-down** (status, host, IOC, last error, restart) | MC Device tab, the two lists | the home, over IOC heartbeats, the asyn connection flags and the gateway's status PVs |
 | Scan console | MC Variable/Scan scan half, Scan Data | GeecsScanner (exists) |
 | Scan browser, logbook, config editor | Scan Data, DB and Expt editors | portal, logbook, the portal's editor (exist); no DB editor yet |
-| Presets and configurations | Experiment tab | Squirrel (snapshots) and GeecsBluesky action plans (sequences), §5 |
+| Presets and configurations | Experiment tab | Squirrel (snapshots) and setups (sequences), §5 |
 
 Everything that moves a PV goes through the GEECS device module on Canopy
 (operator identity, allow lists, journal, bounds, hazard confirm); the
@@ -125,7 +125,7 @@ One page, kept familiar: title "Master Control" if the operators prefer.
 - **Launcher:** the screens from the configs repo grouped by area, the
   device pages by type with a device picker, the variable inspector, the
   scan console, the portal, the logbook, the config editor.
-- **Presets:** the Squirrel groups and action plans for this experiment,
+- **Presets:** the Squirrel groups and setups for this experiment,
   the active-snapshot verdict, the journal's last commands with operator.
 
 The drill-down is where agents earn their place: a device's row shows its
@@ -137,8 +137,8 @@ action hands the same facts to the facility assistant through GEECS-MCP.
 
 - **Save Live Configuration** = a Squirrel snapshot of the experiment's
   registered PVs. Restore of a group = "send preset" for value sets.
-- **Preset as a macro** (an ordered sequence of sets with waits) = an
-  **action plan**, which GeecsBluesky already runs (`run_action`) and
+- **Preset as a macro** (an ordered sequence of sets with waits) = a
+  setup, which GeecsBluesky applies (`apply_setup`) and
   GEECS-Schemas already describes. The home lists both kinds under one
   "Presets" heading; neither needs a custom implementation.
 - **Set Default** splits into two mechanisms that LabVIEW conflated, and
@@ -163,28 +163,7 @@ action hands the same facts to the facility assistant through GEECS-MCP.
 
 ## 6. Device-type front panels
 
-**Camera.** The LabVIEW GUI's features map almost one to one onto the
-areaDetector chain the native camera already runs and the page GeecsPanels
-already renders: ROI (ROI plugin), exposure, gain, trigger mode and delay,
-rate (`ArrayRate_RBV`), last update (freshness by the STAT counter), max
-counts against a saturation level (the raw STAT0 maximum), two named
-crosshairs with target, size, colour and "set to centroid" (the overlay
-plugin, built), centroid, sigma, max, mean, total (the statistics plugin),
-mean and histogram and lineout plots, colour table and autoscale (client
-side), the save toggle (the scanner's save set), device errors (alarms).
-Three real gaps, each a decision rather than a page: a **spatial low-pass
-filter** and **perspective correction** are not stock plugins (an analysis
-step offline, or a custom plugin in the IOC chain); **FWHM and 45° second
-moments** are not statistics-plugin outputs (derive from sigma x, y, xy and
-the profiles, in the module or a derived channel). Background subtraction
-and rotate/flip exist as plugins and are an IOC-chain decision. The
-Analysis tab's per-shot trends are what Vole, Canopy's live buffer, is for.
-
-**Scope.** The LabVIEW panel only shows traces; the GeecsPanels scope page
-over the picoscope contract is already the better front panel. Keep it.
-
-**Motor, supply.** Exist as GeecsPanels pages from the family files; they
-become the drill-down's device page and the inspector's rich view.
+Moved to `GeecsControlRoom/CLAUDE.md` § "The device pages" on 2026-11-13.
 
 ## 7. The renderer stack: decided by a falsifiable first slice
 
@@ -212,7 +191,7 @@ maintainer clicking it.
 | Device-type knowledge (roles, hazards, freshness counters, power-on flags) | family files, package data in GEECS-Schemas |
 | An experiment's screens, home layout, presets' groups, label-to-device mappings | the configs repo, `<Experiment>/screens/`, `home.yaml` |
 | The renderer, the home, the device pages, the inspector | one new package in GEECS-Plugins, served behind the front door |
-| Live PVs, writes, snapshots, directory, archive reads | Canopy with the GEECS module (`Planning/geecs_canopy.md`) |
+| Live PVs, writes, snapshots, directory, archive reads | Canopy with the GEECS module (GeecsCanopy) |
 | Screenshots and notes of the LabVIEW GUIs (lab device names) | the configs repo or the maintainer's notes, never this public repo |
 
 ## 9. Migration of the suite

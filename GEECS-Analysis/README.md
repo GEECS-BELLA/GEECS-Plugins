@@ -1,6 +1,6 @@
 # GEECS Analysis
 
-The new analysis core under development on the analysis integration branch.
+The analysis core: every recipe's steps, measure and figures run through it.
 This first slice provides pure, ordered processing for coordinate-aware 1D
 traces and 2D images. GeecsBluesky's optimizer uses this core directly. The portal
 uses it for supported processing/preview recipes, retaining legacy fallback for
@@ -45,7 +45,6 @@ sorted or reversed automatically. Both steps preserve units and shot identity.
 
 Reading inputs and resolving backgrounds belong to data-utils. These processing
 steps neither read nor write files and have no scan, GUI, or device dependencies.
-See [the migration plan](../Planning/analysis_refactor.md) for the next layers.
 
 Loaded backgrounds can be bound by name to `background_frame` steps:
 

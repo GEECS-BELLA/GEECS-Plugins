@@ -1,8 +1,8 @@
 """BackgroundSnapshot — the run's soft background telemetry (#1016, #929).
 
 The object alone first (probe, exclusion, the soft read, the lifecycle),
-then through the bound plans: the strict row and the gated sampler both
-carry the background columns, the switch, the start-document record.
+then through the bound plans: the strict row carries the background
+columns, the switch, the start-document record.
 """
 
 from __future__ import annotations
@@ -442,7 +442,8 @@ def test_bound_count_reads_the_background_into_every_row(
     events = col.primary_events()
     assert box.fires == 2 and len(events) == 2
     assert [e["data"]["u_gauge-pressure"] for e in events] == [2.5, 2.5]
-    assert [e["data"]["uc_cam-meancounts"] for e in events] == [7.0, 7.0]
+    stream = col.stream_events("uc_cam_stream")
+    assert [e["data"]["uc_cam-meancounts"] for e in stream] == [7.0, 7.0]
     start = col.docs["start"][0]
     assert start["background_telemetry"] is True
     assert start["background_dropped"] == ["U_Dead"]
@@ -475,12 +476,14 @@ def test_bound_sweep_keeps_the_scanned_devices_other_variables(
     events = col.primary_events()
     assert len(events) == 3
     data = events[0]["data"]
-    assert "u_gauge-pressure" in data and "uc_cam-meancounts" in data
+    assert "u_gauge-pressure" in data
+    assert "uc_cam-meancounts" in col.stream_events("uc_cam_stream")[0]["data"]
     assert "u_s1h-voltage" in data  # the scanned device's other variable: background
     assert [e["data"]["u_s1h-current-position"] for e in events] == pytest.approx(
         [-1.0, 0.0, 1.0]
     )  # the readback: the motor's own column, once
-    descriptor = col.docs["descriptor"][0]["object_keys"]
+    primary = next(d for d in col.docs["descriptor"] if d["name"] == "primary")
+    descriptor = primary["object_keys"]
     assert "u_s1h-voltage" in descriptor["background"]
     assert "u_s1h-current-position" not in descriptor["background"]
     assert col.docs["start"][0]["background_dropped"] == []
@@ -529,90 +532,15 @@ def test_bound_sweep_leaves_a_device_the_run_reads_alone(RE, box, profiles) -> N
         events = col.primary_events()
         assert len(events) == 3
         data = events[0]["data"]
-        assert (
-            axis_key in data and "u_s1h-voltage" in data and "uc_cam-meancounts" in data
-        )
-        background = col.docs["descriptor"][0]["object_keys"]["background"]
+        assert axis_key in data and "u_s1h-voltage" in data
+        stream = col.stream_events("uc_cam_stream")
+        assert "uc_cam-meancounts" in stream[0]["data"]
+        primary = next(d for d in col.docs["descriptor"] if d["name"] == "primary")
+        background = primary["object_keys"]["background"]
         assert "u_gauge-pressure" in background
         assert not [k for k in background if k.split("-")[0] in own]
     # The third case: the magnet is nobody's, so its voltage came from the background.
     assert "u_s1h-voltage" in background
-
-
-def test_gated_rows_carry_the_background(RE, monkeypatch, tmp_path) -> None:
-    """Gated: a sampler member, read at the tick."""
-    from geecs_bluesky.plans import gated
-    from tests.test_gated_plans import GATED_WRITES, GatedBox, _events_from_pages
-    from tests.test_strict_plans import _plugin_camera
-
-    monkeypatch.setattr(gated, "TRIGGER_PERIOD_S", 0.08)
-    monkeypatch.setattr(gated, "DRAIN_MARGIN_S", 0.04)
-    box = GatedBox()
-    sc = ShotControl(
-        GATED_WRITES, experiment="TestExp", name="shot_control", setter_factory=box
-    )
-    connect_mock(RE, sc)
-    profiles = TriggerProfiles({"HTU-Test": sc}, default="HTU-Test")
-    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
-    gauge = _gauge(RE, value=2.5)
-    ns = Namespace({"UC_A": a}, [gauge, *a._scalar_signals()])
-    col = DocCollector()
-    RE.subscribe(col)
-    count = bind_plans(profiles, settables=ns)["count"]
-    RE(count([a], 3, acquisition="gated"))
-    assert col.docs["stop"][-1]["exit_status"] == "success"
-    rows = _events_from_pages(col, "shots")
-    assert len(rows) == 3
-    assert [r["data"]["u_gauge-pressure"] for r in rows] == [2.5, 2.5, 2.5]
-    assert "uc_a-acq_timestamp" in rows[0]["data"]  # the clock, once
-    assert col.docs["start"][0]["background_telemetry"] is True
-
-
-def test_gated_sweep_keeps_the_scanned_devices_other_variables(
-    RE, monkeypatch, tmp_path
-) -> None:
-    """Gated: the axis's device is on every ``shots`` row, minus the readback the row owns."""
-    from geecs_bluesky.plans import gated
-    from tests.test_gated_plans import GATED_WRITES, GatedBox, _events_from_pages
-    from tests.test_strict_plans import _plugin_camera
-
-    monkeypatch.setattr(gated, "TRIGGER_PERIOD_S", 0.08)
-    monkeypatch.setattr(gated, "DRAIN_MARGIN_S", 0.04)
-    box = GatedBox()
-    sc = ShotControl(
-        GATED_WRITES, experiment="TestExp", name="shot_control", setter_factory=box
-    )
-    connect_mock(RE, sc)
-    profiles = TriggerProfiles({"HTU-Test": sc}, default="HTU-Test")
-    a, _ = _plugin_camera(RE, box, "UC_A", tmp_path)
-    magnet = _magnet(RE)
-    follow_setpoint(magnet.current)
-    gauge = _gauge(RE, value=2.5)
-    ns = Namespace({"U_S1H": magnet, "UC_A": a}, [magnet, gauge, *a._scalar_signals()])
-    col = DocCollector()
-    RE.subscribe(col)
-    sweep = bind_plans(profiles, settables=ns)["sweep"]
-    RE(sweep([a], sweep=payload(), acquisition="gated"))
-    assert col.docs["stop"][-1]["exit_status"] == "success"
-    rows = _events_from_pages(col, "shots")
-    assert len(rows) == 3
-    assert [r["data"]["u_gauge-pressure"] for r in rows] == [2.5, 2.5, 2.5]
-    assert "u_s1h-voltage" in rows[0]["data"]  # the scanned device's other variable
-    assert [r["data"]["u_s1h-current-position"] for r in rows] == pytest.approx(
-        [-1.0, 0.0, 1.0]
-    )  # the readback once, the motor's own
-    assert col.docs["start"][0]["background_dropped"] == []
-    # The magnet listed as a detector and scanned: the row carries it whole,
-    # the step brings nothing back, the batch still runs.
-    col = DocCollector()
-    RE.subscribe(col)
-    RE(sweep([a, magnet], sweep=payload(), acquisition="gated"))
-    assert col.docs["stop"][-1]["exit_status"] == "success"
-    rows = _events_from_pages(col, "shots")
-    assert len(rows) == 3 and "u_s1h-voltage" in rows[0]["data"]
-    assert [r["data"]["u_s1h-current-position"] for r in rows] == pytest.approx(
-        [-1.0, 0.0, 1.0]
-    )
 
 
 def test_the_switch_reads_the_defaults_per_run_and_the_item_wins(
@@ -665,10 +593,10 @@ def test_no_telemetry_set_or_nothing_outside_the_run_is_fine(RE, box, profiles):
     RE(bind_plans(profiles, settables=ns)["count"]([cam], 1))
     start = col.docs["start"][-1]
     assert start["background_telemetry"] is True and start["background_dropped"] == []
-    assert set(col.primary_events()[-1]["data"]) == {
+    assert not any(k.startswith("u_") for k in col.primary_events()[-1]["data"])
+    assert set(col.stream_events("uc_cam_stream")[-1]["data"]) == {
         "uc_cam-meancounts",
         "uc_cam-acq_timestamp",
-        "bin_number",
     }
 
 
