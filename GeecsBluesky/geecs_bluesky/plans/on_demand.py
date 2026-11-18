@@ -30,7 +30,6 @@ from geecs_data_utils.shot_table import (
     STREAM_META_KEY,
     SYNCHRONOUS,
 )
-from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.ca._view import ScalarsView, owner_of
 from geecs_bluesky.devices.detector import DEFAULT_SHOT_TIMEOUT
@@ -40,6 +39,13 @@ from geecs_bluesky.devices.native import (
     down_native_cameras,
 )
 from geecs_bluesky.devices.scan_mode import ANNOUNCE
+from geecs_bluesky.shot_gate import ShotGate
+from geecs_bluesky.plans.shot_gate import (
+    LapseClock,
+    fire_gated,
+    hold_for_permission,
+    pause_on_lapses,
+)
 from geecs_bluesky.plans.streams import DeviceStreams
 from geecs_bluesky.plans.strict import (
     BinCounter,
@@ -150,11 +156,17 @@ class SlotColumns:
     parent = None
 
     def __init__(
-        self, required: Sequence[str], *, scan_mode: bool, fly: bool = False
+        self,
+        required: Sequence[str],
+        *,
+        scan_mode: bool,
+        fly: bool = False,
+        gated: bool = False,
     ) -> None:
         self._required = list(required)
         self._scan_mode = scan_mode
         self._fly = fly
+        self._gated = gated
         self.shot_index = 0
         self.values: dict[str, Any] = {}
         self.reset(1, {})
@@ -182,6 +194,8 @@ class SlotColumns:
         }
         if self._scan_mode:
             self.values["announce_stamp"] = math.nan
+        if self._gated:
+            self.values["gate_hold_s"] = math.nan
 
     def read(self) -> dict[str, Any]:
         """The row's columns as Bluesky readings."""
@@ -218,7 +232,10 @@ class OnDemand:
 
     One slot (:meth:`take_reading`):
 
-    1. throttle to ``shot_period``; read ``ShotControl.pause_count``;
+    1. throttle to ``shot_period``; under a shot gate, hold for its
+       permission — one fresh ``safe`` per fire, a long hold pauses the run
+       (``gate_hold_s``; :mod:`geecs_bluesky.plans.shot_gate`); read
+       ``ShotControl.pause_count``;
     2. read every per-shot device's progress counter (a framed stream's frame
        count, a stamped device's ``acq_timestamp`` monitor) and the witness
        count — before the fire, in ARMED, so no edge is in flight; the
@@ -261,6 +278,10 @@ class OnDemand:
     max_refires, shot_period, scan_mode :
         Extra shots after an incomplete one; the rep-rate throttle,
         seconds; the run's ``ScanModeControl`` under a scan-mode profile.
+    gate :
+        The worker's :class:`~geecs_bluesky.shot_gate.ShotGate`, or
+        ``None``.  Ignored under a box-less profile: the gate governs the
+        SINGLESHOT put, and such a run issues none.
     """
 
     #: How an incomplete row's log line ends, and what a pause for exhausted
@@ -280,6 +301,7 @@ class OnDemand:
         max_refires: int = 2,
         shot_period: float | None = None,
         scan_mode: Any | None = None,
+        gate: ShotGate | None = None,
     ) -> None:
         if shot_period is not None and shot_period <= 0:
             raise ValueError(f"shot_period must be positive seconds, got {shot_period}")
@@ -293,13 +315,16 @@ class OnDemand:
         self.shot_period = shot_period
         self.scan_mode = scan_mode
         self.boxless = bool(getattr(shot_control, "boxless", False))
+        self.gate = None if self.boxless else gate
         self.presses = [
             d
             for d in streams.natives
             if d.trigger_source == NativeTriggerSource.SOFTWARE
         ]
         self.columns = SlotColumns(
-            [p.name for p in self.required], scan_mode=scan_mode is not None
+            [p.name for p in self.required],
+            scan_mode=scan_mode is not None,
+            gated=self.gate is not None,
         )
         self._last_fire: float | None = None
         self._exhausted = 0
@@ -374,6 +399,7 @@ class OnDemand:
                 yield from bps.sleep(remaining)
 
     def _fire(self):
+        """Announce and fire; ``False`` when the shot gate's permission lapsed first."""
         values = self.columns.values
         self._last_fire = time.monotonic()
         try:
@@ -384,12 +410,14 @@ class OnDemand:
                 values["fire_stamp"] = values["announce_stamp"]
             else:
                 values["fire_stamp"] = time.time()
-                yield from bps.mv(self.sc, TriggerState.SINGLESHOT.value)
+                if not (yield from fire_gated(self.sc, self.gate)):
+                    return False
         except FailedStatus as exc:
             _log_non_frame_failure(exc)
             raise
         if self.presses:
             yield from bps.wait_for([self._press])
+        return True
 
     async def _press(self) -> None:
         """Press every Software-source native; a refused press is logged once per camera.
@@ -475,6 +503,36 @@ class OnDemand:
             values["witness_late"] = True
         return missing, True
 
+    def _baseline_and_fire(self, attempt: int):
+        """Hold for the gate, read the baseline, fire; return ``(pause mark, baseline)``.
+
+        A permission that lapses before the fire — during the counter read,
+        or the announce (``fire_gated``'s last check) — holds again, and the
+        counters are read again after it: the baseline is always taken after
+        the last hold, so nothing a device records during a hold counts as
+        this fire's.
+        """
+        held = 0.0
+        lapses = LapseClock(lambda: self.sc.pause_count)
+        while True:
+            held += yield from hold_for_permission(self.gate, pause=self._pause)
+            mark = self.sc.pause_count
+            base = yield from self._counters()
+            if self.gate is not None and not self.gate.permits():
+                yield from pause_on_lapses(self.gate, lapses, self._pause)
+                continue
+            self.columns.shot_index += 1
+            self.columns.reset(
+                attempt,
+                {p.name: _Progress.recorded(base[p.name]) for p in self.required},
+            )
+            if self.gate is not None:
+                self.columns.values["gate_hold_s"] = held
+            if (yield from self._fire()):
+                return mark, base
+            self.columns.shot_index -= 1  # nothing fired: no row
+            yield from pause_on_lapses(self.gate, lapses, self._pause)
+
     def _slot(self, readers: Sequence[Any], name: str):
         # ``attempt`` counts the shot's fires (the row's column); ``spent``
         # only the incomplete ones the budget pays for — a fire a pause
@@ -484,14 +542,7 @@ class OnDemand:
         while True:
             attempt += 1
             yield from self._throttle()
-            mark = self.sc.pause_count
-            base = yield from self._counters()
-            self.columns.shot_index += 1
-            self.columns.reset(
-                attempt,
-                {p.name: _Progress.recorded(base[p.name]) for p in self.required},
-            )
-            yield from self._fire()
+            mark, base = yield from self._baseline_and_fire(attempt)
             yield from self._wait(base)
             now = yield from self._counters()
             self.columns.values["interrupted"] = self.sc.pause_count != mark

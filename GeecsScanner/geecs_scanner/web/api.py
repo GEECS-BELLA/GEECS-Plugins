@@ -45,6 +45,7 @@ from geecs_scanner.service.models import (
     ScanLogOut,
     ScanVariableOut,
     SettablesOut,
+    ShotGateOut,
     StatusOut,
     SubmitIn,
     SubmitOut,
@@ -168,6 +169,12 @@ def register(router: APIRouter, service: ScannerService) -> None:  # noqa: C901,
     def save_preset(name: str, body: SavePresetIn) -> SavePresetOut:
         """Save a preset (the URL names the file): a commit to main, through the configurator."""
         return service.save_preset(name, body)
+
+    @router.get("/api/shot-gate", response_model=ShotGateOut)
+    def shot_gate(response: Response, trigger_profile: str = "") -> ShotGateOut:
+        """The shot gate of the profile the form submits under (empty: the default); for the chip."""
+        response.headers.update(_NO_CACHE)
+        return service.shot_gate(trigger_profile or None)
 
     @router.post("/api/preflight/trigger-profile", response_model=PreflightOut)
     def preflight_trigger_profile(body: TriggerProfilePreflightIn) -> PreflightOut:

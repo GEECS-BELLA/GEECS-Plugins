@@ -33,6 +33,7 @@ from geecs_bluesky.devices.native_setpoint import (
     native_set_tolerances,
 )
 from geecs_bluesky.devices.shot_control import ShotControl
+from geecs_bluesky.shot_gate import ShotGate
 from geecs_bluesky.devices.witness import Witness, witness_is_down
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.native_scope import NOT_SCAN_MODE
@@ -62,6 +63,7 @@ from geecs_bluesky.plans.on_demand import (
     on_demand_per_step,
     start_keys,
 )
+from geecs_bluesky.plans.shot_gate import open_gate
 from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
 from geecs_bluesky.plans.strict import (
     down_devices,
@@ -583,6 +585,18 @@ def _refuse_twice_listed(per_shot: Sequence[Any]) -> None:
 _NO_BOX = SimpleNamespace(use_scan_mode=False, boxless=False, liveness_signals={})
 
 
+def gate_for_run(shot_control: Any, *, fly: bool) -> ShotGate | None:
+    """The gate a run holds for: its profile's, none in a fly run.
+
+    A fly run drives no box, and a box-less profile has no gate
+    (:attr:`ShotControl.shot_gate`): neither issues the SINGLESHOT put the
+    gate governs.
+    """
+    if fly:
+        return None
+    return getattr(shot_control, "shot_gate", None)
+
+
 def strict_plan(  # noqa: C901, PLR0915
     stock: Callable[..., Any],
     profiles: TriggerProfiles,
@@ -622,7 +636,11 @@ def strict_plan(  # noqa: C901, PLR0915
         driven when the resolved profile carries ``use_scan_mode``
         (``plans/scan_mode.py``: the preflight, the bracket inside the
         trigger bracket, the announce in the hook, the row's
-        ``announced_shot``); ``None`` refuses such a profile.
+        ``announced_shot``); ``None`` refuses such a profile.  A resolved
+        profile naming a ``shot_gate`` likewise makes every SINGLESHOT of a
+        strict run wait for its permission
+        (:mod:`~geecs_bluesky.plans.shot_gate`; connected before the box is
+        driven and before the claim).
 
     Returns
     -------
@@ -704,6 +722,9 @@ def strict_plan(  # noqa: C901, PLR0915
         md["shots_per_step"] = shots_per_step
         md["acquisition"] = acquisition
         md["native_image_save"] = native_files
+        gate = gate_for_run(shot_control, fly=fly)
+        if gate is not None:
+            md["shot_gate"] = gate.describe()
         snapshot = background_snapshot(settables, mock=mock) if background else None
         md["background_telemetry"] = snapshot is not None
         witness, md["witness"] = yield from run_witness(
@@ -740,6 +761,7 @@ def strict_plan(  # noqa: C901, PLR0915
                 witness=witness,
                 shot_period=shot_period,
                 scan_mode=announce,
+                gate=gate,
             )
             md.update(start_keys(streams, required, witnessed=witness is not None))
             kwargs[hook] = (
@@ -792,6 +814,7 @@ def strict_plan(  # noqa: C901, PLR0915
             logger.info("%s", BOX_NOT_DRIVEN)
             return (yield from name_failed_status(inner))
         # Before the first move, before the claim.
+        yield from open_gate(gate)
         yield from liveness_gate(shot_control, detectors)
         inner = bpp.inject_md_wrapper(inner, (yield from set_tolerance_gate(movers)))
         # A failure outside the stock plan's run_wrapper (the bracket's own
@@ -1039,7 +1062,9 @@ def bind_plans(
     :class:`~geecs_bluesky.devices.scan_mode.ScanModeControl`: the scan
     verbs drive it under a profile with ``use_scan_mode`` and
     ``release_scan_mode`` ends it on demand; ``None`` (a hermetic worker)
-    refuses both.
+    refuses both.  A trigger profile's ``shot_gate`` is held for before
+    every SINGLESHOT by every plan that fires one — the scan verbs and
+    ``measure_shot_offsets``.
     """
     bound: dict[str, Callable[..., Any]] = {}
     for name in GEECS_PLAN_NAMES:
@@ -1088,6 +1113,7 @@ __all__ = [
     "background_snapshot",
     "background_wrapper",
     "bind_plans",
+    "gate_for_run",
     "liveness_gate",
     "set_tolerance_gate",
     "native_image_save_wrapper",

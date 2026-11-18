@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 import bluesky.plan_stubs as bps
+from bluesky.preprocessors import rewindable_wrapper
 from bluesky.protocols import Readable
 from bluesky.utils import separate_devices
 from geecs_schemas.shot_offsets import DeviceOffset, ShotOffsets
@@ -46,6 +47,13 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import refuse_native_cameras
 from geecs_bluesky.native_scope import NOT_CALIBRATION
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plans.shot_gate import (
+    LapseClock,
+    fire_gated,
+    hold_for_permission,
+    open_gate,
+    pause_on_lapses,
+)
 from geecs_bluesky.plans.strict import fire_and_await_shot, run_bracket
 from geecs_bluesky.callbacks.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
@@ -822,6 +830,11 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         The configs-repo resolver the measurement is written through;
         ``None`` registers a plan that can measure but not write (the
         hermetic worker).
+
+    Notes
+    -----
+    A profile's ``shot_gate`` holds every SINGLESHOT before its devices are
+    armed, and is connected before the box is driven.
     """
 
     def measure_shot_offsets(  # noqa: C901, PLR0915
@@ -947,6 +960,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             TriggerState.SINGLESHOT,
         ):
             _refuse_profile_without(shot_control, state)
+        shot_gate = shot_control.shot_gate
         confirm_time = max(
             QUIET_CONFIRM_FLOOR_S, QUIET_CONFIRM_PERIODS * trigger_period
         )
@@ -970,15 +984,31 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             # caused.
             yield from bps.mv(shot_control, TriggerState.ARMED.value)
 
+            lapsed: list[bool] = []
+
             def fire():
-                yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
+                if not (yield from fire_gated(shot_control, shot_gate)):
+                    lapsed.append(True)
 
             complete: list[dict[str, float]] = []
             attempts = 0
             budget = shots * _RETAKE_BUDGET  # the requested shots, plus as many retakes
+            lapses = LapseClock(lambda: shot_control.pause_count)
             while len(complete) < shots and attempts < budget:
                 attempts += 1
+                # Before the devices are armed: a hold must not spend their
+                # shot timeout.
+                yield from hold_for_permission(shot_gate)
                 missed = yield from fire_and_await_shot(views, fire)
+                if lapsed:
+                    # The gate's permission lapsed while the devices were
+                    # armed: nothing fired, so this was no attempt.  The
+                    # armed devices time out empty; hold again.
+                    lapsed.clear()
+                    attempts -= 1
+                    yield from pause_on_lapses(shot_gate, lapses)
+                    continue
+                lapses.reset()
                 if missed:
                     logger.warning(
                         "shot %d incomplete (%s did not deliver) — discarded and "
@@ -1010,7 +1040,13 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
         # which is the line telling the operator there is an uncommitted
         # change to review.
         with plan_report_sink(REPORT_LOGGER):
-            complete = yield from run_bracket(inner(), shot_control, TriggerState.OFF)
+            yield from open_gate(shot_gate)
+            # Not rewindable: a resume after a pause (an operator's, or a
+            # gate hold's) must never replay the cached SINGLESHOTs — every
+            # replayed put is a physical shot no gate permitted.
+            complete = yield from rewindable_wrapper(
+                run_bracket(inner(), shot_control, TriggerState.OFF), False
+            )
             measurement = offsets_from_shots(complete)
             logger.info(
                 "shot offsets over %d shot(s), reference %s:\n%s",

@@ -41,6 +41,25 @@ class TiledWriterOut(BaseModel):
     )
 
 
+class ShotGateOut(BaseModel):
+    """A trigger profile's permission-to-fire service as one kit word (shown, never a gate here).
+
+    ``enabled`` false when the profile names no ``shot_gate`` (the chip
+    stays hidden; ``detail`` says why).  ``state``: ``ok`` safe,
+    ``degraded`` connected and not safe (``detail`` the service's reason),
+    ``failed`` not connected, ``unknown`` the profile could not be read or
+    the reader is still connecting.  The worker enforces the gate before every
+    fire; this is what the service says now, for the room.
+    """
+
+    enabled: bool = False
+    state: str = Field(default="unknown", description="A kit status word")
+    detail: str = ""
+    safe: bool = False
+    address: Optional[str] = Field(default=None, description="host:port, when enabled")
+    profile: str = Field(default="", description="The trigger profile asked about")
+
+
 class StatusOut(BaseModel):
     """One poll of the manager, plus the readiness verdict over it."""
 
