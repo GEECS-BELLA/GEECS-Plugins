@@ -312,3 +312,19 @@ def test_a_repeated_heading_draws_every_group_of_that_title_in_order(monkeypatch
     ]  # the device omits the second group's one role
     one = device_pages.group_panel({"family": "easydriver", "roles": served}, "Output")
     assert [g["roles"] for g in one.panel["rail"]] == [["output_sp", "current_sp"]]
+
+
+def test_a_loop_is_drawn_whole_by_the_settables_page() -> None:
+    """A feedback loop (``loop_contract``) needs no page of its own: its family is a ``setpoint_device``, so its kind word is ``supply``, and its panel draws every control the loop contract gives an operator."""
+    from geecs_control_room.device_pages import kind_of
+
+    family = load_families()["loop_contract"]
+    assert kind_of("loop_contract") == "supply"
+    body = {"roles": [_entry(r.name, r.type, r.writable, r.read_mode) | {"axis": None} for r in family.roles]}  # fmt: skip
+    drawn = page_panel(body, family, [], kind="supply")["panel"]
+    assert [g["title"] for g in drawn["rail"]] == ["Loop", "Tuning", "Travel limits"]
+    railed = {r for g in drawn["rail"] for r in g["roles"]}
+    assert railed == {
+        r.name for r in family.roles if r.writable
+    }  # every write an operator has, none hidden
+    assert drawn["readings"][:3] == ["state", "reason", "reason_text"]

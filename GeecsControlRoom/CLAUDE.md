@@ -466,6 +466,13 @@ as one list, stopped at the first refusal, so the record never steps by a
 step the field no longer shows (`device_rules.tweakList`); a select, a
 checkbox or a button writes when chosen (`device_rules.commitKey`,
 `writeValue`).
+A feedback loop has no page of its own: its family (`loop_contract`,
+the names of geecs-epics' loop contract) is a `setpoint_device` with a
+panel, so the settables page draws it under the kind word `supply` (the
+mode, the setpoint, the tuning and the travel limits on the rail; the
+state and its reason first in the readings). A live image or a trend
+beside it is not this page's.
+
 A device is classified by its roster `source` first: a gateway device's
 family is its DB device type, never looked up as a family file, even when
 it is spelled like one.

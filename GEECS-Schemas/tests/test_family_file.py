@@ -242,6 +242,7 @@ def test_the_installed_families_load_by_template() -> None:
         "ad_camera_chain",
         "easydriver",
         "fastps",
+        "loop_contract",
         "motor_record",
         "scope_contract",
         "spectrometer_contract",
