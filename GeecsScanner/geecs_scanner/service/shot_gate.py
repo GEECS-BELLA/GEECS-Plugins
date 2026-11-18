@@ -21,7 +21,7 @@ import threading
 import time
 from typing import Any, Optional
 
-from geecs_bluesky.shot_gate import ShotGate
+from geecs_bluesky.shot_gate import HEARTBEAT_S, ShotGate
 
 from geecs_scanner.service.models import ShotGateOut
 
@@ -36,19 +36,26 @@ def unreadable(profile: str, exc: Exception) -> ShotGateOut:
     return ShotGateOut(
         enabled=True,
         state="unknown",
-        detail=f"trigger profile not readable: {exc}",
+        detail=f"trigger profile not readable: {exc} — the worker will not load it",
         profile=profile,
     )
 
 
-def gate_status(gate: ShotGate, profile: str = "") -> ShotGateOut:
+def gate_status(
+    gate: ShotGate, profile: str = "", connecting: bool = False
+) -> ShotGateOut:
     """One gate's latest verdict as kit words.
 
-    ``ok`` safe; ``degraded`` connected and not safe (normal between shots:
-    the hardware's cleanup), with the service's reason; ``failed`` not
-    connected (the worker would refuse a run, or hold a running one).
+    ``ok`` the server says safe; ``degraded`` connected and not safe, with
+    the server's reason; ``failed`` not connected or silent (the worker
+    would refuse a run, or hold a running one); ``unknown`` while a new
+    reader waits for its first frame (*connecting*).  This is the server's
+    verdict now: the worker's per-fire freshness hold is never shown here,
+    so the chip can read safe while a shot waits for a fresh verdict.
     """
     common = {"enabled": True, "address": gate.address, "profile": profile}
+    if not gate.connected and connecting:
+        return ShotGateOut(state="unknown", detail="connecting", **common)
     if not gate.connected:
         return ShotGateOut(state="failed", detail=gate.latest.reason, **common)
     latest = gate.latest
@@ -57,10 +64,14 @@ def gate_status(gate: ShotGate, profile: str = "") -> ShotGateOut:
     return ShotGateOut(state="degraded", detail=latest.reason, **common)
 
 
-#: Seconds a watch lives without a status read: the page polls every 2 s, so
-#: an address no open page asks about (an edited port, a retired server) is
-#: dropped and its connection closed.
-WATCH_IDLE_S = 60.0
+#: Seconds a watch lives without a status read: the page polls every 2 s (a
+#: background tab about once a minute), so an address no open page asks
+#: about (an edited port, a retired server) is dropped and its connection
+#: closed.
+WATCH_IDLE_S = 300.0
+#: Seconds a new watch reads ``unknown`` ("connecting") rather than
+#: ``failed`` while it waits for its first frame.
+CONNECTING_S = 2 * HEARTBEAT_S
 
 
 class _Watch:
@@ -68,7 +79,7 @@ class _Watch:
 
     def __init__(self, gate: ShotGate) -> None:
         self.gate = gate
-        self.used = time.monotonic()
+        self.started = self.used = time.monotonic()
         self._loop = asyncio.new_event_loop()
         threading.Thread(
             target=self._run, name=f"shot-gate-watch {gate.address}", daemon=True
@@ -112,7 +123,7 @@ class ShotGateWatches:
             if watch is None:
                 watch = self._watches[spec.key] = _Watch(ShotGate(*spec.key))
             watch.used = now
-        return gate_status(watch.gate, profile)
+        return gate_status(watch.gate, profile, now - watch.started < CONNECTING_S)
 
 
 def profile_gate(resolver: Any, name: Optional[str]) -> tuple[str, Any]:

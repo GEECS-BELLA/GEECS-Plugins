@@ -11,7 +11,8 @@ the three plan stubs every firing plan shares:
   the run with the gate's reason, and the operator's resume waits again.
   A pause never fires: permission is always checked again after one.
 - :func:`fire_gated` — the last check and the SINGLESHOT put, the fire
-  marked at dispatch; a lapsed permission fires nothing.
+  marked at dispatch; a lapsed permission fires nothing, and
+  :func:`pause_on_lapses` pauses a shot whose permission keeps lapsing.
 """
 
 from __future__ import annotations
@@ -86,16 +87,41 @@ def hold_for_permission(gate: ShotGate | None, pause: Any = None):
             if gate.permits():
                 logger.info("shot gate: safe after %.1f s", held)
                 return held
-        reason = (
+        yield from _pause_run(
             f"shot gate {gate.address}: no permission to fire for "
             f"{gate.hold_pause_s:g} s — {gate.reason or 'not safe'}; "
-            "resume to wait for it again"
+            "resume to wait for it again",
+            pause,
         )
-        if pause is None:
-            logger.error("pausing the run: %s", reason)
-            yield from bps.pause()
-        else:
-            yield from pause(reason)
+
+
+def pause_on_lapses(gate: ShotGate | None, since: float, pause: Any = None):
+    """Plan: after a lapse before the fire, pause once ``hold_pause_s`` has passed since *since*.
+
+    A permission that lapses between the hold and the fire sends the
+    caller back to the hold, which starts its own deadline; a verdict that
+    keeps flickering would never fire and never pause.  The caller keeps
+    *since* (the shot's first hold) across its lapses and passes it here
+    after each one.  Returns the *since* to keep: unchanged, or now after
+    a pause.
+    """
+    if gate is None or time.monotonic() - since < gate.hold_pause_s:
+        return since
+    yield from _pause_run(
+        f"shot gate {gate.address}: permission lapsed before every fire for "
+        f"{gate.hold_pause_s:g} s — {gate.reason or 'not safe'}; "
+        "resume to try again",
+        pause,
+    )
+    return time.monotonic()
+
+
+def _pause_run(reason: str, pause: Any):
+    if pause is None:
+        logger.error("pausing the run: %s", reason)
+        yield from bps.pause()
+    else:
+        yield from pause(reason)
 
 
 def fire_gated(shot_control: Any, gate: ShotGate | None):
@@ -125,4 +151,4 @@ def fire_gated(shot_control: Any, gate: ShotGate | None):
     return True
 
 
-__all__ = ["fire_gated", "hold_for_permission", "open_gate"]
+__all__ = ["fire_gated", "hold_for_permission", "open_gate", "pause_on_lapses"]

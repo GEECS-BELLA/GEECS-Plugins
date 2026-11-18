@@ -118,7 +118,7 @@
     var el = $("chip-gate");
     el.hidden = !(g && g.enabled);
     if (el.hidden) return;
-    if (g.state === K.unknown) { setChip(el, K.unknown, "shot gate: unknown", (g.detail || "trigger profile not readable") + " — the worker will not load it"); return; }
+    if (g.state === K.unknown) { setChip(el, K.unknown, "shot gate: unknown", "Shot gate: " + (g.detail || "unknown")); return; }
     var where = " (" + (g.profile ? g.profile + ", " : "") + g.address + ")";
     if (g.state === K.ok) setChip(el, K.ok, "shot gate: safe", "Shot gate" + where + ": safe");
     else if (g.state === K.failed) setChip(el, K.failed, "shot gate: unreachable", "Shot gate" + where + ": " + (g.detail || "not connected") + " — the worker will not fire");

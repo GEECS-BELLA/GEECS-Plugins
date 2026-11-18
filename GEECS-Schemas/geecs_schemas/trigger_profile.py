@@ -266,9 +266,10 @@ class ShotGateSpec(SchemaModel):
             "Seconds added to the time a shot is fired before a safe verdict "
             "counts as the next shot's permission: its data must be taken "
             "that much after the fire (or, for a verdict with no data stamp, "
-            "received that much after it). Cover clock disagreement between "
-            "the devices and the worker, and, for interlocks with no data "
-            "stamp, the time the server takes to see a shot."
+            "received that much after it). Covers a device clock ahead of "
+            "the worker's, and, for interlocks with no data stamp, the time "
+            "the server takes to see a shot. A device clock behind the "
+            "worker's cannot be covered here: the clocks must agree."
         ),
     )
 

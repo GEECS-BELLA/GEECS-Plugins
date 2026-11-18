@@ -30,6 +30,7 @@ from __future__ import annotations
 import logging
 import math
 import statistics
+import time
 from functools import partial
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -47,7 +48,12 @@ from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import refuse_native_cameras
 from geecs_bluesky.native_scope import NOT_CALIBRATION
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.plans.shot_gate import fire_gated, hold_for_permission, open_gate
+from geecs_bluesky.plans.shot_gate import (
+    fire_gated,
+    hold_for_permission,
+    open_gate,
+    pause_on_lapses,
+)
 from geecs_bluesky.plans.strict import fire_and_await_shot, run_bracket
 from geecs_bluesky.callbacks.scan_log import plan_report_sink
 from geecs_bluesky.utils import resolve_annotations
@@ -987,6 +993,7 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             complete: list[dict[str, float]] = []
             attempts = 0
             budget = shots * _RETAKE_BUDGET  # the requested shots, plus as many retakes
+            since = time.monotonic()  # the shot's first hold, across its lapses
             while len(complete) < shots and attempts < budget:
                 attempts += 1
                 # Before the devices are armed: a hold must not spend their
@@ -999,7 +1006,9 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
                     # armed devices time out empty; hold again.
                     lapsed.clear()
                     attempts -= 1
+                    since = yield from pause_on_lapses(shot_gate, since)
                     continue
+                since = time.monotonic()
                 if missed:
                     logger.warning(
                         "shot %d incomplete (%s did not deliver) — discarded and "

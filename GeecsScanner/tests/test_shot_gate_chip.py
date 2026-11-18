@@ -148,8 +148,11 @@ def test_an_unreachable_gate_is_failed() -> None:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     svc = _service(_Resolver(port))
-    out = svc.shot_gate("PW")
-    assert (out.enabled, out.state, out.profile) == (True, "failed", "PW")
+    first = svc.shot_gate("PW")
+    # a new reader reads "connecting" for a moment, then the truth
+    assert (first.enabled, first.state, first.detail) == (True, "unknown", "connecting")
+    _until(lambda: svc.shot_gate("PW").state == "failed")
+    assert svc.shot_gate("PW").profile == "PW"
 
 
 def test_the_chip_follows_the_service_for_the_default_profile() -> None:

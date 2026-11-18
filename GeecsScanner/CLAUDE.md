@@ -38,7 +38,7 @@ geecs_scanner/
     trajectory.py isolated hardware-free preview over shared Bluesky expansion
     shot_gate.py  the "shot gate" chip: the form's trigger profile's gate, one read-only
                   ShotGate reader per address on a daemon thread (closed when no page
-                  asks for a minute); shown, never a gate here
+                  asks for five minutes); shown, never a gate here
     writer_status.py the Tiled writer's heartbeat verdict (geecs_bluesky.tiled.spool's rule) projected onto the API model (the "tiled writer" chip, /health); shown, never a gate
   web/
     app.py        create_app (the process) and create_scanner_router (the same as a router)
@@ -222,13 +222,15 @@ deploy/           the unit template + DEPLOYMENT.md
   profile. `ShotGateWatches` keeps one read-only reader per address, each on
   a daemon thread started the first time a profile names it,
   reconnecting by itself, and closed when no status read has asked about
-  it for `WATCH_IDLE_S` (60 s; the page polls every 2 s). That is a second
+  it for `WATCH_IDLE_S` (300 s; the page polls every 2 s, a background
+  tab about once a minute), and reads `unknown` ("connecting") until a new
+  reader's first frame. That is a second
   connection beside the worker's, so the server must accept more than one
   client (`ShotGateSpec` states it). The answer: `enabled: false` with the
   reason (no gate in the profile, no profile to tell: the chip hidden),
   `unknown` for a profile that cannot be read (it may name a gate; never
   hidden, never an error), else `ok` safe, `degraded` not safe with the
-  server's reason (normal between shots), `failed` not connected or
+  server's reason, `failed` not connected or
   silent. It never calls `fired` (the per-fire freshness rule is the
   worker's), and no preflight question, Start gate or refusal comes from
   it: the worker refuses a run whose gate does not connect and holds every

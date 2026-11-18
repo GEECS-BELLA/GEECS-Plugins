@@ -87,10 +87,15 @@ def _read_interlocks(interlocks: dict) -> tuple[list[str], list[float]]:
         stamp = state.get("data_stamp")
         if stamp is None:
             continue
-        number = isinstance(stamp, (int, float)) and not isinstance(stamp, bool)
-        if not number or not math.isfinite(stamp):
+        if isinstance(stamp, bool) or not isinstance(stamp, (int, float)):
             raise ValueError(f"interlock {name!r} data_stamp {stamp!r}")
-        stamps.append(float(stamp))
+        try:
+            value = float(stamp)
+        except OverflowError:  # an integer too large for a float
+            value = math.inf
+        if not math.isfinite(value):
+            raise ValueError(f"interlock {name!r} data_stamp is not finite")
+        stamps.append(value)
     return unsafe, stamps
 
 
@@ -98,8 +103,8 @@ def parse_frame(body: bytes) -> GateMessage:
     """One frame's JSON body → a verdict; anything not understood is not safe."""
     try:
         frame = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        return _not_understood(str(exc))
+    except (ValueError, RecursionError) as exc:  # bad UTF-8 or JSON; nesting
+        return _not_understood(f"{type(exc).__name__}: {exc}"[:200])
     if not isinstance(frame, dict):
         return _not_understood("not a JSON object")
     if frame.get("v") != PROTOCOL_VERSION:
@@ -267,7 +272,8 @@ class ShotGate:
         operator's resume waits again).
     holdoff_s :
         Seconds added to the fire's time before a verdict counts as the
-        next fire's permission.
+        next fire's permission (a device clock ahead of the worker's; one
+        behind it cannot be covered, so the clocks must agree).
     parse :
         The frame's body → a verdict (:func:`parse_frame`).
     link :

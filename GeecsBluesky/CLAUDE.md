@@ -597,8 +597,11 @@ three stubs.  The rules:
   next only when every `data_stamp` it carries is later than the fire
   (+ `holdoff_s`), so it rests on data taken after the shot; a frame
   carrying none must be *received* that late.  The comparison is the
-  devices' clocks against the worker's, so `holdoff_s` also covers their
-  disagreement.  Before the first fire any safe frame permits.
+  devices' clocks against the worker's: `holdoff_s` covers a device clock
+  **ahead** of the worker's; one **behind** it by more than the shot's
+  latency makes no verdict count, so every shot holds until the pause
+  (the clocks must agree, or the server sends null stamps).  Before the
+  first fire any safe frame permits.
 - **It governs the SINGLESHOT put, nothing else** (`registry.gate_for_run`):
   every strict `count` / `sweep` / `optimize` fire and every
   `measure_shot_offsets` shot under the profile; not a fly run (no box)

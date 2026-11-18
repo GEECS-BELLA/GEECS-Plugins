@@ -210,6 +210,15 @@ def test_an_unsafe_interlock_is_not_safe_even_when_ok_says_so() -> None:
         (frame_body(True, stamp="soon"), "data_stamp"),  # type: ignore[arg-type]
         (b"not json", "not understood"),
         (b"[1, 2]", "not a JSON object"),
+        (b"\xff\xfe", "not understood"),  # not UTF-8
+        pytest.param(b"[" * 60000, "RecursionError", id="too-deep"),
+        pytest.param(
+            json.dumps(frame_body(True))
+            .replace('"data_stamp": null', '"data_stamp": 1' + "0" * 400)
+            .encode(),
+            "not finite",
+            id="stamp-overflows-a-float",
+        ),
     ],
 )
 def test_a_frame_not_understood_is_not_safe(body, why: str) -> None:
@@ -486,6 +495,21 @@ def test_a_long_hold_pauses_and_the_resume_waits_again(
     (row,) = [e["data"] for e in col.primary_events()]
     # the hold before the pause, not the pause: gate_hold_s audits the server
     assert 0.15 <= row["gate_hold_s"] < 0.5
+
+
+def test_a_server_that_connects_but_sends_nothing_refuses_the_run(
+    RE: RunEngine,
+) -> None:
+    silent = FakeGateServer()
+    silent.broadcasting = False  # accepts, never sends a frame
+    try:
+        gate = ShotGate("127.0.0.1", silent.port)
+        with pytest.raises(GeecsShotGateError, match="did not answer"):
+            RE(open_gate(gate, timeout=0.5))
+        assert silent.clients  # it did connect
+        RE(bps.wait_for([gate.stop]))
+    finally:
+        silent.close()
 
 
 def test_an_unreachable_gate_refuses_before_anything_moves(RE: RunEngine) -> None:
@@ -840,3 +864,30 @@ def test_a_calibration_permission_lapsing_while_armed_fires_nothing(
     singleshots = [p for p in box.puts if p[1] == "Trigger.ExecuteSingleShot"]
     assert box.fires == 2 and len(singleshots) == 2
     assert gate.fires_at_lapse == 0  # the first shot's own check, while armed
+
+
+class _FlickeringGate(ShotGate):
+    """Permits at every hold's check and never at the slot's re-check."""
+
+    calls = 0
+
+    def permits(self) -> bool:
+        self.calls += 1
+        return self.calls % 2 == 1
+
+
+@pytest.mark.timeout(30)
+def test_a_permission_that_keeps_lapsing_pauses_the_run(
+    RE: RunEngine, server: FakeGateServer
+) -> None:
+    """Each lapse sends the slot back to a hold that passes at once; without a
+    deadline kept across the lapses it would never fire and never pause."""
+    box = FakeBox()
+    sc = _shot_control(RE, box)
+    cam = _camera(RE, box, "UC_Cam")
+    gate = _FlickeringGate("127.0.0.1", server.port, hold_pause_s=0.3)
+    RE(open_gate(gate))
+    with pytest.raises(RunEngineInterrupted):
+        RE(strict_count(sc, [cam], 1, gate=gate))
+    assert box.fires == 0 and gate.calls > 2
+    RE.abort()
