@@ -394,6 +394,7 @@ class OnDemand:
                 yield from bps.sleep(remaining)
 
     def _fire(self):
+        """Announce and fire; ``False`` when the shot gate's permission lapsed first."""
         values = self.columns.values
         self._last_fire = time.monotonic()
         try:
@@ -404,12 +405,14 @@ class OnDemand:
                 values["fire_stamp"] = values["announce_stamp"]
             else:
                 values["fire_stamp"] = time.time()
-                yield from fire_gated(self.sc, self.gate)
+                if not (yield from fire_gated(self.sc, self.gate)):
+                    return False
         except FailedStatus as exc:
             _log_non_frame_failure(exc)
             raise
         if self.presses:
             yield from bps.wait_for([self._press])
+        return True
 
     async def _press(self) -> None:
         """Press every Software-source native; a refused press is logged once per camera.
@@ -495,6 +498,33 @@ class OnDemand:
             values["witness_late"] = True
         return missing, True
 
+    def _baseline_and_fire(self, attempt: int):
+        """Hold for the gate, read the baseline, fire; return ``(pause mark, baseline)``.
+
+        A permission that lapses before the fire — during the counter read,
+        or the announce (``fire_gated``'s last check) — holds again, and the
+        counters are read again after it: the baseline is always taken after
+        the last hold, so nothing a device records during a hold counts as
+        this fire's.
+        """
+        held = 0.0
+        while True:
+            held += yield from hold_for_permission(self.gate, pause=self._pause)
+            mark = self.sc.pause_count
+            base = yield from self._counters()
+            if self.gate is not None and not self.gate.permits():
+                continue
+            self.columns.shot_index += 1
+            self.columns.reset(
+                attempt,
+                {p.name: _Progress.recorded(base[p.name]) for p in self.required},
+            )
+            if self.gate is not None:
+                self.columns.values["gate_hold_s"] = held
+            if (yield from self._fire()):
+                return mark, base
+            self.columns.shot_index -= 1  # nothing fired: no row
+
     def _slot(self, readers: Sequence[Any], name: str):
         # ``attempt`` counts the shot's fires (the row's column); ``spent``
         # only the incomplete ones the budget pays for — a fire a pause
@@ -504,25 +534,7 @@ class OnDemand:
         while True:
             attempt += 1
             yield from self._throttle()
-            held = 0.0
-            while True:
-                held += yield from hold_for_permission(self.gate, pause=self._pause)
-                mark = self.sc.pause_count
-                base = yield from self._counters()
-                # A permission that lapsed during the counter read holds
-                # again, and the counters are read again after it: the
-                # baseline is always taken after the last hold, so nothing a
-                # device records during a hold counts as this fire's.
-                if self.gate is None or self.gate.permits():
-                    break
-            self.columns.shot_index += 1
-            self.columns.reset(
-                attempt,
-                {p.name: _Progress.recorded(base[p.name]) for p in self.required},
-            )
-            if self.gate is not None:
-                self.columns.values["gate_hold_s"] = held
-            yield from self._fire()
+            mark, base = yield from self._baseline_and_fire(attempt)
             yield from self._wait(base)
             now = yield from self._counters()
             self.columns.values["interrupted"] = self.sc.pause_count != mark

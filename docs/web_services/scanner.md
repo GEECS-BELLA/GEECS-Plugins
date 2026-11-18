@@ -77,13 +77,14 @@ The rail on the left lists the page's sections; the **health chips** in
 the header say whether the RE Manager answers (`manager`), whether the
 worker's document stream is being heard (`doc stream`), and whether the
 Tiled writer is keeping up (`tiled writer`). When the trigger profile
-the form will submit under names a permission-to-fire service (the
+the form will submit under names a software interlock server (the
 profile's `shot_gate`, edited in the configurator), a fourth chip shows
-that service's latest word: `shot gate: safe`, `shot gate: not safe`
-(hover for the service's reason; normal for a moment after every shot) or
-`shot gate: unreachable`. Pick a profile without a gate (laser off, say)
-and the chip goes away. The chip only shows the gate: the worker holds
-every shot until the gate says safe after the previous one. **Docs**
+that server's latest verdict: `shot gate: safe`, `shot gate: not safe`
+(hover for the server's reason; normal for a moment after every shot),
+`shot gate: unreachable`, or `shot gate: unknown` when the profile itself
+cannot be read. Pick a profile without a gate (laser off, say) and the
+chip goes away. The chip only shows the gate: the worker holds every shot
+until the server says safe about data taken after the previous one. **Docs**
 opens this page.
 
 - **Current** — the running scan: state, the claimed scan number, progress
@@ -195,7 +196,8 @@ The column contract is `GeecsBluesky/EVENT_SCHEMA.md` in the repository.
   chip's tooltip and the scan log). After `hold_pause_s` (default 60 s)
   the scan pauses with that reason; **Resume** waits for safe again and
   never fires without it. `shot gate: unreachable` refuses new scans
-  before anything moves.
+  before anything moves, and so does a server that connects but sends
+  nothing. The `gate_hold_s` column records each shot's wait.
 - **`doc stream` chip down while a scan runs** — the page still shows the
   queue's state, but no shot-by-shot progress. Scans are unaffected.
 - **Move, Setups and Calibration are held** — the move chip reads

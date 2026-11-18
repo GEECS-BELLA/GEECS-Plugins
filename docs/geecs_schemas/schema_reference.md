@@ -358,14 +358,14 @@ One device variable set during a state transition.
 
 ### ShotGateSpec
 
-A permission-to-fire service the worker waits on before every shot.
+A software interlock server the worker waits on before every shot.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `host` | `str` | yes | — | The service's host name or IP address on the facility network. |
 | `port` | `int` | yes | — | The service's TCP port. |
 | `hold_pause_s` | `float` | no | 60.0 | Seconds a shot waits for permission before the scan pauses with the service's reason (resuming waits again; a pause never fires). |
-| `holdoff_s` | `float` | no | 0.0 | Seconds after a shot before a 'safe' counts as the next shot's permission (0: any 'safe' received after the shot). Set it for a service that repeats its state continuously: counted from when the fire is sent, so it covers the box's acknowledgement plus the time the service takes to report a shot, and a 'safe' from before the shot is ignored. |
+| `holdoff_s` | `float` | no | 0.0 | Seconds added to the time a shot is fired before a safe verdict counts as the next shot's permission: its data must be taken that much after the fire (or, for a verdict with no data stamp, received that much after it). Cover clock disagreement between the devices and the worker, and, for interlocks with no data stamp, the time the server takes to see a shot. |
 
 ## `experiment_defaults`
 

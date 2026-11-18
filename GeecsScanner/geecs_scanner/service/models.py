@@ -47,7 +47,7 @@ class ShotGateOut(BaseModel):
     ``enabled`` false when the profile names no ``shot_gate`` (the chip
     stays hidden; ``detail`` says why).  ``state``: ``ok`` safe,
     ``degraded`` connected and not safe (``detail`` the service's reason),
-    ``failed`` not connected.  The worker enforces the gate before every
+    ``failed`` not connected, ``unknown`` the profile could not be read.  The worker enforces the gate before every
     fire; this is what the service says now, for the room.
     """
 

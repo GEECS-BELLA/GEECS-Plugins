@@ -269,7 +269,11 @@ class ShotControl(StandardReadable):
 
     @property
     def shot_gate(self) -> ShotGate | None:
-        """The profile's gate client (one per address, process-wide), or ``None``.
+        """The profile's gate, or ``None``.
+
+        The process's reader for its address under this profile's hold
+        settings: a new view per read, so reading it never changes another
+        profile's gate.
 
         ``None`` too under a box-less profile: the gate holds the SINGLESHOT
         put, and such a profile issues none (the schema refuses a gate on a

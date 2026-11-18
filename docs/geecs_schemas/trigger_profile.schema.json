@@ -3,7 +3,7 @@
   "$defs": {
     "ShotGateSpec": {
       "additionalProperties": false,
-      "description": "A permission-to-fire service the worker waits on before every shot.\n\nThe service streams ``safe`` / ``not_safe <reason>`` one way over TCP;\nevery SINGLESHOT waits for a ``safe`` received after the previous fire.\nWhat that asks of the service: it sends a fresh ``safe`` once each\nshot's cleanup is done (a shot with no state change would otherwise\nhold the next until ``hold_pause_s``), and it accepts more than one\nclient (the worker and the web scanner's chip each hold a connection).\nA service that repeats its state continuously needs ``holdoff_s``,\ncounted from when the fire is sent: the box's acknowledgement plus the\ntime the service takes to report a shot, so a ``safe`` from before it\nis ignored.",
+      "description": "A software interlock server the worker waits on before every shot.\n\nThe server broadcasts its interlocks' verdict one way over TCP, a frame\non connect and then every ~0.1 s.  Every SINGLESHOT waits for a safe\nverdict on data taken after the previous fire (each interlock's\n``data_stamp``); a verdict carrying no data stamp counts once it is\nreceived after the fire.  The server accepts more than one client (the\nworker and the web scanner's chip each hold a connection).",
       "properties": {
         "host": {
           "description": "The service's host name or IP address on the facility network.",
@@ -27,7 +27,7 @@
         },
         "holdoff_s": {
           "default": 0.0,
-          "description": "Seconds after a shot before a 'safe' counts as the next shot's permission (0: any 'safe' received after the shot). Set it for a service that repeats its state continuously: counted from when the fire is sent, so it covers the box's acknowledgement plus the time the service takes to report a shot, and a 'safe' from before the shot is ignored.",
+          "description": "Seconds added to the time a shot is fired before a safe verdict counts as the next shot's permission: its data must be taken that much after the fire (or, for a verdict with no data stamp, received that much after it). Cover clock disagreement between the devices and the worker, and, for interlocks with no data stamp, the time the server takes to see a shot.",
           "minimum": 0,
           "title": "Holdoff S",
           "type": "number"

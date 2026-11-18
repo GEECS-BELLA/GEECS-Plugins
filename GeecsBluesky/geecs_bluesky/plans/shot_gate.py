@@ -4,13 +4,14 @@
 the three plan stubs every firing plan shares:
 
 - :func:`open_gate` — before the box is driven and before the claim: start
-  the reader and wait (bounded) for a connection.  An unreachable gate
+  the reader and wait (bounded) for a connection and its first frame.  An unreachable gate
   refuses the run with nothing claimed, the liveness gate's posture.
 - :func:`hold_for_permission` — before a fire's baseline: wait for one
-  fresh ``safe``; a hold longer than the gate's ``hold_pause_s`` pauses
+  fresh verdict; a hold longer than the gate's ``hold_pause_s`` pauses
   the run with the gate's reason, and the operator's resume waits again.
   A pause never fires: permission is always checked again after one.
-- :func:`fire_gated` — the SINGLESHOT put, the fire marked at dispatch.
+- :func:`fire_gated` — the last check and the SINGLESHOT put, the fire
+  marked at dispatch; a lapsed permission fires nothing.
 """
 
 from __future__ import annotations
@@ -49,7 +50,11 @@ def open_gate(gate: ShotGate | None, timeout: float = CONNECT_TIMEOUT_S):
 
 
 def hold_for_permission(gate: ShotGate | None, pause: Any = None):
-    """Plan: wait for the gate's permission; return the seconds held.
+    """Plan: wait for the gate's permission; return the seconds spent waiting.
+
+    A hold pauses the run only when ``hold_pause_s`` has passed without
+    permission; a verdict that lapses as the wait returns waits again.
+    The seconds returned are the waiting alone, never a pause's.
 
     Parameters
     ----------
@@ -59,23 +64,28 @@ def hold_for_permission(gate: ShotGate | None, pause: Any = None):
         Plan stub taking the reason, issued when a hold outlasts
         ``hold_pause_s`` (default: log at ERROR and ``bps.pause()``).
     """
-    if gate is None:
-        return 0.0
-    t0 = time.monotonic()
-    if gate.permits():
+    if gate is None or gate.permits():
         return 0.0
     logger.info("shot held by the gate: %s", gate.reason)
+    held = 0.0
     while True:
-        out: dict[str, bool] = {}
+        # One hold of up to hold_pause_s, waited in pieces: a permission that
+        # lapses before the plan sees it is waited for again in the same hold.
+        deadline = time.monotonic() + gate.hold_pause_s
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            t0 = time.monotonic()
 
-        async def wait(out: dict[str, bool] = out) -> None:
-            out["ok"] = await gate.wait_safe(gate.hold_pause_s)
+            async def wait(remaining: float = remaining) -> None:
+                await gate.wait_safe(remaining)
 
-        yield from bps.wait_for([wait])
-        if out.get("ok") and gate.permits():
-            held = time.monotonic() - t0
-            logger.info("shot gate: safe after %.1f s", held)
-            return held
+            yield from bps.wait_for([wait])
+            held += time.monotonic() - t0
+            if gate.permits():
+                logger.info("shot gate: safe after %.1f s", held)
+                return held
         reason = (
             f"shot gate {gate.address}: no permission to fire for "
             f"{gate.hold_pause_s:g} s — {gate.reason or 'not safe'}; "
@@ -89,15 +99,22 @@ def hold_for_permission(gate: ShotGate | None, pause: Any = None):
 
 
 def fire_gated(shot_control: Any, gate: ShotGate | None):
-    """Plan: the SINGLESHOT put, the fire marked on the gate at dispatch.
+    """Plan: the SINGLESHOT put, if the gate still permits it; whether it fired.
 
-    Marked before the put, not after it: the put returns only once the box
-    acknowledges, and the service's post-cleanup ``safe`` can arrive in that
-    wait — a later mark would discard it, and a service that speaks only on
-    change would never send another.  A failed put marks again: it may
-    have fired, and no ``safe`` received during it counts.
+    The last permission check sits here, with no await between it and the
+    put, so a verdict that lapsed while the caller announced or armed stops
+    the fire: nothing is put and ``False`` is returned, and the caller holds
+    again.  The fire is marked before the put, not after it: the put returns
+    only once the box acknowledges, and a verdict taken during that wait
+    must count.  A failed put marks it again — it may have fired.
     """
     if gate is not None:
+        if not gate.permits():
+            logger.info(
+                "shot gate: permission lapsed before the fire (%s) — not fired",
+                gate.reason,
+            )
+            return False
         gate.fired()
     try:
         yield from bps.mv(shot_control, TriggerState.SINGLESHOT.value)
@@ -105,6 +122,7 @@ def fire_gated(shot_control: Any, gate: ShotGate | None):
         if gate is not None:
             gate.fired()
         raise
+    return True
 
 
 __all__ = ["fire_gated", "hold_for_permission", "open_gate"]

@@ -978,8 +978,11 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
             # caused.
             yield from bps.mv(shot_control, TriggerState.ARMED.value)
 
+            lapsed: list[bool] = []
+
             def fire():
-                yield from fire_gated(shot_control, shot_gate)
+                if not (yield from fire_gated(shot_control, shot_gate)):
+                    lapsed.append(True)
 
             complete: list[dict[str, float]] = []
             attempts = 0
@@ -990,6 +993,13 @@ def measure_shot_offsets_plan(  # noqa: C901, PLR0915
                 # shot timeout.
                 yield from hold_for_permission(shot_gate)
                 missed = yield from fire_and_await_shot(views, fire)
+                if lapsed:
+                    # The gate's permission lapsed while the devices were
+                    # armed: nothing fired, so this was no attempt.  The
+                    # armed devices time out empty; hold again.
+                    lapsed.clear()
+                    attempts -= 1
+                    continue
                 if missed:
                     logger.warning(
                         "shot %d incomplete (%s did not deliver) — discarded and "

@@ -2,7 +2,7 @@
 
 A trigger profile may name a permission-to-fire service
 (``TriggerProfile.shot_gate``).  The **worker** enforces it: every
-SINGLESHOT under that profile waits for one fresh ``safe``
+SINGLESHOT under that profile waits for one fresh safe verdict
 (``geecs_bluesky.plans.shot_gate``).  This module only shows it, for the
 profile the form will submit under: :class:`ShotGateWatches` keeps one
 read-only :class:`~geecs_bluesky.shot_gate.ShotGate` reader per address,
@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from typing import Any, Optional
 
 from geecs_bluesky.shot_gate import ShotGate
@@ -28,6 +29,16 @@ from geecs_scanner.service.models import ShotGateOut
 def disabled(detail: str) -> ShotGateOut:
     """No gate for this profile: the chip stays hidden."""
     return ShotGateOut(enabled=False, state="unknown", detail=detail)
+
+
+def unreadable(profile: str, exc: Exception) -> ShotGateOut:
+    """A profile that could not be read: shown as unknown, since it may name a gate."""
+    return ShotGateOut(
+        enabled=True,
+        state="unknown",
+        detail=f"trigger profile not readable: {exc}",
+        profile=profile,
+    )
 
 
 def gate_status(gate: ShotGate, profile: str = "") -> ShotGateOut:
@@ -46,11 +57,18 @@ def gate_status(gate: ShotGate, profile: str = "") -> ShotGateOut:
     return ShotGateOut(state="degraded", detail=latest.reason, **common)
 
 
+#: Seconds a watch lives without a status read: the page polls every 2 s, so
+#: an address no open page asks about (an edited port, a retired server) is
+#: dropped and its connection closed.
+WATCH_IDLE_S = 60.0
+
+
 class _Watch:
-    """One read-only reader on its own loop, in a daemon thread never stopped."""
+    """One read-only reader on its own loop, in a daemon thread, until closed."""
 
     def __init__(self, gate: ShotGate) -> None:
         self.gate = gate
+        self.used = time.monotonic()
         self._loop = asyncio.new_event_loop()
         threading.Thread(
             target=self._run, name=f"shot-gate-watch {gate.address}", daemon=True
@@ -60,27 +78,40 @@ class _Watch:
         asyncio.set_event_loop(self._loop)
         self._loop.run_until_complete(self.gate.start())
         self._loop.run_forever()
+        self._loop.run_until_complete(self.gate.stop())
+        self._loop.close()
+
+    def close(self) -> None:
+        """Stop the loop; its thread stops the reader and closes the connection."""
+        self._loop.call_soon_threadsafe(self._loop.stop)
 
 
 class ShotGateWatches:
     """One watch per gate address, started on first use; :meth:`status` reads it.
 
-    Readers reconnect by themselves and are never stopped (the process's
-    exit ends them, like the stream consumers); :meth:`status` reads plain
-    attributes the loop threads set, under a lock only to start a watch.
+    Readers reconnect by themselves; a watch no status read has asked
+    about for :data:`WATCH_IDLE_S` is closed at the next read.
+    :meth:`status` reads plain attributes the loop threads set, under a
+    lock only to start or close a watch.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, idle_s: float = WATCH_IDLE_S) -> None:
         self._watches: dict[tuple[str, int], _Watch] = {}
         self._lock = threading.Lock()
+        self._idle_s = idle_s
 
     def status(self, spec: Any, profile: str = "") -> ShotGateOut:
         """The verdict of the gate *spec* (a ``ShotGateSpec``) names."""
-        key = (str(spec.host), int(spec.port))
+        now = time.monotonic()
         with self._lock:
-            watch = self._watches.get(key)
+            for key in [
+                k for k, w in self._watches.items() if now - w.used > self._idle_s
+            ]:
+                self._watches.pop(key).close()
+            watch = self._watches.get(spec.key)
             if watch is None:
-                watch = self._watches[key] = _Watch(ShotGate(*key))
+                watch = self._watches[spec.key] = _Watch(ShotGate(*spec.key))
+            watch.used = now
         return gate_status(watch.gate, profile)
 
 
@@ -99,4 +130,4 @@ def profile_gate(resolver: Any, name: Optional[str]) -> tuple[str, Any]:
     return name, getattr(profile, "shot_gate", None)
 
 
-__all__ = ["ShotGateWatches", "disabled", "gate_status", "profile_gate"]
+__all__ = ["ShotGateWatches", "disabled", "gate_status", "profile_gate", "unreadable"]

@@ -292,24 +292,24 @@ class ScannerService:
         """The gate of the profile the form submits under (empty: the default), for the chip.
 
         Reads the profile from the configs (no client lock, no manager
-        call); a profile naming no gate, none to tell, or an unreadable one
-        answers ``enabled: false`` with the reason — never an error, since
-        the page polls this.  Nothing here gates a submit: the worker holds
-        every fire under a gated profile.
+        call); a profile naming no gate, or none to tell, answers
+        ``enabled: false`` with the reason, and an unreadable one
+        ``unknown`` (it may name a gate) — never an error, since the page
+        polls this.  Nothing here gates a submit: the worker holds every
+        fire under a gated profile.
         """
         from geecs_core.exceptions import GeecsError
 
-        from geecs_scanner.service.shot_gate import disabled, profile_gate
+        from geecs_scanner.service.shot_gate import disabled, profile_gate, unreadable
 
         if not hasattr(self.resolver, "resolve_trigger_profile"):
             return disabled("this scanner reads no trigger profiles")
         try:
             name, spec = profile_gate(self.resolver, trigger_profile)
         except (GeecsError, ValueError, OSError) as exc:
-            # A missing or invalid profile: a chip, never an error — say why
-            # (a file that is not YAML at all fails the route, and the page
-            # hides the chip on a failed poll).
-            return disabled(f"trigger profile not readable: {exc}")
+            # A missing, malformed or invalid profile: shown as unknown, never
+            # hidden — it may name a gate, and the worker will not load it.
+            return unreadable(trigger_profile or "", exc)
         if not name:
             return disabled("no trigger profile chosen and no default")
         if spec is None:

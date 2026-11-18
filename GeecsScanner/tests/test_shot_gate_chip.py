@@ -8,7 +8,9 @@ here gates a submit — the worker enforces the gate.
 
 from __future__ import annotations
 
+import json
 import socket
+import struct
 import threading
 import time
 
@@ -22,14 +24,37 @@ from geecs_scanner.web.app import create_app
 _FIRE = {"SINGLESHOT": [{"device": "DG", "variable": "Fire", "value": "on"}]}
 
 
+def _frame(ok: bool, reason: str = "") -> bytes:
+    """One frame of the interlock server's protocol (length-prefixed JSON)."""
+    body = json.dumps(
+        {
+            "v": 1,
+            "seq": 0,
+            "sent": time.time(),
+            "ok": ok,
+            "reason": "" if ok else reason,
+            "interlocks": {
+                "Check": {"unsafe": not ok, "diagnostic": reason, "data_stamp": None}
+            },
+        }
+    ).encode()
+    return struct.pack(">I", len(body)) + body
+
+
 class _Service:
+    """The interlock server: its state on connect and every 50 ms; starts not safe."""
+
     def __init__(self) -> None:
         self.sock = socket.socket()
         self.sock.bind(("127.0.0.1", 0))
         self.sock.listen()
         self.port = self.sock.getsockname()[1]
         self.clients: list[socket.socket] = []
+        self.frame = _frame(False, "not evaluated yet")
+        self._lock = threading.Lock()
+        self._closed = False
         threading.Thread(target=self._accept, daemon=True).start()
+        threading.Thread(target=self._broadcast, daemon=True).start()
 
     def _accept(self) -> None:
         while True:
@@ -37,18 +62,32 @@ class _Service:
                 conn, _ = self.sock.accept()
             except OSError:
                 return
-            self.clients.append(conn)
+            conn.settimeout(0.5)  # a client that stops reading is dropped
+            with self._lock:
+                self.clients.append(conn)
+
+    def _broadcast(self) -> None:
+        while not self._closed:
+            with self._lock:
+                for conn in list(self.clients):
+                    try:
+                        conn.sendall(self.frame)
+                    except OSError:
+                        self.clients.remove(conn)
+            time.sleep(0.05)
 
     def send(self, line: str) -> None:
-        for conn in list(self.clients):
-            conn.sendall((line + "\n").encode())
+        reason = line.split(":", 1)[-1].strip() if ":" in line else ""
+        self.frame = _frame(line == "safe", reason)
 
     def drop(self) -> None:
-        for conn in self.clients:
-            conn.close()
-        self.clients.clear()
+        with self._lock:
+            for conn in self.clients:
+                conn.close()
+            self.clients.clear()
 
     def close(self) -> None:
+        self._closed = True
         self.drop()
         self.sock.close()
 
@@ -119,7 +158,7 @@ def test_the_chip_follows_the_service_for_the_default_profile() -> None:
         svc = _service(_Resolver(srv.port))
         assert svc.shot_gate(None).profile == "PW"  # empty: the default
         _until(lambda: bool(srv.clients))
-        _until(lambda: svc.shot_gate(None).state == "degraded")  # nothing said
+        _until(lambda: svc.shot_gate(None).state == "degraded")  # not evaluated yet
         srv.send("safe")
         _until(lambda: svc.shot_gate(None).state == "ok")
         assert svc.shot_gate(None).safe is True
@@ -128,10 +167,39 @@ def test_the_chip_follows_the_service_for_the_default_profile() -> None:
         out = svc.shot_gate(None)
         assert out.detail == "chiller flow low"
         assert out.address == f"127.0.0.1:{srv.port}"
-        srv.drop()
+        srv.close()  # the server gone: the reader cannot reconnect
         _until(lambda: svc.shot_gate(None).state == "failed")
     finally:
         srv.close()
+
+
+def test_an_unreadable_profile_shows_unknown_never_hides() -> None:
+    from geecs_core.exceptions import GeecsError
+
+    class Broken(_Resolver):
+        def resolve_trigger_profile(self, name: str) -> TriggerProfile:
+            if name == "Typo":
+                raise GeecsError(
+                    "trigger profile 'Typo': mapping values are not allowed"
+                )
+            return super().resolve_trigger_profile(name)
+
+    out = _service(Broken(port=1)).shot_gate("Typo")
+    assert (out.enabled, out.state, out.profile) == (True, "unknown", "Typo")
+    assert "not readable" in out.detail
+
+
+def test_a_watch_no_page_asks_about_is_closed() -> None:
+    from geecs_scanner.service.shot_gate import ShotGateWatches
+
+    watches = ShotGateWatches(idle_s=0.1)
+    old = ShotGateSpec(host="127.0.0.1", port=1)
+    watches.status(old)
+    first = watches._watches[old.key]
+    time.sleep(0.2)
+    watches.status(ShotGateSpec(host="127.0.0.1", port=2))
+    assert old.key not in watches._watches  # the idle one is gone
+    _until(lambda: first._loop.is_closed())  # its loop stopped and closed
 
 
 def test_the_route_answers_for_the_chosen_profile() -> None:

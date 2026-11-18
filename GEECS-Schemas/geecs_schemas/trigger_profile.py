@@ -35,11 +35,11 @@ The worker side is GeecsBluesky's ``devices/scan_mode.py``.
 
 Shot gate
 ---------
-``shot_gate`` names a facility's permission-to-fire service: a TCP
-service that checks hardware between shots and streams ``safe`` /
-``not_safe <reason>`` one way.  Under such a profile the worker waits,
-before every SINGLESHOT it issues, for a ``safe`` received after the
-previous fire, and refuses a run whose gate does not connect.  A
+``shot_gate`` names a facility's software interlock server: a TCP
+server that checks hardware and broadcasts its verdict one way.  Under
+such a profile the worker waits, before every SINGLESHOT it issues, for
+a safe verdict on data taken after the previous fire, and refuses a run
+whose gate does not connect.  A
 permission to fire, never a safety system.  Absent by default; a profile
 for a condition that needs no gate (laser off, a bench) leaves it out.
 The worker side is GeecsBluesky's ``shot_gate.py``.
@@ -236,18 +236,14 @@ def _reject_duplicate_targets(states: dict) -> dict:
 
 
 class ShotGateSpec(SchemaModel):
-    """A permission-to-fire service the worker waits on before every shot.
+    """A software interlock server the worker waits on before every shot.
 
-    The service streams ``safe`` / ``not_safe <reason>`` one way over TCP;
-    every SINGLESHOT waits for a ``safe`` received after the previous fire.
-    What that asks of the service: it sends a fresh ``safe`` once each
-    shot's cleanup is done (a shot with no state change would otherwise
-    hold the next until ``hold_pause_s``), and it accepts more than one
-    client (the worker and the web scanner's chip each hold a connection).
-    A service that repeats its state continuously needs ``holdoff_s``,
-    counted from when the fire is sent: the box's acknowledgement plus the
-    time the service takes to report a shot, so a ``safe`` from before it
-    is ignored.
+    The server broadcasts its interlocks' verdict one way over TCP, a frame
+    on connect and then every ~0.1 s.  Every SINGLESHOT waits for a safe
+    verdict on data taken after the previous fire (each interlock's
+    ``data_stamp``); a verdict carrying no data stamp counts once it is
+    received after the fire.  The server accepts more than one client (the
+    worker and the web scanner's chip each hold a connection).
     """
 
     host: str = Field(
@@ -267,19 +263,24 @@ class ShotGateSpec(SchemaModel):
         default=0.0,
         ge=0,
         description=(
-            "Seconds after a shot before a 'safe' counts as the next shot's "
-            "permission (0: any 'safe' received after the shot). Set it for a "
-            "service that repeats its state continuously: counted from when "
-            "the fire is sent, so it covers the box's acknowledgement plus "
-            "the time the service takes to report a shot, and a 'safe' from "
-            "before the shot is ignored."
+            "Seconds added to the time a shot is fired before a safe verdict "
+            "counts as the next shot's permission: its data must be taken "
+            "that much after the fire (or, for a verdict with no data stamp, "
+            "received that much after it). Cover clock disagreement between "
+            "the devices and the worker, and, for interlocks with no data "
+            "stamp, the time the server takes to see a shot."
         ),
     )
 
     @property
+    def key(self) -> tuple[str, int]:
+        """``(host, port)``: what makes two profiles name the same server."""
+        return (self.host, self.port)
+
+    @property
     def address(self) -> str:
         """``host:port``."""
-        return f"{self.host}:{self.port}"
+        return "{}:{}".format(*self.key)
 
 
 class TriggerProfile(VersionedSchemaModel):
