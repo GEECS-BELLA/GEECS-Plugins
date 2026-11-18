@@ -18,8 +18,10 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   ============================  ==============================================
   witnessed, synchronous        nearest offset-corrected stamp, globally
                                 nearest pair first (the s-file's join)
-  unwitnessed / witness late    the interval (fire *k* − m, fire *k*+1],
-  / count not advanced          *m* the stamp budget; the overlap by the
+  unwitnessed / witness late    a device with a stamp baseline: the first
+  / count not advanced          record in (baseline *k*, baseline *k*+1];
+                                else the interval (fire *k* − m, fire *k*+1],
+                                *m* the stamp budget; the overlap by the
                                 run's phase, else *interval-ambiguous*;
                                 flagged *unwitnessed* (a repeated count's
                                 stamp is the previous row's edge)
@@ -97,6 +99,19 @@ WITNESS_ATTRIBUTE_KEY = "WitnessCount"
 #: It opens each fire interval early; a record within it of the *next*
 #: fire is in the overlap of two intervals (:func:`_assign_intervals`).
 STAMP_BUDGET_S = 0.03
+
+#: The row column suffix of a required device's pre-fire progress read.
+BASELINE_SUFFIX = "-baseline"
+#: A baseline is a stamp (a stamped device's ``acq_timestamp``, LabVIEW
+#: epoch) when every finite value is at or past 2000-01-01 in that epoch;
+#: a plugin or native camera's frame count never comes near it.  Only a
+#: stamp baseline files records: a frame count is not on the records' scale.
+STAMP_BASELINE_FLOOR = 3_155_673_600.0
+#: Slack on both ends of a baseline interval, seconds: the baseline is the
+#: device's monitor value and the record its stream's copy of the same
+#: stamp, so they agree to the stamp's own resolution, not bit for bit.
+#: Two records of one device are always further apart than this.
+BASELINE_TOLERANCE_S = 1e-3
 
 #: A run whose audited records sit one shot behind the witness attribute
 #: this often is flagged ``attribute-lag-systematic``: the measured poll
@@ -437,6 +452,8 @@ class _RowClock:
     flags: list[list[str]]
     held: dict[str, set[int]] = field(default_factory=dict)
     soft: bool = False  # a soft-tick (fly) run: synchronous records by tick interval
+    # Squashed device name → its offset-corrected stamp baseline per row.
+    baselines: dict[str, np.ndarray] = field(default_factory=dict)
 
     @classmethod
     def of(cls, start, rows, offsets, new: bool, budget: float) -> "_RowClock":
@@ -475,6 +492,7 @@ class _RowClock:
             budget=budget,
             flags=flags,
             soft=new and start.get("clock") == SOFT_TICK,
+            baselines=_stamp_baselines(rows, offsets) if new else {},
         )
 
     @property
@@ -495,6 +513,7 @@ class _RowClock:
                 k if k < records.size else None for k in range(n)
             ]
         else:
+            decided: set[int] = set()
             if self.soft:
                 assigned = _assign_ticks(records, self)
             else:
@@ -504,7 +523,12 @@ class _RowClock:
                     windows=row_windows(self.stamps, self.period),
                 )
                 assigned = list(join.frame_for_shot)
-            ambiguous = _assign_intervals(assigned, records, self)
+                baselines = self.baselines.get(_squash(source.device))
+                if baselines is not None:
+                    decided = _assign_baselines(
+                        assigned, records, baselines, self.loose
+                    )
+            ambiguous = _assign_intervals(assigned, records, self, skip=decided)
             unresolved, self.held[source.device] = _assign_shared(
                 assigned, records, source.counter, self
             )
@@ -673,8 +697,77 @@ def _assign_ticks(records: np.ndarray, clock: _RowClock) -> list[int | None]:
     return assigned
 
 
+def _stamp_baselines(
+    rows: pd.DataFrame, offsets: Mapping[str, float]
+) -> dict[str, np.ndarray]:
+    """Squashed device name → its stamp baseline per row, offset-corrected.
+
+    Only stamp-shaped columns (:data:`STAMP_BASELINE_FLOOR`) are kept, and
+    each is shifted by its device's drain offset: the records it is compared
+    with are corrected by the same one, so the two sides stay on one clock.
+    """
+    by_name = {_squash(str(k)): float(v) for k, v in offsets.items()}
+    found: dict[str, np.ndarray] = {}
+    for column in map(str, rows.columns):
+        if not column.endswith(BASELINE_SUFFIX):
+            continue
+        values = _column(rows, column)
+        finite = values[np.isfinite(values)] if values is not None else ()
+        if values is None or not len(finite) or finite.min() < STAMP_BASELINE_FLOOR:
+            continue
+        name = _squash(column.removesuffix(BASELINE_SUFFIX))
+        found[name] = values - by_name.get(name, 0.0)
+    return found
+
+
+def _assign_baselines(
+    assigned: list[int | None],
+    records: np.ndarray,
+    baselines: np.ndarray,
+    loose: np.ndarray,
+) -> set[int]:
+    """File loose rows by the device's own pre-fire stamps; return the rows decided.
+
+    The plan reads a required device's last stamp before each fire
+    (``<device>-baseline``).  Row *k*'s record is therefore newer than
+    baseline *k*, and — since fire *k*+1 is read only after the plan saw
+    row *k*'s record, or gave up on it — no newer than baseline *k*+1:
+    the first free record in (baseline *k*, baseline *k*+1] is row *k*'s,
+    and an empty interval is a miss (the device recorded nothing between
+    the two reads).  No fire time is involved, so a record stamped just
+    before the next fire — a phase-locked loop, a device clock behind the
+    worker's — stays on its own row.  The last row's interval is open
+    above, as is a row whose next baseline was not read.  A row whose own
+    baseline was not read is left to the fire interval
+    (:func:`_assign_intervals`).
+    """
+    claimed = {i for i in assigned if i is not None}
+    order = [
+        int(i) for i in np.argsort(records, kind="stable") if np.isfinite(records[i])
+    ]
+    n = baselines.size
+    decided: set[int] = set()
+    for k in np.flatnonzero(loose[:n] & np.isfinite(baselines)):
+        k = int(k)
+        low = baselines[k] + BASELINE_TOLERANCE_S
+        following = baselines[k + 1] if k + 1 < n else np.nan
+        high = following + BASELINE_TOLERANCE_S if np.isfinite(following) else np.inf
+        record = next(
+            (i for i in order if i not in claimed and low < records[i] <= high), None
+        )
+        assigned[k] = record
+        if record is not None:
+            claimed.add(record)
+        decided.add(k)
+    return decided
+
+
 def _assign_intervals(
-    assigned: list[int | None], records: np.ndarray, clock: _RowClock
+    assigned: list[int | None],
+    records: np.ndarray,
+    clock: _RowClock,
+    *,
+    skip: frozenset[int] | set[int] = frozenset(),
 ) -> set[int]:
     """File unwitnessed rows by fire interval (fire k − m, fire k+1]; return the ambiguous rows.
 
@@ -691,10 +784,9 @@ def _assign_intervals(
     waits for row *k*+1.  With no evidence after a row already missed,
     nothing is guessed: rows *k* and *k*+1 are left empty and returned
     (*interval-ambiguous*), and their records stay extras.  The last row's
-    interval closes a period after its fire.  The plan also records each
-    row's pre-fire baseline per required device (``<device>-baseline``):
-    a record newer than baseline *k* is row *k*'s or later.  This join
-    does not read it.
+    interval closes a period after its fire.  Rows in *skip* were filed by
+    the device's own baselines (:func:`_assign_baselines`), the rule this
+    one is the fallback of, and are left as they are.
     """
     claimed = {i for i in assigned if i is not None}
     fires, n = clock.fires, clock.fires.size
@@ -706,7 +798,7 @@ def _assign_intervals(
     ambiguous: set[int] = set()
     phase, missed = "", False  # where this run's records sit: "early" / "late"
     for k in np.flatnonzero(clock.loose & np.isfinite(fires)):
-        if k in ambiguous:
+        if k in ambiguous or k in skip:
             continue
         low, high = fires[k] - clock.budget, end(k)
         inside = np.flatnonzero((records > low) & (records <= high))
@@ -717,7 +809,9 @@ def _assign_intervals(
         if not free or (late and phase == "early"):
             missed = True  # (early run, overlap record: row k+1's)
         elif late and not phase and missed:
-            pair = [int(k)] + [int(k) + 1] * bool(k + 1 < n and clock.loose[k + 1])
+            pair = [int(k)] + [int(k) + 1] * bool(
+                k + 1 < n and clock.loose[k + 1] and k + 1 not in skip
+            )
             ambiguous.update(pair)
             claimed.update(
                 int(i)

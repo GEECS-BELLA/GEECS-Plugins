@@ -865,3 +865,142 @@ def test_a_frozen_witness_attribute_is_no_poll_noise() -> None:
     )
     assert "attribute-lag-noisy" not in table.device_flags.get("cam", ())
     assert all("clock-step:cam" in table.flags[k] for k in range(181, 200))
+
+
+# ------------------------------------- unwitnessed rows filed by the baselines
+# Two Bluesky runs of 2026-11-17, unwitnessed, every row complete in the plan;
+# stamps relative to the first fire (s).  The fire interval misfiled both.
+#: A camera triggered at 1 Hz: each frame lands ~25 ms before the next fire.
+PHASE_LOCKED = {
+    "fires": [0.0, 0.447, 1.404, 2.368, 3.37, 4.376, 5.372, 6.396, 7.38, 8.377],
+    "baselines": [-6.65, 0.346, 1.346, 2.344, 3.344, 4.344, 5.343, 6.343, 7.342, 8.342],
+    "records": [0.346, 1.346, 2.344, 3.344, 4.344, 5.343, 6.343, 7.342, 8.342, 9.341],
+}
+#: A free-running camera whose clock runs behind the worker's: every frame
+#: is stamped before the fire it answered.
+STAMPED_BEFORE_FIRE = {
+    "fires": [0.0, 0.25, 0.412, 0.589, 0.831],
+    "baselines": [-0.321, -0.081, 0.1, 0.287, 0.522],
+    "records": [-0.081, 0.1, 0.287, 0.522, 0.704],
+}
+
+
+def _unwitnessed(fires, baselines, *, name: str = "cam") -> pd.DataFrame:
+    """A strict run with no witness: fire stamps (Unix) and one stamp baseline."""
+    n = len(fires)
+    return pd.DataFrame(
+        {
+            "shot_index": np.arange(1, n + 1),
+            "fire_stamp": T0 + np.asarray(fires, dtype=float),
+            "unwitnessed": [True] * n,
+            "complete": [True] * n,
+            f"{name}-baseline": T0 + LV + np.asarray(baselines, dtype=float),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "run", [PHASE_LOCKED, STAMPED_BEFORE_FIRE], ids=["phase-locked", "before-fire"]
+)
+def test_a_baseline_files_each_record_on_the_shot_that_produced_it(run) -> None:
+    rows = _unwitnessed(run["fires"], run["baselines"])
+    cam = _device("cam", T0 + LV + np.asarray(run["records"]))
+    table = shot_table(FIRE_CLOCK, rows, [cam])
+    n = len(run["fires"])
+    assert table.record_for_shot["cam"] == tuple(range(n))
+    assert table.extras["cam"] == ()
+    assert all(flags == ("unwitnessed",) for flags in table.flags)
+
+
+def test_without_the_baseline_the_same_run_is_misfiled() -> None:
+    """The fallback this replaces: the record just before fire k+1 is ambiguous."""
+    run = PHASE_LOCKED
+    rows = _unwitnessed(run["fires"], run["baselines"]).drop(columns="cam-baseline")
+    cam = _device("cam", T0 + LV + np.asarray(run["records"]))
+    assert shot_table(FIRE_CLOCK, rows, [cam]).record_for_shot["cam"] != tuple(
+        range(10)
+    )
+
+
+def test_a_miss_leaves_the_baseline_unmoved_and_only_its_row_empty() -> None:
+    """Shot 3 recorded nothing: baselines 3 and 4 are the same stamp."""
+    run = PHASE_LOCKED
+    baselines = list(run["baselines"])
+    baselines[3] = baselines[2]  # nothing new between fires 3 and 4
+    records = np.delete(T0 + LV + np.asarray(run["records"]), 2)
+    table = shot_table(
+        FIRE_CLOCK, _unwitnessed(run["fires"], baselines), [_device("cam", records)]
+    )
+    assert table.record_for_shot["cam"] == (0, 1, None, 2, 3, 4, 5, 6, 7, 8)
+    assert _flagged(table, "missing:cam") == [3]
+
+
+def test_a_refire_takes_the_late_record_of_the_shot_it_repeats() -> None:
+    """Row 2 timed out; its frame landed after fire 3's read, so row 3 (the refire) has it."""
+    fires = [0.0, 1.0, 2.0, 3.0]
+    baselines = [-1.0, 0.95, 0.95, 2.95]
+    records = [0.95, 2.5, 3.95]
+    rows = _unwitnessed(fires, baselines)
+    rows["attempt"] = [1, 1, 2, 1]
+    rows["complete"] = [True, False, True, True]
+    table = shot_table(
+        FIRE_CLOCK, rows, [_device("cam", T0 + LV + np.asarray(records))]
+    )
+    assert table.record_for_shot["cam"] == (0, None, 1, 2)
+    assert _flagged(table, "complete-mismatch") == []
+
+
+def test_the_drain_offset_moves_the_baseline_with_the_records() -> None:
+    run = PHASE_LOCKED
+    rows = _unwitnessed(run["fires"], np.asarray(run["baselines"]) + 0.2)
+    cam = _device("cam", T0 + LV + np.asarray(run["records"]) + 0.2)
+    table = shot_table(FIRE_CLOCK, rows, [cam], drain_offsets={"cam": 0.2})
+    assert table.record_for_shot["cam"] == tuple(range(10))
+
+
+def test_a_frame_count_baseline_is_not_a_stamp_and_the_interval_decides() -> None:
+    """A plugin camera's baseline is its frame count: not on the records' scale."""
+    run = PHASE_LOCKED
+    rows = _unwitnessed(run["fires"], run["baselines"])
+    rows["cam-baseline"] = 100.0 + np.arange(10)
+    cam = _device("cam", T0 + LV + np.asarray(run["records"]))
+    without = _unwitnessed(run["fires"], run["baselines"]).drop(columns="cam-baseline")
+    assert (
+        shot_table(FIRE_CLOCK, rows, [cam]).record_for_shot
+        == shot_table(FIRE_CLOCK, without, [cam]).record_for_shot
+    )
+
+
+def test_a_row_whose_baseline_was_not_read_falls_back_to_its_fire_interval() -> None:
+    fires = [0.0, 1.0, 2.0, 3.0]
+    records = [0.5, 1.5, 2.5, 3.5]
+    rows = _unwitnessed(fires, [-1.0, 0.5, 1.5, 2.5])
+    rows.loc[2, "cam-baseline"] = np.nan
+    table = shot_table(
+        FIRE_CLOCK, rows, [_device("cam", T0 + LV + np.asarray(records))]
+    )
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3)
+
+
+def test_witnessed_rows_ignore_the_baseline() -> None:
+    """The witness still times a witnessed row; a wrong baseline there moves nothing."""
+    rows = _rows(6)
+    rows["cam-baseline"] = T0 + LV + 100.0  # nonsense, after every record
+    table = shot_table(START, rows, [_cam(rows)])
+    assert table.record_for_shot["cam"] == tuple(range(6))
+
+
+def test_the_baseline_resolves_an_outage_that_opens_on_a_miss() -> None:
+    """The ambiguous case above, with the baselines the plan recorded."""
+    rows = _rows(8, lead=0.975)
+    rows.loc[3:, ["witness_count", "witness_stamp"]] = np.nan
+    rows["unwitnessed"] = np.arange(8) >= 3
+    edges = T0 + LV + np.arange(8.0)
+    stamps = np.delete(edges, 3)
+    last_before = [edges[k - 1] if k else edges[0] - 1.0 for k in range(8)]
+    last_before[4] = edges[2]  # shot 4 recorded nothing
+    rows["cam-baseline"] = last_before
+    table = shot_table(START, rows, [_device("cam", stamps)])
+    assert table.record_for_shot["cam"] == (0, 1, 2, None, 3, 4, 5, 6)
+    assert _flagged(table, "interval-ambiguous:cam") == []
+    assert _flagged(table, "missing:cam") == [4]

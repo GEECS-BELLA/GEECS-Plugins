@@ -416,7 +416,9 @@ this package and must never depend on GeecsBluesky or a GUI package).
   `(stream, index)` or `None`. Both layouts: an old run (no `layout` key)
   reproduces today's s-file join (strict `primary` stacks positional,
   everything else through `shot_join`); a `shot-table/1` run is timed on
-  `witness_stamp` (or `fire_stamp` intervals when unwitnessed), counters
+  `witness_stamp` (when unwitnessed: a required stamped device by its
+  `<device>-baseline` pre-fire stamps, anything else by `fire_stamp`
+  intervals), counters
   and the witness attribute only audit. Plain inputs, no I/O; the
   adapters are the readers' (`tiled_export.read_device_records` for a
   Tiled run, GeecsBluesky's callback buffer for the live one, both through
