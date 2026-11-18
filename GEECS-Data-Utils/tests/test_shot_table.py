@@ -935,8 +935,8 @@ def test_a_miss_leaves_the_baseline_unmoved_and_only_its_row_empty() -> None:
     assert _flagged(table, "missing:cam") == [3]
 
 
-def _disputed(table) -> list[int]:
-    return _flagged(table, "baseline-disputed:cam")
+def _late(table) -> list[int]:
+    return _flagged(table, "late-stretch:cam")
 
 
 def test_a_late_record_of_a_given_up_row_is_flagged_disputed() -> None:
@@ -953,7 +953,7 @@ def test_a_late_record_of_a_given_up_row_is_flagged_disputed() -> None:
     records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1])
     table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
     assert table.record_for_shot["cam"] == (0, None, 1, 3, 4)
-    assert _disputed(table) == [2, 3]
+    assert _late(table) == [2, 3]
     assert _flagged(table, "missing:cam") == [2]
 
 
@@ -975,11 +975,11 @@ def test_a_long_late_stretch_flags_every_row_it_may_have_shifted(
         FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", records)]
     )
     assert table.record_for_shot["cam"] == filed
-    assert _disputed(table) == disputed
+    assert _late(table) == disputed
 
 
-def test_a_miss_then_an_extra_frame_both_rules_agree_on_is_not_disputed() -> None:
-    """A genuine miss on row 3, a doubled frame after row 4's."""
+def test_a_miss_then_an_extra_frame_is_filed_as_such_and_flagged_late_stretch() -> None:
+    """A genuine miss on row 3, a doubled frame after row 4's: one stretch, flagged."""
     fires = [0.0, 1.0, 2.0, 3.0, 4.0]
     baselines = [-0.9, 0.1, 1.1, 1.1, 3.15]  # the doubled frame landed before fire 5
     rows = _unwitnessed(fires, baselines)
@@ -988,7 +988,7 @@ def test_a_miss_then_an_extra_frame_both_rules_agree_on_is_not_disputed() -> Non
     assert table.record_for_shot["cam"] == (0, 1, None, 2, 4)
     assert table.extras["cam"] == (3,)
     assert _flagged(table, "missing:cam") == [3]
-    assert _disputed(table) == []
+    assert _late(table) == [3, 4]
 
 
 def test_stamps_behind_the_worker_keep_a_miss_and_a_doubled_frame_on_their_rows() -> (
@@ -1018,7 +1018,7 @@ def test_stamps_behind_the_worker_keep_a_miss_and_a_doubled_frame_on_their_rows(
     )
     assert table.record_for_shot["cam"] == (0, 1, None, 2, 3, 4, 5, 6, 7, 8, 10, 11)
     assert table.extras["cam"] == (9,)
-    assert _disputed(table) and set(_disputed(table)) <= set(range(3, 11))
+    assert _late(table) and set(_late(table)) <= set(range(3, 11))
 
 
 def test_two_late_frames_in_a_row_keep_one_stretch() -> None:
@@ -1030,7 +1030,7 @@ def test_two_late_frames_in_a_row_keep_one_stretch() -> None:
         FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", records)]
     )
     assert table.record_for_shot["cam"] == (0, None, None, 1, 3, 5)
-    assert _disputed(table) == [2, 3, 4, 5]
+    assert _late(table) == [2, 3, 4, 5]
 
 
 def _stepped_back(step: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -1125,3 +1125,49 @@ def test_the_baseline_resolves_an_outage_that_opens_on_a_miss() -> None:
     assert table.record_for_shot["cam"] == (0, 1, 2, None, 3, 4, 5, 6)
     assert _flagged(table, "interval-ambiguous:cam") == []
     assert _flagged(table, "missing:cam") == [4]
+
+
+def test_an_earlier_plain_miss_does_not_hide_a_later_late_record() -> None:
+    """A genuine miss at shot 2, then shot 5's frame arrives after fire 6's read."""
+    fires = np.arange(8.0)
+    rows = _unwitnessed(fires, [-0.9, 0.1, 0.1, 2.1, 3.1, 3.1, 5.1, 6.1])
+    records = T0 + LV + np.asarray([0.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1])
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
+    assert table.record_for_shot["cam"] == (0, None, 1, 2, None, 3, 5, 6)
+    assert _late(table) == [5, 6]
+    assert 2 not in _late(table)  # the plain miss is no stretch
+
+
+def test_a_stretch_runs_from_the_miss_its_surplus_repays_to_the_surplus() -> None:
+    """Phase-locked (frames 25 ms before the next fire), a miss at shot 3, a doubled frame at 10.
+
+    The filing is the miss-and-double reading, the truth here; every row
+    between is flagged, since a late shot-3 frame would read the same.
+    """
+    fires = np.arange(12.0)
+    frames: list[tuple[int, float]] = []
+    for k in range(12):
+        if k == 2:
+            continue
+        frames.append((k, fires[k] + 0.975))
+        if k == 9:
+            frames.append((k, fires[k] + 0.98))
+    stamps = np.array([t for _, t in frames])
+    baselines = [
+        max((t for shot, t in frames if shot < k), default=fires[0] - 1.0)
+        for k in range(12)
+    ]
+    table = shot_table(
+        FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", T0 + LV + stamps)]
+    )
+    assert table.record_for_shot["cam"] == (0, 1, None, 2, 3, 4, 5, 6, 7, 8, 10, 11)
+    assert _late(table) == list(range(3, 11))
+
+
+def test_a_late_record_behind_an_unread_baseline_still_flags_its_stretch() -> None:
+    """Shot 1's baseline was not read and its frame arrived after fire 2's read."""
+    fires = [0.0, 1.0, 2.0, 3.0]
+    rows = _unwitnessed(fires, [np.nan, -0.9, 1.1, 2.1])
+    records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1])
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
+    assert _late(table) == [1, 2]

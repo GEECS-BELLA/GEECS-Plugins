@@ -42,8 +42,9 @@ Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
 ``witness-stale``, ``clock-step``, ``unwitnessed``, ``witness-stamp-shared``,
 ``witness-stamp-shared-unresolved``, ``interval-ambiguous``,
-``baseline-disputed`` (an unwitnessed row of a late stretch, filed by its
-baselines, that the fire interval would file differently), ``complete-mismatch``.  Run-level
+``late-stretch`` (an unwitnessed row between an empty baseline interval and
+the surplus that repays it: filed as a miss and a doubled frame, which arrival
+order cannot tell from a late record), ``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 witness attribute NaN all run), ``attribute-lag-systematic``,
 ``attribute-lag-noisy`` (poll lag too frequent to audit rows by: the
@@ -510,7 +511,7 @@ class _RowClock:
         n = self.stamps.size
         unresolved: set[int] = set()
         ambiguous: set[int] = set()
-        disputed: set[int] = set()
+        late: set[int] = set()
         if positional:
             assigned: list[int | None] = [
                 k if k < records.size else None for k in range(n)
@@ -531,13 +532,12 @@ class _RowClock:
                     decided, late = _assign_baselines(
                         assigned, records, baselines, self.loose
                     )
-                    disputed = _disputed(assigned, records, self, decided, late)
             ambiguous = _assign_intervals(assigned, records, self, skip=decided)
             unresolved, self.held[source.device] = _assign_shared(
                 assigned, records, source.counter, self
             )
-        for k in sorted(disputed):
-            self.flags[k].append(f"baseline-disputed:{source.device}")
+        for k in sorted(late):
+            self.flags[k].append(f"late-stretch:{source.device}")
         for k in range(n):
             if k in unresolved:
                 self.flags[k].append(f"witness-stamp-shared-unresolved:{source.device}")
@@ -747,18 +747,21 @@ def _assign_baselines(
     Left to the fire interval (:func:`_assign_intervals`), undecided here:
     every row when the baselines ever run backwards (the device clock
     stepped back: the intervals overlap and none can be trusted), and a
-    row whose own baseline was not read.
+    row whose own baseline was not read (which still pairs as a possible
+    empty interval below).
 
-    A *late stretch* runs from an empty interval until the surplus records
-    of later intervals (at the latest the open last one) account for every
-    empty one.  It has two readings: a miss and, later, a doubled frame —
+    A *late stretch* runs from an empty interval to the later interval
+    (at the latest the open last one) whose surplus record repays it, each
+    surplus repaying the nearest unpaired empty intervals before it; an
+    empty interval nothing repays is a plain miss.  It has two readings: a miss and, later, a doubled frame —
     as filed here — or a record that arrived after the next read (the plan
     gave up on its row, or a refire's wait saw it first), every row between
     one record late.  Arrival order cannot tell them apart, and neither can
-    the fire interval when the device's stamps run behind the worker's, so
-    the stretch stays filed as the likelier reading and its rows are
-    returned as *late*: the caller flags each one the fire interval would
-    have filed differently (``baseline-disputed``).
+    the fire interval (when the device's stamps run behind the worker's it
+    hands every row the next shot's frame, and in a phase-locked loop it
+    can be wrong the same way the baselines are), so the stretch stays
+    filed as the likelier reading and every row of it is returned as
+    *late*, which the caller flags ``late-stretch``.
 
     A late record whose shift a genuine miss absorbs before any interval
     holds two leaves no surplus and no flag: the rows between hold the
@@ -787,38 +790,37 @@ def _assign_baselines(
         assigned[k] = found[k][0] if found[k] else None
         if found[k]:
             claimed.add(found[k][0])
-    late = {k for stretch in _late_stretches(list(found), found) for k in stretch}
+    unread = np.flatnonzero(loose[:n] & ~np.isfinite(baselines))
+    pairing: dict[int, list[int] | None] = {**found, **{int(k): None for k in unread}}
+    rows = sorted(pairing)
+    late = {k for stretch in _late_stretches(rows, pairing) for k in stretch}
     return set(found), late
 
 
-def _disputed(
-    assigned: list[int | None],
-    records: np.ndarray,
-    clock: _RowClock,
-    decided: set[int],
-    late: set[int],
-) -> set[int]:
-    """The *late* rows the fire interval would file differently from their baselines."""
-    if not late:
-        return set()
-    trial = [None if k in late else i for k, i in enumerate(assigned)]
-    _assign_intervals(trial, records, clock, skip=decided - late)
-    return {k for k in late if trial[k] != assigned[k]}
+def _late_stretches(
+    rows: list[int], found: Mapping[int, list[int] | None]
+) -> list[list[int]]:
+    """Each surplus with the empty intervals it repays: the rows from the earliest to it.
 
-
-def _late_stretches(rows: list[int], found: dict[int, list[int]]) -> list[list[int]]:
-    """Runs of *rows* from an empty interval until later surpluses repay every empty one."""
+    A surplus of *s* records repays the *s* − 1 nearest unpaired empty
+    intervals before it; an empty interval nothing repays is a plain miss
+    and opens no stretch, however many surpluses follow later.  A row whose
+    baseline was not read (``None``) may have been empty and pairs like one.
+    """
     stretches: list[list[int]] = []
-    current: list[int] = []
-    owed = 0
-    for k in rows:
-        if not current and found[k]:
-            continue
-        current.append(k)
-        owed += 1 if not found[k] else 1 - len(found[k])
-        if owed <= 0:
-            stretches.append(current)
-            current, owed = [], 0
+    unpaired: list[int] = []  # positions in *rows* of empty intervals, oldest first
+    for position, k in enumerate(rows):
+        records = found[k]
+        if not records:
+            unpaired.append(position)
+        elif len(records) > 1 and unpaired:
+            repaid = unpaired[-(len(records) - 1) :]
+            del unpaired[-len(repaid) :]
+            stretch = rows[repaid[0] : position + 1]
+            if stretches and stretch[0] <= stretches[-1][-1]:
+                stretches[-1] = sorted(set(stretches[-1]) | set(stretch))
+            else:
+                stretches.append(stretch)
     return stretches
 
 
