@@ -44,7 +44,9 @@ Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``witness-stamp-shared-unresolved``, ``interval-ambiguous``,
 ``late-stretch`` (an unwitnessed row between an empty baseline interval and
 the surplus that repays it: filed as a miss and a doubled frame, which arrival
-order cannot tell from a late record), ``complete-mismatch``.  Run-level
+order cannot tell from a late record), ``baseline-unread`` (an unwitnessed
+row whose own baseline was not read, filed by its fire interval),
+``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 witness attribute NaN all run), ``attribute-lag-systematic``,
 ``attribute-lag-noisy`` (poll lag too frequent to audit rows by: the
@@ -512,6 +514,7 @@ class _RowClock:
         unresolved: set[int] = set()
         ambiguous: set[int] = set()
         late: set[int] = set()
+        unread: set[int] = set()
         if positional:
             assigned: list[int | None] = [
                 k if k < records.size else None for k in range(n)
@@ -529,7 +532,7 @@ class _RowClock:
                 assigned = list(join.frame_for_shot)
                 baselines = self.baselines.get(_squash(source.device))
                 if baselines is not None:
-                    decided, late = _assign_baselines(
+                    decided, late, unread = _assign_baselines(
                         assigned, records, baselines, self.loose
                     )
             ambiguous = _assign_intervals(assigned, records, self, skip=decided)
@@ -538,6 +541,8 @@ class _RowClock:
             )
         for k in sorted(late):
             self.flags[k].append(f"late-stretch:{source.device}")
+        for k in sorted(unread):
+            self.flags[k].append(f"baseline-unread:{source.device}")
         for k in range(n):
             if k in unresolved:
                 self.flags[k].append(f"witness-stamp-shared-unresolved:{source.device}")
@@ -731,8 +736,8 @@ def _assign_baselines(
     records: np.ndarray,
     baselines: np.ndarray,
     loose: np.ndarray,
-) -> tuple[set[int], set[int]]:
-    """File loose rows by the device's own pre-fire stamps; return (decided, late).
+) -> tuple[set[int], set[int], set[int]]:
+    """File loose rows by the device's own pre-fire stamps; return (decided, late, unread).
 
     The plan reads a required device's last stamp before each fire
     (``<device>-baseline``), so row *k*'s record is newer than baseline
@@ -741,14 +746,17 @@ def _assign_baselines(
     is row *k*'s, and an empty interval is a miss.  No fire time is
     involved, so a record stamped just before the next fire (a phase-locked
     loop) or before its own fire (a device clock behind the worker's) stays
-    on its own row.  The last row's interval is open above, as is a row
-    whose next baseline was not read.  Each record is filed once.
+    on its own row.  A row whose next baseline was not read is bounded by
+    the next one that was; the last row's interval is open above.  Each
+    record is filed once.
 
     Left to the fire interval (:func:`_assign_intervals`), undecided here:
     every row when the baselines ever run backwards (the device clock
     stepped back: the intervals overlap and none can be trusted), and a
-    row whose own baseline was not read (which still pairs as a possible
-    empty interval below).
+    row whose own baseline was not read, returned as *unread* (the fire
+    interval misfiles it wherever it misfiles at all, so the caller flags
+    it ``baseline-unread``; it still pairs as a possible empty interval
+    below).
 
     A *late stretch* runs from an empty interval to the later interval
     (at the latest the open last one) whose surplus record repays it, each
@@ -763,14 +771,16 @@ def _assign_baselines(
     filed as the likelier reading and every row of it is returned as
     *late*, which the caller flags ``late-stretch``.
 
-    A late record whose shift a genuine miss absorbs before any interval
-    holds two leaves no surplus and no flag: the rows between hold the
-    previous shot's records.  It takes a record that arrives after the plan
-    gave up on its shot (its whole shot timeout) and a real miss after it.
+    A late record whose empty interval is hidden — a genuine miss absorbs
+    its shift before any interval holds two, or another row's doubled frame
+    fills the interval it would have left — leaves no unpaired gap and no
+    flag: the rows between hold the previous shot's records.  It takes a
+    record that arrives after the plan gave up on its shot (its whole shot
+    timeout) and, after it, a real miss or a doubled frame.
     """
     read = baselines[np.isfinite(baselines)]
     if np.any(np.diff(read) < -BASELINE_TOLERANCE_S):
-        return set(), set()
+        return set(), set(), set()
     claimed = {i for i in assigned if i is not None}
     order = np.array(
         [i for i in np.argsort(records, kind="stable") if np.isfinite(records[i])],
@@ -778,12 +788,18 @@ def _assign_baselines(
     )
     ordered = records[order]
     n = baselines.size
+    # Each row's upper bound: the next baseline that was read (the last row open).
+    following = np.full(n, np.inf)
+    upcoming = np.inf
+    for k in range(n - 1, -1, -1):
+        following[k] = upcoming
+        if np.isfinite(baselines[k]):
+            upcoming = baselines[k]
     found: dict[int, list[int]] = {}
     for k in np.flatnonzero(loose[:n] & np.isfinite(baselines)):
         k = int(k)
-        following = baselines[k + 1] if k + 1 < n else np.nan
         low = baselines[k] + BASELINE_TOLERANCE_S
-        high = following + BASELINE_TOLERANCE_S if np.isfinite(following) else np.inf
+        high = following[k] + BASELINE_TOLERANCE_S
         start = int(np.searchsorted(ordered, low, "right"))
         stop = int(np.searchsorted(ordered, high, "right"))
         found[k] = [int(i) for i in order[start:stop] if int(i) not in claimed]
@@ -794,7 +810,7 @@ def _assign_baselines(
     pairing: dict[int, list[int] | None] = {**found, **{int(k): None for k in unread}}
     rows = sorted(pairing)
     late = {k for stretch in _late_stretches(rows, pairing) for k in stretch}
-    return set(found), late
+    return set(found), late, {int(k) for k in unread}
 
 
 def _late_stretches(

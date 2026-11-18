@@ -1171,3 +1171,14 @@ def test_a_late_record_behind_an_unread_baseline_still_flags_its_stretch() -> No
     records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1])
     table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
     assert _late(table) == [1, 2]
+
+
+def test_an_unread_next_baseline_bounds_the_row_by_the_next_one_read() -> None:
+    """Shots 2 and 3 missed and shot 3's baseline was not read: shot 2 must not reach shot 4's frame."""
+    fires = np.arange(6.0)
+    rows = _unwitnessed(fires, [-0.9, 0.1, np.nan, 0.1, 3.1, 4.1])
+    records = T0 + LV + np.asarray([0.1, 3.1, 4.1, 5.1])
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
+    assert table.record_for_shot["cam"][:2] == (0, None)
+    assert table.record_for_shot["cam"][3:] == (1, 2, 3)
+    assert _flagged(table, "baseline-unread:cam") == [3]
