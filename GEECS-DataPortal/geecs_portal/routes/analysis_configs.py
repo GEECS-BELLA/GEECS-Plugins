@@ -24,6 +24,7 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
+from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_schema import device_acq_timestamp_column
 
 from geecs_portal import resources
@@ -307,19 +308,15 @@ def _camera_frame(
     if column_present and acq is None:
         raise LookupError("device missed this shot (no timestamp)")
     complete = bool(detail.summary.exit_status)
-    try:
-        resolved = resources.load_shot_array(
-            folder,
-            device,
-            shot,
-            acq_timestamp=acq,
-            data_cache=portal.data_cache if complete else None,
-            cache_key=(uid, device) if complete else None,
-            file_shot=_file_shot(detail, shot, folder),
-        )
-    except HTTPException as exc:
-        kind = LookupError if exc.status_code == 404 else ValueError
-        raise kind(str(exc.detail)) from exc
+    resolved = shot_images.load_shot_array(
+        folder,
+        device,
+        shot,
+        acq_timestamp=acq,
+        data_cache=portal.data_cache if complete else None,
+        cache_key=(uid, device) if complete else None,
+        file_shot=_file_shot(detail, shot, folder),
+    )
     if resolved.array is None:
         raise LookupError(resolved.reason or resolved.kind)
     return resolved.array

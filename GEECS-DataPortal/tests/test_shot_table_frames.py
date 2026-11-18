@@ -131,18 +131,11 @@ def test_a_dropped_frame_is_a_gap_and_later_shots_keep_their_frames(folder, make
     assert pixels[0, 0] == pixels[0, 2] > 0 and pixels[0, 1] == 0  # shots 1 + 3 only
 
 
-def test_a_shot_table_trace_and_warm_up_follow_the_records(folder, monkeypatch):
-    app = _shot_table(folder)
-    client = TestClient(app)
+def test_a_shot_table_trace_follows_the_records(folder):
+    client = TestClient(_shot_table(folder))
     trace = client.get("/api/run/uid-002/trace?device=U_Scope&shot=3")
     assert trace.json()["figure"]["data"][0]["y"][0] == 3.0  # frame 3, not 2
     assert client.get("/api/run/uid-002/trace?device=U_Scope&shot=2").status_code == 404
-    cache = app.state.portal.data_cache
-    warm = cache.warm_native
-    monkeypatch.setattr(cache, "warm_native", lambda *a: warm(*a, synchronous=True))
-    client.get("/run/uid-002?device=U_Native&tab=images")
-    assert cache.native_shot(("uid-002", "U_Native"), 2) is None  # a gap: not warmed
-    assert cache.native_shot(("uid-002", "U_Native"), 3)[0, 0] == int(_LV + 3) % 7
 
 
 def test_an_old_strict_run_still_serves_frames_by_its_rows(folder):

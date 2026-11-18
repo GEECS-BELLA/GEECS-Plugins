@@ -128,7 +128,7 @@ def test_the_plot_page_carries_the_portals_tabs_behind_a_proxy(tmp_path) -> None
         .text
     )
     assert 'href="/portal/run/jump/2026-10-02?prefer=1&amp;tab=overview' in page
-    assert 'src="/portal/static/plotly-cartesian-' in page
+    assert 'src="/portal/plot/theme/plotly-cartesian-' in page
     assert 'src="/portal/plot/static/plotter.js"' in page
     assert 'action="/portal/plot/"' in page
 
