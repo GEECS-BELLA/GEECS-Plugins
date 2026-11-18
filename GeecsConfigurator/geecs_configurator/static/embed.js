@@ -91,8 +91,9 @@
   //   o.operator()                   the git author (the host's), "" when not given
   //   o.dryRun()                     the kind's dry-run word from /api/kinds ("none": no consumer check)
   //   o.button, o.status             the Save button (disabled while asking) and where the answers go
-  // One press of Save saves when the dry run ran and has nothing to confirm (no question, no output); a check
-  // that did not run, asks something or prints a plan is shown first, with a Save of its own.
+  // One press of Save saves when the dry run ran and has nothing to confirm (every check passed, no question,
+  // no output); one that did not run, skipped a check, asks something or prints a plan is shown first, with
+  // a Save of its own.
   //   o.saved(answer, doc)           a 200: the page takes the new etag (and, committed, the new baseline:
   //                                  `doc`, what was sent — never the form's later edits, which stay in it)
   //   o.noOperator()                 optional: the page points at its operator field
@@ -105,6 +106,11 @@
       var ul = el("ul", { class: "dim" });
       d.outcomes.forEach(function (x) { ul.appendChild(el("li", {}, (x.check || "") + ": " + (x.result || "") + (x.detail ? " (" + x.detail + ")" : ""))); });
       return ul;
+    }
+    // A dry run with nothing to confirm: it ran, every check in it passed (a skipped one is a check that did
+    // not run), it asks nothing and prints nothing.
+    function nothingToConfirm(d) {
+      return !!d.ran && !(d.questions || []).length && !d.output && (d.outcomes || []).every(function (x) { return x.result === "passed"; });
     }
     function errorsAt(errors) { if (errors && errors.length) o.form().setErrors(errors); }
     function changeList(changes) {
@@ -137,7 +143,7 @@
         if (d.by === "none") { save(convert, true); return; }  // no consumer check here: nothing to show
         var said = [banner(d.ran ? "The " + d.by + "'s dry run of your edit: " + (d.detail || "no objection") + "." : "The " + d.by + "'s dry run did not run: " + d.detail + ".", d.ran ? null : "stale"), outcomes(d)];
         // a check that ran, asks nothing and prints nothing has nothing to confirm: the one press saves, its line kept above the save's
-        if (d.ran && !(d.questions || []).length && !d.output) { save(convert, true, said); return; }
+        if (nothingToConfirm(d)) { save(convert, true, said); return; }
         var kids = said.slice();
         (d.questions || []).forEach(function (q) { kids.push(el("p", { class: "dim" }, "It asks: " + (q.title || q.check) + (q.message ? " (" + q.message + ")" : ""))); });
         if (d.output) { var det = el("details", { class: "disc" }); det.appendChild(el("summary", {}, "Its output")); det.appendChild(el("pre", { class: "well" }, d.output)); kids.push(det); }
@@ -375,20 +381,39 @@
       previewBox.setAttribute("data-stale", "true");
       previewBox.insertBefore(staleNote, previewBox.firstChild);
     }
+    var STALE = "This preview is of an earlier edit: ";
     function markStale() {
       if (drawn === null || previewBox.getAttribute("data-stale") === "true") return;
-      note(live ? "This preview is of an earlier edit: redrawing…" : "This preview is of an earlier edit: press Preview again.");
+      note(STALE + (live ? "redrawing…" : "press Preview again."));
+    }
+    function upToDate() {  // the form is back at the draft shown: the picture is of it
+      if (staleNote && Array.prototype.indexOf.call(previewBox.children || [], staleNote) >= 0) previewBox.removeChild(staleNote);
+      staleNote = null;
+      previewBox.setAttribute("data-stale", "false");
     }
     // Live: each edit redraws the preview once the form has been still for LIVE_MS (the toggle joined to Preview,
     // remembered in this browser); off, an edit only marks the shown preview stale.
-    var live = !!opts.preview && liveRemembered(), liveTimer = null;
+    // One live draw at a time: an edit made while one renders waits for it (the host's renders are never
+    // stacked), and a closed drawer draws nothing.
+    var live = !!opts.preview && liveRemembered(), liveTimer = null, rendering = false, waiting = false;
     function liveSoon() {
       if (liveTimer) clearTimeout(liveTimer);
-      liveTimer = setTimeout(function () { liveTimer = null; if (live && open_() && form && !form.invalid().length) preview(); }, LIVE_MS);
+      liveTimer = setTimeout(function () {
+        liveTimer = null;
+        if (!live || !open_() || !form || d.getAttribute("data-open") !== "true") return;
+        if (form.invalid().length) { if (pictured) note(STALE + "a field does not parse."); return; }
+        if (rendering) { waiting = true; return; }
+        preview();
+      }, LIVE_MS);
+    }
+    function settled() {  // the latest preview answered: an edit that waited for it is drawn now
+      rendering = false;
+      if (waiting) { waiting = false; if (live) liveSoon(); }
     }
     function edited() {
       var changed = JSON.stringify(value()) !== drawn;  // never a redraw of the draft already shown
       if (drawn !== null && changed) markStale();
+      if (drawn !== null && !changed) { upToDate(); if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; } }
       if (live && changed) liveSoon();
     }
     function preview() {
@@ -396,6 +421,7 @@
       var got = opts.preview(draft);
       if (!got || typeof got.then !== "function") return;  // a host that draws by itself: nothing to wait for or drop
       var mine = ++previews;
+      rendering = true;
       drawn = null;
       // the picture shown stays while the next renders (the form below it never jumps); the first has none to keep
       if (pictured) note("Redrawing the preview…");
@@ -406,8 +432,10 @@
         previewBox.setAttribute("data-stale", "false");
         fill(previewBox, [typeof node === "string" ? el("p", {}, node) : node]);
         edited();  // edited while it rendered
+        settled();
       }, function (e) {
         if (mine !== previews) return;
+        settled();
         pictured = false;
         previewBox.setAttribute("data-stale", "false");
         fill(previewBox, [banner("No preview: " + (e && e.message || e), "error")]);
@@ -449,7 +477,11 @@
         liveBtn.addEventListener("click", function () {
           live = !live; liveRemember(live);
           liveBtn.setAttribute("aria-pressed", String(live));
-          if (!live && liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
+          if (!live) {
+            if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
+            waiting = false;
+            if (previewBox.getAttribute("data-stale") === "true" && drawn !== null) note(STALE + "press Preview again.");
+          }
           if (live && (drawn === null || JSON.stringify(value()) !== drawn)) preview();
         });
         seg.appendChild(drawNow); seg.appendChild(liveBtn);

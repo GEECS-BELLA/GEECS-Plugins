@@ -47,6 +47,8 @@ global.document = { createElement: el, createTextNode: (t) => Object.assign(el("
 const walk = (n, f, out = []) => { if (f(n)) out.push(n); n.children.forEach((c) => walk(c, f, out)); return out; };
 const button = (scope, text) => walk(scope, (n) => n.tagName === "BUTTON" && n.textContent === text)[0];
 const settle = () => new Promise((r) => setTimeout(r, 5));
+const stored = {};  // the browser's localStorage: where the live toggle is remembered
+Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = String(v); } } });
 global.GeecsForm = require(process.argv[1]);
 const G = require(process.argv[2]);
 const C = JSON.parse(require("fs").readFileSync(0, "utf8"));
@@ -108,12 +110,16 @@ const hold = { url: null, until: null };
   // a dry run that ran with nothing to confirm: the one press saves, its line kept; one that asks waits for its own Save
   const dry = "POST " + C.api + "/api/dry-run/setup?experiment=Bench&id=far.yaml", puts = () => seen.filter((s) => s[0] === "PUT" && s[1].includes("far.yaml")).length;
   C.answers["PUT " + C.api + "/api/documents/setup/far.yaml?experiment=Bench"] = [200, { outcome: "committed", author: "Ada via configurator", etag: "e3", tier: "operator", changes: [] }];
-  C.answers[dry] = [200, { kind: "setup", by: "portal", ran: true, detail: "binds" }];
+  C.answers[dry] = [200, { kind: "setup", by: "portal", ran: true, detail: "binds", outcomes: [{ check: "binding", result: "passed" }] }];
   button(document.body.children[0], "Save").on.click(); await settle();
   out.onePress = [puts(), document.body.children[0].textContent.includes("dry run of your edit: binds"), document.body.children[0].textContent.includes("Committed")];
   C.answers[dry] = [200, { kind: "setup", by: "scanner", ran: true, detail: "one thing", questions: [{ check: "liveness", title: "is it on?" }] }];
   button(document.body.children[0], "Save").on.click(); await settle();
   out.asked = [puts(), document.body.children[0].textContent.includes("It asks: is it on?")];
+  // a check skipped inside a dry run that ran is a check that did not run: it waits too
+  C.answers[dry] = [200, { kind: "setup", by: "scanner", ran: true, outcomes: [{ check: "gateway_liveness", result: "skipped", detail: "no gateway" }] }];
+  button(document.body.children[0], "Save").on.click(); await settle();
+  out.skipped = [puts(), document.body.children[0].textContent.includes("gateway_liveness: skipped")];
   C.answers[dry] = [200, { kind: "setup", by: "archiver", ran: false, detail: "no archiver" }];
   button(document.body.children[0], "Save").on.click(); await settle();
   out.notRun = [puts(), !!button(document.body.children[0], "Save without it")];
@@ -135,6 +141,7 @@ const hold = { url: null, until: null };
   type("one"); await still();
   out.liveOff = live;
   tick.on.click(); await settle();
+  out.remembered = Object.values(stored);
   type("two"); type("three"); await still(); await still();  // and never again for the draft it shows
   out.liveOn = live;
   tick.on.click(); type("four"); await still();
@@ -143,7 +150,10 @@ const hold = { url: null, until: null };
   // a page not on the kit: the drawer is drawn in a .kit wrapper of its own, with its own scrim
   delete require.cache[require.resolve(process.argv[2])];
   document.body = Object.assign(el("body"), { classList: { contains: () => false } });
+  stored[Object.keys(stored)[0]] = "1";  // live was left on in this browser: the drawer draws as it opens
+  const drawnBefore = previews.length;
   require(process.argv[2]).open(opts); await settle();
+  out.drawsOnOpen = previews.length - drawnBefore;
   const wrap = document.body.children[0];
   out.wrapped = [wrap.attrs.class, wrap.children.map((c) => c.attrs.class), wrap.children[1].attrs["data-scrim"]];
   console.log(JSON.stringify(out));
@@ -245,12 +255,19 @@ def test_a_dry_run_with_nothing_to_confirm_saves_on_the_one_press(ran: dict) -> 
 
 def test_a_dry_run_that_asks_or_did_not_run_waits_for_its_own_save(ran: dict) -> None:
     assert ran["asked"] == [1, True] and ran["notRun"] == [1, True]
+    assert ran["skipped"] == [1, True]
 
 
 def test_live_preview_redraws_after_an_edit_only_while_ticked(ran: dict) -> None:
     # ticking draws once; two quick edits draw once more, when the form is still
     assert (ran["liveOff"], ran["liveOn"], ran["liveOffAgain"]) == (0, 2, 2)
     assert ran["livePressed"] == "false"
+
+
+def test_live_is_remembered_in_the_browser_and_draws_as_the_drawer_opens(
+    ran: dict,
+) -> None:
+    assert ran["remembered"] == ["1"] and ran["drawsOnOpen"] == 1
 
 
 def test_off_the_kit_the_drawer_brings_its_own_kit_wrapper_and_scrim(ran: dict) -> None:

@@ -227,10 +227,10 @@ second confirmation layer is added.
   `tests/test_setups_surface.py` (a recording fake scanner and the
   scanner's demo app).
 - **A save on the page asks the kind's dry run first** (`/api/dry-run`):
-  a refusal stops it there; a check that ran with nothing to confirm (no
-  question, no output) saves on that one press, its line kept above the
-  save's; a check that did not run, asks a question or prints a plan (the
-  archiver's) is shown with a Save to confirm; a kind with no check saves
+  a refusal stops it there; a check that ran with nothing to confirm (every
+  outcome passed, no question, no output) saves on that one press, its line kept above the
+  save's; a check that did not run, skipped one of its checks, asks a question
+  or prints a plan (the archiver's) is shown with a Save to confirm; a kind with no check saves
   at once. The save route runs the dry run again: the page's is for the
   operator to see.
 - **The embedded editor's mount contract is `static/embed.js`**

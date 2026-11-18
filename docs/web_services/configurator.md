@@ -52,7 +52,7 @@ typed by name. The YAML of the recipe as edited is shown beside the form.
   scanner for a trigger profile, the archiver for the archive policy, and the
   data portal for an analysis recipe or group. A refusal is shown at the
   fields it names, and nothing is saved. A check that passes with nothing to ask saves on that
-  one press. A check that could not run, asks a question or prints a plan
+  one press. A check that could not run, skipped part of itself, asks a question or prints a plan
   (the archiver's) is shown first, with a second Save under it to confirm.
   Either way the save commits (or proposes) and says what happened.
 - If someone changed the file since you opened it, Save says so, shows what
