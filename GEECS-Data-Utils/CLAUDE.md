@@ -166,20 +166,19 @@ Resolves the GEECS data root and experiment name. Reading order:
 
 Also provides optional paths for config repos and FROG DLL.
 
-`[data_folders]` maps an experiment to the folder its scans live in under
-the base path (`data_folders`, `data_folder_for`): an empty value means
-the experiment's `Y{YYYY}` folders sit directly in the base path (a site
-whose data tree predates the convention), another name a renamed folder.
-`ScanPaths.get_daily_scan_folder` builds through it and
-`ScanPaths(folder=…)` parses back through `experiment_for_data_folder`, so
-the tag keeps the experiment name and the path round-trips; an experiment
-without an entry, or a config without the section, follows the convention
-unchanged. Anything that reads the experiment back from a path goes through
-`ScanPaths.experiment_from_folder` (the folder catalog's uids do), and the
-"share is mounted" sentinel is `scan_paths.experiment_dir_present`: a flat
-experiment's folder is the data root, which a bare mount point satisfies by
-existing, so it must also be non-empty (the logbook's mirror and calendar
-use it). Pinned by `tests/test_data_folders.py`.
+`[Paths] data_root_experiment = <name>` names the one experiment whose
+`Y{YYYY}` folders sit directly in the base path (a site whose data tree
+predates the convention); one key, so only one experiment can own the root.
+`ScanPaths.get_daily_scan_folder` builds without the experiment segment for
+it, and `ScanPaths.experiment_from_folder` reads the data root back as that
+experiment, so the tag keeps the name and the path round-trips. The
+comparison is lexical: the same root under another spelling (UNC against a
+drive letter) is tagged with the root folder's name. Every other
+experiment, and a config without the key, follows the convention unchanged.
+The "share is mounted" sentinel is `scan_paths.experiment_dir_present`: the
+root experiment's folder is the data root, which a bare mount point
+satisfies by existing, so it must also be non-empty (the logbook's mirror
+and calendar use it). Pinned by `tests/test_data_root_experiment.py`.
 
 ## GEECS Folder Convention
 

@@ -163,8 +163,8 @@ class ScanPaths:
             If True, raise an error if the folder does not exist.
         base_directory : Path or str, optional
             The data root the folder was built under, when the caller gave
-            one: a scan directly in it belongs to the experiment
-            ``[data_folders]`` maps to an empty folder.
+            one: a scan directly in it belongs to the configured
+            ``data_root_experiment``.
 
         Raises
         ------
@@ -219,9 +219,7 @@ class ScanPaths:
             self._tag_date.month,
             self._tag_date.day,
             parse_scan_folder_name(scan_folder_name),
-            experiment=self.experiment_from_folder(
-                folder.parents[4], exp_name, base_directory
-            ),
+            experiment=self.experiment_from_folder(folder.parents[4], base_directory),
         )
 
         # Assign folder attributes
@@ -230,18 +228,19 @@ class ScanPaths:
     @staticmethod
     def experiment_from_folder(
         experiment_folder: Path,
-        folder_name: str,
         base_directory: Union[Path, str, None] = None,
     ) -> str:
-        """The experiment a scan's ``experiment_folder`` belongs to (``[data_folders]``).
+        """The experiment a scan's ``experiment_folder`` belongs to.
+
+        The folder's own name (the GEECS convention), except that the data
+        root itself belongs to the configured ``data_root_experiment``. The
+        comparison is lexical: the same root under another spelling (a UNC
+        path against a drive letter) reads as an ordinary folder.
 
         Parameters
         ----------
         experiment_folder : Path
             The folder above a scan's ``Y{YYYY}`` folder.
-        folder_name : str
-            What to answer without a ``[data_folders]``-aware config
-            (the convention: the folder's own name).
         base_directory : Path or str, optional
             The data root the folder was found under; defaults to the
             configured one.
@@ -251,11 +250,12 @@ class ScanPaths:
         str
             The experiment name.
         """
-        lookup = getattr(ScanPaths.paths_config, "experiment_for_data_folder", None)
-        if lookup is None:
-            return folder_name
-        base = Path(base_directory) if base_directory is not None else None
-        return lookup(experiment_folder, base_path=base)
+        config = ScanPaths.paths_config
+        if config is not None and config.data_root_experiment:
+            root = base_directory if base_directory is not None else config.base_path
+            if root is not None and _same_path(experiment_folder, Path(root)):
+                return config.data_root_experiment
+        return experiment_folder.name
 
     @staticmethod
     def get_scan_tag(
@@ -340,11 +340,8 @@ class ScanPaths:
                 experiment=experiment,
             )
 
-        # getattr: callers and tests may hand in a duck-typed config
-        # (base_path + experiment) that predates [data_folders].
-        lookup = getattr(ScanPaths.paths_config, "data_folder_for", None)
-        data_folder = lookup(tag.experiment) if lookup else (tag.experiment or "")
-        folder = Path(base) / data_folder if data_folder else Path(base)
+        in_root = not tag.experiment or _is_data_root_experiment(tag.experiment)
+        folder = Path(base) if in_root else Path(base) / tag.experiment
         folder = (
             folder / f"Y{tag.year}" / f"{tag.month:02d}-{cal.month_name[tag.month][:3]}"
         )
@@ -889,12 +886,28 @@ def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
     return counts.most_common(1)[0][0] if counts else "png"
 
 
+def _is_data_root_experiment(experiment: Optional[str]) -> bool:
+    """Whether *experiment*'s ``Y{YYYY}`` folders sit directly in the data root."""
+    config = ScanPaths.paths_config
+    return (
+        config is not None
+        and bool(experiment)
+        and experiment == config.data_root_experiment
+    )
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    """Whether two paths name the same folder, lexically (no filesystem access)."""
+    return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(
+        os.path.normpath(str(b))
+    )
+
+
 def experiment_dir_present(experiment_dir: Path, experiment: Optional[str]) -> bool:
     """Whether *experiment*'s data folder is really there — the "share is mounted" sentinel.
 
-    A conventional experiment folder is absent when the share is down. A
-    flat experiment's folder (``[data_folders]`` maps it to empty) is the
-    data root itself, which may be a bare mount point that exists while the
+    A conventional experiment folder is absent when the share is down. The
+    ``data_root_experiment``'s folder is the data root itself, which may be a bare mount point that exists while the
     share is down — so for it the folder must also be non-empty.
 
     Parameters
@@ -907,14 +920,13 @@ def experiment_dir_present(experiment_dir: Path, experiment: Optional[str]) -> b
     Returns
     -------
     bool
-        True when the folder exists (and, for a flat experiment, holds
-        anything).
+        True when the folder exists (and, for the ``data_root_experiment``,
+        holds anything).
     """
     try:
         if not experiment_dir.is_dir():
             return False
-        lookup = getattr(ScanPaths.paths_config, "data_folder_for", None)
-        if experiment and lookup is not None and lookup(experiment) == "":
+        if _is_data_root_experiment(experiment):
             return next(experiment_dir.iterdir(), None) is not None
     except OSError:
         return False

@@ -69,8 +69,8 @@ class TestPaths:
     def test_a_flat_experiments_bare_mount_point_means_unmounted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """[data_folders] FLAT = : the experiment dir is the data root, which a
-        bare mount point satisfies by existing — it must also hold something."""
+        """data_root_experiment = Flat: the experiment dir is the data root, which
+        a bare mount point satisfies by existing — it must also hold something."""
         from types import SimpleNamespace
 
         from geecs_data_utils import ScanPaths
@@ -81,8 +81,7 @@ class TestPaths:
             SimpleNamespace(
                 base_path=tmp_path,
                 experiment="Flat",
-                data_folder_for=lambda e: "" if e == "Flat" else (e or ""),
-                experiment_for_data_folder=lambda f, base_path=None: f.name,
+                data_root_experiment="Flat",
             ),
         )
         with pytest.raises(mirror.MirrorUnavailable, match="not mounted"):

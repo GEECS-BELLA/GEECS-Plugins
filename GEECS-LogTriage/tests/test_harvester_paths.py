@@ -22,7 +22,9 @@ from geecs_log_triage.harvester import day_folder_for
 def fake_base(monkeypatch, tmp_path):
     """Give ScanPaths a deterministic base path (no config.ini / lab network)."""
     monkeypatch.setattr(
-        ScanPaths, "paths_config", SimpleNamespace(base_path=str(tmp_path))
+        ScanPaths,
+        "paths_config",
+        SimpleNamespace(base_path=str(tmp_path), data_root_experiment=None),
     )
     return tmp_path
 

@@ -331,10 +331,10 @@ class FolderScanCatalog:
         if scans_dir is None:
             return []
         # .../{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/scans — the folder
-        # above Y{YYYY} names the experiment, through [data_folders].
-        experiment_dir = scans_dir.parents[3]
+        # above Y{YYYY} names the experiment (the data root: the
+        # data_root_experiment).
         resolved_experiment = ScanPaths.experiment_from_folder(
-            experiment_dir, experiment_dir.name, self._base_path
+            scans_dir.parents[3], self._base_path
         )
         summaries = []
         folders = _scan_folders(scans_dir)

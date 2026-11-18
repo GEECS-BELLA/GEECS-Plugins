@@ -131,7 +131,7 @@ def logbook_root(
         # is where the scanner's year folders live, so its absence means
         # the share is not mounted (or the configuration is wrong), and
         # the mirror must not build a tree on the bare mount point that
-        # the real share will hide when it comes back. A flat experiment's
+        # the real share will hide when it comes back. The data_root_experiment's
         # directory is the data root, which must also be non-empty. A day
         # or month that does not exist yet is fine — those are ours to make.
         raise MirrorUnavailable(
