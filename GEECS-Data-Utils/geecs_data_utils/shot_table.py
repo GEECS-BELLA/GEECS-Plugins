@@ -58,6 +58,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from geecs_data_utils.io.scan_stack import LABVIEW_EPOCH_OFFSET
 from geecs_data_utils.shot_join import (
     DEFAULT_SHOT_PERIOD_S,
     DEVICE_STREAM_SUFFIX,
@@ -106,7 +107,7 @@ BASELINE_SUFFIX = "-baseline"
 #: epoch) when every finite value is at or past 2000-01-01 in that epoch;
 #: a plugin or native camera's frame count never comes near it.  Only a
 #: stamp baseline files records: a frame count is not on the records' scale.
-STAMP_BASELINE_FLOOR = 3_155_673_600.0
+STAMP_BASELINE_FLOOR = float(LABVIEW_EPOCH_OFFSET + 946_684_800)  # 2000-01-01 UTC
 #: Slack on both ends of a baseline interval, seconds: the baseline is the
 #: device's monitor value and the record its stream's copy of the same
 #: stamp, so they agree to the stamp's own resolution, not bit for bit.
@@ -525,10 +526,10 @@ class _RowClock:
                 assigned = list(join.frame_for_shot)
                 baselines = self.baselines.get(_squash(source.device))
                 if baselines is not None:
-                    decided = _assign_baselines(
-                        assigned, records, baselines, self.loose
+                    decided, ambiguous = _assign_baselines(
+                        assigned, records, baselines, self
                     )
-            ambiguous = _assign_intervals(assigned, records, self, skip=decided)
+            ambiguous |= _assign_intervals(assigned, records, self, skip=decided)
             unresolved, self.held[source.device] = _assign_shared(
                 assigned, records, source.counter, self
             )
@@ -724,42 +725,124 @@ def _assign_baselines(
     assigned: list[int | None],
     records: np.ndarray,
     baselines: np.ndarray,
-    loose: np.ndarray,
-) -> set[int]:
-    """File loose rows by the device's own pre-fire stamps; return the rows decided.
+    clock: _RowClock,
+) -> tuple[set[int], set[int]]:
+    """File loose rows by the device's own pre-fire stamps; return (decided, ambiguous).
 
     The plan reads a required device's last stamp before each fire
-    (``<device>-baseline``).  Row *k*'s record is therefore newer than
-    baseline *k*, and — since fire *k*+1 is read only after the plan saw
-    row *k*'s record, or gave up on it — no newer than baseline *k*+1:
-    the first free record in (baseline *k*, baseline *k*+1] is row *k*'s,
-    and an empty interval is a miss (the device recorded nothing between
-    the two reads).  No fire time is involved, so a record stamped just
-    before the next fire — a phase-locked loop, a device clock behind the
-    worker's — stays on its own row.  The last row's interval is open
-    above, as is a row whose next baseline was not read.  A row whose own
-    baseline was not read is left to the fire interval
+    (``<device>-baseline``), so row *k*'s record is newer than baseline
+    *k*.  When the plan saw it before fire *k*+1 it is also no newer than
+    baseline *k*+1: the first free record in (baseline *k*, baseline *k*+1]
+    is row *k*'s.  No fire time is involved, so a record stamped just
+    before the next fire (a phase-locked loop) or before its own fire (a
+    device clock behind the worker's) stays on its own row.  The last row's
+    interval is open above, as is a row whose next baseline was not read;
+    a row whose own baseline was not read is left to the fire interval
     (:func:`_assign_intervals`).
+
+    An empty interval is either a miss or a record that arrived after the
+    next read (the plan gave up on the row, or a refire's wait saw it
+    first).  A late record leaves a surplus further on — a later interval,
+    at the latest the open last one, holds two — and every row between was
+    filed one record late.  So a gap followed by a surplus has two
+    readings: as filed, or each record one row earlier.  The run's own lag
+    (the median record − fire over the rows outside every such stretch)
+    decides, when one reading's worst row fits it by more than two stamp
+    budgets better than the other's; otherwise, and for a stretch with more
+    than one gap or a surplus of more than one, the stretch's rows are left
+    empty and returned as ambiguous, their records extras.
     """
     claimed = {i for i in assigned if i is not None}
-    order = [
-        int(i) for i in np.argsort(records, kind="stable") if np.isfinite(records[i])
-    ]
+    order = np.array(
+        [i for i in np.argsort(records, kind="stable") if np.isfinite(records[i])],
+        dtype=int,
+    )
+    ordered = records[order]
     n = baselines.size
-    decided: set[int] = set()
-    for k in np.flatnonzero(loose[:n] & np.isfinite(baselines)):
-        k = int(k)
-        low = baselines[k] + BASELINE_TOLERANCE_S
+    rows = [int(k) for k in np.flatnonzero(clock.loose[:n] & np.isfinite(baselines))]
+    found: dict[int, list[int]] = {}
+    for k in rows:
         following = baselines[k + 1] if k + 1 < n else np.nan
         high = following + BASELINE_TOLERANCE_S if np.isfinite(following) else np.inf
-        record = next(
-            (i for i in order if i not in claimed and low < records[i] <= high), None
-        )
-        assigned[k] = record
-        if record is not None:
-            claimed.add(record)
-        decided.add(k)
-    return decided
+        low = baselines[k] + BASELINE_TOLERANCE_S
+        start = int(np.searchsorted(ordered, low, "right"))
+        stop = int(np.searchsorted(ordered, high, "right"))
+        found[k] = [int(i) for i in order[start:stop] if int(i) not in claimed]
+        assigned[k] = found[k][0] if found[k] else None
+    ambiguous: set[int] = set()
+    stretches = _late_stretches(rows, found)
+    if stretches:
+        inside = {k for stretch in stretches for k in stretch}
+        outside = [k for k in rows if k not in inside]
+        lag = _run_lag(assigned, records, clock.fires, outside)
+        for stretch in stretches:
+            reading = _closer(stretch, assigned, found, records, clock, lag)
+            if reading is None:
+                ambiguous.update(stretch)
+            for k in stretch:
+                assigned[k] = None if reading is None else reading[k]
+    return set(rows), ambiguous
+
+
+def _late_stretches(rows: list[int], found: dict[int, list[int]]) -> list[list[int]]:
+    """Runs of rows from an empty interval to the next interval holding two or more."""
+    stretches: list[list[int]] = []
+    current: list[int] = []
+    for k in rows:
+        if current:
+            current.append(k)
+            if len(found[k]) > 1:
+                stretches.append(current)
+                current = []
+        elif not found[k]:
+            current = [k]
+    return stretches
+
+
+def _run_lag(
+    assigned: list[int | None], records: np.ndarray, fires: np.ndarray, rows: list[int]
+) -> float:
+    """The median record − fire over *rows* holding a record; ``NaN`` with none."""
+    lags = [
+        records[i] - fires[k]
+        for k in rows
+        if (i := assigned[k]) is not None and np.isfinite(fires[k])
+    ]
+    return float(np.median(lags)) if lags else np.nan
+
+
+def _closer(
+    stretch: list[int],
+    filed: list[int | None],
+    found: dict[int, list[int]],
+    records: np.ndarray,
+    clock: _RowClock,
+    lag: float,
+) -> dict[int, int | None] | None:
+    """The reading of *stretch* that fits the run's *lag*, or ``None`` when neither clearly does."""
+    gaps = sum(not found[k] for k in stretch)
+    if gaps != 1 or len(found[stretch[-1]]) != 2 or not np.isfinite(lag):
+        return None
+    as_filed = {k: filed[k] for k in stretch}
+    pool = [i for k in stretch for i in found[k]]
+    shifted: dict[int, int | None] = dict(zip(stretch, pool))
+
+    def worst(reading: dict[int, int | None]) -> float:
+        residuals = [
+            abs(records[i] - clock.fires[k] - lag)
+            for k, i in reading.items()
+            if i is not None
+        ]
+        return max(residuals) if residuals else np.nan
+
+    a, b = worst(as_filed), worst(shifted)
+    margin = 2.0 * clock.budget
+    if np.isfinite(a) and np.isfinite(b):
+        if a + margin < b:
+            return as_filed
+        if b + margin < a:
+            return shifted
+    return None
 
 
 def _assign_intervals(

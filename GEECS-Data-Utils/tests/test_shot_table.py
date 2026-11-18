@@ -935,19 +935,58 @@ def test_a_miss_leaves_the_baseline_unmoved_and_only_its_row_empty() -> None:
     assert _flagged(table, "missing:cam") == [3]
 
 
-def test_a_refire_takes_the_late_record_of_the_shot_it_repeats() -> None:
-    """Row 2 timed out; its frame landed after fire 3's read, so row 3 (the refire) has it."""
-    fires = [0.0, 1.0, 2.0, 3.0]
-    baselines = [-1.0, 0.95, 0.95, 2.95]
-    records = [0.95, 2.5, 3.95]
+def test_a_late_record_of_a_given_up_row_goes_back_to_its_own_row() -> None:
+    """Row 2 timed out; its frame (stamped at its fire) arrived after fire 3's read.
+
+    Interval 2 is empty and interval 3 holds two records: the late one and
+    row 3's own.  The run's lag (0.1 s) says each is one row earlier than
+    filed, so row 2 gets its frame back, flagged against the plan's verdict.
+    """
+    fires = [0.0, 1.0, 2.0, 3.0, 4.0]
+    baselines = [-0.9, 0.1, 0.1, 2.1, 3.1]
     rows = _unwitnessed(fires, baselines)
-    rows["attempt"] = [1, 1, 2, 1]
-    rows["complete"] = [True, False, True, True]
-    table = shot_table(
-        FIRE_CLOCK, rows, [_device("cam", T0 + LV + np.asarray(records))]
-    )
-    assert table.record_for_shot["cam"] == (0, None, 1, 2)
-    assert _flagged(table, "complete-mismatch") == []
+    rows["complete"] = [True, False, True, True, True]
+    records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1])
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4)
+    assert table.extras["cam"] == ()
+    assert _flagged(table, "complete-mismatch") == [2]
+
+
+def test_a_late_record_that_shifts_every_later_row_is_undone_at_the_open_last_row() -> (
+    None
+):
+    """The refire completed on the late frame, and so on: the surplus is the last row's."""
+    fires = [0.0, 1.0, 2.0, 3.0, 4.0]
+    baselines = [-0.9, 0.1, 0.1, 1.1, 2.1]
+    rows = _unwitnessed(fires, baselines)
+    records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1])
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4)
+
+
+def test_a_miss_then_an_extra_frame_stays_as_filed() -> None:
+    """A genuine miss on row 2, a doubled frame on row 4: the lag keeps the filing."""
+    fires = [0.0, 1.0, 2.0, 3.0, 4.0]
+    baselines = [-0.9, 0.1, 1.1, 1.1, 3.15]  # the doubled frame landed before fire 5
+    rows = _unwitnessed(fires, baselines)
+    records = T0 + LV + np.asarray([0.1, 1.1, 3.1, 3.15, 4.1])
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
+    assert table.record_for_shot["cam"] == (0, 1, None, 2, 4)
+    assert table.extras["cam"] == (3,)
+    assert _flagged(table, "missing:cam") == [3]
+
+
+def test_a_gap_and_surplus_the_lag_cannot_tell_apart_is_ambiguous() -> None:
+    """No row outside the stretch holds a record: no lag, nothing guessed."""
+    fires = [0.0, 1.0, 2.0]
+    baselines = [-0.9, -0.9, 1.1]
+    rows = _unwitnessed(fires, baselines)
+    records = T0 + LV + np.asarray([1.1, 2.1, 2.15])
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
+    assert table.record_for_shot["cam"] == (None, None, None)
+    assert _flagged(table, "interval-ambiguous:cam") == [1, 2, 3]
+    assert table.extras["cam"] == (0, 1, 2)
 
 
 def test_the_drain_offset_moves_the_baseline_with_the_records() -> None:
@@ -972,14 +1011,22 @@ def test_a_frame_count_baseline_is_not_a_stamp_and_the_interval_decides() -> Non
 
 
 def test_a_row_whose_baseline_was_not_read_falls_back_to_its_fire_interval() -> None:
+    """Records stamped 0.1 s before their fires: only a baseline keeps them.
+
+    Row 3's baseline is NaN, so its fire interval decides and finds nothing
+    (its record is before fire 3 − m).  Read as "no lower bound", the
+    baseline rule would have filed it; with no baselines at all, every row
+    would have taken the next shot's record.
+    """
     fires = [0.0, 1.0, 2.0, 3.0]
-    records = [0.5, 1.5, 2.5, 3.5]
-    rows = _unwitnessed(fires, [-1.0, 0.5, 1.5, 2.5])
+    records = [-0.1, 0.9, 1.9, 2.9]
+    rows = _unwitnessed(fires, [-1.1, -0.1, 0.9, 1.9])
     rows.loc[2, "cam-baseline"] = np.nan
     table = shot_table(
         FIRE_CLOCK, rows, [_device("cam", T0 + LV + np.asarray(records))]
     )
-    assert table.record_for_shot["cam"] == (0, 1, 2, 3)
+    assert table.record_for_shot["cam"] == (0, 1, None, 3)
+    assert _flagged(table, "missing:cam") == [3]
 
 
 def test_witnessed_rows_ignore_the_baseline() -> None:

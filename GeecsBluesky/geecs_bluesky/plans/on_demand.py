@@ -25,6 +25,7 @@ import bluesky.plan_stubs as bps
 from bluesky.preprocessors import rewindable_wrapper
 from bluesky.utils import FailedStatus, separate_devices
 from geecs_data_utils.shot_table import (
+    BASELINE_SUFFIX,
     LAYOUT_KEY,
     SHOT_TABLE_LAYOUT,
     STREAM_META_KEY,
@@ -178,7 +179,10 @@ class SlotColumns:
             **extra,
             **witness,
             "interrupted": False,
-            **{f"{n}-baseline": baselines.get(n, math.nan) for n in self._required},
+            **{
+                f"{n}{BASELINE_SUFFIX}": baselines.get(n, math.nan)
+                for n in self._required
+            },
         }
         if self._scan_mode:
             self.values["announce_stamp"] = math.nan
