@@ -935,13 +935,16 @@ def test_a_miss_leaves_the_baseline_unmoved_and_only_its_row_empty() -> None:
     assert _flagged(table, "missing:cam") == [3]
 
 
-def test_a_late_record_of_a_given_up_row_goes_back_to_its_own_row() -> None:
+def _disputed(table) -> list[int]:
+    return _flagged(table, "baseline-disputed:cam")
+
+
+def test_a_late_record_of_a_given_up_row_is_flagged_disputed() -> None:
     """Row 2 timed out; its frame (stamped at its fire) arrived after fire 3's read.
 
-    Interval 2 is empty and interval 3 holds two records: the late one and
-    row 3's own.  Arrival order cannot place them, so the stretch goes to the
-    fire interval, which gives row 2 its frame back, flagged against the
-    plan's verdict.
+    Interval 2 is empty and interval 3 holds two records.  Arrival order
+    reads it as a miss and a doubled frame; the fire interval reads a late
+    record.  The baseline reading stays and both rows are flagged.
     """
     fires = [0.0, 1.0, 2.0, 3.0, 4.0]
     baselines = [-0.9, 0.1, 0.1, 2.1, 3.1]
@@ -949,25 +952,34 @@ def test_a_late_record_of_a_given_up_row_goes_back_to_its_own_row() -> None:
     rows["complete"] = [True, False, True, True, True]
     records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1])
     table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
-    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4)
-    assert table.extras["cam"] == ()
-    assert _flagged(table, "complete-mismatch") == [2]
+    assert table.record_for_shot["cam"] == (0, None, 1, 3, 4)
+    assert _disputed(table) == [2, 3]
+    assert _flagged(table, "missing:cam") == [2]
 
 
-def test_a_late_record_that_shifts_every_later_row_is_undone_at_the_open_last_row() -> (
-    None
-):
-    """The refire completed on the late frame, and so on: the surplus is the last row's."""
+@pytest.mark.parametrize(
+    "baselines, filed, disputed",
+    [
+        ([-0.9, 0.1, 0.1, 1.1, 2.1], (0, None, 1, 2, 3), [2, 3, 4, 5]),
+        ([-0.9, -0.9, 0.1, 1.1, 2.1], (None, 0, 1, 2, 3), [1, 2, 3, 4, 5]),
+    ],
+    ids=["to-the-open-last-row", "over-the-whole-run"],
+)
+def test_a_long_late_stretch_flags_every_row_it_may_have_shifted(
+    baselines, filed, disputed
+) -> None:
+    """The refire completed on the late frame, and so on, until the open last row."""
     fires = [0.0, 1.0, 2.0, 3.0, 4.0]
-    baselines = [-0.9, 0.1, 0.1, 1.1, 2.1]
-    rows = _unwitnessed(fires, baselines)
     records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1])
-    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
-    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4)
+    table = shot_table(
+        FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", records)]
+    )
+    assert table.record_for_shot["cam"] == filed
+    assert _disputed(table) == disputed
 
 
-def test_a_miss_then_an_extra_frame_stays_as_filed() -> None:
-    """A genuine miss on row 3, a doubled frame after row 4's: the fire interval agrees."""
+def test_a_miss_then_an_extra_frame_both_rules_agree_on_is_not_disputed() -> None:
+    """A genuine miss on row 3, a doubled frame after row 4's."""
     fires = [0.0, 1.0, 2.0, 3.0, 4.0]
     baselines = [-0.9, 0.1, 1.1, 1.1, 3.15]  # the doubled frame landed before fire 5
     rows = _unwitnessed(fires, baselines)
@@ -976,27 +988,49 @@ def test_a_miss_then_an_extra_frame_stays_as_filed() -> None:
     assert table.record_for_shot["cam"] == (0, 1, None, 2, 4)
     assert table.extras["cam"] == (3,)
     assert _flagged(table, "missing:cam") == [3]
+    assert _disputed(table) == []
 
 
-def test_a_late_stretch_over_the_whole_run_goes_to_the_fire_interval() -> None:
-    """Row 1's frame arrived late and every later row completed on its predecessor's."""
-    fires = [0.0, 1.0, 2.0, 3.0, 4.0]
-    baselines = [-0.9, -0.9, 0.1, 1.1, 2.1]
-    records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1])
+def test_stamps_behind_the_worker_keep_a_miss_and_a_doubled_frame_on_their_rows() -> (
+    None
+):
+    """Every frame stamped 0.1 s before its fire; a miss at shot 3, a doubled frame at shot 10.
+
+    The fire interval would hand every row between them the next shot's
+    frame, unflagged; the baselines file the truth, and the rows the fire
+    interval reads differently say so.
+    """
+    fires = np.arange(12.0)
+    frames: list[tuple[int, float]] = []  # (shot, stamp) in arrival order
+    for k in range(12):
+        if k == 2:
+            continue
+        frames.append((k, fires[k] - 0.1))
+        if k == 9:
+            frames.append((k, fires[k] - 0.05))
+    stamps = np.array([t for _, t in frames])
+    baselines = [
+        max((t for shot, t in frames if shot < k), default=fires[0] - 1.0)
+        for k in range(12)
+    ]
     table = shot_table(
-        FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", records)]
+        FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", T0 + LV + stamps)]
     )
-    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4)
+    assert table.record_for_shot["cam"] == (0, 1, None, 2, 3, 4, 5, 6, 7, 8, 10, 11)
+    assert table.extras["cam"] == (9,)
+    assert _disputed(table) and set(_disputed(table)) <= set(range(3, 11))
 
 
-def test_two_late_frames_in_a_row_go_to_the_fire_interval() -> None:
+def test_two_late_frames_in_a_row_keep_one_stretch() -> None:
+    """Two empty intervals are repaid by two surplus records, in one stretch."""
     fires = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
     baselines = [-0.9, 0.1, 0.1, 0.1, 2.1, 4.1]
     records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1, 5.1])
     table = shot_table(
         FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", records)]
     )
-    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4, 5)
+    assert table.record_for_shot["cam"] == (0, None, None, 1, 3, 5)
+    assert _disputed(table) == [2, 3, 4, 5]
 
 
 def _stepped_back(step: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

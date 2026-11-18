@@ -42,7 +42,8 @@ Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
 ``witness-stale``, ``clock-step``, ``unwitnessed``, ``witness-stamp-shared``,
 ``witness-stamp-shared-unresolved``, ``interval-ambiguous``,
-``complete-mismatch``.  Run-level
+``baseline-disputed`` (an unwitnessed row of a late stretch, filed by its
+baselines, that the fire interval would file differently), ``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 witness attribute NaN all run), ``attribute-lag-systematic``,
 ``attribute-lag-noisy`` (poll lag too frequent to audit rows by: the
@@ -509,6 +510,7 @@ class _RowClock:
         n = self.stamps.size
         unresolved: set[int] = set()
         ambiguous: set[int] = set()
+        disputed: set[int] = set()
         if positional:
             assigned: list[int | None] = [
                 k if k < records.size else None for k in range(n)
@@ -526,13 +528,16 @@ class _RowClock:
                 assigned = list(join.frame_for_shot)
                 baselines = self.baselines.get(_squash(source.device))
                 if baselines is not None:
-                    decided = _assign_baselines(
+                    decided, late = _assign_baselines(
                         assigned, records, baselines, self.loose
                     )
+                    disputed = _disputed(assigned, records, self, decided, late)
             ambiguous = _assign_intervals(assigned, records, self, skip=decided)
             unresolved, self.held[source.device] = _assign_shared(
                 assigned, records, source.counter, self
             )
+        for k in sorted(disputed):
+            self.flags[k].append(f"baseline-disputed:{source.device}")
         for k in range(n):
             if k in unresolved:
                 self.flags[k].append(f"witness-stamp-shared-unresolved:{source.device}")
@@ -726,8 +731,8 @@ def _assign_baselines(
     records: np.ndarray,
     baselines: np.ndarray,
     loose: np.ndarray,
-) -> set[int]:
-    """File loose rows by the device's own pre-fire stamps; return the rows decided.
+) -> tuple[set[int], set[int]]:
+    """File loose rows by the device's own pre-fire stamps; return (decided, late).
 
     The plan reads a required device's last stamp before each fire
     (``<device>-baseline``), so row *k*'s record is newer than baseline
@@ -740,25 +745,29 @@ def _assign_baselines(
     whose next baseline was not read.  Each record is filed once.
 
     Left to the fire interval (:func:`_assign_intervals`), undecided here:
+    every row when the baselines ever run backwards (the device clock
+    stepped back: the intervals overlap and none can be trusted), and a
+    row whose own baseline was not read.
 
-    - every row, when the baselines ever run backwards (the device clock
-      stepped back): the intervals overlap and none can be trusted;
-    - a row whose own baseline was not read;
-    - every row of a *late stretch*: from an empty interval until the
-      surplus records of later intervals (at the latest the open last one)
-      account for every empty one.  A surplus means a record arrived after
-      the next read — the plan gave up on its row, or a refire's wait saw
-      it first — and arrival order cannot say which rows it shifted.
+    A *late stretch* runs from an empty interval until the surplus records
+    of later intervals (at the latest the open last one) account for every
+    empty one.  It has two readings: a miss and, later, a doubled frame —
+    as filed here — or a record that arrived after the next read (the plan
+    gave up on its row, or a refire's wait saw it first), every row between
+    one record late.  Arrival order cannot tell them apart, and neither can
+    the fire interval when the device's stamps run behind the worker's, so
+    the stretch stays filed as the likelier reading and its rows are
+    returned as *late*: the caller flags each one the fire interval would
+    have filed differently (``baseline-disputed``).
 
-    The one misfiling left: a late record whose shift a genuine miss
-    absorbs before any interval holds two leaves no surplus, and the rows
-    between hold the previous shot's records.  It takes a record that
-    arrives after the plan gave up on its shot (its whole shot timeout)
-    and a real miss after it, before the next surplus.
+    A late record whose shift a genuine miss absorbs before any interval
+    holds two leaves no surplus and no flag: the rows between hold the
+    previous shot's records.  It takes a record that arrives after the plan
+    gave up on its shot (its whole shot timeout) and a real miss after it.
     """
     read = baselines[np.isfinite(baselines)]
     if np.any(np.diff(read) < -BASELINE_TOLERANCE_S):
-        return set()
+        return set(), set()
     claimed = {i for i in assigned if i is not None}
     order = np.array(
         [i for i in np.argsort(records, kind="stable") if np.isfinite(records[i])],
@@ -778,12 +787,23 @@ def _assign_baselines(
         assigned[k] = found[k][0] if found[k] else None
         if found[k]:
             claimed.add(found[k][0])
-    decided = set(found)
-    for stretch in _late_stretches(list(found), found):
-        for k in stretch:
-            assigned[k] = None
-            decided.discard(k)
-    return decided
+    late = {k for stretch in _late_stretches(list(found), found) for k in stretch}
+    return set(found), late
+
+
+def _disputed(
+    assigned: list[int | None],
+    records: np.ndarray,
+    clock: _RowClock,
+    decided: set[int],
+    late: set[int],
+) -> set[int]:
+    """The *late* rows the fire interval would file differently from their baselines."""
+    if not late:
+        return set()
+    trial = [None if k in late else i for k, i in enumerate(assigned)]
+    _assign_intervals(trial, records, clock, skip=decided - late)
+    return {k for k in late if trial[k] != assigned[k]}
 
 
 def _late_stretches(rows: list[int], found: dict[int, list[int]]) -> list[list[int]]:
