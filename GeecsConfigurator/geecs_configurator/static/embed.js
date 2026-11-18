@@ -400,7 +400,9 @@
       if (liveTimer) clearTimeout(liveTimer);
       liveTimer = setTimeout(function () {
         liveTimer = null;
-        if (!live || !open_() || !form || d.getAttribute("data-open") !== "true") return;
+        if (!live || !open_() || !form) return;
+        if (drawn !== null && JSON.stringify(value()) === drawn) return;  // back at the draft shown while it waited
+        if (d.getAttribute("data-open") !== "true") { if (pictured && drawn !== null) note(STALE + "press Preview again."); return; }
         if (form.invalid().length) { if (pictured) note(STALE + "a field does not parse."); return; }
         if (rendering) { waiting = true; return; }
         preview();
@@ -482,7 +484,7 @@
             waiting = false;
             if (previewBox.getAttribute("data-stale") === "true" && drawn !== null) note(STALE + "press Preview again.");
           }
-          if (live && (drawn === null || JSON.stringify(value()) !== drawn)) preview();
+          if (live && (drawn === null || JSON.stringify(value()) !== drawn)) { if (rendering) waiting = true; else preview(); }
         });
         seg.appendChild(drawNow); seg.appendChild(liveBtn);
         tools.appendChild(seg);
