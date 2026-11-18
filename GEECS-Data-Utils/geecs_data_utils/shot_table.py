@@ -526,10 +526,10 @@ class _RowClock:
                 assigned = list(join.frame_for_shot)
                 baselines = self.baselines.get(_squash(source.device))
                 if baselines is not None:
-                    decided, ambiguous = _assign_baselines(
-                        assigned, records, baselines, self
+                    decided = _assign_baselines(
+                        assigned, records, baselines, self.loose
                     )
-            ambiguous |= _assign_intervals(assigned, records, self, skip=decided)
+            ambiguous = _assign_intervals(assigned, records, self, skip=decided)
             unresolved, self.held[source.device] = _assign_shared(
                 assigned, records, source.counter, self
             )
@@ -725,33 +725,40 @@ def _assign_baselines(
     assigned: list[int | None],
     records: np.ndarray,
     baselines: np.ndarray,
-    clock: _RowClock,
-) -> tuple[set[int], set[int]]:
-    """File loose rows by the device's own pre-fire stamps; return (decided, ambiguous).
+    loose: np.ndarray,
+) -> set[int]:
+    """File loose rows by the device's own pre-fire stamps; return the rows decided.
 
     The plan reads a required device's last stamp before each fire
     (``<device>-baseline``), so row *k*'s record is newer than baseline
     *k*.  When the plan saw it before fire *k*+1 it is also no newer than
     baseline *k*+1: the first free record in (baseline *k*, baseline *k*+1]
-    is row *k*'s.  No fire time is involved, so a record stamped just
-    before the next fire (a phase-locked loop) or before its own fire (a
-    device clock behind the worker's) stays on its own row.  The last row's
-    interval is open above, as is a row whose next baseline was not read;
-    a row whose own baseline was not read is left to the fire interval
-    (:func:`_assign_intervals`).
+    is row *k*'s, and an empty interval is a miss.  No fire time is
+    involved, so a record stamped just before the next fire (a phase-locked
+    loop) or before its own fire (a device clock behind the worker's) stays
+    on its own row.  The last row's interval is open above, as is a row
+    whose next baseline was not read.  Each record is filed once.
 
-    An empty interval is either a miss or a record that arrived after the
-    next read (the plan gave up on the row, or a refire's wait saw it
-    first).  A late record leaves a surplus further on — a later interval,
-    at the latest the open last one, holds two — and every row between was
-    filed one record late.  So a gap followed by a surplus has two
-    readings: as filed, or each record one row earlier.  The run's own lag
-    (the median record − fire over the rows outside every such stretch)
-    decides, when one reading's worst row fits it by more than two stamp
-    budgets better than the other's; otherwise, and for a stretch with more
-    than one gap or a surplus of more than one, the stretch's rows are left
-    empty and returned as ambiguous, their records extras.
+    Left to the fire interval (:func:`_assign_intervals`), undecided here:
+
+    - every row, when the baselines ever run backwards (the device clock
+      stepped back): the intervals overlap and none can be trusted;
+    - a row whose own baseline was not read;
+    - every row of a *late stretch*: from an empty interval until the
+      surplus records of later intervals (at the latest the open last one)
+      account for every empty one.  A surplus means a record arrived after
+      the next read — the plan gave up on its row, or a refire's wait saw
+      it first — and arrival order cannot say which rows it shifted.
+
+    The one misfiling left: a late record whose shift a genuine miss
+    absorbs before any interval holds two leaves no surplus, and the rows
+    between hold the previous shot's records.  It takes a record that
+    arrives after the plan gave up on its shot (its whole shot timeout)
+    and a real miss after it, before the next surplus.
     """
+    read = baselines[np.isfinite(baselines)]
+    if np.any(np.diff(read) < -BASELINE_TOLERANCE_S):
+        return set()
     claimed = {i for i in assigned if i is not None}
     order = np.array(
         [i for i in np.argsort(records, kind="stable") if np.isfinite(records[i])],
@@ -759,90 +766,40 @@ def _assign_baselines(
     )
     ordered = records[order]
     n = baselines.size
-    rows = [int(k) for k in np.flatnonzero(clock.loose[:n] & np.isfinite(baselines))]
     found: dict[int, list[int]] = {}
-    for k in rows:
+    for k in np.flatnonzero(loose[:n] & np.isfinite(baselines)):
+        k = int(k)
         following = baselines[k + 1] if k + 1 < n else np.nan
-        high = following + BASELINE_TOLERANCE_S if np.isfinite(following) else np.inf
         low = baselines[k] + BASELINE_TOLERANCE_S
+        high = following + BASELINE_TOLERANCE_S if np.isfinite(following) else np.inf
         start = int(np.searchsorted(ordered, low, "right"))
         stop = int(np.searchsorted(ordered, high, "right"))
         found[k] = [int(i) for i in order[start:stop] if int(i) not in claimed]
         assigned[k] = found[k][0] if found[k] else None
-    ambiguous: set[int] = set()
-    stretches = _late_stretches(rows, found)
-    if stretches:
-        inside = {k for stretch in stretches for k in stretch}
-        outside = [k for k in rows if k not in inside]
-        lag = _run_lag(assigned, records, clock.fires, outside)
-        for stretch in stretches:
-            reading = _closer(stretch, assigned, found, records, clock, lag)
-            if reading is None:
-                ambiguous.update(stretch)
-            for k in stretch:
-                assigned[k] = None if reading is None else reading[k]
-    return set(rows), ambiguous
+        if found[k]:
+            claimed.add(found[k][0])
+    decided = set(found)
+    for stretch in _late_stretches(list(found), found):
+        for k in stretch:
+            assigned[k] = None
+            decided.discard(k)
+    return decided
 
 
 def _late_stretches(rows: list[int], found: dict[int, list[int]]) -> list[list[int]]:
-    """Runs of rows from an empty interval to the next interval holding two or more."""
+    """Runs of *rows* from an empty interval until later surpluses repay every empty one."""
     stretches: list[list[int]] = []
     current: list[int] = []
+    owed = 0
     for k in rows:
-        if current:
-            current.append(k)
-            if len(found[k]) > 1:
-                stretches.append(current)
-                current = []
-        elif not found[k]:
-            current = [k]
+        if not current and found[k]:
+            continue
+        current.append(k)
+        owed += 1 if not found[k] else 1 - len(found[k])
+        if owed <= 0:
+            stretches.append(current)
+            current, owed = [], 0
     return stretches
-
-
-def _run_lag(
-    assigned: list[int | None], records: np.ndarray, fires: np.ndarray, rows: list[int]
-) -> float:
-    """The median record − fire over *rows* holding a record; ``NaN`` with none."""
-    lags = [
-        records[i] - fires[k]
-        for k in rows
-        if (i := assigned[k]) is not None and np.isfinite(fires[k])
-    ]
-    return float(np.median(lags)) if lags else np.nan
-
-
-def _closer(
-    stretch: list[int],
-    filed: list[int | None],
-    found: dict[int, list[int]],
-    records: np.ndarray,
-    clock: _RowClock,
-    lag: float,
-) -> dict[int, int | None] | None:
-    """The reading of *stretch* that fits the run's *lag*, or ``None`` when neither clearly does."""
-    gaps = sum(not found[k] for k in stretch)
-    if gaps != 1 or len(found[stretch[-1]]) != 2 or not np.isfinite(lag):
-        return None
-    as_filed = {k: filed[k] for k in stretch}
-    pool = [i for k in stretch for i in found[k]]
-    shifted: dict[int, int | None] = dict(zip(stretch, pool))
-
-    def worst(reading: dict[int, int | None]) -> float:
-        residuals = [
-            abs(records[i] - clock.fires[k] - lag)
-            for k, i in reading.items()
-            if i is not None
-        ]
-        return max(residuals) if residuals else np.nan
-
-    a, b = worst(as_filed), worst(shifted)
-    margin = 2.0 * clock.budget
-    if np.isfinite(a) and np.isfinite(b):
-        if a + margin < b:
-            return as_filed
-        if b + margin < a:
-            return shifted
-    return None
 
 
 def _assign_intervals(

@@ -939,8 +939,9 @@ def test_a_late_record_of_a_given_up_row_goes_back_to_its_own_row() -> None:
     """Row 2 timed out; its frame (stamped at its fire) arrived after fire 3's read.
 
     Interval 2 is empty and interval 3 holds two records: the late one and
-    row 3's own.  The run's lag (0.1 s) says each is one row earlier than
-    filed, so row 2 gets its frame back, flagged against the plan's verdict.
+    row 3's own.  Arrival order cannot place them, so the stretch goes to the
+    fire interval, which gives row 2 its frame back, flagged against the
+    plan's verdict.
     """
     fires = [0.0, 1.0, 2.0, 3.0, 4.0]
     baselines = [-0.9, 0.1, 0.1, 2.1, 3.1]
@@ -966,7 +967,7 @@ def test_a_late_record_that_shifts_every_later_row_is_undone_at_the_open_last_ro
 
 
 def test_a_miss_then_an_extra_frame_stays_as_filed() -> None:
-    """A genuine miss on row 2, a doubled frame on row 4: the lag keeps the filing."""
+    """A genuine miss on row 3, a doubled frame after row 4's: the fire interval agrees."""
     fires = [0.0, 1.0, 2.0, 3.0, 4.0]
     baselines = [-0.9, 0.1, 1.1, 1.1, 3.15]  # the doubled frame landed before fire 5
     rows = _unwitnessed(fires, baselines)
@@ -977,16 +978,55 @@ def test_a_miss_then_an_extra_frame_stays_as_filed() -> None:
     assert _flagged(table, "missing:cam") == [3]
 
 
-def test_a_gap_and_surplus_the_lag_cannot_tell_apart_is_ambiguous() -> None:
-    """No row outside the stretch holds a record: no lag, nothing guessed."""
-    fires = [0.0, 1.0, 2.0]
-    baselines = [-0.9, -0.9, 1.1]
-    rows = _unwitnessed(fires, baselines)
-    records = T0 + LV + np.asarray([1.1, 2.1, 2.15])
-    table = shot_table(FIRE_CLOCK, rows, [_device("cam", records)])
-    assert table.record_for_shot["cam"] == (None, None, None)
-    assert _flagged(table, "interval-ambiguous:cam") == [1, 2, 3]
-    assert table.extras["cam"] == (0, 1, 2)
+def test_a_late_stretch_over_the_whole_run_goes_to_the_fire_interval() -> None:
+    """Row 1's frame arrived late and every later row completed on its predecessor's."""
+    fires = [0.0, 1.0, 2.0, 3.0, 4.0]
+    baselines = [-0.9, -0.9, 0.1, 1.1, 2.1]
+    records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1])
+    table = shot_table(
+        FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", records)]
+    )
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4)
+
+
+def test_two_late_frames_in_a_row_go_to_the_fire_interval() -> None:
+    fires = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+    baselines = [-0.9, 0.1, 0.1, 0.1, 2.1, 4.1]
+    records = T0 + LV + np.asarray([0.1, 1.1, 2.1, 3.1, 4.1, 5.1])
+    table = shot_table(
+        FIRE_CLOCK, _unwitnessed(fires, baselines), [_device("cam", records)]
+    )
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 4, 5)
+
+
+def _stepped_back(step: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Fires 0..5, the device clock stepping back by *step* at shot 3; the baselines its previous stamps."""
+    fires = np.arange(6.0)
+    records = fires + 0.1
+    records[2:] -= step
+    baselines = np.concatenate([[records[0] - 1.0], records[:-1]])
+    return fires, baselines, records
+
+
+def test_a_backward_clock_step_leaves_the_device_to_the_fire_interval() -> None:
+    """Back 1.6 s, past a shot: the baselines run backwards and the intervals overlap."""
+    fires, baselines, records = _stepped_back(1.6)
+    cam = _device("cam", T0 + LV + records)
+    table = shot_table(FIRE_CLOCK, _unwitnessed(fires, baselines), [cam])
+    unbased = _unwitnessed(fires, baselines).drop(columns="cam-baseline")
+    assert (
+        table.record_for_shot == shot_table(FIRE_CLOCK, unbased, [cam]).record_for_shot
+    )
+    filed = [i for i in table.record_for_shot["cam"] if i is not None]
+    assert len(filed) == len(set(filed))
+
+
+def test_a_step_back_that_keeps_the_stamps_rising_is_still_filed_by_baseline() -> None:
+    """Back 0.5 s, within a period: the arrival order still holds every row."""
+    fires, baselines, records = _stepped_back(0.5)
+    cam = _device("cam", T0 + LV + records)
+    table = shot_table(FIRE_CLOCK, _unwitnessed(fires, baselines), [cam])
+    assert table.record_for_shot["cam"] == tuple(range(6))
 
 
 def test_the_drain_offset_moves_the_baseline_with_the_records() -> None:
