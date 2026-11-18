@@ -325,12 +325,18 @@ window.PlotTools = (function () {
     if (!text) return { figure: gd, options: { width, height } };
     const top = (full.margin && full.margin.t) || 0;
     const font = (full.font && full.font.color) || undefined;
+    // A title of the viewer's own (the Display drawer's Layout JSON) stays,
+    // its styling too, with the date and scan after it.
+    const own = gd.layout.title && typeof gd.layout.title === "object" ? gd.layout.title : {};
+    const ownText = typeof gd.layout.title === "string" ? gd.layout.title : own.text;
     const layout = {
       ...gd.layout,
       margin: { ...(gd.layout.margin || {}), t: top + LABEL_HEIGHT },
       title: {
-        text, x: 0, xref: "paper", xanchor: "left", y: 1, yref: "container", yanchor: "top",
+        x: 0, xref: "paper", xanchor: "left", y: 1, yref: "container", yanchor: "top",
         pad: { t: 8 }, font: { size: 13, color: font },
+        ...own,
+        text: ownText ? `${ownText}  ·  ${text}` : text,
       },
     };
     return { figure: { data: gd.data, layout }, options: { width, height: height + LABEL_HEIGHT } };

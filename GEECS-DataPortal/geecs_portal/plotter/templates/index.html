@@ -226,7 +226,7 @@
 {%- macro big_view(mode) %}
             <section class="group bigview" id="bigview" aria-label="Big view" data-mode="{{ mode }}" data-device="{{ device }}"
                      data-day="{{ day }}" data-scan="{{ scan }}" data-uid="{{ uid }}" data-shots="{{ shots }}" data-cmap="{{ cmap }}"
-                     data-in-portal="{{ 'true' if in_portal else 'false' }}" data-portal-root="{{ portal_root }}" data-multi="{{ 'true' if pooled else 'false' }}"
+                     data-in-portal="{{ 'true' if in_portal else 'false' }}" data-portal-root="{{ portal_root }}" data-multi="{{ 'true' if pooled else 'false' }}" data-provenance="{{ provenance }}"
                      data-logbook-send="{{ 'true' if logbook_send else 'false' }}">
               <div class="row bigbar">
                 <button class="btn sm" type="button" data-big-step="-1" aria-label="Previous">‹</button>

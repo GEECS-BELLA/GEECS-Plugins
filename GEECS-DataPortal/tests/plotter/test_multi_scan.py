@@ -486,3 +486,5 @@ def test_every_plot_picture_is_drawn_through_the_labelled_export() -> None:
     assert "Plotly.downloadImage(figure" in source
     assert 'modeBarButtonsToRemove: ["toImage"]' in source
     assert "toImageButtonOptions" not in source
+    # A title of the viewer's own is kept, the label after it.
+    assert "...own," in source and "${ownText}  ·  ${text}" in source
