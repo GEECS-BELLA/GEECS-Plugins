@@ -488,7 +488,8 @@
         });
         seg.appendChild(drawNow); seg.appendChild(liveBtn);
         tools.appendChild(seg);
-        if (live) preview();
+        // live left on: the drawer draws as it opens, unless it was closed while the document loaded
+        if (live && d.getAttribute("data-open") === "true") preview();
       }
       if (!readOnly) {
         saveBtn = button("Save", "primary", function () { save(false, false); });

@@ -156,6 +156,14 @@ const hold = { url: null, until: null };
   out.drawsOnOpen = previews.length - drawnBefore;
   const wrap = document.body.children[0];
   out.wrapped = [wrap.attrs.class, wrap.children.map((c) => c.attrs.class), wrap.children[1].attrs["data-scrim"]];
+  // closed while its document was still loading: the load draws no preview for a drawer nobody sees
+  let let_go; hold.until = new Promise((r) => { let_go = r; });
+  hold.url = C.api + "/api/documents/setup/far.yaml?experiment=Bench";
+  const drawnClosed = previews.length;
+  require(process.argv[2]).open(Object.assign({}, opts, { id: "far.yaml" })); await settle();
+  wrap.children[1].setAttribute("data-open", "false");
+  let_go(); await settle();
+  out.drawsClosed = [previews.length - drawnClosed, walk(wrap, (n) => n.attrs["data-path"] === "description").length > 0];
   console.log(JSON.stringify(out));
 })().catch((e) => { console.error(e); process.exit(1); });
 """
@@ -268,6 +276,13 @@ def test_live_is_remembered_in_the_browser_and_draws_as_the_drawer_opens(
     ran: dict,
 ) -> None:
     assert ran["remembered"] == ["1"] and ran["drawsOnOpen"] == 1
+
+
+def test_a_drawer_closed_while_its_document_loads_draws_no_live_preview(
+    ran: dict,
+) -> None:
+    # the form was drawn (the load arrived), the preview was not asked
+    assert ran["drawsClosed"] == [0, True]
 
 
 def test_off_the_kit_the_drawer_brings_its_own_kit_wrapper_and_scrim(ran: dict) -> None:
