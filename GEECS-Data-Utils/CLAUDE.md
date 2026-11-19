@@ -418,13 +418,14 @@ this package and must never depend on GeecsBluesky or a GUI package).
   everything else through `shot_join`); a `shot-table/1` run is timed on
   `witness_stamp` (or `fire_stamp` intervals when unwitnessed), counters
   and the witness attribute only audit. A **scan-mode** run's
-  (`use_scan_mode`) required devices are the one exception: their records
-  go in order to the rows they delivered (not named in `missing`;
-  `complete` when there is no `missing` column), because the device
-  acquires once per announced shot and its stamps need not match the
-  fires; a count that does not pair up falls back to the stamp rule,
-  every row flagged `scan-mode-order:<device>` and the device
-  `scan-mode-order-unresolved`. Plain inputs, no I/O; the
+  (`use_scan_mode`) required stamped devices are the one exception: a
+  delivered row's record (the device not named in `missing`) is the one
+  whose stamp **is** the next row's `<device>-baseline` — stamp identity,
+  no clock compared, because a scan-mode device's stamps need not match
+  the fires; a row it cannot identify sends the device back to the stamp
+  rule, every row flagged `scan-mode-order:<device>` and the device
+  `scan-mode-order-unresolved` (a frame-count baseline, a plugin camera's,
+  keeps the stamp rule unflagged). Plain inputs, no I/O; the
   adapters are the readers' (`tiled_export.read_device_records` for a
   Tiled run, GeecsBluesky's callback buffer for the live one, both through
   `device_records`: `stream_meta`, the counter, `WitnessCount`). The
