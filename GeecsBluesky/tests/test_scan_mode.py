@@ -281,6 +281,34 @@ def test_enter_announce_exit_round_trip(RE: RunEngine, stack: Stack) -> None:
     assert _received(stack)[-1] == "ScanEnd"
 
 
+def test_the_acknowledged_devices_are_paused_until_the_exit(
+    RE: RunEngine, stack: Stack
+) -> None:
+    # A device in scan mode freezes its readbacks between shots; the paused
+    # set is what tells a readback-confirming move so (devices/scan_pause.py).
+    from geecs_bluesky.devices.scan_pause import is_paused
+
+    stack.start()
+    control = stack.make_control()
+    assert not is_paused(CAM)
+    RE(bps.mv(control, _entry()))
+    assert is_paused(CAM) and is_paused(BOX)
+    assert is_paused(CAM.upper())  # GEECS names compare case-insensitively
+    RE(bps.mv(control, EXIT))
+    assert not is_paused(CAM) and not is_paused(BOX)
+
+
+def test_a_refused_entry_leaves_nothing_paused(RE: RunEngine, stack: Stack) -> None:
+    from geecs_bluesky.devices.scan_pause import is_paused
+
+    stack.start(**{BOX: {"miss_scan_starts": 2}})
+    control = stack.make_control(ack_timeout_s=0.3)
+    with pytest.raises(FailedStatus):
+        RE(bps.mv(control, _entry()))
+    assert not control.entered
+    assert not is_paused(CAM) and not is_paused(BOX)
+
+
 def _control_with_other_host(stack: Stack) -> ScanModeControl:
     # An enabled device the run does not list, on a host that never connects.
     endpoints = {name: (LOOPBACK, port) for name, port in stack.ports.items()}

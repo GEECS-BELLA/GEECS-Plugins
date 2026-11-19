@@ -34,6 +34,7 @@ import sys
 from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.devices.ca.settable import CaSettable
+from geecs_bluesky.devices.scan_pause import is_paused
 from geecs_bluesky.exceptions import GeecsMotorTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -194,7 +195,26 @@ class CaMotor(CaSettable):
         from the reply, so a readback the stall rule cannot see as stalled
         (a NaN, a ripple wider than the tolerance) fails the move instead
         of holding the scan forever.
+
+        A device paused in scan mode (a run detector whose own variable is
+        moved, :mod:`~geecs_bluesky.devices.scan_pause`) freezes its
+        readbacks between shots, so nothing would ever confirm: there the
+        device's ``no error`` reply is the verdict on its own — it ran its
+        check-values against the DB tolerance before answering — and an
+        error reply fails the move as always.
         """
+        if is_paused(self._geecs_device_name):
+            await self._put.put(value, timeout=self._reply_ceiling)
+            logger.info(
+                "%s: %s → %s confirmed by the device's reply (paused in scan "
+                "mode: its readback updates only at the next shot)",
+                self.name,
+                self._variable,
+                value,
+            )
+            if self._settle_time > 0:
+                await asyncio.sleep(self._settle_time)
+            return
         loop = asyncio.get_running_loop()
         position = getattr(self, self._readback_attr_name)
         put = asyncio.ensure_future(self._put.put(value, timeout=self._reply_ceiling))

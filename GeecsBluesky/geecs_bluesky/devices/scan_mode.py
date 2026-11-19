@@ -44,6 +44,7 @@ from typing import Any
 from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.data_paths import device_server_save_path
+from geecs_bluesky.devices.scan_pause import mark_paused
 from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsScanModeError
 from geecs_core.transport.scan_mode import (
     SCAN_END,
@@ -254,8 +255,21 @@ class ScanModeControl:
         self._announced_as: str | None = None
         self._shot = 0
         self._last_path: str | None = None
-        self._acked: tuple[str, ...] = ()
+        self._acked_devices: tuple[str, ...] = ()
         self._entry_task: asyncio.Task[None] | None = None
+
+    @property
+    def _acked(self) -> tuple[str, ...]:
+        """The devices that acknowledged ``ScanStart``: in scan mode, acquisition paused."""
+        return self._acked_devices
+
+    @_acked.setter
+    def _acked(self, devices: tuple[str, ...]) -> None:
+        # The one writer of the paused set (devices/scan_pause.py): every
+        # change of who is in scan mode — the acks, a retry's reset, the
+        # exit — changes it with them.
+        self._acked_devices = devices
+        mark_paused(devices)
 
     # ------------------------------------------------------------ building
 
