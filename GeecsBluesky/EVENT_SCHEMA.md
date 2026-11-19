@@ -53,7 +53,7 @@ adds:
 | `shot_gate` | the bound plan (`registry.gate_for_run`; `optimize` the same) | Present only when the run held for its trigger profile's shot gate before every SINGLESHOT: `{address, hold_pause_s, holdoff_s}` (each `primary` row then carries `gate_hold_s`). Absent under a profile naming no gate and in a fly run (no SINGLESHOT to govern). The gate was connected, and had delivered a frame, before the claim — an unreachable or silent one refuses the run |
 | `shots_per_step` | the bound plan | Rows per position (`1` for `count`, whose `num` is the shot count) |
 | `description`, `background` | the client (`md`) | The preset's description (ScanInfo's `ScanStartInfo`) and background flag |
-| `geecs` | the client (`md`) | Provenance only: `{preset, submission, operator, scan_log_variables}` — never a worker instruction; `ScanInfoCallback` copies `scan_log_variables` (the web scanner's shared list) into the ini's `[Scan Log]` section as a record |
+| `geecs` | the client (`md`) | Provenance only: `{preset, submission, operator, scan_log_variables, devices_left_out}` (the last: GEECS device names the client left out of the item because the worker's device tree lacked them and they were not required; absent when none) — never a worker instruction; `ScanInfoCallback` copies `scan_log_variables` (the web scanner's shared list) into the ini's `[Scan Log]` section as a record |
 
 Every run the worker opens claims a scan number; a run without one is not a
 GEECS scan.

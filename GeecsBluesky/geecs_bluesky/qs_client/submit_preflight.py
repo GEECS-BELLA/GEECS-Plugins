@@ -369,7 +369,13 @@ def _check_worker_ready(
         if verdict.ready:
             known = set(client.allowed_device_names())
             if expand is not None:
-                item = expand(known)
+                from geecs_bluesky.exceptions import GeecsConfigurationError
+
+                try:
+                    item = expand(known)
+                except GeecsConfigurationError as exc:  # every device unknown
+                    report.refusal = str(exc)
+                    return item
             unknown = [r for r in item.references if r not in known]
             if unknown:
                 report.refusal = (
