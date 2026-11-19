@@ -179,7 +179,16 @@ class SlotColumns:
         make the reader time the row by a fire it does not have), and no
         ``extra_frames`` (free-running is legitimate there).
         """
-        fired = {} if self._fly else {"fire_stamp": math.nan}
+        fired = (
+            {}
+            if self._fly
+            else {
+                "fire_stamp": math.nan,
+                "shot_period_s": math.nan,
+                "slowest_device": "",
+                "slowest_s": math.nan,
+            }
+        )
         witness = {} if self._fly else {"unwitnessed": False, "witness_late": False}
         extra = {} if self._fly else {"extra_frames": ""}
         self.values = {
@@ -339,6 +348,8 @@ class OnDemand:
         self._excess_streak: dict[str, int] = {}
         self._unreadable: set[str] = set()
         self._free_runners: set[str] = set()
+        #: The previous fire's wall time (``shot_period_s``); a run's first row has none.
+        self._last_fire_stamp: float | None = None
 
     # ------------------------------------------------------------------ plans
     def _counters(self):
@@ -375,22 +386,43 @@ class OnDemand:
             logger.info("a pause cut the counter snapshot: taking it again")
 
     def _wait(self, base: dict[str, Any]):
-        """Plan: until every required counter advanced (or the witness, with none required)."""
+        """Plan: until every required counter advanced (or the witness, with none required).
+
+        Records the row's ``slowest_device`` — the required device whose
+        record came last (or never: it waited its whole timeout) — and
+        ``slowest_s``, seconds from the fire to that record: what held the
+        shot, the rate's limit when it exceeds the trigger period.
+        """
         required, witness = self.required, self.witness
+        arrivals: dict[str, float] = {}
+
+        async def arrive(p: _Progress, deadline: float) -> None:
+            await _until_moved(p, base[p.name], deadline)
+            arrivals[p.name] = time.time()
 
         async def wait() -> None:
             loop = asyncio.get_running_loop()
             if required:
                 deadline = loop.time() + max(p.timeout for p in required)
-                await asyncio.gather(
-                    *(_until_moved(p, base[p.name], deadline) for p in required)
-                )
+                await asyncio.gather(*(arrive(p, deadline) for p in required))
             if witness is not None and base[""] is not None:
                 grace = WITNESS_GRACE_S if required else DEFAULT_SHOT_TIMEOUT
                 await _until_counted(witness, base[""], loop.time() + grace)
 
         if required or witness is not None:
             yield from bps.wait_for([wait])
+        self._record_slowest(arrivals)
+
+    def _record_slowest(self, arrivals: dict[str, float]) -> None:
+        """The row's ``slowest_device`` / ``slowest_s`` from each required device's arrival."""
+        values = self.columns.values
+        fired = values.get("fire_stamp", math.nan)
+        if not arrivals or "slowest_device" not in values or math.isnan(fired):
+            return
+        name, at = max(arrivals.items(), key=lambda kv: kv[1])
+        owner = next(p.owner for p in self.required if p.name == name)
+        values["slowest_device"] = geecs_name(owner)
+        values["slowest_s"] = max(0.0, at - fired)
 
     def _throttle(self):
         if self.shot_period is not None and self._last_fire is not None:
@@ -417,6 +449,10 @@ class OnDemand:
             raise
         if self.presses:
             yield from bps.wait_for([self._press])
+        fired = values["fire_stamp"]
+        if "shot_period_s" in values and self._last_fire_stamp is not None:
+            values["shot_period_s"] = fired - self._last_fire_stamp
+        self._last_fire_stamp = fired
         return True
 
     async def _press(self) -> None:

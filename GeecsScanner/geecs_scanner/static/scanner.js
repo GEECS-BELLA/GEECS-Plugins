@@ -224,8 +224,26 @@
     $("meter-r").textContent = right;
     $("now-scan").textContent = p.scan_number ? "Scan " + String(p.scan_number).padStart(3, "0") : "—";
     if (p.paused_reason) $("paused-reason").textContent = "paused: " + p.paused_reason;
+    renderRate(p);
     $("lv-docs").textContent = p.available ? (done ? "event #" + done : (p.scan_number ? "start" : "quiet")) : "off";
     if (!p.available) setChip($("chip-docs"), K.degraded, "doc stream", p.detail || "not consuming");
+  }
+
+  // The rows' timing columns (shot_period_s, slowest_device, slowest_s),
+  // reduced by the shared progress stream: shown, never a gate.
+  function renderRate(p) {
+    function hz(x) { return x == null ? "—" : x.toFixed(2) + " Hz"; }
+    function s(x) { return x.toFixed(2) + " s"; }
+    $("lv-rate").textContent = hz(p.current_rate_hz);
+    $("ag-rate").textContent = p.average_rate_hz == null ? "" : "average " + hz(p.average_rate_hz);
+    $("lv-wait").textContent = p.waiting_on || "—";
+    $("ag-wait").textContent = p.waiting_s == null ? "" : s(p.waiting_s) + " after the fire";
+    var slow = p.slowest || [];
+    $("slowest-note").textContent = slow.length
+      ? "Held the most shots: " + slow.map(function (d) {
+          return d.device + " " + d.held + " (mean " + s(d.mean_s) + ", max " + s(d.max_s) + ")";
+        }).join("; ")
+      : "";
   }
 
   function tickAges() {

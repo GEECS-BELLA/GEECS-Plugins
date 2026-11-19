@@ -14,6 +14,7 @@ baseline.
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 import logging
 from pathlib import Path
@@ -295,6 +296,32 @@ def test_two_cameras_share_one_fire(
         for n in ("uc_a", "uc_b")
     ]
     assert stamps[0] == stamps[1] == [1001.0, 1002.0, 1003.0]
+
+
+def test_each_row_names_its_period_and_the_device_that_held_it(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+) -> None:
+    """The slowest required device and its delay after the fire; the period since the last fire."""
+    fast = _camera(RE, box, "UC_Fast")
+    slow = _camera(RE, box, "UC_Slow")
+    box.cameras.remove(slow)  # stamped late, by hand
+    advance = box.advance
+
+    def late_advance(step: float = 1.0) -> None:
+        advance(step)
+        asyncio.get_running_loop().call_later(
+            0.2, set_mock_value, slow.acq_timestamp, box.stamp
+        )
+
+    box.advance = late_advance  # type: ignore[method-assign]
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(strict_count(shot_control, [fast, slow], 3))
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["slowest_device"] for r in rows] == ["UC_Slow"] * 3
+    assert all(0.15 < r["slowest_s"] < 1.0 for r in rows)
+    periods = [r["shot_period_s"] for r in rows]
+    assert math.isnan(periods[0]) and all(p >= 0.2 for p in periods[1:])
 
 
 def test_missed_frame_keeps_the_row_and_adds_a_shot(

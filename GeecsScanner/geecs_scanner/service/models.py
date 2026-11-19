@@ -246,6 +246,15 @@ class VerbOut(BaseModel):
     message: str = ""
 
 
+class SlowDeviceOut(BaseModel):
+    """A required device that held the run's shots (the rows' ``slowest_device``)."""
+
+    device: str
+    held: int = Field(description="Rows whose shot it was the last to deliver")
+    mean_s: float = Field(description="Its mean delay after the fire on those rows")
+    max_s: float = Field(description="Its longest delay after the fire")
+
+
 class ProgressOut(BaseModel):
     """The latest-run picture from the document and console streams."""
 
@@ -267,6 +276,22 @@ class ProgressOut(BaseModel):
     day: Optional[str] = Field(
         default=None,
         description="The run's day, ISO (from the start document's scan_tag)",
+    )
+    current_rate_hz: Optional[float] = Field(
+        default=None, description="1 / the latest row's period since the previous fire"
+    )
+    average_rate_hz: Optional[float] = Field(
+        default=None, description="The run's fires over their span"
+    )
+    waiting_on: Optional[str] = Field(
+        default=None,
+        description="The required device the latest shot waited for last (GEECS name)",
+    )
+    waiting_s: Optional[float] = Field(
+        default=None, description="Its delay after that fire, seconds"
+    )
+    slowest: list[SlowDeviceOut] = Field(
+        default_factory=list, description="The devices that held the most rows"
     )
 
     @classmethod

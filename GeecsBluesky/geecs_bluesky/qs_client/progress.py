@@ -17,12 +17,13 @@ with a reason, and the manager poll stays authoritative.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,26 @@ logger = logging.getLogger(__name__)
 ROW_STREAMS: tuple[str, ...] = ("primary",)
 
 
+#: How many of the run's slowest devices :class:`RunProgress` keeps.
+SLOWEST_KEPT = 5
+
+
+class SlowDevice(BaseModel):
+    """One required device as the run's rows saw it hold their shots."""
+
+    device: str
+    held: int = Field(description="Rows whose shot it was the last to deliver")
+    mean_s: float = Field(description="Its mean delay after the fire on those rows")
+    max_s: float = Field(description="Its longest delay after the fire")
+
+
 class RunProgress(BaseModel):
-    """The latest run as the streams describe it."""
+    """The latest run as the streams describe it.
+
+    The rates and the slowest devices come from the rows' ``fire_stamp``,
+    ``shot_period_s``, ``slowest_device`` and ``slowest_s`` (a strict run's
+    shot table; ``None`` / empty for a run without them).
+    """
 
     available: bool = False
     detail: str = ""
@@ -49,6 +68,23 @@ class RunProgress(BaseModel):
     exit_status: Optional[str] = None
     paused_reason: Optional[str] = None
     updated_at: Optional[float] = None
+    current_rate_hz: Optional[float] = Field(
+        default=None, description="1 / the latest row's shot_period_s"
+    )
+    average_rate_hz: Optional[float] = Field(
+        default=None,
+        description="(fires − 1) / (last fire − first fire) over the run",
+    )
+    waiting_on: Optional[str] = Field(
+        default=None, description="The latest row's slowest_device"
+    )
+    waiting_s: Optional[float] = Field(
+        default=None, description="The latest row's slowest_s"
+    )
+    slowest: list[SlowDevice] = Field(
+        default_factory=list,
+        description="The devices that held the most rows, most first",
+    )
 
 
 class ProgressStream:
@@ -72,6 +108,7 @@ class ProgressStream:
         self._progress = RunProgress(detail="stream cache not started")
         self._rows: set[str] = set()
         self._version = 0
+        self._timing = _RowTiming()
 
     # ---------------------------------------------------------------- read
 
@@ -125,11 +162,14 @@ class ProgressStream:
                 counted = [_as_int(v) or 0 for v in seqs or []]
                 if counted:
                     self._count_rows(max(counted), now)
+                self._timing.take(doc.get("data") or {}, page=name == "event_page")
+                self._timing.write(self._progress)
         elif name == "stop":
             self._stop(doc, now)
 
     def _start(self, doc: dict, now: float) -> None:
         self._rows = set()
+        self._timing = _RowTiming()
         self._progress = RunProgress(
             available=self._progress.available,
             detail=self._progress.detail,
@@ -273,6 +313,69 @@ def _scan_day(tag: Any) -> Optional[str]:
     except (TypeError, ValueError):
         pass
     return None
+
+
+class _RowTiming:
+    """The run's rates and the devices that held its shots, from the rows' timing columns."""
+
+    def __init__(self) -> None:
+        self.first: float | None = None
+        self.last: float | None = None
+        self.fires = 0
+        self.period: float | None = None
+        self.waiting: tuple[str, float] | None = None
+        self.held: dict[str, list[float]] = {}
+
+    def take(self, data: dict, *, page: bool) -> None:
+        """One event's ``data`` (or an event page's, columns of lists)."""
+        rows = (
+            [dict(zip(data, vals, strict=False)) for vals in zip(*data.values())]
+            if page
+            else [data]
+        )
+        for row in rows:
+            fired = _finite(row.get("fire_stamp"))
+            if fired is not None:
+                self.first = fired if self.first is None else min(self.first, fired)
+                self.last = fired if self.last is None else max(self.last, fired)
+                self.fires += 1
+            period = _finite(row.get("shot_period_s"))
+            if period is not None and period > 0:
+                self.period = period
+            device = row.get("slowest_device")
+            delay = _finite(row.get("slowest_s"))
+            if device and delay is not None:
+                self.waiting = (str(device), delay)
+                self.held.setdefault(str(device), []).append(delay)
+
+    def write(self, progress: RunProgress) -> None:
+        """Set the picture's timing fields."""
+        progress.current_rate_hz = None if self.period is None else 1.0 / self.period
+        span = (
+            None if self.first is None or self.last is None else self.last - self.first
+        )
+        progress.average_rate_hz = (
+            (self.fires - 1) / span if span and self.fires > 1 else None
+        )
+        progress.waiting_on, progress.waiting_s = self.waiting or (None, None)
+        ranked = sorted(self.held.items(), key=lambda kv: (-len(kv[1]), -max(kv[1])))
+        progress.slowest = [
+            SlowDevice(
+                device=device,
+                held=len(delays),
+                mean_s=sum(delays) / len(delays),
+                max_s=max(delays),
+            )
+            for device, delays in ranked[:SLOWEST_KEPT]
+        ]
+
+
+def _finite(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _as_int(value: Any) -> Optional[int]:

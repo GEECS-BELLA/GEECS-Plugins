@@ -117,4 +117,36 @@ def test_the_progress_wire_keys() -> None:
         "updated_at",
         "scan_folder",
         "day",
+        "current_rate_hz",
+        "average_rate_hz",
+        "waiting_on",
+        "waiting_s",
+        "slowest",
     ]
+
+
+def test_the_rows_timing_reaches_the_page() -> None:
+    """The shared reducer's rates and slowest devices, in the page's answer."""
+    from geecs_scanner.service.models import ProgressOut
+
+    c = StreamCache(clock=lambda: 2.0)
+    c.on_document("start", {"uid": "r", "scan_number": 1, "plan_name": "count"})
+    c.on_document("descriptor", {"uid": "p", "name": "primary"})
+    for seq, fire in enumerate((10.0, 12.0), start=1):
+        c.on_document(
+            "event",
+            {
+                "descriptor": "p",
+                "seq_num": seq,
+                "data": {
+                    "fire_stamp": fire,
+                    "shot_period_s": float("nan") if seq == 1 else 2.0,
+                    "slowest_device": "CAM-Wedge",
+                    "slowest_s": 1.9,
+                },
+            },
+        )
+    out = ProgressOut.of(c.snapshot())
+    assert out.current_rate_hz == 0.5 and out.average_rate_hz == 0.5
+    assert (out.waiting_on, out.waiting_s) == ("CAM-Wedge", 1.9)
+    assert [(d.device, d.held) for d in out.slowest] == [("CAM-Wedge", 2)]
