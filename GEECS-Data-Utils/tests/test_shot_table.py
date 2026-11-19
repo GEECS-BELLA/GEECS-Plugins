@@ -937,31 +937,57 @@ def test_the_missing_names_match_ignoring_case_and_separators() -> None:
     assert table.record_for_shot["cam"][3] is None
 
 
-def test_a_late_frame_no_baseline_names_stays_an_extra() -> None:
-    # A missed shot's frame landing after the verdict (before the refire's
-    # baseline was read it would *be* that baseline; after it, nobody's):
-    # it is passed over, and every row keeps its own record.
+def test_a_late_frame_no_baseline_names_stays_an_extra_and_the_row_says_so() -> None:
+    # A frame landing between row 4's record and row 5's: nobody's baseline
+    # names it, so it is passed over and stays an extra; row 5, whose slot
+    # held it, is flagged (which of two was the shot's is not knowable).
     rows, stamps = _scan014()
-    late = np.insert(stamps, 4, stamps[3] + 0.05)  # between rows 4 and 5's records
+    late = np.insert(stamps, 4, stamps[3] + 0.05)
     table = shot_table(SCAN_MODE, rows, [_device("cam", late)])
     assert table.record_for_shot["cam"] == (0, 1, 2, 3, 5, 6, 7, 8)
     assert table.extras["cam"] == (4,)
+    assert _flagged(table, "scan-mode-extra:cam") == [5]
     assert "cam" not in table.device_flags
 
 
-def test_two_faults_that_cancel_out_are_flagged_not_shifted() -> None:
-    # Review of #1383: row 3 missed but its frame still lands, and row 7's
-    # record is lost from the stream — the counts agree, the order would
-    # shift rows 4–7 silently.  The baselines cannot identify row 7's
-    # record, so the device falls back to the stamp rule, flagged.
+def test_a_stray_read_as_the_next_baseline_is_kept_but_flagged() -> None:
+    # Review of #1383: a second record after row 3's own, before row 4's
+    # baseline read — the baseline names the stray, so row 3 takes it; its
+    # own record stays an extra, and the row is flagged, never silent.
+    rows, stamps = _scan014()
+    stray = stamps[2] + 0.05
+    with_stray = np.insert(stamps, 3, stray)
+    rows.loc[3, "cam-baseline"] = stray
+    table = shot_table(SCAN_MODE, rows, [_device("cam", with_stray)])
+    assert table.record_for_shot["cam"] == (0, 1, 3, 4, 5, 6, 7, 8)
+    assert table.extras["cam"] == (2,)
+    assert _flagged(table, "scan-mode-extra:cam") == [3]
+
+
+def test_two_faults_that_cancel_out_leave_one_row_empty_not_shifted() -> None:
+    # Review of #1383: row 3 missed but its frame still lands (read as row
+    # 4's baseline), and row 7's record is lost from the stream — the counts
+    # agree, a count rule would shift rows 4–7.  Each row stands on its own
+    # baseline: only row 7 is unidentified, left empty and flagged.
     rows, stamps = _scan014(missed=(2,))
-    rows.loc[3, "cam-baseline"] = (
-        stamps[1] + 0.2
-    )  # the late frame, read as row 4's baseline
-    damaged = np.insert(np.delete(stamps, 5), 2, stamps[1] + 0.2)
+    late = stamps[1] + 0.2
+    rows.loc[3, "cam-baseline"] = late
+    damaged = np.insert(np.delete(stamps, 5), 2, late)
     table = shot_table(SCAN_MODE, rows, [_device("cam", damaged)])
-    assert _flagged(table, "scan-mode-order:cam") == list(range(1, 9))
+    assert table.record_for_shot["cam"] == (0, 1, None, 3, 4, 5, None, 6)
+    assert _flagged(table, "scan-mode-order:cam") == [7]
+    assert _flagged(table, "missing:cam") == [3]
     assert table.device_flags["cam"] == ("scan-mode-order-unresolved",)
+
+
+def test_an_unreadable_next_baseline_leaves_that_row_unidentified() -> None:
+    # Review of #1383: a NaN baseline mid-run is no evidence; the row is not
+    # filled by order alone, and the rows around it keep their own records.
+    rows, stamps = _scan014()
+    rows.loc[4, "cam-baseline"] = np.nan
+    table = shot_table(SCAN_MODE, rows, [_device("cam", stamps)])
+    assert table.record_for_shot["cam"] == (0, 1, 2, None, 4, 5, 6, 7)
+    assert _flagged(table, "scan-mode-order:cam") == [4]
 
 
 def test_without_a_stamp_baseline_the_stamp_rule_stands_unflagged() -> None:

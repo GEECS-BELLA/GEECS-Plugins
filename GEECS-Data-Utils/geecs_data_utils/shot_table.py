@@ -33,8 +33,8 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   device (``use_scan_mode``)    is the one whose stamp is the next row's
                                 ``<device>-baseline`` (no clock compared; its
                                 stamps need not match the fires); a row not
-                                identified → the rules above, every row
-                                flagged *scan-mode-order*
+                                identified stays empty, flagged
+                                *scan-mode-order*
   ============================  ==============================================
 
   A soft-tick (fly-mode) run's ticks fill the witness columns; its pressed
@@ -46,6 +46,7 @@ Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
 ``witness-stale``, ``clock-step``, ``unwitnessed``, ``witness-stamp-shared``,
 ``witness-stamp-shared-unresolved``, ``interval-ambiguous``, ``scan-mode-order``,
+``scan-mode-extra``,
 ``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 witness attribute NaN all run), ``attribute-lag-systematic``,
@@ -699,7 +700,7 @@ def _assign_ticks(records: np.ndarray, clock: _RowClock) -> list[int | None]:
 
 
 def _assign_synchronous(
-    clock: "_RowClock",
+    clock: _RowClock,
     source: DeviceRecords,
     records: np.ndarray,
     rows: pd.DataFrame,
@@ -710,30 +711,34 @@ def _assign_synchronous(
     """A synchronous device's record per row, and its run-level flags.
 
     *in_order* (a scan-mode run's required device) with a stamp baseline
-    (:func:`_stamp_baseline`; a frame-count baseline keeps the stamp rule,
-    unflagged) tries :func:`_assign_by_baseline` first; when a delivered
-    row's record cannot be identified, the stamp rule (:meth:`_RowClock.assign`) stands in and
-    says so on every row (``scan-mode-order``) and on the device
-    (``scan-mode-order-unresolved``).
+    (:func:`_stamp_baseline`) is joined by :func:`_assign_by_baseline`; every
+    other device — and a frame-count baseline, a plugin camera's — by the
+    stamp rule (:meth:`_RowClock.assign`), unflagged.  Under the identity
+    rule a delivered row whose record cannot be identified stays empty,
+    flagged ``scan-mode-order:<device>`` (the device
+    ``scan-mode-order-unresolved``), and a row that passed over a record
+    nobody's baseline names is flagged ``scan-mode-extra:<device>``.
     """
     name = source.device
     base = _stamp_baseline(rows, name) if in_order else None
-    if base is None:  # not scan mode, or no stamp baseline: the stamp rule
+    if base is None:
         return clock.assign(source, records, positional=positional), ()
     raw = np.asarray(source.records.stamps, dtype=float)
-    ordered = _assign_by_baseline(rows, name, raw, base)
-    if ordered is not None:
-        for k in (k for k, i in enumerate(ordered) if i is None):
+    assigned, unidentified, skipped = _assign_by_baseline(rows, name, raw, base)
+    for k, i in enumerate(assigned):
+        if k in unidentified:
+            clock.flags[k].append(f"scan-mode-order:{name}")
+        elif i is None:
             clock.flags[k].append(f"missing:{name}")
-        return ordered, ()
-    assigned = clock.assign(source, records, positional=positional)
-    for k in range(len(assigned)):
-        clock.flags[k].append(f"scan-mode-order:{name}")
-    return assigned, ("scan-mode-order-unresolved",)
+        if k in skipped:
+            clock.flags[k].append(f"scan-mode-extra:{name}")
+    return assigned, ("scan-mode-order-unresolved",) if unidentified else ()
 
 
-#: Two readings of one stamp PV (a row's baseline, a stream record) agree to
-#: float precision; this only absorbs a float32 round trip, never a shot.
+#: Two float64 readings of one stamp PV (a row's baseline, a stream record)
+#: are equal; the tolerance is far below a shot and only absorbs float64
+#: arithmetic.  (A float32 copy cannot hold a LabVIEW stamp — its spacing at
+#: ~3.8e9 s is 256 s — and simply fails the identity, flagged.)
 _SAME_STAMP_S = 1e-4
 #: Below this a ``<device>-baseline`` is a frame count, not a LabVIEW stamp.
 _STAMP_FLOOR_S = 1e8
@@ -760,27 +765,29 @@ def _stamp_baseline(rows: pd.DataFrame, device: str) -> np.ndarray | None:
 
 def _assign_by_baseline(
     rows: pd.DataFrame, device: str, stamps: np.ndarray, base: np.ndarray
-) -> list[int | None] | None:
+) -> tuple[list[int | None], set[int], set[int]]:
     """A scan-mode run's stamped required device: each row's record by stamp identity.
 
     The strict slot reads every required device's stamp just before each
     fire (``<device>-baseline``) and names on the row the devices that did
     not deliver (``missing``).  So the record of a delivered row *k* is the
     one whose stamp **is** row *k*+1's baseline — the last stamp the device
-    had published before the next fire — and the last delivered row's is
-    the first later record that moved past its own baseline.  No clock is
-    compared with another: a scan-mode camera's stamps can sit well before
-    the fire and need not even increase (PW Scan014: 0.10–0.26 s early, one
-    stamp 1 ms behind the record before it), where the fire-interval rule
-    files every record a shot early.  Records are taken in order, so a late
-    frame nobody's baseline names stays an extra.
+    had published before the next fire — and the final row's is the first
+    later record that moved past its own baseline.  No clock is compared
+    with another: a scan-mode camera's stamps can sit well before the fire
+    and need not even increase (PW Scan014: 0.10–0.26 s early, one stamp
+    1 ms behind the record before it), where the fire-interval rule files
+    every record a shot early.  Records are taken in order.
 
     *stamps* are the raw records and *base* the rows' raw baselines
-    (:func:`_stamp_baseline`).  Returns ``None`` — the caller falls back to
-    the stamp rule and says so — when any delivered row's record cannot be
-    identified (a lost record, a late frame read as the next baseline): one
-    unresolved row voids the device's order rather than shifting the rows
-    after it.
+    (:func:`_stamp_baseline`).  Returns ``(assigned, unidentified,
+    skipped)``: a delivered row whose record no baseline identifies — a
+    record the stream lost, an unreadable next baseline — is left empty and
+    listed in *unidentified* (each row stands on its own baseline, so the
+    rows after it keep theirs); a row whose record was found past a record
+    nobody claimed (two in its slot, or a late frame) is listed in
+    *skipped*: the one its next baseline names is kept, the other stays an
+    extra, and which was the shot's cannot be known from the documents.
     """
     key = _squash(device)
 
@@ -788,14 +795,23 @@ def _assign_by_baseline(
         names = value if isinstance(value, str) else ""
         return key not in {_squash(n) for n in names.split(",") if n.strip()}
 
-    n, assigned, last = len(rows), [None] * len(rows), -1
+    n = len(rows)
+    assigned: list[int | None] = [None] * n
+    unidentified: set[int] = set()
+    skipped: set[int] = set()
+    last = -1
     for k, ok in enumerate(delivered(v) for v in rows["missing"]):
         if not ok:
             continue
         later = range(last + 1, stamps.size)
-        if k + 1 < n and np.isfinite(base[k + 1]):
-            found = [i for i in later if abs(stamps[i] - base[k + 1]) <= _SAME_STAMP_S]
-        else:  # the last row: the first record past its own baseline
+        if k + 1 < n:
+            target = base[k + 1]
+            found = [
+                i
+                for i in later
+                if np.isfinite(target) and abs(stamps[i] - target) <= _SAME_STAMP_S
+            ]
+        else:  # the final row: the first record past its own baseline
             found = [
                 i
                 for i in later
@@ -803,9 +819,12 @@ def _assign_by_baseline(
                 and not abs(stamps[i] - base[k]) <= _SAME_STAMP_S
             ]
         if not found:
-            return None
+            unidentified.add(k)
+            continue
+        if found[0] > last + 1:
+            skipped.add(k)
         assigned[k] = last = found[0]
-    return assigned
+    return assigned, unidentified, skipped
 
 
 def _assign_intervals(
