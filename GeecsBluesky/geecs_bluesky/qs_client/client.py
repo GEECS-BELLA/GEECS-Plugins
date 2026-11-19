@@ -854,6 +854,11 @@ class ZmqQueueClient:
             )
         except GeecsConfigurationError as exc:
             return SubmitResult(ok=False, message=str(exc))
+        if item.left_out:
+            logger.warning(
+                "%s not in the worker's device tree and not required — left out of this scan",
+                ", ".join(item.left_out),
+            )
         return self.submit_plan(
             item.name,
             args=item.args,

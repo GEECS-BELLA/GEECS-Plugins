@@ -495,6 +495,7 @@ class TestADeviceTheWorkerLacks:
         assert "UC_Gone.scalars" not in item.references
         assert item.devices == ("UC_Cam",)
         assert "required" not in item.kwargs  # what is left is all required
+        assert item.kwargs["md"]["geecs"]["devices_left_out"] == ["UC_Gone"]
 
     def test_a_required_one_stays_for_the_preflight_to_refuse(self) -> None:
         preset = _preset(

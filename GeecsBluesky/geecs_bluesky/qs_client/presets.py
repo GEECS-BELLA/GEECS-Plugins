@@ -374,6 +374,8 @@ def expand_preset(  # noqa: C901, PLR0912, PLR0915
     run_md.setdefault("background", preset.background)
     geecs = dict(run_md.get("geecs") or {})
     geecs.setdefault("preset", preset.name)
+    if left_out:
+        geecs["devices_left_out"] = list(left_out)
     run_md["geecs"] = geecs
     kwargs["md"] = run_md
     return QueueItem(

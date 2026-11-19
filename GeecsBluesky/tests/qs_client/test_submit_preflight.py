@@ -622,3 +622,12 @@ class TestInlineTriggerProfile:
 
         report = run_trigger_profile_preflight({"states": "nonsense"}, "X")
         assert report.refusal and report.outcomes == []
+
+
+def test_a_preset_whose_every_device_is_unknown_is_refused(engine, monkeypatch):
+    """The expansion's refusal is the preflight's, never a fail-open skip."""
+    fake = _FakeQueueClient(devices=["UC_Other", "UC_Other.acq_timestamp"])
+    monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+    preset = _preset(devices=[{"device": "UC_Gone", "required": False}])
+    report = run_submit_preflight(preset, "Undulator")
+    assert report.refusal and "knows none of its devices" in report.refusal
