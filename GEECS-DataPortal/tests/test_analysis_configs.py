@@ -214,6 +214,11 @@ class TestBlank:
         bad = {**blank, "columns": [{"name": "r", "expr": "x +", "inputs": {"x": "a"}}]}
         out = _validate(client, "scalar_job", bad).json()
         assert not out["ok"] and out["errors"][0]["loc"][:2] == ["columns", 0]
+        for kind in (
+            "scalar_job",
+            "analysis_group",
+        ):  # a name the model refuses is a 422, not a crash
+            assert client.get(f"/api/analysis/blank/{kind}", params={"name": ""}).status_code == 422  # fmt: skip
 
     def test_off_without_the_configs_tree(self):
         client = TestClient(create_app(FakeCatalog()))

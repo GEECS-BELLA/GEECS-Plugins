@@ -175,19 +175,18 @@ def analysis_blank(
     """
     _root(portal)
     _kind(kind)
-    if kind == "analysis_group":
+    if kind in ("analysis_group", "scalar_job"):
+        from geecs_schemas.analysis.scalar import blank_scalar_job
         from pydantic import ValidationError
 
-        document: Json = {"name": name, "analyzers": []}
         try:
+            if kind == "scalar_job":
+                return JSONResponse({"document": blank_scalar_job(name)})
+            document: Json = {"name": name, "analyzers": []}
             _model(kind).model_validate(document)
         except ValidationError as exc:
             raise HTTPException(422, str(exc)) from exc
         return JSONResponse({"document": document})
-    if kind == "scalar_job":
-        from geecs_schemas.analysis.scalar import blank_scalar_job
-
-        return JSONResponse({"document": blank_scalar_job(name)})
     if kind != "analysis_recipe":
         raise HTTPException(404, f"no blank {kind}: its kind is the operator's decision (one of them deletes files)")  # fmt: skip
     from geecs_analysis.recipe import RecipeError, blank_recipe
