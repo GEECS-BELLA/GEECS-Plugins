@@ -394,6 +394,19 @@ registry or the database, never a new page.
   they are position, done moving, the two limit switches, and whether the
   target is outside the soft limits. For a supply they are current,
   voltage, output, and the fault and interlock bits.
+- **Trends.** A family may name a few values worth watching over time,
+  and the page then draws each as a plot under the readings: a feedback
+  loop shows its value against its setpoint, and its actuator's position
+  against the last target. **Window** picks how far back the plots reach
+  (2 min, 10 min or 1 h); it is your own view and changes nothing on the
+  device. The earlier part of each line comes from Canopy's live buffer,
+  which starts keeping a value the first time anyone opens its page, so
+  the first visit may say "no earlier history" and start at page load;
+  from then on the line grows as values arrive. A break in a line means
+  the value was not known then (the device was not answering, or the
+  connection dropped); it is never drawn as zero. Drag up and down in a
+  plot to zoom its values, double-click to reset, and click a name in the
+  legend to hide that line.
 - **Writes** go through the same path as a screen's, with your name from
   the header and sent once. A number or text field writes when you press
   **Enter** (the next section says what happens to what you typed), so an

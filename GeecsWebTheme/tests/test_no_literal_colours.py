@@ -116,6 +116,8 @@ _SURFACES = [
     "GeecsControlRoom/geecs_control_room/static/trace.css",
     "GeecsControlRoom/geecs_control_room/static/trace.js",
     "GeecsControlRoom/geecs_control_room/static/trace_rules.js",
+    "GeecsControlRoom/geecs_control_room/static/trend.js",
+    "GeecsControlRoom/geecs_control_room/static/trend_rules.js",
     "GeecsControlRoom/geecs_control_room/static/device_writes.js",
     "GeecsControlRoom/geecs_control_room/templates/_panel.html",
     "GeecsControlRoom/geecs_control_room/static/device_rail.js",

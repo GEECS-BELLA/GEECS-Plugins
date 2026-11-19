@@ -270,6 +270,27 @@ def page_panel(body: dict[str, Any], family: Optional[FamilyFile], rows: list[di
     return {"panel": panel, "specs": specs(entries, family, units), "auto": authored is None}  # fmt: skip
 
 
+#: The windows a viewer of a trend may choose, in seconds, and the one a page opens with.
+WINDOWS_S = (120, 600, 3600)
+DEFAULT_WINDOW_S = 600
+
+
+def window_label(seconds: int) -> str:
+    """A trend window as its button reads: ``2 min``, ``1 h``."""
+    return f"{seconds // 3600} h" if seconds % 3600 == 0 else f"{seconds // 60} min"
+
+
+def drawn_trends(family: Optional[FamilyFile], specs: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:  # fmt: skip
+    """The family panel's trends as this device draws them: each trend's served roles with the label, units and type its line carries; a trend with none left out."""
+    trends = family.panel.trends if family and family.panel else []
+    out = []
+    for trend in trends:
+        roles = [{"role": r, "label": specs[r]["label"], "units": specs[r].get("units") or "", "type": specs[r]["type"]} for r in trend.roles if r in specs]  # fmt: skip
+        if roles:
+            out.append({"title": trend.title, "roles": roles})
+    return out
+
+
 #: A screen's group widget's read: one page draw, never a 2 s poll, so it waits past a slow module reload tick.
 EMBED_TIMEOUT_S = 5.0
 
@@ -377,7 +398,9 @@ async def resolve(module: ModuleClient, kind: str, name: str) -> tuple[int, dict
         what = family.template if family else f"{name} (a GEECS DB device, {body['family'] or 'no type'})"  # fmt: skip
         return 422, {"pane": ("denied", f"Wrong kind: {what} is a {word}", ""), "other": word}  # fmt: skip
     rows, drawn = drawn_of(body, family, word)
-    return 200, {"pane": None, "device": body, "family": family, "tables": rows, "trace": trace_roles(family)} | drawn  # fmt: skip
+    # the settables page alone draws trends: a kind with a data component (a camera, a trace) fills the pane itself
+    trends = drawn_trends(family, drawn["specs"]) if KINDS[kind].template == "device.html" else []  # fmt: skip
+    return 200, {"pane": None, "device": body, "family": family, "tables": rows, "trace": trace_roles(family), "trends": trends} | drawn  # fmt: skip
 
 
 def router(settings: Settings) -> APIRouter:
@@ -389,6 +412,8 @@ def router(settings: Settings) -> APIRouter:
             "kinds": list(KINDS),
             "kit_state": KIT_STATE,
             "device": None,
+            "trends": [],
+            "windows": [(s, window_label(s), s == DEFAULT_WINDOW_S) for s in WINDOWS_S],
         } | context
         templates = request.app.state.templates
         name = (

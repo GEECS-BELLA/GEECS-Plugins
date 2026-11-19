@@ -429,8 +429,27 @@ class TweakHint(SchemaModel):
     reverse: RoleName = Field(description="The command that steps back by it ('twr').")
 
 
+class PanelTrend(SchemaModel):
+    """One time plot under a device page's readings: a few roles' values against wall-clock time."""
+
+    model_config = _FROZEN
+
+    title: str = Field(min_length=1, description="The plot's heading on the page.")
+    roles: list[RoleName] = Field(
+        min_length=1,
+        max_length=4,
+        description=(
+            "The family roles the plot draws, one line each, in order: one to "
+            "four monitored roles whose value is a number (a readback, a "
+            "setpoint, a bit or a counter; never text, an enum, a command, an "
+            "array or an image). The page labels each line by the role's label "
+            "and the y axis by the roles' unit when they share one."
+        ),
+    )
+
+
 class Panel(SchemaModel):
-    """How a device page lays out the family's roles: the control rail and the readings strip.
+    """How a device page lays out the family's roles: the control rail, the readings strip and the trends.
 
     Layout only. The page draws each rail role by its type (an enum a
     select of the record's own choices, a setpoint a number beside its
@@ -438,7 +457,9 @@ class Panel(SchemaModel):
     a plain group constrains no role type; two hints do: a ``grid`` group
     holds short controls only (bits, enums, two-state whole numbers) and a
     ``tweak`` names a setpoint, its step setpoint and two commands. A reading
-    is a monitored role, since it carries the module's word. The panel
+    is a monitored role, since it carries the module's word; a trend's
+    roles are monitored numbers, since the page draws the values it is
+    already sent and computes none. The panel
     places roles whatever their ``level``: ``level`` decides the role
     table's operator and expert views, the panel what the page draws above
     it. Whether a write is permitted stays the module's.
@@ -478,6 +499,15 @@ class Panel(SchemaModel):
             "An array an axis draws, shown by default while a monitored role reads "
             "1 (a processed spectrum while background subtraction is on); otherwise "
             "the axis' first array. A viewer's own choice wins."
+        ),
+    )
+    trends: list[PanelTrend] = Field(
+        default_factory=list,
+        description=(
+            "The time plots the settables page draws under the readings, in "
+            "order: each a title and the monitored numeric roles it draws "
+            "against wall-clock time (a loop's value beside its setpoint). A "
+            "role may sit in several trends and need not be a reading."
         ),
     )
 
@@ -672,7 +702,7 @@ def _check_axes(roles: list[Role], by_name: Mapping[str, Role]) -> None:
 
 
 def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
-    """Refuse a panel naming a role the family lacks, one rail role in two places, an unmonitored reading, a button pair on no two-state rail role, a tweak on no writable setpoint and commands of its group, a grid of more than bits and enums, or a default array no axis draws."""
+    """Refuse a panel naming a role the family lacks, one rail role in two places, an unmonitored reading, a button pair on no two-state rail role, a tweak on no writable setpoint and commands of its group, a grid of more than bits and enums, a default array no axis draws, or a trend of a role that is unmonitored or no number."""
     named = [name for group in panel.rail for name in group.roles]
     tweaked = [
         name
@@ -680,8 +710,13 @@ def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
         for name in (key, hint.step, hint.forward, hint.reverse)
     ]
     hinted = [*panel.buttons, *tweaked, *panel.show_while, *panel.show_while.values()]
+    trended = [name for trend in panel.trends for name in trend.roles]
     unknown = sorted(
-        {name for name in [*named, *panel.readings, *hinted] if name not in by_name}
+        {
+            name
+            for name in [*named, *panel.readings, *hinted, *trended]
+            if name not in by_name
+        }
     )
     if unknown:
         raise ValueError(f"panel names no role {unknown}")
@@ -716,6 +751,34 @@ def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
             raise ValueError(
                 f"panel show_while {array!r}: {flag!r} is not monitored, so the "
                 "page cannot read it"
+            )
+    _check_trends(panel, by_name)
+
+
+#: The role types whose value is a number a trend can draw (unless read as text).
+_TRENDED = frozenset({"readback", "setpoint", "bit", "counter"})
+
+
+def _check_trends(panel: Panel, by_name: Mapping[str, Role]) -> None:
+    """Refuse a role twice in one trend, and a trend role that is unmonitored or carries no number."""
+    for trend in panel.trends:
+        _refuse_duplicates(f"panel trend {trend.title!r} roles", list(trend.roles))
+        unread = [n for n in trend.roles if by_name[n].read_mode != "monitor"]
+        if unread:
+            raise ValueError(
+                f"panel trend {trend.title!r}: {unread} are not monitored, so "
+                "the page is sent no value to draw"
+            )
+        wordy = [
+            n
+            for n in trend.roles
+            if by_name[n].type not in _TRENDED or by_name[n].text is not None
+        ]
+        if wordy:
+            raise ValueError(
+                f"panel trend {trend.title!r}: {wordy} carry no number (a trend "
+                "draws a readback, a setpoint, a bit or a counter, never text, an "
+                "enum, a command, an array or an image)"
             )
 
 
