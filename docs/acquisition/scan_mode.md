@@ -114,6 +114,12 @@ database mistake: fix the row, then relaunch the device. A device reads
 its lock only at launch, so a running one keeps the old value. The worker
 neither checks nor warns.
 
+A run device (a camera, a DAQ) with its lock `disabled` never enters scan
+mode, so the worker does not wait for its `ScanStart` acknowledgement: it
+reads the lock from the DB at every run, names those devices in the log,
+and records them as they acquire, free-running, one row per fire. They save
+no shot-numbered files. The trigger box is always waited for.
+
 ## Preflight refusals
 
 The worker refuses a scan-mode run before it starts when:
