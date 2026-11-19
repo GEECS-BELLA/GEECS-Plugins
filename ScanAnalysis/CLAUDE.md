@@ -22,7 +22,7 @@ scan_analysis/
   task_queue.py                    # Task claiming, heartbeat, YAML status system (run_task: one task)
   worker/                          # the analysis worker (`worker` extra): jobs.py (Worker, a job = a group over a
                                    #   day's scans, run task by task through the queue), app.py (its HTTP API),
-                                   #   __main__.py (scan-analysis-worker, port 8800)
+                                   #   __main__.py (scan-analysis-worker, port 8900)
   config/
     loader.py                      # load_diagnostic(stem | path): one document, the config.ini root as the default tree
     diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | HimgJob)
@@ -450,7 +450,7 @@ figures) that the task queue records, or
 ## The analysis worker (`worker/`)
 
 `scan-analysis-worker --configs <tree> --experiment <name>` (the `worker`
-extra: fastapi + uvicorn; binds 127.0.0.1, port 8800 by default) is a
+extra: fastapi + uvicorn; binds 127.0.0.1, port 8900 by default) is a
 long-running service that batch-runs analysis groups. A **job** is one
 group over one day's scans (or a list of them), `redo` or not: when it
 starts it is expanded into the task queue's worklist (`build_worklist`,
