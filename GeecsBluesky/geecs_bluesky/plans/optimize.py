@@ -470,7 +470,10 @@ def optimize_plan(  # noqa: C901, PLR0915
         run_devices = run_device_names(detectors, sc)
         if sc.use_scan_mode:
             scan_mode_preflight(sc, scan_mode, run_devices=run_devices)
-            run_devices = entered_device_names(scan_mode, run_devices, sc)
+            # Every optimize device feeds the run: each one skipped is warned.
+            run_devices = entered_device_names(
+                scan_mode, run_devices, sc, needed=run_devices
+            )
         # Every stamp from acq_timestamp: a halted scan-mode run's choice undone
         # (the bracket then chooses for the devices in scan mode).
         yield from reset_shot_stamps([d for d in detectors if is_per_shot(d)])
