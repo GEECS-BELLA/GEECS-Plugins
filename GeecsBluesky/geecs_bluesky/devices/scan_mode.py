@@ -369,10 +369,19 @@ class ScanModeControl:
             )
             return
         self.boundary_writes = {device: list(r) for device, r in rows.items()}
+
+    def refresh_scan_mode_locks(self) -> None:
+        """Re-read the devices' DB ``scanmode_lock``; on a failure keep the last ones.
+
+        The worker follows the DB; the device follows the value it read at
+        launch, so a lock edited since needs the device relaunched before
+        the next run.  A DB that does not answer leaves the previous values,
+        logged at ERROR.
+        """
+        if self._geecs_db is None:
+            return
         try:
-            self.scan_mode_locks = dict(
-                self._geecs_db.get_scan_mode_locks(self._experiment)
-            )
+            locks = self._geecs_db.get_scan_mode_locks(self._experiment)
         except Exception as exc:  # the cached locks still sort the run
             logger.error(
                 "scan mode: the devices' scanmode_lock could not be re-read "
@@ -381,6 +390,8 @@ class ScanModeControl:
                 exc,
                 exc_info=True,
             )
+            return
+        self.scan_mode_locks = dict(locks)
 
     # ------------------------------------------------------------- facts
 
@@ -393,8 +404,8 @@ class ScanModeControl:
     def scan_mode_disabled(self) -> frozenset[str]:
         """The devices whose DB ``scanmode_lock`` is ``disabled``: never in scan mode.
 
-        Such a device keeps its normal acquisition and never acknowledges
-        ``ScanStart``, so the entry does not wait for it.  A null or any
+        Such a device keeps its normal acquisition, so the entry does not
+        wait for its acknowledgement (such a device may send none).  A null or any
         other value counts as taking part (the entry's own wait decides).
         """
         return frozenset(
