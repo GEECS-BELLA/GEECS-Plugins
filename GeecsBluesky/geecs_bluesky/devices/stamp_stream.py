@@ -117,6 +117,9 @@ class StampStream:
         # drain offset up under the device's (``<name>-drain_offset``).
         self.name = owner.name if name is None else name
         self._stamp: SignalR[float] = owner.acq_timestamp
+        #: The column the stamp is recorded under, whichever signal it came
+        #: from (``GeecsDetector.shot_stamp``): the one the join reads.
+        self._stamp_key: str = owner.acq_timestamp.name
         self._readers = [(d, r) for _, d, r in _readers_for(device)]
         self._events: list[PartialEvent] = []
         self._queue: asyncio.Queue[float | None] = asyncio.Queue()
@@ -160,6 +163,7 @@ class StampStream:
             await self._stop()
             self._events = []
             self.published = self.pending = self.failed = 0
+            self._stamp = self._owner.shot_stamp
             self._last = await self._stamp.get_value()
             self._queue = asyncio.Queue()
             self._stamp.subscribe_reading(self._on_stamp)
@@ -210,7 +214,7 @@ class StampStream:
             data = {k: r["value"] for k, r in readings.items()}
             # The event is the stamp's shot even if a newer stamp has landed
             # in the cache meanwhile.
-            data[self._stamp.name] = stamp
+            data[self._stamp_key] = stamp
             self._events.append(
                 PartialEvent(
                     time=time.time(),

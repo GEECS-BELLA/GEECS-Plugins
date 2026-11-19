@@ -120,11 +120,15 @@ class StampingDevice(FakeScanModeDevice):
         camera: Any = None,
         drop: set[int] | None = None,
         timeline: list | None = None,
+        loop_stamp_only: bool = False,
         **kw: Any,
     ) -> None:
         super().__init__(name, command_port, **kw)
         self.camera = camera
         self.drop = set(drop or ())
+        # A driver that never sets acq_timestamp: each shot moves only the
+        # device's loop stamp (systimestamp).
+        self.loop_stamp_only = loop_stamp_only
         if timeline is not None:
             self.scan_ends = _Recording(timeline, "scan_end", key=name)
 
@@ -133,7 +137,12 @@ class StampingDevice(FakeScanModeDevice):
         super()._on_path(path)
         shot = self.shot_numbers[-1] if self.shot_numbers else None
         if self.camera is not None and self.stamp != before and shot not in self.drop:
-            set_mock_value(self.camera.acq_timestamp, 1000.0 + self.stamp)
+            signal = (
+                self.camera.systimestamp
+                if self.loop_stamp_only
+                else self.camera.acq_timestamp
+            )
+            set_mock_value(signal, 1000.0 + self.stamp)
 
 
 class _Box:
@@ -1217,3 +1226,62 @@ def test_preflight_reads_the_boundary_rows_as_they_are_now(
         with pytest.raises(GeecsConfigurationError, match="conflicts"):
             scan_mode_preflight(sc, control, run_devices=(CAM,))
     assert "could not be re-read" in caplog.text
+
+
+# ------------------------------------------- a device with no hardware stamp
+
+
+def test_a_device_whose_acq_timestamp_is_never_set_is_stamped_by_its_systimestamp(
+    RE: RunEngine, stack: Stack
+) -> None:
+    """In scan mode a device publishes once per announced shot: its loop stamp is the shot."""
+    cam = _camera(RE, FakeBox(), CAM)
+    set_mock_value(cam.acq_timestamp, 0.0)  # the gateway's placeholder, never set
+    stack.start(**{CAM: {"camera": cam, "loop_stamp_only": True}})
+    control = stack.make_control()
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bound["count"]([cam], num=2))
+    start = col.docs["start"][0]
+    assert start["shot_stamp_systimestamp"] == [CAM]
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r[ANNOUNCED_SHOT] for r in rows] == [1, 2]
+    assert all(r["complete"] for r in rows)  # no refire: each shot delivered
+    stream = col.stream_events("uc_cam_stream")
+    # recorded under the column every reader joins on
+    assert [e["data"]["uc_cam-acq_timestamp"] for e in stream] == [1001.0, 1002.0]
+    assert cam.shot_stamp is cam.acq_timestamp  # cleared at the run's end
+
+
+def test_a_device_with_a_hardware_stamp_keeps_it_in_scan_mode(
+    RE: RunEngine, stack: Stack
+) -> None:
+    cam = _camera(RE, FakeBox(), CAM)
+    set_mock_value(cam.acq_timestamp, 999.0)  # its driver sets the stamp
+    stack.start(**{CAM: {"camera": cam}})
+    control = stack.make_control()
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(bound["count"]([cam], num=1))
+    assert col.docs["start"][0]["shot_stamp_systimestamp"] == []
+
+
+def test_outside_scan_mode_the_loop_stamp_is_never_a_shot(RE: RunEngine) -> None:
+    """A device's systimestamp ticks by itself outside scan mode: acq_timestamp stays."""
+    from geecs_bluesky.plans.streams import choose_shot_stamps
+
+    cam = _camera(RE, FakeBox(), CAM)
+    set_mock_value(cam.acq_timestamp, 0.0)
+    chosen: list[list[str]] = []
+
+    def plan():
+        chosen.append((yield from choose_shot_stamps([cam], scan_mode=False)))
+
+    RE(plan())
+    assert chosen == [[]] and cam.shot_stamp is cam.acq_timestamp

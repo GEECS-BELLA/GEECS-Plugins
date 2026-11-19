@@ -791,7 +791,15 @@ reply as the verdict (the
 device ran its check-values against the same DB tolerance before
 answering); an error reply still fails the move, and every other motor
 keeps the readback confirm.  `CaConfirmSettable` has no such carve-out
-yet.  Readers
+yet.  A
+device whose `acq_timestamp` reads `0.0` at the run's start (its LabVIEW
+driver never sets it: the DAQs, the LeCroy scope) takes its shots from
+`systimestamp` in a scan-mode run, which a device in scan mode publishes
+once per announced shot (`plans/streams.choose_shot_stamps`, set for
+every stamped device per run and cleared at its end; recorded under its
+`-acq_timestamp` column, named in the start document's
+`shot_stamp_systimestamp`).  Outside scan mode the loop stamp ticks on its
+own and is never a shot.  Readers
 join a device's shot-numbered files to rows by `announced_shot` — the
 s-file's `Announced Shot` — through `geecs_data_utils.tiled_schema.announced_shots`
 (it parts from the row index only when an announced shot ends in no row,
