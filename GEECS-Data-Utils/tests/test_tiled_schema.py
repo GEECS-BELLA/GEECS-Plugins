@@ -456,3 +456,46 @@ def test_sweep_classification_uses_combination_not_motor_count(trajectory, expec
         "sweep": {"trajectory": trajectory},
     }
     assert tiled_schema.scan_mode(start) == expected
+
+
+class TestDerivedFolderParent:
+    """A ``<device>-<suffix>`` folder is named after the device before a ``-``."""
+
+    COLUMNS = ["U_BCaveICT acq_timestamp", "u-cam-acq_timestamp", "u-acq_timestamp"]
+
+    def test_the_folder_is_named_after_its_device(self):
+        from geecs_data_utils.tiled_schema import derived_folder_parent
+
+        folder = "U_BCaveICT-scopeTrace.Channel1"
+        assert derived_folder_parent(self.COLUMNS, folder) == "U_BCaveICT"
+
+    def test_the_longest_device_name_wins(self):
+        from geecs_data_utils.tiled_schema import (
+            derived_folder_parent,
+            derived_folder_prefixes,
+        )
+
+        assert derived_folder_prefixes("U-Cam-interp-Div") == [
+            "U-Cam-interp",
+            "U-Cam",
+            "U",
+        ]
+        assert derived_folder_parent(self.COLUMNS, "U-Cam-interp-Div") == "U-Cam"
+
+    def test_a_folder_with_its_own_column_has_no_parent(self):
+        from geecs_data_utils.tiled_schema import derived_folder_parent
+
+        columns = [*self.COLUMNS, "u_cam_interp-acq_timestamp"]
+        assert derived_folder_parent(columns, "U-Cam-interp") is None
+
+    def test_no_dash_or_no_such_device_is_no_parent(self):
+        from geecs_data_utils.tiled_schema import (
+            derived_folder_parent,
+            derived_folder_prefixes,
+        )
+
+        assert derived_folder_prefixes("U_BCaveICT") == []
+        assert derived_folder_prefixes("-interp") == []
+        assert derived_folder_parent(self.COLUMNS, "UC_Other-interp") is None
+        # An underscore is not a dash: the device token must end at a "-".
+        assert derived_folder_parent(self.COLUMNS, "U_BCaveICT_scopeTrace") is None

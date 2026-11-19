@@ -120,6 +120,11 @@ geecs_data_utils/
                                #   vendor / unrenderable), the row joins
                                #   (row_acq_timestamp refuses a shot the
                                #   device missed: never a neighbour's image;
+                               #   a derived folder's stack, <device>-<suffix>
+                               #   with no column of its own, joins on its
+                               #   device's column — stack_parent_device over
+                               #   tiled_schema.derived_folder_parent; derived
+                               #   per-shot files keep the order fallback;
                                #   row_file_shot), load_shot_array /
                                #   load_shot_image, load_row_array (a
                                #   row of the WHOLE table → its file) and

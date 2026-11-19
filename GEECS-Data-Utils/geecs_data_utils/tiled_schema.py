@@ -296,6 +296,62 @@ def _device_companion_column(
     return None
 
 
+def derived_folder_prefixes(folder: str) -> list[str]:
+    """The devices a derived folder may be named after, longest name first.
+
+    THE parent rule of a derived device folder: a folder named
+    ``<device>-<suffix>`` (``U_BCaveICT-scopeTrace.Channel1``,
+    ``UC_BCaveMagSpecCam1-interpSpec``) is written beside ``<device>``'s
+    own folder from that device's shots.  A device name may itself hold a
+    ``-``, so every prefix that ends before a ``-`` is a candidate and the
+    longest is tried first.  Never re-derive the split in a consumer.
+
+    Parameters
+    ----------
+    folder : str
+        An on-disk device folder name.
+
+    Returns
+    -------
+    list of str
+        The candidate parent names, longest first; empty for a name with
+        no ``-``.
+    """
+    parts = str(folder).split("-")
+    prefixes = ("-".join(parts[:count]) for count in range(len(parts) - 1, 0, -1))
+    return [prefix for prefix in prefixes if normalize_token(prefix)]
+
+
+def derived_folder_parent(columns: Sequence[str], folder: str) -> Optional[str]:
+    """The device whose ``acq_timestamp`` column a derived *folder* shares, or ``None``.
+
+    A folder with a column of its own
+    (:func:`device_acq_timestamp_column`) has no parent here: its own
+    column always wins.  Otherwise the answer is the longest
+    :func:`derived_folder_prefixes` candidate that has a column, and
+    ``None`` when none does.  The parent's columns are then found with
+    :func:`device_acq_timestamp_column` and :func:`device_valid_column`.
+
+    Parameters
+    ----------
+    columns : sequence of str
+        All event-stream column names.
+    folder : str
+        An on-disk device folder name.
+
+    Returns
+    -------
+    str or None
+        The parent device's name as the folder spells it.
+    """
+    if device_acq_timestamp_column(columns, folder) is not None:
+        return None
+    for prefix in derived_folder_prefixes(folder):
+        if device_acq_timestamp_column(columns, prefix) is not None:
+            return prefix
+    return None
+
+
 def data_columns(columns: Sequence[str]) -> list[str]:
     """Return the measurement columns — data variables, machinery excluded.
 

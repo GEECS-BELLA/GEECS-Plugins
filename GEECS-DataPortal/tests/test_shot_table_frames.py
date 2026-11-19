@@ -232,3 +232,42 @@ def test_concurrent_misses_wait_for_one_load():
     for thread in threads:
         thread.join()
     assert Slow.loads == 1
+
+
+_DERIVED = "UC_GatedCam-ImageInterp"
+
+
+def _derived_stack(folder):
+    """The camera's derived stack: frames 0 and 1 are shots 1 and 3's."""
+    import h5py
+
+    (folder / _DERIVED).mkdir()
+    frames = np.zeros((2, 6, 6), dtype=np.uint16)
+    frames[0, 0, 0] = frames[1, 0, 1] = 1000  # identity marker: column = frame index
+    with h5py.File(folder / _DERIVED / f"{_DERIVED}.h5", "w") as handle:
+        handle.attrs["finalized"] = True
+        handle.create_dataset(FRAMES_DATASET, data=frames, chunks=(1, 6, 6))
+        handle.create_dataset(
+            TIMESTAMPS_DATASET, data=np.array(_RECORDS) - LABVIEW_EPOCH_OFFSET
+        )
+
+
+def test_a_derived_stack_follows_its_device_s_records(folder):
+    """No record of its own: the shot table's record for the device it is named after."""
+    _derived_stack(folder)
+    client = TestClient(_shot_table(folder))
+    assert _frame_shown(client, 1, _DERIVED) == 0
+    assert "missed this shot" in _frame_shown(client, 2, _DERIVED)
+    assert _frame_shown(client, 3, _DERIVED) == 1  # by order there is no frame 2
+
+
+def test_a_strict_run_s_derived_stack_follows_its_device_s_column(folder):
+    """Rows 1 and 3 hold the camera's stamps: by order row 2 would show shot 3."""
+    _derived_stack(folder)
+    stamped = pd.DataFrame(
+        {"uc_gatedcam-acq_timestamp": [_LV + 1.0, float("nan"), _LV + 3.0]}
+    )
+    client = TestClient(_app(folder, {}, {"primary": {"internal": stamped}}))
+    assert _frame_shown(client, 1, _DERIVED) == 0
+    assert "missed this shot" in _frame_shown(client, 2, _DERIVED)
+    assert _frame_shown(client, 3, _DERIVED) == 1

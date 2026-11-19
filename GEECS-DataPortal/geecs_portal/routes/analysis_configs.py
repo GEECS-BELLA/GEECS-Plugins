@@ -308,7 +308,7 @@ def _camera_frame(
     """One shot's pixel array through the Images tab's own source ladder."""
     if detail.data is not None and shot > len(detail.data):
         raise LookupError("shot beyond the run's recorded events")
-    acq, column_present = _acq_timestamp(detail, device, shot)
+    acq, column_present = _acq_timestamp(detail, device, shot, folder)
     if column_present and acq is None:
         raise LookupError("device missed this shot (no timestamp)")
     complete = bool(detail.summary.exit_status)
