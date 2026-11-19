@@ -799,7 +799,7 @@ def _assign_by_baseline(
     assigned: list[int | None] = [None] * n
     unidentified: set[int] = set()
     skipped: set[int] = set()
-    last = -1
+    last, after_unidentified = -1, False
     for k, ok in enumerate(delivered(v) for v in rows["missing"]):
         if not ok:
             continue
@@ -820,10 +820,14 @@ def _assign_by_baseline(
             ]
         if not found:
             unidentified.add(k)
+            after_unidentified = True
             continue
-        if found[0] > last + 1:
+        # Records passed over right after an unidentified row are that row's
+        # (its own record, unnamed): no doubt about this row's slot.
+        if found[0] > last + 1 and not after_unidentified:
             skipped.add(k)
         assigned[k] = last = found[0]
+        after_unidentified = False
     return assigned, unidentified, skipped
 
 
