@@ -51,7 +51,7 @@ class RunProgress(BaseModel):
     """The latest run as the streams describe it.
 
     The rates and the slowest devices come from the rows' ``fire_stamp``,
-    ``shot_period_s``, ``slowest_device`` and ``slowest_s`` (a strict run's
+    ``slowest_device`` and ``slowest_s`` (a strict run's
     shot table; ``None`` / empty for a run without them).
     """
 
@@ -69,7 +69,7 @@ class RunProgress(BaseModel):
     paused_reason: Optional[str] = None
     updated_at: Optional[float] = None
     current_rate_hz: Optional[float] = Field(
-        default=None, description="1 / the latest row's shot_period_s"
+        default=None, description="1 / the time between the latest two fires"
     )
     average_rate_hz: Optional[float] = Field(
         default=None,
@@ -80,6 +80,11 @@ class RunProgress(BaseModel):
     )
     waiting_s: Optional[float] = Field(
         default=None, description="The latest row's slowest_s"
+    )
+    worker_s: Optional[float] = Field(
+        default=None,
+        description="The latest period less the previous row's wait for its "
+        "devices: the worker's own reads, row and collects",
     )
     slowest: list[SlowDevice] = Field(
         default_factory=list,
@@ -316,15 +321,21 @@ def _scan_day(tag: Any) -> Optional[str]:
 
 
 class _RowTiming:
-    """The run's rates and the devices that held its shots, from the rows' timing columns."""
+    """The run's rates and the devices that held its shots, from the rows' timing columns.
+
+    Running totals only (a count, a sum and a maximum per device), so a long
+    run costs the same per row as a short one.
+    """
 
     def __init__(self) -> None:
         self.first: float | None = None
         self.last: float | None = None
         self.fires = 0
         self.period: float | None = None
+        self.worker: float | None = None
+        self.last_wait: float | None = None
         self.waiting: tuple[str, float] | None = None
-        self.held: dict[str, list[float]] = {}
+        self.held: dict[str, list[float]] = {}  # device → [rows, sum, max]
 
     def take(self, data: dict, *, page: bool) -> None:
         """One event's ``data`` (or an event page's, columns of lists)."""
@@ -334,23 +345,37 @@ class _RowTiming:
             else [data]
         )
         for row in rows:
-            fired = _finite(row.get("fire_stamp"))
-            if fired is not None:
-                self.first = fired if self.first is None else min(self.first, fired)
-                self.last = fired if self.last is None else max(self.last, fired)
-                self.fires += 1
-            period = _finite(row.get("shot_period_s"))
-            if period is not None and period > 0:
-                self.period = period
-            device = row.get("slowest_device")
-            delay = _finite(row.get("slowest_s"))
-            if device and delay is not None:
-                self.waiting = (str(device), delay)
-                self.held.setdefault(str(device), []).append(delay)
+            self._row(row)
+
+    def _row(self, row: dict) -> None:
+        fired = _finite(row.get("fire_stamp"))
+        if fired is not None:
+            if self.last is not None and fired > self.last:
+                self.period = fired - self.last
+                # The period's part not spent waiting for the previous row's
+                # devices: the worker's own reads, row and collects.
+                self.worker = (
+                    None
+                    if self.last_wait is None
+                    else max(0.0, self.period - self.last_wait)
+                )
+            self.first = fired if self.first is None else min(self.first, fired)
+            self.last = fired if self.last is None else max(self.last, fired)
+            self.fires += 1
+        device = row.get("slowest_device")
+        delay = _finite(row.get("slowest_s"))
+        self.last_wait = delay
+        if device and delay is not None:
+            self.waiting = (str(device), delay)
+            stats = self.held.setdefault(str(device), [0, 0.0, 0.0])
+            stats[0] += 1
+            stats[1] += delay
+            stats[2] = max(stats[2], delay)
 
     def write(self, progress: RunProgress) -> None:
         """Set the picture's timing fields."""
         progress.current_rate_hz = None if self.period is None else 1.0 / self.period
+        progress.worker_s = self.worker
         span = (
             None if self.first is None or self.last is None else self.last - self.first
         )
@@ -358,15 +383,10 @@ class _RowTiming:
             (self.fires - 1) / span if span and self.fires > 1 else None
         )
         progress.waiting_on, progress.waiting_s = self.waiting or (None, None)
-        ranked = sorted(self.held.items(), key=lambda kv: (-len(kv[1]), -max(kv[1])))
+        ranked = sorted(self.held.items(), key=lambda kv: (-kv[1][0], -kv[1][2]))
         progress.slowest = [
-            SlowDevice(
-                device=device,
-                held=len(delays),
-                mean_s=sum(delays) / len(delays),
-                max_s=max(delays),
-            )
-            for device, delays in ranked[:SLOWEST_KEPT]
+            SlowDevice(device=device, held=n, mean_s=total / n, max_s=top)
+            for device, (n, total, top) in ranked[:SLOWEST_KEPT]
         ]
 
 

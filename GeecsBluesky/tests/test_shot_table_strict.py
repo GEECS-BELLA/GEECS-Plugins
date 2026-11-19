@@ -35,7 +35,6 @@ SHOT_KEYS = {
     "shot_index",
     "attempt",
     "fire_stamp",
-    "shot_period_s",
     "slowest_device",
     "slowest_s",
     "complete",

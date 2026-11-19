@@ -237,7 +237,8 @@
     $("lv-rate").textContent = hz(p.current_rate_hz);
     $("ag-rate").textContent = p.average_rate_hz == null ? "" : "average " + hz(p.average_rate_hz);
     $("lv-wait").textContent = p.waiting_on || "—";
-    $("ag-wait").textContent = p.waiting_s == null ? "" : s(p.waiting_s) + " after the fire";
+    $("ag-wait").textContent = p.waiting_s == null ? ""
+      : s(p.waiting_s) + " after the fire" + (p.worker_s == null ? "" : "; worker " + s(p.worker_s));
     var slow = p.slowest || [];
     $("slowest-note").textContent = slow.length
       ? "Held the most shots: " + slow.map(function (d) {

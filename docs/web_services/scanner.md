@@ -95,11 +95,14 @@ opens this page.
   why a scan runs at the rate it does. **rate** is the current repetition
   rate (one over the time since the previous fire) with the run's average
   under it. **waiting on** names the required device the last shot waited
-  for longest, and how long after the fire it delivered. The line under
-  them lists the devices that held the most shots, each with its mean and
-  longest delay. A rate below the trigger's means a shot missed the next
-  trigger edge: the device named there is what held it, so untick it as
-  required, or fix its trigger.
+  for longest, and how long after the fire it delivered, then the worker's
+  own time (its reads, the row and the collects) for the rest of the
+  period. The line under them lists the devices that held the most shots,
+  each with its mean and longest delay. A rate below the trigger's means a
+  shot missed the next trigger edge. When the named device's delay is most
+  of the period, it is what held the shot: untick it as required, or fix
+  its trigger. When the worker's time is most of it, no device is to
+  blame, and unticking one will not help.
 - **New scan** — the form. **Load preset…** fills it from a saved scan
   document in the experiment's configs repository, or compose one. The
   top half is common to every scan: shots per step, trigger profile,

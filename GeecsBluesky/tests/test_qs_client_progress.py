@@ -91,11 +91,11 @@ def test_the_rates_and_the_devices_that_held_the_shots() -> None:
     stream.on_document("start", {"uid": "r", "plan_name": "count", "num_points": 4})
     stream.on_document("descriptor", {"uid": "p", "name": "primary"})
     rows = [
-        (100.0, float("nan"), "CAM-Wedge", 1.8),
-        (102.0, 2.0, "CAM-Wedge", 1.6),
-        (104.0, 2.0, "CAM-Ghost", 1.9),
+        (100.0, "CAM-Wedge", 1.8),
+        (102.0, "CAM-Wedge", 1.6),
+        (104.0, "CAM-Ghost", 1.9),
     ]
-    for seq, (fire, period, device, delay) in enumerate(rows, start=1):
+    for seq, (fire, device, delay) in enumerate(rows, start=1):
         stream.on_document(
             "event",
             {
@@ -103,12 +103,14 @@ def test_the_rates_and_the_devices_that_held_the_shots() -> None:
                 "seq_num": seq,
                 "data": {
                     "fire_stamp": fire,
-                    "shot_period_s": period,
                     "slowest_device": device,
                     "slowest_s": delay,
                 },
             },
         )
+    mid = stream.snapshot()
+    assert mid.current_rate_hz == 0.5
+    assert abs(mid.worker_s - (2.0 - 1.6)) < 1e-9  # the period less row 2's wait
     # an event page (columns of lists) of the fourth row
     stream.on_document(
         "event_page",
@@ -117,7 +119,6 @@ def test_the_rates_and_the_devices_that_held_the_shots() -> None:
             "seq_num": [4],
             "data": {
                 "fire_stamp": [105.0],
-                "shot_period_s": [1.0],
                 "slowest_device": ["CAM-Wedge"],
                 "slowest_s": [0.7],
             },
@@ -125,6 +126,7 @@ def test_the_rates_and_the_devices_that_held_the_shots() -> None:
     )
     snap = stream.snapshot()
     assert snap.current_rate_hz == 1.0
+    assert snap.worker_s == 0.0  # a period shorter than the previous wait
     assert snap.average_rate_hz == 3 / 5.0
     assert (snap.waiting_on, snap.waiting_s) == ("CAM-Wedge", 0.7)
     top = snap.slowest[0]

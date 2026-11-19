@@ -121,6 +121,7 @@ def test_the_progress_wire_keys() -> None:
         "average_rate_hz",
         "waiting_on",
         "waiting_s",
+        "worker_s",
         "slowest",
     ]
 
@@ -140,7 +141,6 @@ def test_the_rows_timing_reaches_the_page() -> None:
                 "seq_num": seq,
                 "data": {
                     "fire_stamp": fire,
-                    "shot_period_s": float("nan") if seq == 1 else 2.0,
                     "slowest_device": "CAM-Wedge",
                     "slowest_s": 1.9,
                 },
@@ -148,5 +148,6 @@ def test_the_rows_timing_reaches_the_page() -> None:
         )
     out = ProgressOut.of(c.snapshot())
     assert out.current_rate_hz == 0.5 and out.average_rate_hz == 0.5
+    assert abs(out.worker_s - 0.1) < 1e-9  # 2.0 s less the 1.9 s wait
     assert (out.waiting_on, out.waiting_s) == ("CAM-Wedge", 1.9)
     assert [(d.device, d.held) for d in out.slowest] == [("CAM-Wedge", 2)]
