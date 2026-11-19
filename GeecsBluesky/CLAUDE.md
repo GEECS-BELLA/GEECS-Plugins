@@ -743,7 +743,11 @@ The rules: the entry sits **inside the trigger bracket, before the stage
 and the claim** (a refused entry claims nothing, the liveness gate's
 posture); the run devices the entry waits for are the detectors' owners (every
 per-shot device) and the profile's box — not the movers, not the
-background; the shot number is **run-wide and never re-sent** (a refire
+background, and not a device whose DB `device.scanmode_lock` is `disabled`
+(`GeecsDb.get_scan_mode_locks`, re-read per run with the boundary rows;
+`plans/scan_mode.entered_device_names`): it never acknowledges, keeps its
+normal acquisition, records as it acquires and keeps `acq_timestamp` (the box
+is always waited for); the shot number is **run-wide and never re-sent** (a refire
 takes the next number; the partial row keeps its own — `announced_shot`
 is the join key for the files, never the s-file's row index); the pushed
 path is the claimed folder translated by `data_paths.device_server_save_path`

@@ -42,6 +42,8 @@ from .streams import DeviceStreams, is_per_shot
 from .scan_mode import (
     EnterScanMode,
     paused_device_names,
+    entered_device_names,
+    in_scan_mode,
     reset_shot_stamps,
     run_device_names,
     scan_mode_bracket,
@@ -468,6 +470,7 @@ def optimize_plan(  # noqa: C901, PLR0915
         run_devices = run_device_names(detectors, sc)
         if sc.use_scan_mode:
             scan_mode_preflight(sc, scan_mode, run_devices=run_devices)
+            run_devices = entered_device_names(scan_mode, run_devices, sc)
         else:
             # Every stamp from acq_timestamp: a halted scan-mode run's choice undone.
             yield from reset_shot_stamps([d for d in detectors if is_per_shot(d)])
@@ -773,7 +776,9 @@ def optimize_plan(  # noqa: C901, PLR0915
                         scan_parameter_for("optimize"),
                         paused=paused_device_names(detectors),
                     ),
-                    stamped=[d for d in detectors if is_per_shot(d)],
+                    stamped=in_scan_mode(
+                        [d for d in detectors if is_per_shot(d)], run_devices
+                    ),
                 )
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 

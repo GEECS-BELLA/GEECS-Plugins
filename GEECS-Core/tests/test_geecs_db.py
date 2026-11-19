@@ -1105,3 +1105,23 @@ def test_get_root_path_returns_the_device_side_path_verbatim(monkeypatch) -> Non
     assert GeecsDb.get_root_path("kHzLPA") == "\\\\192.168.6.12\\hdna2\\data\\kHzLPA"
     _patch_one(monkeypatch, (None,), [])
     assert GeecsDb.get_root_path("Nowhere") is None
+
+
+def test_get_scan_mode_locks_reads_the_device_table_for_the_enabled_devices(
+    monkeypatch,
+) -> None:
+    seen: list = []
+
+    def query(sql, params=(), *, fetch="all"):
+        seen.append((sql, params))
+        return [("CAM-A", "enabled"), ("CAM-B", "disabled"), ("CAM-C", None)]
+
+    monkeypatch.setattr(geecs_db, "_query", query)
+    assert GeecsDb.get_scan_mode_locks("Bella") == {
+        "CAM-A": "enabled",
+        "CAM-B": "disabled",
+        "CAM-C": None,
+    }
+    (sql, params) = seen[0]
+    assert "d.scanmode_lock" in sql and "JOIN device d" in sql
+    assert "LOWER(ed.enabled) = 'yes'" in sql and params == ("Bella",)
