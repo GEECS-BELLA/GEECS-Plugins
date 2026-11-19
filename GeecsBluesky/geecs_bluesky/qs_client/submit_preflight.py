@@ -26,7 +26,7 @@ light and offline.
 from __future__ import annotations
 
 import logging
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -112,7 +112,7 @@ def run_submit_preflight(
 
     # -- validate (hard gate) ----------------------------------------------
     try:
-        from geecs_bluesky.qs_client.presets import expand_preset
+        from geecs_bluesky.qs_client.presets import expand_against_tree, expand_preset
 
         resolver = resolver or _make_default_resolver(experiment)
         item = expand_preset(preset, catalog=catalog, resolver=resolver)
@@ -123,7 +123,15 @@ def run_submit_preflight(
 
     # -- worker ready (hard gate; fail-open when the manager is unreachable)
     try:
-        _check_worker_ready(report, client, experiment, item)
+        item = _check_worker_ready(
+            report,
+            client,
+            experiment,
+            item,
+            expand=lambda tree: expand_against_tree(
+                preset, lambda: tree, catalog=catalog, resolver=resolver
+            ),
+        )
     except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning("worker-ready preflight failed: %s", exc)
         report.outcomes.append(("worker_ready", "skipped", str(exc)))
@@ -296,9 +304,14 @@ _FAIL_OPEN_READINESS_STATES = frozenset({"unreachable", "plans_unknown"})
 
 
 def _check_worker_ready(
-    report: PreflightReport, client: Any | None, experiment: str, item: Any
-) -> None:
-    """Refuse when the manager cannot run the plan about to be queued.
+    report: PreflightReport,
+    client: Any | None,
+    experiment: str,
+    item: Any,
+    *,
+    expand: Callable[[Collection[str]], Any] | None = None,
+) -> Any:
+    """Refuse when the manager cannot run the plan about to be queued; answer the item judged.
 
     The verdict is the shared
     :func:`~geecs_bluesky.qs_client.client.readiness_from_reads` — the
@@ -325,6 +338,17 @@ def _check_worker_ready(
         Passed to the client factory.
     item :
         The expanded queue item (its plan name and device references).
+    expand :
+        Expands the preset again over the manager's device tree
+        (:func:`~geecs_bluesky.qs_client.presets.expand_against_tree`): a
+        device the tree lacks and the run does not require is left out, as
+        the submit leaves it out, and named in the outcome; only what is
+        still unknown is refused.
+
+    Returns
+    -------
+    Any
+        The item the later checks judge: re-expanded when *expand* ran.
     """
     from geecs_bluesky.qs_client.client import StubQueueClient, readiness_from_reads
 
@@ -336,7 +360,7 @@ def _check_worker_ready(
             report.outcomes.append(
                 ("worker_ready", "skipped", "no [qserver] config — submission is off")
             )
-            return
+            return item
         # The ONE assembly of ready (status → plans if the env exists →
         # verdict); any client with status() + allowed_plan_names() qualifies.
         verdict = readiness_from_reads(
@@ -344,20 +368,31 @@ def _check_worker_ready(
         )
         if verdict.ready:
             known = set(client.allowed_device_names())
+            if expand is not None:
+                item = expand(known)
             unknown = [r for r in item.references if r not in known]
             if unknown:
                 report.refusal = (
                     "the worker does not know these devices: "
                     f"{', '.join(unknown)} — check the spelling (GEECS "
                     "device name, variable as its safe name: U_S1H.current) "
-                    "and that the DB lists them for the experiment"
+                    "and that the DB lists them for the experiment; one the "
+                    "scan neither requires nor moves is left out instead"
                 )
-                return
-            report.outcomes.append(("worker_ready", "passed", ""))
+                return item
+            left_out = getattr(item, "left_out", ())
+            note = (
+                "left out, unknown to the worker and not required: "
+                + ", ".join(left_out)
+                if left_out
+                else ""
+            )
+            report.outcomes.append(("worker_ready", "passed", note))
         elif verdict.state in _FAIL_OPEN_READINESS_STATES:
             report.outcomes.append(("worker_ready", "skipped", verdict.detail))
         else:
             report.refusal = verdict.detail
+        return item
     finally:
         if owned:
             close = getattr(client, "close", None)
