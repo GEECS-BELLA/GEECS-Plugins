@@ -1,0 +1,43 @@
+[tool.poetry]
+name = "geecs-interlocks"
+version = "0.2.0"
+description = "Software interlocks: watch GEECS device values against interlocks.yaml and report the verdict to Master Control, a server window and a web client"
+authors = ["GEECS-BELLA"]
+readme = "README.md"
+packages = [{ include = "geecs_interlocks" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+pydantic = ">=2.7"
+# InterlockSet.from_path reads YAML; GEECS-Schemas keeps PyYAML out of its
+# own runtime dependencies, so the reader brings it.
+pyyaml = ">=6.0"
+geecs-core = { path = "../GEECS-Core", develop = true }
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+# The web client: the theme and the kit, mounted at /theme by THIS process,
+# and the FastAPI glue every surface shares (the `web` extra).
+fastapi = ">=0.110"
+uvicorn = ">=0.29"
+jinja2 = ">=3.1"
+geecs-web-theme = { path = "../GeecsWebTheme", develop = true, extras = ["web"] }
+# The server window. Optional so the engine and the web client run headless
+# (`serve --no-window`) on a box without a display.
+PyQt6 = { version = ">=6.6", optional = true }
+
+[tool.poetry.extras]
+gui = ["PyQt6"]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+httpx = ">=0.27"
+
+[tool.poetry.scripts]
+geecs-interlocks = "geecs_interlocks.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gui: needs PyQt6 (runs offscreen)"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

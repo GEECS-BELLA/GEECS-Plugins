@@ -1,0 +1,51 @@
+# Demo interlocks for `geecs-interlocks serve --demo` and `--fake-devices`.
+# The device names are made up: the demo scripts their values, so every
+# state (OK, TRIPPED, settling, waiting, a NaN, a dropout) shows up within
+# a couple of minutes.
+schema_version: 1
+interlocks:
+  - name: chamber vacuum
+    description: Main chamber pressure below the HV limit
+    condition:
+      kind: threshold
+      device: DEMO_VacuumGauge
+      variable: Pressure
+      operator: ">"
+      limit: 1.0e-5
+      hysteresis: 1.0e-6
+    settle_s: 3
+  - name: camera saturation
+    description: Pointing camera not saturated
+    condition:
+      kind: threshold
+      device: DEMO_PointingCam
+      variable: MaxCounts
+      operator: ">="
+      limit: 4000
+  - name: beam pointing
+    description: Centroid within tolerance of its reference
+    condition:
+      kind: alignment
+      device: DEMO_PointingCam
+      variable: CentroidX
+      target_variable: TargetX
+      tolerance: 20
+      hysteresis: 5
+    settle_s: 2
+  - name: gauge alive
+    condition:
+      kind: stale
+      device: DEMO_VacuumGauge
+      max_age_s: 2
+  - name: chiller connected
+    condition:
+      kind: stale
+      device: DEMO_Chiller
+  - name: spare (disabled)
+    enabled: false
+    condition:
+      kind: threshold
+      device: DEMO_Chiller
+      variable: Temperature
+      operator: ">"
+      limit: 30
