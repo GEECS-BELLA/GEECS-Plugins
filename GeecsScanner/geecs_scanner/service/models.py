@@ -473,9 +473,9 @@ class SavePresetIn(BaseModel):
 
     preset: dict[str, Any] = Field(description="A geecs_schemas.Preset document")
     overwrite: bool = False
-    operator: str = Field(
-        default="",
-        description="Who saves: the commit's author (required by the configurator)",
+    operator: Optional[str] = Field(
+        default=None,
+        description="Who saves: the commit's author (required: an empty one is refused by the service)",
     )
 
 
