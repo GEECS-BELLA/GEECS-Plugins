@@ -7,8 +7,7 @@ device at three points of a strict run (the rules: CLAUDE.md, "Scan mode"):
   before the stage and the claim: ``ScanStart`` on the experiment's
   multicast group, then every run device's acknowledgement (one retry:
   ``ScanEnd``, a fresh ``ScanStart``), every host's connection and a drain.  A
-  silent or refusing device the run needs refuses the run by name
-  (:exc:`~geecs_bluesky.exceptions.GeecsScanModeError`): nothing claimed; an
+  silent or refusing device the run needs refuses it (nothing claimed); an
   ``optional`` one is WARNED and left out of scan mode.
 - ``mv(control, ANNOUNCE)`` on every shot, between the detectors' trigger
   and the fire: the run-wide counter advances (never re-sent) and
