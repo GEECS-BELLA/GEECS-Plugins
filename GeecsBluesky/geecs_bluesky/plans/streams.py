@@ -27,6 +27,7 @@ frame's shape.  A strict run also collects every stream once per shot.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Collection, Sequence
 from typing import Any
@@ -285,4 +286,83 @@ class DeviceStreams:
         return (yield from finalize_wrapper(staged(), self._unstage_all()))
 
 
-__all__ = ["COMPANION_SUFFIX", "DeviceStreams", "is_per_shot", "stream_name"]
+def _stamped_owners(per_shot: Sequence[Any]) -> list[GeecsDetector]:
+    """The GEECS detectors among *per_shot* whose shot is a stamp (no file plugin), once each."""
+    owners: dict[int, GeecsDetector] = {}
+    for obj in per_shot:
+        owner = owner_of(obj)
+        if isinstance(owner, GeecsDetector) and not owner.plugin_backed:
+            owners.setdefault(id(owner), owner)
+    return list(owners.values())
+
+
+def _set_stamp(owner: GeecsDetector, on: bool):
+    """Retarget *owner*'s stamp monitor on the RunEngine's loop (a CA subscription)."""
+
+    async def do() -> None:
+        owner.shot_stamp_from_systimestamp(on)
+
+    return do
+
+
+def _read_stamp(owner: GeecsDetector):
+    """``acq_timestamp`` read uncached on the RunEngine's loop; ``None`` when it fails."""
+
+    async def do() -> float | None:
+        with contextlib.suppress(Exception):
+            return float(await owner.acq_timestamp.get_value(cached=False))
+        return None
+
+    return do
+
+
+def choose_shot_stamps(per_shot: Sequence[Any], *, scan_mode: bool):
+    """Plan: set each stamped per-shot device's shot stamp for this run; return the GEECS names on ``systimestamp``.
+
+    In a scan-mode run a device whose ``acq_timestamp`` reads ``0.0`` (its
+    LabVIEW driver never sets it; the gateway's placeholder) takes its
+    shots from ``systimestamp``, which a device in scan mode publishes once
+    per announced shot; every other device, and every device outside scan
+    mode, takes them from ``acq_timestamp``.  An ``acq_timestamp`` that
+    cannot be read keeps it (the liveness gate judged the device up).  Set
+    for every stamped device at each run's start, so a run never inherits
+    another's choice; :func:`reset_shot_stamps` clears it at the end.
+    """
+    chosen: list[str] = []
+    for owner in _stamped_owners(per_shot):
+        use = False
+        if scan_mode:
+            (task,) = yield from bps.wait_for([_read_stamp(owner)])
+            value = task.result()
+            if value is None:
+                logger.warning(
+                    "%s: acq_timestamp could not be read — its shots stay on it",
+                    owner._geecs_device_name,
+                )
+            use = value is not None and value <= 0
+        yield from bps.wait_for([_set_stamp(owner, use)])
+        if use:
+            chosen.append(owner._geecs_device_name)
+    if chosen:
+        logger.info(
+            "%s: acq_timestamp is never set — in scan mode its shots are its "
+            "systimestamp (once per announced shot), recorded as its acq_timestamp",
+            ", ".join(chosen),
+        )
+    return chosen
+
+
+def reset_shot_stamps(per_shot: Sequence[Any]):
+    """Plan: every stamped per-shot device back on ``acq_timestamp`` (the run's finalizer)."""
+    for owner in _stamped_owners(per_shot):
+        yield from bps.wait_for([_set_stamp(owner, False)])
+
+
+__all__ = [
+    "COMPANION_SUFFIX",
+    "DeviceStreams",
+    "choose_shot_stamps",
+    "is_per_shot",
+    "reset_shot_stamps",
+    "stream_name",
+]

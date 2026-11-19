@@ -64,7 +64,12 @@ from geecs_bluesky.plans.on_demand import (
     start_keys,
 )
 from geecs_bluesky.plans.shot_gate import open_gate
-from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
+from geecs_bluesky.plans.streams import (
+    DeviceStreams,
+    choose_shot_stamps,
+    is_per_shot,
+    reset_shot_stamps,
+)
 from geecs_bluesky.plans.strict import (
     device_root,
     down_devices,
@@ -816,6 +821,17 @@ def strict_plan(  # noqa: C901, PLR0915
         md["acquisition"] = acquisition
         md["native_image_save"] = native_files
         md["devices_dropped"] = dropped
+        # A device whose acq_timestamp is never set is stamped by its
+        # systimestamp in scan mode (once per announced shot).
+        md["shot_stamp_systimestamp"] = (
+            []
+            if fly
+            else (
+                yield from choose_shot_stamps(
+                    per_shot, scan_mode=shot_control.use_scan_mode
+                )
+            )
+        )
         gate = gate_for_run(shot_control, fly=fly)
         if gate is not None:
             md["shot_gate"] = gate.describe()
@@ -879,6 +895,8 @@ def strict_plan(  # noqa: C901, PLR0915
             args, kwargs = bound.args, dict(bound.kwargs)
         inner = stock(*args, md=md, **kwargs)
         inner = streams.wrap(inner)
+        if not fly:
+            inner = bpp.finalize_wrapper(inner, reset_shot_stamps(per_shot))
         if tick is not None:
             inner = tick.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
