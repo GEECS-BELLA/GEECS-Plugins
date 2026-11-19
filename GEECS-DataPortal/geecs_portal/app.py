@@ -154,7 +154,7 @@ def create_app(
     configurator_url : str, optional
         The configurator as the browser reaches it (a site value). The
         Analysis tab's **edit** opens a recipe, ``.himg`` job or group in
-        the configurator's embedded editor (its ``static/embed.js``), with
+        the embedded editor (GeecsConfigurator's ``static/embed.js``), with
         this portal's preview of the unsaved recipe on the page's scan; the
         save is the configurator's (the operator as git author, its tier
         and dry run, which is this portal's ``/api/analysis/validate``).
