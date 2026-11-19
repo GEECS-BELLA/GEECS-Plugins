@@ -271,12 +271,14 @@ def page_panel(body: dict[str, Any], family: Optional[FamilyFile], rows: list[di
 
 
 #: The windows a viewer of a trend may choose, in seconds, and the one a page opens with.
-WINDOWS_S = (120, 600, 3600)
+WINDOWS_S = (10, 30, 120, 600, 3600)
 DEFAULT_WINDOW_S = 600
 
 
 def window_label(seconds: int) -> str:
-    """A trend window as its button reads: ``2 min``, ``1 h``."""
+    """A trend window as its button reads: ``10 s``, ``2 min``, ``1 h``."""
+    if seconds < 60:
+        return f"{seconds} s"
     return f"{seconds // 3600} h" if seconds % 3600 == 0 else f"{seconds // 60} min"
 
 

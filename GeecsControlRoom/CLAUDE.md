@@ -564,9 +564,11 @@ widget draws no trend.
   computes: no average, no rate, no fit, no error band, no alarm line; a
   derived quantity worth a trend is a record the IOC serves and a role the
   family names.
-- **The window** (2 min, 10 min, 1 h: `device_pages.WINDOWS_S`, 10 min on
-  load) is the viewer's own, written nowhere; the x axis is that window
-  ending now, fixed, redrawn each second; y is the viewer's to zoom.
+- **The window** (10 s, 30 s, 2 min, 10 min, 1 h: `device_pages.WINDOWS_S`,
+  10 min on load) is the viewer's own, written nowhere; the x axis is that
+  window ending now, fixed, redrawn each second (five times a second for a
+  window of 30 s or less, to watch a fast loop work); y is the viewer's to
+  zoom.
 - **Bounded, and never silently short.** The live buffer alone is bounded
   (`trim`): a point older than the longest window goes (it is never drawn
   again; the newest such stays, the value held on entering), then past

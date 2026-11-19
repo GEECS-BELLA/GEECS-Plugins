@@ -87,7 +87,7 @@ def test_a_family_with_trends_draws_a_host_per_trend_and_loads_plotly(settings: 
     assert html.count('class="trend-plot"') == 2
     # the viewer's window: the choices, the default pressed
     pressed = re.findall(r'data-window="(\d+)" aria-pressed="(\w+)">([^<]*)<', html)
-    assert pressed == [("120", "false", "2 min"), ("600", "true", "10 min"), ("3600", "false", "1 h")]  # fmt: skip
+    assert pressed == [("10", "false", "10 s"), ("30", "false", "30 s"), ("120", "false", "2 min"), ("600", "true", "10 min"), ("3600", "false", "1 h")]  # fmt: skip
     # under the readings, in the pane
     assert html.index('class="grid tight readings"') < html.index('class="trends"')
     for script in ("/theme/plot.js", "/static/trend_rules.js", "/static/trend.js"):
@@ -113,7 +113,13 @@ def test_a_trend_is_drawn_with_the_roles_the_device_serves() -> None:
 
 
 def test_the_windows_read_as_their_buttons() -> None:
-    assert [window_label(s) for s in WINDOWS_S] == ["2 min", "10 min", "1 h"]
+    assert [window_label(s) for s in WINDOWS_S] == [
+        "10 s",
+        "30 s",
+        "2 min",
+        "10 min",
+        "1 h",
+    ]
     assert DEFAULT_WINDOW_S in WINDOWS_S
 
 

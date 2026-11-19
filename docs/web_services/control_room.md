@@ -398,7 +398,7 @@ registry or the database, never a new page.
   and the page then draws each as a plot under the readings: a feedback
   loop shows its value against its setpoint, and its actuator's position
   against the last target. **Window** picks how far back the plots reach
-  (2 min, 10 min or 1 h); it is your own view and changes nothing on the
+  (10 s, 30 s, 2 min, 10 min or 1 h); it is your own view and changes nothing on the
   device. The earlier part of each line comes from Canopy's live buffer,
   which starts keeping a value the first time anyone opens its page, so
   the first visit says the buffer "has only now begun keeping" it and

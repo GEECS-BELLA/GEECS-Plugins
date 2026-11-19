@@ -12,7 +12,7 @@
   const P = window.GeecsDevicePage, R = window.GeecsTrendRules, D = window.GeecsDeviceRules, G = window.GeecsPlot;
   const boxes = [...document.querySelectorAll(".trends")];
   if (!P || !R || !D || !boxes.length) return;
-  const DRAW_MS = 1000, TIMEOUT_MS = 10000, REREAD_MS = 30000; // a dropped stretch is read again at most this often
+  const DRAW_MS = 1000, FAST_MS = 200, FAST_S = 30, TIMEOUT_MS = 10000, REREAD_MS = 30000; // a dropped stretch is read again at most this often
   let skew = 0; // the server's clock when it answered less this browser's on receiving it: "now" is the server's
   const now = () => Date.now() + skew;
   const safely = (work) => (...args) => { try { return work(...args); } catch (e) { console.error("trend", e); return undefined; } };
@@ -106,6 +106,7 @@
     say();
     draw(); // reads the history if the plots are shown
     setInterval(draw, DRAW_MS);
+    setInterval(() => { if (seconds <= FAST_S) draw(); }, FAST_MS); // a window of seconds is redrawn fast enough to watch a loop work
   }
   boxes.forEach(safely(start));
 })();
