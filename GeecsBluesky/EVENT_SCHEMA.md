@@ -129,6 +129,9 @@ What the row carries:
 | `attempt` | integer | 1 for a shot's first fire, +1 for each refire of the same shot |
 | `fire_stamp` | Unix s | The worker's clock at the SINGLESHOT put; under a box-less scan-mode profile (no put) at the announce. The unwitnessed row clock |
 | `announce_stamp` | Unix s | Scan mode only: the worker's clock at the shot's announce |
+| `shot_period_s` | seconds | The time since the previous fire's `fire_stamp` (the shot's period: its rate is the inverse); `NaN` on the run's first row. A sweep's step move lands in the first fire after it |
+| `slowest_device` | string | The required device whose record came last after this fire, by GEECS name — what held the shot; one that never reported waited its whole timeout and is also in `missing`; `""` with nothing required |
+| `slowest_s` | seconds | Seconds from `fire_stamp` to that device's record; `NaN` with nothing required |
 | `gate_hold_s` | seconds | A gated run only (start `shot_gate` present): how long this fire waited for the shot gate's permission — one fresh safe verdict (on data taken after the previous fire, or received after it when the verdict carries no data stamp) — before its baseline; 0 when the permission was already there. The waiting alone: a pause the hold led to is not counted |
 | `witness_count`, `witness_stamp`, `witness_epoch` | count; Unix s (the count record's CA time); string | A run whose witness is read (start `witness.read`), as below |
 | `<device>-baseline` | a frame count, or LabVIEW s | One per required device: its progress counter read **before** the fire — a plugin or native camera's frame count (`NumCaptured`, the fewest across its plugins), a stamped device's `acq_timestamp` (LabVIEW epoch, `NaN` before its first stamp). A record of row *k* is newer than baseline *k*. On a scan-mode run (start `use_scan_mode`), witnessed or not, a stamped device's baseline is how the join finds its records: a delivered row's record is the one whose stamp **is** the next row's baseline (no clock compared — a scan-mode device's stamps need not match the fires); a delivered row it cannot identify (a lost record, an unreadable baseline) stays empty, flagged *scan-mode-order*, and a row whose slot held a record no baseline names is flagged *scan-mode-extra* (that record stays an extra) |
@@ -161,7 +164,7 @@ schedule (a tick that would follow a late one by under half a period is
 re-anchored a full period on, so no catch-up tick); the box is never
 driven.  `witness_count` is the tick's number from 1, `witness_stamp` the
 worker's clock at the tick (Unix s), `witness_epoch` the run's uid; no
-`fire_stamp`, `unwitnessed`, `witness_late` or `extra_frames` column.  **One interval
+`fire_stamp`, `shot_period_s`, `slowest_device`, `slowest_s`, `unwitnessed`, `witness_late` or `extra_frames` column.  **One interval
 rule, the plan's and the join's** (*m* the stamp budget, 30 ms):
 
 | Device | Row *k*'s record | The plan calls it complete when |
