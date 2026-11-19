@@ -211,6 +211,22 @@ class TestRunSubmitPreflight:
             "left out, disconnected and not required: UC_Cam2",
         ) in report.outcomes
 
+    def test_every_listed_device_down_is_still_a_question(self, engine, monkeypatch):
+        """None needed, all down: the worker refuses the run, so the operator is told."""
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected",
+            lambda experiment, device_names, *, timeout: list(device_names),
+        )
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1", "required": False},
+                {"device": "UC_Cam2", "save_images": False, "required": False},
+            ]
+        )
+        (question,) = run_submit_preflight(preset, "Undulator").questions
+        assert "Every device the scan lists is Disconnected" in question.message
+        assert "refuses the run" in question.message
+
     def test_a_sweep_axis_device_is_probed_and_refuses(self, engine, monkeypatch):
         calls: list[list[str]] = []
 
