@@ -32,8 +32,10 @@ class _FakeQueueClient:
             [
                 "UC_Cam1",
                 "UC_Cam1.scalars",
+                "UC_Cam1.acq_timestamp",
                 "UC_Cam2",
                 "UC_Cam2.scalars",
+                "UC_Cam2.acq_timestamp",
                 "U_S1H",
                 "U_S1H.current",
             ]
@@ -353,6 +355,38 @@ class TestWorkerReady:
         report = run_submit_preflight(preset, "Undulator")
         assert report.refusal is None
         assert ("worker_ready", "passed", "") in report.outcomes
+
+    def test_an_unknown_device_not_required_is_left_out_not_refused(
+        self, engine, monkeypatch
+    ):
+        """As the submit leaves it out: the outcome names it, nothing refuses."""
+        fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.acq_timestamp"])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Off", "required": False, "save_images": False},
+            ]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is None
+        assert (
+            "worker_ready",
+            "passed",
+            "left out, unknown to the worker and not required: UC_Off",
+        ) in report.outcomes
+
+    def test_an_unknown_required_device_is_still_refused(self, engine, monkeypatch):
+        fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.acq_timestamp"])
+        monkeypatch.setattr(submit_preflight, "_make_default_client", lambda e: fake)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1", "required": False},
+                {"device": "UC_Need", "save_images": False},
+            ]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal and "UC_Need.scalars" in report.refusal
 
     def test_unknown_device_reference_is_a_refusal(self, engine, monkeypatch):
         fake = _FakeQueueClient(devices=["UC_Cam1", "UC_Cam1.scalars"])

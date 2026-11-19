@@ -475,3 +475,72 @@ def test_an_optimize_preset_passes_required_through_like_count() -> None:
     assert item.args[0] == ["Meter", "UC_Slow"]
     assert item.kwargs["required"] == ["Meter"]
     assert "non_essential" not in item.kwargs
+
+
+class TestADeviceTheWorkerLacks:
+    """A row the manager's tree does not have: left out unless the run requires it."""
+
+    TREE = {"UC_Cam", "UC_Cam.acq_timestamp"}
+
+    def test_one_not_required_is_left_out_of_the_item(self) -> None:
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam"},
+                {"device": "UC_Gone", "required": False, "save_images": False},
+            ]
+        )
+        item = expand_preset(preset, device_tree=self.TREE)
+        assert item.args[0] == ["UC_Cam"]
+        assert item.left_out == ("UC_Gone",)
+        assert "UC_Gone.scalars" not in item.references
+        assert item.devices == ("UC_Cam",)
+        assert "required" not in item.kwargs  # what is left is all required
+
+    def test_a_required_one_stays_for_the_preflight_to_refuse(self) -> None:
+        preset = _preset(
+            devices=[{"device": "UC_Gone"}, {"device": "UC_Cam", "required": False}]
+        )
+        item = expand_preset(preset, device_tree=self.TREE)
+        assert "UC_Gone" in item.args[0] and item.left_out == ()
+
+    def test_without_a_tree_nothing_is_left_out(self) -> None:
+        preset = _preset(
+            devices=[{"device": "UC_Cam"}, {"device": "UC_Gone", "required": False}]
+        )
+        item = expand_preset(preset)
+        assert item.args[0] == ["UC_Cam", "UC_Gone"] and item.left_out == ()
+
+    def test_every_device_unknown_is_refused(self) -> None:
+        preset = _preset(devices=[{"device": "UC_Gone", "required": False}])
+        with pytest.raises(GeecsConfigurationError, match="knows none of its devices"):
+            expand_preset(preset, device_tree=self.TREE)
+
+    def test_the_tree_is_read_only_when_some_device_is_not_required(self) -> None:
+        from geecs_bluesky.qs_client.presets import expand_against_tree
+
+        asked: list[int] = []
+
+        def tree() -> set[str]:
+            asked.append(1)
+            return self.TREE
+
+        all_required = _preset(devices=[{"device": "UC_Cam"}])
+        expand_against_tree(all_required, tree)
+        assert asked == []
+        some = _preset(
+            devices=[{"device": "UC_Cam"}, {"device": "UC_Gone", "required": False}]
+        )
+        assert expand_against_tree(some, tree).left_out == ("UC_Gone",)
+        assert asked == [1]
+
+    def test_a_tree_that_cannot_be_read_leaves_the_plain_expansion(self) -> None:
+        from geecs_bluesky.qs_client.presets import expand_against_tree
+
+        def broken() -> set[str]:
+            raise RuntimeError("manager unreachable")
+
+        some = _preset(
+            devices=[{"device": "UC_Cam"}, {"device": "UC_Gone", "required": False}]
+        )
+        item = expand_against_tree(some, broken)
+        assert item.args[0] == ["UC_Cam", "UC_Gone"] and item.left_out == ()
