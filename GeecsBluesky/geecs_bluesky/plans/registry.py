@@ -910,7 +910,6 @@ def strict_plan(  # noqa: C901, PLR0915
                     optional=tuple(d for d in run_devices if d not in needed),
                 ),
                 stamped=per_shot,
-                md=md,
             )
         if fly:
             # Nothing on the box: no state, no fire (its devices were judged
