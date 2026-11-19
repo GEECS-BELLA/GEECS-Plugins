@@ -89,6 +89,15 @@ from geecs_schemas.experiment_defaults import (
     EXPERIMENT_DEFAULTS_FILENAME,
     ExperimentDefaults,
 )
+from geecs_schemas.interlocks import (
+    INTERLOCKS_FILENAME,
+    AlignmentCondition,
+    Interlock,
+    InterlockCondition,
+    InterlockSet,
+    StaleCondition,
+    ThresholdCondition,
+)
 from geecs_schemas.preset import PRESETS_FOLDER, PlanCall, Preset, PresetDevice
 from geecs_schemas.log_entry import (
     AnalysisPayload,
@@ -284,6 +293,14 @@ __all__ = [
     # experiment_defaults
     "ExperimentDefaults",
     "EXPERIMENT_DEFAULTS_FILENAME",
+    # interlocks
+    "AlignmentCondition",
+    "Interlock",
+    "InterlockCondition",
+    "InterlockSet",
+    "StaleCondition",
+    "ThresholdCondition",
+    "INTERLOCKS_FILENAME",
     # analysis
     "AnalysisGroup",
     "AnalysisRecipe",
@@ -354,6 +371,7 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "scan_variables": ScanVariables,
     "trigger_profile": TriggerProfile,
     "experiment_defaults": ExperimentDefaults,
+    "interlocks": InterlockSet,
     "derived_channels": DerivedChannels,
     "archive_policy": ArchivePolicy,
     "shot_offsets": ShotOffsets,

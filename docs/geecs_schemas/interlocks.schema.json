@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "AlignmentCondition": {
+      "additionalProperties": false,
+      "description": "Unsafe when a variable strays from a target variable by ``tolerance`` or more.\n\nFor example a beam position compared against its reference setpoint.",
+      "properties": {
+        "kind": {
+          "const": "alignment",
+          "description": "Condition type. 'alignment' compares a variable with a target variable.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "device": {
+          "description": "Device carrying the watched variable.",
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "The watched variable, e.g. 'CentroidX'.",
+          "title": "Variable",
+          "type": "string"
+        },
+        "target_device": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Device carrying the target variable (default: the same device).",
+          "title": "Target Device"
+        },
+        "target_variable": {
+          "description": "The target variable, e.g. 'TargetX'.",
+          "title": "Target Variable",
+          "type": "string"
+        },
+        "tolerance": {
+          "description": "UNSAFE when |value - target| is this large or larger (in the variable's units).",
+          "exclusiveMinimum": 0,
+          "title": "Tolerance",
+          "type": "number"
+        },
+        "hysteresis": {
+          "default": 0.0,
+          "description": "How much closer than the tolerance the value must come before the interlock counts as safe again.",
+          "minimum": 0,
+          "title": "Hysteresis",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "device",
+        "variable",
+        "target_variable",
+        "tolerance"
+      ],
+      "title": "AlignmentCondition",
+      "type": "object"
+    },
+    "Interlock": {
+      "additionalProperties": false,
+      "description": "One interlock: a name and the condition that makes it unsafe.",
+      "properties": {
+        "name": {
+          "description": "Short name shown to operators and on the status stream.",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "description": "Optional note on what this interlock protects.",
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Set false to keep the entry without arming it (shown as not armed, never counted in the verdict).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "condition": {
+          "description": "The condition that makes this interlock unsafe.",
+          "discriminator": {
+            "mapping": {
+              "alignment": "#/$defs/AlignmentCondition",
+              "stale": "#/$defs/StaleCondition",
+              "threshold": "#/$defs/ThresholdCondition"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ThresholdCondition"
+            },
+            {
+              "$ref": "#/$defs/AlignmentCondition"
+            },
+            {
+              "$ref": "#/$defs/StaleCondition"
+            }
+          ],
+          "title": "Condition"
+        },
+        "settle_s": {
+          "default": 0.0,
+          "description": "Seconds the condition must stay safe after a trip before the interlock reports OK again.",
+          "minimum": 0,
+          "title": "Settle S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "condition"
+      ],
+      "title": "Interlock",
+      "type": "object"
+    },
+    "StaleCondition": {
+      "additionalProperties": false,
+      "description": "Unsafe when a device stops publishing.\n\nAlways unsafe while the device's subscription is disconnected.  With\n``max_age_s`` it is also unsafe when no new update has arrived from the\ndevice for that long \u2014 only meaningful for a free-running device that\nkeeps publishing between shots.",
+      "properties": {
+        "kind": {
+          "const": "stale",
+          "description": "Condition type. 'stale' trips when a device stops publishing.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "device": {
+          "description": "Device to watch.",
+          "title": "Device",
+          "type": "string"
+        },
+        "max_age_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seconds without a new update before the device counts as stale. Leave empty to trip only on a disconnect.",
+          "title": "Max Age S"
+        }
+      },
+      "required": [
+        "kind",
+        "device"
+      ],
+      "title": "StaleCondition",
+      "type": "object"
+    },
+    "ThresholdCondition": {
+      "additionalProperties": false,
+      "description": "Unsafe when a variable crosses a limit.\n\nFor example ``operator: '>'`` with ``limit: 4094`` trips when a camera's\n``MaxCounts`` saturates.",
+      "properties": {
+        "kind": {
+          "const": "threshold",
+          "description": "Condition type. 'threshold' compares one variable to a limit.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "device": {
+          "description": "Device to watch, e.g. 'U_HP_Vacuum'.",
+          "title": "Device",
+          "type": "string"
+        },
+        "variable": {
+          "description": "Variable on the device, e.g. 'Pressure'.",
+          "title": "Variable",
+          "type": "string"
+        },
+        "operator": {
+          "description": "The reading is UNSAFE when 'value <operator> limit' holds, e.g. '>' trips above the limit.",
+          "enum": [
+            "<",
+            "<=",
+            ">",
+            ">="
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "limit": {
+          "description": "The limit the reading is compared against.",
+          "title": "Limit",
+          "type": "number"
+        },
+        "hysteresis": {
+          "default": 0.0,
+          "description": "How far back past the limit the reading must come before the interlock counts as safe again (0 = resume as soon as it is back).",
+          "minimum": 0,
+          "title": "Hysteresis",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "device",
+        "variable",
+        "operator",
+        "limit"
+      ],
+      "title": "ThresholdCondition",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The experiment's software interlocks, watched by the interlock server.\n\nNotes\n-----\nStored as ``interlocks.yaml`` at the top of the experiment's scanner\nconfigs.  The interlock server reads it at start and on a reload from\nits window; an edit takes effect at the next reload.",
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "description": "Format version of this config file. Leave at 1 \u2014 tools update this automatically when the file format changes.",
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "interlocks": {
+      "description": "The interlocks, in display order.",
+      "items": {
+        "$ref": "#/$defs/Interlock"
+      },
+      "title": "Interlocks",
+      "type": "array"
+    }
+  },
+  "tier": "operator",
+  "title": "InterlockSet",
+  "type": "object"
+}

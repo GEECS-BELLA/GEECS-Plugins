@@ -394,6 +394,91 @@ background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 ```
 
+## `interlocks`
+
+Tier: `operator` · File: `scanner_configs/experiments/<experiment>/interlocks.yaml`
+
+### InterlockSet
+
+The experiment's software interlocks, watched by the interlock server.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
+| `interlocks` | `list[Interlock]` | no | empty | The interlocks, in display order. |
+
+Example:
+
+```yaml
+schema_version: 1
+# each interlock reports TRIPPED while unsafe and OK once safe for
+# settle_s; a disconnected or silent device is always unsafe
+interlocks:
+  - name: chamber vacuum
+    condition:
+      kind: threshold
+      device: U_HP_Vacuum
+      variable: Pressure
+      operator: ">"
+      limit: 1.0e-5
+      hysteresis: 2.0e-6
+    settle_s: 5
+  - name: gauge alive
+    condition:
+      kind: stale
+      device: U_HP_Vacuum
+      max_age_s: 3
+```
+
+### Interlock
+
+One interlock: a name and the condition that makes it unsafe.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | Short name shown to operators and on the status stream. |
+| `description` | `str` | no | '' | Optional note on what this interlock protects. |
+| `enabled` | `bool` | no | True | Set false to keep the entry without arming it (shown as not armed, never counted in the verdict). |
+| `condition` | `ThresholdCondition \| AlignmentCondition \| StaleCondition` | yes | — | The condition that makes this interlock unsafe. |
+| `settle_s` | `float` | no | 0.0 | Seconds the condition must stay safe after a trip before the interlock reports OK again. |
+
+### ThresholdCondition
+
+Unsafe when a variable crosses a limit.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'threshold'` | yes | — | Condition type. 'threshold' compares one variable to a limit. |
+| `device` | `str` | yes | — | Device to watch, e.g. 'U_HP_Vacuum'. |
+| `variable` | `str` | yes | — | Variable on the device, e.g. 'Pressure'. |
+| `operator` | `'<' \| '<=' \| '>' \| '>='` | yes | — | The reading is UNSAFE when 'value <operator> limit' holds, e.g. '>' trips above the limit. |
+| `limit` | `float` | yes | — | The limit the reading is compared against. |
+| `hysteresis` | `float` | no | 0.0 | How far back past the limit the reading must come before the interlock counts as safe again (0 = resume as soon as it is back). |
+
+### AlignmentCondition
+
+Unsafe when a variable strays from a target variable by ``tolerance`` or more.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'alignment'` | yes | — | Condition type. 'alignment' compares a variable with a target variable. |
+| `device` | `str` | yes | — | Device carrying the watched variable. |
+| `variable` | `str` | yes | — | The watched variable, e.g. 'CentroidX'. |
+| `target_device` | `str (optional)` | no | None | Device carrying the target variable (default: the same device). |
+| `target_variable` | `str` | yes | — | The target variable, e.g. 'TargetX'. |
+| `tolerance` | `float` | yes | — | UNSAFE when \|value - target\| is this large or larger (in the variable's units). |
+| `hysteresis` | `float` | no | 0.0 | How much closer than the tolerance the value must come before the interlock counts as safe again. |
+
+### StaleCondition
+
+Unsafe when a device stops publishing.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `kind` | `'stale'` | yes | — | Condition type. 'stale' trips when a device stops publishing. |
+| `device` | `str` | yes | — | Device to watch. |
+| `max_age_s` | `float (optional)` | no | None | Seconds without a new update before the device counts as stale. Leave empty to trip only on a disconnect. |
+
 ## `derived_channels`
 
 Tier: `maintainer` · File: `scanner_configs/experiments/<experiment>/gateway/derived_channels.yaml`
