@@ -436,10 +436,12 @@ this package and must never depend on GeecsBluesky or a GUI package).
   delivered row's record (the device not named in `missing`) is the one
   whose stamp **is** the next row's `<device>-baseline` — stamp identity,
   no clock compared, because a scan-mode device's stamps need not match
-  the fires; a row it cannot identify sends the device back to the stamp
-  rule, every row flagged `scan-mode-order:<device>` and the device
-  `scan-mode-order-unresolved` (a frame-count baseline, a plugin camera's,
-  keeps the stamp rule unflagged). Plain inputs, no I/O; the
+  the fires; a row it cannot identify stays empty, flagged
+  `scan-mode-order:<device>` (the device `scan-mode-order-unresolved`),
+  each row standing on its own baseline, and a row whose slot held a
+  record no baseline names is flagged `scan-mode-extra:<device>` (a
+  frame-count baseline, a plugin camera's, keeps the stamp rule
+  unflagged). Plain inputs, no I/O; the
   adapters are the readers' (`tiled_export.read_device_records` for a
   Tiled run, GeecsBluesky's callback buffer for the live one, both through
   `device_records`: `stream_meta`, the counter, `WitnessCount`). The
