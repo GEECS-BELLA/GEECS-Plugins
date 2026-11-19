@@ -523,7 +523,9 @@ class TestResolveScanFolderInvariant:
         monkeypatch.setattr(
             ScanPaths,
             "paths_config",
-            SimpleNamespace(base_path=tmp_path, experiment="Undulator"),
+            SimpleNamespace(
+                base_path=tmp_path, experiment="Undulator", data_root_experiment=None
+            ),
         )
         detail = _detail(scan_folder="/mnt/other-host/scans/Scan002")
         before = _tree_snapshot(tmp_path)

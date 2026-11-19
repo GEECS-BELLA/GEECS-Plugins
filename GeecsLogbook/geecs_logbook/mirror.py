@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from geecs_data_utils import ScanPaths
+from geecs_data_utils.scan_paths import experiment_dir_present
 from geecs_schemas.log_entry import LogEntry
 
 from geecs_logbook._fs import replace_with
@@ -125,13 +126,14 @@ def logbook_root(
     month_dir = day_dir.parent
     year_dir = month_dir.parent
     experiment_dir = year_dir.parent
-    if not experiment_dir.is_dir():
+    if not experiment_dir_present(experiment_dir, experiment):
         # The one thing checked before any mkdir: the experiment directory
         # is where the scanner's year folders live, so its absence means
         # the share is not mounted (or the configuration is wrong), and
         # the mirror must not build a tree on the bare mount point that
-        # the real share will hide when it comes back. A day or month that
-        # does not exist yet is fine — those are ours to make.
+        # the real share will hide when it comes back. The data_root_experiment's
+        # directory is the data root, which must also be non-empty. A day
+        # or month that does not exist yet is fine — those are ours to make.
         raise MirrorUnavailable(
             f"share not mounted: experiment directory missing: {experiment_dir}"
         )

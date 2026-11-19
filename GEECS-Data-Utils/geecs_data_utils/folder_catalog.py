@@ -47,7 +47,7 @@ from geecs_data_utils.scan_info import (
     scan_folder_name,
 )
 from geecs_data_utils.scan_log_loader import first_log_timestamp
-from geecs_data_utils.scan_paths import daily_scan_folder
+from geecs_data_utils.scan_paths import ScanPaths, daily_scan_folder
 from geecs_data_utils.tiled_catalog import (
     CatalogStatus,
     RunDetail,
@@ -296,8 +296,6 @@ class FolderScanCatalog:
         CatalogStatus
             ``ok`` when the base path is a readable directory.
         """
-        from geecs_data_utils.scan_paths import ScanPaths
-
         base = self._base_path
         if base is None and ScanPaths.paths_config is not None:
             base = Path(ScanPaths.paths_config.base_path)
@@ -332,8 +330,12 @@ class FolderScanCatalog:
         scans_dir = self._scans_dir(experiment, day)
         if scans_dir is None:
             return []
-        # .../{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/scans
-        resolved_experiment = scans_dir.parents[3].name
+        # .../{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/scans — the folder
+        # above Y{YYYY} names the experiment (the data root: the
+        # data_root_experiment).
+        resolved_experiment = ScanPaths.experiment_from_folder(
+            scans_dir.parents[3], self._base_path
+        )
         summaries = []
         folders = _scan_folders(scans_dir)
         for number, scan_dir in sorted(folders.items()):
