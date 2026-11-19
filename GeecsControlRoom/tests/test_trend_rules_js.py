@@ -127,7 +127,7 @@ def test_the_traces_are_one_held_line_per_role_in_the_panels_order() -> None:
     assert (none["name"], none["x"], none["y"]) == ("last target", [None], [None])
 
 
-# The real trend.js in a VM over a fake page: the device page's frames, Plotly, fetch and the redraw timer are the
+# The real trend.js in a VM over a fake page: the device page's frames, Plotly, fetch and the redraw timer (one, fired once a tick whatever its period) are the
 # harness's, the rules trend_rules.js's own.
 _PAGE = r"""
 const vm = require("vm"), fs = require("fs"), path = require("path");
@@ -143,7 +143,7 @@ function el(props = {}) {
 }
 const hosts = a.trends.map(() => el({ clientWidth: a.width }));
 const plots = a.trends.map((roles, i) => el({ dataset: { trend: JSON.stringify(roles) }, querySelector: () => hosts[i] }));
-const buttons = [120, 600, 3600].map((s) => el({ dataset: { window: String(s) }, attrs: { "aria-pressed": String(s === 600) } }));
+const buttons = [10, 30, 120, 600, 3600].map((s) => el({ dataset: { window: String(s) }, attrs: { "aria-pressed": String(s === 600) } }));
 const note = el();
 const box = el({ dataset: { trendsUrl: "/api/devices/lfs/trends" },
   querySelector: (sel) => (sel === ".trend-note" ? note : null),
@@ -183,6 +183,19 @@ const tick = async (ms) => { clock += ms; timers.forEach((f) => f()); await flus
     out.later = { asked: [...asked], calls: Plotly.calls.length, note: note.textContent };
     return console.log(JSON.stringify(out));
   }
+  if (a.fast) { // a window of seconds is redrawn on every 200 ms tick, a longer one once a second
+    const draws = async (ms) => { const before = Plotly.calls.length; await tick(ms); return Plotly.calls.length - before; };
+    await tick(1000);
+    out.long = [await draws(200), await draws(200), await draws(600)]; // the page's 10 min window
+    buttons[0].fire("click"); await flush();
+    out.ten = [await draws(200), await draws(200)];
+    buttons[1].fire("click"); await flush();
+    out.thirty = [await draws(200), await draws(200)];
+    buttons[2].fire("click"); await flush();
+    await tick(1000);
+    out.back = [await draws(200), await draws(800)];
+    return console.log(JSON.stringify(out));
+  }
   if (a.flood) { // more live frames than the buffer holds, all after the history's end
     const cap = window.GeecsTrendRules.CAP;
     for (let i = 0; i < cap + 50; i++) { clock += 1; feed("actuator", { connected: true, severity: "NO_ALARM", value: 100 + i, tsNs: (clock + a.skew) * 1e6 }); }
@@ -205,12 +218,12 @@ const tick = async (ms) => { clock += ms; timers.forEach((f) => f()); await flus
   out.gap = last(1);
   out.calls = Plotly.calls.length;
   // another window: pressed, asked again, the x range follows
-  buttons[0].fire("click");
+  buttons[2].fire("click");
   const pending = { note: note.textContent, y: (last(1) || { y: [] }).y[0] }; // before the answer: the note is the pending one, over the past already held
   await flush();
   out.window = { pending, pressed: buttons.map((b) => b.getAttribute("aria-pressed")), asked: asked[asked.length - 1], range: (last(0) || {}).range, note: note.textContent };
   // and once more, with the server now silent: the past stays drawn, and the note says whose it is
-  buttons[2].fire("click");
+  buttons[4].fire("click");
   await flush();
   out.failed = { note: note.textContent, y: (last(1) || { y: [] }).y[0], asked: asked[asked.length - 1] };
   out.watched = watched;
@@ -290,7 +303,7 @@ def test_a_window_choice_is_pending_until_its_answer_and_a_failed_read_keeps_the
     window = page["window"]
     # on the click, before the answer: the note is the pending one (never the last window's), the past held stays drawn
     assert window["pending"]["note"] == "reading the history" and window["pending"]["y"][0] == 4  # fmt: skip
-    assert window["pressed"] == ["true", "false", "false"]
+    assert window["pressed"] == ["false", "false", "true", "false", "false"]
     assert window["asked"] == "/api/devices/lfs/trends?seconds=120"
     assert window["range"] == [_stamp(s + 5000 - 120_000), _stamp(s + 5000)]
     assert window["note"] == _STARTING
@@ -334,6 +347,24 @@ def test_live_points_lost_to_the_cap_are_a_gap_until_the_history_is_read_again()
     # then it is: the same window, and the line is the new answer's
     assert page["reread"]["asked"] == 2 and page["reread"]["url"] == "/api/devices/lfs/trends?seconds=600"  # fmt: skip
     assert page["reread"]["note"] == _STARTING
+
+
+@needs_node
+def test_a_window_of_seconds_is_redrawn_on_every_tick_and_a_longer_one_each_second() -> None:  # fmt: skip
+    page = _page(fast=True)
+    assert page["long"] == [
+        0,
+        0,
+        2,
+    ]  # 200 and 400 ms after a draw: nothing; at the second, both plots
+    assert page["ten"] == [2, 2] and page["thirty"] == [
+        2,
+        2,
+    ]  # both plots, every 200 ms
+    assert page["back"] == [
+        0,
+        2,
+    ]  # 2 min again: nothing at 200 ms, both plots at the second
 
 
 @needs_node

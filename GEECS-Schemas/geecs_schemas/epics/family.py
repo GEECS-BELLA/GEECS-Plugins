@@ -509,7 +509,7 @@ class Panel(SchemaModel):
             "order: each a title, unique in the panel, and the monitored numeric "
             "roles it draws against wall-clock time (a loop's value beside its "
             "setpoint). Four at most: each is a plot of its own height between "
-            "the readings and the role tables, redrawn every second. A role may "
+            "the readings and the role tables, redrawn every second (five times a second on a window of 30 s or less). A role may "
             "sit in several trends and need not be a reading. A kind whose page "
             "has a data pane of its own (a camera's image, a trace's plot) draws "
             "no trends."

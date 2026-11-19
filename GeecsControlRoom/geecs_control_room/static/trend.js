@@ -4,7 +4,7 @@
 // the plots are first shown, on each window choice, and again when the live buffer has dropped points the
 // last answer does not cover); each line is then extended from the frames the page already receives
 // (device.js's GeecsDevicePage: Hare's one socket, no second stream). The window is this viewer's own,
-// written nowhere. Vole silent or empty, the plots start at page load and one line says so. Nothing here may
+// written nowhere; a window of 30 s or less is redrawn five times a second, a longer one each second. Vole silent or empty, the plots start at page load and one line says so. Nothing here may
 // break the rest of the page: every entry point (a frame, a redraw, a click, the read) catches. The rules are
 // trend_rules.js's.
 (function () {
@@ -105,8 +105,9 @@
     take();
     say();
     draw(); // reads the history if the plots are shown
-    setInterval(draw, DRAW_MS);
-    setInterval(() => { if (seconds <= FAST_S) draw(); }, FAST_MS); // a window of seconds is redrawn fast enough to watch a loop work
+    // one timer: a window of FAST_S or less is redrawn on every tick (fast enough to watch a loop work), a longer one each second
+    let drawnAt = 0;
+    setInterval(() => { const t = Date.now(); if (seconds <= FAST_S || t - drawnAt >= DRAW_MS) { drawnAt = t; draw(); } }, FAST_MS);
   }
   boxes.forEach(safely(start));
 })();
