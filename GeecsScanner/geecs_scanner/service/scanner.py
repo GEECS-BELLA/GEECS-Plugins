@@ -779,7 +779,7 @@ class ScannerService:
         """
         from geecs_scanner.service.setups import hazards, provenance, questions
 
-        operator = body.operator.strip()
+        operator = (body.operator or "").strip()
         if not operator:
             raise ScannerError(
                 "invalid_request",

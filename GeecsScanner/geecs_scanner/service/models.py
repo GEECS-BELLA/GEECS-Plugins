@@ -418,7 +418,10 @@ class SetupDiffOut(BaseModel):
 class SetupApplyIn(BaseModel):
     """``POST /api/setups/{name}/apply``: who applies it and what they acknowledged."""
 
-    operator: str = Field(default="", description="Who applies it (required)")
+    operator: Optional[str] = Field(
+        default=None,
+        description="Who applies it (required: an empty one is refused by the service)",
+    )
     acknowledged: list[str] = Field(
         default_factory=list,
         description="The checks of the questions answered Continue (from needs_acknowledgement)",
