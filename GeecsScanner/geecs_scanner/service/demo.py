@@ -587,9 +587,11 @@ class DemoQueueClient:
         append: bool = False,
     ) -> Any:
         """Expand with the real expansion, then queue."""
-        from geecs_bluesky.qs_client import expand_preset
+        from geecs_bluesky.qs_client import expand_against_tree
 
-        item = expand_preset(preset, catalog=catalog, md=md, resolver=resolver)
+        item = expand_against_tree(
+            preset, self.allowed_device_names, catalog=catalog, md=md, resolver=resolver
+        )
         return self.submit_plan(
             item.name,
             args=item.args,
