@@ -29,6 +29,11 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   asynchronous (free-running)   last record at or before the row's clock
                                 (fire + *m* on a loose row), its age kept,
                                 *stale* past a limit
+  scan mode, required device    a required device's records in order over the
+  (``use_scan_mode``)           rows it delivered (not named in ``missing``):
+                                it acquires once per announced shot, and its
+                                stamps need not match the fires; no pairing
+                                → the rows above, flagged *scan-mode-order*
   ============================  ==============================================
 
   A soft-tick (fly-mode) run's ticks fill the witness columns; its pressed
@@ -39,7 +44,7 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
 Row flags are strings, a device's spelled ``<flag>:<device>``:
 ``missing``, ``stale``, ``audit-mismatch``, ``counter-reset``,
 ``witness-stale``, ``clock-step``, ``unwitnessed``, ``witness-stamp-shared``,
-``witness-stamp-shared-unresolved``, ``interval-ambiguous``,
+``witness-stamp-shared-unresolved``, ``interval-ambiguous``, ``scan-mode-order``,
 ``complete-mismatch``.  Run-level
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 witness attribute NaN all run), ``attribute-lag-systematic``,
@@ -355,6 +360,14 @@ def shot_table(
     add no columns, and nothing is joined onto rows without a clock.
     """
     new = start.get(LAYOUT_KEY) == SHOT_TABLE_LAYOUT
+    # Scan mode: a required device acquires once per announced shot and the
+    # rows say which shots it delivered, so its records follow that order
+    # (``_assign_announced``); its stamps need not agree with the fires.
+    ordered = (
+        {_squash(str(n)) for n in start.get("required") or ()}
+        if new and start.get("use_scan_mode")
+        else set()
+    )
     offsets = dict(drain_offsets or {})
     clock = _RowClock.of(start, rows, offsets, new, float(stamp_budget))
     record_for: dict[str, tuple[int | None, ...]] = {}
@@ -379,7 +392,16 @@ def shot_table(
                 a is not None and not s for a, s in zip(assigned, stale)
             )
         else:
-            assigned = clock.assign(source, records, positional=positional)
+            assigned, order_flags = _assign_synchronous(
+                clock,
+                source,
+                records,
+                rows,
+                positional=positional,
+                in_order=_squash(name) in ordered,
+            )
+            if order_flags:
+                device_flags[name] = order_flags
             claimed = set(assigned)
             extras[name] = tuple(i for i in range(len(records)) if i not in claimed)
             run_flags = clock.audit(
@@ -389,7 +411,7 @@ def shot_table(
                 attribute=start.get("clock") != SOFT_TICK,
             )
             if run_flags:
-                device_flags[name] = run_flags
+                device_flags[name] = device_flags.get(name, ()) + run_flags
             fresh[name] = tuple(a is not None for a in assigned)
         record_for[name] = tuple(assigned)
         if new or (not positional and clock.column is not None and len(rows)):
@@ -671,6 +693,72 @@ def _assign_ticks(records: np.ndarray, clock: _RowClock) -> list[int | None]:
             assigned[k] = free[-1]
             claimed.add(free[-1])
     return assigned
+
+
+def _assign_synchronous(
+    clock: "_RowClock",
+    source: DeviceRecords,
+    records: np.ndarray,
+    rows: pd.DataFrame,
+    *,
+    positional: bool,
+    in_order: bool,
+) -> tuple[list[int | None], tuple[str, ...]]:
+    """A synchronous device's record per row, and its run-level flags.
+
+    *in_order* (a scan-mode run's required device) tries
+    :func:`_assign_announced` first; when its delivered rows and records do
+    not pair up, the stamp rule (:meth:`_RowClock.assign`) stands in and
+    says so on every row (``scan-mode-order``) and on the device
+    (``scan-mode-order-unresolved``).
+    """
+    name = source.device
+    ordered = _assign_announced(rows, name, len(records)) if in_order else None
+    if ordered is not None:
+        for k in (k for k, i in enumerate(ordered) if i is None):
+            clock.flags[k].append(f"missing:{name}")
+        return ordered, ()
+    assigned = clock.assign(source, records, positional=positional)
+    if not in_order:
+        return assigned, ()
+    for k in range(len(assigned)):
+        clock.flags[k].append(f"scan-mode-order:{name}")
+    return assigned, ("scan-mode-order-unresolved",)
+
+
+def _assign_announced(
+    rows: pd.DataFrame, device: str, n_records: int
+) -> list[int | None] | None:
+    """A scan-mode run's required device: its records in order, over the rows it delivered.
+
+    Under GEECS scan mode a device acquires once per announced shot, and the
+    strict slot recorded on every row which required devices delivered
+    (``missing`` names the ones that did not; ``complete`` is the row's
+    verdict).  So record *n* is the *n*-th delivered row's, whatever its
+    stamp says: a camera's stamp can sit well before the fire and need not
+    even increase (PW Scan014: 0.10–0.26 s early, one stamp 1 ms behind the
+    record before it), which the fire-interval rule files a shot early.
+
+    Returns ``None`` — the caller falls back to the stamp rule — when the
+    rows carry neither column, or when the delivered rows and the records
+    do not pair up one to one (a late frame, a dropped one).
+    """
+    if "missing" in rows:
+        key = _squash(device)
+
+        def delivered(value: Any) -> bool:
+            names = str(value) if isinstance(value, str) else ""
+            return key not in {_squash(n) for n in names.split(",") if n.strip()}
+
+        mask = [delivered(v) for v in rows["missing"]]
+    elif "complete" in rows:
+        mask = [bool(v) for v in rows["complete"].fillna(False)]
+    else:
+        return None
+    if sum(mask) != n_records:
+        return None
+    order = iter(range(n_records))
+    return [next(order) if ok else None for ok in mask]
 
 
 def _assign_intervals(

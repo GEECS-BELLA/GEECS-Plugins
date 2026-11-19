@@ -786,7 +786,12 @@ s-file's `Announced Shot` — through `geecs_data_utils.tiled_schema.announced_s
 e.g. an earlier run's immediate-pause rewind): the shot mapper, the `.himg` stack
 converter, `ScanData`'s expected paths and the portal's native tier.  The
 stack check skips its stamp-named file match for streamed native savers
-under scan mode (`callbacks/stack_check.py`).
+under scan mode (`callbacks/stack_check.py`).  The shot table joins a
+**required** device's stream records to rows **in order** over the rows
+it delivered (`geecs_data_utils.shot_table`, keyed on the start's
+`use_scan_mode`): the device acquires once per announced shot, and its
+stamps need not match the fires (PW Scan014: 0.1–0.26 s early, one
+running backwards).
 Deferred from v1 (the issue): a scanner tag, a ScanInfo row, the path
 template in metadata, re-sending a repeated shot number, restricting
 `ScanStart` to the run's devices (it is multicast by design).

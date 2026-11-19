@@ -865,3 +865,89 @@ def test_a_frozen_witness_attribute_is_no_poll_noise() -> None:
     )
     assert "attribute-lag-noisy" not in table.device_flags.get("cam", ())
     assert all("clock-step:cam" in table.flags[k] for k in range(181, 200))
+
+
+# ------------------------------------------- scan mode: records follow the rows
+#
+# PW Scan014 (2026-11-18): a scan-mode exposure sweep, no witness, every row
+# complete, the camera one record per announced shot — but its stamps sat
+# 0.10–0.26 s before each fire, and one ran 1 ms backwards, so the interval
+# rule filed records a shot early (rows 4 and 8 empty, 5–7 the next shot's).
+SCAN_MODE = {**FIRE_CLOCK, "use_scan_mode": True}
+_EARLY = np.array([-0.04, -0.035, 0.127, 0.095, 0.247, 0.103, 0.257, 0.101])
+
+
+def _scan014(n: int = 8) -> tuple[pd.DataFrame, np.ndarray]:
+    """Unwitnessed rows 0.3 s apart, and the camera's early, non-monotonic stamps."""
+    rows = _rows(n, lead=0.0).drop(columns=["witness_count", "witness_stamp"])
+    rows["fire_stamp"] = T0 + 0.3 * np.arange(n)
+    rows["unwitnessed"] = True
+    rows["missing"] = [""] * n
+    stamps = rows["fire_stamp"].to_numpy() + LV - _EARLY[:n]
+    stamps[2] = stamps[1] - 0.001  # one stamp behind the record before it
+    return rows, stamps
+
+
+def test_scan_mode_gives_each_record_to_its_own_row() -> None:
+    rows, stamps = _scan014()
+    value = 10.0 * np.arange(8)
+    table = shot_table(SCAN_MODE, rows, [_device("cam", stamps, value=value)])
+    assert table.record_for_shot["cam"] == tuple(range(8))
+    assert table.extras["cam"] == ()
+    assert list(table.rows["cam-meancounts"]) == list(value)
+    # Only the run's own word (no witness): nothing flagged against the camera.
+    assert all(flags == ("unwitnessed",) for flags in table.flags)
+    assert "cam" not in table.device_flags
+
+
+def test_the_same_stamps_outside_scan_mode_keep_the_interval_rule() -> None:
+    # The gate: only a scan-mode run trusts the order over the stamps.
+    rows, stamps = _scan014()
+    table = shot_table(FIRE_CLOCK, rows, [_device("cam", stamps)])
+    assert table.record_for_shot["cam"] != tuple(range(8))
+
+
+def test_a_row_the_device_missed_gets_no_record_and_the_rest_shift_past_it() -> None:
+    rows, stamps = _scan014()
+    rows.loc[3, ["missing", "complete"]] = ["cam", False]
+    table = shot_table(SCAN_MODE, rows, [_device("cam", np.delete(stamps, 3))])
+    assert table.record_for_shot["cam"] == (0, 1, 2, None, 3, 4, 5, 6)
+    assert _flagged(table, "missing:cam") == [4]
+    assert _flagged(table, "complete-mismatch") == []
+
+
+def test_the_missing_names_match_ignoring_case_and_separators() -> None:
+    rows, stamps = _scan014()
+    rows.loc[3, "missing"] = "other_cam, CAM"
+    table = shot_table(SCAN_MODE, rows, [_device("cam", np.delete(stamps, 3))])
+    assert table.record_for_shot["cam"][3] is None
+
+
+def test_a_count_mismatch_falls_back_to_the_stamp_rule_and_says_so() -> None:
+    rows, stamps = _scan014()
+    extra = np.append(stamps, stamps[-1] + 0.3)  # a ninth record: no pairing
+    table = shot_table(SCAN_MODE, rows, [_device("cam", extra)])
+    assert _flagged(table, "scan-mode-order:cam") == list(range(1, 9))
+    assert table.device_flags["cam"] == ("scan-mode-order-unresolved",)
+
+
+def test_a_device_that_is_not_required_keeps_the_stamp_rule() -> None:
+    # ``missing`` names only required devices: a non-required one's misses
+    # leave no trace in the rows, so its order proves nothing.
+    rows, stamps = _scan014()
+    start = {**SCAN_MODE, "required": []}
+    table = shot_table(start, rows, [_device("cam", stamps)])
+    assert table.record_for_shot["cam"] != tuple(range(8))
+    assert "scan-mode-order:cam" not in sum(table.flags, ())
+
+
+def test_rows_without_missing_use_complete_and_without_either_fall_back() -> None:
+    rows, stamps = _scan014()
+    by_complete = shot_table(
+        SCAN_MODE, rows.drop(columns=["missing"]), [_device("cam", stamps)]
+    )
+    assert by_complete.record_for_shot["cam"] == tuple(range(8))
+    neither = shot_table(
+        SCAN_MODE, rows.drop(columns=["missing", "complete"]), [_device("cam", stamps)]
+    )
+    assert neither.device_flags["cam"] == ("scan-mode-order-unresolved",)
