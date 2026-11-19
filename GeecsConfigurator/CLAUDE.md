@@ -227,9 +227,11 @@ second confirmation layer is added.
   `tests/test_setups_surface.py` (a recording fake scanner and the
   scanner's demo app).
 - **A save on the page asks the kind's dry run first** (`/api/dry-run`):
-  a refusal stops it there; what the consumer said, or why it could not
-  run, is shown with a Save to confirm; a kind with no check saves at
-  once. The save route runs the dry run again: the page's is for the
+  a refusal stops it there; a check that ran with nothing to confirm (every
+  outcome passed, no question, no output) saves on that one press, its line kept above the
+  save's; a check that did not run, skipped one of its checks, asks a question
+  or prints a plan (the archiver's) is shown with a Save to confirm; a kind with no check saves
+  at once. The save route runs the dry run again: the page's is for the
   operator to see.
 - **The embedded editor's mount contract is `static/embed.js`**
   (`GeecsConfigurator.open({api, kind, experiment, id, fields, operator,
@@ -244,7 +246,10 @@ second confirmation layer is added.
   unsaved recipe drawn on the scan, its `toolbar` the shot and the name; a
   page off the kit gets the drawer in a `.kit` wrapper of its own). What
   the drawer shows answers the draft in it: the latest Preview's picture is
-  shown whatever order they resolve in, an edit marks a shown preview stale,
+  shown whatever order they resolve in, an edit marks a shown preview stale
+  (with the drawer's "live" toggle pressed, joined to Preview and remembered
+  per browser, it redraws once the form is still, and only for a changed
+  draft),
   and a dry run answered for an earlier draft asks again rather than letting
   its Save save the edit (`tests/test_embed_stale_js.py`).
 - **Delete and copy are the save's.** A delete (`DELETE /api/documents/...`,

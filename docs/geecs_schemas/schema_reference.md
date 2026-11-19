@@ -314,6 +314,7 @@ The device writes that drive the machine through its trigger states.
 | `states` | `dict[TriggerState, list[TriggerWrite]]` | no | empty | For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched. |
 | `description` | `str` | no | '' | Optional note about what setup this profile is for. |
 | `use_scan_mode` | `bool` | no | False | Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a fly run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case — the shot message is the only trigger. |
+| `shot_gate` | `ShotGateSpec (optional)` | no | None | A permission-to-fire service the worker waits on before every shot: a 'safe' received after the previous shot permits the next; unreachable or not safe holds it, and a long hold pauses the scan. Leave empty for no gate. |
 
 Example:
 
@@ -354,6 +355,17 @@ One device variable set during a state transition.
 | `device` | `str` | yes | — | The device to write to, e.g. 'U_DG645_ShotControl' or a gas-jet controller — any settable device can take part in a transition. |
 | `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'Trigger.Source'. |
 | `value` | `str` | yes | — | The value to send, exactly as the device expects it — a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges'). |
+
+### ShotGateSpec
+
+A software interlock server the worker waits on before every shot.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `host` | `str` | yes | — | The service's host name or IP address on the facility network. |
+| `port` | `int` | yes | — | The service's TCP port. |
+| `hold_pause_s` | `float` | no | 60.0 | Seconds a shot waits for permission before the scan pauses with the service's reason (resuming waits again; a pause never fires). |
+| `holdoff_s` | `float` | no | 0.0 | Seconds added to the time a shot is fired before a safe verdict counts as the next shot's permission: its data must be taken that much after the fire (or, for a verdict with no data stamp, received that much after it). Covers a device clock ahead of the worker's, and, for interlocks with no data stamp, the time the server takes to see a shot. A device clock behind the worker's cannot be covered here: the clocks must agree. |
 
 ## `experiment_defaults`
 

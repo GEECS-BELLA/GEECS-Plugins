@@ -41,6 +41,7 @@ from .on_demand import OnDemand, _Progress, start_keys
 from .streams import DeviceStreams, is_per_shot
 from .scan_mode import (
     EnterScanMode,
+    paused_device_names,
     run_device_names,
     scan_mode_bracket,
     scan_mode_preflight,
@@ -294,7 +295,8 @@ def optimize_plan(  # noqa: C901, PLR0915
     (hermetic tests), as :func:`~geecs_bluesky.plans.registry.bind_plans`
     passes it; *scan_mode* is the worker's scan-mode control, driven under
     a profile with ``use_scan_mode`` exactly as the strict binder drives it
-    (``plans/scan_mode.py``).
+    (``plans/scan_mode.py``); a profile's ``shot_gate`` is held for before
+    every fire as the strict binder does.
     """
 
     def optimize(  # noqa: C901, PLR0912, PLR0915
@@ -348,6 +350,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             resolve_required,
             background_snapshot,
             background_wrapper,
+            gate_for_run,
             liveness_gate,
             native_image_save_wrapper,
             set_tolerance_gate,
@@ -358,6 +361,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             run_witness,
             witness_wrapper,
         )
+        from geecs_bluesky.plans.shot_gate import open_gate
         from geecs_bluesky.optimization.driver import XoptDriver
         from geecs_bluesky.optimization.measurements import compile_measurements
 
@@ -482,6 +486,9 @@ def optimize_plan(  # noqa: C901, PLR0915
             native_image_save=native_files,
             background_telemetry=snapshot is not None,
         )
+        gate = gate_for_run(sc, fly=False)
+        if gate is not None:
+            metadata["shot_gate"] = gate.describe()
         witness, metadata["witness"] = yield from run_witness(
             namespace,
             acquisition="strict",
@@ -552,6 +559,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             witness=witness,
             shot_period=shot_period,
             scan_mode=announce,
+            gate=gate,
         )
         settle = _Settle(streams, down=slot._reported_down)
         bins = BinCounter()
@@ -727,6 +735,7 @@ def optimize_plan(  # noqa: C901, PLR0915
             for source in compiled.sources.values():
                 source.open()
                 yield from _on_thread(pool, source.wait_connected, 5.0)
+            yield from open_gate(gate)
             yield from liveness_gate(sc, [*detectors, *movables.values()])
             # Before the claim: a native settable with no set tolerance
             # refuses the run; the values read ride in the start document.
@@ -755,7 +764,11 @@ def optimize_plan(  # noqa: C901, PLR0915
                 staged = scan_mode_bracket(
                     staged,
                     announce,
-                    EnterScanMode(run_devices, scan_parameter_for("optimize")),
+                    EnterScanMode(
+                        run_devices,
+                        scan_parameter_for("optimize"),
+                        paused=paused_device_names(detectors),
+                    ),
                 )
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 
