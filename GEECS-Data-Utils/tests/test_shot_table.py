@@ -867,25 +867,40 @@ def test_a_frozen_witness_attribute_is_no_poll_noise() -> None:
     assert all("clock-step:cam" in table.flags[k] for k in range(181, 200))
 
 
-# ------------------------------------------- scan mode: records follow the rows
+# ---------------------------------- scan mode: records found by stamp identity
 #
 # PW Scan014 (2026-11-18): a scan-mode exposure sweep, no witness, every row
 # complete, the camera one record per announced shot — but its stamps sat
 # 0.10–0.26 s before each fire, and one ran 1 ms backwards, so the interval
 # rule filed records a shot early (rows 4 and 8 empty, 5–7 the next shot's).
+# Each row's ``cam-baseline`` (the stamp read before its fire) is the record
+# the previous row delivered: that identity is the rule.
 SCAN_MODE = {**FIRE_CLOCK, "use_scan_mode": True}
 _EARLY = np.array([-0.04, -0.035, 0.127, 0.095, 0.247, 0.103, 0.257, 0.101])
 
 
-def _scan014(n: int = 8) -> tuple[pd.DataFrame, np.ndarray]:
-    """Unwitnessed rows 0.3 s apart, and the camera's early, non-monotonic stamps."""
+def _scan014(missed: tuple[int, ...] = ()) -> tuple[pd.DataFrame, np.ndarray]:
+    """Unwitnessed rows 0.3 s apart; the camera's early, non-monotonic records.
+
+    A *missed* row names ``cam`` in ``missing`` and has no record; every
+    row's baseline is the camera's last record before its fire.
+    """
+    n = 8
     rows = _rows(n, lead=0.0).drop(columns=["witness_count", "witness_stamp"])
     rows["fire_stamp"] = T0 + 0.3 * np.arange(n)
     rows["unwitnessed"] = True
-    rows["missing"] = [""] * n
-    stamps = rows["fire_stamp"].to_numpy() + LV - _EARLY[:n]
-    stamps[2] = stamps[1] - 0.001  # one stamp behind the record before it
-    return rows, stamps
+    own = rows["fire_stamp"].to_numpy() + LV - _EARLY
+    own[2] = own[1] - 0.001  # one stamp behind the record before it
+    stamps, baseline, last = [], [], np.nan
+    for k in range(n):
+        baseline.append(last)
+        if k not in missed:
+            stamps.append(own[k])
+            last = own[k]
+    rows["cam-baseline"] = baseline
+    rows["missing"] = ["cam" if k in missed else "" for k in range(n)]
+    rows["complete"] = [k not in missed for k in range(n)]
+    return rows, np.asarray(stamps)
 
 
 def test_scan_mode_gives_each_record_to_its_own_row() -> None:
@@ -901,53 +916,71 @@ def test_scan_mode_gives_each_record_to_its_own_row() -> None:
 
 
 def test_the_same_stamps_outside_scan_mode_keep_the_interval_rule() -> None:
-    # The gate: only a scan-mode run trusts the order over the stamps.
+    # The gate: only a scan-mode run reads the baselines.
     rows, stamps = _scan014()
     table = shot_table(FIRE_CLOCK, rows, [_device("cam", stamps)])
     assert table.record_for_shot["cam"] != tuple(range(8))
 
 
-def test_a_row_the_device_missed_gets_no_record_and_the_rest_shift_past_it() -> None:
-    rows, stamps = _scan014()
-    rows.loc[3, ["missing", "complete"]] = ["cam", False]
-    table = shot_table(SCAN_MODE, rows, [_device("cam", np.delete(stamps, 3))])
+def test_a_row_the_device_missed_gets_no_record_and_the_rest_keep_theirs() -> None:
+    rows, stamps = _scan014(missed=(3,))
+    table = shot_table(SCAN_MODE, rows, [_device("cam", stamps)])
     assert table.record_for_shot["cam"] == (0, 1, 2, None, 3, 4, 5, 6)
     assert _flagged(table, "missing:cam") == [4]
-    assert _flagged(table, "complete-mismatch") == []
+    assert "cam" not in table.device_flags
 
 
 def test_the_missing_names_match_ignoring_case_and_separators() -> None:
-    rows, stamps = _scan014()
+    rows, stamps = _scan014(missed=(3,))
     rows.loc[3, "missing"] = "other_cam, CAM"
-    table = shot_table(SCAN_MODE, rows, [_device("cam", np.delete(stamps, 3))])
+    table = shot_table(SCAN_MODE, rows, [_device("cam", stamps)])
     assert table.record_for_shot["cam"][3] is None
 
 
-def test_a_count_mismatch_falls_back_to_the_stamp_rule_and_says_so() -> None:
+def test_a_late_frame_no_baseline_names_stays_an_extra() -> None:
+    # A missed shot's frame landing after the verdict (before the refire's
+    # baseline was read it would *be* that baseline; after it, nobody's):
+    # it is passed over, and every row keeps its own record.
     rows, stamps = _scan014()
-    extra = np.append(stamps, stamps[-1] + 0.3)  # a ninth record: no pairing
-    table = shot_table(SCAN_MODE, rows, [_device("cam", extra)])
+    late = np.insert(stamps, 4, stamps[3] + 0.05)  # between rows 4 and 5's records
+    table = shot_table(SCAN_MODE, rows, [_device("cam", late)])
+    assert table.record_for_shot["cam"] == (0, 1, 2, 3, 5, 6, 7, 8)
+    assert table.extras["cam"] == (4,)
+    assert "cam" not in table.device_flags
+
+
+def test_two_faults_that_cancel_out_are_flagged_not_shifted() -> None:
+    # Review of #1383: row 3 missed but its frame still lands, and row 7's
+    # record is lost from the stream — the counts agree, the order would
+    # shift rows 4–7 silently.  The baselines cannot identify row 7's
+    # record, so the device falls back to the stamp rule, flagged.
+    rows, stamps = _scan014(missed=(2,))
+    rows.loc[3, "cam-baseline"] = (
+        stamps[1] + 0.2
+    )  # the late frame, read as row 4's baseline
+    damaged = np.insert(np.delete(stamps, 5), 2, stamps[1] + 0.2)
+    table = shot_table(SCAN_MODE, rows, [_device("cam", damaged)])
     assert _flagged(table, "scan-mode-order:cam") == list(range(1, 9))
     assert table.device_flags["cam"] == ("scan-mode-order-unresolved",)
 
 
+def test_without_a_stamp_baseline_the_stamp_rule_stands_unflagged() -> None:
+    # The identity rule cannot apply (no baseline; a plugin camera's frame
+    # count): the stamp rule exactly as outside scan mode, no doubt flagged.
+    rows, stamps = _scan014()
+    plain = shot_table(FIRE_CLOCK, rows, [_device("cam", stamps)])
+    counts = rows.assign(**{"cam-baseline": np.arange(8.0)})
+    for variant in (rows.drop(columns=["cam-baseline"]), counts):
+        table = shot_table(SCAN_MODE, variant, [_device("cam", stamps)])
+        assert table.record_for_shot["cam"] == plain.record_for_shot["cam"]
+        assert "cam" not in table.device_flags
+        assert "scan-mode-order:cam" not in sum(table.flags, ())
+
+
 def test_a_device_that_is_not_required_keeps_the_stamp_rule() -> None:
-    # ``missing`` names only required devices: a non-required one's misses
-    # leave no trace in the rows, so its order proves nothing.
+    # The baseline and ``missing`` exist for required devices only.
     rows, stamps = _scan014()
     start = {**SCAN_MODE, "required": []}
     table = shot_table(start, rows, [_device("cam", stamps)])
     assert table.record_for_shot["cam"] != tuple(range(8))
     assert "scan-mode-order:cam" not in sum(table.flags, ())
-
-
-def test_rows_without_missing_use_complete_and_without_either_fall_back() -> None:
-    rows, stamps = _scan014()
-    by_complete = shot_table(
-        SCAN_MODE, rows.drop(columns=["missing"]), [_device("cam", stamps)]
-    )
-    assert by_complete.record_for_shot["cam"] == tuple(range(8))
-    neither = shot_table(
-        SCAN_MODE, rows.drop(columns=["missing", "complete"]), [_device("cam", stamps)]
-    )
-    assert neither.device_flags["cam"] == ("scan-mode-order-unresolved",)

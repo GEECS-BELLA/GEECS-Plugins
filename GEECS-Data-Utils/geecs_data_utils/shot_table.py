@@ -29,11 +29,12 @@ Tiled and document-buffer adapters build those; nothing here does I/O.
   asynchronous (free-running)   last record at or before the row's clock
                                 (fire + *m* on a loose row), its age kept,
                                 *stale* past a limit
-  scan mode, required device    a required device's records in order over the
-  (``use_scan_mode``)           rows it delivered (not named in ``missing``):
-                                it acquires once per announced shot, and its
-                                stamps need not match the fires; no pairing
-                                → the rows above, flagged *scan-mode-order*
+  scan mode, required stamped   by stamp identity: a delivered row's record
+  device (``use_scan_mode``)    is the one whose stamp is the next row's
+                                ``<device>-baseline`` (no clock compared; its
+                                stamps need not match the fires); a row not
+                                identified → the rules above, every row
+                                flagged *scan-mode-order*
   ============================  ==============================================
 
   A soft-tick (fly-mode) run's ticks fill the witness columns; its pressed
@@ -49,7 +50,9 @@ Row flags are strings, a device's spelled ``<flag>:<device>``:
 device flags (:attr:`ShotTable.device_flags`): ``no-attribute-audit`` (the
 witness attribute NaN all run), ``attribute-lag-systematic``,
 ``attribute-lag-noisy`` (poll lag too frequent to audit rows by: the
-attribute neither verifies nor flags a row), ``required-unresolved``.  The audit never moves a record.
+attribute neither verifies nor flags a row), ``required-unresolved``,
+``scan-mode-order-unresolved`` (a scan-mode device whose rows the
+baselines could not identify).  The audit never moves a record.
 """
 
 from __future__ import annotations
@@ -361,8 +364,8 @@ def shot_table(
     """
     new = start.get(LAYOUT_KEY) == SHOT_TABLE_LAYOUT
     # Scan mode: a required device acquires once per announced shot and the
-    # rows say which shots it delivered, so its records follow that order
-    # (``_assign_announced``); its stamps need not agree with the fires.
+    # rows record its stamp before every fire, so its records are found by
+    # stamp identity (``_assign_by_baseline``), not by the fire intervals.
     ordered = (
         {_squash(str(n)) for n in start.get("required") or ()}
         if new and start.get("use_scan_mode")
@@ -706,59 +709,103 @@ def _assign_synchronous(
 ) -> tuple[list[int | None], tuple[str, ...]]:
     """A synchronous device's record per row, and its run-level flags.
 
-    *in_order* (a scan-mode run's required device) tries
-    :func:`_assign_announced` first; when its delivered rows and records do
-    not pair up, the stamp rule (:meth:`_RowClock.assign`) stands in and
+    *in_order* (a scan-mode run's required device) with a stamp baseline
+    (:func:`_stamp_baseline`; a frame-count baseline keeps the stamp rule,
+    unflagged) tries :func:`_assign_by_baseline` first; when a delivered
+    row's record cannot be identified, the stamp rule (:meth:`_RowClock.assign`) stands in and
     says so on every row (``scan-mode-order``) and on the device
     (``scan-mode-order-unresolved``).
     """
     name = source.device
-    ordered = _assign_announced(rows, name, len(records)) if in_order else None
+    base = _stamp_baseline(rows, name) if in_order else None
+    if base is None:  # not scan mode, or no stamp baseline: the stamp rule
+        return clock.assign(source, records, positional=positional), ()
+    raw = np.asarray(source.records.stamps, dtype=float)
+    ordered = _assign_by_baseline(rows, name, raw, base)
     if ordered is not None:
         for k in (k for k, i in enumerate(ordered) if i is None):
             clock.flags[k].append(f"missing:{name}")
         return ordered, ()
     assigned = clock.assign(source, records, positional=positional)
-    if not in_order:
-        return assigned, ()
     for k in range(len(assigned)):
         clock.flags[k].append(f"scan-mode-order:{name}")
     return assigned, ("scan-mode-order-unresolved",)
 
 
-def _assign_announced(
-    rows: pd.DataFrame, device: str, n_records: int
-) -> list[int | None] | None:
-    """A scan-mode run's required device: its records in order, over the rows it delivered.
+#: Two readings of one stamp PV (a row's baseline, a stream record) agree to
+#: float precision; this only absorbs a float32 round trip, never a shot.
+_SAME_STAMP_S = 1e-4
+#: Below this a ``<device>-baseline`` is a frame count, not a LabVIEW stamp.
+_STAMP_FLOOR_S = 1e8
 
-    Under GEECS scan mode a device acquires once per announced shot, and the
-    strict slot recorded on every row which required devices delivered
-    (``missing`` names the ones that did not; ``complete`` is the row's
-    verdict).  So record *n* is the *n*-th delivered row's, whatever its
-    stamp says: a camera's stamp can sit well before the fire and need not
-    even increase (PW Scan014: 0.10–0.26 s early, one stamp 1 ms behind the
-    record before it), which the fire-interval rule files a shot early.
 
-    Returns ``None`` — the caller falls back to the stamp rule — when the
-    rows carry neither column, or when the delivered rows and the records
-    do not pair up one to one (a late frame, a dropped one).
+def _stamp_baseline(rows: pd.DataFrame, device: str) -> np.ndarray | None:
+    """*device*'s per-row stamp baseline, or ``None`` where the identity rule cannot apply.
+
+    ``None`` without a ``missing`` column, without a ``<device>-baseline``
+    column, or when the baseline is a frame count (a plugin or native
+    camera's ``NumCaptured``) rather than a LabVIEW stamp.
     """
-    if "missing" in rows:
-        key = _squash(device)
-
-        def delivered(value: Any) -> bool:
-            names = str(value) if isinstance(value, str) else ""
-            return key not in {_squash(n) for n in names.split(",") if n.strip()}
-
-        mask = [delivered(v) for v in rows["missing"]]
-    elif "complete" in rows:
-        mask = [bool(v) for v in rows["complete"].fillna(False)]
-    else:
+    col = next(
+        (c for c in rows.columns if _squash(str(c)) == _squash(f"{device}-baseline")),
+        None,
+    )
+    if "missing" not in rows or col is None:
         return None
-    if sum(mask) != n_records:
+    base = pd.to_numeric(rows[col], errors="coerce").to_numpy(float)
+    if not np.isfinite(base).any() or np.nanmax(base) < _STAMP_FLOOR_S:
         return None
-    order = iter(range(n_records))
-    return [next(order) if ok else None for ok in mask]
+    return base
+
+
+def _assign_by_baseline(
+    rows: pd.DataFrame, device: str, stamps: np.ndarray, base: np.ndarray
+) -> list[int | None] | None:
+    """A scan-mode run's stamped required device: each row's record by stamp identity.
+
+    The strict slot reads every required device's stamp just before each
+    fire (``<device>-baseline``) and names on the row the devices that did
+    not deliver (``missing``).  So the record of a delivered row *k* is the
+    one whose stamp **is** row *k*+1's baseline — the last stamp the device
+    had published before the next fire — and the last delivered row's is
+    the first later record that moved past its own baseline.  No clock is
+    compared with another: a scan-mode camera's stamps can sit well before
+    the fire and need not even increase (PW Scan014: 0.10–0.26 s early, one
+    stamp 1 ms behind the record before it), where the fire-interval rule
+    files every record a shot early.  Records are taken in order, so a late
+    frame nobody's baseline names stays an extra.
+
+    *stamps* are the raw records and *base* the rows' raw baselines
+    (:func:`_stamp_baseline`).  Returns ``None`` — the caller falls back to
+    the stamp rule and says so — when any delivered row's record cannot be
+    identified (a lost record, a late frame read as the next baseline): one
+    unresolved row voids the device's order rather than shifting the rows
+    after it.
+    """
+    key = _squash(device)
+
+    def delivered(value: Any) -> bool:
+        names = value if isinstance(value, str) else ""
+        return key not in {_squash(n) for n in names.split(",") if n.strip()}
+
+    n, assigned, last = len(rows), [None] * len(rows), -1
+    for k, ok in enumerate(delivered(v) for v in rows["missing"]):
+        if not ok:
+            continue
+        later = range(last + 1, stamps.size)
+        if k + 1 < n and np.isfinite(base[k + 1]):
+            found = [i for i in later if abs(stamps[i] - base[k + 1]) <= _SAME_STAMP_S]
+        else:  # the last row: the first record past its own baseline
+            found = [
+                i
+                for i in later
+                if np.isfinite(stamps[i])
+                and not abs(stamps[i] - base[k]) <= _SAME_STAMP_S
+            ]
+        if not found:
+            return None
+        assigned[k] = last = found[0]
+    return assigned
 
 
 def _assign_intervals(
@@ -781,8 +828,8 @@ def _assign_intervals(
     (*interval-ambiguous*), and their records stay extras.  The last row's
     interval closes a period after its fire.  The plan also records each
     row's pre-fire baseline per required device (``<device>-baseline``):
-    a record newer than baseline *k* is row *k*'s or later.  This join
-    does not read it.
+    a record newer than baseline *k* is row *k*'s or later.  Only a
+    scan-mode run reads it (:func:`_assign_by_baseline`).
     """
     claimed = {i for i in assigned if i is not None}
     fires, n = clock.fires, clock.fires.size
