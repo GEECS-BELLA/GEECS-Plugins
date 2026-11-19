@@ -52,6 +52,7 @@ from geecs_bluesky.plans.scan_mode import (
     EnterScanMode,
     paused_device_names,
     release_scan_mode_plan,
+    reset_shot_stamps,
     run_device_names,
     scan_mode_bracket,
     scan_mode_preflight,
@@ -65,12 +66,7 @@ from geecs_bluesky.plans.on_demand import (
     start_keys,
 )
 from geecs_bluesky.plans.shot_gate import open_gate
-from geecs_bluesky.plans.streams import (
-    DeviceStreams,
-    choose_shot_stamps,
-    is_per_shot,
-    reset_shot_stamps,
-)
+from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
 from geecs_bluesky.plans.strict import (
     device_root,
     down_devices,
@@ -822,17 +818,12 @@ def strict_plan(  # noqa: C901, PLR0915
         md["acquisition"] = acquisition
         md["native_image_save"] = native_files
         md["devices_dropped"] = dropped
-        # A device whose acq_timestamp is never set is stamped by its
-        # systimestamp in scan mode (once per announced shot).
-        md["shot_stamp_systimestamp"] = (
-            []
-            if fly
-            else (
-                yield from choose_shot_stamps(
-                    per_shot, scan_mode=shot_control.use_scan_mode
-                )
-            )
-        )
+        # The scan-mode bracket names the devices stamped by their
+        # systimestamp; any other run takes every stamp from acq_timestamp
+        # (a halted scan-mode run's choice undone here).
+        md["shot_stamp_systimestamp"] = []
+        if announce is None:
+            yield from reset_shot_stamps(per_shot)
         gate = gate_for_run(shot_control, fly=fly)
         if gate is not None:
             md["shot_gate"] = gate.describe()
@@ -896,8 +887,6 @@ def strict_plan(  # noqa: C901, PLR0915
             args, kwargs = bound.args, dict(bound.kwargs)
         inner = stock(*args, md=md, **kwargs)
         inner = streams.wrap(inner)
-        if not fly:
-            inner = bpp.finalize_wrapper(inner, reset_shot_stamps(per_shot))
         if tick is not None:
             inner = tick.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
@@ -920,6 +909,8 @@ def strict_plan(  # noqa: C901, PLR0915
                     paused=paused_device_names(detectors),
                     optional=tuple(d for d in run_devices if d not in needed),
                 ),
+                stamped=per_shot,
+                md=md,
             )
         if fly:
             # Nothing on the box: no state, no fire (its devices were judged

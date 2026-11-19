@@ -1272,16 +1272,31 @@ def test_a_device_with_a_hardware_stamp_keeps_it_in_scan_mode(
     assert col.docs["start"][0]["shot_stamp_systimestamp"] == []
 
 
-def test_outside_scan_mode_the_loop_stamp_is_never_a_shot(RE: RunEngine) -> None:
-    """A device's systimestamp ticks by itself outside scan mode: acq_timestamp stays."""
-    from geecs_bluesky.plans.streams import choose_shot_stamps
+def test_a_refused_entry_still_puts_the_stamps_back(RE: RunEngine) -> None:
+    """The choice and its undoing share the bracket's finalizer: a refused ScanStart leaves no device switched."""
+    from ophyd_async.core import AsyncStatus
+
+    from geecs_bluesky.plans.scan_mode import scan_mode_bracket
 
     cam = _camera(RE, FakeBox(), CAM)
     set_mock_value(cam.acq_timestamp, 0.0)
-    chosen: list[list[str]] = []
+    switched: list[bool] = []
 
-    def plan():
-        chosen.append((yield from choose_shot_stamps([cam], scan_mode=False)))
+    class Refusing:
+        name = "scan_mode"
+        parent = None
 
-    RE(plan())
-    assert chosen == [[]] and cam.shot_stamp is cam.acq_timestamp
+        def set(self, value: Any) -> AsyncStatus:
+            switched.append(cam.shot_stamp is cam.systimestamp)
+
+            async def refuse() -> None:
+                raise RuntimeError("ScanStart refused")
+
+            return AsyncStatus(refuse())
+
+    md: dict[str, Any] = {}
+    with pytest.raises(FailedStatus):
+        RE(scan_mode_bracket(bps.null(), Refusing(), _entry(), stamped=[cam], md=md))
+    assert switched[0] is True  # chosen before the entry
+    assert md["shot_stamp_systimestamp"] == [CAM]
+    assert cam.shot_stamp is cam.acq_timestamp  # undone in the finalizer
