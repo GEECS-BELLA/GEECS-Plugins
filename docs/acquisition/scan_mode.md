@@ -48,8 +48,11 @@ scan-mode profile.
    The worker waits for every device the run records from and the
    profile's shot-control device. If any stays silent (a `ScanStart` can
    be lost on the network), it ends the scan for the devices that did
-   enter and sends one fresh `ScanStart`. If a device is still silent, it
-   refuses the run, naming it. A refused entry claims no scan number.
+   enter and sends one fresh `ScanStart`. If a required device (or the
+   profile's shot-control device) is still silent, it refuses the run,
+   naming it; a refused entry claims no scan number. Any other device
+   still silent is warned about and left out of scan mode for the run (no
+   shot-numbered files, its DB start values unapplied); the run goes on.
    The worker never sends a second `ScanStart` into an open scan: a
    device would hold it and re-enter scan mode after the run's
    `ScanEnd`. If any connection is still open when that first `ScanEnd`

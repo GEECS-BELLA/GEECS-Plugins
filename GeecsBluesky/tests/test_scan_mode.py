@@ -51,6 +51,7 @@ from geecs_bluesky.plans.registry import TriggerProfiles, bind_plans
 from geecs_bluesky.plans.scan_mode import (
     boundary_conflicts,
     check_gateway_host,
+    optional_run_device_names,
     run_device_names,
     scan_mode_preflight,
     values_agree,
@@ -392,6 +393,60 @@ def test_an_error_acknowledgement_is_refused(RE: RunEngine, stack: Stack) -> Non
     assert isinstance(cause, GeecsScanModeError)
     assert "refused by U_DG645 (error, Trigger Source" in str(cause)
     assert not control.entered
+
+
+def test_an_optional_silent_device_is_left_out_not_refused(
+    RE: RunEngine, stack: Stack, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Not required: silent after the retry, it is warned (again at the first
+    # shot, into scan.log) and the run goes on with the devices that entered.
+    stack.start(**{CAM: {"acknowledge": False}})
+    control = stack.make_control(ack_timeout_s=0.3)
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.devices.scan_mode"):
+        RE(bps.mv(control, EnterScanMode((CAM, BOX), "Shot #", optional=(CAM,))))
+        assert control.entered and control.run_devices == (BOX,)
+        assert json.loads(stack.state_file.read_text())["devices"] == [BOX]
+        assert caplog.text.count("UC_Cam did not enter scan mode") == 1
+        RE(bps.mv(control, ANNOUNCE))
+        RE(bps.mv(control, ANNOUNCE))
+    assert caplog.text.count("UC_Cam did not enter scan mode") == 2
+    t0 = time.monotonic()
+    RE(bps.mv(control, EXIT))
+    # ScanEnd's acks are not waited for from the device left out (2.0 s)
+    assert time.monotonic() - t0 < 1.8 and not control.entered
+
+
+def test_an_optional_device_refusing_scan_start_is_left_out(
+    RE: RunEngine, stack: Stack
+) -> None:
+    stack.start(**{CAM: {"ack_status": "error, not ready,"}})
+    control = stack.make_control()
+    RE(bps.mv(control, EnterScanMode((CAM, BOX), "Shot #", optional=(CAM,))))
+    assert control.entered and control.run_devices == (BOX,)
+    RE(bps.mv(control, EXIT))
+
+
+def test_a_required_silent_device_still_refuses_beside_an_optional_one(
+    RE: RunEngine, stack: Stack
+) -> None:
+    stack.start(**{CAM: {"acknowledge": False}, BOX: {"acknowledge": False}})
+    control = stack.make_control(ack_timeout_s=0.2)
+    with pytest.raises(FailedStatus) as info:
+        RE(bps.mv(control, EnterScanMode((CAM, BOX), "Shot #", optional=(CAM,))))
+    cause = _cause(info)
+    assert isinstance(cause, GeecsScanModeError) and cause.devices == (BOX,)
+    assert not control.entered and not stack.state_file.exists()
+
+
+def test_no_device_entering_refuses_even_when_all_are_optional(
+    RE: RunEngine, stack: Stack
+) -> None:
+    stack.start(**{CAM: {"acknowledge": False}})
+    control = stack.make_control(ack_timeout_s=0.2)
+    with pytest.raises(FailedStatus) as info:
+        RE(bps.mv(control, EnterScanMode((CAM,), "Shot #", optional=(CAM,))))
+    assert "no device entered scan mode" in str(_cause(info))
+    assert not control.entered and not stack.state_file.exists()
 
 
 def test_a_host_that_never_connects_is_refused(RE: RunEngine, stack: Stack) -> None:
@@ -981,6 +1036,18 @@ def test_run_device_names_lists_owners_once_plus_the_box(RE: RunEngine) -> None:
     # a detector's signal names its device (the one naming walk); a plan-side
     # object with no device behind it is skipped
     assert run_device_names([cam.acq_timestamp, SimpleNamespace(name="bins")]) == (CAM,)
+
+
+def test_optional_run_devices_are_all_but_the_required_and_the_box(
+    RE: RunEngine,
+) -> None:
+    box = FakeBox()
+    cam, other = _camera(RE, box, CAM), _camera(RE, box, "UC_Other")
+    sc = SimpleNamespace(liveness_signals={BOX: object()})
+    run = run_device_names([cam, other.scalars], sc)
+    assert run == (CAM, "UC_Other", BOX)
+    assert optional_run_device_names(run, [cam], sc) == ("UC_Other",)
+    assert optional_run_device_names(run, [cam, other.scalars], sc) == ()
 
 
 def test_values_agree_is_numeric_aware() -> None:
