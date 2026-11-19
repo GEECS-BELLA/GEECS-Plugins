@@ -186,6 +186,31 @@ class TestRunSubmitPreflight:
         assert "UC_Cam2" not in refuses
         assert "UC_Cam2" in left_out and "leaves them out" in left_out
 
+    def test_a_down_device_the_run_does_not_need_is_a_note_not_a_question(
+        self, engine, monkeypatch
+    ):
+        """The worker leaves it out by itself: nothing for the operator to acknowledge."""
+
+        def probe(experiment, device_names, *, timeout):
+            return ["UC_Cam2"]
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected", probe
+        )
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Cam2", "save_images": False, "required": False},
+            ]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert report.refusal is None and report.questions == []
+        assert (
+            "gateway_liveness",
+            "passed",
+            "left out, disconnected and not required: UC_Cam2",
+        ) in report.outcomes
+
     def test_a_sweep_axis_device_is_probed_and_refuses(self, engine, monkeypatch):
         calls: list[list[str]] = []
 
