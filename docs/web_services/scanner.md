@@ -100,8 +100,8 @@ opens this page.
   and which are required: a required device is waited on every shot and
   a shot it misses is refired; the others record what they take). A
   device that is not required and is down when the scan starts is left
-  out of that scan with a warning (no columns); a required one down
-  refuses the scan. Leave the row in place: the next scan that finds the
+  out of that scan with a warning (no columns); a required one, or a
+  device the scan moves, refuses the scan when down. Leave the row in place: the next scan that finds the
   device up records it again. The mode buttons fill the bottom half:
   **Count** (N shots at a fixed configuration, optionally tagged as a
   background), **Sweep** (one or more variables along a trajectory) or

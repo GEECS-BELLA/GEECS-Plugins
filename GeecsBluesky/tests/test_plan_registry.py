@@ -706,6 +706,45 @@ def test_a_dead_scalar_only_device_is_judged_through_its_scalars_view(
     assert not any(k.startswith("u_vs1h") for k in col.primary_events()[0]["data"])
 
 
+def test_a_down_sweep_axis_device_refuses_the_run_listed_or_not(
+    RE, box, profiles
+) -> None:
+    """The device a sweep moves is needed: down, the run is refused before the claim."""
+    from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+
+    cam = _camera(RE, box, "UC_Cam")
+    magnet = CaSnapshotReadable(
+        "U_S1H", ["Voltage"], experiment="TestExp", name="u_s1h"
+    )
+    magnet.current = CaMotor("U_S1H", "Current", experiment="TestExp", tolerance=0.01)
+    magnet.add_readables([magnet.current])
+    connect_mock(RE, magnet)
+    follow_setpoint(magnet.current)
+    set_mock_value(magnet.connected_status, "Disconnected")
+    col = DocCollector()
+    RE.subscribe(col)
+    sweep = bind_plans(profiles, settables={"U_S1H": magnet})["sweep"]
+    for listed in ([cam, magnet.scalars], [cam]):
+        with pytest.raises(GeecsDeviceDownError, match="U_S1H"):
+            RE(sweep(listed, sweep=payload()))
+    assert box.puts == [] and col.docs["start"] == []
+
+
+def test_needed_devices_are_the_required_the_moved_and_the_box(RE, box) -> None:
+    from types import SimpleNamespace
+
+    from geecs_bluesky.devices.ca import CaMotor, CaSnapshotReadable
+    from geecs_bluesky.plans.strict import needed_device_names
+
+    cam = _camera(RE, box, "UC_Cam")
+    magnet = CaSnapshotReadable("U_S1H", [], experiment="TestExp", name="u_s1h")
+    magnet.current = CaMotor("U_S1H", "Current", experiment="TestExp", tolerance=0.01)
+    sc = SimpleNamespace(liveness_signals={"DG": object()})
+    assert needed_device_names([cam], [magnet.current], sc) == {"UC_Cam", "U_S1H", "DG"}
+    assert needed_device_names([], [SimpleNamespace(name="pseudo")], None) == set()
+    assert "UC_Other" not in needed_device_names([cam], [], sc)
+
+
 def test_a_live_set_passes_the_gate_and_the_box_is_then_armed(
     RE, box, profiles
 ) -> None:

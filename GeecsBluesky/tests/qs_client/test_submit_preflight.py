@@ -166,6 +166,56 @@ class TestRunSubmitPreflight:
         assert len(questions) == 1
         assert "UC_Cam1" in questions[0].message and "UC_Cam2" in questions[0].message
 
+    def test_the_question_says_which_down_devices_refuse_and_which_are_left_out(
+        self, engine
+    ):
+        # The worker's rule (registry.drop_down_devices): required refuses,
+        # the rest is left out of the scan.
+        engine["CONNECTED"] = "Disconnected"
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Cam2", "save_images": False, "required": False},
+            ]
+        )
+        (question,) = run_submit_preflight(preset, "Undulator").questions
+        refuses, _, left_out = question.message.partition("Not required")
+        assert "UC_Cam1" in refuses and "refuses the run" in refuses
+        assert "UC_Cam2" not in refuses
+        assert "UC_Cam2" in left_out and "leaves them out" in left_out
+
+    def test_a_sweep_axis_device_is_probed_and_refuses(self, engine, monkeypatch):
+        calls: list[list[str]] = []
+
+        def probe(experiment, device_names, *, timeout):
+            calls.append(list(device_names))
+            return ["U_S1H"]
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected", probe
+        )
+        sweep = {
+            "trajectory": {
+                "kind": "axes",
+                "axes": [
+                    {
+                        "kind": "range",
+                        "axis": "U_S1H:Current",
+                        "start": 0,
+                        "stop": 1,
+                        "num": 2,
+                    }
+                ],
+            }
+        }
+        preset = _preset(
+            devices=[{"device": "UC_Cam1"}],
+            plan={"name": "sweep", "kwargs": {"sweep": sweep}},
+        )
+        (question,) = run_submit_preflight(preset, "Undulator").questions
+        assert calls == [["UC_Cam1", "U_S1H"]]
+        assert "U_S1H" in question.message and "Not required" not in question.message
+
     def test_unreadable_liveness_is_fail_open(self, engine):
         engine["CONNECTED"] = None  # CA read failed — not a verdict
         report = run_submit_preflight(_preset(), "Undulator")
