@@ -140,8 +140,7 @@ def _acq_timestamp(
         if device_acq_timestamp_column(columns, device) is None:
             # A record wins over a sampled column for a derived stack as it
             # does for its device: ask the shot table for the parent first.
-            joined = [f"{name}-acq_timestamp" for name in shots.records]
-            parent = shot_images.stack_parent_device(folder, device, joined)
+            parent = shot_images.stack_parent_device(folder, device, shots.covers)
             if parent is not None:
                 return (shots.stamp_for(parent, shot), True)
     value, present = shot_images.row_acq_timestamp(frame, device, shot, folder)

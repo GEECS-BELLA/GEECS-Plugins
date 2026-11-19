@@ -25,7 +25,7 @@ Column families (schema v1):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -304,7 +304,10 @@ def derived_folder_prefixes(folder: str) -> list[str]:
     ``UC_BCaveMagSpecCam1-interpSpec``) is written beside ``<device>``'s
     own folder from that device's shots.  A device name may itself hold a
     ``-``, so every prefix that ends before a ``-`` is a candidate and the
-    longest is tried first.  Never re-derive the split in a consumer.
+    longest is tried first.  This is the rule for a folder met on disk with
+    nothing else known about it; a recipe that names its sibling's suffix
+    (ScanAnalysis's ``core_source``) strips that suffix instead and needs
+    no inference.  Never re-derive the split in a viewer.
 
     Parameters
     ----------
@@ -322,34 +325,39 @@ def derived_folder_prefixes(folder: str) -> list[str]:
     return [prefix for prefix in prefixes if normalize_token(prefix)]
 
 
-def derived_folder_parent(columns: Sequence[str], folder: str) -> Optional[str]:
-    """The device whose ``acq_timestamp`` column a derived *folder* shares, or ``None``.
+def derived_folder_parent(folder: str, known: Callable[[str], bool]) -> Optional[str]:
+    """The device a derived *folder* is named after, among those *known*, or ``None``.
 
-    A folder with a column of its own
-    (:func:`device_acq_timestamp_column`) has no parent here: its own
-    column always wins.  Otherwise the answer is the longest
-    :func:`derived_folder_prefixes` candidate that has a column, and
-    ``None`` when none does.  The parent's columns are then found with
-    :func:`device_acq_timestamp_column` and :func:`device_valid_column`.
+    *known* says whether a name is a device the caller can join on: one
+    with an ``acq_timestamp`` column (:func:`has_acq_timestamp`), or one a
+    run's shot table holds records for.  A folder that is itself known has
+    no parent here: its own stamps always win.  Otherwise the answer is the
+    longest :func:`derived_folder_prefixes` candidate that is known, and
+    ``None`` when none is.
 
     Parameters
     ----------
-    columns : sequence of str
-        All event-stream column names.
     folder : str
         An on-disk device folder name.
+    known : callable
+        ``known(name) -> bool``.
 
     Returns
     -------
     str or None
         The parent device's name as the folder spells it.
     """
-    if device_acq_timestamp_column(columns, folder) is not None:
+    if known(folder):
         return None
     for prefix in derived_folder_prefixes(folder):
-        if device_acq_timestamp_column(columns, prefix) is not None:
+        if known(prefix):
             return prefix
     return None
+
+
+def has_acq_timestamp(columns: Sequence[str]) -> Callable[[str], bool]:
+    """Whether a device has its own ``acq_timestamp`` column in *columns*, as a predicate."""
+    return lambda device: device_acq_timestamp_column(columns, device) is not None
 
 
 def data_columns(columns: Sequence[str]) -> list[str]:

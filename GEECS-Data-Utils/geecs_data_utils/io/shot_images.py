@@ -225,7 +225,7 @@ def device_kind(
 
 
 def stack_parent_device(
-    scan_folder: Optional[Path], device: str, columns: Sequence[str]
+    scan_folder: Optional[Path], device: str, known: Callable[[str], bool]
 ) -> Optional[str]:
     """The device whose row stamps a derived capture stack joins on, or ``None``.
 
@@ -248,18 +248,20 @@ def stack_parent_device(
         for a folder whose prefix names a device with a column).
     device : str
         The device folder name.
-    columns : sequence of str
-        The scan table's column names.
+    known : callable
+        ``known(name) -> bool``: whether a name is a device with stamps to
+        join on — ``tiled_schema.has_acq_timestamp(columns)`` for a scan
+        table, a shot table's ``covers`` for its records.
 
     Returns
     -------
     str or None
-        The parent's name; ``None`` without a folder, for a folder with
-        its own column, with no such parent, or with no capture stack.
+        The parent's name; ``None`` without a folder, for a folder that is
+        itself known, with no such parent, or with no capture stack.
     """
     if scan_folder is None or Path(device).name != device:
         return None  # a name that is not one path part is no device folder
-    parent = tiled_schema.derived_folder_parent(columns, device)
+    parent = tiled_schema.derived_folder_parent(device, known)
     if parent is None or find_stack_file(scan_folder / device) is None:
         return None
     return parent
@@ -308,7 +310,9 @@ def row_acq_timestamp(
     columns = [str(c) for c in frame.columns]
     column = tiled_schema.device_acq_timestamp_column(columns, device)
     if column is None:
-        parent = stack_parent_device(scan_folder, device, columns)
+        parent = stack_parent_device(
+            scan_folder, device, tiled_schema.has_acq_timestamp(columns)
+        )
         if parent is None:
             return (None, False)
         device = parent
