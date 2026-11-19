@@ -52,7 +52,6 @@ from geecs_bluesky.plans.scan_mode import (
     boundary_conflicts,
     check_gateway_host,
     paused_device_names,
-    optional_run_device_names,
     run_device_names,
     scan_mode_preflight,
     values_agree,
@@ -1082,16 +1081,38 @@ def test_paused_device_names_are_the_per_shot_detectors_only(RE: RunEngine) -> N
     assert run_device_names(listed) == (CAM, "U_Stage")  # both still acknowledge
 
 
-def test_optional_run_devices_are_all_but_the_required_and_the_box(
-    RE: RunEngine,
+def test_the_entry_of_a_bound_count_spares_every_device_not_needed(
+    RE: RunEngine, stack: Stack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The bound plan hands the entry its optional devices: every run device
+    # but the required ones and the box.
+    import geecs_bluesky.plans.registry as registry
+
+    entries: list[EnterScanMode] = []
+
+    class Seen(Exception):
+        pass
+
+    def bracket(plan, control, entry):
+        entries.append(entry)
+        raise Seen
+        yield  # a generator
+
+    monkeypatch.setattr(registry, "scan_mode_bracket", bracket)
     box = FakeBox()
     cam, other = _camera(RE, box, CAM), _camera(RE, box, "UC_Other")
-    sc = SimpleNamespace(liveness_signals={BOX: object()})
-    run = run_device_names([cam, other.scalars], sc)
-    assert run == (CAM, "UC_Other", BOX)
-    assert optional_run_device_names(run, [cam], sc) == ("UC_Other",)
-    assert optional_run_device_names(run, [cam, other.scalars], sc) == ()
+    stack.start()
+    endpoints = {name: (LOOPBACK, port) for name, port in stack.ports.items()}
+    endpoints["UC_Other"] = (LOOPBACK, _free_port(socket.SOCK_DGRAM))
+    control = stack.make_control(device_endpoints=endpoints)
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    with pytest.raises(Seen):
+        RE(bound["count"]([cam, other.scalars], num=1, required=[cam]))
+    (entry,) = entries
+    assert entry.devices[:2] == (CAM, "UC_Other")
+    assert entry.optional == ("UC_Other",)
 
 
 def test_values_agree_is_numeric_aware() -> None:

@@ -539,8 +539,10 @@ listed detector, through the one verdict
 rule in `devices/ca/liveness.py` (`read_disconnected`, fail-open — only
 the exact `Disconnected` string counts; a native camera is judged by its
 IOC's own `AsynIO.CNCT` instead — `devices/native.down_native_cameras`,
-connected if needed and read within 5 s, where unreadable means down).  A dead **required**
-device, or the box, refuses the run with `GeecsDeviceDownError` naming
+connected if needed and read within 5 s, where unreadable means down).  A dead **needed**
+device — a required one, a device the run moves (judged even when the
+preset does not list it), or the box (`plans/strict.needed_device_names`,
+the one rule) — refuses the run with `GeecsDeviceDownError` naming
 every such one, before the box is driven and before `open_run` claims a
 scan number — so nothing is claimed and no folder exists.  Any other
 listed device down is **left out of the run**
@@ -548,8 +550,9 @@ listed device down is **left out of the run**
 columns, not waited on for scan mode, not read as background telemetry
 either, WARNED and named in the start document's `devices_dropped`; the
 next run that finds it up records it again, the preset untouched.  Every
-listed device down refuses (nothing left to record).  `optimize` still
-refuses on any of its devices down.  The rule against reading quiescence in a
+listed device down refuses (nothing left to record).  The client's
+preflight question says which down devices refuse and which are left out
+(`QueueItem.needed`).  `optimize` still refuses on any of its devices down.  The rule against reading quiescence in a
 scan does not apply: this is the liveness PV, read once per run.  The
 verdict (`plans/strict.py::down_devices`; a native setpoint device by its
 readbacks' severity) is also `apply_setup`'s: over the namespace nouns

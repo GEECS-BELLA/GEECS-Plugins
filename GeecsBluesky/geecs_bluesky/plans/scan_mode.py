@@ -100,21 +100,6 @@ def paused_device_names(detectors: Sequence[Any]) -> tuple[str, ...]:
     return tuple(names)
 
 
-def optional_run_device_names(
-    run_devices: Sequence[str], required: Sequence[Any], shot_control: Any | None
-) -> tuple[str, ...]:
-    """The run devices whose silence after ``ScanStart`` is no refusal.
-
-    Every run device but the owners of the *required* devices and the
-    trigger profile's box: the rule the run's start applies to a device
-    reported down (``registry.drop_down_devices``), applied to one that
-    does not enter scan mode.
-    """
-    needed = {geecs_device_of(obj) for obj in required}
-    needed |= {str(d) for d in getattr(shot_control, "liveness_signals", None) or {}}
-    return tuple(d for d in run_devices if d not in needed)
-
-
 def scan_parameter_for(plan_name: str) -> str:
     """The second ``ScanStart`` argument: Master Control sends ``Shot #`` for a NoScan."""
     return "Shot #" if plan_name == "count" else plan_name
@@ -359,7 +344,6 @@ __all__ = [
     "device_root_check",
     "gateway_hosts",
     "paused_device_names",
-    "optional_run_device_names",
     "release_scan_mode_plan",
     "root_path_check",
     "run_device_names",

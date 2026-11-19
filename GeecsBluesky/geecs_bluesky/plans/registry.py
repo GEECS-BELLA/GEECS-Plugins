@@ -11,7 +11,7 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from inspect import Parameter
 from types import SimpleNamespace
 from typing import Any
@@ -51,7 +51,6 @@ from geecs_bluesky.plans.calibration import (
 from geecs_bluesky.plans.scan_mode import (
     EnterScanMode,
     paused_device_names,
-    optional_run_device_names,
     release_scan_mode_plan,
     run_device_names,
     scan_mode_bracket,
@@ -68,8 +67,10 @@ from geecs_bluesky.plans.on_demand import (
 from geecs_bluesky.plans.shot_gate import open_gate
 from geecs_bluesky.plans.streams import DeviceStreams, is_per_shot
 from geecs_bluesky.plans.strict import (
+    device_root,
     down_devices,
     geecs_name,
+    needed_device_names,
     name_failed_status,
     run_bracket,
 )
@@ -215,36 +216,46 @@ def liveness_gate(
         raise GeecsDeviceDownError(
             f"{names} DISCONNECTED (the gateway's CONNECTED, a native "
             "camera's IOC not answering, or a native setpoint device's readback "
-            "INVALID) — required by the run (or the trigger profile's box), so "
-            "it was refused before the trigger box was driven (nothing claimed, "
-            "no scan folder). Check the device(s), then resubmit.",
+            "INVALID) — needed by the run (required, moved, or the trigger "
+            "profile's box), so it was refused before the trigger box was "
+            "driven (nothing claimed, no scan folder). Check the device(s), "
+            "then resubmit.",
             device_name=needed[0],
         )
     return [name for name in down if name in spare]
 
 
 def drop_down_devices(
-    shot_control: Any, detectors: Sequence[Any], required: Sequence[Any]
+    shot_control: Any,
+    detectors: Sequence[Any],
+    needed: Collection[str],
+    movers: Sequence[Any] = (),
 ):
-    """Plan: the run's detectors minus the ones reported down that it does not require.
+    """Plan: the run's detectors minus the ones reported down that it can go without.
 
-    The one rule of a bound scan verb's start (:func:`liveness_gate` with
-    *optional* every listed device not in *required*): a required device or
-    the box down refuses the run; any other listed device down is left out
-    of it — no stream, no columns, not waited on for scan mode, and not
-    read as background telemetry either (the caller keeps the full list as
-    the background's ``own``) — WARNED by name and recorded in the start
-    document as ``devices_dropped``.  It is back in the next run that finds
-    it up: the preset is never changed.
+    The one rule of a bound scan verb's start: :func:`liveness_gate` over
+    the detectors and the devices the run moves (*movers*), every detector
+    whose GEECS name is not in *needed*
+    (:func:`~geecs_bluesky.plans.strict.needed_device_names`) optional.  A
+    needed device down — required, moved, or the box — refuses the run; any
+    other listed device down is left out of it — no stream, no columns, not
+    waited on for scan mode, and not read as background telemetry either
+    (the caller keeps the full list as the background's ``own``) — WARNED
+    by name and recorded in the start document as ``devices_dropped``.  It
+    is back in the next run that finds it up: the preset is never changed.
 
     Returns
     -------
     tuple
         ``(kept detectors, dropped GEECS names)``.
     """
-    needed = {geecs_name(d) for d in required}
+    judged = list(detectors)
+    for mover in movers:
+        root = device_root(mover)
+        if root is not None and all(root is not d for d in judged):
+            judged.append(root)
     optional = [d for d in detectors if geecs_name(d) not in needed]
-    dropped = yield from liveness_gate(shot_control, detectors, optional=optional)
+    dropped = yield from liveness_gate(shot_control, judged, optional=optional)
     if not dropped:
         return list(detectors), []
     kept = [d for d in detectors if geecs_name(d) not in dropped]
@@ -773,11 +784,19 @@ def strict_plan(  # noqa: C901, PLR0915
         per_shot = [d for d in detectors if is_per_shot(d)]
         _refuse_twice_listed(per_shot)
         required = resolve_required(per_shot, required_arg)
-        # Before the box is driven and before the claim: a required device
-        # (or the box) down refuses; any other listed device down is left out.
+        payload = bound_args.get("sweep")
+        movers = (
+            sweep_movers(payload, settables)
+            if payload is not None and settables is not None
+            else []
+        )
+        # Before the box is driven and before the claim: a needed device
+        # (required, moved, the box) down refuses; any other listed device
+        # down is left out.
+        needed = needed_device_names(required, movers, None if fly else shot_control)
         listed_detectors = detectors
         detectors, dropped = yield from drop_down_devices(
-            None if fly else shot_control, detectors, required
+            None if fly else shot_control, detectors, needed, movers
         )
         per_shot = [d for d in detectors if is_per_shot(d)]
         # Scan mode (#1084): the profile's flag selects it; refuse what it
@@ -864,12 +883,6 @@ def strict_plan(  # noqa: C901, PLR0915
         if tick is not None:
             inner = tick.wrap(inner)
         inner = witness_wrapper(inner, witness, md["witness"])
-        payload = bound_args.get("sweep")
-        movers = (
-            sweep_movers(payload, settables)
-            if payload is not None and settables is not None
-            else []
-        )
         if snapshot is not None:
             # The listed devices, dropped ones included: a device left out
             # because it is down is not read as background telemetry either.
@@ -887,9 +900,7 @@ def strict_plan(  # noqa: C901, PLR0915
                     run_devices,
                     scan_parameter_for(stock.__name__),
                     paused=paused_device_names(detectors),
-                    optional=optional_run_device_names(
-                        run_devices, required, shot_control
-                    ),
+                    optional=tuple(d for d in run_devices if d not in needed),
                 ),
             )
         if fly:

@@ -26,7 +26,7 @@ light and offline.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -143,11 +143,12 @@ def run_submit_preflight(
 
     # -- gateway liveness ----------------------------------------------------
     devices = list(item.devices)
-    for device in _trigger_profile_devices(profile):
+    box = list(_trigger_profile_devices(profile))
+    for device in [*item.needed, *box]:
         if device not in devices:
             devices.append(device)
     if devices:
-        _liveness_fail_open(report, devices, experiment)
+        _liveness_fail_open(report, devices, experiment, needed={*item.needed, *box})
 
     return report
 
@@ -181,10 +182,10 @@ def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) 
     return report
 
 
-def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str) -> None:  # fmt: skip
+def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None) -> None:  # fmt: skip
     """:func:`_check_liveness`, recorded ``skipped`` (never raised) when the probe itself fails."""
     try:
-        _check_liveness(report, devices, experiment)
+        _check_liveness(report, devices, experiment, needed=needed)
     except Exception as exc:  # noqa: BLE001 — preflight fails open
         logger.warning("liveness preflight failed: %s", exc)
         report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
@@ -365,7 +366,11 @@ def _check_worker_ready(
 
 
 def _check_liveness(
-    report: PreflightReport, devices: list[str], experiment: str
+    report: PreflightReport,
+    devices: list[str],
+    experiment: str,
+    *,
+    needed: Collection[str] | None = None,
 ) -> None:
     """Read each device's gateway ``CONNECTED`` PV; question the down ones.
 
@@ -374,8 +379,10 @@ def _check_liveness(
     :func:`geecs_bluesky.devices.ca.liveness.probe_disconnected` — the
     same one the strict refire gate's verdict rests on, so the two sides
     cannot drift.  Only the disposition differs: here a down device
-    becomes an operator question; worker-side a frameless down device
-    aborts the run.
+    becomes an operator question, worded as the worker's rule
+    (``registry.drop_down_devices``): a *needed* device down refuses the
+    run, any other is left out of it.  ``None`` treats every device as
+    needed (a trigger profile's own dry run).
     """
     from geecs_bluesky.devices.ca.liveness import probe_disconnected
 
@@ -383,16 +390,28 @@ def _check_liveness(
     if not down:
         report.outcomes.append(("gateway_liveness", "passed", ""))
         return
-    names = ", ".join(sorted(down))
+    must = set(devices) if needed is None else set(needed)
+    refusing = sorted(d for d in down if d in must)
+    left_out = sorted(d for d in down if d not in must)
+    parts: list[str] = []
+    if refusing:
+        parts.append(
+            f"The gateway reports these devices as Disconnected: "
+            f"{', '.join(refusing)}. The scan needs them (required, a sweep "
+            "axis, or the trigger profile's), so the worker refuses the run "
+            "before its first move while any of them is down."
+        )
+    if left_out:
+        parts.append(
+            f"Not required and Disconnected: {', '.join(left_out)}. The worker "
+            "leaves them out of this scan (no columns); the next scan that "
+            "finds them up records them again."
+        )
     report.questions.append(
         PreflightQuestion(
             check="gateway_liveness",
             title="Devices disconnected",
-            message=(
-                f"The gateway reports these devices of the scan as "
-                f"Disconnected: {names}. The worker refuses the run before "
-                "its first move while any of them is down. Continue anyway?"
-            ),
+            message=" ".join([*parts, "Continue anyway?"]),
         )
     )
 
