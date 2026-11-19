@@ -229,7 +229,7 @@
     if (!p.available) setChip($("chip-docs"), K.degraded, "doc stream", p.detail || "not consuming");
   }
 
-  // The rows' timing columns (shot_period_s, slowest_device, slowest_s),
+  // The rows' timing (fire_stamp, slowest_device, slowest_s),
   // reduced by the shared progress stream: shown, never a gate.
   function renderRate(p) {
     function hz(x) { return x == null ? "—" : x.toFixed(2) + " Hz"; }
@@ -237,8 +237,10 @@
     $("lv-rate").textContent = hz(p.current_rate_hz);
     $("ag-rate").textContent = p.average_rate_hz == null ? "" : "average " + hz(p.average_rate_hz);
     $("lv-wait").textContent = p.waiting_on || "—";
-    $("ag-wait").textContent = p.waiting_s == null ? ""
-      : s(p.waiting_s) + " after the fire" + (p.worker_s == null ? "" : "; worker " + s(p.worker_s));
+    var parts = [];
+    if (p.waiting_s != null) parts.push(s(p.waiting_s) + " after the fire");
+    if (p.worker_s != null) parts.push("worker " + s(p.worker_s));
+    $("ag-wait").textContent = parts.join("; ");
     var slow = p.slowest || [];
     $("slowest-note").textContent = slow.length
       ? "Held the most shots: " + slow.map(function (d) {
