@@ -774,8 +774,9 @@ class GeecsDetector(StandardDetector):
         the loop stamp ticks on its own and is never a shot.  The stamp is
         still recorded under ``<name>-acq_timestamp``, the column every
         reader joins on; the start document names the devices
-        (``shot_stamp_systimestamp``).  The bound plans set it for every
-        per-shot device at each run's start and clear it at its end.
+        (``shot_stamp_systimestamp``).  Set by the scan-mode bracket before
+        its entry and cleared in its finalizer
+        (:func:`~geecs_bluesky.plans.scan_mode.choose_shot_stamps`).
         """
         self._acquire.retarget(self.systimestamp if on else self.acq_timestamp)
 

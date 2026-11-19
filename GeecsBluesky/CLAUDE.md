@@ -783,8 +783,10 @@ last shot on the stand were the run's detectors, which do pause.)  A
 device whose `acq_timestamp` reads `0.0` at the run's start (its LabVIEW
 driver never sets it: the DAQs, the LeCroy scope) takes its shots from
 `systimestamp` in a scan-mode run, which a device in scan mode publishes
-once per announced shot (`plans/streams.choose_shot_stamps`, set for
-every stamped device per run and cleared at its end; recorded under its
+once per announced shot (`plans/scan_mode.choose_shot_stamps`, run by
+`scan_mode_bracket` before the entry and undone in its finalizer, so a
+refused entry leaves nothing switched; a run outside scan mode resets
+first, against a halted run's choice; recorded under its
 `-acq_timestamp` column, named in the start document's
 `shot_stamp_systimestamp`).  Outside scan mode the loop stamp ticks on its
 own and is never a shot.  Readers

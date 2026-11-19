@@ -764,6 +764,8 @@ def optimize_plan(  # noqa: C901, PLR0915
                     staged,
                     announce,
                     EnterScanMode(run_devices, scan_parameter_for("optimize")),
+                    stamped=[d for d in detectors if is_per_shot(d)],
+                    md=metadata,
                 )
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 
