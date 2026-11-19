@@ -503,11 +503,16 @@ class Panel(SchemaModel):
     )
     trends: list[PanelTrend] = Field(
         default_factory=list,
+        max_length=4,
         description=(
             "The time plots the settables page draws under the readings, in "
-            "order: each a title and the monitored numeric roles it draws "
-            "against wall-clock time (a loop's value beside its setpoint). A "
-            "role may sit in several trends and need not be a reading."
+            "order: each a title, unique in the panel, and the monitored numeric "
+            "roles it draws against wall-clock time (a loop's value beside its "
+            "setpoint). Four at most: each is a plot of its own height between "
+            "the readings and the role tables, redrawn every second. A role may "
+            "sit in several trends and need not be a reading. A kind whose page "
+            "has a data pane of its own (a camera's image, a trace's plot) draws "
+            "no trends."
         ),
     )
 
@@ -702,7 +707,7 @@ def _check_axes(roles: list[Role], by_name: Mapping[str, Role]) -> None:
 
 
 def _check_panel(panel: Panel, by_name: Mapping[str, Role]) -> None:
-    """Refuse a panel naming a role the family lacks, one rail role in two places, an unmonitored reading, a button pair on no two-state rail role, a tweak on no writable setpoint and commands of its group, a grid of more than bits and enums, a default array no axis draws, or a trend of a role that is unmonitored or no number."""
+    """Refuse a panel naming a role the family lacks, one rail role in two places, an unmonitored reading, a button pair on no two-state rail role, a tweak on no writable setpoint and commands of its group, a grid of more than bits and enums, a default array no axis draws, two trends of one title, or a trend of a role that is unmonitored or no number."""
     named = [name for group in panel.rail for name in group.roles]
     tweaked = [
         name
@@ -760,7 +765,8 @@ _TRENDED = frozenset({"readback", "setpoint", "bit", "counter"})
 
 
 def _check_trends(panel: Panel, by_name: Mapping[str, Role]) -> None:
-    """Refuse a role twice in one trend, and a trend role that is unmonitored or carries no number."""
+    """Refuse two trends of one title, a role twice in one trend, and a trend role that is unmonitored or carries no number."""
+    _refuse_duplicates("panel trend titles", [t.title for t in panel.trends])
     for trend in panel.trends:
         _refuse_duplicates(f"panel trend {trend.title!r} roles", list(trend.roles))
         unread = [n for n in trend.roles if by_name[n].read_mode != "monitor"]

@@ -36,10 +36,10 @@ def _device(family: str, omit: tuple[str, ...] = ()) -> dict[str, Any]:
 
 
 class Vole:
-    """Vole's two routes as the brief gives them: what was asked, and a scripted answer per PV."""
+    """Vole's subscribe and history routes: what was asked, and a scripted answer per PV (``refuse``: every answer's status; ``subscribe``: the subscribe's alone)."""
 
-    def __init__(self, samples: Optional[dict[str, list[dict]]] = None, down: bool = False, refuse: int = 0) -> None:  # fmt: skip
-        self.samples, self.down, self.refuse = samples or {}, down, refuse
+    def __init__(self, samples: Optional[dict[str, list[dict]]] = None, down: bool = False, refuse: int = 0, subscribe: int = 200) -> None:  # fmt: skip
+        self.samples, self.down, self.refuse, self.subscribe = samples or {}, down, refuse, subscribe  # fmt: skip
         self.asked: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -50,7 +50,7 @@ class Vole:
             return httpx.Response(self.refuse, json={"detail": "no"})
         path = request.url.path.removeprefix("/vole/v1/pvs/")
         if request.method == "POST":
-            return httpx.Response(200, json={"pv": path.removeprefix("subscribe/")})
+            return httpx.Response(self.subscribe, json={"pv": path.removeprefix("subscribe/")})  # fmt: skip
         found = self.samples.get(path, [])
         return httpx.Response(200, json={"pv": path, "count": len(found), "samples": found})  # fmt: skip
 
@@ -105,7 +105,8 @@ def test_a_family_without_trends_draws_none_and_loads_no_plotly(settings: Settin
 def test_a_trend_is_drawn_with_the_roles_the_device_serves() -> None:
     family = load_families()["loop_contract"]
     specs = {r.name: {"label": r.label, "units": "mm" if r.name == "target" else None, "type": r.type} for r in family.roles if r.name not in ("actuator", "value_display", "setpoint_display")}  # fmt: skip
-    # an engine not yet serving the actuator: its line is left out; a trend with no role left is dropped
+    # a device whose panel row omits roles (the module's route then lists none of them): their lines are left out, and a
+    # trend with no role left is dropped. An engine that merely does not serve a record still lists the role, unreachable.
     assert drawn_trends(family, specs) == [{"title": "Actuator", "roles": [{"role": "target", "label": "last target", "units": "mm", "type": "readback"}]}]  # fmt: skip
     assert drawn_trends(load_families()["easydriver"], specs) == []
     assert drawn_trends(None, specs) == []  # a DB device: no family, no trends
@@ -130,13 +131,13 @@ def test_the_route_subscribes_each_trend_pv_and_serves_its_history(settings: Set
     assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
     body = r.json()
     ms = now / 1e6
-    assert (body["device"], body["to"], body["from"]) == ("x", ms, ms - 120_000)
+    assert (body["device"], body["to"], body["from"], body["now"]) == ("x", ms, ms - 120_000, ms)  # fmt: skip
     assert set(body["roles"]) == {"value_display", "setpoint_display", "actuator", "target"}  # fmt: skip
     # oldest first, in milliseconds; an undefined record's null is a gap, and a sample without a time is dropped
-    assert body["roles"]["value_display"] == {"pv": "bench:x:ValueDisplay_RBV", "why": None, "samples": [[ms - 3000, 1.25], [ms - 2000, 1.5], [ms - 1000, None]]}  # fmt: skip
+    assert body["roles"]["value_display"] == {"pv": "bench:x:ValueDisplay_RBV", "state": "history", "why": None, "samples": [[ms - 3000, 1.25], [ms - 2000, 1.5], [ms - 1000, None]]}  # fmt: skip
     # an undefined record, a boolean and a word are no number: gaps, never zeros
     assert body["roles"]["actuator"]["samples"] == [[ms - 4000, 7.0], [ms - 3000, None], [ms - 2000, None], [ms - 1000, None]]  # fmt: skip
-    assert body["roles"]["target"] == {"pv": "bench:x:Target_RBV", "samples": [], "why": "nothing buffered yet"}  # fmt: skip
+    assert body["roles"]["target"] == {"pv": "bench:x:Target_RBV", "samples": [], "state": "starting", "why": "not buffered until now"}  # fmt: skip
     # each PV subscribed, then read over the window, with the read key and nothing else
     posts = sorted(q.url.path for q in vole.asked if q.method == "POST")
     assert posts == sorted(f"/vole/v1/pvs/subscribe/bench:x:{s}" for s in ("ValueDisplay_RBV", "SetpointDisplay_RBV", "Actuator_RBV", "Target_RBV"))  # fmt: skip
@@ -152,8 +153,15 @@ def test_the_route_subscribes_each_trend_pv_and_serves_its_history(settings: Set
 
 
 def test_a_value_that_is_no_finite_number_is_a_gap() -> None:
-    got = trends.points([_sample(2_000_000, float("nan")), _sample(1_000_000, float("inf")), _sample(3_000_000, 4), _sample(4_000_000, 5, "INVALID"), "junk", {"tsNs": "soon", "value": 1}])  # fmt: skip
-    assert got == [[1.0, None], [2.0, None], [3.0, 4.0], [4.0, None]]
+    got = trends.points([_sample(2_000_000, float("nan")), _sample(1_000_000, float("inf")), _sample(3_000_000, 4), _sample(4_000_000, 5, "INVALID"), _sample(5_000_000, 6, "NO_ALARM"), _sample(6_000_000, 10**400), "junk", {"tsNs": "soon", "value": 1}])  # fmt: skip
+    assert got == [
+        [1.0, None],
+        [2.0, None],
+        [3.0, 4.0],
+        [4.0, None],
+        [5.0, 6.0],
+        [6.0, None],
+    ]
 
 
 def test_the_window_is_held_to_the_choices(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
@@ -177,7 +185,35 @@ def test_vole_silent_or_refusing_is_words_per_role_never_an_error(settings: Sett
     r = _room(settings, _device("loop_contract"), vole).get("/api/devices/x/trends")
     assert r.status_code == 200
     roles = r.json()["roles"]
-    assert len(roles) == 4 and all(v["samples"] == [] and v["why"].startswith(why) for v in roles.values())  # fmt: skip
+    assert len(roles) == 4 and all(v["samples"] == [] and v["state"] == "failed" and v["why"].startswith(why) for v in roles.values())  # fmt: skip
+    # the history is asked whatever the subscribe said
+    assert sorted(q.method for q in vole.asked) == ["GET"] * 4 + ["POST"] * 4
+
+
+def test_a_refused_subscribe_never_hides_a_history_and_any_2xx_is_an_answer(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    now = 1_800_000_000 * _NS
+    monkeypatch.setattr(trends.time, "time_ns", lambda: now)
+    past = {"bench:x:Actuator_RBV": [_sample(now - _NS, 7)]}
+    refused = _room(settings, _device("loop_contract"), Vole(past, subscribe=403)).get("/api/devices/x/trends").json()["roles"]  # fmt: skip
+    # another viewer's subscribe buffered it: its history is shown; the refusal is the words only where there is none
+    assert (refused["actuator"]["state"], refused["actuator"]["why"], len(refused["actuator"]["samples"])) == ("history", None, 1)  # fmt: skip
+    assert (refused["target"]["state"], refused["target"]["why"]) == ("failed", "Vole answered 403 to the subscribe")  # fmt: skip
+    accepted = _room(settings, _device("loop_contract"), Vole(past, subscribe=204)).get("/api/devices/x/trends").json()["roles"]  # fmt: skip
+    assert (accepted["actuator"]["state"], accepted["target"]["state"]) == ("history", "starting")  # fmt: skip
+
+
+def test_now_is_stamped_when_the_answer_is_built_after_voles_calls(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:  # fmt: skip
+    calls: list[
+        int
+    ] = []  # the window's end is the first reading of the clock; Vole then takes 4 s
+
+    def clock() -> int:
+        calls.append(1)
+        return (1_800_000_000 if len(calls) == 1 else 1_800_000_004) * _NS
+
+    monkeypatch.setattr(trends.time, "time_ns", clock)
+    body = _room(settings, _device("loop_contract"), Vole()).get("/api/devices/x/trends").json()  # fmt: skip
+    assert body["now"] - body["to"] == 4000
 
 
 def test_an_answer_that_is_no_history_is_words(settings: Settings) -> None:

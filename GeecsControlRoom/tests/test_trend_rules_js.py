@@ -9,7 +9,16 @@ from tests._node import call_all, needs_node, run
 T = 1_800_000_000_000  # a time, in ms
 LIVE = {"connected": True, "severity": "NONE", "value": 2.5, "tsNs": (T - 400) * 1_000_000}  # fmt: skip
 WANTED = [{"role": "actuator", "label": "actuator"}, {"role": "target", "label": "last target"}]  # fmt: skip
-OK = {"ok": True, "to": T, "roles": {"actuator": [[T - 5, 1]], "target": [[T - 4, 2]]}, "why": {}}  # fmt: skip
+OK = {"ok": True, "now": T, "roles": {"actuator": [[T - 5, 1]], "target": [[T - 4, 2]]}, "state": {"actuator": "history", "target": "history"}, "why": {}}  # fmt: skip
+NONE = {"ok": True, "now": T, "roles": {"actuator": [], "target": []}}
+
+
+def _got(actuator: str, target: str, why: str = "Vole did not answer") -> dict:
+    """An answer whose two lines are in the given states."""
+    state = {"actuator": actuator, "target": target}
+    roles = {r: [[T - 5, 1]] if s == "history" else [] for r, s in state.items()}
+    return {"ok": True, "now": T, "roles": roles, "state": state, "why": {r: "not buffered until now" if s == "starting" else why for r, s in state.items() if s != "history"}}  # fmt: skip
+
 
 ROWS: list[tuple[str, str, list[Any], Any]] = [
     # one of Hare's frames as a point
@@ -18,6 +27,7 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("point: no stamp is now", "point", [{"connected": True, "value": 3}, T], [T, 3]),
     ("point: no frame (the socket down, or nothing yet) is a gap", "point", [None, T], [T, None]),
     ("point: a disconnected record is a gap", "point", [LIVE | {"connected": False}, T], [T, None]),
+    ("point: a frame that does not say it is connected is a gap (the page's own reading of a frame)", "point", [{"value": 3, "severity": "NO_ALARM"}, T], [T, None]),
     ("point: an INVALID record is a gap, never its last value", "point", [LIVE | {"severity": "INVALID"}, T], [T, None]),
     ("point: null is a gap, never a zero", "point", [LIVE | {"value": None}, T], [T, None]),
     ("point: a word is a gap", "point", [LIVE | {"value": "moving"}, T], [T, None]),
@@ -32,14 +42,26 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("append: a gap after a value", "append", [[[10, 1]], [30, None], 50], [[10, 1], [30, None]]),
     ("append: an old stamp after a gap is drawn when it arrived (the gap keeps its width)", "append", [[[10, 1], [20, None]], [10, 1], 50], [[10, 1], [20, None], [50, 1]]),
     ("append: an old stamp with a new value is drawn when it arrived", "append", [[[10, 1], [20, 2]], [15, 3], 50], [[10, 1], [20, 2], [50, 3]]),
-    ("append: capped, the oldest dropped", "append", [[[1, 1], [2, 2], [3, 3]], [4, 4], 50, 3], [[2, 2], [3, 3], [4, 4]]),
+    # the live buffer's bounds: by time (never drawn again), then by count (the page must know)
+    ("trim: inside the longest window and under the cap, nothing goes", "trim", [[[900, 1], [950, 2]], 1000, 200, 5], None),
+    ("trim: by count, the stamp of the newest point lost", "trim", [[[910, 1], [920, 2], [930, 3], [940, 4]], 1000, 200, 2], 920),
+    ("trim: by time alone is no loss a window could show", "trim", [[[100, 1], [200, 2], [300, 3], [950, 4]], 1000, 200, 5], None),
+    ("hole: the cap took live points newer than the history's end", "hole", [[[10, 1], [20, 2]], 25], True),
+    ("hole: the cap took only what the history covers", "hole", [[[10, 1], [20, 2]], 20], False),
+    ("hole: nothing lost", "hole", [[[10, 1]], None], False),
+    ("hole: no history to be cut off from", "hole", [[], 25], False),
     # the history as the route gives it
     ("past: oldest first, the malformed dropped", "past", [[[30, 3], [10, 1], [20, None], [None, 5], "x", [40, "y"], [50]]], [[10, 1], [20, None], [30, 3]]),
     ("past: nothing is nothing", "past", [None], []),
     ("merge: the history, then the live points after its last sample", "merge", [[[10, 1], [20, 2]], [[20, 2], [30, 3]]], [[10, 1], [20, 2], [30, 3]]),
     ("merge: no history is the live points", "merge", [[], [[30, 3]]], [[30, 3]]),
-    ("merge: capped from the old end", "merge", [[[10, 1], [20, 2]], [[30, 3]], 2], [[20, 2], [30, 3]]),
-    ("merge: a live buffer at its cap has a hole behind it: the history is not held across it", "merge", [[[10, 1]], [[500, 5], [600, 6]], 2], [[500, 5], [600, 6]]),
+    ("merge: the history is never cut to make room for live points", "merge", [[[t, t] for t in range(1, 6)], [[t, t] for t in range(6, 11)]], [[t, t] for t in range(1, 11)]),
+    ("merge: live points lost after the history's end: a gap closes it, its last value never held across", "merge", [[[10, 1]], [[500, 5], [600, 6]], 400], [[10, 1], [10, None], [500, 5], [600, 6]]),
+    ("merge: live points lost that the history covers: no gap", "merge", [[[10, 1], [450, 4]], [[500, 5]], 400], [[10, 1], [450, 4], [500, 5]]),
+    ("kept: the answer's samples", "kept", [_got("history", "starting"), "actuator", [[1, 1]]], [[T - 5, 1]]),
+    ("kept: a failed read never blanks a past already shown", "kept", [_got("failed", "starting"), "actuator", [[1, 1]]], [[1, 1]]),
+    ("kept: a failed read with nothing earlier is nothing", "kept", [_got("failed", "starting"), "actuator", []], []),
+    ("kept: a PV only now buffered has no past", "kept", [_got("history", "starting"), "target", [[1, 1]]], []),
     ("holding: the newest live point is a value", "holding", [[[10, 1]]], True),
     ("holding: the newest live point is a gap", "holding", [[[10, 1], [20, None]]], False),
     ("holding: nothing live", "holding", [[]], False),
@@ -67,16 +89,25 @@ ROWS: list[tuple[str, str, list[Any], Any]] = [
     ("url: the window", "trendsUrl", ["/room/api/devices/lfs/trends", 600, None], "/room/api/devices/lfs/trends?seconds=600"),
     ("url: a per-axis family's axis", "trendsUrl", ["/api/devices/m/trends", 120, "m 1"], "/api/devices/m/trends?seconds=120&axis=m%201"),
     # the route's answer and the one line of words
-    ("answer: the history per role, and why a role has none", "answer", [True, {"to": T, "roles": {"actuator": {"samples": [[T - 5, 1]], "why": None}, "target": {"samples": [], "why": "Vole did not answer"}}}, 200],
-     {"ok": True, "to": T, "roles": {"actuator": [[T - 5, 1]], "target": []}, "why": {"target": "Vole did not answer"}}),
+    ("answer: the history per role, its state, and why a role has none", "answer", [True, {"to": T - 9, "now": T, "roles": {"actuator": {"samples": [[T - 5, 1]], "state": "history", "why": None}, "target": {"samples": [], "state": "failed", "why": "Vole did not answer"}, "step": {"samples": [], "state": "starting", "why": "not buffered until now"}}}, 200],
+     {"ok": True, "now": T, "roles": {"actuator": [[T - 5, 1]], "target": [], "step": []}, "state": {"actuator": "history", "target": "failed", "step": "starting"}, "why": {"target": "Vole did not answer", "step": "not buffered until now"}}),
+    ("answer: without the server's stamp, the window's end", "answer", [True, {"to": T, "roles": {}}, 200], {"ok": True, "now": T, "roles": {}, "state": {}, "why": {}}),
+    ("answer: a state is never taken on trust: samples are history, no samples and no word is failed", "answer", [True, {"roles": {"a": {"samples": [], "state": "history"}, "b": {"samples": [[1, 1]], "state": "failed"}}}, 200],
+     {"ok": True, "now": None, "roles": {"a": [], "b": [[1, 1]]}, "state": {"a": "failed", "b": "history"}, "why": {"a": "no samples"}}),
     ("answer: a refusal's words", "answer", [False, {"detail": "lfs serves no trend role"}, 404], {"ok": False, "why": "lfs serves no trend role"}),
     ("answer: a refusal without words", "answer", [False, None, 502], {"ok": False, "why": "answered 502"}),
     ("answer: a 200 that is no history", "answer", [True, [], 200], {"ok": False, "why": "no history in the answer"}),
-    ("note: while the first ask is out", "historyNote", [None, WANTED], "reading the history"),
+    ("note: while an ask is out", "historyNote", [None, WANTED], "reading the history"),
     ("note: every line has its history: no words", "historyNote", [OK, WANTED], ""),
-    ("note: the Control Room silent", "historyNote", [{"ok": False, "why": "the Control Room did not answer"}, WANTED], "no earlier history (the Control Room did not answer): the plots start at page load"),
-    ("note: Vole silent for every line", "historyNote", [{"ok": True, "roles": {"actuator": [], "target": []}, "why": {"actuator": "Vole did not answer", "target": "Vole did not answer"}}, WANTED], "no earlier history (Vole did not answer): the plots start at page load"),
-    ("note: one line without", "historyNote", [OK | {"roles": OK["roles"] | {"target": []}, "why": {"target": "nothing buffered yet"}}, WANTED], "no earlier history for last target (nothing buffered yet): drawn from page load"),
+    ("note: the Control Room silent, nothing drawn before", "historyNote", [{"ok": False, "why": "the Control Room did not answer"}, WANTED], "no earlier history (the Control Room did not answer): drawn from page load"),
+    ("note: the Control Room silent on a later read: the past drawn is said to be the earlier read's, never missing", "historyNote", [{"ok": False, "why": "the Control Room did not answer"}, WANTED, ["actuator", "target"]], "the history could not be read again (the Control Room did not answer): the past drawn is the earlier read's"),
+    ("note: a later read failed with one line drawn from before", "historyNote", [{"ok": False, "why": "answered 503"}, WANTED, ["actuator"]], "the history for actuator could not be read again (answered 503): the past drawn is the earlier read's; no earlier history for last target (answered 503): drawn from page load"),
+    ("note: Vole silent for every line", "historyNote", [_got("failed", "failed"), WANTED], "no earlier history (Vole did not answer): drawn from page load"),
+    ("note: not buffered until now is said apart from a failure", "historyNote", [_got("starting", "starting"), WANTED], "Canopy's buffer has only now begun keeping these values: drawn from page load"),
+    ("note: one line only now buffered", "historyNote", [_got("history", "starting"), WANTED], "Canopy's buffer has only now begun keeping last target: drawn from page load"),
+    ("note: one line failed, one only now buffered", "historyNote", [_got("failed", "starting"), WANTED], "no earlier history for actuator (Vole did not answer): drawn from page load; Canopy's buffer has only now begun keeping last target: drawn from page load"),
+    ("note: one line's read failed while its earlier past is drawn: never 'no earlier history' above it", "historyNote", [_got("failed", "history"), WANTED, ["actuator"]], "the history for actuator could not be read again (Vole did not answer): the past drawn is the earlier read's"),
+    ("note: a line the answer does not name has no history", "historyNote", [NONE | {"state": {}, "why": {}}, WANTED], "no earlier history (no samples): drawn from page load"),
 ]  # fmt: skip
 
 
@@ -146,6 +177,21 @@ const tick = async (ms) => { clock += ms; timers.forEach((f) => f()); await flus
   out.first = note.textContent;
   await flush();
   out.loaded = { note: note.textContent, value: last(0), actuator: last(1), asked: [...asked] };
+  if (a.showLater) { // an axis pane hidden at load: nothing asked or drawn until it is shown
+    hosts.forEach((h) => { h.clientWidth = 400; });
+    await tick(1000);
+    out.later = { asked: [...asked], calls: Plotly.calls.length, note: note.textContent };
+    return console.log(JSON.stringify(out));
+  }
+  if (a.flood) { // more live frames than the buffer holds, all after the history's end
+    const cap = window.GeecsTrendRules.CAP;
+    for (let i = 0; i < cap + 50; i++) { clock += 1; feed("actuator", { connected: true, severity: "NO_ALARM", value: 100 + i, tsNs: (clock + a.skew) * 1e6 }); }
+    await tick(1000); // inside the re-read's 30 s: drawn with the gap, not asked again yet
+    out.holed = { y: last(1).y[0].slice(0, 3), asked: asked.length };
+    await tick(31000);
+    out.reread = { y: last(1).y[0].slice(0, 2), asked: asked.length, url: asked[asked.length - 1], note: note.textContent };
+    return console.log(JSON.stringify(out));
+  }
   // live: a new frame extends its line; the same frame told again adds nothing; the socket dropping is a gap
   await tick(1000);
   const f1 = { connected: true, severity: "NONE", value: 5, tsNs: (clock + a.skew - 500) * 1e6 }; // stamped by the IOC, on the server's time
@@ -160,8 +206,13 @@ const tick = async (ms) => { clock += ms; timers.forEach((f) => f()); await flus
   out.calls = Plotly.calls.length;
   // another window: pressed, asked again, the x range follows
   buttons[0].fire("click");
+  const pending = { note: note.textContent, y: (last(1) || { y: [] }).y[0] }; // before the answer: the note is the pending one, over the past already held
   await flush();
-  out.window = { pressed: buttons.map((b) => b.getAttribute("aria-pressed")), asked: asked[asked.length - 1], range: (last(0) || {}).range, note: note.textContent };
+  out.window = { pending, pressed: buttons.map((b) => b.getAttribute("aria-pressed")), asked: asked[asked.length - 1], range: (last(0) || {}).range, note: note.textContent };
+  // and once more, with the server now silent: the past stays drawn, and the note says whose it is
+  buttons[2].fire("click");
+  await flush();
+  out.failed = { note: note.textContent, y: (last(1) || { y: [] }).y[0], asked: asked[asked.length - 1] };
   out.watched = watched;
   out.listenerThrows = (() => { try { listeners.forEach((f) => f()); return false; } catch (_) { return true; } })();
   console.log(JSON.stringify(out));
@@ -185,15 +236,22 @@ def _page(**over: Any) -> dict:
     import json
 
     server = T + 5000  # the server's clock runs 5 s ahead of this browser's
-    history = {"to": server, "roles": {
-        "value_display": {"samples": [[server - 30000, 1], [server - 20000, None], [server - 10000, 2]], "why": None},
-        "setpoint_display": {"samples": [[server - 900000, 1.5]], "why": None},
-        "actuator": {"samples": [[server - 4000, 4]], "why": None},
-        "target": {"samples": [], "why": "nothing buffered yet"},
-    }}  # fmt: skip
-    again = {"to": server + 5000, "roles": {r: {"samples": [], "why": "nothing buffered yet"} for r in history["roles"]}}  # fmt: skip
+    roles = {
+        "value_display": {"samples": [[server - 30000, 1], [server - 20000, None], [server - 10000, 2]], "state": "history", "why": None},
+        "setpoint_display": {"samples": [[server - 900000, 1.5]], "state": "history", "why": None},
+        "actuator": {"samples": [[server - 4000, 4]], "state": "history", "why": None},
+        "target": {"samples": [], "state": "starting", "why": "not buffered until now"},
+    }  # fmt: skip
+    # `to` was taken before a slow Vole answered: the page's clock is `now`, stamped when the answer was built
+    history = {"to": server - 3000, "now": server, "roles": roles}
+    again = {"to": server + 2000, "now": server + 5000, "roles": roles}
     args = {"trends": _TRENDS, "egu": _EGU, "now": T, "skew": 5000, "width": 400, "answers": [{"status": 200, "body": history}, {"status": 200, "body": again}]}  # fmt: skip
     return run("trend.js", _PAGE, json.dumps(args | over))
+
+
+_STARTING = (
+    "Canopy's buffer has only now begun keeping last target: drawn from page load"
+)
 
 
 @needs_node
@@ -202,11 +260,12 @@ def test_the_page_draws_the_history_then_extends_each_line_from_the_frames_it_is
     assert page["first"] == "reading the history"
     loaded = page["loaded"]
     assert loaded["asked"] == ["/api/devices/lfs/trends?seconds=600"]
-    assert loaded["note"] == "no earlier history for last target (nothing buffered yet): drawn from page load"  # fmt: skip
+    assert loaded["note"] == _STARTING
     value = loaded["value"]
     assert value["names"] == ["value, display unit", "setpoint, display unit"]
-    # x is the server's clock, in the viewer's wall time, the window ending now and fixed; a null sample is a gap;
-    # a value from before the window enters at its edge; with no live frame no line is held to now
+    # x is the server's clock when it answered (`now`, never the earlier `to`), in the viewer's wall time, the window
+    # ending now and fixed; a null sample is a gap; a value from before the window enters at its edge; with no live
+    # frame no line is held to now
     assert (value["kind"], value["fixed"], value["shape"]) == ("date", True, "hv")
     assert value["range"] == [_stamp(s - 600_000), _stamp(s)]
     assert value["x"][0] == [_stamp(s - 30000), _stamp(s - 20000), _stamp(s - 10000)] and value["y"][0] == [1, None, 2]  # fmt: skip
@@ -222,23 +281,59 @@ def test_the_page_draws_the_history_then_extends_each_line_from_the_frames_it_is
     gap = page["gap"]
     assert gap["y"][0] == [4, 5, None, 6, 6]
     assert gap["x"][0][2:4] == [_stamp(s + 2000), _stamp(s + 4000)]
-    # the window choice: pressed, asked again, x follows; that answer had no history, and says so
-    assert page["window"]["pressed"] == ["true", "false", "false"]
-    assert page["window"]["asked"] == "/api/devices/lfs/trends?seconds=120"
-    assert page["window"]["range"] == [_stamp(s + 5000 - 120_000), _stamp(s + 5000)]
-    assert page["window"]["note"] == "no earlier history (nothing buffered yet): the plots start at page load"  # fmt: skip
     assert sorted(set(page["watched"])) == [0, 1] and len(page["watched"]) == 2
+
+
+@needs_node
+def test_a_window_choice_is_pending_until_its_answer_and_a_failed_read_keeps_the_past() -> None:  # fmt: skip
+    page, s = _page(), T + 5000
+    window = page["window"]
+    # on the click, before the answer: the note is the pending one (never the last window's), the past held stays drawn
+    assert window["pending"]["note"] == "reading the history" and window["pending"]["y"][0] == 4  # fmt: skip
+    assert window["pressed"] == ["true", "false", "false"]
+    assert window["asked"] == "/api/devices/lfs/trends?seconds=120"
+    assert window["range"] == [_stamp(s + 5000 - 120_000), _stamp(s + 5000)]
+    assert window["note"] == _STARTING
+    # the next read fails: the lines keep their past, and the note says it is the earlier read's, never that there is none
+    failed = page["failed"]
+    assert failed["asked"] == "/api/devices/lfs/trends?seconds=3600" and failed["y"][0] == 4  # fmt: skip
+    assert failed["note"] == (
+        "the history for value, display unit, setpoint, display unit, actuator could not be read again "
+        "(the Control Room did not answer): the past drawn is the earlier read's; "
+        "no earlier history for last target (the Control Room did not answer): drawn from page load"
+    )
 
 
 @needs_node
 def test_vole_or_the_server_silent_the_plots_start_at_page_load_and_say_so() -> None:
     page = _page(answers=[{"status": 503, "body": {"detail": "The module did not answer: it answered 0"}}])  # fmt: skip
-    assert page["loaded"]["note"] == "no earlier history (The module did not answer: it answered 0): the plots start at page load"  # fmt: skip
+    assert page["loaded"]["note"] == "no earlier history (The module did not answer: it answered 0): drawn from page load"  # fmt: skip
     assert page["loaded"]["actuator"]["y"] == [[None], [None]]
     assert page["live"]["y"][0] == [5, 5]  # the line starts with the first frame
     down = _page(answers=[])
-    assert down["loaded"]["note"] == "no earlier history (the Control Room did not answer): the plots start at page load"  # fmt: skip
+    assert down["loaded"]["note"] == "no earlier history (the Control Room did not answer): drawn from page load"  # fmt: skip
     assert down["live"]["y"][0] == [5, 5]
+
+
+@needs_node
+def test_a_hidden_axis_pane_reads_its_history_when_it_is_first_shown() -> None:
+    page = _page(width=0, showLater=True)
+    assert page["loaded"]["asked"] == [] and page["loaded"].get("value") is None
+    assert page["loaded"]["note"] == "reading the history"
+    later = page["later"]
+    assert later["asked"] == ["/api/devices/lfs/trends?seconds=600"] and later["calls"] > 0  # fmt: skip
+    assert later["note"] == _STARTING
+
+
+@needs_node
+def test_live_points_lost_to_the_cap_are_a_gap_until_the_history_is_read_again() -> None:  # fmt: skip
+    page = _page(flood=True)
+    # the buffer dropped live points newer than the history's end: the history's last value (4) is closed by a gap,
+    # never held up to the oldest live point kept; the history is not asked again inside 30 s of the last read
+    assert page["holed"]["y"][:2] == [4, None] and page["holed"]["asked"] == 1
+    # then it is: the same window, and the line is the new answer's
+    assert page["reread"]["asked"] == 2 and page["reread"]["url"] == "/api/devices/lfs/trends?seconds=600"  # fmt: skip
+    assert page["reread"]["note"] == _STARTING
 
 
 @needs_node
@@ -248,6 +343,3 @@ def test_a_trend_fault_never_reaches_the_rest_of_the_page() -> None:
     missing = _page(noPlot=True)
     assert missing["listenerThrows"] is False and missing["calls"] == 0
     assert missing["loaded"]["note"] == "the plot library did not load"
-    assert (
-        _page(width=0)["calls"] == 0
-    )  # a hidden axis pane has no width: not drawn until shown

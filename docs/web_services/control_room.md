@@ -401,8 +401,11 @@ registry or the database, never a new page.
   (2 min, 10 min or 1 h); it is your own view and changes nothing on the
   device. The earlier part of each line comes from Canopy's live buffer,
   which starts keeping a value the first time anyone opens its page, so
-  the first visit may say "no earlier history" and start at page load;
-  from then on the line grows as values arrive. A break in a line means
+  the first visit says the buffer "has only now begun keeping" it and
+  starts at page load; from then on the line grows as values arrive. If
+  the buffer cannot be read, the line under **Window** says why; if a
+  later read fails, the earlier past stays drawn and the line says so. A
+  busy value's past is thinned to a few thousand of its real readings. A break in a line means
   the value was not known then (the device was not answering, or the
   connection dropped); it is never drawn as zero. Drag up and down in a
   plot to zoom its values, double-click to reset, and click a name in the

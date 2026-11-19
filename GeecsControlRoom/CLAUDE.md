@@ -510,8 +510,9 @@ a trend with none left is not drawn. Only `device.html` draws them: the
 camera and trace pages fill the pane themselves, and a screen's `group`
 widget draws no trend.
 
-- **The past is Vole's, the present is Hare's.** On load, and on each
-  window choice, the page asks this server once:
+- **The past is Vole's, the present is Hare's.** When the plots are first
+  shown (an axis pane hidden at load reads when it is picked, never
+  before), and on each window choice, the page asks this server once:
   `GET /api/devices/{name}/trends?seconds=[&axis=]` (`trends.py`), which
   resolves the device by the module's device route, takes the trend roles'
   PVs from it (never derived, never from the request: the route cannot be
@@ -519,44 +520,77 @@ widget draws no trend.
   subscribes it in Vole (`POST /vole/v1/pvs/subscribe/{pv}`) and reads its
   window (`GET /vole/v1/pvs/{pv}?from=&to=&maxPoints=`, `MAX_POINTS` 4000)
   with this process's **read** key (`VoleClient`, beside `ModuleClient`;
-  `VOLE_TIMEOUT_S` 3 s per call, the roles concurrently). It is this
-  server's call, not the browser's, because Vole's times are integer
-  nanoseconds (the route answers in milliseconds), the answer's `to` is the
-  one clock the page draws by (a viewer's own clock never shifts the plot),
-  and a cross-origin `fetch` would need Canopy to allow it where Hare's
-  socket does not. Each line is then extended from the frames the page is
-  already sent (`GeecsDevicePage.frame`, Hare's one socket: no second
-  stream), stamped by the record's own `tsNs`.
+  `VOLE_TIMEOUT_S` 3 s for each of the two phases, the roles
+  concurrently; any 2xx is an answer, and the history is read whatever the
+  subscribe said, its failure reported only where there is no history). It
+  is this server's call, not the browser's, because Vole's times are
+  integer nanoseconds (the route answers in milliseconds), the answer's
+  `now` (stamped when the answer is built, after Vole's calls) is the one
+  clock the page draws by (neither a viewer's own clock nor a slow Vole
+  shifts the plot), and a cross-origin `fetch` would need Canopy to allow
+  it where Hare's socket does not. Each line is then extended from the
+  frames the page is already sent (`GeecsDevicePage.frame`, Hare's one
+  socket: no second stream), stamped by the record's own `tsNs`.
+- **Vole as observed** (2026-11-18, against Canopy at the fleet's pin; the
+  code relies on each, and `trends.py`'s docstring keeps the list): a
+  repeated subscribe answers 200; the value held on entering the window
+  comes back as a first sample stamped exactly at `from`, so a buffered PV
+  never answers empty and an empty answer means "not buffered until now";
+  `maxPoints` thins to that many real samples spread over the window
+  (never averages), so a busy PV's past is a thinned one; `severity` is a
+  word (`NO_ALARM`, `INVALID`).
 - **Vole silent is words, never an error.** The route answers 200 with a
-  `why` per role (Vole unreachable or refusing, nothing buffered yet: the
-  first view of a PV only starts its buffer); the page then starts those
-  lines at page load and says so in one line under the window choice. A
-  fault in `trend.js` never reaches the rail or the readings (every entry
-  point catches; Plotly is loaded only when the panel has trends). 404:
-  the device serves no trend role; the module's own refusals and silence
-  keep `device_pages.unread`'s statuses.
-- **What a line is.** The values the page was sent, each held until the
-  next (Plotly's `hv`: a monitored record posts on change, so a straight
-  line between two posts would draw a ramp nobody measured) and, while the
-  newest live point is a value, carried to now. A gap, never a zero and
-  never bridged: a `null` or non-finite value, an INVALID or disconnected
-  record, the socket down (a frame arriving after it with the record's old
-  stamp is drawn when it arrived, so the gap keeps its width). The page
-  never computes: no average, no rate, no fit, no error band, no alarm
-  line; a derived quantity worth a trend is a record the IOC serves and a
-  role the family names.
+  `state` per role: `history`, `starting` (subscribed and read, nothing
+  yet: Vole has only now begun to buffer it) or `failed` (with `why`). The
+  one line under the window choice (`historyNote`) says which: "Canopy's
+  buffer has only now begun keeping …" apart from "no earlier history
+  (why)", "reading the history" from a window click until its answer, and
+  after a failed later read "could not be read again … the past drawn is
+  the earlier read's" (a past once drawn is kept, `kept`, and is never
+  said to be missing). A fault in `trend.js` never reaches the rail or the
+  readings (a frame, a redraw, a click and the read each catch; Plotly is
+  loaded only when the panel has trends). 404: the device serves no trend
+  role; the module's own refusals and silence keep `device_pages.unread`'s
+  statuses.
+- **What a line is.** The values the page was sent (its past as Vole kept
+  it, thinned there when busy), each held until the next (Plotly's `hv`: a
+  monitored record posts on change, so a straight line between two posts
+  would draw a ramp nobody measured) and, while the newest live point is a
+  value, carried to now. A gap, never a zero and never bridged: a `null`
+  or non-finite value, an INVALID record, a frame that does not say it is
+  connected (`!frame.connected`, the page's reading of a frame), the
+  socket down (a frame arriving after it with the record's old stamp is
+  drawn when it arrived, so the gap keeps its width). The page never
+  computes: no average, no rate, no fit, no error band, no alarm line; a
+  derived quantity worth a trend is a record the IOC serves and a role the
+  family names.
 - **The window** (2 min, 10 min, 1 h: `device_pages.WINDOWS_S`, 10 min on
   load) is the viewer's own, written nowhere; the x axis is that window
   ending now, fixed, redrawn each second; y is the viewer's to zoom.
-- **Bounded.** At most `CAP` (20000) live points per role, the oldest
-  dropped; once a live buffer has dropped points the history is no longer
-  drawn before it (what lay between is unknown, and holding the history's
-  last value across it would be a line nobody measured). Each line is
-  thinned to four points per pixel column (first, lowest, highest, last).
+- **Bounded, and never silently short.** The live buffer alone is bounded
+  (`trim`): a point older than the longest window goes (it is never drawn
+  again; the newest such stays, the value held on entering), then past
+  `CAP` (20000 per role) the oldest go. The history is never cut to make
+  room. Where the cap took live points newer than the history's end
+  (`hole`), a gap closes the history (its last value is never held across
+  a stretch the page no longer holds) and the page reads the history again,
+  at most every 30 s; a failed re-read says so in the note. Each line is
+  thinned to four points per pixel column (first, lowest, highest, last):
+  a second per-column pass beside `trace_rules.decimate`, kept apart
+  because a held line needs each column's first and last, which min/max
+  alone drops.
+- **Deploy order.** A monitored role the engine does not serve reads
+  unreachable, which makes the device's word `unknown` and hands the
+  archiver a PV that never connects. So a family role new to a contract
+  (the loop's `actuator`, `Actuator_RBV`) deploys after the engine release
+  that serves it, or the instance's panel row carries `omit: [actuator]`
+  until then.
 - **Rules with rows**: `trend_rules.js` in `test_trend_rules_js.py` (which
   also runs `trend.js` itself over a fake page: the history, the live
-  extension, a dropped socket, the window, Vole silent, a throwing Plotly);
-  the route and the template in `test_trends.py` over a stubbed Vole.
+  extension, a dropped socket, a window choice pending and a failed
+  re-read, a hidden pane, the cap's gap and re-read, Vole silent, a
+  throwing Plotly); the route and the template in `test_trends.py` over a
+  stubbed Vole.
 
 The camera page draws its family's panel with the same macros
 (acquisition with acquire's Stop / Start, the crosshairs, the analysis

@@ -775,6 +775,16 @@ def test_a_panel_names_trends_of_monitored_numbers() -> None:
     assert len(FamilyFile.model_validate(doc).panel.trends) == 2
 
 
+def test_a_panel_has_four_trends_at_most_each_of_its_own_title() -> None:
+    doc = _trend("level")
+    doc["panel"]["trends"] = [{"title": f"T{i}", "roles": ["level"]} for i in range(4)]
+    assert len(FamilyFile.model_validate(doc).panel.trends) == 4
+    doc["panel"]["trends"].append({"title": "T4", "roles": ["level"]})
+    _refused(doc, "at most 4 items")
+    doc["panel"]["trends"] = [{"title": "Level", "roles": ["level"]}, {"title": "Level", "roles": ["mean"]}]  # fmt: skip
+    _refused(doc, r"panel trend titles must be unique; repeated: \['Level'\]")
+
+
 def test_a_trend_has_a_title_and_one_to_four_roles() -> None:
     _refused(_trend("level", title=""), "title")
     _refused(_trend(), "roles")

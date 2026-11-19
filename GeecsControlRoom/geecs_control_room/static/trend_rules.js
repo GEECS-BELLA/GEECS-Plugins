@@ -3,12 +3,14 @@
 // (plot.js); tests/test_trend_rules_js.py runs each rule under node. A point is [t, value], the value null
 // for a gap: a role Hare gives no frame for, a disconnected or INVALID record, a value that is no finite
 // number. Nothing here judges the device, averages or fills a value: a line is the values the page was
-// sent, each held until the next (a monitored record posts on change), thinned to the plot's width.
+// sent (its past as Vole kept it, thinned there to real samples when busy), each held until the next (a
+// monitored record posts on change), thinned to the plot's width.
 // window.GeecsTrendRules in the page, module.exports under node.
 (function (rules, C) {
   "use strict";
-  // The most points kept per role (the oldest dropped): at Hare's fastest, a diff every 100 ms, a little
-  // over half an hour; at a loop's 1 Hz, more than the longest window.
+  // The most live points kept per role: at Hare's fastest, a diff every 100 ms, a little over half an
+  // hour; at a loop's 1 Hz, more than the longest window. Past it the oldest go and the page reads the
+  // history again (trim, hole).
   const CAP = 20000;
 
   const finite = (v) => typeof v === "number" && Number.isFinite(v);
@@ -16,7 +18,8 @@
   // One of Hare's frames as a point at `nowMs`: its value at the record's own stamp (tsNs; never after now,
   // and now when the frame carries none), or a gap at now.
   function point(frame, nowMs) {
-    if (!frame || frame.connected === false || frame.severity === "INVALID" || !finite(frame.value)) return [nowMs, null];
+    // `!frame.connected`, as screen_rules.js's judge reads a frame: a frame that does not say it is connected is not
+    if (!frame || !frame.connected || frame.severity === "INVALID" || !finite(frame.value)) return [nowMs, null];
     const t = Number(frame.tsNs) / 1e6;
     return [Number.isFinite(t) && t > 0 ? Math.min(t, nowMs) : nowMs, frame.value];
   }
@@ -24,15 +27,33 @@
   // The live buffer with `p` added, in place (returned): never a leading gap (before the first value nothing
   // is known, and the history says the rest), never a second gap after a gap or the same sample twice; a
   // stamp older than the last point (the first frame after a reconnect carries the record's old stamp) is
-  // drawn when it arrived, so the gap before it keeps its width. Capped: the oldest dropped.
-  function append(buffer, p, nowMs, cap = CAP) {
+  // drawn when it arrived, so the gap before it keeps its width. trim() bounds it.
+  function append(buffer, p, nowMs) {
     const last = buffer[buffer.length - 1];
     if (p[1] === null && (!last || last[1] === null)) return buffer;
     if (last && p[1] === last[1] && p[0] <= last[0]) return buffer;
     buffer.push([last && p[0] <= last[0] ? Math.max(nowMs, last[0]) : p[0], p[1]]);
-    if (buffer.length > cap) buffer.splice(0, buffer.length - cap);
     return buffer;
   }
+
+  // The live buffer bounded, in place. By time first: a point older than the longest window (`keepMs`) is
+  // never drawn, so it goes, but for the newest such (the value held on entering the window). Then by count:
+  // past `cap` the oldest go, and the stamp of the newest point so lost is returned (null when none was):
+  // unlike the first kind, those may lie inside a window, so the page must know (hole).
+  function trim(buffer, nowMs, keepMs, cap = CAP) {
+    let old = 0;
+    while (old + 1 < buffer.length && buffer[old + 1][0] < nowMs - keepMs) old++;
+    if (old) buffer.splice(0, old);
+    if (buffer.length <= cap) return null;
+    const lost = buffer[buffer.length - cap - 1][0];
+    buffer.splice(0, buffer.length - cap);
+    return lost;
+  }
+
+  // Whether live points newer than the history's last sample were dropped for the cap (`lost`: the newest
+  // stamp trim() ever returned for the line): between the history and the live points lies a stretch the
+  // page no longer holds, so it reads the history again.
+  const hole = (history, lost) => history.length > 0 && lost !== null && lost > history[history.length - 1][0];
 
   // Vole's samples as the route gives them ([[ms, value | null], …]): the well-formed ones, oldest first.
   function past(samples) {
@@ -41,13 +62,13 @@
   }
 
   // One line's points: the history, then the live points after its last sample (the history's newest
-  // sample and the first live frame are one sample). A live buffer at its cap has dropped its oldest
-  // points, so what lies between the history and it is no longer known: the line is then the live points
-  // alone, never the history's last value held across the hole.
-  function merge(history, live, cap = CAP) {
-    if (live.length >= cap) return live.slice(-cap);
+  // sample and the first live frame are one sample). The history is never cut to make room (the live
+  // buffer is the one bounded): where the live buffer dropped points after the history's end (hole), a gap
+  // closes the history, so its last value is never held across a stretch the page no longer holds.
+  function merge(history, live, lost = null) {
     const lastT = history.length ? history[history.length - 1][0] : -Infinity;
-    return [...history, ...live.filter((p) => p[0] > lastT)].slice(-cap);
+    const after = live.filter((p) => p[0] > lastT);
+    return hole(history, lost) ? [...history, [lastT, null], ...after] : [...history, ...after];
   }
 
   // Whether the line runs on to now: the newest live point is a value (Hare still holds the record at it).
@@ -113,29 +134,44 @@
   }
   const trendsUrl = (base, seconds, axis) => `${base}?seconds=${seconds}${axis ? `&axis=${encodeURIComponent(axis)}` : ""}`;
 
-  // The route's answer as the page keeps it: { ok, to, roles: {role: points} } and why each role has no
-  // history, or { ok: false, why } for a refusal, a silent server or an answer that is no history.
+  // The route's answer as the page keeps it: { ok, now, roles: {role: points}, state: {role: "history" |
+  // "starting" | "failed"}, why: {role: words} } (`now` the server's clock when it answered), or
+  // { ok: false, why } for a refusal, a silent server or an answer that is no history.
   function answer(ok, body, status) {
     const b = body && typeof body === "object" ? body : {};
     if (!ok || !b.roles || typeof b.roles !== "object") return { ok: false, why: b.detail || (ok ? "no history in the answer" : `answered ${status}`) };
-    const roles = {}, why = {};
-    for (const [role, r] of Object.entries(b.roles)) { roles[role] = past(r && r.samples); if (!roles[role].length) why[role] = (r && r.why) || "nothing buffered yet"; }
-    return { ok: true, to: finite(b.to) ? b.to : null, roles, why };
+    const roles = {}, state = {}, why = {};
+    for (const [role, r] of Object.entries(b.roles)) {
+      roles[role] = past(r && r.samples);
+      state[role] = roles[role].length ? "history" : r && r.state === "starting" ? "starting" : "failed";
+      if (state[role] !== "history") why[role] = (r && r.why) || "no samples";
+    }
+    return { ok: true, now: finite(b.now) ? b.now : finite(b.to) ? b.to : null, roles, state, why };
   }
 
-  // The one line under the window choice: "" while every line has its history; else that the plots start
-  // at page load, and why (`got`: answer()'s, null while the first ask is out; `wanted`: [{role, label}]).
-  function historyNote(got, wanted) {
+  // What the page keeps of a line's past after an answer: the answer's samples; where the read of that line
+  // failed, the earlier read's (a past once shown is not blanked by a later failure; historyNote says so).
+  const kept = (got, role, earlier) => (got.state[role] === "failed" && earlier.length ? earlier : got.roles[role] || []);
+
+  // The one line under the window choice: "" while every line has the past just read. `got`: answer()'s, null
+  // while an ask the viewer made is out; `wanted`: [{role, label}]; `held`: the roles drawn with an earlier
+  // read's past. A line whose PV Vole only now began to buffer is said apart from a read that failed, and a
+  // line that shows a past is never said to have none.
+  function historyNote(got, wanted, held = []) {
     if (!got) return "reading the history";
-    if (!got.ok) return `no earlier history (${got.why}): the plots start at page load`;
-    const without = wanted.filter((r) => !(got.roles[r.role] || []).length);
-    if (!without.length) return "";
-    const why = got.why[without[0].role] || "nothing buffered yet";
-    if (without.length === wanted.length) return `no earlier history (${why}): the plots start at page load`;
-    return `no earlier history for ${without.map((r) => r.label).join(", ")} (${why}): drawn from page load`;
+    const names = (rs) => (rs.length === wanted.length ? "" : ` for ${rs.map((r) => r.label).join(", ")}`);
+    const of = (rs) => (got.ok ? got.why[rs[0].role] || "no samples" : got.why);
+    const failed = wanted.filter((r) => !got.ok || got.state[r.role] === "failed" || !(r.role in got.state));
+    const stale = failed.filter((r) => held.includes(r.role)), none = failed.filter((r) => !held.includes(r.role));
+    const starting = got.ok ? wanted.filter((r) => got.state[r.role] === "starting") : [];
+    const parts = [];
+    if (stale.length) parts.push(`the history${names(stale)} could not be read again (${of(stale)}): the past drawn is the earlier read's`);
+    if (none.length) parts.push(`no earlier history${names(none)} (${of(none)}): drawn from page load`);
+    if (starting.length) parts.push(`Canopy's buffer has only now begun keeping ${starting.length === wanted.length ? "these values" : starting.map((r) => r.label).join(", ")}: drawn from page load`);
+    return parts.join("; ");
   }
 
-  Object.assign(rules, { CAP, point, append, past, merge, holding, series, stampText, traces, sharedUnit, windowOf, trendsUrl, answer, historyNote, within: C.within });
+  Object.assign(rules, { CAP, point, append, trim, hole, past, merge, kept, holding, series, stampText, traces, sharedUnit, windowOf, trendsUrl, answer, historyNote, within: C.within });
 })(
   typeof module === "object" ? module.exports : (window.GeecsTrendRules = {}),
   typeof module === "object" ? require("./camera_rules.js") : window.GeecsCameraRules,

@@ -9,21 +9,42 @@ samples over the window are read (``GET /vole/v1/pvs/{pv}?from=&to=&maxPoints=``
 with this process's read key. The page draws them and extends each line
 from Hare's stream; nothing here judges, averages or fills a value.
 
-- **200**: ``{"device", "from", "to", "roles": {<role>: {"pv", "samples",
-  "why"}}}``. Times are milliseconds since the epoch (Vole's are integer
-  nanoseconds, more than a browser's number holds exactly); ``to`` is this
-  server's clock, which the page takes as "now" so a viewer's own clock
-  never shifts the plot. ``samples`` is ``[[t, value], ...]``, oldest first,
-  a value ``null`` where the record was undefined, INVALID or no finite number: a gap
-  in the line, never a zero. ``why`` is ``null``, or the words for a role
-  with no history (Vole silent or refusing, nothing buffered yet): the page
-  then starts that line at page load and says so.
+- **200**: ``{"device", "from", "to", "now", "roles": {<role>: {"pv",
+  "samples", "state", "why"}}}``. Times are milliseconds since the epoch
+  (Vole's are integer nanoseconds, more than a browser's number holds
+  exactly). ``from`` and ``to`` are the window asked of Vole; ``now`` is
+  this server's clock when the answer was built, after Vole's calls, which
+  the page takes as "now" so neither a viewer's own clock nor a slow Vole
+  shifts the plot. ``samples`` is ``[[t, value], ...]``, oldest first, a
+  value ``null`` where the record was undefined, INVALID or no finite
+  number: a gap in the line, never a zero. ``state`` is ``history`` (there
+  are samples), ``starting`` (subscribed and read, none yet: Vole has only
+  now begun to buffer the PV) or ``failed`` (Vole silent or refusing, with
+  nothing to show); ``why`` is ``null`` or the words for the last two. The
+  page starts a line without history at page load and says which it is.
 - **404**: the device's family names no trend this device serves. The
   module's own refusals and silence keep the device pages' statuses
   (``device_pages.unread``).
 
-Vole silent is never an error of this route: the rest of the page does not
-wait on it (``VOLE_TIMEOUT_S`` per call, every role concurrently).
+Vole silent is never an error of this route, and the rest of the page does
+not wait on it: a role's subscribe and its history read are each given
+``VOLE_TIMEOUT_S`` (two phases, so twice that at most), every role
+concurrently. The history is read whatever the subscribe said (a PV another
+viewer subscribed has a past even if this subscribe failed); the
+subscribe's failure is reported only when there is no history to show.
+
+Vole as observed on 2026-11-18, against Canopy at the fleet's pin (the
+route relies on each; none is a documented contract here):
+
+- A repeated ``POST subscribe`` answers 200.
+- The value a PV held on entering the window comes back as a first sample
+  stamped exactly at ``from`` (a PV unchanged for minutes, read over a 20 s
+  window: one sample, at ``from``). So a buffered PV never answers empty,
+  and an empty answer means "not buffered until now".
+- ``maxPoints=N`` thins: N real samples spread across the whole window
+  (the first at ``from``, the last near ``to``), neither the oldest N nor
+  averages. A busy PV's past is therefore a thinned one, of real values.
+- ``severity`` is a word: ``NO_ALARM``, ``INVALID``.
 """
 
 from __future__ import annotations
@@ -46,9 +67,9 @@ from geecs_control_room.device_pages import (
 )
 from geecs_control_room.module_client import ModuleUnavailable
 
-#: One call to Vole: a subscribe or a history read. The page's plots wait at most two of these.
+#: One phase of a role's read: its subscribe, then its history read, each at most this long.
 VOLE_TIMEOUT_S = 3.0
-#: The most samples asked of Vole per PV and window.
+#: The most samples asked of Vole per PV and window (Vole thins a busier past to this many real samples).
 MAX_POINTS = 4000
 
 
@@ -79,7 +100,7 @@ class VoleClient:
             r = await self._http.post(f"/pvs/subscribe/{quote(pv, safe='')}")
         except httpx.HTTPError as exc:
             raise VoleUnavailable(f"Vole did not answer: {exc!r}") from exc
-        if r.status_code != 200:
+        if not r.is_success:
             raise VoleUnavailable(f"Vole answered {r.status_code} to the subscribe")
 
     async def history(self, pv: str, from_ns: int, to_ns: int, max_points: int = MAX_POINTS) -> list[dict[str, Any]]:  # fmt: skip
@@ -87,10 +108,10 @@ class VoleClient:
         params = {"from": from_ns, "to": to_ns, "maxPoints": max_points}
         try:
             r = await self._http.get(f"/pvs/{quote(pv, safe='')}", params=params)
-            body = r.json() if r.status_code == 200 else None
+            body = r.json() if r.is_success else None
         except (httpx.HTTPError, ValueError) as exc:
             raise VoleUnavailable(f"Vole did not answer: {exc!r}") from exc
-        if r.status_code != 200:
+        if not r.is_success:
             raise VoleUnavailable(f"Vole answered {r.status_code}")
         samples = body.get("samples") if isinstance(body, dict) else None
         if not isinstance(samples, list):
@@ -102,28 +123,44 @@ class VoleClient:
         await self._http.aclose()
 
 
-def _number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+def _finite(value: Any) -> Optional[float]:
+    """``value`` as a finite float; ``None`` for anything else (a word, a boolean, NaN, a whole number too large for a float)."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def points(samples: list[Any]) -> list[list[Optional[float]]]:
     """Vole's samples as the page draws them: ``[ms, value]`` oldest first, the value ``None`` unless a finite number of a record that is not INVALID (the live line's rule); a sample without a time is dropped."""
     out: list[list[Optional[float]]] = []
     for s in samples:
-        if not isinstance(s, dict) or not _number(s.get("tsNs")):
+        t = _finite(s.get("tsNs")) if isinstance(s, dict) else None
+        if t is None:
             continue
-        v = s.get("value") if s.get("severity") != "INVALID" else None
-        out.append([s["tsNs"] / 1e6, float(v) if _number(v) and math.isfinite(v) else None])  # fmt: skip
+        out.append([t / 1e6, None if s.get("severity") == "INVALID" else _finite(s.get("value"))])  # fmt: skip
     return sorted(out, key=lambda p: p[0])
 
 
 async def _role_history(vole: VoleClient, pv: str, from_ns: int, to_ns: int) -> dict[str, Any]:  # fmt: skip
+    """One role's past: subscribed, then read whatever the subscribe said; a failure is words only when there is nothing to show."""
+    refused: Optional[str] = None
     try:
         await vole.subscribe(pv)
+    except VoleUnavailable as exc:
+        refused = str(exc)
+    try:
         found = points(await vole.history(pv, from_ns, to_ns))
     except VoleUnavailable as exc:
-        return {"pv": pv, "samples": [], "why": str(exc)}
-    return {"pv": pv, "samples": found, "why": None if found else "nothing buffered yet"}  # fmt: skip
+        return {"pv": pv, "samples": [], "state": "failed", "why": refused or str(exc)}  # fmt: skip
+    if found:
+        return {"pv": pv, "samples": found, "state": "history", "why": None}
+    if refused:
+        return {"pv": pv, "samples": [], "state": "failed", "why": refused}
+    return {"pv": pv, "samples": [], "state": "starting", "why": "not buffered until now"}  # fmt: skip
 
 
 def trend_pvs(body: dict[str, Any], axis: Optional[str]) -> dict[str, str]:
@@ -163,6 +200,7 @@ def router(vole: VoleClient) -> APIRouter:
                 "device": name,
                 "from": from_ns / 1e6,
                 "to": to_ns / 1e6,
+                "now": time.time_ns() / 1e6,
                 "roles": dict(zip(pvs, found)),
             },  # fmt: skip
             headers={"Cache-Control": "no-store"},
