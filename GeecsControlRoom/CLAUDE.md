@@ -475,7 +475,13 @@ close the engine refuses is an accepted write whose mode reads back Off).
 A loop is a panel device only (`{family: loop_contract, prefix: ...}`, no
 `ioc:`): it is no registry device and no scan axis, since its setpoint
 serves no set tolerance. Its `mode` settles by the mode taken, so a preset
-restore writes it after the setpoint and the limits. A live image or a
+restore writes it after the setpoint and the limits. The two limits are
+separate restore rows, written one at a time in either order: the
+engine takes a limit even where it crosses the other (restoring a range
+disjoint from the live one crosses on the way in one direction or the
+other, whatever the fixed order) and refuses to close while they are
+crossed, so the family needs no ordering of them.
+A live image or a
 trend beside it is not this page's.
 A device is classified by its roster `source` first: a gateway device's
 family is its DB device type, never looked up as a family file, even when

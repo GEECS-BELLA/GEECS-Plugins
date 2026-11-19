@@ -175,6 +175,10 @@ def test_a_feedback_loop_is_served_from_a_panel_row_and_its_mode_restores_last(
     rows = derive([loop])
     assert rows["bench:lfs:Setpoint"].readback == "bench:lfs:Setpoint_RBV"
     assert rows["bench:lfs:Mode"].readback == "bench:lfs:Mode_RBV"
+    # each limit is its own row, judged against the limit the engine applied:
+    # the engine takes them in either order, so neither settles before the other
+    assert rows["bench:lfs:LimitLow"].readback == "bench:lfs:LimitLow_RBV"
+    assert rows["bench:lfs:LimitHigh"].readback == "bench:lfs:LimitHigh_RBV"
     assert not any(
         e.role in ("use_current", "accept") for e in rows.values()
     )  # a press is no setting
