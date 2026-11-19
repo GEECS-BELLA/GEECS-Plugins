@@ -36,6 +36,7 @@ from typing import Any
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
+from bluesky.utils import Msg
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_core.epics_env import pva_addr_tokens
@@ -165,7 +166,6 @@ def scan_mode_bracket(
     entry: EnterScanMode,
     *,
     stamped: Sequence[Any] = (),
-    md: dict[str, Any] | None = None,
 ):
     """Enter scan mode before *plan*; end it in a finalizer (every exit path but a halt).
 
@@ -173,21 +173,29 @@ def scan_mode_bracket(
     the acknowledgements, the connections or the drain still ends scan
     mode (the exit cancels the entry's outstanding task first).  Before
     the entry the run's per-shot devices (*stamped*) take their scan-mode
-    shot stamp (:func:`choose_shot_stamps`, the names written into *md*'s
-    ``shot_stamp_systimestamp`` before *plan* opens its run); the
-    finalizer puts them back before the exit.
+    shot stamp (:func:`choose_shot_stamps`); the names are set on *plan*'s
+    ``open_run`` as ``shot_stamp_systimestamp`` (a plan that copied its
+    metadata when it was built still records them).  The finalizer ends
+    scan mode, then puts the stamps back, whether or not the exit failed.
     """
 
     def body():
         chosen = yield from choose_shot_stamps(stamped)
-        if md is not None:
-            md["shot_stamp_systimestamp"] = chosen
+
+        def name_them(msg: Msg) -> Msg:
+            if msg.command != "open_run":
+                return msg
+            return msg._replace(
+                kwargs={**msg.kwargs, "shot_stamp_systimestamp": chosen}
+            )
+
         yield from bps.mv(control, entry)
-        return (yield from plan)
+        return (yield from bpp.msg_mutator(plan, name_them))
 
     def leave():
-        yield from reset_shot_stamps(stamped)
-        yield from bps.mv(control, EXIT)
+        yield from bpp.finalize_wrapper(
+            bps.mv(control, EXIT), reset_shot_stamps(stamped)
+        )
 
     return (yield from bpp.finalize_wrapper(body(), leave()))
 
