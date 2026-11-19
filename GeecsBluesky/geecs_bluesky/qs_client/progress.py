@@ -335,7 +335,7 @@ class _RowTiming:
         self.worker: float | None = None
         self.last_wait: float | None = None
         self.waiting: tuple[str, float] | None = None
-        self.held: dict[str, list[float]] = {}  # device → [rows, sum, max]
+        self.held: dict[str, list[Any]] = {}  # device → [rows, sum, max]
 
     def take(self, data: dict, *, page: bool) -> None:
         """One event's ``data`` (or an event page's, columns of lists)."""
@@ -354,11 +354,8 @@ class _RowTiming:
                 self.period = fired - self.last
                 # The period's part not spent waiting for the previous row's
                 # devices: the worker's own reads, row and collects.
-                self.worker = (
-                    None
-                    if self.last_wait is None
-                    else max(0.0, self.period - self.last_wait)
-                )
+                # Nothing required: the whole period is the worker's.
+                self.worker = max(0.0, self.period - (self.last_wait or 0.0))
             self.first = fired if self.first is None else min(self.first, fired)
             self.last = fired if self.last is None else max(self.last, fired)
             self.fires += 1

@@ -298,7 +298,7 @@ def test_two_cameras_share_one_fire(
     assert stamps[0] == stamps[1] == [1001.0, 1002.0, 1003.0]
 
 
-def test_each_row_names_its_period_and_the_device_that_held_it(
+def test_each_row_names_the_device_that_held_it(
     RE: RunEngine, box: FakeBox, shot_control: ShotControl
 ) -> None:
     """The slowest required device and its delay after the fire; the period since the last fire."""
