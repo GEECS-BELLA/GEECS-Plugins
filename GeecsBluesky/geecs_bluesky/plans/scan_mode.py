@@ -31,7 +31,7 @@ import logging
 import os
 import re
 import socket
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 import bluesky.plan_stubs as bps
@@ -104,15 +104,20 @@ def paused_device_names(detectors: Sequence[Any]) -> tuple[str, ...]:
 
 
 def entered_device_names(
-    control: ScanModeControl, run_devices: Sequence[str], shot_control: Any
+    control: ScanModeControl,
+    run_devices: Sequence[str],
+    shot_control: Any,
+    *,
+    needed: Collection[str] = (),
 ) -> tuple[str, ...]:
     """*run_devices* without those whose DB ``scanmode_lock`` is disabled (never the box).
 
-    A device with the lock disabled keeps its normal acquisition and never
-    acknowledges ``ScanStart``: the entry does not wait for it, and it
-    records as it acquires (its stream, joined by stamp).  Read after
-    :func:`scan_mode_preflight`, which re-reads the locks.  The box is
-    always waited for: the run needs it.
+    A device with the lock disabled keeps its normal acquisition: the entry
+    does not wait for its acknowledgement, and it records as it acquires
+    (its stream, joined by stamp).  Read after :func:`scan_mode_preflight`,
+    which re-reads the locks.  The box is always waited for.  A *needed*
+    one (required) is WARNED: it free-runs, out of step with the announced
+    shots (under a box-less profile nothing triggers it per shot).
     """
     box = {str(d) for d in getattr(shot_control, "liveness_signals", None) or {}}
     off = control.scan_mode_disabled
@@ -122,6 +127,14 @@ def entered_device_names(
             "scan mode: %s — scanmode_lock disabled in the DB, never in scan "
             "mode: not waited for at ScanStart, recorded as they acquire",
             ", ".join(skipped),
+        )
+    required = [d for d in skipped if d in set(needed)]
+    if required:
+        logger.warning(
+            "scan mode: %s required but scanmode_lock disabled — it free-runs "
+            "and saves no shot-numbered files; its shots are its own, not the "
+            "announced ones",
+            ", ".join(required),
         )
     return tuple(d for d in run_devices if d not in skipped)
 
@@ -425,6 +438,7 @@ def scan_mode_preflight(
             f"{control.experiment!r}"
         )
     control.refresh_boundary_writes()  # the rows the device will apply now
+    control.refresh_scan_mode_locks()  # which devices the entry waits for
     conflicts = boundary_conflicts(shot_control, control.boundary_writes)
     if conflicts:
         raise GeecsConfigurationError(

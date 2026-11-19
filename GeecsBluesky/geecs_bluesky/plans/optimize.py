@@ -471,9 +471,9 @@ def optimize_plan(  # noqa: C901, PLR0915
         if sc.use_scan_mode:
             scan_mode_preflight(sc, scan_mode, run_devices=run_devices)
             run_devices = entered_device_names(scan_mode, run_devices, sc)
-        else:
-            # Every stamp from acq_timestamp: a halted scan-mode run's choice undone.
-            yield from reset_shot_stamps([d for d in detectors if is_per_shot(d)])
+        # Every stamp from acq_timestamp: a halted scan-mode run's choice undone
+        # (the bracket then chooses for the devices in scan mode).
+        yield from reset_shot_stamps([d for d in detectors if is_per_shot(d)])
         native_files = resolve_native_image_save(native_image_save, resolver)
         snapshot = (
             background_snapshot(namespace, mock=mock)
