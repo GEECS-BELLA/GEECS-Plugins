@@ -770,9 +770,12 @@ the preflight neither checks nor warns.  (The readbacks that froze at the
 last shot on the stand were the run's detectors, which do pause.)  **A
 run detector's own variable moved by a `CaMotor`** (a camera scanning its
 exposure with a DB tolerance) can never confirm on its frozen readback, so
-while a device is paused — the devices that acknowledged `ScanStart`,
-marked by `ScanModeControl` in `devices/scan_pause.py` and cleared at every
-exit — its motor takes the device's `no error` reply as the verdict (the
+while a device is paused — the run's per-shot detectors
+(`plans/scan_mode.paused_device_names`, carried by `EnterScanMode.paused`)
+that acknowledged `ScanStart`, marked by `ScanModeControl` in
+`devices/scan_pause.py` and cleared at every exit; a condition and the box
+acknowledge but are never marked — its motor takes the device's `no error`
+reply as the verdict (the
 device ran its check-values against the same DB tolerance before
 answering); an error reply still fails the move, and every other motor
 keeps the readback confirm.  `CaConfirmSettable` has no such carve-out

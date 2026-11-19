@@ -91,10 +91,17 @@ class EnterScanMode:
     scan_parameter :
         The second ``ScanStart`` argument — Master Control's scan-tab
         selection, which the device stores and reads nothing from.
+    paused :
+        The run's per-shot detectors among *devices*: the ones that pause
+        their acquisition between announced shots.  Once acknowledged
+        they are marked paused (:mod:`~geecs_bluesky.devices.scan_pause`);
+        every other run device — a condition, the trigger box — keeps its
+        readbacks flowing and is never marked.
     """
 
     devices: tuple[str, ...]
     scan_parameter: str = "Shot #"
+    paused: tuple[str, ...] = ()
 
 
 def default_state_file(env: Mapping[str, str] | None = None) -> Path:
@@ -256,20 +263,22 @@ class ScanModeControl:
         self._shot = 0
         self._last_path: str | None = None
         self._acked_devices: tuple[str, ...] = ()
+        self._pausing: frozenset[str] = frozenset()
         self._entry_task: asyncio.Task[None] | None = None
 
     @property
     def _acked(self) -> tuple[str, ...]:
-        """The devices that acknowledged ``ScanStart``: in scan mode, acquisition paused."""
+        """The devices that acknowledged ``ScanStart``: in scan mode."""
         return self._acked_devices
 
     @_acked.setter
     def _acked(self, devices: tuple[str, ...]) -> None:
         # The one writer of the paused set (devices/scan_pause.py): every
         # change of who is in scan mode — the acks, a retry's reset, the
-        # exit — changes it with them.
+        # exit — changes it with them.  Only the entry's per-shot detectors
+        # pause; a condition or the box acknowledges and keeps streaming.
         self._acked_devices = devices
-        mark_paused(devices)
+        mark_paused(d for d in devices if d in self._pausing)
 
     # ------------------------------------------------------------ building
 
@@ -562,6 +571,7 @@ class ScanModeControl:
         check_announce_address(announced, local_ip)
         server = await self._open_channels(local_ip, announced, ports)
         self._run_devices = devices
+        self._pausing = frozenset(entry.paused) & frozenset(devices)
         self._scan_parameter = entry.scan_parameter
         self._local_ip, self._announced_as = local_ip, announced
         self._shot = 0

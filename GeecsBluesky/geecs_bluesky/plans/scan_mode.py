@@ -49,6 +49,7 @@ from geecs_bluesky.devices.scan_mode import (
     resolve_ipv4,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.plans.streams import is_per_shot
 from geecs_core.configs_repo import read_config_entry
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,23 @@ def run_device_names(
             names.setdefault(device)
     for device in getattr(shot_control, "liveness_signals", None) or {}:
         names.setdefault(str(device))
+    return tuple(names)
+
+
+def paused_device_names(detectors: Sequence[Any]) -> tuple[str, ...]:
+    """The run devices that pause between announced shots: its per-shot detectors' owners.
+
+    A GEECS detector, its ``.scalars`` view or a native camera
+    (:func:`~geecs_bluesky.plans.streams.is_per_shot`).  A condition (a
+    stampless scalar device) and the trigger box acknowledge ``ScanStart``
+    but keep their readbacks flowing, so a move on them still confirms on
+    its readback.
+    """
+    names: dict[str, None] = {}
+    for obj in detectors:
+        device = geecs_device_of(obj)
+        if device and is_per_shot(obj):
+            names.setdefault(device)
     return tuple(names)
 
 
@@ -325,6 +343,7 @@ __all__ = [
     "check_gateway_host",
     "device_root_check",
     "gateway_hosts",
+    "paused_device_names",
     "release_scan_mode_plan",
     "root_path_check",
     "run_device_names",

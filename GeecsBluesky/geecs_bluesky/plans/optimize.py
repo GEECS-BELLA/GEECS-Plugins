@@ -41,6 +41,7 @@ from .on_demand import OnDemand, _Progress, start_keys
 from .streams import DeviceStreams, is_per_shot
 from .scan_mode import (
     EnterScanMode,
+    paused_device_names,
     run_device_names,
     scan_mode_bracket,
     scan_mode_preflight,
@@ -763,7 +764,11 @@ def optimize_plan(  # noqa: C901, PLR0915
                 staged = scan_mode_bracket(
                     staged,
                     announce,
-                    EnterScanMode(run_devices, scan_parameter_for("optimize")),
+                    EnterScanMode(
+                        run_devices,
+                        scan_parameter_for("optimize"),
+                        paused=paused_device_names(detectors),
+                    ),
                 )
             yield from name_failed_status(run_bracket(staged, sc, TriggerState.ARMED))
 
