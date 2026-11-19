@@ -413,17 +413,18 @@ def _check_liveness(
     *,
     needed: Collection[str] | None = None,
 ) -> None:
-    """Read each device's gateway ``CONNECTED`` PV; question the down ones.
+    """Read each device's gateway ``CONNECTED`` PV; question a down device the run needs.
 
     The probe (concurrent batch read, fail-open, the DBR_ENUM
     ``datatype=str`` subtlety) is the shared
     :func:`geecs_bluesky.devices.ca.liveness.probe_disconnected` — the
     same one the strict refire gate's verdict rests on, so the two sides
-    cannot drift.  Only the disposition differs: here a down device
-    becomes an operator question, worded as the worker's rule
-    (``registry.drop_down_devices``): a *needed* device down refuses the
-    run, any other is left out of it.  ``None`` treats every device as
-    needed (a trigger profile's own dry run).
+    cannot drift.  Only the disposition differs, worded as the worker's
+    rule (``registry.drop_down_devices``): a *needed* device down refuses
+    the run, so it is an operator question; any other is left out of it
+    by the worker, so it is a ``passed`` note naming it, never a question
+    (named in the question too when one is asked).  ``None`` treats every
+    device as needed (a trigger profile's own dry run).
     """
     from geecs_bluesky.devices.ca.liveness import probe_disconnected
 
@@ -434,6 +435,15 @@ def _check_liveness(
     must = set(devices) if needed is None else set(needed)
     refusing = sorted(d for d in down if d in must)
     left_out = sorted(d for d in down if d not in must)
+    if not refusing:
+        report.outcomes.append(
+            (
+                "gateway_liveness",
+                "passed",
+                f"left out, disconnected and not required: {', '.join(left_out)}",
+            )
+        )
+        return
     parts: list[str] = []
     if refusing:
         parts.append(
