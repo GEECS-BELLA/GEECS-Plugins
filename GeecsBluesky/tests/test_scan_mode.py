@@ -1318,3 +1318,161 @@ def test_a_run_outside_scan_mode_undoes_a_halted_runs_choice(
     with pytest.raises(Seen):
         RE(bound["count"]([cam], num=1))
     assert reset == [[cam]]
+
+
+# ------------------------------------------ a device with scan mode disabled
+
+
+def test_the_lock_disabled_devices_are_the_ones_the_db_says_disabled() -> None:
+    control = ScanModeControl(
+        "TestExp",
+        endpoint=None,
+        path_provider=None,
+        device_endpoints={},
+        scan_mode_locks={"A": "enabled", "B": " Disabled ", "C": None, "D": "x"},
+    )
+    assert control.scan_mode_disabled == frozenset({"B"})
+
+
+def test_the_entry_skips_a_device_with_scan_mode_disabled_but_never_the_box() -> None:
+    from geecs_bluesky.plans.scan_mode import entered_device_names, in_scan_mode
+
+    control = ScanModeControl(
+        "TestExp",
+        endpoint=None,
+        path_provider=None,
+        device_endpoints={},
+        scan_mode_locks={"CAM-Free": "disabled", BOX: "disabled", CAM: "enabled"},
+    )
+    box = SimpleNamespace(liveness_signals={BOX: None})
+    entered = entered_device_names(control, (CAM, "CAM-Free", BOX), box)
+    assert entered == (CAM, BOX)
+    objs = [
+        SimpleNamespace(name="a", _geecs_device_name=CAM),
+        SimpleNamespace(name="b", _geecs_device_name="CAM-Free"),
+    ]
+    assert [o.name for o in in_scan_mode(objs, entered)] == ["a"]
+
+
+def test_a_bound_count_waits_only_for_devices_in_scan_mode(
+    RE: RunEngine, stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import geecs_bluesky.plans.registry as registry
+
+    seen: list[tuple[EnterScanMode, list[Any]]] = []
+
+    class Seen(Exception):
+        pass
+
+    def bracket(plan, control, entry, *, stamped=()):
+        seen.append((entry, list(stamped)))
+        raise Seen
+        yield  # a generator
+
+    monkeypatch.setattr(registry, "scan_mode_bracket", bracket)
+    box = FakeBox()
+    cam, free = _camera(RE, box, CAM), _camera(RE, box, "UC_Free")
+    stack.start()
+    endpoints = {name: (LOOPBACK, port) for name, port in stack.ports.items()}
+    endpoints["UC_Free"] = (LOOPBACK, _free_port(socket.SOCK_DGRAM))
+    control = stack.make_control(
+        device_endpoints=endpoints, scan_mode_locks={"UC_Free": "disabled"}
+    )
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    with pytest.raises(Seen):
+        RE(bound["count"]([cam, free.scalars], num=1, required=[cam]))
+    ((entry, stamped),) = seen
+    assert "UC_Free" not in entry.devices and CAM in entry.devices
+    assert stamped == [cam]  # a free-running device keeps acq_timestamp
+
+
+def test_the_locks_are_read_fail_soft(tmp_path: Path, caplog) -> None:
+    """A lock read that fails never disables scan mode, and a re-read that fails keeps the last values."""
+
+    class Found:
+        group, port = "234.5.6.9", "58432"
+
+    class Db:
+        fail = True
+
+        def get_scan_mode_endpoint(self, experiment):
+            return Found()
+
+        def get_scan_boundary_writes(self, experiment):
+            return {}
+
+        def get_root_path(self, experiment):
+            return None
+
+        def get_scan_mode_locks(self, experiment):
+            if self.fail:
+                raise ConnectionError("db down")
+            return {"CAM-Free": "disabled"}
+
+    db = Db()
+    with caplog.at_level(logging.ERROR, logger="geecs_bluesky.devices.scan_mode"):
+        control = ScanModeControl.from_experiment(
+            "TestExp",
+            path_provider=GeecsScanPathProvider(),
+            device_endpoints={},
+            geecs_db=db,
+        )
+    assert control.enabled and control.scan_mode_disabled == frozenset()
+    db.fail = False
+    control.refresh_scan_mode_locks()
+    assert control.scan_mode_disabled == {"CAM-Free"}
+    db.fail = True
+    control.refresh_scan_mode_locks()
+    assert control.scan_mode_disabled == {"CAM-Free"}  # the last values kept
+
+
+def test_a_required_device_with_the_lock_disabled_is_warned(caplog) -> None:
+    from geecs_bluesky.plans.scan_mode import entered_device_names
+
+    control = ScanModeControl(
+        "TestExp",
+        endpoint=None,
+        path_provider=None,
+        device_endpoints={},
+        scan_mode_locks={"CAM-Free": "disabled"},
+    )
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.scan_mode"):
+        entered_device_names(
+            control, ("CAM-Free",), SimpleNamespace(), needed={"CAM-Free"}
+        )
+    assert "CAM-Free required but scanmode_lock disabled" in caplog.text
+
+
+def test_a_scan_mode_run_also_undoes_a_halted_runs_choice_on_every_device(
+    RE: RunEngine, stack: Stack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A device the entry skips (lock disabled) is reset too: the bracket only chooses for the others."""
+    import geecs_bluesky.plans.registry as registry
+
+    reset: list[list[Any]] = []
+
+    class Seen(Exception):
+        pass
+
+    def record(per_shot):
+        reset.append(list(per_shot))
+        raise Seen
+        yield  # a generator
+
+    monkeypatch.setattr(registry, "reset_shot_stamps", record)
+    box = FakeBox()
+    cam, free = _camera(RE, box, CAM), _camera(RE, box, "UC_Free")
+    stack.start()
+    endpoints = {name: (LOOPBACK, port) for name, port in stack.ports.items()}
+    endpoints["UC_Free"] = (LOOPBACK, _free_port(socket.SOCK_DGRAM))
+    control = stack.make_control(
+        device_endpoints=endpoints, scan_mode_locks={"UC_Free": "disabled"}
+    )
+    bound = bind_plans(
+        _profiles(RE, stack.timeline, use_scan_mode=True), scan_mode=control
+    )
+    with pytest.raises(Seen):
+        RE(bound["count"]([cam, free.scalars], num=1, required=[cam]))
+    assert reset == [[cam, free.scalars]]

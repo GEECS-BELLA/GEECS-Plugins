@@ -743,7 +743,13 @@ The rules: the entry sits **inside the trigger bracket, before the stage
 and the claim** (a refused entry claims nothing, the liveness gate's
 posture); the run devices the entry waits for are the detectors' owners (every
 per-shot device) and the profile's box — not the movers, not the
-background; the shot number is **run-wide and never re-sent** (a refire
+background, and not a device whose DB `device.scanmode_lock` is `disabled`
+(`GeecsDb.get_scan_mode_locks`, re-read per run; `plans/scan_mode.entered_device_names`):
+it keeps its normal acquisition, so its acknowledgement is not waited for
+(the PW cameras with the lock disabled sent none), it records as it
+acquires and keeps `acq_timestamp`; a required one is WARNED, and the box
+is always waited for.  The worker follows the DB and the device its launch
+value, so a lock edit needs the device relaunched before the next run; the shot number is **run-wide and never re-sent** (a refire
 takes the next number; the partial row keeps its own — `announced_shot`
 is the join key for the files, never the s-file's row index); the pushed
 path is the claimed folder translated by `data_paths.device_server_save_path`
@@ -778,7 +784,7 @@ the paused per-shot loop, and a mover's is never `enabled`.  It still
 acknowledges `ScanStart` and connects, but its readbacks keep flowing, so a
 `CaMotor` move between shots completes on its readback as outside scan
 mode.  A mover with the lock `enabled` is a DB mistake to fix in the DB;
-the preflight neither checks nor warns.  (The readbacks that froze at the
+the preflight neither checks nor warns about a mover.  (The readbacks that froze at the
 last shot on the stand were the run's detectors, which do pause.)  A
 device whose `acq_timestamp` reads `0.0` at the run's start (its LabVIEW
 driver never sets it: the DAQs, the LeCroy scope) takes its shots from

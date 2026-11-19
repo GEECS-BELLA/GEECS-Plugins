@@ -564,6 +564,37 @@ class GeecsDb:
         return result
 
     @classmethod
+    def get_scan_mode_locks(cls, experiment: str) -> dict[str, str | None]:
+        """Return each enabled device's ``device.scanmode_lock``, as stored.
+
+        The device reads the flag at launch: ``enabled`` takes part in GEECS
+        scan mode (pauses, acquires once per announced shot, saves
+        shot-numbered files); ``disabled`` keeps its normal acquisition
+        and never acknowledges ``ScanStart``.  Read-only; the value is the
+        raw column (``None`` when null).
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name.
+
+        Returns
+        -------
+        dict
+            Device name → its ``scanmode_lock`` value, for every device
+            enabled in *experiment*.
+        """
+        rows = _query(
+            "SELECT DISTINCT d.name, d.scanmode_lock "
+            "FROM expt_device ed "
+            "JOIN device d ON d.name = ed.device "
+            "WHERE ed.expt = %s AND LOWER(ed.enabled) = 'yes' "
+            "ORDER BY d.name",
+            (experiment,),
+        )
+        return {str(name): (None if lock is None else str(lock)) for name, lock in rows}
+
+    @classmethod
     def get_scan_boundary_writes(
         cls, experiment: str, *, enabled_only: bool = True
     ) -> dict[str, list[dict]]:

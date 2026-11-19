@@ -197,6 +197,9 @@ class ScanModeControl:
     boundary_writes, db_root_path :
         The DB's ``set='yes'`` rows per device and its ``RootPath`` —
         carried for the preflight (``plans/scan_mode.py``), unused here.
+    scan_mode_locks :
+        Each device's ``device.scanmode_lock`` (:attr:`scan_mode_disabled`),
+        re-read per run with the boundary rows.
     geecs_db :
         The DB the rows came from; :meth:`refresh_boundary_writes` re-reads
         them from it per run (``None``: the rows stay as given).
@@ -224,6 +227,7 @@ class ScanModeControl:
         device_path: Callable[[str], str] = device_server_save_path,
         boundary_writes: Mapping[str, list[Mapping[str, Any]]] | None = None,
         db_root_path: str | None = None,
+        scan_mode_locks: Mapping[str, str | None] | None = None,
         geecs_db: Any | None = None,
     ) -> None:
         self._experiment = experiment
@@ -253,6 +257,7 @@ class ScanModeControl:
             device: list(rows) for device, rows in (boundary_writes or {}).items()
         }
         self.db_root_path = db_root_path
+        self.scan_mode_locks: dict[str, str | None] = dict(scan_mode_locks or {})
 
         self._server: ScanModeServer | None = None
         self._listener: ScanModeAckListener | None = None
@@ -292,6 +297,7 @@ class ScanModeControl:
         endpoint: tuple[str, int] | None = None
         boundary: Mapping[str, list[Mapping[str, Any]]] = {}
         root: str | None = None
+        locks: Mapping[str, str | None] = {}
         try:
             found = geecs_db.get_scan_mode_endpoint(experiment)
             endpoint = (found.group, int(found.port)) if found is not None else None
@@ -307,6 +313,18 @@ class ScanModeControl:
                 exc_info=True,
             )
             endpoint = None
+        if endpoint is not None:
+            try:
+                locks = geecs_db.get_scan_mode_locks(experiment)
+            except Exception as exc:  # every device then counts as taking part
+                logger.error(
+                    "scan mode: the devices' scanmode_lock could not be read "
+                    "from the GEECS DB (%s: %s) — every run device is waited for "
+                    "at ScanStart until it is read",
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
+                )
         if endpoint is None:
             logger.info(
                 "scan mode: %r has no multicast endpoint (expt.MultiCastIP / "
@@ -321,6 +339,7 @@ class ScanModeControl:
             device_endpoints=device_endpoints,
             boundary_writes=boundary,
             db_root_path=root,
+            scan_mode_locks=locks,
             geecs_db=geecs_db,
             **kwargs,
         )
@@ -351,12 +370,49 @@ class ScanModeControl:
             return
         self.boundary_writes = {device: list(r) for device, r in rows.items()}
 
+    def refresh_scan_mode_locks(self) -> None:
+        """Re-read the devices' DB ``scanmode_lock``; on a failure keep the last ones.
+
+        The worker follows the DB; the device follows the value it read at
+        launch, so a lock edited since needs the device relaunched before
+        the next run.  A DB that does not answer leaves the previous values,
+        logged at ERROR.
+        """
+        if self._geecs_db is None:
+            return
+        try:
+            locks = self._geecs_db.get_scan_mode_locks(self._experiment)
+        except Exception as exc:  # the cached locks still sort the run
+            logger.error(
+                "scan mode: the devices' scanmode_lock could not be re-read "
+                "from the GEECS DB (%s: %s) — using the values read earlier",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
+            return
+        self.scan_mode_locks = dict(locks)
+
     # ------------------------------------------------------------- facts
 
     @property
     def experiment(self) -> str:
         """The experiment announced in ``ScanStart``."""
         return self._experiment
+
+    @property
+    def scan_mode_disabled(self) -> frozenset[str]:
+        """The devices whose DB ``scanmode_lock`` is ``disabled``: never in scan mode.
+
+        Such a device keeps its normal acquisition, so the entry does not
+        wait for its acknowledgement (such a device may send none).  A null or any
+        other value counts as taking part (the entry's own wait decides).
+        """
+        return frozenset(
+            device
+            for device, lock in self.scan_mode_locks.items()
+            if lock is not None and lock.strip().lower() == "disabled"
+        )
 
     @property
     def enabled(self) -> bool:

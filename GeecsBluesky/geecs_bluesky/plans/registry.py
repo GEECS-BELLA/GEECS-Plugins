@@ -50,6 +50,8 @@ from geecs_bluesky.plans.calibration import (
 )
 from geecs_bluesky.plans.scan_mode import (
     EnterScanMode,
+    entered_device_names,
+    in_scan_mode,
     release_scan_mode_plan,
     reset_shot_stamps,
     run_device_names,
@@ -807,6 +809,9 @@ def strict_plan(  # noqa: C901, PLR0915
         run_devices = run_device_names(detectors, shot_control)
         if shot_control.use_scan_mode:
             scan_mode_preflight(shot_control, scan_mode, run_devices=run_devices)
+            run_devices = entered_device_names(
+                scan_mode, run_devices, shot_control, needed=needed
+            )
         md = dict(kwargs.pop("md", None) or {})
         # The key the plan resolved (the configs-repo file stem), not the
         # profile's own name field — so the start document replays.
@@ -821,8 +826,7 @@ def strict_plan(  # noqa: C901, PLR0915
         # systimestamp; any other run takes every stamp from acq_timestamp
         # (a halted scan-mode run's choice undone here).
         md["shot_stamp_systimestamp"] = []
-        if announce is None:
-            yield from reset_shot_stamps(per_shot)
+        yield from reset_shot_stamps(per_shot)
         gate = gate_for_run(shot_control, fly=fly)
         if gate is not None:
             md["shot_gate"] = gate.describe()
@@ -907,7 +911,7 @@ def strict_plan(  # noqa: C901, PLR0915
                     scan_parameter_for(stock.__name__),
                     optional=tuple(d for d in run_devices if d not in needed),
                 ),
-                stamped=per_shot,
+                stamped=in_scan_mode(per_shot, run_devices),
             )
         if fly:
             # Nothing on the box: no state, no fire (its devices were judged
