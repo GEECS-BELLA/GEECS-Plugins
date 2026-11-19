@@ -462,12 +462,12 @@ changes nothing but progress patches the meters in place
 every inline artifact on the tab once per poll; the settled row draws
 no meter (`tests/test_page.py` runs both under node).
 **The analysis documents' consumer check** (`routes/analysis_configs.py`,
-the configurator arc's slice 6): the configurator owns the recipes, `.himg`
-jobs and groups and their saves; this portal runs them, so it answers for
+the configurator arc's slice 6): the configurator owns the recipes, the `.himg`
+and scalar-columns jobs and the groups, and their saves; this portal runs them, so it answers for
 them, on the processing feature's gate (`--processing-configs` + the
 `analysis` extra, else 404). `GET /api/analysis/schema/{kind}` is the form
 (`analysis_recipe`: `geecs_analysis.recipe.recipe_schema`, steps and
-measure bound to the registry; `himg_job` / `analysis_group`: the model's);
+measure bound to the registry; `himg_job` / `scalar_job` / `analysis_group`: the model's);
 `POST /api/analysis/validate/{kind}` `{document, id?}` is the configurator's
 dry run of a draft, never written: the model, a recipe's
 `binding_errors` (GEECS-Analysis, each error at its field as a `loc` list),
@@ -481,7 +481,9 @@ document's starting draft, never written: a recipe is
 `geecs_analysis.recipe.blank_recipe` (the input kind, `fields` a JSON
 object of what it requires beyond its kind, no steps, the registry's
 default measure for its frames, `output_name` the name), so it already
-binds; a group is an empty group; a `.himg` job has none (its kind is the
+binds; a group is an empty group; a scalar-columns job is one formula column
+over a placeholder input (`geecs_schemas.analysis.scalar.blank_scalar_job`,
+which a run refuses by name until it is edited); a `.himg` job has none (its kind is the
 operator's decision, and one kind deletes files: a new job is a copy).
 `POST
 /api/analysis/preview` / `/preview/summary` draw an unsaved recipe on this

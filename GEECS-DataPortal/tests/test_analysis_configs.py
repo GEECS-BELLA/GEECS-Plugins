@@ -202,6 +202,24 @@ class TestBlank:
         assert client.get("/api/analysis/blank/himg_job", params={"name": "j"}).status_code == 404  # fmt: skip
         assert client.get("/api/analysis/blank/preset", params={"name": "p"}).status_code == 404  # fmt: skip
 
+    def test_a_scalar_job_is_a_kind_with_a_blank(self, scan_folder, configs_tree):
+        """The portal answers for a scalar-columns job: its schema, a blank that validates, a formula's typo refused at its field."""
+        from geecs_schemas.analysis import ScalarJob
+
+        client = _client(scan_folder, configs_tree)
+        assert client.get("/api/analysis/schema/scalar_job").json() == ScalarJob.model_json_schema()  # fmt: skip
+        blank = client.get("/api/analysis/blank/scalar_job", params={"name": "ratio"}).json()["document"]  # fmt: skip
+        assert blank["output_name"] == "ratio" and blank["kind"] == "scalar_columns"
+        assert _validate(client, "scalar_job", blank, "HTU/ratio.yaml").json()["ok"]
+        bad = {**blank, "columns": [{"name": "r", "expr": "x +", "inputs": {"x": "a"}}]}
+        out = _validate(client, "scalar_job", bad).json()
+        assert not out["ok"] and out["errors"][0]["loc"][:2] == ["columns", 0]
+        for kind in (
+            "scalar_job",
+            "analysis_group",
+        ):  # a name the model refuses is a 422, not a crash
+            assert client.get(f"/api/analysis/blank/{kind}", params={"name": ""}).status_code == 422  # fmt: skip
+
     def test_off_without_the_configs_tree(self):
         client = TestClient(create_app(FakeCatalog()))
         assert client.get("/api/analysis/blank/analysis_recipe", params={"name": "x", "input": "camera"}).status_code == 404  # fmt: skip

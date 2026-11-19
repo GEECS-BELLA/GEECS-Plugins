@@ -73,8 +73,8 @@ def yaml_stem(name: str) -> str:
     return name
 
 
-#: The loader that tells the analyzers tree's two kinds apart, by the
-#: document's top-level ``kind`` (a ``.himg`` job has one, a recipe none).
+#: The loader that tells the analyzers tree's kinds apart, by the
+#: document's top-level ``kind`` (a job has one, a recipe none).
 ANALYSIS_DISPATCH = "geecs_schemas.analysis.load_analysis_document"
 
 
@@ -172,6 +172,7 @@ KIND_STORAGE: dict[str, KindStorage] = {
     "setup": _experiment(SETUPS_FOLDER, suffixes=YAML_SUFFIXES),
     "analysis_recipe": _analysis(ANALYZERS_FOLDER, ANALYSIS_DISPATCH),
     "himg_job": _analysis(ANALYZERS_FOLDER, ANALYSIS_DISPATCH),
+    "scalar_job": _analysis(ANALYZERS_FOLDER, ANALYSIS_DISPATCH),
     "analysis_group": _analysis(GROUPS_FOLDER),
     "scan_request": NotAFile(
         reason="a plan parameter: built per submit from a preset, never saved"

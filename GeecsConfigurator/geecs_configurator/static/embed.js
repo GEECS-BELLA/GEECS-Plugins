@@ -258,7 +258,7 @@
       var parts = o.docId().split("/"), stem = parts.pop().replace(/\.ya?ml$/i, ""), newId = parts.concat([name + ".yaml"]).join("/");
       var doc = JSON.parse(JSON.stringify(o.value()));
       if (doc.name === stem) doc.name = name;
-      if (o.kind === "analysis_recipe" || o.kind === "himg_job") doc.output_name = name;  // its own columns and folders (a job: its label)
+      if (o.kind === "analysis_recipe" || o.kind === "himg_job" || o.kind === "scalar_job") doc.output_name = name;  // its own columns and folders (a job: its label)
       show([el("p", { class: "dim" }, "Saving a copy as " + newId + "…")]);
       return o.call("PUT", "/api/documents/" + o.kind + "/" + newId.split("/").map(encodeURIComponent).join("/") + o.query(), { document: doc, etag: "", operator: who, create: true }).then(function (r) {
         var b = r.body || {}, d = b.detail;
@@ -487,7 +487,7 @@
   }
 
   // ---- a new document --------------------------------------------------------------------------
-  function newLabel(kind) { return "New " + kind.replace(/^analysis_/, "") + "…"; }
+  function newLabel(kind) { return "New " + kind.replace(/^analysis_/, "").replace(/_/g, " ") + "…"; }
 
   // What a recipe's start form asks beyond its name, read off the kind's schema: each input kind (the
   // discriminator's mapping), for each the enumerated fields it requires beyond `kind` (a trace's
