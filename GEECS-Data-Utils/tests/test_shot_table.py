@@ -988,6 +988,8 @@ def test_an_unreadable_next_baseline_leaves_that_row_unidentified() -> None:
     table = shot_table(SCAN_MODE, rows, [_device("cam", stamps)])
     assert table.record_for_shot["cam"] == (0, 1, 2, None, 4, 5, 6, 7)
     assert _flagged(table, "scan-mode-order:cam") == [4]
+    # Row 4's own record goes unclaimed; row 5, past it, is not to blame.
+    assert _flagged(table, "scan-mode-extra:cam") == []
 
 
 def test_without_a_stamp_baseline_the_stamp_rule_stands_unflagged() -> None:
