@@ -320,8 +320,32 @@ def test_each_row_names_its_period_and_the_device_that_held_it(
     rows = [e["data"] for e in col.primary_events()]
     assert [r["slowest_device"] for r in rows] == ["UC_Slow"] * 3
     assert all(0.15 < r["slowest_s"] < 1.0 for r in rows)
-    periods = [r["shot_period_s"] for r in rows]
-    assert math.isnan(periods[0]) and all(p >= 0.2 for p in periods[1:])
+
+
+def test_a_required_device_that_never_reports_is_the_slowest_at_its_timeout(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+) -> None:
+    fast = _camera(RE, box, "UC_Fast")
+    dead = _camera(RE, box, "UC_Dead", shot_timeout=0.3)
+    box.cameras.remove(dead)  # never stamped
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(strict_count(shot_control, [fast, dead], 1, required=[dead]))
+    row = next(e["data"] for e in col.primary_events())
+    assert row["slowest_device"] == "UC_Dead" and "uc_dead" in row["missing"]
+    assert 0.25 <= row["slowest_s"] < 1.0
+
+
+def test_nothing_required_names_no_slowest_device(
+    RE: RunEngine, box: FakeBox, shot_control: ShotControl
+) -> None:
+    cam = _camera(RE, box, "UC_Cam")
+    col = DocCollector()
+    RE.subscribe(col)
+    RE(strict_count(shot_control, [cam], 2, required=[]))
+    rows = [e["data"] for e in col.primary_events()]
+    assert [r["slowest_device"] for r in rows] == ["", ""]
+    assert all(math.isnan(r["slowest_s"]) for r in rows)
 
 
 def test_missed_frame_keeps_the_row_and_adds_a_shot(

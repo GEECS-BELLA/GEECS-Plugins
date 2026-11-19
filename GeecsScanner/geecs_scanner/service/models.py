@@ -278,7 +278,7 @@ class ProgressOut(BaseModel):
         description="The run's day, ISO (from the start document's scan_tag)",
     )
     current_rate_hz: Optional[float] = Field(
-        default=None, description="1 / the latest row's period since the previous fire"
+        default=None, description="1 / the time between the latest two fires"
     )
     average_rate_hz: Optional[float] = Field(
         default=None, description="The run's fires over their span"
@@ -289,6 +289,10 @@ class ProgressOut(BaseModel):
     )
     waiting_s: Optional[float] = Field(
         default=None, description="Its delay after that fire, seconds"
+    )
+    worker_s: Optional[float] = Field(
+        default=None,
+        description="The latest period less the previous shot's wait: the worker's own time",
     )
     slowest: list[SlowDeviceOut] = Field(
         default_factory=list, description="The devices that held the most rows"

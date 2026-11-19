@@ -184,7 +184,6 @@ class SlotColumns:
             if self._fly
             else {
                 "fire_stamp": math.nan,
-                "shot_period_s": math.nan,
                 "slowest_device": "",
                 "slowest_s": math.nan,
             }
@@ -348,8 +347,6 @@ class OnDemand:
         self._excess_streak: dict[str, int] = {}
         self._unreadable: set[str] = set()
         self._free_runners: set[str] = set()
-        #: The previous fire's wall time (``shot_period_s``); a run's first row has none.
-        self._last_fire_stamp: float | None = None
 
     # ------------------------------------------------------------------ plans
     def _counters(self):
@@ -388,10 +385,12 @@ class OnDemand:
     def _wait(self, base: dict[str, Any]):
         """Plan: until every required counter advanced (or the witness, with none required).
 
-        Records the row's ``slowest_device`` — the required device whose
-        record came last (or never: it waited its whole timeout) — and
-        ``slowest_s``, seconds from the fire to that record: what held the
-        shot, the rate's limit when it exceeds the trigger period.
+        Records the row's ``slowest_device`` — the required device the
+        worker saw deliver last (or never: it waited its whole timeout) —
+        and ``slowest_s``, seconds from the fire until the worker saw that
+        record (its counter read included, so a slow read counts): what
+        held the wait.  The rest of the row's cycle (the reads, the row,
+        the collects) is the worker's own.
         """
         required, witness = self.required, self.witness
         arrivals: dict[str, float] = {}
@@ -449,10 +448,6 @@ class OnDemand:
             raise
         if self.presses:
             yield from bps.wait_for([self._press])
-        fired = values["fire_stamp"]
-        if "shot_period_s" in values and self._last_fire_stamp is not None:
-            values["shot_period_s"] = fired - self._last_fire_stamp
-        self._last_fire_stamp = fired
         return True
 
     async def _press(self) -> None:
