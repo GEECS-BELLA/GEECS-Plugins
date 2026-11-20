@@ -307,3 +307,21 @@ def test_a_blank_window_box_is_no_limit(
     post(client, scan=1, page="images", device=SCOPE, xmin="  ", xmax="4e-9")
     saved = json.loads((settings_dir / "default.json").read_text())
     assert (saved["image_xmin"], saved["image_xmax"]) == (None, 4e-9)
+
+
+@pytest.mark.parametrize(
+    ("units", "value", "text"),
+    [("s", 2e-6, "2 µs"), ("V", 0.5, "500 mV"), (None, 1500.0, "1.5 k")],
+)
+def test_si_units_tick_with_a_prefix(units, value, text):
+    from geecs_portal.plotter.routes.images import tick_formatter
+
+    assert tick_formatter(units)(value) == text
+
+
+@pytest.mark.parametrize("units", ["nm", "a.u."])
+def test_other_units_tick_as_plain_numbers(units):
+    # A spectrometer's wavelength in nm would otherwise read "1 knm".
+    from geecs_portal.plotter.routes.images import tick_formatter
+
+    assert tick_formatter(units) is None

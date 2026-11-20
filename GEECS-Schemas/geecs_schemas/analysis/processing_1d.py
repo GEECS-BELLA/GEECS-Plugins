@@ -45,6 +45,7 @@ class Data1DType(str, Enum):
     TSV = "tsv"
     NPY = "npy"
     PVA_STACK = "pva_stack"
+    THORLABS_FTS = "thorlabs_fts"
 
 
 class Data1DLoading(SchemaModel):
@@ -64,7 +65,9 @@ class Data1DLoading(SchemaModel):
             "'pva_stack' for one shot of the per-device capture stack a "
             "Bluesky scan writes (traces and spectra alike; the reader takes "
             "its axis from the stack and hands back the trace at its true "
-            "length, never the padded one)."
+            "length, never the padded one), 'thorlabs_fts' for a Thorlabs "
+            "FTS spectrometer's export (a '#Thorlabs FTS' header, then "
+            "'[Data]' rows of wavelength;intensity)."
         ),
     )
     trace_index: int = Field(

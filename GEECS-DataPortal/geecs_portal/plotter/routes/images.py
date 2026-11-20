@@ -598,6 +598,24 @@ def _code_bins(refs: Sequence[tuple[date, int]]) -> str:
     return ""
 
 
+#: Units a tile's ticks take an SI prefix on (``2 µs``, ``500 mV``); any
+#: other (``nm``, ``a.u.``) reads as plain numbers, never ``1 knm``.
+_SI_TICK_UNITS = frozenset({"s", "V", "A", "Hz", "W", "J"})
+
+
+def tick_formatter(units: Optional[str]):
+    """A tile axis' tick formatter: engineering (SI-prefixed) or ``None``.
+
+    ``None`` leaves matplotlib's plain numbers, for a unit that takes no
+    SI prefix (``nm`` would read ``1 knm``).
+    """
+    from matplotlib.ticker import EngFormatter
+
+    if units and units not in _SI_TICK_UNITS:
+        return None
+    return EngFormatter(unit=units or "", sep=" ")
+
+
 def _axis_title(label: Optional[str], units: Optional[str]) -> str:
     """``"Time (s)"``: the reader's label and units, whichever it gave."""
     if label and units:
@@ -616,11 +634,12 @@ def trace_png(
     the trace's own; with them every tile of a row reads on one scale. With
     an x *window* only its samples are drawn, the axis spanning the window
     (a missing bound: the trace's own end). The ticks are few and in
-    engineering units (``2 µs``, ``500 mV``), so they read at a tile's size.
+    engineering units (``2 µs``, ``500 mV``), so they read at a tile's size;
+    a unit that takes no SI prefix (``nm``) ticks as plain numbers.
     """
     trace = images.windowed(trace, window)
     from matplotlib.figure import Figure
-    from matplotlib.ticker import EngFormatter, MaxNLocator
+    from matplotlib.ticker import MaxNLocator
 
     from geecs_portal.resources import figure_png
 
@@ -639,7 +658,9 @@ def trace_png(
         ax.set_ylim(levels[0] - pad, levels[1] + pad)
     for axis, units in ((ax.xaxis, trace.x_units), (ax.yaxis, trace.y_units)):
         axis.set_major_locator(MaxNLocator(4))
-        axis.set_major_formatter(EngFormatter(unit=units or "", sep=" "))
+        formatter = tick_formatter(units)
+        if formatter is not None:
+            axis.set_major_formatter(formatter)
     ax.tick_params(labelsize=9, length=2, pad=1)
     ax.grid(True, linewidth=0.3, alpha=0.5)
     fig.subplots_adjust(left=0.2, right=0.96, top=0.95, bottom=0.14)
