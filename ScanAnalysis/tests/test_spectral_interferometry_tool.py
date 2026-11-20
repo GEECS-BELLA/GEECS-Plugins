@@ -86,8 +86,20 @@ def test_reads_a_thorlabs_fts_export(tmp_path):
     assert result.tau0_fs == pytest.approx(400.0, rel=0.02)
 
 
-def test_a_file_that_is_not_a_spectrum_is_refused(tmp_path):
-    path = tmp_path / "notes.txt"
-    path.write_text("aligned the beam\n")
-    with pytest.raises(ValueError, match="not a wavelength/counts spectrum"):
+def test_a_bad_fts_row_says_which(tmp_path):
+    """The reader's own error reaches the user, not a generic refusal."""
+    path = tmp_path / "s.csv"
+    path.write_bytes(b"#Thorlabs FTS\r\n[Data]\r\n7.9e+02;oops\r\n[EndOfFile]\r\n")
+    with pytest.raises(ValueError, match="bad data row"):
         analyze_spectrum_file(path)
+
+
+def test_a_third_column_is_still_read(tmp_path):
+    """Tab-separated files with more columns read x and counts as before."""
+    two = _write_spectrum(tmp_path / "two.txt")
+    rows = two.read_text().splitlines()
+    three = tmp_path / "three.txt"
+    three.write_text("".join(f"{r}\t0\n" for r in rows))
+    assert analyze_spectrum_file(three).result.tau0_fs == pytest.approx(
+        analyze_spectrum_file(two).result.tau0_fs
+    )

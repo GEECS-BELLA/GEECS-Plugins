@@ -491,10 +491,10 @@ def _read_thorlabs_fts(
     if not rows:
         raise ValueError(f"{file_path}: no [Data] rows")
     width = min(len(r) for r in rows)
-    if width <= max(config.x_column, config.y_column):
+    requested = [config.x_column, config.y_column, *config.auxiliary_columns.values()]
+    if width <= max(requested):
         raise ValueError(
-            f"{file_path}: {width} columns, but asked for "
-            f"{config.x_column} and {config.y_column}"
+            f"{file_path}: {width} columns, but requested columns {requested}"
         )
     table = np.array([r[:width] for r in rows], dtype=float)
     x_unit = header.get("XAxisUnit", "")
@@ -506,7 +506,11 @@ def _read_thorlabs_fts(
         "y_units": None,
     }
     data = np.column_stack([table[:, config.x_column], table[:, config.y_column]])
-    return data, metadata, {}
+    auxiliary = {
+        name: table[:, column].copy()
+        for name, column in config.auxiliary_columns.items()
+    }
+    return data, metadata, auxiliary
 
 
 def _read_tsv(

@@ -38,15 +38,21 @@ def analyze_spectrum_file(
 ) -> SpectralInterferometryAnalysis:
     """Read a wavelength (nm) / counts file and analyse it.
 
-    Tab-separated columns, or a Thorlabs FTS ``.csv`` export — the trace
-    reader the portal uses (``shot_traces.read_text_trace``).
+    A Thorlabs FTS ``.csv`` export, else tab-separated columns (x from the
+    first, counts from the second; more columns are allowed). A file that
+    does not read raises the reader's own error.
     """
-    from geecs_data_utils.io.shot_traces import read_text_trace
+    from geecs_data_utils.io.array1d import (
+        Data1DConfig,
+        Data1DType,
+        is_thorlabs_fts,
+        read_1d_data,
+    )
 
-    result = read_text_trace(Path(path))
-    if result is None:
-        raise ValueError(f"{path}: not a wavelength/counts spectrum")
-    return analyze_interferogram(result.data[:, 0], result.data[:, 1], config)
+    path = Path(path)
+    kind = Data1DType.THORLABS_FTS if is_thorlabs_fts(path) else Data1DType.TSV
+    data = read_1d_data(path, Data1DConfig(data_type=kind)).data
+    return analyze_interferogram(data[:, 0], data[:, 1], config)
 
 
 def _output(path: Optional[str]) -> Optional[Path]:
@@ -69,7 +75,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "spectrum",
-        help="wavelength (nm) / counts: two tab-separated columns or a Thorlabs FTS .csv",
+        help="wavelength (nm) / counts: tab-separated columns or a Thorlabs FTS .csv",
     )
     parser.add_argument(
         "--resolution-nm", type=float, help="spectrometer optical resolution (FWHM)"

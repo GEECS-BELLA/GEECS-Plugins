@@ -49,3 +49,20 @@ def test_other_files_are_not_fts(tmp_path):
     path.write_text("wavelength,counts\n1,2\n")
     assert not is_thorlabs_fts(path)
     assert not is_thorlabs_fts(tmp_path / "absent.csv")
+
+
+def test_auxiliary_columns_are_read_or_refused(tmp_path):
+    path = tmp_path / "s.csv"
+    _write(
+        path, HEADER + "[Data]\n7.9e+02;1.0e+01;3\n7.905e+02;2.0e+01;4\n[EndOfFile]\n"
+    )
+    result = read_1d_data(
+        path,
+        Data1DConfig(data_type=Data1DType.THORLABS_FTS, auxiliary_columns={"dark": 2}),
+    )
+    np.testing.assert_allclose(result.auxiliary_column_data["dark"], [3, 4])
+    with pytest.raises(ValueError, match="requested columns"):
+        read_1d_data(
+            path,
+            Data1DConfig(data_type=Data1DType.THORLABS_FTS, auxiliary_columns={"w": 4}),
+        )

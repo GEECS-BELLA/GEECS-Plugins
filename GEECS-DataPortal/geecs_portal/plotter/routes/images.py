@@ -606,8 +606,9 @@ _SI_TICK_UNITS = frozenset({"s", "V", "A", "Hz", "W", "J"})
 def tick_formatter(units: Optional[str]):
     """A tile axis' tick formatter: engineering (SI-prefixed) or ``None``.
 
-    ``None`` leaves matplotlib's plain numbers, for a unit that takes no
-    SI prefix (``nm`` would read ``1 knm``).
+    ``None`` leaves matplotlib's plain numbers, for a named unit that takes
+    no SI prefix (``nm`` would read ``1 knm``). No unit at all keeps the
+    prefix: the reader cannot say whether it is seconds or nanometres.
     """
     from matplotlib.ticker import EngFormatter
 
@@ -635,7 +636,9 @@ def trace_png(
     an x *window* only its samples are drawn, the axis spanning the window
     (a missing bound: the trace's own end). The ticks are few and in
     engineering units (``2 µs``, ``500 mV``), so they read at a tile's size;
-    a unit that takes no SI prefix (``nm``) ticks as plain numbers.
+    a named unit that takes no SI prefix (``nm``) ticks as plain numbers. An
+    axis with no unit at all (a headerless text spectrum) still gets a
+    prefix (``1 k``).
     """
     trace = images.windowed(trace, window)
     from matplotlib.figure import Figure
