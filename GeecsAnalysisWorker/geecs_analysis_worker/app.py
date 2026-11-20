@@ -1,4 +1,4 @@
-"""The analysis worker's HTTP API (FastAPI, the ``worker`` extra).
+"""The analysis worker's HTTP API (FastAPI) over ScanAnalysis' job runner.
 
 ::
 
@@ -16,12 +16,14 @@
     POST /api/watch/stop         stop watching (its queued jobs still run)
 
 Unauthenticated, like the portal's run verb: bind it to the host or the
-lab network only.  Errors: an unknown group or a day with no scans is a
+lab network only.  A watch runs only after a ``POST /api/watch``: nothing
+here or in the command starts one.  Errors: an unknown group or a day with no scans is a
 404, a malformed body a 422.
 """
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Optional
@@ -32,7 +34,15 @@ from pydantic import BaseModel, Field
 
 from scan_analysis.worker.jobs import JobSpec, WatchSpec, Worker
 
-__all__ = ["JobRequest", "WatchRequest", "create_worker_app"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["STOP_SECONDS", "JobRequest", "WatchRequest", "create_worker_app"]
+
+#: How long a shutdown waits for the running task to finish (seconds).  The
+#: job thread is a daemon: a task still running after this is abandoned
+#: mid-run when the process exits, and its claim goes stale for a later job
+#: to take over.  The unit's ``TimeoutStopSec`` sits above it.
+STOP_SECONDS = 45.0
 
 
 class JobRequest(BaseModel):
@@ -74,8 +84,12 @@ class WatchRequest(BaseModel):
     )
 
 
-def create_worker_app(worker: Worker) -> FastAPI:
-    """The API over *worker*, which it starts and stops with the app."""
+def create_worker_app(worker: Worker, *, stop_seconds: float = STOP_SECONDS) -> FastAPI:
+    """The API over *worker*, which it starts and stops with the app.
+
+    A shutdown cancels every job and waits up to *stop_seconds* for the
+    running task; an idle worker stops at once.
+    """
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -83,7 +97,12 @@ def create_worker_app(worker: Worker) -> FastAPI:
         try:
             yield
         finally:
-            worker.stop(timeout=1.0)
+            if any(j.state == "running" for j in worker.jobs()):
+                # a quiet terminal for up to stop_seconds otherwise
+                logger.info(
+                    "stopping: waiting up to %.0f s for the running task", stop_seconds
+                )
+            worker.stop(timeout=stop_seconds)
 
     app = FastAPI(
         title="GEECS analysis worker", lifespan=lifespan, docs_url=None, redoc_url=None

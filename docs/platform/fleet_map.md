@@ -302,7 +302,7 @@ Poetry env inside it). This is deliberate, not accumulation:
   [Site Profile](site_profile.md).
 - The clone names are fixed by the [Site Profile](site_profile.md)
   (`gateway-checkout`, `portal-checkout`, `qs-checkout`, `archiver-checkout`,
-  `canopy-checkout`, `control-room-checkout`, `configurator-checkout`); only the root
+  `canopy-checkout`, `control-room-checkout`, `configurator-checkout`, `analysis-worker-checkout`); only the root
   is the site's choice (`GEECS_CHECKOUT_ROOT` — the service account's
   home, or `/opt/geecs`). One clone per service family, wherever it
   lives.

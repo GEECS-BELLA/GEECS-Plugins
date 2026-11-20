@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from geecs_portal.batch import AutoStart, WorkerLink, WorkerUnavailable
+from geecs_portal.batch import WorkerLink, WorkerUnavailable
 from test_app import TEST_DAY, FakeCatalog, _client
 
 URL = "http://127.0.0.1:8900"
@@ -93,29 +93,34 @@ def test_the_routes_forward_and_name_the_portals_experiment():
     assert client.get("/api/batch/status").json() == {
         "configured": True,
         "reachable": True,
-        "autostart": False,
     }
 
 
-def test_a_silent_worker_is_503_and_never_started_without_autostart():
+def test_a_silent_worker_is_503():
     worker = WorkerLink(URL, client=down_client())
     client = _client(FakeCatalog(), default_experiment="Undulator", worker=worker)
     r = client.get("/api/batch/groups")
     assert r.status_code == 503
     assert "does not answer" in r.json()["detail"]
-    assert worker._started is None
+    assert client.get("/api/batch/status").json() == {
+        "configured": True,
+        "reachable": False,
+    }
 
 
-def test_autostart_only_for_this_hosts_address(tmp_path):
-    auto = AutoStart(tmp_path, "Undulator")
-    assert WorkerLink("http://127.0.0.1:8900", autostart=auto).can_autostart
-    assert WorkerLink("http://localhost:8900/", autostart=auto).can_autostart
-    assert not WorkerLink("http://10.0.0.5:8900", autostart=auto).can_autostart
-    assert not WorkerLink("http://127.0.0.1:8900").can_autostart
-    remote = WorkerLink("http://10.0.0.5:8900", autostart=auto, client=down_client())
-    with pytest.raises(WorkerUnavailable):
-        remote.call("GET", "/api/groups")
-    assert remote._started is None
+def test_the_portal_never_starts_a_worker(monkeypatch):
+    """A worker that does not answer is reported, on this host's address too."""
+    import subprocess
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the portal started a process")
+
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    for url in ("http://127.0.0.1:8900", "http://localhost:8900/"):
+        link = WorkerLink(url, client=down_client())
+        with pytest.raises(WorkerUnavailable):
+            link.call("GET", "/api/groups")
+        assert not link.reachable()
 
 
 def test_the_watch_routes_forward():

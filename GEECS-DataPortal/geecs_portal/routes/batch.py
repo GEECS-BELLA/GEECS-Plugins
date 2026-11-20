@@ -39,13 +39,12 @@ def _with_experiment(portal: PortalState, body: dict) -> dict:
 
 @router.get("/api/batch/status")
 def batch_status(portal: PortalState = Depends(get_state)) -> JSONResponse:
-    """Whether a worker is configured, answers now, and may be started here."""
+    """Whether a worker is configured and answers now."""
     worker = portal.worker
     return JSONResponse(
         {
             "configured": worker is not None,
             "reachable": bool(worker and worker.reachable()),
-            "autostart": bool(worker and worker.can_autostart),
         },
         headers=_NO_STORE,
     )
@@ -53,7 +52,7 @@ def batch_status(portal: PortalState = Depends(get_state)) -> JSONResponse:
 
 @router.get("/api/batch/groups")
 def batch_groups(portal: PortalState = Depends(get_state)):
-    """The worker's analysis groups (starts it when allowed)."""
+    """The worker's analysis groups."""
     return _forward(portal, "GET", "/api/groups")
 
 

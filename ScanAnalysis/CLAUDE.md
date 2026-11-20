@@ -1,7 +1,9 @@
 # ScanAnalysis — Developer Context for Claude
 
 Post-scan analysis framework. Explicit portal and Python runs execute configurable
-image/1D analyzers. Automatic watching and Google Docs uploads are retired.
+image/1D analyzers. LiveWatch and Google Docs uploads are retired; the
+analysis worker's watch (below) analyses a day's new scans only once an
+operator starts one.
 
 ## Package Layout
 
@@ -20,9 +22,9 @@ scan_analysis/
   core_analyzer.py                 # CoreScanAnalyzer: the one analysis route behind the ScanAnalyzer contract
   route_compare.py                 # snapshot + compare two analysis trees (one equality rule); goldens on disk
   task_queue.py                    # Task claiming, heartbeat, YAML status system (run_task: one task)
-  worker/                          # the analysis worker (`worker` extra): jobs.py (Worker, a job = a group over a
-                                   #   day's scans, run task by task through the queue), app.py (its HTTP API),
-                                   #   __main__.py (scan-analysis-worker, port 8900)
+  worker/                          # the analysis worker's job runner: jobs.py (Worker, a job = a group over a
+                                   #   day's scans, run task by task through the queue; the watch). Its HTTP API
+                                   #   and command are GeecsAnalysisWorker's: no web code here
   config/
     loader.py                      # load_diagnostic(stem | path): one document, the config.ini root as the default tree
     diagnostic_factory.py          # create_scan_analyzer(AnalysisRecipe | HimgJob)
@@ -447,10 +449,13 @@ The main entry point. Returns a list of **display files** (paths to summary
 figures) that the task queue records, or
 `None` when there was nothing to analyze.
 
-## The analysis worker (`worker/`)
+## The analysis worker's job runner (`worker/`)
 
-`scan-analysis-worker --configs <tree> --experiment <name>` (the `worker`
-extra: fastapi + uvicorn; binds 127.0.0.1, port 8900 by default) is a
+`scan_analysis.worker.Worker` is the pure-Python runner behind the
+analysis worker; its HTTP API and the `scan-analysis-worker` command are
+the GeecsAnalysisWorker package's (`geecs_analysis_worker`; binds
+127.0.0.1, port 8900 by default), and this package carries no web code
+(the `scan-analysis-no-web` import contract). The served worker is a
 long-running service that batch-runs analysis groups. A **job** is one
 group over one day's scans (or a list of them), `redo` or not: when it
 starts it is expanded into the task queue's worklist (`build_worklist`,
@@ -468,15 +473,14 @@ left out (`open_scans`). Jobs run in order on one
 thread; the job list is in memory and the status records are the durable
 result. A job may name a subset of the group's analyzers (`analyzers`, by
 task id) and a `from_scan`. A **watch** (`Worker.watch(WatchSpec)`, the
-retired LiveWatch on this queue; one at a time, in memory) looks at its day
+retired LiveWatch on this queue; one at a time, in memory; started by a
+caller only, so a `Worker` is built and started with none, and a restart
+forgets one) looks at its day
 every `WATCH_POLL_SECONDS` (5) and, when no job of its own is pending and a
 plan of its group's ticked analyzers over the closed scans from its start
 scan has tasks, submits that job (`origin: "watch"`) — so each scan is
 analysed once it closes and nothing is redone; a day with no `scans/`
-folder yet is waited for (the watch's `note`). `GET /health`,
-`GET /api/groups`, `POST /api/plan` (what a job would run, nothing
-written), `POST /api/jobs` (202), `GET /api/jobs`, `GET /api/jobs/{id}`,
-`POST /api/jobs/{id}/cancel`, `GET|POST /api/watch`, `POST /api/watch/stop`.
+folder yet is waited for (the watch's `note`). The routes over it are listed in `GeecsAnalysisWorker/CLAUDE.md`.
 The Data Portal's day page is one client (over HTTP alone); a trigger from
 the engine's run-stop document is a later step and would submit jobs like
 any client. **The data root reaches the analyzer**: `run_task(...,
@@ -484,7 +488,8 @@ base_directory=)` sets `ScanAnalyzer.base_directory`, which
 `_handle_scan_tag` resolves the scan under — before 2026-11-05 a worker over
 another root wrote its status there but read and wrote the configured
 share (`test_the_task_queue_runs_it_under_its_own_data_root`). Tests:
-`tests/test_worker.py` (fake analyzers through the real queue).
+`tests/test_worker.py` (fake analyzers through the real queue); the
+routes' tests are `GeecsAnalysisWorker/tests/test_api.py`.
 
 ## Task Queue System (`task_queue.py`)
 

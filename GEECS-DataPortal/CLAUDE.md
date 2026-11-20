@@ -112,8 +112,9 @@ extending this package.
 - **Batch analysis is the worker's, never the portal's** (the author,
   2026-11-04). The day page's **Analyze this day…** drawer (only with
   `--analysis-worker-url`, for the portal's own experiment) runs an
-  analysis group over the day's scans on ScanAnalysis' analysis worker
-  (`scan-analysis-worker`, its own service): the portal forwards
+  analysis group over the day's scans on the analysis worker
+  (`scan-analysis-worker`, GeecsAnalysisWorker: its own service and unit,
+  ScanAnalysis' job runner behind it): the portal forwards
   `/api/batch/{status,groups,plan,jobs,jobs/{id},jobs/{id}/cancel,watch,watch/stop}` to it
   over HTTP (`geecs_portal/batch.py`, `routes/batch.py`; it adds only its
   experiment to a request that names none), imports none of it, and runs
@@ -123,11 +124,9 @@ extending this package.
 checkboxes over the group's members (all ticked → `analyzers: null`, the
 whole group), used by Run and by **Watch for new scans** — the worker's
 watch on this day, started and stopped here, shown with its last look and
-its jobs (marked `· watch`). `--analysis-worker-autostart`
-  (development) starts one on this host (`python -m scan_analysis.worker`
-  over `--processing-configs`, its own session, left running) when the URL
-  is a loopback address and nothing answers; a deployment runs the worker
-  as its own unit. Tests: `tests/test_batch.py` (a fake worker over an
+its jobs (marked `· watch`). The portal never starts a worker:
+  one that does not answer is the 503 above, and the worker's unit (or a
+  second terminal on a laptop) is what runs it. Tests: `tests/test_batch.py` (a fake worker over an
   httpx transport).
 - **The ScanCatalog seam.**  `create_app(catalog)` takes any
   `geecs_data_utils.tiled_catalog.ScanCatalog`; this package never
@@ -786,9 +785,10 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
 - **The theme and kit are imported** (`geecs_web_theme.web`); every
   colour is a token. `GeecsWebTheme/tests/test_no_literal_colours.py`
   walks the plotter's template, CSS and scripts.
-- **`--browser`** (the portal's CLI): once the server is up it opens the
-  portal in the system browser (`default`), a named one, or `none` (what
-  the service unit passes); a Linux host with no display opens nothing.
+- **`--browser`** (the portal's CLI) opens nothing by default (`none`).
+  `default` opens the portal in the system browser once the server is up,
+  a name (`chrome`) in that one; a Linux host with no display opens
+  nothing either way.
 - No experiment, host or path in code: `config.ini`, or `--experiment`.
 
 ## Open, for the maintainer (from the merge's briefs, 2026-10-29)
