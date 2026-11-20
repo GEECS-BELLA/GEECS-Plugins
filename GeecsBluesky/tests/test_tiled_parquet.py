@@ -245,13 +245,19 @@ class TestTiledHostPath:
         # the config and finds the root, so the service heals without a restart.
         from geecs_data_utils import ScanPaths
 
-        monkeypatch.setattr(ScanPaths, "paths_config", SimpleNamespace(base_path=None))
+        monkeypatch.setattr(
+            ScanPaths,
+            "paths_config",
+            SimpleNamespace(base_path=None, data_root_experiment=None),
+        )
         monkeypatch.setattr(
             ScanPaths,
             "reload_paths_config",
             classmethod(
                 lambda cls: setattr(
-                    cls, "paths_config", SimpleNamespace(base_path="/local/data")
+                    cls,
+                    "paths_config",
+                    SimpleNamespace(base_path="/local/data", data_root_experiment=None),
                 )
             ),
         )

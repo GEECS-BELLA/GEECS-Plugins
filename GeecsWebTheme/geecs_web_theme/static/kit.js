@@ -3,16 +3,21 @@
  * Load deferred, beside theme.js. Everything here is additive: with this
  * file absent the page still renders correctly, <details> still opens, and
  * the density stamped by theme-boot.js still applies — only the drawer,
- * the dialog helper, the density control and the drawer picker go missing.
+ * the dialog helper, the density control, the drawer picker and the toast
+ * go missing.
  *
  *   <div data-density-picker></div>   the spacing control, built here
  *   GeecsKit.drawer(el)               rung 2 — open/close with Esc, scrim,
  *                                     focus return
  *   GeecsKit.confirm(el)              rung 3 — <dialog>.showModal() with a
  *                                     fallback for browsers without it
+ *   GeecsKit.toast(text, ms)          one short line that something happened
  *   GeecsKit.picker(opts)             a multi-select .picklist in a drawer:
  *                                     search, click / shift-click, select
  *                                     all shown, clear, one Add for the lot
+ *   <button class="combo" popovertarget="p">  a one-line picker: placed
+ *                                     under its button, its filter box
+ *                                     focused, opened by typing into it
  *
  * Why a drawer needs script at all, when rungs 0 and 3 do not: the browser
  * gives us <details> and <dialog> outright, but there is no element for "a
@@ -332,6 +337,27 @@
     };
   }
 
+  /* ---- toast -------------------------------------------------------- */
+
+  // One short line that something happened, gone after `ms`. One toast at
+  // a time: a second call replaces the text and restarts the clock. The
+  // element is made on first use, role="status" so it is announced.
+  var toastTimer = null;
+  function toast(text, ms) {
+    var el = document.querySelector(".toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "toast";
+      el.setAttribute("role", "status");
+      document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.hidden = true; }, ms || 2200);
+    return el;
+  }
+
   /* ---- wiring ------------------------------------------------------ */
 
   // Declarative openers/closers, so a surface needs no script of its own
@@ -368,9 +394,64 @@
     });
   }
 
+  /* ---- the one-line picker (.combo and its [popover]) -------------- */
+
+  // The platform opens and closes it (popovertarget, Esc, a click outside).
+  // This places it under its button (above it, near the window's foot),
+  // focuses its filter box ([data-combo-filter]) or its list as it opens,
+  // and opens it when the button is typed into: the key starts the filter,
+  // the down arrow goes to the list.
+  function wireCombos() {
+    var buttons = document.querySelectorAll(".combo[popovertarget]");
+    Array.prototype.forEach.call(buttons, function (button) {
+      var pop = document.getElementById(button.getAttribute("popovertarget"));
+      if (!pop || !pop.showPopover) return;
+      pop.addEventListener("toggle", function (e) {
+        if (e.newState !== "open") return;
+        var r = button.getBoundingClientRect();
+        pop.style.position = "fixed";
+        pop.style.minWidth = r.width + "px";
+        pop.style.left = Math.max(4, Math.min(r.left, window.innerWidth - pop.offsetWidth - 4)) + "px";
+        var below = r.bottom + 4;
+        pop.style.top = (below + pop.offsetHeight > window.innerHeight
+          ? Math.max(4, r.top - pop.offsetHeight - 4) : below) + "px";
+        if (!pop.contains(document.activeElement)) {
+          var first = pop.querySelector("[data-combo-filter]") || pop.querySelector("select,input,button");
+          if (first) first.focus();
+        }
+      });
+      button.addEventListener("keydown", function (e) {
+        // A character starts filtering; Space stays the button's own press.
+        var typed = e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey;
+        if (!typed && e.key !== "ArrowDown") return;
+        e.preventDefault();
+        if (!pop.matches(":popover-open")) pop.showPopover();
+        var filter = pop.querySelector("[data-combo-filter]");
+        if (typed && filter) {
+          // Added to what the box already holds (a kept filter), never replacing it.
+          filter.value += e.key;
+          filter.focus();
+          filter.dispatchEvent(new Event("input", { bubbles: true }));
+        } else {
+          var list = pop.querySelector("select");
+          if (list) list.focus();
+        }
+      });
+    });
+  }
+
+  // A drawer the server rendered open (a refused form inside it, say)
+  // is taken over as if opened here, so Close, Esc and the scrim work.
+  function adoptOpenDrawer() {
+    var el = document.querySelector('.drawer[data-open="true"]');
+    if (el) showDrawer(el, null);
+  }
+
   function init() {
     buildDensityPickers();
     wire();
+    wireCombos();
+    adoptOpenDrawer();
   }
 
   if (document.readyState === "loading") {
@@ -384,6 +465,7 @@
     drawer: drawer,
     confirm: confirmDialog,
     closeDrawer: closeDrawer,
-    picker: picker
+    picker: picker,
+    toast: toast
   };
 })();

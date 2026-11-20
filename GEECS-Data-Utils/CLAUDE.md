@@ -21,12 +21,32 @@ geecs_data_utils/
                                #   home the portal, logbook, ScanAnalysis and
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
+  data/scan_merge.py           # merge_scan_frames: several scans' frames as one
+                               #   (GEECSplotter's "merge s files"): rows tagged
+                               #   `scan` / `day`, the union of columns (NaN where
+                               #   a scan lacks one), each shot keeping its own
+                               #   number — so `Bin #` means nothing across scans
+                               #   on its own; merged_bin_numbers /
+                               #   with_merged_bins give the merged table one
+                               #   bin number (each scan's bins at their median
+                               #   X, the same setting pooled within a tolerance,
+                               #   default half the smallest step) as the
+                               #   in-memory `Bin # (merged)`
   analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
                                #   ScanAnalysis's suite, #682)
   shot_files.py                # completed-scan shot rows → native Path / stack ShotRef
   scalar_files.py              # shared s-file lock/merge and generated-scalar writes
+  scan_summary.py              # one scan's s-file at a glance (shots,
+                               #   columns, conditions, asked-for means) and
+                               #   ScanRule / scan_verdict — the portal day
+                               #   page's scan filters, one definition
+  scan_conditions.py           # a scalar job's condition labels: the
+                               #   analysis/ScanNNN/ScanNNN_<job>_labels.json
+                               #   file (write: atomic, never mkdir; read:
+                               #   tolerant) and scan_conditions(frame, labels)
+                               #   → ScanCondition (one label / mixed / unknown)
   type_defs.py                 # ScanTag, ScanMode, ECSDump Pydantic models
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
@@ -82,6 +102,56 @@ geecs_data_utils/
                                #   + himg_worker.py: run any of those jobs in
                                #   a child interpreter, streaming progress,
                                #   logs, the report and errors back as events
+                               #   + shot_images.py: (scan folder, device,
+                               #   shot) → pixels, one shot at a time — the
+                               #   tier ladder (device_kind: stack / native /
+                               #   vendor / unrenderable), the row joins
+                               #   (row_acq_timestamp refuses a shot the
+                               #   device missed: never a neighbour's image;
+                               #   a derived folder's stack, <device>-<suffix>
+                               #   with no column of its own, joins on its
+                               #   device's column — stack_parent_device over
+                               #   tiled_schema.derived_folder_parent; derived
+                               #   per-shot files keep the order fallback;
+                               #   row_file_shot), load_shot_array /
+                               #   load_shot_image, load_row_array (a
+                               #   row of the WHOLE table → its file) and
+                               #   average_rows (rows → one average; a
+                               #   bin's rows from data.binning.bin_rows,
+                               #   a filter as its mask; prepare= cleans
+                               #   each shot first, e.g. ImagePrep.apply;
+                               #   the portal's
+                               #   bin-image route still has its own loop);
+                               #   a "stack" may hold
+                               #   traces: stack_content says which, and
+                               #   load_shot_trace reads one as x-vs-y;
+                               #   moved from the portal so every viewer
+                               #   resolves a shot alike
+                               #   + shot_traces.py: a trace device row by
+                               #   row — trace_device (array stack, or
+                               #   per-shot NI-HWS scope files: the LeCroy
+                               #   .dat, read as tek_scope_hdf5, channels
+                               #   named from the file; or per-shot .txt /
+                               #   .tsv x/y columns — a spectrometer's
+                               #   wavelength and counts, read as tsv;
+                               #   or a Thorlabs FTS .csv export, read
+                               #   as thorlabs_fts; one channel),
+                               #   load_row_trace (a
+                               #   missed row is refused, never a
+                               #   neighbour's), average_traces (sample by
+                               #   sample on ONE shared x axis, else None —
+                               #   never resampled); native_shot_file in
+                               #   shot_images is the file lookup both share
+                               #   + display_png.py: frame → 8-bit PNG
+                               #   through a percentile window, optional
+                               #   matplotlib colour map (lazy import; no
+                               #   matplotlib = greyscale)
+                               #   + colour_tables.py: GEECSplotter's
+                               #   LabVIEW tables (enhance_low,
+                               #   white_blue_yellow, from "image color
+                               #   table presets.vi"), registered with
+                               #   matplotlib by safe_cmap so every
+                               #   by-name lookup finds them
   himg_cli.py                  # geecs-himg convert | verify | compact | restore: the .himg backlog command
   plotting_utils.py            # Simple matplotlib helpers for binned data
 ```
@@ -166,6 +236,20 @@ Resolves the GEECS data root and experiment name. Reading order:
 
 Also provides optional paths for config repos and FROG DLL.
 
+`[Paths] data_root_experiment = <name>` names the one experiment whose
+`Y{YYYY}` folders sit directly in the base path (a site whose data tree
+predates the convention); one key, so only one experiment can own the root.
+`ScanPaths.get_daily_scan_folder` builds without the experiment segment for
+it, and `ScanPaths.experiment_from_folder` reads the data root back as that
+experiment, so the tag keeps the name and the path round-trips. The
+comparison is lexical: the same root under another spelling (UNC against a
+drive letter) is tagged with the root folder's name. Every other
+experiment, and a config without the key, follows the convention unchanged.
+The "share is mounted" sentinel is `scan_paths.experiment_dir_present`: the
+root experiment's folder is the data root, which a bare mount point
+satisfies by existing, so it must also be non-empty (the logbook's mirror
+and calendar use it). Pinned by `tests/test_data_root_experiment.py`.
+
 ## GEECS Folder Convention
 
 ```
@@ -219,6 +303,11 @@ binned = sd.bin(config)      # ScanData one-call API — legacy shape,
                              # counts re-attached as ("count", "center")
 binned = sd.binned_scalars   # stateful compat property (same shape)
 ```
+
+`summarize_columns(frame, columns, agg=, err=)` → `{column: ColumnSummary}`
+is the same reduction with every row one bin, each column on its own (a
+row missing one column still counts for the others) — the Data Portal's
+scan scalars.
 
 `BinningConfig` also carries the numeric-binning options (`bin_edges` /
 `bin_width` / `quantile_bins`, `label`, `right`, `origin`); a
@@ -361,7 +450,10 @@ this package and must never depend on GeecsBluesky or a GUI package).
   Control) falls back to the `run_closed_evidence` files —
   `ScanDataScanNNN.txt` or the analysis s-file, opened through
   `data/sfile.py`'s path helpers. Uids are
-  `folder:{experiment}:{YYYY-MM-DD}:{number}`. A **finished** scan's
+  `folder:{experiment}:{YYYY-MM-DD}:{number}`. The start doc also carries
+  the ScanInfo range (`scan_start` / `scan_end` / `scan_step`), which
+  `RunSummary.scan_range` shows beside `scan_variable` (each stepped
+  column's alias, else its name) in the portal's day list. A **finished** scan's
   documents are cached per catalog (bounded LRU by folder), so a
   finished day costs one `os.scandir` and no file opens; unfinished
   scans are re-read each call. The cache is keyed on the finished
@@ -372,10 +464,32 @@ this package and must never depend on GeecsBluesky or a GUI package).
   passes its scan numbers as `skip`, so claimed folders are never read
   (a Bluesky day costs one directory listing); each side degrades to the
   other (primary down → folders, `OSError` on the share → primary), and
-  only both failing re-raises the primary's error. The logbook's
+  only both failing re-raises the primary's error. A primary that cannot
+  be reached at all (`tiled_catalog.CatalogUnreachable`, which
+  `TiledScanCatalog` raises when its first connection fails or a later
+  query meets an httpx network error — a server that went down after
+  the client was cached — or any `ConnectionError`/`TimeoutError`) is skipped for `retry_after` seconds
+  (300; `clock` injectable): listings come from the folders alone and a
+  primary uid's `load_run` raises the remembered error at once, so an
+  unreachable Tiled costs one connect timeout per window, not one per
+  call. A reachable primary failing one query (a malformed run) is never
+  skipped. The logbook's
   `scan_reader` walks the same folders for a different product (its
   `ScanSummary`) over the same `scan_info` facts; folding the two walks
   together is its own change.
+  An unreachable data root (an unmounted share, none configured) is an
+  `OSError` from `list_runs`, never an empty day; `load_run` keeps its
+  `KeyError`. A root that did not exist when the process started
+  (`ScanPaths.paths_config` resolved to `None` at import) is looked for
+  again by `scan_paths.current_paths_config()` — at most every
+  `CONFIG_RETRY_S` (30 s), one thread at a time — so a service started
+  during a share outage recovers when the share comes back. The folder
+  catalog's readers go through it (`daily_scan_folder`, `list_runs`,
+  `load_run`, `probe`, and the portal Plot page's `find_scan`); a reader
+  of `ScanPaths.paths_config` directly does not recover — still
+  `ScanPaths.__init__`, GeecsBluesky's `data_paths`, LogTriage's
+  harvester and ScanAnalysis's config loader. A new reader of the root
+  uses `current_paths_config()`.
   Read-only; the tree-untouched pin is in `tests/test_folder_catalog.py`.
 - **`tiled_schema`** — event-schema column semantics, ONE module,
   version-tagged (`TARGET_SCHEMA_VERSION = 1`);

@@ -31,7 +31,7 @@ import logging
 from enum import Enum
 from typing import Any, Callable
 
-from geecs_schemas.trigger_profile import TriggerProfile, TriggerState
+from geecs_schemas.trigger_profile import ShotGateSpec, TriggerProfile, TriggerState
 from ophyd_async.core import (
     AsyncStatus,
     SignalR,
@@ -45,6 +45,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from geecs_bluesky.devices.ca._pv import ca_pv
 from geecs_bluesky.devices.ca.gateway_put import CaPutSetter
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.shot_gate import ShotGate, gate_for
 from geecs_bluesky.utils import safe_name
 from geecs_core.pv_naming import pv_name, setpoint_pv
 
@@ -74,6 +75,9 @@ class ShotControlWrites(BaseModel):
     use_scan_mode:
         The profile's scan-mode flag: every run under it announces the scan
         and each shot to the devices (``devices/scan_mode.py``).
+    shot_gate:
+        The profile's permission-to-fire service, or ``None``: every
+        SINGLESHOT under it waits for the gate (``geecs_bluesky.shot_gate``).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -81,6 +85,7 @@ class ShotControlWrites(BaseModel):
     name: str = ""
     states: dict[str, list[tuple[str, str, str]]] = Field(default_factory=dict)
     use_scan_mode: bool = False
+    shot_gate: ShotGateSpec | None = None
 
     @staticmethod
     def _state_name(state: TriggerState | str) -> str:
@@ -162,7 +167,12 @@ def trigger_writes_from_profile(profile: TriggerProfile) -> ShotControlWrites:
             "use_scan_mode: the shot message is then the trigger)"
         )
     name = getattr(profile, "name", "") or ""
-    return ShotControlWrites(name=name, states=states, use_scan_mode=use_scan_mode)
+    return ShotControlWrites(
+        name=name,
+        states=states,
+        use_scan_mode=use_scan_mode,
+        shot_gate=getattr(profile, "shot_gate", None),
+    )
 
 
 class ShotControl(StandardReadable):
@@ -256,6 +266,23 @@ class ShotControl(StandardReadable):
     def use_scan_mode(self) -> bool:
         """Whether runs under this profile announce the scan and every shot to the devices."""
         return self._writes.use_scan_mode
+
+    @property
+    def shot_gate(self) -> ShotGate | None:
+        """The profile's gate, or ``None``.
+
+        The process's reader for its address under this profile's hold
+        settings: a new view per read, so reading it never changes another
+        profile's gate.
+
+        ``None`` too under a box-less profile: the gate holds the SINGLESHOT
+        put, and such a profile issues none (the schema refuses a gate on a
+        profile without SINGLESHOT writes; this is the backstop).
+        """
+        spec = self._writes.shot_gate
+        if spec is None or self.boxless:
+            return None
+        return gate_for(spec)
 
     @property
     def boxless(self) -> bool:

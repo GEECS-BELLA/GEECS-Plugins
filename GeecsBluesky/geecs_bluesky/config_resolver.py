@@ -364,11 +364,15 @@ class ConfigsRepoResolver:
         Raises
         ------
         GeecsConfigurationError
-            Missing file, or a profile that names no trigger device.
+            Missing file, a file that is not YAML, or a profile that names
+            no trigger device.
         """
         stem = yaml_stem(name)
         path = self._named_yaml_path(self.TRIGGER_FOLDER, stem)
-        document = self._load_yaml(path, "trigger profile", name)
+        try:
+            document = self._load_yaml(path, "trigger profile", name)
+        except yaml.YAMLError as exc:
+            raise GeecsConfigurationError(f"trigger profile {name!r}: {exc}") from exc
         if "schema_version" in document:
             return TriggerProfile.model_validate(document)
         profile = convert_shot_control(document, name=stem)

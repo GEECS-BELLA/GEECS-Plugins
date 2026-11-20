@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "template": "loop_contract",
+  "kind": "setpoint_device",
+  "description": "A feedback loop behind geecs-epics' loop contract (docs/loop-contract.md, the ioc-loop engine): the mode, the setpoint held, the tuning and travel limits, and what the loop last saw and did.",
+  "roles": [
+    {"name": "mode", "suffix": "Mode", "type": "enum", "label": "mode", "writable": true, "readback": "mode_taken", "settled_by": "mode_taken", "archive": true},
+    {"name": "mode_taken", "suffix": "Mode_RBV", "type": "enum", "label": "mode taken", "fresh_by": "heartbeat", "archive": true},
+    {"name": "state", "suffix": "State_RBV", "type": "enum", "label": "state", "fresh_by": "heartbeat", "fields": ["SEVR", "STAT"], "archive": true},
+    {"name": "reason", "suffix": "Reason_RBV", "type": "enum", "label": "reason", "archive": true},
+    {"name": "reason_text", "suffix": "ReasonText_RBV", "type": "readback", "label": "why", "text": "char_array"},
+
+    {"name": "setpoint", "suffix": "Setpoint", "type": "setpoint", "label": "setpoint", "writable": true, "readback": "setpoint_applied", "autosaved": true, "fields": ["DRVH", "DRVL", "EGU", "PREC"], "archive": true},
+    {"name": "setpoint_applied", "suffix": "Setpoint_RBV", "type": "readback", "label": "setpoint applied", "level": "expert", "fields": ["EGU", "PREC"]},
+    {"name": "setpoint_display", "suffix": "SetpointDisplay_RBV", "type": "readback", "label": "setpoint, display unit", "fields": ["EGU", "PREC"]},
+    {"name": "use_current", "suffix": "UseCurrent", "type": "command", "label": "use current value", "writable": true},
+    {"name": "accept", "suffix": "Accept", "type": "command", "label": "accept jump", "writable": true},
+
+    {"name": "gain", "suffix": "Gain", "type": "setpoint", "label": "gain", "writable": true, "readback": "gain_applied", "autosaved": true, "fields": ["DRVH", "DRVL", "PREC"], "archive": true},
+    {"name": "gain_applied", "suffix": "Gain_RBV", "type": "readback", "label": "gain applied", "level": "expert", "fields": ["PREC"]},
+    {"name": "deadband", "suffix": "Deadband", "type": "setpoint", "label": "deadband", "writable": true, "readback": "deadband_applied", "autosaved": true, "fields": ["DRVH", "DRVL", "EGU", "PREC"], "archive": true},
+    {"name": "deadband_applied", "suffix": "Deadband_RBV", "type": "readback", "label": "deadband applied", "level": "expert", "fields": ["EGU", "PREC"]},
+    {"name": "max_step", "suffix": "MaxStep", "type": "setpoint", "label": "largest step", "writable": true, "readback": "max_step_applied", "autosaved": true, "fields": ["DRVH", "DRVL", "EGU", "PREC"], "archive": true},
+    {"name": "max_step_applied", "suffix": "MaxStep_RBV", "type": "readback", "label": "largest step applied", "level": "expert", "fields": ["EGU", "PREC"]},
+    {"name": "average", "suffix": "Average", "type": "setpoint", "label": "samples averaged", "writable": true, "integer": true, "readback": "average_applied", "autosaved": true, "fields": ["DRVH", "DRVL"], "archive": true},
+    {"name": "average_applied", "suffix": "Average_RBV", "type": "readback", "label": "samples averaged, applied", "level": "expert"},
+    {"name": "limit_low", "suffix": "LimitLow", "type": "setpoint", "label": "low limit", "writable": true, "readback": "limit_low_applied", "autosaved": true, "fields": ["DRVH", "DRVL", "EGU", "PREC"], "archive": true},
+    {"name": "limit_low_applied", "suffix": "LimitLow_RBV", "type": "readback", "label": "low limit applied", "level": "expert", "fields": ["EGU", "PREC"]},
+    {"name": "limit_high", "suffix": "LimitHigh", "type": "setpoint", "label": "high limit", "writable": true, "readback": "limit_high_applied", "autosaved": true, "fields": ["DRVH", "DRVL", "EGU", "PREC"], "archive": true},
+    {"name": "limit_high_applied", "suffix": "LimitHigh_RBV", "type": "readback", "label": "high limit applied", "level": "expert", "fields": ["EGU", "PREC"]},
+
+    {"name": "value", "suffix": "Value_RBV", "type": "readback", "label": "value", "fields": ["EGU", "PREC"], "archive": true},
+    {"name": "value_display", "suffix": "ValueDisplay_RBV", "type": "readback", "label": "value, display unit", "fields": ["EGU", "PREC"], "archive": true},
+    {"name": "error", "suffix": "Error_RBV", "type": "readback", "label": "error", "fields": ["EGU", "PREC"], "archive": true},
+    {"name": "step", "suffix": "Step_RBV", "type": "readback", "label": "last step", "fields": ["EGU", "PREC"], "archive": true},
+    {"name": "target", "suffix": "Target_RBV", "type": "readback", "label": "last target", "fields": ["EGU", "PREC"], "archive": true},
+    {"name": "actuator", "suffix": "Actuator_RBV", "type": "readback", "label": "actuator", "fields": ["EGU", "PREC"], "archive": true},
+    {"name": "owns", "suffix": "Owns_RBV", "type": "bit", "label": "loop is writing the actuator", "archive": true},
+    {"name": "steps", "suffix": "Steps_RBV", "type": "readback", "label": "steps taken"},
+    {"name": "frame_id", "suffix": "FrameId_RBV", "type": "readback", "label": "frame id", "level": "expert"},
+    {"name": "seen", "suffix": "Seen_RBV", "type": "readback", "label": "samples received", "level": "expert"},
+    {"name": "used", "suffix": "Used_RBV", "type": "readback", "label": "samples accepted", "level": "expert"},
+    {"name": "missed", "suffix": "Missed_RBV", "type": "readback", "label": "frame ids missed", "level": "expert"},
+    {"name": "skipped_no_beam", "suffix": "SkippedNoBeam_RBV", "type": "readback", "label": "skipped: no beam", "level": "expert"},
+    {"name": "skipped_invalid", "suffix": "SkippedInvalid_RBV", "type": "readback", "label": "skipped: invalid", "level": "expert"},
+    {"name": "skipped_jump", "suffix": "SkippedJump_RBV", "type": "readback", "label": "skipped: jump", "level": "expert"},
+    {"name": "skipped_permit", "suffix": "SkippedPermit_RBV", "type": "readback", "label": "skipped: permit", "level": "expert"},
+    {"name": "skipped_settling", "suffix": "SkippedSettling_RBV", "type": "readback", "label": "skipped: settling", "level": "expert"},
+    {"name": "heartbeat", "suffix": "Heartbeat_RBV", "type": "counter", "label": "engine heartbeat", "level": "expert"},
+    {"name": "off_since_boot", "suffix": "OffSinceBoot_RBV", "type": "bit", "label": "off since the engine started", "fields": ["SEVR", "STAT"]}
+  ],
+  "actions": {
+    "mode": {"label": "mode", "roles": ["mode"]},
+    "setpoint": {"label": "setpoint", "roles": ["setpoint", "use_current"]},
+    "accept": {"label": "accept a jump", "roles": ["accept"]},
+    "tuning": {"label": "tuning", "roles": ["gain", "deadband", "max_step", "average"]},
+    "limits": {"label": "travel limits", "roles": ["limit_low", "limit_high"]}
+  },
+  "panel": {
+    "rail": [
+      {"title": "Loop", "roles": ["mode", "setpoint", "use_current", "accept"]},
+      {"title": "Tuning", "roles": ["gain", "deadband", "max_step", "average"]},
+      {"title": "Travel limits", "roles": ["limit_low", "limit_high"]}
+    ],
+    "readings": ["mode_taken", "state", "reason", "reason_text", "value_display", "setpoint_display", "value", "error", "step", "target", "actuator", "steps", "owns", "off_since_boot"],
+    "trends": [
+      {"title": "Value", "roles": ["value_display", "setpoint_display"]},
+      {"title": "Actuator", "roles": ["actuator", "target"]}
+    ]
+  }
+}

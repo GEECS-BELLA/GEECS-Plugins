@@ -13,12 +13,14 @@ from __future__ import annotations
 import os
 import re
 import logging
+import threading
+import time
 import calendar as cal
 
 from pathlib import Path
 from datetime import datetime, date
 from configparser import ConfigParser
-from typing import Optional, Union, Sequence
+from typing import Callable, Optional, Union, Sequence
 import pandas as pd
 
 from geecs_data_utils.utils import SysPath, ConfigurationError, month_to_int
@@ -48,6 +50,18 @@ VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
 # vendor and renderable files, the first-`max_files` count decides — the
 # same iterdir-order nondeterminism that always applied to `himg`.
 _ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY_EXTS)
+
+#: Text files: a device's own format only when the folder holds no other
+#: accepted file (a spectrometer's wavelength/counts columns or its
+#: vendor export, which
+#: otherwise inferred "png" and read as missing). Analysis writes text
+#: sidecars beside a camera's frames (the FROG ``_retrieved_lineouts.tsv``),
+#: so a text file never outvotes an image, whatever the listing order.
+_TEXT_EXTS = frozenset({"txt", "tsv", "csv"})
+
+#: How many text files the inference reads past before deciding the folder
+#: is text alone (a sidecar folder interleaves them with its frames).
+_TEXT_PEEK = 50
 
 
 # module‐level logger
@@ -118,7 +132,7 @@ class ScanPaths:
                 )
             folder = self.get_scan_folder_path(tag, base_directory=base_directory)
 
-        self._initialize_folders(folder, read_mode)
+        self._initialize_folders(folder, read_mode, base_directory=base_directory)
 
     @classmethod
     def reload_paths_config(
@@ -146,7 +160,12 @@ class ScanPaths:
             logger.error("Configuration Error in ScanData: %s", e)  # noqa: TRY400 — expected config state
             cls.paths_config = None
 
-    def _initialize_folders(self, folder: Path, read_mode: bool):
+    def _initialize_folders(
+        self,
+        folder: Path,
+        read_mode: bool,
+        base_directory: Union[Path, str, None] = None,
+    ):
         """
         Initialize and validate folder paths for the scan.
 
@@ -156,6 +175,10 @@ class ScanPaths:
             Folder path for the scan.
         read_mode : bool
             If True, raise an error if the folder does not exist.
+        base_directory : Path or str, optional
+            The data root the folder was built under, when the caller gave
+            one: a scan directly in it belongs to the configured
+            ``data_root_experiment``.
 
         Raises
         ------
@@ -210,11 +233,43 @@ class ScanPaths:
             self._tag_date.month,
             self._tag_date.day,
             parse_scan_folder_name(scan_folder_name),
-            experiment=exp_name,
+            experiment=self.experiment_from_folder(folder.parents[4], base_directory),
         )
 
         # Assign folder attributes
         self._folder = folder
+
+    @staticmethod
+    def experiment_from_folder(
+        experiment_folder: Path,
+        base_directory: Union[Path, str, None] = None,
+    ) -> str:
+        """The experiment a scan's ``experiment_folder`` belongs to.
+
+        The folder's own name (the GEECS convention), except that the data
+        root itself belongs to the configured ``data_root_experiment``. The
+        comparison is lexical: the same root under another spelling (a UNC
+        path against a drive letter) reads as an ordinary folder.
+
+        Parameters
+        ----------
+        experiment_folder : Path
+            The folder above a scan's ``Y{YYYY}`` folder.
+        base_directory : Path or str, optional
+            The data root the folder was found under; defaults to the
+            configured one.
+
+        Returns
+        -------
+        str
+            The experiment name.
+        """
+        config = ScanPaths.paths_config
+        if config is not None and config.data_root_experiment:
+            root = base_directory if base_directory is not None else config.base_path
+            if root is not None and _same_path(experiment_folder, Path(root)):
+                return config.data_root_experiment
+        return experiment_folder.name
 
     @staticmethod
     def get_scan_tag(
@@ -299,7 +354,8 @@ class ScanPaths:
                 experiment=experiment,
             )
 
-        folder = Path(base) / tag.experiment if tag.experiment else Path(base)
+        in_root = not tag.experiment or _is_data_root_experiment(tag.experiment)
+        folder = Path(base) if in_root else Path(base) / tag.experiment
         folder = (
             folder / f"Y{tag.year}" / f"{tag.month:02d}-{cal.month_name[tag.month][:3]}"
         )
@@ -813,7 +869,8 @@ def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
     callers holding a device directory directly (no canonical-layout
     validation required — a gallery tier probe must classify a vendor
     device even inside a non-canonical dev/scratch scan folder).  Counts
-    only ``_ACCEPTABLE_EXTS`` members; ``"png"`` when nothing matches.
+    only ``_ACCEPTABLE_EXTS`` members, and a text extension (``_TEXT_EXTS``)
+    only when none of those is found; ``"png"`` when nothing matches.
 
     Parameters
     ----------
@@ -832,16 +889,112 @@ def infer_device_dir_ext(device_dir: Path, *, max_files: int = 5) -> str:
     if not device_dir.exists():
         return "png"
     counts: Counter = Counter()
+    texts: Counter = Counter()
     seen = 0
     for f in device_dir.iterdir():
-        if f.is_file():
-            ext = f.suffix.lower().lstrip(".")
-            if ext in _ACCEPTABLE_EXTS:
-                counts[ext] += 1
-                seen += 1
-                if seen >= max_files:
-                    break
-    return counts.most_common(1)[0][0] if counts else "png"
+        ext = f.suffix.lower().lstrip(".")
+        if ext not in _ACCEPTABLE_EXTS and ext not in _TEXT_EXTS:
+            continue
+        if not f.is_file():
+            continue
+        if ext in _TEXT_EXTS:
+            texts[ext] += 1
+            if not counts and sum(texts.values()) >= _TEXT_PEEK:
+                break  # text alone, as far as it is worth looking
+            continue
+        counts[ext] += 1
+        seen += 1
+        if seen >= max_files:
+            break
+    if counts:
+        return counts.most_common(1)[0][0]
+    return texts.most_common(1)[0][0] if texts else "png"
+
+
+#: How often an unresolved data root is looked for again (seconds): a
+#: share outage costs one config read and its log lines per window.
+CONFIG_RETRY_S = 30.0
+_config_retry_lock = threading.Lock()
+_config_retry_at = 0.0
+
+
+def current_paths_config(
+    clock: Callable[[], float] = time.monotonic,
+) -> Optional[GeecsPathsConfig]:
+    """``ScanPaths.paths_config``, looked for again while it is ``None``.
+
+    It is resolved once, at import, and is ``None`` when the data root did
+    not exist then (the share not mounted when a service started). Every
+    reader of the root goes through here, so a long-lived process
+    recovers when the share comes back instead of reading "no data" for
+    the rest of its life; the retry runs at most every
+    :data:`CONFIG_RETRY_S` seconds, one request thread at a time.
+
+    Parameters
+    ----------
+    clock : callable, optional
+        Monotonic seconds; tests inject one.
+
+    Returns
+    -------
+    GeecsPathsConfig or None
+        The configuration, or ``None`` while the root is unresolvable.
+    """
+    global _config_retry_at
+    if ScanPaths.paths_config is None:
+        with _config_retry_lock:
+            now = clock()
+            if ScanPaths.paths_config is None and now >= _config_retry_at:
+                _config_retry_at = now + CONFIG_RETRY_S
+                ScanPaths.reload_paths_config()
+    return ScanPaths.paths_config
+
+
+def _is_data_root_experiment(experiment: Optional[str]) -> bool:
+    """Whether *experiment*'s ``Y{YYYY}`` folders sit directly in the data root."""
+    config = ScanPaths.paths_config
+    return (
+        config is not None
+        and bool(experiment)
+        and experiment == config.data_root_experiment
+    )
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    """Whether two paths name the same folder, lexically (no filesystem access)."""
+    return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(
+        os.path.normpath(str(b))
+    )
+
+
+def experiment_dir_present(experiment_dir: Path, experiment: Optional[str]) -> bool:
+    """Whether *experiment*'s data folder is really there — the "share is mounted" sentinel.
+
+    A conventional experiment folder is absent when the share is down. The
+    ``data_root_experiment``'s folder is the data root itself, which may be a bare mount point that exists while the
+    share is down — so for it the folder must also be non-empty.
+
+    Parameters
+    ----------
+    experiment_dir : Path
+        The folder above the experiment's ``Y{YYYY}`` folders.
+    experiment : str or None
+        GEECS experiment name.
+
+    Returns
+    -------
+    bool
+        True when the folder exists (and, for the ``data_root_experiment``,
+        holds anything).
+    """
+    try:
+        if not experiment_dir.is_dir():
+            return False
+        if _is_data_root_experiment(experiment):
+            return next(experiment_dir.iterdir(), None) is not None
+    except OSError:
+        return False
+    return True
 
 
 def daily_scan_folder(
@@ -877,7 +1030,7 @@ def daily_scan_folder(
         The candidate ``.../{YY_MMDD}/scans`` path (existing or not), or
         ``None`` when the data root or the experiment is unresolvable.
     """
-    paths_config = ScanPaths.paths_config
+    paths_config = current_paths_config()
     if base_path is None:
         if paths_config is None:
             return None

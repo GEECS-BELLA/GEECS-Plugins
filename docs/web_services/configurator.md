@@ -51,8 +51,10 @@ typed by name. The YAML of the recipe as edited is shown beside the form.
 - **Save** first asks the document's reader to check your draft. That is the
   scanner for a trigger profile, the archiver for the archive policy, and the
   data portal for an analysis recipe or group. A refusal is shown at the
-  fields it names, and nothing is saved. Otherwise Save commits (or proposes)
-  and says what happened.
+  fields it names, and nothing is saved. A check that passes with nothing to ask saves on that
+  one press. A check that could not run, skipped part of itself, asks a question or prints a plan
+  (the archiver's) is shown first, with a second Save under it to confirm.
+  Either way the save commits (or proposes) and says what happened.
 - If someone changed the file since you opened it, Save says so, shows what
   your edit would change in the file as it is now, and keeps your edit in
   the form. Nothing is merged for you.
@@ -72,7 +74,7 @@ Each row says which.
   asks for a name, one of this box's folders and, for a recipe, its data
   folder and frame kind. It then opens a draft that already works: no
   processing steps, and the standard measure for those frames. Nothing is
-  written until you Save. A name another recipe or `.himg` job already
+  written until you Save. A name another recipe or job already
   uses, anywhere in the analyzers tree, is refused.
 - **Save as a copy** writes the form as a new file beside the original,
   under a new name.

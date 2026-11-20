@@ -36,6 +36,7 @@ __all__ = [
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
     "GeecsScanModeError",
+    "GeecsShotGateError",
     "PseudoComponentsDisagreeError",
     "PseudoRestorePendingError",
     "SetupCheckFailedError",
@@ -358,6 +359,17 @@ class GeecsScanModeError(GeecsError):
     def __init__(self, message: str, devices: Sequence[str] = ()) -> None:
         self.devices = tuple(devices)
         super().__init__(message)
+
+
+class GeecsShotGateError(GeecsError):
+    """The facility's permission-to-fire service cannot be reached at a run's start.
+
+    Raised by :func:`~geecs_bluesky.plans.shot_gate.open_gate` before the
+    box is driven and before the claim, when the run's trigger profile
+    names a gate and no connection answers within the bounded wait: no
+    shot could be permitted, so the run is refused with nothing claimed.
+    A gate lost mid-run never raises — the slot holds, then pauses.
+    """
 
 
 # ---------------------------------------------------------------------------

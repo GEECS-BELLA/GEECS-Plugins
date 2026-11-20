@@ -7,8 +7,11 @@ analyses: it compiles the document against the core's registry at
 construction and runs it on ``geecs_analysis``. A ``.himg`` job (a
 :class:`~geecs_schemas.analysis.HimgJob`, no analysis at all) goes straight
 to its ScanAnalysis class in
-:data:`~scan_analysis.analyzers.common.himg_kinds.HIMG_JOB_CLASSES`. Both
-honour the same ``ScanAnalyzer`` contract, so the task queue, the portal and
+:data:`~scan_analysis.analyzers.common.himg_kinds.HIMG_JOB_CLASSES`, and a
+scalar-columns job (a :class:`~geecs_schemas.analysis.ScalarJob`: new
+s-file columns by formula) to
+:class:`~scan_analysis.analyzers.common.scalar_columns.ScalarColumnsAnalyzer`.
+All honour the same ``ScanAnalyzer`` contract, so the task queue, the portal and
 MCP never see the difference. The legacy ImageAnalysis wrappers this factory
 once fell back to were retired in #1039 (their last state: tag
 ``legacy-analysis-final``).
@@ -31,7 +34,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Optional
 
-from geecs_schemas.analysis import AnalysisDocument, HimgJob
+from geecs_schemas.analysis import AnalysisDocument, HimgJob, ScalarJob
 
 from scan_analysis.core_analyzer import CoreScanAnalyzer
 
@@ -70,7 +73,7 @@ def create_scan_analyzer(
 
     Parameters
     ----------
-    diag : AnalysisRecipe or HimgJob
+    diag : AnalysisRecipe, HimgJob or ScalarJob
         Validated document.
     id : str, optional
         Task-queue ID for the analyzer instance. Defaults to
@@ -117,5 +120,16 @@ def create_scan_analyzer(
         logger.debug("Routing .himg job %r to ScanAnalysis", analyzer.id)
         return analyzer
     effective_id = id if id is not None else source_id or diag.device
+    if isinstance(diag, ScalarJob):
+        from scan_analysis.analyzers.common.scalar_columns import (
+            ScalarColumnsAnalyzer,
+        )
+
+        analyzer = ScalarColumnsAnalyzer(diag)
+        analyzer.id = effective_id
+        analyzer.priority = effective_priority
+        analyzer.background_source = None
+        logger.debug("Routing scalar-columns job %r to ScanAnalysis", effective_id)
+        return analyzer
     logger.debug("Routing document %r to the analysis core", effective_id)
     return CoreScanAnalyzer(diag, id=effective_id, priority=effective_priority)

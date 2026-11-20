@@ -40,9 +40,11 @@ Select a completed scan and open its **Analysis** tab to run a configured
 diagnostic. Use a recipe's **edit** to open it in the configurator, preview the
 unsaved recipe on the scan, and save it to the configs repository.
 
-Automatic watching and Google Docs uploads have been retired. The existing
-queue/status API remains available for explicit MCP runs; a future automatic
-analysis service has not yet been designed.
+LiveWatch and Google Docs uploads have been retired. Nothing analyses a scan
+by default. Where a site runs the analysis worker, the portal's day page can
+run an analysis group over a whole day, and an operator can start a watch
+there that analyses each new scan of that day once it closes; the watch ends
+when it is stopped or the worker restarts.
 
 ---
 

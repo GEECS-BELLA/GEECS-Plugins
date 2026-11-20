@@ -15,7 +15,8 @@
  *     fields,      // optional: the top-level fields drawn; every other field is kept exactly as stored
  *     operator,    // the operator's name, or a function returning it: the host's own identity, required to save
  *     preview,     // optional: function (document) — the host's Preview button. Returning a promise of an
- *                  //   Element (or text) shows it in the drawer under the buttons; a rejection shows its message
+ *                  //   Element (or text) shows it in the drawer under the buttons; a rejection shows its message.
+ *                  //   Joined to it a "live" toggle (off until pressed, remembered per browser): each edit redraws
  *     toolbar,     // optional: an Element of the host's, drawn beside the buttons (a shot number, a name field)
  *     onSaved,     // optional: function (answer, id, {unsaved}) — after a save, copy or delete the configurator
  *                  //   accepted; `unsaved` when the form was edited after it was sent (a host must not navigate
@@ -60,6 +61,10 @@
     if (d && d.reason) return d.reason;
     return typeof d === "string" ? d : JSON.stringify(d);
   }
+  //: Live preview: how long the form is still before a redraw, and where the toggle is remembered.
+  var LIVE_MS = 600, LIVE_KEY = "geecs-configurator-live-preview";
+  function liveRemembered() { try { return localStorage.getItem(LIVE_KEY) === "1"; } catch (e) { return false; } }
+  function liveRemember(on) { try { localStorage.setItem(LIVE_KEY, on ? "1" : "0"); } catch (e) { /* a private window: this page only */ } }
   function tierMark(t) { return t ? el("span", { class: "tier", "data-tier": t }, t) : el("span", { class: "dim" }, "none"); }
 
   // One request to the configurator: {status, body}, the body parsed when it is JSON.
@@ -86,6 +91,9 @@
   //   o.operator()                   the git author (the host's), "" when not given
   //   o.dryRun()                     the kind's dry-run word from /api/kinds ("none": no consumer check)
   //   o.button, o.status             the Save button (disabled while asking) and where the answers go
+  // One press of Save saves when the dry run ran and has nothing to confirm (every check passed, no question,
+  // no output); one that did not run, skipped a check, asks something or prints a plan is shown first, with
+  // a Save of its own.
   //   o.saved(answer, doc)           a 200: the page takes the new etag (and, committed, the new baseline:
   //                                  `doc`, what was sent — never the form's later edits, which stay in it)
   //   o.noOperator()                 optional: the page points at its operator field
@@ -98,6 +106,11 @@
       var ul = el("ul", { class: "dim" });
       d.outcomes.forEach(function (x) { ul.appendChild(el("li", {}, (x.check || "") + ": " + (x.result || "") + (x.detail ? " (" + x.detail + ")" : ""))); });
       return ul;
+    }
+    // A dry run with nothing to confirm: it ran, every check in it passed (a skipped one is a check that did
+    // not run), it asks nothing and prints nothing.
+    function nothingToConfirm(d) {
+      return !!d.ran && !(d.questions || []).length && !d.output && (d.outcomes || []).every(function (x) { return x.result === "passed"; });
     }
     function errorsAt(errors) { if (errors && errors.length) o.form().setErrors(errors); }
     function changeList(changes) {
@@ -128,7 +141,10 @@
         if (r.status !== 200) { show([banner("The dry run did not answer: " + why(d), "error")]); return; }
         if (d.refusal) { refused(d); return; }
         if (d.by === "none") { save(convert, true); return; }  // no consumer check here: nothing to show
-        var kids = [banner(d.ran ? "The " + d.by + "'s dry run of your edit: " + (d.detail || "no objection") + "." : "The " + d.by + "'s dry run did not run: " + d.detail + ".", d.ran ? null : "stale"), outcomes(d)];
+        var said = [banner(d.ran ? "The " + d.by + "'s dry run of your edit: " + (d.detail || "no objection") + "." : "The " + d.by + "'s dry run did not run: " + d.detail + ".", d.ran ? null : "stale"), outcomes(d)];
+        // a check that ran, asks nothing and prints nothing has nothing to confirm: the one press saves, its line kept above the save's
+        if (nothingToConfirm(d)) { save(convert, true, said); return; }
+        var kids = said.slice();
         (d.questions || []).forEach(function (q) { kids.push(el("p", { class: "dim" }, "It asks: " + (q.title || q.check) + (q.message ? " (" + q.message + ")" : ""))); });
         if (d.output) { var det = el("details", { class: "disc" }); det.appendChild(el("summary", {}, "Its output")); det.appendChild(el("pre", { class: "well" }, d.output)); kids.push(det); }
         kids.push(button(d.ran ? "Save" : "Save without it", "primary", function () {
@@ -138,13 +154,13 @@
         show(kids);
       }).catch(function (e) { if (mine === asks) { o.button.disabled = false; show([banner(String(e.message || e), "error")]); } });
     }
-    function save(convert, checked) {
-      var who = o.operator();
+    function save(convert, checked, said) {
+      var who = o.operator(), lead = (said || []).filter(Boolean);
       if (!who) { show([banner("Type your name first (the operator field): it is the git author.", "error")]); if (o.noOperator) o.noOperator(); return; }
       if (o.form().invalid().length) { show([banner("A field does not parse: " + o.form().invalid().join(", "), "error")]); return; }
       if (!checked && o.dryRun() !== "none") { dryRunFirst(convert); return; }
       o.button.disabled = true;
-      show([el("p", { class: "dim" }, "Saving…")]);
+      show(lead.concat([el("p", { class: "dim" }, "Saving…")]));
       var doc = o.value();
       o.call("PUT", "/api/documents/" + o.kind + "/" + o.docId().split("/").map(encodeURIComponent).join("/") + o.query(),
         { document: doc, etag: o.etag(), operator: who, convert_legacy: !!convert, create: !!(o.create && o.create()) }).then(function (r) {
@@ -155,7 +171,7 @@
           o.saved(b, doc);
           var head = b.outcome === "committed" ? "Committed " + (b.commit || "").slice(0, 10) + " to main as " + b.author + "."
             : b.outcome === "proposed" ? "Proposed for the maintainer's review on " + b.branch + "." : "Nothing to do: the stored document already says this.";
-          var kids = [banner(head)];
+          var kids = lead.concat([banner(head)]);
           if (b.pull_request) { var p = el("p", {}, "Pull request: "); p.appendChild(el("a", { href: b.pull_request, target: "_blank", rel: "noopener" }, b.pull_request)); kids.push(p); }
           (b.notes || []).forEach(function (n) { kids.push(el("p", { class: "dim" }, n)); });
           kids.push(el("p", { class: "dim" }, "Whether it took effect: the configurator's log."));
@@ -258,7 +274,7 @@
       var parts = o.docId().split("/"), stem = parts.pop().replace(/\.ya?ml$/i, ""), newId = parts.concat([name + ".yaml"]).join("/");
       var doc = JSON.parse(JSON.stringify(o.value()));
       if (doc.name === stem) doc.name = name;
-      if (o.kind === "analysis_recipe" || o.kind === "himg_job") doc.output_name = name;  // its own columns and folders (a job: its label)
+      if (o.kind === "analysis_recipe" || o.kind === "himg_job" || o.kind === "scalar_job") doc.output_name = name;  // its own columns and folders (a job: its label)
       show([el("p", { class: "dim" }, "Saving a copy as " + newId + "…")]);
       return o.call("PUT", "/api/documents/" + o.kind + "/" + newId.split("/").map(encodeURIComponent).join("/") + o.query(), { document: doc, etag: "", operator: who, create: true }).then(function (r) {
         var b = r.body || {}, d = b.detail;
@@ -358,27 +374,72 @@
     // A preview shows the draft it was drawn from, or says it does not: an older request's answer is
     // dropped (the latest Preview wins, whatever order they resolve in), and an edit after it marks it stale.
     var previews = 0, drawn = null;  // drawn: the draft the shown preview is of
+    var pictured = false, staleNote = null;  // pictured: a preview's picture is in the box (kept while the next renders)
+    function note(text) {
+      if (staleNote && previewBox.children && Array.prototype.indexOf.call(previewBox.children, staleNote) >= 0) previewBox.removeChild(staleNote);
+      staleNote = banner(text, "stale");
+      previewBox.setAttribute("data-stale", "true");
+      previewBox.insertBefore(staleNote, previewBox.firstChild);
+    }
+    var STALE = "This preview is of an earlier edit: ";
     function markStale() {
       if (drawn === null || previewBox.getAttribute("data-stale") === "true") return;
-      previewBox.setAttribute("data-stale", "true");
-      previewBox.insertBefore(banner("This preview is of an earlier edit: press Preview again.", "stale"), previewBox.firstChild);
+      note(STALE + (live ? "redrawing…" : "press Preview again."));
     }
-    function edited() { if (drawn !== null && JSON.stringify(value()) !== drawn) markStale(); }
+    function upToDate() {  // the form is back at the draft shown: the picture is of it
+      if (staleNote && Array.prototype.indexOf.call(previewBox.children || [], staleNote) >= 0) previewBox.removeChild(staleNote);
+      staleNote = null;
+      previewBox.setAttribute("data-stale", "false");
+    }
+    // Live: each edit redraws the preview once the form has been still for LIVE_MS (the toggle joined to Preview,
+    // remembered in this browser); off, an edit only marks the shown preview stale.
+    // One live draw at a time: an edit made while one renders waits for it (the host's renders are never
+    // stacked), and a closed drawer draws nothing.
+    var live = !!opts.preview && liveRemembered(), liveTimer = null, rendering = false, waiting = false;
+    function liveSoon() {
+      if (liveTimer) clearTimeout(liveTimer);
+      liveTimer = setTimeout(function () {
+        liveTimer = null;
+        if (!live || !open_() || !form) return;
+        if (drawn !== null && JSON.stringify(value()) === drawn) return;  // back at the draft shown while it waited
+        if (d.getAttribute("data-open") !== "true") { if (pictured && drawn !== null) note(STALE + "press Preview again."); return; }
+        if (form.invalid().length) { if (pictured) note(STALE + "a field does not parse."); return; }
+        if (rendering) { waiting = true; return; }
+        preview();
+      }, LIVE_MS);
+    }
+    function settled() {  // the latest preview answered: an edit that waited for it is drawn now
+      rendering = false;
+      if (waiting) { waiting = false; if (live) liveSoon(); }
+    }
+    function edited() {
+      var changed = JSON.stringify(value()) !== drawn;  // never a redraw of the draft already shown
+      if (drawn !== null && changed) markStale();
+      if (drawn !== null && !changed) { upToDate(); if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; } }
+      if (live && changed) liveSoon();
+    }
     function preview() {
       var draft = value(), of = JSON.stringify(draft);
       var got = opts.preview(draft);
       if (!got || typeof got.then !== "function") return;  // a host that draws by itself: nothing to wait for or drop
       var mine = ++previews;
+      rendering = true;
       drawn = null;
-      previewBox.setAttribute("data-stale", "false");
-      fill(previewBox, [el("div", { class: "state", "data-state": "loading" }, "Rendering the preview…")]);
+      // the picture shown stays while the next renders (the form below it never jumps); the first has none to keep
+      if (pictured) note("Redrawing the preview…");
+      else { previewBox.setAttribute("data-stale", "false"); fill(previewBox, [el("div", { class: "state", "data-state": "loading" }, "Rendering the preview…")]); }
       got.then(function (node) {
         if (mine !== previews) return;  // a later Preview is the one shown
-        drawn = of;
+        drawn = of; pictured = true;
+        previewBox.setAttribute("data-stale", "false");
         fill(previewBox, [typeof node === "string" ? el("p", {}, node) : node]);
         edited();  // edited while it rendered
+        settled();
       }, function (e) {
         if (mine !== previews) return;
+        settled();
+        pictured = false;
+        previewBox.setAttribute("data-stale", "false");
         fill(previewBox, [banner("No preview: " + (e && e.message || e), "error")]);
       });
     }
@@ -409,7 +470,27 @@
       var tools = el("div", { class: "row end" }), saveBtn = null;
       if (opts.toolbar) tools.appendChild(opts.toolbar);
       if (!isNew) tools.appendChild(el("a", { class: "btn ghost", href: base + "/" + query + "&kind=" + encodeURIComponent(opts.kind) + "&id=" + encodeURIComponent(docId), target: "_blank", rel: "noopener" }, "Open in the configurator"));
-      if (opts.preview) tools.appendChild(button("Preview", "", preview));
+      if (opts.preview) {
+        // one control: Preview draws now, "live" (pressed or not) keeps it drawn after each edit
+        var seg = el("span", { class: "seg", role: "group", "aria-label": "preview" });
+        var drawNow = el("button", { type: "button", title: "draw the unsaved document now" }, "Preview");
+        var liveBtn = el("button", { type: "button", "aria-label": "live preview", "aria-pressed": String(live), title: "redraw the preview after each edit (remembered in this browser)" }, "live");
+        drawNow.addEventListener("click", preview);
+        liveBtn.addEventListener("click", function () {
+          live = !live; liveRemember(live);
+          liveBtn.setAttribute("aria-pressed", String(live));
+          if (!live) {
+            if (liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
+            waiting = false;
+            if (previewBox.getAttribute("data-stale") === "true" && drawn !== null) note(STALE + "press Preview again.");
+          }
+          if (live && (drawn === null || JSON.stringify(value()) !== drawn)) { if (rendering) waiting = true; else preview(); }
+        });
+        seg.appendChild(drawNow); seg.appendChild(liveBtn);
+        tools.appendChild(seg);
+        // live left on: the drawer draws as it opens, unless it was closed while the document loaded
+        if (live && d.getAttribute("data-open") === "true") preview();
+      }
       if (!readOnly) {
         saveBtn = button("Save", "primary", function () { save(false, false); });
         tools.appendChild(saveBtn);
@@ -487,7 +568,7 @@
   }
 
   // ---- a new document --------------------------------------------------------------------------
-  function newLabel(kind) { return "New " + kind.replace(/^analysis_/, "") + "…"; }
+  function newLabel(kind) { return "New " + kind.replace(/^analysis_/, "").replace(/_/g, " ") + "…"; }
 
   // What a recipe's start form asks beyond its name, read off the kind's schema: each input kind (the
   // discriminator's mapping), for each the enumerated fields it requires beyond `kind` (a trace's

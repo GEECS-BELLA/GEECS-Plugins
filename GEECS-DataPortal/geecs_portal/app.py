@@ -27,21 +27,27 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import re
 from pathlib import Path
 from typing import Optional
 
 import httpx
 from fastapi import FastAPI
-from fastapi.templating import Jinja2Templates
-from geecs_web_theme.web import RevalidatingStaticFiles
+from geecs_web_theme.web import (
+    ForwardedPrefixMiddleware,
+    RevalidatingStaticFiles,
+    make_templates,
+    mount_theme,
+)
 
 from geecs_data_utils.tiled_catalog import ScanCatalog
 
 from geecs_portal import analysis_runs
 from geecs_portal.cache import ShotDataCache
+from geecs_portal.batch import WorkerLink
+from geecs_portal.day_scans import DayScans
 from geecs_portal.routes import (
     analysis_configs,
+    batch,
     browse,
     images,
     logbook,
@@ -49,74 +55,25 @@ from geecs_portal.routes import (
     plot_api,
     runs,
 )
-from geecs_portal.routes.common import _root
 from geecs_portal.state import PortalState
 
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
+_STATIC_DIR = Path(__file__).parent / "static"
 
-#: Requests carrying a proxy mount prefix — the Grafana/JupyterHub
-#: convention every reverse proxy speaks.
-_FORWARDED_PREFIX_HEADER = b"x-forwarded-prefix"
-
-
-#: A valid mount prefix: non-empty ``/segment`` parts of RFC-3986-ish
-#: path characters — no ``//``, no query/fragment/quote characters, no
-#:  whitespace or backslashes.
-_PREFIX_RE = re.compile(r"(?:/[A-Za-z0-9._~%@+-]+)+")
-
-
-def _clean_prefix(raw: str) -> str:
-    """Normalize a mount prefix: ``/portal/`` → ``/portal``; bad → ``""``.
-
-    Accepts only what :data:`_PREFIX_RE` matches — anything else is
-    treated as no prefix rather than propagated into every link on the
-    page.  A bare ``/`` means "mounted at root", i.e. no prefix.
-    """
-    prefix = raw.strip().rstrip("/")
-    if not prefix:
-        return ""
-    if _PREFIX_RE.fullmatch(prefix) is None:
-        return ""
-    return prefix
+#: A run's stop-document ``exit_status`` as the kit's status word: a
+#: Bluesky run ends ``success``, ``abort`` (amber, as the logbook shows an
+#: aborted scan) or ``fail``. No stop document is ``unknown``, never
+#: "running": a run whose worker died has none either, and a week-old
+#: crash must not pulse on the day list (the logbook's rule: status is
+#: reported, not inferred).
+_RUN_STATES = {"success": "ok", "abort": "degraded", "fail": "failed"}
 
 
-class _ForwardedPrefixMiddleware:
-    """Adopt the proxy's ``X-Forwarded-Prefix`` as the ASGI root_path.
-
-    Behind ``proxy /portal → portal:8200`` the app itself never sees
-    the mount point; the proxy names it in this header.  Setting
-    ``scope["root_path"]`` makes every link, form, redirect, and JS
-    fetch (all built through the one ``root`` context value) carry the
-    prefix, so the portal works at root and under any mount point —
-    including OSPREY panel tabs.  The header, when present, wins over a
-    static ``--root-path`` (the proxy is authoritative for where it
-    mounted us); a client faking it only rewrites its own page's links.
-
-    The path is re-prefixed too (the ASGI-canonical shape: ``path``
-    includes ``root_path``).  Starlette's router strips ``root_path``
-    from the FRONT of ``path`` wherever it happens to match, so the
-    proxy-stripped path alone would double-strip under a mount named
-    like a route head (``/run``, ``/api``, …), 404ing that whole route
-    family — and its trailing-slash redirects build the Location from
-    ``path``, which would drop the prefix.  Re-prefixing makes the
-    strip exact and the redirects complete.
-    """
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "http":
-            for name, value in scope.get("headers", []):
-                if name == _FORWARDED_PREFIX_HEADER:
-                    prefix = _clean_prefix(value.decode("latin-1"))
-                    if prefix:
-                        scope["root_path"] = prefix
-                        scope["path"] = prefix + scope["path"]
-                    break
-        await self.app(scope, receive, send)
+def run_state(exit_status: Optional[str]) -> str:
+    """The kit status word (``data-state``) for a run's ``exit_status``."""
+    return _RUN_STATES.get(exit_status or "", "unknown")
 
 
 def create_app(
@@ -128,6 +85,9 @@ def create_app(
     logbook_url: str = "",
     logbook_browser_url: str = "",
     logbook_client: Optional[httpx.Client] = None,
+    plotter: Optional[FastAPI] = None,
+    worker: Optional[WorkerLink] = None,
+    day_scans: Optional[DayScans] = None,
     configurator_url: str = "",
 ) -> FastAPI:
     """Build the portal application over an injected catalog.
@@ -182,10 +142,20 @@ def create_app(
         (the default) makes one per send; tests inject a client over an
         in-process logbook so the whole conversation runs without a
         socket.
+    plotter : FastAPI, optional
+        GEECSplotter's page (:func:`geecs_portal.plotter.app.create_app`
+        with ``mount="/plot"``), mounted at ``/plot`` as the Plot tab.
+        ``None`` (the default, and the tests') mounts nothing, and the
+        scan page then has no Plot tab. Built by the caller because it
+        resolves its settings folder from ``config.ini`` when made.
+    worker : WorkerLink, optional
+        The analysis worker (``scan-analysis-worker``, its own service) the
+        day page's "Analyze this day" panel reaches through
+        ``/api/batch/...``. ``None`` (the default) shows no panel.
     configurator_url : str, optional
         The configurator as the browser reaches it (a site value). The
         Analysis tab's **edit** opens a recipe, ``.himg`` job or group in
-        the configurator's embedded editor (its ``static/embed.js``), with
+        the embedded editor (GeecsConfigurator's ``static/embed.js``), with
         this portal's preview of the unsaved recipe on the page's scan; the
         save is the configurator's (the operator as git author, its tier
         and dry run, which is this portal's ``/api/analysis/validate``).
@@ -208,22 +178,19 @@ def create_app(
     app = FastAPI(
         title="GEECS Data Portal", docs_url=None, redoc_url=None, lifespan=_lifespan
     )
-    app.add_middleware(_ForwardedPrefixMiddleware)
-    # Every template gets `root`: the mount prefix each root-absolute
-    # href/action/src/fetch must carry (empty when served at root).
-    templates = Jinja2Templates(
-        directory=str(_TEMPLATES_DIR),
-        context_processors=[lambda request: {"root": _root(request)}],
-    )
-    # The shared palette every GEECS web surface draws from, and the
-    # vendored Plotly bundle beside it (the theme's, one copy for every
-    # surface: still no npm, no CDN); the run page's embedded configurator
-    # editor loads the theme's kit.js and form.js from here too.
-    from geecs_web_theme import static_dir as _theme_dir
-
+    # The shared glue (geecs_web_theme.web): X-Forwarded-Prefix becomes the
+    # ASGI root_path, and every template gets `root`, the prefix each
+    # root-absolute href/action/src/fetch must carry (empty at root).
+    app.add_middleware(ForwardedPrefixMiddleware)
+    templates = make_templates(_TEMPLATES_DIR, filters={"run_state": run_state})
+    # The portal's own stylesheet.
     app.mount(
-        "/theme", RevalidatingStaticFiles(directory=str(_theme_dir())), name="theme"
+        "/static", RevalidatingStaticFiles(directory=str(_STATIC_DIR)), name="static"
     )
+    # The shared palette and kit, and the vendored Plotly bundle beside them
+    # (the theme's, one copy for every surface: still no npm, no CDN); the
+    # run page's embedded configurator editor loads kit.js and form.js here.
+    mount_theme(app)
     # Per-app pixel cache: completed runs' shot data kept in memory so
     # within-scan navigation never re-reads the share (owner doctrine,
     # 2026-08-29 — lazy stays the rule ACROSS scans only).
@@ -254,10 +221,22 @@ def create_app(
             else ""
         ),
         logbook_client=logbook_client,
+        plot_page=plotter is not None,
+        worker=worker,
+        day_scans=day_scans or DayScans(),
         configurator_url=configurator_url.rstrip("/"),
     )
     app.state.portal = portal
-    for family in (plot_api, runs, logbook, browse, pages, images, analysis_configs):
+    for family in (
+        plot_api,
+        runs,
+        logbook,
+        browse,
+        pages,
+        images,
+        batch,
+        analysis_configs,
+    ):
         app.include_router(family.router)
 
     if processing_config_dir is not None and not portal.processing_names():
@@ -270,5 +249,8 @@ def create_app(
             "— the processing selector is disabled",
             processing_config_dir,
         )
+
+    if plotter is not None:
+        app.mount("/plot", plotter, name="plot")
 
     return app

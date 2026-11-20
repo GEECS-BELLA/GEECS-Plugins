@@ -1,0 +1,555 @@
+"""Named settings sets: the file store, where it lives, and the page's use of it."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from geecs_portal.plotter import settings as settings_module
+from geecs_portal.plotter.settings import (
+    PlotterSettings,
+    SettingsError,
+    SettingsStore,
+    merged,
+    resolve_store,
+    set_name,
+)
+from tests.plotter.conftest import post
+
+
+# -- the store --------------------------------------------------------------
+
+
+def test_a_set_round_trips_as_readable_json(tmp_path: Path) -> None:
+    store = SettingsStore(tmp_path / "sets")
+    path = store.save("HTU-jet", PlotterSettings(x_filter="jet", y_alias=False))
+    assert path == tmp_path / "sets" / "htu-jet.json"
+    assert json.loads(path.read_text())["x_filter"] == "jet"
+    assert store.load("htu-jet") == PlotterSettings(x_filter="jet", y_alias=False)
+    assert not list(path.parent.glob("*.partial"))
+
+
+@pytest.mark.parametrize(
+    ("typed", "stored"),
+    [
+        ("HTU jet scan", "htu jet scan"),
+        ("  HTU   jet  ", "htu jet"),
+        ("run_3.v2", "run_3.v2"),
+    ],
+)
+def test_a_name_may_have_spaces(typed: str, stored: str, tmp_path: Path) -> None:
+    """LabVIEW users name files with spaces; so may a set."""
+    assert set_name(typed) == stored
+    assert (
+        SettingsStore(tmp_path).save(typed, PlotterSettings()).name == f"{stored}.json"
+    )
+
+
+def test_a_name_never_saved_is_the_defaults(tmp_path: Path) -> None:
+    store = SettingsStore(tmp_path / "missing")
+    assert store.load("default") == PlotterSettings()
+    assert store.names() == ["default"]
+    assert not (tmp_path / "missing").exists()  # reading never creates
+
+
+def test_the_default_set_is_listed_first(tmp_path: Path) -> None:
+    store = SettingsStore(tmp_path)
+    for name in ("zeta", "alpha", "default"):
+        store.save(name, PlotterSettings())
+    (tmp_path / "notes.txt").write_text("not a set")
+    assert store.names() == ["default", "alpha", "zeta"]
+
+
+@pytest.mark.parametrize(
+    "name", ["", "  ", "..", ".hidden", "a/b", "a\\b", "x" * 65, "scan.", "-a"]
+)
+def test_a_name_cannot_leave_the_folder(name: str) -> None:
+    with pytest.raises(SettingsError):
+        set_name(name)
+
+
+def test_an_older_file_loads_with_new_fields_at_their_defaults(tmp_path: Path) -> None:
+    (tmp_path / "old.json").write_text('{"schema_version": 1, "y": "U_ICT charge"}')
+    loaded = SettingsStore(tmp_path).load("old")
+    assert loaded.y == "U_ICT charge"
+    assert loaded.x_auto is True
+
+
+def test_a_broken_file_is_an_error_not_the_defaults(tmp_path: Path) -> None:
+    (tmp_path / "bad.json").write_text("{not json")
+    with pytest.raises(SettingsError, match="bad.json"):
+        SettingsStore(tmp_path).load("bad")
+
+
+def test_merging_keeps_what_the_form_does_not_send() -> None:
+    saved = PlotterSettings(x="a", y="b", y_filter="gas")
+    out = merged(saved, {"x": "", "xauto": "false"})
+    assert (out.x, out.y, out.y_filter, out.x_auto) == ("", "b", "gas", False)
+    with pytest.raises(SettingsError):
+        merged(saved, {"xalias": "yes"})
+
+
+# -- where the folder is ----------------------------------------------------
+
+
+def test_a_given_folder_wins(tmp_path: Path) -> None:
+    assert resolve_store(tmp_path / "mine").folder == tmp_path / "mine"
+
+
+def test_without_a_given_folder_the_sets_are_in_the_users_state_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A portal started by hand: the user's state folder, never the share or the checkout."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    folder = resolve_store().folder
+    assert folder == tmp_path / "state" / "geecs-data-portal" / "settings"
+    monkeypatch.delenv("XDG_STATE_HOME")
+    monkeypatch.setattr(settings_module.Path, "home", lambda: tmp_path / "home")
+    assert resolve_store().folder == (
+        tmp_path / "home" / ".local" / "state" / "geecs-data-portal" / "settings"
+    )
+
+
+def test_on_windows_the_state_folder_is_local_app_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    assert settings_module.user_state_dir(windows=True) == (
+        tmp_path / "local" / "geecs-data-portal" / "settings"
+    )
+
+
+def test_the_store_reads_no_config_ini_and_names_no_share(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The folder never follows ``config.ini [Paths] geecs_data`` (the data share)."""
+    home = tmp_path / "home"
+    share = tmp_path / "share" / "user data"
+    share.mkdir(parents=True)
+    config = home / ".config" / "geecs_python_api" / "config.ini"
+    config.parent.mkdir(parents=True)
+    config.write_text(f"[Paths]\ngeecs_data = {share}\n")
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setattr(settings_module.Path, "home", lambda: home)
+    store = resolve_store()
+    store.save("default", PlotterSettings())
+    assert store.folder.is_relative_to(home)
+    assert list(share.iterdir()) == []
+
+
+# -- the page ---------------------------------------------------------------
+
+
+def test_a_pick_saves_the_set_and_the_url_stays_short(
+    client: TestClient, settings_dir: Path
+) -> None:
+    response = client.post(
+        "/",
+        data={
+            "day": "2026-10-02",
+            "scan": "1",
+            "set": "default",
+            "owner": "default",
+            "y": "U_ICT charge",
+        },
+    )
+    assert response.url.query.decode() == "day=2026-10-02&scan=1&set=default"
+    saved = json.loads((settings_dir / "default.json").read_text())
+    assert saved["y"] == "U_ICT charge"
+
+
+def test_save_as_writes_a_new_set_and_opens_it(
+    client: TestClient, settings_dir: Path
+) -> None:
+    page = post(client, "/save-as", scan=1, yf="gas", save_as="Gas-Scan")
+    assert 'name="set" value="gas-scan"' in page
+    assert '<option value="gas-scan" selected>gas-scan</option>' in page
+    assert json.loads((settings_dir / "gas-scan.json").read_text())["y_filter"] == "gas"
+    assert not (settings_dir / "default.json").exists()  # the source is untouched
+
+
+def test_save_as_refuses_a_name_already_saved(
+    client: TestClient, settings_dir: Path
+) -> None:
+    post(client, "/save-as", scan=1, yf="first", save_as="mine")
+    response = client.post(
+        "/save-as",
+        data={"day": "2026-10-02", "scan": "1", "set": "default", "save_as": "mine"},
+    )
+    assert response.status_code == 422
+    assert "already saved" in response.text
+    assert json.loads((settings_dir / "mine.json").read_text())["y_filter"] == "first"
+
+
+def test_switching_sets_opens_the_other_one(client: TestClient) -> None:
+    post(client, "/save-as", scan=1, y="U_ICT charge", xauto="false", x="", save_as="b")
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1, "set": "b"}).text
+    assert '<option value="" selected>shot #</option>' in page
+    other = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
+    assert '<option value="" selected>shot #</option>' not in other
+
+
+def test_a_broken_set_is_shown_and_never_overwritten(
+    client: TestClient, settings_dir: Path
+) -> None:
+    settings_dir.mkdir()
+    (settings_dir / "default.json").write_text("{broken")
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
+    assert "Settings problem" in page
+    response = client.post(
+        "/", data={"day": "2026-10-02", "scan": "1", "set": "default"}
+    )
+    assert response.status_code == 422
+    assert (settings_dir / "default.json").read_text() == "{broken"
+
+
+def test_the_page_names_the_settings_folder(
+    client: TestClient, settings_dir: Path
+) -> None:
+    assert str(settings_dir) in client.get("/?set=default").text
+
+
+# -- the API ----------------------------------------------------------------
+
+
+def test_the_api_lists_and_saves_sets(client: TestClient, settings_dir: Path) -> None:
+    saved = client.post("/api/settings/default", data={"xf": "jet"})
+    assert saved.status_code == 200
+    assert saved.json()["x_filter"] == "jet"
+    assert client.get("/api/settings/default").json()["x_filter"] == "jet"
+    listing = client.get("/api/settings").json()
+    assert listing == {"folder": str(settings_dir), "sets": ["default"]}
+
+
+def test_the_api_refuses_a_bad_name(client: TestClient) -> None:
+    assert client.post("/api/settings/.secret", data={"xf": "x"}).status_code == 422
+
+
+# -- failed saves (review of #1166) ------------------------------------------
+
+
+def test_a_failed_save_is_a_settings_problem_not_a_500(
+    client: TestClient, settings_dir: Path
+) -> None:
+    (settings_dir / "default.json").mkdir(
+        parents=True
+    )  # a file that cannot be replaced
+    response = client.post(
+        "/", data={"day": "2026-10-02", "scan": "1", "set": "default", "yf": "x"}
+    )
+    assert response.status_code == 422
+    assert "Settings problem" in response.text
+    api = client.post("/api/settings/default", data={"xf": "x"})
+    assert api.status_code == 422
+    assert not list(settings_dir.glob("*.tmp"))
+
+
+def test_a_given_folder_is_created_however_deep(tmp_path: Path) -> None:
+    """``--settings-dir`` on a fresh host: no parent to check, the save makes it."""
+    store = resolve_store(tmp_path / "state" / "geecs-plotter" / "settings")
+    assert store.load("default") == PlotterSettings()
+    store.save("default", PlotterSettings(x_filter="jet"))
+    assert store.load("default").x_filter == "jet"
+
+
+def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> None:
+    response = client.post(
+        "/save-as",
+        data={
+            "day": "2026-10-02",
+            "scan": "1",
+            "set": "default",
+            "save_as": "jet/scan",
+        },
+    )
+    assert response.status_code == 422
+    assert 'value="jet/scan"' in response.text
+    assert 'aria-invalid="true" aria-describedby="save-as-err"' in response.text
+    assert "spaces" in response.text  # the message says what a name may hold
+    # The box lives in the Settings drawer: it opens, so the error is seen.
+    assert (
+        'id="settings-drawer" role="dialog" aria-modal="false" aria-labelledby="settings-title" aria-hidden="false" data-open="true"'
+        in response.text
+    )
+    closed = 'aria-labelledby="settings-title" aria-hidden="true" data-open="false"'
+    assert closed in client.get("/?set=default").text  # otherwise it stays shut
+
+
+def test_the_set_list_says_how_to_add_one(client: TestClient) -> None:
+    """With only "default", the rail says picks save themselves and how to add a set."""
+    page = client.get("/?set=default").text
+    assert "saves into your own set" in page
+    assert "Use Save as" in page
+    post(client, "/save-as", scan=1, save_as="HTU jet scan")
+    page = client.get("/?set=default").text
+    assert '<option value="htu jet scan">htu jet scan</option>' in page
+    assert "Use Save as" not in page
+
+
+def test_a_store_problem_does_not_blame_the_name(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A broken open set refuses the save, but the Save-as box is not marked invalid."""
+    settings_dir.mkdir()
+    (settings_dir / "default.json").write_text("{broken")
+    response = client.post(
+        "/save-as",
+        data={
+            "day": "2026-10-02",
+            "scan": "1",
+            "set": "default",
+            "save_as": "good name",
+        },
+    )
+    assert response.status_code == 422
+    assert 'value="good name"' in response.text  # kept, nothing lost
+    assert 'aria-invalid="true"' not in response.text
+    assert "Settings problem" in response.text
+
+
+def test_a_taken_name_is_marked_on_the_box(client: TestClient) -> None:
+    post(client, "/save-as", scan=1, save_as="mine")
+    response = client.post(
+        "/save-as",
+        data={"day": "2026-10-02", "scan": "1", "set": "default", "save_as": "mine"},
+    )
+    assert 'aria-invalid="true"' in response.text
+    assert "already saved" in response.text
+    assert "Settings problem" not in response.text
+
+
+# -- the last scan opened (the set reopens it) ------------------------------
+
+
+def test_opening_a_scan_saves_it_in_the_set(
+    client: TestClient, settings_dir: Path
+) -> None:
+    post(client, scan=2)
+    saved = json.loads((settings_dir / "default.json").read_text())
+    assert (saved["day"], saved["scan"]) == ("2026-10-02", 2)
+
+
+def test_starting_bare_reopens_the_last_scan(client: TestClient) -> None:
+    """No day or scan in the URL: back to where this set left off."""
+    post(client, scan=2, y="U_ICT charge")
+    response = client.get("/?set=default", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "./?day=2026-10-02&scan=2&set=default"
+    page = client.get("/?set=default").text
+    assert "Scan002" in page
+    assert '<option value="U_ICT charge" selected>' in page
+
+
+def test_switching_sets_opens_that_sets_scan(client: TestClient) -> None:
+    post(client, "/save-as", scan=2, save_as="second")
+    post(client, scan=1)  # default moves on to Scan001
+    page = client.get("/", params={"set": "second"}).text
+    assert "Scan002" in page
+    assert 'name="set" value="second"' in page
+
+
+def test_a_set_that_never_opened_a_scan_is_the_empty_form(client: TestClient) -> None:
+    response = client.get("/?set=default", follow_redirects=False)
+    assert response.status_code == 200
+    assert 'data-state="empty"' in response.text
+
+
+def test_a_url_scan_wins_over_the_remembered_one(client: TestClient) -> None:
+    post(client, scan=2)
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
+    assert "Scan001" in page
+
+
+def test_a_bad_remembered_name_is_reported_not_redirected(client: TestClient) -> None:
+    response = client.get("/", params={"set": "../x"}, follow_redirects=False)
+    assert response.status_code == 200
+    assert "Settings problem" in response.text
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("day", "yesterday"), ("scan", "x"), ("scan", "0")]
+)
+def test_a_malformed_day_or_scan_is_refused(field: str, value: str) -> None:
+    with pytest.raises(SettingsError, match=field):
+        merged(PlotterSettings(), {field: value})
+
+
+def test_an_empty_day_or_scan_keeps_the_saved_one() -> None:
+    saved = PlotterSettings(day="2026-10-02", scan=3)
+    assert merged(saved, {"day": "", "scan": ""}) == saved
+
+
+def test_switching_to_a_set_with_no_scan_keeps_the_open_one(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A set saved before sets remembered scans must not close the open scan."""
+    settings_dir.mkdir(exist_ok=True)
+    (settings_dir / "old.json").write_text('{"schema_version": 1, "y_filter": "gas"}')
+    post(client, scan=2)
+    page = client.get(
+        "/", params={"set": "old", "here_day": "2026-10-02", "here_scan": 2}
+    ).text
+    assert "Scan002" in page
+    assert 'name="yf" value="gas"' in page  # the old set's controls
+
+
+def test_the_sets_list_carries_the_open_scan(client: TestClient) -> None:
+    page = post(client, scan=2)
+    assert '<input type="hidden" name="here_day" value="2026-10-02">' in page
+    assert '<input type="hidden" name="here_scan" value="2">' in page
+
+
+def test_a_field_from_a_newer_copy_survives_a_save(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A newer portal's set (a rollback): an unknown field loads and is kept."""
+    settings_dir.mkdir(exist_ok=True)
+    (settings_dir / "default.json").write_text(
+        '{"schema_version": 1, "bin_mode": "mean"}'
+    )
+    post(client, scan=1, yf="gas")
+    saved = json.loads((settings_dir / "default.json").read_text())
+    assert saved["bin_mode"] == "mean"
+    assert saved["y_filter"] == "gas"
+
+
+@pytest.mark.parametrize("value", ["0", "4", "two"])
+def test_a_bad_y_count_is_refused(value: str) -> None:
+    with pytest.raises(SettingsError, match="ycount"):
+        merged(PlotterSettings(), {"ycount": value})
+
+
+def test_replacing_a_saved_set_needs_the_dialogs_yes(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """Save as onto a saved name replaces it only with overwrite=true."""
+    post(client, "/save-as", scan=1, yf="first", save_as="mine")
+    page = post(
+        client, "/save-as", scan=2, yf="second", save_as="Mine", overwrite="true"
+    )
+    assert 'name="set" value="mine"' in page
+    saved = json.loads((settings_dir / "mine.json").read_text())
+    assert (saved["y_filter"], saved["scan"]) == ("second", 2)
+
+
+def test_the_page_offers_saved_names_and_asks_before_replacing(
+    client: TestClient,
+) -> None:
+    post(client, "/save-as", scan=1, save_as="htu jet scan")
+    page = client.get(
+        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
+    ).text
+    assert 'list="saved-sets"' in page
+    assert '<option value="htu jet scan">' in page.split('id="saved-sets"')[1]
+    dialog = page.split('<dialog id="replace-set"')[1].split("</dialog>")[0]
+    assert "autofocus>Keep it</button>" in dialog  # focus never on Replace
+    assert 'name="overwrite" value="true">Replace</button>' in dialog
+
+
+def test_the_api_answers_for_a_set_that_remembers_a_scan(client: TestClient) -> None:
+    """A set with a day in it: the filter autosave and the read must not 500."""
+    post(client, scan=1)  # the set now remembers 2026-10-02, a date
+    saved = client.post("/api/settings/default", data={"yf": "gas"})
+    assert saved.status_code == 200
+    assert (saved.json()["day"], saved.json()["y_filter"]) == ("2026-10-02", "gas")
+    read = client.get("/api/settings/default")
+    assert read.status_code == 200
+    assert read.json()["scan"] == 1
+
+
+# -- each viewer's own set ----------------------------------------------------
+
+
+def test_a_url_without_a_set_asks_the_viewers_name(client: TestClient) -> None:
+    """No set named: the page asks whose set to use, and draws nothing."""
+    page = client.get("/", params={"day": "2026-10-02", "scan": 1}).text
+    assert 'id="ask-name"' in page
+    assert 'name="set"' in page and 'value="2026-10-02"' in page
+    assert "data-figure-url" not in page
+
+
+def test_opening_someone_elses_set_writes_nothing(
+    client: TestClient, settings_dir: Path
+) -> None:
+    post(client, scan=1, set="alice", owner="alice", y="U_ICT charge")
+    before = (settings_dir / "alice.json").read_text()
+    client.get("/", params={"set": "alice", "day": "2026-10-02", "scan": 2})
+    client.get("/", params={"set": "alice"}, follow_redirects=False)
+    assert (settings_dir / "alice.json").read_text() == before
+
+
+def test_a_change_under_someone_elses_set_saves_into_the_viewers(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """Bob steps a scan on Alice's set: Bob's set takes Alice's view and the step."""
+    post(client, scan=1, set="alice", owner="alice", y="U_ICT charge", xalias="false")
+    alice = (settings_dir / "alice.json").read_text()
+    response = client.post(
+        "/",
+        data={"day": "2026-10-02", "scan": "2", "set": "alice", "owner": "bob"},
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "./?day=2026-10-02&scan=2&set=bob"
+    assert (settings_dir / "alice.json").read_text() == alice
+    bob = client.get("/api/settings/bob").json()
+    assert bob["y"] == "U_ICT charge" and bob["x_alias"] is False  # Alice's view
+    assert bob["scan"] == 2  # and Bob's step
+
+
+def test_a_live_save_can_copy_the_shown_set(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A filter typed under Alice's set lands in Bob's, on top of Alice's view."""
+    post(client, scan=1, set="alice", owner="alice", y="U_ICT charge")
+    alice = (settings_dir / "alice.json").read_text()
+    saved = client.post(
+        "/api/settings/bob", data={"xf": "jet", "copy_from": "alice"}
+    ).json()
+    assert saved["x_filter"] == "jet" and saved["y"] == "U_ICT charge"
+    assert (settings_dir / "alice.json").read_text() == alice
+    assert "copy_from" not in saved
+
+
+def test_a_change_that_names_no_viewer_saves_nothing(
+    client: TestClient, settings_dir: Path
+) -> None:
+    """A first-time viewer of a shared set= link never writes into it."""
+    post(client, scan=1, set="alice", y="U_ICT charge")
+    alice = (settings_dir / "alice.json").read_text()
+    response = client.post(
+        "/", data={"day": "2026-10-02", "scan": "2", "set": "alice", "owner": ""}
+    )
+    assert response.status_code == 422
+    assert "say who you are" in response.text
+    assert (settings_dir / "alice.json").read_text() == alice
+    assert sorted(p.name for p in settings_dir.iterdir()) == ["alice.json"]
+
+
+def test_the_page_script_sends_the_viewers_name(client: TestClient) -> None:
+    page = client.get("/?set=default").text
+    assert '<input type="hidden" name="owner" value="">' in page
+
+
+def test_the_unit_has_systemd_create_the_folder_it_passes() -> None:
+    """The unit's ``StateDirectory=`` names the ``--settings-dir`` folder itself.
+
+    Naming the parent alone leaves ``settings/`` to the first save, so a copy
+    of old sets into it on a fresh host finds no folder.
+    """
+    unit = Path(__file__).parents[2] / "deploy" / "geecs-data-portal.service"
+    lines = unit.read_text(encoding="utf-8").splitlines()
+    (state,) = [x for x in lines if x.startswith("StateDirectory=")]
+    (start,) = [x for x in lines if x.startswith("ExecStart=")]
+    words = start.split()
+    passed = words[words.index("--settings-dir") + 1]
+    assert passed.startswith("%S/")
+    assert passed.removeprefix("%S/") in state.split("=", 1)[1].split()

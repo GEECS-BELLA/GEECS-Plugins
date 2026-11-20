@@ -242,6 +242,7 @@ def test_the_installed_families_load_by_template() -> None:
         "ad_camera_chain",
         "easydriver",
         "fastps",
+        "loop_contract",
         "motor_record",
         "scope_contract",
         "spectrometer_contract",
@@ -754,3 +755,71 @@ def test_a_supplys_setpoint_is_judged_by_its_iocs_set_tolerance_record(template:
 def test_a_motors_target_is_judged_within_its_retry_deadband() -> None:
     val = load_families()["motor_record"].role("val")
     assert (val.readback, val.settled_by, val.tolerance_by) == ("rbv", "dmov", "rdbd")
+
+
+# ---- a panel's trends -------------------------------------------------------
+
+
+def _trend(*roles: str, title: str = "Level") -> dict:
+    return {**tiny(), "panel": {"trends": [{"title": title, "roles": list(roles)}]}}
+
+
+def test_a_panel_names_trends_of_monitored_numbers() -> None:
+    family = FamilyFile.model_validate(_trend("level", "level_sp", "flag", "counter"))
+    assert [(t.title, t.roles) for t in family.panel.trends] == [("Level", ["level", "level_sp", "flag", "counter"])]  # fmt: skip
+    assert FamilyFile.model_validate(family.model_dump(mode="json")) == family
+    assert FamilyFile.model_validate({**tiny(), "panel": {}}).panel.trends == []
+    # a role may sit in two trends, and a trend's role need not be a reading
+    doc = _trend("level")
+    doc["panel"]["trends"].append({"title": "Again", "roles": ["level", "mean"]})
+    assert len(FamilyFile.model_validate(doc).panel.trends) == 2
+
+
+def test_a_panel_has_four_trends_at_most_each_of_its_own_title() -> None:
+    doc = _trend("level")
+    doc["panel"]["trends"] = [{"title": f"T{i}", "roles": ["level"]} for i in range(4)]
+    assert len(FamilyFile.model_validate(doc).panel.trends) == 4
+    doc["panel"]["trends"].append({"title": "T4", "roles": ["level"]})
+    _refused(doc, "at most 4 items")
+    doc["panel"]["trends"] = [{"title": "Level", "roles": ["level"]}, {"title": "Level", "roles": ["mean"]}]  # fmt: skip
+    _refused(doc, r"panel trend titles must be unique; repeated: \['Level'\]")
+
+
+def test_a_trend_has_a_title_and_one_to_four_roles() -> None:
+    _refused(_trend("level", title=""), "title")
+    _refused(_trend(), "roles")
+    _refused(_trend("level", "level_sp", "flag", "counter", "mean"), "roles")
+    _refused(_trend("level", "level"), "panel trend 'Level' roles must be unique")
+    _refused(_trend("levle"), r"panel names no role \['levle'\]")
+
+
+@pytest.mark.parametrize(
+    "name, change, why",
+    [
+        ("fire", None, "not monitored"),  # a command's record is never read
+        ("trace", None, "not monitored"),  # an array is read on request
+        ("mean", lambda r: r.update(read="once"), "not monitored"),  # read once: no live value
+        ("level", lambda r: r.update(text="string"), "carry no number"),  # text
+        ("acquire", None, "carry no number"),  # an enum travels as its state
+        ("trace", lambda r: r.update(read="monitor"), "carry no number"),  # an array, even monitored
+    ],
+)  # fmt: skip
+def test_a_trend_draws_monitored_numbers_only(name, change, why) -> None:
+    doc = _trend(name)
+    if change:
+        change(role(doc, name))
+    _refused(doc, rf"panel trend 'Level': \['{name}'\].*{why}")
+
+
+def test_the_loop_family_serves_the_actuator_and_names_its_trends() -> None:
+    loop = load_families()["loop_contract"]
+    actuator, target = loop.role("actuator"), loop.role("target")
+    assert actuator.suffix == "Actuator_RBV" and not actuator.writable
+    # declared as the last target is: a monitored number in the actuator's unit, archived
+    assert actuator.model_dump(exclude={"name", "suffix", "label"}) == target.model_dump(exclude={"name", "suffix", "label"})  # fmt: skip
+    readings = loop.panel.readings
+    assert readings.index("actuator") == readings.index("target") + 1
+    assert [(t.title, t.roles) for t in loop.panel.trends] == [
+        ("Value", ["value_display", "setpoint_display"]),
+        ("Actuator", ["actuator", "target"]),
+    ]

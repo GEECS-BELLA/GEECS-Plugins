@@ -1,16 +1,31 @@
 """Run the GEECS Data Portal: ``geecs-data-portal`` / ``python -m geecs_portal``.
 
-Injects the real catalog (``TiledScanCatalog.from_config()`` — the
-``[tiled]`` section of ``~/.config/geecs_python_api/config.ini``) and
-serves with uvicorn.  The service is read-only except explicit analysis
+Injects the real catalog and serves with uvicorn. The catalog is the
+data share's scan folders (``FolderScanCatalog``), read directly; with
+``--tiled`` it is the Tiled catalog (the ``[tiled]`` section of
+``~/.config/geecs_python_api/config.ini``) with every scan folder Tiled
+does not claim beside it, which is what the lab service runs.  The service is read-only except explicit analysis
 runs; see the package ``CLAUDE.md``.
+
+The portal opens nothing by default. ``--browser default`` opens it in
+the system browser once the server is up, as GEECSplotter opens its
+window, and ``--browser chrome`` (any name Python's :mod:`webbrowser`
+knows) in that one. A Linux host with no display opens nothing either
+way.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
+import os
+import sys
+import threading
+import time
+import webbrowser
 from pathlib import Path
+from typing import Callable, Optional
 
 import matplotlib
 
@@ -19,6 +34,74 @@ import matplotlib
 # GUI backend selected lazily on a non-main thread is a crash. The
 # portal's own figures use the Figure API and need no backend at all.
 matplotlib.use("Agg")
+
+logger = logging.getLogger(__name__)
+
+#: ``--browser`` values that open nothing.
+NO_BROWSER = ("none", "")
+
+
+def page_url(host: str, port: int, root_path: str = "") -> str:
+    """The address to open: a wildcard bind is opened on localhost."""
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::", "") else host
+    shown = f"[{shown}]" if ":" in shown else shown
+    return f"http://{shown}:{port}{root_path.rstrip('/')}/"
+
+
+def open_browser(url: str, browser: str) -> bool:
+    """Open *url* in *browser* ("default" is the system's); whether it did."""
+    if browser.lower() in NO_BROWSER:
+        return False
+    if not has_display():
+        # Over SSH, webbrowser would pick a console browser (lynx, w3m) and
+        # take over the terminal the server is logging to.
+        logger.info("no display: open %s by hand", url)
+        return False
+    try:
+        controller = webbrowser.get(None if browser.lower() == "default" else browser)
+        return controller.open(url)
+    except webbrowser.Error as exc:
+        logger.warning(
+            "could not open %s in %r: %s — open it by hand", url, browser, exc
+        )
+        return False
+
+
+def has_display(env: Optional[dict[str, str]] = None) -> bool:
+    """Whether a graphical browser can open here (always, off Linux)."""
+    if not sys.platform.startswith("linux"):
+        return True
+    env = os.environ if env is None else env
+    return bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
+
+
+def open_when_started(
+    started: Callable[[], bool],
+    stopping: Callable[[], bool],
+    url: str,
+    browser: str,
+    *,
+    poll_s: float = 0.1,
+) -> Optional[threading.Thread]:
+    """Open the page from a background thread once *started* is true.
+
+    Gives up without opening if the server is asked to stop before it
+    starts (a Ctrl-C during startup). A startup failure, such as a port in
+    use, exits the process, and this daemon thread with it.
+    """
+    if browser.lower() in NO_BROWSER:
+        return None
+
+    def wait() -> None:
+        while not started():
+            if stopping():
+                return
+            time.sleep(poll_s)
+        open_browser(url, browser)
+
+    thread = threading.Thread(target=wait, name="open-browser", daemon=True)
+    thread.start()
+    return thread
 
 
 def main() -> None:
@@ -32,6 +115,26 @@ def main() -> None:
         help="default experiment for day listings (query param overrides)",
     )
     parser.add_argument("--log-level", default="INFO", help="Python logging level")
+    parser.add_argument(
+        "--settings-dir",
+        default=None,
+        help=(
+            "where the Plot tab's named settings sets are saved: the service "
+            "unit passes its state directory (default: the user's state "
+            "folder, ~/.local/state/geecs-data-portal/settings or "
+            "%%LOCALAPPDATA%%\\geecs-data-portal\\settings)"
+        ),
+    )
+    parser.add_argument(
+        "--tiled",
+        action="store_true",
+        help=(
+            "list runs from the Tiled catalog (config.ini [tiled]) as well as "
+            "the scan folders. Off by default: the scan folders alone, read "
+            "straight off the share, so a machine that cannot reach Tiled "
+            "never waits for it. The lab service passes it"
+        ),
+    )
     parser.add_argument(
         "--processing-configs",
         default="",
@@ -88,6 +191,23 @@ def main() -> None:
             "prefix)"
         ),
     )
+    parser.add_argument(
+        "--analysis-worker-url",
+        default="",
+        help=(
+            "the analysis worker's base URL (scan-analysis-worker, its own "
+            "service; a site value, e.g. http://127.0.0.1:8900): the day "
+            "page's 'Analyze this day' panel runs analysis groups over a day "
+            "through it. Empty hides the panel"
+        ),
+    )
+    parser.add_argument(
+        "--browser",
+        default="none",
+        help="open the portal once the server is up: 'none' (the default: "
+        "open nothing), 'default' (the system browser), or a name such as "
+        "'chrome', 'safari' or 'firefox'",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -102,14 +222,24 @@ def main() -> None:
 
     from geecs_portal.app import create_app
     from geecs_portal.cache import CachingScanCatalog
+    from geecs_portal.plotter.app import create_app as create_plotter
 
     # Completed runs are immutable: cache their details so plot/image
-    # requests stop re-downloading the full event table from Tiled.
-    # Scan folders no Tiled run claims (Master Control scans, other
-    # experiments) list beside the runs.
-    catalog = CachingScanCatalog(
+    # requests stop re-reading them. With Tiled, scan folders no Tiled run
+    # claims (Master Control scans, other experiments) list beside the
+    # runs, and an unreachable Tiled is skipped for a while after it fails
+    # rather than costing every page its connect timeout.
+    source = (
         MergedScanCatalog(TiledScanCatalog.from_config(), FolderScanCatalog())
+        if args.tiled
+        else FolderScanCatalog()
     )
+    catalog = CachingScanCatalog(source)
+    worker = None
+    if args.analysis_worker_url:
+        from geecs_portal.batch import WorkerLink
+
+        worker = WorkerLink(args.analysis_worker_url)
     app = create_app(
         catalog,
         default_experiment=args.experiment,
@@ -117,16 +247,35 @@ def main() -> None:
             Path(args.processing_configs) if args.processing_configs else None
         ),
         logbook_url=args.logbook_url,
+        worker=worker,
+        plotter=create_plotter(
+            args.experiment,
+            settings_dir=args.settings_dir,
+            mount="/plot",
+            logbook_url=args.logbook_url,
+        ),
         logbook_browser_url=args.logbook_browser_url,
         configurator_url=args.configurator_browser_url,
     )
-    uvicorn.run(
-        app,
-        host=args.host,
-        port=args.port,
-        log_level=args.log_level.lower(),
-        root_path=args.root_path,
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level=args.log_level.lower(),
+            root_path=args.root_path,
+        )
     )
+    open_when_started(
+        lambda: server.started,
+        lambda: server.should_exit,
+        page_url(args.host, args.port, args.root_path),
+        args.browser,
+    )
+    # uvicorn re-raises the Ctrl-C after a clean shutdown; uvicorn.run
+    # swallows it, and so does this.
+    with contextlib.suppress(KeyboardInterrupt):
+        server.run()
 
 
 if __name__ == "__main__":

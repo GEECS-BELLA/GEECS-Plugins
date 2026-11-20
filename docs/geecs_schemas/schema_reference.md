@@ -314,6 +314,7 @@ The device writes that drive the machine through its trigger states.
 | `states` | `dict[TriggerState, list[TriggerWrite]]` | no | empty | For each trigger state, the writes that put the machine into it, applied in order from top to bottom. A transition may write several devices. Omit a device variable from a state to leave it untouched. |
 | `description` | `str` | no | '' | Optional note about what setup this profile is for. |
 | `use_scan_mode` | `bool` | no | False | Run scans under this profile in GEECS scan mode, as Master Control drives the devices: the worker announces the scan to the experiment's devices (ScanStart), pushes each shot's save path to them before the fire, and ends the scan (ScanEnd) when the run closes. A device then acquires once per announced shot, saves shot-numbered files and applies its own database start/end values. Off by default. Strict acquisition only: a fly run and the calibration plans refuse such a profile. A profile with this flag and no writes at all is the box-less case — the shot message is the only trigger. |
+| `shot_gate` | `ShotGateSpec (optional)` | no | None | A permission-to-fire service the worker waits on before every shot: a 'safe' received after the previous shot permits the next; unreachable or not safe holds it, and a long hold pauses the scan. Leave empty for no gate. |
 
 Example:
 
@@ -354,6 +355,17 @@ One device variable set during a state transition.
 | `device` | `str` | yes | — | The device to write to, e.g. 'U_DG645_ShotControl' or a gas-jet controller — any settable device can take part in a transition. |
 | `variable` | `str` | yes | — | Which variable on the device to set, e.g. 'Trigger.Source'. |
 | `value` | `str` | yes | — | The value to send, exactly as the device expects it — a number as text ('4.0'), a word ('on'), or a device option name ('External rising edges'). |
+
+### ShotGateSpec
+
+A software interlock server the worker waits on before every shot.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `host` | `str` | yes | — | The service's host name or IP address on the facility network. |
+| `port` | `int` | yes | — | The service's TCP port. |
+| `hold_pause_s` | `float` | no | 60.0 | Seconds a shot waits for permission before the scan pauses with the service's reason (resuming waits again; a pause never fires). |
+| `holdoff_s` | `float` | no | 0.0 | Seconds added to the time a shot is fired before a safe verdict counts as the next shot's permission: its data must be taken that much after the fire (or, for a verdict with no data stamp, received that much after it). Covers a device clock ahead of the worker's, and, for interlocks with no data stamp, the time the server takes to see a shot. A device clock behind the worker's cannot be covered here: the clocks must agree. |
 
 ## `experiment_defaults`
 
@@ -618,7 +630,6 @@ One settable of a setpoint device: how long a scan waits for its readback.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `tolerance` | `float (optional)` | no | None | Retired: ignored, never a tolerance (the IOC's set-tolerance record is, read at every set). Accepted only while readers deployed before its retirement still require it; drop it from the file once every reader runs a schema that accepts its absence. |
 | `timeout` | `float` | no | 10.0 | Seconds the scan worker waits for the readback to arrive within the IOC's set tolerance after the write, before the set fails: the client's patience, not a device fact. Size it for the slowest ramp plus the readback's scan period. The tolerance itself is the IOC's record (the family's tolerance_by role, e.g. current:TOL), never written here. |
 
 ### Witness
@@ -718,7 +729,7 @@ One thing a page does to a device of the family, and the roles it writes.
 
 ### Panel
 
-How a device page lays out the family's roles: the control rail and the readings strip.
+How a device page lays out the family's roles: the control rail, the readings strip and the trends.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
@@ -727,6 +738,7 @@ How a device page lays out the family's roles: the control rail and the readings
 | `buttons` | `dict[str, tuple[str, str]]` | no | empty | A two-state rail role drawn as a pair of buttons, its labels for 0 then 1 (an acquire as Stop / Start), in place of its type's control. The role is writable, in the rail, and a bit or a whole number limited to [0, 1]. |
 | `tweak` | `dict[str, TweakHint]` | no | empty | A rail setpoint drawn with its step and step buttons beside it, in place of three separate controls: the key is the setpoint, the hint its step setpoint and its forward and reverse commands, all writable and in the key's rail group. |
 | `show_while` | `dict[str, str]` | no | empty | An array an axis draws, shown by default while a monitored role reads 1 (a processed spectrum while background subtraction is on); otherwise the axis' first array. A viewer's own choice wins. |
+| `trends` | `list[PanelTrend]` | no | empty | The time plots the settables page draws under the readings, in order: each a title, unique in the panel, and the monitored numeric roles it draws against wall-clock time (a loop's value beside its setpoint). Four at most: each is a plot of its own height between the readings and the role tables, redrawn every second (five times a second on a window of 30 s or less). A role may sit in several trends and need not be a reading. A kind whose page has a data pane of its own (a camera's image, a trace's plot) draws no trends. |
 
 ### PanelGroup
 
@@ -747,6 +759,15 @@ A setpoint drawn with a step and a pair of step buttons beside it (the motor rec
 | `step` | `str` | yes | — | The setpoint holding the step size (the motor record's 'twv'). |
 | `forward` | `str` | yes | — | The command that steps forward by it ('twf'): the record moves, the page computes nothing. |
 | `reverse` | `str` | yes | — | The command that steps back by it ('twr'). |
+
+### PanelTrend
+
+One time plot under a device page's readings: a few roles' values against wall-clock time.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `title` | `str` | yes | — | The plot's heading on the page. |
+| `roles` | `list[str]` | yes | — | The family roles the plot draws, one line each, in order: one to four monitored roles whose value is a number (a readback, a setpoint, a bit or a counter; never text, an enum, a command, an array or an image). The page labels each line by the role's label and the y axis by the roles' unit when they share one. |
 
 ## `panel_devices`
 
@@ -1117,7 +1138,7 @@ How to read one trace file into an x-vs-y array.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `data_type` | `Data1DType` | yes | — | File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one). |
+| `data_type` | `Data1DType` | yes | — | File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one), 'thorlabs_fts' for a Thorlabs FTS spectrometer's export (a '#Thorlabs FTS' header, then '[Data]' rows of wavelength;intensity). |
 | `trace_index` | `int` | no | 0 | Which trace / channel holds the y values (scope formats). |
 | `x_trace_index` | `int (optional)` | no | None | Which trace holds the x values; unset derives x from the waveform properties (scope formats). |
 | `delimiter` | `str (optional)` | no | None | Column delimiter for csv/tsv; unset uses the format's default. |
@@ -1302,6 +1323,67 @@ How the job runs among a group's analyses.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `priority` | `int` | no | 100 | Run order within a group: lower runs first. 100 is the background default. |
+
+## `scalar_job`
+
+Tier: `operator` · File: `scan_analysis_configs/analyzers/**/<name>.yaml`
+
+### ScalarJob
+
+New s-file columns computed from existing ones, shot by shot.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `schema_version` | `int` | no | 1 | Format version of this job file. Leave at 1 — tools update this automatically when the file format changes. |
+| `kind` | `'scalar_columns'` | yes | — | scalar_columns: compute new s-file columns from existing ones. |
+| `columns` | `list[ScalarColumn]` | yes | — | The new columns, evaluated in this order. |
+| `output_name` | `str (optional)` | no | None | Label the portal's Analysis tab lists the job under. Defaults to the file name. |
+| `description` | `str (optional)` | no | None | Free-text note about this job. |
+| `scan` | `ScalarJobRuntime` | no | ScalarJobRuntime(priority=1000) | How the job runs among a group's analyses. |
+
+Example:
+
+```yaml
+schema_version: 1
+kind: scalar_columns             # new s-file columns from existing ones
+columns:
+  - name: UC_TopView x (mm)      # the new column; never a scanner column
+    expr: x * 0.0244             # numbers, + - * / ** %, sqrt, log, ...
+    inputs: {x: UC_TopView centroid_x}
+  - name: charge ratio
+    expr: a * b / c
+    inputs: {a: U_BCaveICT charge, b: U_ICT2 charge, c: U_ICT3 charge}
+```
+
+### ScalarColumn
+
+One new s-file column: a formula, or condition rules, over existing columns.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `name` | `str` | yes | — | The new column's name in the s-file, units included if you like, e.g. 'UC_TopView x (mm)'. It must not be one of the scanner's own columns: a job never overwrites raw data. |
+| `inputs` | `dict[str, str]` | no | empty | The columns this column reads, each under a short symbol: symbol → existing s-file column, e.g. {x: 'UC_TopView centroid_x'}. Both kinds use them: a formula's expr and a condition's rules name the symbols. A column made earlier in this job may be used by its name. |
+| `expr` | `str (optional)` | no | None | The formula, e.g. 'x * 0.0244' or 'a * b / c'. Numbers, the symbols in inputs, + - * / ** %, comparisons (1 where true, 0 where false), and/or/not, the shot-by-shot functions abs, sqrt, exp, log, log10, sin, cos, tan, arcsin, arccos, arctan, arctan2, hypot, minimum, maximum (and pi, e), and the column functions mean, median, std, min, max (one input, over all the scan's shots: x - mean(x)). For a column of kind formula; a condition has cases instead. |
+| `cases` | `list[ScalarCase] (optional)` | no | None | For a column of kind condition: rules checked in order, each with a label, e.g. when '4.0 <= x <= 6.5' → 'Al foil'. The first rule that holds wins; a shot missing an input is unknown. The Images page lists the scan's label at the top. |
+| `otherwise` | `str (optional)` | no | None | With cases: the label for a shot no rule matches (stored as the number after the last case). Defaults to 'other'. |
+| `description` | `str (optional)` | no | None | Free-text note. |
+
+### ScalarCase
+
+One rule of a condition column: when it holds, the shot gets its label.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `when` | `str` | yes | — | The rule, over the symbols in inputs: comparisons < <= > >= == !=, ranges like '4.0 <= x <= 6.5', and/or/not, e.g. 'x > 10 and y < 2'. Rules are checked top to bottom; the first one that holds wins. |
+| `label` | `str` | yes | — | What it means, as pages show it, e.g. 'Al foil in beam'. The s-file stores the case's number (0 for the first case, 1 for the next, ...). |
+
+### ScalarJobRuntime
+
+How the job runs among a group's analyses.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `priority` | `int` | no | 1000 | Run order within a group: lower runs first. The default, 1000, runs after the recipes whose columns a formula may read. |
 
 ## `log_entry`
 

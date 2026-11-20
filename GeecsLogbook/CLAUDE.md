@@ -82,7 +82,9 @@ monkeypatches `Path.mkdir` across both the markdown and the attachment
 copy to assert every directory made is under `logbook/`. One sentinel
 stands before any `mkdir`: the **experiment directory** must exist,
 because its absence means the share is not mounted, and a tree built on
-the bare mount point would be hidden when the share came back. The first cut put `logbook/`
+the bare mount point would be hidden when the share came back. The
+`[Paths] data_root_experiment`'s directory is the data root,
+which must also be non-empty (`geecs_data_utils.scan_paths.experiment_dir_present`). The first cut put `logbook/`
 inside each day folder and could not create the day; that stranded the
 ops book, which is why it moved (owner ruling 2026-09-11).
 
@@ -521,7 +523,10 @@ import edge, no special casing — and two of this package's own rules are
 what shape it: an attachment needs an entry to exist first, and
 `render.py`'s `_IMAGE_RUN` grids only *consecutive* image paragraphs, so
 the sender appends and keeps its link above them. Changing either is a
-change to that caller.
+change to that caller. `ATTACHMENT_TYPES` takes `application/json` for
+the same caller: beside each plot it stores the settings the plot was
+drawn with, linked from one "Plot settings as sent:" line directly above the
+body's first image. The composer links any non-image upload rather than drawing it.
 
 `app.create_app(experiment, *, base_directory, notes_db, templates_dir,
 root_path)` is the one entry point. It takes the shared web glue from

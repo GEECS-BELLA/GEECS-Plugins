@@ -14,13 +14,17 @@ from fastapi import HTTPException
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
+from geecs_web_theme.web import root_of
+
 from geecs_data_utils.scan_info import analysis_folder_for
 from geecs_data_utils.scan_paths import ScanPaths
 from geecs_data_utils.tiled_catalog import RunDetail, ScanCatalog
 
 from geecs_portal import analysis_runs, resources
+from geecs_portal.batch import WorkerLink
+from geecs_portal.day_scans import DayScans
 from geecs_portal.cache import ShotDataCache
-from geecs_portal.routes.common import _figure_kwargs, _resolved_folder, _root
+from geecs_portal.routes.common import _figure_kwargs, _resolved_folder
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,7 @@ class _DiagInfo:
 _DOCUMENT_KINDS = {
     "AnalysisRecipe": "recipe",
     "HimgJob": "job",
+    "ScalarJob": "scalar",
 }
 
 
@@ -103,8 +108,16 @@ class PortalState:
     #: The client the plot send uses (``None`` = one per send); injected
     #: by tests so the conversation runs against an in-process logbook.
     logbook_client: Optional[httpx.Client] = None
+    #: Whether GEECSplotter's page is mounted at ``/plot`` (then it is the
+    #: Plot tab; without it the scan page has none).
+    plot_page: bool = False
     #: The configurator as the browser reaches it: the run page's embedded editor ("" = none).
     configurator_url: str = ""
+    #: The analysis worker the day page's batch panel talks to
+    #: (``--analysis-worker-url``; ``None`` = no panel).
+    worker: Optional[WorkerLink] = None
+    #: The day page's on-demand scan summaries (conditions, scan filters).
+    day_scans: DayScans = dataclasses.field(default_factory=DayScans)
     # (fingerprint → valid names): re-validated only when the tree
     # changes — discovery lists every YAML stem, but legacy flat camera
     # configs in the same tree don't LOAD as diagnostics, and offering
@@ -142,7 +155,7 @@ class PortalState:
         own prefix; an absolute one is used verbatim.
         """
         if self.logbook_base.startswith("/"):
-            return _root(request) + self.logbook_base
+            return root_of(request) + self.logbook_base
         return self.logbook_base
 
     def logbook_send_allowed(self, detail) -> bool:
@@ -198,8 +211,10 @@ class PortalState:
                 "(start it with --processing-configs)",
             )
         try:
-            # Check the optional runtime even when the router is cached.
-            importlib.import_module("geecs_analysis.engine.compiled")
+            # Check the optional runtime even when the router is cached:
+            # ScanAnalysis is what the extra adds (the analysis core
+            # itself is always installed).
+            importlib.import_module("scan_analysis.core_preview")
             ephemeral = importlib.import_module("geecs_portal.processing")
         except ImportError as exc:
             raise HTTPException(

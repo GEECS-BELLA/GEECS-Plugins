@@ -350,19 +350,6 @@ def _setpoint_device(
         tolerances = entry.tolerance_records(family)
     except ValueError as exc:  # validated against the installed families: not expected
         raise GeecsConfigurationError(f"device namespace: {device}: {exc}") from exc
-    retired = sorted(
-        r for r, spec in entry.settables.items() if spec.tolerance is not None
-    )
-    if retired:
-        logger.warning(
-            "device namespace: %s: native_devices.yaml still gives %s the retired "
-            "'tolerance': ignored — each set confirms within its IOC's set-tolerance "
-            "record (%s); drop the key once every reader of the file accepts its "
-            "absence",
-            device,
-            ", ".join(retired),
-            ", ".join(prefix + tolerances[r] for r in retired),
-        )
     return NativeSetpointDevice(
         device,
         prefix,
