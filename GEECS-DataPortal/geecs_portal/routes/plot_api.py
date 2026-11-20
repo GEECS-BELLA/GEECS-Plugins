@@ -28,14 +28,6 @@ router = APIRouter()
 _MAX_Y_COLUMNS = 4
 
 
-def _default_x(detail, columns: list[str]) -> str:
-    """The console-parity default X: the scan variable on stepped scans."""
-    if not schema_map.is_stepped_scan(detail.start_doc):
-        return ""
-    scan_vars = schema_map.scan_variable_columns(columns, detail.start_doc)
-    return scan_vars[0] if scan_vars else ""
-
-
 def _y_columns(cols: list[str]) -> list[str]:
     requested = list(dict.fromkeys(c for c in cols if c))
     if len(requested) > _MAX_Y_COLUMNS:
@@ -95,7 +87,7 @@ def api_columns(
     ]
     payload = {
         "columns": columns,
-        "default_x": _default_x(detail, [c["name"] for c in columns]),
+        "default_x": analysis.default_x(detail.start_doc, [c["name"] for c in columns]),
         "grid_axes": grid_axes(list(pf.frame.columns), detail.start_doc),
         "total": len(pf.frame),
     }

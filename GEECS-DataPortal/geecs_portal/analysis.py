@@ -20,11 +20,38 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
+from geecs_data_utils import tiled_schema
 from geecs_data_utils.data.binning import BinningConfig, bin_frame
 from geecs_data_utils.data.row_filters import RowFilters
 from geecs_data_utils.scan_grid import GridConfig
+
+
+def default_x(start_doc: Mapping[str, Any], columns: Sequence[str]) -> str:
+    """The default X of a scan's plot: its scan variable, else ``""``.
+
+    The one rule for every plot in the portal (the scan page's Analysis
+    tab and the Plot and Images tabs): a stepped scan plots against its
+    first scan-variable column among *columns*; a no-scan, or a scan whose
+    variable is not offered, has none and the shot number is X.
+
+    Parameters
+    ----------
+    start_doc : mapping
+        The run's start document.
+    columns : sequence of str
+        The columns offered as picks.
+
+    Returns
+    -------
+    str
+        The column name, or ``""``.
+    """
+    if not tiled_schema.is_stepped_scan(start_doc):
+        return ""
+    found = tiled_schema.scan_variable_columns(list(columns), start_doc)
+    return found[0] if found else ""
 
 
 class BadParam(ValueError):

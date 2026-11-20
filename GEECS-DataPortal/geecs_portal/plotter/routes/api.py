@@ -526,7 +526,7 @@ def register(router: APIRouter, ctx: Context) -> None:
         picks = scans.columns(frame)
         body = ColumnsResponse(
             columns=picks,
-            default_x=scans.default_x(run, picks),
+            default_x=analysis.default_x(run.start_doc, picks),
             shots=len(frame),
         )
         return _json(body)
