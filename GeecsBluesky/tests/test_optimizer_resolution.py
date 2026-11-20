@@ -98,7 +98,7 @@ def test_expansion_preflight_and_submission_share_optimizer_resolution(monkeypat
     monkeypatch.setattr(
         submit_preflight,
         "_check_liveness",
-        lambda report, devices, experiment, needed=None: observed.update(
+        lambda report, devices, experiment, needed=None, **_: observed.update(
             devices=devices
         ),
     )
