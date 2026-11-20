@@ -80,7 +80,7 @@
       "properties": {
         "data_type": {
           "$ref": "#/$defs/Data1DType",
-          "description": "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one)."
+          "description": "File format: 'tek_scope_hdf5' or 'tdms_scope' for scope captures, 'csv' / 'tsv' for delimited text, 'npy' for a saved array, 'pva_stack' for one shot of the per-device capture stack a Bluesky scan writes (traces and spectra alike; the reader takes its axis from the stack and hands back the trace at its true length, never the padded one), 'thorlabs_fts' for a Thorlabs FTS spectrometer's export (a '#Thorlabs FTS' header, then '[Data]' rows of wavelength;intensity)."
         },
         "trace_index": {
           "default": 0,
@@ -153,7 +153,8 @@
         "csv",
         "tsv",
         "npy",
-        "pva_stack"
+        "pva_stack",
+        "thorlabs_fts"
       ],
       "title": "Data1DType",
       "type": "string"

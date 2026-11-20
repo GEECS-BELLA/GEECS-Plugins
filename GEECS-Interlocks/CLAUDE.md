@@ -31,7 +31,7 @@ rules for changing the code.
   `stale_after_s`, not a finite number, an external signal before its first
   packet, a settings check not armed: all unsafe. A new condition kind or
   input path states its unsafe cases first and tests them.
-- **Report only.** The `interlocks-report-only` import contract keeps scan
+- **Report only.** The `interlocks-edges` import contract keeps scan
   execution and analysis out. No route, button or file write acts on the
   experiment.
 - **One snapshot, many readers.** The window, the stream and the page draw

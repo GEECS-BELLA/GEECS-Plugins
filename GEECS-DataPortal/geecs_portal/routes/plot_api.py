@@ -1,4 +1,4 @@
-"""The Plot and Grid tabs' JSON API over the union frame (+ bin membership)."""
+"""The scan's plot JSON API over the union frame: columns, frame, binned, grid, bin membership."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from geecs_data_utils import tiled_schema as schema_map
-from geecs_data_utils.data.binning import bin_frame
 from geecs_data_utils.scan_frame import PROVENANCE_RUN, scan_frame
 from geecs_data_utils.scan_grid import grid_axes, grid_scan
 
@@ -25,16 +24,8 @@ from geecs_portal.state import PortalState, get_state
 
 router = APIRouter()
 
-#: Multi-Y ceiling on the Plot tab (mockup ruling: up to 4).
+#: Multi-Y ceiling on /frame and /binned (mockup ruling: up to 4).
 _MAX_Y_COLUMNS = 4
-
-
-def _default_x(detail, columns: list[str]) -> str:
-    """The console-parity default X: the scan variable on stepped scans."""
-    if not schema_map.is_stepped_scan(detail.start_doc):
-        return ""
-    scan_vars = schema_map.scan_variable_columns(columns, detail.start_doc)
-    return scan_vars[0] if scan_vars else ""
 
 
 def _y_columns(cols: list[str]) -> list[str]:
@@ -96,7 +87,7 @@ def api_columns(
     ]
     payload = {
         "columns": columns,
-        "default_x": _default_x(detail, [c["name"] for c in columns]),
+        "default_x": analysis.default_x(detail.start_doc, [c["name"] for c in columns]),
         "grid_axes": grid_axes(list(pf.frame.columns), detail.start_doc),
         "total": len(pf.frame),
     }
@@ -123,28 +114,10 @@ def api_grid(
     except (ValueError, TypeError, IndexError, OverflowError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     pretty = _pretty_names(detail, pf, [result.config.x, result.config.y, cfg.value])
-    payload = {
-        "cells": result.cells.to_dict("records"),
-        "config": result.config.model_dump(),
-        "kind": result.kind,
-        "x_values": result.x_values,
-        "y_values": result.y_values,
-        "visits": result.visits,
-        "pass": result.passing,
-        "total": result.total,
-        "bin_column": result.bin_column,
-        "notes": result.notes,
-        "error_label": figures.grid_error_label(result),
-        "pretty": pretty,
-        "figures": {
-            name: figures.page_figure(fig)
-            for name, fig in figures.grid_figures(
-                result, pretty=pretty, palette=figures.THEMED_PALETTE
-            ).items()
-        },
-        "code": analysis.grid_code(uid, run_day, result.config, flt, pretty),
-    }
-    return JSONResponse(analysis.jsonable_document(payload), headers=_UNION_HEADERS)
+    code = analysis.grid_code(uid, run_day, result.config, flt, pretty)
+    return JSONResponse(
+        figures.grid_document(result, pretty, code), headers=_UNION_HEADERS
+    )
 
 
 @router.get("/api/run/{uid}/frame")
@@ -224,7 +197,7 @@ def api_frame(
 
 
 @router.get("/api/run/{uid}/binned")
-def api_binned(  # noqa: C901
+def api_binned(
     uid: str,
     cols: list[str] = Query(default=[]),
     x: str = "",
@@ -257,13 +230,12 @@ def api_binned(  # noqa: C901
             raise HTTPException(
                 status_code=404, detail=f"no plottable column {column!r}"
             )
-    cfg = dataclasses.replace(cfg, value_cols=tuple(requested))
     try:
-        result = bin_frame(pf.frame[mask], cfg)
+        result, binned_series, x_centers = analysis.binned_series(
+            pf.frame[mask], cfg, requested, x or None
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"no bin column: {exc}") from exc
-    except ValueError as exc:  # e.g. degenerate percentile bounds
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except TypeError as exc:
         # A coercible-string column (dtype-tolerant telemetry) plots
         # in per-shot view but bin_frame aggregates the RAW dtype —
@@ -272,37 +244,10 @@ def api_binned(  # noqa: C901
             status_code=400,
             detail=f"binned view needs numeric columns: {exc}",
         ) from exc
-    x_centers = None
-    if x:
-        # Same primitive, mean-aggregated — the snippet mirrors this
-        # exactly.  The x call's dropna/min_count runs over x ALONE,
-        # so its surviving bins can differ from the y call's:
-        # reindex onto the y bins, or points silently plot at the
-        # wrong bin's x (a missing x center degrades to a null →
-        # Plotly skips that point instead of mis-placing it).
-        try:
-            x_result = bin_frame(
-                pf.frame[mask],
-                dataclasses.replace(cfg, value_cols=(x,), agg="mean"),
-            )
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"binned view needs a numeric x: {exc}",
-            ) from exc
-        if (x, "center") in x_result.frame.columns:
-            x_centers = analysis.jsonable_values(
-                x_result.frame[(x, "center")].reindex(result.frame.index)
-            )
+    except ValueError as exc:  # e.g. degenerate percentile bounds
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    cfg = dataclasses.replace(cfg, value_cols=tuple(requested))
     bin_labels = analysis.jsonable_labels(result.frame.index)
-    binned_series = {
-        column: {
-            sub: analysis.jsonable_values(result.frame[(column, sub)])
-            for sub in ("center", "err_low", "err_high")
-        }
-        for column in requested
-        if (column, "center") in result.frame.columns
-    }
     x_name = x or None
     pretty = _pretty_names(detail, pf, [*requested, *([x_name] if x_name else [])])
     payload = {

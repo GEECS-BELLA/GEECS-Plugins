@@ -93,10 +93,10 @@ class ForwardedPrefixMiddleware:
     mount point; the proxy names it in this header. Setting
     ``scope["root_path"]`` makes every link, form, redirect and JS fetch
     (all built through the one ``root`` context value) carry the prefix,
-    so the surface works at root and under any mount point. The header,
-    when present, wins over a static ``--root-path`` (the proxy is
-    authoritative for where it mounted us); a client faking it only
-    rewrites its own page's links.
+    so the surface works at root and under any mount point. A client
+    faking the header only rewrites its own page's links. The header
+    overrides ``FastAPI(root_path=…)``, but not ``uvicorn.run(root_path=…)``
+    (below): there the two prefixes stack, so never set both.
 
     **Two proxy shapes, one setting each — not interchangeable.** A
     *prefix-stripping* proxy (nginx ``proxy_pass …/``, Caddy
@@ -110,6 +110,17 @@ class ForwardedPrefixMiddleware:
     fallback for a stripping proxy that omits the header: that pairing
     serves the HTML and loses every stylesheet and script (a styleless
     page, not a 404). Verified on the logbook and the portal, 2026-09-13.
+
+    That holds for ``FastAPI(root_path=…)`` (the logbook's and the
+    scanner's ``--root-path``). ``uvicorn.run(root_path=…)`` (the
+    portal's, the Control Room's and the configurator's, and Canopy's
+    ``--root-path``) is the opposite shape: uvicorn prepends the root path
+    to every request itself, so the app answers ``/run/…`` and
+    ``/theme/…`` and 404s ``/portal/…``. It suits a stripping proxy that
+    sends no header, and only that: with the header too, this middleware
+    prepends the prefix a second time (``/portal/portal/…``, a 404).
+    Verified on the portal with uvicorn 0.52.4, 2026-11-16 and
+    2026-11-20.
 
     The path is re-prefixed too (the ASGI-canonical shape: ``path``
     includes ``root_path``). Starlette's router strips ``root_path`` from

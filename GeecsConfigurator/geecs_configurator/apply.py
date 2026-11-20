@@ -170,7 +170,7 @@ SCHEMA_TIMEOUT_S = 5.0
 class PortalClient:
     """The data portal's analysis routes (``GEECS_CONFIGURATOR_PORTAL_URL``): the analysis documents' consumer.
 
-    The portal runs recipes, ``.himg`` jobs and groups, so its answer is the
+    The portal runs recipes, jobs and groups, so its answer is the
     check: a recipe bound to the analysis core's registry, a stem the loader
     would refuse, a group's references. This service never imports the core.
     """

@@ -35,7 +35,7 @@
   const API = host.dataset.api;
   const DAY = host.dataset.day;
   const BOOK = host.dataset.book || "scans";
-  const ACCEPT = (host.dataset.accept || "image/png,image/jpeg,image/gif,image/webp,application/pdf").split(",");
+  const ACCEPT = (host.dataset.accept || "image/png,image/jpeg,image/gif,image/webp,application/pdf,application/json").split(",");
   /* Where this service's permalinks live, e.g. "/log/entry". Empty on a
      read-only logbook, which has neither the route nor a composer. */
   const ENTRY_BASE = host.dataset.entryBase || "";
@@ -443,7 +443,7 @@
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw Object.assign(new Error((data.detail && data.detail.message) || data.detail || res.statusText), { status: res.status });
         const alt = (file.name || "image").replace(/\.[^.]+$/, "");
-        const md = file.type === "application/pdf" ? `[${alt}](${data.link})` : `![${alt}](${data.link})`;
+        const md = file.type.startsWith("image/") ? `![${alt}](${data.link})` : `[${alt}](${data.link})`;
         insertBlock(ta, md, false);
       }
     } catch (err) {

@@ -279,7 +279,7 @@ After the switch:
 - the worker writes its one file (`shot_offsets.yaml`) into the inbox
   (`GEECS_CONFIGS_WRITE_ROOT`), and the configurator commits it;
 - the scanner saves presets through the configurator (`--configurator-url`);
-- the analysis documents (recipes, `.himg` jobs, groups) are saved through
+- the analysis documents (recipes, `.himg` and scalar-columns jobs, groups) are saved through
   the configurator: the portal's Analysis tab opens them in its embedded
   editor (`--configurator-browser-url`), with the portal's preview, and the
   configurator's dry run of them is the portal's validate
@@ -509,7 +509,7 @@ sudo systemctl restart geecs-qserver geecs-qserver-ready geecs-scanner geecs-dat
 - `curl -s http://<the configurator's bind address>:<GEECS_CONFIGURATOR_PORT>/healthz` →
   `"main": "applied"`, `"share": "current"`.
 - The portal's schema, each analysis kind (`analysis_recipe`,
-  `analysis_group`, `himg_job`):
+  `analysis_group`, `himg_job`, `scalar_job`):
   `curl -s <GEECS_CONFIGURATOR_PORTAL_URL>/api/analysis/schema/<kind>` answers
   a schema, and the configurator relays it:
   `curl -s -D - -o /dev/null http://<the configurator's bind address>:<GEECS_CONFIGURATOR_PORT>/api/schema/<kind>`

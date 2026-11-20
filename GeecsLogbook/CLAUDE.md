@@ -523,7 +523,10 @@ import edge, no special casing — and two of this package's own rules are
 what shape it: an attachment needs an entry to exist first, and
 `render.py`'s `_IMAGE_RUN` grids only *consecutive* image paragraphs, so
 the sender appends and keeps its link above them. Changing either is a
-change to that caller.
+change to that caller. `ATTACHMENT_TYPES` takes `application/json` for
+the same caller: beside each plot it stores the settings the plot was
+drawn with, linked from one "Plot settings as sent:" line directly above the
+body's first image. The composer links any non-image upload rather than drawing it.
 
 `app.create_app(experiment, *, base_directory, notes_db, templates_dir,
 root_path)` is the one entry point. It takes the shared web glue from
@@ -533,7 +536,8 @@ copy; the routes live in `routes/` (`day`, `month`, `entries`,
 `attachments`, one module per concern) and register on one router the
 app includes at its root. The templates address every asset and link
 root-relatively (`{{ root }}/static/…`, `url_for(...).path`), so the
-service works at root and under `/log` at the front door alike.
+service works at root and under a front door's prefix
+(`/<experiment>/logbook`) alike.
 
 `--notes-db` names the SQLite file (default `$STATE_DIRECTORY/logbook.db`
 under systemd); uploads go to `attachments/` beside it. Without a store

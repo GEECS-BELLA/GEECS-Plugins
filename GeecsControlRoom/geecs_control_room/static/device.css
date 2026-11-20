@@ -49,6 +49,13 @@
 .kit .panel-rail .field:has(input[type="text"]){width:232px}
 .kit .settables .axis-pick .seg button{min-width:3em}
 .kit .settables .note{font-size:11.5px;margin:0}
+/* The settables page's trends (_panel.html's `trends`, trend.js): the window choice and its one line of
+   words, then a plot per trend (Plotly, the theme's template) filling the pane's width. */
+.kit .settables .trends{display:flex;flex-direction:column;gap:var(--gap);min-width:0}
+.kit .settables .trends .tools{align-items:flex-end;gap:10px}
+.kit .settables .trends .trend-note{font-size:11.5px}
+.kit .settables .trends .trend-note:empty{display:none}
+.kit .settables .trend .trend-plot{width:100%;height:240px}
 /* A write's outcome line (device_writes.js): the module's word, in its colour. */
 .kit .device .out{font-size:11px;font-family:var(--ff-mono);min-height:1em;color:var(--muted)}
 .kit .device .out[data-state="ok"]{color:var(--ok)}

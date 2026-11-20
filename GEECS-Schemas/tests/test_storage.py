@@ -69,6 +69,7 @@ def test_the_named_kinds_read_by_the_resolver_accept_yml():
         "himg_job",
         "optimizer_config",
         "preset",
+        "scalar_job",
         "setup",
         "trigger_profile",
     ]
@@ -88,6 +89,7 @@ def test_kinds_sharing_a_folder_name_the_loader_that_tells_them_apart():
         module, _, name = storage.dispatch.rpartition(".")
         assert callable(getattr(importlib.import_module(module), name))
     assert KIND_STORAGE["analysis_recipe"].dispatch == KIND_STORAGE["himg_job"].dispatch
+    assert KIND_STORAGE["scalar_job"].dispatch == KIND_STORAGE["himg_job"].dispatch
 
 
 def test_path_pattern():

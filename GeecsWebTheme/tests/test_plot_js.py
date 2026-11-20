@@ -153,9 +153,13 @@ def test_every_page_names_the_bundle_the_theme_vendors() -> None:
     repo = Path(__file__).resolve().parents[2]
     vendored = sorted(p.name for p in static_dir().glob("plotly-*.min.js"))
     assert len(vendored) == 1, vendored  # one bundle, one version
-    pages = list(repo.glob("*/*/templates/*.html")) + [static_dir() / "kit.html"]
+    pages = [
+        *repo.glob("*/*/templates/*.html"),
+        *repo.glob("*/*/*/templates/*.html"),
+        static_dir() / "kit.html",
+    ]
     named = {(p.relative_to(repo).as_posix(), m) for p in pages for m in re.findall(r"plotly-[a-z0-9]+-[0-9.]+\.min\.js", p.read_text())}  # fmt: skip
-    assert {"GEECS-DataPortal/geecs_portal/templates/run.html", "GeecsControlRoom/geecs_control_room/templates/device_trace.html"} <= {p for p, _ in named}  # fmt: skip
+    assert {"GEECS-DataPortal/geecs_portal/plotter/templates/index.html", "GeecsControlRoom/geecs_control_room/templates/device_trace.html", "GeecsControlRoom/geecs_control_room/templates/device.html"} <= {p for p, _ in named}  # fmt: skip
     assert [(p, m) for p, m in named if m != vendored[0]] == []
 
 

@@ -208,3 +208,16 @@ class TestSerialization:
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError):
             RowFilters.model_validate({"groups": [], "surprise": 1})
+
+
+def test_a_one_sided_condition_round_trips_through_json() -> None:
+    """An infinite bound is written as a string JSON can carry, and read back."""
+    from geecs_data_utils.data.row_filters import RowFilters, filter_mask
+
+    raw = '{"groups":[{"conditions":[{"column":"q","low":10,"high":"inf"}]}]}'
+    filters = RowFilters.model_validate_json(raw)
+    again = RowFilters.model_validate_json(filters.model_dump_json())
+    assert again == filters
+    assert '"Infinity"' in filters.model_dump_json()
+    frame = pd.DataFrame({"q": [5.0, 10.0, 1e9]})
+    assert filter_mask(frame, again).tolist() == [False, True, True]

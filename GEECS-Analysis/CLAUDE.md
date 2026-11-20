@@ -253,6 +253,53 @@ float64 line result values reflect RMS negative clipping; float32 results do
 not. Preserve these values at the runtime boundary with private copies. Do not
 propagate these quirks into pure steps or general Frame semantics.
 
+The `spectral_interferometry` measure (`algorithms.spectral_interferometry`,
+new, not a port): τ0 and ΔGDD of two pulses from one spectral
+interferogram (FFT → sideband → inverse FFT → unwrapped phase → weighted
+quadratic fit), with seven reliability flags. Undetermined values are
+`None`/NaN, never 0. The figure is `render.spectral_interferometry`, and
+its file edge is ScanAnalysis' `tools/spectral_interferometry.py`. The
+sign convention (τ0 ≥ 0 is the later pulse; the arms are
+indistinguishable from one spectrum) is in the module and in
+`docs/analysis/spectral_interferometry.md`. Numpy only.
+
+## Array-level numerics for viewers (curve fits, image clean-ups)
+
+Two things here are called on plain arrays by the Data Portal's plot
+pages, outside any recipe; they register nothing.
+
+`algorithms.curve_fit.fit_curve(x, y, model, order=)` → `CurveFit`: the
+plotter's Fit menu as one pure call over the finite `(x, y)` pairs,
+unweighted, standard errors from the residual-scaled covariance. Models:
+`gaussian` (σ; derived `fwhm`), `supergaussian`
+(`A·exp(-(|x−x0|/w)^p)+C`, `p` fitted within `POWER_BOUNDS`; derived
+`fwhm = 2w·(ln 2)^(1/p)`), each with a `_no_offset` kind, and
+`polynomial` (`c0 … cN`, ascending powers, `numpy.polyfit`). A fit that
+cannot be made is a `CurveFit` with `error` set, never an exception;
+`evaluate(x)` / `curve(points)` redraw it. scipy is imported inside the
+call. Another model of LabVIEW's menu (Lorentzian, Boltzmann, Exp Growth,
+Extreme, Lorentzian w slope) is added here. It is not the summaries'
+`fit_line` (a line and its zero crossing over bins) nor
+`algorithms.polynomial_fit` (the FROG phase fit, weighted, ported bit
+for bit): neither is folded into it.
+
+`image_prep.ImagePrep(hits=, centre=).apply(image)`: one camera image's
+clean-ups before it is drawn or averaged, composed of what is already
+here. Hits out first (`remove_hits`): `median3` / `median5` are the
+`median` step; `hot` is `algorithms.hot_pixels.remove_hot_pixels`, which
+replaces only a pixel far above neighbours that sit at the background,
+so a sharp focal spot survives. Its noise is the robust deviation of the
+image less its 3×3 median and never less than `noise_floor` (default
+`NOISE_FLOOR`, one count): the median deviation is zero on a dark frame
+with more than half its pixels on one value, and without the floor every
+lone count there is a hit. Then `algorithms.beam_centre.beam_centre`
+(the centre of mass above a threshold — counts at 1 or more, else a
+fraction of the peak — through `compute_center_of_mass` on the two
+projections) and `centre_on` (whole-pixel shift, the median shifted in).
+A background comes off with the `background_frame` step
+(`alignment="samples"`); there is no second subtraction. When these
+become recipe steps, `image_prep` goes.
+
 ## Rendering
 
 `render.single` / `render.waterfall` return matplotlib Figure objects; no

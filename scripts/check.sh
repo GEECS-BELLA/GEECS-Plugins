@@ -44,7 +44,7 @@ cd "$REPO_ROOT"
 # breaking a dependent. So a green check.sh is not a promise that CI is
 # green, and never was.
 ROOT_ENV_PKGS="GEECS-Analysis ScanAnalysis GEECS-Data-Utils GEECS-Schemas"
-OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme GeecsArchiver GeecsCanopy GeecsControlRoom GeecsConfigurator GEECS-Interlocks"
+OWN_ENV_PKGS="GeecsBluesky GeecsCAGateway GeecsPvaGateway GEECS-Core GEECS-DataPortal GEECS-LogTriage GEECS-MCP GeecsLogbook GeecsScanner GeecsWebTheme GeecsArchiver GeecsCanopy GeecsControlRoom GeecsConfigurator GeecsAnalysisWorker GEECS-Interlocks"
 
 MODE="changed"      # changed | all | lint
 BASE=""
@@ -360,7 +360,7 @@ run_suite() {
             (cd GeecsBluesky && run_bluesky_suite) ;;
         GEECS-Interlocks)
             (cd GEECS-Interlocks && run_interlocks_suite) ;;
-        GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsScanner|GeecsWebTheme|GeecsArchiver|GeecsCanopy|GeecsControlRoom|GeecsConfigurator)
+        GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsScanner|GeecsWebTheme|GeecsArchiver|GeecsCanopy|GeecsControlRoom|GeecsConfigurator|GeecsAnalysisWorker)
             (cd "$1" && poetry run pytest tests --tb=short -q) ;;
         *)
             echo "check.sh: no runner for '$1'" >&2; return 1 ;;

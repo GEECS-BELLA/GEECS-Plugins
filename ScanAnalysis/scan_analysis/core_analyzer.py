@@ -66,6 +66,13 @@ def write_scalars_into_rows(rows: pd.DataFrame, records: list[dict]) -> None:
             rows.loc[hit, key] = next(iter(given.values()))
 
 
+#: The progress phase a run reports, by whether a unit is a bin (frames
+#: averaged before analysis) or one shot.
+UNIT_PHASES = {False: "shot", True: "bin"}
+#: The phase after the last unit: the scalars and products being written.
+WRITING_PHASE = "writing products"
+
+
 class CoreScanAnalyzer(ScanAnalyzer):
     """Explicit scan execution of one analysis document on ``geecs_analysis``.
 
@@ -210,6 +217,10 @@ class CoreScanAnalyzer(ScanAnalyzer):
             if store is not None:
                 self._discard_store(store)
             raise
+        # Every unit is in; what is left (the store, the scalar merge, the
+        # products) is writing, which a long camera scan spends a while on —
+        # said so, not left at "N of N" looking hung.
+        self.report_progress(len(prepared.groups), len(prepared.groups), WRITING_PHASE)
         if store is not None:
             # The store is a product: like every product write, its final
             # flush and rename must never cost the run its scalars.
@@ -253,7 +264,15 @@ class CoreScanAnalyzer(ScanAnalyzer):
         are persisted), or ``None``.
         """
         fold_error: ValueError | None = None
-        for outcome in prepared.run(workers=workers):
+        # Progress per run unit, counted as the outcomes arrive (in group
+        # order, whatever the worker count): a failed unit is still one
+        # done. The host's sink (the portal's run record) is told before
+        # the first unit too, so the page has a total at once.
+        phase = UNIT_PHASES[prepared.average_before_analysis]
+        total = len(prepared.groups)
+        self.report_progress(0, total, phase)
+        for done, outcome in enumerate(prepared.run(workers=workers), start=1):
+            self.report_progress(done, total, phase)
             for failure in outcome.load_failures:
                 logger.warning(
                     "Skipping shot %s in unit %s (load failed: %s)",

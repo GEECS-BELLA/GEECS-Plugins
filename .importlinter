@@ -39,6 +39,7 @@ root_packages =
     geecs_interlocks
     geecs_mcp
     geecs_configurator
+    geecs_analysis_worker
 include_external_packages = True
 exclude_type_checking_imports = True
 
@@ -54,7 +55,7 @@ exclude_type_checking_imports = True
 name = Package layers: edges point down the dependency graph; packages on one layer never import each other
 type = layers
 layers =
-    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook | geecs_control_room | geecs_configurator | geecs_interlocks
+    geecs_scanner | geecs_mcp | geecs_portal | geecs_logbook | geecs_control_room | geecs_configurator | geecs_interlocks | geecs_analysis_worker
     geecs_bluesky | scan_analysis | geecs_ca_gateway | geecs_pva_gateway | geecs_archiver | geecs_canopy | geecs_log_triage
     geecs_analysis
     geecs_core | geecs_data_utils | geecs_schemas | geecs_web_theme | logmaker_4_googledocs
@@ -90,6 +91,7 @@ forbidden_modules =
     geecs_interlocks
     geecs_mcp
     geecs_configurator
+    geecs_analysis_worker
 
 [importlinter:contract:gateways-are-services]
 name = Nothing imports a gateway's code: the gateways are consumed as services (the PVs), never as libraries
@@ -112,6 +114,7 @@ source_modules =
     geecs_interlocks
     geecs_mcp
     geecs_configurator
+    geecs_analysis_worker
 forbidden_modules =
     geecs_ca_gateway
     geecs_pva_gateway
@@ -137,6 +140,7 @@ source_modules =
     geecs_control_room
     geecs_interlocks
     geecs_mcp
+    geecs_analysis_worker
 forbidden_modules =
     logmaker_4_googledocs
 
@@ -294,12 +298,13 @@ forbidden_modules =
 allow_indirect_imports = True
 
 [importlinter:contract:portal-edges]
-name = GEECS-DataPortal imports GEECS-Data-Utils, GEECS-Schemas, the analysis packages and the web theme: never the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
+name = GEECS-DataPortal imports GEECS-Data-Utils, GEECS-Schemas, the analysis packages and the web theme: never the analysis worker's HTTP service (reached over HTTP alone), the scanner, the logbook, MCP, Bluesky, Core or the EPICS side
 type = forbidden
 source_modules =
     geecs_portal
 forbidden_modules =
     geecs_scanner
+    geecs_analysis_worker
     geecs_logbook
     geecs_control_room
     geecs_interlocks
@@ -510,6 +515,10 @@ forbidden_modules =
     ophyd_async
 allow_indirect_imports = True
 
+# The interlock server reports and never acts: it reads devices through
+# GEECS-Core, its configurations through GEECS-Schemas, and draws its page
+# with GeecsWebTheme. The suspender design it replaced coupled interlocks to
+# the RunEngine; no path back to scan execution, analysis or another surface.
 [importlinter:contract:interlocks-edges]
 name = GEECS-Interlocks imports GEECS-Core, GEECS-Schemas and the web theme: never Bluesky, the analysis packages, the EPICS packages or another surface
 type = forbidden
@@ -519,7 +528,10 @@ forbidden_modules =
     geecs_data_utils
     geecs_analysis
     scan_analysis
+    geecs_analysis_worker
     geecs_bluesky
+    geecs_ca_gateway
+    geecs_pva_gateway
     geecs_archiver
     geecs_canopy
     geecs_log_triage
@@ -529,25 +541,46 @@ forbidden_modules =
     geecs_control_room
     geecs_mcp
     geecs_configurator
+    logmaker_4_googledocs
     bluesky
     ophyd
 
-# The interlock server reports and never acts: it reads devices through
-# GEECS-Core, its configurations through GEECS-Schemas, and draws its page
-# with GeecsWebTheme. The suspender design it replaced coupled interlocks to
-# the RunEngine; no path back to scan execution or analysis.
-[importlinter:contract:interlocks-report-only]
-name = GEECS-Interlocks imports GEECS-Core, GEECS-Schemas and GeecsWebTheme only
+[importlinter:contract:analysis-worker-edges]
+name = GeecsAnalysisWorker imports ScanAnalysis (the job runner and the group loader) and nothing else in the repo directly: its clients reach it over HTTP
 type = forbidden
 source_modules =
-    geecs_interlocks
+    geecs_analysis_worker
 forbidden_modules =
-    geecs_bluesky
-    geecs_data_utils
     geecs_analysis
-    scan_analysis
+    geecs_data_utils
+    geecs_schemas
+    geecs_core
+    geecs_web_theme
+    geecs_bluesky
+    geecs_scanner
+    geecs_portal
+    geecs_logbook
+    geecs_mcp
+    geecs_canopy
+    geecs_control_room
+    geecs_configurator
+    geecs_archiver
+    geecs_log_triage
     geecs_ca_gateway
     geecs_pva_gateway
-    geecs_archiver
-    geecs_canopy
-    logmaker_4_googledocs
+    bluesky
+    ophyd_async
+allow_indirect_imports = True
+
+# The other half of "ScanAnalysis has no web code": the job runner never
+# reaches a web framework, even indirectly. The HTTP API over it is
+# GeecsAnalysisWorker's.
+[importlinter:contract:scan-analysis-no-web]
+name = ScanAnalysis has no web code: it never imports fastapi, starlette or uvicorn
+type = forbidden
+source_modules =
+    scan_analysis
+forbidden_modules =
+    fastapi
+    starlette
+    uvicorn

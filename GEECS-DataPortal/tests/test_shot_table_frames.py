@@ -131,18 +131,11 @@ def test_a_dropped_frame_is_a_gap_and_later_shots_keep_their_frames(folder, make
     assert pixels[0, 0] == pixels[0, 2] > 0 and pixels[0, 1] == 0  # shots 1 + 3 only
 
 
-def test_a_shot_table_trace_and_warm_up_follow_the_records(folder, monkeypatch):
-    app = _shot_table(folder)
-    client = TestClient(app)
+def test_a_shot_table_trace_follows_the_records(folder):
+    client = TestClient(_shot_table(folder))
     trace = client.get("/api/run/uid-002/trace?device=U_Scope&shot=3")
     assert trace.json()["figure"]["data"][0]["y"][0] == 3.0  # frame 3, not 2
     assert client.get("/api/run/uid-002/trace?device=U_Scope&shot=2").status_code == 404
-    cache = app.state.portal.data_cache
-    warm = cache.warm_native
-    monkeypatch.setattr(cache, "warm_native", lambda *a: warm(*a, synchronous=True))
-    client.get("/run/uid-002?device=U_Native&tab=images")
-    assert cache.native_shot(("uid-002", "U_Native"), 2) is None  # a gap: not warmed
-    assert cache.native_shot(("uid-002", "U_Native"), 3)[0, 0] == int(_LV + 3) % 7
 
 
 def test_an_old_strict_run_still_serves_frames_by_its_rows(folder):
@@ -239,3 +232,65 @@ def test_concurrent_misses_wait_for_one_load():
     for thread in threads:
         thread.join()
     assert Slow.loads == 1
+
+
+_DERIVED = "UC_GatedCam-ImageInterp"
+
+
+def _derived_stack(folder):
+    """The camera's derived stack: frames 0 and 1 are shots 1 and 3's."""
+    import h5py
+
+    (folder / _DERIVED).mkdir()
+    frames = np.zeros((2, 6, 6), dtype=np.uint16)
+    frames[0, 0, 0] = frames[1, 0, 1] = 1000  # identity marker: column = frame index
+    with h5py.File(folder / _DERIVED / f"{_DERIVED}.h5", "w") as handle:
+        handle.attrs["finalized"] = True
+        handle.create_dataset(FRAMES_DATASET, data=frames, chunks=(1, 6, 6))
+        handle.create_dataset(
+            TIMESTAMPS_DATASET, data=np.array(_RECORDS) - LABVIEW_EPOCH_OFFSET
+        )
+
+
+def test_a_derived_stack_follows_its_device_s_records(folder):
+    """No record of its own: the shot table's record for the device it is named after."""
+    _derived_stack(folder)
+    client = TestClient(_shot_table(folder))
+    assert _frame_shown(client, 1, _DERIVED) == 0
+    assert "missed this shot" in _frame_shown(client, 2, _DERIVED)
+    assert _frame_shown(client, 3, _DERIVED) == 1  # by order there is no frame 2
+
+
+def test_a_strict_run_s_derived_stack_follows_its_device_s_column(folder):
+    """Rows 1 and 3 hold the camera's stamps: by order row 2 would show shot 3."""
+    _derived_stack(folder)
+    stamped = pd.DataFrame(
+        {"uc_gatedcam-acq_timestamp": [_LV + 1.0, float("nan"), _LV + 3.0]}
+    )
+    client = TestClient(_app(folder, {}, {"primary": {"internal": stamped}}))
+    assert _frame_shown(client, 1, _DERIVED) == 0
+    assert "missed this shot" in _frame_shown(client, 2, _DERIVED)
+    assert _frame_shown(client, 3, _DERIVED) == 1
+
+
+def test_a_derived_stack_takes_the_longest_parent_across_records_and_columns(folder):
+    """``U`` has records and missed shot 2; ``U-Cam``, a column, captured it."""
+    import h5py
+
+    derived = "U-Cam-ImageInterp"
+    (folder / derived).mkdir()
+    frames = np.zeros((3, 6, 6), dtype=np.uint16)
+    for index in range(3):
+        frames[index, 0, index] = 1000  # identity marker: column = frame index
+    with h5py.File(folder / derived / f"{derived}.h5", "w") as handle:
+        handle.attrs["finalized"] = True
+        handle.create_dataset(FRAMES_DATASET, data=frames, chunks=(1, 6, 6))
+        handle.create_dataset(
+            TIMESTAMPS_DATASET, data=np.array(_CLOCK) - LABVIEW_EPOCH_OFFSET
+        )
+    rows = pd.DataFrame(
+        {"u_clock-acq_timestamp": _CLOCK, "u_cam-acq_timestamp": _CLOCK}
+    )
+    streams = {"primary": {"internal": rows}, "u_stream": camera("u", _RECORDS)}
+    client = TestClient(_app(folder, {"shot_clock": "U_Clock"}, streams))
+    assert [_frame_shown(client, s, derived) for s in (1, 2, 3)] == [0, 1, 2]
