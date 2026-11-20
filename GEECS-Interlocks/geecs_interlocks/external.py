@@ -2,10 +2,12 @@
 
 A program that is not a GEECS device — a motion controller on another
 computer, say — sends one short text packet to the interlock server whenever
-its state changes, and nothing in between. A packet containing ``warning``
-(or ``unsafe``) means unsafe, one containing ``safe`` otherwise means safe
-(case does not matter); any other packet is logged and leaves the last
-state. Until a recognised
+its state changes, and nothing in between. A packet's text must **start**
+with one of three words (case does not matter): ``warning`` or ``unsafe``
+means unsafe; ``safe`` means safe, unless a negation follows it (``not``,
+``no``, ``false``, ``off``, ``0``). Anything else (``not safe``,
+``safe: false``, ``motion done: safe``) is unrecognised: it is logged and
+leaves the last state, which before the first packet is unsafe. Until a recognised
 packet arrives the signal is unknown, which every reader treats as unsafe.
 
 The listeners belong to the engine, not to a monitor, and outlive a reload:
@@ -17,6 +19,7 @@ listener per port the interlocks name and closes the ones no longer named.
 from __future__ import annotations
 
 import logging
+import re
 import socket
 import threading
 import time
@@ -30,6 +33,10 @@ logger = logging.getLogger(__name__)
 RECV_POLL_S = 0.5
 #: The longest packet text kept for display.
 RAW_KEPT = 200
+#: The words a packet may start with, and what may follow them.
+_LEADING_WORD = re.compile(r"^(safe|warning|unsafe)\b(.*)$", re.DOTALL)
+#: A word after ``safe`` that turns it around.
+_NEGATION = re.compile(r"\b(not|no|false|off|0)\b")
 
 
 @dataclass(frozen=True)
@@ -67,15 +74,20 @@ class SignalSource(Protocol):
 def decode(payload: bytes) -> bool | None:
     """A packet's state: ``True`` unsafe, ``False`` safe, ``None`` unrecognised.
 
-    ``warning`` and ``unsafe`` win over ``safe``: "unsafe" holds "safe", and
-    reading it as safe would be the one failure this module must never have.
+    Only the packet's first word decides, and a ``safe`` reads safe only when
+    no negation follows it: reading a "not safe" as safe is the one failure
+    this module must never have, so anything unclear is unrecognised.
     """
-    text = payload.decode("utf-8", errors="replace").lower()
-    if "warning" in text or "unsafe" in text:
+    text = payload.decode("utf-8", errors="replace").strip().lower()
+    match = _LEADING_WORD.match(text)
+    if match is None:
+        return None
+    word, rest = match.group(1), match.group(2)
+    if word in ("warning", "unsafe"):
         return True
-    if "safe" in text:
-        return False
-    return None
+    if _NEGATION.search(rest):
+        return None
+    return False
 
 
 class UdpListener:

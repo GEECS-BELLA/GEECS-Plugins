@@ -64,7 +64,7 @@ say). Master Control sees one line per interlock.
 | Threshold | A variable crosses a limit (`>`, `>=`, `<`, `<=`, `==`, `!=`) |
 | Alignment | A variable is the tolerance or further from a target variable |
 | Stale | A device disconnects, or (with a maximum age) stops publishing |
-| External signal | A program outside GEECS sends a UDP packet saying `warning` (or `unsafe`), until it sends `safe` |
+| External signal | A program outside GEECS sends a UDP packet starting with `warning` or `unsafe`, until it sends one starting with `safe` |
 | Settings unchanged | A device's settings move from the values recorded when you pressed **Arm settings** |
 
 An interlock is also unsafe before anything has been heard from its
@@ -114,6 +114,20 @@ not yet clear for its settle time.
    server runs it. **Save as…** keeps it as a new configuration. Nothing
    changes until you save.
 
+!!! note "Where a save goes"
+    A configuration from the configs repository is never written into the
+    checkout the services read: that checkout belongs to the
+    [Configurator](configurator.md). The Builder saves it under
+    `GEECS_CONFIGS_WRITE_ROOT` (the Configurator's inbox) and runs it from
+    there. With no write root set, saving a configs-repository file is
+    refused; edit it in the Configurator, or run a local copy with
+    `--interlocks FILE`, which the Builder saves in place.
+
+A sender's packet must **start** with `safe`, `warning` or `unsafe`
+(any case). A `safe` followed by a negation (`not`, `no`, `false`, `off`,
+`0`) and anything else is ignored and logged, so `not safe` can never read
+as safe.
+
 ## The web page
 
 `http://<lab-pc>:8600/` shows the same verdict and interlocks to anyone on
@@ -138,6 +152,11 @@ A message every 0.1 s on the stream port, holding a single keyword:
 SAFE | OK: chamber vacuum | OK: pointing camera
 WARNING! TRIPPED | TRIPPED: pointing camera - MaxCounts=4113 (limit: >=4000) | OK: chamber vacuum
 ```
+
+If the server's evaluation ever stops (one second without a new
+evaluation), every frame becomes a trip, `TRIPPED: interlock server -
+evaluation stopped N s ago`, until it recovers; the window says **Not
+updating**. Master Control is never sent an old verdict.
 
 `poetry run geecs-interlocks listen <lab-pc>:5001` prints what it receives.
 The original server's format (`SAFE: <name> | WARNING! <name> - <reason>`)

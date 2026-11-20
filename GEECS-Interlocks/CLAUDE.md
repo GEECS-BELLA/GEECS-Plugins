@@ -48,13 +48,25 @@ rules for changing the code.
 - **UDP listeners outlive a reload.** Senders transmit only on a change, so
   a rebuilt listener would forget the last state and read unsafe until the
   next one. A reload that names a port it cannot bind is refused whole.
-- **A packet holding `unsafe` is unsafe.** It contains "safe"; the decode
-  checks `warning` and `unsafe` before `safe`.
+- **A packet reads safe only when it plainly says so.** Its first word
+  decides (`safe`, `warning`, `unsafe`); a `safe` followed by a negation,
+  and every other packet, is unrecognised (`not safe`, `safe: false`,
+  `motion done: safe`). Pinned in `tests/test_external.py`.
+- **A stalled evaluation trips the stream.** Past `present.STALL_S` (ten
+  ticks) without a new snapshot, `StatusServer` sends `render_stalled`
+  instead of re-sending the last verdict, and the window says
+  "Not updating". Every reader treats an old snapshot as no snapshot.
+- **The Builder never writes the read checkout.** `config.save_target`
+  sends a configs-repo file to the write root
+  (`GEECS_CONFIGS_WRITE_ROOT`, the configurator's inbox), as GeecsBluesky's
+  writes do, and refuses when that would land in the git checkout the
+  services read: the configurator fast-forwards it, and git refuses to
+  over a changed file. A file outside the repo is saved in place.
 - **The window must never take the server down.** PyQt6 ends the process
   on an exception that escapes a slot; `gui.log_uncaught` logs it instead,
   and `run_window` installs it. No DB or network call on the window's
   thread: the catalog loads on a worker and falls back to the file's
-  devices.
+  devices, and reloads run on a worker (`gui.reloader`).
 - **The page never keeps a verdict it stopped hearing.** Past 2 s without
   a snapshot it says "No signal", shows the last verdict with its time and
   greys every chip (`web/static/interlocks.js`).

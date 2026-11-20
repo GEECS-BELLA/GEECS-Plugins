@@ -16,11 +16,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from geecs_interlocks.monitor import Snapshot
+from geecs_interlocks.present import stall_age
 from geecs_interlocks.wire import (
     DEFAULT_WIRE_FORMAT,
     SEND_INTERVAL_S,
     WireFormat,
     frame,
+    render_stalled,
     render_status,
 )
 
@@ -131,6 +133,10 @@ class StatusServer:
 
     def _frame(self) -> bytes:
         snapshot = self._snapshot()
+        stalled = stall_age(snapshot)
+        if stalled is not None:
+            # The loop has stopped replacing the snapshot: never re-send its verdict.
+            return frame(render_stalled(stalled, self.wire_format))
         with self._lock:
             rendered_for, data = self._rendered
             if rendered_for is not snapshot:

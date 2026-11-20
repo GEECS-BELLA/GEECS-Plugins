@@ -28,10 +28,11 @@ from PyQt6.QtWidgets import (
 
 from geecs_interlocks.engine import Engine
 from geecs_interlocks.gui.log_pane import LogPane
+from geecs_interlocks.gui.reloader import Reloader
 from geecs_interlocks.gui.theme import SAFE_COLOURS, STATE_COLOURS
 from geecs_interlocks.logs import LogBuffer
 from geecs_interlocks.monitor import STATES, InterlockStatus, Snapshot
-from geecs_interlocks.present import is_age, number_text, verdict_text
+from geecs_interlocks.present import is_age, number_text, stall_age, verdict_text
 
 #: Milliseconds between two redraws.
 REFRESH_MS = 200
@@ -72,6 +73,7 @@ class MonitorTab(QWidget):
         self._notify = notify
         self._web_url = web_url
         self._drawn: Snapshot | None = None
+        self._reloader = Reloader(engine, self)
         layout = QVBoxLayout(self)
         layout.addLayout(self._build_top())
         layout.addLayout(self._build_actions())
@@ -151,6 +153,21 @@ class MonitorTab(QWidget):
         """Redraw from the engine's latest snapshot (skipped when it has not changed)."""
         snapshot = self.engine.snapshot()
         self._draw_connections()
+        stalled = stall_age(snapshot)
+        if stalled is not None:
+            # The stream is sending a trip now; the strip says the same.
+            bg, fg = STATE_COLOURS["tripped"]
+            self.verdict.setStyleSheet(f"QFrame#verdict {{ background: {bg}; }}")
+            self.headline.setStyleSheet(
+                f"font-size: 18px; font-weight: 600; color: {fg};"
+            )
+            self.detail.setStyleSheet(f"color: {fg};")
+            self.headline.setText("Not updating")
+            self.detail.setText(
+                f"evaluation stopped {stalled:.0f} s ago — Master Control is sent a trip"
+            )
+            self._drawn = None  # redraw in full once it recovers
+            return
         if snapshot is self._drawn:
             return
         self._drawn = snapshot
@@ -270,9 +287,9 @@ class MonitorTab(QWidget):
         self._notify(f"Armed: {', '.join(armed)}")
 
     def reload_file(self) -> None:
-        """Re-read the interlocks file (the stream stays connected)."""
-        self._notify(self.engine.reload())
-        self.refresh()
+        """Re-read the interlocks file off the window's thread (the stream stays connected)."""
+        self._notify("Reloading…")
+        self._reloader.reload(None, self._notify)
 
     def open_web(self) -> None:
         """Open the web client in the default browser."""

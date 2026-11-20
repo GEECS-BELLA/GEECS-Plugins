@@ -117,6 +117,19 @@ class TestMonitorTab:
         assert notes and notes[0].startswith("Not armed")
 
 
+def wait_until(app, predicate, timeout=5.0):
+    """Process Qt events until *predicate* holds (a worker's result arriving)."""
+    import time
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        app.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
 def catalog_loaded(app, builder):
     """Wait for the worker thread's catalog to reach the tab."""
     import time
@@ -166,6 +179,11 @@ class TestBuilderTab:
         assert builder.draft.dirty
         assert "unsaved changes" in window.windowTitle()
         builder._write(window.engine.path)
+        # The reload runs on a worker thread; its result lands on the window's.
+        assert wait_until(
+            app, lambda: len(window.engine.interlocks.interlocks[1].conditions) == 3
+        )
+        assert wait_until(app, lambda: "unsaved changes" not in window.windowTitle())
         saved = yaml.safe_load(window.engine.path.read_text())
         cam = next(i for i in saved["interlocks"] if i["name"] == "cam")
         assert cam["conditions"][-1]["variable"] == "Mean"
@@ -214,3 +232,20 @@ def test_an_error_in_a_slot_is_logged_not_fatal(app, window, caplog):
         app.processEvents()
     assert "the server keeps running" in caplog.text
     assert window.engine.snapshot() is not None
+
+
+def test_a_reload_runs_off_the_window_thread(app, window):
+    """The window keeps drawing while a reload waits on a slow device lookup."""
+    import threading
+
+    threads = []
+    original = window.engine.reload
+
+    def slow_reload(path=None):
+        threads.append(threading.current_thread())
+        return original(path)
+
+    window.engine.reload = slow_reload
+    window.monitor.reload_file()
+    assert wait_until(app, lambda: threads)
+    assert threads[0] is not threading.main_thread()

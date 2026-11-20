@@ -1,5 +1,6 @@
 """The Master Control stream over a real socket: every client, the same frames."""
 
+import dataclasses
 import socket
 import time
 
@@ -10,11 +11,20 @@ from geecs_interlocks.status_server import StatusServer
 from geecs_interlocks.wire import parse_status, read_frame
 
 
+def fresh(snapshot):
+    """*snapshot* as a running monitor publishes it: taken just now."""
+    return dataclasses.replace(snapshot, taken=time.time())
+
+
 @pytest.fixture
 def server():
     current = {"snap": Snapshot((InterlockStatus("a", "", "", "ok"),))}
     srv = StatusServer(
-        lambda: current["snap"], "127.0.0.1", 0, interval=0.02, wire_format="summary"
+        lambda: fresh(current["snap"]),
+        "127.0.0.1",
+        0,
+        interval=0.02,
+        wire_format="summary",
     )
     srv.start()
     srv.current = current
@@ -76,7 +86,7 @@ def test_a_taken_port_raises(server):
 
 def test_the_default_stream_is_summary():
     srv = StatusServer(
-        lambda: Snapshot((InterlockStatus("a", "", "", "tripped", "P=5"),)),
+        lambda: fresh(Snapshot((InterlockStatus("a", "", "", "tripped", "P=5"),))),
         "127.0.0.1",
         0,
         interval=0.02,
@@ -87,3 +97,22 @@ def test_the_default_stream_is_summary():
             assert read_frame(sock) == "WARNING! TRIPPED | TRIPPED: a - P=5"
     finally:
         srv.stop()
+
+
+@pytest.mark.parametrize("wire_format", ["summary", "legacy"])
+def test_a_stalled_evaluation_trips_the_stream(wire_format):
+    """A last verdict of SAFE must not be re-sent once the loop stops replacing it."""
+    safe = Snapshot((InterlockStatus("a", "", "", "ok"),), taken=time.time() - 5)
+    assert safe.safe
+    srv = StatusServer(
+        lambda: safe, "127.0.0.1", 0, interval=0.02, wire_format=wire_format
+    )
+    srv.start()
+    try:
+        with connect(srv) as sock:
+            message = read_frame(sock)
+    finally:
+        srv.stop()
+    assert "WARNING" in message and "SAFE" not in message.upper().replace("UNSAFE", "")
+    assert "evaluation stopped 5 s ago" in message
+    assert not parse_status(message).safe

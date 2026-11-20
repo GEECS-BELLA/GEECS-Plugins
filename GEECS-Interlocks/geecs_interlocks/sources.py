@@ -199,6 +199,10 @@ class DeviceSource:
             logger.exception("%s: unexpected connect failure", name)
             device.close()
             return self._failed(name, f"cannot connect: {exc}")
+        if self._stop.is_set():
+            # stop() ran while this lookup was blocked: nobody will close it later.
+            device.close()
+            return True
         self._devices[name] = device
         logger.info("%s: subscribed to %s", name, ", ".join(self._variables[name]))
         return True

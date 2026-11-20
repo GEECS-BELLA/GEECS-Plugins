@@ -53,8 +53,10 @@ from geecs_schemas import InterlockCondition
 
 from geecs_interlocks.builder import Draft
 from geecs_interlocks.catalog import Catalog, StaticCatalog, named_in
+from geecs_interlocks.config import SaveRefused, save_target
 from geecs_interlocks.conditions import Inputs, describe, evaluate
 from geecs_interlocks.engine import Engine
+from geecs_interlocks.gui.reloader import Reloader
 from geecs_interlocks.gui.theme import MUTED
 from geecs_interlocks.sources import PreviewFactory, Source
 
@@ -170,6 +172,7 @@ class BuilderTab(QWidget):
         self._notify = notify
         self.draft = Draft(engine.interlocks)
         self._editing: tuple[str, int] | None = None
+        self._reloader = Reloader(engine, self)
 
         self._build_devices()
         self._build_variables()
@@ -958,9 +961,17 @@ class BuilderTab(QWidget):
         if not self._discard_ok():
             self._draw_configurations()
             return
-        message = self.engine.reload(path)
-        self._notify(message)
-        self.sync_from_engine(force=True)
+        self._reload(path, "Opened")
+
+    def _reload(self, path: Path, what: str) -> None:
+        """Reload onto *path* off the window's thread; the draft follows when it is done."""
+        self._notify(f"{what} {path.name}; reloading…")
+
+        def finished(message: str) -> None:
+            self._notify(f"{what} {path.name}; {message}")
+            self.sync_from_engine(force=True)
+
+        self._reloader.reload(path, finished)
 
     def open_file(self) -> None:
         """Pick a configuration file to run."""
@@ -1039,13 +1050,12 @@ class BuilderTab(QWidget):
 
     def _write(self, path: Path) -> None:
         try:
-            self.draft.save(path)
-        except (ValidationError, OSError) as exc:
+            target = save_target(path)
+            self.draft.save(target)
+        except (ValidationError, OSError, SaveRefused) as exc:
             QMessageBox.warning(self, "Not saved", str(exc))
             return
-        message = self.engine.reload(path)
-        self._notify(f"Saved {path.name}; {message}")
-        self.sync_from_engine(force=True)
+        self._reload(target, f"Saved {target.name}")
 
     # -- keeping up -----------------------------------------------------------
 

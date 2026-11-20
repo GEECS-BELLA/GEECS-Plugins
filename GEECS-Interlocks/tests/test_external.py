@@ -39,10 +39,19 @@ def wait_for(predicate, timeout=2.0):
     "payload,state",
     [
         (b"SAFE", False),
-        (b"motion done: safe\n", False),
+        (b"safe\n", False),
+        (b"Safe: motion done", False),
         (b"WARNING", True),
         (b"warning: moving", True),
         (b"UNSAFE", True),  # holds "safe": never read as safe
+        # Never safe unless it plainly says so: these are unrecognised.
+        (b"NOT SAFE", None),
+        (b"not_safe", None),
+        (b"safe: false", None),
+        (b"Safe=0", None),
+        (b"safe no", None),
+        (b"motion done: safe", None),
+        (b"safety", None),
         (b"hello", None),
         (b"\xff\xfe", None),
     ],

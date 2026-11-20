@@ -71,3 +71,29 @@ def test_a_device_off_at_start_is_picked_up_later(fakes, monkeypatch):
         assert wait_for(lambda: source.reading("Gauge").connected)
     finally:
         source.stop()
+
+
+def test_a_connection_finishing_after_stop_is_closed(monkeypatch):
+    """A lookup still blocked when stop() ran must not leave a live subscription behind."""
+    import geecs_core
+
+    from geecs_interlocks.sources import DeviceSource
+
+    closed = []
+
+    class Late:
+        state = {"connected": True}
+
+        def __init__(self, name, **_):
+            source._stop.set()  # stop() ran while this lookup was blocked
+
+        def subscribe(self, *_, **__):
+            pass
+
+        def close(self):
+            closed.append(True)
+
+    source = DeviceSource({"Cam": ["X"]})
+    monkeypatch.setattr(geecs_core, "GeecsDevice", Late)
+    assert source._connect("Cam") is True
+    assert closed == [True] and source._devices == {}

@@ -137,3 +137,87 @@ class TestNamedConfigurations:
 
     def test_no_folder_no_names(self, repo):
         assert configuration_names("Other") == []
+
+
+class TestSaveTarget:
+    def test_outside_the_configs_repo_is_written_in_place(self, tmp_path, monkeypatch):
+        from geecs_interlocks.config import save_target
+
+        monkeypatch.delenv("GEECS_SCANNER_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("GEECS_PLUGINS_CONFIGS", raising=False)
+        path = tmp_path / "mine.yaml"
+        assert save_target(path, tmp_path / "no.ini") == path
+
+    def test_inside_goes_to_the_write_root(self, tmp_path, monkeypatch):
+        from geecs_interlocks.config import save_target
+
+        read, write = tmp_path / "read", tmp_path / "write"
+        monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(read))
+        monkeypatch.setenv("GEECS_CONFIGS_WRITE_ROOT", str(write))
+        path = read / "Demo" / "interlocks" / "main.yaml"
+        target = save_target(path)
+        assert (
+            target
+            == write
+            / "scanner_configs"
+            / "experiments"
+            / "Demo"
+            / "interlocks"
+            / "main.yaml"
+        )
+
+    def test_never_into_a_read_checkout_without_a_write_root(
+        self, tmp_path, monkeypatch
+    ):
+        from geecs_interlocks.config import SaveRefused, save_target
+
+        repo = tmp_path / "configs"
+        (repo / ".git").mkdir(parents=True)
+        read = repo / "scanner_configs" / "experiments"
+        monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(read))
+        monkeypatch.delenv("GEECS_CONFIGS_WRITE_ROOT", raising=False)
+        with pytest.raises(SaveRefused, match="only the configurator writes"):
+            save_target(read / "Demo" / "interlocks" / "main.yaml")
+
+    def test_a_plain_read_folder_is_written_in_place(self, tmp_path, monkeypatch):
+        """A configs folder that is no git checkout (a laptop's copy) is the operator's own."""
+        from geecs_interlocks.config import save_target
+
+        read = tmp_path / "experiments"
+        monkeypatch.setenv("GEECS_SCANNER_CONFIG_DIR", str(read))
+        monkeypatch.delenv("GEECS_CONFIGS_WRITE_ROOT", raising=False)
+        path = read / "Demo" / "interlocks" / "main.yaml"
+        assert save_target(path) == path.resolve()
+
+
+class TestReloadRollback:
+    def test_a_failed_start_closes_the_ports_it_opened(self, tmp_path):
+        import socket as _socket
+
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM) as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        path = write(tmp_path / "i.yaml", threshold())
+        calls = {"n": 0}
+
+        class Broken(FakeSource):
+            def start(self):
+                raise RuntimeError("cannot start")
+
+        def make(_doc):
+            calls["n"] += 1
+            return FakeSource() if calls["n"] == 1 else Broken()
+
+        eng = Engine(path, make, Settings(status_port=0, external_host="127.0.0.1"))
+        eng.start()
+        try:
+            write(
+                path,
+                threshold(),
+                {"name": "ext", "conditions": [{"kind": "external", "port": port}]},
+            )
+            assert eng.reload().startswith("reload refused")
+            assert eng.signals.ports() == []
+            assert [s.name for s in eng.snapshot().statuses] == ["vac"]
+        finally:
+            eng.stop()

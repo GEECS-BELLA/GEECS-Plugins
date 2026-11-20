@@ -152,6 +152,18 @@ def render_legacy(snapshot: Snapshot) -> str:
     return " | ".join(_legacy_part(s) for s in armed)
 
 
+#: The one part of a frame sent while the evaluation has stopped (no snapshot for a while).
+STALLED_NAME = "interlock server"
+
+
+def render_stalled(age_s: float, wire_format: WireFormat = DEFAULT_WIRE_FORMAT) -> str:
+    """The frame sent while no snapshot has replaced the last for *age_s*: a trip, whatever it said."""
+    reason = f"evaluation stopped {age_s:.0f} s ago"
+    if wire_format == "legacy":
+        return f"{LEGACY_WARNING}{STALLED_NAME} - {reason}"
+    return f"{TRIPPED} | {PART_TRIPPED}: {STALLED_NAME} - {reason}"
+
+
 def render_status(
     snapshot: Snapshot, wire_format: WireFormat = DEFAULT_WIRE_FORMAT
 ) -> str:
@@ -259,6 +271,7 @@ __all__ = [
     "parse_status",
     "read_frame",
     "render_legacy",
+    "render_stalled",
     "render_status",
     "render_summary",
 ]

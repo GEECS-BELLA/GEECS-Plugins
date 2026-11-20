@@ -85,6 +85,9 @@ class Engine:
         self.settings = settings
         self._make_source = make_source
         self._lock = threading.Lock()
+        self._reloading = (
+            threading.Lock()
+        )  # one reload at a time (the window runs them on threads)
         interlocks, origin = load_interlocks(path)  # invalid at start: raise
         self._interlocks = interlocks
         self.signals = ExternalSignals(settings.external_host)
@@ -165,16 +168,24 @@ class Engine:
         unsafe until fresh readings arrive — a reload never carries an old
         OK over.
         """
-        target = self.path if path is None else path
+        with self._reloading:
+            return self._reload(self.path if path is None else path)
+
+    def _reload(self, target: Path | None) -> str:
+        before = set(self.signals.ports())
+        fresh: Monitor | None = None
         try:
             interlocks, origin = load_interlocks(target)
             ports = external_ports(interlocks)
             self.signals.open(ports)
+            fresh = self._build(interlocks, origin)
+            fresh.start()
         except Exception as exc:
             logger.exception("reload refused")
+            if fresh is not None:
+                fresh.stop()
+            self.signals.retain(before)  # close only what this reload opened
             return f"reload refused, old interlocks kept: {exc}"
-        fresh = self._build(interlocks, origin)
-        fresh.start()
         with self._lock:
             old, self._monitor = self._monitor, fresh
             self._interlocks = interlocks

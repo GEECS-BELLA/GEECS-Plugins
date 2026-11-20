@@ -37,7 +37,12 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from geecs_core.configs_repo import read_config_entry, scanner_configs_base
+from geecs_core.configs_repo import (
+    WRITE_ROOT_ENV,
+    read_config_entry,
+    scanner_configs_base,
+    scanner_configs_write_base,
+)
 from geecs_schemas import INTERLOCKS_FOLDER, InterlockSet
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -113,6 +118,48 @@ def configuration_names(experiment: str, config_path: Path | None = None) -> lis
     return sorted(p.stem for p in folder.glob("*.yaml"))
 
 
+class SaveRefused(Exception):
+    """A save would write into the configs checkout only the configurator writes."""
+
+
+def _in_git_checkout(path: Path) -> bool:
+    return any((p / ".git").exists() for p in (path, *path.parents))
+
+
+def save_target(path: Path, config_path: Path | None = None) -> Path:
+    """Where the Builder writes the configuration it read from *path*.
+
+    A file outside the configs repo is written in place. One inside it (under
+    :func:`~geecs_core.configs_repo.scanner_configs_base`, the read root) goes
+    to the same place under the write root
+    (:func:`~geecs_core.configs_repo.scanner_configs_write_base`), as every
+    other writer in the repo does: the read root is the share's clone, which
+    the configurator fast-forwards, and git refuses to fast-forward over a
+    file someone changed in it.
+
+    Raises
+    ------
+    SaveRefused
+        No write root is set (``GEECS_CONFIGS_WRITE_ROOT``), so the write
+        would land in the read root itself, and that is a git checkout.
+    """
+    read_base = scanner_configs_base(config_path)
+    if read_base is None:
+        return path
+    try:
+        relative = path.resolve().relative_to(read_base)
+    except ValueError:
+        return path  # not in the configs repo: the operator's own file
+    write_base = scanner_configs_write_base(config_path)
+    if write_base is None or (write_base == read_base and _in_git_checkout(read_base)):
+        raise SaveRefused(
+            f"{relative} is in the configs repository checkout, which only the "
+            "configurator writes. Save it as a file outside the repository "
+            f"(--interlocks), or set {WRITE_ROOT_ENV} to the configurator's inbox."
+        )
+    return write_base / relative
+
+
 def load_interlocks(path: Path | None) -> tuple[InterlockSet, str]:
     """The document at *path* and a line saying where it came from.
 
@@ -138,9 +185,11 @@ __all__ = [
     "DEFAULT_WEB_PORT",
     "LOCAL_HOST",
     "SECTION",
+    "SaveRefused",
     "Settings",
     "configuration_names",
     "interlocks_folder",
     "interlocks_path",
     "load_interlocks",
+    "save_target",
 ]
