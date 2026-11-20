@@ -52,6 +52,28 @@ Comments go on their own line: a comment after a value becomes part of it.
 
 With none of these set, everything listens on this computer only.
 
+## How it fits with the Control Room
+
+The interlocks do not replace the [Control Room](control_room.md): they
+answer one narrower question, "is it safe to run?", for Master Control, and
+keep answering it when the browser surfaces are down.
+
+| | Control Room | Archiver | Interlocks |
+|---|---|---|---|
+| Question | What is every device doing, and what should I change? | What did a value do over hours or days? | Is it safe to run, right now? |
+| Read by | Operators, in a browser | Operators and analysis, after the fact | Master Control every 0.1 s; operators in the window and on the page |
+| Acts on devices | Yes: operators set values through it | No | No: it only reports |
+| Reaches devices through | Canopy and its GEECS module | The CA gateway | Its own `geecs_core` subscriptions, plus UDP from programs outside GEECS |
+
+- **Independent path.** The interlocks read devices directly, so an outage
+  of Canopy, the gateway or a browser does not blind Master Control.
+- **Rules, not displays.** An interlock combines checks across devices and
+  outside programs, with hysteresis, settle times and armed settings; the
+  Control Room shows each device and leaves the judgment to the operator.
+- **Fail-safe.** The Control Room flags a device that is not live; the
+  interlocks turn silence, a disconnect or an unreadable value into a trip
+  Master Control acts on.
+
 ## What it watches
 
 A configuration is a list of **interlocks**. Each interlock holds one or
