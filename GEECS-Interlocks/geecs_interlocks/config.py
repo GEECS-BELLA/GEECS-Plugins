@@ -7,13 +7,21 @@ client half of the site profile)::
     expt = <experiment>
 
     [interlocks]
-    status_host = 0.0.0.0     # where Master Control's stream listens
+    ; where Master Control's stream listens
+    status_host = 0.0.0.0
     status_port = 5001
-    web_host = 0.0.0.0        # where the web client listens
+    ; where the web client listens
+    web_host = 0.0.0.0
     web_port = 8600
-    external_host = 0.0.0.0   # where external (UDP) signals are received
-    wire_format = summary     # or legacy (geecs_interlocks.wire)
-    log_dir = <folder>        # the daily log files (default: beside this file)
+    ; where external (UDP) signals are received
+    external_host = 0.0.0.0
+    ; summary (one keyword per frame) or legacy (geecs_interlocks.wire)
+    wire_format = summary
+    ; the daily log files (default: beside this file)
+    log_dir = <folder>
+
+A comment goes on its own line: ``configparser`` keeps one written after a
+value as part of the value.
 
 Every key is optional. Without them every server listens on ``127.0.0.1``
 only — a laptop running the demo is never reachable from the network until

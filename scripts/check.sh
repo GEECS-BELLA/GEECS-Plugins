@@ -335,6 +335,19 @@ run_bluesky_suite() {
     rm -f "$report"
 }
 
+run_interlocks_suite() {
+    local report
+    report="$(mktemp)"
+    poetry run pytest tests --tb=short -q -rs | tee "$report" \
+        || { rm -f "$report"; return 1; }
+    if grep -E "could not import 'PyQt6" "$report"; then
+        rm -f "$report"
+        echo "check.sh: GEECS-Interlocks' window tests skipped — install the gui extra (see /env-doctor)" >&2
+        return 1
+    fi
+    rm -f "$report"
+}
+
 run_suite() {
     case "$1" in
         root-tests)
@@ -345,7 +358,9 @@ run_suite() {
             poetry run pytest "$1/tests" -m "not integration and not gui" --tb=short -q ;;
         GeecsBluesky)
             (cd GeecsBluesky && run_bluesky_suite) ;;
-        GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsScanner|GeecsWebTheme|GeecsArchiver|GeecsCanopy|GeecsControlRoom|GeecsConfigurator|GEECS-Interlocks)
+        GEECS-Interlocks)
+            (cd GEECS-Interlocks && run_interlocks_suite) ;;
+        GeecsCAGateway|GeecsPvaGateway|GEECS-Core|GEECS-DataPortal|GEECS-LogTriage|GEECS-MCP|GeecsLogbook|GeecsScanner|GeecsWebTheme|GeecsArchiver|GeecsCanopy|GeecsControlRoom|GeecsConfigurator)
             (cd "$1" && poetry run pytest tests --tb=short -q) ;;
         *)
             echo "check.sh: no runner for '$1'" >&2; return 1 ;;

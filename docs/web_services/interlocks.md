@@ -1,0 +1,156 @@
+# Interlocks
+
+The interlock server watches device values, and status packets from
+programs outside GEECS, against a configuration you build, and tells
+**Master Control** whether it is safe. It only reports: what a trip stops is
+Master Control's decision.
+
+Unlike the other services it is not a unit on the fleet host: you start it
+by hand on the lab PC beside Master Control, where it opens its own window.
+Any browser on the network can then watch it on a read-only page.
+
+## Start it
+
+On the lab PC, from the package folder:
+
+```bash
+poetry run geecs-interlocks serve --config main
+```
+
+`main` is a configuration name: the file `interlocks/main.yaml` in the
+experiment's folder of the configs repository. Without `--config` the
+server lists the saved configurations and stops. Closing the window, or
+Ctrl-C, stops the server.
+
+| Flag | What it does |
+|---|---|
+| `--config NAME` | Run the configuration `interlocks/NAME.yaml` |
+| `--interlocks FILE` | Run a configuration file from anywhere instead |
+| `--experiment NAME` | The experiment, when `config.ini` names none |
+| `--arm-at-start` | Arm the settings checks once their values arrive |
+| `--no-window` | Run without the window (the log stays in the terminal and the log file) |
+| `--no-web` | Do not serve the web page |
+| `--demo` | Scripted values, no devices: try everything on any computer |
+
+Where the server listens comes from `~/.config/geecs_python_api/config.ini`:
+
+```ini
+[interlocks]
+; Master Control's stream
+status_host = 0.0.0.0
+status_port = 5001
+; the web page
+web_host = 0.0.0.0
+web_port = 8600
+; external (UDP) signals
+external_host = 0.0.0.0
+; the daily log files
+log_dir = <folder>
+```
+
+Comments go on their own line: a comment after a value becomes part of it.
+
+With none of these set, everything listens on this computer only.
+
+## What it watches
+
+A configuration is a list of **interlocks**. Each interlock holds one or
+more **checks** and is unsafe while **any** of them is, so several checks
+can be reported under one name (a camera's saturation and its pointing,
+say). Master Control sees one line per interlock.
+
+| Check | Unsafe when |
+|---|---|
+| Threshold | A variable crosses a limit (`>`, `>=`, `<`, `<=`, `==`, `!=`) |
+| Alignment | A variable is the tolerance or further from a target variable |
+| Stale | A device disconnects, or (with a maximum age) stops publishing |
+| External signal | A program outside GEECS sends a UDP packet saying `warning` (or `unsafe`), until it sends `safe` |
+| Settings unchanged | A device's settings move from the values recorded when you pressed **Arm settings** |
+
+An interlock is also unsafe before anything has been heard from its
+devices, while a device is disconnected, when a device has sent nothing for
+the configuration's `stale_after_s` (5 s unless changed), when a value is
+not a number, and while it is **settling**: clear again after a trip but
+not yet clear for its settle time.
+
+## The window
+
+### Monitor
+
+![The Monitor tab: the verdict strip, the interlocks worst first with a group open, the server log below](assets/interlocks_01_monitor.png)
+
+- The strip at the top is the verdict Master Control receives.
+- The table lists the interlocks worst first; a group opens into its checks,
+  each with its own value and reason.
+- **Arm settings** records the current settings of the selected interlock,
+  or of every interlock holding settings when none is selected. Arm again
+  after a deliberate change.
+- **Reload file** re-reads the configuration; Master Control stays
+  connected, and every interlock waits for fresh values before reporting
+  safe again.
+- **Always on top** keeps the window above the others.
+- The server log under the table shows the same lines as the terminal,
+  with level and text filters. Every line is also kept in a daily file,
+  `interlocks-YYYY-MM-DD.log`, for 30 days.
+
+### Builder
+
+![The Builder tab: devices, variables with live values, the check being added to a group, the interlocks](assets/interlocks_02_builder.png)
+
+1. Pick a **device**. The experiment's devices come from the GEECS
+   database; watched ones are marked. **External signals (UDP)** at the
+   bottom lists the UDP ports in use.
+2. Pick a **variable**. Its live value shows beside it, with the interlock
+   that already watches it. Tick several for a settings check.
+3. Set the **check**. "Reads now" shows what it would say on the live value,
+   so you can choose a sensible limit.
+4. Choose **Add to**: an existing interlock groups the check with it,
+   "new interlock…" starts one. Press **Add check**.
+5. In **Interlocks**, the tick arms or disarms an interlock; drag a check
+   onto another interlock to regroup it; right-click to rename, set the
+   settle time, ungroup or delete. Click a check to edit it, then
+   **Update selected**.
+6. **Save and reload** shows the changes and writes the file, then the
+   server runs it. **Save as…** keeps it as a new configuration. Nothing
+   changes until you save.
+
+## The web page
+
+`http://<lab-pc>:8600/` shows the same verdict and interlocks to anyone on
+the network. Nothing on it changes anything.
+
+![The web page: the verdict, the interlocks, and the inspector with one trend per check against its limit](assets/interlocks_03_web.png)
+
+Click an interlock to see each check's last five minutes against its limit,
+and its history. The address keeps the selection
+(`?interlock=pointing%20camera`), so you can send someone the link.
+
+!!! warning "No signal"
+    If the page stops hearing from the server for 2 s it says
+    **No signal**, shows the last verdict with its time, and greys every
+    state. It never keeps showing a verdict it is no longer receiving.
+
+## What Master Control receives
+
+A message every 0.1 s on the stream port, holding a single keyword:
+
+```text
+SAFE | OK: chamber vacuum | OK: pointing camera
+WARNING! TRIPPED | TRIPPED: pointing camera - MaxCounts=4113 (limit: >=4000) | OK: chamber vacuum
+```
+
+`poetry run geecs-interlocks listen <lab-pc>:5001` prints what it receives.
+The original server's format (`SAFE: <name> | WARNING! <name> - <reason>`)
+is available as `wire_format = legacy`, but it repeats the keyword once per
+interlock, so Master Control reads it correctly only while a single
+interlock is armed.
+
+## Try it on any computer
+
+```bash
+poetry install --extras gui
+poetry run geecs-interlocks serve --demo --arm-at-start --interlocks examples/demo_interlocks.yaml
+```
+
+The demo scripts every device, sends its own UDP packets and moves some
+settings now and then, so every state appears within a couple of minutes.

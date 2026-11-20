@@ -531,3 +531,23 @@ forbidden_modules =
     geecs_configurator
     bluesky
     ophyd
+
+# The interlock server reports and never acts: it reads devices through
+# GEECS-Core, its configurations through GEECS-Schemas, and draws its page
+# with GeecsWebTheme. The suspender design it replaced coupled interlocks to
+# the RunEngine; no path back to scan execution or analysis.
+[importlinter:contract:interlocks-report-only]
+name = GEECS-Interlocks imports GEECS-Core, GEECS-Schemas and GeecsWebTheme only
+type = forbidden
+source_modules =
+    geecs_interlocks
+forbidden_modules =
+    geecs_bluesky
+    geecs_data_utils
+    geecs_analysis
+    scan_analysis
+    geecs_ca_gateway
+    geecs_pva_gateway
+    geecs_archiver
+    geecs_canopy
+    logmaker_4_googledocs
