@@ -310,13 +310,53 @@ window.PlotTools = (function () {
   const ENTRY_KEY = `geecs-portal:logentry:${data.day}:${data.scan}`;
   const remembered = (key) => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
   const keep = (key, value) => { try { localStorage.setItem(key, value); } catch (_) { /* private window */ } };
-  const download = (gd) => Plotly.downloadImage(gd, { format: "png", scale: EXPORT_SCALE, filename: "geecs-plot" });
+  // Every picture of the plot (save, copy, the logbook send) is drawn
+  // here, with the date and scan(s) on top: the panel heading that says
+  // where the points come from stays behind on the page. The plot on
+  // screen is untouched; the label is drawn into a copy of the figure,
+  // with the top margin grown by its height so the plotting area keeps
+  // the size it has on screen (or the size asked for).
+  const LABEL_HEIGHT = 30;
+  function exported(gd, size) {
+    const full = gd._fullLayout || {};
+    const width = (size && size.width) || full.width;
+    const height = (size && size.height) || full.height;
+    const text = data.provenance || "";
+    if (!text) return { figure: gd, options: { width, height } };
+    const top = (full.margin && full.margin.t) || 0;
+    const font = (full.font && full.font.color) || undefined;
+    // A title of the viewer's own (the Display drawer's Layout JSON) stays,
+    // its styling too, with the date and scan after it.
+    const own = gd.layout.title && typeof gd.layout.title === "object" ? gd.layout.title : {};
+    const ownText = typeof gd.layout.title === "string" ? gd.layout.title : own.text;
+    const layout = {
+      ...gd.layout,
+      margin: { ...(gd.layout.margin || {}), t: top + LABEL_HEIGHT },
+      title: {
+        x: 0, xref: "paper", xanchor: "left", y: 1, yref: "container", yanchor: "top",
+        pad: { t: 8 }, font: { size: 13, color: font },
+        ...own,
+        text: ownText ? `${ownText}  ·  ${text}` : text,
+      },
+    };
+    return { figure: { data: gd.data, layout }, options: { width, height: height + LABEL_HEIGHT } };
+  }
+  const picture = (gd, size) => {
+    const { figure, options } = exported(gd, size);
+    return Plotly.toImage(figure, { format: "png", scale: EXPORT_SCALE, ...options });
+  };
+  function download(gd) {
+    // Plotly.downloadImage takes the same figure; the file is named for it.
+    const { figure, options } = exported(gd);
+    const name = (data.provenance || "geecs-plot").replace(/[^\w.-]+/g, "_").replace(/^_+|_+$/g, "");
+    return Plotly.downloadImage(figure, { format: "png", scale: EXPORT_SCALE, filename: name || "geecs-plot", ...options });
+  }
   async function copy(gd) {
     // A bitmap reaches the clipboard only on a secure (https or localhost)
     // page; elsewhere the plot downloads, and the toast says why.
     if (!CLIPBOARD_OK) { download(gd); toast("Clipboard needs an https or localhost page: downloaded the PNG instead"); return; }
     try {
-      const png = Plotly.toImage(gd, { format: "png", scale: EXPORT_SCALE }).then((url) => fetch(url)).then((r) => r.blob());
+      const png = picture(gd).then((url) => fetch(url)).then((r) => r.blob());
       await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
       toast("Copied to the clipboard");
     } catch (error) {
@@ -352,7 +392,7 @@ window.PlotTools = (function () {
       const size = sending.dataset.square && m
         ? { width: 720, height: 720 - m.l - m.r + m.t + m.b }
         : { width: d.width > 0 ? d.width : 720, height: d.height > 0 ? d.height : 460 };
-      const image = await Plotly.toImage(sending, { format: "png", scale: EXPORT_SCALE, ...size });
+      const image = await picture(sending, size);
       // The set as it is now goes with the plot, so the entry keeps the
       // settings themselves, not the name of a set that will change.
       const setName = form.elements.set.value;
@@ -399,9 +439,11 @@ window.PlotTools = (function () {
     config() {
       return {
         responsive: true, displaylogo: false, scrollZoom: true,
-        toImageButtonOptions: { format: "png", scale: EXPORT_SCALE },
         edits: { legendText: true, annotationText: true, shapePosition: true },
+        // The camera saves through download(), labelled like copy and send.
+        modeBarButtonsToRemove: ["toImage"],
         modeBarButtonsToAdd: [
+          { name: "saveimage", title: "Download plot as a PNG", icon: Plotly.Icons.camera, click: download },
           "togglespikelines", "hoverclosest", "hovercompare",
           "drawline", "drawopenpath", "drawrect", "drawcircle", "eraseshape",
           { name: "copyimage", title: CLIPBOARD_OK ? "Copy plot to clipboard (PNG)" : "Download plot PNG", icon: ICONS.copy, click: copy },

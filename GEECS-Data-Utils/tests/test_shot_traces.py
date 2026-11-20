@@ -318,3 +318,74 @@ def test_crop_trace_keeps_the_window_both_ends_in():
     assert shot_traces.crop_trace(trace, None, 1.0).data.shape == (2, 2)
     assert shot_traces.crop_trace(trace, None, None) is trace
     assert shot_traces.crop_trace(trace, 10.0, 20.0) is None
+
+
+FTS = "SPEC-PL1-ThorlabsNew"
+
+
+def fts_text(rows, x_unit="nm_air"):
+    """A Thorlabs FTS export as the spectrometer writes it.
+
+    The magic first line, ``[SpectrumHeader]`` with ``#Key;Value`` lines,
+    ``[Data]`` rows ``x;y`` in scientific notation, ``[EndOfFile]``, CRLF.
+    """
+    lines = [
+        "#Thorlabs FTS",
+        "[SpectrumHeader]",
+        "#Date;20261119",
+        f"#XAxisUnit;{x_unit}",
+        "#YAxisUnit;intensity",
+        f"#Length;{len(rows)}",
+        "[Data]",
+        *(f"{x:.9e};{y:.9e}" for x, y in rows),
+        "[EndOfFile]",
+    ]
+    return ("\r\n".join(lines) + "\r\n").encode()
+
+
+@pytest.fixture()
+def fts_scan(tmp_path):
+    """A scan folder of per-shot Thorlabs FTS .csv exports (shot 2 missed)."""
+    folder = tmp_path / "Expt" / "Y2026" / "11-Nov" / "26_1119" / "scans" / "Scan013"
+    device = folder / FTS
+    device.mkdir(parents=True)
+    for shot in (1, 3):
+        rows = [(790 + i * 0.5, shot * i) for i in range(4)]
+        (device / f"Scan013_{FTS}_{shot:03d}.csv").write_bytes(fts_text(rows))
+    return folder
+
+
+def test_a_folder_of_fts_exports_is_a_trace_device(fts_scan):
+    from geecs_data_utils.scan_paths import infer_device_dir_ext
+
+    assert infer_device_dir_ext(fts_scan / FTS) == "csv"
+    probe = shot_traces.trace_device(fts_scan, FTS)
+    assert (probe.kind, probe.content, probe.ext, probe.channels) == (
+        "native",
+        "lineout",
+        "csv",
+        ("",),
+    )
+
+
+def test_an_fts_shot_reads_wavelength_against_intensity(fts_scan):
+    found = shot_traces.load_row_trace(fts_scan, None, FTS, 3)
+    assert found.kind == "native"
+    np.testing.assert_allclose(found.result.data[:, 0], [790, 790.5, 791, 791.5])
+    np.testing.assert_allclose(found.result.data[:, 1], [0, 3, 6, 9])
+    assert (found.result.x_label, found.result.x_units) == ("Wavelength (air)", "nm")
+    assert found.result.y_label == "intensity"
+    assert shot_traces.load_row_trace(fts_scan, None, FTS, 2).kind == "missing"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"1,2\n3,4\n",  # a plain comma CSV: not taken as a trace
+        b"#Thorlabs FTS\r\n[SpectrumHeader]\r\n#XAxisUnit;nm_air\r\n[EndOfFile]\r\n",
+    ],
+)
+def test_a_csv_that_is_not_an_fts_spectrum_is_not_a_trace(tmp_path, content):
+    path = tmp_path / "f.csv"
+    path.write_bytes(content)
+    assert shot_traces.read_text_trace(path) is None

@@ -11,7 +11,9 @@ A device records traces in one of three ways:
   ``tek_scope_hdf5``, one channel of the file's several (``trace_index``);
 - **per-shot text columns**: a tab-separated ``.txt`` / ``.tsv`` file of
   numbers, x then y (a spectrometer's wavelength and counts), header or
-  none, read as ``tsv``; one channel.
+  none, read as ``tsv``; or a Thorlabs FTS spectrometer's ``.csv`` export
+  (:func:`~geecs_data_utils.io.array1d.is_thorlabs_fts`), read as
+  ``thorlabs_fts``; one channel.
 
 Each comes back as a :class:`~geecs_data_utils.io.shot_images.ShotTrace`
 (an Nx2 :class:`~geecs_data_utils.io.array1d.Data1DResult`, or the
@@ -39,6 +41,7 @@ from geecs_data_utils.io.array1d import (
     Data1DConfig,
     Data1DResult,
     Data1DType,
+    is_thorlabs_fts,
     read_1d_data,
 )
 from geecs_data_utils.io.shot_images import (
@@ -62,8 +65,9 @@ logger = logging.getLogger(__name__)
 NATIVE_TRACE_EXTS = frozenset({"dat"})
 
 #: Native per-shot text extensions that may hold x/y columns. Only a file
-#: of at least two tab-separated numeric columns is taken as a trace.
-TEXT_TRACE_EXTS = frozenset({"txt", "tsv"})
+#: of two tab-separated numeric columns, or a Thorlabs FTS export, is
+#: taken as a trace.
+TEXT_TRACE_EXTS = frozenset({"txt", "tsv", "csv"})
 
 #: How close two shots' x values must be to share an axis (relative to
 #: the axis' span): float rounding in a stored start and increment, no more.
@@ -184,15 +188,21 @@ def _two_columns(path: Path) -> bool:
 
 
 def read_text_trace(path: Path) -> Optional[Data1DResult]:
-    """*path* as x/y text columns (tab-separated, x first); ``None`` if it is not.
+    """*path* as x/y text columns (x first); ``None`` if it is not.
 
-    It is when it opens as two columns (:func:`_two_columns`) and has a
-    row with both numbers finite; a header line, if any, names the columns.
+    It is when it is a Thorlabs FTS export (read as ``thorlabs_fts``, its
+    header naming the axes), or opens as two tab-separated columns
+    (:func:`_two_columns`; a header line, if any, names them) — and has a
+    row with both numbers finite.
     """
-    if not _two_columns(path):
+    if is_thorlabs_fts(path):
+        kind = Data1DType.THORLABS_FTS
+    elif _two_columns(path):
+        kind = Data1DType.TSV
+    else:
         return None
     try:
-        result = read_1d_data(path, Data1DConfig(data_type=Data1DType.TSV))
+        result = read_1d_data(path, Data1DConfig(data_type=kind))
     except (OSError, RuntimeError, TypeError, ValueError):
         return None
     if not np.isfinite(result.data).all(axis=1).any():

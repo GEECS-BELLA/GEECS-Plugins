@@ -52,11 +52,12 @@ VENDOR_ONLY_EXTS = frozenset({"himg", "has"})
 _ACCEPTABLE_EXTS = {"png", "tif", "tiff", "h5", "dat", "tdms"} | set(VENDOR_ONLY_EXTS)
 
 #: Text files: a device's own format only when the folder holds no other
-#: accepted file (a spectrometer's wavelength/counts columns, which
+#: accepted file (a spectrometer's wavelength/counts columns or its
+#: vendor export, which
 #: otherwise inferred "png" and read as missing). Analysis writes text
 #: sidecars beside a camera's frames (the FROG ``_retrieved_lineouts.tsv``),
 #: so a text file never outvotes an image, whatever the listing order.
-_TEXT_EXTS = frozenset({"txt", "tsv"})
+_TEXT_EXTS = frozenset({"txt", "tsv", "csv"})
 
 #: How many text files the inference reads past before deciding the folder
 #: is text alone (a sidecar folder interleaves them with its frames).

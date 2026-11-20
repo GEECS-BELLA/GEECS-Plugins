@@ -36,10 +36,22 @@ from geecs_analysis.algorithms.spectral_interferometry import (
 def analyze_spectrum_file(
     path: Path | str, config: Optional[SpectralInterferometryConfig] = None
 ) -> SpectralInterferometryAnalysis:
-    """Read a tab-separated wavelength (nm) / counts file and analyse it."""
-    from geecs_data_utils.io.array1d import Data1DConfig, Data1DType, read_1d_data
+    """Read a wavelength (nm) / counts file and analyse it.
 
-    data = read_1d_data(Path(path), Data1DConfig(data_type=Data1DType.TSV)).data
+    A Thorlabs FTS ``.csv`` export, else tab-separated columns (x from the
+    first, counts from the second; more columns are allowed). A file that
+    does not read raises the reader's own error.
+    """
+    from geecs_data_utils.io.array1d import (
+        Data1DConfig,
+        Data1DType,
+        is_thorlabs_fts,
+        read_1d_data,
+    )
+
+    path = Path(path)
+    kind = Data1DType.THORLABS_FTS if is_thorlabs_fts(path) else Data1DType.TSV
+    data = read_1d_data(path, Data1DConfig(data_type=kind)).data
     return analyze_interferogram(data[:, 0], data[:, 1], config)
 
 
@@ -61,7 +73,10 @@ def _parser() -> argparse.ArgumentParser:
         description="Relative delay and differential GDD from one spectral interferogram.",
         epilog="Sign convention: " + SIGN_CONVENTION,
     )
-    parser.add_argument("spectrum", help="two-column file: wavelength (nm), counts")
+    parser.add_argument(
+        "spectrum",
+        help="wavelength (nm) / counts: tab-separated columns or a Thorlabs FTS .csv",
+    )
     parser.add_argument(
         "--resolution-nm", type=float, help="spectrometer optical resolution (FWHM)"
     )

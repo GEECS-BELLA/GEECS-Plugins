@@ -386,6 +386,8 @@ def _page(
         "scans_saved": scan_refs_text(settings.extra_scans),
         "scans_text": "",
         "main_label": multi.scan_label(day, scan) if day and scan else "",
+        # The date and scan(s) the exported plot is labelled with.
+        "provenance": multi.provenance([(day, scan)]) if day and scan else "",
         "scan_view": _choice(settings, "scan_view"),
         "overlay_y": settings.overlay_y,
         "max_overlay": MAX_OVERLAY_SCANS,
@@ -511,6 +513,9 @@ def _fill(
         page["coverage"][SCAN_COLUMN] = len(frames)  # the merge tags every row
         picks = list(page["coverage"])
         page["scans_text"] = ",".join(f"{d.isoformat()}:{n}" for d, n, _, _ in extras)
+        page["provenance"] = multi.provenance(
+            [(page["day"], page["scan"])] + [(d, n) for d, n, _, _ in extras]
+        )
     page["columns"] = picks
     # the condition columns' labels, for the shot filters' label menu
     page["condition_labels"] = scans.condition_labels(run, frame)

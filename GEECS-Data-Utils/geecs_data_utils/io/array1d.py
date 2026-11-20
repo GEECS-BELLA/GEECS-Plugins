@@ -36,6 +36,7 @@ class Data1DType(str, Enum):
     TSV = "tsv"
     NPY = "npy"
     PVA_STACK = "pva_stack"
+    THORLABS_FTS = "thorlabs_fts"
 
 
 class Data1DConfig(BaseModel):
@@ -169,6 +170,8 @@ def read_1d_data(file_path: Union[Path, str], config: Data1DConfig) -> Data1DRes
         data, metadata, auxiliary_column_data = _read_npy(file_path, config)
     elif config.data_type == Data1DType.PVA_STACK:
         data, metadata, auxiliary_column_data = _read_pva_stack(file_path, config)
+    elif config.data_type == Data1DType.THORLABS_FTS:
+        data, metadata, auxiliary_column_data = _read_thorlabs_fts(file_path, config)
     else:
         raise ValueError(f"Unsupported data type: {config.data_type}")
 
@@ -434,6 +437,80 @@ def _read_csv(
         }
 
     return np.column_stack([x_data, y_data]), metadata, auxiliary_column_data
+
+
+#: The first line of a Thorlabs FTS (CCT spectrometer) export.
+THORLABS_FTS_MAGIC = "#Thorlabs FTS"
+
+#: The FTS export's axis-unit words, as a label and a unit.
+_FTS_UNITS = {
+    "nm_air": ("Wavelength (air)", "nm"),
+    "nm_vac": ("Wavelength (vacuum)", "nm"),
+    "nm": ("Wavelength", "nm"),
+}
+
+
+def is_thorlabs_fts(path: Path) -> bool:
+    """Whether *path* is a Thorlabs FTS export (its first line says so)."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.readline().strip() == THORLABS_FTS_MAGIC
+    except OSError:
+        return False
+
+
+def _read_thorlabs_fts(
+    file_path: Path, config: Data1DConfig
+) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
+    """Read a Thorlabs FTS export: ``#Key;Value`` header, then ``[Data]`` rows.
+
+    The rows are ``x;y`` (semicolon-separated) up to ``[EndOfFile]``;
+    ``#XAxisUnit`` / ``#YAxisUnit`` name the axes (``nm_air`` is a
+    wavelength in air, in nm). A file with no ``[Data]`` rows is refused.
+    """
+    header: dict[str, str] = {}
+    rows: list[list[float]] = []
+    in_data = False
+    with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("["):
+                in_data = line == "[Data]"
+                continue
+            if not in_data:
+                if line.startswith("#") and ";" in line:
+                    key, _, value = line[1:].partition(";")
+                    header.setdefault(key.strip(), value.strip())
+                continue
+            try:
+                rows.append([float(v) for v in line.split(";")])
+            except ValueError as exc:
+                raise ValueError(f"{file_path}: bad data row {line!r}") from exc
+    if not rows:
+        raise ValueError(f"{file_path}: no [Data] rows")
+    width = min(len(r) for r in rows)
+    requested = [config.x_column, config.y_column, *config.auxiliary_columns.values()]
+    if width <= max(requested):
+        raise ValueError(
+            f"{file_path}: {width} columns, but requested columns {requested}"
+        )
+    table = np.array([r[:width] for r in rows], dtype=float)
+    x_unit = header.get("XAxisUnit", "")
+    x_label, x_units = _FTS_UNITS.get(x_unit, (x_unit or None, None))
+    metadata = {
+        "x_label": x_label,
+        "x_units": x_units,
+        "y_label": header.get("YAxisUnit") or None,
+        "y_units": None,
+    }
+    data = np.column_stack([table[:, config.x_column], table[:, config.y_column]])
+    auxiliary = {
+        name: table[:, column].copy()
+        for name, column in config.auxiliary_columns.items()
+    }
+    return data, metadata, auxiliary
 
 
 def _read_tsv(

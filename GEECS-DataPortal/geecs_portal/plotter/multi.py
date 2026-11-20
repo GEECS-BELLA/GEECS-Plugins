@@ -46,6 +46,26 @@ def scan_label(day: date, number: int) -> str:
     return f"{day:%m-%d} S{number:03d}"
 
 
+def provenance(scans: Sequence[tuple[date, int]]) -> str:
+    """Where a plot's points come from, written on its exported image.
+
+    The panel's own heading (``"Scan009 · 2026-10-27"``) for one scan;
+    several scans grouped by day in their order, the main one first:
+    ``"Scan009, Scan012 · 2026-10-27; Scan003 · 2026-10-28"``. The copied,
+    saved or logbook-sent PNG leaves the page's heading behind, so this
+    travels in the picture itself.
+    """
+    days: dict[date, list[int]] = {}
+    for day, number in scans:
+        numbers = days.setdefault(day, [])
+        if number not in numbers:
+            numbers.append(number)
+    return "; ".join(
+        f"{', '.join(f'Scan{n:03d}' for n in numbers)} · {day.isoformat()}"
+        for day, numbers in days.items()
+    )
+
+
 def merged_frame(
     refs: Sequence[ScanRef],
     *,
