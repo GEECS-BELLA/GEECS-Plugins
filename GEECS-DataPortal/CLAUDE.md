@@ -988,7 +988,8 @@ page's (`scans_group` macro), with the tolerance box and no overlay limit.
 (`images.trace_device` → `geecs_data_utils.io.shot_traces.trace_device`:
 an array stack, per-shot NI-HWS scope files — the LeCroy's `.dat` — or
 per-shot `.txt`/`.tsv` files of exactly two tab-separated columns, x then
-y: the spectrometers' wavelength and counts, the author 2026-11-12) is
+y: the spectrometers' wavelength and counts, the author 2026-11-12; or a
+Thorlabs FTS spectrometer's per-shot `.csv` export, 2026-11-19) is
 a row like a camera's, alone or stacked, over the same tiles. A tile is a
 small server PNG (`routes.images.trace_png`, matplotlib's object API, so
 Copy/Save grid keep working); a bin's tile is its shots' mean **sample by
