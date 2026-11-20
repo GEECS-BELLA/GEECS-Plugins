@@ -51,7 +51,7 @@ REFERS_TO: dict[str, tuple[str, ...]] = {
     "setup": ("setup",),
     "screen": ("setup",),
     "home_layout": ("screen",),
-    "analysis_group": ("analysis_recipe", "himg_job"),
+    "analysis_group": ("analysis_recipe", "himg_job", "scalar_job"),
 }
 
 #: How a kind's reader resolves the name it is given, where that is not the literal stem.
@@ -73,8 +73,9 @@ def _actions(value: Any, parent: str = "") -> Iterator[str]:  # Any: a dumped do
 def references(document: BaseModel) -> list[tuple[str, str]]:
     """The documents ``document`` names: ``(kind, name)`` pairs, in order, each once, each name as its reader resolves it.
 
-    For an analysis group the kind is ``analysis_recipe``; a ``.himg`` job
-    of that stem answers it too (the two share the analyzers tree).
+    For an analysis group the kind is ``analysis_recipe``; a ``.himg`` or
+    scalar-columns job of that stem answers it too (they share the
+    analyzers tree).
     """
     out: list[tuple[str, str]] = []
     if isinstance(document, (Preset, ExperimentDefaults)) and document.trigger_profile:

@@ -77,6 +77,7 @@ CONSUMERS: dict[str, list[Consumer]] = {
     ],
     "analysis_recipe": [_c("ScanAnalysis (the portal's runs)", "per run")],
     "himg_job": [_c("ScanAnalysis (the portal's runs)", "per run")],
+    "scalar_job": [_c("ScanAnalysis (the portal's runs)", "per run")],
     "analysis_group": [_c("ScanAnalysis (the portal's runs)", "per run")],
 }
 
@@ -87,6 +88,7 @@ DRY_RUNS: dict[str, str] = {
     "setup": "none on a draft: the scanner checks a setup as committed (the page's Live panel: its diff against the readbacks, and the apply's hazard confirms)",
     "analysis_recipe": "the portal's validate: the recipe bound to the analysis core's registry, its stem unique in the analyzers tree",
     "himg_job": "the portal's validate: the job's stem unique in the analyzers tree",
+    "scalar_job": "the portal's validate: the job's formulas parse, its stem unique in the analyzers tree",
     "analysis_group": "the portal's validate: a run can load it (every reference names a diagnostic that loads, none twice)",
 }
 
@@ -95,6 +97,7 @@ DRY_RUNS: dict[str, str] = {
 BLANKS: dict[str, str] = {
     "analysis_recipe": "the portal's blank: the input, no steps, the analysis core's default measure for its frames",
     "analysis_group": "an empty group",
+    "scalar_job": "one formula column over a placeholder input, to edit",
 }
 
 

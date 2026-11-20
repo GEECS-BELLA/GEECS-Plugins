@@ -1,7 +1,7 @@
 """The analysis documents as their consumer checks them: schema, validate and preview.
 
-The configurator owns the analysis documents (recipes, ``.himg`` jobs,
-groups) and their saves; this portal runs them, so it answers for them.
+The configurator owns the analysis documents (recipes, ``.himg`` and
+scalar-columns jobs, groups) and their saves; this portal runs them, so it answers for them.
 Its dry run is ``POST /api/analysis/validate/{kind}`` (a draft, never
 written: the schema, the binding to GEECS-Analysis's registry, a stem the
 loader would refuse, a group's references) and its form is
@@ -24,6 +24,7 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 from fastapi.responses import JSONResponse, Response
+from geecs_data_utils.io import shot_images
 from geecs_data_utils.tiled_schema import device_acq_timestamp_column
 
 from geecs_portal import resources
@@ -168,16 +169,20 @@ def analysis_blank(
     (its frames), no steps, the registry's default measure for those frames,
     ``output_name`` the name; ``fields`` (a JSON object) is what the input
     kind requires beyond its kind, e.g. a trace's ``{"loading": {"data_type":
-    "tsv"}}``. A group is an empty list of analyzers. A ``.himg`` job
-    has no blank: its kind is the decision (one of them deletes files).
+    "tsv"}}``. A group is an empty list of analyzers; a scalar-columns job
+    is one formula column over a placeholder input. A ``.himg`` job has no
+    blank: its kind is the decision (one of them deletes files).
     """
     _root(portal)
     _kind(kind)
-    if kind == "analysis_group":
+    if kind in ("analysis_group", "scalar_job"):
+        from geecs_schemas.analysis.scalar import blank_scalar_job
         from pydantic import ValidationError
 
-        document: Json = {"name": name, "analyzers": []}
         try:
+            if kind == "scalar_job":
+                return JSONResponse({"document": blank_scalar_job(name)})
+            document: Json = {"name": name, "analyzers": []}
             _model(kind).model_validate(document)
         except ValidationError as exc:
             raise HTTPException(422, str(exc)) from exc
@@ -303,23 +308,19 @@ def _camera_frame(
     """One shot's pixel array through the Images tab's own source ladder."""
     if detail.data is not None and shot > len(detail.data):
         raise LookupError("shot beyond the run's recorded events")
-    acq, column_present = _acq_timestamp(detail, device, shot)
+    acq, column_present = _acq_timestamp(detail, device, shot, folder)
     if column_present and acq is None:
         raise LookupError("device missed this shot (no timestamp)")
     complete = bool(detail.summary.exit_status)
-    try:
-        resolved = resources.load_shot_array(
-            folder,
-            device,
-            shot,
-            acq_timestamp=acq,
-            data_cache=portal.data_cache if complete else None,
-            cache_key=(uid, device) if complete else None,
-            file_shot=_file_shot(detail, shot, folder),
-        )
-    except HTTPException as exc:
-        kind = LookupError if exc.status_code == 404 else ValueError
-        raise kind(str(exc.detail)) from exc
+    resolved = shot_images.load_shot_array(
+        folder,
+        device,
+        shot,
+        acq_timestamp=acq,
+        data_cache=portal.data_cache if complete else None,
+        cache_key=(uid, device) if complete else None,
+        file_shot=_file_shot(detail, shot, folder),
+    )
     if resolved.array is None:
         raise LookupError(resolved.reason or resolved.kind)
     return resolved.array

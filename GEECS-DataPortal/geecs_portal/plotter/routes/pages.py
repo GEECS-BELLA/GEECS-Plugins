@@ -1,0 +1,993 @@
+"""The one page: a day + scan form, the column pickers, the plot.
+
+The URL names what is open — ``?day=&scan=&set=`` — and every control
+lives in a named settings set (:mod:`geecs_portal.plotter.settings`), a file
+the page saves on each pick, toggle or scan step. The form POSTs the
+controls; the server merges them into a set, saves it, and redirects
+back to the short URL. "Save as" POSTs the same form to ``/save-as``,
+which writes the controls to a new name instead.
+
+Each viewer saves into **their own set**, the one with their name: the
+page asks the name once (a URL without ``set=`` shows only that question;
+the browser remembers the answer and the page script sends it as
+``owner`` with every save). Opening someone else's set shows it and
+writes nothing; the viewer's first change copies it, with the change,
+into the viewer's own set and switches to it, so a shared link never
+lets one person rewrite another's plots. The owner's set changes only
+by "Save as" onto its name, which asks before replacing.
+
+With ``x_auto`` on (the default) X is the open scan's variable; a hand
+pick on X saves ``x_auto`` off. The page renders the pick lists
+server-side; its script fetches the figure from ``/api/figure`` and
+draws it.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from typing import Optional, Sequence
+from urllib.parse import urlencode
+
+import pandas as pd
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from starlette.concurrency import run_in_threadpool
+from geecs_analysis.image_prep import ImagePrep
+from geecs_data_utils.data.scan_merge import (
+    SCAN_COLUMN,
+    default_bin_tolerance,
+    merge_scan_frames,
+)
+from geecs_data_utils.tiled_catalog import RunDetail
+
+from geecs_portal import analysis
+from geecs_portal.plotter import figures, images, maps, multi, scans
+from geecs_portal.plotter.routes import Context, read_form
+from geecs_portal.plotter.routes.images import (
+    multi_query,
+    prep_query,
+    window_query,
+    strip_code,
+    strip_tiles,
+    trace_code,
+)
+from geecs_portal.plotter.settings import (
+    CHOICES,
+    DEFAULT_SET,
+    MAX_CAMERAS,
+    MAX_FIT_ORDER,
+    MAX_IMAGE_COLUMNS,
+    MAX_OVERLAY_SCANS,
+    MAX_SCALARS,
+    TILE_MAX_RANGE,
+    MAX_Y_LISTS,
+    NameRefused,
+    ImageCamera,
+    PlotterSettings,
+    SettingsError,
+    camera_field,
+    form_value,
+    merged,
+    scan_refs_text,
+    set_name,
+)
+
+#: s-file columns every scan has, never a useful default Y (nor is any
+#: device's ``<device> shot #`` counter).
+_BOOKKEEPING = ("Shotnumber", "Bin #")
+
+
+#: The two pages of one set: the Plot tab (``/``: the XY plot or the 2-D
+#: map) and the Images tab (``/images``: the strip and the big view).
+PAGES = {"plot": "./", "images": "./images"}
+
+
+def _opened(form: dict[str, str], name: str) -> str:
+    """The page URL for *form*'s day and scan under set *name*, relative.
+
+    The page the form came from (its ``page`` field) is the one reopened.
+    """
+    query = {k: form[k] for k in ("day", "scan") if form.get(k)}
+    path = PAGES.get(form.get("page", ""), PAGES["plot"])
+    return f"{path}?" + urlencode({**query, "set": name})
+
+
+def register(router: APIRouter, ctx: Context) -> None:
+    """Add the page routes to *router*."""
+
+    @router.get("/", response_class=HTMLResponse)
+    def index(
+        request: Request,
+        day: Optional[date] = None,
+        scan: Optional[int] = None,
+        name: Optional[str] = Query(None, alias="set"),
+        here_day: Optional[date] = None,
+        here_scan: Optional[int] = None,
+    ) -> Response:
+        """The Plot tab; without a day and scan, the set's last scan.
+
+        ``here_day`` / ``here_scan`` are the scan open when the sets list
+        switched: kept when the new set has none of its own. A set that
+        has never opened a scan, with nothing open, is the empty form.
+        Without a set, the page asks the viewer's name (their own set).
+        """
+        return _entry(ctx, request, "plot", day, scan, name, here_day, here_scan)
+
+    @router.get("/images", response_class=HTMLResponse)
+    def images_page(
+        request: Request,
+        day: Optional[date] = None,
+        scan: Optional[int] = None,
+        name: Optional[str] = Query(None, alias="set"),
+        here_day: Optional[date] = None,
+        here_scan: Optional[int] = None,
+    ) -> Response:
+        """The Images tab: the set's image strip, the big view under it."""
+        return _entry(ctx, request, "images", day, scan, name, here_day, here_scan)
+
+    @router.post("/", response_class=HTMLResponse)
+    async def apply(request: Request) -> Response:
+        """Save the form's controls into the open set, then reopen the page."""
+        return await _save(ctx, request, as_new=False)
+
+    @router.post("/save-as", response_class=HTMLResponse)
+    async def save_as(request: Request) -> Response:
+        """Save the form's controls as a new set, then open that set."""
+        return await _save(ctx, request, as_new=True)
+
+
+def _entry(
+    ctx: Context,
+    request: Request,
+    page: str,
+    day: Optional[date],
+    scan: Optional[int],
+    name: Optional[str],
+    here_day: Optional[date],
+    here_scan: Optional[int],
+) -> Response:
+    """Either page of a set: its name asked, its last scan, or the scan."""
+    if name is None:
+        return ctx.templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "experiment": ctx.experiment,
+                **_page(day, scan, PlotterSettings(), page),
+                "ask_name": True,
+                "set": "",
+                "sets": [],
+            },
+        )
+    if day is None and scan is None:
+        here = (
+            {"day": here_day.isoformat(), "scan": str(here_scan)}
+            if here_day is not None and here_scan is not None
+            else None
+        )
+        target = _last_scan(ctx, name, page) or (
+            here and _opened({**here, "page": page}, name)
+        )
+        if target:
+            return RedirectResponse(target, status_code=303)
+    return _render(ctx, request, day, scan, name, page_name=page)
+
+
+def _render(
+    ctx: Context,
+    request: Request,
+    day: Optional[date],
+    scan: Optional[int],
+    name: str,
+    *,
+    page_name: str = "plot",
+    problem: Optional[str] = None,
+    save_as: str = "",
+    name_error: Optional[str] = None,
+    status_code: int = 200,
+) -> HTMLResponse:
+    """The page for *day*/*scan* under set *name*; *problem* shown if given.
+
+    *save_as* refills the Save-as box after any refusal, so nothing typed
+    is lost; *name_error* marks the box itself invalid, and only when the
+    name was the reason (the kit's ``.field`` validation).
+    """
+    settings = PlotterSettings()
+    try:
+        name = set_name(name)
+        settings = ctx.store.load(name)
+    except SettingsError as bad:
+        problem = problem or str(bad)
+    page = _page(day, scan, settings, page_name)
+    page.update(
+        {
+            "set": name,
+            "sets": ctx.store.names(),
+            "settings_folder": str(ctx.store.folder),
+            "settings_error": problem,
+            "save_as": save_as,
+            "name_error": name_error,
+        }
+    )
+    if day is not None and scan is not None:
+        try:
+            run = ctx.run(day, scan)
+        except HTTPException as missing:
+            page["error"] = missing.detail
+        else:
+            extras = _extra_runs(ctx, page)
+            _fill(page, run, settings, ctx.experiment, ctx.logbook_send, extras)
+    return ctx.templates.TemplateResponse(
+        request,
+        "index.html",
+        {"experiment": ctx.experiment, **page},
+        status_code=status_code,
+    )
+
+
+async def _save(ctx: Context, request: Request, *, as_new: bool) -> Response:
+    """Merge the posted controls into a set (the open one, or a new name).
+
+    The store work runs in the threadpool, as the sync routes' does: a hung
+    share stalls this request, never the server.
+    """
+    form = await read_form(request)
+    try:
+        target = await run_in_threadpool(_store, ctx, form, as_new)
+    except SettingsError as bad:
+        day, scan = _when(form)
+        refused = isinstance(bad, NameRefused)
+        return await run_in_threadpool(
+            _render,
+            ctx,
+            request,
+            day,
+            scan,
+            form.get("set", DEFAULT_SET),
+            page_name=form.get("page", "") if form.get("page") in PAGES else "plot",
+            problem=None if refused else str(bad),
+            save_as=form.get("save_as", ""),
+            name_error=str(bad) if refused else None,
+            status_code=422,
+        )
+    return RedirectResponse(_opened(form, target), status_code=303)
+
+
+def _store(ctx: Context, form: dict[str, str], as_new: bool) -> str:
+    """Save *form* into its set, or a new one; the name saved to."""
+    source = set_name(form.get("set", DEFAULT_SET))
+    target = source
+    # A change saves into the viewer's own set (their name, which the page
+    # sends as ``owner``), with the open set's controls copied under it when
+    # that is someone else's. A change that names no owner is refused, not
+    # saved where it is: that would let a first-time viewer of a shared
+    # link rewrite its owner's set. Save as names its target itself.
+    if not as_new:
+        owner = form.get("owner", "")
+        if not owner:
+            raise SettingsError(
+                "say who you are before changing anything: your changes save "
+                "into your own set (the page asks your name)"
+            )
+        target = set_name(owner)
+    if as_new:
+        try:
+            target = set_name(form.get("save_as", ""))
+        except SettingsError as bad:
+            raise NameRefused(str(bad)) from None
+        # Replacing a saved set is a choice the page asks about first (its
+        # dialog posts overwrite=true); without it a taken name is refused.
+        if ctx.store.exists(target) and form.get("overwrite") != "true":
+            raise NameRefused(f"a set named {target!r} is already saved")
+    ctx.store.save(target, merged(ctx.store.load(source), form))
+    return target
+
+
+def _last_scan(ctx: Context, name: str, page: str = "plot") -> Optional[str]:
+    """The page URL for the scan set *name* last opened, if it has one.
+
+    A bad name or an unreadable set is left for the page to report.
+    """
+    try:
+        settings = ctx.store.load(set_name(name))
+    except SettingsError:
+        return None
+    if settings.day is None or settings.scan is None:
+        return None
+    last = {"day": settings.day.isoformat(), "scan": str(settings.scan), "page": page}
+    return _opened(last, set_name(name))
+
+
+def _when(form: dict[str, str]) -> tuple[Optional[date], Optional[int]]:
+    """The form's day and scan, ``None`` where absent or malformed.
+
+    The same rules as the set's (``settings.form_value``), forgiving: a
+    page that reports a refused save still renders.
+    """
+
+    def parsed(field: str) -> object:
+        try:
+            return form_value(field, form[field]) if form.get(field) else None
+        except SettingsError:
+            return None
+
+    day, scan = parsed("day"), parsed("scan")
+    return (
+        day if isinstance(day, date) else None,
+        scan if isinstance(scan, int) else None,
+    )
+
+
+def _page(
+    day: Optional[date],
+    scan: Optional[int],
+    settings: PlotterSettings,
+    page_name: str = "plot",
+) -> dict:
+    """The template context before a scan is opened.
+
+    ``tab`` is what the pane shows: the Images page's strip, or the Plot
+    page's view (``plot_view``: the XY plot or the 2-D map, which the
+    form saves back; a set saved by an older copy on its image strip
+    opens the XY plot here).
+    """
+    plot_view = _choice(settings, "tab")
+    plot_view = "xy" if plot_view == "images" else plot_view
+    return {
+        "page": page_name,
+        "plot_view": plot_view,
+        "tab": "images" if page_name == "images" else plot_view,
+        "day": day,
+        "scan": scan,
+        "error": None,
+        "columns": [],
+        "x": "",
+        "y": "",
+        "xalias": settings.x_alias,
+        "yalias": settings.y_alias,
+        "xauto": settings.x_auto,
+        "xf": settings.x_filter,
+        "yf": settings.y_filter,
+        "y2": "",
+        "y3": "",
+        "y2alias": settings.y2_alias,
+        "y3alias": settings.y3_alias,
+        "y2f": settings.y2_filter,
+        "y3f": settings.y3_filter,
+        "ycount": settings.y_count,
+        "ycounts": range(1, MAX_Y_LISTS + 1),
+        "y2_kept": "",
+        "y3_kept": "",
+        "yfit": settings.y_fit,
+        "y2fit": settings.y2_fit,
+        "y3fit": settings.y3_fit,
+        "yorder": settings.y_fit_order,
+        "y2order": settings.y2_fit_order,
+        "y3order": settings.y3_fit_order,
+        "fits": figures.FITS,
+        "max_fit_order": MAX_FIT_ORDER,
+        # The XY plot's view, shot filters, bins and cosmetics (JSON text).
+        "view": _choice(settings, "xy_view"),
+        # The scans beside the main one (the XY plot only): each a chip,
+        # "missing" when it is not on the share; the saved list as the
+        # form posts it, and the ones found as the figure route takes them.
+        "extra_scans": [
+            {
+                "day": r.day,
+                "scan": r.scan,
+                "label": multi.scan_label(r.day, r.scan),
+                "text": scan_refs_text([r]),
+                "missing": False,
+                "trace": 0,
+            }
+            for r in settings.extra_scans
+            if (r.day, r.scan) != (day, scan)
+        ],
+        "scans_saved": scan_refs_text(settings.extra_scans),
+        "scans_text": "",
+        "main_label": multi.scan_label(day, scan) if day and scan else "",
+        "scan_view": _choice(settings, "scan_view"),
+        "overlay_y": settings.overlay_y,
+        "max_overlay": MAX_OVERLAY_SCANS,
+        "coverage": {},
+        "scan_total": 1,
+        "filters": settings.shot_filters,
+        "bincfg": settings.bin_config,
+        "display": settings.display,
+        "filter_groups": _filter_groups(settings.shot_filters),
+        # The 2-D map: the columns drawn ("" until a scan is open), the
+        # saved picks ("" is the default entry), the statistics.
+        "mapv": "",
+        "mapx": "",
+        "mapy": "",
+        "mapv_saved": "",
+        "mapx_saved": "",
+        "mapy_saved": "",
+        "map_defaults": {"mapv": "", "mapx": "", "mapy": ""},
+        "mapf": settings.map_filter,
+        "mapcfg": settings.map_config,
+        "map_stats": maps.statistics(settings.map_config),
+        "map_url": "",
+        "uid": "",
+        "slots": [],
+        "caption": "",
+        # The image strip's controls. A choice a newer copy saved that
+        # this one lacks shows this copy's default.
+        "devf": settings.image_device_filter,
+        "strip": _choice(settings, "image_strip"),
+        "pick": _choice(settings, "image_pick"),
+        "hits": _choice(settings, "image_hits"),
+        "hit_labels": images.HIT_LABELS,
+        "centre": settings.image_centre,
+        "layout": _choice(settings, "image_layout"),
+        "cols": settings.image_columns,
+        "tile_max": settings.image_tile_max,
+        "tile_max_range": TILE_MAX_RANGE,
+        "max_cols": MAX_IMAGE_COLUMNS,
+        "cmap": settings.image_cmap,
+        "cmaps": images.CMAPS,
+        "zscale": _choice(settings, "image_zscale"),
+        "cbar": settings.image_cbar,
+        "zmin": settings.image_zmin,
+        "zmax": settings.image_zmax,
+        "roi": "",
+        "display_query": "",
+        "levels_url": "",
+        "devices": [],
+        "device": "",
+        "device_kept": "",
+        "device_problem": None,
+        "tiles": [],
+        "cams": [],
+        "max_cameras": MAX_CAMERAS,
+        "strip_x": "",
+        "filter_pass": "",
+        "conditions": [],
+        "condition_lines": [],
+        "condition_labels": {},
+        "scalar_summary": None,
+        "scalar_line": "",
+        "image_scalars": settings.image_scalars,
+        "scalar_stat": settings.image_scalar_stat,
+        "scalf": settings.image_scalar_filter,
+        "max_scalars": MAX_SCALARS,
+        "scalar_stats": [(k, v[2]) for k, v in scans.SCALAR_STATS.items()],
+        "bg": scan_refs_text([settings.image_bg]) if settings.image_bg else "",
+        "bg_day": settings.image_bg.day if settings.image_bg else None,
+        "bg_scan": settings.image_bg.scan if settings.image_bg else None,
+        "trace": "",
+        "strip_code": "",
+        # Several scans merged: the tolerance saved (None: auto), the auto
+        # value, and on the Images page how they pooled.
+        "mtol": settings.merge_tolerance,
+        "auto_tol": "",
+        "pooled": None,
+    }
+
+
+def _filter_groups(text: str) -> list[dict]:
+    """The shot filters' groups as the rail's chips; none for bad or empty text."""
+    try:
+        filters = analysis.parse_filters(text)
+    except analysis.BadParam:
+        return []
+    return [
+        {
+            "name": g.name or f"filter {i + 1}",
+            "enabled": g.enabled,
+            "conditions": len(g.conditions),
+        }
+        for i, g in enumerate(filters.groups)
+    ]
+
+
+def _choice(settings: PlotterSettings, key: str) -> str:
+    """The stored choice, or its default when this copy does not offer it."""
+    value = getattr(settings, key)
+    return value if value in CHOICES[key] else PlotterSettings.model_fields[key].default
+
+
+def _fill(
+    page: dict,
+    run: RunDetail,
+    settings: PlotterSettings,
+    experiment: str = "",
+    logbook_send: bool = False,
+    extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]] = (),
+) -> None:
+    """Add the open scan's lists and the picks the settings resolve to.
+
+    With *extras* (the XY plot's other scans, found on the share) the
+    lists are the union of every scan's columns, each noting how many of
+    them have it.
+    """
+    frame = scans.load_frame(run)
+    picks = scans.columns(frame)
+    if extras and page["tab"] in ("xy", "images"):
+        frames = {"main": frame, **{(d, n): f for d, n, f, _ in extras}}
+        page["coverage"] = multi.column_coverage(frames)
+        page["scan_total"] = len(frames)
+        # A shot filter, or X, may name the scan itself.
+        page["coverage"][SCAN_COLUMN] = len(frames)  # the merge tags every row
+        picks = list(page["coverage"])
+        page["scans_text"] = ",".join(f"{d.isoformat()}:{n}" for d, n, _, _ in extras)
+    page["columns"] = picks
+    # the condition columns' labels, for the shot filters' label menu
+    page["condition_labels"] = scans.condition_labels(run, frame)
+    page["uid"] = run.summary.uid
+    page["logbook_send"] = logbook_send
+    page["xnames"] = {c: scans.display_name(c, settings.x_alias) for c in picks}
+    page["ynames"] = {c: scans.display_name(c, settings.y_alias) for c in picks}
+    page["shots"] = len(frame)
+    # GEECSplotter's "autofill par1": with x_auto (the default) X is the
+    # scan variable of whichever scan is open. With it off, an unset X is
+    # the scan variable too and X "" is the shot number.
+    x = settings.x
+    chosen_x = (
+        analysis.default_x(run.start_doc, picks) if settings.x_auto or x is None else x
+    )
+    page["x"] = chosen_x if chosen_x in picks else ""
+    # Default Y: the first measurement, not the bookkeeping.
+    others = [
+        c
+        for c in picks
+        if c not in {page["x"], *_BOOKKEEPING} and not c.endswith(" shot #")
+    ]
+    # A scan stopped before its first shot has no picks at all.
+    y = settings.y
+    page["y"] = y if y in picks else next(iter(others or picks), "")
+    # Y2 and Y3, when the count shows them: the saved pick, else the next
+    # measurements after Y. On a scan without a saved pick's column they
+    # draw nothing, but the list still holds it ("kept"), so the next click
+    # here posts it back instead of erasing it.
+    spare = iter([c for c in others if c != page["y"]] or picks)
+    lists = (("y2", settings.y2_alias, 2), ("y3", settings.y3_alias, 3))
+    for key, alias, n in lists:
+        page[f"{key}names"] = {c: scans.display_name(c, alias) for c in picks}
+        default = next(spare, "")
+        if settings.y_count < n:
+            continue
+        picked = getattr(settings, key) or default
+        page[key] = picked if picked in picks else ""
+        page[f"{key}_kept"] = "" if picked in picks else picked
+    # The drawn Y slots (0-2: the display drawer's colour per slot) and
+    # the logbook caption: what the plot shows, as the panel heads it.
+    shown = [(0, page["y"]), (1, page["y2"]), (2, page["y3"])]
+    page["slots"] = [i for i, c in shown if c]
+    names = [page[f"{k}names"][c] for k, (_, c) in zip(("y", "y2", "y3"), shown) if c]
+    x_name = page["xnames"][page["x"]] if page["x"] else "shot #"
+    # The overlay draws one Y list; a saved one past the count is Y1.
+    page["overlay_y"] = (
+        settings.overlay_y if settings.overlay_y <= settings.y_count else 1
+    )
+    overlaid = page["scans_text"] and page["scan_view"] == "overlay"
+    if overlaid:
+        names = names[page["overlay_y"] - 1 : page["overlay_y"]] or names[:1]
+    page["caption"] = f"{', '.join(names)} vs {x_name}" + (
+        " (binned)" if page["view"] == "bin" else ""
+    )
+    if page["scans_text"]:
+        page["caption"] += f", {page['scan_total']} scans ({page['scan_view']})"
+    if page["tab"] == "map":
+        _fill_map(page, run, picks, settings)
+    if page["scans_text"]:
+        _fill_pooling(page, run, frame, settings, extras)
+    if page["tab"] == "images":
+        # After the picks: a strip of one shot per bin may pick by Y1.
+        _fill_images(page, run, frame, settings, experiment, extras)
+
+
+def _extra_runs(
+    ctx: Context, page: dict
+) -> list[tuple[date, int, pd.DataFrame, RunDetail]]:
+    """The extra scans found on the share, with their frames; the rest marked missing."""
+    found = []
+    for chip in page["extra_scans"]:
+        try:
+            run = ctx.run(chip["day"], chip["scan"])
+        except HTTPException:
+            chip["missing"] = True
+            continue
+        found.append((chip["day"], chip["scan"], scans.load_frame(run), run))
+        # The figure colours the scans found, the main one first.
+        chip["trace"] = len(found) + 1
+    return found
+
+
+def _fill_map(
+    page: dict, run: RunDetail, picks: list[str], settings: PlotterSettings
+) -> None:
+    """Add the 2-D map's columns and the URL its figures come from."""
+    value, x, y = maps.columns(run, picks, settings, page["y"])
+    page.update(mapv=value, mapx=x, mapy=y)
+    # What each list's first entry ("no pick") draws: Y1, the scan's axes.
+    defaults = maps.columns(run, picks, PlotterSettings(), page["y"])
+    page["map_defaults"] = dict(zip(("mapv", "mapx", "mapy"), defaults))
+    for key, saved in (
+        ("mapv", settings.map_value),
+        ("mapx", settings.map_x),
+        ("mapy", settings.map_y),
+    ):
+        page[f"{key}_saved"] = saved if saved in picks else ""
+    page["map_url"] = "api/map?" + urlencode(
+        {
+            "day": page["day"].isoformat(),
+            "scan": page["scan"],
+            "value": value,
+            "x": x,
+            "y": y,
+            "mapcfg": settings.map_config,
+            "filters": settings.shot_filters,
+            "valuealias": str(settings.y_alias).lower(),
+            "axisalias": str(settings.x_alias).lower(),
+        }
+    )
+
+
+def _fill_pooling(
+    page: dict,
+    run: RunDetail,
+    frame,
+    settings: PlotterSettings,
+    extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]],
+) -> None:
+    """The merged scans' pooling: the tolerance saved and the one it defaults to.
+
+    ``scan_merge.default_bin_tolerance`` over the merged frame by the X the
+    bins are placed by (the Plot page's X, which the Images strip follows
+    too): half the smallest step of any one scan.
+    """
+    page["mtol"] = settings.merge_tolerance
+    x = page["x"]  # the Plot page's X, which the Images strip follows too
+    merged = merge_scan_frames(
+        {(page["day"], page["scan"]): frame, **{(d, n): f for d, n, f, _ in extras}}
+    )
+    page["auto_tol"] = (
+        f"{default_bin_tolerance(merged, x):.4g}" if x and x in merged else "0"
+    )
+
+
+def _fill_images(
+    page: dict,
+    run: RunDetail,
+    frame,
+    settings: PlotterSettings,
+    experiment: str,
+    extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]] = (),
+) -> None:
+    """Add the device list and one row per camera (``cams``), each with its tiles.
+
+    The first camera is the set's own ``image_*`` fields, the rest
+    ``image_more``; each row has its own look (colour map, z scale,
+    clean-ups, colour bar, ROI) over the page's tiles, so the rows line up
+    bin by bin. The first row's values are also the page's own keys
+    (``device``, ``tiles``, ...), which the big view and the notebook code
+    read.
+
+    With the set's extra scans (*extras*, found on the share) the strip
+    is every scan's shots: an :class:`images.ScanSet`, its bins the merged
+    scans' one bin number (each scan's bins placed by the Plot page's X,
+    the same setting pooled within ``merge_tolerance``). The devices, conditions
+    and background are the open scan's.
+    """
+    folder = scans.scan_folder(run)
+    devices = images.devices(folder)
+    page["devices"] = devices
+    page["conditions"] = scans.conditions(run, frame)
+    # the same lines as text, for the exported grid's picture (strip_export.js)
+    page["condition_lines"] = [
+        f"{c['column']}: {c['label']}"
+        + (" — changed mid-scan" if c["mixed"] else "")
+        + (f" ({c['detail']})" if c["detail"] else "")
+        for c in page["conditions"]
+    ]
+    looks = [_first_look(settings)] + [_safe_look(c) for c in settings.image_more]
+    # The strip's X is the Plot page's (the scan variable while autofill
+    # is on): the captions' values, and where pooled bins are placed.
+    x = page["x"]  # "": the shot number, so the captions carry no value
+    page["strip_x"] = page["xnames"].get(x, x) if x else ""
+    source, frame = _strip_source(page, run, frame, folder, x, settings, extras)
+    page["cams"] = cams = [
+        _camera_row(page, run, frame, settings, folder, devices, look, place, x, source)
+        for place, look in enumerate(looks, 1)
+    ]
+    # The shot filters keep the same shots here as on the Plot page.
+    try:
+        keep = images.shot_rows(frame, settings.shot_filters)
+    except images.NoImage:
+        keep = None  # each row says why it has no tiles
+    if keep is not None:
+        page["filter_pass"] = f"{len(keep)} / {len(frame)} shots pass"
+    # The picked scan scalars over the same shots, one statistic for all.
+    if settings.image_scalars:
+        summary = scans.scan_scalars(
+            frame,
+            keep,
+            settings.image_scalars,
+            settings.image_scalar_stat,
+            page.get("ynames"),
+        )
+        page["scalar_summary"] = summary
+        texts = [s["text"] for s in summary["scalars"]]
+        page["scalar_line"] = (
+            "  ·  ".join(texts)
+            + f"   ({summary['label']} over {summary['shots']} shots)"
+        )
+    try:
+        missing = images.missing_filter_columns(frame, settings.shot_filters)
+    except images.NoImage:
+        missing = []
+    if missing:
+        # The Plot page's filters may name columns these scans lack.
+        page["filter_pass"] = (
+            page["filter_pass"] + " · " if page["filter_pass"] else ""
+        ) + (
+            f"not in {'these scans' if extras else 'this scan'}, "
+            f"so left out: {', '.join(missing)}"
+        )
+    first = cams[0]
+    page.update(
+        device=first["device"],
+        device_kept=first["kept"],
+        device_problem=first["problem"],
+        trace=first["trace"],
+        tiles=first["tiles"],
+        roi=first["roi"],
+        display_query=first["display_query"],
+        levels_url=first["levels_url"],
+    )
+    if first["tiles"] and first["trace"]:
+        page["strip_code"] = trace_code(
+            page["day"],
+            page["scan"],
+            first["device"],
+            page["strip"],
+            experiment,
+            first["channel"],
+            first["pick_by"],
+            _strip_refs(page, extras),
+            settings.merge_tolerance,
+            x or "",
+            first["window"],
+        )
+    elif first["tiles"]:
+        prep = ImagePrep(hits=first["hits"], centre=first["centre"])
+        page["strip_code"] = strip_code(
+            page["day"],
+            page["scan"],
+            first["device"],
+            page["strip"],
+            experiment,
+            first["pick_by"],
+            prep,
+            _strip_refs(page, extras),
+            settings.merge_tolerance,
+            x or "",
+        )
+
+
+def _strip_refs(
+    page: dict, extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]]
+) -> list[tuple[date, int]]:
+    """The strip's scans as the snippet names them, the open one first (none alone)."""
+    if not extras:
+        return []
+    return [(page["day"], page["scan"]), *((d, n) for d, n, _, _ in extras)]
+
+
+def _strip_source(
+    page: dict,
+    run: RunDetail,
+    frame,
+    folder,
+    x: Optional[str],
+    settings: PlotterSettings,
+    extras: Sequence[tuple[date, int, pd.DataFrame, RunDetail]],
+) -> tuple[images.Source, pd.DataFrame]:
+    """Where the strip's shots come from, and the frame its rows and bins are.
+
+    The open scan alone: its folder and s-file. With extra scans: every
+    scan as one :class:`images.ScanSet` (``page["pooled"]`` says how many
+    and the tolerance it pooled with).
+    """
+    if not extras:
+        return folder, frame
+    parts = (
+        multi.scan_part(run, frame, page["day"], page["scan"]),
+        *(multi.scan_part(r, f, d, n) for d, n, f, r in extras),
+    )
+    found = images.ScanSet.merged(parts, x or None, settings.merge_tolerance)
+    page["pooled"] = {
+        "scans": len(parts),
+        "tolerance": f"{found.tolerance:.4g}",
+        "auto": settings.merge_tolerance is None,
+    }
+    return found, found.frame
+
+
+def _first_look(settings: PlotterSettings) -> ImageCamera:
+    """The first camera's look: the set's own ``image_*`` fields."""
+    return ImageCamera(
+        device=settings.image_device,
+        device_filter=settings.image_device_filter,
+        cmap=settings.image_cmap,
+        zscale=_choice(settings, "image_zscale"),
+        zmin=settings.image_zmin,
+        zmax=settings.image_zmax,
+        hits=_choice(settings, "image_hits"),
+        centre=settings.image_centre,
+        cbar=settings.image_cbar,
+        bgsub=settings.image_bgsub,
+        channel=settings.image_channel,
+        xmin=settings.image_xmin,
+        xmax=settings.image_xmax,
+    )
+
+
+def _safe_look(look: ImageCamera) -> ImageCamera:
+    """*look* with a choice this copy does not offer at its default."""
+    return look.model_copy(
+        update={
+            "zscale": look.zscale if look.zscale in CHOICES["image_zscale"] else "tile",
+            "hits": look.hits if look.hits in CHOICES["image_hits"] else "none",
+        }
+    )
+
+
+def _camera_row(
+    page: dict,
+    run: RunDetail,
+    frame,
+    settings: PlotterSettings,
+    folder,
+    devices: list[str],
+    look: ImageCamera,
+    place: int,
+    x: Optional[str],
+    source: Optional[images.Source] = None,
+) -> dict:
+    """One camera's row: its look, its problem or its tiles and URLs.
+
+    *frame* is the strip's (one scan's s-file, or several scans' merged,
+    *source* their :class:`images.ScanSet`); *folder* the open scan's, whose
+    devices are listed.
+
+    A saved camera this scan has no folder for is kept (``kept``) so the
+    next pick does not erase it. With none saved the row asks for one:
+    probing every folder for a camera costs tens of seconds cold over the
+    share. A device that records traces (a scope) is a row of trace tiles
+    (``trace``: what it records; ``channels``: the scope's), on the same
+    bins; a camera's clean-ups, background, ROI and colour map do not
+    apply to it.
+    """
+    device = look.device or ""
+    roi = settings.image_rois.get(device) if device else None
+    row = {
+        **look.model_dump(),
+        "place": place,
+        "sfx": camera_field("", place),
+        "device": device,
+        "kept": "",
+        "problem": None,
+        "trace": "",
+        "window": None,
+        "window_problem": "",
+        "channels": [],
+        "tiles": [],
+        "roi": ",".join(str(v) for v in roi) if roi else "",
+        "pick_by": page.get("y", "") if page["pick"] == "ymax" else "",
+        # The background scan this row takes off each shot ("": none).
+        "bg": (
+            scan_refs_text([settings.image_bg])
+            if settings.image_bg and look.bgsub
+            else ""
+        ),
+        "display_query": "",
+        "levels_url": "",
+    }
+    if device and device not in devices:
+        row.update(kept=device, device="", problem=f"{device} is not in this scan")
+    elif not devices:
+        row["problem"] = "this scan has no device folders"
+    elif not device:
+        row["problem"] = "pick a camera from the list"
+    elif not images.is_image_device(folder, device, devices):
+        probe = images.trace_device(folder, device, devices)
+        if probe.kind:
+            # Traces: none of a camera's clean-ups, background or ROI.
+            row.update(
+                trace=probe.content,
+                channels=list(probe.channels),
+                bg="",
+                roi="",
+                cbar=False,
+            )
+        else:
+            row["problem"] = (
+                f"{device} has no pictures (a vendor format or a file the page cannot draw)"
+            )
+    if row["problem"]:
+        return row
+    trace = bool(row["trace"])
+    row["window"] = _row_window(row) if trace else None
+    prep = ImagePrep() if trace else ImagePrep(hits=row["hits"], centre=row["centre"])
+    try:
+        row["tiles"] = strip_tiles(
+            run,
+            frame,
+            page["strip"],
+            day=page["day"],
+            scan=page["scan"],
+            device=device,
+            x=x,
+            pick_by=row["pick_by"],
+            prep=prep,
+            filters=settings.shot_filters,
+            bg=row["bg"],
+            channel=row["channel"] if trace else None,
+            source=source,
+            extra=page["scans_text"],
+            mtol=settings.merge_tolerance,
+            window=row["window"],
+        )
+    except HTTPException as missing:
+        row["problem"] = missing.detail
+        return row
+    row["display_query"] = display_query(row)
+    row["levels_url"] = "api/images/levels?" + urlencode(
+        {
+            "day": page["day"].isoformat(),
+            "scan": page["scan"],
+            "device": device,
+            "strip": page["strip"],
+            "roi": row["roi"],
+            # One shot per bin: the shots picked, each its own tile.
+            **(
+                {"rows": ",".join(str(t.rows[0]) for t in row["tiles"])}
+                if page["strip"] == "pick"
+                else {}
+            ),
+            **prep_query(prep),
+            # Bins and shots: the strip is the shots the shot filters keep.
+            **({"filters": settings.shot_filters} if settings.shot_filters else {}),
+            **({"bg": row["bg"]} if row["bg"] else {}),
+            **({"channel": row["channel"]} if trace else {}),
+            **multi_query(page["scans_text"], settings.merge_tolerance, x or ""),
+            **window_query(row["window"]),
+        }
+    )
+    return row
+
+
+def _row_window(row: dict) -> Optional[tuple]:
+    """A trace row's x window from its boxes; ``None`` for none, or for a reversed one.
+
+    A window whose 'to' is not above its 'from' is not applied: the row
+    says so (``window_problem``) and draws the whole trace.
+    """
+    low, high = row.get("xmin"), row.get("xmax")
+    if low is None and high is None:
+        return None
+    if low is not None and high is not None and not high > low:
+        row["window_problem"] = "x 'to' must be above 'from': the whole trace is drawn"
+        return None
+    return (low, high)
+
+
+def display_query(page: dict) -> str:
+    """The display half of a camera row's tile URLs (plotter.js builds the same).
+
+    The colour map, the ROI and, on a fixed z scale with both values set,
+    the black and white; a shared z scale's values come from
+    ``/api/images/levels`` in the browser. A tile that scales itself
+    carries its own colour bar (``cbar``) when bars are on; on one scale
+    the grid has one bar instead (``api/images/colourbar.png``).
+    """
+    query = {"cmap": page["cmap"]}
+    if page["roi"]:
+        query["roi"] = page["roi"]
+    if page["zscale"] == "fixed" and None not in (page["zmin"], page["zmax"]):
+        query.update(zmin=page["zmin"], zmax=page["zmax"])
+    elif page["cbar"]:
+        query["cbar"] = "true"  # a tile scaling itself carries its own bar
+    return urlencode(query)

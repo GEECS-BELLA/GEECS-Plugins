@@ -83,6 +83,22 @@ SYNTHETIC = {
         },  # fmt: skip
     },
     "himg_job": {"kind": "himg_compact", "device": "CamA"},
+    "scalar_job": {
+        "kind": "scalar_columns",
+        "columns": [
+            {
+                "name": "x (mm)",
+                "expr": "x * 0.0244",
+                "inputs": {"x": "CamA centroid_x"},
+            },
+            {
+                "name": "target",
+                "inputs": {"z": "Stage Position"},
+                "cases": [{"when": "4.0 <= z <= 6.5", "label": "Al foil"}],
+                "otherwise": "nothing",
+            },
+        ],
+    },
 }
 
 #: Broken drafts whose pydantic locations must all be drawn.

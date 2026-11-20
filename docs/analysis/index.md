@@ -28,7 +28,8 @@ sense of what's in it, start here.
     thresholding) and a measure for beam profile, FROG, magspec, HASO
     and 1D traces.
 
-    [:octicons-arrow-right-24: HASO wavefront](haso.md)
+    [:octicons-arrow-right-24: HASO wavefront](haso.md) ·
+    [Spectral interferometry](spectral_interferometry.md)
 
 -   :material-chart-areaspline:{ .lg .middle } **Scan Analysis**
 

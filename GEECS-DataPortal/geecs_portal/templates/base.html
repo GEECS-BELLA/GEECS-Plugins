@@ -1,66 +1,48 @@
 {#
-  The portal shell.
+  The portal shell, on the GeecsWebTheme kit (body class="kit"): its top
+  bar, its shell and rail, its containers and its overlay ladder.
 
   Colours come entirely from GeecsWebTheme's tokens — nothing here defines
   one. That is what lets the palette be switched from the picker below and
   tweaked in one file, and it is enforced by
-  GeecsWebTheme/tests/test_no_literal_colours.py.
+  GeecsWebTheme/tests/test_no_literal_colours.py. What the kit does not
+  settle lives in static/portal.css, never in an inline style block.
 #}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}GEECS Data Portal{% endblock %}</title>
-{# theme-boot.js stamps the stored palette before first paint (validated,
-   system mode resolved); loaded in <head> and NOT deferred for that reason.
-   URLs go through {{ root }} so a reverse-proxy prefix still resolves. #}
-<script src="{{ root }}/theme/theme-boot.js?v={{ portal_version | default('') | urlencode }}"></script>
-<link rel="stylesheet" href="{{ root }}/theme/theme.css?v={{ portal_version | default('') | urlencode }}">
+{# theme-boot.js stamps the stored palette and density before first paint;
+   loaded in <head> and NOT deferred for that reason. URLs go through
+   {{ root }} so a reverse-proxy prefix still resolves; the version key
+   rolls an upgrade over whatever a cache kept. #}
+{% set v = portal_version | default('') | urlencode %}
+<script src="{{ root }}/theme/theme-boot.js?v={{ v }}"></script>
+<link rel="stylesheet" href="{{ root }}/theme/theme.css?v={{ v }}">
+<link rel="stylesheet" href="{{ root }}/theme/kit.css?v={{ v }}">
+<link rel="stylesheet" href="{{ root }}/static/portal.css?v={{ v }}">
 {# No CDN assets: control-room machines may lack internet (portal CLAUDE.md).
    The token font stacks carry full local fallbacks. #}
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--paper); color: var(--ink);
-    font: 14px/1.5 var(--ff-ui);
-  }
-  header {
-    background: var(--surface); border-bottom: 1px solid var(--rule);
-    padding: 0.6rem 1.2rem; display: flex; gap: 1rem; align-items: center;
-  }
-  header .brand { font-weight: 600; color: var(--accent); }
-  header .sub { color: var(--muted); font-size: 12px; }
-  header .spacer { margin-left: auto; }
-  header .docs { font-size: 12px; }
-  main { max-width: 68rem; margin: 1.2rem auto; padding: 0 1.2rem; }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  table { border-collapse: collapse; width: 100%; background: var(--surface); }
-  th, td { padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--rule-soft); text-align: left; }
-  th { color: var(--muted); font-size: 12px; font-weight: 600; }
-  tr:hover td { background: var(--surface-2); }
-  .nav { display: flex; gap: 1rem; align-items: baseline; margin: 0 0 1rem; }
-  .error { color: var(--crit); font-family: var(--ff-mono); font-size: 12px; }
-  .dim { color: var(--muted); }
-  .mono { font-family: var(--ff-mono); font-size: 12px; }
-  /* matplotlib renders onto white, so the frame matches its own ground
-     rather than the page's — the one place a fixed colour is correct. */
-  img.plot { max-width: 100%; background: #fff; border: 1px solid var(--rule); border-radius: 4px; }
-  h1 { font-size: 1.25rem; } h2 { font-size: 1rem; color: var(--muted); }
-</style>
 {% block head %}{% endblock %}
 </head>
-<body>
-<header>
-  <span class="brand">GEECS Data Portal</span>
-  <span class="sub">read-only scan browser</span>
-  <span class="spacer"></span>
-  <a class="docs" href="https://geecs-plugins.readthedocs.io/en/latest/web_services/data_portal/" target="_blank" rel="noopener" title="How to use the Data Portal (opens the docs)">Docs</a>
-  <div data-theme-picker></div>
+<body class="kit">
+<header class="topbar">
+  <div class="topbar-in">
+    <a class="brand" href="{{ root }}/">GEECS Data Portal <span class="sub">scan browser</span></a>
+    <a class="btn sm ghost" href="https://geecs-plugins.readthedocs.io/en/latest/web_services/data_portal/" target="_blank" rel="noopener" title="How to use the Data Portal (opens the docs)">Docs</a>
+    <div data-density-picker></div>
+    <div data-theme-picker></div>
+  </div>
 </header>
-<main>
-{% block content %}{% endblock %}
-</main>
-<script src="{{ root }}/theme/theme.js?v={{ portal_version | default('') | urlencode }}" defer></script>
+{% block shell %}
+<div class="shell solo">
+  <main class="pane">
+  {% block content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}
+<script src="{{ root }}/theme/theme.js?v={{ v }}" defer></script>
+<script src="{{ root }}/theme/kit.js?v={{ v }}" defer></script>
 </body>
 </html>

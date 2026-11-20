@@ -9,7 +9,8 @@ tooling. Each subdirectory is an independent Python package with its own
 | Package | Description |
 |---|---|
 | `GEECS-Analysis/` | The pure analysis core: coordinate-aware steps and numpy-free specs; every consumer (ScanAnalysis, the portal, the optimizer) runs recipes through it |
-| `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
+| `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers, and the analysis worker's job runner (`scan_analysis.worker`: a job is one analysis group over a day's scans, run task by task through the task queue). No web code |
+| `GeecsAnalysisWorker/` | The analysis worker's HTTP service (`scan-analysis-worker`, port 8900): the API and the command over ScanAnalysis' job runner, and its unit template. The Data Portal's day page reaches it over HTTP alone and never starts it; nothing imports it. It starts idle: a watch for a day's new scans runs only once an operator starts one |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Lightweight Pydantic/GEST config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, setups, derived channels) and for the analysis configs (`geecs_schemas.analysis`: the `AnalysisRecipe` v3 document — the analysis core's native shape: input, ordered steps, a measure, the per-frame `figure`, the summary kinds — the `HimgJob` document for the `.himg` data-management jobs, `AnalysisGroup`, and `load_analysis_document` reading a top-level `kind` as a job, else a recipe; the v2 `AnalysisDiagnostic` was deleted in #1039) + legacy-YAML converters + the docgen Markdown reference generator. Depends on Pydantic and gest-api (VOCS) — importable without Xopt or analysis |
 | `GeecsBluesky/` | Bluesky RunEngine backend, rebuilt as a native Bluesky application (#807): the queueserver worker (`qserver/` — RE Manager profile exporting the device namespace and the registered plans: `count`, `sweep`, `optimize`, `mv`, `apply_setup`, the shot-offset calibration), `GeecsNamespace` (every DB device as an ophyd-async noun; acquirers are `GeecsDetector`, a stock `StandardDetector`), `ShotControl` (the trigger box as a Movable/Pausable), the strict `take_reading` (the fire between trigger and wait), the `qs_client` manager client, Tiled integration |
@@ -21,7 +22,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-MCP/` | The GEECS facility MCP server for AI agents (OSPREY's htu-assistant): **the entry point for an agent's writes where it is deployed, a thin HTTP client** of the web scanner (:8300), the Data Portal (:8200) and the logbook (:8400) — its `DESIGN.md` (#1099) is the plan. One server, bound to the main experiment's scanner: an agent at an experiment instance (the bench's scanner on :8310) speaks that scanner's HTTP API directly — the same routes this server calls, `docs/web_services/scanner.md` § "From a script or an agent" — and never a device. The scans domain speaks GeecsScanner's HTTP API (`submit_preset` with the scanner's preflight questions relayed verbatim and never acknowledged by the server, `move`, `wait_for_scan`, the reads, the halt family); the analysis domain speaks the portal's (`run_analysis` / `wait_for_analysis` on its Analysis-tab route, `get_scan_analysis`, `get_analysis_artifact` and `get_scan_scalars` for the numbers, `get_scan_figure` for a reference); the logbook domain writes `post_logbook_entry` — an agent draft in the scans book, figures attached by the portal from artifact references. Every write carries `agent, admin supervision (<operator>)`. It imports nothing in the repo at runtime (the `mcp-is-a-client` import contract) and re-implements no preflight, limit or check. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
 | `GEECS-LogTriage/` | Scan-log triage, stage 1 of an auto-debugger pipeline: walks a day's `scan.log` files, fingerprints and classifies the errors (bug candidate / config / hardware / operator) into a `TriageReport` JSON document; deterministic, no LLM, no GitHub writes — the `/triage` skill runs it |
 | `GeecsScanner/` | The web scanner console (FastAPI, port 8300 on the worker host): submit, watch and stop scans from a browser over `geecs_bluesky.qs_client` — the third surface on the GEECS surface kit and the operator front end (it replaced the PySide6 GEECS-Console, deleted 2026-09-14). A service layer (`geecs_scanner.service`: pure Python, every answer a Pydantic model) under a JSON API + an SSE stream that reduces the worker's pickled document stream to JSON; a `--demo` manager for development (#869) |
-| `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab: day → scan → metadata/scalar plots/images in any browser, over the `ScanCatalog` layer in GEECS-Data-Utils |
+| `GEECS-DataPortal/` | Scan-browsing web service (FastAPI, port 8200 on the worker host), read-only except explicit ScanAnalysis runs from its Analysis tab, the logbook send and the Plot tab's settings sets: day → scan → metadata/scalar plots/images in any browser, over the `ScanCatalog` layer in GEECS-Data-Utils. Its Plot and Images tabs are GEECSplotter's pages (`geecs_portal/plotter/`, mounted at `/plot`; GeecsPlotter folded in and was deleted, 2026-10-29), opening a browser tab at start (`--browser`, `none` in the service unit) |
 | `GeecsWebTheme/` | The shared look of every GEECS web surface, in two layers. `theme.css` settles **colour**: three themes (`bella` red/black, `laser` 532 nm green, `plasma` hydrogen Balmer), each light and dark, plus the picker. `kit.css` settles **everything else** — page shell, the three containers by role, one status vocabulary (`queued/running/ok/degraded/failed/unknown` + `agent`), controls, tables, the five pane states (incl. `stale` and `denied`), and the **overlay ladder** (`details` → inspector → drawer → `<dialog>` → route; take the lowest rung that fits). `kit.html` is its reference page, static beside the stylesheets so any host mounting it serves it at `<mount>/kit.html`. **Line plots** on every surface are Plotly through its `plot.js` template (tokens read at run time) and the one vendored `plotly-cartesian-<version>.min.js` beside it; images stay each surface's own. No runtime dependencies. Two rules it exists to enforce: surfaces style **through tokens, never with a literal colour**, and every kit rule is scoped to `.kit` so a surface adopts page by page — both pinned by its own tests, which walk every surface's templates too. **Read its `CLAUDE.md` before building a new web surface** |
 | `GeecsLogbook/` | The logbook (successor to LogMaker4GoogleDocs): two books in one store — the **scans** book, a day-document view over scan folders, and the **ops** book, routine operations read by month — its own web service (`geecs-logbook`, port 8400, unit + `StateDirectory` of its own; the Data Portal links to it and no longer mounts it). A day is a **query**, not a document — no daily job, no template stamping. Derived scan facts are rendered per request and stored nowhere; human commentary lives in the unit's state directory and is mirrored as markdown into `{experiment}/logbook/`, a tree of its own outside the data tree. Notes cite each other by permalink (`/entry/{id}`), stored relative in the body so no mount prefix ever reaches the record |
 | `GeecsControlRoom/` | The operator surfaces over Canopy (`Planning/operator_surfaces.md`): the experiment's home, the **Control Room**, and the **screens renderer** — a control GUI is a screen file in the configs repo (`<experiment>/screens/`) drawn by one renderer, never code per screen (`geecs-control-room`, port 8700). FastAPI + Jinja on the kit, plain JS, no build step. A client of Canopy, never part of it: live values from Hare's WebSocket with a display **read** key, verdicts from the GEECS module's device route, every write through the module's put route with the operator's name, sent once. A screen binds, groups, confirms and calls; it never computes. The device pages (`/device/<kind>/<name>`, one page per kind) are drawn the same way; a camera's frame and its lineout arrays, and a trace page's array over its axis (one page for every such device, its rail from the family's `panel`), which Hare does not carry, are read over Channel Access by this server (aioca), read only, at the PVs the module's device route names |
@@ -244,13 +245,16 @@ GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
 GEECS-DataPortal     →  GEECS-Data-Utils (tiled extra — the ScanCatalog
                         seam + the shared browser helpers; the scan
                         browser of the suite — never imports the scanner
-                        or tiled directly)
-                        (+ GEECS-Analysis + ScanAnalysis +
-                        GEECS-Schemas, optional via
-                        the `analysis` extra — core processing/preview of
-                        recipes, the analysis documents' schema and
-                        validate the configurator asks over HTTP, and the
-                        Analysis tab's direct ScanAnalyzer runs)
+                        or tiled directly),
+                        GEECS-Analysis (the plot pages' numerics: the
+                        curve fits, the image clean-ups and the
+                        background step; and the core that processes
+                        and previews recipes), GEECS-Schemas (the
+                        analysis documents' schema and validate the
+                        configurator asks over HTTP)
+                        (+ ScanAnalysis, optional via the `analysis`
+                        extra — the recipe preview and the Analysis
+                        tab's direct ScanAnalyzer runs),
                         GeecsWebTheme (the shared palette; the portal
                         mounts it at /theme, and the run page's embedded
                         configurator editor loads kit.js and form.js
@@ -304,7 +308,14 @@ GeecsConfigurator    →  GEECS-Schemas (the registry, the models, the tiers,
 ScanAnalysis         →  GEECS-Data-Utils, GEECS-Analysis, GEECS-Schemas
                         (no web code: the analysis documents are edited
                         in the configurator, checked and previewed by
-                        the portal)
+                        the portal, and the analysis worker's HTTP API
+                        is GeecsAnalysisWorker's)
+GeecsAnalysisWorker  →  ScanAnalysis (the job runner, the group loader
+                        and the task queue: scan_analysis.worker) — the
+                        HTTP API and the scan-analysis-worker command
+                        over it, fastapi + uvicorn. Its clients (the
+                        portal's day page) reach it over HTTP alone;
+                        nothing imports it
 GEECS-MCP            →  (NO runtime intra-repo edge — the
                         `mcp-is-a-client` import contract: an httpx
                         client of GeecsScanner's, GEECS-DataPortal's and
@@ -363,7 +374,11 @@ actively developed analysis packages. `LogMaker4GoogleDocs` is a standalone lega
    (the legacy `Array1D`/`Array2DScanAnalyzer` wrappers around ImageAnalysis
    were retired 2026-10-16 — tag `legacy-analysis-final`)
 5. The **Data Portal** displays saved results; analysis is explicitly requested
-   there. Automatic watching and Google Docs uploads are retired.
+   there, a scan at a time from its Analysis tab or a day at a time
+   through the analysis worker. Nothing watches by default: the worker
+   watches a day for new scans only once an operator starts a watch from
+   the day page, and a restart ends it. LiveWatch and Google Docs uploads
+   are retired.
 
 ## GEECS Data Folder Convention
 
@@ -419,6 +434,11 @@ analysis, and `ScanAnalysis/scan_analysis/services/` for the vendor
 launchers (FROG.dll's `FrogDllRetrieval`, WaveKit's `HasoWaveKit`, the
 `geecs-wavekit-doctor` script).
 
+`GeecsPlotter` (GEECSplotter as a standalone web app) was **deleted
+2026-10-29**, once the Data Portal carried everything it did: its pages
+are the portal's `/plot/` and `/plot/images`, its rules the portal's
+`CLAUDE.md`. Never re-create it as a separate package.
+
 `GeecsPanels` was **deleted 2026-11-06** as slice 6 of the device-pages
 arc: the prototype device panels, a browser GUI per native-device kind
 (camera, scope, motor, supply) with its own CA client, run from a laptop
@@ -467,7 +487,8 @@ Every package has a `CHANGELOG.md` following
 `LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
 `GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-MCP/`, `GEECS-DataPortal/`,
 `GEECS-LogTriage/`, `GeecsLogbook/`, `GeecsWebTheme/`, `GeecsScanner/`,
-`GeecsArchiver/`, `GeecsCanopy/`, `GeecsControlRoom/`, `GeecsConfigurator/`
+`GeecsArchiver/`, `GeecsCanopy/`, `GeecsControlRoom/`, `GeecsConfigurator/`,
+`GeecsAnalysisWorker/`
 (`scripts/doc_audit.py` checks this list and the repository map above
 against the packages on disk).
 

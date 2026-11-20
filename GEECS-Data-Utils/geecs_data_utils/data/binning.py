@@ -196,6 +196,65 @@ def compute_bin_key(
     return labels, f"{src} (binned)"
 
 
+def bin_rows(
+    frame: "pd.DataFrame",
+    cfg: Optional[BinningConfig] = None,
+    mask: "Optional[Sequence[bool]]" = None,
+) -> "list[tuple[object, tuple[int, ...]]]":
+    """Each bin's label and its rows, by position in the WHOLE table.
+
+    :func:`compute_bin_key`'s labels over the rows *mask* keeps, rows with
+    no label (an empty ``Bin #``) a bin of their own (last), ``min_count``
+    applied to the rows per bin. This is the binning before
+    :func:`bin_frame`'s row policy (its ``dropna`` over the measured
+    columns), so a bin whose measurements are all missing is still here.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The scan's WHOLE per-shot table, one row per shot, in shot order:
+        a returned position is a row of it, and the shot loaders
+        (``io.shot_images.load_row_array``) read that row's image. Pass a
+        filter as *mask*, never a filtered frame, whose positions would
+        name other shots.
+    cfg : BinningConfig, optional
+        The binning; the default bins by ``Bin #``.
+    mask : sequence of bool, optional
+        The rows to bin (a filter's pass mask), aligned with *frame*'s
+        rows; ``None`` bins every row.
+
+    Returns
+    -------
+    list of (object, tuple of int)
+        Per bin, its label (NaN for the unlabelled rows) and its 1-based
+        row positions in *frame*.
+
+    Raises
+    ------
+    KeyError
+        When ``cfg.bin_col`` is absent.
+    """
+    import numpy as np
+    import pandas as pd
+
+    cfg = cfg or BinningConfig()
+    positions = np.arange(1, len(frame) + 1)
+    kept = frame
+    if mask is not None:
+        keep = np.asarray(mask, dtype=bool)
+        if keep.shape != (len(frame),):
+            raise ValueError(f"mask has {keep.size} values for {len(frame)} rows")
+        kept, positions = frame.iloc[keep], positions[keep]
+    labels, _ = compute_bin_key(kept, cfg)
+    return [
+        (label, tuple(int(r) for r in group))
+        for label, group in pd.Series(positions).groupby(
+            np.asarray(labels), dropna=False, sort=True
+        )
+        if cfg.min_count <= 1 or len(group) >= cfg.min_count
+    ]
+
+
 def _select_value_cols(frame: "pd.DataFrame", cfg: BinningConfig) -> "list[str]":
     import numpy as np
 
@@ -332,3 +391,68 @@ def bin_frame(frame: "pd.DataFrame", cfg: BinningConfig) -> BinnedFrame:  # noqa
     out.index.name = bin_name
     counts.index.name = bin_name
     return BinnedFrame(frame=out, counts=counts)
+
+
+@dataclass(frozen=True)
+class ColumnSummary:
+    """One column over a set of rows: its centre and error band, and how many rows had a value.
+
+    ``center - err_low`` / ``center + err_high`` are the band's edges (the
+    quartiles for ``err="iqr"``); all three are NaN when ``count`` is 0.
+    """
+
+    column: str
+    center: float
+    err_low: float
+    err_high: float
+    count: int
+
+
+def summarize_columns(
+    frame: "pd.DataFrame",
+    columns: Iterable[str],
+    *,
+    agg: AggT = "mean",
+    err: ErrT = "std",
+    percentiles: Tuple[float, float] = (0.25, 0.75),
+) -> dict[str, ColumnSummary]:
+    """Each of *columns* over all of *frame*'s rows, as :func:`bin_frame` reduces one bin.
+
+    The rows are one bin, each column on its own (a row missing one column
+    still counts for the others), its non-numeric cells NaN and left out.
+    A column *frame* lacks is left out of the result.
+    """
+    import math
+
+    import pandas as pd
+
+    out: dict[str, ColumnSummary] = {}
+    for column in columns:
+        if column not in frame.columns:
+            continue
+        values = pd.to_numeric(frame[column], errors="coerce")
+        count = int(values.notna().sum())
+        if count == 0:
+            nan = math.nan
+            out[column] = ColumnSummary(column, nan, nan, nan, 0)
+            continue
+        work = pd.DataFrame({"__all__": 0, "__value__": values})
+        result = bin_frame(
+            work,
+            BinningConfig(
+                bin_col="__all__",
+                value_cols=["__value__"],
+                agg=agg,
+                err=err,
+                percentiles=percentiles,
+            ),
+        )
+        row = result.frame.iloc[0]
+        out[column] = ColumnSummary(
+            column,
+            float(row[("__value__", "center")]),
+            float(row[("__value__", "err_low")]),
+            float(row[("__value__", "err_high")]),
+            count,
+        )
+    return out
