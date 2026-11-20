@@ -389,6 +389,15 @@ class TestSendFreezesTheSettings:
         )
         assert first.startswith("Plot settings as sent:") and first.endswith("a.png)\n")
 
+    def test_an_indented_image_is_still_the_first_image(self) -> None:
+        """The line must not land between two images: that splits their grid."""
+        body = "intro\n\n  ![a](attachments/e/a.png)\n\n![b](attachments/e/b.png)\n"
+        out = logbook_send.with_settings_link(body, "p", "attachments/e/s.json")
+        assert out == (
+            "intro\n\nPlot settings as sent: [p](attachments/e/s.json)\n\n"
+            "  ![a](attachments/e/a.png)\n\n![b](attachments/e/b.png)\n"
+        )
+
     def test_the_settings_link_survives_a_conflict(self) -> None:
         """The retry rebuilds the line from the body someone just saved."""
         book = FakeLogbook()

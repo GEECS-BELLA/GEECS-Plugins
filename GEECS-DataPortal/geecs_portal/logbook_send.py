@@ -42,9 +42,9 @@ a second attachment (``<image name>-settings.json``, the
 :func:`frozen_settings` document), so the entry carries the settings
 themselves and not the name of a set that changes with its owner's next
 pick. One more upload between (2) and (3), and one line of the body: the
-``Plot settings as sent:`` paragraph at the top of the entry, which links
-each plot's document (above the images, like the portal link, so it never
-splits their run). The settings are the plot's companion, never its
+``Plot settings as sent:`` paragraph directly above the first image, which
+links each plot's document (above the images, like the portal link, so it
+never splits their run). The settings are the plot's companion, never its
 gate: when the logbook refuses the document — 415 from one too old to
 take JSON, or its own trouble storing it — the image is still sent, and
 the result says the settings were not kept.
@@ -265,7 +265,8 @@ def with_settings_link(body_md: str, label: str, link: str) -> str:
             return "\n".join(lines)
     paragraph = f"{SETTINGS_LINE} {item}"
     for index, line in enumerate(lines):
-        if line.startswith("!["):
+        # Up to three spaces of indent is still an image paragraph.
+        if line.lstrip(" ").startswith("![") and len(line) - len(line.lstrip(" ")) < 4:
             above = "\n".join(lines[:index]).rstrip()
             below = "\n".join(lines[index:])
             return (
