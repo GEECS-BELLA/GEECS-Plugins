@@ -175,6 +175,31 @@ class TestRunSubmitPreflight:
             "UC_Cam1 (never updated)",
         ) in report.outcomes
 
+    def test_a_down_device_is_never_also_called_frozen(self, engine, monkeypatch):
+        """Its stamp is stale because it is down: the liveness note says so, the loop note skips it."""
+        asked: list[list[str]] = []
+
+        def stale(experiment, names, *, timeout):
+            asked.append(list(names))
+            return [(n, 3600.0) for n in names]
+
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_disconnected",
+            lambda experiment, names, *, timeout: ["UC_Cam2"],
+        )
+        monkeypatch.setattr("geecs_bluesky.devices.ca.liveness.probe_stale", stale)
+        preset = _preset(
+            devices=[
+                {"device": "UC_Cam1"},
+                {"device": "UC_Cam2", "save_images": False, "required": False},
+            ]
+        )
+        report = run_submit_preflight(preset, "Undulator")
+        assert asked == [["UC_Cam1"]]
+        notes = dict((c, d) for c, _, d in report.outcomes)
+        assert "UC_Cam2" in notes["gateway_liveness"]
+        assert "UC_Cam2" not in notes["device_loops"]
+
     def test_validation_failure_is_a_refusal(self, engine, monkeypatch):
         monkeypatch.setattr(
             submit_preflight,
