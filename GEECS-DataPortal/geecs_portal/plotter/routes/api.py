@@ -16,7 +16,7 @@ from typing import Any, Callable, Optional, Sequence, Union
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from geecs_data_utils.data.curve_fit import CurveFit
+from geecs_analysis.algorithms.curve_fit import CurveFit
 from geecs_data_utils.data.row_filters import RowFilters, apply_filters
 from geecs_data_utils.data.scan_merge import merge_scan_frames
 from geecs_data_utils.scan_grid import grid_scan

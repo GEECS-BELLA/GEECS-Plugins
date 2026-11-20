@@ -53,6 +53,21 @@ def test_a_background_without_the_camera_says_so(share: Path, camera: Path) -> N
         images.tile_array(folder, frame, CAM, (1,), background=back)
 
 
+def test_a_background_of_another_size_says_both_sizes(
+    share: Path, background: Path
+) -> None:
+    """A background from another camera or region is refused, never broadcast."""
+    for shot in (1, 2):
+        Image.fromarray(np.full((3, 6), 5, dtype=np.uint16)).save(
+            background / f"Scan002_{CAM}_{shot:03d}.png"
+        )
+    frame, folder = _scan(share, 1)
+    bg_frame, bg_folder = _scan(share, 2)
+    back = images.Background(bg_folder, bg_frame, "Scan002")
+    with pytest.raises(images.NoImage, match="background is 6×3 but the image is 6×4"):
+        images.tile_array(folder, frame, CAM, (1,), background=back)
+
+
 def test_the_routes_take_the_background_off(
     client: TestClient, background: Path
 ) -> None:

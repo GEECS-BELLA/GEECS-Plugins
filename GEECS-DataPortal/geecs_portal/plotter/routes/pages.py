@@ -32,7 +32,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
-from geecs_data_utils.data.image_prep import ImagePrep
+from geecs_analysis.image_prep import ImagePrep
 from geecs_data_utils.data.scan_merge import (
     SCAN_COLUMN,
     default_bin_tolerance,

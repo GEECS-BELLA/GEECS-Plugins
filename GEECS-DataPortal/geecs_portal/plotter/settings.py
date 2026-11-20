@@ -31,7 +31,7 @@ from datetime import date
 from pathlib import Path
 from typing import Callable, Literal, Optional
 
-from geecs_data_utils.data.image_prep import HIT_FILTERS
+from geecs_analysis.image_prep import HIT_FILTERS
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -229,7 +229,7 @@ class PlotterSettings(BaseModel):
     #: one with the highest Y1.
     image_pick: str = "first"
     #: The clean-ups each shot gets before it is drawn or averaged
-    #: (``geecs_data_utils.data.image_prep``): the X-ray-hit filter, and
+    #: (``geecs_analysis.image_prep``): the X-ray-hit filter, and
     #: the centring threshold (``None``: not centred; 1 or more is
     #: counts, below 1 a fraction of the peak).
     image_hits: str = "none"

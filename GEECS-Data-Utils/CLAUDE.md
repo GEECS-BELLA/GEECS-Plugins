@@ -21,7 +21,6 @@ geecs_data_utils/
                                #   home the portal, logbook, ScanAnalysis and
                                #   LogTriage share (#1061 3.6/3.7/3.8)
   scan_data.py                 # ScanData: ScanPaths + scalar DataFrame loading + binning
-  data/curve_fit.py            # fit_curve → CurveFit: Gaussian, SuperGaussian, polynomial
   data/scan_merge.py           # merge_scan_frames: several scans' frames as one
                                #   (GEECSplotter's "merge s files"): rows tagged
                                #   `scan` / `day`, the union of columns (NaN where
@@ -33,17 +32,6 @@ geecs_data_utils/
                                #   X, the same setting pooled within a tolerance,
                                #   default half the smallest step) as the
                                #   in-memory `Bin # (merged)`
-  data/image_prep.py           # subtract_background (image less a background
-                               #   average, same size or a ValueError);
-                               #   ImagePrep: one camera image's clean-ups, before
-                               #   it is drawn or averaged — X-ray hits out
-                               #   (remove_hits: median 3×3/5×5, or "hot": only a
-                               #   pixel far above neighbours that sit at the
-                               #   background, so a sharp focal spot survives),
-                               #   then beam_centre (centre of mass above a
-                               #   threshold: counts at 1 or more, else a fraction
-                               #   of the peak) and centre_on (whole-pixel shift,
-                               #   the median shifted in)
   analysis_status.py           # read-only tolerant reader for scans/ScanNNN/
                                #   analysis_status/*.yaml (ScanAnalysis task_queue's
                                #   TaskStatus.to_dict() shape; contract pinned in
@@ -314,19 +302,6 @@ deltas vs the pre-0.23.0 implementation (see CHANGELOG): `Shotnumber`
 is excluded from the default value columns, the bin key is excluded
 from the dropna row policy (NA-bin-labelled rows aggregate into their
 own row), and all-NaN columns never cause drops.
-
-## Curve fits (`data/curve_fit.py`)
-
-`fit_curve(x, y, model, order=)` → `CurveFit`: GEECSplotter's Fit menu as
-one pure call over the finite `(x, y)` pairs, unweighted, standard errors
-from the residual-scaled covariance. Models: `gaussian` (σ; derived
-`fwhm`), `supergaussian` (`A·exp(-(|x−x0|/w)^p)+C`, `p` fitted within
-`POWER_BOUNDS`; derived `fwhm = 2w·(ln 2)^(1/p)`), each with a
-`_no_offset` kind, and `polynomial` (`c0 … cN`, ascending powers,
-`numpy.polyfit`). A fit that cannot be made is a `CurveFit` with `error`
-set, never an exception; `evaluate(x)` / `curve(points)` redraw it.
-scipy is imported inside the call. The rest of LabVIEW's menu (Lorentzian,
-Boltzmann, Exp Growth, Extreme, Lorentzian w slope) is a model added here.
 
 ## Config Directory Management
 
