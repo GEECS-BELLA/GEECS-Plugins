@@ -41,8 +41,11 @@ ExecStart=@POETRY@ run scan-analysis-worker --experiment ${GEECS_EXPERIMENT} --c
 # each scan's analysis_status/ records on the data share.
 Restart=on-failure
 RestartSec=5
-# A stop waits for the running task; past this the process is killed and
-# the task's claim goes stale, for the next job to take over.
+# A stop (or a restart, an upgrade's included) cancels every job, forgets the
+# job list and any watch, and waits up to 45 s for the running task
+# (geecs_analysis_worker.app.STOP_SECONDS). A task longer than that is
+# abandoned mid-run: its claim goes stale after 3 minutes and a job sent
+# after that runs it again. Prefer to restart between jobs.
 TimeoutStopSec=60
 SyslogIdentifier=geecs-analysis-worker
 

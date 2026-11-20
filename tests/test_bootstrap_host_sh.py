@@ -635,3 +635,24 @@ def test_the_analysis_worker_is_deployed_only_where_the_site_names_its_port(
     only = _run(tmp_path, "exit 1\n", "--only", "analysis-worker")
     assert only.returncode != 0
     assert "GEECS_ANALYSIS_WORKER_PORT" in only.stderr
+
+
+def test_a_site_naming_the_analysis_workers_port_gets_its_clone_env_and_unit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Every per-service table carries the worker: clone, package, template, unit."""
+    example = tmp_path / "site.env.example"
+    text = SITE_ENV.read_text()
+    assert "GEECS_ANALYSIS_WORKER_PORT=\n" in text
+    example.write_text(
+        text.replace(
+            "GEECS_ANALYSIS_WORKER_PORT=\n", "GEECS_ANALYSIS_WORKER_PORT=8900\n"
+        )
+    )
+    monkeypatch.setattr(sys.modules[__name__], "SITE_ENV", example)
+    r = _run(tmp_path, "exit 1\n", "--only", "analysis-worker")
+    assert r.returncode == 0, r.stderr
+    out = r.stdout
+    assert "analysis-worker-checkout" in out
+    assert "GeecsAnalysisWorker/deploy/geecs-analysis-worker.service" in out
+    assert "enable --now geecs-analysis-worker" in out

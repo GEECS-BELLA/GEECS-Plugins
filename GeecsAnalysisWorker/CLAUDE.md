@@ -50,9 +50,9 @@ POST /api/watch/stop         stop watching (its queued jobs still run)
 ```
 
 An unknown group or a day with no scans is a 404, a malformed body a 422.
-The portal's `tests/test_batch.py` answers these routes from a fake
-transport, so a route or shape changed here is changed there in the same
-PR.
+The portal's `tests/test_batch.py` answers these routes from a
+hand-written fake transport: no test ties the two, so a route or shape
+changed here must be changed there by hand, in the same PR.
 
 ## Rules
 
@@ -74,8 +74,15 @@ PR.
 - **A consumer of scan folders, never a producer** (root `CLAUDE.md`
   § "Cross-package invariants"): the task queue it drives writes status
   records inside existing scan folders only.
-- **pyplot runs on one thread.** `__main__` pins the Agg backend before
-  ScanAnalysis is imported; the job thread is the only pyplot user.
+- **pyplot runs on one thread.** `__main__` selects the Agg backend
+  before anything is served, so before any figure is drawn (pyplot itself
+  is already imported by then, with ScanAnalysis); the job thread is the
+  only pyplot user.
+- **A stop waits `STOP_SECONDS` (45) for the running task**, then the
+  process exits and a longer task is abandoned mid-run (the job thread is
+  a daemon); its claim goes stale after the queue's 180 s and a later job
+  runs it again. The unit's `TimeoutStopSec` (60) sits above it: change
+  the two together.
 
 ## Tests
 

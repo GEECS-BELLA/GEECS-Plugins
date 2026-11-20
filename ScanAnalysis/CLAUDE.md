@@ -1,7 +1,9 @@
 # ScanAnalysis — Developer Context for Claude
 
 Post-scan analysis framework. Explicit portal and Python runs execute configurable
-image/1D analyzers. Automatic watching and Google Docs uploads are retired.
+image/1D analyzers. LiveWatch and Google Docs uploads are retired; the
+analysis worker's watch (below) analyses a day's new scans only once an
+operator starts one.
 
 ## Package Layout
 

@@ -33,7 +33,13 @@ from pydantic import BaseModel, Field
 
 from scan_analysis.worker.jobs import JobSpec, WatchSpec, Worker
 
-__all__ = ["JobRequest", "WatchRequest", "create_worker_app"]
+__all__ = ["STOP_SECONDS", "JobRequest", "WatchRequest", "create_worker_app"]
+
+#: How long a shutdown waits for the running task to finish (seconds).  The
+#: job thread is a daemon: a task still running after this is abandoned
+#: mid-run when the process exits, and its claim goes stale for a later job
+#: to take over.  The unit's ``TimeoutStopSec`` sits above it.
+STOP_SECONDS = 45.0
 
 
 class JobRequest(BaseModel):
@@ -75,8 +81,12 @@ class WatchRequest(BaseModel):
     )
 
 
-def create_worker_app(worker: Worker) -> FastAPI:
-    """The API over *worker*, which it starts and stops with the app."""
+def create_worker_app(worker: Worker, *, stop_seconds: float = STOP_SECONDS) -> FastAPI:
+    """The API over *worker*, which it starts and stops with the app.
+
+    A shutdown cancels every job and waits up to *stop_seconds* for the
+    running task; an idle worker stops at once.
+    """
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -84,7 +94,7 @@ def create_worker_app(worker: Worker) -> FastAPI:
         try:
             yield
         finally:
-            worker.stop(timeout=1.0)
+            worker.stop(timeout=stop_seconds)
 
     app = FastAPI(
         title="GEECS analysis worker", lifespan=lifespan, docs_url=None, redoc_url=None

@@ -17,6 +17,11 @@ from geecs_analysis_worker import __main__ as command
 from geecs_analysis_worker.app import create_worker_app
 
 
+# The fixtures below (FakeAnalyzer, write_closed, build_day, make_worker) are
+# a copy of ScanAnalysis/tests/test_worker.py's: a change to what a closed
+# scan is (scan_analysis.worker.jobs.scan_is_settled) changes both.
+
+
 class FakeAnalyzer:
     """Honours the ScanAnalyzer contract the task queue calls."""
 
@@ -193,3 +198,69 @@ class TestCommand:
             command.main(
                 ["--configs", str(tmp_path / "absent"), "--experiment", "Test"]
             )
+
+    def test_a_malformed_port_in_the_environment_is_a_usage_error(
+        self, served, monkeypatch, capsys
+    ):
+        monkeypatch.setenv("GEECS_ANALYSIS_WORKER_PORT", "abc")
+        with pytest.raises(SystemExit) as stopped:
+            served()
+        assert stopped.value.code == 2
+        assert "invalid int value: 'abc'" in capsys.readouterr().err
+
+
+class TestShutdown:
+    """What a stop does to the running task."""
+
+    def gated(self, tmp_path):
+        import threading
+
+        build_day(tmp_path, closed=(1,), open_=())
+        groups = tmp_path / "configs" / "groups" / "PW"
+        groups.mkdir(parents=True)
+        (tmp_path / "configs" / "analyzers").mkdir()
+        (groups / "empty.yaml").write_text("name: empty\nanalyzers: []\n")
+        gate = threading.Event()
+        analyzer = FakeAnalyzer("A", gate=gate)
+        return gate, analyzer, make_worker(tmp_path, [analyzer])
+
+    def submit(self, client, analyzer):
+        body = {"day": "2026-03-10", "group": "PW/empty"}
+        job_id = client.post("/api/jobs", json=body).json()["id"]
+        for _ in range(200):
+            if client.get(f"/api/jobs/{job_id}").json()["state"] == "running":
+                return
+            time.sleep(0.02)
+        raise AssertionError("the job did not start")
+
+    def test_a_stop_waits_for_the_running_task(self, tmp_path):
+        import threading
+
+        gate, analyzer, worker = self.gated(tmp_path)
+        with TestClient(create_worker_app(worker, stop_seconds=10.0)) as client:
+            self.submit(client, analyzer)
+            threading.Timer(1.5, gate.set).start()
+            began = time.monotonic()
+        assert 1.4 < time.monotonic() - began < 6.0
+        assert analyzer.ran == [1]
+        assert not worker._thread.is_alive()
+
+    def test_a_stop_gives_up_on_a_task_longer_than_its_wait(self, tmp_path):
+        gate, analyzer, worker = self.gated(tmp_path)
+        try:
+            with TestClient(create_worker_app(worker, stop_seconds=0.2)) as client:
+                self.submit(client, analyzer)
+                began = time.monotonic()
+            assert time.monotonic() - began < 0.9
+            assert analyzer.ran == []
+        finally:
+            gate.set()
+
+    def test_the_default_wait_sits_under_the_units_stop_timeout(self):
+        from geecs_analysis_worker.app import STOP_SECONDS
+
+        unit = Path(__file__).parent.parent / "deploy/geecs-analysis-worker.service"
+        (line,) = [
+            x for x in unit.read_text().splitlines() if x.startswith("TimeoutStopSec=")
+        ]
+        assert STOP_SECONDS < float(line.split("=")[1])

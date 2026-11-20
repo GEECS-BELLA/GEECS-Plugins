@@ -18,6 +18,10 @@ from scan_analysis.worker import JobSpec, WatchSpec, Worker
 DAY = date(2026, 3, 10)
 
 
+# GeecsAnalysisWorker/tests/test_api.py keeps a copy of the fixtures below
+# (FakeAnalyzer, write_closed, build_day, make_worker): change both.
+
+
 class FakeAnalyzer:
     """Honours the ScanAnalyzer contract the task queue calls."""
 

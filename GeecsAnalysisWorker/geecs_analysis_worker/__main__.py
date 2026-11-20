@@ -45,14 +45,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("GEECS_ANALYSIS_WORKER_PORT") or DEFAULT_PORT),
+        # a string default goes through type=int, so a malformed value is
+        # argparse's usage error, not a traceback
+        default=os.environ.get("GEECS_ANALYSIS_WORKER_PORT") or DEFAULT_PORT,
         help="HTTP port (default: GEECS_ANALYSIS_WORKER_PORT, else 8900)",
     )
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args(argv)
 
-    # Before ScanAnalysis: its analyzers draw with pyplot, and the one job
-    # thread is the only pyplot user in this process.
+    # Before any figure is drawn: ScanAnalysis' analyzers draw with pyplot,
+    # and the one job thread is the only pyplot user in this process.
     import matplotlib
 
     matplotlib.use("Agg")
