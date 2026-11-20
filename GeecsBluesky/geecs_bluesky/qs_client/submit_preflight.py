@@ -162,6 +162,7 @@ def run_submit_preflight(
             experiment,
             needed={*item.needed, *box},
             listed=item.devices,
+            loops=True,
         )
 
     return report
@@ -196,13 +197,31 @@ def run_trigger_profile_preflight(document: Mapping[str, Any], experiment: str) 
     return report
 
 
-def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None, listed: Collection[str] = ()) -> None:  # fmt: skip
-    """:func:`_check_liveness`, recorded ``skipped`` (never raised) when the probe itself fails."""
+def _liveness_fail_open(report: PreflightReport, devices: list[str], experiment: str, *, needed: Collection[str] | None = None, listed: Collection[str] = (), loops: bool = False) -> None:  # fmt: skip
+    """:func:`_check_liveness` (then, with *loops*, :func:`_check_loops`), recorded ``skipped`` (never raised) when a probe itself fails."""
+    check = "gateway_liveness"
     try:
         _check_liveness(report, devices, experiment, needed=needed, listed=listed)
+        if loops:
+            check = "device_loops"
+            _check_loops(report, devices, experiment)
     except Exception as exc:  # noqa: BLE001 — preflight fails open
-        logger.warning("liveness preflight failed: %s", exc)
-        report.outcomes.append(("gateway_liveness", "skipped", str(exc)))
+        logger.warning("%s preflight failed: %s", check, exc)
+        report.outcomes.append((check, "skipped", str(exc)))
+
+
+def _check_loops(report: PreflightReport, devices: list[str], experiment: str) -> None:
+    """Note the devices whose LabVIEW loop looks frozen (``device_loops``); never a question.
+
+    The worker warns of the same at the run's start
+    (``plans/strict.stale_devices``) for the devices it never waits on (the
+    conditions and the movers); here every probed device is noted.
+    """
+    from geecs_bluesky.devices.ca.liveness import probe_stale, stale_text
+
+    stale = probe_stale(experiment, devices, timeout=_LIVENESS_TIMEOUT_S)
+    note = f"frozen loop, recorded anyway: {stale_text(stale)}" if stale else ""
+    report.outcomes.append(("device_loops", "passed", note))
 
 
 def _make_default_resolver(experiment: str) -> Any:

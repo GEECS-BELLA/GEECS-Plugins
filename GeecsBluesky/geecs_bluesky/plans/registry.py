@@ -25,6 +25,7 @@ from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.background import BackgroundSnapshot
 from geecs_bluesky.devices.ca._view import owner_of
+from geecs_bluesky.devices.ca.liveness import stale_text
 from geecs_bluesky.devices.detector import GeecsDetector
 from geecs_bluesky.devices.native import (
     refuse_native_cameras,
@@ -75,6 +76,7 @@ from geecs_bluesky.plans.strict import (
     needed_device_names,
     name_failed_status,
     run_bracket,
+    stale_devices,
 )
 from geecs_bluesky.plans.sweep import sweep_movers, sweep_plan
 from geecs_bluesky.utils import safe_name
@@ -801,6 +803,17 @@ def strict_plan(  # noqa: C901, PLR0915
             None if fly else shot_control, detectors, needed, movers
         )
         per_shot = [d for d in detectors if is_per_shot(d)]
+        # A condition or a mover is never waited on: a frozen loop (connected,
+        # publishing nothing) would go unnoticed, so it is WARNED, never refused.
+        stale = yield from stale_devices(
+            [*(d for d in detectors if not is_per_shot(d)), *movers]
+        )
+        if stale:
+            logger.warning(
+                "%s — connected, but its LabVIEW loop has not updated: recorded "
+                "anyway, its values may be stale (check the device)",
+                stale_text(stale),
+            )
         # Scan mode (#1084): the profile's flag selects it; refuse what it
         # cannot carry before the box is driven, then thread the control
         # through the hook (the announce before every fire, the row's
@@ -822,6 +835,7 @@ def strict_plan(  # noqa: C901, PLR0915
         md["acquisition"] = acquisition
         md["native_image_save"] = native_files
         md["devices_dropped"] = dropped
+        md["devices_stale"] = [name for name, _ in stale]
         # The scan-mode bracket names the devices stamped by their
         # systimestamp; any other run takes every stamp from acq_timestamp
         # (a halted scan-mode run's choice undone here).

@@ -105,7 +105,10 @@ opens this page.
   does not know at all (not enabled in the DB when its environment opened)
   is left out the same way, unless it is required.
   Leave the row in place: the next scan that finds the
-  device up records it again. The mode buttons fill the bottom half:
+  device up records it again. A gauge, a motor or a sweep's axis that is
+  connected but whose LabVIEW loop has stopped updating (nothing new in
+  30 s) is never waited on, so the scan warns about it in `scan.log` when
+  it starts and records it anyway: check the device. The mode buttons fill the bottom half:
   **Count** (N shots at a fixed configuration, optionally tagged as a
   background), **Sweep** (one or more variables along a trajectory) or
   **Optimize** (an optimizer drives the variables). Acquisition is

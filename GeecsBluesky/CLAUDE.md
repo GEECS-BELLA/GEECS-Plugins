@@ -553,7 +553,12 @@ next run that finds it up records it again, the preset untouched.  Every
 listed device down refuses (nothing left to record).  The client's
 preflight asks only about a down device the run needs (it refuses); one
 it does not need is a `passed` note in the submission record, never a
-question (`QueueItem.needed`).  A device the worker's tree does not have at all (the DB did not list it at environment open) is left out client-side the same way unless it is required: `qs_client.expand_against_tree`, the one expansion the submit, the preflight and the scanner's preview share, drops its row (`QueueItem.left_out`, named in the `worker_ready` outcome), since the manager refuses an item naming a device it lacks; a required or moved one is still refused as unknown.  `optimize` still refuses on any of its devices down.  The rule against reading quiescence in a
+question (`QueueItem.needed`).  A device the run never waits on (a
+condition, a sweep's mover) whose LabVIEW loop is frozen — connected, its
+`systimestamp` older than 30 s or never set (`devices/ca/liveness.probe_stale`)
+— is WARNED at the run's start and named in `devices_stale`
+(`plans/strict.stale_devices`), never refused; the preflight records the
+same as a `device_loops` note.  A device the worker's tree does not have at all (the DB did not list it at environment open) is left out client-side the same way unless it is required: `qs_client.expand_against_tree`, the one expansion the submit, the preflight and the scanner's preview share, drops its row (`QueueItem.left_out`, named in the `worker_ready` outcome), since the manager refuses an item naming a device it lacks; a required or moved one is still refused as unknown.  `optimize` still refuses on any of its devices down.  The rule against reading quiescence in a
 scan does not apply: this is the liveness PV, read once per run.  The
 verdict (`plans/strict.py::down_devices`; a native setpoint device by its
 readbacks' severity) is also `apply_setup`'s: over the namespace nouns
