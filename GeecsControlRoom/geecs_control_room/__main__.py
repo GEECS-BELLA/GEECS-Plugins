@@ -16,7 +16,10 @@ def main() -> None:
     parser.add_argument(
         "--root-path",
         default="",
-        help="the front door's prefix, for a proxy that keeps it and sends no X-Forwarded-Prefix",
+        help=(
+            "the front door's prefix, for a proxy that strips it and sends no "
+            "X-Forwarded-Prefix; never with the header (the prefixes stack)"
+        ),
     )
     args = parser.parse_args()
     settings = Settings.from_env()

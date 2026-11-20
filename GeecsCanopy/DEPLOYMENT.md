@@ -23,11 +23,18 @@ stops the whole project when it exits. Against a running unit use
 All four use host networking (CA needs UDP). Postgres and Redis live in this
 project, as the archiver keeps its own store: Canopy's state is its own, and
 its upgrade runbook below dumps and migrates one database nobody else uses.
-A front door forwards `/canopy/` to the api; the WebSocket is
-`/canopy/hare/v1/ws/pvs` (the proxy must pass `Upgrade`). A host without
-one (the HTU services box) serves it on its port at `/`, like every other
-surface: `GEECS_CANOPY_BIND=0.0.0.0`, `GEECS_CANOPY_ROOT_PATH=` empty.
-CORS is `*` in Canopy itself.
+Behind a front door (the HTU services box, since 2026-11-16) Canopy is
+`/canopy`: `GEECS_CANOPY_ROOT_PATH=/canopy`, and the proxy **strips** the
+prefix before forwarding, as it does for every other surface. uvicorn's
+`--root-path` adds it back, so it expects requests without it: on the api's
+port `/docs` answers and `/canopy/docs` is a 404. The WebSocket is
+`/canopy/hare/v1/ws/pvs` in the browser and `/hare/v1/ws/pvs` upstream (the
+proxy must pass `Upgrade`). Local clients (the Control Room, the
+healthcheck) keep dialling `http://127.0.0.1:<port>` with no prefix. A host
+without a front door serves it on its port at `/`:
+`GEECS_CANOPY_BIND=0.0.0.0`, `GEECS_CANOPY_ROOT_PATH=` empty. The whole
+proxy contract: `docs/platform/site_profile.md`, "A front door". CORS is
+`*` in Canopy itself.
 
 ## 2. First install
 

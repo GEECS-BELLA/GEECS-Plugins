@@ -159,11 +159,12 @@ def main() -> None:
         "--root-path",
         default="",
         help=(
-            "URL prefix the portal is mounted under behind a PREFIX-PRESERVING "
-            "reverse proxy (e.g. /portal): the /theme mount then "
-            "answers at the prefixed path only. A proxy that strips the prefix "
-            "must send X-Forwarded-Prefix instead, which overrides this per "
-            "request (DEPLOYMENT.md § Behind a reverse proxy)"
+            "URL prefix the portal is mounted under behind a reverse proxy "
+            "that STRIPS it and sends no X-Forwarded-Prefix (e.g. /portal): "
+            "uvicorn adds it back, so the portal answers /run/... and 404s "
+            "/portal/run/.... Never set it behind a proxy that sends "
+            "X-Forwarded-Prefix: the two prefixes stack and every page 404s "
+            "(DEPLOYMENT.md § Behind a reverse proxy)"
         ),
     )
     parser.add_argument(
@@ -171,10 +172,11 @@ def main() -> None:
         default="",
         help=(
             "the logbook's base URL for the run page's link to a scan's card "
-            "(a site value: http://<host>:8400 until the front door routes "
-            "/log to it, then /log — a path is same-origin and carries the "
-            "portal's own prefix). Empty hides the link; the portal never "
-            "mounts the logbook"
+            "and the plot send's server-to-server base (a site value, "
+            "absolute: http://<host>:8400; a path links but cannot send). "
+            "Behind a front door keep it the address this process dials and "
+            "set --logbook-browser-url for the links. Empty hides the link; "
+            "the portal never mounts the logbook"
         ),
     )
     parser.add_argument(

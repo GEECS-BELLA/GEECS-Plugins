@@ -536,7 +536,8 @@ copy; the routes live in `routes/` (`day`, `month`, `entries`,
 `attachments`, one module per concern) and register on one router the
 app includes at its root. The templates address every asset and link
 root-relatively (`{{ root }}/static/…`, `url_for(...).path`), so the
-service works at root and under `/log` at the front door alike.
+service works at root and under a front door's prefix
+(`/<experiment>/logbook`) alike.
 
 `--notes-db` names the SQLite file (default `$STATE_DIRECTORY/logbook.db`
 under systemd); uploads go to `attachments/` beside it. Without a store

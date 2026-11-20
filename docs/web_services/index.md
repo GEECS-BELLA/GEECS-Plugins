@@ -8,6 +8,20 @@ on its own port, so each gets its own bookmark:
 `http://<worker-host>:<port>/`. The host and the units behind each
 service are on the [fleet map](../platform/fleet_map.md).
 
+Where the site runs a **front door**, the same pages also have names
+under one `https://` address, and the pages link to each other by name:
+
+| Page | Address |
+|---|---|
+| Control Room | `https://<name>/` |
+| Scanner, Logbook | `https://<name>/<experiment>/scanner`, `/<experiment>/logbook` (the experiment in lowercase) |
+| Data Portal, Configurator | `https://<name>/portal`, `/config` |
+
+`<name>` is your site's. The port addresses keep working. A browser
+warns on the name until the site's certificate authority is trusted on
+that machine, a one-time step your site's runbook describes. The setup
+is in the [Site Profile](../platform/site_profile.md#a-front-door).
+
 Every page's header carries a **Docs** link back to its page here, except
 the Configurator's, which does not have one yet.
 
