@@ -26,7 +26,7 @@ from typing import Literal, Optional
 import numpy as np
 
 from geecs_analysis.algorithms.beam_centre import beam_centre, centre_on
-from geecs_analysis.algorithms.hot_pixels import remove_hot_pixels
+from geecs_analysis.algorithms.hot_pixels import NOISE_FLOOR, remove_hot_pixels
 
 #: The X-ray-hit filters: none, a 3×3 or 5×5 median, or the hot-pixel
 #: filter (only isolated pixels far above all their neighbours change).
@@ -34,7 +34,9 @@ HitFilter = Literal["none", "median3", "median5", "hot"]
 HIT_FILTERS: tuple[str, ...] = ("none", "median3", "median5", "hot")
 
 
-def remove_hits(image: np.ndarray, method: str) -> np.ndarray:
+def remove_hits(
+    image: np.ndarray, method: str, *, noise_floor: float = NOISE_FLOOR
+) -> np.ndarray:
     """*image* with X-ray hits removed; the same array for ``"none"``.
 
     Parameters
@@ -48,6 +50,12 @@ def remove_hits(image: np.ndarray, method: str) -> np.ndarray:
         ``"hot"`` is
         :func:`~geecs_analysis.algorithms.hot_pixels.remove_hot_pixels`:
         only single-pixel hits change.
+    noise_floor : float
+        ``"hot"`` only: the least the noise is taken to be, in the
+        image's units. The default is one count, right for a camera
+        image whose values step by one; an image that steps by more (a
+        12-bit sensor left-aligned in 16 bits steps by 16) or is
+        normalised needs its own.
 
     Returns
     -------
@@ -64,7 +72,7 @@ def remove_hits(image: np.ndarray, method: str) -> np.ndarray:
     if method not in HIT_FILTERS:
         raise ValueError(f"unknown hit filter {method!r}: one of {HIT_FILTERS}")
     if method == "hot":
-        return remove_hot_pixels(image)
+        return remove_hot_pixels(image, noise_floor=noise_floor)
     from geecs_data_utils.frames import Frame
 
     from geecs_analysis.steps.median import MedianSpec, median
@@ -87,10 +95,14 @@ class ImagePrep:
         The centring threshold
         (:func:`~geecs_analysis.algorithms.beam_centre.beam_centre`);
         ``None`` leaves the image where it is.
+    noise_floor : float
+        The ``"hot"`` filter's least noise, in the image's units
+        (:func:`remove_hits`); one count unless set.
     """
 
     hits: str = "none"
     centre: Optional[float] = None
+    noise_floor: float = NOISE_FLOOR
 
     @property
     def active(self) -> bool:
@@ -103,7 +115,7 @@ class ImagePrep:
         An image with nothing above the centring threshold is left
         where it is.
         """
-        out = remove_hits(image, self.hits)
+        out = remove_hits(image, self.hits, noise_floor=self.noise_floor)
         if self.centre is not None and out.ndim == 2:
             found = beam_centre(out, self.centre)
             if found is not None:

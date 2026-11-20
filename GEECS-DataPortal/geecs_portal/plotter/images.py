@@ -558,6 +558,11 @@ def background_array(background: Background, device: str) -> np.ndarray:
         ) from None
 
 
+def _width_by_height(array: np.ndarray) -> str:
+    """An array's size as a viewer reads it: width × height."""
+    return "×".join(str(n) for n in reversed(np.shape(array)))
+
+
 def tile_array(
     folder: Source,
     frame: pd.DataFrame,
@@ -587,15 +592,22 @@ def tile_array(
     back = background_array(background, device) if background is not None else None
     # By array index: neither the image nor the average carries coordinates.
     by_index = BackgroundFrameSpec(source="background", alignment="samples")
+    try:
+        back_frame = Frame.from_array(back) if back is not None else None
+    except ValueError as why:
+        raise NoImage(f"the background cannot be used: {why}") from None
 
     def prepare(image: np.ndarray) -> np.ndarray:
-        if back is not None:
-            try:
-                less = background_frame(
-                    Frame.from_array(image), by_index, Frame.from_array(back)
+        if back_frame is not None:
+            if np.shape(image) != back.shape:  # another camera, or another region
+                raise NoImage(
+                    f"the background is {_width_by_height(back)} but the image is "
+                    f"{_width_by_height(image)}"
                 )
+            try:
+                less = background_frame(Frame.from_array(image), by_index, back_frame)
             except ValueError as why:
-                raise NoImage(f"the background cannot be taken off: {why}") from None
+                raise NoImage(str(why)) from None
             image = np.array(less.data)  # a frame's samples are read-only
         return prep.apply(image)
 

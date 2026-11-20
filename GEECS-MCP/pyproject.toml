@@ -40,7 +40,7 @@ pydocstyle = ">=6.3"
 # an httpx ASGI transport, so a route or model change there fails this suite
 # in the same PR (DESIGN.md §7).  Dev-only: nothing under geecs_mcp/ imports
 # them.  The portal's `analysis` extra is what makes its analysis routes
-# live (the catalog and the run listing need the analysis core installed;
+# live (the catalog and the run listing need ScanAnalysis installed;
 # the runs themselves are driven through an injected fake factory).
 geecs-scanner = { path = "../GeecsScanner", develop = true }
 geecs-data-portal = { path = "../GEECS-DataPortal", develop = true, extras = ["analysis"] }

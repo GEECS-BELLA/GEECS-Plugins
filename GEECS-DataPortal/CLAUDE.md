@@ -517,8 +517,7 @@ thread still releases before any next job starts);
 `no_data` (the worklist runner's own mapping).  The factory seam
 (`create_app(analysis_factory=…)`) is how the tests drive the whole
 ladder without ScanAnalysis; the default is `load_diagnostic` +
-`create_scan_analyzer`, needing the `analysis` extra (which since
-0.16.0 also carries ScanAnalysis).  The factory (and `__main__`,
+`create_scan_analyzer`, needing the `analysis` extra (ScanAnalysis).  The factory (and `__main__`,
 earlier) pins `matplotlib.use("Agg")` before importing ScanAnalysis:
 its base class uses pyplot, and the one worker thread is what
 serialises pyplot *in this process* — never add a second pyplot user

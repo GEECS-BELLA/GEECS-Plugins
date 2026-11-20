@@ -25,7 +25,11 @@ HOT_NEIGHBOUR_SHARE = 0.05
 #: deviation, which is zero when more than half the pixels sit on one
 #: value (a dark frame) and far under a count once an averaged background
 #: is taken off such a frame; without the floor every single count
-#: standing alone there would be a hit.
+#: standing alone there would be a hit. It is an absolute number, not
+#: measured from the frame (a subtracted background hides the step), so
+#: it is right only where the values step by one: a frame that steps by
+#: more needs a larger floor to be protected, a normalised one a smaller
+#: floor for the filter to act at all.
 NOISE_FLOOR = 1.0
 
 
@@ -54,8 +58,9 @@ def remove_hot_pixels(
         A 2-D image.
     noise_floor : float
         The least the noise is taken to be, in the image's units (0 or
-        more). The default is one camera count; an image in other units
-        (normalised, calibrated) needs its own.
+        more). The default is one camera count; an image whose values
+        step by more (a 12-bit sensor left-aligned in 16 bits steps by
+        16), or in other units (normalised, calibrated), needs its own.
 
     Raises
     ------

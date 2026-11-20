@@ -158,3 +158,14 @@ def test_the_noise_floor_is_in_the_images_units_and_can_be_set() -> None:
     for bad in (-1.0, float("nan"), float("inf")):
         with pytest.raises(ValueError, match="noise floor"):
             remove_hot_pixels(dark, noise_floor=bad)
+
+
+def test_a_frame_that_steps_by_sixteen_names_its_floor_through_the_prep() -> None:
+    """A 12-bit sensor left-aligned in 16 bits: one count is 16, and the prep carries it."""
+    dark = 16 * _dark(np.random.default_rng(7))
+    assert (
+        int((ImagePrep(hits="hot").apply(dark) != dark).sum()) > 1000
+    )  # one unit: too low
+    prep = ImagePrep(hits="hot", noise_floor=16.0)
+    np.testing.assert_array_equal(prep.apply(dark), dark)
+    np.testing.assert_array_equal(remove_hits(dark, "hot", noise_floor=16.0), dark)
