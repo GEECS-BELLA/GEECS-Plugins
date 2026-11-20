@@ -207,8 +207,15 @@ the proxy to **strip the prefix and name it** in `X-Forwarded-Prefix`
 location /portal/ {
     proxy_pass http://<worker-host>:8200/;
     proxy_set_header X-Forwarded-Prefix /portal;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+`Host` must stay the browser's (with its port): the portal's redirects
+are built from it, and nginx's default — the upstream's address — sends
+the browser to `<worker-host>:8200` after a trailing-slash redirect.
+`X-Forwarded-Proto` is trusted only from `FORWARDED_ALLOW_IPS`.
 
 The header is per-request and needs no portal-side config; any mount
 name works, including ones that collide with portal route heads
@@ -220,7 +227,10 @@ Two proxy shapes, one setting each — they are **not interchangeable**
 (the rule lives in `geecs_web_theme.web`'s middleware docstring):
 
 - **Prefix-stripping** (the nginx block above; Caddy `handle_path`):
-  forwards `/run/…` and sends the header. No flag.
+  forwards `/run/…` and sends the header. **No flag** — remove
+  `--root-path` when switching to the header: uvicorn prepends it to
+  every request and the header's middleware prepends the prefix again,
+  so every page 404s (`/portal/portal/…`; reproduced 2026-11-20).
 - **Prefix-stripping without the header**: start the service with
   `geecs-data-portal --root-path /portal`. The flag goes to
   `uvicorn.run`, which adds the prefix back to every request, so the
@@ -230,9 +240,9 @@ Two proxy shapes, one setting each — they are **not interchangeable**
   and the scanner's shape). A prefix-preserving proxy has no setting
   here: make it strip and send the header.
 
-The header, when present, wins over the flag. A proxy that does **not**
-strip the prefix must not send it (the symptom of that misconfiguration
-is loud: every page 404s).
+The header does not override the flag here: never set both. A proxy that
+does **not** strip the prefix must not send the header either (the
+symptom of either misconfiguration is loud: every page 404s).
 
 For a panel health LED, probe `GET /health` — 200 always (the JSON
 `ok` field reports the catalog probe, so a down Tiled shows as a

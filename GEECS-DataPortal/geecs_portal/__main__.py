@@ -162,9 +162,9 @@ def main() -> None:
             "URL prefix the portal is mounted under behind a reverse proxy "
             "that STRIPS it and sends no X-Forwarded-Prefix (e.g. /portal): "
             "uvicorn adds it back, so the portal answers /run/... and 404s "
-            "/portal/run/.... A proxy that sends X-Forwarded-Prefix needs no "
-            "flag; the header overrides this per request (DEPLOYMENT.md "
-            "§ Behind a reverse proxy)"
+            "/portal/run/.... Never set it behind a proxy that sends "
+            "X-Forwarded-Prefix: the two prefixes stack and every page 404s "
+            "(DEPLOYMENT.md § Behind a reverse proxy)"
         ),
     )
     parser.add_argument(

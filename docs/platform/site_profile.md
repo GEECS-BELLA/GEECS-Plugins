@@ -334,13 +334,24 @@ in `site.env` when one arrives.
 - **Canopy is stripped too.** `GEECS_CANOPY_ROOT_PATH=/canopy` makes
   uvicorn's `--root-path` add the prefix back, so it expects the request
   *without* it: behind `--root-path /canopy`, `/docs` answers and
-  `/canopy/docs` is a 404. The GEECS surfaces need no `--root-path`
-  behind a proxy that sends the header. Their flags are not one shape
-  anyway: the portal's, the Control Room's and the configurator's go to
-  `uvicorn.run` and behave like Canopy's (a stripping proxy), while the
-  logbook's and the scanner's go to `FastAPI(root_path=…)` and expect the
-  prefix kept (`geecs_web_theme.web`'s middleware docstring).
-  Verified with uvicorn 0.52.4, 2026-11-16.
+  `/canopy/docs` is a 404.
+- **No `--root-path` on a GEECS surface behind a proxy that sends the
+  header** — remove it when switching to the header. The flags are not
+  one shape: the portal's, the Control Room's and the configurator's go
+  to `uvicorn.run`, which prepends the prefix to every request, and the
+  header's middleware then prepends it again (`/portal/portal/…`, every
+  page a 404). The logbook's and the scanner's go to
+  `FastAPI(root_path=…)`, where the header does override the flag, but
+  that flag is for a proxy that keeps the prefix
+  (`geecs_web_theme.web`'s middleware docstring). Verified with uvicorn
+  0.52.4, 2026-11-16 and 2026-11-20.
+- **Keep the browser's `Host`**, port included when it is not 443:
+  the surfaces build their redirects and absolute links from `Host`,
+  and nothing here reads `X-Forwarded-Host`. Caddy keeps it by default;
+  nginx sends the upstream's (`127.0.0.1:8200`) unless told
+  `proxy_set_header Host $http_host;`, and a trailing-slash redirect then
+  sends the browser to `https://127.0.0.1:8200/portal/…` (reproduced
+  2026-11-20).
 - **Pass WebSocket upgrades** (`Upgrade`, `Connection`, HTTP/1.1):
   Hare's `/canopy/hare/v1/ws/pvs` is one.
 - **Send `X-Forwarded-Proto`**, and let uvicorn trust it from the
