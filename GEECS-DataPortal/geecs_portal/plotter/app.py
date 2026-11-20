@@ -65,10 +65,10 @@ def create_app(
     base_directory : Path or str, optional
         Override the configured data root. Used by tests.
     settings_dir : Path or str, optional
-        Where named settings sets are saved; default
-        ``{geecs_data}/DataPortal/settings`` from ``config.ini``, else
-        ``<main checkout>/user data/DataPortal/settings``
-        (:func:`geecs_portal.plotter.settings.resolve_store`).
+        Where named settings sets are saved (the unit's state directory);
+        default the user's own state folder
+        (:func:`geecs_portal.plotter.settings.resolve_store`). Never the
+        data share, never the checkout.
     root_path : str, optional
         The URL prefix behind a prefix-preserving reverse proxy.
     mount : str, optional

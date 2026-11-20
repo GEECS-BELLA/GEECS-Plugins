@@ -119,9 +119,10 @@ def main() -> None:
         "--settings-dir",
         default=None,
         help=(
-            "where the Plot tab's named settings sets are saved (default: "
-            "config.ini [Paths] geecs_data/DataPortal/settings, else "
-            "user data/DataPortal/settings in the main checkout)"
+            "where the Plot tab's named settings sets are saved: the service "
+            "unit passes its state directory (default: the user's state "
+            "folder, ~/.local/state/geecs-data-portal/settings or "
+            "%%LOCALAPPDATA%%\\geecs-data-portal\\settings)"
         ),
     )
     parser.add_argument(

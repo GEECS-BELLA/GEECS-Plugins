@@ -1,14 +1,10 @@
 """Named settings sets: one JSON file per set, in one folder.
 
-GEECSplotter keeps its settings in the LabVIEW ``user data`` folder, and
-so does this: ``{geecs_data}/DataPortal/settings/``, where
-``geecs_data`` is ``config.ini [Paths] geecs_data`` (the same folder the
-GEECS database credentials are read from, usually on the shared drive).
-When that key is unset or its folder is not reachable, the sets live in
-``<repo>/user data/DataPortal/settings/`` (gitignored) instead, where
-``<repo>`` is the main checkout even when the plotter runs from a session
-worktree under ``.claude/worktrees/``, so every copy sees the same sets.
-``--settings-dir`` overrides both. The folder is chosen once, at start.
+The folder is the process's own state directory, never the data share and
+never the checkout: ``--settings-dir`` (the service unit passes its
+systemd ``StateDirectory``), else the user's state folder
+(:func:`user_state_dir`) for a portal started by hand. It is chosen once,
+at start.
 
 A set is a :class:`PlotterSettings` document, ``<name>.json``: readable,
 copyable, and versioned so an older file loads with new fields at their
@@ -17,14 +13,11 @@ defaults.
 
 from __future__ import annotations
 
-import configparser
 import contextlib
 import json
-import logging
 import math
 import os
 import re
-import shutil
 import tempfile
 from dataclasses import dataclass
 from datetime import date
@@ -34,7 +27,6 @@ from typing import Callable, Literal, Optional
 from geecs_data_utils.data.image_prep import HIT_FILTERS
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-logger = logging.getLogger(__name__)
 
 #: Y, Y2 and Y3: the most Y lists a set holds (``figures.MAX_Y`` draws them).
 MAX_Y_LISTS = 3
@@ -84,36 +76,9 @@ _FIT_NAME = re.compile(r"[a-z0-9_]{1,40}")
 #: The set a page opens when the URL names none.
 DEFAULT_SET = "default"
 
-CONFIG_INI = Path("~/.config/geecs_python_api/config.ini").expanduser()
-
-
-def checkout_root(package_file: Path) -> Path:
-    """The checkout *package_file* is in, or the main one for a worktree.
-
-    Session worktrees live at ``<repo>/.claude/worktrees/<name>/`` (root
-    CLAUDE.md); their local sets belong with the main checkout's, or each
-    worktree would keep its own and lose the others'.
-    """
-    repo = package_file.resolve().parents[3]
-    if repo.parent.name == "worktrees" and repo.parents[1].name == ".claude":
-        return repo.parents[2]
-    return repo
-
-
-#: ``<repo>/user data/``: the local fallback, beside the (main) checkout.
-LOCAL_USER_DATA = checkout_root(Path(__file__)) / "user data"
-
-_SUBFOLDER = Path("DataPortal") / "settings"
-
-#: Where GeecsPlotter kept the sets, before it folded into the portal: its
-#: sets are copied from here once (:func:`adopt_plotter_sets`).
-_PLOTTER_SUBFOLDER = Path("GeecsPlotter") / "settings"
-
 #: A letter or digit first, then letters, digits, spaces, ``-``, ``_`` and
 #: ``.``; never ending in a space or a dot (Windows drops both from names).
 _NAME = re.compile(r"[a-z0-9](?:[a-z0-9 ._-]{0,62}[a-z0-9_-])?")
-
-Origin = Literal["given", "shared", "local"]
 
 
 class SettingsError(ValueError):
@@ -167,9 +132,9 @@ class ImageCamera(BaseModel):
 class PlotterSettings(BaseModel):
     """Every control on the page; each field has its default."""
 
-    # Unknown fields are kept, not refused: the shared folder is read by
-    # every copy of the plotter, and an older copy must still load (and
-    # save, without dropping) a set a newer copy wrote with more fields.
+    # Unknown fields are kept, not refused: an older portal must still load
+    # (and save, without dropping) a set a newer one wrote with more fields
+    # — a rollback, or a set copied in from another host.
     model_config = ConfigDict(extra="allow")
 
     schema_version: Literal[1] = 1
@@ -336,42 +301,19 @@ class SettingsStore:
     ----------
     folder : Path
         Where the ``<name>.json`` files live; created on the first save.
-    origin : {"given", "shared", "local"}
-        Why this folder: ``--settings-dir``, ``config.ini``'s
-        ``geecs_data``, or the local fallback. The page shows it.
-    root : Path, optional
-        A folder that must already exist for the store to be read or
-        written: the ``geecs_data`` folder for the shared store, the
-        checkout for the local one. A share that drops after start is then
-        an error, never "no sets saved", and nothing is built on a bare
-        mount point. ``None`` (a ``--settings-dir``) checks nothing, and
-        the first save creates the folder.
     """
 
     folder: Path
-    origin: Origin = "given"
-    root: Optional[Path] = None
 
     def path(self, name: str) -> Path:
         """The file a set is stored in."""
         return self.folder / f"{set_name(name)}.json"
 
-    def reachable(self) -> bool:
-        """Whether the store's root is there (the share is mounted)."""
-        return self.root is None or self.root.is_dir()
-
-    def _require_reachable(self) -> None:
-        if not self.reachable():
-            raise SettingsError(
-                f"{self.root} is not reachable; "
-                "settings are neither read nor saved until it is back"
-            )
-
     def names(self) -> list[str]:
         """Every saved set, with the default first whether saved or not."""
         saved = (
             {p.stem for p in self.folder.glob("*.json") if _NAME.fullmatch(p.stem)}
-            if self.reachable() and self.folder.is_dir()
+            if self.folder.is_dir()
             else set()
         )
         return [DEFAULT_SET, *sorted(saved - {DEFAULT_SET})]
@@ -383,7 +325,6 @@ class SettingsStore:
     def load(self, name: str) -> PlotterSettings:
         """The set, or the defaults for a name never saved."""
         path = self.path(name)
-        self._require_reachable()
         try:
             text = path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -398,54 +339,28 @@ class SettingsStore:
             ) from exc
 
     def save(self, name: str, settings: PlotterSettings) -> Path:
-        """Write the set (atomically, except on Windows: see ``_write_whole``)."""
+        """Write the set whole (``_write_whole``); the first save makes the folder."""
         path = self.path(name)
-        self._require_reachable()
         text = settings.model_dump_json(indent=2) + "\n"
         try:
-            # Only below the root, which exists: never a tree on a bare mount.
             self.folder.mkdir(parents=True, exist_ok=True)
-            if self.origin == "local" and self.root is not None:
-                _ignore_in_git(self.root / LOCAL_USER_DATA.name)
             _write_whole(path, text)
         except OSError as exc:
             raise SettingsError(f"cannot save {path}: {exc}") from exc
         return path
 
 
-def _ignore_in_git(user_data: Path) -> None:
-    """Make the local ``user data`` folder ignore itself.
-
-    The root ``.gitignore`` lists it too, but a checkout on an older
-    branch does not, and sets must never show up as files to commit.
-    """
-    marker = user_data / ".gitignore"
-    if not marker.exists():
-        marker.write_text("# Local settings sets: never committed.\n*\n")
-
-
 def _write_whole(path: Path, text: str) -> None:
     """Write *path* through a uniquely named sibling and a rename.
 
-    The shape of ``geecs_logbook._fs.replace_with`` (a unique temp name per
-    call, so two hosts saving one set never clobber each other's half
-    file), with ``scan_analysis.task_queue._write_atomic``'s Windows rule:
-    on an SMB share the rename needs DELETE permission on the target,
-    usually only its creator's, so Windows writes in place (a reader may
-    then catch half a file: a passing "Settings problem"). The repo's
-    private atomic writers are to be folded into one under #839.
+    The shape of ``geecs_logbook._fs.replace_with``: a unique temp name per
+    call, so two saves of one set never clobber each other's half file, and
+    a reader sees the old set or the new one, never part of one.
     """
-    if os.name == "nt":
-        path.write_text(text, encoding="utf-8")
-        return
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
-        # mkstemp's 0600 would hide the set from colleagues; best effort,
-        # since a CIFS mount without unix extensions refuses chmod.
-        with contextlib.suppress(OSError):
-            os.chmod(tmp, 0o664)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
@@ -453,65 +368,25 @@ def _write_whole(path: Path, text: str) -> None:
         raise
 
 
-def geecs_user_data(config_path: Path = CONFIG_INI) -> Optional[Path]:
-    """``config.ini [Paths] geecs_data``, when it is set and reachable."""
-    config = configparser.ConfigParser()
-    try:
-        config.read(config_path)
-        value = config.get("Paths", "geecs_data", fallback="").strip()
-    except configparser.Error:
-        return None
-    if not value:
-        return None
-    folder = Path(os.path.expandvars(value)).expanduser()
-    return folder if folder.is_dir() else None
+def user_state_dir(*, windows: bool = os.name == "nt") -> Path:
+    """The settings folder of a portal started by hand, with no ``--settings-dir``.
 
-
-def resolve_store(
-    settings_dir: Optional[Path] = None, *, config_path: Path = CONFIG_INI
-) -> SettingsStore:
-    """The store for this process: given, else shared, else local."""
-    if settings_dir is not None:
-        return SettingsStore(Path(settings_dir).expanduser(), "given")
-    shared = geecs_user_data(config_path)
-    if shared is not None:
-        store = SettingsStore(shared / _SUBFOLDER, "shared", root=shared)
-        adopt_plotter_sets(store, shared / _PLOTTER_SUBFOLDER)
-        return store
-    store = SettingsStore(
-        LOCAL_USER_DATA / _SUBFOLDER, "local", root=LOCAL_USER_DATA.parent
-    )
-    adopt_plotter_sets(store, LOCAL_USER_DATA / _PLOTTER_SUBFOLDER)
-    return store
-
-
-def adopt_plotter_sets(store: SettingsStore, plotter_folder: Path) -> int:
-    """Copy GeecsPlotter's sets into *store* once; how many were copied.
-
-    Only while *store*'s folder does not exist yet, so the copy happens on
-    the portal's first start beside a plotter folder and never again. It
-    never overwrites and never deletes: the plotter keeps its own files.
-    A share that refuses is logged and skipped; the portal starts anyway.
+    The user's own state folder: ``$XDG_STATE_HOME`` (else
+    ``~/.local/state``), on Windows ``%LOCALAPPDATA%``, then
+    ``geecs-data-portal/settings``.
     """
-    if store.folder.exists() or not plotter_folder.is_dir():
-        return 0
-    copied = 0
-    try:
-        store.folder.mkdir(parents=True)
-        if store.origin == "local" and store.root is not None:
-            _ignore_in_git(store.root / LOCAL_USER_DATA.name)
-        for source in sorted(plotter_folder.glob("*.json")):
-            target = store.folder / source.name
-            if not target.exists():
-                shutil.copy2(source, target)
-                copied += 1
-    except OSError as exc:
-        logger.warning(
-            "could not copy GeecsPlotter's sets from %s: %s", plotter_folder, exc
-        )
+    if windows:
+        base = os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
     else:
-        logger.info("copied %d GeecsPlotter sets into %s", copied, store.folder)
-    return copied
+        base = os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"
+    return Path(base) / "geecs-data-portal" / "settings"
+
+
+def resolve_store(settings_dir: Optional[Path] = None) -> SettingsStore:
+    """The store for this process: ``--settings-dir``, else the user's state folder."""
+    if settings_dir is not None:
+        return SettingsStore(Path(settings_dir).expanduser())
+    return SettingsStore(user_state_dir())
 
 
 #: The page form's field names, mapped to the settings they write.

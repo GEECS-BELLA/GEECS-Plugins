@@ -71,7 +71,6 @@ class SetsResponse(BaseModel):
     """The settings folder and the sets saved in it."""
 
     folder: str
-    origin: str
     sets: list[str]
 
 
@@ -679,9 +678,7 @@ def _register_settings(router: APIRouter, ctx: Context) -> None:
     def api_sets() -> JSONResponse:
         """Where sets are saved, and their names."""
         store = ctx.store
-        body = SetsResponse(
-            folder=str(store.folder), origin=store.origin, sets=store.names()
-        )
+        body = SetsResponse(folder=str(store.folder), sets=store.names())
         return _json(body)
 
     @router.get("/api/settings/{name}", response_model=PlotterSettings)

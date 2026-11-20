@@ -30,7 +30,9 @@ number, mode, shot count, status, start time) and how to move:
 - **log ↗** opens this scan's entry in the [logbook](logbook.md), when
   the portal knows where the logbook is.
 The open tab is in the page's URL, so a link you copy opens the same tab.
-The Plot and Images tabs keep your choices in your settings set instead.
+The Plot and Images tabs keep your choices in your settings set instead:
+a small file on the portal's own host (its service state directory), not
+on the data share.
 
 ## The tabs
 
@@ -40,7 +42,10 @@ The Plot and Images tabs keep your choices in your settings set instead.
   filters, fits and display settings, all kept in your named settings
   set. The page gives the notebook cell that reproduces the figure from
   Python, and its toolbar can copy the plot or **send** it into this
-  scan's logbook entry. Scans from another experiment than the portal's
+  scan's logbook entry. A sent plot takes its settings with it: the
+  entry's "Plot settings as sent" line links a copy of your settings set
+  as it was at that moment, which later changes to the set do not touch.
+  Scans from another experiment than the portal's
   own have no Plot tab.
 
   Its **2-D map** view (the switch above the plot) maps any scalar over

@@ -95,124 +95,49 @@ def test_merging_keeps_what_the_form_does_not_send() -> None:
 # -- where the folder is ----------------------------------------------------
 
 
-def test_the_shared_user_data_folder_comes_from_config_ini(tmp_path: Path) -> None:
-    user_data = tmp_path / "user data"
-    user_data.mkdir()
-    config = tmp_path / "config.ini"
-    config.write_text(f"[Paths]\ngeecs_data = {user_data}\n")
-    store = resolve_store(config_path=config)
-    assert store.origin == "shared"
-    assert store.folder == user_data / "DataPortal" / "settings"
-
-
-@pytest.mark.parametrize(
-    "text", ["", "[Paths]\n", "[Paths]\ngeecs_data = /no/such/drive/user data\n"]
-)
-def test_an_unset_or_unreachable_user_data_folder_falls_back_locally(
-    tmp_path: Path, text: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Re-rooted in tmp_path: resolving the local store may copy the
-    # plotter's sets, which must never touch the developer's checkout.
-    monkeypatch.setattr(settings_module, "LOCAL_USER_DATA", tmp_path / "user data")
-    config = tmp_path / "config.ini"
-    config.write_text(text)
-    store = resolve_store(config_path=config)
-    assert store.origin == "local"
-    assert store.folder == settings_module.LOCAL_USER_DATA / "DataPortal" / "settings"
-
-
-def test_the_local_fallback_is_gitignored() -> None:
-    gitignore = Path(__file__).resolve().parents[3] / ".gitignore"
-    assert "/user data/" in gitignore.read_text().splitlines()
-
-
-def test_a_local_save_makes_the_folder_ignore_itself(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A checkout on an older branch lacks the root rule; the folder has its own.
-
-    The store is the one ``resolve_store`` really returns for the local
-    fallback, re-rooted in tmp_path, so a change of layout moves both.
-    """
-    monkeypatch.setattr(settings_module, "LOCAL_USER_DATA", tmp_path / "user data")
-    config = tmp_path / "config.ini"
-    config.write_text("[Paths]\ngeecs_data = /no/such/drive\n")
-    store = resolve_store(config_path=config)
-    assert store.origin == "local"
-    store.save("default", PlotterSettings())
-    marker = settings_module.LOCAL_USER_DATA / ".gitignore"
-    assert marker.read_text().splitlines()[-1] == "*"
-    assert store.path("default").is_relative_to(marker.parent)
-
-
-def test_a_shared_save_writes_no_gitignore(tmp_path: Path) -> None:
-    store = SettingsStore(
-        tmp_path / "GeecsPlotter" / "settings", "shared", root=tmp_path
-    )
-    store.save("default", PlotterSettings())
-    assert not (tmp_path / ".gitignore").exists()
-
-
-@pytest.mark.parametrize(
-    ("package_file", "root"),
-    [
-        (
-            "/r/GEECS-Plugins/GEECS-DataPortal/geecs_portal/plotter/settings.py",
-            "/r/GEECS-Plugins",
-        ),
-        (
-            "/r/GEECS-Plugins/.claude/worktrees/plotter-x/GEECS-DataPortal/geecs_portal/plotter/settings.py",
-            "/r/GEECS-Plugins",
-        ),
-    ],
-)
-def test_every_worktree_shares_the_main_checkouts_folder(
-    package_file: str, root: str
-) -> None:
-    assert settings_module.checkout_root(Path(package_file)) == Path(root)
-
-
-def test_the_plotters_sets_are_copied_once_and_never_overwritten(
-    tmp_path: Path,
-) -> None:
-    """GeecsPlotter's folder seeds the portal's on its first start only."""
-    user_data = tmp_path / "user data"
-    plotter = user_data / "GeecsPlotter" / "settings"
-    plotter.mkdir(parents=True)
-    (plotter / "default.json").write_text('{"y": "a"}')
-    (plotter / "jet.json").write_text('{"y": "b"}')
-    config = tmp_path / "config.ini"
-    config.write_text(f"[Paths]\ngeecs_data = {user_data}\n")
-    store = resolve_store(config_path=config)
-    assert sorted(store.names()) == ["default", "jet"]
-    assert (plotter / "jet.json").exists()  # the plotter keeps its own
-    # A later start copies nothing: a set the portal changed stays changed,
-    # and one the plotter saved later is not pulled in.
-    (store.folder / "jet.json").write_text('{"y": "changed"}')
-    (plotter / "new.json").write_text('{"y": "c"}')
-    store = resolve_store(config_path=config)
-    assert sorted(store.names()) == ["default", "jet"]
-    assert "changed" in (store.folder / "jet.json").read_text()
-
-
-def test_the_local_fallback_copies_the_plotters_sets_and_ignores_itself(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(settings_module, "LOCAL_USER_DATA", tmp_path / "user data")
-    plotter = tmp_path / "user data" / "GeecsPlotter" / "settings"
-    plotter.mkdir(parents=True)
-    (plotter / "default.json").write_text('{"y": "a"}')
-    config = tmp_path / "config.ini"
-    config.write_text("[Paths]\ngeecs_data = /no/such/drive\n")
-    store = resolve_store(config_path=config)
-    assert store.origin == "local" and store.names() == ["default"]
-    marker = tmp_path / "user data" / ".gitignore"
-    assert marker.read_text().splitlines()[-1] == "*"
-
-
 def test_a_given_folder_wins(tmp_path: Path) -> None:
-    store = resolve_store(tmp_path / "mine", config_path=tmp_path / "absent.ini")
-    assert (store.folder, store.origin) == (tmp_path / "mine", "given")
+    assert resolve_store(tmp_path / "mine").folder == tmp_path / "mine"
+
+
+def test_without_a_given_folder_the_sets_are_in_the_users_state_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A portal started by hand: the user's state folder, never the share or the checkout."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    folder = resolve_store().folder
+    assert folder == tmp_path / "state" / "geecs-data-portal" / "settings"
+    monkeypatch.delenv("XDG_STATE_HOME")
+    monkeypatch.setattr(settings_module.Path, "home", lambda: tmp_path / "home")
+    assert resolve_store().folder == (
+        tmp_path / "home" / ".local" / "state" / "geecs-data-portal" / "settings"
+    )
+
+
+def test_on_windows_the_state_folder_is_local_app_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    assert settings_module.user_state_dir(windows=True) == (
+        tmp_path / "local" / "geecs-data-portal" / "settings"
+    )
+
+
+def test_the_store_reads_no_config_ini_and_names_no_share(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The folder never follows ``config.ini [Paths] geecs_data`` (the data share)."""
+    home = tmp_path / "home"
+    share = tmp_path / "share" / "user data"
+    share.mkdir(parents=True)
+    config = home / ".config" / "geecs_python_api" / "config.ini"
+    config.parent.mkdir(parents=True)
+    config.write_text(f"[Paths]\ngeecs_data = {share}\n")
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setattr(settings_module.Path, "home", lambda: home)
+    store = resolve_store()
+    store.save("default", PlotterSettings())
+    assert store.folder.is_relative_to(home)
+    assert list(share.iterdir()) == []
 
 
 # -- the page ---------------------------------------------------------------
@@ -300,60 +225,14 @@ def test_the_api_lists_and_saves_sets(client: TestClient, settings_dir: Path) ->
     assert saved.json()["x_filter"] == "jet"
     assert client.get("/api/settings/default").json()["x_filter"] == "jet"
     listing = client.get("/api/settings").json()
-    assert listing == {
-        "folder": str(settings_dir),
-        "origin": "given",
-        "sets": ["default"],
-    }
+    assert listing == {"folder": str(settings_dir), "sets": ["default"]}
 
 
 def test_the_api_refuses_a_bad_name(client: TestClient) -> None:
     assert client.post("/api/settings/.secret", data={"xf": "x"}).status_code == 422
 
 
-# -- the share going away, and failed saves (review of #1166) ---------------
-
-
-def test_an_unreachable_root_is_an_error_not_the_defaults(tmp_path: Path) -> None:
-    """A dropped share must not read as "never saved", or a pick wipes the set."""
-    store = SettingsStore(tmp_path / "gone" / "sets", "shared", root=tmp_path / "gone")
-    with pytest.raises(SettingsError, match="not reachable"):
-        store.load("default")
-    with pytest.raises(SettingsError, match="not reachable"):
-        store.save("default", PlotterSettings())
-    assert not (tmp_path / "gone").exists()  # nothing built on a bare mount point
-    assert store.names() == ["default"]
-
-
-def test_a_dropped_share_keeps_the_saved_set(
-    share: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The share goes away after start: the page says so and saves nothing."""
-    from geecs_portal.plotter import app as app_module
-    from tests.plotter.conftest import EXPERIMENT
-
-    user_data = tmp_path / "user data"
-    user_data.mkdir()
-    config = tmp_path / "config.ini"
-    config.write_text(f"[Paths]\ngeecs_data = {user_data}\n")
-    store = resolve_store(config_path=config)
-    monkeypatch.setattr(app_module, "resolve_store", lambda _given: store)
-    client = TestClient(app_module.create_app(EXPERIMENT, base_directory=share))
-    post(client, scan=1, yf="gas")
-    saved = store.path("default").read_text()
-
-    user_data.rename(tmp_path / "unmounted")
-    page = client.get(
-        "/", params={"set": "default", "day": "2026-10-02", "scan": 1}
-    ).text
-    assert "not reachable" in page
-    response = client.post(
-        "/", data={"day": "2026-10-02", "scan": "1", "set": "default", "yf": ""}
-    )
-    assert response.status_code == 422
-    assert not user_data.exists()  # no shadow tree on the bare mount point
-    (tmp_path / "unmounted").rename(user_data)
-    assert store.path("default").read_text() == saved
+# -- failed saves (review of #1166) ------------------------------------------
 
 
 def test_a_failed_save_is_a_settings_problem_not_a_500(
@@ -378,20 +257,6 @@ def test_a_given_folder_is_created_however_deep(tmp_path: Path) -> None:
     assert store.load("default") == PlotterSettings()
     store.save("default", PlotterSettings(x_filter="jet"))
     assert store.load("default").x_filter == "jet"
-
-
-def test_a_refused_chmod_still_saves(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A CIFS mount without unix extensions refuses chmod; the set still saves."""
-
-    def refuse(*_args: object) -> None:
-        raise PermissionError("chmod not supported")
-
-    monkeypatch.setattr(settings_module.os, "chmod", refuse)
-    store = SettingsStore(tmp_path)
-    store.save("default", PlotterSettings(y_filter="gas"))
-    assert store.load("default").y_filter == "gas"
 
 
 def test_a_refused_name_is_kept_in_the_box_and_explained(client: TestClient) -> None:

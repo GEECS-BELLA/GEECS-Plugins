@@ -15,8 +15,8 @@ extending this package.
   maintainer").
   The portal itself has no write verbs: no annotations.  Three
   exceptions, all explicit opt-ins; the third, the settings sets, writes
-  JSON files into the settings folder only (below, "The Plot tab"), never
-  the data share's scan tree.  (A MOUNTED scan logbook was another,
+  JSON files into the settings folder only (below, "The Plot tab"): the
+  unit's state directory, never the data share and never the checkout.  (A MOUNTED scan logbook was another,
   0.22–0.26: a router at `/log` behind a `log` extra.  Since
   GeecsLogbook 0.10.0 it is **its own service** on port 8400 and this
   package only reaches it over HTTP — `--logbook-url` is the base the
@@ -80,7 +80,25 @@ extending this package.
   agent's figures) moves no bytes; it posts to the RESOLVED folder's
   tag (day + number), not the start document's day, so across midnight
   a figure joins the scan it came from.  The reply carries the attachment
-  `link` the body now shows.  `create_app(logbook_client=…)` injects the
+  `link` the body now shows.  A plot sent from the Plot tab is **frozen
+  with its settings**: the page reads the set it shows
+  (`/plot/api/settings/{name}`) and posts it whole as `settings` (with
+  `settings_name`; a rendered `image` only, never a `path`), and the send
+  stores it in the entry as a second attachment,
+  `<image name>-settings.json` — `logbook_send.frozen_settings`: `kind:
+  plot_settings`, the image's link, day, scan, the set's name, the source
+  URL and the settings themselves — linked from the body's one `Plot
+  settings as sent:` paragraph at the top (`with_settings_link`: above the
+  images, so it cannot split their run).  The entry carries the settings,
+  never a reference: the set changes with its owner's next pick and the
+  document does not.  The reply's `settings_link` is null when no settings
+  came or the logbook refused JSON (415, a logbook older than this: the
+  plot is still sent).  The portal keeps the document as sent and does not
+  validate it as `PlotterSettings` (the route knows nothing of the
+  plotter); its size is capped (`MAX_SETTINGS_BYTES`).  Nothing loads a
+  frozen document back into a set yet: it is a `PlotterSettings` file
+  under `settings`, so saved as `<name>.json` in the settings folder it
+  opens as that set.  `create_app(logbook_client=…)` injects the
   httpx client the send uses (tests: an in-process logbook); production
   makes one per send.
   The portal still never imports GeecsLogbook; the edge is three URLs.
@@ -581,14 +599,14 @@ design rules"). The rules that are the portal's own:
   it is now (ruling 3 of the brief: the portal's old URL-carried plot
   state is retired for this page).
 - **The settings folder** is chosen once at start
-  (`plotter.settings.resolve_store`): `--settings-dir`, else
-  `{config.ini [Paths] geecs_data}/DataPortal/settings/` (the shared
-  `user data` folder), else `<main checkout>/user data/DataPortal/settings/`
-  (gitignored). On its first start beside GeecsPlotter's folder
-  (`…/GeecsPlotter/settings/`) it copies those sets once
-  (`adopt_plotter_sets`: never overwriting, never deleting). On the
-  service host, name the folder through `config.ini` or
-  `--settings-dir` in `GEECS_PORTAL_EXTRA_ARGS` (`DEPLOYMENT.md`).
+  (`plotter.settings.resolve_store`): `--settings-dir`, which the unit
+  sets to its systemd `StateDirectory`
+  (`%S/geecs-data-portal/settings`), else the user's own state folder
+  (`settings.user_state_dir`: `~/.local/state/geecs-data-portal/settings`,
+  `%LOCALAPPDATA%` on Windows) for a portal started by hand. Never the
+  data share (`config.ini [Paths] geecs_data` is not read) and never the
+  checkout: the plotter writes nothing to the share for settings
+  (`tests/plotter/test_settings.py`).
 - **The old Plot tab's tools** (the author's list, 2026-10-28) are the
   page's too, each a field of the set as the JSON text the scan page
   carried in its URL, checked with the same parsers (`analysis.parse_*`):
@@ -663,8 +681,8 @@ GEECSplotter, the LabVIEW tool, as two pages of the portal (`/plot/`,
   so a URL with neither (a bare start, or switching sets) redirects to that
   scan; a URL's own day and scan win, a switch to a set with none keeps the
   open scan (`here_day` / `here_scan`), and otherwise it is the empty form.
-  `extra="allow"` keeps fields a newer copy wrote, so every copy on the
-  shared folder can load and save every set. The form POSTs its controls;
+  `extra="allow"` keeps fields a newer portal wrote, so an older one (a
+  rollback, a set copied from another host) can load and save every set. The form POSTs its controls;
   the server merges them into the set's file (`settings.merged`: a field
   the page does not send keeps its saved value), saves it, and redirects
   back (303) to the page the form came from (`page`). A list filter saves
@@ -797,14 +815,15 @@ they left open is here, for Sam at the promotion PR to `master`.
   package); the portal onto the kit now rather than last; view state in
   named settings sets rather than the URL (old links with `y=`, `x=`,
   `filters=` … open the scan but no longer reproduce the plot, including
-  links stored in logbook entries, and new entries link the live set).
+  links stored in logbook entries; a new entry links the live set and
+  carries the settings as sent, above).
 - Whether `PlotterSettings` stays in the portal or moves to GEECS-Schemas.
 - **A run's status word has three tables**: the scanner (`EXIT_WORDS`:
   abort → failed), the logbook (`KIT_STATE`: aborted → degraded) and the
   portal (`app.run_state`: abort → degraded, no stop document → unknown);
   one table in GEECS-Data-Utils needs a ruling on abort first.
-- Settings sets are shared files with no revisions: two people editing one
-  set overwrite each other, as with LabVIEW's settings files.
+- Settings sets are one host's files with no revisions: two people editing
+  one set overwrite each other, as with LabVIEW's settings files.
 - **For the author:** the LabVIEW settings file format — sets could be
   imported from it if it is readable.
 - **Still to build** (the author's lists): clicking a plot point to open

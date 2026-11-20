@@ -108,14 +108,17 @@ browser and open one run's image gallery (exercises the share mount).
 
 The Plot tab (GEECSplotter's page, `/plot`) saves each viewer's named
 settings set as a JSON file — the portal's one durable write outside the
-analysis and configs trees. The folder is `config.ini [Paths]
-geecs_data` + `DataPortal/settings/` when that folder is reachable (the
-shared `user data` folder LabVIEW tools use), else
-`<checkout>/user data/DataPortal/settings/`. On the service host prefer
-the shared folder, or pass `--settings-dir <folder>` through
-`GEECS_PORTAL_EXTRA_ARGS` in `site.env`: a fallback inside the deployed
-checkout must be writable by the service account and survives a
-redeploy only because `user data/` is gitignored.
+analysis tree. The folder is the service's own state directory: the unit
+declares `StateDirectory=geecs-data-portal` and passes
+`--settings-dir %S/geecs-data-portal/settings`
+(`/var/lib/geecs-data-portal/settings`; systemd creates it and owns it to
+the service account, so it is the same on every host and not a
+`site.env` value). The sets are never on the data share and never in the
+checkout, so a redeploy or a re-clone leaves them alone; back the
+directory up with the host. A portal started by hand, with no
+`--settings-dir`, keeps its sets in the user's state folder
+(`~/.local/state/geecs-data-portal/settings`, or
+`%LOCALAPPDATA%\geecs-data-portal\settings` on Windows).
 
 ## systemd unit
 

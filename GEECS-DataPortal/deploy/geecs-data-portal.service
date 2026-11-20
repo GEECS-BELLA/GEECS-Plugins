@@ -49,13 +49,16 @@ WorkingDirectory=@CHECKOUT_ROOT@/portal-checkout/GEECS-DataPortal
 # tab's edit opens (GeecsConfigurator/DEPLOYMENT.md). --tiled lists Tiled's
 # runs beside the scan folders; without it the portal reads the folders
 # alone (the default, for a machine that cannot reach Tiled).
-ExecStart=@POETRY@ run geecs-data-portal --tiled --browser none --experiment ${GEECS_EXPERIMENT} --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
-# No StateDirectory: the portal's one durable write of its own is the Plot
-# tab's settings sets, in the folder DEPLOYMENT.md names (config.ini's
-# shared user data folder, or --settings-dir in GEECS_PORTAL_EXTRA_ARGS). The logbook's
-# entries, which lived in /var/lib/geecs-data-portal while the logbook was
-# a router in this process (portal 0.22-0.26), belong to geecs-logbook's
-# own state directory now — GeecsLogbook/deploy/DEPLOYMENT.md has the move.
+ExecStart=@POETRY@ run geecs-data-portal --tiled --browser none --experiment ${GEECS_EXPERIMENT} --settings-dir %S/geecs-data-portal/settings --processing-configs "${GEECS_CONFIGS_ROOT}/scan_analysis_configs" $GEECS_PORTAL_EXTRA_ARGS
+# The portal's one durable write of its own: the Plot tab's settings sets,
+# in <state directory>/settings (--settings-dir above; %S is systemd's
+# state root, /var/lib). systemd creates the directory and owns it to the
+# service account; it is the same on every host, so not a site value. The
+# sets are never on the data share and never in the checkout. (The
+# logbook's entries, which lived in this directory while the logbook was a
+# router in this process, portal 0.22-0.26, belong to geecs-logbook's own
+# state directory — GeecsLogbook/deploy/DEPLOYMENT.md has the move.)
+StateDirectory=geecs-data-portal
 # Memory ceiling (#834): the portal shares the box with Tiled, MySQL and
 # the queueserver, and as the largest resident process it was the
 # kernel's first OOM pick. MemoryHigh= throttles and reclaims above the

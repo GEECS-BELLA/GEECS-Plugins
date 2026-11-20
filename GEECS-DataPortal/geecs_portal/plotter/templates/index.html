@@ -887,7 +887,7 @@
         {# The set saves itself, so a first-time user who looks here for a
            "load" sees why there is only one entry. #}
         <span class="hint">Every pick, and each scan opened here, saves into your own set; opening a set reopens its last scan.{% if sets | length == 1 %} Use Save as to keep a copy under a new name; it then appears in this list.{% endif %}</span>
-        <span class="hint mono settings-folder" title="{{ settings_folder }}">{{ settings_folder }}{% if settings_origin == 'local' %} (local: the shared user data folder is not reachable){% endif %}</span>
+        <span class="hint mono settings-folder" title="{{ settings_folder }}">{{ settings_folder }}</span>
       </div>
       <div class="field">
         <label for="save-as">Save as</label>

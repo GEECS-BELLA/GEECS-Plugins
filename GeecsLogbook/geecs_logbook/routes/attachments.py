@@ -29,6 +29,9 @@ ATTACHMENT_TYPES = {
     "image/gif": ".gif",
     "image/webp": ".webp",
     "application/pdf": ".pdf",
+    # A machine's record beside a figure: the Data Portal stores the
+    # settings a sent plot was drawn with. Linked from a body, never drawn.
+    "application/json": ".json",
 }
 
 
