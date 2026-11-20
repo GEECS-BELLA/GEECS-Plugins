@@ -870,3 +870,69 @@ def test_optimize_signature_and_classification(profiles):
     ]
     assert parameters["optimizer_config"].kind is inspect.Parameter.KEYWORD_ONLY
     assert parameters["optimizer_config"].default is inspect.Parameter.empty
+
+
+# ------------------------------------------------ a frozen loop (warned)
+
+
+def test_the_in_plan_check_reads_each_devices_stamp_beside_its_connected_pv(
+    RE, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from geecs_bluesky.plans import strict
+
+    seen: list[dict[str, str]] = []
+
+    def probe(stamp_pvs, **_):
+        seen.append(dict(stamp_pvs))
+        return [("U_Gauge", 45.0)]
+
+    monkeypatch.setattr(strict, "probe_stale_pvs", probe)
+    gauge = SimpleNamespace(
+        name="u_gauge",
+        _geecs_device_name="U_Gauge",
+        connected_status=SimpleNamespace(source="ca://bella:u_gauge:connected"),
+    )
+    native = SimpleNamespace(
+        name="n",
+        _geecs_device_name="N_Motor",
+        connected_status=SimpleNamespace(source="soft://n:connected"),
+    )
+    out: list = []
+
+    def plan():
+        out.append((yield from strict.stale_devices([gauge, native])))
+
+    RE(plan())
+    assert seen == [{"U_Gauge": "bella:u_gauge:systimestamp"}]  # the native not judged
+    assert out == [[("U_Gauge", 45.0)]]
+
+
+def test_a_frozen_condition_is_warned_and_named_but_the_run_goes_on(
+    RE, box, profiles, caplog, monkeypatch
+):
+    import geecs_bluesky.plans.registry as registry
+    from geecs_bluesky.devices.ca import CaSnapshotReadable
+
+    judged: list[list[str]] = []
+
+    def stale(objs):
+        judged.append([getattr(o, "name", "") for o in objs])
+        return [("U_Gauge", 120.0)]
+        yield  # a generator
+
+    monkeypatch.setattr(registry, "stale_devices", stale)
+    cam = _camera(RE, box, "UC_Cam")
+    gauge = CaSnapshotReadable(
+        "U_Gauge", ["Pressure"], experiment="TestExp", name="u_gauge"
+    )
+    connect_mock(RE, gauge)
+    col = DocCollector()
+    RE.subscribe(col)
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.plans.registry"):
+        RE(bind_plans(profiles)["count"]([cam, gauge.scalars], 1))
+    assert judged == [["u_gauge-scalars"]]  # the condition, never the camera
+    assert col.docs["start"][0]["devices_stale"] == ["U_Gauge"]
+    assert "U_Gauge (not updated in 120 s)" in caplog.text
+    assert box.fires == 1  # a warning, never a refusal

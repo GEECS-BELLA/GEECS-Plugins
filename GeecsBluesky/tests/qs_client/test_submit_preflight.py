@@ -88,6 +88,11 @@ def engine(monkeypatch):
     monkeypatch.setattr(
         "geecs_bluesky.devices.ca.liveness.probe_disconnected", fake_probe
     )
+    # No real CA: every loop stamp reads fresh unless a test says otherwise.
+    monkeypatch.setattr(
+        "geecs_bluesky.devices.ca.liveness.probe_stale",
+        lambda experiment, names, *, timeout: [],
+    )
     monkeypatch.setattr(
         submit_preflight, "_make_default_client", lambda experiment: _FakeQueueClient()
     )
@@ -149,7 +154,26 @@ class TestRunSubmitPreflight:
             ("validate", "passed", ""),
             ("worker_ready", "passed", ""),
             ("gateway_liveness", "passed", ""),
+            ("device_loops", "passed", ""),
         ]
+
+    def test_a_frozen_loop_is_a_note_never_a_question(self, engine, monkeypatch):
+        """Connected but its systimestamp stale: noted in the record, the scan unasked."""
+        monkeypatch.setattr(
+            "geecs_bluesky.devices.ca.liveness.probe_stale",
+            lambda experiment, names, *, timeout: [
+                ("UC_Cam2", 95.0),
+                ("UC_Cam1", None),
+            ],
+        )
+        report = run_submit_preflight(_preset(), "Undulator")
+        assert report.refusal is None and report.questions == []
+        assert (
+            "device_loops",
+            "passed",
+            "frozen loop, recorded anyway: UC_Cam2 (not updated in 95 s), "
+            "UC_Cam1 (never updated)",
+        ) in report.outcomes
 
     def test_validation_failure_is_a_refusal(self, engine, monkeypatch):
         monkeypatch.setattr(

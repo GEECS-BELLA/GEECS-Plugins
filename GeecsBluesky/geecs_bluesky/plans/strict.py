@@ -11,6 +11,7 @@ slot reports, :func:`name_failed_status`, and :class:`BinCounter`, the
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Mapping, Sequence
@@ -23,7 +24,7 @@ from bluesky.utils import FailedStatus, short_uid
 from geecs_schemas.trigger_profile import TriggerState
 
 from geecs_bluesky.devices.ca._view import geecs_device_name, geecs_device_of, owner_of
-from geecs_bluesky.devices.ca.liveness import read_disconnected
+from geecs_bluesky.devices.ca.liveness import probe_stale_pvs, read_disconnected
 from geecs_bluesky.devices.native import down_native_cameras, native_cameras
 from geecs_bluesky.devices.native_setpoint import (
     down_native_setpoint_devices,
@@ -102,6 +103,46 @@ def down_devices(devices: Sequence[Any], signals: Mapping[str, Any] | None = Non
     # it for every DB device) and cost the connect timeout: say so.
     down = yield from read_disconnected(to_read, unreadable_level=logging.WARNING)
     return [*native_down, *down]
+
+
+def stale_devices(objs: Sequence[Any]):
+    """Plan: the GEECS devices among *objs* whose LabVIEW loop looks frozen, ``(name, age s | None)``.
+
+    Each object's namespace device (:func:`device_root`) is judged by its
+    ``systimestamp`` (:func:`~geecs_bluesky.devices.ca.liveness.probe_stale_pvs`:
+    older than 30 s, or never set), the sibling of the ``CONNECTED`` PV
+    its ``connected_status`` reads.  A device with no gateway
+    ``connected_status`` (a native one, a pseudo) is not judged.  A
+    warning's evidence, never a refusal.
+    """
+    from geecs_core.pv_naming import CONNECTED_SUFFIX
+
+    from geecs_bluesky.devices.ca.gateway_put import bare_pv
+
+    stamp_pvs: dict[str, str] = {}
+    for obj in objs:
+        root = device_root(obj)
+        signal = getattr(root, "connected_status", None)
+        source = getattr(signal, "source", None)
+        if not isinstance(source, str):
+            continue
+        try:
+            pv = bare_pv(source)
+        except ValueError:
+            continue  # not a gateway PV (a native device, a mock)
+        if pv.endswith(CONNECTED_SUFFIX):
+            stamp_pvs.setdefault(
+                geecs_name(root), pv[: -len(CONNECTED_SUFFIX)] + ":systimestamp"
+            )
+    if not stamp_pvs:
+        return []
+    found: list[tuple[str, float | None]] = []
+
+    async def probe() -> None:
+        found.extend(await asyncio.to_thread(probe_stale_pvs, stamp_pvs))
+
+    yield from bps.wait_for([probe])
+    return found
 
 
 def device_root(obj: Any) -> Any | None:
