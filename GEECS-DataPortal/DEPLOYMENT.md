@@ -108,14 +108,24 @@ browser and open one run's image gallery (exercises the share mount).
 
 The Plot tab (GEECSplotter's page, `/plot`) saves each viewer's named
 settings set as a JSON file — the portal's one durable write outside the
-analysis and configs trees. The folder is `config.ini [Paths]
-geecs_data` + `DataPortal/settings/` when that folder is reachable (the
-shared `user data` folder LabVIEW tools use), else
-`<checkout>/user data/DataPortal/settings/`. On the service host prefer
-the shared folder, or pass `--settings-dir <folder>` through
-`GEECS_PORTAL_EXTRA_ARGS` in `site.env`: a fallback inside the deployed
-checkout must be writable by the service account and survives a
-redeploy only because `user data/` is gitignored.
+analysis tree. The folder is the service's own state directory: the unit
+declares `StateDirectory=geecs-data-portal geecs-data-portal/settings`
+and passes `--settings-dir %S/geecs-data-portal/settings`
+(`/var/lib/geecs-data-portal/settings`). The unit names the `settings`
+folder itself, not only its parent, so systemd creates both when the
+service starts and owns them to the service account: the folder exists
+from the first start of the rendered unit, before any set is saved, is
+the same on every host and is not a `site.env` value. Sets saved in an
+older location (the data share's `DataPortal/settings/`, or a checkout's
+`user data/DataPortal/settings/`) are copied in by hand, once, after
+that first start: `sudo cp <old folder>/*.json
+/var/lib/geecs-data-portal/settings/`, then `sudo chown <service
+account>: /var/lib/geecs-data-portal/settings/*.json`. The sets are never on the data share and never in the
+checkout, so a redeploy or a re-clone leaves them alone; back the
+directory up with the host. A portal started by hand, with no
+`--settings-dir`, keeps its sets in the user's state folder
+(`~/.local/state/geecs-data-portal/settings`, or
+`%LOCALAPPDATA%\geecs-data-portal\settings` on Windows).
 
 ## systemd unit
 
@@ -238,6 +248,12 @@ cd <root>/portal-checkout && git pull      # the portal's clone only — never a
 cd GEECS-DataPortal && poetry install --extras analysis
 sudo systemctl restart geecs-data-portal
 ```
+
+When the unit template changed (`git diff` on
+`deploy/geecs-data-portal.service`), re-render and reinstall it before the
+restart. A unit from before the settings sets moved has no
+`--settings-dir`: the portal then saves them in the service account's own
+state folder (`~/.local/state/geecs-data-portal/settings`), not the unit's.
 
 (Drop `--extras analysis` only on a deployment that deliberately runs
 without the processing selector.)
@@ -373,10 +389,11 @@ portal refuses over 8 MiB first, with its own message).
 **Upgrading a host that ran `--scan-log`** (portal 0.22–0.26): the flag
 and the `log` extra are gone, so the old `GEECS_PORTAL_EXTRA_ARGS` value
 fails argument parsing at start — replace `--scan-log` with `--logbook-url
-…` in `site.env`, re-render the unit (it no longer declares a
-`StateDirectory`), and move the entries out of
+…` in `site.env`, re-render the unit, and move the entries out of
 `/var/lib/geecs-data-portal` per the logbook runbook **before** starting
-the portal on the new unit.
+the portal on the new unit (the unit's `StateDirectory` is that folder
+again, for the Plot tab's settings sets under `settings/`; the logbook's
+files have no place in it).
 
 
 ## The analysis documents: edited in the configurator

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
@@ -54,11 +56,21 @@ class PlotToLogbook(BaseModel):
     #: For a client that made the entry itself (the MCP server's agent
     #: draft); the page's own memory of an entry may go stale, its default.
     entry_required: bool = False
+    #: The settings set the plot was drawn with, whole, as the page read it
+    #: at send time: stored in the entry beside the image, so the plot can
+    #: be drawn again after the set has changed. A rendered plot's only (an
+    #: artifact was drawn by an analysis, not by a set); kept as sent, its
+    #: size capped by the send.
+    settings: Optional[dict] = None
+    #: The name that set had. Recorded with the settings, never read back.
+    settings_name: str = Field("", max_length=64)
 
     @model_validator(mode="after")
     def _one_source(self) -> "PlotToLogbook":
         if bool(self.image) == bool(self.path):
             raise ValueError("give exactly one of 'image' (a data URL) or 'path'")
+        if self.settings is not None and not self.image:
+            raise ValueError("'settings' go with a rendered 'image', not a 'path'")
         if self.entry_required and not self.entry:
             raise ValueError("entry_required needs an 'entry'")
         return self
@@ -119,7 +131,10 @@ def run_logbook_send(
     entry that is gone — never a fresh one), else 502.  The reply carries
     the attachment ``link`` the body now shows, so a caller appending
     more can cite it, and the entry's ``url`` as the browser reaches it
-    (the browser base, never the address this process dialled).
+    (the browser base, never the address this process dialled).  With
+    ``settings`` (the Plot tab sends the set the plot was drawn with) the
+    entry also gets that document as an attachment, ``settings_link`` in
+    the reply; null when none came or the logbook did not take it.
     """
     detail = portal.load_run(uid)
     if not portal.logbook_send_allowed(detail):
@@ -165,8 +180,10 @@ def run_logbook_send(
             content_type=content_type,
             client=portal.logbook_client,
             entry_required=payload.entry_required,
+            settings=payload.settings,
+            settings_name=payload.settings_name,
         )
-    except ValueError as exc:  # the image itself: too big, or empty
+    except ValueError as exc:  # the image or the settings: too big, or empty
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except logbook_send.LogbookUnreachable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -184,6 +201,9 @@ def run_logbook_send(
             "appended": result.appended,
             "url": f"{portal.logbook_browser_base(request)}/entry/{result.entry_id}",
             "link": result.link,
+            # The settings document's link when settings came with the plot
+            # and the logbook kept them; null otherwise.
+            "settings_link": result.settings_link,
         },
         status_code=201,
     )

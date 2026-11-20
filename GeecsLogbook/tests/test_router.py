@@ -280,6 +280,21 @@ class TestAttachments:
         assert [a["filename"] for a in listed[0]["attachments"]] == ["shot.png"]
         assert listed[0]["version"] == 2
 
+    def test_a_json_document_is_stored_and_served_as_json(
+        self, writable: TestClient
+    ) -> None:
+        """A machine's record beside a figure (the portal's plot settings)."""
+        e = _post(writable, scan=1)
+        document = b'{"kind": "plot_settings", "settings": {"y": "a"}}'
+        r = self._upload(
+            writable, e["entry_id"], "plot-settings.json", document, "application/json"
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["link"] == f"attachments/{e['entry_id']}/plot-settings.json"
+        got = writable.get(f"/attachments/{e['entry_id']}/plot-settings.json")
+        assert got.content == document
+        assert got.headers["content-type"].startswith("application/json")
+
     def test_same_name_twice_is_numbered_not_overwritten(
         self, writable: TestClient
     ) -> None:
@@ -450,7 +465,7 @@ class TestEditorHooks:
         assert 'id="logbook"' in page and 'data-api="/api"' in page
         assert 'data-day="2026-09-11"' in page and 'data-book="scans"' in page
         assert (
-            'data-accept="application/pdf,image/gif,image/jpeg,image/png,image/webp"'
+            'data-accept="application/json,application/pdf,image/gif,image/jpeg,image/png,image/webp"'
             in page
         )
         assert "editor.js" in page

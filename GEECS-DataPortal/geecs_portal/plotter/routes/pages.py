@@ -204,7 +204,6 @@ def _render(
             "set": name,
             "sets": ctx.store.names(),
             "settings_folder": str(ctx.store.folder),
-            "settings_origin": ctx.store.origin,
             "settings_error": problem,
             "save_as": save_as,
             "name_error": name_error,
