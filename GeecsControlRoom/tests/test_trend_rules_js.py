@@ -119,12 +119,31 @@ def test_every_row() -> None:
 
 
 @needs_node
-def test_the_traces_are_one_held_line_per_role_in_the_panels_order() -> None:
+def test_the_traces_are_one_line_per_role_in_the_panels_order() -> None:
     lines = [{"label": "actuator", "points": [[110, 1], [150, 2]], "hold": True}, {"label": "last target", "points": [], "hold": False}]  # fmt: skip
     one, none = call_all("trend_rules.js", [("traces", [lines, 100, 200, 100])])[0]
-    assert one == {"type": "scatter", "mode": "lines", "name": "actuator", "x": [110, 150, 200], "y": [1, 2, 2], "connectgaps": False, "line": {"width": 1.25, "shape": "hv"}}  # fmt: skip
+    assert one == {"type": "scatter", "mode": "lines", "name": "actuator", "x": [110, 150, 200], "y": [1, 2, 2], "connectgaps": False, "line": {"width": 1.25, "shape": "linear"}}  # fmt: skip
     # a line with nothing yet keeps its place (and so its colour) with one null point
     assert (none["name"], none["x"], none["y"]) == ("last target", [None], [None])
+
+
+@needs_node
+def test_close_posts_are_joined_and_a_quiet_stretch_is_held_never_ramped() -> None:
+    def drawn(points: list, start: int, end: int) -> tuple:
+        (one,) = call_all("trend_rules.js", [("traces", [[{"label": "a", "points": points, "hold": False}], start, end, 1000])])[0]  # fmt: skip
+        return one["x"], one["y"]
+
+    # 10 s window: posts 1 s apart are joined; 5 s of quiet is held at the old value until the next post
+    assert drawn([[1000, 1], [2000, 2], [7000, 3], [8000, 4]], 0, 10000) == ([1000, 2000, 7000, 7000, 8000], [1, 2, 2, 3, 4])  # fmt: skip
+    # exactly 2 s apart is still joined
+    assert drawn([[1000, 1], [3000, 2]], 0, 10000) == ([1000, 3000], [1, 2])
+    # 1 h window: quiet is a hundredth of it (36 s), so 30 s apart is joined and 40 s is held
+    assert drawn([[0, 1], [30000, 2], [70000, 3]], 0, 3600000) == ([0, 30000, 70000, 70000], [1, 2, 2, 3])  # fmt: skip
+    # a gap is no quiet stretch: nothing is held into it or out of it
+    assert drawn([[1000, 1], [2000, None], [9000, 2]], 0, 10000) == (
+        [1000, 2000, 9000],
+        [1, None, 2],
+    )
 
 
 # The real trend.js in a VM over a fake page: the device page's frames, Plotly, fetch and the redraw timer (one, fired once a tick whatever its period) are the
@@ -279,7 +298,7 @@ def test_the_page_draws_the_history_then_extends_each_line_from_the_frames_it_is
     # x is the server's clock when it answered (`now`, never the earlier `to`), in the viewer's wall time, the window
     # ending now and fixed; a null sample is a gap; a value from before the window enters at its edge; with no live
     # frame no line is held to now
-    assert (value["kind"], value["fixed"], value["shape"]) == ("date", True, "hv")
+    assert (value["kind"], value["fixed"], value["shape"]) == ("date", True, "linear")
     assert value["range"] == [_stamp(s - 600_000), _stamp(s)]
     assert value["x"][0] == [_stamp(s - 30000), _stamp(s - 20000), _stamp(s - 10000)] and value["y"][0] == [1, None, 2]  # fmt: skip
     assert value["x"][1] == [_stamp(s - 600_000)] and value["y"][1] == [1.5]

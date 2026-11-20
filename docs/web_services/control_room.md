@@ -405,7 +405,11 @@ registry or the database, never a new page.
   starts at page load; from then on the line grows as values arrive. If
   the buffer cannot be read, the line under **Window** says why; if a
   later read fails, the earlier past stays drawn and the line says so. A
-  busy value's past is thinned to a few thousand of its real readings. A break in a line means
+  busy value's past is thinned to a few thousand of its real readings.
+  Readings that arrive close together are joined by a straight line; a
+  value that did not change for a while (2 s, or a hundredth of the
+  window if that is longer) is drawn flat until its next reading, then
+  steps, since nothing was measured in between. A break in a line means
   the value was not known then (the device was not answering, or the
   connection dropped); it is never drawn as zero. Drag up and down in a
   plot to zoom its values, double-click to reset, and click a name in the

@@ -553,10 +553,13 @@ widget draws no trend.
   role; the module's own refusals and silence keep `device_pages.unread`'s
   statuses.
 - **What a line is.** The values the page was sent (its past as Vole kept
-  it, thinned there when busy), each held until the next (Plotly's `hv`: a
-  monitored record posts on change, so a straight line between two posts
-  would draw a ramp nobody measured) and, while the newest live point is a
-  value, carried to now. A gap, never a zero and never bridged: a `null`
+  it, thinned there when busy), two posts close in time joined by a
+  straight line and two further apart than 2 s, or a hundredth of the
+  window when that is longer, not joined: the earlier value is held until
+  the later post (`trend_rules.traces`; a monitored record posts on
+  change, so a line across a quiet stretch would draw a ramp nobody
+  measured, while a record that posts steadily reads as the curve it is)
+  and, while the newest live point is a value, carried to now. A gap, never a zero and never bridged: a `null`
   or non-finite value, an INVALID record, a frame that does not say it is
   connected (`!frame.connected`, the page's reading of a frame), the
   socket down (a frame arriving after it with the record's old stamp is
