@@ -537,3 +537,19 @@ def test_a_change_that_names_no_viewer_saves_nothing(
 def test_the_page_script_sends_the_viewers_name(client: TestClient) -> None:
     page = client.get("/?set=default").text
     assert '<input type="hidden" name="owner" value="">' in page
+
+
+def test_the_unit_has_systemd_create_the_folder_it_passes() -> None:
+    """The unit's ``StateDirectory=`` names the ``--settings-dir`` folder itself.
+
+    Naming the parent alone leaves ``settings/`` to the first save, so a copy
+    of old sets into it on a fresh host finds no folder.
+    """
+    unit = Path(__file__).parents[2] / "deploy" / "geecs-data-portal.service"
+    lines = unit.read_text(encoding="utf-8").splitlines()
+    (state,) = [x for x in lines if x.startswith("StateDirectory=")]
+    (start,) = [x for x in lines if x.startswith("ExecStart=")]
+    words = start.split()
+    passed = words[words.index("--settings-dir") + 1]
+    assert passed.startswith("%S/")
+    assert passed.removeprefix("%S/") in state.split("=", 1)[1].split()

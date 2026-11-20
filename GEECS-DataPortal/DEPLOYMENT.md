@@ -109,11 +109,18 @@ browser and open one run's image gallery (exercises the share mount).
 The Plot tab (GEECSplotter's page, `/plot`) saves each viewer's named
 settings set as a JSON file — the portal's one durable write outside the
 analysis tree. The folder is the service's own state directory: the unit
-declares `StateDirectory=geecs-data-portal` and passes
-`--settings-dir %S/geecs-data-portal/settings`
-(`/var/lib/geecs-data-portal/settings`; systemd creates it and owns it to
-the service account, so it is the same on every host and not a
-`site.env` value). The sets are never on the data share and never in the
+declares `StateDirectory=geecs-data-portal geecs-data-portal/settings`
+and passes `--settings-dir %S/geecs-data-portal/settings`
+(`/var/lib/geecs-data-portal/settings`). The unit names the `settings`
+folder itself, not only its parent, so systemd creates both when the
+service starts and owns them to the service account: the folder exists
+from the first start of the rendered unit, before any set is saved, is
+the same on every host and is not a `site.env` value. Sets saved in an
+older location (the data share's `DataPortal/settings/`, or a checkout's
+`user data/DataPortal/settings/`) are copied in by hand, once, after
+that first start: `sudo cp <old folder>/*.json
+/var/lib/geecs-data-portal/settings/`, then `sudo chown <service
+account>: /var/lib/geecs-data-portal/settings/*.json`. The sets are never on the data share and never in the
 checkout, so a redeploy or a re-clone leaves them alone; back the
 directory up with the host. A portal started by hand, with no
 `--settings-dir`, keeps its sets in the user's state folder
