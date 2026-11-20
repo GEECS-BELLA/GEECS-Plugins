@@ -221,3 +221,16 @@ class TestReloadRollback:
             assert [s.name for s in eng.snapshot().statuses] == ["vac"]
         finally:
             eng.stop()
+
+
+def test_a_reload_onto_the_inbox_keeps_the_home_path(tmp_path):
+    home = write(tmp_path / "repo.yaml", threshold())
+    inbox = write(tmp_path / "inbox.yaml", threshold(), threshold("second"))
+    eng = Engine(home, lambda _doc: FakeSource(), Settings(status_port=0))
+    eng.start()
+    try:
+        assert eng.reload(inbox, home=home).startswith("reloaded 2")
+        assert eng.path == home
+        assert [s.name for s in eng.snapshot().statuses] == ["vac", "second"]
+    finally:
+        eng.stop()

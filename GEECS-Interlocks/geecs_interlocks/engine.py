@@ -160,18 +160,24 @@ class Engine:
         """Arm the current monitor's ``config_change`` conditions (see :meth:`Monitor.arm`)."""
         return self.monitor.arm(name)
 
-    def reload(self, path: Path | None = None) -> str:
+    def reload(self, path: Path | None = None, *, home: Path | None = None) -> str:
         """Re-read the file (or switch to *path*) and swap in a fresh monitor; a line saying what happened.
 
         An invalid file leaves the running interlocks (and the path) untouched. The new
         monitor starts with every armed interlock waiting, so the verdict is
         unsafe until fresh readings arrive — a reload never carries an old
         OK over.
+
+        *home* is the path a later plain reload reads, when it differs from
+        the file loaded now: a Builder save lands in the configurator's inbox
+        (which the configurator empties) while the configuration's home is
+        the configs repo's copy.
         """
         with self._reloading:
-            return self._reload(self.path if path is None else path)
+            target = self.path if path is None else path
+            return self._reload(target, target if home is None else home)
 
-    def _reload(self, target: Path | None) -> str:
+    def _reload(self, target: Path | None, home: Path | None) -> str:
         before = set(self.signals.ports())
         fresh: Monitor | None = None
         try:
@@ -189,7 +195,7 @@ class Engine:
         with self._lock:
             old, self._monitor = self._monitor, fresh
             self._interlocks = interlocks
-            self.path = target
+            self.path = home
         old.stop()
         self.signals.retain(ports)
         message = f"reloaded {len(interlocks.interlocks)} interlock(s) from {origin}"

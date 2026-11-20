@@ -55,11 +55,8 @@ class FakeSignals:
     def send(self, port: int, text: str) -> None:
         from geecs_interlocks.external import decode
 
-        old = self._readings.get(port, NO_SIGNAL)
         state = decode(text.encode())
-        self._readings[port] = SignalReading(
-            old.state if state is None else state, self._source.now, text
-        )
+        self._readings[port] = SignalReading(state, self._source.now, text)
 
     def signal(self, port: int) -> SignalReading:
         return self._readings.get(port, NO_SIGNAL)

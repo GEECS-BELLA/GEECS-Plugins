@@ -9,6 +9,7 @@ arrives on the window's thread.
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -16,6 +17,8 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from geecs_interlocks.engine import Engine
+
+logger = logging.getLogger(__name__)
 
 
 class Reloader(QObject):
@@ -30,12 +33,24 @@ class Reloader(QObject):
         self._done.connect(self._deliver)
 
     def reload(
-        self, path: Path | None = None, then: Callable[[str], None] | None = None
+        self,
+        path: Path | None = None,
+        then: Callable[[str], None] | None = None,
+        *,
+        home: Path | None = None,
     ) -> None:
-        """Reload (onto *path*, if given); call *then* with the message on the window's thread."""
+        """Reload (onto *path*, if given); call *then* with the message on the window's thread.
+
+        *home*: see :meth:`Engine.reload`. A reload that raises still reports.
+        """
 
         def work() -> None:
-            self._done.emit(then, self._engine.reload(path))
+            try:
+                message = self._engine.reload(path, home=home)
+            except Exception as exc:
+                logger.exception("reload failed")
+                message = f"reload failed: {exc}"
+            self._done.emit(then, message)
 
         threading.Thread(target=work, name="interlock-reload", daemon=True).start()
 

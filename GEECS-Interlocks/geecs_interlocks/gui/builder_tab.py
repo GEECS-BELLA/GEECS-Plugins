@@ -963,7 +963,7 @@ class BuilderTab(QWidget):
             return
         self._reload(path, "Opened")
 
-    def _reload(self, path: Path, what: str) -> None:
+    def _reload(self, path: Path, what: str, home: Path | None = None) -> None:
         """Reload onto *path* off the window's thread; the draft follows when it is done."""
         self._notify(f"{what} {path.name}; reloading…")
 
@@ -971,7 +971,7 @@ class BuilderTab(QWidget):
             self._notify(f"{what} {path.name}; {message}")
             self.sync_from_engine(force=True)
 
-        self._reloader.reload(path, finished)
+        self._reloader.reload(path, finished, home=home)
 
     def open_file(self) -> None:
         """Pick a configuration file to run."""
@@ -1055,7 +1055,13 @@ class BuilderTab(QWidget):
         except (ValidationError, OSError, SaveRefused) as exc:
             QMessageBox.warning(self, "Not saved", str(exc))
             return
-        self._reload(target, f"Saved {target.name}")
+        if target != path:
+            # The inbox: the configurator commits it, then the repo copy is home.
+            self._reload(
+                target, f"Saved {target.name} to the configurator's inbox", home=path
+            )
+        else:
+            self._reload(target, f"Saved {target.name}")
 
     # -- keeping up -----------------------------------------------------------
 

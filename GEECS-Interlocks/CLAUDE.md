@@ -51,7 +51,9 @@ rules for changing the code.
 - **A packet reads safe only when it plainly says so.** Its first word
   decides (`safe`, `warning`, `unsafe`); a `safe` followed by a negation,
   and every other packet, is unrecognised (`not safe`, `safe: false`,
-  `motion done: safe`). Pinned in `tests/test_external.py`.
+  `motion done: safe`), and an unrecognised packet makes the signal
+  unknown (unsafe), never keeps the last state. Pinned in
+  `tests/test_external.py` and `tests/test_monitor.py`.
 - **A stalled evaluation trips the stream.** Past `present.STALL_S` (ten
   ticks) without a new snapshot, `StatusServer` sends `render_stalled`
   instead of re-sending the last verdict, and the window says

@@ -238,11 +238,15 @@ class TestExternal:
         signals.send(5050, "Warning: moving")
         assert states(monitor.step()) == {"stage": "tripped"}
 
-    def test_an_unrecognised_packet_keeps_the_last_state(self, source, signals):
+    @pytest.mark.parametrize("packet", ["NOT SAFE", "safe: false", "hello"])
+    def test_an_unrecognised_packet_after_safe_trips(self, source, signals, packet):
         monitor = self.make(source, signals)
         signals.send(5050, "safe")
-        signals.send(5050, "hello")
         assert states(monitor.step()) == {"stage": "ok"}
+        signals.send(5050, packet)
+        snapshot = monitor.step()
+        assert states(snapshot) == {"stage": "tripped"}
+        assert "unrecognised" in snapshot.statuses[0].diagnostic
 
     def test_max_age(self, source, signals):
         monitor = self.make(source, signals, max_age_s=2)

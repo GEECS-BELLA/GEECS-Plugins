@@ -7,8 +7,10 @@ with one of three words (case does not matter): ``warning`` or ``unsafe``
 means unsafe; ``safe`` means safe, unless a negation follows it (``not``,
 ``no``, ``false``, ``off``, ``0``). Anything else (``not safe``,
 ``safe: false``, ``motion done: safe``) is unrecognised: it is logged and
-leaves the last state, which before the first packet is unsafe. Until a recognised
-packet arrives the signal is unknown, which every reader treats as unsafe.
+makes the signal **unknown**, which every reader treats as unsafe, until a
+recognised packet arrives. A sender that changes its wording when its hazard
+begins must never be left reading safe. Before the first packet the signal
+is unknown too.
 
 The listeners belong to the engine, not to a monitor, and outlive a reload:
 a sender that only transmits on a change would otherwise leave a reloaded
@@ -91,7 +93,7 @@ def decode(payload: bytes) -> bool | None:
 
 
 class UdpListener:
-    """Listen on one UDP port and keep the last state it was sent.
+    """Listen on one UDP port and keep the state its last packet said (unknown when unrecognised).
 
     Parameters
     ----------
@@ -181,7 +183,9 @@ class UdpListener:
         with self._lock:
             old = self._reading
             self._reading = SignalReading(
-                old.state if state is None else state, time.monotonic(), raw
+                state,
+                time.monotonic(),
+                raw,  # unrecognised = unknown = unsafe
             )
         port = self.address[1]
         if state is None:

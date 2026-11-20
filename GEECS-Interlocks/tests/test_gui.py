@@ -241,9 +241,9 @@ def test_a_reload_runs_off_the_window_thread(app, window):
     threads = []
     original = window.engine.reload
 
-    def slow_reload(path=None):
+    def slow_reload(path=None, *, home=None):
         threads.append(threading.current_thread())
-        return original(path)
+        return original(path, home=home)
 
     window.engine.reload = slow_reload
     window.monitor.reload_file()

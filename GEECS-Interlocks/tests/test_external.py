@@ -77,13 +77,14 @@ class TestUdpListener:
         assert wait_for(lambda: listener.reading().state is True)
         assert listener.reading().raw == "WARNING: moving"
 
-    def test_an_unrecognised_packet_keeps_the_state(self, listener):
+    def test_an_unrecognised_packet_makes_the_signal_unknown(self, listener):
+        """SAFE then NOT SAFE must never be left reading safe."""
         port = listener.address[1]
-        send(port, "warning")
-        assert wait_for(lambda: listener.reading().state is True)
-        send(port, "hello")
-        assert wait_for(lambda: listener.reading().raw == "hello")
-        assert listener.reading().state is True
+        send(port, "SAFE")
+        assert wait_for(lambda: listener.reading().state is False)
+        send(port, "NOT SAFE")
+        assert wait_for(lambda: listener.reading().raw == "NOT SAFE")
+        assert listener.reading().state is None
 
     def test_a_taken_port_says_how_to_fix_it(self, listener):
         with pytest.raises(OSError, match="address of this machine"):

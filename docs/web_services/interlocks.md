@@ -118,15 +118,17 @@ not yet clear for its settle time.
     A configuration from the configs repository is never written into the
     checkout the services read: that checkout belongs to the
     [Configurator](configurator.md). The Builder saves it under
-    `GEECS_CONFIGS_WRITE_ROOT` (the Configurator's inbox) and runs it from
-    there. With no write root set, saving a configs-repository file is
+    `GEECS_CONFIGS_WRITE_ROOT` (the Configurator's inbox) and runs what
+    it wrote; once the Configurator has committed it, **Reload file** reads
+    the repository's copy. With no write root set, saving a configs-repository file is
     refused; edit it in the Configurator, or run a local copy with
     `--interlocks FILE`, which the Builder saves in place.
 
 A sender's packet must **start** with `safe`, `warning` or `unsafe`
 (any case). A `safe` followed by a negation (`not`, `no`, `false`, `off`,
-`0`) and anything else is ignored and logged, so `not safe` can never read
-as safe.
+`0`) and anything else is logged and makes the signal unknown, which
+counts as unsafe until a recognised packet arrives, so `not safe` can never
+read as safe.
 
 ## The web page
 
