@@ -115,9 +115,12 @@ def stale_devices(objs: Sequence[Any]):
     ``connected_status`` (a native one, a pseudo) is not judged.  A
     warning's evidence, never a refusal.
     """
-    from geecs_core.pv_naming import CONNECTED_SUFFIX
+    from geecs_core.pv_naming import DEVICE_STATUS_VARIABLE, normalize_component
 
     from geecs_bluesky.devices.ca.gateway_put import bare_pv
+
+    status = ":" + normalize_component(DEVICE_STATUS_VARIABLE)
+    stamp = ":" + normalize_component("systimestamp")
 
     stamp_pvs: dict[str, str] = {}
     for obj in objs:
@@ -130,10 +133,10 @@ def stale_devices(objs: Sequence[Any]):
             pv = bare_pv(source)
         except ValueError:
             continue  # not a gateway PV (a native device, a mock)
-        if pv.endswith(CONNECTED_SUFFIX):
-            stamp_pvs.setdefault(
-                geecs_name(root), pv[: -len(CONNECTED_SUFFIX)] + ":systimestamp"
-            )
+        if pv.endswith(
+            status
+        ):  # the device's status PV and its loop stamp are siblings
+            stamp_pvs.setdefault(geecs_name(root), pv[: -len(status)] + stamp)
     if not stamp_pvs:
         return []
     found: list[tuple[str, float | None]] = []

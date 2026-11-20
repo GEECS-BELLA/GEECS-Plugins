@@ -47,9 +47,6 @@ DEFAULT_PROBE_TIMEOUT_S = 2.0
 #: frozen loop: connected, but publishing nothing.
 STALE_AFTER_S = 30.0
 
-#: LabVIEW epoch to Unix seconds.
-_LABVIEW_EPOCH_OFFSET = 2_082_844_800
-
 
 def read_disconnected(
     signals: Mapping[str, Any], *, unreadable_level: int = logging.DEBUG
@@ -160,13 +157,15 @@ def probe_stale_pvs(
     """
     import time
 
+    from geecs_core.db.variable_types import LABVIEW_EPOCH_OFFSET
+
     from geecs_bluesky.devices.ca.oneshot import try_caget_many
 
     names = list(stamp_pvs)
     if not names:
         return []
     readings = try_caget_many([stamp_pvs[n] for n in names], timeout=timeout)
-    wall = (time.time() if now is None else now) + _LABVIEW_EPOCH_OFFSET
+    wall = (time.time() if now is None else now) + LABVIEW_EPOCH_OFFSET
     stale: list[tuple[str, float | None]] = []
     for name, reading in zip(names, readings):
         try:
